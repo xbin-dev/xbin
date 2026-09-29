@@ -514,7 +514,7 @@ export const sideCss = [scrollCss, css`
       border: 1px dashed var(--bx-border, #363c45); border-radius: 4px; cursor: pointer; }
     .hidtoggle:hover { color: var(--bx-text, #d4d9e0); }
     .item.screen { color: var(--bx-muted, #868f9a); }
-    .item.screen .sic { flex: none; color: var(--bx-accent, #f5a623); font-size: 11px; }
+    .item.screen .sic { flex: none; display: inline-flex; color: var(--bx-accent, #f5a623); }
     .item.screen .sname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .item.screen .pk { flex: none; font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
       color: var(--bx-muted, #868f9a); border: 1px solid var(--bx-border, #363c45); border-radius: 999px; padding: 0 5px; }
@@ -582,9 +582,11 @@ export const sideCss = [scrollCss, css`
       font: inherit; font-size: 12px; line-height: 1; padding: 0 3px; opacity: 0; cursor: pointer; }
     .item:hover .more, .item:focus-within .more, :host(.drawer) .item .more { opacity: .7; }
     .item .more:hover { opacity: 1; color: var(--bx-accent, #f5a623); }
-    .item .c { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+    .item .ic { width: 11px; height: 11px; display: block; }
+    .item .tic { flex: none; display: inline-flex; color: var(--bx-muted, #868f9a); }
+    .item.open .tic { color: var(--bx-accent, #f5a623); }
+    .item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .item .err { color: var(--bx-red, #ef5350); font-size: 10px; }
-    .item .rt { margin-left: auto; font-size: 10px; color: var(--bx-muted, #868f9a); }
     .empty { color: var(--bx-muted, #868f9a); font-size: 12.5px; padding: 24px; text-align: center; }
     @media (max-width: 820px) {
       /* rows: tap-sized, long-press opens the tile menu (no callout/selection) */

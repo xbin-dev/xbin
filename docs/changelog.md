@@ -10,6 +10,17 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-29
+
+- **The shell's sidebar is quieter.** A tile's row starts with an app icon
+  (a small window, drawn — not an emoji; highlighted while the tile is
+  open) instead of its runtime's coloured dot, and no longer names the
+  runtime (`node`, `go`, …) at its right edge; screens keep their grid icon,
+  now drawn the same way. The `⇈` a row carried while the tile's primary
+  was pinned is gone from the tree — the window's head and the tile menu
+  still show it ([tile-deployments.md](tile-deployments.md)). Existing
+  workspaces take it with `bx builtin update scaffold:shell`.
+
 ## 2026-09-28
 
 - **xbin app: a tile's sessions screen** (D132). A tile's long press (and

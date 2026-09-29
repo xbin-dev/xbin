@@ -186,12 +186,6 @@ export function deployBadge(d, onOpen = null) {
                    @click=${(e) => { e.stopPropagation(); onOpen(e); }}>${d.text}</button>`
     : html`<span class="prb dpb" style=${style} title=${d.title}>${d.text}</span>`;
 }
-// deployMark(c, state): the sidebar's plain ⇈ while the primary is pinned
-// (never 📌, which reads as the card pin).
-export function deployMark(c, st) {
-  const sum = deploySummary(c, st);
-  return sum?.pinned ? html`<span class="prb dpb" title=${deployHint(sum, st)}>⇈</span>` : nothing;
-}
 // openDeployments(root, path): the tile's terminal window on its Deployments
 // layout, from an element inside the shell (root: its getRootNode()); a tile
 // that has no card yet is opened first, as the tile menu's squares do.

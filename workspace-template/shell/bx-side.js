@@ -16,11 +16,19 @@
  */
 import { LitElement, html, nothing } from 'lit';
 import { pathHas } from '/vendor/bx-kit.js';
-import { RUNTIME_COLOR, LongPress, prBadge, isScreenItem, isOrgScreenItem, screenIdOf, scopeOf, ownerKeyOf, worstStatus,
-  followDeployments, onDeployChange, wantDeployState, deployState, deployMark } from './shell-kit.js';
+import { LongPress, prBadge, isScreenItem, isOrgScreenItem, screenIdOf, scopeOf, ownerKeyOf, worstStatus,
+  followDeployments, wantDeployState } from './shell-kit.js';
 import { offloaded, hidden } from './menus.js';
 import { ago } from './rev-draft.js';
 import { sideCss, statusCss, prbCss } from './shell-css.js';
+
+// The tree's row icons — drawn, not emoji or font glyphs, so they look the
+// same everywhere: a tile is an app (a window), a screen a grid of cards.
+const APP_ICON = html`<svg class="ic" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.1" y="1.6" width="9.8" height="8.8" rx="1.8"
+  fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M1.6 4.4h8.8" stroke="currentColor" stroke-width="1.2"/></svg>`;
+const SCREEN_ICON = html`<svg class="ic" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="4.3" height="4.3" rx="1"
+  fill="currentColor"/><rect x="6.7" y="1" width="4.3" height="4.3" rx="1" fill="currentColor"/><rect x="1" y="6.7" width="4.3"
+  height="4.3" rx="1" fill="currentColor"/><rect x="6.7" y="6.7" width="4.3" height="4.3" rx="1" fill="currentColor"/></svg>`;
 
 export class BxSide extends LitElement {
   static properties = {
@@ -38,15 +46,14 @@ export class BxSide extends LitElement {
     this._q = ''; this._dropBefore = null; this._dropFolder = null;
     this._press = new LongPress();
   }
-  // Tile deployments (optional): a row whose tile's primary is pinned shows
-  // ⇈; its state (the checkpoint in the title, what the tile menu offers)
-  // loads when the pointer reaches the row, before a menu opens from it.
+  // Tile deployments (optional): the tree shows none of it (a pinned
+  // primary is the window's and the tile menu's business); a row's state —
+  // what the tile menu offers — loads when the pointer reaches the row,
+  // before a menu opens from it.
   connectedCallback() {
     super.connectedCallback();
     followDeployments();
-    this._offDeploy = onDeployChange(() => this.requestUpdate());
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); }
   get _s() { return this.state ?? {}; }
   get _a() { return this.actions ?? {}; }
 
@@ -299,14 +306,12 @@ export class BxSide extends LitElement {
            @dragleave=${() => { if (this._dropBefore === c.path) this._dropBefore = null; }}
            @drop=${(e) => this._dropOnItem(e, c.path, folderId, ctxKey)}
            @click=${() => this._a.toggle?.(c.path)}>
-        <span class="c" style="background:${RUNTIME_COLOR[c.runtime ?? ''] ?? RUNTIME_COLOR['']}"></span>
-        <span>${label ?? c.path.slice(c.path.lastIndexOf('/') + 1)}</span>
+        <span class="tic">${APP_ICON}</span>
+        <span class="nm">${label ?? c.path.slice(c.path.lastIndexOf('/') + 1)}</span>
         ${prBadge(this._s.prs?.[c.path])}
         ${st ? html`<span class="stdot"></span>` : nothing}
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
         ${hidden(c) ? html`<span class="hidb">hidden</span>` : nothing}
-        ${deployMark(c, deployState(c.path))}
-        <span class="rt">${c.runtime || ''}</span>
         <button class="more" title="tile menu" @pointerdown=${(e) => e.stopPropagation()}
                 @click=${(e) => { e.stopPropagation(); this._a.tileMenu?.(e, c.path, e.currentTarget.getBoundingClientRect()); }}>⋯</button>
       </div>`;
@@ -386,7 +391,7 @@ export class BxSide extends LitElement {
            @dragstart=${(e) => { e.dataTransfer.setData('application/bx-screen', id);
              e.dataTransfer.setData('application/bx-orgscreen', id); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
            @click=${() => this._a.openOrgScreen?.(id)}>
-        <span class="sic">▦</span>
+        <span class="sic">${SCREEN_ICON}</span>
         <span class="sname">${s.name}${dirty ? ' ●' : ''}</span>
         ${folderId ? html`<span class="ob">${s.org}</span>` : nothing}
         ${hiddenTab ? html`<span class="pk">hidden</span>` : nothing}
@@ -403,7 +408,7 @@ export class BxSide extends LitElement {
       <div class="item screen ${this._s.active === id ? 'on' : ''}" style="padding-left:${12 + depth * 12}px"
            title=${`screen "${s.name}" — click to open${s.parked ? ' (parked)' : ''}`}
            @click=${() => this._a.openScreen?.(id)}>
-        <span class="sic">▦</span>
+        <span class="sic">${SCREEN_ICON}</span>
         <span class="sname">${s.name}</span>
         ${s.parked ? html`<span class="pk">parked</span>` : nothing}
         <button class="xt" title="remove from tree" @click=${(e) => { e.stopPropagation(); this._a.removeScreenFromTree?.(id); }}>✕</button>

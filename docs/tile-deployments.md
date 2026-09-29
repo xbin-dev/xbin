@@ -826,8 +826,7 @@ from a dry run of the exact request. Readers see the primary only.
 **In the shell** (in an existing workspace after `bx builtin update
 scaffold:shell`, and `scaffold:tiles/admin` for the admin console): a tile
 with deployments gets a `⇈ Deployments…` line in its tile menu (after Open
-full page; not for its readers) and a `⇈` on its sidebar row while the
-primary is pinned. Its window's head (a grid card or a floating window)
+full page; not for its readers). Its window's head (a grid card or a floating window)
 carries `⇈` while the tile has a deployment you may show besides the
 primary, the primary is pinned, or its last deploy onto it failed (`⇈!`);
 hovering says what the primary is pinned to. `⇈` opens a menu that picks
