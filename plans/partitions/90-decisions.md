@@ -534,6 +534,8 @@ questions they raised.
 | AR-19 | With consent off (the default, PD-13), an admin-approved grant lets partitioned Z's code read every person's X data that they can read | the owner's default; the approval warning, the ledger and the Policies switch exist |
 | AR-20 | Archives made before sealing, and key bundles exported before an erase, still hold erased data | plaintext archives can't be erased by key; the switch confirmation counts them; docs say to delete them and re-export bundles |
 | AR-21 | A mode switch doesn't delete provider-held records (sandboxes at a manager) | xbind can't reach into a provider; the confirmation names bound providers |
+| AR-22 | A recreated person's new partition sees the sandbox-manager records their old self owned or was a member of at the consumer's non-personal identity (global-home records match people by user id) | global's person rules predate partitions and a manager can't tell two people of one id apart there (like AR-16); the partition-homed records — a private conversation's — don't carry over (C11); documented in sandbox-manager.md (B1) |
+| AR-23 | Partitions that see one sandbox (global-home team sandboxes, shares) share its files, execs and terminals: any of them can read another's exec output or attach to its terminal | isolation is per sandbox by design; documented in sandbox-manager.md; B2a keeps private conversations' work in partition-homed sandboxes (B1) |
 
 ## F. Contradictions resolved (summary)
 

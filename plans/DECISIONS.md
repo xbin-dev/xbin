@@ -5465,3 +5465,448 @@ Deviations and refinements made while implementing; all deliberate:
     renaming render_html (breaks transcripts; a description shift moves
     tool choice unpredictably — Faghih et al., EMNLP 2025); keeping every
     version forever (the per-run store stays bounded).
+
+- **D137 — Partitioned tiles, F1: the request, the recorded mode
+  and "holds data" (2026-09-29).** Implements PD-02, PD-03, PD-05,
+  PD-28, PD-44, PD-50, PD-51 (and the key of PD-52/PD-57) of
+  plans/partitions/90-decisions.md; the design is
+  plans/partitions/01-manifest-registry.md §1-§5.
+  - **Chosen.**
+    - **The request is code kind.** `partition`, `partitionMail` and
+      `partitionNote` are deployment-level fields in `composeManifest`
+      (TestManifestFieldSplit): the running code — a pinned primary's
+      checkpoint — is what asks, so a rollback or promote to other code is a
+      request like an edit.
+    - **Fail closed on an unknown request.** `partition` parses any JSON
+      value (the rest of the manifest still applies) and anything but
+      `["user"]`/`["user","global"]` is invalid: no backend, nothing
+      recorded — the one departure from compat rule 7, noted there. Same for
+      `shared` values in a partitioned scope. `partitionMail`/`Note` are
+      judged only beside a request, so a manifest without the key is never
+      an error.
+    - **The recorded mode is xbind state** at
+      `data/partitions/<TileKey>/mode.json` (mode, request, declined,
+      history), read once at boot and settled on every rescan through a
+      registry hook (`Registry.PartitionModes`, the PinnedPrimary pattern):
+      the component carries the settled state, so every reader of the
+      registry sees one answer. No record is written while R and Q are both
+      absent: a workspace that never uses partitions gets no
+      `data/partitions` (TestNoPartitionGolden).
+    - **"Holds data" from xbind's stores only** — kv keys (main's buckets of
+      the scope the tile roots, every deployment namespace's), volume files
+      beyond gocryptfs's own config, the plaintext resource dir, vault keys
+      (main's and deployments'; an unreadable vault holds data),
+      registrations (cron, bus, interface instances, ingress hosts, the
+      deployment files). A store that can't tell counts as holding data.
+      Later planes add their stores with `registerPartitionStore`.
+    - **Pending and invalid hold the primary**: the proxy answers 409 with
+      the pending body before the runner, ingress 503, and the runner's
+      HoldReason/ShouldRunDeployment refuse the primary's spawn on every
+      path (cron, bus, alwaysOn, a restart); a tile that becomes held is
+      stopped. Non-primary deployments keep running (PD-17).
+    - **Refusals at the edges:** approving `xbin`, `xbin:*`,
+      `cap:sandboxes`, `cap:net-admin` or `cap:containers` for a tile whose
+      recorded mode or request has user partitions is 409 (beside D127k's
+      rule); `POST /deployments/primary` is 409 while the recorded mode has
+      user partitions, pending and declined included.
+    - **Decisions are recorded, not made, here**: `recordDecision` (keep /
+      switch with the wiped summary, stale from/to refused) is the hook
+      F13a's routes and wipe executor call.
+    - **Unknown is never absent (review fixes).** Every "can't tell" fails
+      toward holding, never toward a silent switch:
+      - "holds data": only `fs.ErrNotExist` is "nothing there"; an EACCES or
+        EIO from any store (plaintext dir, deployment levels, volumes,
+        vaults, deployment records) holds data. An offloaded tile holds
+        data (its data is in the offload archive; store `lifecycle`). A
+        sealed vault's answer alone pauses the tile without recording a
+        request, and the unseal settles again (`resettleAfterUnseal` in
+        `UnsealOrInit`), so a boot before the unseal writes no spurious
+        `request`.
+      - A code manifest that can't be read — an `xbin.json` that doesn't
+        parse (a live edit's typo), a pinned checkpoint that isn't or can't
+        be prepared — is `PartitionAsk.Unread`, not "no request": a tile
+        with a record is held Invalid in R with nothing written; one without
+        a record stays in the zero state.
+      - A `mode.json` this xbind can't read (a newer schema after a
+        downgrade, a corrupt file, a tile that doesn't hash to its dir, an
+        I/O error, or a file that appeared after the load) is kept apart by
+        its directory: its tile is held Invalid with R unknown
+        (`PartitionMode.Unknown`), and nothing is ever decided on or written
+        over it (`write` and `recordDecision` refuse). Grants and `POST
+        /deployments/primary` refuse as for a partitioned tile.
+    - **`PartitionedScope` answers R** (the data layout) whenever R has user
+      partitions, pending/invalid included; callers that must refuse during
+      a pause check the root's `PartitionState().Held()`. A root with an
+      unreadable record answers false with state Invalid — F4 must refuse
+      on Invalid rather than fall back to the main namespace.
+    - **Locks and scans.** `PartitionHoldReason` (every proxied call and
+      spawn) reads `held` under its own RWMutex and never waits for a
+      settle; the settle's I/O runs under `settleMu` only. `Rescan` is
+      serialized (`partitionScan`): each scan settles and records, so an
+      older scan can't record or publish after a newer one.
+    - **Paused deliveries are quiet**: cron ticks to a held primary are
+      missed and bus deliveries dropped (counted as dropped), as for a
+      disabled tile, instead of 409 warnings.
+    - **Readers see generic structural errors**: `partitionError` doesn't
+      name a sibling tile or the grant a tile holds; the specifics are in
+      `Component.PartitionErrDetail()` and the xbind log (logged once per
+      tile and reason, which also covers a pre-existing custom `partition`
+      key — docs/changes/2026-09-29-partition-key.md).
+  - **Not chosen:** keeping the mode in the manifest alone (sandbox-writable,
+    D118 — a typo or rollback would switch a tile holding data); a
+    `Component.PartitionState` computed on every call from the broker (one
+    settled answer per scan instead, no lock order between the registry and
+    the store); judging "holds data" from content in the tile directory
+    (sandbox-writable).
+- **D138 — Partitioned tiles, SDK and client surface (skeleton).** The
+  Go SDK and the in-frame client read what xbind will inject for
+  partitioned tiles; every addition is empty or inert on an xbind without
+  partitions (compat rule 8).
+  - **`Partition()` / `PartitionUser()`** read `XBIN_PARTITION` as xbind set
+    it (from its own state, never tile input); `PartitionUser` is the id of
+    a `user:` key only.
+  - **`RequirePartition()` fails closed on anything but a key xbind hands
+    out**: `global`, or `user:` plus a non-empty id without whitespace or
+    control characters. Absent, empty or unknown values (`org:…`, a
+    malformed key) exit 3 with a stderr line naming `/docs/partitions.md`,
+    so an older xbind, or a tile whose managers kept it unpartitioned,
+    runs no backend instead of one shared one (PD-06). Stricter than
+    "non-empty", so a later partition kind doesn't pass code written for
+    `user`. It passes `global`, which is one instance for everyone who
+    reaches it — including a non-primary deployment's writers whenever its
+    code asks for partitions (01 §2.8, 05 §7), even over an unpartitioned
+    primary — so the docs tell builders to serve per-person data only where
+    `PartitionUser() != ""`. A stricter `RequireUserPartition` was not
+    added: a tile with `global` must run there.
+  - **`GlobalURL(path)` adds `?xbin-partition=global` only in a user
+    partition**, and is the plain self URL elsewhere (the global instance,
+    an unpartitioned tile, an older xbind). The parameter then never
+    reaches a backend that would not consume it, mirroring the client's
+    fetch option (plans/partitions/10 §A.4). It always builds
+    `/api/<self>/…`.
+  - **`xbin.fetch(url, {partition})`**: the option is always stripped
+    before `fetch`. Its contract is the same in every document — any falsy
+    value is the viewer's own partition; `'global'` is accepted only for
+    the tile's own API (`/api/<self>` or below, resolved against the
+    document, on its host or the workspace origin xbind names on a tile
+    origin); anything else rejects with a `TypeError` — and only its effect
+    depends on the document: in a user partition's `'global'` appends the
+    parameter (a fragment stays last), elsewhere nothing changes (07 §2,
+    10 §A.4). Rejecting misuse everywhere, not just inside partitions,
+    makes a wrong URL or value fail while the tile is still unpartitioned
+    instead of the day it is switched; restricting to the own API keeps the
+    parameter from reaching another tile's backend (the proxy consumes it
+    only for partitioned targets, 10 §A.6), and matches `GlobalURL`.
+  - **A `Request` input is rebuilt explicitly** for the global URL, its
+    body read from a clone (`arrayBuffer()`): `new Request(url, request)`
+    takes the body from `Request.prototype.body`, which Firefox lacks, and
+    would send a POST to global empty. The same change keeps a `Request`'s
+    own headers when `opts.headers` is absent (they were replaced by the
+    frame-token-only init before, for every `Request` input).
+  - **`xbin.partition`** is spread into the frozen `window.xbin` only when
+    the document carries `<meta name="xbin-partition">`, like
+    `xbin.deployment`.
+  - **`CallerInfo.Partition` / `PartitionID`** are plain strings, so the
+    struct stays comparable (existing `==` checks in tile code keep
+    compiling). `Partition` is set on calls from a partitioned tile's
+    principals and on calls into a partitioned tile that act for a
+    partition (a person, the root token at global, a user partition's F5
+    call with `From == Self()`), per 02 §6. `PartitionID` is empty for
+    global and unpartitioned callers, so keying on it makes `""` and
+    `global` one consumer by construction.
+  - **Not in this change:** `Mail`/`Inbox`/`Ack` (the mail pack), personal
+    rows in `xbin.iface` (none needed in the client: the meta's rows pass
+    through), protocol.md rows (the packs that make xbind send the
+    headers, env, meta and parameter — see the records' owners list).
+- **D139 — Workspace policies: an xbind-owned file read fail-closed, an
+  admin-only PUT and the admin console's workspace → policies tab
+  (2026-09-29).** Implements PD-55 (plans/partitions/90-decisions.md; 05 §2,
+  06 §9, 06 §12.3). docs/protocol.md `/workspace-policies`, the `policies`
+  event and the `policies` alert; docs/bx.md `bx policies`; the admin
+  tile's API.md.
+  - **Chosen.**
+    - **Storage.** `data/workspace-policies.json`, `{"schema": 1,
+      "partitionConsent": false, "credentialResetConfirm": false}`, written
+      atomically (fsutil). Its own file because an older xbind rewriting
+      `data/users.json` drops keys it doesn't know (the `data/branding.json`
+      precedent, D76). A rewrite here keeps every key this xbind doesn't
+      know and a newer schema number, so a newer xbind's switches survive a
+      downgrade the same way.
+    - **Read by exact key, fail closed.** Each switch is read by its exact
+      key from the raw object (encoding/json's case-insensitive match would
+      let a hand-edited `partitionconsent` shadow the real key after a PUT).
+      Both switches are protections, so a problem never turns one off: a
+      switch whose value can't be read — the file unreadable or not a JSON
+      object, a value that isn't `true`/`false` (a newer schema that changed
+      its type included), a mis-cased key — keeps the last value this xbind
+      read, or is **on** when it has read none (a cold start). A switch the
+      file does state cleanly reads as stated, so one bad key doesn't reset
+      the other. Logged once per version of the file; admins get a `crit`
+      alert of kind `policies` on `/alerts`; GET and PUT answer 500 (the
+      reason names `data/workspace-policies.json`, never the host path, and
+      only admins get it: a person gets a generic line); PUT never
+      overwrites such a file — it is fixed by hand.
+    - **Reads in xbind.** `Broker.Policies()` — cached, re-read only when
+      the file's size or mtime changes (a restore or hand edit is picked up
+      without a restart), so the consent check (F10) and the credential
+      path (F7b/F11) can call it per request.
+    - **API.** `GET /workspace-policies`: admins (the admin tile through
+      `xbin:admin` included) and a person through their own session or
+      device, or a terminal or agent session they drive (both carry a
+      terminal token: Via `terminal`, the person in UserID); frames,
+      instances and cron/bus deliveries of other tiles get 403. `PUT`:
+      admin only (`Broker.IsAdmin`); strict body `{partitionConsent?,
+      credentialResetConfirm?}`, at least one key; publishes `policies`
+      with no data (every non-bus event reaches every socket, so the values
+      stay behind GET's gate); audited twice: the generic governance line
+      (who, status) and its own `audit` line with each switch's `old→new`
+      (and the viewing person for a frame). Deployment route class: `GET`
+      **neutral** (a read of a workspace fact, like `GET /branding` and
+      `GET /native-runtime`: a person's terminal on a non-primary deployment
+      runs `bx policies` too), `PUT` **primary-only** (governance, like
+      `PUT /native-runtime`). The partition route class (02 §8: both
+      Neutral) is F2's table, not yet present.
+    - **UI.** `tabs/policies.js`, the `GROUPS` workspace entry and its
+      `PLAIN_TABS` line; the nativeapp tab's pattern (GET, one-key PUT,
+      re-read on `policies`). Each switch says "applies to partitioned
+      tiles". Turning `partitionConsent` on asks first, inline (Turn on /
+      cancel). The D20 grant ceiling stays in the organisations tab
+      (linked). The tabs that take no inputs (sandboxes, deployments,
+      branding, nativeapp, policies) moved into `plain-tabs.js` (their
+      imports and an id → template map, one `render()` arm), which left
+      `admin.js` at 313 of its 318-line budget for the packs that add tabs
+      next (F12, F17a).
+    - **CLI.** `bx policies [ls] [--json]`, `bx policies set
+      partition-consent|credential-reset-confirm on|off`.
+  - **Deviations from the spec, and how they were resolved.**
+    - 05 §2 said GET is for "any signed-in person; tile principals get
+      403". Terminal tokens are element principals, yet a person's terminal
+      and agent sessions are allowed: they carry the driving person, and
+      `bx policies` runs in them. 05 §2 now says so.
+    - 02 §8 lists `PUT /workspace-policies` among the Neutral governance
+      acts whose handlers "refuse instance and frame principals of every
+      tile", while 06 §12.3 needs the admin tile's frame to PUT. The PUT
+      judges `Broker.IsAdmin` like every governance write: any principal
+      holding `xbin:admin` passes (the xbin:admin model; F1 refuses `xbin:*`
+      to partitioned tiles, so no partitioned tile's code reaches it). 02 §8
+      now says so in a note under its table.
+  - **Not yet (later packs).** Nothing consumes the switches: F10 reads
+    `partitionConsent` for the consent machinery and the approval warning
+    text; F7b/F11 read `credentialResetConfirm`. The confirmation before
+    turning consent on shows no ledger totals yet (06 §6.1's per-person
+    egress ledger doesn't exist); F10 adds them to the `[data-policy-confirm]`
+    block.
+  - **Not chosen:** a users.json key (dropped by an older xbind's rewrite);
+    reading an unreadable file as every switch off (fails open: a typo
+    would silently drop consent enforcement); PrimaryOnly for GET (it
+    refused a person's `bx policies` in a terminal on a non-primary
+    deployment, and the read is a workspace fact like `GET /branding`);
+    tightening PUT to "the viewing person must be an admin" for frames
+    (the admin console's other tabs don't, and `xbin:admin` already covers
+    strictly more); putting the values in the `policies` event (tile sockets
+    receive every non-bus event).
+- **D140 — Sandbox managers key a partitioned consumer's user partitions
+  (the partitioned-tiles plan's PD-39; 2026-09-29).** Extends D115's
+  contract (protocol 1, by addition: a capability, two optional fields) and
+  D122's builtin manager. docs/sandbox-manager.md §Partitioned consumers;
+  coding-sandbox API.md; plans/partitions/09 §1, 07 §4.
+  - **Chosen.**
+    - **Consumer = (From, partition id).** The id is
+      `X-XBin-Partition-Id` (the opaque pkey of PD-43, so a recreated
+      person never inherits what their old partition holds — C11) and `""`
+      for the consumer's non-personal identity, `global` included (S14:
+      every sandbox made before the consumer turned partitions on stays its
+      global instance's). Not keyed on `X-XBin-Deployment`: user
+      partitions are primary-only (PD-17), so the id never spans
+      deployments, and keying today's non-primary deployments apart would
+      strand the sandboxes they made. PD-14, 02 §6, 05 §4 and 07's SDK
+      comment now say "plus Deployment where the provider already keys on
+      it" (**owner to confirm**: PD-14 is a DEFAULT, and this relaxes its
+      wording to what B1 does).
+    - **The person from the partition.** A user partition's call is
+      verified as its person; `Sbx-User`/`X-XBin-User` naming anyone else
+      is 403, and so are partition headers that don't agree (a user
+      partition without its id, an unknown kind). Fail closed, in depth:
+      `contractHandler` and the operators' routes refuse such a call, and
+      `callerOf` itself makes it a refused caller that is home to nothing,
+      sees nothing and creates nothing — never read as global.
+    - **Global-home visibility (C7).** A user partition sees what its
+      person may use at the consumer's non-personal identity — a sandbox
+      homed there, or shared with it, where `personOK` passes (team, owner,
+      member, a share's `users`) — so the agent page's direct terminal
+      dial keeps working for shared conversations. Such a sandbox reads
+      `shared: true`; the partition can't change who uses it or delete it.
+      Anything else of the consumer's stays `not-found`. Never the
+      converse. (The plan spoke of global-home records; shares with the
+      consumer's non-personal identity follow the same "what the person
+      could see at global" rule.) Global-home records follow the person
+      rules by user id, so a recreated person's new partition sees what
+      the old one owned or was a member of there (accepted risk below).
+    - **Shares keep the person rules.** A share makes a sandbox visible to
+      a partition; a `private` one whose owner and members don't include
+      the partition's person is `403 not-allowed` and unlisted there (as
+      for any verified person) — the fix is to add them as a member. Not
+      404: the home consumer chose to share it with that partition.
+    - **`hello.caps` gains `partitions`** — the plan's `caps.partitions: 1`;
+      `caps` is a list of words in protocol 1, so the capability is the
+      word (the contract grows by addition: new capabilities). It is the
+      manager's, never a sandbox's; consumers (the agent, B2a) and xbind's
+      switch confirmation / `bx doctor` (F13a/F11) test
+      `caps.includes("partitions")`. Every plan file that said
+      `caps.partitions` is amended to say so (01, 05, 06, 07, 08, 09, 10,
+      PD-14, PD-39).
+    - **Operators (S19).** Metadata as before; a user partition's sandbox's
+      name and labels are shown as `<consumer>/<partition id, 8> #<n>` and
+      none, and its snapshots (`GET /ops/sandboxes/{id}/snapshots`) as
+      `snapshot #<n>` oldest first, unless shared with the viewing operator
+      (they could use it as a consumer).
+    - **Runtime labels.** The runtime keeps `for` = the tile and gets the
+      partition id as the label `coding-sandbox/partition` (the plan's
+      "ForPartition label"; no SDK/tilesbx field was added). The admin's
+      sandbox registry (`tilesbx.AdminRow`, `sbx.Entry`) carries no
+      labels, so it doesn't show the partition yet: an xbind follow-up
+      (below).
+    - **Quotas** per consumer sum every partition of the tile; per person
+      as ever. `clientId`s (create, exec, snapshot) are per (consumer,
+      partition); global's stored keys are byte-identical to before.
+    - **Conformance suite.** A `user-partitions` section gated on the
+      capability: partitions apart, `""` ≡ `global`, global-home records by
+      the person rules, shares to (consumer, partitionId) — including a
+      private sandbox shared with a partition (403 until its person is a
+      member) — a mismatched person refused, a recreated user (new id) sees
+      nothing of the old partition's and, by user id, what global holds.
+      The consumer-level `partitions` section is unchanged. The live
+      isolated run (test/isolated) skips it until a partitioned consumer can
+      be driven through xbind (xbind strips the headers the suite sets; I1).
+    - **hack/fakesandbox** implements the same; with `Caps` lacking
+      `partitions` it ignores the headers — the old-manager fixture for the
+      agent's degrade path (B2a). Its mirrors follow; sandbox-terminal v3.
+    - **Docs.** The contract's "Partitions, sharing and people" is retitled
+      "Consumers, sharing and people" ("partition" now means a user
+      partition); the suite's section names stay (builders'
+      `Target.Skip` keys), with a note that `partitions` is about consumers
+      and `user-partitions` about a partitioned consumer's people.
+  - **Not chosen:** a top-level `hello.partitions: 1` (a second way to say
+    a capability); keying on `X-XBin-Deployment` too; answering 404 to a
+    partition whose person a shared private sandbox doesn't admit;
+    per-partition ownership of execs and terminals inside one sandbox
+    (isolation stops at the sandbox — documented; consumers keep private
+    work in partition-homed sandboxes); a `rehome` route (PD-34).
+- **D141 — Sealed backups: xbind encrypts every archive under per-subject
+  backup keys the vault's data key wraps; erasing a key crypto-erases that
+  data in every archive (2026-09-29).** Implements PD-25 (owner ruling) and
+  PD-56; supersedes VD-4 (plans/vault-data.md: "backups are plaintext; the
+  archiver owns archive encryption") and LC-3's "plaintext tar in" (the
+  archiver contract now receives sealed archives; it stores opaque bytes, so
+  older archivers keep working). plans/partitions/11-backup-encryption.md;
+  docs/overview/14-lifecycle.md §Sealed archives; docs/protocol.md §Backup;
+  migration note docs/changes/2026-09-29-sealed-backups.md.
+  - **Chosen.**
+    - **Keys.** Random 256-bit backup keys, one current per subject —
+      `tile:<TileKey>` (the main archive: source, terminal layer, records),
+      `ns:<main namespace's data key>` (the new data archive),
+      `ns:.deployments/<escS>/<dep>` (a deployment archive); `part:` is
+      F17b's — each wrapped by `Barrier.EncryptFor("backup-subkey:"+id)` in
+      `data/vault/.backup-keys/<id>.json` (`{schema, id, subject, tile, gen,
+      created, imported?, wrapped}`; `tile` added so an erase can name a
+      tile's subjects). Not HKDF labels of the DEK: a derived key lives as
+      long as the DEK and can't be erased. The directory is broker-only
+      (data/vault/, no sandbox mounts it; the vault's listing skips
+      directories); a key is unwrapped for one backup or restore.
+    - **Format** (`internal/backup/seal.go`): `XBINSEAL` ‖ u32 header
+      length (≤ 4 KiB) ‖ cleartext JSON header `{v:1, subkey, salt(32),
+      chunk:65536, kind, created}` ‖ AES-256-GCM STREAM, key =
+      HKDF-SHA256(subkey, salt, "xbin/archive/v1"), chunk i's nonce = 11-byte
+      big-endian i ‖ last flag, chunk 0's AAD = the header. Standard library
+      + the x/crypto HKDF the barrier already uses; no new dependency.
+      `backup.Open` sniffs the magic, so a plaintext tar reads exactly as
+      `NewReader` reads it (a golden from the previous writer pins it).
+      Every restore authenticates a sealed archive whole before writing
+      anything (a second decrypt pass over the in-memory body: CPU, not
+      memory).
+    - **One key per object: the data split.** A sealed workspace's main
+      archive (schema 3) no longer holds the scope's data; `.data.<TileKey>`
+      (schema 3, `kind: "data"`) does, written just before it, named by the
+      main manifest's `data {key, version, subkey}`. The `subkey` lets a
+      restore tell a data archive whose key was erased and whose versions
+      the archiver then deleted from a missing one. Plaintext-vault
+      workspaces keep schema 1, data inline.
+    - **Erase** deletes the key file (fsyncing the directory), appends a
+      tombstone to `erased.json` (`{id, subject, tile, gen, erasedAt,
+      reason, by}`), then asks the tile's archiver `POST /archive/erase`
+      (404/405 = unsupported; the dead versions stay, unreadable). The
+      subject gets gen+1 at its next backup. `EraseBackupKeys(tile, all,
+      reason, by)` is the hook F13a/F17b call. An admin's `bx backup erase
+      <tile> --data` erases every `ns:` (and later `part:`) key of the tile,
+      `--all` its `tile:` key too.
+    - **Restore rules.** An erased key: `this backup's data was erased on
+      <date> (<reason>)`; a main archive whose data key alone was erased
+      restores source and terminal layer and answers `dataErased`. An
+      unknown key: `this backup was sealed by another workspace: import its
+      keys (bx backup keys import)`. A data archive is never restored as a
+      tile. Single-file restores are extracted by xbind for every archive.
+    - **DR.** `POST /backup-keys/export` answers `{schema, workspace,
+      created, barrier (.barrier.json), keys (wrapped under the DEK),
+      erased}` and records the export (`exports.json`); `POST
+      /backup-keys/import {bundle, passphrase}` unwraps the other DEK in
+      memory (`vault.FromKeyfile`, never persisted), re-wraps each key under
+      this DEK marked `imported` (they open that workspace's archives and
+      never seal new ones), and takes the tombstones — erasing only
+      *imported* keys they name (a bundle's tombstones aren't sealed, so one
+      never erases a key of the importing workspace's own).
+    - **Nudges (owner ruling H3: seal at once).** Existing workspaces seal
+      from their next backup; the admin-only `/alerts` kind `backup-keys`
+      ("N backup keys aren't in any export yet") stays while any key is in
+      no export; `bx doctor` and the Backup tab say the same, plus erasures
+      since the last export.
+    - **Not chosen (review):** deleting the data archive when the main PUT
+      fails (an archiver that stored the main archive anyway would leave it
+      naming a deleted version); pruning data archives by count (one stray
+      version shifts it onto a kept backup's data); requiring a client
+      acknowledgement before an export counts (documented instead: the
+      export counts when answered; bx says so when it can't write the
+      bundle).
+    - **The subkey header** `X-XBin-Backup-Subkey` is set by the proxy from
+      the request context (`auth.WithBackupSubkey`) after it strips every
+      inbound `X-XBin-*`, so only xbind's own archive PUTs carry it.
+    - **A sealed vault stops every backup**, main archives included, and
+      so does a vault not set up yet (no barrier and not the
+      plaintext-vault mode: `vault-locked`); only `--insecure-vault` /
+      `--no-auth` write plain archives (11 §1's one exception).
+    - **One backup, one pair.** A main archive and its data archive share
+      a random `backupId`, and the data archive must be sealed under the
+      key the main archive's pointer names; a restore never pairs them
+      otherwise. No data archive for a scope with no resources.
+    - **Retention by reference.** A data archive is deleted when no kept
+      main archive names it (a per-tile cache,
+      `data/backup-refs/<CompKey>.json`, says which data version each main
+      version names; an unknown kept main archive is read before any data
+      version goes), never by a count of its own; a failed main PUT no
+      longer deletes its data archive (the archiver may have stored the
+      main archive anyway). A main archive whose data archive is missing,
+      its key not erased, restores source and terminal layer
+      (`dataMissing`). The data PUT must answer a usable version, or the
+      backup fails before the main archive is written.
+    - **A tile's backup lock** serializes its backups, prunes and key
+      erasures; the wiping hooks (F13a, F17b) hold it across the wipe and
+      the erase: stop, `holdBackups`, remove the data,
+      `eraseBackupSubjectsHeld`, release. `EraseBackupSubjects(tile, match,
+      reason, by)` erases by subject (one `part:` key); `EraseBackupKeys`
+      wraps it.
+    - **Erase commits at the tombstone**: tombstones first, then the key
+      files; a key a tombstone names is refused and its file removed
+      wherever met. Key files are durable before use (the directory fsync
+      is checked).
+    - **The bundle's reach.** With the passphrase in force at export a
+      bundle opens the DEK (every secret and all data at rest), which
+      never rotates (VD-5): a rekey marks exports stale (`exports.json
+      rekeyed`, the alert, `passphraseChanged`), and export, import and
+      erase are a person's acts (`requireAdminPerson`: own session, or the
+      admin tile's frame via `AdminFrameDriver`).
+  - **Not chosen:** HKDF-derived subkeys (can't be erased); sealing with the
+    DEK directly (one key: no erase short of rotating everything);
+    encrypting in the archiver (VD-4: every archiver must get it right, and
+    erasure needs a key xbind controls); buffering a decrypted copy to
+    authenticate before a restore (2× memory; a second pass costs CPU only);
+    the opt-in-for-one-release rollout (§H.3 alternative; the owner chose
+    sealing at once with the alert).

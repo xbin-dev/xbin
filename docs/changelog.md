@@ -12,6 +12,154 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-29
 
+- **Partitioned tiles, step one: the manifest's `partition` and the
+  recorded mode** ([elements.md](elements.md) §Manifest,
+  [resources.md](resources.md) §Partitioned tiles,
+  [protocol.md](protocol.md), [compat.md](compat.md)
+  rule 7). A tile's `xbin.json` may ask for `"partition": ["user"]` or
+  `["user", "global"]`, with `partitionMail` and `partitionNote`; a
+  template's `template` block may name the mode its instances start in;
+  `scope.json` resources take `"shared": true | "read"`. xbind records the
+  mode a tile runs in and follows the key by itself only while the tile
+  holds no data (no kv key, volume file, vault key, cron job, bus
+  subscription, interface instance or ingress host). On a tile that holds
+  data, adding, removing or changing it — an edit, a rollback, a promote —
+  pauses the tile: its API answers 409 with `partition: {state: "pending",
+  from, to}` and its backend doesn't run until a tile manager keeps the
+  current mode or switches. An invalid value (`[]`, `["global"]` alone, an
+  unknown word, a non-list), or a partitioned tile that is chrome, a VM,
+  holds `xbin`/`xbin:*`/`cap:sandboxes`/`cap:net-admin`/`cap:containers`,
+  uses its scope's resources without rooting the scope, shares a scope with
+  a tile asking differently, or shares a sqlite resource read-only, runs no
+  backend (409, manifest error). `/api/xbin/components` rows of such tiles
+  gain `partition` and `partitionError`; approving one of those grants for
+  a partitioned tile, and `POST /deployments/primary` on one, answer 409.
+  While paused, the tile's cron ticks are missed and its bus deliveries
+  dropped, as for a disabled tile. A tile with a recorded mode whose
+  `xbin.json` doesn't parse (or whose pinned checkpoint can't be read)
+  waits the same way until it can be read — a typo is never a switch
+  request. `partitionMail` is read beside `"global"` only. Tiles without
+  the key are unchanged, byte for byte. Nothing to change.
+- **BREAKING** (only for a tile that kept a top-level `"partition"` key of
+  its own): such a value now makes the tile's partition request invalid and
+  its backend stops; xbind logs it once per tile. Rename the key
+  ([changes/2026-09-29-partition-key.md](changes/2026-09-29-partition-key.md);
+  in docs/changelog.md the link is `changes/2026-09-29-partition-key.md`).
+- **Partitioned tiles: the SDK and client side, in development**
+  ([partitions.md](/docs/partitions.md), [sdk.md](/docs/sdk.md)). A new
+  page describes partitioned tiles — one backend instance per person who
+  uses a tile, plus an optional global instance — and marks what isn't
+  built yet. The Go SDK gains `xbin.Partition()` and `xbin.PartitionUser()`
+  (`$XBIN_PARTITION`), `xbin.RequirePartition()` (exit 3 unless xbind runs
+  the backend as a partition — `user:<id>` or `global`; `global` is one
+  instance for everyone who reaches it, so code that must never mix people
+  serves per-person data only where `PartitionUser() != ""`),
+  `xbin.GlobalURL(path)`, and `CallerInfo.Partition` /
+  `CallerInfo.PartitionID` (`X-XBin-Partition`, `X-XBin-Partition-Id`). The
+  in-frame client gains `xbin.partition` (only in a partitioned tile's
+  document) and `xbin.fetch(url, {partition: 'global'})`, which reaches the
+  tile's own `/api/<self>/…` only: another URL, or a value other than
+  `'global'`, rejects with a `TypeError` in every document, and a falsy
+  value means the viewer's own partition. On an xbind that doesn't
+  partition they read nothing and a valid option changes nothing. Nothing
+  to change.
+- **`xbin.fetch(request)` keeps the `Request`'s own headers.** Passing a
+  `Request` to `xbin.fetch` without `opts.headers` used to send only the
+  frame token: the client's own `headers` init replaced the `Request`'s
+  (`Content-Type` included). Its headers now go out, plus the frame token;
+  `opts.headers`, when given, still replaces them, as with `fetch`.
+- **Workspace policies for partitioned tiles** (PD-55,
+  [protocol.md](/docs/protocol.md) `/workspace-policies`, [bx.md](/docs/bx.md)
+  `bx policies`). Two workspace-wide switches, both **off** by default, that
+  an admin sets from the admin console's new **workspace → policies** tab
+  or `bx policies set partition-consent|credential-reset-confirm on|off`:
+  *ask each person before another partitioned tile uses their data*
+  (`partitionConsent`) and *credential resets wait for the person*
+  (`credentialResetConfirm`). They apply to partitioned tiles only, so today
+  they change nothing; they store their values for the partition fabric.
+  New: `GET /api/xbin/workspace-policies` (a person's session or device, a
+  terminal or agent session they drive, or an admin; other tile principals
+  get 403), `PUT` (admin; each present key replaces that switch; audited
+  with each switch's old→new), and a `policies` event on `/ws/events`. Kept
+  in `data/workspace-policies.json`, not `users.json`. A file xbind can't
+  read never turns a switch off: a switch it can't read keeps its last
+  value, or is on, and admins get a `policies` alert on `/alerts` until the
+  file is fixed by hand. Existing workspaces get the tab with
+  `bx builtin update scaffold:tiles/admin` (the API works without it).
+  Nothing to change.
+- **Sandbox managers key partitioned consumers per person**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned consumers, D140).
+  A manager whose `hello.caps` carry the new `partitions` capability (the
+  manager's own — never in a sandbox's `caps`) takes a partitioned
+  consumer's calls as (`X-XBin-From`, `X-XBin-Partition-Id`): a sandbox
+  made in a person's user partition is homed there (`owner.partitionId`,
+  `owner.partition`) and invisible to the consumer's global instance, its
+  other partitions and every other consumer unless shared (`shares` gain an
+  optional `partitionId`; the person rules still apply to the partition's
+  person); the partition's person is verified (an `Sbx-User` or
+  `X-XBin-User` naming anyone else is `403 not-allowed`); a partition also
+  sees what its person may use at the consumer's non-personal identity,
+  never the converse. An absent partition and `global` are one consumer, so
+  every existing sandbox stays with its consumer's global instance.
+  `clientId`s are per partition; quotas per consumer count all its
+  partitions. Isolation stops at the sandbox: partitions that see one
+  sandbox share its execs and terminals. The builtin **coding-sandbox**
+  template does all of it, tells the runtime the partition as the label
+  `coding-sandbox/partition`, and shows its operators a user partition's
+  sandbox as `<consumer>/<partition id, 8> #<n>`, without labels and with
+  its snapshots named `snapshot #<n>`, unless it is shared with them. The
+  conformance suite (`sdk/sandboxcontract`) gains a `user-partitions`
+  section (run when hello offers `partitions`), `Target.Partition`, and
+  `Caller.InPartition`/`Global`; `hack/fakesandbox` follows (without
+  `partitions` in its `Caps` it behaves as a manager from before them).
+  The contract's "Partitions, sharing and people" section is now
+  "Consumers, sharing and people" (the same rules; the suite's
+  `partitions` section keeps its name). Nothing changes for an
+  unpartitioned consumer; existing copies of the template take it with a
+  template update.
+- **BREAKING — backups are sealed** ([migration note](/docs/changes/2026-09-29-sealed-backups.md);
+  [14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives). In a
+  workspace with a vault barrier every archive xbind writes is encrypted by
+  xbind — `XBINSEAL`, a cleartext header naming a backup key's opaque id,
+  AES-256-GCM in 64 KiB chunks over the same tar — under a random backup key
+  per subject (a tile's source, a namespace's data) that the vault's data
+  key wraps in `data/vault/.backup-keys/`. A scope root's main data moves to
+  a data archive of its own (`.data.<tile-key>`, schema 3), which the main
+  archive (schema 3) names; existing workspaces seal from their next
+  backup, and plaintext archives of any age still restore. Archivers see key
+  ids, sizes and times only: the PUT carries `X-XBin-Backup-Subkey`, and an
+  optional `POST /archive/erase {subkeys}` deletes versions sealed under
+  erased keys. **Disaster recovery needs the key bundle**: `bx backup keys
+  export > keys.xbk` (or the admin console's Backup tab) and, on the new
+  machine, `bx backup keys import keys.xbk` with the old vault passphrase;
+  admins see an `/alerts` entry (kind `backup-keys`) and `bx doctor` a line
+  until every key is in an export. `bx backup erase <tile> --data|--all`
+  crypto-erases a tile's backups in every archive (`POST
+  /api/xbin/backup/erase`); a restore of erased data says `this backup's
+  data was erased on <date> (<reason>)`, and a main archive whose data key
+  alone was erased restores its source and says so (`dataErased`). New
+  routes: `GET /api/xbin/backup-keys`, `POST /api/xbin/backup-keys/export`,
+  `POST /api/xbin/backup-keys/import`, `POST /api/xbin/backup/erase`
+  (admin; export, import and erase only as a person — an admin in their own
+  session or the admin tile's frame, never a tile's backend, terminal or
+  agent). Single-file restores are extracted by xbind. A sealed vault now
+  stops every backup, and so does a vault not set up yet (production
+  before its first `bx vault unseal`; `GET /backup-keys` mode
+  `vault-locked`) — only the plaintext-vault mode (`--insecure-vault`,
+  `--no-auth`) writes plain archives. A key bundle plus the passphrase in
+  force at export opens the workspace's data key: `POST /vault-rekey` marks
+  every earlier export stale (the alert asks for a fresh one), and the docs
+  say to destroy old bundles after an erase or a rekey. Retention deletes a
+  data archive when no kept main archive names it; a main archive whose
+  data archive is missing restores its source and says so (`dataMissing`,
+  also in `POST /lifecycle`'s enable answer, with `dataErased`). An
+  archiver's `PUT` must answer a version of `[A-Za-z0-9][A-Za-z0-9._:-]`
+  (≤ 128) and an error answer must mean nothing was kept. Archives made
+  from now on can't be restored by an older xbind (it refuses them,
+  writing nothing). `bx builtin update s3-archiver` (v3) adds erase garbage
+  collection, drops an archive whose marker it couldn't store, takes a
+  pruned version's marker with it, and answers 422 for a sealed archive's
+  single file.
 - **The shell's sidebar is quieter.** A tile's row starts with an app icon
   (a small window, drawn — not an emoji; highlighted while the tile is
   open) instead of its runtime's coloured dot, and no longer names the
