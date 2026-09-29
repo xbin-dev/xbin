@@ -58,7 +58,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   and `agentPorts`: whether the running sandbox's in-box agent serves
   ports (`serves`), or predates them (`predates`: restart it); both absent
   until a port was asked for. The admin console's Runtime → Sandboxes
-  shows them under each sandbox's state ([protocol.md](protocol.md)).
+  shows them under each sandbox's state (existing workspaces: `bx builtin
+  update scaffold:tiles/admin`; [protocol.md](protocol.md)).
 - **coding-sandbox: Ports rows.** The operators' Sandboxes tab and your own
   sandboxes get a Ports row — whether the manager offers ports and why not,
   and a probe of one port (status, type, refusal, latency; never the page)
