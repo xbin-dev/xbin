@@ -167,7 +167,7 @@ func cmdBackupErase(args []string) error {
 		return err
 	}
 	if len(out.Erased) == 0 {
-		fmt.Printf("%s has no backup keys to erase (a workspace without a vault barrier writes plain archives: delete them at the archiver)\n", tile)
+		fmt.Printf("%s has no backup keys to erase: none of its backups is sealed (plain archives — made before sealing, or without a vault barrier — are deleted at the archiver)\n", tile)
 		return nil
 	}
 	for _, e := range out.Erased {
