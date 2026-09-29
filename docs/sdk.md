@@ -417,7 +417,7 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   manager's routes pass its own request through to a typed route:
   `sb.Forward(w, r, xbin.ExecOutput(eid), q)`. The routes are
   `xbin.ExecRoute(eid)` (GET, DELETE), `ExecOutput`, `ExecStdin`,
-  `ExecSignal`, `ExecResize`, `ExecTTY`, `FilesRoute(xbin.FilesStat |
+  `ExecSignal`, `ExecResize`, `ExecTTY`, `ExecStdio`, `FilesRoute(xbin.FilesStat |
   FilesContent | FilesList | FilesMkdir | FilesRemove | FilesMove)` and
   `TarRoute()`; there is no free-form one. Each builder checks its id
   against the grammar and escapes it itself, so a consumer's id (one with a
@@ -453,16 +453,111 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   (the login shell unless `Cmd`). The upgrade is tunnelled byte for byte,
   so your backend needs no WebSocket code and the consumer speaks the
   `/ws/term` wire end to end. `SessionID` and `SandboxID` put your own ids
-  in the session frame; `ForUser` is the verified person, refused by xbind
-  when they have no terminal access. A manager that drives a terminal
+  in the session frame; `ForUser` is the person — verified, or asserted by
+  a consumer's backend (`Sbx-User`) — refused by xbind when they have no
+  terminal access. A manager that drives a terminal
   itself (an SSH bridge) dials it with `sb.DialTTY(ctx, eid,
   xbin.TTYOptions{…})`, which returns an `sdk/ws` connection speaking the
   same wire.
+- **Stdio sockets** (the contract's `stdio`; `SandboxRuntime.Caps` carries
+  `"stdio"` on an xbind that has them). `xbin.ExecRequest{Split: true}`
+  keeps a non-tty exec's stderr apart — `sb.Output(ctx, eid,
+  xbin.OutputQuery{Stream: "stderr"})` reads it, `ExecInfo.ErrTotal`
+  counts it — and `sb.RelayStdio(w, r, eid, since, errSince)` relays a
+  consumer's stdio WebSocket to the exec's (a byte tunnel, like
+  `RelayTTY`: the exec ids in its frames are the runtime's).
+  `sb.DialStdio(ctx, eid, since, errSince)` is the socket itself: binary
+  frames are stdout from `since` and your stdin, JSON frames decode as
+  `xbin.StdioFrame` (`hello`, `gap`, `stderr`, `exit`, `pong`, `error`;
+  you send `eof` and `ping`). The socket attached last holds stdin: the
+  one before it is closed with `xbin.StdioReplaced` (4001). An older xbind
+  ignores `Split` and `Stream`.
 - **Compatibility.** Request structs omit empty fields and answers decode
   leniently, so a newer SDK works against an older xbind.
 - **Never hand your token to a sandbox.** A sandbox has no xbin identity:
   `XBIN_*` variables are refused in its environment, and it has no route to
   xbind.
+
+### A manager's terminals, for consumer tiles — `xbin.RelayManagerTTY`
+
+A **consumer** of the sandbox-manager contract (a tile bound to managers,
+[sandbox-manager.md](sandbox-manager.md) §Wiring) opens terminals in their
+sandboxes from its backend — through xbind, with its instance credential,
+naming the person it acts for (`Sbx-User`: asserted, not verified) — and
+either relays one to its own page or app, or drives it itself:
+
+```go
+// your page's (or the app's) terminal WebSocket, relayed
+mux.HandleFunc("GET /sandboxes/{ref}/terminal", func(w http.ResponseWriter, r *http.Request) {
+	person := xbin.Caller(r).User
+	sb, ok := mayUse(person, r.PathValue("ref")) // your checks, FIRST: the manager can't
+	if !ok {
+		http.Error(w, "not yours", http.StatusForbidden)
+		return
+	}
+	xbin.RelayManagerTTY(w, r, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{User: person, Cmd: "claude /login"})
+})
+
+// or a terminal the backend drives: a *ws.Conn on /ws/term's wire
+c, err := xbin.DialManagerTTY(ctx, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{User: person, Rows: 24, Cols: 80})
+```
+
+- **The endpoint** is the manager's `url` from `XBIN_IFACE_<SLOT>` (or
+  `_URL`), like `http://xbin/api/apps/coding-sandbox`.
+  `ManagerTTYOptions{ExecID}` attaches to a tty exec (one you started with
+  `POST …/execs {"tty": true}`, or a terminal's session id); without it
+  `Cmd` (the login shell when empty), `Cwd`, `Rows` and `Cols` start one.
+  `User` is the person (`""`: the consumer itself); `Client` is nil for
+  `xbin.Client()`.
+- **Typed routes only.** `xbin.ManagerTTYURL` builds the contract's route
+  and nothing else: a sandbox id outside the contract's grammar, an exec id
+  that isn't one path segment, an attach given `Cmd`/`Cwd`/`Rows`/`Cols`,
+  or a `User` with a control character is refused (`*xbin.SandboxError`,
+  `invalid`) before anything is dialled. The manager's refusals come back
+  as `*xbin.SandboxError` too.
+- **The relay** answers a request that isn't a WebSocket handshake `400
+  invalid`, and the manager's refusal (or xbind's) as it came, both before
+  anything is upgraded. Then every message passes unchanged both ways —
+  keystrokes and output, resize, ping and pong, the session and exit
+  frames — so `<bx-terminal src>` and the app's `terminal` work against
+  your route. Nothing of the person's request reaches the manager (it
+  dials anew: no header, cookie or query of theirs). When either end
+  closes, the other is closed the same way — a lost manager with 1011,
+  which a terminal takes as a drop and reconnects. A message over 4 MiB
+  either way ends it (1009). Leaving doesn't end the command: the
+  contract's terminals outlive their clients (its exit, or `DELETE
+  …/execs/{id}`, ends it).
+- **Your checks are the only ones about the person.** The manager treats
+  them as asserted: it keeps the partitions (your sandboxes and those
+  shared with you) but not who among your people may use one — apply its
+  rules ([sandbox-manager.md](sandbox-manager.md) §Partitions, sharing and
+  people: owner, members, `team`, a share's `users`) yourself, and whether
+  they may have a terminal at all, before the relay. A manager on xbind's runtime still refuses a person with
+  `noTerminal`.
+
+**A program's stdio** (where the manager's `hello.caps` has `stdio`,
+[sandbox-manager.md](sandbox-manager.md) §stdio): start it as a non-tty
+exec with `{"stdin": true, "split": true}` (`POST …/execs` through your
+binding, `Sbx-User` your person), then drive it over one socket:
+
+```go
+c, err := xbin.DialManagerStdio(ctx, sb.ManagerURL, sb.ID, execID,
+	xbin.ManagerStdioOptions{Since: readOff, ErrSince: errOff, User: person})
+for {
+	typ, msg, err := c.ReadMessage()
+	if err != nil { break } // a close 4001 (xbin.StdioReplaced): another attach took over
+	if typ == ws.BinaryMessage { stdout.Write(msg); readOff += int64(len(msg)); continue }
+	var f xbin.StdioFrame
+	_ = json.Unmarshal(msg, &f) // hello, gap (bytes the ring dropped), stderr (f.Data from f.Off), exit, pong, error
+}
+// elsewhere: c.WriteMessage(ws.BinaryMessage, line) is stdin; {"op":"eof"} closes it
+```
+
+The offsets are the exec's `…/output` offsets, so a consumer that
+restarts resumes where it read to, and attaching again replaces the socket
+before. `xbin.ManagerStdioURL` builds the route (typed parts only, as
+`ManagerTTYURL`). Without `stdio` the exec's `…/output` and `…/stdin`
+routes do the same by polling.
 
 ## node backend (no SDK needed)
 

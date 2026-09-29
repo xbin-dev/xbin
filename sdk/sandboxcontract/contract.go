@@ -9,10 +9,10 @@
 //		sandboxcontract.Run(t, sandboxcontract.Target{URL: srv.URL})
 //	}
 //
-// Every check drives the manager over HTTP (and WebSocket, for terminals)
-// alone, grouped by the contract's sections as subtests — hello, sandboxes,
-// partitions, people, lifecycle, run, execs, tty, files, tar, snapshots,
-// caps — so `go test -run 'TestContract/execs'` picks a section. Sections
+// Every check drives the manager over HTTP (and WebSocket, for terminals
+// and stdio sockets) alone, grouped by the contract's sections as subtests — hello, sandboxes,
+// partitions, people, lifecycle, run, execs, tty, stdio, files, tar,
+// snapshots, ports, caps — so `go test -run 'TestContract/execs'` picks a section. Sections
 // of an optional capability hello doesn't offer are skipped; a missing
 // one's routes must answer `unsupported`.
 //
@@ -125,6 +125,7 @@ func sections() []section {
 		{name: "run", checks: runChecks},
 		{name: "execs", checks: execChecks},
 		{name: "tty", checks: ttyChecks},
+		{name: "stdio", cap: "stdio", checks: stdioChecks},
 		{name: "files", checks: fileChecks},
 		{name: "tar", cap: "tar", checks: tarChecks},
 		{name: "snapshots", cap: "snapshots", checks: snapshotChecks},
@@ -371,14 +372,23 @@ type Hello struct {
 	Caps      []string
 	Egress    []string
 	Images    []struct {
-		ID      string
-		Default bool
+		ID        string
+		Default   bool
+		Harnesses []Harness
 	}
 	Sizes []struct {
 		ID      string
 		Default bool
 	}
 	Limits map[string]int64
+}
+
+// Harness is one of an image's hello.images[].harnesses: a coding agent
+// installed in it that speaks ACP (docs/sandbox-manager.md §hello).
+type Harness struct {
+	ID, Title string
+	Argv      []string
+	Login     string
 }
 
 func hello(t *testing.T, c Caller) Hello {
@@ -424,13 +434,14 @@ type RunResult struct {
 	Stdout, Stderr, Output *Output
 }
 
-// Exec is a background exec.
+// Exec is a background exec (Split and ErrTotal: the stdio capability's
+// split exec, its stderr apart).
 type Exec struct {
 	ID, Label, Cmd, Cwd, State, Signal, ClientID string
 	Argv                                         []string
-	TTY                                          bool
+	TTY, Split                                   bool
 	ExitCode                                     *int
-	Started, Ended, Total                        int64
+	Started, Ended, Total, ErrTotal              int64
 }
 
 // Chunk is a read of an exec's output.

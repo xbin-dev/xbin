@@ -441,10 +441,11 @@ func now() int64 { return time.Now().UnixMilli() }
 // --- hello --------------------------------------------------------------------------------
 
 type imageEntry struct {
-	ID      string   `json:"id"`
-	Title   string   `json:"title"`
-	Default bool     `json:"default,omitempty"`
-	Tools   []string `json:"tools"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Default   bool      `json:"default,omitempty"`
+	Tools     []string  `json:"tools"`
+	Harnesses []Harness `json:"harnesses,omitempty"` // additive: an image's coding agents
 }
 
 type sizeEntry struct {
@@ -476,6 +477,9 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	o := &offer{rt: rt, caps: contractCaps(rt), egress: offeredEgress(rt)}
 	if m.portsOffered(rt) { // D135 (ports.go)
 		o.caps = append(o.caps, "ports")
+	}
+	if slices.Contains(rt.Caps, "stdio") && m.stdioBackend() {
+		o.caps = append(o.caps, "stdio")
 	}
 	clones := slices.Contains(o.caps, "clone") && slices.Contains(o.caps, "snapshots")
 	hidden := 0
@@ -518,6 +522,14 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	}
 	o.sizes = oneDefault(o.sizes, func(s *Size) *bool { return &s.Default })
 	return o, nil
+}
+
+// stdioBackend reports that the backend's sandboxes serve stdio sockets
+// (StdioBox): a backend written before them builds without it, and the
+// manager doesn't offer `stdio` over it.
+func (m *Manager) stdioBackend() bool {
+	_, ok := m.backend().Sandbox("").(StdioBox)
+	return ok
 }
 
 // missingCaps are those of want that caps lacks.
@@ -585,7 +597,7 @@ func (m *Manager) hello(w http.ResponseWriter, r *http.Request) {
 		if tools == nil {
 			tools = []string{}
 		}
-		images = append(images, imageEntry{ID: im.ID, Title: im.Title, Default: im.Default, Tools: tools})
+		images = append(images, imageEntry{ID: im.ID, Title: im.Title, Default: im.Default, Tools: tools, Harnesses: im.Harnesses})
 	}
 	sizes := []sizeEntry{}
 	for _, s := range o.sizes {

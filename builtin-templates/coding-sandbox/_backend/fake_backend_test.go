@@ -136,9 +136,9 @@ func (f *fakeBackend) caps() []string {
 		return f.Caps
 	}
 	if fkHasPTY() {
-		return []string{"exec", "files", "tar", "tty", "snapshots", "clone"}
+		return []string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone"}
 	}
-	return []string{"exec", "files", "tar", "snapshots", "clone"}
+	return []string{"exec", "files", "tar", "stdio", "snapshots", "clone"}
 }
 
 func (f *fakeBackend) hasCap(c string) bool {

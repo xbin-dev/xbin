@@ -10,6 +10,37 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-30
+
+- **Sandbox managers can offer a program's streams on one socket: the
+  optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
+  §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).
+  Additive: `POST …/execs {split: true}` keeps a non-tty exec's stderr
+  apart (`…/output?stream=stderr`, the exec's `split` and `errTotal`), and
+  `GET …/execs/{eid}/stdio?since=&errSince=` is a WebSocket — `hello`
+  first, stdout as binary frames from `since` (a `gap` frame where the ring
+  dropped bytes), stderr as `stderr` frames, `exit` then a normal close;
+  stdin back as binary frames, `eof`, `ping` — where the socket attached
+  last holds stdin (the one before is closed with 4001). A manager
+  advertises it in `hello.caps` and `sandbox.caps`; one without it ignores
+  `split` and answers the route `unsupported` (older ones `not-found`), and
+  consumers keep using `…/output` and `…/stdin`. xbind's tile-sandbox
+  runtime serves it (`runtime.caps` gains `stdio`, the route is
+  `GET /sandboxes/<name>/execs/<id>/stdio`); the Go SDK adds
+  `ExecRequest.Split`, `OutputQuery.Stream`, `ExecInfo.Split`/`ErrTotal`,
+  `xbin.ExecStdio`, `Sandbox.RelayStdio`/`DialStdio`, `xbin.StdioFrame`,
+  and for consumers `xbin.DialManagerStdio`/`ManagerStdioURL`. The
+  `coding-sandbox` template offers it on an xbind that has it (a backend
+  added to a copy serves it by implementing the optional `StdioBox`; one
+  that doesn't keeps building and isn't offered it), `hack/fakesandbox`
+  always. The conformance suite gains a `stdio` section (skipped for a
+  manager without the capability) and knows `stdio` among hello's caps;
+  `caps/missing` now wants a manager without it to ignore `split` and
+  answer the stdio route `501 unsupported` — a manager of your own whose
+  unknown routes answer `404` fails it until it does (or names
+  `caps/missing` in `Target.Skip`, saying why). Nothing to change for
+  consumers or pages.
+
 ## 2026-09-29
 
 - **Agent template: reports show again, during the turn, and come back.**
@@ -83,6 +114,52 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   sign-in wording and extension notifications. The Agent tab, `bx agent`
   and the session API are unchanged: what xbind sends an adapter and serves
   a client is byte for byte what it was. Nothing to change.
+- **Consumer backends open and relay terminals in a manager's sandboxes**
+  ([sandbox-manager.md](sandbox-manager.md) §Terminals, [sdk.md](sdk.md)
+  §A manager's terminals). The contract now says what the SSH bridge
+  already did: a consumer's backend dials the `tty` routes (and attaches to
+  tty execs it started) through xbind with its instance credential, naming
+  its person in `Sbx-User` — asserted, like every backend call — to drive a
+  terminal or to relay it to its own page or app view; the consumer checks
+  that person first. The Go SDK adds `xbin.RelayManagerTTY(w, r, endpoint,
+  sandboxID, opts)` — dial, upgrade, every message relayed unchanged both
+  ways, each end closed the way the other ended — and
+  `xbin.DialManagerTTY` / `xbin.ManagerTTYURL` (typed routes only). The
+  conformance suite gains `tty/backend`: a manager that refuses an
+  asserted person's terminal on a private or shared sandbox fails it (the
+  contract always left those people to the consumer — name it in
+  `Target.Skip`, saying why, until yours follows); `hack/fakesandbox` and
+  `coding-sandbox` pass unchanged. Nothing to change for pages.
+- **Sandbox managers can say which coding agents an image has**
+  ([sandbox-manager.md](sandbox-manager.md) §hello). Additive:
+  `hello.images[].harnesses: [{id, title?, argv?, login?}]` lists the ACP
+  coding agents installed in an image — `claude`, `codex`, `gemini` and
+  `opencode` are the ids consumers know; `argv` is the command that speaks
+  ACP on stdio, `login` a shell command that signs it in at a terminal. It
+  is the manager's word, not a probe; a missing list says nothing. The
+  conformance suite (`sdk/sandboxcontract`) checks the entries' shape, and
+  its `Hello` carries them (`Harness`). The `coding-sandbox` template's
+  default image lists all four (Claude Code `claude-agent-acp`, Codex
+  `codex-acp`, Gemini CLI `gemini --acp`, OpenCode `opencode acp`, each with
+  a sign-in that needs no browser in the sandbox) and its `tools` now name
+  what the base rootfs really has (no `chromium` command — Playwright's
+  browser stays; `npm`, `pnpm`, `yarn`, `curl`, `jq`, `gh`, `gopls`, `dlv`
+  and the agents' CLIs added). Operators set `harnesses` per image in
+  `PUT /ops/config` (the page's image editor keeps them); a config saved
+  before this keeps its images as they were — no harnesses listed — until
+  an operator adds them. `hack/fakesandbox` advertises one, `fake` (the
+  scripted `fakeacp`; `-fake-acp` / `$FSB_FAKE_ACP` sets its command).
+- **A terminal in a sandbox has a terminal's environment.** A tile
+  sandbox's `tty` exec (and its `tty` route) now gets
+  `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`, as
+  xbind's own terminals do, unless `defaults.env` or the command's `env`
+  names them ([protocol.md](protocol.md) §Tile sandboxes) — full-screen
+  programs and coding agents' sign-in screens expect them.
+  The sandbox-manager contract says the same of any manager's `tty`. The
+  `coding-sandbox` template also sets `IS_SANDBOX=1` beside `IN_SANDBOX=1`
+  in a new sandbox's defaults (a renamed one gains it): the spelling coding
+  agents check — Claude Code refuses its bypass mode as root without it.
+  Nothing to change.
 - **The shell's sidebar is quieter.** A tile's row starts with an app icon
   (a small window, drawn — not an emoji; highlighted while the tile is
   open) instead of its runtime's coloured dot, and no longer names the

@@ -153,10 +153,11 @@ func (m *Manager) ServeExecKill(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ServeOutput answers GET /sandboxes/{name}/execs/{id}/output?since=&max=&waitMs=&encoding=:
+// ServeOutput answers GET /sandboxes/{name}/execs/{id}/output?since=&max=&waitMs=&encoding=&stream=:
 // the bytes from since (or the oldest kept: start > since is a gap), up to
 // max; with nothing past since while the exec runs, it waits up to waitMs
-// for more and answers as soon as the exec ends.
+// for more and answers as soon as the exec ends. stream=stderr reads a
+// split exec's stderr (stdout, the default, is its one stream otherwise).
 func (m *Manager) ServeOutput(w http.ResponseWriter, r *http.Request) {
 	k, d, ok := m.managed(w, r)
 	if !ok {
@@ -177,20 +178,33 @@ func (m *Manager) ServeOutput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, refuse(RefInvalid, "encoding is text or base64"))
 		return
 	}
+	stream := q.Get("stream")
+	if stream != "" && stream != "stdout" && stream != "stderr" {
+		writeErr(w, refuse(RefInvalid, "stream is stdout or stderr"))
+		return
+	}
 	limit = min(max(limit, 1), outputMaxLimit)
 	waitMs = min(waitMs, outputWaitLimit)
 	_, e, ok := m.execFor(w, k, d, r.PathValue("id"))
 	if !ok {
 		return
 	}
-	c := e.ring.Read(since, limit)
+	rg := e.ring
+	if stream == "stderr" {
+		if e.errRing == nil {
+			writeErr(w, refuse(RefInvalid, "exec %s wasn't started with split: true — its stderr is in its one stream", e.id))
+			return
+		}
+		rg = e.errRing
+	}
+	c := rg.Read(since, limit)
 	if since > c.total {
 		writeErr(w, refuse(RefInvalid, "since %d is past the output's end (%d)", since, c.total))
 		return
 	}
 	if c.end == c.start && !c.ended && waitMs > 0 {
-		e.ring.Wait(r.Context(), since, time.Duration(waitMs)*time.Millisecond)
-		c = e.ring.Read(since, limit)
+		rg.Wait(r.Context(), since, time.Duration(waitMs)*time.Millisecond)
+		c = rg.Read(since, limit)
 	}
 	x := e.info()
 	out := OutputChunk{Start: c.start, End: c.end, Total: c.total, RingStart: c.ringStart, Encoding: enc,

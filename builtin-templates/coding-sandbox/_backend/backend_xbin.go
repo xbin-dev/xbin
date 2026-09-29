@@ -19,6 +19,9 @@
 //	                                                          prefixed per consumer)
 //	terminals                   GET  …/tty, …/execs/{id}/tty  RelayNewTTY · RelayTTY: a byte relay of the WebSocket, with
 //	                                                          forUser = the person and the session frame's ids = ours
+//	stdio (split, sockets)      GET  …/execs/{id}/stdio       RelayStdio: a byte relay of the WebSocket (the exec ids are
+//	                                                          the runtime's, so its frames need no rewriting); split on
+//	                                                          Exec, stream on Output
 //	files · tar                 …/files/*, …/tar              Stat · ReadFile · WriteFile · List · Mkdir · Remove · Move · GetTar · PutTar
 //	snapshots                   …/snapshots[/{sid}[/restore]] Snapshots · Snapshot · RestoreSnapshot · DeleteSnapshot
 //
@@ -118,6 +121,14 @@ func (b xbinBox) RelayTTY(w http.ResponseWriter, r *http.Request, execID string,
 		return
 	}
 	b.Sandbox.RelayTTY(w, r, execID, o)
+}
+
+func (b xbinBox) RelayStdio(w http.ResponseWriter, r *http.Request, execID string, since, errSince int64) {
+	if !xbin.IsExecID(execID) {
+		xbin.WriteSandboxError(w, unknown("exec", execID))
+		return
+	}
+	b.Sandbox.RelayStdio(w, r, execID, since, errSince)
 }
 
 func (b xbinBox) RestoreSnapshot(ctx context.Context, id string) (*xbin.SandboxInfo, error) {

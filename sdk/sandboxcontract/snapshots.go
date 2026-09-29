@@ -89,7 +89,7 @@ var snapshotChecks = []check{
 // --- capabilities ----------------------------------------------------------------------------
 
 // optional capabilities, and a request of each that its absence refuses
-var optionalCaps = []string{"tar", "tty", "snapshots", "clone", "archive", "ports"}
+var optionalCaps = []string{"tar", "tty", "stdio", "snapshots", "clone", "archive", "ports"}
 
 var capChecks = []check{
 	{"missing", func(t *testing.T, e *env) {
@@ -126,8 +126,12 @@ var capChecks = []check{
 			"ports":   {{"GET", p + "/ports/8000/", nil}, {"POST", p + "/ports/8000/x", []byte{}}},
 		}
 		for _, c := range missing {
-			if c == "tty" {
+			switch c {
+			case "tty":
 				noTTY(t, a)
+				continue
+			case "stdio":
+				noStdio(t, a)
 				continue
 			}
 			for _, r := range refusals[c] {

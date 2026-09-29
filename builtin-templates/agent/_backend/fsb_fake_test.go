@@ -15,6 +15,8 @@ package main
 // Terminals (`tty`) are host pseudo-terminals opened with the standard
 // library (Linux: /dev/ptmx); their WebSocket is the SDK's sdk/ws, speaking
 // the /ws/term framing. Where the host has none, hello leaves `tty` out.
+// `stdio` — a split exec's stderr apart, and a non-tty exec's streams on one
+// WebSocket — is offered everywhere.
 
 import (
 	"archive/tar"
@@ -57,6 +59,9 @@ type fsbManager struct {
 	Grace       time.Duration // TERM → KILL on a timeout (0 = 5 s)
 	Ring        int           // an exec's output ring (0 = 1 MiB); it keeps between Ring and 2×Ring bytes
 	FileMax     int64         // limits.fileMax (0 = 64 MiB)
+	// Harnesses are what hello says its image has (nil = the scripted
+	// "fake" agent, fsbFakeHarness; empty = none).
+	Harnesses []fsbHarness
 
 	mu     sync.Mutex
 	boxes  map[string]*fsbBox
@@ -211,21 +216,49 @@ type fsbExec struct {
 	Started  int64    `json:"started"`
 	Ended    int64    `json:"ended"`
 	Total    int64    `json:"total"`
+	Split    bool     `json:"split,omitempty"`
+	ErrTotal int64    `json:"errTotal,omitempty"`
 	ClientID string   `json:"clientId,omitempty"`
 
-	ring    *fsbRing
-	cmd     *exec.Cmd
-	pid     int // the process group, once started (m.mu); 0 before
-	seq     int
-	stdin   io.WriteCloser
-	eof     bool          // stdin was closed (m.mu)
-	done    chan struct{} // closed once the exec has ended (or never started)
-	killed  bool
-	pty     *os.File      // a tty exec's terminal (master), once started (m.mu)
-	ptyDone chan struct{} // closed when its output has all reached the ring
+	ring      *fsbRing
+	errRing   *fsbRing // a split exec's stderr (nil: one stream)
+	cmd       *exec.Cmd
+	pid       int // the process group, once started (m.mu); 0 before
+	seq       int
+	stdin     io.WriteCloser
+	wantStdin bool          // started with stdin: true
+	eof       bool          // stdin was closed (m.mu)
+	stdio     *fsbStdio     // the stdio socket attached last: it holds stdin (m.mu)
+	done      chan struct{} // closed once the exec has ended (or never started)
+	killed    bool
+	pty       *os.File      // a tty exec's terminal (master), once started (m.mu)
+	ptyDone   chan struct{} // closed when its output has all reached the ring
 }
 
-var fsbImages = []map[string]any{{"id": "base", "title": "the host's tools (a test fixture)", "default": true, "tools": []string{"git"}}}
+// fsbHarness is one of hello.images[].harnesses: a coding agent speaking ACP
+// on stdio (docs/sandbox-manager.md §hello).
+type fsbHarness struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title,omitempty"`
+	Argv  []string `json:"argv,omitempty"`
+	Login string   `json:"login,omitempty"`
+}
+
+// fsbFakeHarness is the harness hello advertises by default: hack/fakeacp,
+// the scripted ACP agent, found on the host's PATH (a sandbox's commands are
+// host processes here).
+var fsbFakeHarness = fsbHarness{ID: "fake", Title: "Fake agent (test fixture)", Argv: []string{"fakeacp"},
+	Login: "echo 'the fake agent needs no sign-in'"}
+
+func (m *fsbManager) images() []map[string]any {
+	hs := m.Harnesses
+	if hs == nil {
+		hs = []fsbHarness{fsbFakeHarness}
+	}
+	return []map[string]any{{"id": "base", "title": "the host's tools (a test fixture)", "default": true, "tools": []string{"git"},
+		"harnesses": hs}}
+}
+
 var fsbSizes = []fsbSize{{ID: "small", MemMiB: 2048, VCPUs: 2, DiskGiB: 20}}
 
 const (
@@ -381,9 +414,9 @@ func (m *fsbManager) caps() []string {
 		return m.Caps
 	}
 	if fsbHasPTY() {
-		return []string{"exec", "files", "tar", "tty", "snapshots", "clone", "archive", "ports"}
+		return []string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports"}
 	}
-	return []string{"exec", "files", "tar", "snapshots", "clone", "archive", "ports"}
+	return []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "archive", "ports"}
 }
 
 func (m *fsbManager) hasCap(c string) bool {
@@ -459,6 +492,7 @@ func (m *fsbManager) routes() {
 	x.HandleFunc("POST /sbx/sandboxes/{id}/execs/{eid}/signal", m.execSignal)
 	x.HandleFunc("POST /sbx/sandboxes/{id}/execs/{eid}/resize", m.execResize)
 	x.HandleFunc("GET /sbx/sandboxes/{id}/execs/{eid}/tty", m.ttyAttach)
+	x.HandleFunc("GET /sbx/sandboxes/{id}/execs/{eid}/stdio", m.stdioAttach)
 	x.HandleFunc("GET /sbx/sandboxes/{id}/tty", m.ttyStart)
 	x.HandleFunc("GET /sbx/sandboxes/{id}/files/stat", m.fileStat)
 	x.HandleFunc("GET /sbx/sandboxes/{id}/files/content", m.fileRead)
@@ -613,7 +647,7 @@ func (m *fsbManager) hello(w http.ResponseWriter, r *http.Request) {
 		"protocol": 1, "protocols": []int{1},
 		"manager": map[string]string{"name": "fakesandbox", "title": "Fake sandboxes (test fixture)", "version": "1.0.0"},
 		"caps":    m.caps(), "egress": []string{"none", "internet"},
-		"images": fsbImages, "sizes": []map[string]any{{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}},
+		"images": m.images(), "sizes": []map[string]any{{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}},
 		"limits": map[string]int{"sandboxes": 0, "runTimeoutMaxMs": fsbRunMaxMs, "runOutputMax": fsbRunOutMax,
 			"execsRunning": 16, "outputRing": m.ringSize(), "stdinMax": fsbStdinMax, "fileMax": int(m.fileMax()),
 			"tarMax": 1 << 30, "waitMaxSec": fsbWaitMax},
@@ -1066,6 +1100,7 @@ type fsbCmdReq struct {
 	MaxOutput int               `json:"maxOutput"`
 	Merge     bool              `json:"merge"`
 	TTY       bool              `json:"tty"`
+	Split     bool              `json:"split"`
 	Rows      int               `json:"rows"`
 	Cols      int               `json:"cols"`
 	Label     string            `json:"label"`
@@ -1098,7 +1133,7 @@ func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 	c.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + b.Home, "PWD=" + cwd, "LANG=C.UTF-8",
 		"IN_SANDBOX=1", "SANDBOX_ID=" + b.ID, "SANDBOX_NAME=" + b.Name}
 	if q.TTY {
-		c.Env = append(c.Env, "TERM=xterm-256color")
+		c.Env = append(c.Env, "TERM=xterm-256color", "COLORTERM=truecolor")
 	}
 	keys := make([]string, 0, len(q.Env))
 	for k := range q.Env {
@@ -1368,6 +1403,9 @@ func (r *fsbRing) read(ctx context.Context, since int64, limit int, wait time.Du
 func (m *fsbManager) execView(e *fsbExec) fsbExec {
 	v := *e
 	v.Total = e.ring.totalNow()
+	if e.errRing != nil {
+		v.ErrTotal = e.errRing.totalNow()
+	}
 	if v.Argv == nil {
 		v.Argv = []string{}
 	}
@@ -1416,6 +1454,11 @@ func (m *fsbManager) launch(w http.ResponseWriter, r *http.Request, q fsbCmdReq)
 	if len(q.Stdin) > 0 {
 		_ = json.Unmarshal(q.Stdin, &wantStdin)
 	}
+	split := q.Split && m.hasCap("stdio") // without stdio, split is a field it doesn't know
+	if split && q.TTY {
+		fsbFail(w, http.StatusBadRequest, "invalid", "split is a non-tty exec's: a terminal is one stream")
+		return nil, 0
+	}
 	b, c, ok := m.box(w, r)
 	if !ok {
 		return nil, 0
@@ -1450,12 +1493,17 @@ func (m *fsbManager) launch(w http.ResponseWriter, r *http.Request, q fsbCmdReq)
 	gate := m.gate
 	b.eseq++
 	e := &fsbExec{ID: fmt.Sprintf("e%d", b.eseq), seq: b.eseq, Label: q.Label, Cmd: q.Cmd, Argv: q.Argv, Cwd: cmd.Dir, TTY: q.TTY,
-		State: "running", Started: fsbNow(), ClientID: q.ClientID, ring: newFsbRing(m.ringSize()), cmd: cmd, done: make(chan struct{})}
+		State: "running", Started: fsbNow(), ClientID: q.ClientID, ring: newFsbRing(m.ringSize()), cmd: cmd, done: make(chan struct{}),
+		Split: split, wantStdin: wantStdin && !q.TTY}
 	b.execs[e.ID] = e
 	if q.ClientID != "" {
 		m.idem[ikey] = fsbIdem{id: e.ID, hash: fsbHash(q)}
 	}
 	cmd.Stdout, cmd.Stderr = e.ring, e.ring
+	if split {
+		e.errRing = newFsbRing(m.ringSize())
+		cmd.Stderr = e.errRing
+	}
 	m.mu.Unlock()
 	if gate != nil {
 		select {
@@ -1558,6 +1606,9 @@ func (m *fsbManager) unstarted(e *fsbExec, state string) {
 	e.State, e.Ended = state, fsbNow()
 	m.mu.Unlock()
 	e.ring.close()
+	if e.errRing != nil {
+		e.errRing.close()
+	}
 	close(e.done)
 }
 
@@ -1585,6 +1636,9 @@ func (m *fsbManager) reap(e *fsbExec) {
 	}
 	m.mu.Unlock()
 	e.ring.close()
+	if e.errRing != nil {
+		e.errRing.close()
+	}
 	close(e.done)
 }
 
@@ -1665,11 +1719,27 @@ func (m *fsbManager) execOutput(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusBadRequest, "invalid", "encoding is text or base64")
 		return
 	}
+	stream := qs.Get("stream")
+	if !m.hasCap("stdio") {
+		stream = "" // a parameter it doesn't know
+	}
+	if stream != "" && stream != "stdout" && stream != "stderr" {
+		fsbFail(w, http.StatusBadRequest, "invalid", "stream is stdout or stderr")
+		return
+	}
 	e, ok := m.exec(w, r)
 	if !ok {
 		return
 	}
 	m.mu.Unlock()
+	ring := e.ring
+	if stream == "stderr" {
+		if e.errRing == nil {
+			fsbFail(w, http.StatusBadRequest, "invalid", "this exec wasn't started with split: its stderr is in its one stream")
+			return
+		}
+		ring = e.errRing
+	}
 	since, _ := strconv.ParseInt(qs.Get("since"), 10, 64)
 	since = max(since, 0)
 	limit, _ := strconv.Atoi(qs.Get("max"))
@@ -1679,7 +1749,7 @@ func (m *fsbManager) execOutput(w http.ResponseWriter, r *http.Request) {
 	limit = min(limit, 1<<20)
 	waitMs, _ := strconv.Atoi(qs.Get("waitMs"))
 	waitMs = max(0, min(waitMs, 30000))
-	start, end, total, ringStart, data := e.ring.read(r.Context(), since, limit, time.Duration(waitMs)*time.Millisecond)
+	start, end, total, ringStart, data := ring.read(r.Context(), since, limit, time.Duration(waitMs)*time.Millisecond)
 	m.mu.Lock()
 	st, code, sig := e.State, e.ExitCode, e.Signal
 	m.mu.Unlock()
@@ -1926,6 +1996,239 @@ func (m *fsbManager) ttyServe(w http.ResponseWriter, r *http.Request, sandbox st
 	m.mu.Unlock()
 	b, _ := json.Marshal(exit)
 	_ = c.WriteMessage(fsbws.TextMessage, b)
+}
+
+// --- stdio ----------------------------------------------------------------------------
+
+// fsbStdioReplaced closes a stdio socket a newer attach replaced.
+const fsbStdioReplaced = 4001
+
+// fsbStdio is one attached stdio socket.
+type fsbStdio struct {
+	cancel   context.CancelFunc
+	replaced atomic.Bool
+}
+
+// stdioAttach: GET /sbx/sandboxes/{id}/execs/{eid}/stdio?since=&errSince= —
+// a non-tty exec's streams on one WebSocket (docs/sandbox-manager.md
+// §stdio): stdout as binary frames from since, a split exec's stderr as
+// {"op":"stderr"} from errSince, stdin back. Refusals come before the
+// upgrade.
+func (m *fsbManager) stdioAttach(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "stdio") {
+		return
+	}
+	if !m.hasCap("stdio") {
+		fsbFail(w, http.StatusNotImplemented, "unsupported", "this manager has no stdio sockets (stdio)")
+		return
+	}
+	if !fsbws.IsUpgrade(r) {
+		fsbFail(w, http.StatusBadRequest, "invalid", "the stdio route is a WebSocket upgrade")
+		return
+	}
+	qs := r.URL.Query()
+	since, err1 := fsbOffset(qs.Get("since"))
+	errSince, err2 := fsbOffset(qs.Get("errSince"))
+	if err1 != nil || err2 != nil {
+		fsbFail(w, http.StatusBadRequest, "invalid", "since and errSince are non-negative numbers")
+		return
+	}
+	e, ok := m.exec(w, r)
+	if !ok {
+		return
+	}
+	tty := e.TTY
+	m.mu.Unlock()
+	total, errTotal := e.ring.totalNow(), int64(0)
+	if e.errRing != nil {
+		errTotal = e.errRing.totalNow()
+	}
+	switch {
+	case tty:
+		fsbFail(w, http.StatusBadRequest, "invalid", "this exec has a terminal: attach to it with …/tty")
+		return
+	case since > total:
+		fsbFail(w, http.StatusBadRequest, "invalid", fmt.Sprintf("since %d is past the output's end (%d)", since, total))
+		return
+	case errSince > errTotal:
+		fsbFail(w, http.StatusBadRequest, "invalid", fmt.Sprintf("errSince %d is past stderr's end (%d)", errSince, errTotal))
+		return
+	}
+	c, err := fsbws.Upgrade(w, r, &fsbws.UpgradeOptions{MaxMessageSize: fsbStdinMax,
+		Error: func(w http.ResponseWriter, _ *http.Request, status int, reason string) {
+			fsbFail(w, status, "invalid", reason)
+		}})
+	if err != nil {
+		return
+	}
+	m.stdioServe(c, e, since, errSince)
+}
+
+// fsbOffset is an offset query value ("" is 0).
+func fsbOffset(v string) (int64, error) {
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("bad offset %q", v)
+	}
+	return n, nil
+}
+
+// stdioServe runs one attached stdio socket: hello, the streams from their
+// offsets (a gap frame where the ring dropped bytes), stdin, eof and ping
+// from the client, the exit once the exec ended and all its output is out,
+// then a normal close. The socket attached last holds stdin; attaching
+// closes the one before with 4001.
+func (m *fsbManager) stdioServe(c *fsbws.Conn, e *fsbExec, since, errSince int64) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	me := &fsbStdio{cancel: cancel}
+	m.mu.Lock()
+	prev := e.stdio
+	e.stdio = me
+	hello := map[string]any{"op": "hello", "id": e.ID, "total": e.ring.totalNow(), "errTotal": int64(0), "state": e.State,
+		"stdin": e.wantStdin, "split": e.errRing != nil}
+	if e.errRing != nil {
+		hello["errTotal"] = e.errRing.totalNow()
+	}
+	m.mu.Unlock()
+	if prev != nil {
+		prev.replaced.Store(true)
+		prev.cancel()
+	}
+	defer func() {
+		m.mu.Lock()
+		if e.stdio == me {
+			e.stdio = nil
+		}
+		m.mu.Unlock()
+	}()
+	send := func(v any) error {
+		b, _ := json.Marshal(v)
+		err := c.WriteMessage(fsbws.TextMessage, b)
+		if err != nil {
+			cancel()
+		}
+		return err
+	}
+	if send(hello) != nil {
+		c.Close()
+		return
+	}
+	go func() { // the client's frames
+		defer cancel()
+		for {
+			typ, data, err := c.ReadMessage()
+			if err != nil {
+				return
+			}
+			if typ == fsbws.BinaryMessage {
+				m.stdioIn(e, me, data, send)
+				continue
+			}
+			var ctl struct {
+				Op string          `json:"op"`
+				T  json.RawMessage `json:"t"`
+			}
+			if json.Unmarshal(data, &ctl) != nil {
+				continue
+			}
+			switch ctl.Op { // anything else is ignored
+			case "ping":
+				_ = send(map[string]any{"op": "pong", "t": ctl.T})
+			case "eof":
+				m.stdioIn(e, me, nil, send)
+			}
+		}
+	}()
+	stream := func(ring *fsbRing, off int64, name string) {
+		for !ring.ended(off) {
+			start, end, _, _, data := ring.read(ctx, off, 64<<10, 30*time.Second)
+			if ctx.Err() != nil {
+				return
+			}
+			if start > off && send(map[string]any{"op": "gap", "stream": name, "from": off, "to": start}) != nil {
+				return
+			}
+			if len(data) > 0 {
+				var err error
+				if name == "stdout" {
+					if err = c.WriteMessage(fsbws.BinaryMessage, data); err != nil {
+						cancel()
+					}
+				} else {
+					err = send(map[string]any{"op": "stderr", "off": start, "data": data}) // base64
+				}
+				if err != nil {
+					return
+				}
+			}
+			off = end
+		}
+	}
+	var wg sync.WaitGroup
+	if e.errRing != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			stream(e.errRing, errSince, "stderr")
+		}()
+	}
+	stream(e.ring, since, "stdout")
+	wg.Wait()
+	if ctx.Err() == nil {
+		select {
+		case <-e.done:
+		case <-ctx.Done():
+		}
+	}
+	switch {
+	case me.replaced.Load():
+		_ = c.CloseWith(fsbStdioReplaced, "replaced: another client attached")
+	case ctx.Err() != nil: // the client left
+		c.Close()
+	default:
+		m.mu.Lock()
+		exit := map[string]any{"op": "exit", "code": e.ExitCode, "signal": e.Signal, "total": e.ring.totalNow(), "errTotal": int64(0)} // code null: a signal
+		if e.errRing != nil {
+			exit["errTotal"] = e.errRing.totalNow()
+		}
+		m.mu.Unlock()
+		_ = send(exit)
+		c.Close()
+	}
+}
+
+// stdioIn writes a stdio socket's frame to the exec's stdin (nil: eof) —
+// the socket attached last only. A pipe the command doesn't read holds the
+// socket (its flow control); what can't go is an {"op":"error"} frame.
+func (m *fsbManager) stdioIn(e *fsbExec, me *fsbStdio, data []byte, send func(any) error) {
+	m.mu.Lock()
+	in, st, eof, holds, want := e.stdin, e.State, e.eof, e.stdio == me, e.wantStdin
+	if data == nil && want && holds && in != nil && !eof && st == "running" {
+		e.eof = true
+	}
+	m.mu.Unlock()
+	fail := func(refusal, msg string) { _ = send(map[string]any{"op": "error", "refusal": refusal, "error": msg}) }
+	switch {
+	case !want:
+		fail("invalid", "this exec wasn't started with stdin")
+	case !holds:
+	case st != "running":
+		fail("state", "the exec has ended")
+	case eof:
+		fail("invalid", "stdin is closed")
+	case in == nil:
+		fail("unavailable", "the exec hasn't started yet")
+	case data == nil:
+		_ = in.Close()
+	default:
+		if _, err := in.Write(data); err != nil {
+			fail("state", "the exec has stopped reading")
+		}
+	}
 }
 
 // Linux's terminal ioctls (the generic numbers: amd64, arm64, 386, arm,

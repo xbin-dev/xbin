@@ -8,6 +8,10 @@
 // sandboxes in XBIN_RES_BOXES (or $XBIN_DATA/boxes); standalone:
 //
 //	go run ./hack/fakesandbox -addr 127.0.0.1:18978 -root /tmp/fsb
+//
+// Its image advertises one harness (hello.images[].harnesses), "fake": the
+// scripted ACP agent hack/fakeacp, run as -fake-acp (default $FSB_FAKE_ACP,
+// else `fakeacp` from PATH).
 package main
 
 import (
@@ -17,12 +21,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func main() {
 	addr := flag.String("addr", "", "listen on this TCP address (default: $XBIN_SOCKET)")
 	root := flag.String("root", "", "keep sandboxes here (default: $XBIN_RES_BOXES, else $XBIN_DATA/boxes)")
 	from := flag.String("from", "", "the consumer of calls without X-XBin-From")
+	fakeACP := flag.String("fake-acp", os.Getenv("FSB_FAKE_ACP"), "the \"fake\" harness's command, space-separated (default: fakeacp from PATH)")
 	flag.Parse()
 	if *root == "" {
 		*root = os.Getenv("XBIN_RES_BOXES")
@@ -37,6 +43,11 @@ func main() {
 		log.Fatal(err)
 	}
 	m := &fsbManager{Root: *root, DefaultFrom: *from}
+	if argv := strings.Fields(*fakeACP); len(argv) > 0 {
+		h := fsbFakeHarness
+		h.Argv = argv
+		m.Harnesses = []fsbHarness{h}
+	}
 	var ln net.Listener
 	var err error
 	if *addr != "" {

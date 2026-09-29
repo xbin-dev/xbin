@@ -4,9 +4,11 @@ package tilesbx
 // one session of the sandbox's agent with one output stream — a non-tty
 // exec's stdout and stderr merged, a tty exec's terminal — kept in a ring
 // (ring.go) that is read by byte offset, plus its stdin, its signals, and
-// its end. A sandbox's execs outlive its runs: a stop, whatever caused it,
-// ends the ones running as killed (signal KILL, exitCode null), and their
-// records and rings stay, so a reader still gets their output to its end.
+// its end. A split exec (the contract's stdio) keeps its stderr apart, in
+// a second ring; stdio.go is its WebSocket. A sandbox's execs outlive its
+// runs: a stop, whatever caused it, ends the ones running as killed (signal
+// KILL, exitCode null), and their records and rings stay, so a reader still
+// gets their output to its end.
 // Only an id from another xbind start is lost (410). What a command runs
 // with is command.go's; the table of a sandbox's execs is exectable.go's.
 
@@ -62,6 +64,8 @@ type Exec struct {
 	Started  int64    `json:"started"`
 	Ended    *int64   `json:"ended"`
 	Total    int64    `json:"total"`
+	Split    bool     `json:"split,omitempty"`    // stderr is its own stream (…/output?stream=stderr)
+	ErrTotal int64    `json:"errTotal,omitempty"` // a split exec's stderr bytes so far
 	ClientID string   `json:"clientId,omitempty"`
 	ForUser  string   `json:"forUser,omitempty"`
 	UID      *uint32  `json:"uid,omitempty"`
@@ -78,6 +82,7 @@ type ExecRequest struct {
 	Rows      int               `json:"rows,omitempty"`
 	Cols      int               `json:"cols,omitempty"`
 	Stdin     bool              `json:"stdin,omitempty"`
+	Split     bool              `json:"split,omitempty"` // keep stderr apart (not a tty's)
 	TimeoutMs int64             `json:"timeoutMs,omitempty"`
 	Label     string            `json:"label,omitempty"`
 	ClientID  string            `json:"clientId,omitempty"`
@@ -92,14 +97,15 @@ type execRec struct {
 	clientID, reqHash   string
 	forUser             string
 	argv                []string
-	tty, stdin          bool
+	tty, stdin, split   bool
 	uid                 *uint32
 	started             int64
 	b                   *box
 	r                   *run
 	sess                *agentSession
-	ring                *ring
-	in, out             net.Conn      // its input (stdin: true, or the pty; nil: none) and its output stream
+	ring                *ring         // its output: stdout and stderr, or stdout alone when split
+	errRing             *ring         // a split exec's stderr (nil: not split)
+	in, out, errOut     net.Conn      // its input (stdin: true, or the pty; nil: none), its output stream, a split one's stderr
 	pumped, ready, done chan struct{} // output read to its end; the start resolved; the end recorded
 	failed              bool          // the start failed (set before ready closes)
 	inMu                sync.Mutex    // one writer to in at a time
@@ -113,6 +119,8 @@ type execRec struct {
 	clients             int64           // TTY clients attached now
 	users               map[string]bool // who attached (forUser): noTerminal ends it for them too
 	timers              []*time.Timer
+	stdioMu             sync.Mutex
+	stdioAt             *stdioSock // the stdio socket attached last: it holds stdin (stdio.go)
 }
 
 // endedAt is when it ended (0: running).
@@ -128,7 +136,10 @@ func (e *execRec) info() Exec {
 	defer e.mu.Unlock()
 	x := Exec{ID: e.id, Label: e.label, Cmd: e.cmd, Argv: e.argv, Cwd: e.cwd, TTY: e.tty, State: e.state,
 		ExitCode: e.exitCode, Signal: e.signal, Started: e.started, Total: e.ring.Total(),
-		ClientID: e.clientID, ForUser: e.forUser, UID: e.uid}
+		Split: e.split, ClientID: e.clientID, ForUser: e.forUser, UID: e.uid}
+	if e.errRing != nil {
+		x.ErrTotal = e.errRing.Total()
+	}
 	if e.ended > 0 {
 		ended := e.ended
 		x.Ended = &ended
@@ -170,26 +181,35 @@ func (e *execRec) signalGroup(sig syscall.Signal, group bool) error {
 // writeIn writes p to its input: stdin, or a tty's terminal. A command that
 // doesn't read it for inWait answers unavailable.
 func (e *execRec) writeIn(p []byte) error {
+	_, err := e.writeInN(p, inWait)
+	return err
+}
+
+// writeInN is writeIn waiting at most wait for the command to read, and
+// how many bytes of p it took: a stdio socket (stdio.go) tries again with
+// the rest, its own flow control holding the client meanwhile.
+func (e *execRec) writeInN(p []byte, wait time.Duration) (int, error) {
 	e.inMu.Lock()
 	defer e.inMu.Unlock()
 	if e.inClosed {
-		return refuse(RefInvalid, "exec %s's stdin was closed (eof)", e.id)
+		return 0, refuse(RefInvalid, "exec %s's stdin was closed (eof)", e.id)
 	}
+	done := 0
 	for len(p) > 0 {
-		_ = e.in.SetWriteDeadline(time.Now().Add(inWait))
+		_ = e.in.SetWriteDeadline(time.Now().Add(wait))
 		n, err := e.in.Write(p)
-		p = p[n:]
+		p, done = p[n:], done+n
 		if err != nil {
 			if !e.running() {
-				return refuse(RefState, "exec %s has ended", e.id)
+				return done, refuse(RefState, "exec %s has ended", e.id)
 			}
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				return &Error{Refusal: RefUnavailable, Msg: fmt.Sprintf("exec %s isn't reading its input", e.id), RetryAfter: time.Second}
+				return done, &Error{Refusal: RefUnavailable, Msg: fmt.Sprintf("exec %s isn't reading its input", e.id), RetryAfter: time.Second}
 			}
-			return refuse(RefState, "exec %s's input is closed: %v", e.id, err)
+			return done, refuse(RefState, "exec %s's input is closed: %v", e.id, err)
 		}
 	}
-	return nil
+	return done, nil
 }
 
 // closeIn sends its stdin's eof.
@@ -232,7 +252,7 @@ func (m *Manager) startExec(k Key, d *Def, req *ExecRequest, label string) (e *e
 	}
 	hb, _ := json.Marshal(req)
 	e = &execRec{label: label, cmd: req.Cmd, argv: req.Argv, cwd: ex.Cwd, clientID: req.ClientID, reqHash: string(hb),
-		forUser: req.ForUser, tty: req.TTY, stdin: req.Stdin && !req.TTY, uid: ex.UID,
+		forUser: req.ForUser, tty: req.TTY, stdin: req.Stdin && !req.TTY, split: req.Split && !req.TTY, uid: ex.UID,
 		ready: make(chan struct{}), done: make(chan struct{}), pumped: make(chan struct{}), users: map[string]bool{}}
 	if b, err = m.boxFor(k, d.Name); err != nil {
 		return nil, nil, false, err
@@ -284,11 +304,13 @@ func (m *Manager) checkExec(d *Def, req *ExecRequest) (proto.Exec, error) {
 		return proto.Exec{}, refuse(RefInvalid, "label must be at most %d printable characters", maxLabel)
 	case req.TTY && (req.Rows < 0 || req.Cols < 0 || req.Rows > 0xffff || req.Cols > 0xffff):
 		return proto.Exec{}, refuse(RefInvalid, "rows and cols are 1…65535")
+	case req.TTY && req.Split:
+		return proto.Exec{}, refuse(RefInvalid, "split is a non-tty exec's: a terminal is one stream")
 	}
 	if err := checkClientID(req.ClientID); err != nil {
 		return proto.Exec{}, err
 	}
-	ex, err := m.execOf(d, command{Cmd: req.Cmd, Argv: req.Argv, Cwd: req.Cwd, Env: req.Env, UID: req.UID, GID: req.GID, ForUser: req.ForUser})
+	ex, err := m.execOf(d, command{Cmd: req.Cmd, Argv: req.Argv, Cwd: req.Cwd, Env: req.Env, UID: req.UID, GID: req.GID, ForUser: req.ForUser, TTY: req.TTY})
 	if err != nil {
 		return ex, err
 	}
@@ -298,7 +320,7 @@ func (m *Manager) checkExec(d *Def, req *ExecRequest) (proto.Exec, error) {
 			ex.Rows, ex.Cols = uint16(req.Rows), uint16(req.Cols)
 		}
 	} else {
-		ex.Merge, ex.NoStdin = true, !req.Stdin
+		ex.Merge, ex.NoStdin = !req.Split, !req.Stdin
 	}
 	return ex, nil
 }
@@ -325,7 +347,11 @@ func (m *Manager) launchExec(k Key, d *Def, b *box, e *execRec, ex proto.Exec, t
 	}
 	lim := m.limitsFor(k.Tile)
 	e.b, e.r, e.sess = b, r, sess
-	e.ring = newRing(m.ringBudgetFor(k.Tile, lim), lim.OutputRingMiB<<20)
+	budget := m.ringBudgetFor(k.Tile, lim)
+	e.ring = newRing(budget, lim.OutputRingMiB<<20)
+	if e.split { // the same budget: a split exec's streams hold what one would
+		e.errRing = newRing(budget, lim.OutputRingMiB<<20)
+	}
 	e.state, e.started = ExecRunning, m.now().UnixMilli()
 	if ex.TTY {
 		e.in, e.out = streams["pty"], streams["pty"]
@@ -338,7 +364,7 @@ func (m *Manager) launchExec(k Key, d *Def, b *box, e *execRec, ex proto.Exec, t
 			clients(n)
 		}
 	} else {
-		e.in, e.out = streams["stdin"], streams["stdout"]
+		e.in, e.out, e.errOut = streams["stdin"], streams["stdout"], streams["stderr"]
 	}
 	go m.pump(e)
 	if err := waitStarted(c, sess); err != nil {
@@ -347,6 +373,9 @@ func (m *Manager) launchExec(k Key, d *Def, b *box, e *execRec, ex proto.Exec, t
 		}
 		<-e.pumped
 		e.ring.Drop()
+		if e.errRing != nil {
+			e.errRing.Drop()
+		}
 		hold()
 		return err
 	}
@@ -434,16 +463,31 @@ func (e *execRec) timeout() {
 	_ = e.signalGroup(syscall.SIGTERM, true)
 }
 
-// pump reads its output stream into its ring (and a tty's hub) to the end.
+// pump reads its output stream into its ring (and a tty's hub) to the end
+// — a split exec's stderr into its own ring too.
 func (m *Manager) pump(e *execRec) {
 	defer close(e.pumped)
+	var wg sync.WaitGroup
+	if e.errOut != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.pumpStream(e, e.errOut, e.errRing, nil)
+		}()
+	}
+	m.pumpStream(e, e.out, e.ring, e.hub)
+	wg.Wait()
+}
+
+// pumpStream reads one stream into rg (and hub) to its end.
+func (m *Manager) pumpStream(e *execRec, from net.Conn, rg *ring, hub *termwire.Hub) {
 	buf := make([]byte, 32<<10)
 	for {
-		n, err := e.out.Read(buf)
+		n, err := from.Read(buf)
 		if n > 0 {
-			e.ring.Write(buf[:n])
-			if e.hub != nil {
-				e.hub.Output(buf[:n])
+			rg.Write(buf[:n])
+			if hub != nil {
+				hub.Output(buf[:n])
 			}
 			m.touch(e.r)
 		}
@@ -470,6 +514,9 @@ func (m *Manager) watchExec(t *execTable, e *execRec, release func()) {
 	}
 	g.Stop()
 	e.out.Close()
+	if e.errOut != nil {
+		e.errOut.Close()
+	}
 	<-e.pumped
 	if e.in != nil {
 		e.in.Close()
@@ -507,6 +554,9 @@ func (e *execRec) finish(now int64, x SessionExit) {
 	e.hub = nil // a later attach replays the ring
 	e.mu.Unlock()
 	e.ring.End()
+	if e.errRing != nil {
+		e.errRing.End()
+	}
 	if hub != nil {
 		hub.End(e.ttyExit())
 	}
