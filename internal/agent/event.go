@@ -4,30 +4,33 @@
 // in an append-only Log any client replays by cursor, and holds the
 // permission requests until a client answers. Nothing here knows about
 // sandboxes, HTTP or a particular protocol — internal/agent/acp is the one
-// Driver, internal/term wires a session around it, internal/server serves
-// it. docs/protocol.md §/api/xbin (term/sessions) and §/ws/events
-// describe the wire.
+// Driver (sdk/acp's client, whose event, permission, attachment and
+// provider types this package re-exports), internal/term wires a session
+// around it, internal/server serves it. docs/protocol.md §/api/xbin
+// (term/sessions) and §/ws/events describe the wire.
 package agent
 
 import (
-	"encoding/json"
 	"sync"
 	"time"
+
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
-// Event types, as they appear on the wire (docs/protocol.md).
+// Event types, as they appear on the wire (docs/protocol.md): the ACP
+// client's (sdk/acp).
 const (
-	EvMessageDelta       = "message.delta"        // {role, text, messageId?}
-	EvThoughtDelta       = "thought.delta"        // {text}
-	EvPlan               = "plan"                 // {entries:[{content, priority, status}]}
-	EvToolCall           = "tool.call"            // {id, title, kind, status, content, locations, rawInput}
-	EvToolUpdate         = "tool.update"          // {id, …partial}
-	EvPermissionRequest  = "permission.request"   // {pid, toolCall, options}
-	EvPermissionResolved = "permission.resolved"  // {pid, optionId, by}
-	EvElicitRequest      = "elicitation.request"  // {eid, toolCallId?, message, schema}
-	EvElicitResolved     = "elicitation.resolved" // {eid, action, by, content?}
-	EvTurnEnd            = "turn.end"             // {turn, stopReason, usage?}
-	EvStatus             = "status"               // {status, detail?, modes?, currentMode?, options?, usage?}
+	EvMessageDelta       = acp.EvMessageDelta       // {role, text, messageId?}
+	EvThoughtDelta       = acp.EvThoughtDelta       // {text}
+	EvPlan               = acp.EvPlan               // {entries:[{content, priority, status}]}
+	EvToolCall           = acp.EvToolCall           // {id, title, kind, status, content, locations, rawInput}
+	EvToolUpdate         = acp.EvToolUpdate         // {id, …partial}
+	EvPermissionRequest  = acp.EvPermissionRequest  // {pid, toolCall, options}
+	EvPermissionResolved = acp.EvPermissionResolved // {pid, optionId, by}
+	EvElicitRequest      = acp.EvElicitRequest      // {eid, toolCallId?, message, schema}
+	EvElicitResolved     = acp.EvElicitResolved     // {eid, action, by, content?}
+	EvTurnEnd            = acp.EvTurnEnd            // {turn, stopReason, usage?}
+	EvStatus             = acp.EvStatus             // {status, detail?, modes?, currentMode?, options?, usage?}
 	// EvGap is never logged: a follow stream inserts it when the cursor
 	// predates the ring, so a client shows "earlier events dropped".
 	EvGap = "gap"
@@ -35,30 +38,22 @@ const (
 
 // Session statuses (SessionInfo.status, status events).
 const (
-	StatusStarting   = "starting"
-	StatusIdle       = "idle"
-	StatusRunning    = "running"
-	StatusWaiting    = "waiting_permission"
-	StatusCancelling = "cancelling" // session/cancel sent, the turn's end pending
-	StatusError      = "error"
-	StatusExited     = "exited"
+	StatusStarting   = acp.StatusStarting
+	StatusIdle       = acp.StatusIdle
+	StatusRunning    = acp.StatusRunning
+	StatusWaiting    = acp.StatusWaiting
+	StatusCancelling = acp.StatusCancelling // session/cancel sent, the turn's end pending
+	StatusError      = acp.StatusError
+	StatusExited     = acp.StatusExited
 )
 
 // Event is one entry of a session's log. Seq is assigned by the Log (1, 2,
 // …); TS is unix milliseconds; Data is the typed payload for Type.
-type Event struct {
-	Seq  uint64          `json:"seq"`
-	TS   int64           `json:"ts"`
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data,omitempty"`
-}
+type Event = acp.Event
 
 // New builds an event with its payload marshalled; Seq/TS are set by the
 // Log on Append (a driver never numbers).
-func New(typ string, data any) Event {
-	b, _ := json.Marshal(data)
-	return Event{Type: typ, Data: b}
-}
+func New(typ string, data any) Event { return acp.NewEvent(typ, data) }
 
 // Log is a session's append-only event log: a ring bounded by count and
 // bytes, replayable by cursor. In memory — sessions die with the daemon.
@@ -85,9 +80,11 @@ func NewLog(maxCount, maxBytes int) *Log {
 	return &Log{maxCount: maxCount, maxBytes: maxBytes, next: 1, now: time.Now}
 }
 
-// Append numbers and stores e (its Seq/TS are overwritten), trimming the
-// oldest entries past the bounds, and wakes waiters. Returns the stored event.
+// Append numbers and stores e (its Seq/TS are overwritten, its Wire
+// dropped), trimming the oldest entries past the bounds, and wakes waiters.
+// Returns the stored event.
 func (l *Log) Append(e Event) Event {
+	e.Wire = nil // where on the wire it came from is the driver's business, never the log's
 	l.mu.Lock()
 	e.Seq = l.next
 	l.next++

@@ -15,8 +15,6 @@ import (
 	"sort"
 	"strconv"
 	"sync"
-
-	"github.com/xbin-dev/xbin/internal/agent"
 )
 
 type elicits struct {
@@ -29,11 +27,11 @@ type elicits struct {
 // (for the reply) and what the clients were shown.
 type pendingElicit struct {
 	rpcID json.RawMessage
-	q     agent.Elicitation
+	q     Elicitation
 }
 
 // add files a question; q.EID is assigned here.
-func (e *elicits) add(rpcID json.RawMessage, q agent.Elicitation) string {
+func (e *elicits) add(rpcID json.RawMessage, q Elicitation) string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.pend == nil {
@@ -54,10 +52,10 @@ func (e *elicits) take(eid string) (json.RawMessage, bool) {
 }
 
 // list is the pending questions, oldest first.
-func (e *elicits) list() []agent.Elicitation {
+func (e *elicits) list() []Elicitation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	out := make([]agent.Elicitation, 0, len(e.pend))
+	out := make([]Elicitation, 0, len(e.pend))
 	for _, p := range e.pend {
 		out = append(out, p.q)
 	}
@@ -86,15 +84,15 @@ func (c *Client) onElicit(m *Message) (any, *Error) {
 		RequestedSchema json.RawMessage `json:"requestedSchema"`
 	}
 	if json.Unmarshal(m.Params, &p) != nil {
-		return nil, &Error{Code: ErrInvalidParam, Message: "bad elicitation/create params"}
+		return nil, &Error{Code: CodeInvalidParams, Message: "bad elicitation/create params"}
 	}
 	if p.Mode != "" && p.Mode != "form" {
 		return map[string]string{"action": "decline"}, nil // we advertise form only
 	}
-	q := agent.Elicitation{ToolCallID: p.ToolCallID, Message: p.Message, Schema: p.RequestedSchema}
+	q := Elicitation{ToolCallID: p.ToolCallID, Message: p.Message, Schema: p.RequestedSchema}
 	q.EID = c.elicits.add(m.ID, q)
-	c.emit(agent.New(agent.EvElicitRequest, q))
-	c.setStatus(agent.StatusWaiting, "")
+	c.emit(NewEvent(EvElicitRequest, q))
+	c.setStatus(StatusWaiting, "")
 	return nil, nil // answered by RespondElicitation
 }
 
@@ -108,7 +106,7 @@ func (c *Client) RespondElicitation(eid, action string, content json.RawMessage,
 	}
 	rpcID, ok := c.elicits.take(eid)
 	if !ok {
-		return agent.ErrNoElicitation
+		return ErrNoElicitation
 	}
 	out := map[string]any{"action": action}
 	res := map[string]any{"eid": eid, "action": action, "by": by}
@@ -119,20 +117,20 @@ func (c *Client) RespondElicitation(eid, action string, content json.RawMessage,
 		out["content"], res["content"] = content, content // the transcript shows what was answered
 	}
 	// logged before the agent hears it, like a permission's resolution
-	c.emit(agent.New(agent.EvElicitResolved, res))
+	c.emit(NewEvent(EvElicitResolved, res))
 	err := c.conn.Reply(rpcID, out, nil)
 	c.mu.Lock()
 	busy, st := c.busy, c.status
 	c.mu.Unlock()
-	if busy && st != agent.StatusCancelling && c.cfg.Perms.Count() == 0 && c.elicits.count() == 0 {
-		c.setStatus(agent.StatusRunning, "")
+	if busy && st != StatusCancelling && c.cfg.Perms.Count() == 0 && c.elicits.count() == 0 {
+		c.setStatus(StatusRunning, "")
 	}
 	return err
 }
 
 // PendingElicitations is the questions still waiting for an answer, oldest
 // first (GET /term/sessions/<id> lists them beside the permissions).
-func (c *Client) PendingElicitations() []agent.Elicitation { return c.elicits.list() }
+func (c *Client) PendingElicitations() []Elicitation { return c.elicits.list() }
 
 // cancelElicits answers every pending question "cancel" (the turn is being
 // cancelled).

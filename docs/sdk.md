@@ -153,6 +153,83 @@ checks itself with the contract's conformance suite:
 section of the contract against it as subtests. How to aim it, and its
 knobs: [sandbox-manager.md](sandbox-manager.md) §Building a manager.
 
+### Driving a coding agent — `github.com/xbin-dev/xbin/sdk/acp`
+
+An **ACP client** (the [Agent Client Protocol](https://agentclientprotocol.com),
+version 1) on the standard library alone — the one xbind's Agent tab runs.
+It drives a coding agent's ACP adapter over the adapter's stdio and turns
+what the agent does into one typed stream of events. Where the adapter runs
+is yours: a `Spawner` starts it (locally, in a sandbox, through a manager's
+exec) and hands back its stdin/stdout.
+
+```go
+import "github.com/xbin-dev/xbin/sdk/acp"
+
+p, _ := acp.Lookup("claude")        // the catalog: claude, codex, gemini, opencode
+perms := acp.NewPermissions()
+c := acp.New()                        // or acp.NewWith(acp.ClientOptions{…})
+err := c.Start(ctx, acp.Config{Provider: p, Argv: p.Argv, Cwd: "/work",
+	Spawn: func(ctx context.Context, cfg acp.Config) (*acp.Process, error) {
+		… // start cfg.Argv with cfg.Env; return its Stdin, Stdout (Stderr, Kill optional)
+	},
+	Perms: perms, Log: func(line string) { … }})
+go func() {
+	for e := range c.Events() { … } // closed when the agent is gone
+}()
+err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a turn runs
+```
+
+- **Events** (`acp.Event{Type, Data}`, JSON payloads): `message.delta`,
+  `thought.delta`, `plan`, `tool.call` / `tool.update` (with the adapters'
+  extensions lifted into `name`, `label`, `parent`, `output`, `exitCode`,
+  …), `permission.request` / `permission.resolved`, `elicitation.request` /
+  `elicitation.resolved`, `turn.end`, and `status` (`starting`, `idle`,
+  `running`, `waiting_permission`, `cancelling`, `error`, `exited`, with the
+  modes, config options, slash commands, usage, the agent's title, and
+  `login{needed, provider, command}` while it is signed out). The shapes are
+  xbind's session events: [protocol.md](protocol.md) §Agent session events.
+- **Answering.** A `permission.request` names a `pid`:
+  `res, err := perms.Resolve(pid, optionID, decision, by)` then
+  `c.RespondPermission(res)` (first answer wins; `allow_always` records a
+  session rule; a plan approval — kind `switch_mode` — never does). A
+  question: `c.RespondElicitation(eid, "accept"|"decline"|"cancel",
+  content, by)`; `c.PendingElicitations()` lists the open ones. `c.Cancel()`
+  interrupts the turn and answers everything pending as cancelled.
+- **Settings.** `c.SetOption(ctx, id, value)` (a config option the agent
+  advertised — model, effort — or `"mode"`); `Config.Mode` / `Options`
+  request them at start; `Config.ResumeID` reopens an earlier session
+  (`session/load`) when the agent advertised `loadSession` (`c.Session()`
+  reports its id and whether it can).
+- **Providers.** `acp.Providers()` / `acp.Lookup(id)`: the argv, modes
+  (explicit ones — bypass, full access — are never a default), env and
+  session `_meta` each adapter wants, `LoginCmd` (a shell command that
+  signs the CLI in from a terminal where it runs; the adapter reads the
+  login from its `$HOME`), `Bins` (the executables to look for) and
+  `AutoMode` (the auto-edit mode, `""` for none).
+- **Prompts with files.** `acp.PrepareAttachments` checks and normalises
+  them (limits: `acp.Max*`). Each file is first dropped where the agent
+  runs — `ClientOptions.Drop` returns the path — then an image goes inline
+  (when the agent takes images), small text is embedded, the rest is a
+  link. Without a `Drop`, a prompt with files is refused
+  (`acp.ErrUnsupportedContent`).
+
+`acp.NewWith(acp.ClientOptions{…})` sets the seams; each zero value is the
+default:
+
+| field | what it does (default) |
+|---|---|
+| `Caps` | the `clientCapabilities` advertised (`acp.DefaultCaps()`: xbind's — text files and terminals, which its in-sandbox host serves, the adapters' tool-call extensions, form questions). The `Client` itself serves no `fs/*` or `terminal/*` request (it answers method-not-found); without a proxy in between that does, advertise them `false`. |
+| `Drop` | hands a prompt's file to where the agent runs, returns its path (none: files refused) |
+| `AuthHint` | the text of an error the agent answered "auth required" (-32000) to (the agent's message, then `the agent isn't signed in — run: <LoginCmd>`); the error still unwraps to the agent's `*acp.Error` |
+| `OnExt` | sees a notification the client does not handle itself — an extension — and says whether it handled it |
+| `InlineBudget` | bytes of images one prompt sends inline (`acp.MaxInlineImagesBytes`; negative: none) |
+| `IDPrefix`, `Attach` | reserved: `Start` refuses them in this version |
+
+The codec is exported too — `acp.NewConn(r, w)` (`Call`, `CallCtx`,
+`Notify`, `Reply`, `Serve`), `acp.NewDecoder`, `acp.Encode` and the
+protocol types — for a proxy between a client and an agent, or a scripted
+agent in tests.
+
 ### Resources, vault, bus
 
 ```go

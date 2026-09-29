@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-29
 
+- **SDK: an ACP client — `github.com/xbin-dev/xbin/sdk/acp`**
+  ([sdk.md](sdk.md) §Driving a coding agent). The client xbind's Agent tab
+  runs is now part of the SDK, still zero-dependency: a tile backend can
+  drive Claude Code, Codex, Gemini CLI or OpenCode through their ACP
+  adapters wherever it starts them (a `Spawner` returns the process's
+  stdio) and get the same typed events — deltas, tool calls, plans,
+  permission requests and questions held until answered, status with the
+  sign-in command. `acp.Providers()` is the adapter catalog, with each
+  one's login command, executables and auto-edit mode; `ClientOptions`
+  choose the capabilities advertised, where a prompt's files go, the
+  sign-in wording and extension notifications. The Agent tab, `bx agent`
+  and the session API are unchanged: what xbind sends an adapter and serves
+  a client is byte for byte what it was. Nothing to change.
 - **The shell's sidebar is quieter.** A tile's row starts with an app icon
   (a small window, drawn — not an emoji; highlighted while the tile is
   open) instead of its runtime's coloured dot, and no longer names the

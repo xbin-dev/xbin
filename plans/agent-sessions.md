@@ -13,10 +13,16 @@ sessions, `docs/bx.md` (`bx agent`), `docs/protocol.md` (`/term/sessions…`,
 ## Layout
 
 ```
-internal/agent/          the model: Event + Log (ring, Since(cursor)), Permissions
-                         (first answer wins, session rules), Driver, the provider table
-internal/agent/acp/      the one Driver: JSON-RPC codec (rpc.go), the v1 subset
-                         (types.go), the client state machine (client.go)
+sdk/acp/                 the ACP client, shared with tiles (zero-dependency): JSON-RPC
+                         codec (rpc.go), the v1 subset (types.go), Event, Permissions
+                         (first answer wins, session rules), attachments, the provider
+                         catalog, the client state machine (client.go, handshake.go,
+                         updates.go, status.go, prompt.go, …) and its seams (config.go)
+internal/agent/          the model: Log (ring, Since(cursor)), pages, Driver, the
+                         providers xbind offers (+ the fake), aliases of sdk/acp's types
+internal/agent/acp/      the one Driver: sdk/acp's client with xbind's seams — files
+                         through the host (_xbin/attach), _xbin/log, the tile login
+                         hint — and the daemon ⇄ host frames (_xbin/*)
 internal/agent/host/     bx __agent-host — PID 1 in the sandbox: spawns the agent
                          from _xbin/spawn, proxies frames, serves fs/* + terminal/*
                          itself, reaps (reaper.go)
@@ -71,7 +77,7 @@ makes itself a sub-reaper.
 | `terminal/output` / `wait_for_exit` / `kill` / `release` | **host**: buffer truncated from the start at a character boundary (default 1 MiB); `{output, truncated, exitStatus?}`; kill = SIGKILL the group; release = kill + forget |
 | anything else from the agent | forwarded unchanged (the host is transparent) |
 
-## Provider table (`internal/agent/providers.go`)
+## Provider table (`sdk/acp/providers.go`; the fake: `internal/agent/providers.go`)
 
 | id | command | login (in a terminal; its $HOME serves the agent) | modes (default first; *explicit* never a default) |
 |---|---|---|---|
