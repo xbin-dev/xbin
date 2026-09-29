@@ -441,10 +441,11 @@ func now() int64 { return time.Now().UnixMilli() }
 // --- hello --------------------------------------------------------------------------------
 
 type imageEntry struct {
-	ID      string   `json:"id"`
-	Title   string   `json:"title"`
-	Default bool     `json:"default,omitempty"`
-	Tools   []string `json:"tools"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Default   bool      `json:"default,omitempty"`
+	Tools     []string  `json:"tools"`
+	Harnesses []Harness `json:"harnesses,omitempty"` // additive: an image's coding agents
 }
 
 type sizeEntry struct {
@@ -585,7 +586,7 @@ func (m *Manager) hello(w http.ResponseWriter, r *http.Request) {
 		if tools == nil {
 			tools = []string{}
 		}
-		images = append(images, imageEntry{ID: im.ID, Title: im.Title, Default: im.Default, Tools: tools})
+		images = append(images, imageEntry{ID: im.ID, Title: im.Title, Default: im.Default, Tools: tools, Harnesses: im.Harnesses})
 	}
 	sizes := []sizeEntry{}
 	for _, s := range o.sizes {

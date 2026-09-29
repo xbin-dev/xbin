@@ -4333,10 +4333,12 @@ error.
   (`/root` for root, `/` for any other user) and a `PATH` with the base
   rootfs's toolchains first (`/usr/local/{go,node,bun}/bin`, as terminals
   and backends have it), plus `PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright`
-  where the rootfs ships Playwright's browsers, with
-  `defaults.env` and then the command's `env` over them; `XBIN_*` keys are
-  400. Nothing of xbind's or of the agent's own environment gets in, nor
-  xbind's user's supplementary groups: a command has none (except on a
+  where the rootfs ships Playwright's browsers — and, for a command on a
+  terminal (a `tty` exec, the `tty` route), `TERM=xterm-256color`,
+  `COLORTERM=truecolor` and `LANG=C.UTF-8`, as xbind's terminals have
+  them — with `defaults.env` and then the command's `env` over them;
+  `XBIN_*` keys are 400. Nothing of xbind's or of the agent's own
+  environment gets in, nor xbind's user's supplementary groups: a command has none (except on a
   namespace host mapping a single uid, `users: root`, which can't drop
   them). Each command leads its own process group, and it is what the OOM
   killer takes first.

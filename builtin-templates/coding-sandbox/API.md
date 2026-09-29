@@ -95,9 +95,13 @@ trusts its consumers.
   home from the account database (OpenSSH's `~/.ssh`) agree with `USER`
   and `HOME`. A name the image gives another uid stays the image's.
 - **Inside.** Every command runs as the layout's user (uid/gid) with `HOME`,
-  `USER`, `IN_SANDBOX=1`, `SANDBOX_ID` and `SANDBOX_NAME`; `cmd` runs in the
-  layout's shell. On a substrate that runs everything as root (the runtime's
-  `users: root`), the user is root at `/root`.
+  `USER`, `IN_SANDBOX=1`, `IS_SANDBOX=1` (the spelling coding agents check —
+  Claude Code; part of the sandbox's defaults, so one made before it has it
+  from its next rename), `SANDBOX_ID` and `SANDBOX_NAME`; `cmd` runs in the
+  layout's shell. A terminal's command also gets `TERM`, `COLORTERM` and
+  `LANG` (the runtime's, docs/protocol.md §Tile sandboxes). On a substrate
+  that runs everything as root (the runtime's `users: root`), the user is
+  root at `/root`.
 - **`caps`** are the substrate's (`exec`, `files`, `tar`, `tty`,
   `snapshots`, `clone`, and `ports` where xbind serves it); `archive`
   isn't offered yet (its routes answer 501).
@@ -119,8 +123,30 @@ An image is the substrate's base plus an optional **setup script**:
 ```jsonc
 {"id": "node", "title": "Node 22 + pnpm", "tools": ["git", "node", "pnpm"],
  "setup": "apt-get update && apt-get install -y nodejs npm && npm i -g pnpm",
- "buildEgress": "internet"}
+ "buildEgress": "internet",
+ "harnesses": [{"id": "claude"}, {"id": "codex", "login": "codex login --device-auth"}]}
 ```
+
+`tools` and `harnesses` are what hello says of the image — the operators'
+word, nothing checks it. **`harnesses`** are its coding agents that speak
+ACP, `[{id, title?, argv?, login?}]` (docs/sandbox-manager.md §hello: ids
+of the grammar above, once each; `argv` the adapter's command; `login` a
+one-line shell command that signs it in at a terminal). A new manager's
+`base` lists the four xbin's base rootfs installs:
+
+| id | title | argv | login |
+|---|---|---|---|
+| `claude` | Claude Code | `claude-agent-acp` | `claude /login` |
+| `codex` | Codex | `codex-acp` | `codex login --device-auth` |
+| `gemini` | Gemini CLI | `gemini --acp` | `NO_BROWSER=true gemini` |
+| `opencode` | OpenCode | `opencode acp` | `opencode auth login` |
+
+— signing in without a browser in the sandbox (a URL to open and a code to
+paste back, a device code), whose login callback on the sandbox's
+`localhost` a person's browser couldn't reach. A saved config keeps the
+harnesses it was saved with: one saved before them lists none (a consumer
+then probes for the agents it knows), until an operator adds them. The
+page's image editor keeps an image's harnesses; `PUT /ops/config` sets them.
 
 The first sandbox of an image builds it: a template sandbox of its own is
 made and prepared, the script runs in it **as root** in the workdir (with
@@ -170,7 +196,7 @@ it carries (each whole) and answers the state:
 | `backend` | `"xbin"` | a registered backend; changing it needs no sandboxes or built images left |
 | `backendConfig` | `{}` | the backend's own settings |
 | `mode` | `vm` (a manager made before 2026-09-28: `auto`) | `auto` (or `""`): a VM where the substrate offers VMs now, else a namespace (else another backend's first mode); `vm` or `namespace`: only that — while the substrate lacks it no sandbox is made (`503`, its reason; hello's `notes` say so), never another mode. A sandbox's `isolation` says the mode it got. Another backend may name its own (`container`, `cloud-vm`) |
-| `images` | `base` (the substrate's base, no script) | above; one is the default |
+| `images` | `base` (the substrate's base, no script; its tools and the four coding agents) | above; one is the default |
 | `sizes` | `small` 2 GiB/2/20 GiB, `medium`, `large` | `{id, title, memMiB, vcpus, diskGiB, default}`; sizes over the substrate's per-sandbox caps aren't offered |
 | `quotas` | none | above |
 | `layout` | `/work`, `/home/dev`, `dev` 1000:1000, `/bin/bash` | `{workdir, home, user, uid, gid, shell}` |
@@ -275,7 +301,7 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
 - **create**: `mode` (above — never chosen by the runtime), the size's
   `memMiB`/`vcpus`/`diskGiB`, `net.egress` `none` or `class:internet` /
   `class:open`, `defaults` (the layout: cwd, uid/gid, shell, `HOME`, `USER`,
-  `IN_SANDBOX`, `SANDBOX_ID`, `SANDBOX_NAME`), the operators' `mounts`,
+  `IN_SANDBOX`, `IS_SANDBOX`, `SANDBOX_ID`, `SANDBOX_NAME`), the operators' `mounts`,
   `idleStopMin` (`autoStopMin`), `for`/`forUser` (the consumer and the
   person, as claims), `labels` `{coding-sandbox/id}` (never the consumer's
   own), `clientId` = the runtime name, and `from` for clones and images;

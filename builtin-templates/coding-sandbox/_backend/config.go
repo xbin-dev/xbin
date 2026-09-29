@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -57,6 +58,31 @@ type Image struct {
 	// BuildEgress is the setup's network while it builds: none | internet |
 	// open ("" = internet where that class is bound, else none).
 	BuildEgress string `json:"buildEgress,omitempty"`
+	// Harnesses are the coding agents speaking ACP that hello says the image
+	// has (hello.images[].harnesses; none: hello says nothing of them).
+	Harnesses []Harness `json:"harnesses,omitempty"`
+}
+
+// Harness is one of an image's coding agents (docs/sandbox-manager.md
+// §hello): its id — claude, codex, gemini, opencode are the ones consumers
+// know — and, over what a consumer knows of it, its name, the command that
+// speaks ACP and the shell command that signs it in at a terminal.
+type Harness struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title,omitempty"`
+	Argv  []string `json:"argv,omitempty"`
+	Login string   `json:"login,omitempty"`
+}
+
+// baseHarnesses are the coding agents xbin's base rootfs installs
+// (docker/rootfs.Dockerfile; /etc/xbin-rootfs-tools lists what did), each
+// through its ACP adapter as xbind's Agent tab runs it, and a sign-in that
+// needs no browser in the sandbox: a code to paste, a device code.
+var baseHarnesses = []Harness{
+	{ID: "claude", Title: "Claude Code", Argv: []string{"claude-agent-acp"}, Login: "claude /login"},
+	{ID: "codex", Title: "Codex", Argv: []string{"codex-acp"}, Login: "codex login --device-auth"},
+	{ID: "gemini", Title: "Gemini CLI", Argv: []string{"gemini", "--acp"}, Login: "NO_BROWSER=true gemini"},
+	{ID: "opencode", Title: "OpenCode", Argv: []string{"opencode", "acp"}, Login: "opencode auth login"},
 }
 
 // Size is a sandbox's resources.
@@ -115,12 +141,20 @@ func (q Quotas) forPerson(u string) Quota {
 	return q.Person
 }
 
+// baseTools are the commands xbin's base rootfs has beyond a POSIX shell
+// (docker/rootfs.Dockerfile; its best-effort installs are listed in
+// /etc/xbin-rootfs-tools), the coding agents' own CLIs included. Not bun (a
+// bundle built on another CPU may not run it) nor chromium (Playwright's,
+// under PLAYWRIGHT_BROWSERS_PATH — not a command).
+var baseTools = []string{"git", "go", "node", "npm", "pnpm", "yarn", "python3", "rg", "make", "gcc", "curl", "jq",
+	"gh", "gopls", "dlv", "playwright", "claude", "codex", "gemini", "opencode"}
+
 // defaultConfig is a new manager's: VM sandboxes only.
 func defaultConfig() Config {
 	return Config{
 		Mode: "vm",
 		Images: []Image{{ID: "base", Title: "Ubuntu with git, Go, Node and Python", Default: true,
-			Tools: []string{"git", "go", "node", "python3", "rg", "make", "gcc", "playwright", "chromium"}}},
+			Tools: slices.Clone(baseTools), Harnesses: slices.Clone(baseHarnesses)}},
 		Sizes: []Size{
 			{ID: "small", Title: "Small", MemMiB: 2048, VCPUs: 2, DiskGiB: 20, Default: true},
 			{ID: "medium", Title: "Medium", MemMiB: 4096, VCPUs: 4, DiskGiB: 40},
@@ -171,6 +205,9 @@ func (c *Config) validate() error {
 			return fmt.Errorf("image %s: the setup script is over 64 KiB", im.ID)
 		case im.BuildEgress != "" && im.BuildEgress != "none" && im.BuildEgress != "internet" && im.BuildEgress != "open":
 			return fmt.Errorf("image %s: buildEgress is none, internet or open", im.ID)
+		}
+		if err := checkHarnesses(im); err != nil {
+			return err
 		}
 		if im.Title == "" {
 			im.Title = im.ID
@@ -223,6 +260,29 @@ func (c *Config) validate() error {
 		if q.Sandboxes < 0 || q.Running < 0 || q.MemMiB < 0 || q.VCPUs < 0 || q.DiskGiB < 0 {
 			return fmt.Errorf("quotas are 0 (no limit) or more")
 		}
+	}
+	return nil
+}
+
+// checkHarnesses: each of an image's harnesses has an id (the catalog's
+// grammar), once; an argv of at most 32 non-empty words; a one-line login;
+// a title of at most 64 characters (both trimmed).
+func checkHarnesses(im *Image) error {
+	seen := map[string]bool{}
+	for i := range im.Harnesses {
+		h := &im.Harnesses[i]
+		h.Title, h.Login = strings.TrimSpace(h.Title), strings.TrimSpace(h.Login)
+		switch {
+		case !catalogID.MatchString(h.ID):
+			return fmt.Errorf("image %s: harness id %q: letters, digits, '.', '_' and '-', 1–32", im.ID, h.ID)
+		case seen[h.ID]:
+			return fmt.Errorf("image %s: harness %s twice", im.ID, h.ID)
+		case len(h.Title) > 64 || len(h.Login) > 1024 || strings.ContainsAny(h.Title+h.Login, "\x00\n\r"):
+			return fmt.Errorf("image %s: harness %s: a title of at most 64 characters and a login of one line", im.ID, h.ID)
+		case len(h.Argv) > 32 || slices.ContainsFunc(h.Argv, func(a string) bool { return a == "" || len(a) > 1024 || strings.ContainsRune(a, 0) }):
+			return fmt.Errorf("image %s: harness %s: argv is at most 32 non-empty words", im.ID, h.ID)
+		}
+		seen[h.ID] = true
 	}
 	return nil
 }

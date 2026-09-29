@@ -57,6 +57,9 @@ type fsbManager struct {
 	Grace       time.Duration // TERM → KILL on a timeout (0 = 5 s)
 	Ring        int           // an exec's output ring (0 = 1 MiB); it keeps between Ring and 2×Ring bytes
 	FileMax     int64         // limits.fileMax (0 = 64 MiB)
+	// Harnesses are what hello says its image has (nil = the scripted
+	// "fake" agent, fsbFakeHarness; empty = none).
+	Harnesses []fsbHarness
 
 	mu     sync.Mutex
 	boxes  map[string]*fsbBox
@@ -225,7 +228,30 @@ type fsbExec struct {
 	ptyDone chan struct{} // closed when its output has all reached the ring
 }
 
-var fsbImages = []map[string]any{{"id": "base", "title": "the host's tools (a test fixture)", "default": true, "tools": []string{"git"}}}
+// fsbHarness is one of hello.images[].harnesses: a coding agent speaking ACP
+// on stdio (docs/sandbox-manager.md §hello).
+type fsbHarness struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title,omitempty"`
+	Argv  []string `json:"argv,omitempty"`
+	Login string   `json:"login,omitempty"`
+}
+
+// fsbFakeHarness is the harness hello advertises by default: hack/fakeacp,
+// the scripted ACP agent, found on the host's PATH (a sandbox's commands are
+// host processes here).
+var fsbFakeHarness = fsbHarness{ID: "fake", Title: "Fake agent (test fixture)", Argv: []string{"fakeacp"},
+	Login: "echo 'the fake agent needs no sign-in'"}
+
+func (m *fsbManager) images() []map[string]any {
+	hs := m.Harnesses
+	if hs == nil {
+		hs = []fsbHarness{fsbFakeHarness}
+	}
+	return []map[string]any{{"id": "base", "title": "the host's tools (a test fixture)", "default": true, "tools": []string{"git"},
+		"harnesses": hs}}
+}
+
 var fsbSizes = []fsbSize{{ID: "small", MemMiB: 2048, VCPUs: 2, DiskGiB: 20}}
 
 const (
@@ -613,7 +639,7 @@ func (m *fsbManager) hello(w http.ResponseWriter, r *http.Request) {
 		"protocol": 1, "protocols": []int{1},
 		"manager": map[string]string{"name": "fakesandbox", "title": "Fake sandboxes (test fixture)", "version": "1.0.0"},
 		"caps":    m.caps(), "egress": []string{"none", "internet"},
-		"images": fsbImages, "sizes": []map[string]any{{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}},
+		"images": m.images(), "sizes": []map[string]any{{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}},
 		"limits": map[string]int{"sandboxes": 0, "runTimeoutMaxMs": fsbRunMaxMs, "runOutputMax": fsbRunOutMax,
 			"execsRunning": 16, "outputRing": m.ringSize(), "stdinMax": fsbStdinMax, "fileMax": int(m.fileMax()),
 			"tarMax": 1 << 30, "waitMaxSec": fsbWaitMax},
@@ -1098,7 +1124,7 @@ func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 	c.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + b.Home, "PWD=" + cwd, "LANG=C.UTF-8",
 		"IN_SANDBOX=1", "SANDBOX_ID=" + b.ID, "SANDBOX_NAME=" + b.Name}
 	if q.TTY {
-		c.Env = append(c.Env, "TERM=xterm-256color")
+		c.Env = append(c.Env, "TERM=xterm-256color", "COLORTERM=truecolor")
 	}
 	keys := make([]string, 0, len(q.Env))
 	for k := range q.Env {

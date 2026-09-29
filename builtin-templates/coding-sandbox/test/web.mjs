@@ -151,6 +151,7 @@ const settle = (page) => page.waitForTimeout(120);
   ok('images and their builds', (await text(page, '[data-image="node"]')).includes('built') && (await text(page, '[data-image="rust"]')).includes('Could not resolve host'),
     await text(page, '[data-image="rust"]'));
   ok('the base has nothing to build', !(await page.$('[data-image="base"] button[data-act="build"]')));
+  ok('an image names its coding agents', (await text(page, '[data-image="base"] .agents')).includes('Claude Code, Codex'), await text(page, '[data-image="base"]'));
   ok('a failed rebuild keeps the previous build, and says so', (await text(page, '[data-image="rust"] .kept')).startsWith('The previous build (3 d ago)') &&
     (await text(page, '[data-image="rust"] .pill.warn')) === 'the rebuild failed', await text(page, '[data-image="rust"]'));
   await shot(page, 'images');

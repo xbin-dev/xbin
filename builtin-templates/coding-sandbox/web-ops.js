@@ -176,6 +176,7 @@ export function imagesTab(app, ui) {
         <button class="small" data-act="edit" @click=${() => { ui.forms.image = O.imageForm(images.find((x) => x.id === im.id)); ui.paint(); }}>Edit</button>
         <button class="small rm" data-act="remove" ?disabled=${!!ui.busy} @click=${() => remove(im.id)}>Remove</button></div>
       ${im.tools.length ? html`<div class="small"><span class="muted">tools</span> ${im.tools.join(', ')}</div>` : nothing}
+      ${im.agents.length ? html`<div class="small agents"><span class="muted">coding agents</span> ${im.agents.join(', ')}</div>` : nothing}
       ${im.built && im.built.detail ? html`<div class="err small">${im.built.detail}</div>` : nothing}
       ${im.kept ? html`<div class="note small kept">${im.kept}</div>` : nothing}
       ${im.setup ? html`<details><summary class="small">setup script${im.buildEgress ? ` (network while it builds: ${im.buildEgress})` : ''}</summary><pre>${im.setup}</pre></details>` : nothing}

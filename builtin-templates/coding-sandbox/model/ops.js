@@ -139,6 +139,7 @@ export function imageRows(st, now = Date.now()) {
     }
     return {
       id: im.id, title: im.title || im.id, tools: im.tools || [], setup: im.setup || '', default: !!im.default,
+      agents: (im.harnesses || []).map((h) => h.title || h.id),
       buildEgress: im.buildEgress || '', offered: offered.includes(im.id), built: b, buildText: build, kept,
       tone: b ? (b.state === 'ready' ? 'ok' : b.state === 'building' || prev ? 'warn' : 'danger') : 'muted',
       canBuild: !!im.setup && (!b || b.state !== 'building'),
@@ -155,16 +156,19 @@ export const imageForm = (im = {}) => ({
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 
 // applyImage: the images with form (replacing its `was`, or added) — or the
-// error that stops it.
+// error that stops it. An edited image keeps what the form doesn't hold (its
+// coding agents, `harnesses`; a newer manager's fields).
 export function applyImage(images, form) {
   const id = String(form.id || '').trim();
   if (!ID.test(id)) return { error: 'the id is letters, digits, ".", "_" and "-", up to 32' };
   if (images.some((im) => im.id === id && im.id !== form.was)) return { error: `there is an image ${id} already` };
+  const prev = (form.was && images.find((x) => x.id === form.was)) || {};
   const im = {
-    id, title: String(form.title || '').trim() || id, setup: form.setup || '',
+    ...prev, id, title: String(form.title || '').trim() || id, setup: form.setup || '',
     tools: String(form.tools || '').split(/[\s,]+/).filter(Boolean), default: !!form.default,
   };
   if (form.buildEgress) im.buildEgress = form.buildEgress;
+  else delete im.buildEgress;
   if (!im.setup) delete im.setup;
   let out = form.was ? images.map((x) => (x.id === form.was ? im : x)) : [...images, im];
   if (im.default) out = out.map((x) => (x.id === id ? x : { ...x, default: false }));

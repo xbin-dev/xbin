@@ -123,7 +123,9 @@ body (a sandboxed page can't set custom request headers).
  "manager": {"name": "coding-sandbox", "title": "Coding sandboxes", "version": "1.0.0"},
  "caps": ["exec", "files", "tar", "tty", "snapshots", "clone", "archive", "ports"],
  "egress": ["none", "internet"],
- "images": [{"id": "base", "title": "Debian with git, Go and Node", "default": true, "tools": ["git", "go", "node", "rg"]}],
+ "images": [{"id": "base", "title": "Debian with git, Go and Node", "default": true, "tools": ["git", "go", "node", "rg"],
+             "harnesses": [{"id": "claude", "title": "Claude Code", "argv": ["claude-agent-acp"], "login": "claude /login"},
+                           {"id": "codex"}]}],
  "sizes": [{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}],
  "limits": {"sandboxes": 0, "runTimeoutMaxMs": 600000, "runOutputMax": 1048576,
             "execsRunning": 16, "outputRing": 1048576, "stdinMax": 1048576,
@@ -134,6 +136,32 @@ body (a sandboxed page can't set custom request headers).
 `clone`, `archive` and `ports` are optional, and a route whose capability
 is missing answers `unsupported` (a manager from before `ports`, D135,
 answers its route `not-found` — a consumer checks `caps` first). `limits.sandboxes` 0 means no fixed limit.
+
+An **image** is `{id, title, default, tools, harnesses?}`; exactly one is
+the default, and `tools` names what it has beyond a POSIX shell (§Inside a
+sandbox). **`harnesses`** (optional) are the coding agents installed in the
+image that speak the Agent Client Protocol (ACP) — JSON-RPC over stdio, so a
+consumer runs one as a non-`tty` exec with `stdin: true`. Each is
+`{id, title?, argv?, login?}`:
+
+- `id` matches `[A-Za-z0-9][A-Za-z0-9._-]{0,31}`, unique in the image. The
+  well-known ids are `claude` (Claude Code's adapter, `claude-agent-acp`),
+  `codex` (`codex-acp`), `gemini` (`gemini --acp`) and `opencode`
+  (`opencode acp`): a consumer knows their commands, modes and sign-in, and
+  an entry's own fields override what it knows.
+- `title` is the name people see (default: the consumer's, else the id).
+- `argv` is the command that speaks ACP on its stdin and stdout (default: the
+  consumer's, for a well-known id — a consumer ignores an entry it neither
+  knows nor has an `argv` for).
+- `login` is a shell command that signs the agent in, for a person at a
+  terminal (the `tty` route's `cmd`). Credentials land in the sandbox's
+  `home`, so everyone who may use the sandbox — and its clones — shares
+  them.
+
+The list is the manager's word about the image, not a probe (an image's
+installs can fail): a consumer may check with `command -v <argv[0]>` through
+`run` before offering one. A missing or empty list says nothing about the
+image — a consumer may probe for the agents it knows.
 
 ## The sandbox
 
@@ -383,7 +411,13 @@ it still does, and `thaw` brings it back (stopped, or running with
   `tar`. An image's `tools` names what else it has (`git`, `go`, `rg`, …).
 - Commands run as the sandbox's `user`, with `$HOME` = `home`; `workdir`
   exists and is writable. The environment has `IN_SANDBOX=1`,
-  `SANDBOX_ID` and `SANDBOX_NAME`.
+  `SANDBOX_ID` and `SANDBOX_NAME`. A `tty` command also gets a terminal's
+  `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`, each
+  unless its `env` (or the manager's own defaults) names it — full-screen
+  programs and the coding agents' sign-in screens need them.
+- An image's `harnesses` (hello, above) run as the sandbox's `user`, like any
+  command; what they reach is the sandbox's `egress`, so an agent that
+  calls its provider's API needs `internet` or `open`.
 - **No xbin identity, ever**: no token, no gateway, no route to xbind or the
   workspace's tiles. What a sandbox reaches is its `egress`, nothing more.
   The `ports` proxy is inbound only — a consumer's request to a server in
@@ -511,7 +545,7 @@ the cause is gone:
 | create / start / stop / delete, `?wait` | the provider's instance API, polled |
 | `run` | `ssh host -- 'cd -- <cwd> && exec setsid $SHELL -lc <cmd>'`; a timeout sends `kill -TERM -<pgid>` over a second connection |
 | execs | `setsid nohup <cmd> > /var/lib/sbx/<eid>/out 2>&1; echo $? > /var/lib/sbx/<eid>/exit`; output is `tail -c +<offset+1>`; signals are `kill -<SIG> -<pgid>` |
-| `tty` | `ssh -t`, window-change on resize |
+| `tty` | `ssh -t` with the terminal's environment (`TERM`, `COLORTERM`, `LANG`; §Inside a sandbox), window-change on resize |
 | files | sftp: stat, ranged reads, write to a temporary name and rename, readdir; `etag` a sha256 |
 | `tar` | `tar -C <dir> -cf -` / `-xf -` over ssh |
 | snapshots, clones, archives | disk snapshots and images; archive = snapshot + terminate |

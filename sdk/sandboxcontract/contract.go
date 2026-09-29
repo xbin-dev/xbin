@@ -371,14 +371,23 @@ type Hello struct {
 	Caps      []string
 	Egress    []string
 	Images    []struct {
-		ID      string
-		Default bool
+		ID        string
+		Default   bool
+		Harnesses []Harness
 	}
 	Sizes []struct {
 		ID      string
 		Default bool
 	}
 	Limits map[string]int64
+}
+
+// Harness is one of an image's hello.images[].harnesses: a coding agent
+// installed in it that speaks ACP (docs/sandbox-manager.md §hello).
+type Harness struct {
+	ID, Title string
+	Argv      []string
+	Login     string
 }
 
 func hello(t *testing.T, c Caller) Hello {

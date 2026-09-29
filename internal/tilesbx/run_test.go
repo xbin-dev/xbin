@@ -116,6 +116,34 @@ func TestSessionEnv(t *testing.T) {
 	}
 }
 
+// A terminal's command gets TERM, COLORTERM and LANG unless defaults.env or
+// its own env names them; a command without a terminal gets none of them.
+func TestTTYEnv(t *testing.T) {
+	m := &Manager{}
+	d := &Def{Name: "sb-1", Defaults: Defaults{Env: map[string]string{"LANG": "de_DE.UTF-8"}}}
+	env := func(req ExecRequest) string {
+		t.Helper()
+		ex, err := m.checkExec(d, &req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "\n" + strings.Join(ex.Env, "\n") + "\n"
+	}
+	got := env(ExecRequest{Cmd: "vi", TTY: true, Env: map[string]string{"COLORTERM": "24bit"}})
+	for _, want := range []string{"TERM=xterm-256color", "COLORTERM=24bit", "LANG=de_DE.UTF-8", "IN_SANDBOX=1"} {
+		if !strings.Contains(got, "\n"+want+"\n") {
+			t.Errorf("a terminal's environment lacks %s:%s", want, got)
+		}
+	}
+	delete(d.Defaults.Env, "LANG")
+	if got := env(ExecRequest{Argv: []string{"sh", "-l"}, TTY: true}); !strings.Contains(got, "\nLANG=C.UTF-8\n") || !strings.Contains(got, "\nCOLORTERM=truecolor\n") {
+		t.Errorf("a terminal's defaults:%s", got)
+	}
+	if got := env(ExecRequest{Cmd: "make"}); strings.Contains(got, "TERM=") || strings.Contains(got, "LANG=") {
+		t.Errorf("a command without a terminal got a terminal's environment:%s", got)
+	}
+}
+
 // rootfsEnv names Playwright's browsers only where the rootfs has them.
 func TestRootfsEnv(t *testing.T) {
 	root := t.TempDir()

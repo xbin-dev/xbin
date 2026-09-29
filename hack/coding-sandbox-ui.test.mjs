@@ -63,6 +63,7 @@ test('ops: rows, usage, the substrate, the mode, images', () => {
   assert.ok(mi.now === '' && mi.blocked === 'no KVM', 'a chosen mode the substrate lacks: none, never another');
   const imgs = O.imageRows(SEED.ops, NOW);
   assert.deepEqual(imgs.map((i) => [i.id, i.tone, i.canBuild]), [['base', 'muted', false], ['node', 'ok', true], ['rust', 'warn', true]]);
+  assert.deepEqual(imgs.map((i) => i.agents.join()), ['Claude Code,Codex', '', ''], 'an image\'s coding agents (hello.images[].harnesses)');
   const rust = imgs.find((i) => i.id === 'rust');
   assert.equal(rust.buildText, 'the rebuild failed');
   assert.equal(rust.kept, 'The previous build (3 d ago), of the script before, is kept until a build succeeds.');
@@ -79,6 +80,10 @@ test('ops: the editors — images, sizes, quotas, shares, mounts', () => {
   const r = O.applyImage(images, { ...O.imageForm(images[1]), title: 'Node 24', default: true });
   assert.equal(r.images.find((i) => i.id === 'node').title, 'Node 24');
   assert.deepEqual(r.images.filter((i) => i.default).map((i) => i.id), ['node']);
+  const base = O.applyImage(images, { ...O.imageForm(images[0]), title: 'Base', tools: 'git', buildEgress: '' }).images[0];
+  assert.deepEqual([base.title, base.tools, base.harnesses.map((h) => h.id)], ['Base', ['git'], ['claude', 'codex']], 'an edit keeps what the form doesn\'t hold');
+  const renamed = O.applyImage(images, { ...O.imageForm(images[1]), buildEgress: '' }).images[1];
+  assert.ok(!('buildEgress' in renamed), 'a cleared build network is gone, not kept');
   assert.ok(O.removeImage([images[0]], 'base').error);
   assert.match(O.applySizes([{ id: 'x', memMiB: 64, vcpus: 1, diskGiB: 1 }]).error, /128/);
   const q = O.setQuota(SEED.ops.config.quotas, 'person', 'alice', { running: '5', sandboxes: 0 });

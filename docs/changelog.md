@@ -12,6 +12,36 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-29
 
+- **Sandbox managers can say which coding agents an image has**
+  ([sandbox-manager.md](sandbox-manager.md) §hello). Additive:
+  `hello.images[].harnesses: [{id, title?, argv?, login?}]` lists the ACP
+  coding agents installed in an image — `claude`, `codex`, `gemini` and
+  `opencode` are the ids consumers know; `argv` is the command that speaks
+  ACP on stdio, `login` a shell command that signs it in at a terminal. It
+  is the manager's word, not a probe; a missing list says nothing. The
+  conformance suite (`sdk/sandboxcontract`) checks the entries' shape, and
+  its `Hello` carries them (`Harness`). The `coding-sandbox` template's
+  default image lists all four (Claude Code `claude-agent-acp`, Codex
+  `codex-acp`, Gemini CLI `gemini --acp`, OpenCode `opencode acp`, each with
+  a sign-in that needs no browser in the sandbox) and its `tools` now name
+  what the base rootfs really has (no `chromium` command — Playwright's
+  browser stays; `npm`, `pnpm`, `yarn`, `curl`, `jq`, `gh`, `gopls`, `dlv`
+  and the agents' CLIs added). Operators set `harnesses` per image in
+  `PUT /ops/config` (the page's image editor keeps them); a config saved
+  before this keeps its images as they were — no harnesses listed — until
+  an operator adds them. `hack/fakesandbox` advertises one, `fake` (the
+  scripted `fakeacp`; `-fake-acp` / `$FSB_FAKE_ACP` sets its command).
+- **A terminal in a sandbox has a terminal's environment.** A tile
+  sandbox's `tty` exec (and its `tty` route) now gets
+  `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`, as
+  xbind's own terminals do, unless `defaults.env` or the command's `env`
+  names them ([protocol.md](protocol.md) §Tile sandboxes) — full-screen
+  programs and coding agents' sign-in screens expect them.
+  The sandbox-manager contract says the same of any manager's `tty`. The
+  `coding-sandbox` template also sets `IS_SANDBOX=1` beside `IN_SANDBOX=1`
+  in a new sandbox's defaults (a renamed one gains it): the spelling coding
+  agents check — Claude Code refuses its bypass mode as root without it.
+  Nothing to change.
 - **The shell's sidebar is quieter.** A tile's row starts with an app icon
   (a small window, drawn — not an emoji; highlighted while the tile is
   open) instead of its runtime's coloured dot, and no longer names the

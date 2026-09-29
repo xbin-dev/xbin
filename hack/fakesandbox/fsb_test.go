@@ -194,6 +194,39 @@ func TestFakeTTYStdin(t *testing.T) {
 	}
 }
 
+// Its image advertises the scripted "fake" harness by default, whatever
+// Harnesses says otherwise (empty: none); a tty exec gets a terminal's
+// environment unless its env names it.
+func TestFakeHarnessesAndTTYEnv(t *testing.T) {
+	t.Parallel()
+	harnesses := func(tg sandboxcontract.Target) []sandboxcontract.Harness {
+		var h sandboxcontract.Hello
+		tg.As(t, "apps/a").Call("GET", "/hello?protocol=1", nil, 200, &h)
+		return h.Images[0].Harnesses
+	}
+	_, tg := newFake(t)
+	if hs := harnesses(tg); len(hs) != 1 || hs[0].ID != "fake" || strings.Join(hs[0].Argv, " ") != "fakeacp" || hs[0].Login == "" {
+		t.Fatalf("the default harnesses: %+v", hs)
+	}
+	_, own := newFake(t, func(m *fsbManager) { m.Harnesses = []fsbHarness{{ID: "fake", Argv: []string{"/bin/acp", "-x"}}} })
+	if hs := harnesses(own); len(hs) != 1 || strings.Join(hs[0].Argv, " ") != "/bin/acp -x" {
+		t.Fatalf("set harnesses: %+v", hs)
+	}
+	_, none := newFake(t, func(m *fsbManager) { m.Harnesses = []fsbHarness{} })
+	if hs := harnesses(none); len(hs) != 0 {
+		t.Fatalf("no harnesses: %+v", hs)
+	}
+	if !fsbHasPTY() {
+		return
+	}
+	a := tg.As(t, "apps/a")
+	id := a.Create(map[string]any{"name": "tty-env"}).ID
+	x := a.Exec(id, map[string]any{"cmd": "echo \"$TERM/$COLORTERM/$LANG\"", "tty": true, "env": map[string]string{"LANG": "de_DE.UTF-8"}})
+	if out, _ := a.Drain(id, x.ID); !strings.Contains(out, "xterm-256color/truecolor/de_DE.UTF-8") {
+		t.Fatalf("a tty's environment: %q", out)
+	}
+}
+
 // eventually polls cond for up to d.
 func eventually(t *testing.T, d time.Duration, what string, cond func() bool) {
 	t.Helper()

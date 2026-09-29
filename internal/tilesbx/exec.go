@@ -288,7 +288,7 @@ func (m *Manager) checkExec(d *Def, req *ExecRequest) (proto.Exec, error) {
 	if err := checkClientID(req.ClientID); err != nil {
 		return proto.Exec{}, err
 	}
-	ex, err := m.execOf(d, command{Cmd: req.Cmd, Argv: req.Argv, Cwd: req.Cwd, Env: req.Env, UID: req.UID, GID: req.GID, ForUser: req.ForUser})
+	ex, err := m.execOf(d, command{Cmd: req.Cmd, Argv: req.Argv, Cwd: req.Cwd, Env: req.Env, UID: req.UID, GID: req.GID, ForUser: req.ForUser, TTY: req.TTY})
 	if err != nil {
 		return ex, err
 	}

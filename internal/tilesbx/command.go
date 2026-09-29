@@ -3,13 +3,14 @@ package tilesbx
 // command.go — what a command in a tile sandbox runs with
 // (plans/tile-sandbox-runtime.md §3.5–3.6, §8.3): its argv (a cmd through
 // the sandbox's shell), a cwd that must exist, its user, and its
-// environment — IN_SANDBOX, SANDBOX_ID, SANDBOX_NAME and HOME from xbind,
-// the definition's defaults.env and the command's env over them, never an
-// XBIN_* variable. The agent adds only a PATH, when none is named. And the
-// signals: the ones a manager may send, and the names of those a sandbox
-// reports.
+// environment — IN_SANDBOX, SANDBOX_ID, SANDBOX_NAME and HOME from xbind (a
+// terminal's TERM, COLORTERM and LANG too), the definition's defaults.env
+// and the command's env over them, never an XBIN_* variable. The agent adds
+// only a PATH, when none is named. And the signals: the ones a manager may
+// send, and the names of those a sandbox reports.
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -46,7 +47,14 @@ type command struct {
 	Env      map[string]string
 	UID, GID *uint32
 	ForUser  string
+	TTY      bool // a terminal's: it gets ttyEnv under defaults.env and env
 }
+
+// ttyEnv is what a command on a terminal gets unless defaults.env or its own
+// env names it — as xbind's terminals have it (internal/term): full-screen
+// programs and the coding agents' sign-in screens need a TERM and a UTF-8
+// locale, and a sandbox's rootfs sets neither.
+var ttyEnv = map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor", "LANG": "C.UTF-8"}
 
 // shellOf is the sandbox's shell: a cmd runs as `<shell> -lc <cmd>`.
 func shellOf(d *Def) string {
@@ -112,7 +120,15 @@ func (m *Manager) execOf(d *Def, c command) (proto.Exec, error) {
 	if gid == nil {
 		gid = d.Defaults.GID
 	}
-	return proto.Exec{Argv: argv, Env: sessionEnv(d, m.rootfsEnv(), c.Env, uid), Cwd: cwd, CwdStrict: true,
+	base := m.rootfsEnv()
+	if c.TTY {
+		base = maps.Clone(base)
+		if base == nil {
+			base = map[string]string{}
+		}
+		maps.Copy(base, ttyEnv)
+	}
+	return proto.Exec{Argv: argv, Env: sessionEnv(d, base, c.Env, uid), Cwd: cwd, CwdStrict: true,
 		UID: uid, GID: gid, NoSync: true}, nil
 }
 
@@ -137,9 +153,9 @@ func (m *Manager) rootfsEnv() map[string]string {
 // sessionEnv is a command's environment (§8.3): IN_SANDBOX=1 always,
 // SANDBOX_ID and SANDBOX_NAME (the sandbox's name), HOME (/root for root,
 // / for any other user) and a PATH (the rootfs toolchains first), what the
-// base rootfs adds (rootfsEnv), then the definition's defaults.env and the
-// command's env over them — never an XBIN_* variable (validate.go refuses
-// them; this drops one that got past).
+// base rootfs adds (rootfsEnv; a terminal's ttyEnv too), then the
+// definition's defaults.env and the command's env over them — never an
+// XBIN_* variable (validate.go refuses them; this drops one that got past).
 func sessionEnv(d *Def, rootfs, env map[string]string, uid *uint32) []string {
 	home := "/root"
 	if uid != nil && *uid != 0 {
