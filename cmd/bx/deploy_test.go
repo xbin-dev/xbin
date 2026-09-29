@@ -198,6 +198,10 @@ func TestBxTodayInvocationsUnchanged(t *testing.T) {
 			`POST /api/xbin/templates/new {"path":"apps/agent1","source":"templates/agent"}`,
 			"exit 0",
 		}},
+		{"", []string{"template", "new", "templates/agent", "--no-partition"}, []string{
+			`POST /api/xbin/templates/new {"partition":false,"source":"templates/agent"}`,
+			"exit 0",
+		}},
 		{"", []string{"template", "updates"}, []string{
 			"GET /api/xbin/templates/updates",
 			"exit 0",

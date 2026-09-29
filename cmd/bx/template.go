@@ -8,20 +8,26 @@ import (
 // cmdTemplate manages template components (plans/templates.md):
 //
 //	bx template ls                          list templates (builtin + workspace)
-//	bx template new <source> [as <path>]    instantiate one into a named copy
+//	bx template new <source> [as <path>] [--no-partition]
+//	                                        instantiate one into a named copy
 //	bx template updates                     instances behind their builtin template
+//
+// --no-partition: the copy doesn't start in the template's partition mode
+// (docs/partitions.md; PD-35's opt-out) — it runs one backend for everyone.
 func cmdTemplate(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx template ls | new <source> [as <path>] | updates")
+		return fmt.Errorf("usage: bx template ls | new <source> [as <path>] [--no-partition] | updates")
 	}
 	switch args[0] {
 	case "ls":
 		var tpls []struct {
-			ID          string `json:"id"`
-			Source      string `json:"source"`
-			Title       string `json:"title"`
-			Description string `json:"description"`
-			DefaultName string `json:"defaultName"`
+			ID               string   `json:"id"`
+			Source           string   `json:"source"`
+			Title            string   `json:"title"`
+			Description      string   `json:"description"`
+			DefaultName      string   `json:"defaultName"`
+			Partition        []string `json:"partition"`
+			PartitionSkipped string   `json:"partitionSkipped"`
 		}
 		if err := apiJSON("GET", "/api/xbin/templates", nil, &tpls); err != nil {
 			return err
@@ -31,9 +37,17 @@ func cmdTemplate(args []string) error {
 			return nil
 		}
 		for _, t := range tpls {
-			fmt.Printf("%-10s %-20s %s\n", t.Source, t.ID, t.Title)
+			mode := ""
+			if len(t.Partition) > 0 {
+				mode = "  [partitioned: " + strings.Join(t.Partition, "+")
+				if t.PartitionSkipped != "" {
+					mode += ", " + t.PartitionSkipped
+				}
+				mode += "]"
+			}
+			fmt.Printf("%-10s %-20s %s%s\n", t.Source, t.ID, t.Title, mode)
 		}
-		fmt.Println("\ninstantiate: bx template new <source> [as <path>]")
+		fmt.Println("\ninstantiate: bx template new <source> [as <path>] [--no-partition]")
 		return nil
 
 	case "updates":
@@ -63,30 +77,55 @@ func cmdTemplate(args []string) error {
 		return nil
 
 	case "new":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: bx template new <source> [as <path>]")
+		var pos []string
+		noPartition := false
+		for _, a := range args[1:] {
+			switch {
+			case a == "--no-partition":
+				noPartition = true
+			case isFlag(a):
+				if err := unknownFlag("template new", a, true); err != nil {
+					return err
+				}
+			default:
+				pos = append(pos, a)
+			}
 		}
-		source := args[1]
+		if len(pos) < 1 {
+			return fmt.Errorf("usage: bx template new <source> [as <path>] [--no-partition]")
+		}
+		source := pos[0]
 		path := ""
-		if len(args) >= 4 && args[2] == "as" {
-			path = args[3]
-		} else if len(args) == 3 {
-			path = args[2]
+		if len(pos) >= 3 && pos[1] == "as" {
+			path = pos[2]
+		} else if len(pos) == 2 {
+			path = pos[1]
 		}
 		var out struct {
 			Path          string `json:"path"`
 			PendingGrants []struct {
 				From, Target, Role string
 			} `json:"pendingGrants"`
+			Partition        []string `json:"partition"`
+			PartitionSkipped string   `json:"partitionSkipped"`
 		}
-		body := map[string]string{"source": source}
+		body := map[string]any{"source": source}
 		if path != "" {
 			body["path"] = path
+		}
+		if noPartition {
+			body["partition"] = false
 		}
 		if err := apiJSON("POST", "/api/xbin/templates/new", body, &out); err != nil {
 			return err
 		}
 		fmt.Printf("created %s\nframe it:  <bx-frame src=%q></bx-frame>\n", out.Path, out.Path)
+		switch {
+		case len(out.Partition) > 0:
+			fmt.Printf("partitioned (%s): each person gets their own backend and data (docs/partitions.md); --no-partition opts out\n", strings.Join(out.Partition, "+"))
+		case out.PartitionSkipped == "needs --isolate":
+			fmt.Println("not partitioned: the template keeps each person's data apart, which needs xbind --isolate")
+		}
 		if len(out.PendingGrants) > 0 {
 			fmt.Println("\nthis component needs grants (approve them, or it 403s):")
 			for _, g := range out.PendingGrants {

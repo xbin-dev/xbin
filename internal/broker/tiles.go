@@ -184,14 +184,14 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var (
-		files []string
-		err   error
+		applied builtins.Applied // Notes: a manifest's "partition" kept as installed (PD-52)
+		err     error
 	)
 	switch body.Mode {
 	case "replace":
-		files, err = b.updater.ApplyReplace(body.ID)
+		applied, err = b.updater.ApplyReplace(body.ID)
 	case "merge":
-		files, err = b.updater.ApplyMerge(body.ID)
+		applied, err = b.updater.ApplyMerge(body.ID)
 	case "pin":
 		err = b.updater.Pin(body.ID, true)
 	case "unpin":
@@ -213,7 +213,11 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		b.Provision()
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"files": files})
+	out := map[string]any{"files": applied.Files}
+	if len(applied.Notes) > 0 {
+		out["notes"] = applied.Notes
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 type registryGrantLite struct {

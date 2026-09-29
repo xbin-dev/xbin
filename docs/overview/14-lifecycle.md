@@ -464,8 +464,11 @@ Apply modes: **replace** (take upstream wholesale, discarding local edits)
 or **merge** (per-file three-way); **pin** mutes offers for a unit. A tile
 that exists at a builtin's path *without* recorded provenance is "adopted" —
 no trustworthy base, so any divergence is a conflict and merge is refused in
-favor of replace-or-hand-diff. Template *instances* are deliberately never
-tracked here: they're forks meant to diverge, served by the `template`
+favor of replace-or-hand-diff. No mode touches a manifest's `partition`:
+each `xbin.json` keeps its installed value (present, absent or its list),
+and the answer notes where upstream asks otherwise — only a deliberate
+edit requests a partition mode switch ([partitions](../partitions.md)).
+Template *instances* are deliberately never tracked here: they're forks meant to diverge, served by the `template`
 remote instead. A builtin xbind stops shipping is **retired** (`devbox`,
 2026-09-27): copies already imported are left alone and no longer offered
 updates, and importing it again answers 410 with what replaces it.
@@ -497,7 +500,7 @@ thing to read (or have an agent read) after upgrading the daemon.
 | archiver binding | `POST /api/xbin/bindings` (`@archive`) | `bx bind '*' @archive=<tile>` |
 | catalog / import | `GET /api/xbin/builtins`, `POST /builtins/import` | `bx tile ls`, `bx tile import <name> [as <path>]` |
 | updates | `GET /builtins/updates`, `POST /builtins/update {id, mode}` | `bx builtin updates`, `bx builtin update <id> [--replace\|--merge]` |
-| templates | `GET /templates`, `POST /templates/new` | `bx template ls`, `bx template new <source> [as <path>]` |
+| templates | `GET /templates`, `POST /templates/new` | `bx template ls`, `bx template new <source> [as <path>] [--no-partition]` |
 | fork / git | `POST /clone`, `GET /git/remote-info`, `POST /git/import` | Tile Manager UI |
 
 Everything above is admin-gated except catalog/template *listing* (any

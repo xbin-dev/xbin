@@ -1961,8 +1961,19 @@ GET    /builtins/updates            any. builtins (scaffold + imported tiles) wi
 POST   /builtins/update             xbin:writer. body {id, mode:
                                    replace|merge|pr|pin|unpin}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
-                                   both → {files} and re-record provenance
-                                   eagerly. mode "pr" (D49) writes NOTHING:
+                                   both → {files, notes?} and re-record provenance
+                                   eagerly. Every mode keeps each xbin.json's
+                                   INSTALLED top-level "partition" (present,
+                                   absent or its list, spliced in place —
+                                   docs/partitions.md): an update never adds,
+                                   removes or changes a tile's mode request;
+                                   notes (absent when empty) name each manifest
+                                   where upstream asks otherwise ("…/xbin.json:
+                                   partition kept as installed (<ours>; upstream
+                                   asks <theirs>): edit it deliberately to
+                                   request a switch"), and a "pr" proposal's
+                                   series leaves the key alone and says so in
+                                   its message. mode "pr" (D49) writes NOTHING:
                                    the update is filed as a change proposal
                                    against the tile → {pr:{target,number,…}} —
                                    the tile's own plane reviews and `git am`s
@@ -1974,13 +1985,30 @@ POST   /builtins/update             xbin:writer. body {id, mode:
                                    toHash in their meta. Never touches
                                    template instances.
 GET    /templates                   any. template blueprints (builtin ∪ workspace).
-                                   [{id,source,title,description,defaultName}]
+                                   [{id,source,title,description,defaultName,
+                                   partition?,partitionSkipped?}] — partition:
+                                   the mode new instances start in (the
+                                   template block's "partition", e.g.
+                                   ["user","global"]); partitionSkipped:
+                                   "needs --isolate" when this xbind runs
+                                   without isolation and won't write it. Both
+                                   absent for a template that names no mode.
 POST   /templates/new               same authority as /create on the
                                    resolved target; a workspace-template
                                    source also needs READ. body {source,
-                                   path?, owner?} → {path,
-                                   files, pendingGrants} — instantiates a template
-                                   into a named copy (docs/overview/03-components.md §Templates). A
+                                   path?, owner?, partition?} → {path,
+                                   files, pendingGrants, partition?,
+                                   partitionSkipped?} — instantiates a template
+                                   into a named copy (docs/overview/03-components.md §Templates).
+                                   The copy's top-level "partition" is the
+                                   template block's (docs/partitions.md) unless
+                                   the body says "partition": false or xbind
+                                   runs without --isolate; the answer carries
+                                   partition (the mode written) or
+                                   partitionSkipped ("opted out" | "needs
+                                   --isolate"), both absent when the template
+                                   names no mode. Without the default the copy
+                                   asks for no mode at all. A
                                    builtin-template instance gets a read-only
                                    `template` git remote (below), and its repo
                                    is SEEDED from the template's repo (D50):

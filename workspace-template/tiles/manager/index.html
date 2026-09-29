@@ -415,10 +415,20 @@
     function templateCard(t) {
       const el = document.createElement('div');
       el.className = 'tile';
+      // A template that names a partition mode starts its instances in it —
+      // one backend and data set per person (docs/partitions.md); unticking
+      // opts this copy out. Without --isolate xbind can't, so the box is off.
+      const parts = Array.isArray(t.partition) && t.partition.length > 0;
+      const blocked = parts && !!t.partitionSkipped;
       el.innerHTML = `
         <div class="h"><span class="title">${esc(t.title || t.id)}</span>
           <span class="name">${esc(t.source)}</span><span class="spacer"></span></div>
         <div class="desc">${esc(t.description || '')}</div>
+        ${parts ? `<div class="row">
+          <label class="muted" style="font-size:11px" title="One backend per person (${esc(t.partition.join(' + '))}): each person's data stays in their own partition">
+            <input type="checkbox" class="apart" ${blocked ? 'disabled' : 'checked'}> Keep each person's data apart</label>
+          ${blocked ? `<span class="muted" style="font-size:11px">(${esc(t.partitionSkipped)})</span>` : ''}
+        </div>` : ''}
         <div class="row">
           <span class="muted" style="font-size:11px">create at</span>
           <input class="path" value="apps/${esc(t.defaultName || '')}" size="18">
@@ -431,14 +441,17 @@
       el.querySelector('.make').onclick = async (ev) => {
         const b = ev.target; b.disabled = true; imsg.className = 'imsg muted'; imsg.textContent = 'creating…';
         try {
+          const apart = el.querySelector('.apart');
           const r = await xbin.fetch('/api/xbin/templates/new', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source: t.id, path: el.querySelector('.path').value.trim(), ...ownerOf(el.querySelector('.owner')) }),
+            body: JSON.stringify({ source: t.id, path: el.querySelector('.path').value.trim(), ...ownerOf(el.querySelector('.owner')),
+              ...(apart && !apart.disabled && !apart.checked ? { partition: false } : {}) }),
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error ?? r.status);
           imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
           let note = `created ${d.path} — it's in the sidebar`;
+          if (Array.isArray(d.partition) && d.partition.length) note += ', keeping each person\'s data apart';
           if (d.pendingGrants && d.pendingGrants.length) {
             note += `. Approve ${d.pendingGrants.length} grant(s) in the admin/grants panel.`;
           }

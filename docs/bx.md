@@ -19,12 +19,17 @@ bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|o
                                        scopes (org-owned needs the org's
                                        Create knob; D25, D82)
 bx tile ls | import <name> [as <path>] list/install builtin tiles
-bx template ls | new <source> [as <path>] | updates
-                                       list/instantiate template components (blueprints)
+bx template ls | new <source> [as <path>] [--no-partition] | updates
+                                       list/instantiate template components (blueprints);
+                                       --no-partition: the copy doesn't start in
+                                       the template's partition mode (docs/partitions.md)
 bx builtin updates | update <id> [--replace|--merge|--pr]
                                        offer/apply newer embedded scaffold + tiles;
                                        also lists/installs MISSING essential tiles
-                                       (upgraded workspaces predating them, D41)
+                                       (upgraded workspaces predating them, D41);
+                                       every mode keeps each xbin.json's installed
+                                       "partition" and prints a note when upstream
+                                       asks otherwise (docs/partitions.md)
 bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> [--devices] | rm <id>
                                        manage users (admin/xbin:users); add with
                                        an empty password (or --invite) prints a

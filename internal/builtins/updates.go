@@ -311,7 +311,7 @@ func (u *Updater) RecordScaffoldSeed() error {
 }
 
 func (u *Updater) render(def unitDef, installPath string) (map[string][]byte, error) {
-	return RenderTree(def.SrcFS, def.SrcRoot, installPath, def.DefaultPath, false)
+	return RenderTree(def.SrcFS, def.SrcRoot, installPath, def.DefaultPath, nil)
 }
 
 func (u *Updater) installed(installPath string) bool {
@@ -498,10 +498,11 @@ func (u *Updater) oursHash(installPath, rel string) (string, bool) {
 
 // --- apply --------------------------------------------------------------
 
-// ApplyReplace overwrites the workspace copy with the embedded version
-// (discarding local edits), fast-forwarding cleanly and deleting files removed
-// upstream. Records the new base/version.
-func (u *Updater) ApplyReplace(id string) ([]string, error) {
+// applyReplace overwrites the workspace copy with the embedded version
+// (discarding local edits but the manifests' "partition", partition.go),
+// fast-forwarding cleanly and deleting files removed upstream. Records the
+// new base/version.
+func (u *Updater) applyReplace(id string, notes *[]string) ([]string, error) {
 	def, ok := u.defByID(id)
 	if !ok {
 		return nil, noSuchUnit(id)
@@ -524,18 +525,18 @@ func (u *Updater) ApplyReplace(id string) ([]string, error) {
 			}
 		}
 	}
-	written, err := WriteTree(filepath.Join(u.root, filepath.FromSlash(installPath)), installPath, theirs)
+	written, err := WriteTree(filepath.Join(u.root, filepath.FromSlash(installPath)), installPath, u.keepPartition(installPath, theirs, notes))
 	if err != nil {
 		return written, err
 	}
 	return written, u.record(def, installPath, theirs)
 }
 
-// ApplyMerge 3-way merges each changed file (git merge-file: ours / base /
+// applyMerge 3-way merges each changed file (git merge-file: ours / base /
 // theirs), fast-forwarding clean files. Conflicting files keep standard
 // conflict markers for the user to resolve. Not available for adopted units
 // (no trustworthy base — use Replace). Records the new base/version.
-func (u *Updater) ApplyMerge(id string) ([]string, error) {
+func (u *Updater) applyMerge(id string, notes *[]string) ([]string, error) {
 	def, ok := u.defByID(id)
 	if !ok {
 		return nil, noSuchUnit(id)
@@ -550,7 +551,7 @@ func (u *Updater) ApplyMerge(id string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	snap := u.snapDir(id)
+	snap, kept := u.snapDir(id), u.keepPartition(installPath, theirs, notes) // theirs, each installed "partition" kept
 	var written []string
 	seen := map[string]bool{}
 	for rel := range theirs {
@@ -566,7 +567,7 @@ func (u *Updater) ApplyMerge(id string) ([]string, error) {
 	sort.Strings(rels)
 
 	for _, rel := range rels {
-		th, inTheirs := theirs[rel]
+		th, inTheirs := kept[rel]
 		bh, inBase := state.Files[rel]
 		ourPath := filepath.Join(u.root, filepath.FromSlash(installPath), filepath.FromSlash(rel))
 		ours, ourErr := os.ReadFile(ourPath)
@@ -590,7 +591,7 @@ func (u *Updater) ApplyMerge(id string) ([]string, error) {
 			written = append(written, installPath+"/"+rel)
 		default: // both changed → 3-way merge
 			base, _ := os.ReadFile(filepath.Join(snap, filepath.FromSlash(rel)))
-			merged, err := mergeFile(ours, base, th)
+			merged, err := mergeKeeping(rel, ours, base, th)
 			if err != nil {
 				return written, err
 			}
@@ -685,7 +686,9 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 		"  git -C \"$XBIN_WORKSPACE/" + installPath + "\" pull /tmp/upd && bx code pr close <n> --merged\n" +
 		"Closing merged refreshes update tracking; rejecting keeps the update offered.")
 
-	series, err := patchSeries(base, theirs, title, msg.String())
+	to, note := u.proposalPartition(installPath, base, theirs) // the series never touches "partition"
+	msg.WriteString(note)
+	series, err := patchSeries(base, to, title, msg.String())
 	if err != nil {
 		return nil, err
 	}

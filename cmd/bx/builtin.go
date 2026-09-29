@@ -88,11 +88,15 @@ func cmdBuiltin(args []string) error {
 		}
 		var out struct {
 			Files []string `json:"files"`
+			Notes []string `json:"notes"` // e.g. a partition kept as installed
 		}
 		if err := apiJSON("POST", "/api/xbin/builtins/update", map[string]string{"id": id, "mode": mode}, &out); err != nil {
 			return err
 		}
 		fmt.Printf("%sd %s (%d file(s))\n", mode, id, len(out.Files))
+		for _, n := range out.Notes {
+			fmt.Println("note: " + n)
+		}
 		if mode == "merge" {
 			fmt.Println("check for conflict markers (<<<<<<<) in the changed files and resolve them.")
 		}
