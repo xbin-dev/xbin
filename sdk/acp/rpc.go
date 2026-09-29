@@ -185,7 +185,8 @@ type Conn struct {
 	// (ErrGap) — for logging; the loop continues.
 	OnBad func(err error)
 	// onResponse sees a response on the read loop before its call does
-	// (the method it answers; "" for an Expect).
+	// (the method it answers; "" for an Expect), so what it causes lands in
+	// the stream's order.
 	onResponse func(method string, m *Message)
 }
 
@@ -307,7 +308,12 @@ func (c *Conn) await(ctx context.Context, key string, ch chan *Message) (*Messag
 // request id): the response is delivered on the channel, which is closed
 // if the read loop ends first. Register it before Serve, or a response
 // that arrives before is discarded like any unknown one.
-func (c *Conn) Expect(id json.RawMessage) <-chan *Message { return c.wait(idKey(id), "") }
+func (c *Conn) Expect(id json.RawMessage) <-chan *Message { return c.expect(id, "") }
+
+// expect is Expect for a call of a known method (what onResponse sees).
+func (c *Conn) expect(id json.RawMessage, method string) <-chan *Message {
+	return c.wait(idKey(id), method)
+}
 
 // idKey is a request id as the calls map knows it: a number as written, a
 // string re-encoded (the peer may escape it differently).

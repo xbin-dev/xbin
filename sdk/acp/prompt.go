@@ -97,10 +97,28 @@ func (c *Client) Prompt(ctx context.Context, p Prompt) error {
 	c.emitW(&Wire{RPCID: id}, NewEvent(EvMessageDelta, echo))
 	c.setStatus(StatusRunning, "")
 	go func() {
-		resp, err := c.conn.callID(context.Background(), id, MSessionPrompt, PromptParams{SessionID: sid, Prompt: blocks})
-		c.endTurn(turn, id, resp, err)
+		// an answer ends the turn on the read loop (promptAnswered), in the
+		// stream's order; here only a prompt that never got one
+		if resp, err := c.conn.callID(context.Background(), id, MSessionPrompt, PromptParams{SessionID: sid, Prompt: blocks}); resp == nil {
+			c.endTurn(turn, id, nil, err)
+		}
 	}()
 	return nil
+}
+
+// promptAnswered is a session/prompt's answer, on the read loop — this
+// client's or one it adopted (ClientOptions.Attach): the turn's end comes
+// before the events of the frames after it, so an embedder committing
+// Wire.Off never passes an answer it has not seen.
+func (c *Client) promptAnswered(m *Message) {
+	c.mu.Lock()
+	turn := c.turn // one prompt at a time: the running turn's
+	c.mu.Unlock()
+	var err error
+	if m.Error != nil {
+		err = m.Error
+	}
+	c.endTurn(turn, m.ID, m, err)
 }
 
 // endTurn is a prompt's answer (resp, or the error it came to): the turn's

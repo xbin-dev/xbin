@@ -110,22 +110,16 @@ func (c *Client) restore(st SessionState) {
 	id := st.PromptRPC
 	if len(id) > 0 {
 		c.busy, c.promptRPC = true, id
-		ch = c.conn.Expect(id)
+		ch = c.conn.expect(id, MSessionPrompt) // its answer: promptAnswered
 	}
 	turn := st.Turn
 	c.mu.Unlock()
 	c.elicits.restore(st.Elicitations, st.ElicitNext)
 	if ch != nil {
 		go func() {
-			resp, ok := <-ch
-			var err error
-			switch {
-			case !ok || resp == nil:
-				err = io.ErrClosedPipe
-			case resp.Error != nil:
-				err = resp.Error
+			if resp, ok := <-ch; !ok || resp == nil { // the loop ended unanswered
+				c.endTurn(turn, id, nil, io.ErrClosedPipe)
 			}
-			c.endTurn(turn, id, resp, err)
 		}()
 	}
 }

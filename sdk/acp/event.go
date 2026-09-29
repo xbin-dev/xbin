@@ -50,7 +50,9 @@ type Wire struct {
 	// event — where a reader resumes to receive what follows it (Decoder.Offset,
 	// from Process.Off). 0: no frame caused it (the client's own doing: a
 	// prompt's echo, an answer); an embedder keeping an offset keeps its
-	// previous one.
+	// previous one. Events come in the output's order (a prompt's turn.end
+	// before what the agent sent after answering it): the offsets never go
+	// back.
 	Off int64
 	// RPCID is the request the event is about: the agent's (a permission,
 	// a question — the id its answer goes to), or the client's (a prompt's

@@ -89,8 +89,11 @@ func (c *Client) Start(ctx context.Context, cfg Config) error {
 	c.conn.OnNotify = c.onNotify
 	c.conn.OnBad = func(err error) { c.logf("%v", err) }
 	c.conn.onResponse = func(method string, m *Message) {
-		if method == MSessionLoad {
+		switch method {
+		case MSessionLoad:
 			c.replaying.Store(false) // what follows the load's answer is live
+		case MSessionPrompt:
+			c.promptAnswered(m) // the turn ends before whatever the agent says next
 		}
 	}
 	if c.opts.Attach != nil {

@@ -279,3 +279,59 @@ func TestReplayFlagAndOffsets(t *testing.T) {
 		}
 	}
 }
+
+// The events a frame causes come in the stream's order, so an embedder that
+// commits Wire.Off never moves it backwards or past an event it has not
+// seen: a prompt's answer followed at once by an update ends the turn
+// before the update's event — in a fresh client and in one that adopted
+// the prompt (Attach).
+func TestTurnEndInStreamOrder(t *testing.T) {
+	check := func(t *testing.T, es []Event) {
+		t.Helper()
+		var last int64
+		var ended bool
+		for _, e := range es {
+			if e.Type == EvTurnEnd {
+				ended = true
+			}
+			if isText("after")(e) && !ended {
+				t.Fatalf("the update after the prompt's answer came before its turn.end: %s", types(es))
+			}
+			if e.Wire != nil && e.Wire.Off > 0 {
+				if e.Wire.Off < last {
+					t.Fatalf("%s at %d after %d: offsets went back (%s)", e.Type, e.Wire.Off, last, types(es))
+				}
+				last = e.Wire.Off
+			}
+		}
+	}
+	for i := 0; i < 20; i++ {
+		p := newPeer(t)
+		c1, f1, err := p.start(ClientOptions{IDPrefix: "o.1"}, NewPermissions(), 0, Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, c1, idle)
+		_ = c1.Prompt(context.Background(), Prompt{Text: "go"})
+		w := collect(t, c1, isText("working"))
+		off := w[len(w)-1].Wire.Off
+		st := c1.State()
+		if i%2 == 0 { // the fresh client
+			p.end("end_turn")
+			p.chunk("after")
+			check(t, collect(t, c1, isText("after")))
+			c1.Close()
+			continue
+		}
+		f1.detach()
+		collect(t, c1, func(Event) bool { return false })
+		c2, _, err := p.start(ClientOptions{IDPrefix: "o.2", Attach: &st}, NewPermissions(), off, Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.end("end_turn")
+		p.chunk("after")
+		check(t, collect(t, c2, isText("after")))
+		c2.Close()
+	}
+}

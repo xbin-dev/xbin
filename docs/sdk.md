@@ -264,7 +264,9 @@ successor):
   where your spawner's reader starts), `RPCID` (the agent's request id for a
   permission or a question; the prompt's id on its echo and `turn.end`), and
   `Replay` (a `session/load` replaying earlier turns). An event the client
-  caused itself has `Off` 0.
+  caused itself has `Off` 0. The events come in the output's order — a
+  prompt's `turn.end` before anything the agent sent after answering it —
+  so the offsets you commit never go back.
 - `c.State()` is a JSON-serializable `acp.SessionState` (session id,
   capabilities, modes, options, commands, auth methods, per-call tool
   status, the turn and the in-flight prompt's request id, the open
