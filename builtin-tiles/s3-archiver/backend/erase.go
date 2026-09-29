@@ -11,10 +11,13 @@ package main
 // key's markers name, and the markers.
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"io"
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -31,9 +34,36 @@ func markerKey(prefix, id, key, version string) string {
 	return path.Join(prefix, ".subkeys", id, key, version)
 }
 
+// sealedSubkey is the backup key id a sealed archive's cleartext header
+// names — "XBINSEAL", a big-endian u32 length (at most 4 KiB), the JSON
+// header — or "" for a plain tar or anything else. It reads only the
+// header.
+func sealedSubkey(r io.Reader) string {
+	var head [len(sealMagic) + 4]byte
+	if _, err := io.ReadFull(r, head[:]); err != nil || string(head[:len(sealMagic)]) != sealMagic {
+		return ""
+	}
+	n := binary.BigEndian.Uint32(head[len(sealMagic):])
+	if n == 0 || n > 4<<10 {
+		return ""
+	}
+	hb := make([]byte, n)
+	if _, err := io.ReadFull(r, hb); err != nil {
+		return ""
+	}
+	var h struct {
+		Subkey string `json:"subkey"`
+	}
+	if json.Unmarshal(hb, &h) != nil || !subkeyID.MatchString(h.Subkey) {
+		return ""
+	}
+	return h.Subkey
+}
+
 // eraseSubkeys is POST /archive/erase {"subkeys": ["bk-…"]} → {"deleted": n}:
 // every version sealed under those keys, across archive keys, and their
-// markers. A version retention already pruned deletes as nothing.
+// markers. n counts the versions that were there: a marker whose version
+// is already gone (pruned before its marker went with it) is just removed.
 func eraseSubkeys(w http.ResponseWriter, r *http.Request) {
 	s3, cfg, err := client()
 	if err != nil {
@@ -64,15 +94,23 @@ func eraseSubkeys(w http.ResponseWriter, r *http.Request) {
 			if !ok || key == "" || version == "" || strings.Contains(version, "/") {
 				continue
 			}
-			if err := s3.Delete(objKey(cfg.Prefix, key, version)); err != nil {
+			obj := objKey(cfg.Prefix, key, version)
+			there, err := s3.List(obj)
+			if err != nil {
 				fail(w, http.StatusBadGateway, err.Error())
 				return
+			}
+			if slices.ContainsFunc(there, func(o s3obj) bool { return o.Key == obj }) {
+				if err := s3.Delete(obj); err != nil {
+					fail(w, http.StatusBadGateway, err.Error())
+					return
+				}
+				deleted++
 			}
 			if err := s3.Delete(m.Key); err != nil {
 				fail(w, http.StatusBadGateway, err.Error())
 				return
 			}
-			deleted++
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

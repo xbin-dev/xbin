@@ -1,7 +1,7 @@
 {
   "name": "s3-archiver",
   "version": 3,
-  "changelog": "v3: sealed backups — a sealed archive's backup key (X-XBin-Backup-Subkey) is recorded as a marker, POST /archive/erase deletes every version sealed under erased keys, and a file from a sealed archive answers 422 (xbind extracts it)\nv2: a native view for the xbin app (native.js): the settings form (the secret in a secure field) with Save & test and Test connection\nv1: archive interface provider backed by S3 (SigV4, path-style)",
+  "changelog": "v3: sealed backups — a sealed archive's backup key (X-XBin-Backup-Subkey) is recorded as a marker (a PUT whose marker fails keeps nothing; a pruned version takes its marker with it), POST /archive/erase deletes every version sealed under erased keys, and a file from a sealed archive answers 422 (xbind extracts it)\nv2: a native view for the xbin app (native.js): the settings form (the secret in a secure field) with Save & test and Test connection\nv1: archive interface provider backed by S3 (SigV4, path-style)",
   "title": "S3 Archiver",
   "description": "Stores component backups in an S3 bucket. Bind a component's @archive to it (or make it the workspace default) and backups, scheduled backups, and offload all stream here. Works with AWS S3, MinIO, Cloudflare R2, Backblaze B2 — any S3-compatible endpoint. Credentials live in the tile's vault.",
   "defaultPath": "apps/s3-archiver",

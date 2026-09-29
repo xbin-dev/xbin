@@ -18,8 +18,9 @@ import (
 // fakeS3 is a path-style bucket in memory: PUT, GET, DELETE and
 // ListObjectsV2 by prefix, signatures unchecked.
 type fakeS3 struct {
-	mu   sync.Mutex
-	objs map[string][]byte // key → body
+	mu      sync.Mutex
+	objs    map[string][]byte // key → body
+	failPut string            // PUTs of keys under this prefix answer 500
 }
 
 func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +52,10 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = xml.NewEncoder(w).Encode(out)
 	case r.Method == "PUT":
 		b, _ := io.ReadAll(r.Body)
+		if f.failPut != "" && strings.HasPrefix(key, f.failPut) {
+			http.Error(w, "InternalError", http.StatusInternalServerError)
+			return
+		}
 		f.objs[key] = b
 	case r.Method == "GET":
 		b, ok := f.objs[key]
@@ -92,6 +97,7 @@ func withFakeS3(t *testing.T) (*fakeS3, http.Handler) {
 	m.HandleFunc("PUT /archive/{key}", putArchive)
 	m.HandleFunc("GET /archive/{key}/versions", listVersions)
 	m.HandleFunc("GET /archive/{key}/versions/{v}/file", getFile)
+	m.HandleFunc("DELETE /archive/{key}/versions/{v}", deleteVersion)
 	m.HandleFunc("POST /archive/erase", eraseSubkeys)
 	return f, m
 }
@@ -192,4 +198,58 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// sealedBody is a sealed archive's first bytes as xbind writes them: the
+// magic, the header's length and a header naming subkey id.
+func sealedBody(id string) []byte {
+	h := []byte(`{"v":1,"subkey":"` + id + `","chunk":65536,"kind":"main"}`)
+	out := append([]byte(sealMagic), byte(len(h)>>24), byte(len(h)>>16), byte(len(h)>>8), byte(len(h)))
+	return append(append(out, h...), "ciphertext"...)
+}
+
+// covers PD-56 11§6 — a PUT whose marker can't be stored keeps nothing: the
+// archive is removed again and the answer is 502, so no backup names a
+// version an erase couldn't find.
+func TestPutMarkerFailureKeepsNothing(t *testing.T) {
+	f, h := withFakeS3(t)
+	f.failPut = "pre/.subkeys/"
+	w := call(t, h, "PUT", "/archive/apps~x-1", keyA, sealedBody(keyA))
+	if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "wasn't kept") {
+		t.Fatalf("PUT: %d %s", w.Code, w.Body)
+	}
+	if got := f.names(); len(got) != 0 {
+		t.Errorf("left in the bucket: %v", got)
+	}
+}
+
+// covers PD-56 11§6 — retention's DELETE takes a sealed version's marker
+// with it (the key the version's header names); a plain version deletes as
+// before; an erase counts only versions that were still there, and removes
+// a marker whose version was already gone.
+func TestDeleteVersionDropsItsMarker(t *testing.T) {
+	f, h := withFakeS3(t)
+	a1 := put(t, h, "apps~x-1", keyA, sealedBody(keyA))
+	p1 := put(t, h, "apps~x-1", "", []byte("plain tar"))
+	for _, v := range []string{a1, p1} {
+		if w := call(t, h, "DELETE", "/archive/apps~x-1/versions/"+v, "", nil); w.Code != 200 {
+			t.Fatalf("DELETE %s: %d %s", v, w.Code, w.Body)
+		}
+	}
+	if got := f.names(); len(got) != 0 {
+		t.Errorf("left after the deletes: %v", got)
+	}
+	// a marker an older archiver left behind its pruned version
+	a2 := put(t, h, "apps~x-1", keyA, sealedBody(keyA))
+	a3 := put(t, h, "apps~x-1", keyA, sealedBody(keyA))
+	f.mu.Lock()
+	delete(f.objs, "pre/apps~x-1/"+a2+".tar")
+	f.mu.Unlock()
+	w := call(t, h, "POST", "/archive/erase", "", []byte(`{"subkeys":["`+keyA+`"]}`))
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"deleted":1}` {
+		t.Fatalf("erase: %d %s", w.Code, w.Body)
+	}
+	if got := f.names(); len(got) != 0 {
+		t.Errorf("left after the erase (%s): %v", a3, got)
+	}
 }

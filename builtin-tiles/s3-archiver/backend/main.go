@@ -96,10 +96,16 @@ func putArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A sealed archive names its backup key: the marker lets an erase find
-	// every version sealed under it (S3 listings carry names only).
+	// every version sealed under it (S3 listings carry names only). Without
+	// it the version is dropped again: an error answer means nothing was
+	// kept, so no backup names a version the erase couldn't find.
 	if id := r.Header.Get(headerSubkey); subkeyID.MatchString(id) {
 		if err := s3.Put(markerKey(cfg.Prefix, id, key, version), strings.NewReader(""), 0); err != nil {
-			fail(w, http.StatusBadGateway, "stored, but its backup key's marker wasn't: "+err.Error())
+			msg := "its backup key's marker couldn't be stored, so the archive wasn't kept: " + err.Error()
+			if derr := s3.Delete(objKey(cfg.Prefix, key, version)); derr != nil {
+				msg += " (and removing the stored archive failed: " + derr.Error() + ")"
+			}
+			fail(w, http.StatusBadGateway, msg)
 			return
 		}
 	}
@@ -227,15 +233,30 @@ func getFile(w http.ResponseWriter, r *http.Request) {
 	fail(w, http.StatusNotFound, "no such file in this version")
 }
 
+// deleteVersion prunes a version (xbind's retention), and the marker of the
+// backup key a sealed one names, so none outlives its version.
 func deleteVersion(w http.ResponseWriter, r *http.Request) {
 	s3, cfg, err := client()
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	if err := s3.Delete(objKey(cfg.Prefix, r.PathValue("key"), r.PathValue("v"))); err != nil {
+	key, v := r.PathValue("key"), r.PathValue("v")
+	obj := objKey(cfg.Prefix, key, v)
+	id := ""
+	if resp, err := s3.Get(obj); err == nil {
+		id = sealedSubkey(resp.Body)
+		resp.Body.Close()
+	}
+	if err := s3.Delete(obj); err != nil {
 		fail(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	if id != "" {
+		if err := s3.Delete(markerKey(cfg.Prefix, id, key, v)); err != nil {
+			fail(w, http.StatusBadGateway, "deleted, but its backup key's marker wasn't: "+err.Error())
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})

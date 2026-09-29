@@ -27,14 +27,18 @@ owner must bind (it has zero egress under isolation until then):
 | GET | `/archive/{key}/versions` | — | `{versions: [{version, time, size}]}` |
 | GET | `/archive/{key}/versions/{v}` | `v` or `latest` | the archive stream |
 | GET | `/archive/{key}/versions/{v}/file` | `?path=` | one member's bytes (a plain tar); 422 `sealed archive: xbind extracts it` for a sealed one |
-| DELETE | `/archive/{key}/versions/{v}` | — | `{ok}` |
+| DELETE | `/archive/{key}/versions/{v}` | — | `{ok}` (a sealed version's marker goes with it) |
 | POST | `/archive/erase` | `{"subkeys": ["bk-…"]}` | `{deleted}` — every version sealed under those keys, across keys |
 
 A sealed PUT also writes an empty marker object,
 `<prefix>/.subkeys/<id>/<key>/<version>` (S3 listings carry only names, sizes
 and times), which `POST /archive/erase` follows when xbind erases a backup key
 (`bx backup erase`, a deleted partition): the data sealed under it is
-unreadable from then on, and this deletes the dead versions. New xbinds
+unreadable from then on, and this deletes the dead versions (`deleted` counts
+the ones still there). A PUT whose marker can't be stored removes the archive
+again and answers 502, so no backup names a version an erase can't find; a
+retention DELETE removes the marker of the key the version's cleartext header
+names. New xbinds
 extract single files themselves; the `/file` route stays for older ones.
 
 ## Settings (this tile's own frontend)
