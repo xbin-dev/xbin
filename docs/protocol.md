@@ -2807,7 +2807,11 @@ POST   /deployments/restore        admin (as above), and the reset level on
                                    into, restored, skipped}: data only,
                                    never the work tree (POST /restore is
                                    unchanged). deployment: whose archive
-                                   (main: the data part of the tile's);
+                                   (main: the data part of the tile's — of
+                                   a sealed workspace's, the data archive
+                                   its main archive names; its key erased:
+                                   409 "this backup's data was erased on
+                                   <date> (<reason>)");
                                    version: default latest; into: the
                                    target, default the archive's own.
                                    Beyond main each archived resource is
