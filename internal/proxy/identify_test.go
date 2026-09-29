@@ -78,3 +78,24 @@ func TestIdentifyStripsXbindCredentials(t *testing.T) {
 		t.Errorf("an unrelated Cookie header was rewritten: %q", r.Header.Get("Cookie"))
 	}
 }
+
+// An archiver learns which backup subkey a sealed archive is under only
+// from xbind (plans/partitions/11 §6): a caller's X-XBin-Backup-Subkey is
+// stripped, and the broker's own archive call sets it through the context.
+func TestIdentifyBackupSubkey(t *testing.T) {
+	px := &Proxy{}
+	owner := auth.Principal{Owner: true}
+	r := httptest.NewRequest("PUT", "/api/apps/archiver/archive/k", nil)
+	r.Header.Set(HeaderBackupSubkey, "bk-spoofed")
+	px.identify(r, owner, "admin", "apps/archiver")
+	if got := r.Header.Get(HeaderBackupSubkey); got != "" {
+		t.Errorf("an inbound subkey header reached the archiver: %q", got)
+	}
+	r = httptest.NewRequest("PUT", "/api/apps/archiver/archive/k", nil)
+	r.Header.Set(HeaderBackupSubkey, "bk-spoofed")
+	r = r.WithContext(auth.WithBackupSubkey(r.Context(), "bk-0123456789abcdef0123456789abcdef"))
+	px.identify(r, owner, "admin", "apps/archiver")
+	if got := r.Header.Get(HeaderBackupSubkey); got != "bk-0123456789abcdef0123456789abcdef" {
+		t.Errorf("the broker's subkey header: %q", got)
+	}
+}

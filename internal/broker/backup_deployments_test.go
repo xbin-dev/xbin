@@ -41,13 +41,22 @@ const bkTile = "apps/cal"
 
 // memArchiver is an archiver tile that keeps what it is given, as the
 // builtin s3 archiver does: versions per key, listed newest first, served
-// back and deleted. fail names a key whose PUTs answer 502.
+// back and deleted. fail names a key whose PUTs answer 502; storeThenFail
+// one whose PUTs are stored and still answer 502; noVersion one whose PUTs
+// answer no version.
 type memArchiver struct {
-	mu   sync.Mutex
-	n    int
-	keys map[string][]memVersion // newest first
-	puts []string                // keys, in PUT order
-	fail string
+	mu            sync.Mutex
+	n             int
+	keys          map[string][]memVersion // newest first
+	puts          []string                // keys, in PUT order
+	fail          string
+	storeThenFail string
+	noVersion     string
+	// unseal opens a sealed archive for latest (a workspace with a vault
+	// barrier seals every archive, backup_seal.go); nil reads bodies as they are
+	unseal    func(t *testing.T, body []byte) []byte
+	subkeys   map[string]string // version → the X-XBin-Backup-Subkey its PUT carried
+	noEraseGC bool              // an older archiver: no POST /archive/erase
 }
 
 type memVersion struct {
@@ -70,6 +79,20 @@ func (a *memArchiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key, tail, _ := strings.Cut(rest, "/")
 	vs := a.keys[key]
 	switch v, _ := strings.CutPrefix(tail, "versions/"); {
+	case r.Method == "POST" && key == "erase" && tail == "" && !a.noEraseGC: // the optional erase GC (11 §6)
+		var req struct{ Subkeys []string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		n := 0
+		for k, vs := range a.keys {
+			a.keys[k] = slices.DeleteFunc(vs, func(x memVersion) bool {
+				dead := slices.Contains(req.Subkeys, a.subkeys[x.v])
+				if dead {
+					n++
+				}
+				return dead
+			})
+		}
+		_, _ = fmt.Fprintf(w, `{"deleted":%d}`, n)
 	case r.Method == "PUT" && tail == "":
 		if key == a.fail {
 			http.Error(w, "bucket unreachable", http.StatusBadGateway)
@@ -80,7 +103,20 @@ func (a *memArchiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ver := fmt.Sprintf("v%03d", a.n)
 		a.keys[key] = append([]memVersion{{ver, body}}, vs...)
 		a.puts = append(a.puts, key)
-		_, _ = fmt.Fprintf(w, `{"version":%q,"size":%d}`, ver, len(body))
+		if id := r.Header.Get("X-XBin-Backup-Subkey"); id != "" {
+			if a.subkeys == nil {
+				a.subkeys = map[string]string{}
+			}
+			a.subkeys[ver] = id
+		}
+		switch key {
+		case a.storeThenFail:
+			http.Error(w, "stored, then the bucket went away", http.StatusBadGateway)
+		case a.noVersion:
+			_, _ = fmt.Fprintf(w, `{"size":%d}`, len(body))
+		default:
+			_, _ = fmt.Fprintf(w, `{"version":%q,"size":%d}`, ver, len(body))
+		}
 	case r.Method == "GET" && tail == "versions":
 		list := []map[string]any{}
 		for _, x := range vs {
@@ -125,7 +161,11 @@ func (a *memArchiver) latest(t *testing.T, key string) (backup.Manifest, []archi
 	if len(vs) == 0 {
 		t.Fatalf("no archive under %s", key)
 	}
-	ms := readArchive(t, vs[0].body)
+	body := vs[0].body
+	if a.unseal != nil && backup.IsSealed(body) {
+		body = a.unseal(t, body)
+	}
+	ms := readArchive(t, body)
 	var m backup.Manifest
 	if len(ms) == 0 || ms[0].name != backup.ManifestName || json.Unmarshal(ms[0].body, &m) != nil {
 		t.Fatalf("%s: backup.json isn't first", key)
@@ -229,7 +269,7 @@ func newBkFx(t *testing.T, fakeVolumes bool) *bkFx {
 	b := zeroDataBroker(t)
 	b.Version = "test"
 	root := b.Reg.Root
-	f := &bkFx{t: t, b: b, root: root, arch: &memArchiver{keys: map[string][]memVersion{}},
+	f := &bkFx{t: t, b: b, root: root, arch: &memArchiver{keys: map[string][]memVersion{}, unseal: unsealWith(b)},
 		plane: &bkPlane{root: root, primary: map[string]string{}, deps: map[string][]string{bkTile: {"dev", "qa"}}}}
 	b.ProxyHandler = f.arch
 	f.plane.install(b)
@@ -279,7 +319,9 @@ func restoreReq(dep, into string, confirm bool) deployments.RestoreRequest {
 
 // covers 05-model §11 D127c D127h PO-9 SC-AUDIT T11 — (M2) TestBackupCoversDeployments'
 // deployment half: while main is the primary a tile's backup writes its main
-// archive alone, with main's data only and the registration files of its
+// archive — in this workspace with a vault barrier, sealed, its main data in
+// a data archive written just before it (11-backup-encryption §4) — with
+// main's data only and the registration files of its
 // other deployments under deployments/registrations/; with the primary
 // reassigned to dev, every backup first archives dev's data, under
 // .deployments.<TileKey>.dev at schema 2 (no source, terminal layer or
@@ -299,24 +341,32 @@ func TestBackupCoversDeploymentsM2(t *testing.T) {
 	if err := b.SetDeploymentBackupSchedule(bkTile, "qa", ptr("@every 24h"), ptr(1), false); err != nil {
 		t.Fatal(err)
 	}
-	mainKey, devKey, qaKey := backupKey(bkTile), archiveKey(bkTile, "dev"), archiveKey(bkTile, "qa")
+	mainKey, devKey, qaKey, dataKey := backupKey(bkTile), archiveKey(bkTile, "dev"), archiveKey(bkTile, "qa"), dataArchiveKey(bkTile)
 	if want := ".deployments." + util.TileKey(bkTile) + ".dev"; devKey != want || strings.Count(devKey, "/") != 0 {
 		t.Fatalf("dev's archive key %q, want %q", devKey, want)
 	}
 
-	// main is the primary: the main archive alone, main's data, the others' files
+	// main is the primary: main's data archive, then the main archive, the others' files
 	if _, err := b.doBackup(bkTile); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.arch.puts, []string{mainKey}) {
+	if !reflect.DeepEqual(f.arch.puts, []string{dataKey, mainKey}) {
 		t.Fatalf("with main the primary, a backup PUT %v", f.arch.puts)
 	}
 	m, ms := f.arch.latest(t, mainKey)
-	if m.Schema != 1 || m.Deployment != "" || m.Deployments == nil || m.Deployments.Archives != nil {
-		t.Errorf("main archive: schema %d, deployment %q, section %+v", m.Schema, m.Deployment, m.Deployments)
+	if m.Schema != backup.SchemaSplit || m.Deployment != "" || m.Deployments == nil || m.Deployments.Archives != nil ||
+		m.Data == nil || m.Data.Key != dataKey || m.Data.Version != f.arch.versions(dataKey)[0] {
+		t.Errorf("main archive: schema %d, deployment %q, section %+v, data %+v", m.Schema, m.Deployment, m.Deployments, m.Data)
 	}
-	if kv := dataMembers(ms)[backup.KVName]; !strings.Contains(kv, `"m":`) || strings.Contains(kv, `"d":`) || strings.Contains(kv, `"q":`) {
-		t.Errorf("the main archive's kv isn't main's alone: %s", kv)
+	if len(dataMembers(ms)) != 0 {
+		t.Errorf("the split main archive holds data: %v", dataMembers(ms))
+	}
+	datm, datms := f.arch.latest(t, dataKey)
+	if !datm.DataArchive() || datm.Schema != backup.SchemaSplit || datm.Component != bkTile {
+		t.Errorf("the data archive's manifest: %+v", datm)
+	}
+	if kv := dataMembers(datms)[backup.KVName]; !strings.Contains(kv, `"m":`) || strings.Contains(kv, `"d":`) || strings.Contains(kv, `"q":`) {
+		t.Errorf("the data archive's kv isn't main's alone: %s", kv)
 	}
 	var regs []string
 	for _, x := range ms {
@@ -334,8 +384,8 @@ func TestBackupCoversDeploymentsM2(t *testing.T) {
 	if _, err := b.doBackup(bkTile); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.arch.puts, []string{devKey, mainKey}) {
-		t.Fatalf("with dev the primary, a backup PUT %v, want dev's archive, then main's", f.arch.puts)
+	if !reflect.DeepEqual(f.arch.puts, []string{devKey, dataKey, mainKey}) {
+		t.Fatalf("with dev the primary, a backup PUT %v, want dev's archive, then main's data and main's", f.arch.puts)
 	}
 	dm, dms := f.arch.latest(t, devKey)
 	if dm.Schema != backup.SchemaDeployment || dm.Deployment != "dev" || dm.Component != bkTile || dm.Scope != bkTile ||
@@ -350,12 +400,12 @@ func TestBackupCoversDeploymentsM2(t *testing.T) {
 	if kv := dataMembers(dms)[backup.KVName]; !strings.Contains(kv, `"d":`) || strings.Contains(kv, `"m":`) {
 		t.Errorf("dev's archive kv isn't dev's: %s", kv)
 	}
-	m, ms = f.arch.latest(t, mainKey)
-	if m.Schema != 1 || m.Deployments == nil || !reflect.DeepEqual(m.Deployments.Archives, map[string]string{"dev": f.arch.versions(devKey)[0]}) {
+	m, _ = f.arch.latest(t, mainKey)
+	if m.Schema != backup.SchemaSplit || m.Deployments == nil || !reflect.DeepEqual(m.Deployments.Archives, map[string]string{"dev": f.arch.versions(devKey)[0]}) {
 		t.Errorf("the main archive doesn't list dev's: %+v", m.Deployments)
 	}
-	if kv := dataMembers(ms)[backup.KVName]; !strings.Contains(kv, `"m":`) || strings.Contains(kv, `"d":`) {
-		t.Errorf("after the reassignment the main archive's kv isn't main's: %s", kv)
+	if _, datms := f.arch.latest(t, dataKey); !strings.Contains(dataMembers(datms)[backup.KVName], `"m":`) || strings.Contains(dataMembers(datms)[backup.KVName], `"d":`) {
+		t.Errorf("after the reassignment main's data archive isn't main's: %s", dataMembers(datms)[backup.KVName])
 	}
 
 	// opt-in: qa's data under its own key, on request
@@ -376,8 +426,8 @@ func TestBackupCoversDeploymentsM2(t *testing.T) {
 
 	// the tile's schedule prunes main's and dev's keys, never qa's
 	b.runScheduledBackup(backupSchedule{Component: bkTile, Schedule: "@every 1h", Retention: 1})
-	if len(f.arch.versions(mainKey)) != 1 || len(f.arch.versions(devKey)) != 1 || len(f.arch.versions(qaKey)) != 2 {
-		t.Errorf("retention: main %v, dev %v, qa %v", f.arch.versions(mainKey), f.arch.versions(devKey), f.arch.versions(qaKey))
+	if len(f.arch.versions(mainKey)) != 1 || len(f.arch.versions(devKey)) != 1 || len(f.arch.versions(qaKey)) != 2 || len(f.arch.versions(dataKey)) != 1 {
+		t.Errorf("retention: main %v, dev %v, qa %v, data %v", f.arch.versions(mainKey), f.arch.versions(devKey), f.arch.versions(qaKey), f.arch.versions(dataKey))
 	}
 	// qa's own schedule prunes qa's key only, to its own retention
 	b.runDeploymentBackup(bkTile, "qa")
@@ -417,8 +467,9 @@ func TestBackupCoversDeploymentsM2(t *testing.T) {
 	if _, err := b.restore(bkTile, bytes.NewReader(writeArchive(t, dmsBody)), nil); err == nil || !strings.Contains(err.Error(), "POST /deployments/restore") {
 		t.Errorf("a deployment archive restored as a tile: %v", err)
 	}
-	// ... and an older xbind, which reads schema 1 at most, refuses it
-	if dm.Schema <= backup.Schema || m.Schema != backup.Schema {
+	// ... and an older xbind, which reads schema 1 at most, refuses it (and
+	// every sealed archive: it finds no backup.json)
+	if dm.Schema <= backup.Schema || m.Schema != backup.SchemaSplit {
 		t.Errorf("schemas: deployment archive %d, main archive %d", dm.Schema, m.Schema)
 	}
 }
@@ -432,7 +483,7 @@ func ptr[T any](v T) *T { return &v }
 // or time beyond them, schema 1, no deployment fields — and POST /restore
 // of it answers today's keys.
 func TestZeroStateBackupBytes(t *testing.T) {
-	b := zeroDataBroker(t)
+	b := plaintextVault(zeroDataBroker(t))
 	b.Version = "test"
 	root := b.Reg.Root
 	arch := &memArchiver{keys: map[string][]memVersion{}}
@@ -747,7 +798,7 @@ func TestOffloadCoversNamespaces(t *testing.T) {
 	if err := b.offload(bkTile, false); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.arch.puts, []string{devKey, qaKey, mainKey}) {
+	if !reflect.DeepEqual(f.arch.puts, []string{devKey, qaKey, dataArchiveKey(bkTile), mainKey}) {
 		t.Errorf("offload PUT %v, want every namespace first, then the main archive", f.arch.puts)
 	}
 	m, _ := f.arch.latest(t, mainKey)
@@ -913,7 +964,7 @@ func TestDeploymentArchiveNoFollow(t *testing.T) {
 // schedule acts write nothing: no archive, no namespace, no ns.json, no
 // schedule file or row.
 func TestBackupActsDryRunCreateNothing(t *testing.T) {
-	b := zeroDataBroker(t)
+	b := plaintextVault(zeroDataBroker(t))
 	root := b.Reg.Root
 	arch := &memArchiver{keys: map[string][]memVersion{}}
 	b.ProxyHandler = arch

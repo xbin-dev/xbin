@@ -95,9 +95,14 @@ a passphrase / manual unseal in production, or a built-in dev key under a bare
 
   then restart xbind (`sudo systemctl restart xbin`) so it mounts them now
   rather than at its next reprovision.
-- **Backups are plaintext.** `bx backup` and the archive interface stream
-  *decrypted* data — encrypting the archive is the archiver tile's job
-  (see *Encryption at rest* above).
+- **Backups are sealed.** `bx backup` reads the *decrypted* data and xbind
+  seals every archive itself under a backup key the vault's data key wraps
+  (AES-256-GCM), so the archiver tile only ever holds ciphertext; a plain
+  archive made before sealing still restores. Restoring on a new machine
+  needs the exported key bundle (`bx backup keys export`) and the vault
+  passphrase; `bx backup erase` crypto-erases a tile's backups
+  ([14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives). No
+  backup runs while the vault is sealed or not set up yet.
 
 Only an explicit `--insecure-vault` (or `--no-auth`) stores resource data
 plaintext, for throwaway/inspection setups.

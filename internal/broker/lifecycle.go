@@ -50,12 +50,19 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 	// which needs a rescan+provision; a plain enable/disable does not (and doing
 	// it would only churn the watcher).
 	filesChanged := false
+	out := map[string]any{"ok": "true", "state": body.State}
 	switch body.State {
 	case registry.StateEnabled:
 		if registry.IsOffloaded(cur) {
-			if _, err := b.doRestore(body.Component, ""); err != nil {
+			// what the restore left out is answered, as POST /restore does
+			r, listed, err := b.restoreTile(body.Component, "")
+			if err != nil {
 				server.WriteError(w, http.StatusBadGateway, "restore failed: "+err.Error())
 				return
+			}
+			r.answer(out)
+			if listed != nil {
+				out["deployments"] = listed
 			}
 			filesChanged = true
 		}
@@ -123,7 +130,7 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b.publishLifecycle(body.Component)
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "state": body.State})
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 // lifecycleReload is the data of the deployments event op reload (11-contract

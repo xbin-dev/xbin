@@ -158,6 +158,9 @@ func usage() {
   bx hide|unhide <component>            hidden = disabled + out of sidebars (D42)
   bx offload <component> [--full]       archive + free local bytes
   bx backup <component>                 back up now to the bound archiver
+  bx backup keys status|export|import <file>
+                                        sealed backups' keys: export for disaster recovery
+  bx backup erase <tile> --data|--all   crypto-erase a tile's backups (every archive)
   bx backups <component>                list archived versions
   bx restore <component> [--version v] [--file path]
                                         restore a version, or one file to stdout
@@ -579,6 +582,12 @@ func cmdOffload(args []string) error {
 }
 
 func cmdBackup(args []string) error {
+	if len(args) >= 2 && args[0] == "keys" {
+		return cmdBackupKeys(args[1:]) // sealed backups' keys (backupkeys.go)
+	}
+	if len(args) >= 2 && args[0] == "erase" {
+		return cmdBackupErase(args[1:])
+	}
 	if len(args) != 1 {
 		return fmt.Errorf("usage: bx backup <component>")
 	}

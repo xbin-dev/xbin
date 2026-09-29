@@ -1,5 +1,6 @@
 /**
- * <bx-admin-backup> — the admin console's backup tab: the default archiver,
+ * <bx-admin-backup> — the admin console's backup tab: the sealed backups'
+ * key status and bundle export, the default archiver,
  * per-component archiver override, guided lifecycle (disable → back up →
  * offload), schedules, versions, restore. A tab element of tiles/admin (see
  * admin.js): the roster arrives as a property; bindings, schedules and
@@ -19,6 +20,7 @@ export class BxAdminBackup extends WithRouter(LitElement) {
     _versions: { state: true },  // comp → [{version, time, size}] (lazy)
     _verOpen: { state: true },   // comps whose version list is expanded
     _busy: { state: true },      // comp mid heavy op
+    _keys: { state: true },      // GET /backup-keys: sealing mode + export status (null: an older xbind)
     _err: { state: true }, // the last refusal (reported to the router's slot)
   };
   static styles = [base];
@@ -48,9 +50,11 @@ export class BxAdminBackup extends WithRouter(LitElement) {
 
   async load() {
     try {
-      const [ifaces, sched] = await Promise.all([api('/bindings'), api('/backup-schedule')]);
+      const [ifaces, sched, keys] = await Promise.all([api('/bindings'), api('/backup-schedule'),
+        api('/backup-keys').catch(() => null)]);
       this._ifaces = ifaces;
       this._schedules = sched.schedules || [];
+      this._keys = keys;
       this._ok();
       // Load versions for disabled components so the offload gate is computable
       // (does a post-disable backup exist?) without expanding each one.
@@ -100,11 +104,26 @@ export class BxAdminBackup extends WithRouter(LitElement) {
     finally { this._busy = null; }
   }
 
+  // The disaster-recovery key bundle (docs/overview/14-lifecycle.md §Sealed archives): downloaded,
+  // and recorded as an export, which clears the backup-keys alert.
+  async _exportKeys() {
+    if (!confirm('Download the backup key bundle? Keep it safe and apart from the vault passphrase: with the passphrase in force now it opens this workspace\'s data key (every secret and all data at rest, not only the backups), and without the bundle a new machine can\'t restore sealed backups.')) return;
+    try {
+      const bundle = await api('/backup-keys/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const day = (bundle.created || new Date().toISOString()).slice(0, 10);
+      xbin.download(`xbin-backup-keys-${day}.xbk`, new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }));
+      this._keys = await api('/backup-keys');
+      this._ok();
+      this._emit('bx-admin-refresh'); // the alerts banner
+    } catch (e) { this._fail(e); }
+  }
+
   async _restoreVersion(comp, version) {
     if (!confirm(`Restore ${comp} from ${version}? This replaces its current data/source.`)) return;
     this._busy = comp;
     try {
-      await api('/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp, version }) });
+      const d = await api('/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp, version }) });
+      if (d?.dataErased || d?.dataMissing) this._emit('bx-admin-notice', `${comp}: ${d.dataErased || d.dataMissing}`);
       this._emit('bx-admin-refresh');
       await this.load();
     } catch (e) { this._fail(e); }
@@ -152,6 +171,7 @@ export class BxAdminBackup extends WithRouter(LitElement) {
       <p class="muted">Back up a component (its source + data + terminal layer) to an archiver, offload to
         free disk, or restore a version/file. Vault is not backed up. See
         <a href="/docs/overview/14-lifecycle.md" target="_blank">the lifecycle overview</a>.</p>
+      ${this._keysStatus()}
       <h3>Default archiver</h3>
       <select @change=${(e) => this._setArchiver('*', e.target.value)}>
         <option value="" ?selected=${!defArch}>— none —</option>
@@ -164,6 +184,36 @@ export class BxAdminBackup extends WithRouter(LitElement) {
         <tr><th>component</th><th>lifecycle</th><th>archiver</th><th>schedule</th><th></th></tr>
         ${comps.map((c) => this._backupRow(c, archivers, defArch, schedFor(c.path)))}
       </table>`;
+  }
+
+  // Sealed backups: how archives are sealed, and how the key bundle exports
+  // stand. Nothing against an older xbind (no /backup-keys).
+  _keysStatus() {
+    const k = this._keys;
+    if (!k) return nothing;
+    if (k.mode === 'plaintext') return html`<p class="muted">Archives are plain tars: the plaintext-vault mode
+      (--insecure-vault / --no-auth) seals nothing.</p>`;
+    if (k.mode === 'vault-locked') return html`<p><b style="color: var(--bx-amber, #f2a71b)">No backup runs: the vault
+      isn't set up yet</b>, and every archive is sealed under a key it holds. Set it up on the Vault tab
+      (or <code>bx vault unseal</code>).</p>`;
+    const when = k.lastExport ? new Date(k.lastExport).toLocaleString() : 'never';
+    return html`
+      <h3>Sealed backups</h3>
+      <p class="muted">Every archive is sealed under a backup key; archivers see only the key's name. Restoring on a
+        new machine needs the exported key bundle and the vault passphrase.
+        ${k.mode === 'vault-sealed' ? html`<b>The vault is sealed: no backup runs until it is unsealed.</b>` : nothing}</p>
+      <div class="keys-status">
+        <span class="mono">${k.keys} key${k.keys === 1 ? '' : 's'}</span>
+        · last export: <span class="mono">${when}</span>
+        ${k.unexported ? html` · <b style="color: var(--bx-amber, #f2a71b)">${k.unexported} not in any export yet</b>` : nothing}
+        ${k.lastExport ? html` · erased since your last export: <span class="mono">${k.erasedSinceExport}</span>` : nothing}
+        · <a class="link" @click=${() => this._exportKeys()}>export key bundle</a>
+      </div>
+      ${k.passphraseChanged && k.keys ? html`<p><b style="color: var(--bx-amber, #f2a71b)">The vault passphrase changed
+        after the last export</b>: export a fresh bundle and destroy the older ones — they still open with the old
+        passphrase.</p>` : nothing}
+      ${k.lastExport && k.erasedSinceExport ? html`<p class="muted">Export again and destroy older bundles: they still hold
+        the erased keys.</p>` : nothing}`;
   }
 
   _backupRow(c, archivers, defArch, sched) {

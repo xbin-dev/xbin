@@ -9,7 +9,6 @@ package broker
 // registration files a main archive carries, validated row by row.
 
 import (
-	"bytes"
 	"cmp"
 	"encoding/base64"
 	"encoding/json"
@@ -161,7 +160,16 @@ func (b *Broker) restoreData(tile string, r dataRestore) (string, []string, []st
 	case code >= 400:
 		return "", nil, nil, nsErr(http.StatusBadGateway, "", fmt.Sprintf("archiver %s: %s", provider, firstLine(string(body))))
 	}
-	br, err := backup.NewReader(bytes.NewReader(body))
+	br, err := b.openArchive(body) // a sealed archive is authenticated whole first
+	if err == nil && r.from == util.MainDeployment && br.M.Data != nil && !br.M.DataArchive() {
+		// a split main archive: main's data is in the data archive it names
+		if err = archivedDataOK(br.M, tile, r.from); err == nil {
+			var gone error
+			if br, gone, err = b.openDataArchive(provider, tile, br.M); gone != nil {
+				err = gone
+			}
+		}
+	}
 	if err == nil {
 		err = archivedDataOK(br.M, tile, r.from)
 	}
@@ -207,8 +215,9 @@ func (b *Broker) restoreData(tile string, r dataRestore) (string, []string, []st
 
 // archivedDataOK checks an archive's manifest before anything is written
 // (05-model §11; 06-security T11.5): it must be tile's, hold data of the
-// scope tile roots, and be from's — a main archive for main, else from's
-// deployment archive at a schema this xbind reads.
+// scope tile roots, and be from's — a main archive (or the data archive a
+// split one names) for main, else from's deployment archive at a schema
+// this xbind reads.
 func archivedDataOK(m backup.Manifest, tile, from string) error {
 	switch {
 	case m.Component != tile:
@@ -217,6 +226,8 @@ func archivedDataOK(m backup.Manifest, tile, from string) error {
 		return errors.New("it holds no data of the scope " + tile + " roots")
 	case from == util.MainDeployment && m.DeploymentArchive():
 		return fmt.Errorf("it is deployment %q's, not the main archive", m.Deployment)
+	case from != util.MainDeployment && m.DataArchive():
+		return fmt.Errorf("it is main's data archive, not %s's deployment archive", from)
 	case from != util.MainDeployment && (m.Schema != backup.SchemaDeployment || m.Deployment != from):
 		return fmt.Errorf("it isn't %s's deployment archive (schema %d, deployment %q)", from, m.Schema, m.Deployment)
 	}

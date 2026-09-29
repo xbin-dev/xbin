@@ -123,6 +123,12 @@ vault) and re-encodes kv — so a backup is portable across workspaces/passphras
 without an encrypting archiver would push plaintext to S3 — a regression. The
 builtin `s3-archiver` must gain client-side encryption as the companion change.
 
+> **Superseded (PD-25/PD-56, plans/partitions/11-backup-encryption.md):** xbind
+> now seals every archive itself under per-subject backup keys the DEK wraps,
+> so archivers hold ciphertext only and the s3-archiver's client-side
+> encryption item is dropped. Plaintext archives made before sealing still
+> restore; `--insecure-vault` workspaces keep plain archives.
+
 ## Not encrypted (follow-ups)
 
 - xbind metadata: `data/cron-jobs.json`, `data/backup-schedule.json`,
@@ -158,5 +164,12 @@ tiles survive a rename is a larger follow-up.)
   vendored static like fuse-overlayfs; kv is broker envelope-encrypted.
 - **VD-4 — Backups are plaintext**; the archiver owns archive encryption (VD-3
   of the archive/lifecycle story). Backup/restore route through the decrypted
-  view.
-- **VD-5 — DEK rotation out of scope**; passphrase rekey stays O(1).
+  view. **Superseded by PD-56** (plans/partitions/11-backup-encryption.md):
+  backup/restore still read through the decrypted view, but xbind seals every
+  archive under a backup key (random per subject, wrapped by the DEK), so
+  keys can be deleted to crypto-erase backups.
+- **VD-5 — DEK rotation out of scope**; passphrase rekey stays O(1). (So a
+  backup key bundle — the barrier descriptor plus the wrapped backup keys —
+  exported under a passphrase opens the DEK with that passphrase for good: a
+  rekey marks every earlier export stale, and the docs say to destroy those
+  bundles; PD-56, F17a's review.)

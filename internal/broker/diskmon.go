@@ -378,6 +378,7 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 		if a, bad := b.policiesAlert(); bad { // an unreadable data/workspace-policies.json (PD-55)
 			out = append(out, a)
 		}
+		out = append(out, b.backupKeyAlerts()...) // keys no export holds yet: admins only (backupkeys_status.go)
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})
 }

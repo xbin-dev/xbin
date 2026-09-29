@@ -61,7 +61,7 @@ func newBackupTripwire(t *testing.T) *backupTripwire {
 // internal/confine's TestNoFollowingHostWalks.
 func TestBackupDeploymentsNoFollow(t *testing.T) {
 	w := newBackupTripwire(t)
-	b := zeroDataBroker(t)
+	b := plaintextVault(zeroDataBroker(t))
 	root := b.Reg.Root
 	arch := &zeroDataArchiver{}
 	b.ProxyHandler = arch

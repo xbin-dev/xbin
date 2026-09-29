@@ -342,7 +342,7 @@ func opReload(tile, dep string) string {
 //     tile starts in the zero state, and its source keeps its record.
 func TestDeploymentsAcrossTileLifeM2(t *testing.T) {
 	f := newLifeFx(t)
-	b, st, root := f.b, f.st, f.root
+	b, st, root := plaintextVault(f.b), f.st, f.root
 	rootP := auth.Principal{Owner: true}
 	emailView := "active primary=main reached=main [main=3f2a1c9 fires=true routes=true; dev=worktree fires=true routes=false; " +
 		"qa=9e8d7c6 fires=false routes=false] edges=map[grant:apps/calendar:read slot:llm:block]"
