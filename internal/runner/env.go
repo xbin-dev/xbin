@@ -124,11 +124,7 @@ func (r *Runner) buildEnvLayer(c *registry.Component, layers string, gc func(bui
 		return "", err
 	}
 
-	if c.Deployment == "" {
-		r.Hub.Publish(events.Event{Type: "build-start", Component: c.Path, Text: "setting up environment…"})
-	} else {
-		r.emit(c.Path, c.Deployment, "build-start", "setting up environment…") // never an old type (C2)
-	}
+	r.emitSetupStart(c)
 
 	spec := r.envSetupSpec(c, upper, work)
 	release := buildTurn(c)
@@ -177,9 +173,25 @@ func (r *Runner) buildEnvLayer(c *registry.Component, layers string, gc func(bui
 	return upper, nil
 }
 
+// emitSetupStart announces a setup run for view c: the primary's tile-wide
+// (today's event), another deployment's as its own (never an old type, C2),
+// and a person's partition's to that person alone (partitions.go).
+func (r *Runner) emitSetupStart(c *registry.Component) {
+	const text = "setting up environment…"
+	switch {
+	case c.Partition != "":
+		r.emitPartition(c, "build-start", text)
+	case c.Deployment == "":
+		r.Hub.Publish(events.Event{Type: "build-start", Component: c.Path, Text: text})
+	default:
+		r.emit(c.Path, c.Deployment, "build-start", text)
+	}
+}
+
 // envSetupLog is where view c's setup run writes: its deployment's backend
 // log, main's today's .xbin/log/<CompKey>.log and any other deployment's
-// under the tile's deploy state, whose directory is made for it.
+// under the tile's deploy state, whose directory is made for it. A person's
+// partition's writes the tile's: the layer, and its script, are the tile's.
 func (r *Runner) envSetupLog(c *registry.Component) string {
 	dep := r.viewDeployment(c)
 	p := filepath.Join(r.Root, filepath.FromSlash(deploymentLog(c.Path, dep)))

@@ -63,9 +63,7 @@ const (
 // isolation (D119h, ErrNeedsIsolation), and there, too, a backend of any
 // deployment but main as the primary.
 func (r *Runner) Deploy(ctx context.Context, c *registry.Component, dep string, code Code, commit func() error, progress DeployProgress) error {
-	err := r.deploy(ctx, c, dep, code, commit, progress, false)
-	r.followPrimary(c, dep, err) // people's partitions move with the primary (partadmit.go)
-	return err
+	return r.deploy(ctx, c, dep, code, commit, progress, false)
 }
 
 // Restart starts a new generation of deployment dep's current code (its
@@ -79,9 +77,7 @@ func (r *Runner) Restart(ctx context.Context, c *registry.Component, dep string,
 	if err != nil {
 		return err
 	}
-	err = r.deploy(ctx, c, dep, code, nil, progress, true)
-	r.followPrimary(c, dep, err)
-	return err
+	return r.deploy(ctx, c, dep, code, nil, progress, true)
 }
 
 // deployPlan is one deploy, resolved before its turn.
@@ -192,9 +188,10 @@ func (r *Runner) deploy(ctx context.Context, c *registry.Component, dep string, 
 		rep.ok()
 		return nil
 	case !p.restart && old == nil && !failing, r.noGlobal(c.Path, dep):
-		return r.deployIdle(c, s, p, commit, rep, changed) // no global instance: prepared for people's partitions
+		// no global instance: prepared for people's partitions, which move with it (partadmit.go)
+		return r.followPrimary(c, p, r.deployIdle(c, s, p, commit, rep, changed))
 	}
-	return r.deploySwap(c, s, p, commit, rep, changed)
+	return r.followPrimary(c, p, r.deploySwap(c, s, p, commit, rep, changed))
 }
 
 // deployReport feeds a deploy's progress callback.

@@ -307,7 +307,7 @@ func (r *Runner) Changed(c *registry.Component) {
 	if !c.HasBackend() {
 		return
 	}
-	r.changedPartitions(c) // a new shared build, before the primary's; people's partitions follow
+	r.nextBuild(c.Path) // a partitioned tile's shared build is a new one, before the primary's (partadmit.go)
 	s := r.state(c.Path)
 	s.mu.Lock()
 	s.dirty = true
@@ -316,8 +316,11 @@ func (r *Runner) Changed(c *registry.Component) {
 	s.mu.Unlock()
 	// Don't respawn a disabled/offloaded component on a file change (Ensure would
 	// refuse anyway; this just skips the pointless goroutine + build).
-	if hadProcess && (r.ShouldRun == nil || r.ShouldRun(c.Path)) {
+	restart := hadProcess && (r.ShouldRun == nil || r.ShouldRun(c.Path))
+	done := r.changedPartitions(c, restart) // people's partitions follow, onto the same build (partstop.go)
+	if restart {
 		go func() {
+			defer done()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 			_, _ = r.Ensure(ctx, c)
@@ -355,8 +358,10 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		return err
 	}
 	v, bin := g.view, g.bin
-	if s.pt != nil { // a person's partition spawns from its own copy of the view
-		v = partitionView(v, s.pt.part, s.pt.pkey)
+	if v, err = r.partBegin(s, v); err != nil { // a person's partition: its own view, its gates again (partstart.go)
+		g.release()
+		r.emitState(s, "build-error", err.Error())
+		return err
 	}
 
 	s.mu.Lock()
@@ -374,6 +379,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 	}
 
 	inst, err := r.startFor(v, dep, bin, gen)
+	inst, err = r.partSpawned(s, v, inst, err) // a stop that landed meanwhile stops it (partstart.go)
 	if err != nil {
 		g.release()
 		r.emitState(s, "build-error", err.Error())
@@ -394,7 +400,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 
 	if !r.install(s, inst, false) {
 		g.release()
-		return util.NoDeployment(c.Path, dep) // removed while it built
+		return r.notInstalled(s, c.Path, dep) // removed or stopped while it built
 	}
 	if old != nil {
 		go r.stopGen(old, drainDeadline)

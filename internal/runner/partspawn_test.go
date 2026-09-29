@@ -28,8 +28,8 @@ func partSpawnRunner(t *testing.T) (*Runner, *registry.Component, *[]string) {
 	r.PartitionEnv = func(v *registry.Component, dep, part string) ([]string, map[string]ResBind) {
 		return []string{"XBIN_RES_DB=" + v.Dir + "/data/" + part}, map[string]ResBind{}
 	}
-	r.RegisterPartitionInstance = func(token, tile, dep, part string) {
-		registered = append(registered, tile+" "+dep+" "+part)
+	r.RegisterPartitionInstance = func(token, tile, dep, part, uid string) {
+		registered = append(registered, tile+" "+dep+" "+part+" "+uid)
 	}
 	return r, c, &registered
 }
@@ -89,9 +89,20 @@ func TestPartitionEnvGolden(t *testing.T) {
 	if fi, err := os.Stat(filepath.Dir(wantLog)); err != nil || !fi.IsDir() {
 		t.Errorf("alice's log directory: %v", err)
 	}
+	r.registerGen("tok", v, "main") // a spawn no state opened: no token
+	if len(*registered) != 0 {
+		t.Errorf("a spawn without a state registered %q", *registered)
+	}
+	s := &state{comp: "apps/x", dep: "main", pt: &partInfo{part: "user:alice", pkey: pkA, uid: "uid-a"}}
+	r.parts.spawns = map[*registry.Component]*state{v: s}
 	r.registerGen("tok", v, "main")
-	if want := []string{"apps/x main user:alice"}; !equalStrings(*registered, want) {
-		t.Errorf("registered %q, want %q", *registered, want)
+	if want := []string{"apps/x main user:alice uid-a"}; !equalStrings(*registered, want) || s.pt.token != "tok" {
+		t.Errorf("registered %q (kept %q), want %q from its state", *registered, s.pt.token, want)
+	}
+	s.gone = true
+	r.registerGen("tok2", v, "main")
+	if len(*registered) != 1 {
+		t.Errorf("a stopped state's spawn registered %q", *registered)
 	}
 
 	dev := nonPrimary(c, "dev")

@@ -24,7 +24,9 @@ package runner
 // published.
 //
 // Admission, the 10-minute idle stop and the shared build are
-// partadmit.go's.
+// partadmit.go's; the stops, the mode transitions and the restarts after a
+// change partstop.go's; the spawn window, which every stop reaches,
+// partstart.go's.
 
 import (
 	"context"
@@ -32,7 +34,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
@@ -79,24 +80,32 @@ const (
 // partition starts (the four start hooks) or no event goes out.
 type PartitionHooks struct {
 	// PartitionIdent resolves the person of partition part ("user:<id>") of
-	// tile to their partition id, the pkey ("u-" and 32 hex digits), minting
-	// their uid when they have none (the identity plane, 02 §1, 03 §E). An
-	// error, or an answer of any other shape, refuses the start.
-	PartitionIdent func(tile, part string) (pkey string, err error)
+	// tile to their partition id, the pkey ("u-" and 32 hex digits), and
+	// their uid, minting the uid when they have none (the identity plane,
+	// 02 §1, 03 §E). An error, or an answer of any other shape, refuses the
+	// start. It is asked again before every spawn and on every change: a
+	// state whose pkey is no longer the answer — its person was deleted and
+	// recreated — stops, and never starts again.
+	PartitionIdent func(tile, part string) (pkey, uid string, err error)
 	// ShouldRunPartition gates a start of partition part of deployment dep
-	// of tile beyond the tile's own gates: the person exists with the same
-	// uid, is enabled and can read the tile (PD-20), and the partition's
-	// namespaces aren't held by encryption (03 §B.6).
-	ShouldRunPartition func(tile, dep, part string) bool
+	// of tile, for the person PartitionIdent resolved as uid, beyond the
+	// tile's own gates: that person exists with that same uid, is enabled
+	// and can read the tile (PD-20), and the partition's namespaces aren't
+	// held by encryption (03 §B.6). Asked at admission, again right before
+	// every spawn, and on every change.
+	ShouldRunPartition func(tile, dep, part, uid string) bool
 	// PartitionEnv is the resource env of a generation of partition
 	// c.Partition (the data plane's PartitionEnv, 03 §B.4): the values
 	// EnvFor gives the tile, and the remap onto the partition's own
 	// namespaces, which dataBinds binds (fail closed, resourceBindsFor).
 	PartitionEnv func(c *registry.Component, dep, part string) (env []string, remap map[string]ResBind)
 	// RegisterPartitionInstance registers a generation's instance token as
-	// tile's principal acting in partition part of deployment dep (auth's
-	// RegisterInstancePartition, 02 §2), from the runner's own state.
-	RegisterPartitionInstance func(token, tile, dep, part string)
+	// tile's principal acting in partition part of deployment dep for the
+	// person whose uid is uid (auth's RegisterInstancePartition(token, tile,
+	// dep, part, uid), 02 §2), from the runner's own state. It is called
+	// under that state's lock, so no stop lands between it and the stop's
+	// revocation (partstart.go): it must not call into the runner.
+	RegisterPartitionInstance func(token, tile, dep, part, uid string)
 	// PartitionEvent publishes a runner event of partition part to its
 	// person's sockets only (02 §9): build-start/-ok/-error and reload.
 	// nil: the event is dropped — never published tile-wide.
@@ -110,9 +119,15 @@ type PartitionHooks struct {
 
 // partInfo is a user partition's side of a runner state.
 type partInfo struct {
-	part, pkey      string    // "user:<id>" and its pkey
+	part, pkey, uid string    // "user:<id>", its pkey and its person's uid, as resolved when the state was made
 	passive         int       // tracked passive streams (SSE): no use, no eviction guard (03 §A.5)
 	lastInteractive time.Time // the last interactive request: in use for 2 min after
+	handoff         time.Time // the last EnsurePartition answer: not evicted for partitionHandoff after it (the proxy tracks it meanwhile)
+	// The spawn window (partstart.go): a generation past its gates and not
+	// yet installed, which a stop must reach too.
+	spawning chan struct{} // non-nil while a generation spawns; closed once the state holds it, or it stopped
+	token    string        // the instance token registered for the spawning generation
+	starting *instance     // a generation spawned, not yet installed
 }
 
 // partitionsState is the runner's partition bookkeeping.
@@ -120,6 +135,7 @@ type partitionsState struct {
 	states map[string]*state                 // partStateKey → a user partition's state
 	index  map[string]string                 // tile\0dep\0part → the pkey last resolved for it
 	mode   map[string]registry.PartitionSpec // tile → its running spec, as PartitionsChanged last said
+	spawns map[*registry.Component]*state    // a spawning generation's view → its state (partstart.go)
 	adm    partAdmission                     // partadmit.go
 	builds partBuilds                        // partadmit.go
 }
@@ -209,10 +225,11 @@ func (r *Runner) EnsurePartition(ctx context.Context, c *registry.Component, dep
 		}
 		return r.EnsureDeployment(ctx, c, dep) // deployment: the caller's, Route's answer; global is its instance at today's key
 	}
-	pkey, err := r.partitionGate(c, dep, part)
+	pkey, uid, err := r.partitionGate(c, dep, part)
 	if err != nil {
 		return "", err
 	}
+	r.stopStale(c.Path, dep, part, pkey) // an earlier incarnation of the person never serves again
 	key := partStateKey(c.Path, dep, pkey)
 	if s := r.existingPart(key); s != nil {
 		s.mu.Lock()
@@ -222,7 +239,7 @@ func (r *Runner) EnsurePartition(ctx context.Context, c *registry.Component, dep
 			sock := s.cur.sock
 			s.mu.Unlock()
 			return sock, nil
-		case !s.dirty && s.lastErr != nil:
+		case !s.dirty && s.lastErr != nil && sticky(s.lastErr):
 			err := s.lastErr
 			s.mu.Unlock()
 			return "", err
@@ -230,7 +247,11 @@ func (r *Runner) EnsurePartition(ctx context.Context, c *registry.Component, dep
 			s.mu.Unlock()
 			return r.ensureState(ctx, c, s)
 		}
+		failed := !s.dirty && s.lastErr != nil
 		s.mu.Unlock()
+		if failed { // a start that failed for this person alone: a fresh try, through admission
+			r.stopPart(s, false)
+		}
 	}
 	release, err := r.admitPartition(c.Path, key, class)
 	if err != nil {
@@ -240,7 +261,7 @@ func (r *Runner) EnsurePartition(ctx context.Context, c *registry.Component, dep
 		return "", err
 	}
 	defer release()
-	s := r.partStateOf(c.Path, dep, part, pkey)
+	s := r.partStateOf(c.Path, dep, part, pkey, uid)
 	s.mu.Lock()
 	r.touchLocked(s, class)
 	s.mu.Unlock()
@@ -249,11 +270,12 @@ func (r *Runner) EnsurePartition(ctx context.Context, c *registry.Component, dep
 
 // partitionGate is every check before a person's partition may exist: its
 // key, the primary, isolation, the tile's running mode, a backend, the
-// tile's own gates, the person (ShouldRunPartition), the planes' hooks and
-// the pkey. Nothing creates a state for a partition that fails one.
-func (r *Runner) partitionGate(c *registry.Component, dep, part string) (string, error) {
-	refuse := func(format string, a ...any) (string, error) {
-		return "", fmt.Errorf("%w: %s", ErrPartitionRefused, fmt.Sprintf(format, a...))
+// tile's own gates, the planes' hooks, the person's pkey and uid, and
+// whether that person may run it (ShouldRunPartition). Nothing creates a
+// state for a partition that fails one.
+func (r *Runner) partitionGate(c *registry.Component, dep, part string) (pkey, uid string, err error) {
+	refuse := func(format string, a ...any) (string, string, error) {
+		return "", "", fmt.Errorf("%w: %s", ErrPartitionRefused, fmt.Sprintf(format, a...))
 	}
 	id, ok := strings.CutPrefix(part, "user:")
 	switch {
@@ -268,10 +290,10 @@ func (r *Runner) partitionGate(c *registry.Component, dep, part string) (string,
 		return refuse("%s doesn't run people's partitions", c.Path)
 	}
 	if err := registry.ValidateRuntime(c.Manifest); err != nil {
-		return "", fmt.Errorf("component %s: %w", c.Path, err)
+		return "", "", fmt.Errorf("component %s: %w", c.Path, err)
 	}
 	if !c.HasBackend() {
-		return "", fmt.Errorf("component %s has no long-running backend", c.Path)
+		return "", "", fmt.Errorf("component %s has no long-running backend", c.Path)
 	}
 	if !r.shouldRun(c.Path, dep) {
 		why := "is not enabled"
@@ -280,21 +302,21 @@ func (r *Runner) partitionGate(c *registry.Component, dep, part string) (string,
 				why = w
 			}
 		}
-		return "", fmt.Errorf("component %s %s", c.Path, why)
+		return "", "", fmt.Errorf("component %s %s", c.Path, why)
 	}
 	h := r.PartitionHooks
 	if h.PartitionIdent == nil || h.ShouldRunPartition == nil || h.PartitionEnv == nil || h.RegisterPartitionInstance == nil {
 		return refuse("this xbind can't give %s's partition of %s its own identity and data yet", id, c.Path)
 	}
-	if !h.ShouldRunPartition(c.Path, dep, part) {
-		return refuse("%s's partition of %s may not run now", id, c.Path)
-	}
-	pkey, err := h.PartitionIdent(c.Path, part)
+	pkey, uid, err = h.PartitionIdent(c.Path, part)
 	if err != nil {
 		return refuse("%s's partition of %s: %v", id, c.Path, err)
 	}
-	if !pkeyRe.MatchString(pkey) {
+	if !pkeyRe.MatchString(pkey) || uid == "" {
 		return refuse("%s's partition of %s has no valid partition id", id, c.Path)
+	}
+	if !h.ShouldRunPartition(c.Path, dep, part, uid) { // the same uid (PD-20): the hook compares it
+		return refuse("%s's partition of %s may not run now", id, c.Path)
 	}
 	r.mu.Lock()
 	if r.parts.index == nil {
@@ -302,21 +324,25 @@ func (r *Runner) partitionGate(c *registry.Component, dep, part string) (string,
 	}
 	r.parts.index[partIndexKey(c.Path, dep, part)] = pkey
 	r.mu.Unlock()
-	return pkey, nil
+	return pkey, uid, nil
 }
 
 // touchLocked stamps a request of class on partition state s; callers hold
-// s.mu.
+// s.mu. Every answer holds off eviction for partitionHandoff, so a
+// delivery's socket isn't stopped before the proxy tracks its connection.
 func (r *Runner) touchLocked(s *state, class StartClass) {
 	now := r.now()
 	s.lastReq = now
-	if class == StartInteractive && s.pt != nil {
-		s.pt.lastInteractive = now
+	if s.pt != nil {
+		s.pt.handoff = now
+		if class == StartInteractive {
+			s.pt.lastInteractive = now
+		}
 	}
 }
 
 // partStateOf is the state of user partition pkey, created dirty.
-func (r *Runner) partStateOf(tile, dep, part, pkey string) *state {
+func (r *Runner) partStateOf(tile, dep, part, pkey, uid string) *state {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := partStateKey(tile, dep, pkey)
@@ -325,7 +351,7 @@ func (r *Runner) partStateOf(tile, dep, part, pkey string) *state {
 	}
 	s, ok := r.parts.states[k]
 	if !ok {
-		s = &state{comp: tile, dep: dep, dirty: true, pt: &partInfo{part: part, pkey: pkey}}
+		s = &state{comp: tile, dep: dep, dirty: true, pt: &partInfo{part: part, pkey: pkey, uid: uid}}
 		r.parts.states[k] = s
 	}
 	return s
@@ -447,145 +473,6 @@ func (t *PartitionConn) Release() {
 	t.s.mu.Unlock()
 }
 
-// ---- stops (03 §A.8) ----
-
-// stopPart stops partition state s and forgets it: its instance token is
-// revoked first, so it authenticates no more from the moment this returns;
-// the process drains in the background (wait: in this call). Data is never
-// touched.
-func (r *Runner) stopPart(s *state, wait bool) {
-	r.mu.Lock()
-	if k := partStateKey(s.comp, s.dep, s.pt.pkey); r.parts.states[k] == s {
-		delete(r.parts.states, k)
-	}
-	r.mu.Unlock()
-	s.mu.Lock()
-	s.gone = true
-	inst := s.cur
-	s.cur = nil
-	s.mu.Unlock()
-	if inst == nil {
-		return
-	}
-	if r.Auth != nil {
-		r.Auth.RevokeInstance(inst.token)
-	}
-	if wait {
-		r.stopGen(inst, 5*time.Second)
-	} else {
-		go r.stopGen(inst, 5*time.Second)
-	}
-}
-
-// stopParts stops every partition state the filter keeps, revoking all
-// their tokens before it returns, and waits for their processes when wait.
-func (r *Runner) stopParts(keep func(*state) bool, wait bool) int {
-	var wg sync.WaitGroup
-	n := 0
-	for _, s := range r.partStates("") {
-		if !keep(s) {
-			continue
-		}
-		n++
-		if !wait {
-			r.stopPart(s, false)
-			continue
-		}
-		wg.Add(1)
-		go func() { defer wg.Done(); r.stopPart(s, true) }()
-	}
-	wg.Wait()
-	return n
-}
-
-// StopPartition stops partition part of deployment dep of tile — every
-// incarnation of it (a recreated person's included) — revoking its tokens
-// first; its data stays (06 §6 stop). A request starts it again.
-func (r *Runner) StopPartition(tile, dep, part string) {
-	r.stopParts(func(s *state) bool { return s.comp == tile && s.dep == dep && s.pt.part == part }, true)
-}
-
-// StopPartitionsOf stops every partition of person userID on every tile —
-// their deletion, disabling or loss of access (06 §9) — revoking the tokens
-// before it returns.
-func (r *Runner) StopPartitionsOf(userID string) {
-	part := "user:" + userID
-	if n := r.stopParts(func(s *state) bool { return s.pt.part == part }, false); n > 0 {
-		slog.Info("partitions stopped", "user", userID, "instances", n)
-	}
-}
-
-// StopPartitions stops every user partition of tile, revoking their tokens
-// before it returns (a mode change, 01 §6; a hold; a disable).
-func (r *Runner) StopPartitions(tile string) {
-	r.stopParts(func(s *state) bool { return s.comp == tile }, false)
-}
-
-// PartitionsChanged is told a tile's running partition spec changed (01 §6):
-// old and new have User only while the tile runs user partitions (its
-// state is Partitioned). Boot calls it from the registry's
-// OnPartitionChange, before the scan that changed it is published, so
-// the runner answers from the new spec at once (partitionSpec). Without
-// user partitions every partition instance stops, its token revoked here.
-// The primary's running generation stops when the new spec has no global
-// instance, and when the tile turned partitioned or unpartitioned: the
-// next request (or alwaysOn's wake) starts it again with XBIN_PARTITION
-// saying what it is now. Nothing starts here — c may be a tile the scan
-// dropped.
-func (r *Runner) PartitionsChanged(c *registry.Component, old, new registry.PartitionSpec) {
-	r.mu.Lock()
-	if r.parts.mode == nil {
-		r.parts.mode = map[string]registry.PartitionSpec{}
-	}
-	r.parts.mode[c.Path] = new
-	r.mu.Unlock()
-	if !new.User {
-		r.StopPartitions(c.Path)
-	}
-	if old != new && (old.User != new.User || new.User && !new.Global) {
-		if s := r.existingStateOf(c.Path, r.primary(c.Path)); s != nil {
-			go r.stopState(s) // under the scan lock: never wait for a drain here
-		}
-	}
-}
-
-// changedPartitions is Changed's part for c's user partitions (03 §A.7):
-// the next build is a new one, every partition state is dirty and forgets
-// its crashes, and the live ones restart, at most partitionSwapsPerTile at
-// once, after the one shared build; the others build (reuse) on their next
-// request. A partition its person may no longer run stops instead.
-func (r *Runner) changedPartitions(c *registry.Component) {
-	r.nextBuild(c.Path)
-	var live []*state
-	for _, s := range r.partStates(c.Path) {
-		s.mu.Lock()
-		s.dirty, s.crashes = true, nil
-		l := s.cur != nil || s.building
-		s.mu.Unlock()
-		if l {
-			live = append(live, s)
-		}
-	}
-	if len(live) == 0 {
-		return
-	}
-	sem := make(chan struct{}, partitionSwapsPerTile)
-	for _, s := range live {
-		go func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			if _, ok := r.partitionSpec(c.Path); !ok || !r.shouldRun(c.Path, s.dep) ||
-				r.ShouldRunPartition == nil || !r.ShouldRunPartition(c.Path, s.dep, s.pt.part) {
-				r.stopPart(s, false)
-				return
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-			defer cancel()
-			_, _ = r.ensureState(ctx, c, s)
-		}()
-	}
-}
-
 // ---- what a partition's generation spawns with ----
 
 // partitionEnvKey is XBIN_PARTITION for a generation spawning from view c:
@@ -637,19 +524,6 @@ func (r *Runner) genEnv(c *registry.Component, dep string) []string {
 	return env
 }
 
-// registerGen registers a generation's instance token from the runner's
-// own state: a user partition's with its partition, any other through
-// registerInstance.
-func (r *Runner) registerGen(token string, c *registry.Component, dep string) {
-	if c.Partition == "" {
-		r.registerInstance(token, c.Path, dep)
-		return
-	}
-	if f := r.RegisterPartitionInstance; f != nil {
-		f(token, c.Path, dep, c.Partition)
-	}
-}
-
 // leafOf is the cgroup leaf a generation spawning from view c starts in.
 func (r *Runner) leafOf(c *registry.Component, dep string) string {
 	if c.Partition != "" {
@@ -671,13 +545,21 @@ func (r *Runner) emitState(s *state, typ, text string) {
 	}
 }
 
+// emitPartition publishes one runner event of a person's partition's view
+// c (its env layer's setup, env.go) to its person only, or nowhere.
+func (r *Runner) emitPartition(c *registry.Component, typ, text string) {
+	if f := r.PartitionEvent; f != nil {
+		f(c.Path, r.primary(c.Path), c.Partition, typ, text)
+	}
+}
+
 // crashLoop is the breaker's error for state s running code: a user
 // partition's names the partition, never its log's path (06 §5).
 func (r *Runner) crashLoop(s *state, code Code, n int) error {
 	if s.pt == nil {
 		return crashLoopError(s.comp, s.dep, code, n)
 	}
-	return fmt.Errorf("%s's instance is crash-looping (%d exits); a change to the tile's code retries it — its log is theirs (bx logs in their terminal)", s.pt.part, n)
+	return partCrashLoop{fmt.Errorf("%s's instance is crash-looping (%d exits); a change to the tile's code retries it — its log is theirs (bx logs in their terminal)", s.pt.part, n)}
 }
 
 // afterExit is the crash watch's alwaysOn hook for state s: a user

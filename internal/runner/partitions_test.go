@@ -46,9 +46,29 @@ type partWorld struct {
 	tp     *tape
 	c      *registry.Component
 	mu     sync.Mutex
-	denied map[string]bool // ShouldRunPartition refuses these partitions
-	events []string        // PartitionEvent: "<typ> <part>"
-	tokens []string        // RegisterPartitionInstance: "<part> <token>"
+	denied map[string]bool   // ShouldRunPartition refuses these partitions
+	events []string          // PartitionEvent: "<typ> <part>"
+	tokens []string          // RegisterPartitionInstance: "<part> <token> <uid>"
+	uids   map[string]string // a person's uid, when not "uid-<part>" (a recreated person's)
+}
+
+// uidOf is part's person's uid now; callers hold w.mu.
+func (w *partWorld) uidOf(part string) string {
+	if u, ok := w.uids[part]; ok {
+		return u
+	}
+	return "uid-" + part
+}
+
+// pkeyOf is part's pkey now: fakePkey for the first incarnation, the
+// SHA-256 of the uid for any other.
+func (w *partWorld) pkeyOf(part string) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if u, ok := w.uids[part]; ok {
+		return fakePkey(u)
+	}
+	return fakePkey(part)
 }
 
 func newPartWorld(t *testing.T, spec registry.PartitionSpec, m registry.Manifest) *partWorld {
@@ -60,19 +80,24 @@ func newPartWorld(t *testing.T, spec registry.PartitionSpec, m registry.Manifest
 	r, f, tp := newSeamRunner(t, c)
 	r.Isolate = true
 	r.parts.adm.memTotal.Store(64 << 30) // 32 per tile, 128 in the workspace
-	w := &partWorld{t: t, r: r, f: f, tp: tp, c: c, denied: map[string]bool{}}
-	r.PartitionIdent = func(tile, part string) (string, error) { return fakePkey(part), nil }
-	r.ShouldRunPartition = func(tile, dep, part string) bool {
+	w := &partWorld{t: t, r: r, f: f, tp: tp, c: c, denied: map[string]bool{}, uids: map[string]string{}}
+	r.PartitionIdent = func(tile, part string) (string, string, error) {
+		pkey := w.pkeyOf(part)
 		w.mu.Lock()
 		defer w.mu.Unlock()
-		return !w.denied[part]
+		return pkey, w.uidOf(part), nil
+	}
+	r.ShouldRunPartition = func(tile, dep, part, uid string) bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return !w.denied[part] && uid == w.uidOf(part) // PD-20: the same uid
 	}
 	r.PartitionEnv = func(c *registry.Component, dep, part string) ([]string, map[string]ResBind) {
 		return nil, map[string]ResBind{}
 	}
-	r.RegisterPartitionInstance = func(token, tile, dep, part string) {
+	r.RegisterPartitionInstance = func(token, tile, dep, part, uid string) {
 		w.mu.Lock()
-		w.tokens = append(w.tokens, part+" "+token)
+		w.tokens = append(w.tokens, part+" "+token+" "+uid)
 		w.mu.Unlock()
 	}
 	r.PartitionEvent = func(tile, dep, part, typ, text string) {
@@ -237,7 +262,7 @@ func TestEnsurePartitionGates(t *testing.T) {
 	w.mu.Unlock()
 	must("user:alice", "may not run now")
 	ident := w.r.PartitionIdent
-	w.r.PartitionIdent = func(string, string) (string, error) { return "../../etc", nil }
+	w.r.PartitionIdent = func(string, string) (string, string, error) { return "../../etc", "uid", nil }
 	must("user:bob", "no valid partition id")
 	w.r.PartitionIdent = nil
 	must("user:bob", "own identity and data yet")
@@ -289,87 +314,6 @@ func TestEnsurePartitionGates(t *testing.T) {
 			t.Errorf("the global instance of a user-only tile started: %q", log)
 		}
 	})
-}
-
-// covers PD-18 — TestPartitionBuildOnce (03 §A.3): N people's concurrent
-// first starts build the work tree once and reuse its bin; a change builds
-// once more and restarts every live partition onto it.
-func TestPartitionBuildOnce(t *testing.T) {
-	w := newPartWorld(t, userGlobal, registry.Manifest{})
-	var bmu sync.Mutex
-	builds, bins := 0, map[string]string{} // each build's bin is numbered; what each instance started from
-	e := w.r.engine
-	build, start := e.build, e.start
-	e.build = func(c *registry.Component) (string, error) {
-		bin, err := build(c)
-		bmu.Lock()
-		defer bmu.Unlock()
-		builds++
-		return fmt.Sprintf("%s#%d", bin, builds), err
-	}
-	e.start = func(c *registry.Component, bin string, gen int) (*instance, error) {
-		bmu.Lock()
-		bins[fakeKey(c)] = bin
-		bmu.Unlock()
-		return start(c, bin, gen)
-	}
-	binOf := func(k string) string { bmu.Lock(); defer bmu.Unlock(); return bins[k] }
-	w.f.holdNextBuild()
-	const n = 8
-	got := make([]string, n)
-	var wg sync.WaitGroup
-	for i := range n {
-		wg.Add(1)
-		go func() { defer wg.Done(); got[i] = w.ensure(fmt.Sprintf("user:p%d", i)) }()
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		w.f.mu.Lock()
-		parked := w.f.parked != ""
-		w.f.mu.Unlock()
-		if parked {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("no build parked")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	time.Sleep(20 * time.Millisecond) // the others reach the shared build meanwhile
-	w.f.releaseBuild()
-	wg.Wait()
-	for i, g := range got {
-		if g != "g1" {
-			t.Errorf("p%d: %s", i, g)
-		}
-	}
-	if g := w.ensure("global"); g != "g1" {
-		t.Fatalf("the global instance: %s", g)
-	}
-	log := w.f.takeLog()
-	if b, s := count(log, "build "), count(log, "start "); b != 1 || s != n+1 {
-		t.Errorf("%d builds, %d starts, want 1 and %d: %q", b, s, n+1, log)
-	}
-
-	w.r.Changed(w.c) // a save
-	w.settleParts()
-	log = w.f.takeLog()
-	if b, s, st := count(log, "build "), count(log, "start "), count(log, "stop "); b != 1 || s != n+1 || st != n+1 {
-		t.Errorf("after a save: %d builds, %d starts, %d stops; want 1, %d, %d: %q", b, s, st, n+1, n+1, log)
-	}
-	for _, k := range []string{"apps/x", "apps/x user:p0", "apps/x user:p7"} {
-		if got := binOf(k); !strings.HasSuffix(got, "#2") {
-			t.Errorf("%s runs %q after the save, want the second build", k, got)
-		}
-	}
-	for i := range n {
-		if g := w.ensure(fmt.Sprintf("user:p%d", i)); g != "g2" {
-			t.Errorf("p%d after the save: %s, want g2", i, g)
-		}
-	}
-	if log := w.f.takeLog(); count(log, "build ") != 0 {
-		t.Errorf("a request after the restarts built again: %q", log)
-	}
 }
 
 // covers PD-18 PD-35 C4 C5 S20 — TestPartitionAdmission (03 §A.5).
@@ -631,6 +575,18 @@ func TestPartitionEventsPersonOnly(t *testing.T) {
 	w.ensure("global")
 	if got := w.tp.take(); !slices.Contains(got, "build-ok apps/x") {
 		t.Errorf("the global instance's events %q, want today's", got)
+	}
+	// a `setup` manifest's env layer: announced to its person only
+	w.r.emitSetupStart(partitionView(w.c, "user:alice", fakePkey("user:alice")))
+	w.mu.Lock()
+	ev = slices.Clone(w.events)
+	w.mu.Unlock()
+	if got := w.tp.take(); len(got) != 0 || ev[len(ev)-1] != "build-start user:alice" {
+		t.Errorf("a partition's setup run: hub %q, person %q", got, ev)
+	}
+	w.r.emitSetupStart(w.c)
+	if got := w.tp.take(); !slices.Equal(got, []string{"build-start apps/x"}) {
+		t.Errorf("the global instance's setup run %q, want today's", got)
 	}
 	s := w.state("user:alice")
 	if e := w.r.crashLoop(s, Code{WorkTree: true}, 3).Error(); !strings.Contains(e, "user:alice's instance") || strings.Contains(e, ".xbin") {

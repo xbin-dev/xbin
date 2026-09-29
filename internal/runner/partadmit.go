@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,6 +48,7 @@ import (
 const (
 	partitionIdleReap     = 10 * time.Minute // a user partition's idle stop (PD-18)
 	partitionInUse        = 2 * time.Minute  // an interactive request keeps a partition in use this long
+	partitionHandoff      = 30 * time.Second // any start's answer keeps it from eviction until the proxy tracks it
 	maxBackgroundStarts   = 4                // background cold starts at once, workspace-wide
 	mailStartsPerMinute   = 6                // mail doorbell cold starts per tile per minute
 	partitionSwapsPerTile = 4                // blue/green restarts of one tile's partitions at once
@@ -58,7 +60,9 @@ const (
 
 var (
 	// ErrPartitionBusy refuses an interactive start past the caps with no
-	// partition to evict; it is an sbx refusal, and the proxy's 503.
+	// partition to evict; it is an sbx refusal, and the proxy's 503, whose
+	// text is the error's: exactly "too many people's instances of <tile>
+	// are running; try again shortly" (busyError).
 	ErrPartitionBusy = errors.New("partition caps reached")
 	// ErrPartitionDeferred defers a background start (cron, bus, mail)
 	// that admission can't take now: the delivery waits and retries.
@@ -74,14 +78,58 @@ type partAdmission struct {
 	memTotal atomic.Int64           // bytes; 0 = read /proc/meminfo (tests set it)
 }
 
+// busyError is ErrPartitionBusy for tile: its text is the 503's, exactly.
+type busyError struct{ tile string }
+
+func (e busyError) Error() string {
+	return "too many people's instances of " + e.tile + " are running; try again shortly"
+}
+func (e busyError) Is(target error) bool { return target == ErrPartitionBusy }
+
 // partitionCapsFrom derives the default caps from host memory (03 §A.5).
 func partitionCapsFrom(memTotal int64) (perTile, workspace int) {
 	clamp := func(n int64, lo, hi int) int { return max(lo, min(hi, int(n))) }
 	return clamp(memTotal/4/PartitionInstanceEstimate, 4, 32), clamp(memTotal/2/PartitionInstanceEstimate, 8, 128)
 }
 
-var memTotalOnce = sync.OnceValue(func() int64 {
-	f, err := os.Open("/proc/meminfo")
+// hostMemoryOnce is the memory the default caps derive from: the host's
+// MemTotal, or less where xbind's own cgroup (or one above it) caps its
+// memory — a container's limit, not the machine's RAM (I2 measures E there).
+var hostMemoryOnce = sync.OnceValue(func() int64 {
+	return hostMemory("/proc/meminfo", "/proc/self/cgroup", "/sys/fs/cgroup")
+})
+
+// hostMemory is min(MemTotal from meminfo, the lowest memory.max on the
+// cgroup v2 path of this process from its own node up to the root under
+// cgroupRoot); 0 when meminfo can't be read and nothing caps it.
+func hostMemory(meminfo, selfCgroup, cgroupRoot string) int64 {
+	m := memTotal(meminfo)
+	b, err := os.ReadFile(selfCgroup)
+	if err != nil {
+		return m
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		rel, ok := strings.CutPrefix(line, "0::")
+		if !ok {
+			continue
+		}
+		for dir := filepath.Join(cgroupRoot, filepath.FromSlash(rel)); ; dir = filepath.Dir(dir) {
+			if v, err := os.ReadFile(filepath.Join(dir, "memory.max")); err == nil {
+				if lim, err := strconv.ParseInt(strings.TrimSpace(string(v)), 10, 64); err == nil && lim > 0 && (m == 0 || lim < m) {
+					m = lim
+				}
+			}
+			if len(dir) <= len(cgroupRoot) || dir == filepath.Dir(dir) {
+				break
+			}
+		}
+	}
+	return m
+}
+
+// memTotal is meminfo's MemTotal in bytes; 0 when it can't be read.
+func memTotal(meminfo string) int64 {
+	f, err := os.Open(meminfo)
 	if err != nil {
 		return 0
 	}
@@ -95,14 +143,14 @@ var memTotalOnce = sync.OnceValue(func() int64 {
 		}
 	}
 	return 0
-})
+}
 
 // DefaultPartitionCaps are the running caps of user partitions without an
 // override: per tile and workspace-wide, from this host's memory.
 func (r *Runner) DefaultPartitionCaps() (perTile, workspace int) {
 	m := r.parts.adm.memTotal.Load()
 	if m == 0 {
-		m = memTotalOnce()
+		m = hostMemoryOnce()
 	}
 	return partitionCapsFrom(m)
 }
@@ -160,7 +208,7 @@ func (r *Runner) admitPartition(tile, key string, class StartClass) (func(), err
 			if class != StartInteractive {
 				return nil, fmt.Errorf("%w: people's partitions are at their cap (%d of %s, %d in the workspace)", ErrPartitionDeferred, tileN, tile, wsN)
 			}
-			return nil, sbx.Refuse(fmt.Errorf("too many people's instances of %s are running; try again shortly: %w", tile, ErrPartitionBusy))
+			return nil, sbx.Refuse(busyError{tile})
 		}
 		slog.Info("partition evicted", "component", victim.comp, "for", tile, "class", class)
 		r.stopPart(victim, false)
@@ -209,7 +257,7 @@ func (r *Runner) partitionLoad(tile, self string, now time.Time, class StartClas
 		s.mu.Lock()
 		live := s.live()
 		evictable := s.cur != nil && !s.building && s.active == 0 && now.Sub(s.pt.lastInteractive) >= partitionInUse &&
-			(class == StartInteractive || s.pt.passive == 0)
+			now.Sub(s.pt.handoff) >= partitionHandoff && (class == StartInteractive || s.pt.passive == 0)
 		last := s.lastReq
 		s.mu.Unlock()
 		if !live {
@@ -251,12 +299,21 @@ func (r *Runner) partitionLoad(tile, self string, now time.Time, class StartClas
 
 // reapPartitions stops every user partition idle for partitionIdleReap: a
 // running generation with no active connection and no non-passive use
-// since (03 §A.6). Its state stays, dirty: the next request starts it.
+// since (03 §A.6). Its state stays, dirty: the next request starts it. A
+// state that ran nothing for as long — reaped, or failed — is forgotten
+// with its run dir, unless its failure is sticky (a build's, a crash
+// loop's: it answers until the tile's code changes).
 func (r *Runner) reapPartitions() {
 	now := r.now()
 	for _, s := range r.partStates("") {
 		s.mu.Lock()
 		inst := s.cur
+		if inst == nil && !s.building && s.active == 0 && s.pt.passive == 0 && s.pt.spawning == nil &&
+			now.Sub(s.lastReq) > partitionIdleReap && (s.lastErr == nil || s.dirty || !sticky(s.lastErr)) {
+			s.mu.Unlock()
+			r.stopPart(s, false)
+			continue
+		}
 		if inst == nil || s.building || s.active > 0 || now.Sub(s.lastReq) <= partitionIdleReap {
 			s.mu.Unlock()
 			continue
@@ -278,7 +335,8 @@ func (r *Runner) reapPartitions() {
 type partBuilds struct {
 	mu      sync.Mutex
 	seq     map[string]uint64       // tile → its build sequence, advanced by every change
-	flights map[string]*buildFlight // stateKey(tile, dep) → the build of the current sequence
+	flights map[string]*buildFlight // stateKey(tile, dep) → the latest build
+	waves   map[string]int          // tile → restarts of its last change still to come (changedPartitions, followPrimary)
 }
 
 // buildFlight is one shared build.
@@ -301,22 +359,53 @@ func (r *Runner) nextBuild(tile string) {
 	b.mu.Unlock()
 }
 
+// landed: the build finished.
+func (f *buildFlight) landed() bool {
+	select {
+	case <-f.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// waveAdd counts n restarts of tile's last change in (or, negative, out of)
+// its wave: while any is still to come, a start reuses the change's build
+// even once it landed.
+func (r *Runner) waveAdd(tile string, n int) {
+	b := &r.parts.builds
+	b.mu.Lock()
+	if b.waves == nil {
+		b.waves = map[string]int{}
+	}
+	if b.waves[tile] += n; b.waves[tile] <= 0 {
+		delete(b.waves, tile)
+	}
+	b.mu.Unlock()
+}
+
 // buildWorkTree builds the work tree of deployment dep of c from view v:
 // the primary's through the tile's shared build while it runs user
-// partitions (the first start after a change builds, the others wait for
-// and reuse its bin, its error included), anything else through buildGen,
-// today's.
+// partitions, anything else through buildGen, today's. A start joins the
+// latest build of the current sequence while it is in progress, and while
+// the restarts of the change it is for are still coming (the wave) — so
+// one change builds once however many instances it restarts — and reuses
+// its bin, or its error, sticky as today's. Any other start builds anew,
+// as the primary's always did (go.work and dependency tiles don't fire a
+// change of their own), after the build before it: one `go build` at a
+// time onto the tile's one output path. The caller is the state's single
+// flight; requests wait for it with their own contexts (ensureState).
 func (r *Runner) buildWorkTree(c *registry.Component, dep string, v *registry.Component) (string, error) {
 	if _, ok := r.partitionSpec(c.Path); !ok || dep != r.primary(c.Path) {
 		return r.buildGen(v)
 	}
 	b, k := &r.parts.builds, stateKey(c.Path, dep)
 	b.mu.Lock()
-	seq := b.seq[c.Path]
-	if f := b.flights[k]; f != nil && f.seq == seq {
+	seq, prev := b.seq[c.Path], b.flights[k]
+	if prev != nil && prev.seq == seq && (!prev.landed() || b.waves[c.Path] > 0) {
 		b.mu.Unlock()
-		<-f.done
-		return f.bin, f.err
+		<-prev.done
+		return prev.bin, prev.err
 	}
 	f := &buildFlight{seq: seq, done: make(chan struct{})}
 	if b.flights == nil {
@@ -324,19 +413,26 @@ func (r *Runner) buildWorkTree(c *registry.Component, dep string, v *registry.Co
 	}
 	b.flights[k] = f
 	b.mu.Unlock()
+	if prev != nil {
+		<-prev.done
+	}
 	f.bin, f.err = r.buildGen(v)
 	close(f.done)
 	return f.bin, f.err
 }
 
-// followPrimary is told a deploy or restart of deployment dep of c ended
-// with err: a successful one on a partitioned tile's primary moves every
-// person's partition onto what it runs now (changedPartitions).
-func (r *Runner) followPrimary(c *registry.Component, dep string, err error) {
-	if err != nil || dep != r.primary(c.Path) {
-		return
+// followPrimary is told deploy p of c — a swap, or a deploy that prepared
+// without a generation — ended with err, and answers err: a successful one
+// on a partitioned tile's primary moves every person's partition onto what
+// it runs now (restartParts), on the build the deploy already made (deploy
+// advanced the sequence before it). A deploy of the code a partition
+// already runs leaves that one be; a restart restarts them all.
+func (r *Runner) followPrimary(c *registry.Component, p *deployPlan, err error) error {
+	if err != nil || p.dep != r.primary(c.Path) {
+		return err
 	}
 	if _, ok := r.partitionSpec(c.Path); ok {
-		r.changedPartitions(c)
+		r.restartParts(c, func(inst *instance) bool { return !p.restart && inst.served() == p.code })
 	}
+	return nil
 }

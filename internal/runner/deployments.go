@@ -97,19 +97,27 @@ func (r *Runner) dropState(s *state) {
 }
 
 // install makes inst s's current generation, unless s's deployment was
-// removed meanwhile: then inst stops and install reports false. stamp
-// counts the swap as a request (a deploy's), for the idle reaper.
+// removed meanwhile, or s's person's partition stopped, or s is the primary
+// of a tile that runs no global instance now (a mode change landed while it
+// started, partitions.go): then inst stops — its token revoked first — and
+// install reports false. stamp counts the swap as a request (a deploy's),
+// for the idle reaper.
 func (r *Runner) install(s *state, inst *instance, stamp bool) bool {
+	noGlobal := s.pt == nil && r.noGlobal(s.comp, s.dep)
 	s.mu.Lock()
-	gone := s.gone
+	gone := s.gone || noGlobal
 	if !gone {
 		s.cur = inst
 		if stamp {
 			s.lastReq = r.now()
 		}
 	}
+	if s.pt != nil && s.pt.starting == inst {
+		s.pt.starting = nil
+	}
 	s.mu.Unlock()
 	if gone {
+		r.revoke(inst.token)
 		r.stopGen(inst, 2*time.Second)
 	}
 	return !gone
