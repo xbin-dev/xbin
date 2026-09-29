@@ -5417,9 +5417,13 @@ Deviations and refinements made while implementing; all deliberate:
     write access; the page can't use the contract's route for another
     consumer's sandbox), and a sandbox whose runtime answered a port
     `unsupported` is `restartNeeded` until it runs again (the substrate's
-    `started` after that answer). Not done: xbind keeping a ring of each
-    sandbox's recent port outcomes for the admin's sandboxes view (the
-    prompt's optional 5d) — see the branch report.
+    `started` after that answer). **xbind** (tilesbx) keeps each tile
+    sandbox's latest 8 port requests (time, port, status or refusal, the
+    calling manager) — in memory, by definition uid, gone with a delete —
+    and, per run, whether its in-box agent serves ports (a reply or
+    `not-listening`: serves; the connection closed without one: predates);
+    `GET /api/xbin/sandboxes` (admin) carries both on each
+    `tileSandboxes` row (additive) and Runtime → Sandboxes shows them.
 
 - **D136 — The agent verifies pages in a real browser in its sandbox
   (browser_check), and sees its files in one view with two explicit places:

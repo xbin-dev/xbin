@@ -77,6 +77,12 @@ func testLivePorts(t *testing.T, le *liveEnv, mode string) {
 	if code, body, _ := get(srv.URL, "/sandboxes/web/ports/8123/", nil); code != http.StatusBadGateway || refusal(body) != RefNotListening {
 		t.Fatalf("nothing listening: %d %s", code, body)
 	}
+	// the admin's view: the outcomes so far, and an agent that answered a port connection
+	if rows := le.m.AdminList(""); len(rows) != 1 || rows[0].AgentPorts != "serves" || len(rows[0].Ports) != 2 ||
+		rows[0].Ports[0].Refusal != RefState || rows[0].Ports[1].Refusal != RefNotListening || rows[0].Ports[1].Status != http.StatusBadGateway ||
+		rows[0].Ports[1].Port != 8123 {
+		t.Fatalf("the admin's row: %+v", rows)
+	}
 	w := le.do(mgr, "POST", "/sandboxes/web/execs", map[string]any{"argv": []string{"/opt/probe/probe", "serve", "127.0.0.1:8123"}})
 	le.want(w, http.StatusCreated, "")
 	deadline := time.Now().Add(30 * time.Second)
