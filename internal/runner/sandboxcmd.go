@@ -182,13 +182,15 @@ func (r *Runner) dataBinds(c *registry.Component, env []string) ([]sandbox.Bind,
 	if dep == util.MainDeployment && c.Partition == "" {
 		return resourceBinds(env, r.Root), nil
 	}
-	var remap map[string]ResBind
-	switch {
-	case c.Partition != "":
+	if c.Partition != "" { // a person's partition: its own volumes, and its scope's shared ones (03 §B.4)
+		var remap map[string]ResBind
 		if r.PartitionEnv != nil {
 			_, remap = r.PartitionEnv(c, dep, c.Partition)
 		}
-	case r.EnvFor != nil:
+		return partitionBindsFor(env, r.Root, c.Path+":"+c.Partition, remap, r.sharedResources(c)) // a nil remap is refused
+	}
+	var remap map[string]ResBind
+	if r.EnvFor != nil {
 		_, remap = r.EnvFor(c, dep)
 	}
 	if remap == nil {

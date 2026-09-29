@@ -41,6 +41,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -138,6 +139,10 @@ type partitionsState struct {
 	spawns map[*registry.Component]*state    // a spawning generation's view → its state (partstart.go)
 	adm    partAdmission                     // partadmit.go
 	builds partBuilds                        // partadmit.go
+
+	// draining counts, per partStateKey, the stops whose processes (a spawn
+	// in flight included) may still run: PartitionRunning answers them.
+	draining map[string]*partDrain
 }
 
 // partStateKey keys user partition pkey of deployment dep of tile: its
@@ -522,6 +527,18 @@ func (r *Runner) genEnv(c *registry.Component, dep string) []string {
 	}
 	env, _ := r.envFor(c, dep)
 	return env
+}
+
+// PartitionDataBinds is what a generation of person partition part (key
+// pkey) of view c would bind of its data — its PartitionEnv's env through
+// dataBinds — or why its start would refuse it. It starts nothing: the
+// planes' integration tests and diagnostics ask it.
+func (r *Runner) PartitionDataBinds(c *registry.Component, part, pkey string) ([]sandbox.Bind, error) {
+	v := partitionView(c, part, pkey)
+	if r.PartitionEnv == nil || !v.UserPartition() {
+		return nil, fmt.Errorf("%w: %s's partition %q has no env", ErrPartitionRefused, c.Path, part)
+	}
+	return r.dataBinds(v, r.genEnv(v, r.viewDeployment(v)))
 }
 
 // leafOf is the cgroup leaf a generation spawning from view c starts in.

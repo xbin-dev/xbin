@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,10 +33,20 @@ const partitionWakeDelay = aoBackoffMin
 // then returns only once no process of the state runs (a spawn in flight
 // included) and its run dir is gone. Data is never touched.
 func (r *Runner) stopPart(s *state, wait bool) {
+	k := partStateKey(s.comp, s.dep, s.pt.pkey)
 	r.mu.Lock()
-	if k := partStateKey(s.comp, s.dep, s.pt.pkey); r.parts.states[k] == s {
+	if r.parts.states[k] == s {
 		delete(r.parts.states, k)
 	}
+	if r.parts.draining == nil {
+		r.parts.draining = map[string]*partDrain{}
+	}
+	dr := r.parts.draining[k]
+	if dr == nil {
+		dr = &partDrain{tile: s.comp, pkey: s.pt.pkey}
+		r.parts.draining[k] = dr
+	}
+	dr.n++ // PartitionRunning answers true until the drain is done
 	r.mu.Unlock()
 	s.mu.Lock()
 	s.gone = true
@@ -61,6 +72,11 @@ func (r *Runner) stopPart(s *state, wait bool) {
 			<-spawning // the spawn in flight stops its own generation (partSpawned)
 		}
 		r.removePartDir(s)
+		r.mu.Lock()
+		if dr.n--; dr.n <= 0 && r.parts.draining[k] == dr {
+			delete(r.parts.draining, k)
+		}
+		r.mu.Unlock()
 	}
 	if wait {
 		drain()
@@ -149,6 +165,37 @@ func (r *Runner) StopPartitionsOf(userID string) {
 // into a partition's namespaces after it.
 func (r *Runner) StopPartitions(tile string) {
 	r.stopParts(func(s *state) bool { return s.comp == tile }, true)
+}
+
+// partDrain is a stopped partition state whose processes may still run.
+type partDrain struct {
+	tile, pkey string
+	n          int // stops still draining
+}
+
+// PartitionRunning reports whether an instance of the person whose
+// partition key is pkey may be using their data namespaces of scope: a
+// state of theirs exists on a tile at or under scope — from its admission,
+// before its start asks PartitionEnv for binds, through running and a
+// reaped generation's stop — or a stop of one is still draining (a spawn in
+// flight included). The data plane's idle unmount asks it (03 §B.6,
+// PD-48): a volume is never unmounted under an instance that binds it. It
+// leans toward true: a nested tile of its own scope counts too.
+func (r *Runner) PartitionRunning(scope, pkey string) bool {
+	in := func(tile string) bool { return tile == scope || strings.HasPrefix(tile, scope+"/") }
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.parts.states {
+		if s.pt != nil && s.pt.pkey == pkey && in(s.comp) {
+			return true
+		}
+	}
+	for _, d := range r.parts.draining {
+		if d.pkey == pkey && in(d.tile) {
+			return true
+		}
+	}
+	return false
 }
 
 // PartitionsChanged is told a tile's running partition spec changed (01 §6):
