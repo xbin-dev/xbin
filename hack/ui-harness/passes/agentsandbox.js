@@ -236,8 +236,13 @@ async function browserAndDownload(a, check, home, runId) {
     try { facts = JSON.parse(full.split('\n').slice(2).join('\n')); } catch { /* checked below */ }
     check(/paragraph: written by script/.test(facts.snapshot || '') && facts.script?.value === 'written by script',
       `the DOM the inline script wrote: in the accessibility snapshot, and the script's value (${JSON.stringify({ snapshot: facts.snapshot, script: facts.script }).slice(0, 200)})`);
-    check((facts.requests_failed || []).some((r) => /cdn\.invalid/.test(r.url) && /ERR_NAME_NOT_RESOLVED/.test(r.error) && /^sandbox egress/.test(r.blocked || '')),
-      `the CDN import is a failed request, named a sandbox egress block (egress none) (${JSON.stringify(facts.requests_failed || []).slice(0, 240)})`);
+    // which net:: error a name that can't resolve gets depends on the host
+    // (ERR_NAME_NOT_RESOLVED here, ERR_INTERNET_DISCONNECTED or similar in an
+    // isolated sandbox with no resolver): the point is that it failed and is
+    // named a sandbox egress block
+    const cdn = (facts.requests_failed || []).find((r) => /cdn\.invalid/.test(r.url));
+    check(!!cdn && /^net::ERR_/.test(cdn.error || '') && /^sandbox egress/.test(cdn.blocked || ''),
+      `the CDN import is a failed request, named a sandbox egress block (egress none) (${JSON.stringify(cdn || facts.requests_failed || []).slice(0, 400)})`);
     const files = (await api(a, `/runs/${runId}/files`)).body;
     const shotFile = (Array.isArray(files) ? files : files?.files || []).find((f) => f.path === 'shots/page-0ms.png');
     check(shotFile && shotFile.mime === 'image/png' && shotFile.source?.kind === 'browser', `the screenshot is a PNG session file with its source (${JSON.stringify(shotFile || files).slice(0, 200)})`);

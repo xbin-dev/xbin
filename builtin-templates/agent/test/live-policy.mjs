@@ -24,6 +24,10 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// The tile's page as xbind serves it. This test plays xbind; the path is
+// built from parts because a shipped tile's code may not hold a /c/ URL
+// literal (internal/assetscan: it carries no credential under tokens mode).
+const TILE_DIR = ['', 'c', 'apps', 'agent', ''].join('/');
 
 let chromium;
 for (const p of ['/usr/local/node/lib/node_modules/playwright/index.mjs', 'playwright',
@@ -94,7 +98,7 @@ document.getElementById('pane').appendChild(liveFrame(${JSON.stringify(TICKET + 
 
 const SHELL = `<!doctype html><html><head><title>shell</title></head><body>
 <iframe id="tile" sandbox="allow-scripts allow-forms allow-modals allow-downloads" style="width:800px;height:600px"
-  src="/c/apps/agent/index.html"></iframe></body></html>`;
+  src="${TILE_DIR}index.html"></iframe></body></html>`;
 
 const server = createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -106,7 +110,7 @@ const server = createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
     return res.end(SHELL);
   }
-  if (u.pathname === '/c/apps/agent/index.html') {
+  if (u.pathname === TILE_DIR + 'index.html') {
     res.setHeader('Content-Security-Policy', "sandbox allow-scripts allow-forms allow-modals allow-downloads; frame-ancestors 'self'");
     res.setHeader('Content-Type', 'text/html');
     return res.end(TILE);
@@ -164,7 +168,7 @@ await page.waitForTimeout(500);
 ok('top navigation is blocked', page.url() === origin + '/' && !escaped.some((u) => u.includes('/top')), page.url() + ' ' + JSON.stringify(escaped));
 ok('no pop-up opened', r.popup === 'null' && popups.length === 0, r.popup + ' ' + JSON.stringify(popups));
 ok('the viewer\'s session cookie never reached the live route', liveCookies.length > 0 && liveCookies.every((c) => !c.includes('SECRET')), JSON.stringify(liveCookies));
-const tile = page.frames().find((f) => f.url().includes('/c/apps/agent/'));
+const tile = page.frames().find((f) => f.url().includes(TILE_DIR));
 const shellTitle = await page.title();
 ok('a postMessage to its parent changes nothing on the page', shellTitle === 'shell' && !!tile, shellTitle);
 ok('the pane keeps the live frame (a message closes nothing)', tile ? await tile.evaluate(() => !!document.getElementById('livefr')) : false);

@@ -6,7 +6,7 @@
 //
 // Why: the request used to be only the first user message, compacted like any
 // other; after a few compactions an agent optimised a reconstructed goal.
-// See plans/DECISIONS.md D133 for the research this follows (a fixed slot,
+// See decision D133 for the research this follows (a fixed slot,
 // verbatim, recited at the end; never rewritten by an LLM).
 package main
 

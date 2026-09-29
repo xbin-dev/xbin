@@ -34,6 +34,7 @@ import { HOME } from './model/home.js';
 import * as rules from './model/rules.js';
 import * as actions from './model/actions.js';
 import { liveURL, liveFrame, liveLabel } from './live.js';
+import { tabFiles, selectFile } from './settings-files.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -81,8 +82,6 @@ let settingsOpen = false;
 let activeTab = 'config';
 let skillsCache = [];    // skills for the skills tab
 let skillSel = null;     // name of the skill being edited (null = new)
-let filesCache = [];     // session files for the files tab (lookup by index)
-let filesSel = null;     // path of the file being edited (null = new)
 const isHtmlPath = (p) => /\.html?$/i.test(p || '');
 
 // --- the session ----------------------------------------------------------
@@ -125,7 +124,7 @@ app.on('home', () => {
   paintSide(); paint();
 });
 app.on('page', () => { paintSide(); paint(); });
-session.ui.act.openFile = (path) => { filesSel = path; openSettings('files'); };
+session.ui.act.openFile = (path) => { selectFile(path); openSettings('files'); };
 
 // --- the conversation list -------------------------------------------------
 //
@@ -724,7 +723,7 @@ $('prev-max').onclick = () => {
 $('prev-reload').onclick = () => { if (preview?.kind === 'live') openLive(preview.det); };
 $('prev-src').onclick = () => {
   if (!preview) return;
-  filesSel = preview.path;
+  selectFile(preview.path);
   openSettings('files');
 };
 document.addEventListener('keydown', (e) => {
@@ -776,9 +775,11 @@ function openSettings(tab) {
 }
 function closeSettings() { settingsOpen = false; $('settings').hidden = true; }
 
+// what the Files tab (settings-files.js) needs of the page
+const filesCtx = { app, $, rawBlob, closeSettings, openPreview, closePreview, refreshView, get preview() { return preview; } };
 async function renderTab() {
   const bd = $('sbd');
-  const fns = { config: tabConfig, features: tabFeatures, classes: (b) => tabClasses(b, app), memory: tabMemory, files: tabFiles, skills: tabSkills, mcp: tabMcp };
+  const fns = { config: tabConfig, features: tabFeatures, classes: (b) => tabClasses(b, app), memory: tabMemory, files: (b) => tabFiles(b, filesCtx), skills: tabSkills, mcp: tabMcp };
   const fn = fns[activeTab] || tabConfig;
   bd.innerHTML = '<div class="empty">loading…</div>';
   try { await fn(bd); } catch (e) { bd.innerHTML = errBox(e); }
@@ -903,105 +904,6 @@ async function tabMemory(bd) {
     try { await actions.setMemory(app.sel, k, $('mv').value); }
     catch (e) { return alert(e.message); }
     tabMemory(bd); refreshView();
-  };
-}
-
-// Files tab: this run's session files — the same store the agent's file_*
-// tools write. Human-editable on purpose: fixing a typo and
-// hitting Render is the fastest debug loop there is. Optimistic concurrency —
-// we send back the version we loaded, so a write the agent made in between
-// comes back as a visible 409 instead of silently losing one side.
-async function tabFiles(bd) {
-  if (app.sel == null) { bd.innerHTML = '<div class="empty">select a run to see its session files</div>'; return; }
-  filesCache = await actions.files(app.sel);
-  const cur = filesSel != null ? filesCache.find((f) => f.path === filesSel) : null;
-  let body = '';
-  if (cur && !cur.binary) {
-    const full = await actions.file(app.sel, cur.path);
-    body = full.content || '';
-    cur.version = full.version;
-  }
-  // An attachment (binary) is never loaded into the textarea: it gets a
-  // preview when it is an image, and a download either way.
-  const isImg = (f) => f && f.binary && /^image\/(png|jpeg|gif|webp)$/.test(f.mime || '');
-  const editor = cur && cur.binary ? `
-    <div class="sec"><h4>Attachment · ${esc(cur.path)}
-      <button class="btn ghost btnsm" id="fl-new">+ new</button></h4>
-      ${isImg(cur) ? '<img id="fl-img" class="fprev" alt="">' : ''}
-      <div class="hint">${esc(cur.mime || 'binary')} · ${fmtBytes(num(cur.bytes))} — the agent ${isImg(cur) ? 'sees it with file_view' : 'can list it but not read it as text'}.</div>
-      <div style="margin-top:6px"><button class="btn ghost" id="fl-dl">Download</button> <span class="err" id="fl-err"></span></div>
-    </div>` : `
-    <div class="sec"><h4>${cur ? 'Edit · ' + esc(cur.path) : 'New file'}
-      ${cur ? '<button class="btn ghost btnsm" id="fl-new">+ new</button>' : ''}</h4>
-      <div class="field"><label>Path</label>
-        <input id="fl-path" class="mono" value="${esc(cur ? cur.path : '')}" ${cur ? 'readonly' : ''} placeholder="report.html"></div>
-      <div class="field"><label>Content</label>
-        <textarea id="fl-body" class="mono" rows="14" spellcheck="false">${esc(body)}</textarea></div>
-      <div><button class="btn" id="fl-save">Save</button>
-        ${cur && isHtmlPath(cur.path) ? ' <button class="btn ghost" id="fl-render">Render</button>' : ''}
-        <span class="err" id="fl-err"></span></div>
-    </div>`;
-  bd.innerHTML = `
-    <div class="sec"><h4>Session files · run ${app.sel}</h4>
-      <div class="tblwrap"><table class="tbl"><tr><th>path</th><th>type</th><th>bytes</th><th>v</th><th></th></tr>
-      ${filesCache.length ? filesCache.map((f, i) => `<tr>
-        <td class="mono">${esc(f.path)}</td>
-        <td class="muted">${esc(f.binary ? f.mime : (f.mime || 'text'))}</td>
-        <td class="muted">${fmtN(f.bytes)}</td>
-        <td class="muted">${num(f.version)}</td>
-        <td style="text-align:right; white-space:nowrap">
-          ${isHtmlPath(f.path) ? `<button class="btn ghost btnsm" data-fr="${i}" title="show in the render pane">Render</button> ` : ''}
-          <button class="btn ghost btnsm" data-fe="${i}">${f.binary ? 'View' : 'Edit'}</button>
-          <button class="btn rm btnsm" data-fd="${i}">Del</button></td></tr>`).join('')
-        : '<tr><td colspan="5" class="muted">no files yet — the agent writes these with its file tools; attach your own with 📎</td></tr>'}
-      </table></div>
-      <div class="hint">Text lives in this run's database; attachments in the tile's blob store. Deleting the run deletes both.</div>
-    </div>${editor}`;
-
-  if (cur && cur.binary) {
-    const run = app.sel;
-    if ($('fl-img')) rawBlob(run, cur.path).then((b) => {
-      const img = $('fl-img');
-      if (!img) return;
-      img.src = URL.createObjectURL(b);
-      img.onload = () => URL.revokeObjectURL(img.src);
-    }).catch((e) => { if ($('fl-err')) $('fl-err').textContent = e.message; });
-    $('fl-dl').onclick = async () => {
-      try { xbin.download(cur.path.split('/').pop(), await rawBlob(run, cur.path)); }
-      catch (e) { $('fl-err').textContent = e.message; }
-    };
-  }
-
-  bd.querySelectorAll('[data-fe]').forEach((b) => b.onclick = () => {
-    filesSel = filesCache[+b.dataset.fe].path; tabFiles(bd);
-  });
-  bd.querySelectorAll('[data-fr]').forEach((b) => b.onclick = () => {
-    const f = filesCache[+b.dataset.fr];
-    closeSettings(); openPreview(f.path, f.version, false);
-  });
-  bd.querySelectorAll('[data-fd]').forEach((b) => b.onclick = async () => {
-    const f = filesCache[+b.dataset.fd];
-    if (!confirm(`Delete "${f.path}"?`)) return;
-    try { await actions.deleteFile(app.sel, f.path); }
-    catch (e) { return alert(e.message); }
-    if (filesSel === f.path) filesSel = null;
-    if (preview && preview.path === f.path) closePreview();
-    tabFiles(bd); refreshView();
-  });
-  if ($('fl-new')) $('fl-new').onclick = () => { filesSel = null; tabFiles(bd); };
-  if ($('fl-render')) $('fl-render').onclick = () => { closeSettings(); openPreview(cur.path, cur.version, false); };
-  if (!$('fl-save')) return;
-  $('fl-save').onclick = async () => {
-    const path = $('fl-path').value.trim();
-    $('fl-err').textContent = '';
-    if (!path) { $('fl-err').textContent = 'need a path'; return; }
-    try {
-      const r = await actions.saveFile(app.sel, { path, content: $('fl-body').value, version: cur ? cur.version : 0 });
-      filesSel = path;
-      // An open pane showing this file must repaint: bump it to the new version.
-      if (preview && preview.path === path) openPreview(path, r.version, preview.live);
-      tabFiles(bd); refreshView();
-    } catch (e) { $('fl-err').textContent = e.message; }
   };
 }
 

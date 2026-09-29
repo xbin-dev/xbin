@@ -15,7 +15,7 @@
 //
 // The requests themselves are never summarised: they are in the task ledger
 // (asks.go), pinned in every prompt. Masking alone matching or beating LLM
-// summaries is the finding this follows (plans/DECISIONS.md D133).
+// summaries is the finding this follows (decision D133).
 package main
 
 import (
