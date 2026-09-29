@@ -56,17 +56,27 @@
 //	             (N ≤ the agent's maxTurnSteps − 1)
 //	paras N      (starts the message) an answer of N paragraphs "Paragraph k of
 //	             the answer, streamed.", word by word
+//	huge context "ok: <text>", reporting a 5 000 000-token prompt: the agent's
+//	             next step compacts (D133)
 //	(else)       "ok: <text>"
 //
 // The agent naming a conversation (its title prompt) gets "Titled <the first
-// three words of the first message>".
+// three words of the first message>"; its compaction summarizer (D133) gets
+// "SUMMARY: <n> transcript line(s) folded".
+//
+// Every request reports a 100-token prompt unless its plan says otherwise.
+// The agent's task reminder (D133: a <task-reminder> block appended to the
+// last message, never stored) is cut off before a message is scripted, and
+// recorded on its own. /v1/models lists a 128 000-token context window.
 //
 // A subagent's task (its first user message) drives it the same way:
 // "count…" → thinking + "one, two, three"; "slow job…" → 6 s, then "slow job done".
 //
 // GET /debug/requests lists every model request (start/end in unix ms, the
-// last user text, whether the caller hung up first) so a pass can measure,
-// e.g., how long a restarted backend took to re-issue its call.
+// last user text, whether the caller hung up first, the start of the system
+// prompt, the task reminder) so a pass can measure, e.g., how long a
+// restarted backend took to re-issue its call, or check what a call after a
+// compaction carried.
 //
 //	go run ./hack/fakeopenai -addr 127.0.0.1:18977
 package main
@@ -98,6 +108,20 @@ type reqRec struct {
 	Start    int64  `json:"start"`
 	End      int64  `json:"end"`
 	Canceled bool   `json:"canceled"` // the caller hung up before the answer
+	System   string `json:"system"`   // the system prompt's first 4000 characters
+	Reminder string `json:"reminder"` // the task reminder on the last message ("" = none)
+	Purpose  string `json:"purpose"`  // turn | compact | title
+}
+
+// Where the agent's task reminder starts (the agent's asks.go).
+const reminderOpen = "\n\n<task-reminder>"
+
+// cutReminder splits a message's text from the task reminder appended to it.
+func cutReminder(s string) (text, reminder string) {
+	if i := strings.Index(s, reminderOpen); i >= 0 {
+		return s[:i], strings.TrimSpace(s[i:])
+	}
+	return s, ""
 }
 
 var (
@@ -109,8 +133,9 @@ var (
 	pkillCmd = "echo before; pkill -f marker-h1; echo after marker-h1"
 )
 
-func record(wire, model string, conv []turn, system string) *reqRec {
-	r := &reqRec{ID: callSeq.Add(1), Wire: wire, Model: model, Sub: strings.Contains(system, "You are a subagent"), Start: time.Now().UnixMilli()}
+func record(wire, model string, conv []turn, system, reminder string) *reqRec {
+	r := &reqRec{ID: callSeq.Add(1), Wire: wire, Model: model, Sub: strings.Contains(system, "You are a subagent"), Start: time.Now().UnixMilli(),
+		System: clip(system, 4000), Reminder: reminder, Purpose: purposeOf(system)}
 	for i := len(conv) - 1; i >= 0; i-- {
 		if conv[i].Role == "user" {
 			r.Last = conv[i].Text
@@ -163,6 +188,25 @@ type plan struct {
 	Text     string
 	Calls    []call
 	Fast     bool // stream without the per-word and per-call pauses
+	Prompt   int  // the prompt tokens the reply reports (0: 100)
+}
+
+func (p plan) promptTokens() int {
+	if p.Prompt > 0 {
+		return p.Prompt
+	}
+	return 100
+}
+
+// purposeOf tells the agent's calls apart by their system prompt.
+func purposeOf(system string) string {
+	switch {
+	case strings.Contains(system, "Name this conversation"):
+		return "title"
+	case strings.Contains(system, "You compact an AI agent"):
+		return "compact"
+	}
+	return "turn"
 }
 
 // turn is one message of the conversation, wire-independent.
@@ -182,6 +226,11 @@ func script(conv []turn, system string) plan {
 			words = words[:3]
 		}
 		return plan{Text: "Titled " + strings.Join(words, " ")}
+	}
+	// the agent compacting its context (D133): a summary of what it was given
+	if purposeOf(system) == "compact" {
+		folded := strings.Count(conv[len(conv)-1].Text, "\n#")
+		return plan{Text: fmt.Sprintf("SUMMARY: %d transcript line(s) folded", folded)}
 	}
 	sub := strings.Contains(system, "You are a subagent")
 	last := conv[len(conv)-1]
@@ -325,6 +374,8 @@ func script(conv []turn, system string) plan {
 		return plan{Calls: cs}
 	case strings.Contains(lastUser, "quick"):
 		return plan{Text: "Quick answer."}
+	case strings.Contains(lastUser, "huge context"):
+		return plan{Text: "ok: " + lastUser, Prompt: 5_000_000}
 	case strings.Contains(lastUser, "my schedules"):
 		return plan{Calls: []call{{"schedules_list", map[string]any{"summary": "List my schedules"}}}}
 	case strings.Contains(lastUser, "all my threads"):
@@ -395,9 +446,12 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	names := map[string]string{}
 	var conv []turn
-	system := ""
+	system, reminder := "", ""
 	for _, m := range req.Messages {
-		text := contentText(m.Content)
+		text, rem := cutReminder(contentText(m.Content))
+		if rem != "" {
+			reminder = rem
+		}
 		switch m.Role {
 		case "system":
 			system += text
@@ -410,7 +464,7 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		conv = append(conv, turn{Role: m.Role, Text: text, Tool: names[m.ToolCallID]})
 	}
 	p := script(conv, system)
-	rec := record("chat", req.Model, conv, system)
+	rec := record("chat", req.Model, conv, system, reminder)
 	if !wait(r.Context(), p.Delay) {
 		rec.done(true)
 		return
@@ -431,7 +485,7 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 			msg["tool_calls"] = tcs
 		}
 		writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": msg, "finish_reason": finish(p)}},
-			"usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}})
+			"usage": map[string]any{"prompt_tokens": p.promptTokens(), "completion_tokens": 20, "total_tokens": p.promptTokens() + 20}})
 		return
 	}
 	sse := startSSE(w)
@@ -457,7 +511,7 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "function": map[string]any{"arguments": args[half:]}}}}, nil)
 	}
 	chunk(map[string]any{}, finish(p))
-	sse(map[string]any{"choices": []any{}, "usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120,
+	sse(map[string]any{"choices": []any{}, "usage": map[string]any{"prompt_tokens": p.promptTokens(), "completion_tokens": 20, "total_tokens": p.promptTokens() + 20,
 		"completion_tokens_details": map[string]any{"reasoning_tokens": len(p.Thinking) * 3}}})
 	sse("[DONE]")
 }
@@ -477,7 +531,7 @@ func responses(w http.ResponseWriter, r *http.Request) {
 	}
 	names := map[string]string{}
 	var conv []turn
-	system := req.Instructions
+	system, reminder := req.Instructions, ""
 	for _, raw := range req.Input {
 		var it struct {
 			Type    string          `json:"type"`
@@ -492,12 +546,20 @@ func responses(w http.ResponseWriter, r *http.Request) {
 		case it.Type == "function_call":
 			names[it.CallID] = it.Name
 		case it.Type == "function_call_output":
-			conv = append(conv, turn{Role: "tool", Text: it.Output, Tool: names[it.CallID]})
+			text, rem := cutReminder(it.Output)
+			if rem != "" {
+				reminder = rem
+			}
+			conv = append(conv, turn{Role: "tool", Text: text, Tool: names[it.CallID]})
 		case it.Type == "reasoning":
 		case it.Role == "system" || it.Role == "developer":
 			system += contentText(it.Content)
 		case it.Role != "":
-			conv = append(conv, turn{Role: it.Role, Text: contentText(it.Content)})
+			text, rem := cutReminder(contentText(it.Content))
+			if rem != "" {
+				reminder = rem
+			}
+			conv = append(conv, turn{Role: it.Role, Text: text})
 		}
 	}
 	if len(conv) == 0 {
@@ -505,14 +567,14 @@ func responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := script(conv, system)
-	rec := record("responses", req.Model, conv, system)
+	rec := record("responses", req.Model, conv, system, reminder)
 	if !wait(r.Context(), p.Delay) {
 		rec.done(true)
 		return
 	}
 	defer rec.done(false)
 	var output []any
-	usage := map[string]any{"input_tokens": 100, "output_tokens": 20, "output_tokens_details": map[string]any{"reasoning_tokens": 7}}
+	usage := map[string]any{"input_tokens": p.promptTokens(), "output_tokens": 20, "output_tokens_details": map[string]any{"reasoning_tokens": 7}}
 	if !req.Stream {
 		if len(p.Thinking) > 0 {
 			output = append(output, map[string]any{"type": "reasoning", "id": "rs_1", "encrypted_content": "enc",
@@ -671,7 +733,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"object": "list", "data": []any{
-			map[string]any{"id": "fake-chat", "object": "model"}, map[string]any{"id": "gpt-5-fake", "object": "model"}}})
+			map[string]any{"id": "fake-chat", "object": "model", "context_length": 128000},
+			map[string]any{"id": "gpt-5-fake", "object": "model", "context_length": 128000}}})
 	})
 	mux.HandleFunc("POST /v1/chat/completions", chatCompletions)
 	mux.HandleFunc("POST /v1/responses", responses)
