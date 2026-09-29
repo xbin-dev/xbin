@@ -913,8 +913,14 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    asks when it differs: pending, or kept
                                    by a tile manager — declined)} and, for
                                    an invalid request, partitionError (also
-                                   in manifestError). Both are absent for
-                                   every other tile
+                                   in manifestError). A tile with a
+                                   recorded mode whose code's xbin.json, or
+                                   whose mode record, can't be read is
+                                   invalid too, with partitionError saying
+                                   so (user and global: the recorded mode,
+                                   both false when the record can't be
+                                   read). Both are absent for every other
+                                   tile
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
                                    (component as above, native included)
 GET    /tile-assets                any (read-filtered); ?component=<p> for one.
