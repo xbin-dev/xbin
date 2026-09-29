@@ -361,6 +361,7 @@ and restoring one on another machine needs the exported backup keys.
 - the partitions page (`/xbin/partitions`), `bx partition …`, the admin
   tile's Partitions section and the shell's marker;
 - sealed backups, backup keys and disaster recovery;
-- the wire reference in [protocol.md](protocol.md): the headers, the
-  `xbin-partition` meta, `XBIN_PARTITION`, `?xbin-partition=global` and the
-  partitions API.
+- the wire reference in [protocol.md](protocol.md) for
+  `?xbin-partition=global` and the partitions API (the headers, the
+  `xbin-partition` meta, `XBIN_PARTITION`, which partition each credential
+  acts in and the API's partition classes are there).

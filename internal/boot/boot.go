@@ -473,6 +473,8 @@ func (st *State) stepBroker() error {
 	}
 	brk.EnsureComponentRepos() // migrate existing components to per-component repos
 	brk.Users = userStore
+	// a person's partition token authenticates only while covered (plans/partitions/02 §2)
+	st.Auth.SetPartitionCoverage(brk.PartitionCovered)
 	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
@@ -560,6 +562,7 @@ func (st *State) stepProxy() error {
 		return proxy.Decision(brk.Route(p, c, q))
 	}
 	px.Deployments = st.Deployments
+	st.wirePartitionProxy(px) // user partitions start through the runner's adapter (partitionroute.go)
 	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
 	px.UserLevel = func(uid, tile string) string {
 		acc, ok := userStore.Access(uid)

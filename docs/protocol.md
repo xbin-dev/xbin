@@ -55,6 +55,12 @@ so `bx-frame`'s attribute matches) and framed sandboxed by `bx-frame`
 (plus `credentialless` where supported) — an opaque origin with no DOM access
 either way, no storage, no ambient cookie. Served HTML also carries
 `<meta name="xbin-sandbox">` with the full token list (absent on chrome).
+A partitioned tile's documents carry `<meta name="xbin-partition"
+content="user:<id>">` naming the partition the viewer reaches (`global` for
+the owner token and `--no-auth`, and in a non-primary deployment's document,
+`/c/<tile>+<name>/`, whose one instance every writer shares; none when the
+viewer reaches none), which the client exposes as `xbin.partition`; an
+admin viewing as someone gets the document without a frame token.
 Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
 (or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
@@ -97,6 +103,28 @@ X-XBin-Deployment: <name>                (the calling tile's deployment, when
                                           people, the owner, xbin/cron,
                                           xbin/bus and ingress. X-XBin-From
                                           stays the tile path)
+X-XBin-Partition: user:<id> | global    (partitioned tiles: the partition
+                                          the caller acts in — its own
+                                          partition for a partitioned tile's
+                                          credentials and deliveries, on
+                                          every call, to tiles that aren't
+                                          partitioned too; user:<id> for a
+                                          person calling a partitioned tile;
+                                          global for a global instance's
+                                          calls and the owner token reaching
+                                          one. Absent for everything else, so
+                                          a tile that isn't partitioned
+                                          calling in sends none. A display
+                                          name: key state on the id below)
+X-XBin-Partition-Id: u-<32 hex>          (with X-XBin-Partition: user:<id>
+                                          only: the partition's opaque id,
+                                          stable for the person and never
+                                          reused by a person later created
+                                          under the same id. Providers key
+                                          per-caller state on (X-XBin-From,
+                                          X-XBin-Partition-Id); absent means
+                                          the caller's one non-personal
+                                          identity, global included)
 X-XBin-Backup-Subkey: bk-<32 hex>        (only on xbind's own archive PUT
                                           of a sealed archive to an
                                           archiver: the opaque id of the
@@ -134,6 +162,51 @@ deployment-scoped (it acts on the caller's own deployment), primary-only
 (refused) or neutral (no deployment in it, unchanged), and a route without a
 class refuses it too, reads included (§Tile deployments, *Which deployment
 a call acts on*).
+
+**A partitioned tile's credentials act in a partition**
+([partitions.md](/docs/partitions.md), in development). On a tile whose
+recorded mode has user partitions, xbind decides the partition from the
+credential, never from the URL or a header:
+
+- the tile's frames, terminals, agent sessions and path tickets, and a
+  person calling it directly (an admin included), act in **their person's
+  partition**, `user:<id>`, while that person exists, is enabled and can
+  read the tile; the owner token's (no person) in `global`, or nowhere
+  (`403 sign in as a person: <tile> keeps each person's data apart`) when
+  the tile has no global instance; a view-as session in none (`403 <tile>
+  keeps <user>'s data private: view-as can't open it`);
+- a backend's instance token in the partition its generation was started
+  for. A user partition's token authenticates only while that partition
+  is covered — the tile is still partitioned and its person still exists
+  (the same incarnation), is enabled and can read the tile: otherwise it is
+  a **401**, at once;
+- cron and bus deliveries in their registration's partition, refused (403)
+  while its person is gone, disabled or can't read the tile;
+- another tile's credentials in their own partition, mapped onto the
+  callee (§Providers in partitions.md): a partitioned caller's user
+  partition reaches the same person's partition of a partitioned callee
+  when the grant allows and the person can read the callee (and, with the
+  workspace policy `partitionConsent` on, consented: `403 <id> hasn't let
+  <caller> use their <tile> data`); anything else reaches the callee's
+  global instance, or `403 <tile> is partitioned: only partitioned tiles
+  reach its people's data, and it has no global instance`;
+- a non-primary deployment of a partitioned tile has one instance,
+  `global`.
+
+A user partition's credential is default-deny on `/api/xbin/*`, like a
+non-primary deployment's: every route has a partition class too —
+partition-scoped (the handler acts on the caller's partition), dormant (the
+global instance's registrations), global-only (refused: `403 this route is
+the global instance's alone: a person's partition (user:<id>) can't use
+it`), person-only (a person's own session, app or device credential only:
+`403 this is a person's own act …` for every tile credential, partitioned
+or not, the owner token and view-as) or neutral — and a route without one,
+or whose handler doesn't act per partition yet, answers `403 this route
+isn't available to a partition's credentials yet`. The `/prefs` routes keep
+a person's own bucket, so a user partition's frames, terminals and agent
+sessions use them, while its instance token, which names no person, is
+refused them (`403 … that name no person yet`). The global instance, and
+every credential of a tile that isn't partitioned, meet none of this.
 
 ## HTTP routes
 
@@ -560,7 +633,11 @@ current mode", "docs": …, "partition": {"state": "pending", "from":
 `{"error": "<tile> doesn't run: partition: <why>", "docs": …,
 "partition": {"state": "invalid", "error": "partition: <why>"}}`. A caller
 the tile refuses gets its 403 first; public ingress to such a tile answers
-503 as for a disabled one.
+503 as for a disabled one. On a partitioned tile a call reaches the
+partition §Authentication names (403 with the reason when it reaches none),
+and a person's partition that can't start now answers 503 with why;
+public ingress reaches only the tile's global instance, and a tile without
+one answers 503 `this site is not being served right now`.
 
 ### xbind API (`/api/xbin/…`)
 
@@ -3192,7 +3269,20 @@ POST   /tile-report                      element (self) or owner (?component=).
                                          /tile-report never lists it. It clears
                                          when that deployment rebuilds or a
                                          deploy swaps onto it; a reassignment
-                                         exchanges it with the primary's
+                                         exchanges it with the primary's.
+                                         From a user partition's credentials
+                                         (partitioned tiles, §Authentication):
+                                         kept for that partition, never the
+                                         tile's status; its `status` event
+                                         carries partition and reaches only
+                                         that person (§/ws/events); GET
+                                         /tile-report answers such a caller
+                                         its partition's own record for its
+                                         tile (none: no entry), and never a
+                                         deleted person's to one created
+                                         later under the same id. Cleared when
+                                         that partition's instance restarts
+                                         or the tile's code rebuilds
 
 POST   /notify                           element: a tile's backend (instance
                                          token). body {user, title, body?, link?,
@@ -5052,6 +5142,18 @@ it shows; the `GET /tile-report` snapshot below is read-filtered per caller).
 Slow consumers are disconnected; reconnect with backoff (the bundled clients
 do).
 
+**Partitioned tiles** ([partitions.md](/docs/partitions.md)). An event that
+belongs to a person's partition carries `"partition":"user:<id>"` — a `bus`
+event in that partition's data, that partition's `status`, runner and
+partitions events — and reaches only that partition: the person's own
+sockets and the tile's credentials acting in it, never admins' (there is no
+blanket admin pass for them), another person, another tile or view-as. A
+`bus` one still needs the reader grant. `term` and `session` events of a
+partitioned tile reach only the session's person (their browsers, and their
+terminal on the tile): admins don't receive them there. Events without
+`partition` — every event of a tile that isn't partitioned, and the global
+instance's — are delivered as above.
+
 ### Agent session events
 
 An agent session's log (`GET /term/sessions/<id>/events`) and its live
@@ -5215,7 +5317,11 @@ a time, sub-paths traversal-stripped. The native runtime document
   reassignment of the primary restarts both backends, the new primary first,
   so it holds for a process's life. `XBIN_COMPONENT` stays the tile path and
   `XBIN_RES_*` are the same in every deployment (their paths are bound to the
-  deployment's own data).
+  deployment's own data). `XBIN_PARTITION=user:<id> | global` is set for a
+  partitioned tile's instances ([partitions.md](/docs/partitions.md), in
+  development): the person's partition the instance serves, or its global
+  instance (a non-primary deployment's included); absent for every tile that
+  isn't partitioned. `XBIN_RES_*` then name the partition's own data.
 
 ## Filesystem contract
 

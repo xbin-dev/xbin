@@ -191,6 +191,14 @@ type Decision struct {
 	// Deny is non-nil when the call is refused: util.ErrNoDeployment is a
 	// 404, anything else a 403 whose text names the rule or the edge.
 	Deny error
+
+	// Partitioned tiles (partitionroute.go); all zero when neither end of
+	// the call is partitioned.
+	Partition         util.Partition    // the target's partition the call reaches; "" for an unpartitioned target
+	CallerPartition   util.Partition    // the partition the caller acts in: X-XBin-Partition
+	CallerPartitionID string            // its partition id, user partitions only: X-XBin-Partition-Id
+	Attribute         *auth.Attribution // an F5 call reaching global as its person (05 §6); nil until F9 builds it
+	Delivery          string            // "cron", "bus" or "mail" for a delivery (a start it causes is a background one), else ""
 }
 
 // NotGrantedError is the refusal of a caller holding no role on the target:
@@ -215,7 +223,7 @@ var edgeVerdict func(b *Broker, d Decision, caller, callerDep, target, role stri
 // names, "" for the bare URL. For a tile without a record and a bare URL
 // the answer is Policy's, and a refusal's text the proxy's own
 // (TestZeroStateRoute). The rules, in order:
-//  1. a cron or bus delivery reaches its registration's deployment, with
+//  1. a cron, bus or mail delivery reaches its registration's deployment, with
 //     the role bound at registration, and names none;
 //  2. the tile's own principal reaches its bound deployment as admin (D127g):
 //     a qualifier naming another is refused, and a user-attributed frame of
@@ -224,10 +232,18 @@ var edgeVerdict func(b *Broker, d Decision, caller, callerDep, target, role stri
 //  4. anyone else reaches the primary, with the role resolveTarget gives;
 //     another tile names no deployment at all (NP-11-14), and a person
 //     names a non-primary one only with write on the tile.
+//
+// Then the partition the call reaches, when either end is partitioned
+// (routePartition, plans/partitions/02 §4); the rules above don't change.
 func (b *Broker) Route(p auth.Principal, target *registry.Component, qualifier string) Decision {
+	return b.routePartition(p, target, b.routeDeployment(p, target, qualifier))
+}
+
+// routeDeployment is Route's deployment rules.
+func (b *Broker) routeDeployment(p auth.Principal, target *registry.Component, qualifier string) Decision {
 	t := target.Path
 	switch {
-	case p.Component == CronPrincipal || p.Component == BusPrincipal:
+	case isDelivery(p):
 		dep := cmp.Or(p.Deployment, util.MainDeployment)
 		switch {
 		case qualifier != "":

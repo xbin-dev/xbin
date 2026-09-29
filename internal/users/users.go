@@ -129,6 +129,9 @@ type User struct {
 	// Store-owned like the sign-in facts; Public() leaves them out — the
 	// devices API serves them.
 	Devices []Device `json:"devices,omitempty"`
+	// UID is this person's incarnation (uid.go; partitioned tiles, PD-43):
+	// store-owned, minted at their first partition, never on the wire.
+	UID string `json:"uid,omitempty"`
 }
 
 // IsAdmin reports the admin role.
@@ -211,6 +214,7 @@ func (u *User) Public() User {
 	c.PassHash = ""
 	c.InviteHash = ""
 	c.Devices = nil
+	c.UID = ""
 	return c
 }
 
@@ -547,6 +551,7 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		u.LastLogin, u.LastLoginVia, u.LastSSO = existing.LastLogin, existing.LastLoginVia, existing.LastSSO
 		u.SSOGroups, u.SSOSyncError = existing.SSOGroups, existing.SSOSyncError
 		u.Devices = existing.Devices // store-owned too (devices.go)
+		u.UID = existing.UID         // and the incarnation (uid.go)
 		u.RoleVia = ""
 		if u.Role == existing.Role {
 			u.RoleVia = existing.RoleVia
@@ -555,7 +560,7 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		u.NoPersonalTiles, u.NoTerminal = existing.NoPersonalTiles, existing.NoTerminal
 		u.Sets, u.NetSets = existing.Sets, existing.NetSets
 	} else {
-		u.Devices = nil // enrolled only through AddDevice
+		u.Devices, u.UID = nil, "" // enrolled only through AddDevice; the uid at the first partition (uid.go)
 		var err error
 		if u.Sets, err = s.normSetNamesLocked(u.Sets, false); err != nil {
 			return nil, err

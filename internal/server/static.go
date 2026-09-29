@@ -496,8 +496,9 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 	imports := s.Reg.ImportMapFor(comp)
 	depMeta := s.deploymentHead(r, compPath, imports)
 
+	partMeta, viewAs := s.partitionHead(r, compPath) // a partitioned tile's viewer (partitionevents.go)
 	frameTok, assetHead := "", ""
-	if p := auth.PrincipalOf(r); s.mayMintFrameToken(r, p, compPath) {
+	if p := auth.PrincipalOf(r); !viewAs && s.mayMintFrameToken(r, p, compPath) {
 		frameTok = s.documentToken(r, p, compPath)
 		// Strict asset gating: tokens mode's <base> + import-map remap
 		// (which rewrites imports in place), origins mode's mode meta;
@@ -525,9 +526,9 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 		"\n%s<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
 			"%s<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
-			"%s%s%s"+
+			"%s%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		assetHead, im, htmlEscape(compPath), depMeta, frameTok, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
+		assetHead, im, htmlEscape(compPath), depMeta, frameTok, partMeta, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
 }
 
 // mayMintFrameToken: the injection mints compPath's frame token only for a

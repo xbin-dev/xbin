@@ -19,7 +19,14 @@ type Event struct {
 	// non-primary deployment's activity rides the "deployments" type, which
 	// names it in Data.
 	Deployment string `json:"deployment,omitempty"`
-	Data       any    `json:"data,omitempty"` // bus payload / structured extras
+	// Partition names the user partition ("user:<id>") of a partitioned
+	// tile an event belongs to: a bus event in that partition's namespace,
+	// or that partition's status, runner or partitions event. Such an event
+	// reaches only that partition's principals and its person's own
+	// sockets — admins get no blanket pass (plans/partitions/02 §9). Empty
+	// for everything else, the global instance's included: today's bytes.
+	Partition string `json:"partition,omitempty"`
+	Data      any    `json:"data,omitempty"` // bus payload / structured extras
 }
 
 // Filter decides whether a subscriber receives an event. Most events are

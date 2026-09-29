@@ -578,6 +578,9 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var h http.Handler = s.apiMux
 		dep, deny := s.classGate(r2) // non-primary principals: default-deny (deployclass.go)
+		if deny == nil {
+			r2, deny = s.partitionGate(r2) // a person's partition: default-deny too (partitionclass.go)
+		}
 		if deny != nil {
 			h = deny
 		}
@@ -660,13 +663,16 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 func (s *Server) eventFilter(p auth.Principal) events.Filter {
 	tile := s.credentialTile(p) // once, outside the hub's lock (deployaudience.go)
 	return func(e events.Event) bool {
+		if e.Partition != "" && e.Type != "bus" && !s.partitionEventFor(p, tile, e) {
+			return false // a person's partition's own (partitionevents.go); then the type's rules
+		}
 		// pr events name a component that has PR activity — D40 visibility:
 		// only subscribers who can read that tile see them.
 		if e.Type == "pr" {
 			return p.IsAdmin() || p.CanReadTile(e.Component)
 		}
 		if e.Type == "term" || e.Type == "session" { // per-user: the owner's browsers, and admins (D73/D74)
-			return termEventFor(p, e)
+			return s.termEventVisible(p, e)
 		}
 		if e.Type == "deployments" {
 			return s.deploymentsEventFor(p, tile, e)
@@ -678,7 +684,7 @@ func (s *Server) eventFilter(p auth.Principal) events.Filter {
 		if e.Type != "bus" {
 			return true
 		}
-		if p.IsAdmin() {
+		if p.IsAdmin() && e.Partition == "" { // a partition's bus: no blanket pass (G2)
 			return true
 		}
 		return s.policy().BusAllows(p, e)

@@ -89,6 +89,11 @@ type Principal struct {
 	// person names a deployment by URL, not by credential). From() stays
 	// the tile path, and authority stays the tile's (D127f).
 	Deployment string
+	// Partition is the partition of a partitioned tile this principal acts
+	// in (partition.go): from xbind state only — an instance token's or a
+	// delivery's registration, or the broker's answer for the tile's own
+	// credentials (addressedPartition). "" for everyone else.
+	Partition util.Partition
 }
 
 // ReadOnly reports an impersonation principal: an admin looking through a
@@ -237,7 +242,7 @@ type Auth struct {
 	sessionAbsTTL  time.Duration // hard cap since login regardless of activity
 
 	mu        sync.RWMutex
-	instances map[string]instanceID // instance token → (component path, deployment) (deployment.go)
+	instances map[string]instanceID // instance token → (component path, deployment[, partition]) (deployment.go)
 	terminals map[string]termID     // terminal token → (component, user, target)
 	sessions  map[string]*session   // session id → session (sessions.go)
 	tickets   map[string]*impTicket // one-shot impersonation tickets (impersonate.go)
@@ -246,6 +251,8 @@ type Auth struct {
 	dev       deviceState           // enrollment codes, challenges, app tickets (devices.go)
 	noAuth    bool
 	saveMu    sync.Mutex // serializes framegens.go writes
+
+	covered func(tile string, part util.Partition, uid string) bool // a user partition's coverage (partition.go); guarded by mu
 
 	// clientIP resolves a request's client IP (trusted-proxy aware);
 	// installed by the server via SetClientIP. Nil → RemoteAddr.

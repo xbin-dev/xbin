@@ -52,11 +52,13 @@ func claimName(dep string) (claim string, ok bool) {
 type instanceID struct {
 	component  string
 	deployment string
+	partition  util.Partition // a user partition's generation (partition.go); "" otherwise, global's included
+	uid        string         // that partition's person's uid
 }
 
 // principal is the backend principal an instance token authenticates as.
 func (id instanceID) principal() Principal {
-	return Principal{Component: id.component, Via: "instance", Deployment: id.deployment}
+	return Principal{Component: id.component, Via: "instance", Deployment: id.deployment, Partition: id.partition}
 }
 
 // RegisterInstance registers a backend generation of the tile's main
@@ -86,8 +88,11 @@ func (a *Auth) RegisterInstanceDeployment(token, component, deployment string) {
 
 func (a *Auth) lookupInstance(token string) (instanceID, bool) {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
 	id, ok := a.instances[token]
+	a.mu.RUnlock()
+	if ok && id.partition != "" && !a.partitionCovered(id) {
+		return instanceID{}, false // its partition is no longer covered: 401 (partition.go)
+	}
 	return id, ok
 }
 
