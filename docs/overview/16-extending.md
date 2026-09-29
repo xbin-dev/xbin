@@ -25,6 +25,7 @@ everything as environment:
 | `XBIN_SOCKET` | where to listen (per-generation unix socket) |
 | `XBIN_COMPONENT` | own path — the component's identity, the same in every tile deployment |
 | `XBIN_DEPLOYMENT` | only in a tile deployment that isn't the tile's primary: its name ([/docs/tile-deployments.md](/docs/tile-deployments.md)); absent for the primary, and set for a process's whole life (a reassignment of the primary restarts both) |
+| `XBIN_PARTITION` | only in a partitioned tile (in development, [/docs/partitions.md](/docs/partitions.md)): `user:<id>` in a person's own instance, `global` in the global instance (and in a non-primary deployment whose code asks for partitions); absent otherwise, and set for a process's whole life (a mode change restarts it) |
 | `XBIN_GATEWAY` + `XBIN_TOKEN` | how to call *out*: the gateway unix socket + this generation's instance credential (RBAC'd, works with zero net egress) |
 | `XBIN_RES_<NAME>` | each granted resource — a dsn string, or a file/dir path for same-scope sqlite/filesystem ([10-resources.md](10-resources.md)) |
 | `XBIN_IFACE_<slot>_URL` / `_ADDR` / `_IP` | resolved interface bindings: http endpoint URLs, stream dial addresses, lan-ingress own-addresses ([11-interfaces.md](11-interfaces.md), [13-ingress.md](13-ingress.md)) |

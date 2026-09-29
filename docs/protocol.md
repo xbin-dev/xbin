@@ -1852,11 +1852,13 @@ POST   /partitions/limits         admin; a tile manager (with their own
                                    (above the admin's value or the default:
                                    403). 0 clears a value; maxRunning is
                                    ≤ 4096, partitionBytes ≥ 1 MiB. The caps
-                                   default from host memory (per tile
-                                   clamp(MemTotal/4 ÷ E, 4, 32), workspace
-                                   clamp(MemTotal/2 ÷ E, 8, 128), E ≈ 160
-                                   MiB), the ceiling to the tile's
-                                   per-namespace one. → {tile?, limits?:
+                                   default from host memory M (per tile
+                                   clamp(M/4 ÷ E, 4, 32), workspace
+                                   clamp(M/2 ÷ E, 8, 128), E ≈ 160 MiB; M
+                                   is MemTotal, or xbind's own cgroup
+                                   memory limit when lower), the ceiling
+                                   to the tile's per-namespace one. →
+                                   {tile?, limits?:
                                    {maxRunning, partitionBytes}, workspace:
                                    {maxRunning}, defaults: {maxRunning,
                                    workspaceMaxRunning}} (effective values;

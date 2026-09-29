@@ -272,20 +272,24 @@ Each person's partition is **its own backend process**, in its own sandbox:
   under the tile's egress policy, and no host network, provider splice,
   net-provider roster, lan-ingress leg, ingress path or stream-slot dial —
   none of which the global instance loses.
-- **One build.** A change to the tile's code builds it once; every running
-  partition restarts onto that build (a few at a time), and the others
-  pick it up on their next start. A pinned primary's checkpoint is shared
-  the same way.
+- **One build.** A change to the tile's code — a save, a deploy or a
+  restart of the primary — builds it once; every running partition
+  restarts onto that build (a few at a time), and the others build it on
+  their next start, as the tile's own instance always did. A pinned
+  primary's checkpoint is shared the same way. A person's start that fails
+  for them alone (it didn't come up healthy, say) is tried again on their
+  next request; a build error or a crash loop stays until the code changes.
 - **Only on the primary, only with `--isolate`.** A person's partition
   runs only on the tile's primary deployment, and only on an xbind started
   with `--isolate`; elsewhere the tile's API answers that a person's
   partition can't run here.
 
 **Limits.** How many people's instances run at once is capped, per tile and
-for the whole workspace, from the host's memory — per tile
-clamp(MemTotal/4 ÷ E, 4, 32), workspace-wide clamp(MemTotal/2 ÷ E, 8, 128),
-with E about 160 MiB per instance (a 4 GiB machine runs 6 per tile, 12 in
-all). At the cap, a person's start stops the least recently used partition
+for the whole workspace, from the host's memory M — per tile
+clamp(M/4 ÷ E, 4, 32), workspace-wide clamp(M/2 ÷ E, 8, 128), with E about
+160 MiB per instance (a 4 GiB machine runs 6 per tile, 12 in all). M is
+the machine's MemTotal, or xbind's own memory limit when it runs in a
+cgroup (a container) that caps it lower. At the cap, a person's start stops the least recently used partition
 that isn't in use (no request in the last 2 minutes and no held
 connection); with none to stop, it answers **503** `too many people's
 instances of <tile> are running; try again shortly`. A cron, bus or mail
