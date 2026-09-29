@@ -178,6 +178,22 @@
     .sbxthd { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; border-bottom: 1px solid var(--bx-border); min-width: 0; white-space: nowrap; }
     .sbxthd > .mono, .sbxthd > .muted { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .sbxtbody { flex: 1 1 0; min-height: 0; display: flex; padding: 4px 2px 2px 8px; background: var(--bx-term-bg, #262c36); }
+    /* the dock's tabs (terminals.js): one per terminal; ▾ hides the dock, a top-bar pill brings it back */
+    .sbxttabs { display: flex; gap: 2px; padding: 4px 6px 0; overflow-x: auto; border-bottom: 1px solid var(--bx-border); scrollbar-width: thin; }
+    .sbxtab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; font-size: 12px; white-space: nowrap; cursor: pointer;
+              border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; color: var(--bx-muted); }
+    .sbxtab.on { color: var(--bx-text); background: var(--bx-panel-2); border-color: var(--bx-border); }
+    .sbxtab.ended { font-style: italic; }
+    .sbxtab .x { background: none; border: 0; color: inherit; cursor: pointer; font-size: 11px; padding: 0 3px; }
+    .sbxthint { padding: 2px 12px 4px; margin: 0; }
+    .termpill { cursor: pointer; color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
+    /* a coding agent's sign-in (signin.js): its methods, the shared-HOME warning, a device code */
+    .hlogin .hlm { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+    .hlogin .hlm form { display: flex; gap: 6px; align-items: center; }
+    .hlogin .hlm input[type=password] { flex: 1 1 auto; min-width: 0; max-width: 340px; }
+    .hlogin .hlm > .btn { align-self: flex-start; }
+    .hlogin .hldev { margin: 6px 0; padding: 6px 8px; border: 1px dashed var(--bx-border); border-radius: 6px; overflow-wrap: anywhere; }
+    .hlogin .acts { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
     /* the top bar's sharing status (model/rules.js shareStatus) */
     .sharepill.on { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
     .sharepill.in { color: var(--bx-text); }

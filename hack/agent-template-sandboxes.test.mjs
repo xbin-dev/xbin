@@ -567,7 +567,20 @@ test('terminals: offered where the manager has tty and the page is bound to it; 
   assert.deepEqual(rows.run, { id: 'terminal', label: 'Terminal', cwd: '/work/api' });
   assert.deepEqual(rows.stop, { id: 'terminal', label: 'Terminal', cwd: '' }, 'not in this conversation: its workdir');
   assert.deepEqual([rows.arch, rows.bobs, rows.notty, rows.busy], [undefined, undefined, undefined, undefined]);
-  assert.ok(!S.sandboxRows(L, {}, { conv: v }).some((r) => r.actions.some((a) => a.id === 'terminal')), 'no tty endpoints (the native view): never');
+  assert.ok(!S.sandboxRows(L, {}, { conv: v }).some((r) => r.actions.some((a) => a.id === 'terminal')), 'no tty endpoints: never');
+
+  // a command (a coding agent's sign-in) and the tile's own relay (D-harness §4.2.8: the native view's)
+  assert.equal(S.terminal(L, `${MGR}|run`, EPS, '/work/api', 'codex login').src,
+    '/api/apps/coding-sandbox/sbx/sandboxes/run/tty?cwd=%2Fwork%2Fapi&cmd=codex%20login');
+  assert.equal(S.terminalSrc({ url: '/api/m' }, 'b1', '', 'CLAUDE_CODE_REMOTE=1 claude /login'), '/api/m/sbx/sandboxes/b1/tty?cmd=CLAUDE_CODE_REMOTE%3D1%20claude%20%2Flogin');
+  const r = S.terminal(L, `${MGR}|run`, S.RELAY, '/work/api');
+  assert.deepEqual([r.shown, r.why, r.relay, r.base, r.src], [true, '', true, '', 'sandboxes/apps/coding-sandbox%7Crun/terminal?cwd=%2Fwork%2Fapi'], 'tile-relative');
+  assert.equal(S.relaySrc(`${MGR}|run`, '', 'gemini'), 'sandboxes/apps/coding-sandbox%7Crun/terminal?cmd=gemini');
+  assert.equal(S.terminal(L, `${MGR}|bobs`, S.RELAY).why, 'you may not use it yourself', 'the relay checks you the same');
+  assert.match(S.terminal(L, `${MGR}|arch`, S.RELAY).why, /thaw it first/);
+  assert.equal(S.terminal(L, `${MGR}|notty`, S.RELAY).shown, false, 'no tty: no relay either');
+  const relayed = Object.fromEntries(S.sandboxRows(L, { user: 'alice' }, { conv: v, tty: S.RELAY }).map((r) => [r.name, r.actions.find((a) => a.id === 'terminal')]));
+  assert.deepEqual([relayed.run, relayed.bobs], [{ id: 'terminal', label: 'Terminal', cwd: '/work/api' }, undefined], 'the native view\'s rows');
 });
 
 test('the store: terminals only where a view set tty; ending one DELETEs its exec at the manager', async () => {

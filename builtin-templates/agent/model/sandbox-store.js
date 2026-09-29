@@ -69,8 +69,9 @@ export function createSandboxStore(app) {
     pick: null,           // the next new chat's sandbox: {ref, cwd, name} (sent while its class has the sandbox toolset)
     error: '',            // why the list could not be read
     // the page's endpoints for its `sandboxes` slot (xbin.iface) — set by a
-    // view that opens terminals (the web's); null: none offered (the native
-    // view: its terminal dials only the tile's own routes — D96 difference)
+    // view that opens terminals (the web's); S.RELAY: through the tile's own
+    // relay (the native view: the app's terminal dials only the tile's own
+    // routes, D-harness §4.2.8); null: none offered
     tty: null,
 
     // cls: the class the picker works for — the open conversation's, else the next new chat's.
@@ -93,9 +94,10 @@ export function createSandboxStore(app) {
     picker() { return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.classId), pick: sbx.pick }); },
     badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
-    // terminal: "Open terminal" for ref at cwd (model/sandboxes.js terminal):
-    // {shown, why, src, …} — src is what <bx-terminal src> dials.
-    terminal(ref, cwd = '') { return S.terminal(sbx.list, ref, sbx.tty, cwd); },
+    // terminal: "Open terminal" for ref at cwd, running cmd ('' = the login
+    // shell) (model/sandboxes.js terminal): {shown, why, src, …} — src is
+    // what <bx-terminal src> (or the app's terminal, through the relay) dials.
+    terminal(ref, cwd = '', cmd = '') { return S.terminal(sbx.list, ref, sbx.tty, cwd, cmd); },
     // endTerminal ends the shell a terminal t (terminal()) started — its
     // session frame named the exec eid; a view calls it when it closes the
     // terminal. The sandbox's lastActive moved: the list is read again.
