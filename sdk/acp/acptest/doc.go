@@ -103,12 +103,13 @@
 //	--device-ms=N    the device-code sign-in completes N ms after the client
 //	                 accepts the URL (default 1000)
 //
-// authenticate: fake-api-key takes _meta["api-key"].apiKey (empty → -32602
-// "no key", "bad" → "invalid API key", else it writes the credentials file —
-// never the key); fake-device needs the client's elicitation.url, sends
-// elicitation/create {mode:"url"} and, N ms after the client accepts, writes
-// the file, sends elicitation/complete and answers; any other method answers
-// {} as before.
+// authenticate (with --require-login): fake-api-key takes
+// _meta["api-key"].apiKey (empty → -32602 "no key", "bad" → "invalid API
+// key", else it writes the credentials file — never the key); fake-device
+// needs the client's elicitation.url, sends elicitation/create {mode:"url"}
+// and, N ms after the client accepts, writes the file, sends
+// elicitation/complete and answers; any other method (and, without the
+// flag, every method) answers {} as before.
 //
 // `fakeacp login` (Login) is the terminal sign-in: it asks for a code and
 // writes the credentials file for "fake-code".

@@ -32,6 +32,11 @@ func (f *fake) newSession() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	id := "fake-" + hex.EncodeToString(b)
+	f.fileMu.Lock()
+	defer f.fileMu.Unlock()
+	if f.stopped { // after a crash, until the caller closes r
+		return id
+	}
 	if err := os.MkdirAll(f.sessionsDir(), 0o700); err == nil {
 		if file, err := os.OpenFile(f.sessionFile(id), os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			_ = file.Close()
@@ -44,6 +49,11 @@ func (f *fake) newSession() string {
 func (f *fake) append(sid string, update []byte) {
 	path := f.sessionFile(sid)
 	if path == "" {
+		return
+	}
+	f.fileMu.Lock()
+	defer f.fileMu.Unlock()
+	if f.stopped {
 		return
 	}
 	_ = os.MkdirAll(filepath.Dir(path), 0o700)

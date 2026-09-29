@@ -6,6 +6,7 @@ package acptest
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -74,8 +75,11 @@ func (f *fake) initialize() initializeResult {
 }
 
 // authenticate signs in with one of --require-login's methods (any other
-// method answers {}, as the plain agent always did).
+// method, or any without the flag, answers {}, as the plain agent always did).
 func (f *fake) authenticate(m *acp.Message) (any, *acp.Error) {
+	if !f.o.RequireLogin {
+		return map[string]any{}, nil
+	}
 	var p struct {
 		MethodID string                     `json:"methodId"`
 		Meta     map[string]json.RawMessage `json:"_meta"`
@@ -161,7 +165,13 @@ func (f *fake) requireLogin() *acp.Error {
 }
 
 func (f *fake) signIn(method string) error {
-	if err := writeCredentials(f.getenv("HOME"), method); err != nil {
+	f.fileMu.Lock()
+	err := errors.New("the agent stopped")
+	if !f.stopped {
+		err = writeCredentials(f.getenv("HOME"), method)
+	}
+	f.fileMu.Unlock()
+	if err != nil {
 		return err
 	}
 	f.mu.Lock()

@@ -28,6 +28,9 @@ type fake struct {
 	done   chan struct{} // closed when Serve returns: sleeping scripts wake
 	crash  chan int      // a script's exit code
 
+	fileMu  sync.Mutex // the files under $HOME/.fakeacp
+	stopped bool       // Serve returned: no more writes to them (under fileMu)
+
 	mu        sync.Mutex
 	mode      string
 	model     string

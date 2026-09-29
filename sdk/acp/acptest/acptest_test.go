@@ -471,3 +471,64 @@ func TestCommand(t *testing.T) {
 		t.Fatal("login wrote no credentials")
 	}
 }
+
+// Without --require-login authenticate answers {} for any method, as the
+// plain agent always did, and signs nobody in.
+func TestAuthenticateWithoutFlag(t *testing.T) {
+	d, home := start(t, Options{})
+	d.call(1, "initialize", `{"protocolVersion":1,"clientCapabilities":{"elicitation":{"url":{}}}}`)
+	d.response(1)
+	for i, p := range []string{`{"methodId":"fake-api-key"}`, `{"methodId":"fake-api-key","_meta":{"api-key":{"apiKey":"k"}}}`,
+		`{"methodId":"fake-device"}`, `{"methodId":"fake-login"}`} {
+		d.call(2+i, "authenticate", p)
+		if r := d.response(2 + i); string(r.Result) != "{}" {
+			t.Fatalf("authenticate %s without --require-login: %s", p, r.raw)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".fakeacp")); err == nil {
+		t.Fatal("authenticate without --require-login wrote under $HOME/.fakeacp")
+	}
+	d.finish()
+}
+
+// Once Serve returns, a turn still winding down writes nothing more to
+// $HOME (a test's TempDir is being removed).
+func TestNoWritesAfterServe(t *testing.T) {
+	release := make(chan struct{})
+	tenth := make(chan struct{})
+	var mu sync.Mutex
+	calls := 0
+	d, home := start(t, Options{Persist: true, wait: func(dur time.Duration) {
+		if dur != 200*time.Millisecond {
+			quick(dur)
+			return
+		}
+		<-release
+		mu.Lock()
+		calls++
+		if calls == 10 {
+			close(tenth)
+		}
+		mu.Unlock()
+	}})
+	d.call(1, "initialize", initParams)
+	d.response(1)
+	sid := str(get(d.sessionNew(2, newParams), "result", "sessionId"))
+	d.call(3, "session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"slow"}]}`)
+	d.chunkText("tick 0 ")
+	d.finish() // Serve has returned
+	file := filepath.Join(home, ".fakeacp", "sessions", sid+".jsonl")
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	select {
+	case <-tenth:
+	case <-time.After(wait):
+		t.Fatal("the turn never wound down")
+	}
+	if after, _ := os.ReadFile(file); len(after) != len(before) {
+		t.Fatalf("the history grew after Serve returned:\n%s", after[len(before):])
+	}
+}

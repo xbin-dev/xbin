@@ -45,7 +45,8 @@ func (e *ExitError) Error() string { return "acptest: the agent exited " + strco
 
 // Serve plays the agent on r (the client's frames) and w (the agent's)
 // until r ends, or a script exits (*ExitError). Once it returns nothing
-// more is written; after an exit the caller closes r to release the reader.
+// more is written, to w or under $HOME; after an exit the caller closes r
+// to release the reader.
 func Serve(r io.Reader, w io.Writer, o Options) error {
 	f := newFake(o)
 	out := &gate{w: w}
@@ -61,6 +62,9 @@ func Serve(r io.Reader, w io.Writer, o Options) error {
 		err = &ExitError{Code: code}
 	}
 	out.close()
+	f.fileMu.Lock()
+	f.stopped = true // a turn still winding down leaves $HOME alone too
+	f.fileMu.Unlock()
 	close(f.done)
 	return err
 }
