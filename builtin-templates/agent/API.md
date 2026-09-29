@@ -931,7 +931,9 @@ per run; attachments have their own.
 `render_html` journals a `render` step (`{path, version, bytes}`) and the tile
 shows that file in a `sandbox=""` iframe with a prepended meta CSP
 (`default-src 'none'; style-src 'unsafe-inline'; img-src data:`). **Scripts
-never run and nothing external loads** — so charts must be inline SVG. Verify
+never run and nothing external loads** — so charts must be inline SVG. Its
+description and result say so first (D134): a static snapshot, not a
+browser, that verifies no JavaScript. Verify
 with `node test/frame-policy.mjs`.
 
 The tile's frontend is **one model, thin views** — see **The frontend** below.
@@ -1103,15 +1105,20 @@ call re-runs the binding check above. Paths are absolute, relative to the
 binding's `cwd` (else the sandbox's workdir), or `~/…` (the sandbox user's
 home). The session files (`file_*`) are a different store: nothing moves
 between the two unless a tool below moves it. The system prompt carries a
-`# Sandbox` section — the active sandbox's name, manager, image, egress and
-`cwd`, and the other attached ones — built from the binding alone, so it
-changes on a rebind only (the prompt's cached prefix stays valid).
+`# Sandbox` section — the active sandbox's name, manager, image (and the
+tools its manager says the image has, `images[].tools` of its hello, kept in
+the binding as `tools` when it is bound), egress and `cwd`, the two places
+files live (the session files and the sandbox's own filesystem), how jobs
+are stopped (`bash_kill`, never `pkill -f`/`killall`), and the other
+attached ones — built from the binding alone, so it changes on a rebind only
+(the prompt's cached prefix stays valid).
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `bash` | `{command, cwd?, timeout_s? (120), background?}` | runs `command` with the sandbox user's login shell (an exec named `agent:<run>:<tool call>`, so the same call re-issued — the same command, cwd and sandbox, while it hasn't ended — finds the one command; anything else under that call id is a job of its own, `agent:<root>:job-<n>`), no TTY, no stdin, `TERM=dumb NO_COLOR=1 PAGER=cat GIT_TERMINAL_PROMPT=0`, and follows its combined output. The result is at most 12 KiB — a short head and a long tail with `… N bytes elided …` between, escapes and `\r` redraws cleaned — and a footer: `[exit 1 · 14s · job 3]`. At `timeout_s` (or just before the tool's own `toolTimeout`) the command **goes on as a job**: the footer says `still running after 2m00s · job 3` and how to follow it. `background: true` starts it as a job at once. A start the manager doesn't answer (a timeout, a lost connection, the tool's own timeout) may have started all the same: the job stays, and the result names it — `bash_output` finds its command by its clientId (or says it never started); only the manager's refusal drops it |
-| `bash_output` | `{job, wait_s? (0, ≤ 600), offset?}` | a job's output since it was last read (or from byte `offset`), waiting up to `wait_s` for it to end; the footer says it still runs (and up to which byte it was read) or how it ended. A job in a sandbox the conversation can no longer use (below) answers what is known of it |
-| `bash_kill` | `{job, signal?}` | signals the job's whole process group: `INT`, `TERM`, `KILL` or `HUP`; by default TERM, then KILL if it hasn't ended 3 s later |
+| `bash` | `{command, cwd?, timeout_s? (120), background?, force?}` | runs `command` with the sandbox user's login shell (an exec named `agent:<run>:<tool call>`, so the same call re-issued — the same command, cwd and sandbox, while it hasn't ended — finds the one command; anything else under that call id is a job of its own, `agent:<root>:job-<n>`), no TTY, no stdin, `TERM=dumb NO_COLOR=1 PAGER=cat GIT_TERMINAL_PROMPT=0 PYTHONUNBUFFERED=1`, and follows its combined output. The command reaches the shell **through the environment** (D134): the exec's `cmd` is `eval "$AGENT_JOB_CMD"` with `AGENT_JOB_CMD` = the command, so its text is in no process's command line and a `pkill -f <pattern>` in it can't match the job's own shell; the exec's `label` is `agent · job <n> · <the command, one line, clipped>`. A command with `pkill -f`, `pkill --full` (any flag cluster with `f`) or `killall` isn't run: the answer (`not run: stop jobs with bash_kill …`) lists the conversation's jobs; `force: true` runs it anyway. The result is at most 12 KiB — a short head and a long tail with `… N bytes elided …` between, escapes and `\r` redraws cleaned — and a footer: `[exit 1 · 14s · job 3]`. At `timeout_s` (or just before the tool's own `toolTimeout`) the command **goes on as a job**: the footer says `still running after 2m00s · job 3` and how to follow it — and, when the `timeout_s` the model gave was cut by the tool's time limit or the 3600 s cap, says so (`still running after 1m57s (timeout_s 600 was cut to 117s: a tool call's time limit) · job 3`). `background: true` starts it as a job at once. A start the manager doesn't answer (a timeout, a lost connection, the tool's own timeout) may have started all the same: the job stays, and the result names it — `bash_output` finds its command by its clientId (or says it never started); only the manager's refusal drops it |
+| `bash_output` | `{job, wait_s? (0, ≤ 600), offset?}` | a job's output since it was last read (or from byte `offset`), waiting up to `wait_s` for it to end; the footer says it still runs (and up to which byte it was read, and when `wait_s` was cut) or how it ended (`exit 3`, `killed by TERM`). A job in a sandbox the conversation can no longer use (below) answers what is known of it |
+| `bash_kill` | `{job, signal?}` | signals the job's whole process group: `INT`, `TERM`, `KILL` or `HUP`; by default TERM, then KILL if it hasn't ended 3 s later. The answer is what the job wrote since it was last read — its last 4 KiB at most, after `… its last N bytes (bash_output {"job": 3, "offset": K} reads what came before) …` — and a footer `[job 3 stopped · killed by TERM]` (or `exit N`); the read offset moves past it |
+| `jobs` | `{limit? (12)}` | the conversation's jobs, newest first — the running ones asked of their sandboxes first — one line each: `job 3 · running · 2m14s so far · <command> (in <cwd>)`, `job 2 · killed by TERM · ran 12s · ended 5m ago · …` |
 | `read` | `{path, offset?, limit? (2000)}` | numbered lines (`cat -n` style), within ~14 KiB, saying what it left out; a file up to 256 KiB is read whole and sliced, a larger one ranged with `sed -n`; a binary file (a NUL or non-UTF-8 near its start) gets a hint instead. A symlink is followed to its file (a relative target against the link's directory; at most 40 links) |
 | `write` | `{path, content}` | replaces the file atomically (the contract's `PUT …/files/content`), creating missing directories. It replaces what is at `path`: a symlink there becomes the file (write the target to write through it) |
 | `edit` | `{path, old_string, new_string, replace_all?}` | `file_edit`'s exact-string replacement (the same rules, one shared implementation) on a sandbox file of up to 4 MiB, written back with `ifMatch` = the etag it read; a `precondition` refusal (the file changed meanwhile) is retried once from a fresh read. A symlink is followed as `read` follows it: the target is edited, the link stays. The result shows the changed lines, numbered |
@@ -1172,8 +1179,9 @@ back); anyone who may steer the conversation may deny it.
 **Jobs** are numbered per conversation (subagents share their root's
 numbers) and kept in the `sandbox_jobs` table (`root_id, job, run_id,
 tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg,
-created_ms, ended_ms, client_id` — `client_id` set when it isn't
-`agent:<run>:<call>`); a conversation runs at most **8** at once (asked of
+created_ms, ended_ms, client_id, signal` — `client_id` set when it isn't
+`agent:<run>:<call>`; `signal` the signal that ended it, `''` when none or
+recorded before D134); a conversation runs at most **8** at once (asked of
 the manager before a start is refused). **Detaching a sandbox** (`PATCH
 /runs/{id} {detach}`, or deleting it, which detaches it everywhere) KILLs
 the process group of every job the conversation still runs in it — best
@@ -1187,7 +1195,21 @@ use at all (detached, deleted, its manager unbound, no longer allowed) is
 `lost` and doesn't count toward the 8; `bash_output` and `bash_kill` on it
 say what is known of it. **Interrupting or cancelling** the
 turn stops the command bash is following — TERM to its process group, KILL
-if it is still there 3 s later — while background jobs keep running. **A
+if it is still there 3 s later — while background jobs keep running; the
+call's result keeps what the command wrote until then, with a footer
+`[interrupted by the owner · job 3 got TERM (then KILL, if it outlives a few
+seconds) — bash_output {"job": 3} shows the rest and how it ended]`.
+**Sleeping on jobs** (D134): `yield` — `{seconds?, until_job?}`, `until_job`
+offered where a sandbox is bound — by a run with jobs of its own still
+running sleeps as `{kind: "sleep", since}` (its `pendingState`) and wakes
+early when one of them ends (`(yielded 600s — waking early when job 3
+ends)`); `until_job: N` sleeps until job N ends (`seconds` then its most,
+default 3600), and a job that has already ended answers at once without
+sleeping. The wake is durable: every pass over the sleeping run (the poke a
+recorded end gives the run that started the job, a restart's recovery) asks
+`sandbox_jobs`; while nothing reads the jobs, the engine follows them at
+their manager with a long-poll per job (never their output) as long as the
+run sleeps. **A
 backend restart** (a handoff to the next process) leaves it running: the
 call's result becomes `(no result: the backend restarted while this command
 ran. It went on in the sandbox as job 3 — bash_output {"job": 3} shows its

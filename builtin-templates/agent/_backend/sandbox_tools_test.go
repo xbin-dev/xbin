@@ -229,7 +229,7 @@ func TestBashTimeoutBecomesAJob(t *testing.T) {
 		t.Fatalf("the background job: %q", out)
 	}
 	shortGrace(t)
-	if out := mustTool(t, ag, r, cfg, "c9", "bash_kill", map[string]any{"job": 3}); !strings.HasPrefix(out, "job 3 stopped (killed by TERM)") {
+	if out := mustTool(t, ag, r, cfg, "c9", "bash_kill", map[string]any{"job": 3}); !strings.HasSuffix(out, "\n[job 3 stopped · killed by TERM]") {
 		t.Fatalf("killed: %q", out)
 	}
 	if out := mustTool(t, ag, r, cfg, "c10", "bash_kill", map[string]any{"job": 3}); !strings.Contains(out, "isn't running") {

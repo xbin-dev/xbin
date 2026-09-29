@@ -38,8 +38,8 @@ func sandboxFileSpecs() []toolSpec {
 	return []toolSpec{
 		{Type: "function", Function: funcDef{
 			Name: "read",
-			Description: "Read a file in the coding sandbox — not a session file (file_read reads those). Returns numbered lines (cat -n style): " +
-				"the first 2000 by default, or offset/limit for a range. Read a file before you edit it.",
+			Description: "Read a text file in the coding sandbox — not a session file (file_read reads those) — as numbered lines (cat -n style), the first 2000 unless offset/limit say otherwise (about 14 KB at most). " +
+				"Read a file before you edit it.",
 			Parameters: obj([]string{"path"}, map[string]any{
 				"path":   strProp("the file: absolute, relative to the working directory, or ~/…"),
 				"offset": intProp("1-based first line (default 1)"),
@@ -48,7 +48,7 @@ func sandboxFileSpecs() []toolSpec {
 		}},
 		{Type: "function", Function: funcDef{
 			Name: "write",
-			Description: "Create or replace a file in the coding sandbox — not a session file (file_write writes those). Missing directories are created. " +
+			Description: "Create or replace a whole file in the coding sandbox — not a session file (file_write writes those). Missing directories are created. " +
 				"A symlink at path is replaced by the file (read and edit follow symlinks; to write through one, write its target).",
 			Parameters: obj([]string{"path", "content"}, map[string]any{
 				"path":    strProp("the file: absolute, relative to the working directory, or ~/…"),
@@ -57,7 +57,7 @@ func sandboxFileSpecs() []toolSpec {
 		}},
 		{Type: "function", Function: funcDef{
 			Name: "edit",
-			Description: "Replace an exact string in a file in the coding sandbox — not a session file (file_edit edits those). " +
+			Description: "Replace an exact string in a text file (up to 4 MB) in the coding sandbox — not a session file (file_edit edits those). " +
 				"old_string must appear EXACTLY ONCE — include surrounding lines to make it unique — unless replace_all is true. " +
 				"The write is refused if the file changed meanwhile (then it re-reads and tries once more).",
 			Parameters: obj([]string{"path", "old_string", "new_string"}, map[string]any{
@@ -69,13 +69,14 @@ func sandboxFileSpecs() []toolSpec {
 		}},
 		{Type: "function", Function: funcDef{
 			Name:        "ls",
-			Description: "List a directory in the coding sandbox (default: the working directory): subdirectories end in /, files show their size.",
+			Description: "List a directory in the coding sandbox (default: the working directory), at most 500 entries: subdirectories end in /, files show their size.",
 			Parameters:  obj(nil, map[string]any{"path": strProp("the directory")}),
 		}},
 		{Type: "function", Function: funcDef{
 			Name: "glob",
-			Description: "Find files in the coding sandbox by name: ** spans directories ('src/**/*.ts'); a pattern without / matches file names at any depth ('*.go'); {a,b} alternates. " +
-				"Skips .git (and, where the sandbox has rg, what .gitignore ignores). Paths come back relative to the working directory.",
+			Description: "Find files by name in the coding sandbox, at most 200 paths (relative to the working directory). " +
+				"** spans directories ('src/**/*.ts'); a pattern without / matches file names at any depth ('*.go'); {a,b} alternates. " +
+				"Skips .git (and, where the sandbox has rg, what .gitignore ignores).",
 			Parameters: obj([]string{"pattern"}, map[string]any{
 				"pattern": strProp("the glob"),
 				"path":    strProp("where to look (default: the working directory)"),
@@ -83,8 +84,8 @@ func sandboxFileSpecs() []toolSpec {
 		}},
 		{Type: "function", Function: funcDef{
 			Name: "grep",
-			Description: "Search file contents in the coding sandbox with a regular expression (ripgrep syntax where the sandbox has rg, else grep -E). " +
-				"Returns path:line: text, at most 100 matches; glob narrows the files ('*.go'). Skips .git and binary files.",
+			Description: "Search file contents in the coding sandbox with a regular expression (ripgrep syntax where the sandbox has rg, else grep -E), at most 100 matches. " +
+				"Returns path:line: text; glob narrows the files ('*.go'). Skips .git and binary files.",
 			Parameters: obj([]string{"pattern"}, map[string]any{
 				"pattern":     strProp("the regular expression"),
 				"path":        strProp("a directory or file (default: the working directory)"),

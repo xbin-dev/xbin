@@ -16,6 +16,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -231,7 +232,10 @@ func (e *Engine) runOneTool(ctx context.Context, ts *turnState, tc toolCall) str
 	}
 	out, err := e.ag.runTool(withSbxTurn(withToolCall(tctx, tc.ID), ts.sbx), ts.run, cfg, tc.Function.Name, args)
 	if err != nil {
+		var part *partialResult
 		switch {
+		case ctx.Err() != nil && errors.As(err, &part):
+			out = part.text // what it had when the turn stopped (bash's output so far)
 		case ctx.Err() != nil:
 			out = "(" + causeText(ctx) + ")"
 		case tctx.Err() == context.DeadlineExceeded:
@@ -342,17 +346,19 @@ func (e *Engine) controlTool(ctx context.Context, ts *turnState, tc toolCall, re
 			return nil
 		})
 	case "yield":
-		secs := toInt(args["seconds"])
-		if secs < 0 {
-			secs = 0
-		}
+		// seconds, or until a sandbox job ends (sandbox_wait.go)
+		secs, pend, text := e.yieldPlan(run, ts.root, args)
 		wake := e.unix() + int64(secs)
 		err := e.fenced(func(t *DB) error {
-			e.settleCall(t, ts, tc, fmt.Sprintf("(yielded %ds)", secs))
+			e.settleCall(t, ts, tc, text)
 			e.notExecuted(t, ts, rest, "run paused")
 			e.demoteStep(t, ts, "the run went to sleep")
-			e.emitStep(t, ts.root, t.journal(run.ID, "yield", map[string]any{"seconds": secs}))
-			if err := t.setStatus(run.ID, statusSleep, wake, run.Result, ""); err != nil {
+			step := map[string]any{"seconds": secs}
+			if n := toInt(args["until_job"]); n > 0 {
+				step["untilJob"] = n
+			}
+			e.emitStep(t, ts.root, t.journal(run.ID, "yield", step))
+			if err := t.setStatus(run.ID, statusSleep, wake, run.Result, pend); err != nil {
 				return err
 			}
 			e.emitRun(t, run.ID)
@@ -360,6 +366,11 @@ func (e *Engine) controlTool(ctx context.Context, ts *turnState, tc toolCall, re
 		})
 		if err == nil {
 			e.armTimer(run.ID, wake)
+			if pend != "" {
+				slept := *run
+				slept.Status, slept.Pending, slept.WakeAt = statusSleep, pend, wake
+				e.watchJobs(&slept)
+			}
 		}
 	}
 }

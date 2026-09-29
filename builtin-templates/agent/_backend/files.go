@@ -61,8 +61,8 @@ func fileToolSpecs(cfg Config) []toolSpec {
 		}},
 		{Type: "function", Function: funcDef{
 			Name: "render_html",
-			Description: "Display a session .html file to the human in the tile's preview pane. " +
-				"The frame is STATIC: scripts never run, and no external images, stylesheets or fonts load — inline your CSS, and draw charts as inline SVG" + svgHint + " rather than using a chart library. " +
+			Description: "Shows the human a STATIC snapshot of an HTML file — not a browser: scripts never run and external loads are blocked, so it cannot verify JavaScript; use browser_check for that, or preview_port for a live page. " +
+				"The file is a session .html file, shown in the tile's preview pane: inline your CSS, and draw charts as inline SVG" + svgHint + " rather than using a chart library (no external images, stylesheets or fonts load). " +
 				"Use this whenever a table, report, diagram or comparison would read better than prose.",
 			Parameters: obj([]string{"path"}, map[string]any{
 				"path": strProp("file key of the HTML file to show, e.g. 'report.html'"),
@@ -215,7 +215,8 @@ func (ag *Agent) renderHTML(runID int64, args map[string]any) (string, error) {
 	ag.db.journal(runID, "render", map[string]any{
 		"path": f.Path, "version": f.Version, "bytes": f.Bytes,
 	})
-	return fmt.Sprintf("rendered %s (%s, v%d) — shown to the human in the tile's preview pane. "+
-		"Remember it is static: no scripts ran, and any external image/stylesheet was blocked.",
+	return fmt.Sprintf("rendered %s (%s, v%d) — shown to the human in the tile's preview pane as a static snapshot: "+
+		"no scripts ran and every external load (script, image, stylesheet, font) was blocked, so this says nothing about whether its JavaScript works — "+
+		"browser_check runs it in a real browser, preview_port shows a live page.",
 		f.Path, humanBytes(f.Bytes), f.Version), nil
 }

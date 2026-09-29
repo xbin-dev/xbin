@@ -27,7 +27,7 @@ import (
 
 // pendingState is runs.pending: what a parked run is parked on.
 type pendingState struct {
-	Kind      string     `json:"kind"`                // approval | await | deps
+	Kind      string     `json:"kind"`                // approval | await | deps | sleep
 	ToolCalls []toolCall `json:"toolCalls,omitempty"` // approval: the parked calls
 	// Grant, on an approval, is the capability the calls need from the
 	// conversation's owner (grants.go): only they may allow it. GrantAsk is
@@ -41,6 +41,10 @@ type pendingState struct {
 	// later one. A park stored by an older process has none; it reads as
 	// its calls' ids (unique in a run), so it can still be answered.
 	Park string `json:"park,omitempty"`
+	// Job and Since, on a sleep (yield, sandbox_wait.go): the job it waits
+	// for (0: any job the run started), and when it went to sleep (unix ms).
+	Job   int   `json:"job,omitempty"`
+	Since int64 `json:"since,omitempty"`
 }
 
 // waitEntry is one subagent_wait call the run is parked on.
@@ -167,13 +171,14 @@ func (e *Engine) pass(a *actor) {
 
 	case statusSleep:
 		if run.WakeAt <= e.unix() || len(in.user) > 0 || len(in.wake) > 0 || len(in.watch) > 0 ||
-			(run.ParentID == 0 && e.db.hasNotices(run.ID)) {
+			(run.ParentID == 0 && e.db.hasNotices(run.ID)) || e.jobWake(run) {
 			if e.setRunning(run, in.wake) {
 				e.turn(a, run, nil)
 			}
 			return
 		}
 		e.armTimer(run.ID, run.WakeAt)
+		e.watchJobs(run)
 		return
 
 	case statusRunning:
@@ -263,6 +268,7 @@ func (e *Engine) setRunning(run *Run, wakes []*InboxRow) bool {
 	})
 	if err == nil {
 		e.disarmTimer(run.ID)
+		e.stopJobWatch(run.ID, nil)
 		run.Status = statusRunning
 	}
 	return err == nil

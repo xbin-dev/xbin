@@ -19,7 +19,7 @@ const FAMILY = {
   subagent_message: 'agent', subagent_cancel: 'agent', workflow_cancel: 'agent',
   finish: 'done', ask_user: 'ask', state_changed: 'note',
   // the coding sandbox (D115): commands, its files, moving files in and out
-  bash: 'box', bash_output: 'box', bash_kill: 'box', read: 'box', write: 'box', edit: 'box', ls: 'box', glob: 'box', grep: 'box',
+  bash: 'box', bash_output: 'box', bash_kill: 'box', jobs: 'box', read: 'box', write: 'box', edit: 'box', ls: 'box', glob: 'box', grep: 'box',
   sandbox_upload: 'box', sandbox_download: 'box', sandbox_copy: 'box', sandbox_info: 'box', sandbox_create: 'box',
 };
 
@@ -118,6 +118,7 @@ function boxReading(name, a) {
     case 'bash': return `$ ${one(a.command, 90)}${a.background ? ' &' : ''}`;
     case 'bash_output': return `Output of job ${a.job ?? '?'}${Number(a.wait_s) > 0 ? ` (waits ${a.wait_s}s)` : ''}`;
     case 'bash_kill': return `Stop job ${a.job ?? '?'}${a.signal ? ` (${a.signal})` : ''}`;
+    case 'jobs': return 'List the jobs';
     case 'read': return `Read ${a.path || 'a file'}${a.offset ? ` from line ${a.offset}` : ''}`;
     case 'write': return `Write ${a.path || 'a file'}`;
     case 'edit': return `Edit ${a.path || 'a file'}: ${one(a.old_string, 28) || '…'} → ${one(a.new_string, 28) || '∅'}${a.replace_all ? ' (all)' : ''}`;
@@ -158,6 +159,7 @@ export function outcome(name, content) {
   const paren = (s) => { const m = /\(([^()]+)\)\s*$/.exec(s); return m ? { text: m[1], tone: '' } : null; };
   switch (name) {
     case 'bash': case 'bash_output': {
+      if (/^not run: /.test(first)) return { text: 'not run: kills by name', tone: 'bad' };
       const moved = MOVED.exec(c);
       if (moved) return { text: `went on as job ${moved[1]}`, tone: 'run' };
       const started = /^started job (\d+)/.exec(first);
@@ -168,7 +170,16 @@ export function outcome(name, content) {
       const tone = /^exit 0\b/.test(f) ? 'ok' : /^(still )?running\b/.test(f) ? 'run' : 'bad';
       return { text: f, tone };
     }
-    case 'bash_kill': return { text: one(first, 48), tone: /still running/.test(first) ? 'run' : '' };
+    case 'bash_kill': {
+      // D134: the job's last output, then [job 3 stopped · killed by TERM]
+      const m = /^\[(job \d+ stopped[^\]]*)\]$/.exec(last);
+      if (m) return { text: m[1], tone: '' };
+      return { text: one(first, 48), tone: /still running/.test(first) ? 'run' : '' };
+    }
+    case 'jobs': {
+      const n = lines.filter((l) => /^job \d+ · running/.test(l)).length;
+      return /^no jobs/.test(first) ? { text: 'none', tone: '' } : { text: `${n} running`, tone: n ? 'run' : '' };
+    }
     case 'grep': {
       if (/^no matches /.test(first)) return { text: 'no matches', tone: '' };
       const n = lines.filter((l) => /^[^\s:][^:]*:\d+: /.test(l)).length;
@@ -226,5 +237,7 @@ export function resultState(content) {
   if (c.startsWith('error:')) return 'error';
   if (MOVED.test(c)) return 'done';
   if (/^\((interrupted|cancelled|not executed|denied|no result:)/.test(c)) return 'stopped';
+  // an interrupted bash keeps its output, then [interrupted by the owner · job 3 …] (D134)
+  if (/\n\[(interrupted by the owner|cancelled|stopped) · job \d+ [^\n]*\]$/.test(c)) return 'stopped';
   return 'done';
 }

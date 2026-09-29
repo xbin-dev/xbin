@@ -152,6 +152,27 @@ func (h *sbxHello) has(capName string) bool {
 	return false
 }
 
+// imageTools is what the manager says image id has (nil: it says nothing,
+// or has no such image) — at most 40 names, each a short word.
+func (h *sbxHello) imageTools(id string) []string {
+	if h == nil {
+		return nil
+	}
+	for _, im := range h.Images {
+		if im.ID != id {
+			continue
+		}
+		var out []string
+		for _, t := range im.Tools {
+			if t = strings.TrimSpace(t); t != "" && len(t) <= 40 && !strings.ContainsAny(t, "\n\r,") && len(out) < 40 {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
 // title is how people know the manager: its own title, else its tile.
 func (h *sbxHello) title(provider string) string {
 	if h != nil && h.Manager.Title != "" {

@@ -296,6 +296,17 @@ test('the tool cards: the box family, its sublines and what a call came to', () 
   assert.deepEqual(T.outcome('bash', 'started job 4 in "api": make\n[bash_output {"job": 4} reads its output · bash_kill {"job": 4} stops it]'),
     { text: 'job 4 started', tone: 'run' });
   assert.deepEqual(T.outcome('bash', 'x\n[killed by TERM · 3s · job 5]'), { text: 'killed by TERM · 3s · job 5', tone: 'bad' });
+  // D134: a kill-by-name command isn't run; bash_kill ends on its footer; an
+  // interrupted bash keeps its output (stopped, not done); jobs counts
+  assert.deepEqual(T.outcome('bash', 'not run: stop jobs with bash_kill {"job": N}; pkill -f/killall match …\nThis conversation has no jobs.'),
+    { text: 'not run: kills by name', tone: 'bad' });
+  assert.deepEqual(T.outcome('bash_kill', 'line 1999\nline 2000\n[job 1 stopped · killed by TERM]'), { text: 'job 1 stopped · killed by TERM', tone: '' });
+  assert.deepEqual(T.outcome('bash_kill', 'sent TERM to job 2; it is still running — bash_kill {"job": 2, "signal": "KILL"} forces it').tone, 'run');
+  const cut = 'partial-out\n[interrupted by the owner · job 1 got TERM (then KILL, if it outlives a few seconds) — bash_output {"job": 1} shows the rest and how it ended]';
+  assert.equal(T.resultState(cut), 'stopped', 'an interrupted command with its output is still stopped');
+  assert.deepEqual(T.outcome('jobs', 'job 3 · running · 4s so far · sleep 30 (in /w)\njob 2 · exit 0 · ran 1s · ended 2s ago · make (in /w)\n[bash_output …]'),
+    { text: '1 running', tone: 'run' });
+  assert.equal(T.headline('jobs', a({})), 'List the jobs');
   // a restart cut it off: it went on as a job (sandbox_jobs.go lostResultText) — answered, not stopped
   const moved = '(no result: the backend restarted while this command ran. It went on in the sandbox as job 5 — bash_output {"job": 5} '
     + 'shows its output from the start and whether it has finished; bash_kill {"job": 5} stops it.)';

@@ -68,6 +68,7 @@ type Engine struct {
 	epoch    int64
 	actors   map[int64]*actor
 	timers   map[int64]*time.Timer
+	jobWatch map[int64]*jobWatch       // a sleeping run's watcher over its sandbox jobs (sandbox_wait.go)
 	delivery map[int64][]chan struct{} // inbox id → closed when consumed
 	drafts   map[int64]*draft
 	idleCh   chan struct{} // closed when the last actor exits during shutdown
@@ -86,7 +87,7 @@ func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
 		db: db, ag: ag, llm: llm, lockPath: lockPath,
 		gen:  generationID(),
 		base: base, cancelBase: cancel, closingCh: make(chan struct{}),
-		actors: map[int64]*actor{}, timers: map[int64]*time.Timer{},
+		actors: map[int64]*actor{}, timers: map[int64]*time.Timer{}, jobWatch: map[int64]*jobWatch{},
 		delivery: map[int64][]chan struct{}{}, drafts: map[int64]*draft{},
 		titling: map[int64]bool{},
 		now:     time.Now,

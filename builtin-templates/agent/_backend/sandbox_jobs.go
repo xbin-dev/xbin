@@ -28,8 +28,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -45,8 +47,48 @@ const (
 var killGrace = 3 * time.Second
 
 // bashEnv keeps commands from waiting on a terminal nobody is at, and their
-// output free of colors and pagers.
-var bashEnv = map[string]string{"TERM": "dumb", "NO_COLOR": "1", "PAGER": "cat", "GIT_TERMINAL_PROMPT": "0"}
+// output free of colors and pagers; Python writes its output as it goes
+// (no TTY: it would block-buffer, and a TERM loses what is unflushed).
+var bashEnv = map[string]string{"TERM": "dumb", "NO_COLOR": "1", "PAGER": "cat", "GIT_TERMINAL_PROMPT": "0", "PYTHONUNBUFFERED": "1"}
+
+// jobCmdVar carries a job's command to its shell (D134): the exec runs
+// jobShellCmd, which evals it, so the command's text is in no process's
+// cmdline — a `pkill -f <pattern>` in it can't match the job's own shell.
+// (Not XBIN_*: xbind's tile sandboxes refuse those in a command's env.)
+const (
+	jobCmdVar   = "AGENT_JOB_CMD"
+	jobShellCmd = `eval "$` + jobCmdVar + `"`
+)
+
+// jobExecEnv is a job's environment: bashEnv and its command.
+func jobExecEnv(command string) map[string]string {
+	env := make(map[string]string, len(bashEnv)+1)
+	for k, v := range bashEnv {
+		env[k] = v
+	}
+	env[jobCmdVar] = command
+	return env
+}
+
+// jobLabel names a job's exec for people looking at the sandbox (its cmd is
+// jobShellCmd): the job and its command, on one line, within the contract's
+// label.
+func jobLabel(n int, command string) string {
+	l := fmt.Sprintf("agent · job %d · %s", n, strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if r < ' ' || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, command)), " "))
+	if len(l) <= 120 {
+		return l
+	}
+	cut := 117
+	for cut > 0 && !utf8.RuneStart(l[cut]) {
+		cut--
+	}
+	return l[:cut] + "…"
+}
 
 const sandboxJobSchemaSQL = `
 CREATE TABLE IF NOT EXISTS sandbox_jobs (
@@ -74,8 +116,10 @@ func (d *DB) addSandboxJobSchema() error {
 		return err
 	}
 	// added after the table: a job's clientId when it isn't its call's ('' =
-	// the call's, as before)
+	// the call's, as before), and the signal that ended it (D134; '' = none,
+	// or not known — an end recorded before)
 	_, _ = d.q.Exec(`ALTER TABLE sandbox_jobs ADD COLUMN client_id TEXT NOT NULL DEFAULT ''`)
+	_, _ = d.q.Exec(`ALTER TABLE sandbox_jobs ADD COLUMN signal TEXT NOT NULL DEFAULT ''`)
 	return nil
 }
 
@@ -91,9 +135,10 @@ type sbxJob struct {
 	Cwd     string
 	State   string // starting | running | exited | killed | lost
 	Exit    *int
-	ReadOff int64 // the output read so far (bash_output continues here)
-	FG      bool  // its bash call followed it to the end (false: it went on as a job)
-	Created int64 // unix ms
+	Signal  string // the signal that ended it ("TERM"; "" = none, or not known)
+	ReadOff int64  // the output read so far (bash_output continues here)
+	FG      bool   // its bash call followed it to the end (false: it went on as a job)
+	Created int64  // unix ms
 	Ended   int64
 	// ClientID names its exec when the call's name was taken by an earlier
 	// job of the same call ("" = the call's).
@@ -119,14 +164,14 @@ func (j *sbxJob) sameRequest(ref, command, cwd string) bool {
 	return j.running() && j.Ref == ref && j.Command == command && j.Cwd == cwd
 }
 
-const jobCols = `root_id, job, run_id, tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg, created_ms, ended_ms, client_id`
+const jobCols = `root_id, job, run_id, tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg, created_ms, ended_ms, client_id, signal`
 
 func scanJob(sc interface{ Scan(...any) error }) (*sbxJob, error) {
 	j := &sbxJob{}
 	var exit sql.NullInt64
 	var fg int
 	if err := sc.Scan(&j.Root, &j.Job, &j.Run, &j.Call, &j.Ref, &j.Exec, &j.Command, &j.Cwd, &j.State, &exit,
-		&j.ReadOff, &fg, &j.Created, &j.Ended, &j.ClientID); err != nil {
+		&j.ReadOff, &fg, &j.Created, &j.Ended, &j.ClientID, &j.Signal); err != nil {
 		return nil, err
 	}
 	if exit.Valid {
@@ -226,18 +271,28 @@ func (d *DB) jobBackground(j *sbxJob) {
 	_, _ = d.q.Exec(`UPDATE sandbox_jobs SET fg=0 WHERE root_id=? AND job=?`, j.Root, j.Job)
 }
 
-// jobEnded records how a job ended (once: the first word stands).
-func (d *DB) jobEnded(j *sbxJob, state string, exit *int) {
+// jobEnded records how a job ended (once: the first word stands) — its
+// state, exit code and the signal that ended it. true: this recorded it.
+func (d *DB) jobEnded(j *sbxJob, state string, exit *int, signal string) bool {
 	if !j.running() || state == "running" || state == "starting" {
-		return
+		return false
 	}
-	j.State, j.Exit, j.Ended = state, exit, nowMs()
+	j.State, j.Exit, j.Signal, j.Ended = state, exit, signal, nowMs()
 	var code any
 	if exit != nil {
 		code = *exit
 	}
-	_, _ = d.q.Exec(`UPDATE sandbox_jobs SET state=?, exit_code=?, ended_ms=? WHERE root_id=? AND job=? AND state IN ('starting','running')`,
-		state, code, j.Ended, j.Root, j.Job)
+	res, err := d.q.Exec(`UPDATE sandbox_jobs SET state=?, exit_code=?, signal=?, ended_ms=? WHERE root_id=? AND job=? AND state IN ('starting','running')`,
+		state, code, signal, j.Ended, j.Root, j.Job)
+	return err == nil && rowsAffected(res) == 1
+}
+
+// jobEnded records how a job ended and pokes the run that started it: a
+// run sleeping on its jobs wakes (yield, D134).
+func (ag *Agent) jobEnded(j *sbxJob, state string, exit *int, signal string) {
+	if ag.db.jobEnded(j, state, exit, signal) && ag.eng != nil {
+		ag.eng.Poke(j.Run)
+	}
 }
 
 // lostResultText answers a call a restart cut off. A bash command went on in
@@ -265,6 +320,9 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 		return "", fmt.Errorf("bash needs a command")
 	}
 	root := rootOf(run)
+	if killsByName(command) && args["force"] != true {
+		return killByNameText(ag.db.jobList(root, false, 12)), nil
+	}
 	use, err := ag.sandboxUse(ctx, root, cfg, "")
 	if err != nil {
 		return "", err
@@ -274,10 +332,10 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 		return "", err
 	}
 	wait := toInt(args["timeout_s"])
+	asked := wait > 0 // a wait the model named: cutting it short is said (D134)
 	if wait <= 0 {
 		wait = bashDefaultWait
 	}
-	wait = min(wait, bashMaxWait)
 	bg := args["background"] == true
 
 	// the call's earlier job is its answer only for the same request still
@@ -296,8 +354,8 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 			return "", err
 		}
 	}
-	ex, err := use.Conn.ExecStart(ctx, use.ID, sbxExecReq{Cmd: j.Command, Cwd: j.Cwd, Env: bashEnv,
-		Label: fmt.Sprintf("agent · job %d", j.Job), ClientID: j.clientID()})
+	ex, err := use.Conn.ExecStart(ctx, use.ID, sbxExecReq{Cmd: jobShellCmd, Cwd: j.Cwd, Env: jobExecEnv(j.Command),
+		Label: jobLabel(j.Job, j.Command), ClientID: j.clientID()})
 	if err != nil {
 		cause := context.Cause(ctx)
 		switch {
@@ -343,13 +401,17 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 			j.Job, j.Cwd, clip(j.Command, 200), j.Job, j.Job), nil
 	}
 	start := time.Now()
-	r, err := readJob(ctx, use, j, 0, toolDeadline(ctx, time.Duration(wait)*time.Second))
+	until, cut := waitUntil(ctx, "timeout_s", wait, bashMaxWait)
+	if !asked {
+		cut = "" // the default wait: nothing the model asked for was cut
+	}
+	r, err := readJob(ctx, use, j, 0, until)
 	if err != nil {
 		if ctx.Err() != nil {
-			return "", ag.bashStopped(ctx, use, j)
+			return "", ag.bashStopped(ctx, use, j, r)
 		}
 		if gone(err) {
-			ag.db.jobEnded(j, "lost", nil)
+			ag.jobEnded(j, "lost", nil, "")
 			return withFooter(r.out.String(), fmt.Sprintf("lost · job %d — the sandbox no longer has this command (it restarted?)", j.Job)), nil
 		}
 		return "", err
@@ -358,18 +420,20 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 	took := fmtDur(time.Since(start))
 	if r.state == "running" {
 		ag.db.jobBackground(j)
-		return withFooter(r.out.String(), fmt.Sprintf("still running after %s · job %d — bash_output {\"job\": %d} follows it, bash_kill {\"job\": %d} stops it",
-			took, j.Job, j.Job, j.Job)), nil
+		return withFooter(r.out.String(), fmt.Sprintf("still running after %s%s · job %d — bash_output {\"job\": %d} follows it, bash_kill {\"job\": %d} stops it",
+			took, cut, j.Job, j.Job, j.Job)), nil
 	}
-	ag.db.jobEnded(j, r.state, r.exit)
+	ag.jobEnded(j, r.state, r.exit, r.signal)
 	return withFooter(r.out.String(), fmt.Sprintf("%s · %s · job %d", endWords(r.state, r.exit, r.signal), took, j.Job)), nil
 }
 
 // bashStopped: the turn stopped while bash followed its command. A handoff
 // leaves it running (the successor's answer names the job); an interrupt or
 // a cancel stops its process group — TERM now, KILL if it outlives the grace
-// (without holding the turn up for it).
-func (ag *Agent) bashStopped(ctx context.Context, use *sbxUse, j *sbxJob) error {
+// (without holding the turn up for it). What the command wrote until then
+// is kept (D134): the call's answer is that output, the job and what was
+// done to it (a partialResult) — r is what bash had read (nil: nothing).
+func (ag *Agent) bashStopped(ctx context.Context, use *sbxUse, j *sbxJob, r *jobOut) error {
 	cause := context.Cause(ctx)
 	switch {
 	case cause == errHandoff:
@@ -378,11 +442,20 @@ func (ag *Agent) bashStopped(ctx context.Context, use *sbxUse, j *sbxJob) error 
 		ag.db.jobBackground(j) // the tool's own timeout: it goes on as a job
 		return cause
 	}
+	out := ""
+	if r != nil {
+		ag.db.jobRead(j, r.since)
+		out = r.out.String()
+	}
+	stopped := func(what string) error {
+		return &partialResult{cause: cause, text: withFooter(out, fmt.Sprintf("%s · job %d %s — bash_output {\"job\": %d} shows the rest and how it ended",
+			stopWords(cause), j.Job, what, j.Job))}
+	}
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*killGrace+sbxCallTimeout)
 	if err := use.Conn.ExecSignal(sctx, use.ID, j.Exec, "TERM", true); err != nil {
 		cancel()
 		logf("job %d of #%d: TERM after an interrupt: %v", j.Job, j.Root, err)
-		return cause
+		return stopped(fmt.Sprintf("may still be running (stopping it failed: %v; bash_kill stops it)", err))
 	}
 	go func(grace time.Duration) {
 		defer cancel()
@@ -393,10 +466,10 @@ func (ag *Agent) bashStopped(ctx context.Context, use *sbxUse, j *sbxJob) error 
 			}
 		}
 		if err == nil && ex.State != "running" {
-			ag.db.jobEnded(j, ex.State, ex.ExitCode)
+			ag.jobEnded(j, ex.State, ex.ExitCode, ex.Signal)
 		}
 	}(killGrace)
-	return cause
+	return stopped("got TERM (then KILL, if it outlives a few seconds)")
 }
 
 // stopStarting stops a command whose start was cut short, if it started.
@@ -528,7 +601,7 @@ func (ag *Agent) stopJob(ctx context.Context, use *sbxUse, j *sbxJob, signal str
 		}
 	}
 	if err == nil && ex.State != "running" {
-		ag.db.jobEnded(j, ex.State, ex.ExitCode)
+		ag.jobEnded(j, ex.State, ex.ExitCode, ex.Signal)
 	}
 	return ex, err
 }
@@ -552,7 +625,7 @@ func (ag *Agent) resolveExec(ctx context.Context, use *sbxUse, j *sbxJob) error 
 	// not there a call's timeout after it was started: it never did — unless
 	// the sandbox itself is still coming up (a start may wait for that)
 	if b := use.Box; time.Since(time.UnixMilli(j.Created)) > sbxCallTimeout && (b == nil || b.State != "creating" && b.State != "starting") {
-		ag.db.jobEnded(j, "lost", nil)
+		ag.jobEnded(j, "lost", nil, "")
 	}
 	return nil
 }
@@ -596,7 +669,7 @@ func (ag *Agent) jobSandbox(ctx context.Context, root int64, cfg Config, j *sbxJ
 			}
 		}
 	}
-	ag.db.jobEnded(j, "lost", nil)
+	ag.jobEnded(j, "lost", nil, "")
 	return nil, err
 }
 
@@ -625,11 +698,11 @@ func (ag *Agent) toolBashOutput(ctx context.Context, run *Run, cfg Config, args 
 	if v, ok := args["offset"]; ok && v != nil {
 		since = int64(max(0, toInt(v)))
 	}
-	wait := min(max(toInt(args["wait_s"]), 0), jobWaitMax)
-	r, err := readJob(ctx, use, j, since, toolDeadline(ctx, time.Duration(wait)*time.Second))
+	until, cut := waitUntil(ctx, "wait_s", max(toInt(args["wait_s"]), 0), jobWaitMax)
+	r, err := readJob(ctx, use, j, since, until)
 	if err != nil {
 		if gone(err) {
-			ag.db.jobEnded(j, "lost", nil)
+			ag.jobEnded(j, "lost", nil, "")
 			return fmt.Sprintf("job %d is gone — its sandbox restarted, or its manager no longer keeps it", j.Job), nil
 		}
 		return "", err
@@ -640,10 +713,10 @@ func (ag *Agent) toolBashOutput(ctx context.Context, run *Run, cfg Config, args 
 		out = "(no new output)"
 	}
 	if r.state == "running" {
-		return withFooter(out, fmt.Sprintf("running · %s so far · job %d · read to byte %d",
-			fmtDur(time.Since(time.UnixMilli(j.Created))), j.Job, r.since)), nil
+		return withFooter(out, fmt.Sprintf("running · %s so far%s · job %d · read to byte %d",
+			fmtDur(time.Since(time.UnixMilli(j.Created))), cut, j.Job, r.since)), nil
 	}
-	ag.db.jobEnded(j, r.state, r.exit)
+	ag.jobEnded(j, r.state, r.exit, r.signal)
 	return withFooter(out, fmt.Sprintf("%s · %s · job %d", endWords(r.state, r.exit, r.signal),
 		fmtDur(time.Duration(j.Ended-j.Created)*time.Millisecond), j.Job)), nil
 }
@@ -663,19 +736,159 @@ func (ag *Agent) toolBashKill(ctx context.Context, run *Run, cfg Config, args ma
 		return jobGoneText(j, why), nil
 	}
 	if !j.running() || j.Exec == "" {
-		return fmt.Sprintf("job %d isn't running (%s)", j.Job, endWords(j.State, j.Exit, "")), nil
+		return fmt.Sprintf("job %d isn't running (%s)", j.Job, endWords(j.State, j.Exit, j.Signal)), nil
 	}
 	ex, err := ag.stopJob(ctx, use, j, sig, killGrace)
 	switch {
 	case gone(err):
-		ag.db.jobEnded(j, "lost", nil)
+		ag.jobEnded(j, "lost", nil, "")
 		return fmt.Sprintf("job %d is gone — its sandbox restarted, or its manager no longer keeps it", j.Job), nil
 	case err != nil:
 		return "", err
 	case ex.State == "running":
 		return fmt.Sprintf("sent %s to job %d; it is still running — bash_kill {\"job\": %d, \"signal\": \"KILL\"} forces it", orStr(sig, "TERM, then KILL,"), j.Job, j.Job), nil
 	}
-	return fmt.Sprintf("job %d stopped (%s)", j.Job, endWords(ex.State, ex.ExitCode, ex.Signal)), nil
+	return withFooter(ag.jobTail(ctx, use, j, ex.Total), fmt.Sprintf("job %d stopped · %s", j.Job, endWords(ex.State, ex.ExitCode, ex.Signal))), nil
+}
+
+// killTail is how much of a stopped job's output bash_kill shows.
+const killTail = 4 << 10
+
+// jobTail is what a job wrote since it was last read — its last killTail
+// bytes at most (total: its output's length) — for the answer of the call
+// that stopped it (D134). It moves the job's read offset past it.
+func (ag *Agent) jobTail(ctx context.Context, use *sbxUse, j *sbxJob, total int64) string {
+	read := j.ReadOff
+	since := max(read, total-killTail)
+	rctx, cancel := context.WithTimeout(ctx, sbxCallTimeout)
+	defer cancel()
+	r, err := readJob(rctx, use, j, since, time.Now())
+	if err != nil {
+		return fmt.Sprintf("(its output couldn't be read: %v — bash_output {\"job\": %d} tries again)", err, j.Job)
+	}
+	ag.db.jobRead(j, r.since)
+	out := strings.TrimRight(r.out.String(), "\n")
+	switch {
+	case r.out.empty() && read > 0 && since == read:
+		return "(no new output since you last read it)"
+	case since > read:
+		out = fmt.Sprintf("… its last %d bytes (bash_output {\"job\": %d, \"offset\": %d} reads what came before) …\n%s", r.since-since, j.Job, read, out)
+	}
+	return out
+}
+
+// --- kill by name (a poka-yoke, D134) ------------------------------------------------
+
+// killByNameRe finds a command that stops processes by matching names or
+// command lines: pkill -f/--full (any flag cluster with f) and killall.
+var killByNameRe = regexp.MustCompile(`\bkillall\b|\bpkill\b[^;&|\n]*\s(--full\b|-[A-Za-z]*f)`)
+
+func killsByName(command string) bool { return killByNameRe.MatchString(command) }
+
+// killByNameText is bash's answer to a command that would kill by name: it
+// didn't run; the jobs and the words to stop one.
+func killByNameText(jobs []*sbxJob) string {
+	var s strings.Builder
+	s.WriteString("not run: stop jobs with bash_kill {\"job\": N}; pkill -f/killall match your own shell and other jobs — pass force:true to run it anyway.")
+	if len(jobs) == 0 {
+		s.WriteString("\nThis conversation has no jobs.")
+	} else {
+		s.WriteString("\nThis conversation's jobs (as last seen):\n")
+		s.WriteString(jobLines(jobs))
+	}
+	return s.String()
+}
+
+// --- waits, and what stopped a call ------------------------------------------------
+
+// waitUntil is when a call waiting want seconds (asked as field, capped at
+// max) must answer — and, when the cap or the tool call's own time limit cut
+// it short, the words that say so (D134), for the footer: "" when not.
+func waitUntil(ctx context.Context, field string, want, most int) (time.Time, string) {
+	w := min(want, most)
+	until := toolDeadline(ctx, time.Duration(w)*time.Second)
+	got := int(time.Until(until).Round(time.Second) / time.Second)
+	switch {
+	case got < w:
+		return until, fmt.Sprintf(" (%s %d was cut to %ds: a tool call's time limit)", field, want, max(got, 0))
+	case w < want:
+		return until, fmt.Sprintf(" (%s %d was cut to its most, %d)", field, want, w)
+	}
+	return until, ""
+}
+
+// partialResult is a tool stopped by its turn that has an answer all the
+// same (bash's output so far): runOneTool settles the call with text.
+type partialResult struct {
+	cause error
+	text  string
+}
+
+func (p *partialResult) Error() string { return p.cause.Error() }
+func (p *partialResult) Unwrap() error { return p.cause }
+
+// stopWords is what stopped a turn (causeText's words, for a footer).
+func stopWords(cause error) string {
+	switch cause {
+	case errInterrupt:
+		return "interrupted by the owner"
+	case errCancel:
+		return "cancelled"
+	}
+	return "stopped"
+}
+
+// --- jobs --------------------------------------------------------------------------
+
+// toolJobs lists the conversation's jobs: the running ones — asked of their
+// sandboxes first — and the latest that ended.
+func (ag *Agent) toolJobs(ctx context.Context, run *Run, cfg Config, args map[string]any) (string, error) {
+	root := rootOf(run)
+	limit := 12
+	if n := toInt(args["limit"]); n > 0 {
+		limit = min(n, 100)
+	}
+	if running := ag.db.jobList(root, true, 4*maxRunningJobs); len(running) > 0 {
+		ag.refreshJobs(ctx, root, cfg, running)
+	}
+	jobs := ag.db.jobList(root, false, limit)
+	if len(jobs) == 0 {
+		return "no jobs yet — every bash command becomes one", nil
+	}
+	return jobLines(jobs) + "\n[bash_output {\"job\": N} reads one · bash_kill {\"job\": N} stops one]", nil
+}
+
+// jobLines is a line per job, newest first: its number, how it stands, how
+// long, and its command (clipped).
+func jobLines(jobs []*sbxJob) string {
+	refs := map[string]bool{}
+	for _, j := range jobs {
+		refs[j.Ref] = true
+	}
+	var s strings.Builder
+	for _, j := range jobs {
+		created := time.UnixMilli(j.Created)
+		var state string
+		switch {
+		case j.running():
+			state = fmt.Sprintf("%s · %s so far", j.State, fmtDur(time.Since(created)))
+		case j.Ended > 0:
+			state = fmt.Sprintf("%s · ran %s · ended %s ago", endWords(j.State, j.Exit, j.Signal),
+				fmtDur(time.UnixMilli(j.Ended).Sub(created)), fmtDur(time.Since(time.UnixMilli(j.Ended))))
+		default:
+			state = endWords(j.State, j.Exit, j.Signal)
+		}
+		fmt.Fprintf(&s, "job %d · %s · %s", j.Job, state, clip(strings.Join(strings.Fields(j.Command), " "), 100))
+		if j.Cwd != "" {
+			fmt.Fprintf(&s, " (in %s", j.Cwd)
+			if len(refs) > 1 {
+				fmt.Fprintf(&s, ", %s", j.Ref)
+			}
+			s.WriteString(")")
+		}
+		s.WriteString("\n")
+	}
+	return strings.TrimRight(s.String(), "\n")
 }
 
 // jobRoom refuses a new command while the conversation already runs its
@@ -724,7 +937,7 @@ func (ag *Agent) refreshJobs(ctx context.Context, root int64, cfg Config, jobs [
 			f.use, f.err = ag.jobSandbox(ctx, root, cfg, j)
 			seen[k] = f
 		case f.use == nil && unusableForGood(f.err):
-			ag.db.jobEnded(j, "lost", nil)
+			ag.jobEnded(j, "lost", nil, "")
 		}
 		use := f.use
 		if use == nil || ag.resolveExec(ctx, use, j) != nil || j.Exec == "" {
@@ -733,9 +946,9 @@ func (ag *Agent) refreshJobs(ctx context.Context, root int64, cfg Config, jobs [
 		ex, err := use.Conn.ExecGet(ctx, use.ID, j.Exec)
 		switch {
 		case gone(err):
-			ag.db.jobEnded(j, "lost", nil)
+			ag.jobEnded(j, "lost", nil, "")
 		case err == nil:
-			ag.db.jobEnded(j, ex.State, ex.ExitCode)
+			ag.jobEnded(j, ex.State, ex.ExitCode, ex.Signal)
 		}
 	}
 }
@@ -754,7 +967,7 @@ func (d *DB) stopDetachedJobs(root int64, before, after Config) {
 			continue
 		}
 		for _, j := range d.jobsIn(root, b.Ref) {
-			d.jobEnded(j, "killed", nil)
+			d.jobEnded(j, "killed", nil, "")
 			left = append(left, leftJob{j, sbxUserOf(binderWho(b.By))})
 		}
 	}

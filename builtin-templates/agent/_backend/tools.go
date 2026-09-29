@@ -65,10 +65,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 			Name: "finish", Description: "End the run with a final result.",
 			Parameters: obj([]string{"result"}, map[string]any{"result": strProp("the outcome / answer")}),
 		}},
-		{Type: "function", Function: funcDef{
-			Name: "yield", Description: "Sleep for a while, then resume automatically (durable). Use when you should wait before continuing.",
-			Parameters: obj([]string{"seconds"}, map[string]any{"seconds": map[string]any{"type": "integer", "description": "how long to sleep"}}),
-		}},
+		yieldSpec(cfg),
 	}
 	if askUser {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{

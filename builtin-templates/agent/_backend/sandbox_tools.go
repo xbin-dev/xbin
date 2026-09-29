@@ -1,7 +1,7 @@
 // sandbox_tools.go — the coding toolset (D115): what a conversation does in
 // the sandbox bound to it (sandbox_bind.go).
 //
-//	bash, bash_output, bash_kill   commands, and the jobs they become (sandbox_jobs.go)
+//	bash, bash_output, bash_kill, jobs   commands, and the jobs they become (sandbox_jobs.go)
 //	read, write, edit, ls, glob, grep   files (sandbox_fs.go)
 //	sandbox_upload, sandbox_download   session files ↔ the sandbox (sandbox_move.go)
 //	sandbox_copy, sandbox_info         between attached sandboxes; what is attached
@@ -47,7 +47,7 @@ func sandboxToolsOn(cfg Config) bool {
 }
 
 var sandboxToolNames = map[string]bool{
-	"bash": true, "bash_output": true, "bash_kill": true,
+	"bash": true, "bash_output": true, "bash_kill": true, "jobs": true,
 	"read": true, "write": true, "edit": true, "ls": true, "glob": true, "grep": true,
 	"sandbox_upload": true, "sandbox_download": true, "sandbox_copy": true, "sandbox_info": true,
 	"sandbox_create": true,
@@ -86,26 +86,29 @@ func sandboxToolSpecs(cfg Config, depth int) []toolSpec {
 }
 
 func boundSandboxSpecs(cfg Config) []toolSpec {
-	jobProp := intProp("the job number (bash's footer says it; sandbox_info lists them)")
+	jobProp := intProp("the job number (bash's footer says it; jobs lists them)")
 	specs := []toolSpec{
 		{Type: "function", Function: funcDef{
 			Name: "bash",
-			Description: "Run a shell command in this conversation's coding sandbox (a separate machine — not the session files, which the file_* tools hold). " +
-				"It runs in the sandbox's working directory unless cwd says otherwise, with no terminal and no stdin: use non-interactive flags. " +
-				"Waits up to timeout_s (default 120) for it to finish; if it is still running then, it keeps running as a job — bash_output follows it, bash_kill stops it. " +
+			Description: "Run a shell command in this conversation's coding sandbox — a separate machine, not the session files (the file_* tools hold those) — with no terminal (TTY) and no stdin. " +
+				"It runs in the sandbox's working directory unless cwd says otherwise: use non-interactive flags. " +
+				"With no TTY, programs may block-buffer their output (Python is unbuffered here; for others use stdbuf -oL or the program's unbuffered flag). " +
+				"Waits up to timeout_s (default 120; a tool call's time limit, about 2 minutes, cuts it) for it to finish; if it is still running then, it keeps running as a job — bash_output follows it, bash_kill stops it, jobs lists them. " +
 				"background:true starts it as a job at once (servers, watchers, long builds). " +
+				"Stop jobs with bash_kill {job}, never pkill -f or killall: those match other jobs' command lines too (a command using them isn't run unless force:true). " +
 				"The result is the combined stdout and stderr (its head and tail when long, about 12 KB) and a footer like [exit 1 · 14s · job 3].",
 			Parameters: obj([]string{"command"}, map[string]any{
 				"command":    strProp("the command line, run by the sandbox user's login shell"),
 				"cwd":        strProp("where to run it: absolute, relative to the working directory, or ~/…"),
-				"timeout_s":  intProp("how long to wait for it before it goes on as a job (default 120)"),
+				"timeout_s":  intProp("how long to wait for it before it goes on as a job (default 120; the footer says when the tool call's time limit cut it)"),
 				"background": boolProp("start it as a job and return at once"),
+				"force":      boolProp("run a command with pkill -f, pkill --full or killall anyway (it is refused without this)"),
 			}),
 		}},
 		{Type: "function", Function: funcDef{
 			Name: "bash_output",
-			Description: "Read a sandbox job's output since you last read it (or from byte offset), waiting up to wait_s for it to finish. " +
-				"Says whether it still runs, and how it ended.",
+			Description: "Read a sandbox job's output since you last read it (or from byte offset), waiting up to wait_s for it to finish (at most 600, and a tool call's time limit, about 2 minutes, cuts it). " +
+				"Says whether it still runs, and how it ended (exit code, or the signal that killed it).",
 			Parameters: obj([]string{"job"}, map[string]any{
 				"job":    jobProp,
 				"wait_s": intProp("wait up to this many seconds for it to finish (default 0: what is there now)"),
@@ -113,11 +116,20 @@ func boundSandboxSpecs(cfg Config) []toolSpec {
 			}),
 		}},
 		{Type: "function", Function: funcDef{
-			Name:        "bash_kill",
-			Description: "Stop a sandbox job: the signal reaches its whole process group. By default TERM, then KILL if it hasn't ended a few seconds later.",
+			Name: "bash_kill",
+			Description: "Stop a sandbox job by its number — the way to stop one (never pkill -f or killall): the signal reaches its whole process group. " +
+				"By default TERM, then KILL if it hasn't ended a few seconds later. Returns how it ended (exit code or signal) and the last output it wrote (about 4 KB).",
 			Parameters: obj([]string{"job"}, map[string]any{
 				"job":    jobProp,
 				"signal": strProp("INT, TERM, KILL or HUP (default TERM, then KILL)"),
+			}),
+		}},
+		{Type: "function", Function: funcDef{
+			Name: "jobs",
+			Description: "List this conversation's sandbox jobs (every bash command is one), newest first: the running ones as their sandbox reports them now, then the latest that ended — " +
+				"number, state, how long, exit code or signal, and the command.",
+			Parameters: obj(nil, map[string]any{
+				"limit": intProp("how many (default 12)"),
 			}),
 		}},
 	}
@@ -140,6 +152,8 @@ func (ag *Agent) runSandboxTool(ctx context.Context, run *Run, cfg Config, name 
 		return ag.toolBashOutput(ctx, run, cfg, args)
 	case "bash_kill":
 		return ag.toolBashKill(ctx, run, cfg, args)
+	case "jobs":
+		return ag.toolJobs(ctx, run, cfg, args)
 	}
 	if sandboxFileTools[name] {
 		return ag.runSandboxFileTool(ctx, run, cfg, name, args)
@@ -221,13 +235,17 @@ func sandboxPrompt(cfg Config) string {
 		fmt.Fprintf(&s, ", image %s", b.Image)
 	}
 	fmt.Fprintf(&s, "; %s). ", egressWords(b.Egress))
+	if len(b.Tools) > 0 {
+		fmt.Fprintf(&s, "Its image has %s. ", strings.Join(b.Tools, ", "))
+	}
 	fmt.Fprintf(&s, "bash runs commands there; read, write, edit, ls, glob and grep work on its files. "+
 		"The working directory is %s: relative paths resolve against it, ~ against the sandbox user's home. ", orStr(b.Cwd, "the sandbox's workdir"))
-	s.WriteString("It is a separate machine: the session files (file_*) are not in it")
+	s.WriteString("Files live in two places that don't see each other: the session files (the file_* tools and render_html; what the human sees and attaches) and this sandbox's own filesystem")
 	if cfg.feature("files") {
-		s.WriteString(" — sandbox_upload and sandbox_download move files between the two")
+		s.WriteString(" — sandbox_upload and sandbox_download copy between them")
 	}
-	s.WriteString(".")
+	s.WriteString(". ")
+	s.WriteString("Every bash command is a numbered job: stop one with bash_kill {job}, never pkill -f or killall (they match other jobs too); jobs lists them, and yield {until_job} sleeps until one ends.")
 	var others []string
 	for _, a := range cfg.Attached {
 		if a.Ref != b.Ref {
