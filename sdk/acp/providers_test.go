@@ -61,3 +61,40 @@ func TestProvidersCatalog(t *testing.T) {
 		t.Fatal("a provider without a mode table lets the agent judge")
 	}
 }
+
+// AutoMode, ApproveMode and PlanMode are each one of the provider's own
+// non-explicit modes (or "": it has none), and Fake is the test agent with
+// all three.
+func TestProviderSettingModes(t *testing.T) {
+	want := map[string][3]string{"claude": {"acceptEdits", "default", "plan"}, "codex": {"agent", "read-only", "read-only"},
+		"gemini": {"autoEdit", "default", "plan"}, "opencode": {"", "", ""}}
+	for _, p := range append(Providers(), Fake([]string{"/bin/fakeacp", "--steer"})) {
+		got := [3]string{p.AutoMode, p.ApproveMode, p.PlanMode}
+		if w, ok := want[p.ID]; ok && got != w {
+			t.Errorf("%s: auto/approve/plan %v, want %v", p.ID, got, w)
+		}
+		for _, m := range got {
+			if m == "" {
+				continue
+			}
+			ok := false
+			for _, pm := range p.Modes {
+				ok = ok || (pm.ID == m && !pm.Explicit)
+			}
+			if !ok {
+				t.Errorf("%s: %q is not one of its non-explicit modes", p.ID, m)
+			}
+		}
+	}
+	f := Fake([]string{"/bin/fakeacp", "--steer"})
+	if f.ID != "fake" || f.DefaultMode != "ask" || f.AutoMode != "auto" || f.LoginCmd != "/bin/fakeacp login" ||
+		len(f.Bins) != 1 || f.Bins[0] != "/bin/fakeacp" || len(f.Argv) != 2 {
+		t.Fatalf("fake: %+v", f)
+	}
+	if _, ok := Lookup("fake"); ok {
+		t.Fatal("the fake is never in the catalog")
+	}
+	if b, _ := json.Marshal(f); strings.Contains(string(b), "approve") || strings.Contains(string(b), "plan\"") {
+		t.Fatalf("the setting modes are the runner's, never in the JSON: %s", b)
+	}
+}

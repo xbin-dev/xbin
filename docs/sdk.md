@@ -204,8 +204,12 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   (explicit ones — bypass, full access — are never a default), env and
   session `_meta` each adapter wants, `LoginCmd` (a shell command that
   signs the CLI in from a terminal where it runs; the adapter reads the
-  login from its `$HOME`), `Bins` (the executables to look for) and
-  `AutoMode` (the auto-edit mode, `""` for none).
+  login from its `$HOME`), `Bins` (the executables to look for),
+  `AutoMode` (the auto-edit mode, `""` for none), `ApproveMode` (the one
+  that asks before acting) and `PlanMode` (plans without changing
+  anything) — `""` where the adapter has none. `acp.Fake(argv)` is the
+  scripted test agent (`hack/fakeacp`) as a provider, id `fake`; it is
+  never in the catalog.
 - **Prompts with files.** `acp.PrepareAttachments` checks and normalises
   them (limits: `acp.Max*`). Each file is first dropped where the agent
   runs — `ClientOptions.Drop` returns the path — then an image goes inline
