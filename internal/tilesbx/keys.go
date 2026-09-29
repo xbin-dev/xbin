@@ -32,7 +32,15 @@ type Key struct {
 // definitions and state under its TileKey, its code and data namespace,
 // books summed into the tile's) is the follow-up in
 // plans/tile-sandbox-runtime.md §14.
+//
+// A person's partition of a partitioned tile (auth.Principal.Partition
+// "user:<id>") has no sandboxes: they are the global instance's alone
+// (plans/partitions PD-28; the API's partition gate refuses the routes
+// first), so it answers not-allowed — never the tile's key.
 func keyOf(p auth.Principal) (Key, error) {
+	if p.Partition.IsUser() {
+		return Key{}, refuse(RefNotAllowed, "a person's partition (%s) has no tile sandboxes: they are the global instance's", p.Partition)
+	}
 	k := keyFor(p.Component, p.Deployment)
 	if !k.Main() {
 		return Key{}, errDeployment()

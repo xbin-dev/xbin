@@ -75,12 +75,13 @@ func TestKeys(t *testing.T) {
 
 // reviewedPrincipalFields are the auth.Principal fields reviewed for the
 // sandbox key: keyOf builds it from Component and Deployment (a non-main
-// deployment's is refused until its own set exists), and none of the others
-// names a set of sandboxes. A field added to auth.Principal fails this test
-// until someone decides what it means for the key
-// (plans/tile-sandbox-runtime.md §1.4, §14).
+// deployment's is refused until its own set exists), refuses a person's
+// partition (Partition: sandboxes are the global instance's, PD-28), and
+// none of the others names a set of sandboxes. A field added to
+// auth.Principal fails this test until someone decides what it means for
+// the key (plans/tile-sandbox-runtime.md §1.4, §14).
 var reviewedPrincipalFields = []string{
-	"Access", "Component", "Deployment", "DeviceID", "Gen", "Impersonator", "Owner", "Role", "User", "UserID", "Via",
+	"Access", "Component", "Deployment", "DeviceID", "Gen", "Impersonator", "Owner", "Partition", "Role", "User", "UserID", "Via",
 }
 
 func TestPrincipalFieldsReviewed(t *testing.T) {
@@ -115,6 +116,14 @@ func TestKeyOfDeployment(t *testing.T) {
 	}
 	if k := keyFor("apps/mgr", "main"); !k.Main() {
 		t.Fatalf("keyFor(main) = %+v", k)
+	}
+	// a person's partition has no sandboxes (PD-28): never the tile's key;
+	// the global instance's credential (no partition stamped) keeps it
+	if k, err := keyOf(auth.Principal{Component: "apps/mgr", Via: "instance", Partition: "user:ana"}); err == nil || k != (Key{}) {
+		t.Fatalf("keyOf(a person's partition) = %+v, %v; want a refusal", k, err)
+	}
+	if k, err := keyOf(auth.Principal{Component: "apps/mgr", Via: "instance", Partition: "global"}); err != nil || k != (Key{Tile: "apps/mgr"}) {
+		t.Fatalf("keyOf(global) = %+v, %v; want the tile's", k, err)
 	}
 }
 
