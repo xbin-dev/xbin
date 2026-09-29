@@ -14,6 +14,7 @@
 // U4 asking and controls
 
 // U5 terminals and sign-in
+import './terminal.js'; // the Terminal and Sign in screens, the sign-in notice, composer button and menu items
 
 // U6 child cards
 
