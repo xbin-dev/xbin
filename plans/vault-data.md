@@ -168,4 +168,8 @@ tiles survive a rename is a larger follow-up.)
   backup/restore still read through the decrypted view, but xbind seals every
   archive under a backup key (random per subject, wrapped by the DEK), so
   keys can be deleted to crypto-erase backups.
-- **VD-5 — DEK rotation out of scope**; passphrase rekey stays O(1).
+- **VD-5 — DEK rotation out of scope**; passphrase rekey stays O(1). (So a
+  backup key bundle — the barrier descriptor plus the wrapped backup keys —
+  exported under a passphrase opens the DEK with that passphrase for good: a
+  rekey marks every earlier export stale, and the docs say to destroy those
+  bundles; PD-56, F17a's review.)
