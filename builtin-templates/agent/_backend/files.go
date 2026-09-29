@@ -1,6 +1,8 @@
 // files.go — the model-facing surface of the session files (files_store.go):
 // file_write, file_read, file_edit, file_list, and render_html, which shows an
-// .html file to the human in the tile's render pane.
+// .html file to the human in the tile's render pane; file_info and file_diff
+// (D136, files_paths.go) — file_read, file_view, render_html, file_info and
+// file_diff also take a sandbox path when a sandbox is bound.
 //
 // None of these is a sideEffect() tool. They mutate only this run's private
 // sqlite rows — no world mutation, no egress, no reach into other components —
@@ -22,6 +24,13 @@ func fileToolSpecs(cfg Config) []toolSpec {
 		return map[string]any{"type": "boolean", "description": desc}
 	}
 	replHint, svgHint := "", ""
+	// the paths a reading tool takes (files_paths.go)
+	anyPath := "a session file key ('report.html', or session:report.html; session:report.html@2 is an earlier version)"
+	showPath := "file key of the HTML file to show, e.g. 'report.html'"
+	if sandboxToolsOn(cfg) {
+		anyPath += ", or a sandbox path — absolute ('/work/out.txt'), ./relative to its working directory, or ~/…"
+		showPath += ", or a sandbox path ('/work/report.html', './report.html') — copied into the session files first, in place"
+	}
 	if cfg.feature("repl") {
 		replHint = " They are the durable half of the sandbox: put reusable functions here instead of re-pasting them, then js_run the file."
 		svgHint = " (which you can generate with js_eval)"
@@ -39,7 +48,7 @@ func fileToolSpecs(cfg Config) []toolSpec {
 			Name:        "file_read",
 			Description: "Read a session file. Returns the whole file by default; pass offset/limit to read a line range from a file too large to return at once. Read before file_edit so your old_string matches exactly.",
 			Parameters: obj([]string{"path"}, map[string]any{
-				"path":   strProp("file key"),
+				"path":   strProp(anyPath),
 				"offset": map[string]any{"type": "integer", "description": "1-based first line to return (default 1)"},
 				"limit":  map[string]any{"type": "integer", "description": "how many lines to return (default: to the end)"},
 			}),
@@ -55,9 +64,26 @@ func fileToolSpecs(cfg Config) []toolSpec {
 			}),
 		}},
 		{Type: "function", Function: funcDef{
-			Name:        "file_list",
-			Description: "List this run's session files with their sizes and versions.",
-			Parameters:  obj(nil, map[string]any{}),
+			Name: "file_list",
+			Description: "List this run's session files with their sizes, versions, short content hashes and where each came from; " +
+				"flags files with the same content, and session copies whose sandbox file changed since.",
+			Parameters: obj(nil, map[string]any{}),
+		}},
+		{Type: "function", Function: funcDef{
+			Name: "file_info",
+			Description: "Describe one file — a session file (its sha256, source, the version it replaced, earlier versions kept, " +
+				"whether its sandbox copy changed since) or a sandbox file (size, mode, etag, sha256, its session copies).",
+			Parameters: obj([]string{"path"}, map[string]any{"path": strProp(anyPath)}),
+		}},
+		{Type: "function", Function: funcDef{
+			Name: "file_diff",
+			Description: "A unified diff (diff -u) of two text files, each a session file (a version of one: session:x@2) or a sandbox file. " +
+				"b omitted: a session file's previous version against its current one, or a sandbox file's session copy against it. " +
+				"Identical content is reported by hash; binary files by hash and size only.",
+			Parameters: obj([]string{"a"}, map[string]any{
+				"a": strProp("the old side: " + anyPath),
+				"b": strProp("the new side (the same forms)"),
+			}),
 		}},
 		{Type: "function", Function: funcDef{
 			Name: "render_html",
@@ -65,7 +91,7 @@ func fileToolSpecs(cfg Config) []toolSpec {
 				"The file is a session .html file, shown in the tile's preview pane: inline your CSS, and draw charts as inline SVG" + svgHint + " rather than using a chart library (no external images, stylesheets or fonts load). " +
 				"Use this whenever a table, report, diagram or comparison would read better than prose.",
 			Parameters: obj([]string{"path"}, map[string]any{
-				"path": strProp("file key of the HTML file to show, e.g. 'report.html'"),
+				"path": strProp(showPath),
 			}),
 		}},
 	}
@@ -73,7 +99,7 @@ func fileToolSpecs(cfg Config) []toolSpec {
 
 var fileToolNames = map[string]bool{
 	"file_write": true, "file_read": true, "file_edit": true, "file_list": true,
-	"render_html": true, "file_view": true,
+	"render_html": true, "file_view": true, "file_info": true, "file_diff": true,
 }
 
 // runFileTool dispatches the file tools. Called from runTool.
@@ -82,7 +108,7 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 	case "file_write":
 		path, _ := args["path"].(string)
 		content, _ := args["content"].(string)
-		f, err := ag.db.replPutFile(run.ID, path, content, 0)
+		f, err := ag.db.replPutFileSrc(run.ID, path, content, 0, toolSource(ctx, "file_write"))
 		if err != nil {
 			return "", err
 		}
@@ -90,14 +116,28 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 			f.Path, humanBytes(f.Bytes), f.Version, ag.db.replFileIndex(run.ID)), nil
 
 	case "file_read":
-		path, err := normReplPath(str(args["path"]))
+		r, err := fileArg(cfg, args, "path")
 		if err != nil {
 			return "", err
 		}
-		f, err := ag.db.replFile(run.ID, path)
+		if r.sandbox { // the sandbox's read, through its Files route
+			ctx = sbxCtx(ctx, run, cfg, name)
+			use, p, err := ag.sandboxFile(ctx, run, cfg, r.path)
+			if err != nil {
+				return "", err
+			}
+			a := map[string]any{"path": p, "offset": args["offset"], "limit": args["limit"]}
+			out, err := sbxRead(ctx, use, a)
+			if err != nil {
+				return "", ag.sandboxMiss(run, p, err)
+			}
+			return out, nil
+		}
+		f, err := ag.sessionFile(ctx, run, cfg, r)
 		if err != nil {
 			return "", err
 		}
+		path := f.Path
 		if f.Binary {
 			// Never paste binary into the transcript: it would ride every
 			// later call until compaction, and it is meaningless as text.
@@ -110,16 +150,22 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 		return sliceLines(f.Content, toInt(args["offset"]), toInt(args["limit"])), nil
 
 	case "file_view":
-		return ag.toolFileView(run, cfg, args)
+		return ag.toolFileView(ctx, run, cfg, args)
 
 	case "file_edit":
-		return ag.fileEdit(run.ID, args)
+		return ag.fileEdit(ctx, run.ID, args)
 
 	case "file_list":
-		return ag.db.replFileIndex(run.ID), nil
+		return ag.fileListing(ctx, run, cfg)
+
+	case "file_info":
+		return ag.toolFileInfo(ctx, run, cfg, args)
+
+	case "file_diff":
+		return ag.toolFileDiff(ctx, run, cfg, args)
 
 	case "render_html":
-		return ag.renderHTML(run.ID, args)
+		return ag.renderHTML(ctx, run, cfg, args)
 	}
 	return "", fmt.Errorf("unknown file tool %q", name)
 }
@@ -127,7 +173,7 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 func str(v any) string { s, _ := v.(string); return s }
 
 // fileEdit is file_edit: an exact-string replacement, refusing to guess.
-func (ag *Agent) fileEdit(runID int64, args map[string]any) (string, error) {
+func (ag *Agent) fileEdit(ctx context.Context, runID int64, args map[string]any) (string, error) {
 	path, err := normReplPath(str(args["path"]))
 	if err != nil {
 		return "", err
@@ -148,7 +194,7 @@ func (ag *Agent) fileEdit(runID int64, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	nf, err := ag.db.replPutFile(runID, path, updated, 0)
+	nf, err := ag.db.replPutFileSrc(runID, path, updated, 0, toolSource(ctx, "file_edit"))
 	if err != nil {
 		return "", err
 	}
@@ -200,23 +246,36 @@ func applyEdit(content, oldS, newS string, all bool, path, readTool string) (upd
 // renderHTML journals a render step; the tile picks it up from the run's step
 // list on its next poll. Only metadata is journaled — the HTML itself is
 // fetched on demand, because steps ride the frontend's 1.5s poll.
-func (ag *Agent) renderHTML(runID int64, args map[string]any) (string, error) {
-	path, err := normReplPath(str(args["path"]))
+//
+// A sandbox path is copied into the session files first, in place, under its
+// own name (fetchSandboxFile): the pane shows session files.
+func (ag *Agent) renderHTML(ctx context.Context, run *Run, cfg Config, args map[string]any) (string, error) {
+	r, err := fileArg(cfg, args, "path")
 	if err != nil {
 		return "", err
 	}
-	f, err := ag.db.replFile(runID, path)
+	if r.ver > 0 {
+		return "", fmt.Errorf("render_html shows a file's current version — drop the @%d", r.ver)
+	}
+	if lp := strings.ToLower(orStr(r.key, r.path)); !strings.HasSuffix(lp, ".html") && !strings.HasSuffix(lp, ".htm") {
+		return "", fmt.Errorf("render_html needs an .html file; %q is not one (file_write it as .html first)", r.label())
+	}
+	f, note, err := ag.sessionCopy(ctx, run, cfg, r, "render_html")
 	if err != nil {
 		return "", err
 	}
-	if !strings.HasSuffix(strings.ToLower(path), ".html") && !strings.HasSuffix(strings.ToLower(path), ".htm") {
-		return "", fmt.Errorf("render_html needs an .html file; %q is not one (file_write it as .html first)", path)
+	if f.Binary {
+		return "", fmt.Errorf("%s is stored as a binary file (%s, %s) — render_html shows text HTML up to %s", f.Path, f.Mime, humanBytes(f.Bytes), humanBytes(maxReplFileBytes))
 	}
-	ag.db.journal(runID, "render", map[string]any{
+	ag.db.journal(run.ID, "render", map[string]any{
 		"path": f.Path, "version": f.Version, "bytes": f.Bytes,
 	})
-	return fmt.Sprintf("rendered %s (%s, v%d) — shown to the human in the tile's preview pane as a static snapshot: "+
+	out := fmt.Sprintf("rendered %s (%s, v%d) — shown to the human in the tile's preview pane as a static snapshot: "+
 		"no scripts ran and every external load (script, image, stylesheet, font) was blocked, so this says nothing about whether its JavaScript works — "+
 		"browser_check runs it in a real browser, preview_port shows a live page.",
-		f.Path, humanBytes(f.Bytes), f.Version), nil
+		f.Path, humanBytes(f.Bytes), f.Version)
+	if note != "" {
+		out = note + "\n" + out
+	}
+	return out, nil
 }

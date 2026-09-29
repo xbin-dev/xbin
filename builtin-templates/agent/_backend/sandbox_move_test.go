@@ -67,8 +67,12 @@ func TestSandboxUploadDownload(t *testing.T) {
 	if f, err := ag.db.replFile(r.ID, "report.txt"); err != nil || f.Content != "the report\n" {
 		t.Fatalf("the session file: %+v %v", f, err)
 	}
-	if out := mustTool(t, ag, r, cfg, "d", "sandbox_download", map[string]any{"path": "out/report.txt"}); !strings.Contains(out, "session file report-2.txt") {
-		t.Fatalf("a taken name: %q", out)
+	// D136: in place — the same file again writes nothing (keep_both: the old suffix)
+	if out := mustTool(t, ag, r, cfg, "d", "sandbox_download", map[string]any{"path": "out/report.txt"}); !strings.HasPrefix(out, "unchanged: the session file report.txt already holds ") {
+		t.Fatalf("again: %q", out)
+	}
+	if out := mustTool(t, ag, r, cfg, "d", "sandbox_download", map[string]any{"path": "out/report.txt", "keep_both": true}); !strings.Contains(out, "session file report-2.txt") {
+		t.Fatalf("keep_both: %q", out)
 	}
 	put(t, box, "chart.png", string(png))
 	if out := mustTool(t, ag, r, cfg, "d", "sandbox_download", map[string]any{"path": "chart.png", "name": "plot.png"}); !strings.Contains(out, "session file plot.png (image/png, ") {

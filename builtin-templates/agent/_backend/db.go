@@ -424,6 +424,7 @@ func (d *DB) deleteOneRun(id int64) error {
 			`DELETE FROM steps WHERE run_id=?`,
 			`DELETE FROM memory WHERE run_id=?`,
 			`DELETE FROM repl_files WHERE run_id=?`,
+			`DELETE FROM repl_file_versions WHERE run_id=?`,
 			`DELETE FROM repl_log WHERE run_id=?`,
 			`DELETE FROM message_files WHERE run_id=?`,
 			`DELETE FROM run_deps WHERE run_id=?1 OR dep_id=?1`,

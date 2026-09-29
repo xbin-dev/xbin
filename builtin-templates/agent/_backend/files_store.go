@@ -39,6 +39,14 @@ type ReplFile struct {
 	// Content. The path is internal, so it never goes on the wire.
 	Binary bool   `json:"binary,omitempty"`
 	Blob   string `json:"-"`
+	// SHA256, Source and Parent (D136, files_meta.go) describe this version:
+	// its content's hash, where it came from, and the version it replaced
+	// (0: none). Rows written before them — or by an older backend during a
+	// blue/green overlap — have none (meta_ver ≠ version): unknown, and a
+	// text file's hash is computed when asked (fileSHA).
+	SHA256 string      `json:"sha256,omitempty"`
+	Source *fileSource `json:"source,omitempty"`
+	Parent int         `json:"parent,omitempty"`
 }
 
 // replPathRE keeps session paths to a boring, unambiguous shape. These keys
@@ -67,13 +75,15 @@ func normReplPath(p string) (string, error) {
 
 func (d *DB) replFile(runID int64, path string) (*ReplFile, error) {
 	f := &ReplFile{Path: path}
+	var m fileMetaCols
 	err := d.q.QueryRow(
-		`SELECT content, bytes, version, created, updated, mime, blob FROM repl_files WHERE run_id=? AND path=?`,
-		runID, path).Scan(&f.Content, &f.Bytes, &f.Version, &f.Created, &f.Updated, &f.Mime, &f.Blob)
+		`SELECT content, bytes, version, created, updated, mime, blob, `+fileMetaSel+` FROM repl_files WHERE run_id=? AND path=?`,
+		runID, path).Scan(&f.Content, &f.Bytes, &f.Version, &f.Created, &f.Updated, &f.Mime, &f.Blob, &m.sha, &m.src, &m.parent, &m.ver)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("no such file %q", path)
 	}
 	f.Binary = f.Blob != ""
+	m.apply(f)
 	return f, err
 }
 
@@ -81,7 +91,7 @@ func (d *DB) replFile(runID int64, path string) (*ReplFile, error) {
 // result footer and the tile's 1.5s poll, so it must stay cheap.
 func (d *DB) replFiles(runID int64) ([]*ReplFile, error) {
 	rows, err := d.q.Query(
-		`SELECT path, bytes, version, created, updated, mime, blob FROM repl_files WHERE run_id=? ORDER BY path`, runID)
+		`SELECT path, bytes, version, created, updated, mime, blob, `+fileMetaSel+` FROM repl_files WHERE run_id=? ORDER BY path`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,10 +99,12 @@ func (d *DB) replFiles(runID int64) ([]*ReplFile, error) {
 	var out []*ReplFile
 	for rows.Next() {
 		f := &ReplFile{}
-		if err := rows.Scan(&f.Path, &f.Bytes, &f.Version, &f.Created, &f.Updated, &f.Mime, &f.Blob); err != nil {
+		var m fileMetaCols
+		if err := rows.Scan(&f.Path, &f.Bytes, &f.Version, &f.Created, &f.Updated, &f.Mime, &f.Blob, &m.sha, &m.src, &m.parent, &m.ver); err != nil {
 			return nil, err
 		}
 		f.Binary = f.Blob != ""
+		m.apply(f)
 		out = append(out, f)
 	}
 	return out, rows.Err()
@@ -102,6 +114,13 @@ func (d *DB) replFiles(runID int64) ([]*ReplFile, error) {
 // > 0 makes the write conditional (optimistic concurrency for the human editor
 // in the tile); 0 means "don't care", which is what the model's tools pass.
 func (d *DB) replPutFile(runID int64, path, content string, wantVersion int) (*ReplFile, error) {
+	return d.replPutFileSrc(runID, path, content, wantVersion, nil)
+}
+
+// replPutFileSrc is replPutFile recording where the content came from (nil:
+// unknown). An overwrite keeps the version it replaces (keepVersion), so
+// file_diff can show what changed.
+func (d *DB) replPutFileSrc(runID int64, path, content string, wantVersion int, src *fileSource) (*ReplFile, error) {
 	path, err := normReplPath(path)
 	if err != nil {
 		return nil, err
@@ -133,27 +152,44 @@ func (d *DB) replPutFile(runID int64, path, content string, wantVersion int) (*R
 			return nil, fmt.Errorf("run file store full: %d + %d bytes exceeds %d", total, len(content), maxReplTotalBytes)
 		}
 	}
-	ts, ver := now(), 1
+	ts, ver, parent := now(), 1, 0
 	created := ts
 	if curErr == nil {
-		ver, created = cur.Version+1, cur.Created
+		ver, created, parent = cur.Version+1, cur.Created, cur.Version
 	}
-	_, err = d.q.Exec(
-		`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(run_id, path) DO UPDATE SET content=excluded.content, bytes=excluded.bytes,
-		   version=excluded.version, updated=excluded.updated`,
-		runID, path, content, len(content), ver, created, ts)
+	sum := shaHex([]byte(content))
+	err = d.Tx(func(t *DB) error {
+		if curErr == nil {
+			if err := t.keepVersion(runID, cur); err != nil {
+				return err
+			}
+		}
+		_, err := t.q.Exec(
+			`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated, sha256, source, parent, meta_ver)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(run_id, path) DO UPDATE SET content=excluded.content, bytes=excluded.bytes,
+			   version=excluded.version, updated=excluded.updated, sha256=excluded.sha256, source=excluded.source,
+			   parent=excluded.parent, meta_ver=excluded.meta_ver`,
+			runID, path, content, len(content), ver, created, ts, sum, src.encode(), parent, ver)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &ReplFile{Path: path, Content: content, Bytes: len(content), Version: ver, Created: created, Updated: ts}, nil
+	return &ReplFile{Path: path, Content: content, Bytes: len(content), Version: ver, Created: created, Updated: ts,
+		SHA256: sum, Source: src, Parent: parent}, nil
 }
 
 // replPutBinary records an attachment whose bytes are already in the blob
 // store. Always a NEW path — the caller picks a free one — because objects are
-// immutable and an overwrite would orphan the old one.
+// immutable and an overwrite would orphan the old one (putFileData replaces
+// one in place, keeping the old object as the previous version).
 func (d *DB) replPutBinary(runID int64, path, mime string, size int, blob string) (*ReplFile, error) {
+	return d.replPutBinarySrc(runID, path, mime, size, blob, "", nil)
+}
+
+// replPutBinarySrc is replPutBinary with the content's hash and source.
+func (d *DB) replPutBinarySrc(runID int64, path, mime string, size int, blob, sum string, src *fileSource) (*ReplFile, error) {
 	path, err := normReplPath(path)
 	if err != nil {
 		return nil, err
@@ -173,28 +209,40 @@ func (d *DB) replPutBinary(runID int64, path, mime string, size int, blob string
 	}
 	ts := now()
 	if _, err := d.q.Exec(
-		`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated, mime, blob)
-		 VALUES (?, ?, '', ?, 1, ?, ?, ?, ?)`, runID, path, size, ts, ts, mime, blob); err != nil {
+		`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated, mime, blob, sha256, source, parent, meta_ver)
+		 VALUES (?, ?, '', ?, 1, ?, ?, ?, ?, ?, ?, 0, 1)`, runID, path, size, ts, ts, mime, blob, sum, src.encode()); err != nil {
 		return nil, err
 	}
 	return &ReplFile{Path: path, Bytes: size, Version: 1, Created: ts, Updated: ts,
-		Mime: mime, Binary: true, Blob: blob}, nil
+		Mime: mime, Binary: true, Blob: blob, SHA256: sum, Source: src}, nil
 }
 
 // replDeleteFile removes a file and returns its blob path (empty for a text
-// file) so the caller can drop the object after the row is gone.
+// file) so the caller can drop the object after the row is gone. Its earlier
+// versions go too; an object an earlier version held (a file that was once
+// binary) is left — replDeleteFileBlobs returns those as well.
 func (d *DB) replDeleteFile(runID int64, path string) (string, error) {
+	blobs, err := d.replDeleteFileBlobs(runID, path)
+	if err != nil || len(blobs) == 0 {
+		return "", err
+	}
+	return blobs[0], nil
+}
+
+// replDeleteFileBlobs removes a file and its earlier versions, and returns
+// every blob object they held (the current one first, "" for a text file).
+func (d *DB) replDeleteFileBlobs(runID int64, path string) ([]string, error) {
 	var blob string
 	_ = d.q.QueryRow(`SELECT blob FROM repl_files WHERE run_id=? AND path=?`, runID, path).Scan(&blob)
 	res, err := d.q.Exec(`DELETE FROM repl_files WHERE run_id=? AND path=?`, runID, path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return "", fmt.Errorf("no such file %q", path)
+		return nil, fmt.Errorf("no such file %q", path)
 	}
 	_, _ = d.q.Exec(`DELETE FROM message_files WHERE run_id=? AND path=?`, runID, path)
-	return blob, nil
+	return append([]string{blob}, d.dropVersions(runID, path)...), nil
 }
 
 // runBlobs lists the blob objects owned by these runs, so a delete can drop
@@ -202,7 +250,8 @@ func (d *DB) replDeleteFile(runID int64, path string) (string, error) {
 func (d *DB) runBlobs(ids []int64) []string {
 	var out []string
 	for _, id := range ids {
-		rows, err := d.q.Query(`SELECT blob FROM repl_files WHERE run_id=? AND blob<>''`, id)
+		rows, err := d.q.Query(`SELECT blob FROM repl_files WHERE run_id=?1 AND blob<>''
+			UNION SELECT blob FROM repl_file_versions WHERE run_id=?1 AND blob<>''`, id)
 		if err != nil {
 			continue
 		}
@@ -256,6 +305,7 @@ func (d *DB) replClearFiles(runID int64) ([]string, error) {
 	if _, err := d.q.Exec(`DELETE FROM repl_files WHERE run_id=?`, runID); err != nil {
 		return nil, err
 	}
+	_, _ = d.q.Exec(`DELETE FROM repl_file_versions WHERE run_id=?`, runID)
 	_, _ = d.q.Exec(`DELETE FROM message_files WHERE run_id=?`, runID)
 	return blobs, nil
 }

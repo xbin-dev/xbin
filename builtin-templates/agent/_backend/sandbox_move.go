@@ -31,11 +31,15 @@ func sandboxMoveSpecs(cfg Config) []toolSpec {
 			}},
 			toolSpec{Type: "function", Function: funcDef{
 				Name: "sandbox_download",
-				Description: fmt.Sprintf("Copy a file from the coding sandbox into the session files (up to %s) — to show it (render_html, file_view) or keep it with the conversation. "+
+				Description: fmt.Sprintf("Copy a file from the coding sandbox into the session files (up to %s), to keep it with the conversation or hand it to people. "+
+					"It overwrites the session file of that name in place: the version it replaces is kept (file_diff shows what changed), "+
+					"and a file that hasn't changed (same etag or sha256) writes nothing. "+
+					"render_html and file_view take a sandbox path directly — no download needed first. "+
 					"A directory: pack it with bash (tar czf) first.", humanBytes(maxBinaryFileBytes)),
 				Parameters: obj([]string{"path"}, map[string]any{
-					"path": strProp("the file in the sandbox"),
-					"name": strProp("the session file's name (default: the file's own; a taken name gets a suffix)"),
+					"path":      strProp("the file in the sandbox"),
+					"name":      strProp("the session file's name (default: the file's own)"),
+					"keep_both": boolProp("keep an existing session file of that name and save this one beside it (-2, -3…) instead of overwriting it"),
 				}),
 			}})
 	}
@@ -139,29 +143,15 @@ func (ag *Agent) toolSbxDownload(ctx context.Context, run *Run, cfg Config, args
 	if err != nil {
 		return "", err
 	}
-	st, err := use.Conn.Stat(ctx, use.ID, p)
-	switch {
-	case err != nil:
-		return "", noPath(p, err)
-	case st.Type == "dir":
-		return "", fmt.Errorf("%s is a directory — pack it with bash (tar czf out.tgz …) and download the archive", p)
-	case st.Size > maxBinaryFileBytes:
-		return "", fmt.Errorf("%s is %s; a session file holds up to %s", p, humanBytes(int(st.Size)), humanBytes(maxBinaryFileBytes))
-	}
-	body, _, err := use.Conn.OpenFile(ctx, use.ID, p, 0, 0)
+	// in place, versioned (D136); keep_both is the old way: a free name
+	f, prev, unchanged, err := ag.fetchSandboxFile(ctx, run, use, p, str(args["name"]), "sandbox_download", args["keep_both"] == true)
 	if err != nil {
 		return "", err
 	}
-	defer body.Close()
-	f, err := ag.acceptUpload(ctx, run.ID, orStr(strings.TrimSpace(str(args["name"])), path.Base(p)), "", body)
-	if err != nil {
-		return "", err
+	if unchanged {
+		return fetched(p, f, prev, true), nil
 	}
-	kind := "text"
-	if f.Binary {
-		kind = f.Mime
-	}
-	return fmt.Sprintf("downloaded %s to the session file %s (%s, %s)\n\n%s", p, f.Path, kind, humanBytes(f.Bytes), ag.db.replFileIndex(run.ID)), nil
+	return fetched(p, f, prev, false) + "\n\n" + ag.db.replFileIndex(run.ID), nil
 }
 
 func (ag *Agent) toolSbxCopy(ctx context.Context, run *Run, cfg Config, args map[string]any) (string, error) {

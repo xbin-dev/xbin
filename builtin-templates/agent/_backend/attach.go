@@ -119,6 +119,11 @@ func normalizeMime(declared string, head []byte) string {
 // acceptUpload stores one attached file. Text within the text cap is stored as
 // text; everything else goes to the blob store with a metadata row.
 func (ag *Agent) acceptUpload(ctx context.Context, runID int64, name, declared string, body io.Reader) (*ReplFile, error) {
+	return ag.acceptUploadSrc(ctx, runID, name, declared, body, &fileSource{Kind: "upload"})
+}
+
+// acceptUploadSrc is acceptUpload recording where the file came from (D136).
+func (ag *Agent) acceptUploadSrc(ctx context.Context, runID int64, name, declared string, body io.Reader, src *fileSource) (*ReplFile, error) {
 	if _, err := ag.db.getRun(runID); err != nil {
 		return nil, fmt.Errorf("no such run")
 	}
@@ -137,7 +142,7 @@ func (ag *Agent) acceptUpload(ctx context.Context, runID int64, name, declared s
 	p := ag.db.freePath(runID, sanitizeUploadName(name))
 
 	if isTextMime(m) && utf8.Valid(data) && len(data) <= maxReplFileBytes {
-		f, err := ag.db.replPutFile(runID, p, string(data), 0)
+		f, err := ag.db.replPutFileSrc(runID, p, string(data), 0, src)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +155,7 @@ func (ag *Agent) acceptUpload(ctx context.Context, runID int64, name, declared s
 	if err := ag.blobs.Put(ctx, blob, data, m); err != nil {
 		return nil, fmt.Errorf("storing the file failed: %w", err)
 	}
-	f, err := ag.db.replPutBinary(runID, p, m, len(data), blob)
+	f, err := ag.db.replPutBinarySrc(runID, p, m, len(data), blob, shaHex(data), src)
 	if err != nil {
 		ag.dropBlobs([]string{blob}) // the row was refused; don't leave the object
 		return nil, err
@@ -243,32 +248,40 @@ func (d *DB) messageFiles(runID int64) map[int64][]string {
 
 const fileViewOK = "Showing "
 
-func fileViewSpec() toolSpec {
+func fileViewSpec(cfg Config) toolSpec {
+	where := "file key of the image, e.g. 'photo.png'"
+	if sandboxToolsOn(cfg) {
+		where += ", or a sandbox path ('/work/chart.png', './out/chart.png') — copied into the session files first"
+	}
 	return toolSpec{Type: "function", Function: funcDef{
 		Name: "file_view",
 		Description: "Look at an image in this run's files — one the owner attached, or one you saved. " +
 			"The image is attached right after this tool's result. Supports PNG, JPEG, GIF and WebP up to 3 MB. " +
 			"Only the few most recent images stay visible; call this again to see an older one.",
 		Parameters: obj([]string{"path"}, map[string]any{
-			"path": strProp("file key of the image, e.g. 'photo.png'"),
+			"path": strProp(where),
 		}),
 	}}
 }
 
 // toolFileView validates the request. The image itself is added when the
 // context is assembled (see withImages), because a tool result is text.
-func (ag *Agent) toolFileView(run *Run, cfg Config, args map[string]any) (string, error) {
+func (ag *Agent) toolFileView(ctx context.Context, run *Run, cfg Config, args map[string]any) (string, error) {
 	if !cfg.feature("vision") {
 		return "", fmt.Errorf("vision is turned off for this run, so images cannot be shown")
 	}
-	p, err := normReplPath(str(args["path"]))
+	r, err := fileArg(cfg, args, "path")
 	if err != nil {
 		return "", err
 	}
-	f, err := ag.db.replFile(run.ID, p)
+	if r.ver > 0 {
+		return "", fmt.Errorf("file_view shows a file's current version — drop the @%d", r.ver)
+	}
+	f, note, err := ag.sessionCopy(ctx, run, cfg, r, "file_view")
 	if err != nil {
 		return "", err
 	}
+	p := f.Path
 	if !f.Binary || !visionMimes[f.Mime] {
 		kind := f.Mime
 		if kind == "" {
@@ -280,8 +293,46 @@ func (ag *Agent) toolFileView(run *Run, cfg Config, args map[string]any) (string
 		return "", fmt.Errorf("%s is %s, over the %s limit for showing an image", p,
 			humanBytes(f.Bytes), humanBytes(maxInlineImageBytes))
 	}
-	return fmt.Sprintf("%s%s (%s, %s) — the image is attached after these tool results.",
-		fileViewOK, p, f.Mime, humanBytes(f.Bytes)), nil
+	out := fmt.Sprintf("%s%s (%s, %s) — the image is attached after these tool results.",
+		fileViewOK, p, f.Mime, humanBytes(f.Bytes))
+	if note != "" {
+		out += "\n(" + note + ")"
+	}
+	return out, nil
+}
+
+// shownImages are the session images a tool's result shows the model:
+// file_view's one — named in its result ("Showing <key> (…"), which also
+// covers a sandbox path it copied in, else by its argument, as results
+// before D136 were read — and browser_check's screenshots, listed on a line
+// of its result (browserShotsLead).
+func shownImages(c toolCall, content string) []string {
+	switch c.Function.Name {
+	case "file_view":
+		if !strings.HasPrefix(content, fileViewOK) {
+			return nil
+		}
+		key, _, _ := strings.Cut(content[len(fileViewOK):], " (")
+		if p, err := normReplPath(key); err == nil {
+			return []string{p}
+		}
+		if p, err := normReplPath(str(decodeArgs(c.Function.Arguments)["path"])); err == nil {
+			return []string{p}
+		}
+	case "browser_check":
+		for _, line := range strings.Split(content, "\n") {
+			if rest, ok := strings.CutPrefix(line, browserShotsLead); ok {
+				var out []string
+				for _, k := range strings.Split(rest, ", ") {
+					if p, err := normReplPath(k); err == nil {
+						out = append(out, p)
+					}
+				}
+				return out
+			}
+		}
+	}
+	return nil
 }
 
 // imageRef is one image the context would like to show.
@@ -318,20 +369,19 @@ func (ag *Agent) withImages(ctx context.Context, run *Run, cfg Config, live []*M
 			}
 			// The block ends at the last tool row answering this turn.
 			end := pos[i]
-			ok := map[string]bool{}
+			res := map[string]string{}
 			for j := i + 1; j < len(live) && live[j].Role == "tool"; j++ {
 				if pos[j] >= 0 {
 					end = pos[j]
 				}
-				if strings.HasPrefix(live[j].Content, fileViewOK) {
-					ok[live[j].ToolCallID] = true
-				}
+				res[live[j].ToolCallID] = live[j].Content
 			}
 			for _, c := range calls {
-				if c.Function.Name != "file_view" || !ok[c.ID] {
+				content, ok := res[c.ID]
+				if !ok {
 					continue
 				}
-				if p, err := normReplPath(str(decodeArgs(c.Function.Arguments)["path"])); err == nil {
+				for _, p := range shownImages(c, content) {
 					refs = append(refs, imageRef{path: p, at: end, view: true})
 				}
 			}
@@ -370,7 +420,7 @@ func (ag *Agent) withImages(ctx context.Context, run *Run, cfg Config, live []*M
 		}
 	}
 
-	const lead = "(images you asked to see with file_view — attached by your tools, not the owner)"
+	const lead = "(images you asked to see with file_view or browser_check — attached by your tools, not the owner)"
 	var result []wireMsg
 	var carry []json.RawMessage // file_view images riding the owner's next message
 	for i, wm := range out {

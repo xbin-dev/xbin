@@ -596,13 +596,13 @@ func handleFileDelete(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, err.Error())
 		return
 	}
-	blob, err := agent.db.replDeleteFile(pathID(r), path)
+	blobs, err := agent.db.replDeleteFileBlobs(pathID(r), path) // its earlier versions' objects too (D136)
 	if err != nil {
 		xbin.WriteError(w, 404, err.Error())
 		return
 	}
-	if blob != "" {
-		agent.dropBlobs([]string{blob})
+	if blobs = nonEmpty(blobs); len(blobs) > 0 {
+		agent.dropBlobs(blobs)
 	}
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }

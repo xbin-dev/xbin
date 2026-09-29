@@ -141,10 +141,10 @@ func TestFileEditSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 2 matches without replace_all is an error, not a coin flip.
-	if _, err := ag.fileEdit(1, map[string]any{"path": "a.js", "old_string": "one", "new_string": "1"}); err == nil {
+	if _, err := ag.fileEdit(context.Background(), 1, map[string]any{"path": "a.js", "old_string": "one", "new_string": "1"}); err == nil {
 		t.Fatal("an ambiguous old_string should be refused")
 	}
-	if _, err := ag.fileEdit(1, map[string]any{"path": "a.js", "old_string": "one", "new_string": "1", "replace_all": true}); err != nil {
+	if _, err := ag.fileEdit(context.Background(), 1, map[string]any{"path": "a.js", "old_string": "one", "new_string": "1", "replace_all": true}); err != nil {
 		t.Fatal(err)
 	}
 	f, _ := db.replFile(1, "a.js")
@@ -152,7 +152,7 @@ func TestFileEditSemantics(t *testing.T) {
 		t.Fatalf("replace_all: %q", f.Content)
 	}
 	// A whitespace near-miss should say so rather than just "not found".
-	_, err := ag.fileEdit(1, map[string]any{"path": "a.js", "old_string": "1    two", "new_string": "x"})
+	_, err := ag.fileEdit(context.Background(), 1, map[string]any{"path": "a.js", "old_string": "1    two", "new_string": "x"})
 	if err == nil || !strings.Contains(err.Error(), "whitespace") {
 		t.Fatalf("expected a whitespace hint, got %v", err)
 	}

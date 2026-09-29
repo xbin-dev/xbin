@@ -6,6 +6,7 @@
 //	sandbox_upload, sandbox_download   session files ↔ the sandbox (sandbox_move.go)
 //	sandbox_copy, sandbox_info         between attached sandboxes; what is attached
 //	sandbox_create                     a new sandbox, the owner's grant (sandbox_create.go)
+//	browser_check                      a page in a headless Chromium in it (browser_check.go)
 //
 // subagent_spawn {sandbox, cwd} puts a subagent on another attached sandbox
 // (spawnSandbox).
@@ -51,6 +52,7 @@ var sandboxToolNames = map[string]bool{
 	"read": true, "write": true, "edit": true, "ls": true, "glob": true, "grep": true,
 	"sandbox_upload": true, "sandbox_download": true, "sandbox_copy": true, "sandbox_info": true,
 	"sandbox_create": true,
+	"browser_check":  true,
 }
 
 // sandboxChanges are the tools that change a sandbox: side effects (Approve
@@ -58,6 +60,7 @@ var sandboxToolNames = map[string]bool{
 // is private scratch.
 var sandboxChanges = map[string]bool{
 	"bash": true, "write": true, "edit": true, "sandbox_upload": true,
+	"browser_check": true, // a page and its script reach out through the sandbox's egress
 }
 
 // sandboxSideEffect: name changes the bound sandbox, and it has egress.
@@ -134,6 +137,7 @@ func boundSandboxSpecs(cfg Config) []toolSpec {
 		}},
 	}
 	specs = append(specs, sandboxFileSpecs()...)
+	specs = append(specs, browserCheckSpec(cfg))
 	return append(specs, sandboxMoveSpecs(cfg)...)
 }
 
@@ -154,6 +158,8 @@ func (ag *Agent) runSandboxTool(ctx context.Context, run *Run, cfg Config, name 
 		return ag.toolBashKill(ctx, run, cfg, args)
 	case "jobs":
 		return ag.toolJobs(ctx, run, cfg, args)
+	case "browser_check":
+		return ag.toolBrowserCheck(ctx, run, cfg, args)
 	}
 	if sandboxFileTools[name] {
 		return ag.runSandboxFileTool(ctx, run, cfg, name, args)
@@ -245,6 +251,9 @@ func sandboxPrompt(cfg Config) string {
 		s.WriteString(" — sandbox_upload and sandbox_download copy between them")
 	}
 	s.WriteString(". ")
+	if cfg.feature("files") {
+		s.WriteString("The file tools name either place: a bare name or session:x is a session file, /… or ./… a sandbox file. ")
+	}
 	s.WriteString("Every bash command is a numbered job: stop one with bash_kill {job}, never pkill -f or killall (they match other jobs too); jobs lists them, and yield {until_job} sleeps until one ends.")
 	var others []string
 	for _, a := range cfg.Attached {

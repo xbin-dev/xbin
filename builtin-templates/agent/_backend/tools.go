@@ -140,7 +140,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 		specs = append(specs, fileToolSpecs(cfg)...)
 		// Only offered when the run can actually see images.
 		if cfg.feature("vision") {
-			specs = append(specs, fileViewSpec())
+			specs = append(specs, fileViewSpec(cfg))
 		}
 	}
 	if cls.has(tsRepl) && cfg.feature("repl") {
