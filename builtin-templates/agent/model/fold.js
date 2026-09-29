@@ -26,7 +26,7 @@ const NOTICE = /^\[(subagent results|results of the runs|message from your paren
 // Prompts an automation delivered into a conversation (messages.meta origin).
 const ORIGIN_LABEL = { schedule: 'Scheduled', watch: 'Watcher check', learn: 'Learn a skill', trigger: 'Triggered' };
 // Journal steps worth a line in the chat (the rest is in the transcript).
-const SHOWN_STEPS = new Set(['note', 'error', 'compaction', 'yield', 'finish', 'render', 'state_changed', 'cancel', 'ask']);
+const SHOWN_STEPS = new Set(['note', 'error', 'compaction', 'yield', 'finish', 'render', 'live', 'state_changed', 'cancel', 'ask']);
 
 const ATTACH_NOTE = /\n\n\[attached: ([^\]]*)\]$/;
 const ATTACH_ITEM = /([A-Za-z0-9._/-]+) \(([^,()]+), ([^()]+)\)/g;

@@ -27,7 +27,7 @@ import { homeScreen } from './native/home.js';
 import { drawerSheet, newChatSheet, renameSheet } from './native/convs.js';
 import { shareSheet } from './native/share.js';
 import { sandboxAskSheet } from './native/sandboxes.js';
-import { toolScreens, treeDirty, openRender } from './native/tools.js';
+import { toolScreens, treeDirty, openRender, openLive } from './native/tools.js';
 import { autoScreens } from './native/auto.js';
 
 const visible = () => (globalThis.document?.visibilityState ?? 'visible') === 'visible';
@@ -103,7 +103,7 @@ function syncPreview() {
   const v = app.session.current();
   if (!v) return;
   if (prevRun !== v.run.id) { prevRun = v.run.id; prevSeen = null; }
-  const rs = (v.steps || []).filter((s) => s.kind === 'render');
+  const rs = (v.steps || []).filter((s) => s.kind === 'render' || s.kind === 'live');
   const last = rs[rs.length - 1];
   if (!last) { prevSeen = null; return; }
   let det = last.detail;
@@ -114,9 +114,10 @@ function syncPreview() {
   const fresh = first ? Date.now() / 1000 - last.created < 60 : at > prevSeen;
   prevSeen = at;
   if (!fresh || prevDismissed === at || !visible()) return;
-  const r = ui.stack.find((x) => x.kind === 'render');
+  const r = ui.stack.find((x) => x.kind === 'render' || x.kind === 'live');
   if (ui.stack.length && ui.stack[ui.stack.length - 1] !== r) return; // don't yank an open screen away
   if (r && !r.live) return;                                          // the person pinned an older one
+  if (last.kind === 'live') return openLive(v.run.id, det, true);    // preview_port (D135)
   openRender(v.run.id, det.path, det.version, true);
 }
 

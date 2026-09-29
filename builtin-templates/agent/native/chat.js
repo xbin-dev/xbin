@@ -177,6 +177,7 @@ const STEP = {
   cancel: ['⏹', 'warn', (d) => `cancelled${d.reason ? ': ' + d.reason : ''}`],
   ask: ['?', 'accent', (d) => `asked: ${d.question || ''}`],
   render: ['🖼', 'accent', (d) => `rendered ${d.path || ''} v${d.version || ''}`],
+  live: ['📡', 'accent', (d) => `showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live`],
 };
 function stepTpl(b) {
   const [glyph, tone, text] = STEP[b.kind] || ['•', 'muted', (d) => d.text || ''];

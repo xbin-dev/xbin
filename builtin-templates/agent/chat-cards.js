@@ -192,6 +192,7 @@ function stepTpl(b) {
     case 'cancel': g = '⏹'; txt = `cancelled${d.reason ? ': ' + d.reason : ''}`; break;
     case 'ask': g = '?'; txt = `asked: ${d.question || ''}`; break;
     case 'render': g = '🖼'; txt = `rendered ${d.path || ''} v${d.version || ''}`; break;
+    case 'live': g = '📡'; txt = `showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live`; break;
     default: txt = d.text || '';
   }
   return html`<div class="step ${b.kind}" data-k=${b.id}><span class="g">${g}</span> ${txt}</div>`;

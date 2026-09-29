@@ -323,6 +323,7 @@
        assumes a light page — including the UA scrollbars and form controls. */
     .prevframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
                  display: block; background: #fff; color-scheme: light; }
+    .prevframe[hidden] { display: none; }
 
     /* render_html chip in the timeline. */
     .rchip { font-family: var(--bx-mono); font-size: 11.5px; cursor: pointer; padding: 1px 7px;
@@ -560,11 +561,12 @@
            still permits subresource LOADS (a remote <img> would beacon). -->
       <div class="preview" id="preview" hidden>
         <div class="phd">
-          <span>🖼</span>
+          <span id="prev-icon">🖼</span>
           <span class="ppath mono" id="prev-path"></span>
           <span class="badge" id="prev-ver"></span>
           <span class="pwarn" id="prev-warn" hidden></span>
           <span style="flex:1"></span>
+          <button class="btn ghost btnsm" id="prev-reload" title="Reload the live page" hidden>↻ Reload</button>
           <button class="btn ghost btnsm" id="prev-src" title="Open this file in the Files tab">Source</button>
           <button class="btn ghost btnsm" id="prev-max" title="Maximize / restore">⤢</button>
           <button class="btn ghost btnsm" id="prev-close" title="Close (Esc)">✕</button>

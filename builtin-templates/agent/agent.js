@@ -33,6 +33,7 @@ import { createApp } from './model/app.js';
 import { HOME } from './model/home.js';
 import * as rules from './model/rules.js';
 import * as actions from './model/actions.js';
+import { liveURL, liveFrame, liveLabel } from './live.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -496,11 +497,49 @@ function closePreview() {
   preview = null;
   $('preview').hidden = true;
   $('main').classList.remove('prev-max');
+  dropLive();
   // prevSig and .srcdoc stay put, so reopening the same file is instant.
+}
+
+// dropLive ends a live page (its scripts and connections go with its
+// frame) and puts the static pane's controls back.
+function dropLive() {
+  $('livefr')?.remove();
+  $('prevframe').hidden = false;
+  $('prev-src').hidden = false;
+  $('prev-reload').hidden = true;
+  $('prev-icon').textContent = '🖼';
+}
+
+// openLive shows a preview_port step's page, live (live.js).
+async function openLive(det) {
+  if (app.sel == null) return;
+  const p = preview = { runId: app.sel, kind: 'live', det, live: true };
+  dropLive();
+  $('preview').hidden = false;
+  $('prevframe').hidden = true;
+  $('prev-src').hidden = true;
+  $('prev-reload').hidden = false;
+  $('prev-icon').textContent = '📡';
+  $('prev-path').textContent = $('prev-path').title = liveLabel(det);
+  $('prev-ver').textContent = '';
+  $('prev-warn').hidden = true;
+  if (win.atBottom) win.toBottom();
+  let src;
+  try { src = await liveURL(p.runId, det); } catch (e) {
+    if (preview !== p) return;
+    $('prev-warn').hidden = false;
+    $('prev-warn').textContent = '⚠ ' + (e.message || e);
+    return;
+  }
+  if (preview !== p) return; // closed or replaced meanwhile
+  $('livefr')?.remove();
+  $('prevframe').after(liveFrame(src));
 }
 
 async function openPreview(path, ver, live) {
   if (app.sel == null || !path) return;
+  dropLive();
   preview = { runId: app.sel, path, ver: num(ver), live: !!live };
   $('preview').hidden = false;
   $('prev-path').textContent = path;
@@ -517,7 +556,7 @@ async function openPreview(path, ver, live) {
 // poll from thrashing it.
 async function paintPreview() {
   const p = preview;
-  if (!p) return;
+  if (!p || p.kind === 'live') return;
   const sig = `${p.runId}\u0000${p.path}\u0000${p.ver}`;
   if (sig === prevSig) return;
   let f;
@@ -550,7 +589,7 @@ async function paintPreview() {
 // every tick; it only acts when a NEW render lands.
 function syncPreview(d) {
   if (preview && preview.runId !== app.sel) closePreview();
-  const rs = (d.steps || []).filter((s) => s.kind === 'render');
+  const rs = (d.steps || []).filter((s) => s.kind === 'render' || s.kind === 'live');
   const last = rs.length ? rs[rs.length - 1] : null;
   if (!last) { prevSeen = null; return; }
   let det = {};
@@ -566,6 +605,7 @@ function syncPreview(d) {
   if (settingsOpen || wfOpen) return;              // don't yank an open view away
   if (document.visibilityState !== 'visible') return;
   if (preview && !preview.live) return;            // the user pinned an older chip
+  if (last.kind === 'live') return openLive(det);  // preview_port (live.js, D135)
   openPreview(det.path, num(det.version), true);
 }
 
@@ -681,6 +721,7 @@ $('prev-max').onclick = () => {
   $('main').classList.toggle('prev-max');
   if (win.atBottom) win.toBottom();
 };
+$('prev-reload').onclick = () => { if (preview?.kind === 'live') openLive(preview.det); };
 $('prev-src').onclick = () => {
   if (!preview) return;
   filesSel = preview.path;

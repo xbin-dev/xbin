@@ -8,6 +8,7 @@ import { html, repeat, nothing, native } from '/vendor/xb-native.js';
 import * as actions from '../model/actions.js';
 import { ui, ctx, push, fmtN, clip, base, when, thumb, raw, IMAGE } from './ui.js';
 import { renderDoc } from './render-doc.js';
+import { liveURL, liveLabel } from '../model/live.js';
 import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
 
@@ -40,7 +41,7 @@ function refreshView() {
 }
 const stale = (kind, run) => { for (const s of ui.stack) if (s.kind === kind && s.run === run) s.loaded = false; };
 
-const SCREENS = { task: taskTpl, memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl };
+const SCREENS = { task: taskTpl, memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl, live: liveTpl };
 
 // toolScreens: ui.stack as nav screens (native.js puts them over the chat or home).
 export function toolScreens() {
@@ -297,6 +298,27 @@ export function openRender(run, path, ver, live) {
   if (cur) Object.assign(cur, { run, path, ver: Number(ver) || 0, live: !!live, loaded: false });
   else push({ kind: 'render', run, path, ver: Number(ver) || 0, live: !!live });
   ctx.paint();
+}
+
+// openLive shows a preview_port step's page, live (live.js, D135): the
+// canvas src= island — a sandboxed WebView (allow-scripts allow-forms, never
+// same-origin) on a relative URL below an xbind path ticket; live: it
+// follows the run's newest one.
+export function openLive(run, det, live) {
+  const cur = ui.stack.find((x) => x.kind === 'live' || x.kind === 'render');
+  const s = { kind: 'live', run, det, live: !!live, loaded: false, src: '' };
+  if (cur) { for (const k of Object.keys(cur)) delete cur[k]; Object.assign(cur, s); } else push(s);
+  ctx.paint();
+}
+
+function liveTpl(s) {
+  load(s, async () => { s.src = await liveURL(s.run, s.det); });
+  return html`<screen title="Live preview" subtitle=${liveLabel(s.det)}>
+    <toolbar><button icon="refresh" @tap=${() => { s.src = ''; reload(s)(); }}>Reload</button></toolbar>
+    <notice tone="info" text="Live from the sandbox: its scripts run, isolated from this workspace (no cookies, no storage, no reach into your tiles)."/>
+    ${s.err ? html`<notice tone="danger" text=${s.err}/>` : nothing}
+    ${s.src ? html`<canvas src=${s.src} height="xl"/>` : s.err ? nothing : html`<progress label="loading…"/>`}
+  </screen>`;
 }
 
 function renderTpl(s) {

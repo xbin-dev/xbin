@@ -7,10 +7,13 @@
 // What the viewer's browser gets is untrusted: whatever the sandbox serves.
 // So every answer carries this tile's own headers, never the sandbox's:
 //
-//   - Content-Security-Policy: sandbox allow-scripts allow-forms;
-//     frame-ancestors 'self' — an opaque origin even opened on its own: no
-//     cookies, no storage, no same-origin reach into the tile or xbind, and
-//     only this workspace may frame it;
+//   - Content-Security-Policy: sandbox allow-scripts allow-forms — an
+//     opaque origin even opened on its own: no cookies, no storage, no
+//     same-origin reach into the tile or xbind. No frame-ancestors: the pane
+//     that frames it is itself an opaque origin (a sandboxed tile frame),
+//     which no source expression matches — 'self' blocked it in Chromium
+//     (test/live-policy.mjs). The path ticket (bound to the viewer's login
+//     and address) is what keeps other sites from loading it;
 //   - Referrer-Policy: no-referrer, Cache-Control: no-store,
 //     X-Content-Type-Options: nosniff;
 //   - of the sandbox's headers only content ones pass (liveKeep): never
@@ -46,7 +49,7 @@ import (
 func init() { sandboxToolNames["preview_port"] = true }
 
 // liveCSP is every live answer's policy (API.md §Live previews).
-const liveCSP = "sandbox allow-scripts allow-forms; frame-ancestors 'self'"
+const liveCSP = "sandbox allow-scripts allow-forms"
 
 // previewPortDesc's first line is pinned (the tool-description audit).
 const previewPortDesc = "Show the human a LIVE page served by a program in your sandbox (e.g. python3 -m http.server 8000) — scripts run, in an isolated frame. " +
