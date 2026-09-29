@@ -28,16 +28,19 @@ func TestPartitionChangeHook(t *testing.T) {
 	if err := r.Rescan(); err != nil {
 		t.Fatal(err)
 	}
-	var seen []string
+	var seen, order []string
 	var published []bool // the hook's component, as the registry answered it during the call
 	r.OnPartitionChange(func(c *Component, old, new PartitionMode) {
 		seen = append(seen, c.Path+" "+old.State.String()+"→"+new.State.String())
 		pc, _ := r.Component(c.Path)
 		published = append(published, pc == c)
+		order = append(order, "runner")
 	})
+	// a second plane's hook runs after the first, never in its place
+	r.OnPartitionChange(func(*Component, PartitionMode, PartitionMode) { order = append(order, "second") })
 	rescan := func() []string {
 		t.Helper()
-		seen, published = nil, nil
+		seen, published, order = nil, nil, nil
 		if err := r.Rescan(); err != nil {
 			t.Fatal(err)
 		}
@@ -52,6 +55,9 @@ func TestPartitionChangeHook(t *testing.T) {
 	}
 	if slices.Contains(published, true) {
 		t.Error("the hook ran after the scan was published")
+	}
+	if want := []string{"runner", "second"}; !slices.Equal(order, want) {
+		t.Errorf("hooks ran %q, want %q (each, in the order added)", order, want)
 	}
 	mode = PartitionMode{State: PartitionPartitioned, Recorded: PartitionSpec{User: true}}
 	if got, want := rescan(), []string{"apps/a pending→partitioned"}; !slices.Equal(got, want) {
