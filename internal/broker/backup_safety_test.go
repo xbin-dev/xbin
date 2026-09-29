@@ -351,7 +351,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	c, _ := b.Reg.Component(comp)
 	var buf bytes.Buffer
 	bw := backup.NewWriter(&buf)
-	if err := b.writeBackup(bw, c, nil, false, nil); err != nil {
+	if err := b.writeBackup(bw, c, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := bw.Close(); err != nil {
@@ -401,7 +401,7 @@ func (a *fakeArchiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // whole — source and terminal layer — with a link a sandbox planted in the
 // meantime replaced, not followed, and the layer swapped under a hold.
 func TestOffloadFullThenRestore(t *testing.T) {
-	b := testBroker(t)
+	b := plaintextVault(testBroker(t))
 	const comp = "apps/calendar"
 	b.ProxyHandler = &fakeArchiver{}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {

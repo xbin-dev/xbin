@@ -41,13 +41,17 @@ const bkTile = "apps/cal"
 
 // memArchiver is an archiver tile that keeps what it is given, as the
 // builtin s3 archiver does: versions per key, listed newest first, served
-// back and deleted. fail names a key whose PUTs answer 502.
+// back and deleted. fail names a key whose PUTs answer 502; storeThenFail
+// one whose PUTs are stored and still answer 502; noVersion one whose PUTs
+// answer no version.
 type memArchiver struct {
-	mu   sync.Mutex
-	n    int
-	keys map[string][]memVersion // newest first
-	puts []string                // keys, in PUT order
-	fail string
+	mu            sync.Mutex
+	n             int
+	keys          map[string][]memVersion // newest first
+	puts          []string                // keys, in PUT order
+	fail          string
+	storeThenFail string
+	noVersion     string
 	// unseal opens a sealed archive for latest (a workspace with a vault
 	// barrier seals every archive, backup_seal.go); nil reads bodies as they are
 	unseal    func(t *testing.T, body []byte) []byte
@@ -105,7 +109,14 @@ func (a *memArchiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			a.subkeys[ver] = id
 		}
-		_, _ = fmt.Fprintf(w, `{"version":%q,"size":%d}`, ver, len(body))
+		switch key {
+		case a.storeThenFail:
+			http.Error(w, "stored, then the bucket went away", http.StatusBadGateway)
+		case a.noVersion:
+			_, _ = fmt.Fprintf(w, `{"size":%d}`, len(body))
+		default:
+			_, _ = fmt.Fprintf(w, `{"version":%q,"size":%d}`, ver, len(body))
+		}
 	case r.Method == "GET" && tail == "versions":
 		list := []map[string]any{}
 		for _, x := range vs {
@@ -472,7 +483,7 @@ func ptr[T any](v T) *T { return &v }
 // or time beyond them, schema 1, no deployment fields — and POST /restore
 // of it answers today's keys.
 func TestZeroStateBackupBytes(t *testing.T) {
-	b := zeroDataBroker(t)
+	b := plaintextVault(zeroDataBroker(t))
 	b.Version = "test"
 	root := b.Reg.Root
 	arch := &memArchiver{keys: map[string][]memVersion{}}
@@ -953,7 +964,7 @@ func TestDeploymentArchiveNoFollow(t *testing.T) {
 // schedule acts write nothing: no archive, no namespace, no ns.json, no
 // schedule file or row.
 func TestBackupActsDryRunCreateNothing(t *testing.T) {
-	b := zeroDataBroker(t)
+	b := plaintextVault(zeroDataBroker(t))
 	root := b.Reg.Root
 	arch := &memArchiver{keys: map[string][]memVersion{}}
 	b.ProxyHandler = arch

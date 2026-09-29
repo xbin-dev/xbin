@@ -120,6 +120,11 @@ type Manifest struct {
 	// data of the scope Component roots, and nothing else. Absent
 	// otherwise.
 	Kind string `json:"kind,omitempty"`
+	// BackupID is a random id one backup's schema-3 main archive and the
+	// data archive it names share: a restore pairs them only when the ids
+	// match, so no data archive of another backup of the tile is ever
+	// restored with this one. Absent otherwise.
+	BackupID string `json:"backupId,omitempty"`
 }
 
 // DataRef names a data archive: its archiver key and version, and the

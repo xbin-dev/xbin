@@ -3,6 +3,7 @@ package broker
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -69,17 +70,17 @@ func (b *Broker) termDir(comp string) string {
 // Its data is main's namespace, as main's code declares it, whichever
 // deployment is the primary; archives lists the deployment archives written
 // before it, which a tile with a record names in its manifest. A split
-// archive (a sealed workspace's, schema 3) holds no data: data names the
-// data archive written before it (backup_seal.go).
-func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives map[string]string, split bool, data *backup.DataRef) error {
+// archive (a sealed workspace's, schema 3; split non-nil) holds no data: it
+// names the data archive written before it, if any (backup_seal.go).
+func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives map[string]string, split *splitBackup) error {
 	scope, isRoot := b.Reg.Scopes()[c.Path]
 	includes := []string{"source"}
 	m := backup.Manifest{
 		Component: c.Path, Scope: c.Path, ScopeRoot: isRoot,
 		XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339),
 	}
-	if split {
-		m.Schema, m.Data = backup.SchemaSplit, data
+	if split != nil {
+		m.Schema, m.Data, m.BackupID = backup.SchemaSplit, split.data, split.id
 	}
 	if isRoot {
 		scope = b.mainDeclared(c.Path, scope)
@@ -126,7 +127,7 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	}
 	// Resource data (only when this component roots its scope, and inline
 	// only in a plaintext workspace's archive).
-	if isRoot && !split {
+	if isRoot && split == nil {
 		if err := b.writeScopeData(bw, c.Path, scope); err != nil {
 			return err
 		}
@@ -277,10 +278,21 @@ func (b *Broker) doBackup(comp string) (string, error) {
 // backupTile archives comp (08-data §11.1): first the deployment archives —
 // the primary's when it isn't main, and with every (an offload) each other
 // deployment's whose namespace holds data — then, in a sealed workspace, the
-// data archive of a scope root's main data, then the main archive, which
-// lists them. It answers the main archive's version and the deployment
-// archives'; a failed PUT fails it before anything later is written.
+// data archive of a scope root's main data (when its scope declares any
+// resource), then the main archive, which lists them. It answers the main
+// archive's version and the deployment archives'; a failed PUT fails it
+// before anything later is written. It holds comp's backup lock
+// (backup_prune.go).
 func (b *Broker) backupTile(comp string, every bool) (string, map[string]string, error) {
+	defer b.holdBackups(comp)()
+	return b.backupTileHeld(comp, every)
+}
+
+// backupTileHeld is backupTile for a caller holding comp's backup lock. A
+// data archive whose main archive fails stays: the archiver may have
+// stored the main archive all the same, and a retention run deletes it
+// when no kept main archive names it (pruneData).
+func (b *Broker) backupTileHeld(comp string, every bool) (string, map[string]string, error) {
 	c, ok := b.Reg.Component(comp)
 	if !ok {
 		return "", nil, fmt.Errorf("no such component %q", comp)
@@ -297,17 +309,15 @@ func (b *Broker) backupTile(comp string, every bool) (string, map[string]string,
 	if err != nil {
 		return "", nil, err
 	}
-	var data *backup.DataRef
-	if _, isRoot := b.Reg.Scopes()[comp]; split && isRoot {
-		if data, err = b.putDataArchive(c, provider); err != nil {
+	var sp *splitBackup
+	if split {
+		if sp, err = b.putDataArchive(c, provider); err != nil {
 			return "", nil, err
 		}
 	}
-	v, err := b.putArchive(provider, backupKey(comp), mainSeal(comp), func(bw *backup.Writer) error { return b.writeBackup(bw, c, archives, split, data) })
-	if err != nil && data != nil {
-		// no main archive names it: drop it, or retention (by count) would
-		// keep it in place of one a kept main archive names
-		_, _, _ = b.archiveDo("DELETE", provider, "/archive/"+data.Key+"/versions/"+data.Version, nil)
+	v, err := b.putArchive(provider, backupKey(comp), mainSeal(comp), func(bw *backup.Writer) error { return b.writeBackup(bw, c, archives, sp) })
+	if err == nil && sp != nil && archiveVersion.MatchString(v) {
+		b.noteDataRef(provider, comp, v, dataRefOf(sp.data))
 	}
 	return v, archives, err
 }
@@ -318,6 +328,7 @@ type restored struct {
 	backup.Manifest
 	SandboxesSkipped []string
 	DataErased       string // why a split archive's data isn't restored: its key was erased
+	DataMissing      string // why it isn't: its data archive is gone, its key not erased
 }
 
 // doRestore fetches a version's tar from the archiver and unpacks it. version ""
@@ -363,9 +374,14 @@ func (b *Broker) restoreTile(comp, version string) (restored, *listedRestore, er
 	}
 	r := restored{Manifest: m, SandboxesSkipped: b.restoreSandboxes(m)}
 	if gone != nil {
-		r.DataErased = gone.Error() + ": its source and terminal layer were restored, its data wasn't"
+		why := gone.Error() + ": its source and terminal layer were restored, its data wasn't"
+		if errors.As(gone, new(erasedError)) {
+			r.DataErased = why
+		} else {
+			r.DataMissing = why
+		}
 		r.Includes = slices.DeleteFunc(slices.Clone(r.Includes), func(p string) bool { return p == "data" })
-		slog.Warn("restore: the archive's data was erased; source and terminal layer restored", "component", comp, "why", gone)
+		slog.Warn("restore: the archive's data is erased or missing; source and terminal layer restored", "component", comp, "why", gone)
 	}
 	if m.Deployments == nil || len(m.Deployments.Archives) == 0 {
 		return r, nil, nil
@@ -580,11 +596,20 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	if listed != nil { // the deployment archives the main archive lists: restored, or why not
 		out["deployments"] = listed
 	}
-	if len(m.SandboxesSkipped) > 0 {
-		out["sandboxesSkipped"] = m.SandboxesSkipped
-	}
-	if m.DataErased != "" {
-		out["dataErased"] = m.DataErased
-	}
+	m.answer(out)
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// answer adds what a restore left out to its answer: sandboxesSkipped,
+// dataErased, dataMissing (POST /restore, POST /lifecycle's enable).
+func (r restored) answer(out map[string]any) {
+	if len(r.SandboxesSkipped) > 0 {
+		out["sandboxesSkipped"] = r.SandboxesSkipped
+	}
+	if r.DataErased != "" {
+		out["dataErased"] = r.DataErased
+	}
+	if r.DataMissing != "" {
+		out["dataMissing"] = r.DataMissing
+	}
 }

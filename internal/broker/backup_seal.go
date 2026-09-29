@@ -12,6 +12,8 @@ package broker
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,22 +131,48 @@ func (b *Broker) archiveCall(method, provider, apiPath string, body io.Reader, s
 	return rec.Code, rec.Body.Bytes(), nil
 }
 
+// splitBackup is what one sealed backup's main archive (schema 3) names:
+// the random id its data archive shares, and that data archive (nil when
+// the tile doesn't root its scope, or the scope declares no resource).
+type splitBackup struct {
+	id   string
+	data *backup.DataRef
+}
+
 // putDataArchive writes root tile c's main data into its data archive
-// (schema 3, kind data), answering the pointer its main archive holds.
-func (b *Broker) putDataArchive(c *registry.Component, provider string) (*backup.DataRef, error) {
-	v, id, err := b.putSealed(provider, dataArchiveKey(c.Path), dataSeal(c.Path), func(bw *backup.Writer) error { return b.writeDataArchive(bw, c) })
+// (schema 3, kind data), answering what its main archive names. The
+// archiver's version must be one xbind can fetch again: a main archive
+// naming any other would restore without its data, so the backup fails
+// before the main archive is written.
+func (b *Broker) putDataArchive(c *registry.Component, provider string) (*splitBackup, error) {
+	var rnd [16]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return nil, err
+	}
+	sp := &splitBackup{id: hex.EncodeToString(rnd[:])}
+	scope, isRoot := b.Reg.Scopes()[c.Path]
+	if !isRoot || len(b.mainDeclared(c.Path, scope).Resources) == 0 {
+		return sp, nil // no data: no data archive
+	}
+	key := dataArchiveKey(c.Path)
+	v, id, err := b.putSealed(provider, key, dataSeal(c.Path), func(bw *backup.Writer) error { return b.writeDataArchive(bw, c, sp.id) })
 	if err != nil {
 		return nil, fmt.Errorf("archiving its data: %w", err)
 	}
-	return &backup.DataRef{Key: dataArchiveKey(c.Path), Version: v, Subkey: id}, nil
+	if !archiveVersion.MatchString(v) {
+		return nil, fmt.Errorf("archiving its data: archiver %s answered the PUT with version %q, which xbind can't fetch again (a PUT answers {\"version\": \"…\"} of letters, digits and ._:-, at most 128): no backup names what it stored", provider, v)
+	}
+	sp.data = &backup.DataRef{Key: key, Version: v, Subkey: id}
+	return sp, nil
 }
 
 // writeDataArchive is a data archive: the manifest, then the scope's main
 // data as a schema-1 main archive lays it out.
-func (b *Broker) writeDataArchive(bw *backup.Writer, c *registry.Component) error {
+func (b *Broker) writeDataArchive(bw *backup.Writer, c *registry.Component, backupID string) error {
 	scope := b.mainDeclared(c.Path, b.Reg.Scopes()[c.Path])
 	m := backup.Manifest{Schema: backup.SchemaSplit, Kind: backup.KindData, Component: c.Path, Scope: c.Path, ScopeRoot: true,
-		Resources: map[string]string{}, XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339), Includes: []string{"data"}}
+		Resources: map[string]string{}, XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339), Includes: []string{"data"},
+		BackupID: backupID}
 	if scope != nil {
 		for name, res := range scope.Resources {
 			m.Resources[name] = res.Type
@@ -192,17 +220,29 @@ func (b *Broker) openArchive(body []byte) (*backup.Reader, error) {
 	return backup.Open(bytes.NewReader(body), keys)
 }
 
-// openDataArchive opens the data archive main archive m of comp names. A
-// data archive whose key was erased — whether or not the archiver still
-// holds it — answers its erasure as gone and no error: the main archive
-// restores without it, and says so.
+// dataMissingError is why a split main archive's data isn't restored when
+// its data archive is gone though its key isn't erased — the archiver
+// lost it, or deleted it after answering the main archive's PUT with an
+// error — or the main archive names a version no archiver URL can.
+type dataMissingError struct{ why string }
+
+func (e dataMissingError) Error() string {
+	return "this backup's data archive is missing (" + e.why + ")"
+}
+
+// openDataArchive opens the data archive main archive m of comp names. One
+// whose key was erased — whether or not the archiver still holds it — and
+// one that is missing answer why as gone (an erasedError, a
+// dataMissingError) and no error: the main archive restores without it, and
+// says so. One that is there must be the one m's backup wrote: sealed
+// under the key m names, with m's backup id.
 func (b *Broker) openDataArchive(provider, comp string, m backup.Manifest) (r *backup.Reader, gone, err error) {
 	ref := m.Data
 	switch {
 	case ref.Key != dataArchiveKey(comp):
 		return nil, nil, fmt.Errorf("the archive names data archive %q, not %s's", ref.Key, comp)
 	case !archiveVersion.MatchString(ref.Version):
-		return nil, nil, fmt.Errorf("the archive names data archive version %q", ref.Version)
+		return nil, dataMissingError{fmt.Sprintf("the backup names version %q of it, which no archiver URL can", ref.Version)}, nil
 	}
 	erased := func(err error) bool {
 		var e erasedError
@@ -214,12 +254,18 @@ func (b *Broker) openDataArchive(provider, comp string, m backup.Manifest) (r *b
 	}
 	body, err := b.fetchArchive(provider, ref.Key, ref.Version)
 	if err != nil {
-		if errors.Is(err, errArchiveGone) && ref.Subkey != "" {
+		if !errors.Is(err, errArchiveGone) {
+			return nil, nil, fmt.Errorf("its data archive: %w", err)
+		}
+		if ref.Subkey != "" {
 			if _, kerr := b.backupKeys().lookup(ref.Subkey); erased(kerr) {
 				return nil, gone, nil // its versions were collected after the erase
 			}
 		}
-		return nil, nil, fmt.Errorf("its data archive: %w", err)
+		return nil, dataMissingError{fmt.Sprintf("archiver %s has no version %s of %s", provider, ref.Version, ref.Key)}, nil
+	}
+	if h, sealed, herr := backup.ReadSealHeader(bytes.NewReader(body)); herr == nil && ref.Subkey != "" && (!sealed || h.Subkey != ref.Subkey) {
+		return nil, nil, fmt.Errorf("its data archive %s %s isn't the one this backup wrote: it isn't sealed under the backup key the backup names", ref.Key, ref.Version)
 	}
 	if r, err = b.openArchive(body); err != nil {
 		if erased(err) {
@@ -228,8 +274,11 @@ func (b *Broker) openDataArchive(provider, comp string, m backup.Manifest) (r *b
 		return nil, nil, fmt.Errorf("its data archive: %w", err)
 	}
 	dm := r.M
-	if !dm.DataArchive() || dm.Component != comp || !dm.ScopeRoot || dm.Scope != comp {
+	switch {
+	case !dm.DataArchive() || dm.Component != comp || !dm.ScopeRoot || dm.Scope != comp:
 		return nil, nil, fmt.Errorf("its data archive %s %s isn't %s's data", ref.Key, ref.Version, comp)
+	case m.BackupID != "" && dm.BackupID != m.BackupID:
+		return nil, nil, fmt.Errorf("its data archive %s %s isn't the one this backup wrote: another backup's", ref.Key, ref.Version)
 	}
 	return r, nil, nil
 }
@@ -259,6 +308,8 @@ func (b *Broker) extractMember(comp, version, name string) ([]byte, int, error) 
 		switch {
 		case err != nil:
 			return nil, http.StatusConflict, err
+		case errors.As(gone, new(dataMissingError)):
+			return nil, http.StatusNotFound, gone
 		case gone != nil:
 			return nil, http.StatusConflict, gone
 		}

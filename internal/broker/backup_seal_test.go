@@ -42,6 +42,15 @@ func unsealWith(b *Broker) func(t *testing.T, body []byte) []byte {
 
 const sealMarker = "PLAINTEXT-MARKER-7f3c"
 
+// plaintextVault puts b in the plaintext-vault mode (--insecure-vault,
+// --no-auth), whose archives are today's plain tars. A test broker has no
+// barrier and doesn't allow plaintext: production before its vault is set
+// up, which backs nothing up (sealing).
+func plaintextVault(b *Broker) *Broker {
+	b.AllowInsecureVault = true
+	return b
+}
+
 // sealFx is bkFx holding main data and a source file with a known marker.
 func sealFx(t *testing.T) *bkFx {
 	t.Helper()
@@ -280,19 +289,6 @@ func TestPlaintextArchiveRestoresSealed(t *testing.T) {
 	}
 	if data, code, err := b.extractMember(bkTile, v, backup.KVName); err != nil || code != 200 || !bytes.Equal(data, kv) {
 		t.Errorf("a plaintext archive's file: %q %d %v", data, code, err)
-	}
-}
-
-// covers PD-56 11§4 — a data archive no main archive names doesn't stay: a
-// failed main PUT deletes it, so retention by count keeps the two aligned.
-func TestSealedBackupMainFails(t *testing.T) {
-	f := sealFx(t)
-	f.arch.fail = backupKey(bkTile)
-	if _, err := f.b.doBackup(bkTile); err == nil {
-		t.Fatal("a failed main PUT succeeded")
-	}
-	if got := f.arch.versions(dataArchiveKey(bkTile)); len(got) != 0 {
-		t.Errorf("an orphan data archive stayed: %v", got)
 	}
 }
 

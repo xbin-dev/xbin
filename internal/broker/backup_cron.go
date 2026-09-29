@@ -104,16 +104,19 @@ func (cr *cronRunner) removeBackup(comp string) bool {
 }
 
 // runScheduledBackup performs a backup and then prunes to the retention count:
-// main's archive, and the primary's deployment archive when it wrote one.
+// main's archive, and the primary's deployment archive when it wrote one; a
+// sealed workspace's data archives go with the main archives that name
+// them (pruneData). All of it under the tile's backup lock.
 func (b *Broker) runScheduledBackup(s backupSchedule) {
-	_, archives, err := b.backupTile(s.Component, false)
+	defer b.holdBackups(s.Component)()
+	_, archives, err := b.backupTileHeld(s.Component, false)
 	if err != nil {
 		slog.Warn("scheduled backup failed", "component", s.Component, "err", err)
 		return
 	}
 	if s.Retention > 0 {
 		b.pruneVersions(s.Component, s.Retention)
-		b.pruneKey(s.Component, dataArchiveKey(s.Component), s.Retention) // a sealed workspace's data archive (none: nothing listed)
+		b.pruneData(s.Component)
 		for dep := range archives {
 			b.pruneKey(s.Component, archiveKey(s.Component, dep), s.Retention)
 		}
@@ -378,7 +381,9 @@ func (b *Broker) BackupDeploymentData(tile, dep string, dryRun bool) (deployment
 	if dep == util.MainDeployment {
 		v, err = b.doBackup(tile)
 	} else {
+		release := b.holdBackups(tile)
 		v, err = b.putDeploymentArchive(c, provider, dep)
+		release()
 	}
 	if err != nil {
 		return deployments.BackupAnswer{}, nsErr(http.StatusBadGateway, "", err.Error())
@@ -506,6 +511,7 @@ func (b *Broker) runDeploymentBackup(tile, dep string) {
 		slog.Warn("scheduled deployment backup: no archiver bound", "tile", tile, "deployment", dep)
 		return
 	}
+	defer b.holdBackups(tile)()
 	if _, err := b.putDeploymentArchive(c, provider, dep); err != nil {
 		slog.Warn("scheduled deployment backup failed", "tile", tile, "deployment", dep, "err", err)
 		return

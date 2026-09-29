@@ -42,7 +42,7 @@ func (a *zeroDataArchiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // layer) and for a nested one that doesn't (source only). The manifest's
 // creation time is the one value masked.
 func TestZeroStateBackupMembers(t *testing.T) {
-	b := zeroDataBroker(t)
+	b := plaintextVault(zeroDataBroker(t))
 	b.Version = "test"
 	root := b.Reg.Root
 	arch := &zeroDataArchiver{}
