@@ -83,6 +83,34 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   update; their databases migrate in place (each run's first request is
   pinned). Nothing to change.
 
+- **Live port previews** (D135). A server running in an agent's coding
+  sandbox can be shown, live, in the agent tile's preview pane:
+  - **The sandbox-manager contract** gains an optional capability,
+    **`ports`**: `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` proxies to
+    a server on the sandbox's own loopback (WebSocket upgrades too), scoped
+    like `exec`, `502 not-listening` when nothing accepts, no credentials
+    either way (docs/sandbox-manager.md §Ports). Protocol 1 grows by
+    addition; `hello.caps` says whether a manager has it. The conformance
+    suite checks it; the reference manager serves it.
+  - **xbind's tile-sandbox runtime** serves it for namespace and VM
+    sandboxes — `ANY /api/xbin/sandboxes/{name}/ports/{port}/{path…}`, and
+    `runtime.caps` gains `ports` (docs/protocol.md §Tile sandboxes). It is
+    inbound only: nothing in a sandbox reaches xbind through it. The Go SDK
+    passes it on with **`xbin.PortRoute(port, path, rawQuery)`** and
+    `Forward` (docs/sdk.md). The builtin **coding-sandbox** forwards it
+    while xbind offers it, and new managers' default image lists
+    `playwright` and `chromium` among its tools.
+  - **Path tickets**: a tile's page mints `POST /api/xbin/path-tickets
+    {path}` and `/api/~<ticket>/<p>` reaches that prefix of its own
+    backend's API as the page — nothing else — for a document it frames in
+    an opaque-origin sandbox (docs/auth.md §Path tickets).
+  - **The agent template**: the tool **`preview_port {port, path?}`**, a
+    `live` step, and the pane showing the page in a frame sandboxed
+    `allow-scripts allow-forms` (never same-origin) with this tile's CSP,
+    for the run's participants only; web and native (API.md §Live
+    previews). An older xbind or manager lacks the capability, and the tool
+    says so.
+
 ## 2026-09-28
 
 - **xbin app: a tile's sessions screen** (D132). A tile's long press (and

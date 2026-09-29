@@ -1387,6 +1387,53 @@ side-effecting tools — the step parks for approval — only when the bound
 sandbox has egress other than `none` (`sandbox_copy`: when any attached one
 has); a sandbox with no network is private scratch.
 
+### Live previews (D135)
+
+**`preview_port {port, path?}`** — "Show the human a LIVE page served by a
+program in your sandbox (e.g. python3 -m http.server 8000) — scripts run,
+in an isolated frame." Offered with the other coding tools; it needs the
+manager's `ports` capability (docs/sandbox-manager.md §Ports — an older
+manager or xbind lacks it, and the tool says so and points at
+`render_html`). It checks the binding as every coding tool does, asks the
+page once through the manager (nothing listening is an error that says to
+start the server as a background job, on 127.0.0.1 or 0.0.0.0) and records
+a **`live` step** `{sandbox, name, port, path}`; the result states the
+limits (relative URLs only; it stays live while the server runs).
+
+**`ANY /runs/{id}/live/{sbx}/{port}/{path…}`** serves the page: only to the
+run's **participants** (a viewer gets 403, anyone who can't see the run
+404), for a sandbox bound or attached to that run (`{sbx}` its id at the
+manager), re-checked as `sandboxUse` checks a tool call (cached 5 s), and
+proxied to the manager's ports route as the person who bound it. It is a
+path-prefix proxy: `{path…}` and the query go on unchanged, relative URLs
+resolve below the prefix, nothing is rewritten; a `.`/`..` segment is 400.
+Every answer carries this tile's headers, never the sandbox's:
+`Content-Security-Policy: sandbox allow-scripts allow-forms` (an opaque
+origin even opened directly — no cookies, no storage, no reach into this
+tile or xbind; no `frame-ancestors`, because the pane framing it is itself
+an opaque origin that no source expression matches), `Referrer-Policy:
+no-referrer`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`;
+of the sandbox server's headers only content ones pass (type, length,
+encoding, range, ETag, Last-Modified, Vary, Location, …) — never
+`Set-Cookie`, `Clear-Site-Data`, NEL/`Report-To`, HSTS, `Alt-Svc`, CORS,
+`WWW-Authenticate` or `X-XBin-*`. The viewer's cookies, credentials,
+identity headers, `Referer` and forwarding headers never reach the sandbox.
+
+**The pane.** A new `live` step opens the render pane (as a render does;
+one you closed stays closed) on the page, labelled **● live from the
+sandbox — name:port/path**, with **↻ Reload**: an `<iframe
+sandbox="allow-scripts allow-forms" credentialless
+referrerpolicy="no-referrer">` — never `allow-same-origin` — whose URL is
+below an xbind **path ticket** (docs/auth.md §Path tickets) the pane mints
+for `runs/{id}/live/{sbx}/{port}` (`model/live.js`): the frame holds no
+token or cookie, so the credential rides in the path and reaches that prefix
+only. The native view shows it as a `canvas src=` island (the same
+sandbox). `test/live-policy.mjs` drives a hostile page through the real
+frame in Chromium: its scripts run, and it gets no cookie, no storage, no
+identity from `/api/xbin/whoami` or this tile's API, no parent or top
+document, no top navigation or pop-up, and its `postMessage` changes
+nothing.
+
 ### In the UI
 
 The model is `model/sandboxes.js` (pure: what the controls say) and

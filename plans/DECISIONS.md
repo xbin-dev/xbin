@@ -5272,6 +5272,93 @@ Deviations and refinements made while implementing; all deliberate:
     the command-line limit anyway); a job-end inbox row to wake the run (a
     poke plus the table is the same durability without a row per end).
 
+- **D135 — Live port previews: the sandbox-manager contract gains the
+  optional `ports` capability, xbind proxies into a sandbox's loopback, a
+  tile page mints path tickets, and the agent shows a sandbox's server in
+  an opaque-origin frame (2026-09-29).** Extends D115's contract (protocol
+  1, by addition) and revises D120 §8's "no port previews in v1".
+  docs/sandbox-manager.md §Ports; docs/protocol.md §Tile sandboxes, §Path
+  tickets; docs/auth.md §Path tickets; docs/sdk.md (`PortRoute`); the
+  agent's API.md §Live previews. From an agent's retrospective: it had no
+  way to show a script-driven page (the plan's section E).
+  - **Chosen.**
+    - **Contract.** `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}`: an HTTP
+      reverse proxy, WebSocket upgrades included, to `127.0.0.1:{port}`
+      (else `::1`) inside the sandbox; scoped and person-checked as `exec`;
+      `{path…}` and the query unchanged (a path-prefix proxy, nothing
+      rewritten), `Host: localhost:{port}`; the consumer's credentials,
+      identity and forwarding headers dropped in, `Set-Cookie`/`X-XBin-*`
+      dropped out; never starts a sandbox (409 `state`); a new refusal
+      `not-listening` (502). Optional, so `hello.caps` feature-detects it;
+      the conformance suite gains a `ports` section (python3's
+      `http.server` when the image has it) and its `unsupported` refusals.
+    - **The bridge: a new agent-core connection kind, `port`.** xbind
+      already reaches a sandbox's agent through the connection factory
+      (namespace) or the resident VM router (vsock); a `port` Hello names
+      the port, the agent dials the loopback, answers one `PortReply` line
+      (ok / refused / error) and splices. Chosen over the egress relay
+      (outbound-only by design: making it carry inbound flows would give a
+      sandbox-facing component a path toward the host) and over
+      `Exec.Listen` (per session and unix-socket only). The agent dials
+      nothing but the loopback, and only xbind opens such a connection:
+      nothing in the sandbox gains a route out. Each request is its own
+      connection (no keep-alive across runs), and a request — a WebSocket
+      for as long as it is open — holds off the idle stop. An agent from
+      before it closes the connection: `unsupported` ("restart the
+      sandbox").
+    - **Path tickets (xbind).** The live page must run in an opaque-origin
+      frame inside the tile's own sandboxed, credentialless frame, so its
+      relative loads carry neither a frame token nor a cookie — and a
+      frame token in its URL would hand hostile content the viewer's
+      identity on the whole tile. A path ticket is a credential that
+      reaches one prefix of the minting tile's API and nothing else:
+      `POST /api/xbin/path-tickets {path}` (a tile's page only), then
+      `/api/~<ticket>/<p>` → `/api/<tile>/<prefix>/<p>` as that frame
+      principal. The content may read it; it gains only itself. HMAC with
+      its own purpose tag; binds tile, person, login generation (dies with
+      the login), deployment and view-as (stays read-only); 12 h; used only
+      from an address that signed in within the hour (the `/c/`
+      subresource rule), so a ticket sent elsewhere is useless; a decoded
+      `.`/`..` is 400 (the proxy resolves dot segments), and the resolved
+      component must be the ticket's tile; on a tile origin only that
+      tile's tickets; redacted from request logs.
+    - **Agent.** `preview_port {port, path?}` (its description's first
+      line states what it is and its isolation) probes the page once and
+      journals a `live` step. `/runs/{id}/live/{sbx}/{port}/{path…}`:
+      participants only (viewers 403, strangers 404), a sandbox bound to
+      that run, `sandboxUse`'s checks (cached 5 s), proxied as the binder.
+      Its answers carry **`Content-Security-Policy: sandbox allow-scripts
+      allow-forms`**, `Referrer-Policy: no-referrer`, `Cache-Control:
+      no-store`, nosniff, and only an allowlist of the server's content
+      headers (no `Set-Cookie`, `Clear-Site-Data`, NEL/`Report-To`, HSTS,
+      `Alt-Svc`, CORS, `WWW-Authenticate`, `X-XBin-*`). The pane: `<iframe
+      sandbox="allow-scripts allow-forms" credentialless
+      referrerpolicy="no-referrer">`, never `allow-same-origin`, labelled
+      live, with Reload; native: `canvas src=` on the same URL.
+    - **`frame-ancestors 'self'` is dropped** from the plan's CSP: the pane
+      framing the page is itself an opaque origin (a sandboxed tile
+      frame), which no source expression matches — Chromium blocked the
+      frame (test/live-policy.mjs). The ticket, bound to the viewer's login
+      and address, is what keeps other sites from loading it; a site that
+      frames it anyway gets a sandboxed page it can't read.
+  - **Accepted.** The page runs in the viewer's browser with the network
+    that browser has (the owner's scenario loads a CDN import), so a
+    hostile page can send what it shows elsewhere and can talk to its own
+    server — a sandbox with egress `none` gains, while someone views it, a
+    channel through that viewer's browser. Viewing is a participant's act;
+    a stricter `connect-src` preview for `none` sandboxes is a later
+    option. Root-absolute URLs in a page (`/app.js`) don't resolve under
+    the prefix (the tool says so).
+  - **Security review** (an adversarial reviewer on the finished diff):
+    see the review note below.
+  - **Not chosen:** public preview URLs (E2B/Daytona style: exposure beyond
+    the run's people); rewriting HTML to prefix URLs (one sanctioned HTML
+    transform, in xbind); the frame token in the page's URL (the page
+    would act as the viewer on the whole tile); a cookie for the frame
+    (an opaque, credentialless frame sends none); tile origins only
+    (not every workspace runs them); an xbind-side browser (the plan's
+    alternative, not chosen).
+
 - **D136 — The agent verifies pages in a real browser in its sandbox
   (browser_check), and sees its files in one view with two explicit places:
   session files carry a hash, a source and earlier versions; sandbox_download
