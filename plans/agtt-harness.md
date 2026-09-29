@@ -295,7 +295,7 @@ before is answered.
 - Cancel: `session/cancel`, kill the exec, status `canceled`, a child's link
   settles canceled.
 
-### 3.6 The pipe (WP-A7, `harness_pipe.go`, implements `acp.Process`)
+### 3.6 The pipe (WP-A7, `harness_pipe.go`, builds the `acp.Process`: Stdin, Stdout, Wait, Kill)
 
 - **Start.** `POST …/execs` with `argv: ["sh", "-c", 'L="${HOME:-/tmp}/.cache/xbin-harness/$1.log"; shift; mkdir -p "${L%/*}"; exec "$@" 2>"$L"', "h", "<run>-<gen>", <provider argv…>]`,
   `stdin: true`, the binding's `cwd`, `label: "harness <provider> · #<root>"`,
@@ -353,7 +353,7 @@ fields or behaviour. "WP" is who builds it.
 | `PATCH /runs/{id}/harness` **new** | participant; explicit mode: owner | `{mode?, option?: {id, value}}` | `{harness}` | A9 |
 | `POST /runs/{id}/harness/answer` **new** | participant | `{park, action, content?}` | `{ok: "true"}` | A9 |
 | `POST /runs/{id}/harness/authenticate` **new** | participant; a person with sandbox Use | `{method, apiKey?, confirm?}` | 200 `{ok, state}` \| 202 `{ok, device}` | A9 |
-| `GET /runs/{id}/harness/log` **new** | viewer (read as the caller) | `?max=<bytes ≤ 65536>` | `text/plain`, the stderr log's tail | A9 |
+| `GET /runs/{id}/harness/log` **new** | viewer; a person with sandbox Use | `?max=<bytes ≤ 65536>` | `text/plain`, the stderr log's tail | A9 |
 | `GET /runs/{id}/harness/terminal` **new** | participant; a person with sandbox Use | `?login=1&rows=&cols=&exec=` | WebSocket, the `/ws/term` wire | A9 |
 | `GET /sandboxes/{ref}/terminal` **new** | any; a person with sandbox Use | `?cwd=&cmd=&rows=&cols=&exec=` | WebSocket, the `/ws/term` wire | A9 |
 | `POST /runs/{id}/approve` | participant; explicit option: owner | `{approve?, park?, option?, feedback?, grant?}` | `{ok: "true"}` | A9 |
@@ -392,8 +392,10 @@ catalog `autoMode` is empty); 403 `the setting is a person's own`.
 - `class`: optional; when given it must allow the harness; when absent the
   caller's default class if it allows it, else the first class they may use
   (in `GET /classes` order) that does.
-- `sandbox`: the sandbox (required unless `askSandbox`'s default resolution
-  yields one); fixed for the conversation, together with `cwd`. Its
+- `sandbox`: the sandbox, **required** (the tile's defaults never hold one
+  — `PUT /config` clears it); fixed for the conversation, together with
+  `cwd`. `POST /runs` gains it as `/ask` has it (bound by `askSandbox`,
+  as the owner-to-be) and keeps `goal` for the text. Its
   (manager, image) must be in the catalog's `images` for the harness
   (§4.3.10), and its egress (the less restrictive of
   `egress`/`egressNext`) must not be `none`. A running sandbox is probed
@@ -405,7 +407,11 @@ catalog `autoMode` is empty); 403 `the setting is a person's own`.
   (the conversation's owner-to-be).
 - `harness.options`: config options (`{"model": "…", "effort": "…"}`)
   applied after `session/new`/`load`; one the adapter refuses is a journal
-  note, not an error.
+  note, not an error. They never carry the mode (else they would bypass
+  the explicit-mode rule): a key `mode`, or one the catalog's last-seen
+  `options` gives category `mode`, is 400 `harness.options: the mode is
+  harness.mode`, and the engine skips (with a journal note) any option the
+  live adapter reports as category `mode`.
 - `hold`, `draft`, `files`, `title` work as today; the first message becomes
   the first prompt (an `hprompt` row, §3.2).
 - Errors: 400 `harness.provider: no coding agent "x" (GET /harnesses lists
@@ -435,8 +441,9 @@ session the handler calls the adapter (`session/set_mode`,
 the choice is stored in `Config.Harness` for the next start. A config
 option of category `mode` is never listed in `options` (the mode picker
 covers it; the backend routes a mode change to whichever the adapter
-speaks). Errors: 400 `mode: one of …` / `option: one of …` / `value: one of
-…`; 403 `only ‹owner› can switch ‹name› to ‹mode name›` (explicit mode);
+speaks), and `option.id` must be one listed — so a mode change always
+goes through `mode` and its owner-only rule for explicit modes. Errors:
+400 `mode: one of …` / `option: one of …` / `value: one of …`; 403 `only ‹owner› can switch ‹name› to ‹mode name›` (explicit mode);
 502 `{error: <the adapter's words>}`; 503 with `Retry-After: 1` while
 another process holds the session (a handoff).
 
@@ -476,9 +483,12 @@ engine starts the adapter (initialize only) when none is live.
 
 The tail (≤ `max`, default and cap 64 KiB) of the adapter's stderr:
 `<sandbox home>/.cache/xbin-harness/<run>-<gen>.log` read through the files
-API, or, for a split exec (§5.3), `…/output?stream=stderr` — either way
-**as the caller** (asserted), so the manager's person rules apply. 404 `no
-log yet`.
+API, or, for a split exec (§5.3), `…/output?stream=stderr`, with
+`Sbx-User: <caller>`. A manager doesn't police an asserted person
+(docs/sandbox-manager.md §Who is asking), so AgTT checks the caller's own
+`sandboxAccess(caller).Use` first, fresh from the manager, as for the
+terminals (the file lives in a HOME the sandbox's users can write). 403
+`only a person who may use ‹sandbox› can read its log`; 404 `no log yet`.
 
 #### 4.2.8 The terminal relays
 
@@ -512,9 +522,10 @@ at every attach (`forUser`). Refusals come before the upgrade, as JSON.
 `{approve?, park?, option?, feedback?, grant?}`. On a harness park:
 
 - `option` (an `optionId` of `pendingState.harness.options`) wins;
-  otherwise `approve: true` picks the first `allow_once` (else the first
-  `allow_*`), `approve: false` picks `reject_once`, then `reject_always`,
-  then the `cancelled` outcome.
+  otherwise `approve: true` picks the first non-`explicit` `allow_once`
+  (else the first non-`explicit` `allow_*`; none → 400 `option: name one
+  — every allow here raises ‹name› to an explicit mode`), `approve: false`
+  picks `reject_once`, then `reject_always`, then the `cancelled` outcome.
 - `feedback` (plan approval's "keep planning") is valid only with a reject
   verdict: the rejection is answered, then `feedback` is queued as the
   caller's next message (`hprompt`).
@@ -582,6 +593,9 @@ run has no `harness` key.
  "sandbox": {"ref": "apps/coding-sandbox|sb-7f3a", "name": "api-dev", "cwd": "/work/api", "shared": true},
  "steering": true, "title": "Fix the flaky test", "gen": 2}
 ```
+
+(Every field shown at once; `pending`, `login`, `plan`, `usage` and
+`activity` are present only while they apply, per the table.)
 
 | Field | Meaning |
 |---|---|
@@ -902,12 +916,14 @@ runtime routes), `docs/sdk.md`, a changelog entry.
 
 - The `tty` routes (`GET …/tty`, `GET …/execs/{eid}/tty`) serve a consumer's
   **backend** as well as its pages: a backend dials with its own credential
-  and `Sbx-User: <person>` (asserted); the manager applies its person rules
-  to the asserted person as on any other route, records nothing new (an
-  exec's owner is as for `execs`), and a verified `X-XBin-User` wins over
-  the header. The backend relays the socket to its page or app byte for
-  byte. Every manager implements it (a cloud manager: `ssh -t`, for a page
-  or a backend alike).
+  and `Sbx-User: <person>` (asserted). The person rules are **unchanged**
+  (§Who is asking, §Partitions): on a backend call the manager records the
+  asserted person (as for `execs`: the runtime's `forUser`) and does not
+  police it — the consumer checks its own rules before it dials (AgTT:
+  `sandboxAccess(caller).Use`, fresh from the manager, §4.2.8); a verified
+  `X-XBin-User` wins over the header. The backend relays the socket to its
+  page or app byte for byte. Every manager implements it (a cloud manager:
+  `ssh -t`, for a page or a backend alike).
 - A manager passes the person as `forUser` to the runtime, which refuses a
   person with `noTerminal` (D88) at every attach, verified or asserted.
 - The SDK consumer helper (`sdk/sandbox_consumer_tty.go`):
@@ -935,14 +951,15 @@ runtime routes), `docs/sdk.md`, a changelog entry.
 
 - Conformance (`sdk/sandboxcontract`): a section `consumer-tty` — a
   terminal started and attached again by a backend as an asserted person;
-  the session frame and the wire as for a page; an asserted person the
-  manager's rules refuse is refused before the upgrade; a verified header
-  wins. Run against fakesandbox, coding-sandbox's fake backend and live
-  tilesbx.
-- `docs/sandbox-manager.md` §Terminals and §People's terminals lose "The
-  xbin app's `terminal` primitive … can't reach a manager's": consumers
-  relay; the cloud table's `tty` row reads "`ssh -t` (for a page or a
-  consumer's backend), window-change on resize".
+  the session frame and the wire as for a page; the asserted person
+  recorded (not policed); a verified header wins over `Sbx-User`; a
+  refusal (a missing sandbox or exec, not a WebSocket upgrade) comes before
+  the upgrade, as JSON. Run against fakesandbox, coding-sandbox's fake
+  backend and live tilesbx (which also refuses a `noTerminal` person).
+- `docs/sandbox-manager.md` §Terminals loses "The xbin app's `terminal`
+  primitive … can't reach a manager's": consumers relay; the cloud table's
+  `tty` row reads "`ssh -t` (for a page or a consumer's backend),
+  window-change on resize".
 
 ### 5.3 `stdio` — an optional capability (A4c)
 
@@ -1003,7 +1020,7 @@ xbind keeps compiling unchanged through aliases.
 | `permissions.go` | `Permissions`, `PermissionOption`, `ToolCallRef`, `Pending`, `Resolution`, kind constants |
 | `providers.go` | `Provider` (fields as today + `LoginCmd`, `Bins`, `AutoMode`, `ApproveMode`, `PlanMode`, all `json:"-"`, so xbind's providers JSON stays byte-identical), `Catalog()` (the four; no `os.Getenv`), `Lookup` (the four), `ResolveMode`, `Fake(argv)` (the test provider: modes `ask`, `auto`, `yolo` explicit; AgTT uses it for a hello entry `fake`) |
 | `attachments.go` | moved as is |
-| `config.go` | `Config` (today's fields + the seams below), `Process`, `Spawner`, the `Err*` values |
+| `config.go` | `Config` (today's fields + the seams below), `Process`, `Spawner`, `Elicitation`, the `Err*` values (all from `internal/agent/driver.go`, whose `Driver` interface stays in xbind) |
 | `client.go`, `handshake.go`, `updates.go`, `status.go` | `client.go` split in four |
 | `prompt.go`, `elicit.go`, `toolmeta.go`, `commands.go`, `abort.go` | moved as they are |
 
@@ -1031,8 +1048,10 @@ ElicitForm: true, ElicitURL: true, TerminalAuth: true, Meta:
 {terminal_output, terminal_output_delta, subagent-transcript}}`.
 
 xbind shims: `internal/agent` holds type/const aliases (`type Event =
-acp.Event`, …) and keeps `Log`, `page.go`, the `Driver` interface and
-`Providers()` (catalog + the `XBIN_AGENT_FAKE` fake). `Provider.LoginHint`
+acp.Event`, …) and keeps `Log`, `page.go`, the `Driver` interface,
+`Providers()` and `Lookup` (catalog + the `XBIN_AGENT_FAKE` fake, which
+keeps today's `ask`/`yolo` modes — it is not `acp.Fake`, so the providers
+JSON with the fake set is unchanged too). `Provider.LoginHint`
 becomes `agent.LoginHint(p, tile)` with the same words.
 `internal/agent/acp` holds `type Client = sdkacp.Client` and `New()` =
 `sdkacp.NewWith(xbindDefaults)` (`Drop` via `_xbin/attach`, `OnExt` for
@@ -1110,7 +1129,7 @@ New prompt scripts:
 | `todo` | three ACP `plan` updates 200 ms apart (3 entries: pending → one in progress → all completed), then "todo done" |
 | `stall` | a chunk "stalling", then nothing until `session/cancel` (handoff and reattach tests) |
 | `cards` | one completed call of each kind — read, edit (a `diff` for `hello.txt`), delete, move, search, execute (terminal output + exit 0), fetch, think, other — then "cards done" |
-| `perm-edit` | an edit tool_call + `request_permission` (skipped in `auto` and `yolo`) |
+| `perm-edit` | an edit tool_call + `request_permission` (skipped in `auto` and `yolo`); matched before `perm`, which the dispatch finds by substring |
 | `steer…` | (a prefix) a `slow` turn that reports each steer it received |
 
 ### 7.2 `hack/fakeopenai` keywords
@@ -1250,6 +1269,15 @@ why this spec picked what it did:
 20. **The terminal route under `/sandboxes/{ref...}`:** registered inside
     the existing wildcard handler (refs contain `/`), like the lifecycle
     actions.
+21. **Who polices a relayed person** (verifier, 2026-09-29): AgTT, not the
+    manager. The contract's person rules stay as they are — a manager
+    records an asserted `Sbx-User` and leaves its rules to the consumer —
+    so the terminal relays and the log route check the caller's
+    `sandboxAccess(caller).Use` themselves; only the runtime's
+    `noTerminal` (D88) applies to an asserted person as well. Policing
+    asserted persons in the manager would change the contract every
+    manager in the wild implements (fakesandbox and coding-sandbox's
+    `personOK` pass a backend call through).
 
 ## 10. Deviations
 
