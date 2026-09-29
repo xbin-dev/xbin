@@ -195,6 +195,8 @@ func main() {
 		fmt.Printf("got %s\n", line)
 		n, _ := strconv.Atoi(line)
 		os.Exit(n)
+	case "serve": // addr: an HTTP server (ports.go's tests): /ws echoes WebSocket messages, anything else describes the request
+		serve(a[0])
 	default:
 		fail("unknown op " + os.Args[1])
 	}

@@ -327,6 +327,8 @@ func (st *State) registerTileSandboxAPI(srv *server.Server) {
 	srv.RegisterAPI("GET /sandboxes/{name}/tar", m.ServeGetTar)
 	srv.RegisterAPI("PUT /sandboxes/{name}/tar", m.ServePutTar)
 	srv.RegisterAPI("POST /sandboxes/copy", m.ServeCopy)
+	// ports (D135): any method, WebSocket upgrades included
+	srv.RegisterAPI("/sandboxes/{name}/ports/{port}/{path...}", m.ServePort)
 	// snapshots
 	srv.RegisterAPI("GET /sandboxes/{name}/snapshots", m.ServeSnapshots)
 	srv.RegisterAPI("POST /sandboxes/{name}/snapshots", m.ServeSnapshot)

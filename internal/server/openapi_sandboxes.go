@@ -147,6 +147,13 @@ func sandboxEndpoints() []ep {
 		{"POST", "/sandboxes/copy", sbxTag, "Copy between two sandboxes", capManager,
 			"{from:{sandbox, path}, to:{sandbox, path}, overwrite} → 204: both of the caller's own, streamed agent to agent (≤ limits.tarMax). A directory is copied as a tree (its contents at to.path, merged with overwrite), anything else as a file; without overwrite an existing to.path is 412. Not audited (data plane)." + sbxErrors,
 			nil, jsonBody("the copy", oapi{"from": object("{sandbox, path}"), "to": object("{sandbox, path}"), "overwrite": boolean()}, "from", "to"), "204"},
+		// ports (D135): any method; GET and POST stand for them all here
+		{"GET", "/sandboxes/{name}/ports/{port}/{path}", sbxTag, "Proxy to a port in a sandbox (any method, WebSocket too)", capManager,
+			"Any method: an HTTP reverse proxy to a server on the sandbox's own loopback (127.0.0.1:{port}, else [::1]), WebSocket upgrades included; path and query go on as they came (no segment may decode to . or ..), Host is localhost:{port}. Never starts a stopped sandbox (409 state). Authorization, Cookie, Sbx-User, X-XBin-* and forwarding headers are dropped on the way in, Set-Cookie and X-XBin-* on the way out. 502 not-listening when nothing accepts on the port; 501 unsupported from a sandbox agent that predates ports. Not audited (data plane)." + sbxErrors,
+			[]oapi{sbxName(), pathParam("port", "1-65535"), pathParam("path", "the server's path, escaped as sent")}, nil, "the server's response"},
+		{"POST", "/sandboxes/{name}/ports/{port}/{path}", sbxTag, "Proxy to a port in a sandbox (any method)", capManager,
+			"As GET: the body streams to the server." + sbxErrors,
+			[]oapi{sbxName(), pathParam("port", "1-65535"), pathParam("path", "the server's path, escaped as sent")}, freeBody("the request body"), "the server's response"},
 		// snapshots
 		{"GET", "/sandboxes/{name}/snapshots", sbxTag, "A sandbox's snapshots", capManager,
 			"{snapshots:[{id, name, created, bytes, pending?}]}, by id; one still being taken is pending." + sbxErrors, name, nil, "{snapshots}"},

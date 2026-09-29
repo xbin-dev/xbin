@@ -63,10 +63,26 @@ var ErrLineTooLong = errors.New("proto: line too long")
 
 // Hello opens every connection to the agent.
 type Hello struct {
-	Kind    string  `json:"kind"`              // "ctl" | "stream" | "listen" (a connection for Exec.Listen) | "file"
+	Kind    string  `json:"kind"`              // "ctl" | "stream" | "listen" (a connection for Exec.Listen) | "file" | "port"
 	Session int     `json:"session,omitempty"` // stream: the session it belongs to
 	Stream  string  `json:"stream,omitempty"`  // stream: "pty" | "stdin" | "stdout" | "stderr"
 	File    *FileOp `json:"file,omitempty"`    // file: the operation (file.go)
+	// Port (kind "port", D135): a TCP port on the sandbox's own loopback.
+	// The agent dials it (127.0.0.1, else ::1), answers one PortReply line,
+	// and on success splices the connection to it both ways. Only xbind
+	// opens one — the host→sandbox direction; nothing in the sandbox can
+	// reach xbind through it. An agent from before it closes the
+	// connection without a reply.
+	Port int `json:"port,omitempty"`
+}
+
+// PortReply answers a "port" connection's Hello, one line, before any byte
+// of the spliced stream: OK, or why the dial failed (Refused: nothing
+// listens on the port).
+type PortReply struct {
+	OK      bool   `json:"ok,omitempty"`
+	Refused bool   `json:"refused,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // Config turns a booted (or template-restored) guest into this sandbox. The

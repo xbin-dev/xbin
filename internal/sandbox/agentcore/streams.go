@@ -3,8 +3,12 @@
 package agentcore
 
 import (
+	"encoding/json"
+	"errors"
 	"io"
 	"net"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
@@ -86,4 +90,53 @@ func (c *Core) bridgeListen(h proto.Hello, conn io.ReadWriteCloser) {
 		return
 	}
 	Splice(g, conn)
+}
+
+// PortDialTimeout bounds a "port" connection's dial of the sandbox's
+// loopback (each address tried).
+var PortDialTimeout = 5 * time.Second
+
+// bridgePort connects a "port" connection (D135: xbind's inbound path to a
+// server in the sandbox, the ports capability) to TCP port h.Port on the
+// sandbox's own loopback — 127.0.0.1, else ::1 (a server that bound
+// "localhost" may hold only the one) — and answers one PortReply line
+// first. It dials nothing but the loopback: the port is all the peer
+// chooses.
+func (c *Core) bridgePort(h proto.Hello, conn io.ReadWriteCloser) {
+	reply := func(r proto.PortReply) error {
+		b, _ := json.Marshal(r)
+		_, err := conn.Write(append(b, '\n'))
+		return err
+	}
+	if h.Port < 1 || h.Port > 65535 {
+		_ = reply(proto.PortReply{Error: "port " + strconv.Itoa(h.Port) + " is out of range (1-65535)"})
+		conn.Close()
+		return
+	}
+	g, err := DialLoopback(h.Port, PortDialTimeout)
+	if err != nil {
+		_ = reply(proto.PortReply{Refused: errors.Is(err, syscall.ECONNREFUSED), Error: err.Error()})
+		conn.Close()
+		return
+	}
+	if err := reply(proto.PortReply{OK: true}); err != nil {
+		g.Close()
+		conn.Close()
+		return
+	}
+	Splice(g, conn)
+}
+
+// DialLoopback dials port on 127.0.0.1, then on ::1 when that fails; the
+// error is the first address's unless only the second one listens.
+func DialLoopback(port int, timeout time.Duration) (net.Conn, error) {
+	p := strconv.Itoa(port)
+	g, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", p), timeout)
+	if err == nil {
+		return g, nil
+	}
+	if g6, err6 := net.DialTimeout("tcp", net.JoinHostPort("::1", p), timeout); err6 == nil {
+		return g6, nil
+	}
+	return nil, err
 }

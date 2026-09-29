@@ -34,9 +34,10 @@ import (
 //     the guest over the shim's own control connection — the guest's only
 //     one — and every event the guest sends (≤ MaxEvent, read by readCtl)
 //     comes back up on it.
-//   - "stream" and "file" are dialled to the guest with the same Hello, then
-//     spliced both ways with half-close passed on. The shim never parses
-//     what flows through them.
+//   - "stream", "file" and "port" (D135: a TCP port on the guest's own
+//     loopback, the ports capability) are dialled to the guest with the
+//     same Hello, then spliced both ways with half-close passed on. The
+//     shim never parses what flows through them.
 //   - anything else ("listen": there is no backend socket or gateway in a
 //     tile sandbox) is closed, and so is anything naming a session below 2
 //     (backends' and terminals').
@@ -254,9 +255,9 @@ func (r *router) route(c net.Conn) {
 	switch {
 	case h.Kind == "ctl":
 		r.control(c, br)
-	case h.Kind == "stream" && h.Session >= firstSession, h.Kind == "file":
+	case h.Kind == "stream" && h.Session >= firstSession, h.Kind == "file", h.Kind == "port" && h.Port > 0 && h.Port <= 65535:
 		// the same Hello, as the shim read it (unknown fields don't pass)
-		g, err := r.dial(proto.Hello{Kind: h.Kind, Session: h.Session, Stream: h.Stream, File: h.File})
+		g, err := r.dial(proto.Hello{Kind: h.Kind, Session: h.Session, Stream: h.Stream, File: h.File, Port: h.Port})
 		if err != nil {
 			r.logf("%s connection to the guest: %v", h.Kind, err)
 			c.Close()

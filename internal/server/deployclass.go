@@ -126,6 +126,7 @@ var routeClasses = map[string]RouteClass{
 	// any other deployment until its own set exists (plans/
 	// tile-sandbox-runtime.md §14). The policy is the admin's. ----
 	"DELETE /sandboxes/{name}":                       DeploymentScoped,
+	"/sandboxes/{name}/ports/{port}/{path...}":       DeploymentScoped,
 	"DELETE /sandboxes/{name}/execs/{id}":            DeploymentScoped,
 	"DELETE /sandboxes/{name}/snapshots/{sid}":       DeploymentScoped,
 	"GET /sandboxes/{name}":                          DeploymentScoped,

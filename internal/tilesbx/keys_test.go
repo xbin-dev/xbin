@@ -127,11 +127,14 @@ func TestNonMainDeploymentUnsupported(t *testing.T) {
 	as := withDeployment("blue")
 	dmgr := as(mgr)
 	for pat := range routeTable(e.m) {
-		method, path, _ := strings.Cut(pat, " ")
+		method, path, ok := strings.Cut(pat, " ")
+		if !ok { // a route for any method (ports)
+			method, path = "GET", pat
+		}
 		if strings.HasPrefix(path, "/sandboxes/policy") {
 			continue // admin routes: the key isn't the caller's
 		}
-		path = strings.NewReplacer("{name}", "sb-1", "{id}", "0a1b2c-1", "{sid}", "s-1").Replace(path)
+		path = strings.NewReplacer("{name}", "sb-1", "{id}", "0a1b2c-1", "{sid}", "s-1", "{port}", "8000", "{path...}", "x").Replace(path)
 		w := e.do(dmgr, method, path, ns("sb-2"))
 		if w.Code != http.StatusNotImplemented || !strings.Contains(w.Body.String(), "non-main deployment") {
 			t.Errorf("%s %s as a deployment's manager: %d %s, want 501 (non-main deployment)", method, path, w.Code, w.Body)

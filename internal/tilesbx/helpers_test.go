@@ -153,6 +153,7 @@ func routeTable(m *Manager) map[string]http.HandlerFunc {
 		"GET /sandboxes/{name}/tar":                      m.ServeGetTar,
 		"PUT /sandboxes/{name}/tar":                      m.ServePutTar,
 		"POST /sandboxes/copy":                           m.ServeCopy,
+		"/sandboxes/{name}/ports/{port}/{path...}":       m.ServePort,
 		"GET /sandboxes/{name}/snapshots":                m.ServeSnapshots,
 		"POST /sandboxes/{name}/snapshots":               m.ServeSnapshot,
 		"POST /sandboxes/{name}/snapshots/{sid}/restore": m.ServeRestore,

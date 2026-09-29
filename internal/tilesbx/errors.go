@@ -37,6 +37,7 @@ var refusalStatus = map[string]int{
 	RefLimit:        http.StatusTooManyRequests,
 	RefUnsupported:  http.StatusNotImplemented,
 	RefUnavailable:  http.StatusServiceUnavailable,
+	RefNotListening: http.StatusBadGateway, // ports.go (D135)
 }
 
 // Error is a refusal: what the caller asked can't be done, and why.

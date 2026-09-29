@@ -142,6 +142,8 @@ func (c *Core) Handle(conn io.ReadWriteCloser) {
 		c.bridgeListen(h, streamConn{c: conn, r: r})
 	case "file":
 		c.fileOp(h.File, proto.NewConn(conn, r)) // files_linux.go
+	case "port":
+		c.bridgePort(h, streamConn{c: conn, r: r}) // streams.go
 	default:
 		conn.Close()
 	}

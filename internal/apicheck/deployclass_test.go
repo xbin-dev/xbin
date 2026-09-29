@@ -201,7 +201,10 @@ func classRefusals(t *testing.T, inv map[string]string) {
 	}
 	call := func(c cred, pattern string) (int, string) {
 		t.Helper()
-		method, path, _ := strings.Cut(pattern, " ")
+		method, path, ok := strings.Cut(pattern, " ")
+		if !ok { // a route for any method (the ports proxy)
+			method, path = "GET", pattern
+		}
 		var segs []string
 		for _, s := range strings.Split(strings.Trim(path, "/"), "/") {
 			switch {

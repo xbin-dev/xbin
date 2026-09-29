@@ -195,7 +195,7 @@ type Used struct {
 }
 
 // builtCaps are the contract capabilities this runtime serves.
-var builtCaps = []string{"exec", "tty", "files", "tar", "snapshots", "clone"}
+var builtCaps = []string{"exec", "tty", "files", "tar", "snapshots", "clone", "ports"}
 
 // runtime builds a tile's Runtime. Callers hold m.mu.
 func (m *Manager) runtime(k Key) Runtime {

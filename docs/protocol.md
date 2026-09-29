@@ -3778,9 +3778,27 @@ sandboxes).
   create, get, patch, delete — and so do start, stop, reset and rebase, in
   both modes, the commands (`run`, execs and their output, stdin, signals,
   resizes and the TTY WebSocket), the file, tar and copy routes, and
-  snapshots, restores and clones; `runtime.caps` lists the contract
-  capabilities served (`exec`, `tty`, `files`, `tar`, `snapshots`,
-  `clone`).
+  snapshots, restores and clones, and the ports proxy; `runtime.caps` lists
+  the contract capabilities served (`exec`, `tty`, `files`, `tar`,
+  `snapshots`, `clone`, and `ports` since D135 — an older xbind leaves it
+  out, and its ports route is a 404).
+- **Ports** (D135). `ANY /sandboxes/<name>/ports/<port>/<path>` proxies
+  the request — any method, a WebSocket upgrade included — to a server
+  listening on TCP `<port>` (1–65535) on the sandbox's **own loopback**:
+  xbind asks the sandbox's agent for a connection, and the agent dials
+  `127.0.0.1:<port>` (else `[::1]`, for a server that bound `localhost`)
+  inside the sandbox and splices it; each request is a connection of its
+  own. It is inbound only: nothing in the sandbox reaches xbind or the
+  workspace through it. `<path>` and the query go on as they came (escaped;
+  a segment that decodes to `.` or `..` is 400), `Host` is
+  `localhost:<port>`. `Authorization`, `Cookie`, `Sbx-User`, `X-XBin-*`,
+  `Forwarded` and `X-Forwarded-*` never reach the server, and its
+  `Set-Cookie` and `X-XBin-*` never come back. The sandbox must be running:
+  the route never starts one (409 `state`: its server would be gone
+  anyway); nothing accepting on the port is **502 `not-listening`**; an
+  agent from before ports (restart the sandbox) is 501 `unsupported`. A
+  request in flight — a WebSocket for as long as it is open — holds off the
+  idle stop.
 
 ```
 GET    /sandboxes/runtime          manager. what this tile may use now → {enabled,
@@ -3850,6 +3868,11 @@ GET    /sandboxes/<name>/tar?path=&exclude=… → application/x-tar
 PUT    /sandboxes/<name>/tar?path=&mkdirs=1  tar body → 204
 POST   /sandboxes/copy                       {from:{sandbox, path}, to:{sandbox,
                                              path}, overwrite} → 204 (both the caller's)
+
+ANY    /sandboxes/<name>/ports/<port>/<path>?<query>
+                                             manager. an HTTP reverse proxy to a
+                                             server on the sandbox's loopback,
+                                             WebSocket upgrades too (below)
 
 GET    /sandboxes/<name>/snapshots           manager. → {snapshots:[{id, name, created,
                                              bytes, pending?}]}
