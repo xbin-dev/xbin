@@ -398,5 +398,10 @@ func (b *Broker) apiVaultRekey(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Backup key bundles exported so far wrap the same DEK under the old
+	// passphrase: the nudges ask for a fresh one (backupkeys_status.go).
+	if err := b.backupKeys().passphraseChanged(); err != nil {
+		slog.Warn("vault rekey: marking the backup key exports stale", "err", err)
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"rekeyed": true})
 }

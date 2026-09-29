@@ -8,10 +8,18 @@ package broker
 // A bundle is {schema, workspace, created, barrier, keys, erased}: the
 // vault's .barrier.json (the DEK wrapped under the passphrase's KEK), every
 // key file (wrapped under the DEK) and every tombstone. Without the vault
-// passphrase it opens nothing. An import unwraps the other workspace's DEK
-// in memory with its passphrase, re-wraps each key under this workspace's
-// DEK, and appends the tombstones; it never adopts the other DEK or
-// passphrase.
+// passphrase it opens nothing; with the passphrase in force when it was
+// exported it opens the workspace's DEK itself — every vault secret and
+// all resource data at rest, not only the backups — and a passphrase
+// change doesn't take that back (the DEK never rotates), so the nudges ask
+// for a fresh export after one and the docs say to destroy older bundles.
+// An import unwraps the other workspace's DEK in memory with its
+// passphrase, re-wraps each key under this workspace's DEK, and appends the
+// tombstones; it never adopts the other DEK or passphrase.
+//
+// Export, import and erase are a person's acts (requireAdminPerson): an
+// admin in their own session or through the admin tile's frame under their
+// login, never a tile's backend, terminal or agent on its tile's grants.
 
 import (
 	"encoding/json"
@@ -19,14 +27,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/backup"
-	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/vault"
 )
@@ -77,17 +83,13 @@ func (s *backupKeyStore) export(workspace string) (backupKeyBundle, error) {
 	bundle := backupKeyBundle{Schema: backupBundleSchema, Workspace: workspace, Created: now, Barrier: kf,
 		Keys: append([]backupSubkey{}, keys...), Erased: append([]backupTombstone{}, tombs...)}
 	ex := s.exports()
-	ex.Last, ex.Count = now, ex.Count+1
+	ex.Last, ex.Count, ex.Rekeyed = now, ex.Count+1, ""
 	for _, k := range keys {
 		if !slices.Contains(ex.IDs, k.ID) {
 			ex.IDs = append(ex.IDs, k.ID)
 		}
 	}
-	data, _ := json.MarshalIndent(ex, "", "  ")
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return bundle, err
-	}
-	return bundle, fsutil.WriteFileAtomic(filepath.Join(s.dir, backupExportsFile), data, 0o600)
+	return bundle, s.writeExports(ex)
 }
 
 // backupImport is what an import did.
@@ -169,21 +171,21 @@ func (s *backupKeyStore) importBundle(bundle backupKeyBundle, passphrase, by str
 		out.Imported++
 	}
 	// Their erasures hold here: a key of theirs this workspace has (an
-	// earlier import) goes, and each tombstone is recorded. A bundle's
-	// tombstones aren't sealed by its barrier, so one never erases a key of
-	// this workspace's own: only an imported one.
+	// earlier import) goes — its tombstone first, as every erase — and each
+	// tombstone is recorded. A bundle's tombstones aren't sealed by its
+	// barrier, so one never erases a key of this workspace's own: only an
+	// imported one.
 	var newTombs []backupTombstone
+	var drop []string
 	for _, t := range bundle.Erased {
-		if !backup.SubkeyID.MatchString(t.ID) || slices.ContainsFunc(tombs, func(x backupTombstone) bool { return x.ID == t.ID }) {
+		if !backup.SubkeyID.MatchString(t.ID) || tombstoned(tombs, t.ID) || tombstoned(newTombs, t.ID) {
 			continue
 		}
 		if k, err := s.read(t.ID); err == nil {
 			if k.Imported == "" {
 				continue // ours: an admin erases it here (POST /backup/erase), never a bundle
 			}
-			if err := os.Remove(s.path(t.ID)); err != nil {
-				return out, err
-			}
+			drop = append(drop, t.ID)
 			t.Reason += " (erased by the exporting workspace)"
 		}
 		newTombs = append(newTombs, t)
@@ -193,6 +195,9 @@ func (s *backupKeyStore) importBundle(bundle backupKeyBundle, passphrase, by str
 			return out, err
 		}
 		out.Erased = len(newTombs)
+		for _, id := range drop {
+			s.finishErase(id)
+		}
 	}
 	slog.Info("backup keys imported", "workspace", bundle.Workspace, "imported", out.Imported, "present", out.Present, "erased", out.Erased, "by", by)
 	return out, nil
@@ -213,7 +218,7 @@ func (b *Broker) apiBackupKeysStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiBackupKeysExport(w http.ResponseWriter, r *http.Request) {
-	if !b.requireAdmin(w, r) {
+	if _, ok := b.requireAdminPerson(w, r); !ok {
 		return
 	}
 	bundle, err := b.backupKeys().export(filepath.Base(b.Reg.Root))
@@ -225,7 +230,8 @@ func (b *Broker) apiBackupKeysExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) apiBackupKeysImport(w http.ResponseWriter, r *http.Request) {
-	if !b.requireAdmin(w, r) {
+	p, ok := b.requireAdminPerson(w, r)
+	if !ok {
 		return
 	}
 	var body struct {
@@ -236,7 +242,7 @@ func (b *Broker) apiBackupKeysImport(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {bundle, passphrase}: the bundle bx backup keys export wrote, and the exporting workspace's vault passphrase")
 		return
 	}
-	out, err := b.backupKeys().importBundle(body.Bundle, body.Passphrase, principalName(r))
+	out, err := b.backupKeys().importBundle(body.Bundle, body.Passphrase, p.From())
 	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
@@ -246,9 +252,13 @@ func (b *Broker) apiBackupKeysImport(w http.ResponseWriter, r *http.Request) {
 
 // apiBackupErase is POST /backup/erase {component, what: "data"|"all"}: an
 // admin's crypto-erase of a tile's backups (§3). data erases its data
-// keys — the source stays restorable; all its every key.
+// keys — the source stays restorable; all its every key. note says what
+// the erase couldn't reach: the tile's data when another tile roots its
+// scope, nothing sealed yet, and — always — the plain archives made before
+// sealing, which hold the data in the clear until deleted at the archiver.
 func (b *Broker) apiBackupErase(w http.ResponseWriter, r *http.Request) {
-	if !b.requireAdmin(w, r) {
+	p, ok := b.requireAdminPerson(w, r)
+	if !ok {
 		return
 	}
 	var body struct{ Component, What string }
@@ -256,8 +266,8 @@ func (b *Broker) apiBackupErase(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, `need {component, what: "data"|"all"}`)
 		return
 	}
-	erased, gc, err := b.EraseBackupKeys(body.Component, body.What == "all", "bx backup erase --"+body.What, principalName(r))
-	if err != nil {
+	erased, gc, err := b.EraseBackupKeys(body.Component, body.What == "all", "bx backup erase --"+body.What, p.From())
+	if err != nil && len(erased) == 0 {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -265,8 +275,48 @@ func (b *Broker) apiBackupErase(w http.ResponseWriter, r *http.Request) {
 	for _, t := range erased {
 		rows = append(rows, map[string]any{"id": t.ID, "subject": t.Subject, "gen": t.Gen})
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "component": body.Component, "erased": rows, "archiver": gc})
+	out := map[string]any{"ok": true, "component": body.Component, "erased": rows, "archiver": gc, "note": b.eraseNote(body.Component, len(erased) > 0)}
+	if err != nil { // erased (tombstoned): a key file is removed at its next use
+		out["error"] = err.Error()
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
-// principalName names who acted, for a tombstone and the log.
-func principalName(r *http.Request) string { return auth.PrincipalOf(r).From() }
+// eraseNote is what POST /backup/erase couldn't reach for tile.
+func (b *Broker) eraseNote(tile string, erased bool) string {
+	const plain = "archives made before backups were sealed (or without a vault barrier) are plain tars no key erases: delete them at the archiver when their data must go"
+	c, ok := b.Reg.Component(tile)
+	_, isRoot := b.Reg.Scopes()[tile]
+	switch {
+	case erased:
+		return plain
+	case ok && !isRoot && c.Scope != "":
+		return tile + " doesn't root its scope: its data is backed up with " + c.Scope + "'s archives — erase that tile's (bx backup erase " + c.Scope + " --data). " + plain
+	default:
+		return tile + " has no sealed backups whose keys this erases (no backup sealed its data yet, or its keys were erased before). " + plain
+	}
+}
+
+// requireAdminPerson is requireAdmin for the backup keys' irreversible
+// and exfiltrating acts — a crypto-erase, a key bundle's export or import:
+// a person who is a workspace admin, in their own session (bx with the
+// root token or a login, the admin console) or through the admin tile's
+// frame under their login (AdminFrameDriver), answered as that person. A
+// tile's backend, terminal or agent session, cron or bus never passes on
+// its tile's xbin admin grant alone.
+func (b *Broker) requireAdminPerson(w http.ResponseWriter, r *http.Request) (auth.Principal, bool) {
+	p := auth.PrincipalOf(r)
+	if p.Component != "" {
+		d, ok := b.AdminFrameDriver(p)
+		if !ok {
+			server.WriteError(w, http.StatusForbidden, "a person's act: an admin in their own session (bx, the admin console) — no tile's backend, terminal or agent erases backups or moves backup keys, whatever its tile holds", "/docs/auth.md")
+			return p, false
+		}
+		p = d
+	}
+	if !b.IsAdmin(p) {
+		server.WriteError(w, http.StatusForbidden, "admin only — needs the xbin:admin capability", "/docs/auth.md")
+		return p, false
+	}
+	return p, true
+}

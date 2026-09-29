@@ -19,11 +19,14 @@ package broker
 // which no sandbox mounts, and a "."-directory the vault's own listing
 // skips.
 //
-// An erase deletes the key file (fsyncing the directory) and appends a
-// tombstone to erased.json — metadata only, so a restore can say why an
-// archive is unreadable — and the subject gets a new key (gen+1) at its
-// next backup. exports.json records the key bundles exported, for the
-// admin nudges (an /alerts row, bx doctor, the admin console's Backup tab).
+// An erase appends a tombstone to erased.json — metadata only, so a
+// restore can say why an archive is unreadable — and then deletes the key
+// file (fsyncing the directory): the tombstone is the erase's commit
+// point, so a key it names is refused, and its file removed, wherever it
+// is met from then on, even when a failure or a crash came between the
+// two. The subject gets a new key (gen+1) at its next backup. exports.json
+// records the key bundles exported, for the admin nudges (an /alerts row,
+// bx doctor, the admin console's Backup tab; backupkeys_status.go).
 
 import (
 	"crypto/rand"
@@ -38,6 +41,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/backup"
@@ -80,36 +84,38 @@ type backupTombstone struct {
 	By       string `json:"by,omitempty"`
 }
 
-// backupExports is exports.json: the last export, and every key id some
-// export held.
+// backupExports is exports.json: the last export, and every key id an
+// export since the last passphrase change held; Rekeyed is when the
+// passphrase changed after the last export (backupkeys_status.go).
 type backupExports struct {
-	Last  string   `json:"last,omitempty"`
-	Count int      `json:"count"`
-	IDs   []string `json:"ids,omitempty"`
+	Last    string   `json:"last,omitempty"`
+	Count   int      `json:"count"`
+	IDs     []string `json:"ids,omitempty"`
+	Rekeyed string   `json:"rekeyed,omitempty"`
 }
 
 // erasedError is a restore's refusal of an archive whose key was erased.
 type erasedError struct{ t backupTombstone }
 
 func (e erasedError) Error() string {
-	at := e.t.ErasedAt
-	if ts, err := time.Parse(time.RFC3339, at); err == nil {
-		at = ts.UTC().Format("2006-01-02")
-	}
-	return fmt.Sprintf("this backup's data was erased on %s (%s)", at, e.t.Reason)
+	return fmt.Sprintf("this backup's data was erased on %s (%s)", dateOf(e.t.ErasedAt), e.t.Reason)
 }
 
 var (
 	errUnknownSubkey = errors.New("this backup was sealed by another workspace: import its keys (bx backup keys import)")
 	errNoBarrier     = errors.New("this backup is sealed, and this workspace has no vault barrier to hold its keys: set one up (bx vault unseal), then import the keys (bx backup keys import)")
 	errVaultSealed   = errors.New("vault sealed — unseal before backing up or restoring (every archive is sealed under a backup key)")
+	errVaultLocked   = errors.New("the vault isn't set up yet, and every archive is sealed under a key it holds: set it up first (bx vault unseal), then back up")
 )
 
-// backupKeyStore is one workspace's keystore; mu serializes its writes.
+// backupKeyStore is one workspace's keystore; mu serializes its writes and
+// guards counts, the export status' cached counts (backupkeys_status.go),
+// which every write drops.
 type backupKeyStore struct {
-	mu  sync.Mutex
-	dir string
-	b   *Broker
+	mu     sync.Mutex
+	dir    string
+	b      *Broker
+	counts atomic.Pointer[backupKeyCounts]
 }
 
 var backupKeyStores sync.Map // *Broker → *backupKeyStore (the Broker struct stays as it is)
@@ -120,12 +126,19 @@ func (b *Broker) backupKeys() *backupKeyStore {
 }
 
 // sealing reports whether archives are sealed now: a vault barrier is set
-// up. A sealed vault is an error: no archive can be sealed without the DEK,
-// and none may go out in the clear once a barrier exists.
+// up. The one workspace whose archives are today's plain tars is the
+// plaintext-vault mode (--insecure-vault, --no-auth: AllowInsecureVault);
+// any other without a barrier is locked — production before the vault is
+// set up — and backs nothing up, as a sealed vault doesn't: no archive can
+// be sealed without the DEK, and none may go out in the clear where the
+// vault is meant to exist.
 func (b *Broker) sealing() (bool, error) {
 	switch {
 	case b.barrier == nil || !b.barrier.Initialized():
-		return false, nil // the plaintext-vault mode: today's tars
+		if b.AllowInsecureVault {
+			return false, nil // the plaintext-vault mode: today's tars
+		}
+		return false, errVaultLocked
 	case b.barrier.Sealed():
 		return false, errVaultSealed
 	}
@@ -161,7 +174,9 @@ func newSubkeyID() (string, error) {
 
 func (s *backupKeyStore) path(id string) string { return filepath.Join(s.dir, id+".json") }
 
-// list reads every key file (never unwrapping one).
+// list reads every key file (never unwrapping one). A key a tombstone
+// names is erased: its file, which a failed or interrupted erase left, is
+// removed now and never listed.
 func (s *backupKeyStore) list() ([]backupSubkey, error) {
 	ents, err := os.ReadDir(s.dir) // walk-ok: data/vault is xbind's own; no sandbox sees it
 	if errors.Is(err, fs.ErrNotExist) {
@@ -170,10 +185,18 @@ func (s *backupKeyStore) list() ([]backupSubkey, error) {
 	if err != nil {
 		return nil, err
 	}
+	tombs, err := s.tombstones()
+	if err != nil {
+		return nil, err
+	}
 	var out []backupSubkey
 	for _, e := range ents {
 		id, ok := strings.CutSuffix(e.Name(), ".json")
 		if !ok || !e.Type().IsRegular() || !backup.SubkeyID.MatchString(id) {
+			continue
+		}
+		if tombstoned(tombs, id) {
+			s.finishErase(id)
 			continue
 		}
 		k, err := s.read(id)
@@ -201,15 +224,49 @@ func (s *backupKeyStore) read(id string) (backupSubkey, error) {
 	return k, nil
 }
 
+// write writes a key file durably: an archive sealed under the key leaves
+// the host once this returns, so the file and its name are on disk first —
+// the directory is fsynced (and, when this made it, data/vault too), and
+// a sync that fails fails the write.
 func (s *backupKeyStore) write(k backupSubkey) error {
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(k, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(s.path(k.ID), data, 0o600)
+	return s.writeFile(k.ID+".json", data)
+}
+
+// writeFile writes one of the store's files durably (write).
+func (s *backupKeyStore) writeFile(name string, data []byte) error {
+	if err := s.ensureDir(); err != nil {
+		return err
+	}
+	s.counts.Store(nil)
+	if err := fsutil.WriteFileAtomic(filepath.Join(s.dir, name), data, 0o600); err != nil {
+		return err
+	}
+	return syncDir(s.dir)
+}
+
+// ensureDir makes the store's directory, fsyncing data/vault when it does.
+func (s *backupKeyStore) ensureDir() error {
+	if _, err := os.Stat(s.dir); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(s.dir))
+}
+
+// syncDir fsyncs a directory: the names in it are on disk.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 func (s *backupKeyStore) unwrap(k backupSubkey) ([]byte, error) {
@@ -291,6 +348,16 @@ func (s *backupKeyStore) lookup(id string) ([]byte, error) {
 	if !backup.SubkeyID.MatchString(id) {
 		return nil, errUnknownSubkey
 	}
+	tombs, err := s.tombstones()
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range tombs {
+		if t.ID == id {
+			s.finishErase(id) // a file an interrupted erase left
+			return nil, erasedError{t}
+		}
+	}
 	k, err := s.read(id)
 	if err == nil {
 		if s.b.barrier == nil || !s.b.barrier.Initialized() {
@@ -300,15 +367,6 @@ func (s *backupKeyStore) lookup(id string) ([]byte, error) {
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
-	}
-	tombs, terr := s.tombstones()
-	if terr != nil {
-		return nil, terr
-	}
-	for _, t := range tombs {
-		if t.ID == id {
-			return nil, erasedError{t}
-		}
 	}
 	if s.b.barrier == nil || !s.b.barrier.Initialized() {
 		return nil, errNoBarrier
@@ -329,19 +387,45 @@ func (s *backupKeyStore) tombstones() ([]backupTombstone, error) {
 }
 
 func (s *backupKeyStore) writeTombstones(ts []backupTombstone) error {
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(ts, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(filepath.Join(s.dir, backupErasedFile), data, 0o600)
+	return s.writeFile(backupErasedFile, data)
 }
 
-// erase deletes every key match picks and tombstones each (§3 steps 1-2):
-// the data sealed under them is unreadable in every archive from now on.
-// It answers the tombstones written.
+func tombstoned(tombs []backupTombstone, id string) bool {
+	return slices.ContainsFunc(tombs, func(t backupTombstone) bool { return t.ID == id })
+}
+
+// removeKey deletes a key file, fsyncing the directory.
+func (s *backupKeyStore) removeKey(id string) error {
+	if err := os.Remove(s.path(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	s.counts.Store(nil)
+	return syncDir(s.dir)
+}
+
+// finishErase removes the file of a key a tombstone names, which an erase
+// that failed or was cut short left behind.
+func (s *backupKeyStore) finishErase(id string) {
+	if _, err := os.Lstat(s.path(id)); err != nil {
+		return
+	}
+	if err := s.removeKey(id); err != nil {
+		slog.Warn("backup keys: an erased key's file can't be removed", "id", id, "err", err)
+		return
+	}
+	slog.Info("backup key erase finished", "id", id)
+}
+
+// erase erases every key match picks (§3 steps 1-2): the tombstones are
+// written first — the commit point: from then on the keys are refused
+// everywhere and their files removed wherever met — then the files are
+// deleted. The data sealed under them is unreadable in every archive from
+// now on. It answers the tombstones written; err names a key file that
+// couldn't be removed yet (erased all the same).
 func (s *backupKeyStore) erase(match func(backupSubkey) bool, reason, by string) ([]backupTombstone, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -356,44 +440,58 @@ func (s *backupKeyStore) erase(match func(backupSubkey) bool, reason, by string)
 	var done []backupTombstone
 	now := nowStamp(time.Now())
 	for _, k := range keys {
-		if !match(k) {
-			continue
+		if match(k) {
+			done = append(done, backupTombstone{ID: k.ID, Subject: k.Subject, Tile: k.Tile, Gen: k.Gen, ErasedAt: now, Reason: reason, By: by})
 		}
-		if err := os.Remove(s.path(k.ID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return done, err
-		}
-		done = append(done, backupTombstone{ID: k.ID, Subject: k.Subject, Tile: k.Tile, Gen: k.Gen, ErasedAt: now, Reason: reason, By: by})
 	}
 	if len(done) == 0 {
 		return nil, nil
 	}
-	if d, err := os.Open(s.dir); err == nil { // the removals are on disk before the tombstones say so
-		_ = d.Sync()
-		_ = d.Close()
-	}
 	if err := s.writeTombstones(append(tombs, done...)); err != nil {
-		return done, err
+		return nil, err // nothing erased: no tombstone, every key as it was
 	}
+	var errs []error
 	for _, t := range done {
+		if err := s.removeKey(t.ID); err != nil {
+			errs = append(errs, fmt.Errorf("backup key %s is erased, but its file isn't removed yet: %w", t.ID, err))
+		}
 		slog.Info("backup key erased", "id", t.ID, "subject", t.Subject, "tile", t.Tile, "gen", t.Gen, "reason", reason, "by", by)
 	}
-	return done, nil
+	return done, errors.Join(errs...)
 }
 
 // EraseBackupKeys crypto-erases tile's backups: its data keys (every ns:
 // and part: subject of the tile), and with all its tile: key too, so no
-// archive of it can be read again. The archiver is then asked to drop the
-// dead versions (§3 step 3); gc says how that went. The partition fabric's
-// erase hooks (a mode switch's wipe, a partition's purge) call it with their
-// own reasons.
+// archive of it can be read again (EraseBackupSubjects).
 func (b *Broker) EraseBackupKeys(tile string, all bool, reason, by string) ([]backupTombstone, string, error) {
-	erased, err := b.backupKeys().erase(func(k backupSubkey) bool {
-		return k.Tile == tile && (all || !strings.HasPrefix(k.Subject, "tile:"))
+	return b.EraseBackupSubjects(tile, func(subject string) bool {
+		return all || !strings.HasPrefix(subject, "tile:")
 	}, reason, by)
-	if err != nil || len(erased) == 0 {
-		return erased, "", err
+}
+
+// EraseBackupSubjects crypto-erases the backup keys of tile whose subject
+// match picks — every data key, or one partition's part: key — under the
+// tile's backup lock, so no backup of the tile is sealing under one of them
+// meanwhile. The archiver is then asked to drop the dead versions (§3 step
+// 3); gc says how that went. It answers the tombstones written even with
+// an error (a key file not removed yet: erased all the same).
+func (b *Broker) EraseBackupSubjects(tile string, match func(subject string) bool, reason, by string) ([]backupTombstone, string, error) {
+	defer b.holdBackups(tile)()
+	return b.eraseBackupSubjectsHeld(tile, match, reason, by)
+}
+
+// eraseBackupSubjectsHeld is EraseBackupSubjects for a caller that holds
+// tile's backup lock (holdBackups). The partition fabric's hooks that wipe
+// data (a mode switch's wipe, a partition's purge, sweep or reset) keep
+// this order, so no backup seals the doomed data under a fresh key between
+// the wipe and the erase: stop what writes the data, holdBackups(tile),
+// remove the data, eraseBackupSubjectsHeld, release.
+func (b *Broker) eraseBackupSubjectsHeld(tile string, match func(subject string) bool, reason, by string) ([]backupTombstone, string, error) {
+	erased, err := b.backupKeys().erase(func(k backupSubkey) bool { return k.Tile == tile && match(k.Subject) }, reason, by)
+	if len(erased) == 0 {
+		return nil, "", err
 	}
-	return erased, b.archiverErase(tile, erased), nil
+	return erased, b.archiverErase(tile, erased), err
 }
 
 // archiverErase asks tile's archiver to delete every version sealed under
@@ -424,72 +522,4 @@ func (b *Broker) archiverErase(tile string, erased []backupTombstone) string {
 	}
 	_ = json.Unmarshal(resp, &out)
 	return fmt.Sprintf("archiver %s deleted %d version(s)", provider, out.Deleted)
-}
-
-// ---- export status ----
-
-func (s *backupKeyStore) exports() backupExports {
-	var e backupExports
-	if data, err := os.ReadFile(filepath.Join(s.dir, backupExportsFile)); err == nil {
-		_ = json.Unmarshal(data, &e)
-	}
-	return e
-}
-
-// backupKeysStatus is GET /backup-keys: how archives are sealed, and how
-// the key bundle exports stand.
-type backupKeysStatus struct {
-	Mode              string `json:"mode"` // sealed | plaintext | vault-sealed
-	Keys              int    `json:"keys"`
-	Unexported        int    `json:"unexported"`
-	LastExport        string `json:"lastExport,omitempty"`
-	Exports           int    `json:"exports"`
-	Erased            int    `json:"erased"`
-	ErasedSinceExport int    `json:"erasedSinceExport"`
-}
-
-func (b *Broker) backupKeysStatus() (backupKeysStatus, error) {
-	s := b.backupKeys()
-	st := backupKeysStatus{Mode: "sealed"}
-	if _, err := b.sealing(); err != nil {
-		st.Mode = "vault-sealed"
-	} else if b.barrier == nil || !b.barrier.Initialized() {
-		st.Mode = "plaintext"
-	}
-	keys, err := s.list()
-	if err != nil {
-		return st, err
-	}
-	tombs, err := s.tombstones()
-	if err != nil {
-		return st, err
-	}
-	ex := s.exports()
-	st.Keys, st.Erased, st.LastExport, st.Exports = len(keys), len(tombs), ex.Last, ex.Count
-	for _, k := range keys {
-		if !slices.Contains(ex.IDs, k.ID) {
-			st.Unexported++
-		}
-	}
-	for _, t := range tombs {
-		if ex.Last == "" || t.ErasedAt > ex.Last {
-			st.ErasedSinceExport++
-		}
-	}
-	return st, nil
-}
-
-// backupKeyAlerts is the admin nudge (§5; H3): keys no export holds yet.
-func (b *Broker) backupKeyAlerts() []Alert {
-	st, err := b.backupKeysStatus()
-	if err != nil || st.Unexported == 0 {
-		return nil
-	}
-	what := "backup key isn't"
-	if st.Unexported > 1 {
-		what = "backup keys aren't"
-	}
-	return []Alert{{Level: "warn", Kind: "backup-keys", Message: fmt.Sprintf(
-		"%d %s in any export yet: restoring sealed backups on a new machine needs them — export a key bundle (bx backup keys export, or the admin console's Backup tab)",
-		st.Unexported, what)}}
 }

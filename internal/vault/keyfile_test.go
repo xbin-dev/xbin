@@ -49,13 +49,20 @@ func TestFromKeyfile(t *testing.T) {
 	if _, err := other.DecryptFor("backup-subkey:x", blob); err != ErrSealed {
 		t.Errorf("after Seal: %v", err)
 	}
-	var m map[string]any
-	_ = json.Unmarshal(kf, &m)
-	m["memory"] = 1 << 30
-	huge, _ := json.Marshal(m)
-	for what, data := range map[string][]byte{"corrupt": []byte("{"), "empty": []byte("{}"), "huge memory": huge} {
+	with := func(field string, v any) []byte {
+		var m map[string]any
+		_ = json.Unmarshal(kf, &m)
+		m[field] = v
+		out, _ := json.Marshal(m)
+		return out
+	}
+	for what, data := range map[string][]byte{"corrupt": []byte("{"), "empty": []byte("{}"),
+		"memory over 1 GiB": with("memory", maxKeyfileMemory+1), "17 threads": with("threads", 17), "65 passes": with("time", 65)} {
 		if _, err := FromKeyfile(data); err == nil {
 			t.Errorf("%s: taken", what)
 		}
+	}
+	if _, err := FromKeyfile(with("memory", maxKeyfileMemory)); err != nil {
+		t.Errorf("1 GiB: %v", err)
 	}
 }
