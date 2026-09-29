@@ -492,8 +492,10 @@ type Component struct {
 
 	// PartitionErr says why the primary's partition request is invalid
 	// (also in ManifestErr); partition is the settled mode (partition.go).
-	PartitionErr string
-	partition    partitionInfo
+	// Partition/PartitionID: the user partition ("user:<id>", its pkey) a
+	// runner's copy of a view spawns for (UserPartition); the registry never sets them.
+	PartitionErr, Partition, PartitionID string
+	partition                            partitionInfo
 }
 
 // WorkTreeScan is the work tree's own scan of a tile whose primary is pinned
