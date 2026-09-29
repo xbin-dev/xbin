@@ -29,6 +29,7 @@ export const FEATURES = {
   'ops.usage': 'usage by consumer and by person against the quota that binds each',
   'ops.orphans': 'the substrate\'s sandboxes this manager doesn\'t know, deleted (confirmed)',
   'ops.backend': 'the backend and the substrate: its errors, modes, capabilities and what hello leaves out (notes)',
+  'ops.ports': 'a sandbox\'s Ports row: whether the manager offers ports (live previews) and why not — the runtime lacks them, the backend doesn\'t forward, its agent predates them (restart it) — and a probe of one port: status, type, refusal, latency, never the page',
 
   // Images
   'images.list': 'the images: title, tools, whether it has a setup script, whether consumers are offered it',
@@ -50,6 +51,7 @@ export const FEATURES = {
   'mine.lifecycle': 'start, stop; delete (confirmed) your own',
   'mine.shares': 'share one of yours with another consumer, or stop sharing',
   'mine.visibility': 'who may use one of yours: you (and members) or the team',
+  'mine.ports': 'the Ports row of one of yours (as ops.ports); a reader is told it takes write access',
 
   // Files
   'files.browse': 'a directory\'s entries, directories first; into one, up, or to a path typed',
@@ -74,6 +76,8 @@ export const FEATURES = {
 export const DIFFERENCES = {
   web: {},
   native: {
+    'ops.ports': 'a port-forward diagnostic for the web page first (the owner asked for it there); the probe route is the same for the app when it is wanted',
+    'mine.ports': 'as ops.ports',
     'files.upload': 'the app uploads only from its composer (a chat\'s attachments): there is no file-picker primitive for a browser of files, so uploads stay on the web page',
   },
 };

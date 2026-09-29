@@ -603,7 +603,7 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 		e.failTurn(ctx, ts, "assemble context: "+err.Error())
 		return LLMReply{}, false
 	}
-	specs, own := injectSummaries(toolSpecs(cfg, run.Depth, ts.mcp))
+	specs, own := injectSummaries(runToolSpecs(cfg, run, ts.mcp))
 	ts.own = own
 	msgs, specs, ts.back = wireNames(msgs, specs)
 	release, err := e.gate.acquire(ctx, run.Depth == 0)

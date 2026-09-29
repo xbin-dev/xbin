@@ -11,7 +11,7 @@
 // window.__route(method, regexp, fn). Self-contained (Playwright's
 // addInitScript serializes it; the native tests run it in node).
 //
-//   seed: {self, me, ops, hello, mine: [sandbox], files: {<path>: {entries} | {content}}, snaps: {<id>: [snapshot]}}
+//   seed: {self, me, ops, hello, mine: [sandbox], files: {<path>: {entries} | {content}}, snaps: {<id>: [snapshot]}, ports: {<id>: {offered, why?, restartNeeded?}}}
 export function STUB(seed) {
   const w = typeof window !== 'undefined' ? window : globalThis;
   const st = JSON.parse(JSON.stringify(seed || {}));
@@ -158,6 +158,15 @@ export function STUB(seed) {
   });
   route('POST', /\/sbx\/sandboxes\/([^/?]+)\/execs$/, (m, u, body) => json({ id: `e${++seq}`, tty: !!body.tty, state: 'running', argv: body.argv || [], label: body.label || '' }, 201));
   route('DELETE', /\/sbx\/sandboxes\/([^/?]+)\/execs\/([^/?]+)$/, () => json(null, 204));
+  // the pages' Ports rows: seed.ports[id] = {offered, why?, restartNeeded?}
+  // (default offered); a probe of port 8000 answers, any other refuses
+  route('GET', /\/ports\/([^/?]+)\/(\d+)$/, (m, u) => {
+    if (st.me && st.me.write === false) return fail(403, 'a port of this sandbox is for the people who may use it (with write access to this page), and its operators', 'not-allowed');
+    const path = q(u, 'path') || '/';
+    return +m[2] === 8000 ? json({ ok: true, status: 200, contentType: 'text/html; charset=utf-8', path, ms: 4 })
+      : json({ ok: false, status: 502, refusal: 'not-listening', error: `nothing accepts connections on port ${m[2]} in the sandbox`, path, ms: 2 });
+  });
+  route('GET', /\/ports\/([^/?]+)$/, (m) => json((st.ports || {})[m[1]] || { offered: true }));
 
   const prev = w.xbin || {};
   w.xbin = Object.assign(prev, {

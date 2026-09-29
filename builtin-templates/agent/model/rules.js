@@ -55,17 +55,21 @@ export function topBar(v, row, me) {
 // --- the pinned task (D133) -------------------------------------------------------
 
 // pinnedTask is the open conversation's task as its header shows it: the
-// request that started it, verbatim, folded to one line, and how many came
-// after (the whole ledger: actions.asks). null when there is none — a
-// watcher's (its job is its instructions), or an older backend's.
+// CURRENT request — the latest it was given (the backend sends `latest`
+// once there is more than one), else the one that started it — verbatim,
+// folded to one line, and how many others there are (the whole ledger:
+// actions.asks). null when there is none — a watcher's (its job is its
+// instructions), or an older backend's. (The model's own "# Your task"
+// keeps the first request: that is the backend's, asks.go.)
 export function pinnedTask(v) {
   const t = v && v.run && v.run.task;
   if (!t || !t.first) return null;
-  const text = t.first.text || '';
+  const cur = t.latest || t.first;
+  const text = cur.text || '';
   const flat = text.replace(/\s+/g, ' ').trim();
   return {
     line: flat.length > 160 ? flat.slice(0, 159) + '…' : flat,
-    text, cut: !!t.first.cut, from: askFrom(t.first),
+    text, cut: !!cur.cut, from: askFrom(cur),
     more: Math.max(0, (t.count || 1) - 1),
     count: t.count || 1,
   };

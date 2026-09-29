@@ -29,12 +29,23 @@ var testManagers []*sbxTestManager
 // managers see this agent (apps/agent) as their consumer.
 func bindSbx(t *testing.T, providers ...string) map[string]*sbxTestManager {
 	t.Helper()
+	return bindSbxWith(t, nil, providers...)
+}
+
+// bindSbxWith is bindSbx with each manager's handler wrapped (a test's
+// fault that the reference manager can't inject: a stream cut short).
+func bindSbxWith(t *testing.T, wrap func(http.Handler) http.Handler, providers ...string) map[string]*sbxTestManager {
+	t.Helper()
 	out := map[string]*sbxTestManager{}
 	var eps []map[string]string
 	testManagers = nil
 	for _, p := range providers {
 		m := &sbxTestManager{fsbManager: &fsbManager{Root: t.TempDir(), DefaultFrom: "apps/agent", Grace: 200 * time.Millisecond}}
-		m.srv = httptest.NewServer(m.fsbManager)
+		var h http.Handler = m.fsbManager
+		if wrap != nil {
+			h = wrap(h)
+		}
+		m.srv = httptest.NewServer(h)
 		t.Cleanup(func() {
 			m.srv.Close()
 			m.Close()
@@ -54,11 +65,18 @@ func bindSbx(t *testing.T, providers ...string) map[string]*sbxTestManager {
 	sbxClient = func() *http.Client { return http.DefaultClient }
 	forgetHellos()
 	invalidateSandboxCatalog()
+	forgetLiveUses := func() { // the live route's cache outlives a test (same run and sandbox ids next time)
+		liveUses.Lock()
+		liveUses.m = map[string]liveUse{}
+		liveUses.Unlock()
+	}
+	forgetLiveUses()
 	t.Cleanup(func() {
 		sbxClient = old
 		testManagers = nil
 		forgetHellos()
 		invalidateSandboxCatalog()
+		forgetLiveUses()
 	})
 	return out
 }

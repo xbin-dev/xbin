@@ -19,10 +19,11 @@ const MANAGE = '+manage';
 /**
  * makeSandboxUI wires the picker (sel: the composer's <select id="ssel">) and
  * the dialog (dlg: <dialog id="sbxdlg">); repaint() redraws the page (the top
- * bar carries the badge). The page calls paint(v) with its own paint,
+ * bar carries the badge); popExtra(b, close) adds a section to the popover
+ * (ports.js). The page calls paint(v) with its own paint,
  * badgeTpl(v) in its top bar, and closePop() on Escape.
  */
-export function makeSandboxUI(app, { sel, dlg, repaint }) {
+export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
   const pop = { open: false, ref: '', cwd: '', err: '' }; // cwd: the field, for the sandbox ref
   const dl = { form: null, share: null, err: '', msg: '', busy: '', bind: true, order: null }; // order: the rows as shown, kept while open; share: {ref, f}
   const draw = () => { if (dlg.open) render(dlgTpl(), dlg); };
@@ -109,6 +110,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint }) {
               @click=${() => { if (!a.on && b.canChange) run(() => app.sbx.choose(a.ref, a.cwd)); }}>
             ${a.on ? '●' : '○'} ${a.name}${a.cwd ? html` <span class="mono muted">${a.cwd}</span>` : nothing}${a.broken ? ' ⚠' : ''}</div>`)}</div>` : nothing}
         ${pop.err ? html`<div class="err" id="sbx-err">${pop.err}</div>` : nothing}
+        ${popExtra ? popExtra(b, closePop) : nothing}
         ${tt.shown && tt.why ? html`<div class="hint" id="sbx-term-why">No terminal: ${tt.why}.</div>` : nothing}
         <div class="sbxacts">
           <button class="btn rm btnsm" id="sbx-detach" ?disabled=${!b.canChange} title="Take it off this conversation (the sandbox stays)"

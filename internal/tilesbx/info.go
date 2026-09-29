@@ -257,6 +257,12 @@ type AdminRow struct {
 	ForUser     string `json:"forUser,omitempty"`
 	LastActive  int64  `json:"lastActive,omitempty"`
 	TileExists  bool   `json:"tileExists"`
+	// AgentPorts: whether the running sandbox's in-box agent serves ports
+	// (D135) — "serves" or "predates" (a restart brings one that does), as
+	// a port connection found; empty until one is asked for.
+	AgentPorts string `json:"agentPorts,omitempty"`
+	// Ports are its latest port requests' outcomes, newest last (at most 8).
+	Ports []PortOutcome `json:"ports,omitempty"`
 }
 
 // AdminList is every tile sandbox definition (one tile's, when tile isn't "").
@@ -272,9 +278,18 @@ func (m *Manager) AdminList(tile string) []AdminRow {
 		exists := m.deps.Tiles != nil && m.deps.Tiles.Exists(t)
 		for _, d := range m.defs.list(k) {
 			in := m.info(k, d)
-			out = append(out, AdminRow{Tile: t, Name: d.Name, UID: d.UID, State: in.State, StateDetail: in.StateDetail, Mode: d.Mode, Accel: in.Accel,
+			row := AdminRow{Tile: t, Name: d.Name, UID: d.UID, State: in.State, StateDetail: in.StateDetail, Mode: d.Mode, Accel: in.Accel,
 				MemMiB: in.MemMiB, VCPUs: in.VCPUs, DiskGiB: in.DiskGiB, DiskBytes: in.DiskBytes,
-				For: d.For, ForUser: d.ForUser, LastActive: in.LastActive, TileExists: exists})
+				For: d.For, ForUser: d.ForUser, LastActive: in.LastActive, TileExists: exists, Ports: m.portLog.list(d.UID)}
+			if b := m.live[k][d.Name]; b != nil && b.run != nil {
+				switch b.run.agentPorts.Load() {
+				case agentServesPorts:
+					row.AgentPorts = "serves"
+				case agentPredatesPorts:
+					row.AgentPorts = "predates"
+				}
+			}
+			out = append(out, row)
 		}
 	}
 	return out

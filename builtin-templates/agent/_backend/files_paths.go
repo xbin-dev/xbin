@@ -163,7 +163,7 @@ func (ag *Agent) sandboxMiss(run *Run, p string, err error) error {
 // --- copying a sandbox file in -------------------------------------------------------
 
 // fetchSandboxFile copies the sandbox file p into the session files as name
-// ("" = its own name): in place — a new version of the session file, the
+// (a session key: sandboxDownloadName, copyName): in place — a new version of the session file, the
 // replaced one kept — or, keepBoth, under a free name as uploads are. A
 // session file that came from this very file, whose etag the sandbox still
 // gives, is up to date: nothing is read or written. So is one whose content
@@ -178,7 +178,6 @@ func (ag *Agent) fetchSandboxFile(ctx context.Context, run *Run, use *sbxUse, p,
 	case st.Size > maxBinaryFileBytes:
 		return nil, nil, false, fmt.Errorf("%s is %s; a session file holds up to %s", p, humanBytes(int(st.Size)), humanBytes(maxBinaryFileBytes))
 	}
-	name = sanitizeUploadName(orStr(strings.TrimSpace(name), path.Base(p)))
 	src := &fileSource{Kind: "sandbox", Tool: tool, Call: toolCallOf(ctx), Sandbox: use.Binding.Ref,
 		Box: orStr(use.Box.Name, use.Binding.Name), Path: p, ETag: st.ETag}
 	if !keepBoth && st.ETag != "" {
@@ -206,6 +205,12 @@ func (ag *Agent) fetchSandboxFile(ctx context.Context, run *Run, use *sbxUse, p,
 	return ag.putFileData(ctx, run.ID, name, data, "", src)
 }
 
+// sandboxDownloadName is the session file sandbox_download writes p to: the
+// name asked for, else the file's own — one name, never a directory.
+func sandboxDownloadName(p, asked string) string {
+	return sanitizeUploadName(orStr(strings.TrimSpace(asked), path.Base(p)))
+}
+
 // fetched says what fetchSandboxFile did, in a tool result's words.
 func fetched(p string, f, prev *ReplFile, unchanged bool) string {
 	kind := "text"
@@ -217,14 +222,24 @@ func fetched(p string, f, prev *ReplFile, unchanged bool) string {
 		return fmt.Sprintf("unchanged: the session file %s already holds %s (sha %s, v%d) — nothing written",
 			f.Path, p, shortSHA(f.SHA256), f.Version)
 	case prev != nil:
+		// the source named is this download's; the replaced version's own
+		// (another sandbox, a tool, a person) goes in parentheses
 		was := ""
 		if w := prev.Source.words(); w != "" {
-			was = ", " + w
+			was = " (" + w + ")"
 		}
-		return fmt.Sprintf("downloaded %s to the session file %s (%s, %s) — v%d, replacing v%d%s; file_diff {\"a\": %q} shows what changed",
-			p, f.Path, kind, humanBytes(f.Bytes), f.Version, prev.Version, was, f.Path)
+		return fmt.Sprintf("downloaded %s%s to the session file %s (%s, %s) — v%d, replacing v%d%s; file_diff {\"a\": %q} shows what changed",
+			p, fromBox(f), f.Path, kind, humanBytes(f.Bytes), f.Version, prev.Version, was, f.Path)
 	}
-	return fmt.Sprintf("downloaded %s to the session file %s (%s, %s)", p, f.Path, kind, humanBytes(f.Bytes))
+	return fmt.Sprintf("downloaded %s%s to the session file %s (%s, %s)", p, fromBox(f), f.Path, kind, humanBytes(f.Bytes))
+}
+
+// fromBox names the sandbox a copied file came from: ` from the sandbox "x"`.
+func fromBox(f *ReplFile) string {
+	if s := f.Source; s != nil && s.Kind == "sandbox" {
+		return fmt.Sprintf(" from the sandbox %q", orStr(s.Box, s.Sandbox))
+	}
+	return ""
 }
 
 // sessionCopy is the session file a sandbox path shows as: copied in place
@@ -239,11 +254,56 @@ func (ag *Agent) sessionCopy(ctx context.Context, run *Run, cfg Config, r fileRe
 	if err != nil {
 		return nil, "", err
 	}
-	f, prev, unchanged, err := ag.fetchSandboxFile(ctx, run, use, p, "", tool, false)
+	f, prev, unchanged, err := ag.fetchSandboxFile(ctx, run, use, p, ag.copyName(run.ID, use, p), tool, false)
 	if err != nil {
 		return nil, "", err
 	}
 	return f, fetched(p, f, prev, unchanged), nil
+}
+
+// copyName is the session file a render or a view of the sandbox file p is
+// copied to: the one an earlier copy of that very file (this sandbox, this
+// path) holds, so a repeated render is a new version of it; else the first
+// of its base name, its parent directory and base name, and the sandbox's
+// name with both that no other file holds — two different …/index.html
+// never become versions of one another. A last resort is a free -2 name.
+func (ag *Agent) copyName(runID int64, use *sbxUse, p string) string {
+	ref := use.Binding.Ref
+	files, _ := ag.db.replFiles(runID)
+	held := map[string]bool{}
+	for _, f := range files {
+		held[f.Path] = true
+		if s := f.Source; s != nil && s.Kind == "sandbox" && s.Sandbox == ref && s.Path == p {
+			return f.Path
+		}
+	}
+	seg := func(s string) string { // one path segment, as a session key takes it
+		s = sanitizeUploadName(s)
+		if s == "upload" {
+			return ""
+		}
+		return s
+	}
+	base := sanitizeUploadName(path.Base(p))
+	var cands []string
+	cands = append(cands, base)
+	dir := seg(path.Base(path.Dir(p)))
+	if dir != "" && path.Dir(p) != "/" {
+		cands = append(cands, dir+"/"+base)
+	}
+	if box := seg(orStr(use.Box.Name, use.Binding.Name)); box != "" {
+		if dir != "" && path.Dir(p) != "/" {
+			cands = append(cands, box+"/"+dir+"/"+base)
+		} else {
+			cands = append(cands, box+"/"+base)
+		}
+	}
+	for _, c := range cands {
+		if k, err := normReplPath(c); err == nil && !held[k] {
+			return k
+		}
+	}
+	return ag.db.freePath(runID, cands[len(cands)-1])
 }
 
 // --- file_info, file_diff, file_list ------------------------------------------------

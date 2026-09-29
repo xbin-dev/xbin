@@ -124,6 +124,22 @@ const settle = (page) => page.waitForTimeout(120);
   ok('delete a snapshot, confirmed', (await calls(page, 'DELETE', /\/ops\/sandboxes\/sb-term\/snapshots\/s-\d+$/)).length === 1);
   await shot(page, 'ops-snapshots');
 
+  // Ports: whether the manager offers them, and a probe of one (a diagnostic, never the page)
+  await page.click('tr[data-id="sb-term"] button[data-act="ports"]');
+  await page.waitForSelector('#ports #ports-offered');
+  ok('Ports: offered', (await text(page, '#ports-offered')).includes('offered'), await text(page, '#ports-offered'));
+  await page.fill('#ports-port', '8000');
+  await page.fill('#ports-path', '/index.html?x=1');
+  await page.click('#ports-probe');
+  await page.waitForSelector('#ports-result.ok');
+  ok('a probe that answers: status, type, time', (await text(page, '#ports-result')).includes('HTTP 200 · text/html · 4 ms'), await text(page, '#ports-result'));
+  ok('…of the port and path asked', (await calls(page, 'GET', /\/ports\/sb-term\/8000\?path=%2Findex\.html%3Fx%3D1$/)).length === 1);
+  await page.fill('#ports-port', '5173');
+  await page.click('#ports-probe');
+  await page.waitForSelector('#ports-result.bad');
+  ok('a refusal, and what to do', (await text(page, '#ports-result')).includes('start its server'), await text(page, '#ports-result'));
+  await shot(page, 'ops-ports');
+
   // who may use it: shown, never changed by operators (its home consumer or its owner does)
   ok('who may use it', (await text(page, 'tr[data-id="sb-term"] .who')) === 'everyone its consumer serves · apps/agent (everyone it serves)',
     await text(page, 'tr[data-id="sb-term"] .who'));
@@ -296,6 +312,14 @@ const settle = (page) => page.waitForTimeout(120);
   await page.click('#share-add');
   await settle(page);
   ok('share yours', JSON.stringify((await lastBody(page, 'PATCH', /\/sbx\/sandboxes\/sb-own$/))?.shares) === JSON.stringify([{ consumer: 'apps/sandbox-terminal', users: '*' }]));
+
+  // ports: this one's agent predates them — said, with what to do
+  await page.evaluate(() => window.__route('GET', /\/ports\/sb-own$/, () => window.__json({ offered: true, restartNeeded: true,
+    why: 'the sandbox\'s agent predates ports (it started under an older xbind, or from an older VM image): restart the sandbox' })));
+  await page.click('#sub-ports');
+  await page.waitForSelector('#ports #ports-offered');
+  ok('Ports on yours: a restart needed, and why', (await text(page, '#ports-offered')).includes('restart needed') &&
+    (await text(page, '#ports-offered')).includes('restart the sandbox'), await text(page, '#ports-offered'));
   dialogs.push(true);
   await page.click('[data-id="sb-own"] button[data-act="delete"]');
   await settle(page);
@@ -323,8 +347,8 @@ const settle = (page) => page.waitForTimeout(120);
   await page.click('#entries tr[data-name="README.md"] .link');
   await page.waitForSelector('#content');
   ok('a file to read', (await text(page, '#content')).includes('run `make` to build.'));
-  ok('no terminal, no sharing, saying why', await page.$eval('#sub-term', (b) => b.disabled && b.title === 'a terminal needs write access to this tile') &&
-    await page.$eval('#sub-share', (b) => b.disabled && /write access/.test(b.title)));
+  ok('no terminal, no sharing, no ports, saying why', await page.$eval('#sub-term', (b) => b.disabled && b.title === 'a terminal needs write access to this tile') &&
+    await page.$eval('#sub-share', (b) => b.disabled && /write access/.test(b.title)) && await page.$eval('#sub-ports', (b) => b.disabled && /write access/.test(b.title)));
   await shot(page, 'reader');
   // a stopped one: reading it would start it
   await page.click('[data-id="sb-team"] button[data-act="open"]');

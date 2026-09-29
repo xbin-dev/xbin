@@ -25,3 +25,39 @@ export async function liveURL(runId, det) {
 
 // liveLabel is the pane's header for a live step.
 export const liveLabel = (det) => `● live from the sandbox — ${det.name || det.sandbox}:${det.port}${det.path || '/'}`;
+
+// probeWords says what a check of a live page found — the web pane's fetch
+// of its own URL (live-status.js) or the backend's probe (actions.ports,
+// actions.probePort): {tone: ok | bad, text, hint}. The refusals it knows:
+// the manager's (not-listening, state, unsupported — a sandbox agent from
+// before ports), the live route's (not-attached, not-allowed; viewers get a
+// bare 403) and xbind's path-ticket answers (401: an expired link or one
+// used away from where you signed in; 403: the tile-origin check).
+export function probeWords(p) {
+  const type = String(p.contentType || '').split(';')[0];
+  const head = p.status ? `HTTP ${p.status}${type ? ' · ' + type : ''}` : p.refusal || 'no answer';
+  const ms = p.ms != null ? ` · ${p.ms} ms` : '';
+  if (p.ok) return { tone: 'ok', text: head + ms, hint: '' };
+  return { tone: 'bad', text: `${head}${ms}${p.error ? ' — ' + p.error : ''}`, hint: probeHint(p) };
+}
+
+function probeHint(p) {
+  const e = String(p.error || '');
+  switch (p.refusal) {
+    case 'not-listening': return 'nothing listens on that port in the sandbox: its server isn\'t running (the agent starts it with bash, background:true)';
+    case 'state': return 'the sandbox isn\'t running: start it (▣ → Manage…), then its server';
+    case 'unsupported': return /predates|restart/.test(e)
+      ? 'the sandbox was started before its runtime served ports: restart it (▣ → Manage…: Stop, then Start), then its server'
+      : 'its manager doesn\'t serve ports (it, or xbind, predates live previews)';
+    case 'not-attached': case 'not-found': case 'none': return 'that sandbox isn\'t bound to this conversation any more';
+    case 'not-allowed': return 'whoever bound the sandbox may no longer use it here';
+    case 'invalid': return 'the page path isn\'t one this route takes';
+  }
+  if (p.status === 401) return /expired|sign-in ended/.test(e) ? 'the link expired, or your sign-in did: ↻ Reload mints a new one'
+    : 'the link works only from an address that signed in within the hour: sign in again here, then ↻ Reload';
+  if (p.status === 403) return /origin/.test(e) ? 'the tile-origin check refused it: the link is another tile\'s'
+    : 'only the people taking part in this conversation may open its sandbox\'s pages';
+  if (p.status === 502 || p.status === 503 || p.status === 504) return 'the sandbox manager didn\'t answer: it, or the sandbox, may be stopped';
+  if (p.status >= 400) return 'the server in the sandbox answered with an error: check the path';
+  return 'no answer at all: the network, or xbind, is unreachable';
+}

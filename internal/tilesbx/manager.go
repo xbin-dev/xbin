@@ -196,6 +196,7 @@ type Manager struct {
 	reserve func(k Key, d *Def) (release func(), err error)
 	books   books      // what the running sandboxes hold (admission.go)
 	trash   trashQueue // what waits for the confined remover (trash.go)
+	portLog portRing   // each sandbox's latest port requests, for the admin (ports.go)
 	// afterFunc is time.AfterFunc (a test's clock may stand in): the idle
 	// timers (idle.go).
 	afterFunc func(time.Duration, func()) stopper

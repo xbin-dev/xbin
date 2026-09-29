@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -54,6 +55,9 @@ type run struct {
 	log      *logRing
 	logMark  int64 // where its own output starts in log
 	started  time.Time
+	// agentPorts: whether its in-box agent serves ports (D135), as its port
+	// connections found — agentPortsUnknown until one is asked for (ports.go)
+	agentPorts atomic.Int32
 
 	exited chan struct{} // closed once the process ended (exit is set)
 	exit   ExitStatus

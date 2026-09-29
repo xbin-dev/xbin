@@ -144,7 +144,7 @@ func (ag *Agent) toolSbxDownload(ctx context.Context, run *Run, cfg Config, args
 		return "", err
 	}
 	// in place, versioned (D136); keep_both is the old way: a free name
-	f, prev, unchanged, err := ag.fetchSandboxFile(ctx, run, use, p, str(args["name"]), "sandbox_download", args["keep_both"] == true)
+	f, prev, unchanged, err := ag.fetchSandboxFile(ctx, run, use, p, sandboxDownloadName(p, str(args["name"])), "sandbox_download", args["keep_both"] == true)
 	if err != nil {
 		return "", err
 	}
@@ -173,12 +173,23 @@ func (ag *Agent) toolSbxCopy(ctx context.Context, run *Run, cfg Config, args map
 	if err != nil {
 		return "", err
 	}
+	where := func(u *sbxUse, p string) string { return fmt.Sprintf("%q:%s", orStr(u.Box.Name, u.Binding.Ref), p) }
 	st, err := src.Conn.Stat(ctx, src.ID, sp)
 	if err != nil {
-		return "", noPath(sp, err)
+		if sbxRefusal(err) == "not-found" {
+			return "", noPath(sp, err)
+		}
+		return "", fmt.Errorf("reading %s failed: %w", where(src, sp), err)
 	}
 	same := src.Binding.Ref == dst.Binding.Ref
-	where := func(u *sbxUse, p string) string { return fmt.Sprintf("%q:%s", orStr(u.Box.Name, u.Binding.Ref), p) }
+	// The source streams as the destination's request body, so a failed
+	// write may be the source's: blame says whose it was.
+	blame := func(cr *countingReader, dp string, err error) error {
+		if cr.err != nil {
+			return fmt.Errorf("reading %s failed: %v (after %s; %s may hold a partial copy)", where(src, sp), cr.err, humanBytes(int(cr.n)), where(dst, dp))
+		}
+		return fmt.Errorf("writing %s failed: %w", where(dst, dp), err)
+	}
 	switch st.Type {
 	case "dir":
 		dp, err := dst.path(str(to["path"]))
@@ -189,19 +200,19 @@ func (ag *Agent) toolSbxCopy(ctx context.Context, run *Run, cfg Config, args map
 			return "", fmt.Errorf("can't copy %s into itself", sp)
 		}
 		for _, u := range []*sbxUse{src, dst} {
-			if !u.Hello.has("tar") || !u.Box.hasCap("tar") {
+			if !u.Box.hasCap("tar") || !u.hasCap(ctx, "tar") {
 				return "", fmt.Errorf("copying a directory takes the tar capability, and the sandbox %q lacks it — copy single files, or pack it with bash (tar czf) and copy the archive",
 					orStr(u.Box.Name, u.Binding.Ref))
 			}
 		}
 		tr, err := src.Conn.TarGet(ctx, src.ID, sp, nil)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("reading %s failed: %w", where(src, sp), err)
 		}
 		defer tr.Close()
 		cr := &countingReader{r: tr}
 		if err := dst.Conn.TarPut(ctx, dst.ID, dp, cr, true); err != nil {
-			return "", err
+			return "", blame(cr, dp, err)
 		}
 		return fmt.Sprintf("copied the contents of %s into %s (%s as tar)", where(src, sp), where(dst, dp), humanBytes(int(cr.n))), nil
 	case "file", "symlink":
@@ -214,31 +225,43 @@ func (ag *Agent) toolSbxCopy(ctx context.Context, run *Run, cfg Config, args map
 		}
 		body, _, err := src.Conn.OpenFile(ctx, src.ID, sp, 0, 0)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("reading %s failed: %w", where(src, sp), err)
 		}
 		defer body.Close()
-		out, err := dst.Conn.WriteFile(ctx, dst.ID, dp, body, sbxWrite{Mkdirs: true, Mode: string(st.Mode)})
+		cr := &countingReader{r: body}
+		out, err := dst.Conn.WriteFile(ctx, dst.ID, dp, cr, sbxWrite{Mkdirs: true, Mode: string(st.Mode)})
 		if err != nil {
-			return "", err
+			return "", blame(cr, dp, err)
 		}
 		return fmt.Sprintf("copied %s to %s (%s)", where(src, sp), where(dst, dp), humanBytes(int(out.Size))), nil
 	}
 	return "", fmt.Errorf("%s is neither a file nor a directory (%s)", sp, st.Type)
 }
 
+// countingReader counts what a copy's source gave, and keeps the error it
+// failed with (not io.EOF): the destination's failure may be the source's.
 type countingReader struct {
-	r io.Reader
-	n int64
+	r   io.Reader
+	n   int64
+	err error
 }
 
 func (c *countingReader) Read(p []byte) (int, error) {
 	n, err := c.r.Read(p)
 	c.n += int64(n)
+	if err != nil && err != io.EOF && c.err == nil {
+		c.err = err
+	}
 	return n, err
 }
 
 func (ag *Agent) toolSbxInfo(ctx context.Context, run *Run, cfg Config) (string, error) {
 	root := rootOf(run)
+	if run.ID == root { // the conversation's bindings now: an earlier call may have changed them
+		if rc, err := ag.db.runConfig(root); err == nil {
+			cfg.Sandbox, cfg.Attached = copySandboxes(rc)
+		}
+	}
 	bindings := cfg.Attached
 	if cfg.Sandbox != nil {
 		if _, ok := attachedRef(cfg, cfg.Sandbox.Ref); !ok {
@@ -247,6 +270,7 @@ func (ag *Agent) toolSbxInfo(ctx context.Context, run *Run, cfg Config) (string,
 	}
 	var b strings.Builder
 	names := map[string]string{}
+	gone := false
 	for _, bd := range bindings {
 		names[bd.Ref] = orStr(bd.Name, bd.Ref)
 		mark := "attached"
@@ -256,6 +280,7 @@ func (ag *Agent) toolSbxInfo(ctx context.Context, run *Run, cfg Config) (string,
 		use, err := ag.sandboxUse(ctx, root, cfg, bd.Ref)
 		if err != nil {
 			fmt.Fprintf(&b, "%s %q (%s): unavailable — %v\n", mark, orStr(bd.Name, bd.Ref), bd.Ref, err)
+			gone = gone || sbxRefusal(err) == "not-found"
 			continue
 		}
 		x := use.Box
@@ -268,6 +293,20 @@ func (ag *Agent) toolSbxInfo(ctx context.Context, run *Run, cfg Config) (string,
 			orStr(x.Image.ID, "?"), use.Hello.title(bd.Ref))
 		fmt.Fprintf(&b, "  cwd %s · workdir %s · home %s · user %s · caps %s\n", use.cwd(), x.Workdir, orStr(x.Home, "?"),
 			orStr(x.User, "?"), strings.Join(x.Caps, ","))
+		live := "available"
+		if why := livePreviewWhyNot(ctx, use); why != "" {
+			live = "not available — " + why
+		}
+		fmt.Fprintf(&b, "  manager caps %s · live preview (preview_port): %s\n", strings.Join(use.Hello.Caps, ","), live)
+	}
+	if gone && run.ID == root { // a gone sandbox came off: say which one is active now
+		if rc, err := ag.db.runConfig(root); err == nil {
+			if rc.Sandbox != nil {
+				fmt.Fprintf(&b, "active now: %q (%s)\n", orStr(rc.Sandbox.Name, rc.Sandbox.Ref), rc.Sandbox.Ref)
+			} else {
+				b.WriteString("no sandbox is active now — ask the user to bind one, or sandbox_create\n")
+			}
+		}
 	}
 	if len(bindings) == 0 {
 		b.WriteString("no sandbox is attached to this conversation\n")

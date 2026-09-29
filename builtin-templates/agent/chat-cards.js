@@ -180,19 +180,24 @@ function agentTpl(b, ui, depth) {
 // A delivered child result starts with "--- #id title (outcome) ---".
 const stripHead = (s) => String(s || '').replace(/^--- #\d+ .*? ---\n/, '');
 
-function stepTpl(b) {
+// stepTpl: a journal line. finish's result is markdown (a model often puts
+// its whole answer there); a render or a live page is a button that shows it
+// again (ui.act.openPreview / openLive — agent.js).
+function stepTpl(b, ui) {
   const d = b.detail || {};
+  const act = (ui && ui.act) || {};
   let g = '•', txt = '';
   switch (b.kind) {
     case 'error': g = '⚠'; txt = d.error || d.text || ''; break;
     case 'compaction': g = '🗜'; txt = compactionWords(d); break;
     case 'yield': g = '⏸'; txt = `slept ${d.seconds ?? ''}s`; break;
-    case 'finish': g = '✓'; txt = d.result ? `finished: ${d.result}` : 'finished'; break;
+    case 'finish': if (!d.result) { g = '✓'; txt = 'finished'; break; }
+      return html`<div class="step finish md-step" data-k=${b.id}><span class="g">✓</span><div class="md">${unsafeHTML(mdOf(b, 'finish', d.result))}</div></div>`;
     case 'state_changed': g = '✳'; txt = `state changed${d.summary ? ': ' + d.summary : ''}`; break;
     case 'cancel': g = '⏹'; txt = `cancelled${d.reason ? ': ' + d.reason : ''}`; break;
     case 'ask': g = '?'; txt = `asked: ${d.question || ''}`; break;
-    case 'render': g = '🖼'; txt = `rendered ${d.path || ''} v${d.version || ''}`; break;
-    case 'live': g = '📡'; txt = `showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live`; break;
+    case 'render': g = '🖼'; txt = html`<button class="lnk steplnk" title="show it in the preview pane" @click=${() => act.openPreview?.(d.path, d.version, b.run)}>rendered ${d.path || ''} v${d.version || ''}</button>`; break;
+    case 'live': g = '📡'; txt = html`<button class="lnk steplnk" title="show it live in the preview pane" @click=${() => act.openLive?.(d, b.run)}>showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live</button>`; break;
     default: txt = d.text || '';
   }
   return html`<div class="step ${b.kind}" data-k=${b.id}><span class="g">${g}</span> ${txt}</div>`;

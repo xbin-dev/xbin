@@ -12,6 +12,7 @@ import { ui, ctx, fail, guard, push, secs, clip, base, cardState, FAMILY_ICON, t
 import { argsShown } from '../model/tool-heads.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
+import { openRender, openLive } from './tools.js';
 
 const CUT = 1200; // a long result is cut here; the card's ↗ opens all of it
 
@@ -179,9 +180,20 @@ const STEP = {
   render: ['🖼', 'accent', (d) => `rendered ${d.path || ''} v${d.version || ''}`],
   live: ['📡', 'accent', (d) => `showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live`],
 };
+// stepTpl: a journal line. A render or a live page is a card that opens it
+// again (a step has no tap); finish's result is markdown under its line.
 function stepTpl(b) {
-  const [glyph, tone, text] = STEP[b.kind] || ['•', 'muted', (d) => d.text || ''];
-  return html`<step glyph=${glyph} tone=${tone} text=${text(b.detail || {})}/>`;
+  const d = b.detail || {};
+  const [glyph, tone, text] = STEP[b.kind] || ['•', 'muted', (x) => x.text || ''];
+  const run = b.run || ctx.app.sel; // a subagent's step, shown in its parent: the file (the page) is its run's
+  if (b.kind === 'render' && d.path) {
+    return html`<toolcard title=${text(d)} icon="photo" family="render" state="ok" @open=${() => openRender(run, d.path, d.version, false)}/>`;
+  }
+  if (b.kind === 'live' && d.sandbox) {
+    return html`<toolcard title=${text(d)} icon="globe" family="live" state="ok" @open=${() => openLive(run, d, false)}/>`;
+  }
+  if (b.kind === 'finish' && d.result) return html`<step glyph="✓" tone="ok" text="finished"/><markdown source=${d.result}/>`;
+  return html`<step glyph=${glyph} tone=${tone} text=${text(d)}/>`;
 }
 
 // approvalTpl: the calls a run wants to run, approve or deny (a subagent's

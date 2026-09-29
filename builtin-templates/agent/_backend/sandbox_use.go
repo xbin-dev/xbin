@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // sbxUse is a sandbox a conversation's tool may work in, right now.
@@ -92,8 +93,7 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 	box, err := conn.Get(ctx, id)
 	if err != nil {
 		if sbxRefusal(err) == "not-found" {
-			return nil, &sbxError{Provider: provider, Refusal: "not-found",
-				Msg: fmt.Sprintf("the sandbox %q is gone (deleted, or no longer shared with this agent) — ask the user to bind another", b.Name)}
+			return nil, ag.sandboxGone(ctx, root, provider, b)
 		}
 		return nil, err
 	}
@@ -149,6 +149,76 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 		cwd = box.Workdir
 	}
 	return &sbxUse{Conn: conn, ID: id, Binding: b, Box: box, Hello: hello, Cwd: cwd}, nil
+}
+
+// hasCap: the manager offers capability c — asked again (managerHelloFresh)
+// before answering no, so a cached hello from before an update never
+// refuses; u.Hello becomes what it said.
+func (u *sbxUse) hasCap(ctx context.Context, c string) bool {
+	if u.Hello.has(c) {
+		return true
+	}
+	if h, err := managerHelloFresh(ctx, u.Conn.M); err == nil {
+		u.Hello = h
+	}
+	return u.Hello.has(c)
+}
+
+// sandboxGone: the manager says a bound sandbox is not found (deleted
+// elsewhere — an operator, another tile — or no longer shared with its
+// binder), so the binding can never work again. It comes off the
+// conversation at once, in one transaction: were it left, every later tool
+// call would hit the same wall, and a model can't switch the active
+// sandbox. When it was the active one, the first other attached sandbox
+// becomes active (the sandbox tools need an active one — sandboxToolsOn).
+// The refusal says what changed.
+func (ag *Agent) sandboxGone(ctx context.Context, root int64, provider string, b SandboxBinding) error {
+	name := orStr(b.Name, b.Ref)
+	var was, now bool
+	var next *SandboxBinding
+	var rest []string
+	err := ag.db.Tx(func(t *DB) error {
+		was, now, next, rest = false, false, nil, nil
+		err := storeBinding(t, root, func(cfg *Config) error {
+			was = cfg.Sandbox != nil && cfg.Sandbox.Ref == b.Ref
+			if now = detachSandbox(cfg, b.Ref); !now {
+				return nil
+			}
+			if was && len(cfg.Attached) > 0 {
+				a := cfg.Attached[0]
+				cfg.Sandbox = &a
+			}
+			if cfg.Sandbox != nil {
+				n := *cfg.Sandbox
+				next = &n
+			}
+			for _, a := range cfg.Attached {
+				rest = append(rest, fmt.Sprintf("%q", orStr(a.Name, a.Ref)))
+			}
+			return nil
+		})
+		if err == nil && now && ag.eng != nil {
+			ag.eng.emitRun(t, root)
+		}
+		return err
+	})
+	e := &sbxError{Provider: provider, Refusal: "not-found"}
+	switch {
+	case err != nil:
+		e.Msg = fmt.Sprintf("the sandbox %q is gone (deleted, or no longer shared with this agent), and detaching it failed (%v) — ask the user to bind another", name, err)
+	case !now: // already off the conversation (another call took it off): the root's config says what is bound
+		e.Msg = fmt.Sprintf("the sandbox %q is gone (deleted, or no longer shared with this agent) and is no longer attached — sandbox_info says what is", name)
+	case sbxCallOf(ctx).run != 0 && sbxCallOf(ctx).run != root:
+		e.Msg = fmt.Sprintf("the sandbox %q is gone (deleted, or no longer shared with this agent) and was detached from the conversation — tell your parent", name)
+	case next == nil:
+		e.Msg = fmt.Sprintf("the sandbox %q is gone (deleted, or no longer shared with this agent) and was detached; no sandbox is bound now — ask the user to bind one, or sandbox_create", name)
+	case was:
+		e.Msg = fmt.Sprintf("the sandbox %q is gone (deleted, or no longer shared with this agent) and was detached; the active sandbox is now %q from your next step (attached: %s)",
+			name, orStr(next.Name, next.Ref), strings.Join(rest, ", "))
+	default:
+		e.Msg = fmt.Sprintf("the sandbox %q is gone (deleted, or no longer shared with this agent) and was detached; the active sandbox is still %q", name, orStr(next.Name, next.Ref))
+	}
+	return e
 }
 
 // holdInternal: the conversation root works in a marked sandbox (ref), so

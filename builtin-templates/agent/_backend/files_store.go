@@ -24,7 +24,18 @@ const (
 	// people and by the vision path, not pasted into the transcript.
 	maxBinaryFileBytes = 16 << 20
 	maxBinaryRunBytes  = 64 << 20
+	// maxRenderBytes bounds what render_html shows: a sandbox's report is
+	// often over the text cap (then stored as a binary file, text/html),
+	// and a preview pane paints a few MB of HTML without trouble.
+	maxRenderBytes = 2 << 20
 )
+
+// renderable: a binary-stored file render_html shows and GET /runs/{id}/file
+// answers with its content — HTML (or text) over the text cap, up to
+// maxRenderBytes. Anything else binary stays bytes (GET …/raw).
+func renderable(f *ReplFile) bool {
+	return f.Binary && isTextMime(f.Mime) && f.Mime != "image/svg+xml" && f.Bytes <= maxRenderBytes
+}
 
 type ReplFile struct {
 	Path    string `json:"path"`

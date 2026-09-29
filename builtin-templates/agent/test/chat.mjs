@@ -56,7 +56,7 @@ const seed = {
 
 const browser = await launch();
 const ctx = await browser.newContext();
-await serveTile(ctx);
+await serveTile(ctx, { realMarked: true }); // the finish line's markdown
 await ctx.addInitScript(STUB, seed);
 const page = await ctx.newPage();
 const errors = [];
@@ -107,16 +107,21 @@ await push({ type: 'run', run: 2, root: 1, data: { id: 2, title: 'research', sta
 await page.waitForTimeout(100);
 ok('a subagent never appears in the sidebar', (await page.$$('#runs .run')).length === 1);
 
-// The pinned task (D133): the first request on a line under the top bar's
-// controls; unfolded, the whole ledger (GET /runs/1/asks) — read-only.
+// The pinned task (D133): the current (latest) request on a line under the
+// top bar's controls; unfolded, the whole ledger (GET /runs/1/asks) — read-only.
 await page.evaluate(() => window.__route('GET', /\/runs\/1\/asks$/, () => window.__json({ asks: [
   { id: 1, seq: 1, source: 'human', who: 'alice', text: 'plan it\nwith the whole team', at: 1700000000, live: false },
   { id: 2, seq: 9, source: 'schedule', who: 'nudge', text: 'check the budget', at: 1700000100, live: true }] })));
 await push({ type: 'run', run: 1, root: 1, data: { id: 1, title: 'plan the quarter', status: 'running', parentId: 0, rootId: 1,
+  task: { count: 1, first: { seq: 1, source: 'human', who: 'alice', text: 'plan it\nwith the whole team' } } } });
+await page.waitForSelector('.taskpin .taskline');
+ok('one request: it is the pinned line', (await page.textContent('.taskpin .taskline')) === 'plan it with the whole team'
+  && !(await page.textContent('.taskpin .tasktoggle')).includes('+'), await page.textContent('.taskpin'));
+await push({ type: 'run', run: 1, root: 1, data: { id: 1, title: 'plan the quarter', status: 'running', parentId: 0, rootId: 1,
   task: { count: 2, first: { seq: 1, source: 'human', who: 'alice', text: 'plan it\nwith the whole team' },
     latest: { seq: 9, source: 'schedule', who: 'nudge', text: 'check the budget' } } } });
-await page.waitForSelector('.taskpin .taskline');
-ok('the task is pinned under the top bar, on one line', (await page.textContent('.taskpin .taskline')) === 'plan it with the whole team'
+await page.waitForFunction(() => document.querySelector('.taskpin .taskline')?.textContent === 'check the budget');
+ok('the task is pinned under the top bar, on one line: the latest request, not the first', (await page.textContent('.taskpin .taskline')) === 'check the budget'
   && (await page.textContent('.taskpin .tasktoggle')).includes('+1'), await page.textContent('.taskpin'));
 await page.click('.taskpin .tasktoggle');
 await page.waitForSelector('.taskpin .taskreq:nth-child(2)');
@@ -162,6 +167,40 @@ await page.click('.acard .ach .lnk');
 await page.waitForFunction(() => document.querySelector('#top .title')?.textContent === 'research');
 ok('the breadcrumb leads back to the parent', (await page.textContent('.crumbs')).includes('plan the quarter'));
 ok('the sidebar still highlights the root', (await page.textContent('#runs .run.on')).includes('plan the quarter'));
+
+// finish's result is markdown (a model often puts its answer there); a
+// render and a live page are buttons that show them again once closed.
+await page.click('#top .crumbs a, .crumbs a').catch(() => {});
+await page.waitForFunction(() => document.querySelector('#top .title')?.textContent === 'plan the quarter');
+const stepEv = (id, kind, detail) => ({ type: 'step', run: 1, root: 1, data: { id, runId: 1, seq: id, kind, detail: JSON.stringify(detail), created: Math.floor(Date.now() / 1000) } });
+await push(stepEv(901, 'finish', { result: 'All done — the plan is **ready**:\n\n- one\n- two' }));
+await page.waitForSelector('.step.finish .md strong');
+ok('the finish line renders its result as markdown', (await page.textContent('.step.finish .md strong')) === 'ready'
+  && (await page.$$('.step.finish .md li')).length === 2, await page.innerHTML('.step.finish'));
+await page.evaluate(() => window.__route('GET', /\/runs\/1\/file\?path=r\.html$/, () => window.__json({ path: 'r.html', content: '<p id="x">the report</p>', version: 1 })));
+await push(stepEv(902, 'render', { path: 'r.html', version: 1, bytes: 26 }));
+await page.waitForFunction(() => !document.getElementById('preview').hidden);
+ok('a render opens the pane', (await page.textContent('#prev-path')) === 'r.html');
+await page.click('#prev-close');
+ok('…closed', await page.isHidden('#preview'));
+const fileGets = () => page.evaluate(() => window.__calls.filter((c) => c.url.includes('/runs/1/file?path=r.html')).length);
+await page.click('.step.render .steplnk');
+await page.waitForFunction(() => !document.getElementById('preview').hidden);
+ok('the 🖼 line brings the report back', (await page.textContent('#prev-path')) === 'r.html' && (await fileGets()) >= 1);
+await page.click('#prev-close');
+await page.evaluate(() => window.__route('POST', /\/api\/xbin\/path-tickets$/, () => window.__json({ url: '/api/~t1/', expires: Date.now() + 1e6 })));
+await push(stepEv(903, 'live', { sandbox: 'sb-1', name: 'web', port: 8000, path: '/' }));
+await page.waitForSelector('#livefr', { state: 'attached' });
+await page.waitForFunction(() => document.getElementById('live-strip')?.dataset.tone);
+ok('a live page opens with its status strip, which checked its URL', (await page.textContent('#live-strip .lsout')).startsWith('HTTP 404'), await page.textContent('#live-strip'));
+ok('…and a page that answers an error is said, not shown blank', await page.evaluate(() => document.getElementById('livefr').hidden
+  && !document.querySelector('.lsmsg').hidden && document.querySelector('.lsmsg').textContent.includes('didn\'t load')));
+await page.click('#prev-close');
+ok('…closed, the strip goes with it', !(await page.$('#live-strip')) && !(await page.$('#livefr')));
+await page.click('.step.live .steplnk');
+await page.waitForSelector('#livefr', { state: 'attached' });
+ok('the 📡 line shows it live again', (await page.textContent('#prev-path')).includes('web:8000/'));
+await page.click('#prev-close');
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();
