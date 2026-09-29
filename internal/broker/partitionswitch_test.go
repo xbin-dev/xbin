@@ -402,6 +402,7 @@ func TestPartitionModeGlobalSwitches(t *testing.T) {
 		if t.Kind == wipeEverything && !t.DryRun {
 			sum.Partitions++
 			sum.addPerson("dan")
+			f.rescan() // a rescan meanwhile, the tile emptied: never an auto record
 		}
 		return nil
 	}})
@@ -445,6 +446,9 @@ func TestPartitionModeGlobalSwitches(t *testing.T) {
 	}
 	if !slices.Contains(f.pushed(), "dan tile.partition-deleted") {
 		t.Errorf("dan wasn't told: %v", f.pushed())
+	}
+	if ops := f.ops("apps/docs"); !strings.HasSuffix(ops, ",request,switch") {
+		t.Errorf("history %q: a rescan during the switch recorded something of its own", ops)
 	}
 }
 

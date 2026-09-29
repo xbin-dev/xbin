@@ -389,6 +389,9 @@ func unreadRecord(why string) registry.PartitionMode {
 func (pm *partitionModes) decide(b *Broker, rec *modeRecord, ask registry.PartitionAsk) registry.PartitionMode {
 	sealed := false
 	holds := func() bool {
+		if b.switchHold(ask.Tile) != "" {
+			return true // a manager's switch is emptying it: never an auto record meanwhile
+		}
 		held, store, s := b.tileHoldsData(ask)
 		if sealed = s; held {
 			slog.Debug("partitions: the tile holds data", "tile", ask.Tile, "store", store, "sealed", s)

@@ -68,19 +68,25 @@ func cmdPartition(args []string) error {
 	return fmt.Errorf("bx partition: unknown subcommand %q (switch, keep)", args[0])
 }
 
-// partitionRequest reads tile's request R → Q from its /components row.
+// partitionRow is the partition part of a /components row.
+type partitionRow struct {
+	Partition *struct {
+		State   string `json:"state"`
+		User    bool   `json:"user"`
+		Global  bool   `json:"global"`
+		Request *struct {
+			partSpec
+			Declined bool `json:"declined"`
+		} `json:"request"`
+	} `json:"partition"`
+	PartitionError string `json:"partitionError"`
+}
+
+// partitionRequest reads tile's request R → Q from its /components row
+// (GET /components/<tile> answers {component: row, apiDoc}).
 func partitionRequest(tile string) (from, to *partSpec, declined bool, err error) {
-	var row struct {
-		Partition *struct {
-			State   string    `json:"state"`
-			User    bool      `json:"user"`
-			Global  bool      `json:"global"`
-			Request *partSpec `json:"request"`
-		} `json:"partition"`
-		PartitionError string `json:"partitionError"`
-	}
-	var req struct {
-		Declined bool `json:"declined"`
+	var one struct {
+		Component partitionRow `json:"component"`
 	}
 	resp, err := api("GET", "/api/xbin/components/"+escapePath(tile), nil)
 	if err != nil {
@@ -91,26 +97,19 @@ func partitionRequest(tile string) (from, to *partSpec, declined bool, err error
 	if resp.StatusCode >= 400 {
 		return nil, nil, false, fmt.Errorf("%s: %s", tile, strings.TrimSpace(string(b)))
 	}
-	if err := json.Unmarshal(b, &row); err != nil {
+	if err := json.Unmarshal(b, &one); err != nil {
 		return nil, nil, false, err
 	}
-	p := row.Partition
+	p := one.Component.Partition
 	switch {
 	case p == nil:
 		return nil, nil, false, fmt.Errorf("%s has no partition mode switch request (it doesn't ask for a partition mode)", tile)
 	case p.State == "invalid":
-		return nil, nil, false, fmt.Errorf("%s's partition request is invalid, so there is nothing to decide: %s", tile, row.PartitionError)
+		return nil, nil, false, fmt.Errorf("%s's partition request is invalid, so there is nothing to decide: %s", tile, one.Component.PartitionError)
 	case p.Request == nil:
 		return nil, nil, false, fmt.Errorf("%s has no partition mode switch request (it runs %s)", tile, (&partSpec{p.User, p.Global}).String())
 	}
-	var raw struct {
-		Partition struct {
-			Request json.RawMessage `json:"request"`
-		} `json:"partition"`
-	}
-	_ = json.Unmarshal(b, &raw)
-	_ = json.Unmarshal(raw.Partition.Request, &req)
-	return &partSpec{p.User, p.Global}, p.Request, req.Declined, nil
+	return &partSpec{p.User, p.Global}, &partSpec{p.Request.User, p.Request.Global}, p.Request.Declined, nil
 }
 
 func partitionDecide(act string, args []string) error {

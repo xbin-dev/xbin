@@ -17,7 +17,7 @@ import (
 // to decide is refused before any act; unknown flags are errors.
 func TestBxPartition(t *testing.T) {
 	var got []string
-	row := `{"path":"apps/docs","partition":{"state":"pending","user":false,"global":false,"request":{"user":true,"global":false,"declined":false}}}`
+	row := `{"component":{"path":"apps/docs","partition":{"state":"pending","user":false,"global":false,"request":{"user":true,"global":false,"declined":false}}},"apiDoc":""}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		got = append(got, r.Method+" "+r.URL.Path+" "+strings.TrimSpace(string(b)))
@@ -25,7 +25,7 @@ func TestBxPartition(t *testing.T) {
 		case "/api/xbin/components/apps/docs":
 			_, _ = io.WriteString(w, row)
 		case "/api/xbin/components/apps/plain":
-			_, _ = io.WriteString(w, `{"path":"apps/plain"}`)
+			_, _ = io.WriteString(w, `{"component":{"path":"apps/plain"},"apiDoc":""}`)
 		default:
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "deletes": "all data in this tile",
 				"wiped": map[string]int{"namespaces": 2, "bytes": 4096}, "keeps": []string{"the code"}})
