@@ -110,7 +110,7 @@ const browser = await launch();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 await serveTile(ctx);
 // the terminal element and its pieces, as xbind serves them at /vendor/
-const vendorFile = { 'bx-terminal.js': join(web, 'bx-terminal.js'), 'term-predict.js': join(web, 'term-predict.js'), 'term-src.js': join(web, 'term-src.js'),
+const vendorFile = { 'bx-terminal.js': join(web, 'bx-terminal.js'), 'bx-scroll.js': join(web, 'bx-scroll.js'), 'term-predict.js': join(web, 'term-predict.js'), 'term-src.js': join(web, 'term-src.js'),
   'xterm.js': join(web, 'vendor', 'xterm.js'), 'addon-fit.js': join(web, 'vendor', 'addon-fit.js'), 'addon-web-links.js': join(web, 'vendor', 'addon-web-links.js'),
   'xterm.css': join(web, 'vendor', 'xterm.css') };
 for (const [name, file] of Object.entries(vendorFile)) {
