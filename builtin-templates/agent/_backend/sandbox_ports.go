@@ -187,7 +187,10 @@ var contractRefusals = map[string]bool{"not-listening": true, "not-found": true,
 // liveRoutes is registered with the route table's (routes.go): a
 // participant's view of a port in a sandbox bound to the run.
 func liveRoutes() []routeDef {
-	return []routeDef{{"/runs/{id}/live/{sbx}/{port}/{path...}", needParticipant, handleLive}}
+	// …and the port's root without its slash: xbind hands a backend its
+	// path with no trailing slash (a live page's own URL ends in one)
+	return []routeDef{{"/runs/{id}/live/{sbx}/{port}/{path...}", needParticipant, handleLive},
+		{"/runs/{id}/live/{sbx}/{port}", needParticipant, handleLive}}
 }
 
 // liveUses caches, for a few seconds, the sandboxUse of a run's sandbox:

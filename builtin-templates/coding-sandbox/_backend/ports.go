@@ -30,6 +30,10 @@ type portForwarder interface {
 
 func (m *Manager) portRoutes(x *http.ServeMux) {
 	x.HandleFunc("/sbx/sandboxes/{id}/ports/{port}/{path...}", m.portProxy)
+	// the port's root without its slash: xbind hands a backend its path
+	// with no trailing slash, and the mux would otherwise answer a redirect
+	// to a path of ours the consumer can't reach
+	x.HandleFunc("/sbx/sandboxes/{id}/ports/{port}", m.portProxy)
 }
 
 // portsOffered: the substrate serves ports and its boxes forward.

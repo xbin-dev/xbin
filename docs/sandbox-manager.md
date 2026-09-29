@@ -340,7 +340,11 @@ by addition: no new protocol number).
   and nothing is rewritten: it is a path-prefix proxy, so a page's
   **relative** URLs work below whatever prefix the consumer serves it at,
   and root-absolute ones (`/app.js`) don't. `Host` is `localhost:{port}`.
-  A path segment that decodes to `.` or `..` is `invalid`.
+  A path segment that decodes to `.` or `..` is `invalid`. A manager
+  behind xbind gets the port's **root** as `…/ports/{port}`, with no
+  trailing slash — xbind hands a tile backend its path without one — and
+  serves it as `/`, never as a redirect (the `Location` would name the
+  manager's own path, which the consumer can't reach).
 - **Who**: the same scoping and person rules as `exec` — a consumer reaches
   only the sandboxes it sees (`not-found` otherwise), and on a verified call
   the person must be allowed to use the sandbox (`not-allowed`).

@@ -474,6 +474,7 @@ func (m *fsbManager) routes() {
 	x.HandleFunc("POST /sbx/sandboxes/{id}/snapshots/{sid}/restore", m.snapRestore)
 	x.HandleFunc("DELETE /sbx/sandboxes/{id}/snapshots/{sid}", m.snapDelete)
 	x.HandleFunc("/sbx/sandboxes/{id}/ports/{port}/{path...}", m.port)
+	x.HandleFunc("/sbx/sandboxes/{id}/ports/{port}", m.port)         // the root, as xbind hands it on: no trailing slash
 	x.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { // errors are JSON, even for a route that isn't here
 		fsbFail(w, http.StatusNotFound, "not-found", "no route "+r.Method+" "+r.URL.Path)
 	})
