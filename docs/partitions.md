@@ -30,15 +30,21 @@ its global binds; each one has its own:
 - terminal layer;
 - personal binds ([§Bind types](#bind-types-global-and-personal)).
 
-With `"global"`, the tile also runs its **global instance**: the tile's one
-instance as it is without partitions, at the same data, vault and
-registrations, serving everything that doesn't act for a person (below).
+With `"global"`, the tile also runs its **global instance**: one instance,
+like the tile's instance without partitions, serving everything that doesn't
+act for a person (below). It keeps its data, vault and registrations at
+today's keys — which a switch to partitions empties, so the global instance
+starts empty too ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
 Without `"global"` only people's partitions run: the tile has no public
 surface, and only partitioned tiles can call it.
 
 A person's partition starts on their first use and stops when idle, like any
 backend. Partitions run only on the tile's primary deployment, and only on
-an xbind started with `--isolate` (each partition is its own sandbox).
+an xbind started with `--isolate` (each partition is its own sandbox). A
+non-primary deployment ([tile-deployments.md](tile-deployments.md)) runs one
+instance, as today, reachable by the tile's writers; when its code asks for
+partitions that instance runs as `global` — whether or not the primary is
+partitioned — so every writer who opens the deployment shares it.
 
 ## Who reaches which partition
 
@@ -52,7 +58,7 @@ never from the URL, and never from a header the caller controls:
 | `user:alice`'s partition of another partitioned tile, holding a grant on this one | `user:alice` of this tile, if alice can read it |
 | any other tile, the root token, a public request through a published endpoint | the **global** instance; without one, 403 (503 for a public request) |
 | xbind's cron and bus deliveries | the partition that registered them |
-| an admin viewing the workspace as a person | nothing: view-as never opens a person's partition |
+| an admin viewing the workspace as a person | no partition: view-as never opens a person's partition. It reaches the global instance only by an explicit call to it ([below](#the-global-instance-and-peoples-partitions)) |
 
 A person who can no longer read the tile, is disabled or is deleted stops
 reaching their partition, and its cron jobs and deliveries stop with them.
@@ -69,8 +75,27 @@ reaching their partition, and its cron jobs and deliveries stop with them.
 Unknown words fail closed on purpose: a later kind of partition makes an
 xbind that doesn't know it run no backend rather than a wrong one.
 
-Some tiles can't be partitioned: chrome tiles, `vm` tiles, and tiles that
-use `xbin`/`xbin:*`, `cap:sandboxes`, `cap:net-admin` or `cap:containers`.
+A `partition` request is also **invalid** (the same 409, nothing recorded)
+when:
+
+- the tile uses its scope's resources but doesn't **root its scope**: the
+  resources belong to the scope, which another tile roots;
+- another tile inside the partitioned scope asks for a **different** list:
+  a scope's resources are partitioned one way for all its tiles;
+- the tile is a chrome tile or a `vm` tile, or it holds (or asks for)
+  `xbin`/`xbin:*`, `cap:sandboxes`, `cap:net-admin` or `cap:containers` —
+  approving such a grant for a partitioned tile answers 409 too;
+- a resource of the scope is `"shared": "read"` with type `sqlite`
+  ([§Shared resources](#shared-resources)).
+
+A template's own `partition` isn't checked: its instances carry it
+([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
+
+Some things apply to a partitioned tile's global instance only, so without
+`"global"` they do nothing: `alwaysOn`, `exposes` (ingress), a `net → host`
+binding, a net provider or a provider splice. People's partitions get only
+relayed egress under the tile's egress policy. A static tile may declare
+`partition`, with a warning: it has no backend to partition.
 
 Two optional keys go with it — **TODO**, documented when they are built:
 `"partitionMail": "/path"`, where xbind rings the global ↔ person mail
@@ -92,8 +117,9 @@ only the record:
   page ("A partition mode switch is requested for `<tile>`. All data in
   this tile will be deleted for the switch to happen"), its API answers
   409, and the shell shows an alert. A **tile manager** — a workspace admin,
-  the tile's owner, or an admin of the organisation that owns it — then
-  decides:
+  the tile's owner, or an admin of the organisation that owns it, in their
+  own session ([auth.md](auth.md): no tile credential decides, whatever
+  grants its tile holds) — then decides:
   - **Keep the current mode.** The decision is recorded, the tile runs in
     its recorded mode again, and nothing is deleted. The code keeps asking,
     and managers keep seeing the request with a Switch action.
@@ -142,6 +168,10 @@ opt a resource out in `scope.json`:
 - `"shared": "read"` — the global instance reads and writes; user partitions
   only read (not for `sqlite`: use `kv`, or `true`).
 
+A `cron` resource can't be shared: `shared` on it is ignored, with a
+warning. In a scope no tile partitions, `shared` is ignored silently, so a
+template can ship it ready.
+
 **Anything a partition writes to a `true` resource is readable — and
 changeable — by every partition's code and by the global instance.** Never
 let a row in a `true` resource decide where a person's private data goes:
@@ -164,8 +194,14 @@ bus events. The two sides talk through:
   `X-XBin-User-Level` their level on the tile, `X-XBin-Role` clamped to it,
   and `X-XBin-Partition: user:<id>` — never the tile calling itself. In Go,
   `xbin.Client().Get(xbin.GlobalURL("runs/42"))`; in a frame,
-  `xbin.fetch(url, {partition: 'global'})`. Both add
-  `?xbin-partition=global`, and only in a user partition.
+  `` xbin.fetch(`/api/${xbin.self}/runs/42`, {partition: 'global'}) ``. Both
+  add `?xbin-partition=global`, and only in a user partition; elsewhere they
+  call the tile as today. Both reach **the tile's own API only**:
+  `GlobalURL` always builds `/api/<self>/…`, and `xbin.fetch` rejects the
+  option (a `TypeError`, in every document) on any other URL — another
+  tile's, xbind's own `/api/xbin/…`, another host — and on any value but
+  `'global'`. A falsy value (`false`, `''`, `null`) means the viewer's own
+  partition.
 
   **A global instance must never treat a call carrying
   `X-XBin-Partition: user:…` as the tile itself**, even when `X-XBin-From`
@@ -208,6 +244,13 @@ provider merges every person's data into one. Both headers are absent on
 calls from tiles that aren't partitioned, and xbind strips any inbound
 value, like every `X-XBin-*` header.
 
+A partitioned tile's own backend sees `X-XBin-Partition` too, on the calls
+into it that act for a partition: a person reaching their partition
+(`user:<id>`), the root token reaching the global instance (`global`), and —
+at global — a user partition's call to it (`user:<id>`, with `X-XBin-From`
+the tile's own path; see above). A tile that isn't partitioned calling in
+sends neither header.
+
 ## In your code
 
 **Go** ([sdk.md](sdk.md)):
@@ -218,9 +261,16 @@ xbin.PartitionUser()    // the <id> of a user partition, "" otherwise
 xbin.RequirePartition() // exit 3 unless run as a partition (§Older xbinds)
 xbin.GlobalURL(path)    // this tile's global instance, from a user partition
 c := xbin.Caller(r)
-c.Partition             // X-XBin-Partition: the caller's partition, "" if none
+c.Partition             // X-XBin-Partition: the partition the call acts in, "" if none
 c.PartitionID           // X-XBin-Partition-Id: key per-caller state on it
 ```
+
+**`global` is one instance for everyone who reaches it**: other tiles, the
+root token, public requests, every person's calls to it — and, on a
+non-primary deployment whose code asks for partitions, every writer who
+opens it. Keep per-person data where `xbin.PartitionUser() != ""`, or judge
+`global`'s callers yourself (`c.User`, `c.UserCanWrite()`), as an
+unpartitioned tile does today.
 
 **node / python:** `process.env.XBIN_PARTITION` (`os.environ.get`), and the
 `x-xbin-partition` and `x-xbin-partition-id` request headers.
@@ -228,13 +278,15 @@ c.PartitionID           // X-XBin-Partition-Id: key per-caller state on it
 **In a frame:** `xbin.partition` is the partition the viewer reaches —
 `user:<id>`, or `global` for the root token and `--no-auth` — and is absent
 in a tile that isn't partitioned. `xbin.fetch(url, {partition: 'global'})`
-calls the global instance (above).
+calls the global instance, on the tile's own API only (above).
 
 Code that runs in every partition needs no change to keep people apart:
 `Resource(name)`, the vault and registrations are the partition's own.
 `Status` and `Notify` from a user partition reach only its person. One
 partition is one process, so what a backend holds in memory is its person's
-too.
+too. A user partition's bus subscriptions get events of a shared resource
+or of another tile's bus only while the partition runs: such an event never
+starts it (the `xbin.Subscribe` exception).
 
 ## Older xbinds
 
@@ -244,11 +296,19 @@ resources. It never reads people's partition data, so a downgrade exposes
 nobody's partition; but whatever that one instance writes goes to the global
 instance's data, for everyone.
 
-A tile whose code must never serve several people from one instance calls
+A tile whose code expects xbind to keep people apart calls
 `xbin.RequirePartition()` first thing in `main`: without `XBIN_PARTITION`
 it exits (status 3) and names the reason, so that xbind runs no backend at
 all. The same holds when a tile's managers keep it unpartitioned while its
 code asks for partitions.
+
+`RequirePartition` returns in `global` too, and `global` is one instance for
+everyone who reaches it — including every writer of a non-primary deployment
+whose code asks for partitions, even when the primary isn't partitioned
+([§In your code](#in-your-code)). It proves only that xbind runs this
+backend as `user:<id>` or `global`, not that the instance serves one person:
+code that must never mix people serves per-person data only where
+`xbin.PartitionUser() != ""`.
 
 ## What partitions protect, and what they don't
 

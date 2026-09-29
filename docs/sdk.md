@@ -58,9 +58,14 @@ c.Deployment                 // the calling tile's deployment when the call
                              // comes from one of its non-primary deployments
                              // (X-XBin-Deployment); "" otherwise. c.From
                              // stays the bare tile path
-c.Partition                  // X-XBin-Partition: the partition a partitioned
-                             // tile's caller acts in, "user:<id>" | "global";
-                             // "" otherwise. A display name
+c.Partition                  // X-XBin-Partition: the partition the call acts
+                             // in, "user:<id>" | "global" — from a partitioned
+                             // tile's principals, and on calls into a
+                             // partitioned tile for a partition (a person, the
+                             // root token at global, and at global a user
+                             // partition's own call: From == Self(), still a
+                             // person — partitions.md); "" otherwise. A
+                             // display name
 c.PartitionID                // X-XBin-Partition-Id: key per-caller state on
                              // (From, Deployment, PartitionID) — partitions.md
 ```
@@ -192,7 +197,10 @@ mux.HandleFunc("POST /on-deploy", func(w http.ResponseWriter, r *http.Request) {
 ```
 
 `xbin.Unsubscribe(name)` removes it; `GET /api/xbin/bus/subscriptions`
-lists yours with delivered/dropped/failed counters.
+lists yours with delivered/dropped/failed counters. One exception to
+"starting an idle backend": a user partition of a partitioned tile
+([partitions.md](/docs/partitions.md), in development) gets events of a
+shared resource or another tile's bus only while it runs.
 
 ### Your code in a tile deployment
 
@@ -247,7 +255,11 @@ xbin.GlobalURL("runs/42") // http://xbin/api/<self>/runs/42?xbin-partition=globa
 ```
 
 Your code needs nothing else: `Resource(name)`, the vault and registrations
-are the partition's own. **TODO:** partition mail (`Mail`, `Inbox`, `Ack`).
+are the partition's own. `RequirePartition` returns in `global` too, and
+`global` is one instance for everyone who reaches it — other tiles, the root
+token, every person's `GlobalURL` calls, and every writer of a non-primary
+deployment whose code asks for partitions: serve per-person data only where
+`PartitionUser() != ""`. **TODO:** partition mail (`Mail`, `Inbox`, `Ack`).
 
 ### Notifying a person on their phone
 
@@ -495,7 +507,9 @@ if (llm) await xbin.fetch(`${llm.url}/v1/chat/completions`, { method: 'POST', �
 const r = await xbin.fetch(`/api/${xbin.self}/events`);
 const r2 = await xbin.fetch('/api/apps/calendar/events'); // needs a grant
 // from a user partition's document: the tile's global instance, as the viewer
-// (partitions.md). The option is stripped, and ignored in any other document
+// (partitions.md). The option is stripped, and changes nothing in any other
+// document; it takes 'global' (falsy = own partition) on this tile's own
+// /api/<self>/… only — anything else rejects with a TypeError, everywhere
 const r3 = await xbin.fetch(`/api/${xbin.self}/shared/42`, { partition: 'global' });
 
 // attributed WebSocket to an element API (browsers can't set WS headers,
