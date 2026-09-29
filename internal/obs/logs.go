@@ -93,6 +93,9 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	// no sniffing: URLSession otherwise holds back a text/plain stream's
+	// first 512 bytes, so a short log never shows while it is followed
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if named != "" || dep != o.primary(comp) { // the echo; absent means the primary's
 		w.Header().Set(deploymentHeader, dep)
 	}

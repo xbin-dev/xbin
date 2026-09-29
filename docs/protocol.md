@@ -795,7 +795,9 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    generations). ?tail=<bytes> (default 64K,
                                    max 1M) sizes it; ?follow=1 keeps streaming
                                    appended bytes (chunked) until the client
-                                   goes away. The HTTP twin of `bx logs [-f]`
+                                   goes away (sent with X-Content-Type-Options:
+                                   nosniff, so a client doesn't hold back the
+                                   first bytes to sniff them). The HTTP twin of `bx logs [-f]`
                                    (which streams it in an isolated terminal,
                                    where .xbin is masked); the terminal
                                    window's read-only logs tab. A failed
