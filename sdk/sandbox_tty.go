@@ -33,6 +33,9 @@ import (
 type SandboxRoute struct {
 	sub string // escaped, below the sandbox's own route
 	err error  // why the builder refused it
+
+	port     bool   // a PortRoute: its query is rawQuery, not Forward's q
+	rawQuery string // a PortRoute's query, as the consumer sent it
 }
 
 // execSub is exec id's route, plus tail.
@@ -95,6 +98,34 @@ func FilesRoute(op FilesOp) SandboxRoute {
 // (?path=&mkdirs=1).
 func TarRoute() SandboxRoute { return SandboxRoute{sub: "tar"} }
 
+// PortRoute is ports/{port}/{path}: any method, an HTTP proxy to a server
+// listening on TCP port (1–65535) on the sandbox's own loopback, WebSocket
+// upgrades included (the ports capability, D135; SandboxRuntime.Caps says
+// whether this xbind has it). path is the server's path below the port as
+// the consumer sent it, still escaped (a leading "/" optional): it goes on
+// unchanged, so a consumer's path can only ever reach that port — a
+// segment that decodes to "." or "..", a bad escape, or a raw "?" or "#"
+// makes a refused route. rawQuery is the server's query, also unchanged:
+// Forward sends it in place of its q, which must be nil. Relative URLs in
+// the server's pages resolve under whatever prefix the manager serves the
+// route at: it is a path-prefix proxy, nothing is rewritten.
+func PortRoute(port int, path, rawQuery string) SandboxRoute {
+	if port < 1 || port > 65535 {
+		return SandboxRoute{err: invalidf("port %d is out of range (1-65535)", port)}
+	}
+	path = strings.TrimPrefix(path, "/")
+	if strings.ContainsAny(path, "?#") || strings.ContainsAny(rawQuery, "#") {
+		return SandboxRoute{err: invalidf("a port route's path is escaped: a raw ? or # has no place in it")}
+	}
+	for _, seg := range strings.Split(path, "/") {
+		d, err := url.PathUnescape(seg)
+		if err != nil || d == "." || d == ".." {
+			return SandboxRoute{err: invalidf("a port route's path has a dot segment or a bad escape")}
+		}
+	}
+	return SandboxRoute{sub: "ports/" + strconv.Itoa(port) + "/" + path, port: true, rawQuery: rawQuery}
+}
+
 // Forward passes a manager's own request through to this sandbox's runtime
 // route rt (ExecOutput(eid), FilesRoute(xbin.FilesContent), TarRoute(), …),
 // with the query q the manager chose — never the consumer's raw query. A
@@ -133,9 +164,17 @@ func (b *Sandbox) Forward(w http.ResponseWriter, r *http.Request, rt SandboxRout
 		WriteSandboxError(w, rt.err)
 		return
 	}
+	if rt.port && len(q) > 0 {
+		WriteSandboxError(w, invalidf("a PortRoute carries its own query: Forward's q must be nil"))
+		return
+	}
 	path, err := b.route(rt.sub)
 	if err != nil {
 		WriteSandboxError(w, err)
+		return
+	}
+	if rt.port {
+		b.s.forwardRaw(w, r, path, rt.rawQuery)
 		return
 	}
 	b.s.forward(w, r, path, q)
@@ -216,12 +255,17 @@ func (b *Sandbox) RelayNewTTY(w http.ResponseWriter, r *http.Request, o TTYStart
 
 // forward is Forward to an escaped path below sandboxesURL.
 func (s *Sandboxes) forward(w http.ResponseWriter, r *http.Request, path string, q url.Values) {
+	s.forwardRaw(w, r, path, q.Encode())
+}
+
+// forwardRaw is forward with the query as it goes on the wire.
+func (s *Sandboxes) forwardRaw(w http.ResponseWriter, r *http.Request, path, rawQuery string) {
 	target, err := url.Parse(sandboxesURL + path)
 	if err != nil {
 		WriteSandboxError(w, invalidf("%v", err))
 		return
 	}
-	target.RawQuery = q.Encode()
+	target.RawQuery = rawQuery
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			u := *target

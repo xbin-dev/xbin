@@ -474,6 +474,9 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	}
 	cfg := m.config()
 	o := &offer{rt: rt, caps: contractCaps(rt), egress: offeredEgress(rt)}
+	if m.portsOffered(rt) { // D135 (ports.go)
+		o.caps = append(o.caps, "ports")
+	}
 	clones := slices.Contains(o.caps, "clone") && slices.Contains(o.caps, "snapshots")
 	hidden := 0
 	for _, im := range cfg.Images {

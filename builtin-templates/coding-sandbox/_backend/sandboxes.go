@@ -27,6 +27,7 @@ func (m *Manager) contractHandler() http.Handler {
 	x.HandleFunc("DELETE /sbx/sandboxes/{id}", m.del)
 	x.HandleFunc("POST /sbx/sandboxes/{id}/{action}", m.action)
 	m.commandRoutes(x)
+	m.portRoutes(x)
 	m.fileRoutes(x)
 	x.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { // errors are JSON, even for a route that isn't here
 		fail(w, http.StatusNotFound, "not-found", "no route "+r.Method+" "+r.URL.Path)

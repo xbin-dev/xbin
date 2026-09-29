@@ -99,7 +99,14 @@ trusts its consumers.
   layout's shell. On a substrate that runs everything as root (the runtime's
   `users: root`), the user is root at `/root`.
 - **`caps`** are the substrate's (`exec`, `files`, `tar`, `tty`,
-  `snapshots`, `clone`); `archive` isn't offered yet (its routes answer 501).
+  `snapshots`, `clone`, and `ports` where xbind serves it); `archive`
+  isn't offered yet (its routes answer 501).
+- **Ports** (D135): `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` is
+  checked as an exec is — the partition, the person rules — then forwarded
+  to the runtime's ports route (the SDK's `PortRoute`), the consumer's
+  escaped path and query unchanged. A stopped sandbox is 409 `state`,
+  never started for it. Offered while the runtime's `caps` carry `ports`
+  (an xbind from before D135 doesn't: the route answers 501).
 - **`hello.limits`** are the substrate's, with `sandboxes` the caller's
   effective count quota, plus (additive) `running`, `memMiB`, `vcpus` and
   `diskGiB` — 0 is no fixed limit. `hello.notes`, when present, says what
@@ -330,7 +337,7 @@ notes have the commands):
    Binding another consumer doesn't restart the manager: calls in flight
    (relayed terminals, long polls) carry on.
 2. Hello: `caps` are the runtime's (`exec files tar tty snapshots
-   clone`), `egress` `none internet`, no `notes` but the missing ones.
+   clone ports`), `egress` `none internet`, no `notes` but the missing ones.
 3. The conformance suite through xbind's proxy, every section but
    `archive`: each consumer the suite names (`apps/ct-…`) is a tile bound
    to `apps/cs`, calling with its page's frame token (xbind sets

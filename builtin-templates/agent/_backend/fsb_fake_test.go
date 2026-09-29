@@ -27,7 +27,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
+	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -377,9 +381,9 @@ func (m *fsbManager) caps() []string {
 		return m.Caps
 	}
 	if fsbHasPTY() {
-		return []string{"exec", "files", "tar", "tty", "snapshots", "clone", "archive"}
+		return []string{"exec", "files", "tar", "tty", "snapshots", "clone", "archive", "ports"}
 	}
-	return []string{"exec", "files", "tar", "snapshots", "clone", "archive"}
+	return []string{"exec", "files", "tar", "snapshots", "clone", "archive", "ports"}
 }
 
 func (m *fsbManager) hasCap(c string) bool {
@@ -469,6 +473,7 @@ func (m *fsbManager) routes() {
 	x.HandleFunc("POST /sbx/sandboxes/{id}/snapshots", m.snapCreate)
 	x.HandleFunc("POST /sbx/sandboxes/{id}/snapshots/{sid}/restore", m.snapRestore)
 	x.HandleFunc("DELETE /sbx/sandboxes/{id}/snapshots/{sid}", m.snapDelete)
+	x.HandleFunc("/sbx/sandboxes/{id}/ports/{port}/{path...}", m.port)
 	x.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { // errors are JSON, even for a route that isn't here
 		fsbFail(w, http.StatusNotFound, "not-found", "no route "+r.Method+" "+r.URL.Path)
 	})
@@ -2708,4 +2713,118 @@ func (m *fsbManager) snapDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = os.RemoveAll(s.dir)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- ports (D135) -----------------------------------------------------------------
+
+// port: ANY …/ports/{port}/{path…} — an HTTP proxy to a server on the
+// sandbox's loopback. Here that is the HOST's loopback, 127.0.0.1 then
+// [::1] (TEST ONLY: a fake sandbox is a directory, its commands host
+// processes). A running sandbox only; nothing listening is 502
+// not-listening; xbin's credentials and forwarding headers never pass in,
+// Set-Cookie and X-XBin-* never come back.
+func (m *fsbManager) port(w http.ResponseWriter, r *http.Request) {
+	if m.faulted(w, "port") {
+		return
+	}
+	if !m.hasCap("ports") {
+		fsbFail(w, http.StatusNotImplemented, "unsupported", "no ports here")
+		return
+	}
+	ps := r.PathValue("port")
+	port, err := strconv.Atoi(ps)
+	if err != nil || port < 1 || port > 65535 || strconv.Itoa(port) != ps {
+		fsbFail(w, http.StatusBadRequest, "invalid", "port "+strconv.Quote(ps)+" must be 1-65535")
+		return
+	}
+	segs := strings.SplitN(r.URL.EscapedPath(), "/", 7) // "", sbx, sandboxes, id, ports, port, tail
+	tail := ""
+	if len(segs) == 7 {
+		tail = segs[6]
+	}
+	for _, s := range strings.Split(tail, "/") {
+		if d, err := url.PathUnescape(s); err != nil || d == "." || d == ".." {
+			fsbFail(w, http.StatusBadRequest, "invalid", "the path has a dot segment or a bad escape")
+			return
+		}
+	}
+	b, _, ok := m.box(w, r)
+	if !ok {
+		return
+	}
+	st := b.State
+	if st == "running" {
+		b.LastActive = fsbNow()
+	}
+	m.mu.Unlock()
+	if st != "running" {
+		fsbStateErr(w, fmt.Errorf("the sandbox is %s: nothing listens in it", st), st)
+		return
+	}
+	hp := strconv.Itoa(port)
+	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", hp), 5*time.Second)
+	if err != nil {
+		if c6, err6 := net.DialTimeout("tcp", net.JoinHostPort("::1", hp), 5*time.Second); err6 == nil {
+			c, err = c6, nil
+		}
+	}
+	if err != nil {
+		fsbFail(w, http.StatusBadGateway, "not-listening", "nothing accepts connections on port "+hp+" in the sandbox")
+		return
+	}
+	used := false
+	host := "localhost:" + hp
+	rp := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			u := &url.URL{Scheme: "http", Host: host, RawQuery: pr.In.URL.RawQuery}
+			if p, err := url.PathUnescape("/" + tail); err == nil {
+				u.Path = p
+				if u.EscapedPath() != "/"+tail {
+					u.RawPath = "/" + tail
+				}
+			}
+			pr.Out.URL, pr.Out.Host = u, host
+			h := pr.Out.Header
+			if up := pr.In.Header.Get("Upgrade"); up != "" {
+				h.Set("Connection", "Upgrade")
+				h.Set("Upgrade", up)
+			}
+			for _, k := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Sbx-User", "Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+				h.Del(k)
+			}
+			fsbDropXBin(h)
+		},
+		ModifyResponse: func(res *http.Response) error {
+			res.Header.Del("Set-Cookie")
+			fsbDropXBin(res.Header)
+			return nil
+		},
+		Transport: &http.Transport{DisableKeepAlives: true, DisableCompression: true,
+			DialContext: func(context.Context, string, string) (net.Conn, error) {
+				if used {
+					return nil, errors.New("one connection per request")
+				}
+				used = true
+				return c, nil
+			}},
+		FlushInterval: -1,
+		ErrorLog:      log.New(io.Discard, "", 0),
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if r.Context().Err() == nil {
+				fsbFail(w, http.StatusBadGateway, "not-listening", "the server on port "+hp+" didn't answer: "+err.Error())
+			}
+		},
+	}
+	rp.ServeHTTP(w, r)
+	if !used {
+		c.Close()
+	}
+}
+
+func fsbDropXBin(h http.Header) {
+	for k := range h {
+		if len(k) >= 7 && strings.EqualFold(k[:7], "X-XBin-") {
+			delete(h, k)
+		}
+	}
 }

@@ -128,6 +128,7 @@ func sections() []section {
 		{name: "files", checks: fileChecks},
 		{name: "tar", cap: "tar", checks: tarChecks},
 		{name: "snapshots", cap: "snapshots", checks: snapshotChecks},
+		{name: "ports", cap: "ports", checks: portChecks},
 		{name: "caps", checks: capChecks},
 	}
 }

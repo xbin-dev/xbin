@@ -356,6 +356,20 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   `Sbx-User`, `X-XBin-*` and `Sec-WebSocket-Extensions`: the call carries
   your tile's credential. Do your own checks first (the verified person,
   the consumer's sandboxes).
+- **Ports** (the contract's `ports`, D135; `SandboxRuntime.Caps` carries
+  `"ports"` on an xbind that has them). `xbin.PortRoute(port, path,
+  rawQuery)` is the runtime's `ports/{port}/{path}`: any method, an HTTP
+  proxy to a server on the sandbox's own loopback, WebSocket upgrades
+  tunnelled. `path` is the consumer's path below the port, still escaped,
+  and `rawQuery` its query — both go on unchanged (so pass `nil` as
+  Forward's `q`; anything else is `400 invalid`), below that one port only:
+  a segment that decodes to `.` or `..`, a bad escape or a raw `?` or `#`
+  refuses the route. `sb.Forward(w, r, xbin.PortRoute(8000,
+  r.PathValue("path"), r.URL.RawQuery), nil)` after your own checks — it
+  drops the same credentials as any Forward, and xbind drops them again,
+  with the server's `Set-Cookie`. Nothing listening is `502
+  not-listening`; a stopped sandbox is `409 state` (the route never starts
+  one).
 - **Terminals.** `sb.RelayTTY(w, r, eid, xbin.TTYOptions{SessionID,
   SandboxID, ForUser})` relays a consumer's terminal WebSocket to a tty
   exec, and `sb.RelayNewTTY(w, r, xbin.TTYStart{Cwd, Cmd, …})` starts one

@@ -112,6 +112,7 @@ body (a sandboxed page can't set custom request headers).
 | `too-large` | 413 | over a limit in `hello.limits` |
 | `limit` | 429 | too many sandboxes, running execs, a quota |
 | `unsupported` | 501 | a capability this manager doesn't offer |
+| `not-listening` | 502 | nothing accepts connections on the port (`ports`) |
 | `lost` | 410 | the exec is gone (its sandbox restarted) |
 | `unavailable` | 503 | the substrate is down or still starting (`retryAfterMs`) |
 
@@ -120,7 +121,7 @@ body (a sandboxed page can't set custom request headers).
 ```json
 {"protocol": 1, "protocols": [1],
  "manager": {"name": "coding-sandbox", "title": "Coding sandboxes", "version": "1.0.0"},
- "caps": ["exec", "files", "tar", "tty", "snapshots", "clone", "archive"],
+ "caps": ["exec", "files", "tar", "tty", "snapshots", "clone", "archive", "ports"],
  "egress": ["none", "internet"],
  "images": [{"id": "base", "title": "Debian with git, Go and Node", "default": true, "tools": ["git", "go", "node", "rg"]}],
  "sizes": [{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}],
@@ -130,8 +131,9 @@ body (a sandboxed page can't set custom request headers).
 ```
 
 `exec` and `files` are required in protocol 1; `tar`, `tty`, `snapshots`,
-`clone` and `archive` are optional, and a route whose capability is missing
-answers `unsupported`. `limits.sandboxes` 0 means no fixed limit.
+`clone`, `archive` and `ports` are optional, and a route whose capability
+is missing answers `unsupported` (a manager from before `ports`, D135,
+answers its route `not-found` — a consumer checks `caps` first). `limits.sandboxes` 0 means no fixed limit.
 
 ## The sandbox
 
@@ -323,6 +325,39 @@ an edit safe against a concurrent one (`precondition` with the current
 `etag`), `ifNoneMatch=*` creates only. A file over `limits.fileMax` is
 `too-large` — use a ranged read, or `tar`.
 
+## Ports (`ports`)
+
+`ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` is an HTTP reverse proxy to
+a server listening on TCP `{port}` (1–65535) on the sandbox's **own
+loopback** — `127.0.0.1`, else `::1` — so a consumer can show its people a
+page a program in the sandbox serves (`python3 -m http.server 8000`), live.
+Added to protocol 1 by D135, as an optional capability (the contract grows
+by addition: no new protocol number).
+
+- **Any method**, the body streamed, and a **WebSocket upgrade** tunnelled
+  (a dev server's live reload). `{path…}` and the query reach the server as
+  the consumer sent them, still escaped — the server's path is `/{path…}` —
+  and nothing is rewritten: it is a path-prefix proxy, so a page's
+  **relative** URLs work below whatever prefix the consumer serves it at,
+  and root-absolute ones (`/app.js`) don't. `Host` is `localhost:{port}`.
+  A path segment that decodes to `.` or `..` is `invalid`.
+- **Who**: the same scoping and person rules as `exec` — a consumer reaches
+  only the sandboxes it sees (`not-found` otherwise), and on a verified call
+  the person must be allowed to use the sandbox (`not-allowed`).
+- **Nothing of xbin crosses.** The consumer's `Authorization`, `Cookie`,
+  `Sbx-User`, `X-XBin-*` and `Forwarded`/`X-Forwarded-*` headers never
+  reach the server, and its `Set-Cookie` and `X-XBin-*` never come back.
+  It is the one path **into** a sandbox's network, from the consumer: it
+  gives the sandbox no route out — to xbind, the workspace or anything else
+  (§Inside a sandbox).
+- The sandbox must be **running**: a port route never starts one (its
+  server would be gone anyway) — `state` otherwise. Nothing accepting on
+  the port within a few seconds is **502 `not-listening`**; the server's
+  own answers (a 404 of its own included) come back as they are.
+- A consumer serving the page to people's browsers answers it under its
+  own policy: the agent template serves it in an opaque-origin sandboxed
+  frame with a CSP of its own (API.md §Live previews).
+
 ## Snapshots, clones and archives
 
 | Method & path | Body | Result |
@@ -347,6 +382,8 @@ it still does, and `thaw` brings it back (stopped, or running with
   `SANDBOX_ID` and `SANDBOX_NAME`.
 - **No xbin identity, ever**: no token, no gateway, no route to xbind or the
   workspace's tiles. What a sandbox reaches is its `egress`, nothing more.
+  The `ports` proxy is inbound only — a consumer's request to a server in
+  the sandbox — and carries no credential in.
 
 ## People's terminals: the `sandbox-terminal` tile
 
@@ -393,7 +430,8 @@ manager of its own (its `API.md` has everything):
   a VM where the workspace runs VMs for tiles, else a namespace — or only
   the one mode its operators choose, never falling back (`isolation` always
   says which). `caps` are what the runtime serves (`exec`, `files`, `tar`,
-  `tty`, `snapshots`, `clone`; not `archive`), `hello.notes` say what it
+  `tty`, `snapshots`, `clone`, and `ports` on an xbind that has it; not
+  `archive`), `hello.notes` say what it
   lacks.
 - **Images** are the runtime's base plus a setup script, built once as root
   and cloned (a rebuild that fails keeps the previous good build);

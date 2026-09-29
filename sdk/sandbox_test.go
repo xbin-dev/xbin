@@ -823,6 +823,75 @@ func TestSandboxRoutes(t *testing.T) {
 	}
 }
 
+// A PortRoute goes to ports/{port}/ with the consumer's escaped path and
+// raw query unchanged (Forward's q nil); a port out of range, a dot
+// segment, a raw ? or #, or a q beside it is 400 invalid, sent nowhere.
+func TestSandboxPortRoute(t *testing.T) {
+	seenc := make(chan string, 16)
+	sbx := fakeGateway(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenc <- r.Method + " " + r.RequestURI + " " + r.Header.Get("Cookie") + r.Header.Get("Sbx-User")
+		w.Header().Set("Set-Cookie", "srv=1")
+		w.WriteHeader(200)
+		io.WriteString(w, "page")
+	}))
+	sb := sbx.Sandbox("sb-1")
+	var mu sync.Mutex
+	var cur SandboxRoute
+	var q url.Values
+	mgr := fakeManager(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		rt, qq := cur, q
+		mu.Unlock()
+		if rt.sub == "" && rt.err == nil { // the consumer's own path and query
+			rt = PortRoute(8000, strings.TrimPrefix(r.URL.EscapedPath(), "/live/"), r.URL.RawQuery)
+		}
+		sb.Forward(w, r, rt, qq)
+	})
+	get := func(path string) (int, string, http.Header) {
+		t.Helper()
+		req, _ := http.NewRequest("GET", mgr.URL+path, nil)
+		req.Header.Set("Cookie", "xbin_session=viewer")
+		req.Header.Set("Sbx-User", "mallory")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode, string(b), resp.Header
+	}
+	code, body, h := get("/live/a%2Fb/c.js?x=1&y=%20&x=0")
+	if code != 200 || body != "page" || h.Get("Set-Cookie") != "" {
+		t.Fatalf("%d %s %v", code, body, h)
+	}
+	if got := <-seenc; got != "GET /api/xbin/sandboxes/sb-1/ports/8000/a%2Fb/c.js?x=1&y=%20&x=0 " {
+		t.Fatalf("went to %q", got)
+	}
+	if code, _, _ := get("/live/"); code != 200 || <-seenc != "GET /api/xbin/sandboxes/sb-1/ports/8000/ " {
+		t.Fatalf("the root: %d", code)
+	}
+	for _, rt := range []SandboxRoute{PortRoute(0, "", ""), PortRoute(65536, "", ""), PortRoute(80, "a/../b", ""),
+		PortRoute(80, "%2e%2E/x", ""), PortRoute(80, "a?b", ""), PortRoute(80, "a#b", ""), PortRoute(80, "%zz", ""), PortRoute(80, "a", "x#y")} {
+		mu.Lock()
+		cur = rt
+		mu.Unlock()
+		if code, body, _ := get("/x"); code != 400 || !strings.Contains(body, `"refusal":"invalid"`) {
+			t.Fatalf("%+v: %d %s", rt, code, body)
+		}
+	}
+	mu.Lock()
+	cur, q = PortRoute(80, "", ""), url.Values{"k": {"v"}}
+	mu.Unlock()
+	if code, body, _ := get("/x"); code != 400 {
+		t.Fatalf("a q beside a port route: %d %s", code, body)
+	}
+	select {
+	case got := <-seenc:
+		t.Fatalf("a refused route reached the runtime: %s", got)
+	default:
+	}
+}
+
 func wsAccept(key string) string {
 	h := sha1.Sum([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
 	return base64.StdEncoding.EncodeToString(h[:])

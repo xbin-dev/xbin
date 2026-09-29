@@ -254,6 +254,18 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		d.boxes[spec.Name], d.specs[spec.Name] = in, spec
 		rtJSON(w, 201, in)
+	case len(seg) >= 3 && seg[1] == "ports": // D135: what reached the port, and a cookie that must not come back
+		b := box()
+		if b == nil {
+			return
+		}
+		if b.State != "running" {
+			rtFail(w, 409, "state", "sandbox "+seg[0]+" is "+b.State)
+			return
+		}
+		w.Header().Set("Set-Cookie", "srv=1")
+		w.WriteHeader(200)
+		fmt.Fprintf(w, "%s %s?%s %s", r.Method, r.URL.EscapedPath(), r.URL.RawQuery, body)
 	case len(seg) == 1:
 		b := box()
 		if b == nil {
