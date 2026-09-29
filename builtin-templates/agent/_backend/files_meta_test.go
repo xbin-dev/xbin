@@ -66,6 +66,16 @@ func TestFileHashProvenance(t *testing.T) {
 	if vs := ag.db.fileVersions(r.ID, "a.txt"); len(vs) != 0 {
 		t.Fatalf("versions outlive their file: %d", len(vs))
 	}
+	// an older backend's delete leaves the history; a new file there doesn't inherit it
+	mustTool(t, ag, r, cfg, "c1", "file_write", map[string]any{"path": "c.txt", "content": "1"})
+	mustTool(t, ag, r, cfg, "c2", "file_write", map[string]any{"path": "c.txt", "content": "2"})
+	if _, err := ag.db.q.Exec(`DELETE FROM repl_files WHERE run_id=? AND path='c.txt'`, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	mustTool(t, ag, r, cfg, "c3", "file_write", map[string]any{"path": "c.txt", "content": "3"})
+	if vs := ag.db.fileVersions(r.ID, "c.txt"); len(vs) != 0 {
+		t.Fatalf("a new file inherited a deleted one's history: %+v", vs)
+	}
 }
 
 // sandbox_download overwrites in place: the same file again writes nothing

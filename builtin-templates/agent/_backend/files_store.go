@@ -163,6 +163,10 @@ func (d *DB) replPutFileSrc(runID int64, path, content string, wantVersion int, 
 			if err := t.keepVersion(runID, cur); err != nil {
 				return err
 			}
+		} else {
+			// a new file has no history: rows an older backend's delete left
+			// behind (blue/green) aren't this file's
+			t.dropVersions(runID, path)
 		}
 		_, err := t.q.Exec(
 			`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated, sha256, source, parent, meta_ver)
@@ -208,6 +212,9 @@ func (d *DB) replPutBinarySrc(runID int64, path, mime string, size int, blob, su
 			humanBytes(total), humanBytes(size), humanBytes(maxBinaryRunBytes))
 	}
 	ts := now()
+	if _, err := d.replFile(runID, path); err != nil {
+		d.dropVersions(runID, path) // a new file has no history (see replPutFileSrc)
+	}
 	if _, err := d.q.Exec(
 		`INSERT INTO repl_files (run_id, path, content, bytes, version, created, updated, mime, blob, sha256, source, parent, meta_ver)
 		 VALUES (?, ?, '', ?, 1, ?, ?, ?, ?, ?, ?, 0, 1)`, runID, path, size, ts, ts, mime, blob, sum, src.encode()); err != nil {
