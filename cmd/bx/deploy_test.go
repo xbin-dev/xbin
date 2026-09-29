@@ -202,6 +202,19 @@ func TestBxTodayInvocationsUnchanged(t *testing.T) {
 			`POST /api/xbin/templates/new {"partition":false,"source":"templates/agent"}`,
 			"exit 0",
 		}},
+		{"", []string{"template", "new", "--no-partition", "templates/agent", "as", "apps/a3"}, []string{
+			`POST /api/xbin/templates/new {"partition":false,"path":"apps/a3","source":"templates/agent"}`,
+			"exit 0",
+		}},
+		// Other tokens parse by position exactly as before --no-partition.
+		{"", []string{"template", "new", "templates/agent", "--owner", "org:x"}, []string{
+			`POST /api/xbin/templates/new {"source":"templates/agent"}`,
+			"exit 0",
+		}},
+		{"", []string{"template", "new", "templates/agent", "apps/a2"}, []string{
+			`POST /api/xbin/templates/new {"path":"apps/a2","source":"templates/agent"}`,
+			"exit 0",
+		}},
 		{"", []string{"template", "updates"}, []string{
 			"GET /api/xbin/templates/updates",
 			"exit 0",

@@ -77,29 +77,27 @@ func cmdTemplate(args []string) error {
 		return nil
 
 	case "new":
-		var pos []string
+		// --no-partition goes wherever it stands; everything else parses by
+		// position exactly as before it existed (compat: never break users).
 		noPartition := false
-		for _, a := range args[1:] {
-			switch {
-			case a == "--no-partition":
+		rest := []string{}
+		for _, a := range args {
+			if a == "--no-partition" {
 				noPartition = true
-			case isFlag(a):
-				if err := unknownFlag("template new", a, true); err != nil {
-					return err
-				}
-			default:
-				pos = append(pos, a)
+			} else {
+				rest = append(rest, a)
 			}
 		}
-		if len(pos) < 1 {
+		args = rest
+		if len(args) < 2 {
 			return fmt.Errorf("usage: bx template new <source> [as <path>] [--no-partition]")
 		}
-		source := pos[0]
+		source := args[1]
 		path := ""
-		if len(pos) >= 3 && pos[1] == "as" {
-			path = pos[2]
-		} else if len(pos) == 2 {
-			path = pos[1]
+		if len(args) >= 4 && args[2] == "as" {
+			path = args[3]
+		} else if len(args) == 3 {
+			path = args[2]
 		}
 		var out struct {
 			Path          string `json:"path"`
@@ -117,6 +115,9 @@ func cmdTemplate(args []string) error {
 			body["partition"] = false
 		}
 		if err := apiJSON("POST", "/api/xbin/templates/new", body, &out); err != nil {
+			if noPartition && strings.Contains(err.Error(), "need {source, path?, owner?}") {
+				return fmt.Errorf("%w — this xbind predates partitioned tiles (docs/partitions.md), so its instances never start partitioned: run it without --no-partition", err)
+			}
 			return err
 		}
 		fmt.Printf("created %s\nframe it:  <bx-frame src=%q></bx-frame>\n", out.Path, out.Path)
