@@ -26,8 +26,8 @@ func TestTileSandboxRoutes(t *testing.T) {
 	srv := &server.Server{}
 	st.registerSandboxAPI(srv)
 	st.registerTileSandboxAPI(srv)
-	if n := len(srv.APIRoutes()); n != 37 {
-		t.Fatalf("%d sandbox routes, want 37", n)
+	if n := len(srv.APIRoutes()); n != 38 { // 37, and the ports proxy (D135)
+		t.Fatalf("%d sandbox routes, want 38", n)
 	}
 }
 

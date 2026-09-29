@@ -7,10 +7,18 @@ import (
 
 // firstSentence is a description up to its first sentence's end.
 func firstSentence(d string) string {
-	if i := strings.Index(d, ". "); i >= 0 {
+	for from := 0; ; {
+		i := strings.Index(d[from:], ". ")
+		if i < 0 {
+			return d
+		}
+		i += from
+		if strings.HasSuffix(d[:i], "e.g") || strings.HasSuffix(d[:i], "i.e") { // an abbreviation, not a sentence's end
+			from = i + 2
+			continue
+		}
 		return d[:i+1]
 	}
-	return d
 }
 
 // The first sentence of a tool's description is what a model weighs most
@@ -32,11 +40,12 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 			"so it cannot verify JavaScript; use browser_check for that, or preview_port for a live page.",
 		"read": "Read a text file in the coding sandbox — not a session file (file_read reads those) — as numbered lines (cat -n style), " +
 			"the first 2000 unless offset/limit say otherwise (about 14 KB at most).",
-		"write": "Create or replace a whole file in the coding sandbox — not a session file (file_write writes those).",
-		"edit":  "Replace an exact string in a text file (up to 4 MB) in the coding sandbox — not a session file (file_edit edits those).",
-		"ls":    "List a directory in the coding sandbox (default: the working directory), at most 500 entries: subdirectories end in /, files show their size.",
-		"glob":  "Find files by name in the coding sandbox, at most 200 paths (relative to the working directory).",
-		"grep":  "Search file contents in the coding sandbox with a regular expression (ripgrep syntax where the sandbox has rg, else grep -E), at most 100 matches.",
+		"write":        "Create or replace a whole file in the coding sandbox — not a session file (file_write writes those).",
+		"edit":         "Replace an exact string in a text file (up to 4 MB) in the coding sandbox — not a session file (file_edit edits those).",
+		"ls":           "List a directory in the coding sandbox (default: the working directory), at most 500 entries: subdirectories end in /, files show their size.",
+		"glob":         "Find files by name in the coding sandbox, at most 200 paths (relative to the working directory).",
+		"grep":         "Search file contents in the coding sandbox with a regular expression (ripgrep syntax where the sandbox has rg, else grep -E), at most 100 matches.",
+		"preview_port": "Show the human a LIVE page served by a program in your sandbox (e.g. python3 -m http.server 8000) — scripts run, in an isolated frame.",
 	}
 	cfg := defaultConfig()
 	cfg.Class = "coding"
