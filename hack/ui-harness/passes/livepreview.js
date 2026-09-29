@@ -12,6 +12,11 @@
 //     tile's API, top navigation blocked;
 //   - its parent.postMessage changed nothing (the pane stays open);
 //   - Reload loads it again (a fresh ticket);
+//   - closed, the 📡 line opens it again, and the pane's status strip
+//     checked its URL (HTTP 200, text/html) — Check asks again;
+//   - "sandbox report": a report over 64 KB written in the sandbox and
+//     render_html'd shows in the pane WHILE the turn still runs (the render
+//     step streams), and the 🖼 line brings it back once closed;
 //   - the conversation is deleted at the end (its server job is killed).
 const { log, shot, checker, noGocryptfs } = require('../lib');
 const { openAgent, classRows, pickClass, openDialog, closeDialog, createInDialog, turn } = require('./agentsandbox');
@@ -71,6 +76,42 @@ async function livePreview(browser) {
     await a.click('#prev-reload');
     await until(a, () => { const f = document.getElementById('livefr'); return f && !f.dataset.old; }, null, 15000);
     check(true, 'Reload loads the page again in a new frame (a fresh ticket)');
+
+    // closed, the 📡 line shows it again; its status strip says what the URL answers, and Check asks again
+    const strip = () => a.evaluate(() => ({ tone: document.getElementById('live-strip')?.dataset.tone || '',
+      text: document.querySelector('#live-strip .lsout')?.textContent || '', hidden: !!document.getElementById('livefr')?.hidden }));
+    await a.click('#prev-close');
+    await until(a, () => document.getElementById('preview').hidden && !document.getElementById('live-strip'));
+    await a.click('#timeline .step.live .steplnk');
+    await until(a, () => !!document.getElementById('livefr') && !document.getElementById('preview').hidden, null, 15000);
+    await until(a, () => document.getElementById('live-strip')?.dataset.tone, null, 25000);
+    let st = await strip();
+    check(st.tone === 'ok' && /^HTTP 200 · text\/html/.test(st.text) && !st.hidden, `the 📡 line reopens the live pane, and its strip checked the URL (${st.text})`);
+    await a.click('#live-check');
+    await until(a, () => !document.getElementById('live-check').disabled && /^HTTP/.test(document.querySelector('#live-strip .lsout').textContent), null, 25000);
+    st = await strip();
+    check(st.tone === 'ok' && /^HTTP 200/.test(st.text), `Check asks the URL again (${st.text})`);
+    await shot(a, 'live-strip', { fullPage: false });
+    await a.click('#prev-close');
+    await until(a, () => document.getElementById('preview').hidden);
+
+    // a report over 64 KB from the sandbox: the pane opens while the turn still runs, and 🖼 brings it back
+    const reportShown = () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].some((e) => e.textContent.includes('Report shown.'));
+    await a.fill('#msg', 'sandbox report');
+    await a.press('#msg', 'Enter');
+    const paneHasReport = () => !document.getElementById('preview').hidden && /index\.html/.test(document.getElementById('prev-path').textContent)
+      && (document.getElementById('prevframe').srcdoc || '').includes('row 4000 of the big report');
+    await until(a, paneHasReport, null, 45000);
+    const during = await a.evaluate(`(${reportShown.toString()})()`);
+    check(!during && !(await a.evaluate(() => document.getElementById('stop').hidden)), 'a report over 64 KB, render_html\'d from the sandbox, shows in the pane while the turn still runs');
+    await until(a, reportShown, null, 30000);
+    await a.click('#prev-close');
+    await until(a, () => document.getElementById('preview').hidden);
+    const lines = await a.$$('#timeline .step.render .steplnk');
+    await lines[lines.length - 1].click();
+    await until(a, paneHasReport, null, 15000);
+    check(true, 'the 🖼 line brings the report back');
+    await a.click('#prev-close');
   } catch (e) {
     const why = await a.evaluate(async (id) => {
       const r = await xbin.fetch(`/api/apps/agent/runs/${id}/view`);

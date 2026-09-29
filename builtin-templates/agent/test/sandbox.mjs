@@ -155,6 +155,25 @@ const here = await page.$$eval('#ssel optgroup', (els) => els.map((e) => e.label
 ok('…with This conversation first', here[0] === 'This conversation', here.join('|'));
 await page.click('#sbxbadge');
 await page.waitForSelector('#sbxpop');
+// the Ports section (D135 diagnostics): the conversation's live previews,
+// probed now, with what to do about a refusal — and a probe of any port
+await page.evaluate(() => {
+  window.__route('GET', /\/runs\/1\/ports$/, () => window.__json({ previews: [
+    { sandbox: 'api', name: 'api', port: 8000, path: '/', run: 1, ok: true, status: 200, contentType: 'text/html; charset=utf-8', ms: 12 },
+    { sandbox: 'api', name: 'api', port: 5173, path: '/app/', run: 1, ok: false, refusal: 'not-listening', error: 'nothing accepts connections on port 5173', ms: 3 }] }));
+  window.__route('GET', /\/runs\/1\/ports\/api\/9000\?path=%2Fx$/, () => window.__json({ sandbox: 'api', port: 9000, path: '/x', ok: false,
+    refusal: 'unsupported', error: 'the sandbox\'s agent doesn\'t serve ports (it predates them): restart the sandbox', ms: 5 }));
+});
+await page.click('#ports-load');
+await page.waitForSelector('#sbx-ports .prow');
+const prows = await page.$$eval('#sbx-ports .prow', (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
+ok('Ports lists the live previews, each probed now', prows.length === 2 && prows[0].includes('api:8000/') && prows[0].includes('HTTP 200 · text/html')
+  && prows[1].includes('api:5173/app/') && prows[1].includes('its server isn\'t running'), prows.join(' | '));
+await page.fill('#ports-port', '9000');
+await page.fill('#ports-path', '/x');
+await page.click('#ports-probe');
+await page.waitForSelector('#ports-result');
+ok('…and probes a port, saying what to do', (await page.textContent('#ports-result')).includes('restart it'), await page.textContent('#ports-result'));
 await page.fill('#sbx-cwd', 'relative');
 await page.click('#sbx-cwd-set');
 await page.waitForSelector('#sbx-err');

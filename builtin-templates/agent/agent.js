@@ -34,6 +34,8 @@ import { HOME } from './model/home.js';
 import * as rules from './model/rules.js';
 import * as actions from './model/actions.js';
 import { liveURL, liveFrame, liveLabel } from './live.js';
+import { mountLive, unmountLive } from './live-status.js';
+import { makePorts } from './ports.js';
 import { tabFiles, selectFile } from './settings-files.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
@@ -75,7 +77,8 @@ globalThis.agentChat = { testApi: () => win.testApi() }; // the UI harness's vie
 // at all, and touching it throws — at module scope that kills the whole tile.
 const classPicker = makeClassPicker(app, $('cpick'));
 // The coding sandbox (D115): #ssel beside the model, the top bar's ▣, the Sandboxes dialog.
-const sbxUI = makeSandboxUI(app, { sel: $('ssel'), dlg: $('sbxdlg'), repaint: () => paint() });
+const ports = makePorts(app, { openLive: (det) => openLive(det), repaint: () => paint() }); // the popover's Ports section
+const sbxUI = makeSandboxUI(app, { sel: $('ssel'), dlg: $('sbxdlg'), repaint: () => paint(), popExtra: ports.tpl });
 let models = [];         // model references from GET /models ({data:[{ref, id, provider}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
@@ -125,6 +128,7 @@ app.on('home', () => {
 });
 app.on('page', () => { paintSide(); paint(); });
 session.ui.act.openFile = (path) => { selectFile(path); openSettings('files'); };
+Object.assign(session.ui.act, { openPreview: (path, ver, run) => openPreview(path, ver, false, run), openLive }); // the 🖼 / 📡 lines (a subagent's: its run)
 
 // --- the conversation list -------------------------------------------------
 //
@@ -194,9 +198,9 @@ function topTpl(v) {
     ${taskTpl(v)}`;
 }
 
-// The pinned task (D133): the request that started the conversation, folded
-// to a line under the controls; unfolded, every request it was given — the
-// task ledger (GET /runs/{id}/asks), read-only, as the agent sees it pinned.
+// The pinned task (D133): the current request — the latest one it was given
+// — folded to a line under the controls; unfolded (the toggle, "+N"), every
+// request — the task ledger (GET /runs/{id}/asks), read-only.
 let taskOpen = 0;    // the run whose task is unfolded
 let taskAsks = null; // {run, count, list, err}: its ledger, read when unfolded
 function taskTpl(v) {
@@ -503,6 +507,7 @@ function closePreview() {
 // dropLive ends a live page (its scripts and connections go with its
 // frame) and puts the static pane's controls back.
 function dropLive() {
+  unmountLive();
   $('livefr')?.remove();
   $('prevframe').hidden = false;
   $('prev-src').hidden = false;
@@ -510,10 +515,11 @@ function dropLive() {
   $('prev-icon').textContent = '🖼';
 }
 
-// openLive shows a preview_port step's page, live (live.js).
-async function openLive(det) {
+// openLive shows a preview_port step's page, live (live.js); run: the step's
+// (a subagent's, shown in its parent), else the open one.
+async function openLive(det, run) {
   if (app.sel == null) return;
-  const p = preview = { runId: app.sel, kind: 'live', det, live: true };
+  const p = preview = { runId: app.sel, run: run || app.sel, kind: 'live', det, live: true };
   dropLive();
   $('preview').hidden = false;
   $('prevframe').hidden = true;
@@ -525,7 +531,7 @@ async function openLive(det) {
   $('prev-warn').hidden = true;
   if (win.atBottom) win.toBottom();
   let src;
-  try { src = await liveURL(p.runId, det); } catch (e) {
+  try { src = await liveURL(p.run, det); } catch (e) {
     if (preview !== p) return;
     $('prev-warn').hidden = false;
     $('prev-warn').textContent = '⚠ ' + (e.message || e);
@@ -533,13 +539,15 @@ async function openLive(det) {
   }
   if (preview !== p) return; // closed or replaced meanwhile
   $('livefr')?.remove();
-  $('prevframe').after(liveFrame(src));
+  const f = liveFrame(src);
+  $('prevframe').after(f);
+  mountLive($('preview'), f, src); // the status strip: what the page's URL answers, and Check
 }
 
-async function openPreview(path, ver, live) {
+async function openPreview(path, ver, live, run) {
   if (app.sel == null || !path) return;
   dropLive();
-  preview = { runId: app.sel, path, ver: num(ver), live: !!live };
+  preview = { runId: app.sel, run: run || app.sel, path, ver: num(ver), live: !!live };
   $('preview').hidden = false;
   $('prev-path').textContent = path;
   $('prev-path').title = path;
@@ -556,17 +564,17 @@ async function openPreview(path, ver, live) {
 async function paintPreview() {
   const p = preview;
   if (!p || p.kind === 'live') return;
-  const sig = `${p.runId}\u0000${p.path}\u0000${p.ver}`;
+  const sig = `${p.run}\u0000${p.path}\u0000${p.ver}`;
   if (sig === prevSig) return;
   let f;
   try {
-    f = await actions.file(p.runId, p.path);
+    f = await actions.file(p.run, p.path);
   } catch (e) {
     $('prev-warn').hidden = false;
     $('prev-warn').textContent = '⚠ ' + (e.message || e);
     return;
   }
-  if (!preview || preview.path !== p.path || preview.runId !== p.runId) return; // stale
+  if (!preview || preview.path !== p.path || preview.run !== p.run) return; // stale
   const { html, blocked } = frameDoc(f.content);
   prevSig = sig;
   // PROPERTY assignment, never interpolation into an srcdoc="…" attribute: the
@@ -720,7 +728,7 @@ $('prev-max').onclick = () => {
   $('main').classList.toggle('prev-max');
   if (win.atBottom) win.toBottom();
 };
-$('prev-reload').onclick = () => { if (preview?.kind === 'live') openLive(preview.det); };
+$('prev-reload').onclick = () => { if (preview?.kind === 'live') openLive(preview.det, preview.run); };
 $('prev-src').onclick = () => {
   if (!preview) return;
   selectFile(preview.path);

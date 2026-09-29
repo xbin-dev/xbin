@@ -63,6 +63,14 @@ export const deleteRun = (runId) => api(`/runs/${runId}`, { method: 'DELETE' });
 // oldest first — read-only ([{seq, source, who, text, at, live}]).
 export const asks = (runId) => api(`/runs/${runId}/asks`).then((r) => (r && r.asks) || []);
 
+// Port-forward diagnostics (D135; participants): the conversation's live
+// previews, each probed now — [{sandbox, name, port, path, run, at, ok,
+// status, contentType, refusal, error, ms}] — and one probe of a port of a
+// sandbox bound to the run (its id at the manager). Never the page's body.
+export const ports = (runId) => api(`/runs/${runId}/ports`).then((r) => (r && r.previews) || []);
+export const probePort = (runId, sbx, port, path = '/') =>
+  api(`/runs/${runId}/ports/${encodeURIComponent(sbx)}/${Number(port)}?path=${encodeURIComponent(path || '/')}`);
+
 // The workflow tree of a run's root, and stopping all of it.
 export const tree = (rootId) => api(`/runs/${rootId}/tree`);
 export const cancelTree = (rootId) => api(`/runs/${rootId}/cancel`, jbody({ scope: 'subtree', reason: 'stopped from the tile' }, 'POST'));
