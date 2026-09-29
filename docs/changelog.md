@@ -79,6 +79,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   Nothing changes on screen; an instance's own modules can use them too.
   They carry the coding-harness UI now being built, whose model modules
   (`model/harness*.js`, `app.harness`) and test fixtures land with them.
+- **Agent template: a coding agent's transcript.** In a coding-agent
+  conversation each call is a card of its ACP kind — a command with its
+  output and exit code, an edit with a row per file unfolding to its patch
+  (highlighted by `/vendor/bx-code.js` where the page can import it), read,
+  search, fetch, delete, move, think, other — with a status chip; a Claude
+  Task's steps nest inside its card. The top bar gains the context in use
+  and the cost, what the conversation changed, and a 📋 plan pin under the
+  task; the native view draws the same with `toolcard`, `diff`, `plan` and
+  a nested `transcript` (a toolbar badge, ⋯ → Progress). New modules
+  `harness-cards.js` and `native/harness-cards.js`
+  (`builtin-templates/agent/API.md` §The frontend); nothing changes for the
+  built-in agent's conversations. The cards draw once the harness engine
+  sends coding-agent calls.
 
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
