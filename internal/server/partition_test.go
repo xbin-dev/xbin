@@ -165,6 +165,9 @@ func TestPartitionGate(t *testing.T) {
 	if _, _, part := gate("GET", "/zz-probe-scoped", auth.Principal{Component: "apps/a", UserID: "ana", Via: "frame"}); part != "user:ana" {
 		t.Errorf("the handler's principal carries %q, want user:ana", part)
 	}
+	if _, _, part := gate("GET", "/zz-probe-scoped", auth.Principal{Component: "apps/a/editor", UserID: "ana", Via: "frame"}); part != "user:ana" {
+		t.Errorf("an xbin.window document's principal carries %q, want its tile's user:ana", part)
+	}
 	for _, p := range []auth.Principal{{Component: "apps/a", Via: "frame"}, {Component: "apps/b", UserID: "ana", Via: "frame"}} {
 		if _, _, part := gate("GET", "/zz-probe-scoped", p); part != "" {
 			t.Errorf("%s via %s (%s): the handler's principal carries %q", p.Component, p.Via, p.UserID, part)

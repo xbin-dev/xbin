@@ -107,6 +107,15 @@ func (s *Server) addressedPartition(p auth.Principal, tile string) (util.Partiti
 	return "", nil
 }
 
+// ownPartition is the partition tile principal p acts in on its own tile:
+// an xbin.window sub-path's credential (apps/x/editor) acts as its tile's
+// (apps/x), as it binds as its tile's deployment (boundDeployment).
+func (s *Server) ownPartition(p auth.Principal) (util.Partition, error) {
+	tile := s.credentialTile(p)
+	p.Component = tile
+	return s.addressedPartition(p, tile)
+}
+
 // partitionGate applies the partition table to one /api/xbin request, r2 as
 // the API mux sees it: the request to run (its principal carrying its user
 // partition when it has one) and, when set, the refusal that answers in the
@@ -124,7 +133,7 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 	if class == PersonOnly {
 		return r2, refusal(http.StatusForbidden, "this is a person's own act: sign in and do it yourself — a tile's credentials can't")
 	}
-	part, err := s.addressedPartition(p, s.credentialTile(p))
+	part, err := s.ownPartition(p)
 	switch {
 	case err != nil && class == PartitionNeutral:
 		return r2, nil // a workspace fact, whichever partition p can't act in

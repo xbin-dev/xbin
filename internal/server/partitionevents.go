@@ -24,8 +24,11 @@ import (
 // tile's frame never sees a partition's events, whoever drives it.
 func (s *Server) partitionEventFor(p auth.Principal, tile string, e events.Event) bool {
 	owner := s.owningTile(e.Component)
-	if p.Component != "" && tile != owner || p.ReadOnly() {
+	switch {
+	case p.ReadOnly(), p.Component != "" && tile != owner:
 		return false
+	case p.Component != "":
+		p.Component = owner // an xbin.window sub-path acts as its tile (ownPartition)
 	}
 	part, err := s.addressedPartition(p, owner)
 	return err == nil && string(part) == e.Partition
