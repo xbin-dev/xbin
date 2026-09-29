@@ -12,6 +12,54 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-29
 
+- **Agent template: reports show again, during the turn, and come back.**
+  `render_html` streams its step, so the preview pane opens while the turn
+  goes on (it had waited for a re-read since the stream replaced the poll).
+  It shows HTML up to 2 MiB: a report over the 64 KiB text cap — one
+  written in the sandbox, typically — is stored as a binary `text/html`
+  session file and still renders, and `GET /runs/{id}/file` answers such a
+  file's text. A render or view of a sandbox path is copied under a name of
+  its own (`site/index.html` when `index.html` is another file's), never as
+  a version of a different file. The chat's `🖼 rendered …` and `📡 showing …`
+  lines are buttons that show the file or the live page again, and a
+  finish line renders its result as markdown (`builtin-templates/agent/API.md`
+  §Session files + render, §Live previews).
+- **Agent template: live previews say why they are blank.** The live pane
+  has a status strip that checks the page's own URL as it loads and on
+  **Check** — HTTP status and type, or the refusal and what to do (nothing
+  listening, the sandbox stopped, an agent from before ports, an expired or
+  misplaced link, the tile-origin check); an error answer is said, never
+  shown blank. New participant routes `GET /runs/{id}/ports` (the
+  conversation's live previews, each probed now) and `GET
+  /runs/{id}/ports/{sbx}/{port}?path=` (one probe) back the ▣ popover's
+  **Ports** section and the app's live screen's Check; the live route's
+  refusals now carry `refusal` beside `error`.
+- **Agent template: the sandbox tools recover.** `preview_port`, the live
+  route and `sandbox_copy`'s tar check ask the manager again before
+  refusing on a missing capability (the cached hello could lag an update by
+  minutes), and the refusal names the manager, its version and its caps;
+  `sandbox_info` adds the manager's caps and `live preview: available / not
+  available — why`. xbind's "the sandbox's agent predates ports" reaches the
+  model with what to do (restart the sandbox). A sandbox deleted elsewhere
+  comes off the conversation the first time a tool finds it gone — the
+  first other attached one becomes active — instead of every call hitting
+  the same wall. A download's note names the sandbox it came from (the
+  replaced version's source in parentheses), and `sandbox_copy` says which
+  side failed (`reading "a":… failed` for a source stream cut short, not
+  the destination's "didn't answer").
+- **Agent template: the pinned task is the current request** — the latest
+  one the conversation was given (the header's `+N` still opens every
+  request); the model's own `# Your task` keeps the first. `finish` is
+  worded by depth: a top-level run's `result` is a short status line with
+  the answer in the reply before it; a subagent's is the full answer.
+- **coding-sandbox: Ports rows.** The operators' Sandboxes tab and your own
+  sandboxes get a Ports row — whether the manager offers ports and why not,
+  and a probe of one port (status, type, refusal, latency; never the page)
+  — through `GET /ports/{id}` and `GET /ports/{id}/{port}?path=` for
+  operators and the people who may use the sandbox. A sandbox whose agent
+  predates ports is reported `restartNeeded` until it runs again
+  ([sandbox-manager.md](sandbox-manager.md) §Ports).
+
 - **The shell's sidebar is quieter.** A tile's row starts with an app icon
   (a small window, drawn — not an emoji; highlighted while the tile is
   open) instead of its runtime's coloured dot, and no longer names the

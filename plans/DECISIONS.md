@@ -5190,6 +5190,17 @@ Deviations and refinements made while implementing; all deliberate:
     (OpenAI's) — llm-gw has no config route for per-model settings yet
     (its pricing map has none either), so it is a route and a UI, not a
     field.
+  - **Amendment (2026-09-29, the v0.3.64 regressions — the owner).** (g)
+    changed: the web header pins the **current** request — the latest
+    (`task.latest`, which the backend already sent), else the first — and
+    `+N` still unfolds the ledger; the model's `# Your task` keeps the
+    first (the prefix stays stable). The "✓ finished: …" line renders its
+    result as markdown (web and native): models put whole answers there
+    because `finish` said "the outcome / answer". `finish` is now worded
+    by depth — a top-level run ends its turn with a one- or two-sentence
+    status line, the answer in its reply before it (which renders); a
+    subagent's result is the answer its parent receives (the contract it
+    always had). Pinned: TestFinishSpecByDepth, test/chat.mjs.
 - **D134 — The agent's sandbox tools: jobs that don't kill themselves or
   lose their output, a tile sandbox with the rootfs toolchains, and tool
   descriptions that state their limits first (2026-09-29).**
@@ -5378,6 +5389,37 @@ Deviations and refinements made while implementing; all deliberate:
     (an opaque, credentialless frame sends none); tile origins only
     (not every workspace runs them); an xbind-side browser (the plan's
     alternative, not chosen).
+  - **Amendment (2026-09-29, the v0.3.64 regressions — the owner).**
+    `preview_port` refused "this sandbox's manager doesn't serve ports"
+    while `sandbox_info` listed `ports` in the sandbox's caps: the tools
+    gated on the manager's hello, cached 5 minutes, and the sandbox's caps
+    are fetched fresh — only the stale cache could disagree. Now every
+    refusal a missing capability causes (`preview_port`, the live route,
+    `sandbox_copy`'s tar) asks the manager again first
+    (`managerHelloFresh`) and names the manager, its version and its caps;
+    `sandbox_info` prints the manager's caps and whether a live preview
+    works, and why not. xbind's `unsupported` for a sandbox agent from
+    before ports reaches the model verbatim with "restart the sandbox"
+    (there is no restart tool: the person restarts it). **Diagnostics the
+    owner asked for:** the pane's status strip checks the page's own
+    ticket URL (a plain fetch: the ticket rides in the URL, `Origin: null`
+    gets xbind's CORS) as it loads and on Check, and says the refusal and
+    what to do (not-listening, state, unsupported, the path ticket's two
+    401s, the tile-origin 403) — a failing page is said, the frame hidden;
+    the chat's 📡 line reopens the pane; participant routes `GET
+    /runs/{id}/ports` (the tree's live previews, each probed now) and `GET
+    /runs/{id}/ports/{sbx}/{port}` (one probe) — the live route's checks
+    and the manager's ports route as the binder, never the page's body —
+    back the ▣ popover's Ports section and the app's live screen's Check;
+    the live route's refusals carry `refusal`. coding-sandbox: `GET
+    /ports/{id}` and `GET /ports/{id}/{port}` for its pages' Ports rows
+    (operators, or a person the port proxy would admit on the page, with
+    write access; the page can't use the contract's route for another
+    consumer's sandbox), and a sandbox whose runtime answered a port
+    `unsupported` is `restartNeeded` until it runs again (the substrate's
+    `started` after that answer). Not done: xbind keeping a ring of each
+    sandbox's recent port outcomes for the admin's sandboxes view (the
+    prompt's optional 5d) — see the branch report.
 
 - **D136 — The agent verifies pages in a real browser in its sandbox
   (browser_check), and sees its files in one view with two explicit places:
@@ -5465,3 +5507,30 @@ Deviations and refinements made while implementing; all deliberate:
     renaming render_html (breaks transcripts; a description shift moves
     tool choice unpredictably — Faghih et al., EMNLP 2025); keeping every
     version forever (the per-run store stays bounded).
+  - **Amendment (2026-09-29, the v0.3.64 regressions — the owner).**
+    Reports stopped appearing: `render_html` journaled its step without
+    streaming it (the client takes steps only from the stream since the
+    poll went, D81), so the pane opened only on a re-read, if at all; it
+    streams now, as `preview_port`'s live step does. Sandbox HTML over the
+    64 KiB text cap became a binary session file that `render_html`
+    refused: it shows `text/html` up to 2 MiB (`maxRenderBytes`), `GET
+    /runs/{id}/file` answering a binary-stored text file's content for the
+    pane (painted through the same static-snapshot CSP). A render or view
+    of a sandbox path was stored under its base name, so two different
+    `…/index.html` became versions of one another: the copy keeps the name
+    an earlier copy of that very file holds (a repeated render is its next
+    version), else the first free of base, parent/base and
+    sandbox/parent/base (`copyName`); `sandbox_download` keeps "the file's
+    own name" (its contract). The download note named the *replaced*
+    version's source as if it were the new one: it now says `downloaded P
+    from the sandbox "new" … replacing v2 (copied from the sandbox "old":
+    …)`. `sandbox_copy` blamed the destination for a source that failed
+    mid-stream (the source is the destination request's body): a counting
+    reader keeps the source's error, and the failure says `reading
+    "a":/p failed` or `writing "b":/q failed`; the source's own refusals
+    name it. A sandbox deleted elsewhere stayed the active binding and every
+    later call hit "is gone — ask the user": the first tool (or page) that
+    finds it not-found detaches it in one transaction, promotes the first
+    other attached one (the sandbox tools need an active one) and emits the
+    run; the refusal says what is active now. The 🖼 line reopens a render
+    (a subagent's from its own run's files).
