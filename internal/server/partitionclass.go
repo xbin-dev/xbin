@@ -174,13 +174,6 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 // partitions until the pack that converts it removes the row
 // (plans/partitions/95).
 var partitionUnconverted = map[string]string{
-	"GET /kv/{rest...}":                           "per-partition data namespaces",
-	"PUT /kv/{rest...}":                           "per-partition data namespaces",
-	"DELETE /kv/{rest...}":                        "per-partition data namespaces",
-	"GET /blob/{rest...}":                         "per-partition data namespaces",
-	"PUT /blob/{rest...}":                         "per-partition data namespaces",
-	"DELETE /blob/{rest...}":                      "per-partition data namespaces",
-	"POST /bus/publish":                           "per-partition data namespaces",
 	"GET /bus/subscriptions":                      "per-partition registrations",
 	"PUT /bus/subscriptions":                      "per-partition registrations",
 	"DELETE /bus/subscriptions/{name}":            "per-partition registrations",
@@ -229,11 +222,9 @@ func PartitionPersonKeyed() map[string]string {
 // (TestPartitionRouteClasses) doesn't ask for them to be mounted, so a merge
 // in either order stays green. The integrator drops each entry once its
 // route is mounted; the handlers judge the person and refuse every
-// credential of the target tile (02 §8's governance acts).
-var partitionPlanned = map[string]string{
-	"POST /partitions/limits": "F3",
-	"POST /partitions/mode":   "F13a",
-}
+// credential of the target tile (02 §8's governance acts). Wave 1's
+// (POST /partitions/limits, POST /partitions/mode) are mounted.
+var partitionPlanned = map[string]string{}
 
 // PartitionPlanned returns a copy of partitionPlanned.
 func PartitionPlanned() map[string]string {
@@ -484,10 +475,11 @@ var partitionClasses = map[string]PartitionClass{
 	"DELETE /push/devices/{user}/{deviceId}": GlobalOnlyRefused,
 
 	// ---- partitions' governance acts (02 §8): their handlers judge the
-	// person and refuse the target tile's own credentials; mounted by
-	// other packs (partitionPlanned) ----
+	// person and refuse the target tile's own credentials. A mode decision
+	// is a tile manager's (or the admin tile's frame driven by one), never
+	// a person's partition's (01 §2.5, PD-49) ----
 	"POST /partitions/limits": PartitionNeutral,
-	"POST /partitions/mode":   PartitionNeutral,
+	"POST /partitions/mode":   GlobalOnlyRefused,
 
 	// ---- reads of workspace facts ----
 	"GET /whoami":               PartitionNeutral,

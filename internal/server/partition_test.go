@@ -137,6 +137,11 @@ func TestPartitionGate(t *testing.T) {
 	w.s.RegisterAPI("GET /zz-probe-scoped", func(rw http.ResponseWriter, r *http.Request) { WriteOK(rw) })
 	partitionClasses["GET /zz-probe-scoped"] = PartitionScoped
 	t.Cleanup(func() { delete(partitionClasses, "GET /zz-probe-scoped") })
+	// the real rows of routes the data plane converted (kv, blob, the bus
+	// publish), one still unconverted, and a mode decision
+	for _, pat := range []string{"PUT /kv/{rest...}", "GET /blob/{rest...}", "POST /bus/publish", "PUT /bus/subscriptions", "POST /partitions/mode"} {
+		w.s.RegisterAPI(pat, func(rw http.ResponseWriter, r *http.Request) { WriteOK(rw) })
+	}
 	w.s.Handler() // mounts the mux
 	gate := func(m, path string, p auth.Principal) (int, string, util.Partition) {
 		r := httptest.NewRequest(m, path, nil)
@@ -189,6 +194,22 @@ func TestPartitionGate(t *testing.T) {
 	for _, p := range []auth.Principal{{Component: "apps/a", Via: "frame"}, {Component: "apps/b", UserID: "ana", Via: "frame"}} {
 		if _, _, part := gate("GET", "/zz-probe-scoped", p); part != "" {
 			t.Errorf("%s via %s (%s): the handler's principal carries %q", p.Component, p.Via, p.UserID, part)
+		}
+	}
+	// a user partition's kv, blob and bus publish reach their handlers, which
+	// act on the caller's partition (the data plane); what isn't converted
+	// yet is refused; a mode decision is never a partition's
+	for _, p := range []auth.Principal{{Component: "apps/a", UserID: "ana", Via: "frame"}, {Component: "apps/a", Via: "instance", Partition: "user:ana"}} {
+		for _, c := range [][2]string{{"PUT", "/kv/res:apps/a/db/k"}, {"GET", "/blob/res:apps/a/box/f"}, {"POST", "/bus/publish"}} {
+			if code, body, part := gate(c[0], c[1], p); code != 200 || part != "user:ana" {
+				t.Errorf("%s via %s: %s %s: %d %s, partition %q", p.Component, p.Via, c[0], c[1], code, body, part)
+			}
+		}
+		if code, body, _ := gate("PUT", "/bus/subscriptions", p); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
+			t.Errorf("%s via %s: an unconverted route: %d %s", p.Component, p.Via, code, body)
+		}
+		if code, body, _ := gate("POST", "/partitions/mode", p); code != 403 || !strings.Contains(body, "the global instance's alone") {
+			t.Errorf("%s via %s: a mode decision: %d %s", p.Component, p.Via, code, body)
 		}
 	}
 }
