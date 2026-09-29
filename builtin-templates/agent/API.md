@@ -354,6 +354,7 @@ their parent's, and **a schedule the agent creates gets the creating run's**.
 | `schedule` | `schedule`, `unschedule` |
 | `threads` | `schedules_list`, `schedule_inspect`, `threads_list`, `thread_inspect` |
 | `skills` | `skills_list`, `skill_view`, `skill_manage` |
+| `harness` | coding agents — Claude Code, Codex, Gemini CLI, OpenCode — in a sandbox (§Coding agents); needs `sandbox` and an egress other than `none` (a coding agent must reach its provider); `harnesses` narrows which |
 
 The core tools — `memory_set`/`memory_get`/`memory_delete`, `note`, `recall`,
 `message_get`, `finish`, `yield`, `ask_user`, `state_changed`,
@@ -362,8 +363,13 @@ The Features menu can still switch an optional toolset off, and a run's
 `deny` list still hides tools.
 
 A class is `{id, name, description?, icon?, toolsets, mcp, managers,
-sandboxEgress?, model?, system?, who?}`: `mcp` and `managers` are `"all"` or a
-list (MCP server names; sandbox-manager tile paths); `sandboxEgress` is the
+sandboxEgress?, harnesses?, model?, system?, who?}`: `mcp` and `managers` are
+`"all"` or a list (MCP server names; sandbox-manager tile paths);
+`harnesses` is `"all"` or a list of coding-agent ids (`GET /harnesses`;
+`[]` in a class without the `harness` toolset, `"all"` when a class with it
+names none, and a save that leaves it out keeps what a class that had the
+toolset has);
+`sandboxEgress` is the
 egress a bound sandbox may have (`none`, `internet`, `open`; `["none"]` when a
 sandbox class names none); `model` is the class's model when the person picked
 none; `system` is added to the agent's prompt when the conversation has no
@@ -375,7 +381,8 @@ the tile's managers may start conversations or automations in it). Built in:
 - **`web`** 🌐 — files, repl, web, subagents, schedule, threads, skills.
   **No `xbin_call`, no MCP tools.** The old web lane.
 - **`coding`** ▣ — sandbox (any manager; egress `none` or `internet`), web,
-  files, subagents, skills. No internal reach.
+  files, subagents, skills, harness (every coding agent). No internal
+  reach.
 
 A run must never hold private data AND an egress channel: content injected into
 its context could otherwise steer it into sending that data out in a URL or a
@@ -405,7 +412,7 @@ class is refused (400).
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one): the built-ins first, then the others as saved, each with `builtin`, `stored` (it is in the saved set — a built-in that is not is its default), `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
-| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. **400** as well for deleting a class a trigger or a channel policy (`privateClass`, `webClass`) names, and for making mixed a class a public-data trigger runs in (data from outside must not steer a class that can move internal data out; `confirmMixed` doesn't change that — a legacy webhook trigger's is the built-in `internal`); the error names the trigger or channel. Schedules and conversations don't hold a deletion up: theirs fall back to their lane's built-in. Answers as `GET /classes` does |
+| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for `harness` without `sandbox` or without an egress other than `none` (`the harness toolset needs sandbox and an egress other than none — a coding agent must reach its provider`), and for a `harnesses` id no one knows — not the SDK catalog's, not `fake`, not advertised by a bound sandbox manager, and not already in the class (`class <id>: no coding agent "<x>"`); **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. **400** as well for deleting a class a trigger or a channel policy (`privateClass`, `webClass`) names, and for making mixed a class a public-data trigger runs in (data from outside must not steer a class that can move internal data out; `confirmMixed` doesn't change that — a legacy webhook trigger's is the built-in `internal`); the error names the trigger or channel. Schedules and conversations don't hold a deletion up: theirs fall back to their lane's built-in. Answers as `GET /classes` does |
 
 **In the tile.** The composer's class picker (at home, where a new chat
 starts) shows the classes you may use — icon and name, each one's
@@ -478,9 +485,16 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   // spawns per turn, concurrent MODEL CALLS process-wide, and how long a
   // foreground subagent is waited for before it moves to the background
   "maxDepth": 3, "maxSpawn": 32, "maxSpawnPerTurn": 8, "maxActiveRuns": 4,
-  "subagentTimeout": 900
+  "subagentTimeout": 900,
+  // coding agents (§Coding agents): an idle one is stopped after
+  // harnessIdleMin minutes (absent = 15, 0 = never), and at most maxHarness
+  // run at once per conversation tree (0 = 3)
+  "harnessIdleMin": 15, "maxHarness": 3
 }
 ```
+
+A conversation's own `engine` and `harness` (§Coding agents) are never
+defaults: `PUT /config` drops them, as it drops `sandbox` and `attached`.
 
 - `GET /features` → `{keys, features}` — the toggleable capabilities and their
   current state (the tile's Features menu). Toggle by `PUT /config` with a
@@ -1614,6 +1628,94 @@ attached sandboxes (a ref or a unique name; any other is refused), which
 becomes the subagent's active one; `cwd` is its working directory there
 (absolute, or relative to that sandbox's). The subagent keeps the attached
 list, and the root's binding is unchanged.
+
+## Coding agents (harnesses)
+
+A conversation — or a subagent the agent spawns — can be answered by a
+**coding agent** (a *harness*: Claude Code, Codex, Gemini CLI, OpenCode, or
+another the sandbox manager names) run over ACP inside a coding sandbox,
+instead of the agent's own loop. What exists so far is the catalog, each
+person's setting, the class gates and the storage; the routes that start
+and drive a coding-agent conversation come with the harness engine — until
+then every run's `engine` is `""`.
+
+- **Runs.** A run's `engine` is `""` (the agent's own loop) or `"harness"`
+  — set when it is made, never changed; `GET /runs/{id}`'s `run`, run
+  events, the view's `run`, conversation rows and a link's `child` carry it.
+  A harness run's config holds `engine` and `harness: {provider, mode?,
+  options?, ref, cwd?, by?}` (the coding agent, the sandbox it works in —
+  fixed for the conversation — and who started it).
+- **Sandbox bindings** carry `harnesses`: the coding agents the manager says
+  the sandbox's image has (`hello.images[].harnesses`) when it was bound —
+  absent in one bound before, or from a manager that says nothing (unknown,
+  not none: a probe decides).
+- **Classes.** The `harness` toolset and the `harnesses` field (§Agent
+  classes); the built-in `coding` has both (`"all"`). A coding-agent
+  conversation or spawn needs a class that has the toolset, allows the
+  coding agent, and allows a sandbox with an egress other than `none`.
+
+| Method & path | Who | Body / query | Answer |
+|---|---|---|---|
+| `GET /harnesses` | anyone who can use the tile | `?probe=<ref>` | `{harnesses: [entry…], probe?}` — below. Managers' hellos come from their cache; answers in ≤ 10 s |
+| `GET /prefs/harness-mode` | a person | — | `{modes: {"<id>": "auto"\|"approve"}}` — the caller's own settings (set ones only) |
+| `PUT /prefs/harness-mode/{id}` | a person | `{mode: "auto"\|"approve"}` | `{provider, mode}`. **400** `mode is "auto" or "approve"`; **400** `no coding agent "<id>"`; **400** `<name> has no auto mode — it asks as its own settings say` (`auto` for one whose `autoMode` is empty); **403** `the setting is a person's own` for anyone else — an element, the scheduler, the tile itself, an admin viewing as someone |
+
+**The catalog.** One entry per coding agent any bound sandbox manager
+advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
+`opencode`), which are always listed:
+
+```jsonc
+{"id": "claude", "name": "Claude Code",
+ "available": false, "reason": "no-egress",
+ "why": "needs internet access — Coding sandboxes offers none (bind its internet class)",
+ "classes": ["coding"],                       // the caller's classes that allow it, their default first
+ "images": [{"provider": "apps/coding-sandbox", "manager": "Coding sandboxes", "image": "base",
+             "advertised": true, "egress": ["internet"]}],
+ "modes": [{"id": "default", "name": "Ask before acting"}, {"id": "bypassPermissions", "name": "Bypass permissions", "explicit": true}],
+ "defaultMode": "default", "autoMode": "acceptEdits", "approveMode": "default", "planMode": "plan",
+ "setting": "approve",                        // the caller's own (below)
+ "login": {"command": "CLAUDE_CODE_REMOTE=1 claude /login"},
+ "options": [ /* the config options its last session reported, any conversation — absent before one */ ],
+ "sandboxes": {"apps/coding-sandbox|sb-7f3a": {"installed": true, "signedIn": false, "at": 1790000100000}}}
+```
+
+- `images`: every (manager, image) that advertises it (`advertised:
+  true`), and every image of a manager whose hello predates
+  `images[].harnesses` (none of its images says — `advertised: false`: its
+  sandboxes are built on a rootfs that has the four, and a probe decides),
+  each with the manager's egress other than `none`. An advertised entry
+  that isn't one of the four (and isn't `fake`, the test fixture) needs its
+  own `argv`, or it is ignored.
+- `available`, `reason`, `why` — the first that holds: `no-image` (no bound
+  manager's image has it; `manager-error` instead, `why` its error, when a
+  manager that didn't answer might), `no-class` (no class you may use
+  allows coding agents — or this one), `no-egress` (no manager offering it
+  offers an egress other than `none` that such a class allows).
+- `modes`, `defaultMode`, `autoMode` (empty: it has none), `approveMode`,
+  `planMode`: the SDK catalog's (`sdk/acp`); the name and login command are
+  the catalog's, else the manager's advertisement. A manager's own `argv`
+  for one of the four is what runs, and what a probe looks for.
+- `sandboxes`: what the agent last learned about it per sandbox — by a probe
+  (`installed`) or a session (`signedIn`); a field absent is unknown, a
+  sandbox absent never asked. Only sandboxes the caller may see.
+- **`?probe=<ref>`** also asks that sandbox now which of the coding agents'
+  commands it has (`command -v`, one run of at most 8 s through the
+  contract's `/run`): the ones its image advertises, or the four when its
+  manager says nothing. Only a running sandbox the caller may use — a stopped
+  one isn't started — and at most once in 10 minutes per sandbox. The answer
+  says what it did: `probe: {ref, ran, cached?, error?}` (`error`: why it
+  didn't ask — `no such sandbox`, `the sandbox is stopped — a probe doesn't
+  start it`, …); what it learned is in each entry's `sandboxes[ref]`. A bad
+  reference is **400**.
+
+**Auto / Always approve** is each person's own setting per coding agent,
+kept by the agent (not in xbind's prefs — the agent reads the conversation
+owner's when it spawns a coding agent for them): `auto` is the agent's
+auto-edit mode (`autoMode`: claude `acceptEdits`, codex `agent`, gemini
+`autoEdit`), `approve` — also what unset means — its ask-first mode
+(`approveMode`). It applies when a coding-agent conversation or child is
+created; one that exists keeps its mode. Explicit modes (bypass, full
+access) are never a setting.
 
 ## The frontend: one model, thin views
 

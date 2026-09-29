@@ -45,6 +45,31 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (`session/load` replays what a session sent) and `--device-ms=N`, and
   the scripts `perm-edit`, `todo`, `stall`, `cards` and `steer…`.
   `XBIN_AGENT_FAKE` users see no change unless they pass the flags.
+- **Agent template: the coding-agent catalog, each person's Auto / Always
+  approve setting, and class gates for coding agents**
+  (`builtin-templates/agent/API.md` §Coding agents, §Agent classes).
+  Additive, and nothing changes for existing conversations. `GET
+  /harnesses[?probe=<ref>]` lists the coding agents (Claude Code, Codex,
+  Gemini CLI, OpenCode, and any a bound sandbox manager advertises in
+  `hello.images[].harnesses`) with why one can't be started (`no-image`,
+  `manager-error`, `no-class`, `no-egress`), its modes, login command, your
+  setting, and what the agent learned per sandbox; `?probe=` asks a running
+  sandbox you may use which of their commands it has (never starting a
+  stopped one; once in 10 minutes). `GET /prefs/harness-mode` and `PUT
+  /prefs/harness-mode/{id} {mode: "auto"|"approve"}` are a person's own
+  (elements and the scheduler get 403). Classes gain the `harness` toolset
+  (needs `sandbox` and an egress other than `none`) and the field
+  `harnesses` (`"all"` or ids); the built-in `coding` class has both —
+  a stored edit of it keeps what it was saved with, and a save that leaves
+  `harnesses` out keeps the class's. Runs, run events, conversation rows
+  and a link's `child` carry `engine` (`""` until coding-agent
+  conversations land), a sandbox binding carries its image's `harnesses`,
+  and `GET`/`PUT /config` gain `harnessIdleMin` and `maxHarness`. The
+  database gains `runs.engine` and the `harness_*` tables; an older binary
+  ignores them. The SDK's `sdk/acp` catalog gains `ApproveMode`, `PlanMode`
+  and `acp.Fake(argv)` (the test agent as a provider); its JSON is
+  unchanged.
+
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
   §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).

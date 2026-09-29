@@ -441,6 +441,7 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg.Sandbox, cfg.Attached, cfg.HeldInternal = nil, nil, false // a conversation's own, never a default
+	cfg.Engine, cfg.Harness = "", nil
 	b, _ := json.Marshal(cfg)
 	if err := agent.db.putSetting("config", string(b)); err != nil {
 		xbin.WriteError(w, 500, err.Error())

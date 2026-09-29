@@ -33,6 +33,13 @@ type Provider struct {
 	// else still asks — one of Modes and never an Explicit one; "" when it
 	// has none.
 	AutoMode string `json:"-"`
+	// ApproveMode is the mode that asks before every edit and command (a
+	// person's "Always approve"); PlanMode the one that plans without
+	// changing anything (a plan-only delegation). Both are among Modes and
+	// never Explicit; "" when the provider has none — it asks as its own
+	// settings say.
+	ApproveMode string `json:"-"`
+	PlanMode    string `json:"-"`
 }
 
 // Mode is one of a provider's session modes.
@@ -51,16 +58,19 @@ var catalog = []Provider{
 		// blocks, no text → no thought chunks); summarized makes it stream
 		SessionMeta: map[string]any{"claudeCode": map[string]any{"options": map[string]any{
 			"thinking": map[string]any{"type": "adaptive", "display": "summarized"}}}},
-		LoginCmd: "CLAUDE_CODE_REMOTE=1 claude /login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits"},
+		LoginCmd: "CLAUDE_CODE_REMOTE=1 claude /login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits",
+		ApproveMode: "default", PlanMode: "plan"},
 	{ID: "codex", Name: "Codex", Driver: "acp", Argv: []string{"codex-acp"}, Login: "codex login",
 		Modes: []Mode{{ID: "read-only", Name: "Ask for approval"}, {ID: "agent", Name: "Approve for me"},
 			{ID: "agent-full-access", Name: "Full access", Explicit: true}},
 		DefaultMode: "read-only", Env: map[string]string{"NO_BROWSER": "1"},
-		LoginCmd: "codex login --device-auth", Bins: []string{"codex-acp", "codex"}, AutoMode: "agent"},
+		LoginCmd: "codex login --device-auth", Bins: []string{"codex-acp", "codex"}, AutoMode: "agent",
+		ApproveMode: "read-only", PlanMode: "read-only"},
 	{ID: "gemini", Name: "Gemini CLI", Driver: "acp", Argv: []string{"gemini", "--acp"}, Login: "gemini (then choose Login with Google)",
 		Modes: []Mode{{ID: "default", Name: "Ask before acting"}, {ID: "autoEdit", Name: "Auto edit"}, {ID: "plan", Name: "Plan"},
 			{ID: "yolo", Name: "Auto-approve everything", Explicit: true}},
-		LoginCmd: "NO_BROWSER=true gemini", Bins: []string{"gemini"}, AutoMode: "autoEdit"},
+		LoginCmd: "NO_BROWSER=true gemini", Bins: []string{"gemini"}, AutoMode: "autoEdit",
+		ApproveMode: "default", PlanMode: "plan"},
 	{ID: "opencode", Name: "OpenCode", Driver: "acp", Argv: []string{"opencode", "acp"}, Login: "opencode auth login",
 		LoginCmd: "opencode auth login", Bins: []string{"opencode"}},
 }
@@ -69,6 +79,22 @@ var catalog = []Provider{
 // order: claude, codex, gemini, opencode. A fresh slice each call; the
 // entries' slices and maps are shared — treat them as read-only.
 func Providers() []Provider { return append([]Provider(nil), catalog...) }
+
+// Fake is the scripted test agent (hack/fakeacp, sdk/acp/acptest) as a
+// provider, run as argv: id "fake", modes ask, auto and yolo (explicit),
+// signed in by "<argv[0]> login". A consumer offers it only where a test
+// fixture advertises it (a sandbox manager's hello); it is never in the
+// catalog.
+func Fake(argv []string) Provider {
+	p := Provider{ID: "fake", Name: "Fake agent (tests)", Driver: "acp", Argv: append([]string(nil), argv...),
+		Modes:       []Mode{{ID: "ask", Name: "Ask before acting"}, {ID: "auto", Name: "Auto"}, {ID: "yolo", Name: "Yolo", Explicit: true}},
+		DefaultMode: "ask", AutoMode: "auto", ApproveMode: "ask", PlanMode: "ask"}
+	if len(argv) > 0 {
+		p.Login = argv[0] + " login"
+		p.LoginCmd, p.Bins = p.Login, []string{argv[0]}
+	}
+	return p
+}
 
 // Lookup finds a provider of the catalog by id.
 func Lookup(id string) (Provider, bool) {
