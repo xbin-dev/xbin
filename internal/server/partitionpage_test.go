@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -97,4 +98,85 @@ func TestPartitionSwitchPage(t *testing.T) {
 func jsonString(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 	return `"` + r.Replace(s) + `"`
+}
+
+// pendWS makes apps/a's partition mode switch pending, from → to.
+func pendWS(t *testing.T, w *assetWS, from, to registry.PartitionSpec) {
+	t.Helper()
+	writeWS(t, w.root, map[string]string{"apps/a/xbin.json": `{"partition":["user"]}`})
+	w.s.Reg.PartitionModes = func(a registry.PartitionAsk) registry.PartitionMode {
+		if a.Tile == "apps/a" {
+			return registry.PartitionMode{State: registry.PartitionPending, Recorded: from, Request: &registry.PartitionRequest{Spec: &to}}
+		}
+		return registry.PartitionMode{}
+	}
+	if err := w.s.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// covers PD-44 H1 01§2.4 — the page says what the switch deletes: adding
+// "global" deletes nothing, removing it only the global instance's data;
+// PD-44's "all data" sentence is for user ↔ unpartitioned alone.
+func TestPartitionSwitchPageH1(t *testing.T) {
+	user, both := registry.PartitionSpec{User: true}, registry.PartitionSpec{User: true, Global: true}
+	for _, c := range []struct {
+		from, to registry.PartitionSpec
+		want     string
+	}{
+		{user, both, "Switching deletes nothing (the global instance starts empty)."},
+		{both, user, "Switching deletes the global instance's data and the tile's shared resources (people's partitions stay)."},
+	} {
+		w := newAssetWS(t, TileAssetsLegacy)
+		pendWS(t, w, c.from, c.to)
+		rec := w.do("/c/apps/a/", w.session("ana"), hdr("Sec-Fetch-Dest", "iframe"))
+		body := rec.Body.String()
+		if rec.Code != 409 || !strings.Contains(body, "<strong>"+c.want+"</strong>") || strings.Contains(body, "All data") ||
+			strings.Contains(body, "deleting all its data") {
+			t.Errorf("%v → %v: %d\n%s", c.from, c.to, rec.Code, body)
+		}
+	}
+}
+
+// covers PD-44 01§2.4 — only a load that shows the document gets the page:
+// a frame or navigation, or — without Fetch Metadata — a login session or
+// the tile's own frame (the app's scheme handler). A fetch of the tile's
+// HTML, a bearer's read and another tile's read get the file as before.
+func TestPartitionSwitchPageReaders(t *testing.T) {
+	w := newAssetWS(t, TileAssetsLegacy)
+	pendWS(t, w, registry.PartitionSpec{}, registry.PartitionSpec{User: true})
+	page := func(rec *httptest.ResponseRecorder) bool {
+		return rec.Code == 409 && strings.Contains(rec.Body.String(), "Partition mode switch requested")
+	}
+	for name, c := range map[string]struct {
+		url  string
+		opts []reqOpt
+		page bool
+	}{
+		"a frame's load":                    {"/c/apps/a/", []reqOpt{w.session("ana"), hdr("Sec-Fetch-Dest", "iframe")}, true},
+		"a session, no Fetch Metadata":      {"/c/apps/a/index.html", []reqOpt{w.session("ana")}, true},
+		"the tile's own frame, no metadata": {"/c/apps/a/?native=1", []reqOpt{w.frame("apps/a", "ana")}, true},
+		"a fetch of its HTML":               {"/c/apps/a/index.html", []reqOpt{w.session("ana"), hdr("Sec-Fetch-Dest", "empty")}, false},
+		"a bearer's read":                   {"/c/apps/a/index.html", []reqOpt{w.zsOwner()}, false},
+		"another tile's frame, no metadata": {"/c/apps/a/index.html", []reqOpt{w.frame("apps/b", "ana")}, false},
+	} {
+		rec := w.do(c.url, c.opts...)
+		if page(rec) != c.page {
+			t.Errorf("%s: %d, page %v, want %v:\n%s", name, rec.Code, page(rec), c.page, rec.Body.String())
+		}
+	}
+}
+
+// covers PD-44 PD-17 01§2.4 — a tile with deployments: its primary's own
+// URL (/c/<tile>+<primary>/) is paused too, another deployment's isn't.
+func TestPartitionSwitchPageQualified(t *testing.T) {
+	w := newDepWS(t, TileAssetsLegacy)
+	pendWS(t, w.assetWS, registry.PartitionSpec{}, registry.PartitionSpec{User: true})
+	wes := w.session("wes")
+	if rec := w.do("/c/apps/a+main/", wes, hdr("Sec-Fetch-Dest", "iframe")); rec.Code != 409 || !strings.Contains(rec.Body.String(), "Partition mode switch requested") {
+		t.Errorf("the primary's URL: %d\n%s", rec.Code, rec.Body.String())
+	}
+	if rec := w.do("/c/apps/a+dev/", wes, hdr("Sec-Fetch-Dest", "iframe")); rec.Code != 200 || !strings.Contains(rec.Body.String(), "dev page") {
+		t.Errorf("a non-primary deployment's URL: %d\n%s", rec.Code, rec.Body.String())
+	}
 }
