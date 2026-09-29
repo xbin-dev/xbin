@@ -275,6 +275,7 @@ func buildReport(op deployOp, a dcArgs, st *deployState, x string, imp *deployIm
 	add("Code", codeLine(op.how, x, imp))
 	add("Data", dataLine(op.how, x, imp))
 	add("Branch", branchLine(op.how, imp))
+	add("Partition", imp.Partition)
 	var pauses []string
 	if op.how == "pause" && st.LiveReload != "" {
 		pauses = append(pauses, "live reload — saves stop reaching "+x+" until bx live-reload now or bx live-reload resume")

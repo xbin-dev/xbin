@@ -94,7 +94,7 @@ type partitionWiring struct {
 	// workspace-relative link, a collapse id); nil: push is off.
 	push func(user, kind, title, body, link, collapse string)
 	// deployLog writes a line in the tile's deploy log (D127); nil: none.
-	deployLog func(tile, how, by, via string) error
+	deployLog func(tile, by, via string) error
 }
 
 var partitionWirings sync.Map // *Broker → *partitionWiring
@@ -115,7 +115,7 @@ func (b *Broker) SetPartitionPush(push func(user, kind, title, body, link, colla
 
 // SetPartitionDeployLog installs the deploy log a switch writes its line in
 // (boot: the deployments plane).
-func (b *Broker) SetPartitionDeployLog(log func(tile, how, by, via string) error) {
+func (b *Broker) SetPartitionDeployLog(log func(tile, by, via string) error) {
 	w := b.partitionWiring()
 	w.mu.Lock()
 	w.deployLog = log
@@ -484,7 +484,7 @@ func (b *Broker) afterSwitch(t wipeTarget, sum wipeSummary, person auth.Principa
 	log := w.deployLog
 	w.mu.Unlock()
 	if log != nil {
-		if err := log(t.Tile, "partition-switch", person.From(), person.Via); err != nil {
+		if err := log(t.Tile, person.From(), person.Via); err != nil {
 			slog.Warn("partitions: the switch's deploy-log line", "tile", t.Tile, "err", err)
 		}
 	}
@@ -495,6 +495,19 @@ func (b *Broker) afterSwitch(t wipeTarget, sum wipeSummary, person auth.Principa
 		b.pushPerson(user, "tile.partition-deleted", t.Tile+" changed how it keeps data",
 			fmt.Sprintf("Your data in it was deleted by %s at %s.", t.By, when), "c/"+t.Tile+"/", "")
 	}
+}
+
+// PartitionHoldsData answers "holds data" for tile now (01 §2.2): the
+// deployments plane's promote and roll-back dry runs warn with it that a
+// move will pause the tile (01 §2.7). A tile the registry doesn't know
+// holds none.
+func (b *Broker) PartitionHoldsData(tile string) bool {
+	c, ok := b.Reg.Component(tile)
+	if !ok {
+		return false
+	}
+	held, _, _ := b.tileHoldsData(registry.PartitionAsk{Tile: tile, Scope: c.Scope, RootsScope: c.Scope != "" && c.Scope == c.Path})
+	return held
 }
 
 // ---- sandbox managers (C12) ----

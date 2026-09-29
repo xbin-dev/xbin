@@ -24,6 +24,10 @@ func wireDeploymentData(dp *deployments.Plane, brk *broker.Broker) {
 	dp.BackupData, dp.RestoreData = brk.BackupDeploymentData, brk.RestoreDeploymentData
 	dp.SetBackupSchedule, dp.BackupScheduleOf = brk.SetDeploymentBackupSchedule, brk.DeploymentBackupSchedule
 	dp.DataBackups = func(tile, dep string) (any, error) { return brk.DeploymentBackups(tile, dep) }
+	// Partition modes (plans/partitions/01 §2.5, §2.7): a move onto the
+	// primary warns when it will pause the tile; a switch logs a line.
+	dp.PartitionHolds = brk.PartitionHoldsData
+	brk.SetPartitionDeployLog(dp.LogPartitionSwitch)
 	// The governance acts' broker half (ops_gov.go): the edge check and the
 	// restarts an edge change needs, a reassignment's consumer and ingress
 	// fan-out, diskGiB's ceiling, and the seed.
