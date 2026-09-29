@@ -255,9 +255,13 @@ func (b *Broker) wipePartitionNamespaces(tile string) (int, error) {
 		}
 		n++
 	}
-	if len(errs) == 0 {
-		dir := filepath.Join(b.partitionsDir(), escS(scope))
-		errs = append(errs, os.RemoveAll(dir), os.RemoveAll(filepath.Join(b.Reg.Root, ".xbin", "resenc", partitionsLevel, escS(scope))))
+	if len(errs) == 0 { // what no namespace's walk reached: never through a mount
+		mounts := filepath.Join(b.Reg.Root, ".xbin", "resenc", partitionsLevel, escS(scope))
+		if pts, err := nsMountPoints(mounts); err != nil || len(pts) > 0 {
+			errs = append(errs, cmpErr(err, fmt.Errorf("%s is still mounted: stop what uses it and try again", strings.Join(pts, ", "))))
+		} else {
+			errs = append(errs, os.RemoveAll(filepath.Join(b.partitionsDir(), escS(scope))), os.RemoveAll(mounts))
+		}
 	}
 	return n, errors.Join(errs...)
 }
@@ -424,6 +428,14 @@ func (b *Broker) reclaimPartitionNS(id nsID, stamp string) error {
 			m.History = append(m.History, nsEvent{Op: "claimed", At: stamp})
 		}
 	})
+}
+
+// cmpErr is err, or alt when err is nil.
+func cmpErr(err, alt error) error {
+	if err != nil {
+		return err
+	}
+	return alt
 }
 
 // cmpTile is the tile a namespace's record names, or its scope (the tile
