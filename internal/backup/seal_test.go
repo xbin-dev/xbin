@@ -3,7 +3,9 @@ package backup
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -233,13 +235,32 @@ func members(t *testing.T, r *Reader) map[string]string {
 	}
 }
 
+// goldenSHA and goldenMembers pin testdata/plaintext-schema1.tar, an archive the
+// previous release's writer made (never regenerated): the file, and each
+// member's bytes. internal/broker restores it and compares against them.
+const goldenSHA = "7c41661ceb5ed2f63942afb97422696a09a6e52c19417054e719bee677be71f7"
+
+var goldenMembers = map[string]string{
+	"source/xbin.json":         "f8284a1ee28e3feb31f7f4d2397238fc346347063e3d1c9148ba689d79ca284b",
+	"source/backend/main.go":   "55a60bb97151b2b4b680462447ce60ec34511b14fa10d77440c97b9777101566",
+	"data/kv.json":             "981640767775c5ba648d202be0bc93d8fec8ae68ac72284a79e5933ea9d69949",
+	"data/sqlite/db/db.sqlite": "5b448daf62c54baf52c8142af22b7e7a8aedd86569fccc608bf9e88479403dd5",
+	"term/upper/etc/profile":   "7eca7f7ea45b3cf0d34824b555b7d722ccfcc56343102ba2ef2b809fa68f3487",
+}
+
+func sha(b string) string { s := sha256.Sum256([]byte(b)); return hex.EncodeToString(s[:]) }
+
 // Open on a plaintext archive is NewReader: a golden archive the previous
 // release's writer made (testdata/plaintext-schema1.tar) reads the same
-// member for member, with or without keys.
+// member for member, with or without keys — its manifest and every
+// member's bytes as pinned.
 func TestOpenPlaintextGolden(t *testing.T) {
 	golden, err := os.ReadFile("testdata/plaintext-schema1.tar")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := sha(string(golden)); got != goldenSHA {
+		t.Fatalf("testdata/plaintext-schema1.tar changed (%s): it is the previous release's writer's, never regenerated", got)
 	}
 	want, err := NewReader(bytes.NewReader(golden))
 	if err != nil {
@@ -255,9 +276,23 @@ func TestOpenPlaintextGolden(t *testing.T) {
 		if !reflect.DeepEqual(got.M, wantM) {
 			t.Fatalf("manifest %+v, want %+v", got.M, wantM)
 		}
-		if gm := members(t, got); !reflect.DeepEqual(gm, wantMembers) {
+		gm := members(t, got)
+		if !reflect.DeepEqual(gm, wantMembers) {
 			t.Fatalf("members differ: %v", gm)
 		}
+		digests := map[string]string{}
+		for name, body := range gm {
+			digests[name] = sha(body)
+		}
+		if !reflect.DeepEqual(digests, goldenMembers) {
+			t.Fatalf("member digests %v, want %v", digests, goldenMembers)
+		}
+	}
+	pinned := Manifest{Schema: Schema, Component: "apps/golden", Scope: "apps/golden", ScopeRoot: true,
+		Resources: map[string]string{"db": "sqlite", "state": "kv"}, XBinVersion: "v0.3.61", Created: "2026-09-01T00:00:00Z",
+		Includes: []string{"source", "data", "term-env"}}
+	if !reflect.DeepEqual(wantM, pinned) {
+		t.Fatalf("golden manifest %+v, want %+v", wantM, pinned)
 	}
 	if wantM.Schema != Schema || wantM.Component != "apps/golden" || !strings.HasPrefix(wantMembers["source/xbin.json"], "{") {
 		t.Fatalf("golden: %+v", wantM)
