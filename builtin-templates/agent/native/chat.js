@@ -7,6 +7,8 @@
 // compact, learn, memory, files, the sandbox, the tree, share, delete). Who
 // may do what is model/rules.js — the same words and controls as the web's
 // top bar; the coding sandbox's picker and ▣ are native/sandboxes.js.
+// Feature modules draw into it through the seams (ctx.ext, native/ext.js):
+// a block their way, the transcript's end, the toolbar, the menu, the composer.
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, fail, guard, push, secs, clip, base, cardState, FAMILY_ICON, thumb, raw, IMAGE } from './ui.js';
 import { argsShown } from '../model/tool-heads.js';
@@ -27,6 +29,10 @@ const setOpen = (id) => (e) => { ctx.app.session.open.set(id, !!e.open); ctx.pai
 const NOTICE_ICON = { Scheduled: 'clock', 'Watcher check': 'eye', 'Learn a skill': 'sparkles', Triggered: 'bolt' };
 
 export function blockTpl(b, depth = 0) {
+  return ctx.ext.block(b, depth) || builtInTpl(b, depth);
+}
+
+function builtInTpl(b, depth) {
   switch (b.k) {
     case 'user': return userTpl(b);
     case 'notice': return noticeTpl(b);
@@ -35,7 +41,7 @@ export function blockTpl(b, depth = 0) {
     case 'assistant': return html`<message role="assistant" markdown text=${b.text}>
       <actions><button icon="copy" copy=${b.text}>Copy</button></actions></message>`;
     case 'draft': return html`<message role="assistant" markdown streaming text=${b.text}/>`;
-    case 'tool': return toolTpl(b);
+    case 'tool': return toolTpl(b, depth);
     case 'agent': return agentTpl(b, depth);
     case 'step': return stepTpl(b);
   }
@@ -44,16 +50,19 @@ export function blockTpl(b, depth = 0) {
 
 // rowTpl: a transcript row, built again only when its block (the fold hands
 // back the same object until it changes) or its open state changed. A
-// subagent's card (its own rows open and close inside it) and a user's
-// message (its files come and go) are built every time.
+// subagent's card and a call with a harness subagent's blocks inside (their
+// own rows open and close inside them), a user's message (its files come and
+// go) and a row a seam draws (ext.block keeps its own memo) are built every time.
 const rowMemo = new WeakMap();
 function rowTpl(b) {
-  const stamp = b.k === 'think' ? isOpen(b.id, b.live) : b.k === 'tool' || b.k === 'notice' ? isOpen(b.id, false)
+  const x = ctx.ext.block(b, 0);
+  if (x) return x;
+  const stamp = b.k === 'think' ? isOpen(b.id, b.live) : (b.k === 'tool' && !b.kids) || b.k === 'notice' ? isOpen(b.id, false)
     : b.k === 'assistant' || b.k === 'step' ? true : null;
-  if (stamp == null) return blockTpl(b);
+  if (stamp == null) return builtInTpl(b, 0);
   const m = rowMemo.get(b);
   if (m && m.stamp === stamp) return m.tpl;
-  const tpl = blockTpl(b);
+  const tpl = builtInTpl(b, 0);
   rowMemo.set(b, { stamp, tpl });
   return tpl;
 }
@@ -116,7 +125,7 @@ function argRows(b) {
 // A sandbox call's outcome (model/tool-heads.js outcome) as a chip's tone.
 const OUTCOME_TONE = { ok: 'ok', bad: 'danger', run: 'accent' };
 
-function toolTpl(b) {
+function toolTpl(b, depth = 0) {
   const { state, chip } = cardState(b.state);
   const long = b.result && b.result.length > CUT;
   const done = b.result && b.state !== 'running';
@@ -131,6 +140,7 @@ function toolTpl(b) {
     ${argRows(b)}
     ${done ? html`<code text=${long ? b.result.slice(0, CUT) + '…' : b.result}/>` : nothing}
     ${done && long ? html`<text style="footnote" tone="muted">${`cut at ${CUT} of ${b.result.length} characters — ↗ shows all`}</text>` : nothing}
+    ${b.kids ? html`<transcript>${repeat(b.kids, (x) => x.id, (x) => blockTpl(x, depth + 1))}</transcript>` : nothing}
   </toolcard>`;
 }
 
@@ -326,6 +336,8 @@ export function chatScreen(v) {
   const r = v.run;
   const t = rules.topBar(v, app.convs.find(r.rootId || r.id), app.me);
   const ps = r.pendingState || {};
+  const tail = ctx.ext.end(v, s);
+  const parked = r.status === 'waiting_input' && !(tail && ps.harness); // a harness park is the seams' while they answer
   const chain = (v.chain || []).map((c) => c.title || '#' + c.id);
   // a shared conversation says so in its header, as the web's top bar does
   const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.cls.label, t.cls.warn, badgeWords(v), t.viewOnly ? 'view only' : '',
@@ -336,13 +348,15 @@ export function chatScreen(v) {
       <button icon="pencil" @tap=${() => app.home()}>New chat</button>
       ${modelPickerTpl(v)}
       ${sandboxPickerTpl()}
+      ${ctx.ext.toolbar(v) || nothing}
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
     </toolbar>
     <transcript follow ?older=${w.start > 0 || s.hasOlder} @more=${more} @scrolled=${scrolled}>
       ${s.olderHidden && !w.start && !s.hasOlder ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
       ${repeat(w.start ? s.blocks.slice(w.start) : s.blocks, (b) => b.id, rowTpl)}
-      ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me), ps.park) : nothing}
-      ${r.status === 'waiting_input' && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
+      ${tail || nothing}
+      ${parked && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me), ps.park) : nothing}
+      ${parked && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
       ${s.activity ? html`<activity live text=${s.activity}/>` : nothing}
       ${s.conn === 'reconnecting' ? html`<notice tone="warn" text="live updates lost — reconnecting…"/>` : nothing}
       ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped until a manager resumes it."/>` : nothing}
@@ -383,6 +397,7 @@ function runMenu(v, t) {
     <button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>
     ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label.replace(/^🔓 /, '')}`}</button>`)}
     ${t.crumb ? html`<button icon="clock" @tap=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
+    ${ctx.ext.menu(v, t) || nothing}
     ${t.del ? html`<divider/><button icon="trash" role="destructive"
       confirm=${{ title: 'Delete this run and its history?', label: 'Delete', destructive: true }}
       @tap=${guard(async () => { await app.actions.deleteRun(id); app.session.runs.delete(id); app.home(); })}>Delete</button>` : nothing}`;
@@ -404,6 +419,10 @@ export function modelPickerTpl(v) {
 export function composerTpl(v, t) {
   const app = ctx.app;
   const c = app.rules.composer(v, app.HOME);
+  // the seams' part (ext.composer): the last placeholder given, every slash command, their buttons
+  const xs = ctx.ext.composer(v, t) || [];
+  const placeholder = xs.reduce((p, x) => x.placeholder || p, c.placeholder);
+  const slash = xs.flatMap((x) => x.slash || []);
   const talk = !v || app.rules.access(v).talk;
   // what was picked here (at home: into the new ask's draft, which Send sends)
   const place = v ? v.run.id : 'home';
@@ -412,8 +431,8 @@ export function composerTpl(v, t) {
     ...(a.state === 'up' ? { progress: 0 } : {}),
   }));
   const queued = v ? app.session.queued() : [];
-  return html`<composer value=${ui.draft} placeholder=${c.placeholder} ?busy=${c.busy} ?disabled=${c.disabled}
-      attachments=${att}
+  return html`<composer value=${ui.draft} placeholder=${placeholder} ?busy=${c.busy} ?disabled=${c.disabled}
+      attachments=${att} slash=${slash.length ? slash : nothing}
       upload=${talk ? app.uploadTarget() : nothing}
       @input=${(e) => { ui.draft = e.value; }}
       @send=${(e) => app.send(e.value, () => { ui.draft = ''; })}
@@ -423,6 +442,7 @@ export function composerTpl(v, t) {
     ${t && t.retry ? html`<button icon="refresh" role="primary" @tap=${guard(() => app.actions.control(v.run.id, 'resume'))}>Retry</button>` : nothing}
     ${repeat(queued, (q) => q.id, (q) => html`<button icon="xmark"
       @tap=${guard(() => app.session.removeQueued(q.id))}>${'queued: ' + clip(q.text || '(files)', 40)}</button>`)}
+    ${xs.map((x) => (x.tpl ? x.tpl() : nothing))}
   </composer>`;
 }
 

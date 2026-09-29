@@ -1283,3 +1283,6 @@ why this spec picked what it did:
 
 WPs record here, one dated line each, anything they built differently from
 this spec and why.
+
+- 2026-09-30 UI-U1: native `ctx.ext` also has `newChat` (the new-chat sheet's section and its part of the ask), like the web's — so U2 adds its sheet field without editing native/convs.js.
+- 2026-09-30 UI-U1: the STUB serves every §4 route but the two terminal relays (§4.2.8): they are WebSocket upgrades, which its fake `xbin.fetch` can't answer — U5 stubs them in its own tests.

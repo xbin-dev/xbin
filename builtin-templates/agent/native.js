@@ -29,6 +29,7 @@ import { shareSheet } from './native/share.js';
 import { sandboxAskSheet } from './native/sandboxes.js';
 import { toolScreens, treeDirty, openRender, openLive } from './native/tools.js';
 import { autoScreens } from './native/auto.js';
+import './native/harness-all.js'; // the coding harnesses' modules (their hooks on ctx.ext, native/ext.js)
 
 const visible = () => (globalThis.document?.visibilityState ?? 'visible') === 'visible';
 

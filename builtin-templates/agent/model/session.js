@@ -334,6 +334,17 @@ export class Session {
         if (cv && d.child) cv.run = { ...cv.run, ...d.child };
         break;
       }
+      case 'harness': {
+        // a coding harness's whole summary (D-harness §4.3.3): it
+        // replaces run.harness wherever the run is held — a child's card too
+        if (this.runs.has(ev.run)) this.runs.set(ev.run, { ...this.runs.get(ev.run), harness: d });
+        if (v) v.run = { ...v.run, harness: d };
+        for (const pv of this.views.values()) {
+          const i = (pv.links || []).findIndex((l) => l.childId === ev.run);
+          if (i >= 0) pv.links[i] = { ...pv.links[i], child: { ...(pv.links[i].child || {}), harness: d } };
+        }
+        break;
+      }
       case 'text': case 'thinking': case 'tool':
         this.draft(ev);
         break;

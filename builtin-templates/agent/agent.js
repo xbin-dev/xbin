@@ -12,6 +12,9 @@
 // you are; model/rules.js says which controls show, model/actions.js talks to
 // the backend. This file draws and wires the DOM. No framework beyond lit's
 // render(), no build step; xbin.fetch attributes calls to this element.
+// Feature modules draw into it through the seams (web-ext.js: the chat's
+// blocks and end, the top bar, each paint, the new-chat dialog) —
+// harness-web.js imports them.
 import { html, render, nothing } from '/vendor/lit-all.min.js';
 
 const $ = (id) => document.getElementById(id);
@@ -39,6 +42,8 @@ import { mountLive, unmountLive } from './live-status.js';
 import { makePorts } from './ports.js';
 import { tabFiles, selectFile } from './settings-files.js';
 import { makeWorkflow } from './workflow.js';
+import { ext, ctx as extCtx } from './web-ext.js';
+import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -62,6 +67,7 @@ const app = createApp({
   deltas: true, page: 50,
 });
 const { session, convs, autos } = app;
+Object.assign(extCtx, { app, paint: () => paint() }); // what the seams' modules share (web-ext.js)
 const win = new ChatWindow(session);
 globalThis.agentChat = { testApi: () => win.testApi() }; // the UI harness's view of the chat's window
 // opening or closing a card keeps the reader's view, even at the bottom
@@ -102,6 +108,7 @@ app.on('me', () => { $('gear').hidden = !app.me.manager; syncHalt(); });
 app.on('halt', () => syncHalt());
 app.on('class', () => classPicker.paint(session.current()));
 app.on('model', () => paint());
+app.on('harness', () => paint()); // the coding agents' catalog and picks (app.harness)
 app.on('attach', () => renderAttach());
 app.on('sending', () => {
   $('send').disabled = app.sending;
@@ -173,7 +180,7 @@ function setHash(h) {
 
 function topTpl(v) {
   if (!v) return app.page === 'automations' ? html`<span class="title">Automations</span>`
-    : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
+    : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>${ext.top(null) || nothing}`;
   const r = v.run;
   const t = rules.topBar(v, convs.find(r.rootId || r.id), app.me);
   return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
@@ -190,6 +197,7 @@ function topTpl(v) {
     <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
+    ${ext.top(v) || nothing}
     <button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
       title=${t.share.title}>${t.share.icon} ${t.share.label}</button>
     ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
@@ -256,6 +264,7 @@ function paint() {
   $('msg').placeholder = c.placeholder;
   if (v) syncPreview(v);
   if (wf.shown) wf.dirty();
+  ext.paint(v);
 }
 
 // The composer's model (model/rules.js modelPicker): the open conversation's,
@@ -612,18 +621,23 @@ $('home').onclick = goHome;
 
 $('new').onclick = () => { goHome(); $('msg').focus(); };
 // "New chat with options": a title, a system prompt, a class — the first
-// message is the dialog's text.
+// message is the dialog's text; the seams' fields (ext.newChat) add theirs.
+let newExt = [];
+const drawNewExt = () => render(newExt.map((x) => x.tpl()), $('n-ext'));
 $('newopts').onclick = () => {
   $('n-goal').value = ''; $('n-title').value = ''; $('n-system').value = '';
   render(classOptionsTpl(app, app.classId), $('n-class'));
   $('n-class').value = app.classId;
+  newExt = ext.newChat(drawNewExt) || [];
+  drawNewExt();
   $('newdlg').showModal();
 };
 $('n-create').onclick = async (e) => {
   const text = $('n-goal').value.trim();
   if (!text) { e.preventDefault(); return; }
   try {
-    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value });
+    await app.ask(Object.assign({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value },
+      ...newExt.map((x) => (x.body ? x.body() : {}))));
   } catch (err) { alert(err.message); }
 };
 let searchT = null;

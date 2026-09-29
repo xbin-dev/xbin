@@ -8,6 +8,10 @@
 // the block object, which the fold hands back unchanged until its message
 // changes — and the answer being written re-parses only its last paragraph
 // (mdInto), so a selection above it survives the stream.
+//
+// Seams (web-ext.js, as ui.ext): a feature module may draw a block its own
+// way (ext.block, asked first) and add what follows the transcript (ext.end;
+// a harness park is then its to draw — see sessionTpl).
 import { html, nothing, repeat, unsafeHTML, classMap, directive, Directive, noChange } from '/vendor/lit-all.min.js';
 import { md, mdInto } from './chat-md.js';
 import { ICON, argsShown } from './model/tool-heads.js';
@@ -44,19 +48,21 @@ const secs = (ms) => {
 };
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
-// ui: {isOpen(id, dflt), toggle(id, dflt), act: {...}}
+// ui: {isOpen(id, dflt), toggle(id, dflt), act: {...}, ext?}
 export function blocksTpl(blocks, ui, depth = 0) {
   return repeat(blocks, (b) => b.id, (b) => blockTpl(b, ui, depth));
 }
 
 function blockTpl(b, ui, depth) {
+  const x = ui.ext?.block(b, ui, depth);
+  if (x) return x;
   switch (b.k) {
     case 'user': return userTpl(b, ui);
     case 'notice': return noticeTpl(b, ui);
     case 'think': return thinkTpl(b, ui);
     case 'assistant': return html`<div class="msg assistant" data-k=${b.id}><div class="md">${unsafeHTML(mdOf(b, 'text', b.text))}</div></div>`;
     case 'draft': return html`<div class="msg assistant live" data-k=${b.id}><div class="md" ${mdLive(b.text)}></div><span class="cur"></span></div>`;
-    case 'tool': return toolTpl(b, ui);
+    case 'tool': return toolTpl(b, ui, depth);
     case 'agent': return agentTpl(b, ui, depth);
     case 'step': return stepTpl(b, ui);
   }
@@ -117,7 +123,7 @@ function argRows(b) {
   })}</div>`;
 }
 
-function toolTpl(b, ui) {
+function toolTpl(b, ui, depth = 0) {
   const open = ui.isOpen(b.id, false);
   const st = b.state;
   return html`<div class=${classMap({ tcard: true, on: open, [st]: true })} data-fam=${b.fam} data-tool=${b.name} data-k=${b.id}>
@@ -133,6 +139,7 @@ function toolTpl(b, ui) {
       <div class="tname mono">${b.name}</div>
       ${argRows(b)}
       ${b.result && st !== 'running' ? resultTpl(b, ui) : nothing}
+      ${b.kids ? html`<div class="acb">${blocksTpl(b.kids, ui, depth + 1)}</div>` : nothing}
     </div>` : nothing}
   </div>`;
 }
@@ -228,16 +235,19 @@ function approveNoteTpl(ui, runId) {
 // sessionTpl is the chat of the selected run. win (chat-window.js) is the
 // window of its blocks drawn — {start, end, pill, older(), latest()}; all of
 // them without it. Above the window, a line says there is more; what closes
-// the chat (an approval, a question, the activity line) shows only when the
-// window reaches the end; the pill offers the latest while the reader is
-// away from it.
+// the chat (the seams' end, an approval, a question, the activity line) shows
+// only when the window reaches the end; the pill offers the latest while the
+// reader is away from it. A harness park (pendingState.harness) is the end
+// hooks' to draw while any answers; the built-in card is its fallback.
 export function sessionTpl(s, ui, win) {
   const r = s.run || {};
-  const ps = r.pendingState || {};
   const n = s.blocks.length;
   const start = win ? win.start : 0, end = win ? win.end : n;
   const rows = start || end < n ? s.blocks.slice(start, end) : s.blocks;
   const atEnd = end >= n && !s.hasNewer;
+  const ps = r.pendingState || {};
+  const tail = atEnd ? ui.ext?.end(s, ui) : null;
+  const parked = r.status === 'waiting_input' && !(tail && ps.harness); // the built-in card's to draw
   return html`
     ${s.chain && s.chain.length ? html`<div class="crumbs">${s.chain.map((c) => html`
       <a @click=${() => ui.act.select(c.id)}>${c.title || '#' + c.id}</a> ›`)} <b>${r.title || '#' + r.id}</b></div>` : nothing}
@@ -245,10 +255,11 @@ export function sessionTpl(s, ui, win) {
       ? html` <button class="lnk" @click=${() => win.older()}>load earlier</button>` : nothing}</div>`
       : s.olderHidden ? html`<div class="muted small center">— earlier turns were compacted into the summary —</div>` : nothing}
     ${blocksTpl(rows, ui)}
-    ${atEnd && r.status === 'waiting_input' && ps.kind === 'approval'
+    ${tail || nothing}
+    ${atEnd && parked && ps.kind === 'approval'
       ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how, ps.park), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
     ${atEnd ? approveNoteTpl(ui, r.id) : nothing}
-    ${atEnd && r.status === 'waiting_input' && ps.kind !== 'approval' && r.result
+    ${atEnd && parked && ps.kind !== 'approval' && r.result
       ? html`<div class="ask"><b>The agent is asking:</b><div class="md">${unsafeHTML(mdAsk(r.result))}</div>
           <div class="muted small">answer below to continue</div></div>` : nothing}
     ${atEnd && s.activity ? html`<div class="activity"><span class="spin"></span> ${s.activity}</div>` : nothing}
