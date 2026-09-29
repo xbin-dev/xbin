@@ -6,8 +6,11 @@ package main
 // token or a login — a tile's terminal can't decide. The request's R and Q
 // come from the tile's /components row, so a request that changed meanwhile
 // is refused (409) rather than decided blind. switch first shows what it
-// deletes and keeps (a dry run), then asks for the tile's path. Against an
-// xbind without partitions both exit 6.
+// deletes and keeps (a dry run), then asks for the tile's path (on stderr,
+// so --json's stdout stays JSON). Against an xbind without partitions both
+// exit 6 — one whose row has no partition at all is asked through the route
+// itself, so an xbind older than partitioned tiles is told apart from a tile
+// that asks for none.
 
 import (
 	"encoding/json"
@@ -27,6 +30,10 @@ const partitionUsage = `  bx partition switch <tile> [--dry-run] [--confirm <til
 `
 
 const exitNoPartitions = 6 // this xbind has no partitions
+
+// errNoPartitions: this xbind has no partitioned tiles (no POST
+// /api/xbin/partitions/mode); cmdPartition exits 6 with it.
+var errNoPartitions = errors.New("this xbind has no partitioned tiles (no POST /api/xbin/partitions/mode); upgrade xbind")
 
 func init() { moreCmds["partition"] = cmdPartition }
 
@@ -58,6 +65,15 @@ func (s *partSpec) wire() *partSpec {
 }
 
 func cmdPartition(args []string) error {
+	err := partitionCmd(args)
+	if errors.Is(err, errNoPartitions) {
+		fmt.Fprintln(os.Stderr, "bx:", err)
+		os.Exit(exitNoPartitions)
+	}
+	return err
+}
+
+func partitionCmd(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage:\n" + partitionUsage)
 	}
@@ -103,6 +119,12 @@ func partitionRequest(tile string) (from, to *partSpec, declined bool, err error
 	p := one.Component.Partition
 	switch {
 	case p == nil:
+		// no partition on the row: a tile that asks for none — or an xbind
+		// older than partitioned tiles, whose rows have none at all. The route
+		// tells them apart: a mux 404 exits 6, the route itself says why.
+		if _, err := partitionPost(map[string]any{"tile": tile, "act": "keep", "from": nil, "to": nil, "dryRun": true}); err != nil {
+			return nil, nil, false, err
+		}
 		return nil, nil, false, fmt.Errorf("%s has no partition mode switch request (it doesn't ask for a partition mode)", tile)
 	case p.State == "invalid":
 		return nil, nil, false, fmt.Errorf("%s's partition request is invalid, so there is nothing to decide: %s", tile, one.Component.PartitionError)
@@ -157,7 +179,7 @@ func partitionDecide(act string, args []string) error {
 			return json.NewEncoder(os.Stdout).Encode(out)
 		}
 		fmt.Printf("%s keeps its partition mode (%s) and runs again; nothing was deleted.\n", tile, from)
-		fmt.Printf("Its code still asks for %s: bx partition switch %s deletes all its data and takes it.\n", to, tile)
+		fmt.Printf("Its code still asks for %s: bx partition switch %s takes it (--dry-run shows what that deletes).\n", to, tile)
 		return nil
 	}
 	body["dryRun"] = true
@@ -177,7 +199,7 @@ func partitionDecide(act string, args []string) error {
 		printSwitch(os.Stdout, tile, from, to, preview, true)
 	}
 	if *confirm == "" {
-		fmt.Printf("Type the tile's path (%s) to delete its data and switch: ", tile)
+		fmt.Fprintf(os.Stderr, "Type the tile's path (%s) to delete its data and switch: ", tile)
 		if !confirmLine(tile) {
 			return errors.New("not confirmed: nothing was deleted")
 		}
@@ -195,7 +217,8 @@ func partitionDecide(act string, args []string) error {
 	return nil
 }
 
-// partitionPost is POST /partitions/mode; an xbind without it exits 6.
+// partitionPost is POST /partitions/mode; an xbind without it answers
+// errNoPartitions.
 func partitionPost(body map[string]any) (map[string]any, error) {
 	resp, err := api("POST", "/api/xbin/partitions/mode", body)
 	if err != nil {
@@ -208,8 +231,7 @@ func partitionPost(body map[string]any) (map[string]any, error) {
 	switch {
 	case (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed) && out["error"] == nil:
 		// Go's mux, not a refusal: the route is missing (compat rule 8)
-		fmt.Fprintln(os.Stderr, "bx: this xbind has no partitioned tiles (no POST /api/xbin/partitions/mode); upgrade xbind")
-		os.Exit(exitNoPartitions)
+		return nil, errNoPartitions
 	case resp.StatusCode >= 400:
 		msg := fmt.Sprint(out["error"])
 		if out["error"] == nil {
@@ -250,6 +272,9 @@ func printSwitch(w io.Writer, tile string, from, to *partSpec, out map[string]an
 	}
 	if a, ok := out["archiver"].(string); ok && a != "" {
 		fmt.Fprintf(w, "  Archiver: %s\n", a)
+	}
+	if e, ok := out["eraseError"].(string); ok && e != "" {
+		fmt.Fprintf(w, "  The backup keys are erased, but not every key file is removed yet: %s\n", e)
 	}
 }
 
