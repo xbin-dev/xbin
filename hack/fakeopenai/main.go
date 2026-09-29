@@ -38,6 +38,13 @@
 //	sandbox restart
 //	             bash "sleep 8; echo survived" (the harness restarts the agent's
 //	             backend under it); the lost call names its job → bash_output
+//	sandbox browser
+//	             browser_check {target "./page.html", screenshots [0], a script
+//	             reading #out} (D136) → "Checked: <its first line>", plus
+//	             " · saw the screenshots" when the next request carried them
+//	sandbox download twice
+//	             sandbox_download hello.txt, then again → "Downloaded: <the
+//	             second result's first line>" (in place: "unchanged: …")
 //	new sandbox  sandbox_create {name "scratch"} — the owner is asked to allow
 //	             it → "Created: <its first line>"
 //	restart me   the FIRST request of that turn hangs 30 s (the harness restarts
@@ -178,9 +185,16 @@ func script(conv []turn, system string) plan {
 	}
 	sub := strings.Contains(system, "You are a subagent")
 	last := conv[len(conv)-1]
+	// images a tool showed (file_view, browser_check) ride a user message
+	// after the tool results: the turn still answers the tool
+	const shownLead = "(images you asked to see"
+	saw := false
+	if n := len(conv); n > 1 && last.Role == "user" && strings.HasPrefix(last.Text, shownLead) {
+		last, saw = conv[n-2], true
+	}
 	lastUser := ""
 	for i := len(conv) - 1; i >= 0; i-- {
-		if conv[i].Role == "user" {
+		if conv[i].Role == "user" && !strings.HasPrefix(conv[i].Text, shownLead) {
 			lastUser = strings.ToLower(conv[i].Text)
 			break
 		}
@@ -257,6 +271,24 @@ func script(conv []turn, system string) plan {
 		case "bash_kill":
 			lines := strings.Split(strings.TrimSpace(last.Text), "\n")
 			return plan{Text: "Killed: " + lines[len(lines)-1]}
+		case "browser_check":
+			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
+			if saw {
+				first += " · saw the screenshots"
+			}
+			return plan{Text: "Checked: " + first}
+		case "sandbox_download":
+			n := 0
+			for i := len(conv) - 1; i >= 0 && !(conv[i].Role == "user" && !strings.HasPrefix(conv[i].Text, shownLead)); i-- {
+				if conv[i].Tool == "sandbox_download" {
+					n++
+				}
+			}
+			if n < 2 {
+				return plan{Calls: []call{{"sandbox_download", map[string]any{"path": "hello.txt", "summary": "Download it again"}}}}
+			}
+			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
+			return plan{Text: "Downloaded: " + first}
 		case "write":
 			return plan{Text: "Wrote it."}
 		case "edit":
@@ -316,6 +348,11 @@ func script(conv []turn, system string) plan {
 			"background": true, "summary": "Start a chatty job"}}}}
 	case strings.Contains(lastUser, "sandbox restart"):
 		return plan{Calls: []call{{"bash", map[string]any{"command": "sleep 8; echo survived", "summary": "Survive a restart"}}}}
+	case strings.Contains(lastUser, "sandbox browser"):
+		return plan{Calls: []call{{"browser_check", map[string]any{"target": "./page.html", "wait_ms": 300, "screenshots_ms": []int{0},
+			"script": "return await page.locator('#out').textContent()", "summary": "Check the page in a browser"}}}}
+	case strings.Contains(lastUser, "sandbox download twice"):
+		return plan{Calls: []call{{"sandbox_download", map[string]any{"path": "hello.txt", "summary": "Download hello.txt"}}}}
 	case strings.Contains(lastUser, "new sandbox"):
 		return plan{Calls: []call{{"sandbox_create", map[string]any{"name": "scratch", "summary": "Make a sandbox"}}}}
 	case strings.Contains(lastUser, "restart me"):

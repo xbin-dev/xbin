@@ -184,6 +184,74 @@ async function terminal(a, check, id, cwd) {
   check(left.length === 0, `Close ends the shell at the manager (${left.length} tty exec(s) still running)`);
 }
 
+// A page whose inline script writes the DOM and logs an error, with a fetch
+// that fails and a module import that can't load (.invalid never resolves).
+const PAGE = `<!doctype html><title>Harness page</title><h1>Hello</h1><p id="out">static</p>
+<script>
+document.getElementById('out').textContent = 'written by script';
+console.error('boom from the page');
+fetch('http://127.0.0.1:9/nothing').catch(() => {});
+</script>
+<script type="module">import x from 'https://cdn.invalid/x.mjs'; x();</script>`;
+
+// browserAndDownload (D136): browser_check in the fake sandbox (a host
+// directory; its commands run on this machine) — with Playwright where the
+// harness has it (PLAYWRIGHT_DIR's node_modules linked into the sandbox's
+// cwd, the browsers into its home), else the "not available" answer — and
+// sandbox_download twice: the second writes nothing, and no -2 copy appears.
+async function browserAndDownload(a, check, home, runId) {
+  const pwDir = process.env.PLAYWRIGHT_DIR || '';
+  const browsers = path.join(require('os').homedir(), '.cache', 'ms-playwright');
+  const hasPW = !!pwDir && fs.existsSync(path.join(pwDir, 'node_modules', 'playwright')) && fs.existsSync(browsers);
+  fs.writeFileSync(path.join(home, 'page.html'), PAGE);
+  const link = (target, at) => { if (!fs.existsSync(at)) fs.symlinkSync(target, at); };
+  if (hasPW) {
+    link(path.join(pwDir, 'node_modules'), path.join(home, 'node_modules'));
+    fs.mkdirSync(path.join(home, '.cache'), { recursive: true });
+    link(browsers, path.join(home, '.cache', 'ms-playwright'));
+  }
+  const checked = await turn(a, 'sandbox browser', 'Checked: ', 90000);
+  const bcard = await lastCard(a, 'browser_check');
+  check(bcard && bcard.fam === 'box' && bcard.hl.includes('Check the page in a browser') && bcard.hl.includes('Check ./page.html in a browser (+ script)'),
+    `browser_check is a ▣ card headed by its summary, the target under it (${bcard && bcard.hl})`);
+  if (!hasPW) {
+    check(/not available in this sandbox|could not start Chromium/.test(checked), `without Playwright here it says what the sandbox lacks (${checked.slice(0, 200)})`);
+  } else {
+    check(/^Checked: browser_check file:\/\/\S+\/page\.html — loaded in \d+ ms · status \d+ · \d+ console message\(s\), [1-9]\d* error\(s\)/.test(checked),
+      `"sandbox browser": a real Chromium loaded the page (${checked.slice(0, 220)})`);
+    check(/saw the screenshots/.test(checked), `the screenshot rode the next model request, as file_view's do (${checked.slice(-40)})`);
+    check(bcard && /console error/.test(bcard.oc) && /\bbad\b/.test(bcard.tone), `the card's reading says the page logged errors: "${bcard && bcard.oc}"`);
+    await a.click('#timeline .tcard[data-tool="browser_check"] .tch >> nth=-1');
+    await until(a, () => !!document.querySelector('#timeline .tcard.on[data-tool="browser_check"] .res'));
+    const res = await a.textContent('#timeline .tcard.on[data-tool="browser_check"] .res');
+    for (const [want, what] of [['boom from the page', 'the console error'],
+      ['cdn.invalid/x.mjs', 'the module import that could not load'], ['127.0.0.1:9/nothing', 'the failed fetch'], ['shots/page-0ms.png', 'the screenshot, a session file']]) {
+      check(res.includes(want), `its card's result has ${what} (${want})`);
+    }
+    await shot(a, 'agent-sandbox-browser', { fullPage: false });
+    await a.click('#timeline .tcard[data-tool="browser_check"] .tch >> nth=-1');
+    // the whole result (the card shows its head): the facts as JSON after two lines
+    const full = ((await api(a, `/runs/${runId}`)).body?.messages || []).filter((m) => m.role === 'tool' && /^browser_check /.test(m.content)).pop()?.content || '';
+    let facts = {};
+    try { facts = JSON.parse(full.split('\n').slice(2).join('\n')); } catch { /* checked below */ }
+    check(/paragraph: written by script/.test(facts.snapshot || '') && facts.script?.value === 'written by script',
+      `the DOM the inline script wrote: in the accessibility snapshot, and the script's value (${JSON.stringify({ snapshot: facts.snapshot, script: facts.script }).slice(0, 200)})`);
+    check((facts.requests_failed || []).some((r) => /cdn\.invalid/.test(r.url) && /ERR_NAME_NOT_RESOLVED/.test(r.error) && /^sandbox egress/.test(r.blocked || '')),
+      `the CDN import is a failed request, named a sandbox egress block (egress none) (${JSON.stringify(facts.requests_failed || []).slice(0, 240)})`);
+    const files = (await api(a, `/runs/${runId}/files`)).body;
+    const shotFile = (Array.isArray(files) ? files : files?.files || []).find((f) => f.path === 'shots/page-0ms.png');
+    check(shotFile && shotFile.mime === 'image/png' && shotFile.source?.kind === 'browser', `the screenshot is a PNG session file with its source (${JSON.stringify(shotFile || files).slice(0, 200)})`);
+  }
+  const dl = await turn(a, 'sandbox download twice', 'Downloaded: ');
+  check(/^Downloaded: unchanged: the session file hello\.txt already holds \S+\/hello\.txt \(sha [0-9a-f]{12}, v1\) — nothing written$/.test(dl),
+    `"sandbox download twice": the second download writes nothing (${dl})`);
+  const dcard = await lastCard(a, 'sandbox_download');
+  check(dcard && dcard.oc === 'unchanged', `its card reads "unchanged" (${dcard && dcard.oc})`);
+  const list = (await api(a, `/runs/${runId}/files`)).body;
+  const names = (Array.isArray(list) ? list : list?.files || []).map((f) => f.path);
+  check(names.includes('hello.txt') && !names.includes('hello-2.txt'), `in place: hello.txt and no hello-2.txt (${names.join(', ')})`);
+}
+
 async function agentSandbox(browser) {
   const { check, skip, done } = checker('agent-sandbox');
   if (noGocryptfs()) { skip(`apps/agent is held: ${noGocryptfs()}`); return done(); }
@@ -278,6 +346,9 @@ async function agentSandbox(browser) {
     check(cat === 'Ran: hello from the agent', `the file changed in the sandbox: cat hello.txt → "${cat}"`);
     await shot(a, 'agent-sandbox-cards', { fullPage: false });
     await a.click('#timeline .tcard[data-tool="edit"] .tch >> nth=-1');
+
+    // D136: browser_check, and a download that overwrites in place
+    await browserAndDownload(a, check, home, privId);
 
     // a command that outlives its timeout goes on as a job
     const job = await turn(a, 'sandbox long', 'Job: ', 45000);
