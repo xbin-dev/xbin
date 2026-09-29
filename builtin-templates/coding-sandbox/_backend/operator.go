@@ -5,7 +5,7 @@
 // access to it. Nothing here reads or writes a sandbox's contents — no
 // commands, no files: those go through a consumer's partition only. A
 // sandbox homed in a partitioned consumer's user partition shows neither its
-// name nor its labels here (opRedact).
+// name, its labels nor its snapshots' names here (opRedact).
 package main
 
 import (
@@ -30,6 +30,10 @@ func (m *Manager) op(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !operator(r) {
 			fail(w, http.StatusForbidden, "not-allowed", "this needs write access to the tile (an operator)")
+			return
+		}
+		if why := partitionCheck(r); why != "" { // as on /sbx/: never read as another identity
+			fail(w, http.StatusForbidden, "not-allowed", why)
 			return
 		}
 		h(w, r)
@@ -291,6 +295,9 @@ func (m *Manager) opSnapshots(w http.ResponseWriter, r *http.Request) {
 	if snaps == nil {
 		snaps = []xbin.Snapshot{}
 	}
+	if opHides(rec, callerOf(r)) {
+		opRedactSnapshots(snaps)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"snapshots": snaps})
 }
 
@@ -411,14 +418,19 @@ func (m *Manager) opAnswer(w http.ResponseWriter, r *http.Request, id string, in
 // homeOf is the caller rec's home consumer is: its consumer and partition.
 func homeOf(rec record) caller { return caller{from: rec.Owner.Via, partID: rec.Owner.PartitionID} }
 
-// opRedact hides from operators what a sandbox homed in a user partition
-// carries of its consumer's content (S19): its name — a model may have
-// chosen it — shows as <consumer>/<partition id, first 8> #<n>, n its place
-// among that partition's sandboxes (oldest first), and its labels as none.
-// Unless the viewer may use it as a consumer (it is shared with them): then
-// they see it as they would there.
+// opHides: rec is homed in a user partition, and the viewer may not use it
+// as a consumer (it isn't shared with them) — so what it carries of its
+// consumer's content is hidden from them (S19): its name, its labels, its
+// snapshots' names. A model may have chosen any of them.
+func opHides(rec record, viewer caller) bool {
+	return rec.Owner.PartitionID != "" && !(rec.visible(viewer) && rec.personOK(viewer))
+}
+
+// opRedact is v as operators see it (opHides): its name shows as
+// <consumer>/<partition id, first 8> #<n>, n its place among that
+// partition's sandboxes (oldest first), and its labels as none.
 func opRedact(v *sandboxView, rec record, n int, viewer caller) {
-	if rec.Owner.PartitionID == "" || rec.visible(viewer) && rec.personOK(viewer) {
+	if !opHides(rec, viewer) {
 		return
 	}
 	id := rec.Owner.PartitionID
@@ -426,6 +438,19 @@ func opRedact(v *sandboxView, rec record, n int, viewer caller) {
 		id = id[:8]
 	}
 	v.Name, v.Labels = fmt.Sprintf("%s/%s #%d", rec.Owner.Via, id, n), map[string]string{}
+}
+
+// opRedactSnapshots names a hidden sandbox's snapshots (opHides) snapshot
+// #<n>, n their place oldest first; the answer keeps its order.
+func opRedactSnapshots(snaps []xbin.Snapshot) {
+	order := make([]int, len(snaps))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return snaps[order[a]].Created < snaps[order[b]].Created })
+	for n, i := range order {
+		snaps[i].Name = fmt.Sprintf("snapshot #%d", n+1)
+	}
 }
 
 // partitionSeq is rec's place among its user partition's sandboxes, oldest

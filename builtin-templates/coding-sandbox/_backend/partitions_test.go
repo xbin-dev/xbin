@@ -2,8 +2,9 @@ package main
 
 // partitions_test.go — a partitioned consumer's user partitions, beyond the
 // contract's suite (sdk/sandboxcontract, section user-partitions): partition
-// headers that don't agree are refused, what the runtime is told, quotas
-// summed per consumer tile, what operators see (S19), a restart.
+// headers that don't agree are refused (and a caller made of them matches
+// nothing), what the runtime is told, quotas summed per consumer tile, what
+// operators see (S19), a restart.
 
 import (
 	"context"
@@ -51,6 +52,54 @@ func TestPartitionHeaders(t *testing.T) {
 	a := tm.tg.As(t, "apps/ph-a")
 	a.InPartition("alice", "u-1").Verified("alice").Asserting("alice").Call("GET", "/sandboxes", nil, 200, nil)
 	a.Global().Call("GET", "/sandboxes", nil, 200, nil)
+}
+
+// A caller made of partition headers that don't agree matches nothing, on
+// any route: contractHandler's refusal isn't all that keeps it from being
+// read as the consumer's non-personal identity.
+func TestPartitionCallerFailsClosed(t *testing.T) {
+	t.Parallel()
+	glob := record{Owner: owner{User: "alice", Via: "apps/fc-a"}, Visibility: "team",
+		Shares: []share{{Consumer: "apps/fc-a", Users: users{All: true}}}}
+	part := record{Owner: owner{User: "alice", Via: "apps/fc-a", PartitionID: "u-1", Partition: "user:alice"}, Visibility: "team"}
+	for _, h := range []map[string]string{
+		{"X-XBin-Partition": "user:alice"},
+		{"X-XBin-Partition": "org:x", "X-XBin-Partition-Id": "u-1"},
+		{"X-XBin-Partition": "user:alice", "X-XBin-Partition-Id": "u-1", "X-XBin-User": "bob"},
+		{"X-XBin-Partition": "user:alice", "X-XBin-Partition-Id": "u-1", "Sbx-User": "bob"},
+	} {
+		r, _ := http.NewRequest("GET", "/sbx/sandboxes", nil)
+		r.Header.Set("X-XBin-From", "apps/fc-a")
+		for k, v := range h {
+			r.Header.Set(k, v)
+		}
+		c := callerOf(r)
+		if c.refused == "" {
+			t.Fatalf("callerOf with %v: %+v, want a refused caller", h, c)
+		}
+		for _, rec := range []record{glob, part} {
+			if rec.home(c) || rec.consumerHome(c) || rec.visible(c) || rec.personOK(c) || rec.canAdmin(c) {
+				t.Fatalf("a refused caller (%v) matches %+v", h, rec.Owner)
+			}
+		}
+	}
+	// the operators' routes refuse it too (their viewer is a caller)
+	tm := newTestManager(t, "")
+	srv := tileServer(t, tm)
+	req, _ := http.NewRequest("GET", srv.URL+"/ops/state", nil)
+	for k, v := range map[string]string{"X-XBin-From": "owner", "X-XBin-Role": "admin",
+		"X-XBin-Partition": "user:alice", "X-XBin-Partition-Id": "u-1", "X-XBin-User": "bob", "X-XBin-User-Level": "write"} {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 403 || !strings.Contains(string(b), `"not-allowed"`) {
+		t.Fatalf("GET /ops/state with partition headers that don't agree: %d %s", resp.StatusCode, b)
+	}
 }
 
 func TestPartitionRuntimeAndQuotas(t *testing.T) {
@@ -156,6 +205,47 @@ func TestPartitionOperators(t *testing.T) {
 	call(t, srv, owner, "PATCH", "/ops/sandboxes/"+priv.ID, map[string]any{"autoStopMin": 10}, 200, &pv)
 	if pv.Name != byOwner[priv.ID].Name || len(pv.Labels) != 0 {
 		t.Fatalf("an operator's PATCH answer: %+v", pv)
+	}
+	// and its snapshots' names: the consumer chose them too
+	type snap struct{ ID, Name string }
+	var one, two snap
+	alice.Call("POST", "/sandboxes/"+priv.ID+"/snapshots", map[string]any{"name": "before the secret refactor"}, 201, &one)
+	alice.Call("POST", "/sandboxes/"+priv.ID+"/snapshots", map[string]any{"name": "after it"}, 201, &two)
+	alice.Call("POST", "/sandboxes/"+shared.ID+"/snapshots", map[string]any{"name": "olga may read this"}, 201, nil)
+	a.Call("POST", "/sandboxes/"+glob.ID+"/snapshots", map[string]any{"name": "global's snapshot"}, 201, nil)
+	snapNames := func(who as, id string) []string {
+		t.Helper()
+		var out struct{ Snapshots []snap }
+		call(t, srv, who, "GET", "/ops/sandboxes/"+id+"/snapshots", nil, 200, &out)
+		var names []string
+		for _, s := range out.Snapshots {
+			names = append(names, s.Name)
+			if id == priv.ID && (s.ID == one.ID && s.Name != "snapshot #1" || s.ID == two.ID && s.Name != "snapshot #2") { // oldest first
+				t.Fatalf("the operators' snapshot %s of a user partition's sandbox: %q", s.ID, s.Name)
+			}
+		}
+		slices.Sort(names)
+		return names
+	}
+	for _, c := range []struct {
+		who  as
+		id   string
+		want []string
+	}{
+		{owner, priv.ID, []string{"snapshot #1", "snapshot #2"}},
+		{olga, priv.ID, []string{"snapshot #1", "snapshot #2"}},
+		{owner, shared.ID, []string{"snapshot #1"}},
+		{olga, shared.ID, []string{"olga may read this"}}, // shared with her
+		{owner, glob.ID, []string{"global's snapshot"}},   // the consumer's non-personal identity's
+	} {
+		if got := snapNames(c.who, c.id); !slices.Equal(got, c.want) {
+			t.Fatalf("%s's snapshot names of %s: %v, want %v", c.who.user+c.who.from, c.id, got, c.want)
+		}
+	}
+	var mine struct{ Snapshots []snap }
+	alice.Call("GET", "/sandboxes/"+priv.ID+"/snapshots", nil, 200, &mine)
+	if len(mine.Snapshots) != 2 || !slices.ContainsFunc(mine.Snapshots, func(s snap) bool { return s.Name == "after it" }) {
+		t.Fatalf("alice's own snapshot names: %+v", mine.Snapshots)
 	}
 	// the person, in her partition, sees her own
 	if got := alice.Get(priv.ID); got.Name != "secret plans" || got.Labels["xbin.agent/conversation"] != "7" {

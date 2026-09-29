@@ -62,6 +62,10 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := callerOf(r)
+	if c.refused != "" { // never made as the consumer's non-personal identity
+		fail(w, http.StatusForbidden, "not-allowed", c.refused)
+		return
+	}
 	o, err := m.offer(r.Context())
 	if err != nil {
 		writeErr(w, err, nil)
