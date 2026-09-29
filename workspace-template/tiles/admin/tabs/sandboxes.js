@@ -263,16 +263,18 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     }
     const mem = [...leaves.values()].reduce((n, e) => n + (e.stats.mem || 0), 0);
     const statsOn = new Set([...leaves.values()].map((e) => e.id));
-    // each deployment's highest generation is its current one
+    // each deployment's highest generation is its current one — and each
+    // person's partition's (a partitioned tile: its own instance, own gens)
+    const genKey = (e) => (e.partition ? depOf(e) + '\u0000' + e.partition : depOf(e));
     const gens = new Map();
-    for (const e of es) if (e.kind === 'backend') gens.set(depOf(e), Math.max(gens.get(depOf(e)) || 0, e.gen || 0));
-    const curGen = (e) => gens.get(depOf(e)) || 0;
+    for (const e of es) if (e.kind === 'backend') gens.set(genKey(e), Math.max(gens.get(genKey(e)) || 0, e.gen || 0));
+    const curGen = (e) => gens.get(genKey(e)) || 0;
     // nest a sandbox under the entry it belongs to (parent) — a manager
     // tile's own sandboxes under its deployment's current backend
     // generation (D120); the rest at the top, main's first, then each other
     // deployment's under its name
     const ids = new Set(es.map((e) => e.id));
-    const cur = (dep) => es.find((e) => e.kind === 'backend' && depOf(e) === dep && e.gen === (gens.get(dep) || 0))?.id;
+    const cur = (dep) => es.find((e) => e.kind === 'backend' && !e.partition && depOf(e) === dep && e.gen === (gens.get(dep) || 0))?.id;
     const parentOf = (e) => e.parent || (e.kind === 'tile' ? cur(depOf(e)) : undefined);
     const kids = new Map();
     for (const e of es) {
