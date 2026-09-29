@@ -34,8 +34,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   added to a copy serves it by implementing the optional `StdioBox`; one
   that doesn't keeps building and isn't offered it), `hack/fakesandbox`
   always. The conformance suite gains a `stdio` section (skipped for a
-  manager without the capability; `caps/missing` checks the refusals) and
-  knows `stdio` among hello's caps. Nothing to change.
+  manager without the capability) and knows `stdio` among hello's caps;
+  `caps/missing` now wants a manager without it to ignore `split` and
+  answer the stdio route `501 unsupported` — a manager of your own whose
+  unknown routes answer `404` fails it until it does (or names
+  `caps/missing` in `Target.Skip`, saying why). Nothing to change for
+  consumers or pages.
 
 ## 2026-09-29
 
