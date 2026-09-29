@@ -193,7 +193,18 @@ opt a resource out in `scope.json`:
 - `"shared": true` — every partition and the global instance read and write
   the one copy.
 - `"shared": "read"` — the global instance reads and writes; user partitions
-  only read (not for `sqlite`: use `kv`, or `true`).
+  only read (not for `sqlite`: use `kv`, or `true`). A `read` directory is
+  mounted read-only in people's partitions, and their kv, blob and bus
+  writes answer 403 `res:<scope>/<name> is read-only for people's
+  partitions`.
+
+Each person's partition has its own disk ceiling (by default the tile's
+per-namespace quota): a full partition answers that person's writes 507,
+nobody else's. Where the data sits on disk, and when it is deleted, is in
+[resources.md](resources.md#partitioned-tiles-shared). A bus that isn't
+shared keeps each partition's events apart: an event published on it — the
+global instance's too — reaches only subscribers in the publisher's
+partition. A shared bus's events reach every reader, as today.
 
 A `cron` resource can't be shared: `shared` on it is ignored, with a
 warning. In a scope no tile partitions, `shared` is ignored silently, so a

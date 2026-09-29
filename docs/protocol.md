@@ -723,7 +723,12 @@ GET    /runtime                    admin. full runtime visibility →
                                    main ("main" for main's), and a scope's
                                    data beyond main has rows of its own (kv,
                                    blob, sqlite, filesystem), one per
-                                   deployment's data
+                                   deployment's data. A partitioned scope's
+                                   people's partitions have rows of their own
+                                   too, one per partition and resource that
+                                   isn't shared, with deployment and
+                                   partition ("user:<id>"; the partition id
+                                   when its record can't be read)
 GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
@@ -3250,6 +3255,54 @@ DELETE /blob/res:<scope>/<name>/<path>   writer.
 
 POST   /bus/publish                      writer on the resource.
                                          body {resource, topic, data?}
+                                         Partitioned tiles (partitions.md):
+                                         in a partitioned scope these kv,
+                                         blob and bus routes reach the
+                                         namespace the caller's partition
+                                         holds: a person's own partition
+                                         (their session, and the tile's
+                                         frames, terminals and backend in
+                                         their partition), the global
+                                         instance's at today's keys, and a
+                                         shared resource's ("shared": true |
+                                         "read") at today's keys for
+                                         everyone. An event on a partitioned
+                                         scope's own (not shared) bus carries
+                                         "partition" — the publisher's,
+                                         "global" or "user:<id>" — and
+                                         reaches only subscribers acting in
+                                         that partition; a shared bus's
+                                         carries none. Their answers add:
+                                         403 "res:<scope>/<name> is
+                                         read-only for people's partitions"
+                                         on a write (kv PUT/DELETE, blob
+                                         PUT/DELETE, bus publish) by a user
+                                         partition to a "shared": "read"
+                                         resource; 403 when the caller
+                                         reaches no partition of the scope
+                                         (view-as; a credential without a
+                                         person on a tile without a global
+                                         instance; an unpartitioned tile
+                                         when the scope has no global
+                                         instance), and, from a user
+                                         partition of another partitioned
+                                         tile holding the grant, "<id> can't
+                                         read <tile>: …" when the person
+                                         can't read the tile, or "<id>
+                                         hasn't let <caller> use their
+                                         <tile> data" while the workspace's
+                                         partitionConsent policy is on and
+                                         they haven't consented; 409 while
+                                         the scope's tile is paused (a
+                                         pending or invalid partition mode)
+                                         or its mode record can't be read —
+                                         the data isn't reached through
+                                         today's keys meanwhile; 507 when
+                                         the partition is over its own disk
+                                         ceiling (by default the tile's
+                                         per-namespace one): one person's
+                                         data is write-blocked, not the
+                                         tile's.
 GET    /bus/subscriptions                own push subscriptions (admin: all),
                                          with counters since the daemon started.
                                          {subscriptions:[{name, resource, prefix,

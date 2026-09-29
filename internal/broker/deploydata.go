@@ -30,6 +30,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -337,6 +338,10 @@ func (b *Broker) resolveTarget(caller, callerDep, target string) Decision {
 // inside today's roots, keyed by escS, an injective encoding of the scope
 // path, and the deployment name. No scope key starts with ".", so no path
 // today's or an older xbind computes can reach that level (08-data §3.3).
+// A user partition's namespace (plans/partitions/03 §B.1) lives beside it,
+// under ".partitions", keyed by escS, the deployment (main spelled out) and
+// the person's partition key (pkey): no deployment's key reaches it, and a
+// tile without partitions computes exactly today's keys.
 
 // String is the resource's id, res:<scope>/<name> ("workspace" for the
 // workspace scope): its grant target, its kv bucket in every namespace, its
@@ -352,6 +357,25 @@ func (rt resTarget) String() string {
 // deploymentsLevel is the directory level, inside data/resources-enc and
 // .xbin/resenc, that holds every namespace but main's.
 const deploymentsLevel = ".deployments"
+
+// partitionsLevel is the directory level, beside deploymentsLevel, that
+// holds user partitions' namespaces (plans/partitions/03 §B.1).
+const partitionsLevel = ".partitions"
+
+// pkeyOK reports whether pkey is a partition key as 02 §1 mints it: "u-"
+// and 32 lowercase hex digits (PD-43), one path segment that no deployment
+// name spells.
+func pkeyOK(pkey string) bool {
+	if len(pkey) != 34 || !strings.HasPrefix(pkey, "u-") {
+		return false
+	}
+	for _, r := range pkey[2:] {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
 
 // maxEscS bounds an encoded scope: a scope whose escS is longer can't have
 // deployments beyond main (08-data §3.2).
@@ -381,7 +405,7 @@ func unescS(seg string) (string, bool) {
 // all its resources share (08-data §2, §3.1). Paths are slash-separated and
 // relative to the workspace root.
 type nsKeys struct {
-	NS     string // "" for main | ".deployments/<escS>/<d>"
+	NS     string // "" for main | ".deployments/<escS>/<d>" | ".partitions/<escS>/<d>/<pkey>"
 	DirKey string // resenc's scopeKey argument: ScopeKey(S) | NS+"/fs"
 	Quota  string // the disk-quota key: ScopeKey(S) | NS
 	Plain  string // main's plaintext resource dir, data/resources/<ScopeKey(S)>; "" beyond main, which has none
@@ -393,7 +417,17 @@ type nsKeys struct {
 // deployment name, the workspace scope is never split (its resources are
 // reached as an edge, 08-data §4.2), the scope must be a workspace path, and
 // its encoding at most maxEscS bytes.
-func scopeKeys(scope, dep string) (nsKeys, error) {
+func scopeKeys(scope, dep string) (nsKeys, error) { return nsKeysFor(scope, dep, "") }
+
+// nsKeysFor is scopeKeys in user partition pkey's namespace of scope in
+// deployment dep (plans/partitions/03 §B.1); for "" it is scopeKeys's
+// answer, exactly. A partition's namespace spells its deployment, main
+// included, and follows the rules beyond main: the workspace scope is never
+// partitioned.
+func nsKeysFor(scope, dep, pkey string) (nsKeys, error) {
+	if pkey != "" {
+		return partitionKeys(scope, cmp.Or(dep, util.MainDeployment), pkey)
+	}
 	if dep == "" || dep == util.MainDeployment {
 		sk := util.ScopeKey(scope)
 		return nsKeys{DirKey: sk, Quota: sk, Plain: "data/resources/" + sk, Enc: "data/resources-enc/" + sk}, nil
@@ -414,11 +448,44 @@ func scopeKeys(scope, dep string) (nsKeys, error) {
 	return nsKeys{NS: ns, DirKey: ns + "/fs", Quota: ns, Enc: "data/resources-enc/" + ns}, nil
 }
 
+// partitionKeys are nsKeysFor's keys of a user partition's namespace.
+func partitionKeys(scope, dep, pkey string) (nsKeys, error) {
+	switch {
+	case !pkeyOK(pkey):
+		return nsKeys{}, fmt.Errorf("%q is not a partition key", pkey)
+	case !util.DeploymentNameOK(dep):
+		return nsKeys{}, fmt.Errorf("%q is not a deployment name", dep)
+	case scope == "":
+		return nsKeys{}, errors.New("the workspace's resources have one namespace: no partition has a copy of its own")
+	case !util.ComponentPathOK(scope):
+		return nsKeys{}, fmt.Errorf("scope %q is not a workspace path", scope)
+	}
+	e := escS(scope)
+	if len(e) > maxEscS {
+		return nsKeys{}, fmt.Errorf("scope %s is too long for people's partitions: its data key would be %d bytes, over %d", scope, len(e), maxEscS)
+	}
+	ns := partitionsLevel + "/" + e + "/" + dep + "/" + pkey
+	return nsKeys{NS: ns, DirKey: ns + "/fs", Quota: ns, Enc: "data/resources-enc/" + ns}, nil
+}
+
+// partitionNS recovers the scope, deployment and partition key of a user
+// partition's namespace key, ".partitions/<escS>/<d>/<pkey>" (nsKeys.NS);
+// false for any other key.
+func partitionNS(ns string) (scope, dep, pkey string, ok bool) {
+	rest, ok := strings.CutPrefix(ns, partitionsLevel+"/")
+	parts := strings.Split(rest, "/")
+	if !ok || len(parts) != 3 || !util.DeploymentNameOK(parts[1]) || !pkeyOK(parts[2]) {
+		return "", "", "", false
+	}
+	scope, ok = unescS(parts[0])
+	return scope, parts[1], parts[2], ok && util.ComponentPathOK(scope)
+}
+
 // resKeys is every physical key of one resource in one data namespace
 // (08-data §3.2). main's are today's; another deployment's are the
 // namespace's own, which no path produces today (D127c).
 type resKeys struct {
-	NS      string // "" for main | ".deployments/<escS>/<d>" (also the disk-quota key)
+	NS      string // "" for main | ".deployments/<escS>/<d>" | ".partitions/<escS>/<d>/<pkey>" (also the disk-quota key)
 	DirKey  string // resenc's scopeKey argument: ScopeKey(S) | NS+"/fs"
 	Name    string // the resource name, validated
 	FSLabel string // resenc resID: resLabel(ScopeKey(S), name) | NS+"/fs/"+name
@@ -438,8 +505,14 @@ func (k resKeys) quotaKey() string { return cmp.Or(k.NS, k.DirKey) }
 // x are one directory), and a new namespace doesn't inherit that (NP-08-11).
 // The registry refuses more before a name gets here (D118's charset); this
 // is the last line wherever a name comes from.
-func (b *Broker) resKeys(rt resTarget, dep string) (resKeys, error) {
-	ns, err := scopeKeys(rt.Scope, dep)
+func (b *Broker) resKeys(rt resTarget, dep string) (resKeys, error) { return b.resKeysIn(rt, dep, "") }
+
+// resKeysIn is resKeys in user partition pkey's namespace of deployment dep
+// (plans/partitions/03 §B.1); for "" it is resKeys's answer, exactly. A
+// partition's keys are its namespace's own, as beyond main: its kv file,
+// bucket label and volumes. Resource ids never change (Bucket).
+func (b *Broker) resKeysIn(rt resTarget, dep, pkey string) (resKeys, error) {
+	ns, err := nsKeysFor(rt.Scope, dep, pkey)
 	if err != nil {
 		return resKeys{}, fmt.Errorf("%s: %w", rt, err)
 	}
@@ -493,6 +566,29 @@ func nsResNameOK(name string) bool {
 
 // ---- the namespace kv files ----
 
+// kvStore is the kv plane's bbolt files: data/kv.db, holding main's buckets
+// of every scope, and each other data namespace's own file, opened on first
+// use (kvDB).
+type kvStore struct {
+	db   *bolt.DB
+	root string // the workspace root
+
+	mu sync.Mutex
+	ns map[string]*bolt.DB // resKeys.KVFile → the open namespace file
+}
+
+func openKV(root string) (*kvStore, error) {
+	dir := filepath.Join(root, "data")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	db, err := bolt.Open(filepath.Join(dir, "kv.db"), 0o600, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &kvStore{db: db, root: root}, nil
+}
+
 // kvDB is the bbolt file holding k's bucket: data/kv.db for main, the
 // namespace's own file beyond it (08-data §2), so a namespace's writes never
 // take kv.db's writer lock, a reset frees its disk, and an older xbind never
@@ -515,7 +611,12 @@ func (b *Broker) kvDB(k resKeys, create bool) (*bolt.DB, error) {
 // scopeKV is the kv file of scope's namespace in dep, the one kvDB answers
 // for each of its resources.
 func (b *Broker) scopeKV(scope, dep string, create bool) (*bolt.DB, error) {
-	ns, err := scopeKeys(scope, dep)
+	return b.scopeKVIn(scope, dep, "", create)
+}
+
+// scopeKVIn is scopeKV in user partition pkey's namespace ("" is today's).
+func (b *Broker) scopeKVIn(scope, dep, pkey string, create bool) (*bolt.DB, error) {
+	ns, err := nsKeysFor(scope, dep, pkey)
 	if err != nil {
 		return nil, err
 	}

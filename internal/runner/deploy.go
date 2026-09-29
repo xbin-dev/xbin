@@ -49,8 +49,13 @@ func (c Code) runs() Code { return Code{WorkTree: c.WorkTree, Tree: c.Tree} }
 // bound for another deployment (it would bind main's data).
 type ResBind struct {
 	Src  string // the host dir backing the canonical path for this deployment
-	RO   bool   // read-only (v1 never sets it)
+	RO   bool   // read-only (a user partition's "shared": "read" resource)
 	Omit bool   // no bind at all: a blocked edge, so the path is absent in the sandbox
+	// Shared: a user partition's bind of a shared resource of its
+	// partitioned scope, at its canonical path (Src == the path): allowed
+	// only where the runner finds the resource shared in the registry
+	// (partitionBindsFor), never on the broker's word alone.
+	Shared bool
 }
 
 // DeployProgress receives a deploy's phases and its result. A deploy that

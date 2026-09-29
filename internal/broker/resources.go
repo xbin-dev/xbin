@@ -3,7 +3,6 @@ package broker
 import (
 	"cmp"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,7 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -188,30 +186,7 @@ func envName(s string) string {
 	}, s))
 }
 
-// --- kv ------------------------------------------------------------------
-
-// kvStore is the kv plane's bbolt files: data/kv.db, holding main's buckets
-// of every scope, and each other data namespace's own file, opened on first
-// use (kvDB, deploydata.go).
-type kvStore struct {
-	db   *bolt.DB
-	root string // the workspace root
-
-	mu sync.Mutex
-	ns map[string]*bolt.DB // resKeys.KVFile → the open namespace file
-}
-
-func openKV(root string) (*kvStore, error) {
-	dir := filepath.Join(root, "data")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	db, err := bolt.Open(filepath.Join(dir, "kv.db"), 0o600, nil)
-	if err != nil {
-		return nil, err
-	}
-	return &kvStore{db: db, root: root}, nil
-}
+// --- kv (its store: kvStore, deploydata.go) --------------------------------
 
 // kvAccess parses /kv/{res-target}/{key...} and authorizes, answering the
 // resource's keys (its bucket, file and label) in the data namespace the
@@ -240,7 +215,7 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 				return resKeys{}, "", nil, false
 			}
-			k, err := b.resKeys(ra.rt, ra.dep)
+			k, err := b.reachKeys(ra)
 			if err != nil {
 				server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/resources.md")
 				return resKeys{}, "", nil, false
@@ -248,7 +223,7 @@ func (b *Broker) kvAccess(w http.ResponseWriter, r *http.Request, want string) (
 			if !b.quotaOK(w, k.quotaKey(), want) {
 				return resKeys{}, "", nil, false
 			}
-			release, ok := b.nsEnter(w, ra.rt.Scope, ra.dep, want)
+			release, ok := b.nsEnterReach(w, ra, want)
 			return k, key, release, ok
 		}
 		i := strings.LastIndex(probe, "/")
@@ -398,17 +373,24 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 				server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 				return "", "", nil, false
 			}
-			k, err := b.resKeys(ra.rt, ra.dep)
+			k, err := b.reachKeys(ra)
 			if err != nil {
 				server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/resources.md")
 				return "", "", nil, false
 			}
-			if !b.quotaOK(w, k.quotaKey(), want) || !b.nsAvailable(w, ra.rt.Scope, ra.dep) {
+			if !b.quotaOK(w, k.quotaKey(), want) || !b.nsAvailableID(w, ra.nsID()) {
 				return "", "", nil, false
 			}
+			held := b.holdPartitionVolume(k) // before it mounts: never unmounted as idle under the request
 			if k.NS != "" && b.encryptionReady() {
 				if !b.resenc.Encrypted(k.DirKey, k.Name) && r.Method != http.MethodPut {
+					held()
 					return "", rel, func() {}, true // never written: reads as empty, creates nothing
+				}
+				if ra.who != nil && b.notePartitionNS(ra.nsID(), *ra.who) != nil {
+					held()
+					server.WriteError(w, http.StatusInternalServerError, "the partition's data namespace can't be recorded", "/docs/partitions.md")
+					return "", "", nil, false
 				}
 				b.ensureVolume(k, ra.rt.Scope, ra.res.Type)
 			}
@@ -416,17 +398,23 @@ func (b *Broker) blobAccess(w http.ResponseWriter, r *http.Request, want string)
 			// (vault sealed / gocryptfs missing) so we never read or write plaintext
 			// into the bare mountpoint.
 			if !b.fsReady(k) {
+				held()
 				server.WriteError(w, http.StatusServiceUnavailable, "resource unavailable — vault sealed or encryption not ready", "/docs/auth.md")
 				return "", "", nil, false
 			}
 			base := b.resMount(k, false) // decrypted gocryptfs mount
 			full, _, err := util.SafeJoin(base, rel)
 			if err != nil {
+				held()
 				server.WriteError(w, http.StatusBadRequest, "bad path")
 				return "", "", nil, false
 			}
-			release, ok := b.nsEnter(w, ra.rt.Scope, ra.dep, want)
-			return full, rel, release, ok
+			release, ok := b.nsEnterReach(w, ra, want)
+			if !ok {
+				held()
+				return "", "", nil, false
+			}
+			return full, rel, func() { release(); held() }, true
 		}
 		i := strings.LastIndex(probe, "/")
 		if i < 0 {
@@ -548,7 +536,7 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
-	if !b.nsAvailable(w, ra.rt.Scope, ra.dep) {
+	if !b.nsAvailableID(w, ra.nsID()) || b.publishPartitioned(w, ra, msg.Topic, msg.Data) { // a partitioned scope's own bus: stamped (partitionbus.go)
 		return
 	}
 	// The event is in the namespace the publisher reaches: its own scope's
@@ -585,7 +573,8 @@ func (b *Broker) busFilter(p auth.Principal, e events.Event) bool {
 			if res, ok := set[rt.Name]; ok && res.Type == "bus" {
 				dep, own, err := b.resNamespace(p, rt.Scope)
 				return err == nil && dep == ns &&
-					b.allowAt(p, reach{rt: rt, res: res, dep: dep, own: own}, "reader") == nil
+					b.allowAt(p, reach{rt: rt, res: res, dep: dep, own: own}, "reader") == nil &&
+					b.busPartitionReaches(p, rt, res, own, e) // a partitioned scope's own bus (partitionbus.go)
 			}
 		}
 		i := strings.LastIndex(probe, "/")
@@ -618,6 +607,7 @@ type reach struct {
 	res registry.Resource
 	dep string // the deployment whose data namespace holds it ("main": today's keys)
 	own bool   // the caller's own scope: its deployment's data, not an edge
+	partReach
 }
 
 // reachRes resolves target for a request by p: the resource, the namespace
@@ -637,7 +627,8 @@ func (b *Broker) reachRes(p auth.Principal, target string) (ra reach, found bool
 	if !ok {
 		return reach{}, false, nil
 	}
-	return reach{rt: rt, res: res, dep: dep, own: own}, true, nil
+	ra = reach{rt: rt, res: res, dep: dep, own: own}
+	return ra, true, b.partitionReach(p, &ra) // a partitioned scope's (partitionreach.go)
 }
 
 // resNamespace is the deployment whose data namespace of scope a request by
@@ -663,16 +654,6 @@ func (b *Broker) scopePrimary(scope string) string {
 		return util.MainDeployment
 	}
 	return b.primaryOf(scope)
-}
-
-// writeNamespaceRefusal answers a request whose credential's deployment
-// can't be reached: 404 when it is gone, 403 otherwise.
-func writeNamespaceRefusal(w http.ResponseWriter, err error) {
-	if errors.Is(err, util.ErrNoDeployment) {
-		server.WriteError(w, http.StatusNotFound, err.Error(), "/docs/protocol.md")
-		return
-	}
-	server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 }
 
 // resScope splits a res: target as parseRes does, at its deepest declared
@@ -727,6 +708,9 @@ func (b *Broker) allowAt(p auth.Principal, ra reach, want string) error {
 // (08-data §7). Which edges it may read is the edge policy's, at
 // resolveTarget; this refuses only what no policy value allows.
 func (b *Broker) readClamp(p auth.Principal, ra reach, want string) error {
+	if ra.readOnly && !roleSatisfies("reader", want, nil) {
+		return errReadOnly(ra.rt) // a user partition on a "shared": "read" resource (04 §1)
+	}
 	if ra.own || p.Component == "" || roleSatisfies("reader", want, nil) {
 		return nil
 	}

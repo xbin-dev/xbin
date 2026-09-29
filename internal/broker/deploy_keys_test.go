@@ -581,8 +581,10 @@ func TestAddDeploymentDropsStaleFiles(t *testing.T) {
 }
 
 // adHocResourceKeys reports each place in src that builds a resource's
-// physical key by hand: a use of util.ScopeKey, or a string literal
-// starting "res:" joined with "+".
+// physical key by hand: a use of util.ScopeKey, a string literal starting
+// "res:" joined with "+", or the user partitions' level
+// (plans/partitions/03 §B.1) named in a string literal or joined with "+"
+// (partitionsLevel).
 func adHocResourceKeys(src []byte) []string {
 	fset := token.NewFileSet()
 	file := fset.AddFile("", fset.Base(), len(src))
@@ -606,10 +608,15 @@ func adHocResourceKeys(src []byte) []string {
 			found = append(found, line+": util.ScopeKey")
 		case tok == token.ADD && strings.HasPrefix(prevLit, "res:"):
 			found = append(found, line+": "+strconv.Quote(prevLit)+" +")
+		case tok == token.ADD && prev[0] == "partitionsLevel", tok == token.IDENT && lit == "partitionsLevel" && prev[0] == "+":
+			found = append(found, line+": partitionsLevel +")
 		}
 		prevLit = ""
 		if tok == token.STRING {
 			prevLit, _ = strconv.Unquote(lit)
+			if strings.Contains(prevLit, ".partitions") {
+				found = append(found, line+": "+strconv.Quote(prevLit))
+			}
 		}
 		prev[2], prev[1], prev[0] = prev[1], prev[0], text
 	}
@@ -619,7 +626,11 @@ func adHocResourceKeys(src []byte) []string {
 // builds a resource's physical key by hand (08-data §3.2): every
 // util.ScopeKey use and every "res:"… + concatenation goes through the key
 // function, so no store keyed off it by a later change can miss the
-// namespaces beyond main. Test files are exempt; they pin the keys.
+// namespaces beyond main. Test files are exempt; they pin the keys. The
+// user partitions' level (plans/partitions/03 §B.1) is the key function's
+// too: no ".partitions" literal, no partitionsLevel joined with "+"
+// elsewhere (a walk joins it with filepath.Join and parses with
+// partitionNS).
 func TestNoAdHocResourceKeys(t *testing.T) {
 	t.Run("guard", func(t *testing.T) {
 		got := adHocResourceKeys([]byte("package p\n" +
@@ -628,8 +639,13 @@ func TestNoAdHocResourceKeys(t *testing.T) {
 			"var c = `res:workspace/`+n\n" +
 			"var d = f(util.ScopeKey)\n" +
 			"// util.ScopeKey(s) and \"res:\" + s in a comment\n" +
-			"var e = \"xres:\" + s + strings.HasPrefix(t, \"res:\")\n"))
-		want := []string{"2: util.ScopeKey", `3: "res:" +`, `4: "res:workspace/" +`, "5: util.ScopeKey"}
+			"var e = \"xres:\" + s + strings.HasPrefix(t, \"res:\")\n" +
+			"var f = partitionsLevel + \"/\" + e\n" +
+			"var g = \"data/resources-enc/.partitions/\" + e\n" +
+			"var h = x + partitionsLevel\n" +
+			"var i = filepath.Join(root, partitionsLevel, e) // .partitions in a comment\n"))
+		want := []string{"2: util.ScopeKey", `3: "res:" +`, `4: "res:workspace/" +`, "5: util.ScopeKey",
+			"8: partitionsLevel +", `9: "data/resources-enc/.partitions/"`, "10: partitionsLevel +"}
 		if strings.Join(got, "|") != strings.Join(want, "|") {
 			t.Fatalf("the detector found %q, want %q", got, want)
 		}

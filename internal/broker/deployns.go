@@ -29,7 +29,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/fsutil"
-	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -76,6 +75,7 @@ type nsMeta struct {
 	Error          string           `json:"error,omitempty"`
 	Orphaned       string           `json:"orphaned,omitempty"` // since when no tile claims it
 	History        []nsEvent        `json:"history,omitempty"`
+	Partition      *nsPartition     `json:"partition,omitempty"` // a user partition's namespace: whose (partitionns.go)
 }
 
 // nsEvent is a history entry: seed, reset, restore, partial, orphaned, claimed.
@@ -86,19 +86,20 @@ type nsEvent struct {
 	Error string `json:"error,omitempty"`
 }
 
-// nsID names a data namespace: a scope and a deployment name ("main").
-type nsID struct{ scope, dep string }
+// nsID names a data namespace: a scope, a deployment name ("main") and, for
+// a user partition's (partitionns.go), its partition key.
+type nsID struct{ scope, dep, pkey string }
 
-func nsOf(scope, dep string) nsID { return nsID{scope, cmp.Or(dep, util.MainDeployment)} }
+func nsOf(scope, dep string) nsID { return nsID{scope: scope, dep: cmp.Or(dep, util.MainDeployment)} }
 
-func (id nsID) main() bool { return id.dep == util.MainDeployment }
+func (id nsID) main() bool { return id.dep == util.MainDeployment && id.pkey == "" }
 
 // keys are id's keys beyond main (main keeps today's, per resource).
 func (id nsID) keys() (nsKeys, error) {
 	if id.main() {
 		return nsKeys{}, errors.New("main's data keeps today's keys")
 	}
-	return scopeKeys(id.scope, id.dep)
+	return nsKeysFor(id.scope, id.dep, id.pkey)
 }
 
 func nowStamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -190,35 +191,22 @@ func (b *Broker) markBusy(id nsID, act string, create bool) (unmark func()) {
 // nsAvailable answers whether a data-plane request may reach scope's
 // namespace in dep; while held, it writes 503 with Retry-After (§8.2).
 func (b *Broker) nsAvailable(w http.ResponseWriter, scope, dep string) bool {
-	id := nsOf(scope, dep)
-	act := b.busyAct(id)
-	if act == "" {
-		return true
-	}
-	w.Header().Set("Retry-After", nsRetryAfter)
-	server.WriteError(w, http.StatusServiceUnavailable, nsBusy(id.dep, act).Error(), "/docs/protocol.md")
-	return false
+	return b.nsAvailableID(w, nsOf(scope, dep))
 }
 
 // nsWriting holds the write gate shared for one API write (kv, blob);
 // past nsWriteWait it writes 503 with Retry-After and answers false.
 func (b *Broker) nsWriting(w http.ResponseWriter, scope, dep string) (release func(), ok bool) {
-	g := b.nsTab().gate(nsOf(scope, dep))
-	for deadline := time.Now().Add(nsWriteWait); !g.TryRLock(); time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			w.Header().Set("Retry-After", nsRetryAfter)
-			server.WriteError(w, http.StatusServiceUnavailable,
-				cmp.Or(dep, util.MainDeployment)+"'s data is being copied; retry shortly", "/docs/protocol.md")
-			return nil, false
-		}
-	}
-	return g.RUnlock, true
+	return b.nsWritingID(w, nsOf(scope, dep))
 }
 
 // nsStartBlocked is why a backend addressing scope's namespace in dep may
 // not start: held, or left partial by a failed act (08-data §8.5).
-func (b *Broker) nsStartBlocked(scope, dep string) error {
-	id := nsOf(scope, dep)
+func (b *Broker) nsStartBlocked(scope, dep string) error { return b.nsStartBlockedID(nsOf(scope, dep)) }
+
+// nsStartBlockedID is nsStartBlocked of namespace id (a user partition's too).
+func (b *Broker) nsStartBlockedID(id nsID) error {
+	scope := id.scope
 	if act := b.busyAct(id); act != "" {
 		return nsBusy(id.dep, act)
 	}
@@ -240,7 +228,7 @@ func (b *Broker) nsDir(id nsID) (string, error) {
 	if id.main() {
 		dep = "m" // main's scope is checked as any other's
 	}
-	k, err := scopeKeys(id.scope, dep)
+	k, err := nsKeysFor(id.scope, dep, id.pkey)
 	if err != nil {
 		return "", err
 	}
@@ -711,6 +699,7 @@ func (b *Broker) SweepNamespaces() {
 			slog.Warn("namespace sweep", "scope", id.scope, "deployment", id.dep, "err", err)
 		}
 	})
+	b.sweepPartitionNamespaces(now) // user partitions' namespaces, by their own rules (partitionns.go)
 }
 
 func (b *Broker) sweepOne(id nsID, now time.Time) error {
