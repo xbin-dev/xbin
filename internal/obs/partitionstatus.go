@@ -8,8 +8,16 @@ package obs
 // server delivers only to that person's sockets and the partition's own
 // principals. GET /tile-report answers such a caller its partition's record
 // for its own tile. The global instance keeps today's behaviour.
+//
+// A record is keyed by the partition's id (the pkey, PartitionID), not its
+// wire key: a deleted and recreated person of the same id is another
+// partition and never reads the first one's record (PD-43). A partition's
+// own restart (its runner event, stamped with the partition) clears its
+// record alone; a restart of the tile's code (its build-start) clears every
+// partition's.
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -17,26 +25,47 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// partKey is a partition's status key: the tile and the partition key.
-func partKey(tile string, part util.Partition) string { return tile + "\x00" + string(part) }
+// partStatus is a partition's stored status, with the partition it tells.
+type partStatus struct {
+	part util.Partition
+	rec  statusRec
+}
+
+// partKey is a partition's status key: the tile and the partition's id
+// (without the PartitionID hook, the wire key).
+func (o *Plane) partKey(tile string, part util.Partition) (string, error) {
+	id := string(part)
+	if o.PartitionID != nil {
+		var err error
+		if id, err = o.PartitionID(part); err != nil {
+			return "", err
+		}
+	}
+	return tile + "\x00" + id, nil
+}
 
 // setPartitionStatus stores (or, "ok" without a message, clears) part's
 // status of comp and publishes it to that partition only; a transient one
 // is published and not stored.
-func (o *Plane) setPartitionStatus(comp string, part util.Partition, rec statusRec, transient bool) {
+func (o *Plane) setPartitionStatus(comp string, part util.Partition, rec statusRec, transient bool) error {
 	if !transient {
+		key, err := o.partKey(comp, part)
+		if err != nil {
+			return err
+		}
 		o.statusMu.Lock()
 		if o.partStatuses == nil {
-			o.partStatuses = map[string]statusRec{}
+			o.partStatuses = map[string]partStatus{}
 		}
 		if rec.Level == "ok" && rec.Message == "" {
-			delete(o.partStatuses, partKey(comp, part))
+			delete(o.partStatuses, key)
 		} else {
-			o.partStatuses[partKey(comp, part)] = rec
+			o.partStatuses[key] = partStatus{part: part, rec: rec}
 		}
 		o.statusMu.Unlock()
 	}
 	o.publishPartitionStatus(comp, part, rec, transient)
+	return nil
 }
 
 func (o *Plane) publishPartitionStatus(comp string, part util.Partition, rec statusRec, transient bool) {
@@ -52,12 +81,16 @@ func (o *Plane) publishPartitionStatus(comp string, part util.Partition, rec sta
 // dropped when it has none) — a partition sees its own state, never
 // another's.
 func (o *Plane) partitionStatuses(out map[string]statusRec, comp string, part util.Partition) {
-	o.statusMu.Lock()
-	rec, ok := o.partStatuses[partKey(comp, part)]
-	o.statusMu.Unlock()
 	delete(out, comp)
+	key, err := o.partKey(comp, part)
+	if err != nil {
+		return
+	}
+	o.statusMu.Lock()
+	ps, ok := o.partStatuses[key]
+	o.statusMu.Unlock()
 	if ok {
-		out[comp] = rec
+		out[comp] = ps.rec
 	}
 }
 
@@ -67,9 +100,9 @@ func (o *Plane) clearPartitionStatuses(tile string) {
 	prefix := tile + "\x00"
 	var parts []util.Partition
 	o.statusMu.Lock()
-	for key := range o.partStatuses {
-		if part, ok := strings.CutPrefix(key, prefix); ok {
-			parts = append(parts, util.Partition(part))
+	for key, ps := range o.partStatuses {
+		if strings.HasPrefix(key, prefix) {
+			parts = append(parts, ps.part)
 			delete(o.partStatuses, key)
 		}
 	}
@@ -77,4 +110,38 @@ func (o *Plane) clearPartitionStatuses(tile string) {
 	for _, part := range parts {
 		o.publishPartitionStatus(tile, part, statusRec{Level: "ok", TS: time.Now().Unix()}, false)
 	}
+}
+
+// clearPartitionStatus drops part's status of tile when that partition's
+// instance restarts, telling it; nothing else's clears.
+func (o *Plane) clearPartitionStatus(tile string, part util.Partition) {
+	key, err := o.partKey(tile, part)
+	if err != nil {
+		return
+	}
+	o.statusMu.Lock()
+	_, had := o.partStatuses[key]
+	delete(o.partStatuses, key)
+	o.statusMu.Unlock()
+	if had {
+		o.publishPartitionStatus(tile, part, statusRec{Level: "ok", TS: time.Now().Unix()}, false)
+	}
+}
+
+// partitionRestarted reports whether e, an event stamped with a user
+// partition, says that partition's instance (re)starts: a build-start of
+// its own, or its runner's `partitions` state event for a build-start or a
+// reload.
+func partitionRestarted(e events.Event) bool {
+	if e.Type == "build-start" {
+		return true
+	}
+	if e.Type != "partitions" {
+		return false
+	}
+	var f struct{ Op, Event string }
+	if b, err := json.Marshal(e.Data); err == nil {
+		_ = json.Unmarshal(b, &f)
+	}
+	return f.Op == "state" && (f.Event == "build-start" || f.Event == "reload")
 }

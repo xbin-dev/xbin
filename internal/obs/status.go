@@ -9,6 +9,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Component status & notifications — a small channel for a component to tell the
@@ -111,7 +112,10 @@ func (o *Plane) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 	}
 	rec := statusRec{Level: level, Message: msg, TS: time.Now().Unix()}
 	if p.Partition.IsUser() && p.Component == comp { // a person's partition's own (partitionstatus.go)
-		o.setPartitionStatus(comp, p.Partition, rec, body.Transient)
+		if err := o.setPartitionStatus(comp, p.Partition, rec, body.Transient); err != nil {
+			server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/partitions.md")
+			return
+		}
 		server.WriteOK(w)
 		return
 	}
@@ -161,12 +165,19 @@ func (o *Plane) publishStatus(comp string, rec statusRec, transient bool) {
 // deployment emits neither, so its status clears at that deploy's swap
 // instead, never at its start: a failed deploy leaves the old generation
 // serving with its status. A record change that moved the primary moves the
-// statuses with it. Runs for the broker's lifetime.
+// statuses with it. An event stamped with a person's partition restarts
+// that partition alone (partitionstatus.go). Runs for the broker's lifetime.
 func (o *Plane) watchStatusRestarts() {
 	ch, _ := o.Hub.Subscribe(nil)
 	swapped := map[string]string{} // depKey(tile, deployment) → the checkpoint whose swap cleared it, or clearedByBuild
 	for e := range ch {
 		if e.Component == "" {
+			continue
+		}
+		if e.Partition != "" { // a person's partition's own: never the tile's (partitionstatus.go)
+			if partitionRestarted(e) {
+				o.clearPartitionStatus(e.Component, util.Partition(e.Partition))
+			}
 			continue
 		}
 		var dep string // the deployment whose status clears
