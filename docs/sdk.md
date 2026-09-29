@@ -37,7 +37,8 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
 ### Callers and roles
 
 ```go
-c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Deployment}
+c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Deployment,
+                             //            Partition, PartitionID}
 c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // level (D29) — frame calls from your own UI run
                              // at full role even for read-level viewers
@@ -57,6 +58,11 @@ c.Deployment                 // the calling tile's deployment when the call
                              // comes from one of its non-primary deployments
                              // (X-XBin-Deployment); "" otherwise. c.From
                              // stays the bare tile path
+c.Partition                  // X-XBin-Partition: the partition a partitioned
+                             // tile's caller acts in, "user:<id>" | "global";
+                             // "" otherwise. A display name
+c.PartitionID                // X-XBin-Partition-Id: key per-caller state on
+                             // (From, Deployment, PartitionID) — partitions.md
 ```
 
 Headers are trustworthy: xbind strips inbound `X-XBin-*` and injects
@@ -220,6 +226,28 @@ primary.
 - **Callers can tell.** A call from another tile's non-primary deployment
   carries `Caller(r).Deployment`; a provider that must refuse test traffic
   checks it.
+
+### Partitioned tiles (in development)
+
+A tile that declares `"partition"` runs one backend instance per person who
+uses it, plus an optional global instance
+([partitions.md](/docs/partitions.md) — in development; on an xbind that
+doesn't partition, these read nothing and the tile runs as one instance):
+
+```go
+xbin.Partition()        // "user:<id>" | "global" | "" — $XBIN_PARTITION
+xbin.PartitionUser()    // the person of a user partition, "" otherwise
+xbin.RequirePartition() // first thing in main: exit 3 unless xbind runs this
+                        // as a partition — an older xbind, which ignores
+                        // "partition", then runs no backend instead of one
+                        // shared by everybody
+xbin.GlobalURL("runs/42") // http://xbin/api/<self>/runs/42?xbin-partition=global
+                        // from a user partition (the call arrives at global
+                        // as the partition's person); the plain URL elsewhere
+```
+
+Your code needs nothing else: `Resource(name)`, the vault and registrations
+are the partition's own. **TODO:** partition mail (`Mail`, `Inbox`, `Ack`).
 
 ### Notifying a person on their phone
 
@@ -406,7 +434,10 @@ process.on('SIGTERM', () => srv.close(() => process.exit(0)));
 
 `process.env.XBIN_DEPLOYMENT` is the tile deployment's name in a non-primary
 deployment (absent for the primary), and the `x-xbin-deployment` header names
-a calling tile's non-primary deployment, as in Go.
+a calling tile's non-primary deployment, as in Go. Likewise
+`process.env.XBIN_PARTITION` and the `x-xbin-partition` /
+`x-xbin-partition-id` headers on partitioned tiles
+([partitions.md](/docs/partitions.md)).
 
 Calling out through the gateway:
 
