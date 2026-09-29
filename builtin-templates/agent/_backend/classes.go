@@ -533,14 +533,15 @@ func (c *agentClass) normalize() string {
 
 // --- routes ---------------------------------------------------------------------------
 
-// keepHarnesses: a class saved without harnesses keeps the ones it has —
-// an editor that doesn't know the field never widens a narrowed list (a
-// class without any gets "all" with the toolset: normalize).
+// keepHarnesses: a class that had the harness toolset, saved without
+// harnesses, keeps the ones it has — an editor that doesn't know the field
+// never widens a narrowed list (one gaining the toolset without naming any
+// gets "all": normalize, as mcp and managers do).
 func keepHarnesses(cur *classState, c *agentClass) {
 	if c.Harnesses.set {
 		return
 	}
-	if was, ok := cur.find(strings.TrimSpace(c.ID)); ok && (was.Harnesses.All || was.Harnesses.Names != nil) {
+	if was, ok := cur.find(strings.TrimSpace(c.ID)); ok && was.has(tsHarness) && (was.Harnesses.All || was.Harnesses.Names != nil) {
 		c.Harnesses = was.Harnesses
 		c.Harnesses.set = true
 	}

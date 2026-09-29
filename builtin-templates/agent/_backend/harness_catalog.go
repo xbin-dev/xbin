@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -102,9 +103,14 @@ func (h *sbxHello) imageHarnesses(id string) []string {
 
 // harnessProvider is what the agent knows of harness id: the sdk catalog's
 // entry, the fake's, or one made of the manager's advertisement (e; nil:
-// none seen).
+// none seen). A manager's own argv for a catalog id wins (the contract:
+// docs/sandbox-manager.md §hello) and is what a probe looks for; the
+// catalog's name and login stay (its login matches the adapter's env).
 func harnessProvider(id string, e *sbxHarness) acp.Provider {
 	if p, ok := acp.Lookup(id); ok {
+		if e != nil && len(e.Argv) > 0 && !slices.Equal(e.Argv, p.Argv) {
+			p.Argv, p.Bins = slices.Clone(e.Argv), []string{e.Argv[0]}
+		}
 		return p
 	}
 	var argv []string

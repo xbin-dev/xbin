@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 type hcList struct {
@@ -451,5 +453,66 @@ func TestHarnessModePrefs(t *testing.T) {
 	}
 	if agent.db.harnessMode("bob", "claude") != hmApprove || agent.db.harnessMode("alice", "claude") != hmAuto {
 		t.Fatal("what the engine reads")
+	}
+}
+
+// A manager's own argv for a catalog id wins — the probe looks for it — and
+// the catalog's name, login and (for its own argv) commands stay.
+func TestHarnessProviderAdvertisedArgv(t *testing.T) {
+	cat, _ := acp.Lookup("claude")
+	p := harnessProvider("claude", &sbxHarness{ID: "claude", Title: "CC", Argv: []string{"claude-agent-acp"}, Login: "claude /login"})
+	if p.Name != "Claude Code" || p.LoginCmd != cat.LoginCmd || jsonOf(p.Bins) != `["claude-agent-acp","claude"]` {
+		t.Fatalf("the catalog's argv: %+v", p)
+	}
+	p = harnessProvider("claude", &sbxHarness{ID: "claude", Argv: []string{"/opt/acp/claude", "--stdio"}})
+	if jsonOf(p.Argv) != `["/opt/acp/claude","--stdio"]` || jsonOf(p.Bins) != `["/opt/acp/claude"]` || p.LoginCmd != cat.LoginCmd {
+		t.Fatalf("a manager's own argv: %+v", p)
+	}
+	if again, _ := acp.Lookup("claude"); jsonOf(again.Argv) != `["claude-agent-acp"]` || len(again.Bins) != 2 {
+		t.Fatalf("the sdk catalog changed: %+v", again)
+	}
+
+	_, mux := accessFixture(t)
+	t.Cleanup(forgetHarnessProbes)
+	forgetHarnessProbes()
+	m := bindSbx(t, "apps/fsb")["apps/fsb"]
+	m.Harnesses = []fsbHarness{{ID: "codex", Argv: []string{"sh"}}}
+	box := mkSandbox(t, "apps/fsb", "alice", sbxCreate{Name: "api"})
+	ref := sandboxRef("apps/fsb", box.ID)
+	l := getHarnesses(t, mux, asAlice, "?probe="+url.QueryEscape(ref))
+	if l.Probe == nil || !l.Probe.Ran {
+		t.Fatalf("the probe: %+v", l.Probe)
+	}
+	if s := seenIn(l.entry(t, "codex"), ref); s == nil || s["installed"] != true {
+		t.Fatalf("codex by the manager's command: %s", jsonOf(s))
+	}
+}
+
+// A class gaining the harness toolset without naming harnesses gets "all"
+// (as mcp and managers do), even when it was saved before without the
+// toolset; one that had it keeps its list on a save that leaves it out.
+func TestHarnessClassGainsToolset(t *testing.T) {
+	_, mux := accessFixture(t)
+	t.Cleanup(func() { classStore.Store(nil) })
+	bindSbx(t, "apps/fsb")
+	put := func(cls map[string]any) {
+		t.Helper()
+		if w := callAs(t, mux, asMgr, "PUT", "/classes", map[string]any{"classes": []any{cls}}); w.Code != 200 {
+			t.Fatalf("PUT %v: %d %s", cls, w.Code, w.Body)
+		}
+	}
+	put(map[string]any{"id": "dev", "name": "Dev", "toolsets": []string{"sandbox"}, "sandboxEgress": []string{"internet"}})
+	if dev, _ := currentClasses().find("dev"); jsonOf(dev.Harnesses) != `[]` {
+		t.Fatalf("without the toolset: %s", jsonOf(dev.Harnesses))
+	}
+	put(map[string]any{"id": "dev", "name": "Dev", "toolsets": []string{"sandbox", "harness"}, "sandboxEgress": []string{"internet"}})
+	if dev, _ := currentClasses().find("dev"); !dev.Harnesses.All || !dev.allowsHarness("claude") {
+		t.Fatalf("gaining the toolset: %s", jsonOf(dev.Harnesses))
+	}
+	put(map[string]any{"id": "dev", "name": "Dev", "toolsets": []string{"sandbox", "harness"}, "sandboxEgress": []string{"internet"},
+		"harnesses": []string{"codex"}})
+	put(map[string]any{"id": "dev", "name": "Dev", "toolsets": []string{"sandbox", "harness", "files"}, "sandboxEgress": []string{"internet"}})
+	if dev, _ := currentClasses().find("dev"); jsonOf(dev.Harnesses) != `["codex"]` {
+		t.Fatalf("a save leaving it out: %s", jsonOf(dev.Harnesses))
 	}
 }

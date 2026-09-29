@@ -367,7 +367,8 @@ sandboxEgress?, harnesses?, model?, system?, who?}`: `mcp` and `managers` are
 `"all"` or a list (MCP server names; sandbox-manager tile paths);
 `harnesses` is `"all"` or a list of coding-agent ids (`GET /harnesses`;
 `[]` in a class without the `harness` toolset, `"all"` when a class with it
-names none, and a save that leaves it out keeps what the class has);
+names none, and a save that leaves it out keeps what a class that had the
+toolset has);
 `sandboxEgress` is the
 egress a bound sandbox may have (`none`, `internet`, `open`; `["none"]` when a
 sandbox class names none); `model` is the class's model when the person picked
@@ -1692,7 +1693,8 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
   offers an egress other than `none` that such a class allows).
 - `modes`, `defaultMode`, `autoMode` (empty: it has none), `approveMode`,
   `planMode`: the SDK catalog's (`sdk/acp`); the name and login command are
-  the catalog's, else the manager's advertisement.
+  the catalog's, else the manager's advertisement. A manager's own `argv`
+  for one of the four is what runs, and what a probe looks for.
 - `sandboxes`: what the agent last learned about it per sandbox — by a probe
   (`installed`) or a session (`signedIn`); a field absent is unknown, a
   sandbox absent never asked. Only sandboxes the caller may see.
