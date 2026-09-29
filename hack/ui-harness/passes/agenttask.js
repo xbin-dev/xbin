@@ -4,7 +4,8 @@
 // report a 5M-token prompt, so the agent's next step compacts; the fake's
 // GET /debug/requests records each call's system prompt and task reminder.
 // It pins:
-//   - the run header shows the pinned task, and unfolds to the ledger;
+//   - the run header pins the current request — the latest one it was
+//     given — and unfolds to the ledger;
 //   - after a compaction, the next call still carries the request verbatim
 //     under "# Your task", and is told once that the context was compacted;
 //   - the compaction budget came from the model's context window, as llm-gw
@@ -90,8 +91,11 @@ async function agentTask(browser) {
   await until(page, () => [...document.querySelectorAll('#timeline *')].some((e) => /compacted \d+ message\(s\) into the summary/.test(e.textContent)), null, 10000)
     .then(() => check(true, 'the chat says what was compacted'), () => check(false, 'the chat says what was compacted'));
 
-  // 4. the header still shows the task, and unfolds to the ledger
-  check((await page.textContent('#top .taskpin .taskline')) === goal, 'after the compaction the header still pins the request');
+  // 4. the header pins the current request (the latest), and unfolds to the ledger
+  await until(page, () => document.querySelector('#top .taskpin .taskline')?.textContent === 'and now carry on', null, 10000)
+    .then(() => check(true, 'the header pins the current request — the latest one, not the first'),
+      async () => check(false, `the header pins the current request — the latest one, not the first (${await page.textContent('#top .taskpin .taskline')})`));
+  check(/\+2/.test(await page.textContent('#top .taskpin .tasktoggle')), 'its toggle says how many others there are (+2)');
   await shot(page, 'agent-task-folded', { fullPage: false });
   await page.click('#top .taskpin .tasktoggle');
   await until(page, () => document.querySelectorAll('#top .taskpin .taskreq').length >= 3, null, 10000);
