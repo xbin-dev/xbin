@@ -155,14 +155,17 @@ export function fmtDur(s) {
 
 // setLifecycle(path, state): the offload confirm + the API write. Resolves
 // false when the person declined (the caller re-renders to revert its
-// <select>), true when the state was sent; throws on refusal.
+// <select>), true when the state was sent; throws on refusal. Re-enabling an
+// offloaded tile restores it: what the restore couldn't bring back (a sealed
+// backup's erased or missing data) is said.
 export async function setLifecycle(path, state) {
   // Offload removes local bytes (after archiving) — confirm before the flip.
   if ((state === 'offloaded' || state === 'offloaded-full') &&
       !confirm(`Offload ${path}? Its ${state === 'offloaded-full' ? 'data + source' : 'data'} will be archived, then removed locally.`)) {
     return false;
   }
-  await api('/lifecycle', jbody({ component: path, state }, 'POST'));
+  const d = await api('/lifecycle', jbody({ component: path, state }, 'POST'));
+  if (d?.dataErased || d?.dataMissing) alert(`${path}: ${d.dataErased || d.dataMissing}`);
   return true;
 }
 

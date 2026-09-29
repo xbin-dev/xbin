@@ -107,7 +107,7 @@ export class BxAdminBackup extends WithRouter(LitElement) {
   // The disaster-recovery key bundle (docs/overview/14-lifecycle.md §Sealed archives): downloaded,
   // and recorded as an export, which clears the backup-keys alert.
   async _exportKeys() {
-    if (!confirm('Download the backup key bundle? Keep it with the vault passphrase: without the passphrase it opens nothing, and without the bundle a new machine can\'t restore sealed backups.')) return;
+    if (!confirm('Download the backup key bundle? Keep it safe and apart from the vault passphrase: with the passphrase in force now it opens this workspace\'s data key (every secret and all data at rest, not only the backups), and without the bundle a new machine can\'t restore sealed backups.')) return;
     try {
       const bundle = await api('/backup-keys/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const day = (bundle.created || new Date().toISOString()).slice(0, 10);
@@ -123,7 +123,7 @@ export class BxAdminBackup extends WithRouter(LitElement) {
     this._busy = comp;
     try {
       const d = await api('/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp, version }) });
-      if (d?.dataErased) this._emit('bx-admin-notice', `${comp}: ${d.dataErased}`);
+      if (d?.dataErased || d?.dataMissing) this._emit('bx-admin-notice', `${comp}: ${d.dataErased || d.dataMissing}`);
       this._emit('bx-admin-refresh');
       await this.load();
     } catch (e) { this._fail(e); }
@@ -191,8 +191,11 @@ export class BxAdminBackup extends WithRouter(LitElement) {
   _keysStatus() {
     const k = this._keys;
     if (!k) return nothing;
-    if (k.mode === 'plaintext') return html`<p class="muted">Archives are plain tars: this workspace has no vault
-      barrier, so nothing seals them.</p>`;
+    if (k.mode === 'plaintext') return html`<p class="muted">Archives are plain tars: the plaintext-vault mode
+      (--insecure-vault / --no-auth) seals nothing.</p>`;
+    if (k.mode === 'vault-locked') return html`<p><b style="color: var(--bx-amber, #f2a71b)">No backup runs: the vault
+      isn't set up yet</b>, and every archive is sealed under a key it holds. Set it up on the Vault tab
+      (or <code>bx vault unseal</code>).</p>`;
     const when = k.lastExport ? new Date(k.lastExport).toLocaleString() : 'never';
     return html`
       <h3>Sealed backups</h3>
@@ -206,6 +209,9 @@ export class BxAdminBackup extends WithRouter(LitElement) {
         ${k.lastExport ? html` · erased since your last export: <span class="mono">${k.erasedSinceExport}</span>` : nothing}
         · <a class="link" @click=${() => this._exportKeys()}>export key bundle</a>
       </div>
+      ${k.passphraseChanged && k.keys ? html`<p><b style="color: var(--bx-amber, #f2a71b)">The vault passphrase changed
+        after the last export</b>: export a fresh bundle and destroy the older ones — they still open with the old
+        passphrase.</p>` : nothing}
       ${k.lastExport && k.erasedSinceExport ? html`<p class="muted">Export again and destroy older bundles: they still hold
         the erased keys.</p>` : nothing}`;
   }
