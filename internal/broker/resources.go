@@ -536,15 +536,7 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
-	if !b.nsAvailableID(w, ra.nsID()) {
-		return
-	}
-	if ra.pkey != "" { // a user partition's own bus (04 §2)
-		if err := publishPartitionBusSeam(b, ra, msg.Topic, msg.Data); err != nil {
-			server.WriteError(w, http.StatusServiceUnavailable, err.Error(), "/docs/partitions.md")
-			return
-		}
-		server.WriteOK(w)
+	if !b.nsAvailableID(w, ra.nsID()) || b.publishPartitioned(w, ra, msg.Topic, msg.Data) { // a partitioned scope's own bus: stamped (partitionbus.go)
 		return
 	}
 	// The event is in the namespace the publisher reaches: its own scope's
@@ -581,7 +573,8 @@ func (b *Broker) busFilter(p auth.Principal, e events.Event) bool {
 			if res, ok := set[rt.Name]; ok && res.Type == "bus" {
 				dep, own, err := b.resNamespace(p, rt.Scope)
 				return err == nil && dep == ns &&
-					b.allowAt(p, reach{rt: rt, res: res, dep: dep, own: own}, "reader") == nil
+					b.allowAt(p, reach{rt: rt, res: res, dep: dep, own: own}, "reader") == nil &&
+					b.busPartitionReaches(p, rt, res, own, e) // a partitioned scope's own bus (partitionbus.go)
 			}
 		}
 		i := strings.LastIndex(probe, "/")

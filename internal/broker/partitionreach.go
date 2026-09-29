@@ -7,9 +7,12 @@ package broker
 // in a partitioned scope a shared resource ("shared": true | "read") is at
 // today's keys, read-only for people's partitions when "read", and any
 // other is per partition: a person's own, the global instance's at today's
-// keys (PD-04, PD-05). A user partition of another partitioned tile reaches
-// the same person's namespace here only if the person can read this tile,
-// and, with the workspace's partitionConsent policy on, consented (PD-13).
+// keys (PD-04, PD-05). Which partition a caller acts in is the identity
+// plane's one answer (addressedPartitionSeam, F2's addressedPartition):
+// another partitioned tile's person's partition reaches the same person's
+// namespace only if they can read this tile and, with the workspace's
+// partitionConsent policy on, consented (PD-13) — decided there, once, for
+// calls and data alike.
 
 import (
 	"cmp"
@@ -43,31 +46,17 @@ type partReach struct {
 
 // ---- seams other packs fill ----
 
-// partitionConsentSeam reports whether person userID consented to tile
-// from using their data in tile to (05 §2), asked only while the
-// workspace's partitionConsent policy is on. The consent plane (F10) fills
-// it; until then no consent exists, so with the policy on every
-// cross-tile partition edge is refused (fail closed).
-var partitionConsentSeam = func(b *Broker, userID, from, to string) bool { return false }
-
-// partitionEdgeSeam counts one cross-scope reach into person userID's
-// namespace of tile to by tile from, in the caller partition's egress
-// ledger (06 §6). The ledger plane (F10) fills it; a no-op until then.
-var partitionEdgeSeam = func(b *Broker, userID, from, to string) {}
+// partitionEdgeSeam counts one cross-scope reach by tile caller, acting in
+// user partition callerPart ("user:<id>"), into the same person's namespace
+// of scope target, in the caller partition's egress ledger (06 §6): F2's
+// partitionEdgeCounted, which the ledger plane (F10) fills. A no-op until
+// then.
+var partitionEdgeSeam = func(b *Broker, caller, callerPart, target string) {}
 
 // partitionIfaceEnvSeam adds a user partition's personal binds to its env
 // (XBIN_IFACE_<SLOT> rows with personal: true, 05 §3). The bind-types
 // plane (F15) fills it; until then a partition's env is EnvFor's alone.
 var partitionIfaceEnvSeam = func(b *Broker, c *registry.Component, dep, part string, env []string) []string { return env }
-
-// publishPartitionBusSeam publishes a bus event in a user partition's
-// namespace (04 §2): stamped with the partition, delivered to that
-// partition's subscriptions and its person's frames only. The identity
-// plane (F2: events.Event.Partition, busFilter) fills it; until then such
-// a publish is refused rather than delivered as today's namespace's.
-var publishPartitionBusSeam = func(b *Broker, ra reach, topic string, data any) error {
-	return errors.New("bus events in people's partitions aren't available in this xbind yet")
-}
 
 // ---- the decision ----
 
@@ -129,51 +118,36 @@ func (b *Broker) partitionReach(p auth.Principal, ra *reach) error {
 		return refusePartition(http.StatusForbidden, "%s: %s's partition: %v", scope, user, err)
 	}
 	ra.pkey = pkey
-	ra.who = &nsPartition{User: user, UID: uid, Tile: scope}
+	ra.who = &nsPartition{User: user, UID: uid}
 	return nil
 }
 
-// reachPartition is the partition p acts in on scope's root tile: the
-// tile's own principal's (addressedPartition on its own tile); a user
-// partition of another partitioned tile maps to the same person's, when
-// they can read this tile and — with partitionConsent on — consented; any
-// other tile principal reaches global; a person, the root token and xbind's
-// deliveries as the identity plane says (addressedPartition).
+// reachPartition is the partition p acts in on scope's root tile
+// (partitionOf), counting a cross-scope reach by another tile's user
+// partition in its egress ledger.
 func (b *Broker) reachPartition(p auth.Principal, scope string, own bool) (string, error) {
+	part, err := b.partitionOf(p, scope, own)
+	if err == nil && !own && p.Component != "" && strings.HasPrefix(part, "user:") {
+		if _, isTile := b.Reg.Component(p.Component); isTile {
+			partitionEdgeSeam(b, p.Component, part, scope)
+		}
+	}
+	return part, err
+}
+
+// partitionOf is the partition p acts in on scope's root tile, counting
+// nothing: on its own scope, the one its credential acts in on its own
+// tile; anyone else's is the identity plane's answer for the root
+// (addressedPartition, 02 §3): a person's own, the root token's global, a
+// delivery's registration's, and another tile's own partition mapped onto
+// this one (05 §1) — the same person's, when they can read it and, with
+// partitionConsent on, consented; an unpartitioned caller's global, or a
+// refusal without a global instance. One place settles each case.
+func (b *Broker) partitionOf(p auth.Principal, scope string, own bool) (string, error) {
 	if own {
 		return addressedPartitionSeam(b, p, p.Component)
 	}
-	if _, isTile := b.Reg.Component(p.Component); p.Component == "" || !isTile {
-		return addressedPartitionSeam(b, p, scope)
-	}
-	cp, err := addressedPartitionSeam(b, p, p.Component)
-	if err != nil {
-		return "", err
-	}
-	user, ok := strings.CutPrefix(cp, "user:")
-	if !ok {
-		return partGlobalKey, nil // global, or an unpartitioned caller: today's (global's) data
-	}
-	switch {
-	case !b.reachPersonReads(user, scope):
-		return "", refusePartition(http.StatusForbidden, "%s can't read %s: %s's partition of it isn't reachable from %s", user, scope, user, p.Component)
-	case b.Policies().PartitionConsent && !partitionConsentSeam(b, user, p.Component, scope):
-		return "", refusePartition(http.StatusForbidden, "%s hasn't let %s use their %s data", user, p.Component, scope)
-	}
-	partitionEdgeSeam(b, user, p.Component, scope)
-	return cp, nil
-}
-
-// reachPersonReads reports whether person userID, enabled, can read tile.
-func (b *Broker) reachPersonReads(userID, tile string) bool {
-	if b.Users == nil {
-		return false
-	}
-	if u, ok := b.Users.Get(userID); !ok || u.Disabled {
-		return false
-	}
-	acc, ok := b.Users.Access(userID)
-	return ok && acc.CanReadTile(tile)
+	return addressedPartitionSeam(b, p, scope)
 }
 
 // errReadOnly is the refusal of a write by a user partition to a "read"
@@ -301,7 +275,7 @@ func (b *Broker) PartitionEnv(c *registry.Component, dep, part string) ([]string
 			continue
 		}
 		if !noted {
-			if err := b.notePartitionNS(partNS(rt.Scope, dep, pkey), nsPartition{User: user, UID: uid, Tile: c.Path}); err != nil {
+			if err := b.notePartitionNS(partNS(rt.Scope, dep, pkey), nsPartition{User: user, UID: uid}); err != nil {
 				slog.Warn("partitions: the namespace's record", "tile", c.Path, "partition", part, "err", err)
 				continue
 			}
@@ -332,5 +306,5 @@ func (b *Broker) PartitionEncryptionHoldReason(tile, dep, part string) string {
 	if err != nil {
 		return "is held: " + err.Error()
 	}
-	return b.holdReasonIn(tile, cmp.Or(dep, util.MainDeployment), pkey, &nsPartition{User: user, UID: uid, Tile: tile})
+	return b.holdReasonIn(tile, cmp.Or(dep, util.MainDeployment), pkey, &nsPartition{User: user, UID: uid})
 }

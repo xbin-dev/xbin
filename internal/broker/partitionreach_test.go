@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -19,12 +21,21 @@ import (
 // (read-only for a user partition when "read") and for the global
 // instance; another partitioned tile's user partition reaches the same
 // person's namespace only if they can read the tile — and, with
-// partitionConsent on, consented; an unpartitioned tile reaches today's
-// (global's); view-as reaches nothing; a cron resource isn't partitioned.
+// partitionConsent on, consented — and is counted in its ledger; an
+// unpartitioned tile reaches today's (global's), or nothing without a
+// global instance; view-as reaches nothing; a cron resource isn't
+// partitioned. Which partition is the identity plane's one answer
+// (addressedPartitionSeam, stood in by the fixture as F2 answers it).
 func TestPartitionReachTable(t *testing.T) {
 	w := partFx(t)
 	b := w.b
 	pk := func(user string) string { return partitionKeyFor(user, "uid-"+user) }
+	var edges []string
+	prevEdge := partitionEdgeSeam
+	t.Cleanup(func() { partitionEdgeSeam = prevEdge })
+	partitionEdgeSeam = func(b *Broker, caller, callerPart, target string) {
+		edges = append(edges, callerPart+" "+caller+"→"+target)
+	}
 	type cell struct {
 		name     string
 		p        auth.Principal
@@ -44,6 +55,8 @@ func TestPartitionReachTable(t *testing.T) {
 		{"cross-scope, can read", aliceAgent, "res:apps/docs/docs", pk("alice"), false, ""},
 		{"cross-scope, can't read", bobAgent, "res:apps/docs/docs", "", false, "bob can't read apps/docs"},
 		{"cross-scope, unpartitioned caller", plainTile, "res:apps/docs/docs", "", false, ""},
+		{"cross-scope, unpartitioned caller, no global instance", plainTile, "res:apps/agent/mem", "", false, "it has no global instance"},
+		{"an unpartitioned scope", plainTile, "res:apps/plain/notes", "", false, ""},
 		{"view-as", viewAsAlice, "res:apps/docs/docs", "", false, "view-as can't open it"},
 		{"cron", aliceDocs, "res:apps/docs/beat", "", false, ""},
 		{"own scope of the caller, unrelated", aliceAgent, "res:apps/agent/mem", pk("alice"), false, ""},
@@ -68,11 +81,19 @@ func TestPartitionReachTable(t *testing.T) {
 			}
 		}
 	}
+	edgesAre := func(when string, want ...string) {
+		t.Helper()
+		if strings.Join(edges, ";") != strings.Join(want, ";") {
+			t.Errorf("%s: the ledger counted %q, want %q", when, edges, want)
+		}
+		edges = nil
+	}
 	check("off", off)
+	edgesAre("off", "user:alice apps/agent→apps/docs") // only the allowed cross-scope reach
 
 	// The policy on: the cross-scope edge needs alice's consent; nothing else
 	// changes.
-	w.setConsentPolicy(true)
+	w.setPartitionConsent(true)
 	on := append([]cell(nil), off...)
 	for i := range on {
 		if on[i].name == "cross-scope, can read" {
@@ -80,10 +101,9 @@ func TestPartitionReachTable(t *testing.T) {
 		}
 	}
 	check("on", on)
-	prev := partitionConsentSeam
-	t.Cleanup(func() { partitionConsentSeam = prev })
+	edgesAre("on")
 	var asked []string
-	partitionConsentSeam = func(b *Broker, user, from, to string) bool {
+	partitionConsentStub = func(user, from, to string) bool {
 		asked = append(asked, user+" "+from+"→"+to)
 		return user == "alice"
 	}
@@ -96,7 +116,8 @@ func TestPartitionReachTable(t *testing.T) {
 	if len(asked) != 1 || asked[0] != "alice apps/agent→apps/docs" {
 		t.Errorf("consent asked %q", asked)
 	}
-	w.setConsentPolicy(false)
+	edgesAre("on, consented", "user:alice apps/agent→apps/docs")
+	w.setPartitionConsent(false)
 
 	// A write to a "read" resource by a user partition is refused (403 with
 	// the reason); a read passes, and the global instance writes.
@@ -112,19 +133,22 @@ func TestPartitionReachTable(t *testing.T) {
 		t.Errorf("global writes pub: %v", err)
 	}
 
-	// The seams unset: a partitioned scope refuses rather than falls back to
-	// today's keys; an unpartitioned tile's reach is untouched.
+	// The seams unset: a partitioned scope refuses everyone rather than fall
+	// back to today's keys, an unpartitioned caller too; an unpartitioned
+	// scope's reach is untouched.
 	addressedPartitionSeam = func(b *Broker, p auth.Principal, tile string) (string, error) {
 		if c, ok := b.Reg.Component(tile); !ok || !partitionedNow(c) {
 			return "", nil
 		}
 		return "", errPartitionUnwired
 	}
-	if _, _, err := b.reachRes(aliceDocs, "res:apps/docs/docs"); err == nil {
-		t.Error("an unwired identity plane reached a partitioned scope")
+	for _, p := range []auth.Principal{aliceDocs, docsGlobal, plainTile} {
+		if _, _, err := b.reachRes(p, "res:apps/docs/docs"); err == nil {
+			t.Errorf("an unwired identity plane let %s/%s reach a partitioned scope", p.Component, p.UserID)
+		}
 	}
-	if ra, _, err := b.reachRes(plainTile, "res:apps/docs/docs"); err != nil || ra.pkey != "" {
-		t.Errorf("an unpartitioned caller, unwired: %+v %v", ra, err)
+	if ra, _, err := b.reachRes(plainTile, "res:apps/plain/notes"); err != nil || ra.pkey != "" || ra.part != "" {
+		t.Errorf("an unpartitioned scope, unwired: %+v %v", ra, err)
 	}
 }
 
@@ -143,6 +167,30 @@ func TestPartitionReachPaused(t *testing.T) {
 	}
 	if code, body := nsKV(t, w.b, "GET", docsGlobal, "res:apps/docs/docs/k", ""); code != 409 || !strings.Contains(body, "is paused") {
 		t.Errorf("a paused scope: %d %s", code, body)
+	}
+
+	// A mode record this xbind can't read: R is unknown, and nothing of the
+	// scope is reached — kv, blob or bus, whoever asks — nor delivered.
+	w = partFxWith(t, map[string]string{
+		"data/partitions/" + util.TileKey("apps/docs") + "/mode.json": `{"schema": 1, "tile": "apps/docs", "mode": {"us` + "\n",
+	})
+	if c, _ := w.b.Reg.Component("apps/docs"); !c.PartitionRecordUnknown() {
+		t.Fatal("apps/docs's corrupt record reads")
+	}
+	for _, p := range []auth.Principal{docsGlobal, aliceDocs, plainTile} {
+		if code, body := nsKV(t, w.b, "GET", p, "res:apps/docs/docs/k", ""); code != 409 || !strings.Contains(body, "can't be read") {
+			t.Errorf("%s/%s on an unreadable record: %d %s", p.Component, p.UserID, code, body)
+		}
+	}
+	if code, body := nsKV(t, w.b, "GET", aliceDocs, "res:apps/docs/board/k", ""); code != 409 {
+		t.Errorf("a shared kv on an unreadable record: %d %s", code, body)
+	}
+	if r := zeroDataCall(t, w.b.apiBusPublish, "POST", "", `{"resource":"res:apps/docs/wall","topic":"t"}`, docsGlobal); r.Code != 409 {
+		t.Errorf("a bus publish on an unreadable record: %d %s", r.Code, r.Body)
+	}
+	ev := events.Event{Type: "bus", Topic: "res:apps/docs/bus/t", Data: stubbedStamp{partGlobalKey, nil}}
+	if w.b.busFilter(docsGlobal, ev) {
+		t.Error("an event of a scope whose record can't be read was delivered")
 	}
 }
 
@@ -199,13 +247,116 @@ func TestPartitionKVRoundTrip(t *testing.T) {
 	if main, _ := os.ReadFile(filepath.Join(w.root, "data", "kv.db")); strings.Contains(string(main), "alice") {
 		t.Error("data/kv.db holds a partition's key")
 	}
-	// A user partition's own bus is refused until the identity plane
-	// delivers partitioned events; the global instance's is today's.
-	if r := zeroDataCall(t, b.apiBusPublish, "POST", "", `{"resource":"res:apps/docs/bus","topic":"t"}`, aliceDocs); r.Code != 503 {
-		t.Errorf("a partition's bus publish: %d %s", r.Code, r.Body)
+}
+
+// covers PD-05 PD-45 S8 G2 — a partitioned scope's bus (02 §9, 04 §2): each
+// publish on its own bus is stamped with the publisher's partition —
+// global's too — and reaches only subscribers acting in that partition; an
+// unstamped event there reaches no one; a shared bus is unstamped and
+// reaches every reader; a person's publish on a "read" bus is 403; without
+// the stamp wired (F2's field) a partitioned bus refuses publishes (503).
+func TestPartitionBus(t *testing.T) {
+	w := partFx(t)
+	b := w.b
+	ch, cancel := b.Hub.Subscribe(func(e events.Event) bool { return e.Type == "bus" })
+	t.Cleanup(cancel)
+	publish := func(p auth.Principal, res string, want int) events.Event {
+		t.Helper()
+		r := zeroDataCall(t, b.apiBusPublish, "POST", "", `{"resource":"`+res+`","topic":"t","data":1}`, p)
+		if r.Code != want {
+			t.Fatalf("%s/%s publishes on %s: %d %s, want %d", p.Component, p.UserID, res, r.Code, r.Body, want)
+		}
+		select {
+		case ev := <-ch: // Publish is synchronous
+			if want != 200 {
+				t.Fatalf("a refused publish on %s went out: %+v", res, ev)
+			}
+			return ev
+		default:
+			if want == 200 {
+				t.Fatalf("%s: no event", res)
+			}
+		}
+		return events.Event{}
 	}
-	if r := zeroDataCall(t, b.apiBusPublish, "POST", "", `{"resource":"res:apps/docs/bus","topic":"t"}`, docsGlobal); r.Code != 200 {
-		t.Errorf("global's bus publish: %d %s", r.Code, r.Body)
+	stamp := func(e events.Event) string { return busEventPartition(e) }
+	reaches := func(e events.Event, ps ...auth.Principal) string {
+		var out []string
+		for _, p := range ps {
+			if b.busFilter(p, e) {
+				out = append(out, p.Component+"/"+p.UserID)
+			}
+		}
+		return strings.Join(out, ",")
+	}
+	readers := []auth.Principal{aliceDocs, carolDocs, docsGlobal}
+
+	// The global instance's event on the partitioned bus: stamped global,
+	// never a person's frame's.
+	ev := publish(docsGlobal, "res:apps/docs/bus", 200)
+	if s := stamp(ev); s != partGlobalKey {
+		t.Errorf("global's event stamped %q", s)
+	}
+	if r := reaches(ev, readers...); r != "apps/docs/" {
+		t.Errorf("global's event reaches %q, want the global instance only", r)
+	}
+	// A person's: their partition's only.
+	ev = publish(aliceDocs, "res:apps/docs/bus", 200)
+	if s := stamp(ev); s != "user:alice" {
+		t.Errorf("alice's event stamped %q", s)
+	}
+	if r := reaches(ev, readers...); r != "apps/docs/alice" {
+		t.Errorf("alice's event reaches %q", r)
+	}
+	// An unstamped event on the partitioned bus reaches no one there.
+	if r := reaches(events.Event{Type: "bus", Topic: "res:apps/docs/bus/t"}, readers...); r != "" {
+		t.Errorf("an unstamped event reaches %q", r)
+	}
+	// A shared bus: unstamped, every reader.
+	ev = publish(carolDocs, "res:apps/docs/wall", 200)
+	if s := stamp(ev); s != "" {
+		t.Errorf("a shared bus's event stamped %q", s)
+	}
+	if r := reaches(ev, readers...); r != "apps/docs/alice,apps/docs/carol,apps/docs/" {
+		t.Errorf("a shared bus's event reaches %q", r)
+	}
+	// A "read" bus: a person's publish is 403; global's reaches everyone.
+	r := zeroDataCall(t, b.apiBusPublish, "POST", "", `{"resource":"res:apps/docs/news","topic":"t"}`, aliceDocs)
+	if r.Code != 403 || !strings.Contains(r.Body.String(), "res:apps/docs/news is read-only for people's partitions") {
+		t.Errorf("alice publishes on news: %d %s", r.Code, r.Body)
+	}
+	if ev = publish(docsGlobal, "res:apps/docs/news", 200); reaches(ev, readers...) != "apps/docs/alice,apps/docs/carol,apps/docs/" {
+		t.Errorf("a read bus's event reaches %q", reaches(ev, readers...))
+	}
+
+	// Unwired (F2's field not there yet): the partitioned bus refuses
+	// publishes rather than deliver them unstamped, and delivers nothing; a
+	// shared one is today's.
+	stampBusPartition, busEventPartition = nil, nil
+	publish(docsGlobal, "res:apps/docs/bus", 503)
+	publish(aliceDocs, "res:apps/docs/bus", 503)
+	publish(aliceDocs, "res:apps/docs/wall", 200)
+	if r := reaches(events.Event{Type: "bus", Topic: "res:apps/docs/bus/t"}, readers...); r != "" {
+		t.Errorf("unwired, an event on the partitioned bus reaches %q", r)
+	}
+}
+
+// TestBusPartitionStampWired guards the merge with the identity plane
+// (F2): once events.Event carries its Partition field, the bus stamp's
+// seams must be pointed at it — or every partitioned bus keeps refusing
+// publishes (503).
+func TestBusPartitionStampWired(t *testing.T) {
+	f, ok := reflect.TypeOf(events.Event{}).FieldByName("Partition")
+	if !ok {
+		t.Skip("events.Event has no Partition field yet (F2): partitioned buses answer 503 until it lands")
+	}
+	if stampBusPartition == nil || busEventPartition == nil {
+		t.Fatal("events.Event.Partition exists: set stampBusPartition and busEventPartition to it (partitionbus.go, records/F4.md)")
+	}
+	var ev events.Event
+	stampBusPartition(&ev, "user:alice")
+	if v := reflect.ValueOf(ev).FieldByIndex(f.Index).String(); v != "user:alice" || busEventPartition(ev) != "user:alice" {
+		t.Errorf("the stamp doesn't ride events.Event.Partition: %q, read back %q", v, busEventPartition(ev))
 	}
 }
 
@@ -261,6 +412,28 @@ func TestPartitionEnv(t *testing.T) {
 	if reason := b.PartitionEncryptionHoldReason("apps/docs", "", "user:alice"); reason != "" {
 		t.Errorf("alice's partition held: %s", reason)
 	}
+	// A data act on the primary's namespace, where the shared resources
+	// are, holds people's partitions too; an act on another person's
+	// partition doesn't.
+	release, err := b.holdNS(nsOf("apps/docs", util.MainDeployment), nsRestoring)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reason := b.PartitionEncryptionHoldReason("apps/docs", "", "user:alice"); !strings.Contains(reason, "data operation") {
+		t.Errorf("alice's partition during a restore of the shared data: %q", reason)
+	}
+	release()
+	release, err = b.holdNS(partNS("apps/docs", util.MainDeployment, partitionKeyFor("carol", "uid-carol")), nsResetting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reason := b.PartitionEncryptionHoldReason("apps/docs", "", "user:alice"); reason != "" {
+		t.Errorf("alice's partition held by carol's reset: %q", reason)
+	}
+	if reason := b.PartitionEncryptionHoldReason("apps/docs", "", "user:carol"); !strings.Contains(reason, "data operation") {
+		t.Errorf("carol's partition during its reset: %q", reason)
+	}
+	release()
 	if reason := b.PartitionEncryptionHoldReason("apps/docs", "", "org:x"); reason == "" {
 		t.Error("an unknown partition kind isn't held")
 	}
