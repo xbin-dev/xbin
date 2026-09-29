@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-29
 
+- **Consumer backends open and relay terminals in a manager's sandboxes**
+  ([sandbox-manager.md](sandbox-manager.md) §Terminals, [sdk.md](sdk.md)
+  §A manager's terminals). The contract now says what the SSH bridge
+  already did: a consumer's backend dials the `tty` routes (and attaches to
+  tty execs it started) through xbind with its instance credential, naming
+  its person in `Sbx-User` — asserted, like every backend call — to drive a
+  terminal or to relay it to its own page or app view; the consumer checks
+  that person first. The Go SDK adds `xbin.RelayManagerTTY(w, r, endpoint,
+  sandboxID, opts)` — dial, upgrade, every message relayed unchanged both
+  ways, each end closed the way the other ended — and
+  `xbin.DialManagerTTY` / `xbin.ManagerTTYURL` (typed routes only). The
+  conformance suite gains `tty/backend`: a manager that refuses an
+  asserted person's terminal on a private or shared sandbox fails it (the
+  contract always left those people to the consumer — name it in
+  `Target.Skip`, saying why, until yours follows); `hack/fakesandbox` and
+  `coding-sandbox` pass unchanged. Nothing to change for pages.
 - **Sandbox managers can say which coding agents an image has**
   ([sandbox-manager.md](sandbox-manager.md) §hello). Additive:
   `hello.images[].harnesses: [{id, title?, argv?, login?}]` lists the ACP

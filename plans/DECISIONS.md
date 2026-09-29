@@ -4047,7 +4047,9 @@ Deviations and refinements made while implementing; all deliberate:
     - A `gateway` role for asserted users: the contract already covers a
       backend acting for a person.
     - Terminals relayed through the backend for the browser: the person
-      would become asserted.
+      would become asserted. *Superseded by the amendment of 2026-09-29
+      below: terminals are part of the sandbox interface for consumer
+      backends too.*
     - Resolving the sandbox during authentication: a wrong name would read
       as a bad key.
     - The `tty` route for commands without a pty: see above.
@@ -4088,7 +4090,8 @@ Deviations and refinements made while implementing; all deliberate:
     - **The native view opens no terminal** (a D96 difference, like the
       agent's): the app's `terminal` dials only the tile's own routes, and
       relaying the manager's `tty` through the backend would make the
-      person asserted. It lists, ends and manages keys, and offers "Open in
+      person asserted (a reason the amendment of 2026-09-29 retires; the view
+      is unchanged for now). It lists, ends and manages keys, and offers "Open in
       the browser" — `xbin.native.open` when the tile holds
       `cap:open-links`, else the link copied — rather than declaring the
       grant, which every import would then have to approve. Parity for a
@@ -4195,6 +4198,57 @@ Deviations and refinements made while implementing; all deliberate:
       alone (unreadable for admins); stopping VM sandboxes on low disk (their
       disks are bounded); an implicit snapshot for a clone of a running
       sandbox.
+  - **Amendment (2026-09-29): terminals are part of the sandbox interface
+    for consumer backends.** The owner's decision in the AgTT × coding
+    harnesses programme: a consumer's backend — AgTT, sandbox-terminal,
+    any tile, against any manager, a cloud one included — opens PTYs in a
+    manager's sandboxes and relays them to its own pages and app views, the
+    person asserted. docs/sandbox-manager.md §Terminals; docs/sdk.md §A
+    manager's terminals.
+    - **Chosen.**
+      - **The contract says so.** The `tty` routes and tty execs serve a
+        consumer's backend as well as its pages: it dials through xbind with
+        its instance credential and names its person in `Sbx-User`, asserted
+        as on every backend call. The manager keeps the partitions and
+        leaves the person rules to the consumer, and passes that person on
+        where its substrate asks (`forUser`, so xbind's `noTerminal` still
+        refuses them). The SSH bridge already worked this way; now every
+        consumer may, for any client of its own.
+      - **The consumer that relays checks first**: may the person use the
+        sandbox (the contract's person rules, applied by the consumer), may
+        they have a terminal. The manager can't, and the relay carries
+        whatever they type.
+      - **One relay, in the SDK.** `xbin.RelayManagerTTY(w, r, endpoint,
+        sandboxID, opts)` dials the manager (`xbin.DialManagerTTY`, which
+        a backend that drives a terminal uses alone), then upgrades the
+        person's request and copies every message both ways unchanged — the
+        `/ws/term` wire end to end, so `<bx-terminal>` and the app's
+        `terminal` work against a consumer's route. It dials anew rather
+        than tunnelling the person's handshake, so none of their headers
+        can reach the manager. A request that isn't a handshake, and a
+        refusal, are answered before anything starts or upgrades (a failed
+        upgrade after the dial would leave a shell running); a close either
+        way closes the other the same way, a lost manager as 1011 so a
+        terminal reconnects. Routes are built from typed parts
+        (`xbin.ManagerTTYURL`): the contract's sandbox id grammar, an exec
+        id confined to one escaped segment (the contract fixes no exec id
+        grammar, so none is imposed), no free-form path.
+      - **Conformance.** `sdk/sandboxcontract` gains `tty/backend`: an
+        asserted person who is neither owner nor member gets a terminal
+        (the command's output, a resize, the exit code), attaches to a tty
+        exec the backend started, opens one on a sandbox shared with its
+        consumer, and another consumer is `not-found`. The reference manager
+        and coding-sandbox pass it unchanged.
+      - **The cloud mapping** is `ssh -t` into a holder on the instance
+        (`dtach`, `tmux`) that keeps the command and its pty past the
+        connection, window-change on resize: a contract terminal outlives
+        its client.
+    - **Not chosen:** tunnelling the person's upgrade byte for byte (as a
+      manager's `Forward` does to the runtime) — their handshake's headers
+      would reach the manager unless scrubbed one by one, and the relay
+      couldn't see how either end closed; a new role or header for relayed terminals (the
+      asserted person already says it); an exec id grammar in protocol 1
+      (not additive).
 
 - **D122 — The builtin sandbox manager is the `coding-sandbox` template: a
   contract layer over a pluggable Backend whose shapes are the SDK's

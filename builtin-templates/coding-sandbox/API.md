@@ -309,7 +309,9 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
 - **commands**: `uid`/`gid` the layout's (the first start's prepare runs as
   root), `forUser` the person, exec `clientId`s prefixed per consumer;
 - **terminals**: relayed byte for byte (`RelayTTY` / `RelayNewTTY`) with
-  `forUser` = the person and the session frame's ids = the contract's; a
+  `forUser` = the person — verified, or the one a consumer's backend names
+  (`Sbx-User`), so xbind's `noTerminal` applies to a terminal a consumer
+  relays too — and the session frame's ids = the contract's; a
   refusal before the upgrade comes back with the runtime's name for the
   sandbox replaced by its id. The consumer's headers never travel;
 - **ids**: exec and snapshot ids are the runtime's, as they are. One its

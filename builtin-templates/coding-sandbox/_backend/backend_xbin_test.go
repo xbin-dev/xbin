@@ -702,11 +702,14 @@ func TestXbinBackendTerminal(t *testing.T) {
 	a := tg.As(t, "apps/agent").Verified("alice")
 	sb := a.Create(map[string]any{"name": "t"})
 	rec := m.recCopy(sb.ID)
+	verified := "alice"
 	dial := func(path string) (int, string) {
 		req, _ := http.NewRequest("GET", srv.URL+"/sbx/sandboxes/"+sb.ID+path, nil)
 		req.Header.Set("X-XBin-From", "apps/agent")
 		req.Header.Set("X-XBin-Role", "consumer")
-		req.Header.Set("X-XBin-User", "alice")
+		if verified != "" {
+			req.Header.Set("X-XBin-User", verified)
+		}
 		req.Header.Set("Sbx-User", "mallory")
 		req.Header.Set("Connection", "Upgrade")
 		req.Header.Set("Upgrade", "websocket")
@@ -737,6 +740,18 @@ func TestXbinBackendTerminal(t *testing.T) {
 	q = rt.last(t, "GET", "/execs/b00001-7/tty").Query
 	if q.Get("sessionId") != "b00001-7" || q.Get("sandboxId") != sb.ID || q.Get("forUser") != "alice" || code != 403 || strings.Contains(body, rec.Runtime) {
 		t.Fatalf("an attach: %v → %d %s", q, code, body)
+	}
+	// a consumer's backend (no verified person) opens terminals for the
+	// person it names: an asserted forUser, which xbind checks the same
+	// (noTerminal) — on both routes
+	verified = ""
+	dial("/tty?cmd=claude+%2Flogin")
+	if q := rt.last(t, "GET", "/"+rec.Runtime+"/tty").Query; q.Get("forUser") != "mallory" || q.Get("cmd") != "claude /login" {
+		t.Fatalf("a backend's terminal: %v", q)
+	}
+	dial("/execs/b00001-8/tty")
+	if q := rt.last(t, "GET", "/execs/b00001-8/tty").Query; q.Get("forUser") != "mallory" || q.Get("sessionId") != "b00001-8" {
+		t.Fatalf("a backend's attach: %v", q)
 	}
 }
 

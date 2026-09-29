@@ -320,12 +320,34 @@ that leaves doesn't end the command; attaching to one that has ended
 replays its ring, then says `exit`. A request that isn't a WebSocket upgrade is `invalid`, and refusals
 come before the upgrade, as JSON like any other route's.
 
-A page connects with its frame token (`xbin.ws(url)`, or `<bx-terminal
-src="<url>/sbx/sandboxes/{id}/tty?cwd=…">`, which does it for you and
-reattaches to the same exec after a drop), so the manager sees the verified
-person. A Go backend dials with the SDK's `sdk/ws` (docs/sdk.md) through
-`xbin.Client()`. The xbin app's `terminal` primitive dials only a tile's own
-routes, so it can't reach a manager's.
+**Who opens one.** These routes, and tty execs (`POST …/execs {tty:
+true}`), serve a consumer's pages and its backend alike:
+
+- **A page** connects with its frame token (`xbin.ws(url)`, or
+  `<bx-terminal src="<url>/sbx/sandboxes/{id}/tty?cwd=…">`, which does it
+  for you and reattaches to the same exec after a drop), so the manager
+  sees the **verified** person and applies its person rules.
+- **A consumer's backend** dials them through xbind with its instance
+  credential — the binding's `consumer` role — to drive a terminal itself
+  (an SSH bridge, a sign-in it runs) or to relay one to its own page or app.
+  It names the person it acts for in `Sbx-User`, as on any backend call:
+  **asserted**, recorded, not verified (§Who is asking). The manager
+  answers it as any backend call — the partitions hold, the person rules are
+  the consumer's — and a manager that asks its substrate about the person
+  (xbind's `noTerminal`, through `forUser`) asks about that one.
+- **A consumer that relays a terminal to a person checks that person first**
+  — may they use this sandbox, by the rules of §Partitions, sharing and
+  people as it applies them, and may they have a terminal at all: the
+  manager can't, and the relay carries whatever they type. It relays every
+  message both ways unchanged (the session and exit frames, resizes and
+  pings included), dials anew for each client — no header, cookie or query
+  of the person's request passes — and closes each end the way the other
+  ended. In Go, `xbin.RelayManagerTTY` does exactly this, and
+  `xbin.DialManagerTTY` dials for a backend that drives the terminal itself
+  (docs/sdk.md).
+
+The xbin app's `terminal` primitive dials only a tile's own routes, so an
+app view reaches a manager's terminal through its tile's relay.
 
 ## Files (`files`) and trees (`tar`)
 
@@ -545,7 +567,7 @@ the cause is gone:
 | create / start / stop / delete, `?wait` | the provider's instance API, polled |
 | `run` | `ssh host -- 'cd -- <cwd> && exec setsid $SHELL -lc <cmd>'`; a timeout sends `kill -TERM -<pgid>` over a second connection |
 | execs | `setsid nohup <cmd> > /var/lib/sbx/<eid>/out 2>&1; echo $? > /var/lib/sbx/<eid>/exit`; output is `tail -c +<offset+1>`; signals are `kill -<SIG> -<pgid>` |
-| `tty` | `ssh -t` with the terminal's environment (`TERM`, `COLORTERM`, `LANG`; §Inside a sandbox), window-change on resize |
+| `tty` | `ssh -t` with the terminal's environment (`TERM`, `COLORTERM`, `LANG`; §Inside a sandbox) into a holder on the instance (`dtach`, `tmux`) that keeps the command and its pty past the connection, its output logged as the exec's (`…/output`, replayed on an attach, which is another `ssh -t`); window-change on resize. The same for a page's terminal and a consumer backend's (`Sbx-User`) |
 | files | sftp: stat, ranged reads, write to a temporary name and rename, readdir; `etag` a sha256 |
 | `tar` | `tar -C <dir> -cf -` / `-xf -` over ssh |
 | snapshots, clones, archives | disk snapshots and images; archive = snapshot + terminate |
@@ -573,8 +595,11 @@ Every section of this page is a group of parallel subtests (`go test -run
 'TestContract/tty'` picks one). The checks act as consumers of their own
 (`apps/ct-<section>-<check>-a`, …), setting `X-XBin-From`, `X-XBin-User`
 and `Sbx-User` as xbind and a consumer would, and delete the sandboxes they
-make. A section whose optional capability hello leaves out is skipped; its
-routes must answer `unsupported`. The rest of `Target`:
+make — `tty/backend` opens terminals as a consumer's backend does, for an
+asserted person who is neither the sandbox's owner nor a member, and on a
+sandbox shared with it. A section whose optional capability hello leaves
+out is skipped; its routes must answer `unsupported`. The rest of
+`Target`:
 
 - `Client` — the HTTP client for every call and terminal (TLS, a proxy).
 - `Consumer`, `Verified`, `Asserted` — how to call as a consumer, a verified
