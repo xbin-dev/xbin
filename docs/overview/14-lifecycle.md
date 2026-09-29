@@ -196,38 +196,66 @@ backup key ─HKDF(salt of the archive)→ archive key ─AES-256-GCM→ the arc
   the vault's data key — never in an archive, at an archiver, in an API
   answer or in a sandbox. A key is unwrapped only for one backup or
   restore. A **sealed vault stops every backup** (none can be sealed
-  without the data key); a scheduled run logs and skips.
+  without the data key), and so does a vault **not set up yet** — a
+  production workspace before its first `bx vault unseal` (`GET
+  /api/xbin/backup-keys` says `vault-locked`); a scheduled run logs and
+  skips.
 - **Plaintext archives still restore.** Every restore sniffs the magic: an
-  archive made before sealing — or by a workspace without a barrier
-  (`--insecure-vault`, `--no-auth`, which keep writing today's schema-1
+  archive made before sealing — or in the plaintext-vault mode
+  (`--insecure-vault`, `--no-auth`, which keeps writing today's schema-1
   tars, data inline) — restores exactly as it always did.
+- **A main archive and its data archive are one backup.** Both carry the
+  same random `backupId`, and the data archive must be sealed under the key
+  the main archive's pointer names: a restore never pairs a main archive
+  with another backup's data. A scope that declares no resource gets no
+  data archive. Retention deletes a data archive when no kept main archive
+  names it — never by a count of its own — so a data archive a failed main
+  PUT left behind goes at the next scheduled run, and the oldest kept
+  backup keeps its data. A main archive whose data archive is **missing**
+  (the archiver lost it; its key isn't erased) restores its source and
+  terminal layer and says so (`dataMissing`), as one whose data was erased
+  does (`dataErased`).
 
 **Erase.** `bx backup erase <tile> --data` deletes the tile's data keys
 (main's namespace and every deployment's); `--all` also its `tile:` key
-(`POST /api/xbin/backup/erase`, admin). Each key file is deleted (the
-directory fsynced) and **tombstoned** — metadata only — so a restore says
-why an archive is unreadable: `this backup's data was erased on <date>
-(<reason>)`. A main archive whose data key alone was erased restores its
-source and terminal layer, and says so (`dataErased`). The subject gets a
-new key at its next backup. xbind then asks the archiver to delete the
-dead versions (`POST /archive/erase`, below); one that can't keeps them,
-unreadable, until retention prunes them.
+(`POST /api/xbin/backup/erase`, an admin in their own session — never a
+tile's backend, terminal or agent). The erase waits for the tile's backups
+in flight. Each key is first **tombstoned** — metadata only, and the
+erase's commit point — then its file deleted (the directory fsynced), so a
+restore says why an archive is unreadable: `this backup's data was erased
+on <date> (<reason>)`. A main archive whose data key alone was erased
+restores its source and terminal layer, and says so (`dataErased`). The
+subject gets a new key at its next backup. xbind then asks the archiver to
+delete the dead versions (`POST /archive/erase`, below); one that can't
+keeps them, unreadable, until retention prunes them. **Plain archives made
+before sealing are no key's**: they hold the data until deleted at the
+archiver, and the erase's answer says so. A tile that doesn't root its
+scope has no data keys of its own — its scope root's archives hold its
+data.
 
 **Disaster recovery.** The keys aren't in any archive, so a new machine
-needs them: `bx backup keys export > keys.xbk` (admin; or *export key
-bundle* on the admin console's Backup tab) writes the vault's barrier
-descriptor (the data key wrapped under the passphrase), every backup key
-(wrapped under the data key) and the tombstones — useless without the
-vault passphrase. On the new workspace, `bx backup keys import keys.xbk`
-asks for the *old* vault passphrase, unwraps the old data key in memory,
-re-wraps each backup key under the new vault, and takes the tombstones; it
-never adopts the old key or passphrase. An archive sealed by a workspace
-whose keys were never imported is refused: `this backup was sealed by
-another workspace: import its keys (bx backup keys import)`. Until the first
+needs them: `bx backup keys export > keys.xbk` (an admin in their own
+session; or *export key bundle* on the admin console's Backup tab) writes
+the vault's barrier descriptor (the data key wrapped under the
+passphrase), every backup key (wrapped under the data key) and the
+tombstones. Without the vault passphrase it opens nothing; **with the
+passphrase in force when it was exported it opens the workspace's data key
+itself** — every vault secret and all resource data at rest, not only the
+backups — and the data key never rotates. Keep it apart from the
+passphrase. On the new workspace, `bx backup keys import keys.xbk` asks for
+the *old* vault passphrase, unwraps the old data key in memory, re-wraps
+each backup key under the new vault, and takes the tombstones; it never
+adopts the old key or passphrase. An archive sealed by a workspace whose
+keys were never imported is refused: `this backup was sealed by another
+workspace: import its keys (bx backup keys import)`. Until the first
 export, admins see an alert (`/alerts` kind `backup-keys`: "N backup keys
 aren't in any export yet"), and `bx doctor` says so. A bundle exported
-before an erase still holds the erased key: **export again after erasing,
-and destroy older bundles.**
+before an erase still holds the erased key, and one exported before a
+passphrase change still opens with the old passphrase (the alert says so
+after `POST /vault-rekey`, until a fresh export): **export again after
+erasing or changing the passphrase, and destroy older bundles.** The
+export is recorded when xbind answers it, whether or not the bundle was
+saved.
 
 **Downgrades.** An older xbind can't read a sealed archive (it finds no
 `backup.json` and refuses it, writing nothing); it writes plaintext
@@ -244,7 +272,9 @@ internally *as the owner* through the same proxy every element call uses
 principals).
 
 ```
-PUT    /archive/<key>                        archive stream in → {version, size}
+PUT    /archive/<key>                        archive stream in → {version, size}; version is
+                                             [A-Za-z0-9][A-Za-z0-9._:-]{0,127}, and an error
+                                             answer means nothing was kept
                                              (sealed: X-XBin-Backup-Subkey: bk-…, which it MAY store)
 GET    /archive/<key>/versions               → {versions: [{version, time, size, subkey?}]}  (newest first)
 GET    /archive/<key>/versions/<v>           archive stream out ("latest" accepted)
@@ -280,8 +310,9 @@ The worked example is the **s3-archiver builtin**: SigV4-signed, path-style,
 dependency-free S3 client (works against AWS, MinIO, R2, B2), storing
 `<prefix>/<key>/<version>.tar`, plus an empty marker
 `<prefix>/.subkeys/<id>/<key>/<version>` per sealed version, which its
-`POST /archive/erase` follows (`bx builtin update s3-archiver` brings it to
-an existing workspace). Its endpoint/region/bucket/prefix are
+`POST /archive/erase` follows (a PUT whose marker fails keeps nothing, and a
+pruned version takes its marker with it; `bx builtin update s3-archiver`
+brings it to an existing workspace). Its endpoint/region/bucket/prefix are
 configured on its own page; **credentials live in its vault**, never in a
 resource; and it declares a `net` interface the owner must bind
 (`net=internet` for a public bucket, a `lan:` or provider tile for a LAN
@@ -358,8 +389,9 @@ after the archive, with nothing removed — and the source subtree — keeping
 just `xbin.json`/`scope.json` so the tile stays
 listed, renders its "offloaded — restore to use" placeholder, and remains
 restorable from the admin tile. Re-enabling an offloaded component *is* a
-restore of the latest version (LC-4: one archive path for everything).
-Offloading a tile with tile deployments archives every deployment's data
+restore of the latest version (LC-4: one archive path for everything), and
+answers what that restore left out, as `POST /restore` does (`dataErased`,
+`dataMissing`, the deployments restored or skipped). Offloading a tile with tile deployments archives every deployment's data
 before removing anything; beyond `main` it frees the kv data, and file
 resources stay on disk.
 
@@ -371,7 +403,8 @@ five-field cron or `@every 24h` syntax (`bx backup-schedule apps/crm --every
 24h --keep 7`). Each tick runs the standard backup, then prunes the
 archiver's version list down to the retention count (the list is
 newest-first; everything past `keep` is deleted through the same contract).
-Retention `0` keeps everything. A tile deployment beyond the primary has
+Retention `0` keeps everything. A sealed workspace's data archives go with
+the main archives that name them (§Sealed archives). A tile deployment beyond the primary has
 schedules of its own (`POST /api/xbin/deployments/backup-schedule`, admin,
 stored with the deployment's files under `data/deployments/`), keeping the
 last 3 archives unless told.

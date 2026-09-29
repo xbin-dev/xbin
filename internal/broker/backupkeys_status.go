@@ -4,7 +4,7 @@ package broker
 // exported (plans/partitions/11-backup-encryption.md §5; owner ruling H3):
 // GET /backup-keys, the admin /alerts nudge, bx doctor and the admin
 // console's Backup tab all read backupKeysStatus. exports.json records the
-// exports; a passphrase change (POST /vault/rekey) marks them stale — a
+// exports; a passphrase change (POST /vault-rekey) marks them stale — a
 // bundle opens with the passphrase in force when it was exported, so the
 // nudge asks for a fresh one — and the counts are cached until the store
 // next writes, so an /alerts poll doesn't parse every key file.

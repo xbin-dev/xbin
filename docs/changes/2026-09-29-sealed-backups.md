@@ -24,11 +24,16 @@ their **next** backup.
 - xbind extracts single files itself (`bx restore --file`, the admin
   console's *file…*): an archiver can't read a sealed archive.
 - A **sealed vault now stops every backup**, not only data backups: no
-  archive can be sealed without the data key. Scheduled runs log and skip,
-  as before.
-- **Plaintext archives still restore**, whatever their age. A workspace
-  without a barrier (`--insecure-vault`, `--no-auth`) keeps writing today's
-  plain schema-1 archives, data inline.
+  archive can be sealed without the data key. So does a vault **not set up
+  yet** (production before the first `bx vault unseal`: `bx doctor` and
+  `bx backup keys status` say `vault-locked`), which used to write plain
+  archives. Scheduled runs log and skip, as before.
+- **Plaintext archives still restore**, whatever their age. The
+  plaintext-vault mode (`--insecure-vault`, `--no-auth`) keeps writing
+  today's plain schema-1 archives, data inline.
+- Retention deletes a data archive when no kept main archive names it. A
+  main archive whose data archive is missing restores its source and
+  terminal layer and says so (`dataMissing`).
 
 ## Who's affected
 
@@ -42,10 +47,17 @@ their **next** backup.
 - **Downgrades.** An older xbind can't restore archives made from now on: it
   refuses them (it finds no `backup.json`) without writing anything, and the
   archives made before the upgrade still restore on it.
-- **Custom archiver tiles**: nothing to change — they store opaque bytes.
-  They may store `X-XBin-Backup-Subkey` and implement `POST /archive/erase`
-  to delete erased data; without it the dead versions stay (unreadable)
-  until retention prunes them.
+- **Custom archiver tiles** store opaque bytes, as before. Two rules of the
+  contract now matter: `PUT` must answer `{"version": …}` with a version of
+  letters, digits and `._:-` (at most 128, starting with a letter or digit)
+  — a backup whose data archive gets no such version fails, since no main
+  archive may name a version xbind can't fetch again — and an error answer
+  must mean nothing was kept. They may store `X-XBin-Backup-Subkey` and
+  implement `POST /archive/erase` to delete erased data; without it the dead
+  versions stay (unreadable) until retention prunes them.
+- **Automation holding `xbin` admin**: exporting or importing the key bundle
+  and erasing backups are a person's acts — an admin in their own session
+  (`bx`, the admin console). A tile's backend, terminal or agent gets 403.
 
 ## How to migrate
 
@@ -57,8 +69,12 @@ their **next** backup.
 
    (or *export key bundle* on the admin console's Backup tab). The bundle
    holds the vault's barrier descriptor and the wrapped backup keys: without
-   the passphrase it opens nothing. Export again after erasing backups, and
-   destroy older bundles — they still hold the erased keys.
+   the passphrase it opens nothing, but **with the passphrase in force when
+   it was exported it opens the workspace's data key** — every vault secret
+   and all data at rest, not only the backups. Keep the two apart. Export
+   again after erasing backups and after changing the vault passphrase, and
+   destroy older bundles: they still hold the erased keys, and still open
+   with the old passphrase (the data key never rotates).
 2. **Disaster recovery onto a new machine:** set up the new workspace's vault
    (any passphrase), then
 

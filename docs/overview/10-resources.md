@@ -266,7 +266,8 @@ Backups read the decrypted data and **seal every archive** under a backup
 key the vault's data key wraps, so archivers hold ciphertext only, and
 deleting a key crypto-erases that data in every archive (PD-56, superseding
 VD-4's plaintext archives; [14-lifecycle.md](14-lifecycle.md) §Sealed
-archives). Without a barrier (`--insecure-vault`) archives stay plain.
+archives). Only the plaintext-vault mode (`--insecure-vault`, `--no-auth`)
+keeps plain archives; a vault not set up yet backs nothing up.
 
 ## Disk governance
 

@@ -482,9 +482,18 @@ key derived from one — archivers see only the key's opaque id. Deleting a
 backup key crypto-erases that data in every archive (`bx backup erase`).
 The keys never leave the workspace except in an exported **key bundle**
 (`bx backup keys export`: the barrier descriptor plus the wrapped keys),
-which opens nothing without the passphrase and which a new machine needs to
-restore sealed backups (`bx backup keys import`, prompting for the old
-passphrase; the new vault keeps its own). See
+which a new machine needs to restore sealed backups (`bx backup keys
+import`, prompting for the old passphrase; the new vault keeps its own).
+A bundle opens nothing without the passphrase — but **a bundle plus the
+passphrase in force when it was exported opens the DEK itself**: every
+vault secret and all resource data at rest, wherever a copy of them is
+found, not only the backups. Changing the passphrase doesn't take that back
+(the DEK never rotates), so after a rekey — above all one after a suspected
+passphrase leak — destroy every earlier bundle and export a fresh one (the
+admin alert and `bx doctor` ask for it), as after an erase. Exporting,
+importing and erasing are a person's acts: an admin in their own session
+(or the admin tile's frame under their login), never a tile's backend,
+terminal or agent on its tile's `xbin` admin grant. See
 [14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives.
 
 **Seal / unseal**, like Vault:

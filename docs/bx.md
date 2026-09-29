@@ -178,9 +178,13 @@ bx backup-schedule [<component> --every 24h|--cron "…" [--keep N]|--rm]
 bx backup keys status                  are archives sealed; keys in no export
                                        yet; the last export; erasures since
 bx backup keys export > keys.xbk       the disaster-recovery key bundle
-                                       (admin): useless without the vault
-                                       passphrase; re-export after erasures
-                                       and destroy older bundles
+                                       (an admin in their own session):
+                                       useless without the vault
+                                       passphrase, the workspace's data key
+                                       with the passphrase in force now —
+                                       keep them apart; re-export after
+                                       erasures and passphrase changes, and
+                                       destroy older bundles
 bx backup keys import keys.xbk         another workspace's backup keys, so
                                        this one restores its sealed archives
                                        (prompts for that workspace's vault
@@ -189,7 +193,10 @@ bx backup erase <tile> --data|--all [--yes]
                                        crypto-erase a tile's backups in every
                                        archive: --data its data keys (source
                                        stays restorable), --all every key;
-                                       asks for the tile's path unless --yes
+                                       asks for the tile's path unless --yes;
+                                       says what no key erases (plain
+                                       archives made before sealing, a
+                                       non-root tile's data: its root's)
 bx doctor                              workspace health checks
 bx fix assets [<tile>] [--write] [--dir PATH]
                                        rewrite a tile's absolute /c/ asset URLs
