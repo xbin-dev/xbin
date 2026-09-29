@@ -32,6 +32,7 @@ import (
 	"fmt"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -300,6 +301,19 @@ func (b *Broker) routePartition(p auth.Principal, target *registry.Component, d 
 	}
 	d.CallerPartitionID = id
 	return d
+}
+
+// busPartitionAllows is busFilter's partition rule (02 §9): an event in a
+// user partition's namespace reaches a subscriber only when that is the
+// partition it reaches on the scope's (partitioned) root tile. The grant
+// and namespace checks follow as for every bus event.
+func (b *Broker) busPartitionAllows(p auth.Principal, e events.Event) bool {
+	rt, ok := b.resScope(e.Topic)
+	if !ok || rt.Scope == "" || p.ReadOnly() {
+		return false
+	}
+	part, err := b.addressedPartition(p, rt.Scope)
+	return err == nil && string(part) == e.Partition
 }
 
 // PartitionCovered reports whether a user partition's instance token still

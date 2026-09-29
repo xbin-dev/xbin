@@ -59,6 +59,9 @@ func (o *Plane) apiStatusList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	o.statusMu.Unlock()
+	if p.Partition.IsUser() { // a person's partition sees its own (partitionstatus.go)
+		o.partitionStatuses(out, p.Component, p.Partition)
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"statuses": out})
 }
 
@@ -107,6 +110,11 @@ func (o *Plane) apiStatusSet(w http.ResponseWriter, r *http.Request) {
 		msg = msg[:280]
 	}
 	rec := statusRec{Level: level, Message: msg, TS: time.Now().Unix()}
+	if p.Partition.IsUser() && p.Component == comp { // a person's partition's own (partitionstatus.go)
+		o.setPartitionStatus(comp, p.Partition, rec, body.Transient)
+		server.WriteOK(w)
+		return
+	}
 	// the deployment reporting: a non-primary one's status rides only the
 	// deployments event (D127h)
 	dep, code, err := o.reportDeployment(p, comp)
@@ -164,6 +172,7 @@ func (o *Plane) watchStatusRestarts() {
 		var dep string // the deployment whose status clears
 		switch f := statusFacts(e); {
 		case e.Type == "build-start":
+			o.clearPartitionStatuses(e.Component)
 			dep = o.primary(e.Component)
 			swapped[depKey(e.Component, dep)] = clearedByBuild
 		case f.Op == "record":

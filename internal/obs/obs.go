@@ -34,6 +34,8 @@ type Plane struct {
 
 	statusMu sync.Mutex
 	statuses map[string]statusRec // component → last reported status
+	// a person's partition's status (partitionstatus.go): tile\0partition → last
+	partStatuses map[string]statusRec
 
 	prefsMu    sync.Mutex
 	prefsLocks map[string]*sync.Mutex // bucket file → its read-modify-write lock

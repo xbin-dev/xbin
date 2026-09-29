@@ -573,7 +573,7 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 // 09-fabric §5.10). A frame is never an admin, so a primary's frontend
 // never sees a publish of another namespace, even in an admin's browser.
 func (b *Broker) busFilter(p auth.Principal, e events.Event) bool {
-	if p.Component == "" {
+	if p.Component == "" || e.Partition != "" && !b.busPartitionAllows(p, e) {
 		return false
 	}
 	ns := cmp.Or(e.Deployment, util.MainDeployment)
