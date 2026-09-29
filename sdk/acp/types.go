@@ -21,6 +21,7 @@ const (
 	MRequestPermission = "session/request_permission"
 	MElicitCreate      = "elicitation/create"
 	MElicitComplete    = "elicitation/complete"
+	MSessionSteering   = "_session/steering" // the adapters' own (claude, codex): a message for the running turn
 	MCancelRequest     = "$/cancel_request"
 	MFsRead            = "fs/read_text_file"
 	MFsWrite           = "fs/write_text_file"
@@ -52,6 +53,9 @@ type ClientCapabilities struct {
 
 type ElicitationCaps struct {
 	Form *struct{} `json:"form,omitempty"`
+	// URL: the agent may ask the person to open a URL (a device-code
+	// sign-in: elicit.go) — codex-acp offers its device code only then.
+	URL *struct{} `json:"url,omitempty"`
 }
 
 type FSCapabilities struct {
@@ -91,11 +95,48 @@ type PromptCapabilities struct {
 	EmbeddedContext bool `json:"embeddedContext,omitempty"`
 }
 
+// AuthMethod is one way the agent signs in (initialize's authMethods;
+// Client.AuthMethods, Client.Authenticate).
 type AuthMethod struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Type        string `json:"type,omitempty"` // "" (agent) | "terminal"
+	// Args: a terminal method's arguments to the adapter's own command.
+	Args []string `json:"args,omitempty"`
+	// Meta is the adapter's extensions: "api-key" (codex: authenticate with
+	// _meta["api-key"].apiKey), "terminal-auth" (the exact command, to a
+	// client that advertised _meta["terminal-auth"]), "gateway", ….
+	Meta map[string]any `json:"_meta,omitempty"`
+}
+
+// AuthenticateParams is authenticate's: the method and, for one that
+// takes input (an API key), its _meta.
+type AuthenticateParams struct {
+	MethodID string         `json:"methodId"`
+	Meta     map[string]any `json:"_meta,omitempty"`
+}
+
+// ElicitCompleteParams is elicitation/complete's: the agent says a url
+// elicitation's out-of-band step (the sign-in) is done.
+type ElicitCompleteParams struct {
+	ElicitationID string `json:"elicitationId"`
+}
+
+// SteerParams is _session/steering's (the steering extension claude-agent-acp
+// and codex-acp implement, advertised as initialize's
+// _meta.steering.supported): a message for the running turn.
+type SteerParams struct {
+	SessionID string         `json:"sessionId"`
+	Prompt    []ContentBlock `json:"prompt"`
+	Meta      map[string]any `json:"_meta,omitempty"`
+}
+
+// SteerResult is its answer: outcome injected | promptRequired |
+// startedNewTurn (codex-acp may also answer failed).
+type SteerResult struct {
+	Outcome string `json:"outcome"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 type SessionNewParams struct {

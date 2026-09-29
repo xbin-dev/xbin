@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -49,6 +50,10 @@ type Pending struct {
 	rpcID    json.RawMessage    // the agent's request id, for the reply
 }
 
+// RPCID is the agent's request id the answer goes to — what an embedder
+// keeps beside a Pending to Restore it in a later process.
+func (p Pending) RPCID() json.RawMessage { return p.rpcID }
+
 // Resolution is a settled request: the option chosen and by whom
 // ("user:<id>", "auto", "cancel").
 type Resolution struct {
@@ -60,35 +65,106 @@ type Resolution struct {
 }
 
 // Permissions holds a session's pending requests and its "allow for
-// session" rules. First answer wins; a second answer is an error.
+// session" rules. First answer wins; a second answer is an error. One per
+// agent process: a request id names a request only within it.
 type Permissions struct {
 	mu      sync.Mutex
 	next    int
 	pending map[string]*Pending
-	rules   []rule // auto-allow, in the order they were granted
+	rules   []Rule // auto-allow, in the order they were granted
 }
 
-type rule struct{ kind, title string }
+// Rule is an "allow for the session" answer: a later request whose call
+// matches (the same kind, and title when the rule has one) is allowed
+// without asking. Rules and SetRules carry them across processes.
+type Rule struct {
+	Kind  string `json:"kind,omitempty"`
+	Title string `json:"title,omitempty"`
+}
 
 func NewPermissions() *Permissions { return &Permissions{pending: map[string]*Pending{}} }
 
 // Request registers a new pending request and returns it. If a rule
 // matches, it is resolved at once and the resolution is returned too
-// (the caller replies to the agent and logs both events).
+// (the caller replies to the agent and logs both events). Idempotent by
+// rpcID: a request still pending under the same (non-empty) id is
+// returned as it is — a frame read again after a handoff files nothing
+// twice.
 func (p *Permissions) Request(tc ToolCallRef, options []PermissionOption, rpcID json.RawMessage) (*Pending, *Resolution) {
+	pd, res, _ := p.file(tc, options, rpcID)
+	return pd, res
+}
+
+// file is Request, and whether the request was already pending (dup).
+func (p *Permissions) file(tc ToolCallRef, options []PermissionOption, rpcID json.RawMessage) (*Pending, *Resolution, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if pd := p.byRPC(rpcID); pd != nil {
+		return pd, nil, true
+	}
 	p.next++
 	pd := &Pending{PID: "p" + strconv.Itoa(p.next), ToolCall: tc, Options: append([]PermissionOption(nil), options...), rpcID: rpcID}
 	for _, r := range p.rules {
 		if tc.Kind != KindSwitchMode && r.matches(tc) {
 			if o := optionOfKind(options, AllowAlways, AllowOnce); o != nil {
-				return pd, &Resolution{PID: pd.PID, OptionID: o.OptionID, By: "auto", RPCID: rpcID}
+				return pd, &Resolution{PID: pd.PID, OptionID: o.OptionID, By: "auto", RPCID: rpcID}, false
 			}
 		}
 	}
 	p.pending[pd.PID] = pd
-	return pd, nil
+	return pd, nil, false
+}
+
+// byRPC is the pending request under a non-empty rpc id (caller holds mu).
+func (p *Permissions) byRPC(rpcID json.RawMessage) *Pending {
+	if len(rpcID) == 0 {
+		return nil
+	}
+	key := idKey(rpcID)
+	for _, pd := range p.pending {
+		if len(pd.rpcID) > 0 && idKey(pd.rpcID) == key {
+			return pd
+		}
+	}
+	return nil
+}
+
+// Restore files a request an earlier process held (as List gave it, with
+// its RPCID) under its own pid, so it can be answered here; later pids
+// never reuse it. A request already pending under that pid or rpc id is
+// left as it is.
+func (p *Permissions) Restore(pd Pending, rpcID json.RawMessage) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.pending[pd.PID] != nil || p.byRPC(rpcID) != nil {
+		return
+	}
+	if n, err := strconv.Atoi(strings.TrimPrefix(pd.PID, "p")); err == nil && n > p.next {
+		p.next = n
+	}
+	pd.Options = append([]PermissionOption(nil), pd.Options...)
+	pd.rpcID = append(json.RawMessage(nil), rpcID...)
+	p.pending[pd.PID] = &pd
+}
+
+// Rules is the session's "allow for the session" rules, oldest first.
+func (p *Permissions) Rules() []Rule {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]Rule(nil), p.rules...)
+}
+
+// SetRules replaces them (a later process continuing the session). A rule
+// with neither kind nor title would allow everything: it is dropped.
+func (p *Permissions) SetRules(rules []Rule) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rules = nil
+	for _, r := range rules {
+		if r.Kind != "" || r.Title != "" {
+			p.rules = append(p.rules, r)
+		}
+	}
 }
 
 // Resolve answers pending request pid with an option id, or with a
@@ -124,7 +200,7 @@ func (p *Permissions) Resolve(pid, optionID, decision, by string) (*Resolution, 
 	// a title — with neither, rule.matches would be a wildcard: allow
 	// everything for the session.
 	if opt.Kind == AllowAlways && pd.ToolCall.Rule() {
-		p.rules = append(p.rules, rule{kind: pd.ToolCall.Kind, title: pd.ToolCall.Title})
+		p.rules = append(p.rules, Rule{Kind: pd.ToolCall.Kind, Title: pd.ToolCall.Title})
 	}
 	return &Resolution{PID: pid, OptionID: opt.OptionID, By: by, RPCID: pd.rpcID}, nil
 }
@@ -151,7 +227,7 @@ func (p *Permissions) CancelByRPC(rpcID json.RawMessage) *Resolution {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for pid, pd := range p.pending {
-		if string(pd.rpcID) == string(rpcID) {
+		if idKey(pd.rpcID) == idKey(rpcID) {
 			delete(p.pending, pid)
 			return &Resolution{PID: pid, By: "cancel", RPCID: pd.rpcID, Cancel: true}
 		}
@@ -174,11 +250,11 @@ func (p *Permissions) List() []Pending {
 // Count is how many requests wait.
 func (p *Permissions) Count() int { p.mu.Lock(); defer p.mu.Unlock(); return len(p.pending) }
 
-func (r rule) matches(tc ToolCallRef) bool {
-	if r.kind != "" && r.kind != tc.Kind {
+func (r Rule) matches(tc ToolCallRef) bool {
+	if r.Kind != "" && r.Kind != tc.Kind {
 		return false
 	}
-	return r.title == "" || r.title == tc.Title
+	return r.Title == "" || r.Title == tc.Title
 }
 
 func optionOfKind(opts []PermissionOption, kinds ...string) *PermissionOption {

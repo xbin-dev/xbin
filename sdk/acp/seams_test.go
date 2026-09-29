@@ -219,24 +219,19 @@ func TestInlineBudgetSeam(t *testing.T) {
 	}
 }
 
-// The reserved options are refused, as is a session without Perms: the
-// event stream still ends with the error status.
-func TestReservedOptionsRefused(t *testing.T) {
-	for name, o := range map[string]ClientOptions{"IDPrefix": {IDPrefix: "x"}, "Attach": {Attach: &SessionState{}}} {
-		c := NewWith(o)
-		err := c.Start(context.Background(), Config{Perms: NewPermissions(), Spawn: func(context.Context, Config) (*Process, error) {
-			t.Fatal("spawned")
-			return nil, nil
-		}})
-		if err == nil || !strings.Contains(err.Error(), "reserved") {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if es := collect(t, c, func(Event) bool { return false }); data(es[len(es)-1])["status"] != StatusError {
-			t.Fatalf("%s: %s", name, types(es))
-		}
-	}
-	if err := New().Start(context.Background(), Config{Spawn: func(context.Context, Config) (*Process, error) { return nil, nil }}); err == nil {
+// A session without Perms is refused: the event stream still ends with
+// the error status.
+func TestNoPermsRefused(t *testing.T) {
+	c := New()
+	err := c.Start(context.Background(), Config{Spawn: func(context.Context, Config) (*Process, error) {
+		t.Fatal("spawned")
+		return nil, nil
+	}})
+	if err == nil {
 		t.Fatal("no Perms accepted")
+	}
+	if es := collect(t, c, func(Event) bool { return false }); data(es[len(es)-1])["status"] != StatusError {
+		t.Fatalf("%s", types(es))
 	}
 }
 

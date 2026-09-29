@@ -27,6 +27,7 @@ package acp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -57,15 +58,9 @@ func (c *Client) Prompt(ctx context.Context, p Prompt) error {
 		return ErrBusy
 	}
 	caps := c.promptCaps
-	for _, a := range p.Attachments {
-		if c.opts.Drop == nil {
-			c.mu.Unlock()
-			return fmt.Errorf("%w: %s — this client cannot hand files to the agent", ErrUnsupportedContent, a.Name)
-		}
-		if InlineImage(a.Mime) && !caps.Image && c.opts.InlineBudget >= 0 {
-			c.mu.Unlock()
-			return fmt.Errorf("%w: %s — this agent does not take images (it did not advertise promptCapabilities.image)", ErrUnsupportedContent, a.Name)
-		}
+	if err := c.refuseFiles(p, caps); err != nil {
+		c.mu.Unlock()
+		return err
 	}
 	pctx, cancel := context.WithCancelCause(ctx)
 	c.preparing, c.prepCancel = true, cancel
@@ -92,37 +87,69 @@ func (c *Client) Prompt(ctx context.Context, p Prompt) error {
 	c.tools = map[string]string{}
 	c.usage = nil
 	sid := c.sessionID
+	id := c.conn.newID() // known before the frame leaves: State names it from here on
+	c.promptRPC = id
 	c.mu.Unlock()
 	echo := map[string]any{"role": "user", "text": p.Text}
 	if len(infos) > 0 { // the transcript names them; the bytes are not logged
 		echo["attachments"] = infos
 	}
-	c.emit(NewEvent(EvMessageDelta, echo))
+	c.emitW(&Wire{RPCID: id}, NewEvent(EvMessageDelta, echo))
 	c.setStatus(StatusRunning, "")
 	go func() {
-		var res PromptResult
-		err := c.conn.Call(MSessionPrompt, PromptParams{SessionID: sid, Prompt: blocks}, &res)
-		c.mu.Lock()
-		c.busy = false
-		usage := c.usage
-		c.mu.Unlock()
-		if err != nil {
-			if errors.Is(err, io.ErrClosedPipe) {
-				return // the exit status says it
-			}
-			detail := c.authHint(err).Error() // an auth error marks the session signed out
-			c.emit(NewEvent(EvTurnEnd, map[string]any{"turn": turn, "stopReason": "error", "error": detail}))
-			c.setStatus(StatusError, detail)
-			return
-		}
-		c.setAuthNeeded(false)
-		end := map[string]any{"turn": turn, "stopReason": res.StopReason}
-		if usage != nil {
-			end["usage"] = usage
-		}
-		c.emit(NewEvent(EvTurnEnd, end))
-		c.setStatus(StatusIdle, "")
+		resp, err := c.conn.callID(context.Background(), id, MSessionPrompt, PromptParams{SessionID: sid, Prompt: blocks})
+		c.endTurn(turn, id, resp, err)
 	}()
+	return nil
+}
+
+// endTurn is a prompt's answer (resp, or the error it came to): the turn's
+// end and the status after it. Also the end of a turn an earlier process
+// started (ClientOptions.Attach).
+func (c *Client) endTurn(turn uint64, id json.RawMessage, resp *Message, err error) {
+	w := &Wire{RPCID: id}
+	if resp != nil {
+		w.Off = resp.off
+	}
+	c.mu.Lock()
+	c.busy = false
+	if idKey(c.promptRPC) == idKey(id) {
+		c.promptRPC = nil
+	}
+	usage := c.usage
+	c.mu.Unlock()
+	var res PromptResult
+	if err == nil && len(resp.Result) > 0 && string(resp.Result) != "null" {
+		err = json.Unmarshal(resp.Result, &res)
+	}
+	if err != nil {
+		if errors.Is(err, io.ErrClosedPipe) {
+			return // the exit status says it
+		}
+		detail := c.authHint(err).Error() // an auth error marks the session signed out
+		c.emitW(w, NewEvent(EvTurnEnd, map[string]any{"turn": turn, "stopReason": "error", "error": detail}))
+		c.setStatusW(w, StatusError, detail)
+		return
+	}
+	c.setAuthNeededW(w, false)
+	end := map[string]any{"turn": turn, "stopReason": res.StopReason}
+	if usage != nil {
+		end["usage"] = usage
+	}
+	c.emitW(w, NewEvent(EvTurnEnd, end))
+	c.setStatusW(w, StatusIdle, "")
+}
+
+// refuseFiles is why a prompt's files cannot go (nil: they can).
+func (c *Client) refuseFiles(p Prompt, caps PromptCapabilities) error {
+	for _, a := range p.Attachments {
+		if c.opts.Drop == nil {
+			return fmt.Errorf("%w: %s — this client cannot hand files to the agent", ErrUnsupportedContent, a.Name)
+		}
+		if InlineImage(a.Mime) && !caps.Image && c.opts.InlineBudget >= 0 {
+			return fmt.Errorf("%w: %s — this agent does not take images (it did not advertise promptCapabilities.image)", ErrUnsupportedContent, a.Name)
+		}
+	}
 	return nil
 }
 

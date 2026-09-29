@@ -2,11 +2,13 @@ package acp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Client is the ACP client side for one session: it owns the agent process,
@@ -24,25 +26,32 @@ type Client struct {
 	emu  sync.RWMutex
 	stop chan struct{}
 
-	mu         sync.Mutex
-	sessionID  string
-	modes      *SessionModes
-	options    []ConfigOption // the agent's session settings (model, effort, …)
-	commands   []Command      // its slash commands (commands.go)
-	elicits    elicits        // questions awaiting an answer (elicit.go)
-	agentInfo  *Info          // what initialize said the agent is
-	authNeeded bool           // the agent reported it is not signed in (login required)
-	loadable   bool           // the agent advertised loadSession: its session id can be reopened later
-	promptCaps PromptCapabilities
-	turn       uint64
-	busy       bool
-	preparing  bool                    // a prompt's files are on their way to the agent (prompt.go): the next prompt is busy
-	prepCancel context.CancelCauseFunc // aborts that hand-off (Cancel)
-	status     string
-	usage      *UsageUpdate
-	tools      map[string]string // tool call id → last status, this turn
-	closed     bool
-	done       chan struct{}
+	mu          sync.Mutex
+	sessionID   string
+	modes       *SessionModes
+	options     []ConfigOption // the agent's session settings (model, effort, …)
+	commands    []Command      // its slash commands (commands.go)
+	elicits     elicits        // questions awaiting an answer (elicit.go)
+	agentInfo   *Info          // what initialize said the agent is
+	authNeeded  bool           // the agent reported it is not signed in (login required)
+	loadable    bool           // the agent advertised loadSession: its session id can be reopened later
+	steering    bool           // the agent advertised _session/steering (steer.go)
+	authMethods []AuthMethod   // how it signs in (auth.go)
+	initialized bool           // initialize answered: Authenticate may open the session
+	promptCaps  PromptCapabilities
+	turn        uint64
+	busy        bool
+	promptRPC   json.RawMessage         // the in-flight session/prompt's request id (State)
+	preparing   bool                    // a prompt's files are on their way to the agent (prompt.go): the next prompt is busy
+	prepCancel  context.CancelCauseFunc // aborts that hand-off (Cancel)
+	status      string
+	usage       *UsageUpdate
+	tools       map[string]string // tool call id → last status, this turn
+	closed      bool
+	done        chan struct{}
+	// replaying: a session/load is streaming earlier turns back (Wire.Replay);
+	// set before the load is sent, cleared on the read loop by its response
+	replaying atomic.Bool
 }
 
 // New returns an unstarted client with the default options.
@@ -65,8 +74,6 @@ func (c *Client) Events() <-chan Event { return c.events }
 func (c *Client) Start(ctx context.Context, cfg Config) error {
 	c.cfg = cfg
 	switch {
-	case c.opts.IDPrefix != "" || c.opts.Attach != nil:
-		return c.abort(errors.New("acp: ClientOptions.IDPrefix and Attach are reserved — this version supports neither"))
 	case cfg.Perms == nil:
 		return c.abort(errors.New("acp: no Perms"))
 	case cfg.Spawn == nil:
@@ -77,12 +84,23 @@ func (c *Client) Start(ctx context.Context, cfg Config) error {
 		return c.abort(err) // no read loop will close the events: abort.go
 	}
 	c.proc = proc
-	c.conn = NewConn(proc.Stdout, proc.Stdin)
+	c.conn = NewConnWith(proc.Stdout, proc.Stdin, ConnOptions{IDPrefix: c.opts.IDPrefix, Offset: proc.Off})
 	c.conn.OnRequest = c.onRequest
 	c.conn.OnNotify = c.onNotify
 	c.conn.OnBad = func(err error) { c.logf("%v", err) }
+	c.conn.onResponse = func(method string, m *Message) {
+		if method == MSessionLoad {
+			c.replaying.Store(false) // what follows the load's answer is live
+		}
+	}
+	if c.opts.Attach != nil {
+		c.restore(*c.opts.Attach) // before the loop: the prompt's answer may be next (state.go)
+	}
 	if proc.Stderr != nil {
 		go c.drainStderr(proc.Stderr)
+	}
+	if c.opts.Attach != nil { // first, before anything the loop reads
+		c.setStatus(c.attachedStatus(), "")
 	}
 	go func() {
 		err := c.conn.Serve()
@@ -103,9 +121,14 @@ func (c *Client) Start(ctx context.Context, cfg Config) error {
 		c.emu.Unlock()
 		close(c.done)
 	}()
+	if c.opts.Attach != nil {
+		return nil
+	}
 	if err := c.handshake(); err != nil {
 		c.setStatus(StatusError, err.Error())
-		c.Close()
+		if !(c.opts.AwaitLogin && c.signedOut()) {
+			c.Close()
+		}
 		return err
 	}
 	return nil
@@ -163,6 +186,23 @@ func (c *Client) Mode() string {
 
 // emit queues an event for the pump; after the loop's end it is dropped.
 func (c *Client) emit(e Event) { c.send(e, true) }
+
+// emitW is emit with the event's place on the wire (nil: none).
+func (c *Client) emitW(w *Wire, e Event) {
+	e.Wire = w
+	c.send(e, true)
+}
+
+// wireOf is where a frame the agent sent puts the events it causes: the
+// offset after it, the request's id when it asks something, and whether a
+// session/load is replaying earlier turns.
+func (c *Client) wireOf(m *Message) *Wire {
+	w := &Wire{Off: m.off, Replay: c.replaying.Load()}
+	if m.IsRequest() {
+		w.RPCID = m.ID
+	}
+	return w
+}
 
 func (c *Client) send(e Event, wait bool) {
 	c.emu.RLock()

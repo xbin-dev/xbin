@@ -14,6 +14,7 @@ var (
 	ErrResumeUnsupported = errors.New("this agent cannot reopen an earlier session (no loadSession capability) — start a new one")
 	ErrNoElicitation     = errors.New("no such pending question")
 	ErrCancelled         = errors.New("the prompt was cancelled before its turn started")
+	ErrNotReady          = errors.New("the agent has not answered initialize yet")
 )
 
 // Config is one session's setup: which agent, where, and how it is started.
@@ -40,6 +41,10 @@ type Process struct {
 	Stderr io.Reader // may be nil (already routed by the spawner)
 	Wait   func() error
 	Kill   func()
+	// Off is Stdout's position in the agent's whole output: 0 for a fresh
+	// process, where a reattached pipe resumes reading (ClientOptions.Attach).
+	// Event.Wire.Off counts from it.
+	Off int64
 }
 
 // Spawner starts the agent process for a Config: locally, in a sandbox, on
@@ -47,12 +52,18 @@ type Process struct {
 type Spawner func(ctx context.Context, cfg Config) (*Process, error)
 
 // Elicitation is a question the agent is waiting on: an
-// elicitation.request's payload, until it is answered.
+// elicitation.request's payload, until it is answered. A form (the
+// default) asks for values matching Schema; a url one (Mode "url", only
+// with ElicitationCaps.URL advertised) asks the person to open URL — a
+// device-code sign-in — and ends with the agent's elicitation/complete.
 type Elicitation struct {
-	EID        string          `json:"eid"`
-	ToolCallID string          `json:"toolCallId,omitempty"`
-	Message    string          `json:"message"`
-	Schema     json.RawMessage `json:"schema"`
+	EID           string          `json:"eid"`
+	ToolCallID    string          `json:"toolCallId,omitempty"`
+	Message       string          `json:"message"`
+	Schema        json.RawMessage `json:"schema"`
+	Mode          string          `json:"mode,omitempty"`          // "" (form) | "url"
+	URL           string          `json:"url,omitempty"`           // url mode: what to open
+	ElicitationID string          `json:"elicitationId,omitempty"` // url mode: the agent's id, named by elicitation/complete
 }
 
 // ClientOptions are an embedder's seams (NewWith). The zero value of every
@@ -82,17 +93,26 @@ type ClientOptions struct {
 	// image blocks the model sees); an image past it is a file only. 0 =
 	// MaxInlineImagesBytes; negative = none inline.
 	InlineBudget int
-	// IDPrefix and Attach are reserved for taking over a live session from
-	// another process (string request ids that cannot collide with the
-	// earlier process's, and the state to resume from). This version
-	// supports neither: Start refuses a non-zero value.
+	// IDPrefix makes the client's request ids strings, "<prefix>-N"
+	// (ConnOptions.IDPrefix), so a later process taking over the same agent
+	// with another prefix never reuses one the agent may still answer.
+	// "" = numbers, 1, 2, … (xbind's).
 	IDPrefix string
-	Attach   *SessionState
+	// Attach takes over a live session another process started (its
+	// State(), kept with the agent's output offset): Start connects to the
+	// running agent through the Spawner — which reattaches rather than
+	// starts, with Process.Off where its reader resumes — and rebuilds the
+	// session from the state with no handshake; the in-flight prompt's
+	// response still ends its turn (Conn.Expect). The permissions the state
+	// was waiting on are the embedder's to restore (Permissions.Restore).
+	Attach *SessionState
+	// AwaitLogin keeps the agent running when it refuses to open a session
+	// because it is not signed in (-32000 from session/new or
+	// session/load): Start still returns that error, the status is error
+	// with the login, and Authenticate then signs in and opens the session.
+	// false = Start closes the agent (xbind's).
+	AwaitLogin bool
 }
-
-// SessionState is reserved (ClientOptions.Attach): what a later process
-// needs to take over a live session. It has no fields yet.
-type SessionState struct{}
 
 // DefaultCaps is what a client advertises by default — xbind's: text files
 // and terminals for the agent (its in-sandbox host serves those, not the

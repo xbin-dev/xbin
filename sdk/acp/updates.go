@@ -10,13 +10,14 @@ import (
 // requests (permissions, questions), and the answers the client sends back.
 
 func (c *Client) onNotify(m *Message) {
+	w := c.wireOf(m)
 	switch m.Method {
 	case MSessionUpdate:
 		var su SessionUpdate
 		if json.Unmarshal(m.Params, &su) != nil {
 			return
 		}
-		c.onUpdate(su.Update)
+		c.onUpdate(w, su.Update)
 	case MCancelRequest:
 		var p CancelRequestParams
 		if json.Unmarshal(m.Params, &p) != nil {
@@ -24,26 +25,38 @@ func (c *Client) onNotify(m *Message) {
 		}
 		if res := c.cfg.Perms.CancelByRPC(p.RequestID); res != nil {
 			res.Cancel = false // an explicit -32800, as the protocol asks
-			_ = c.RespondPermission(res)
+			w.RPCID = p.RequestID
+			_ = c.respondPermission(w, res)
 		}
 	case MAuthStatus:
 		var p struct {
 			AuthStatus struct{ Kind, Label string } `json:"authStatus"`
 		}
 		if json.Unmarshal(m.Params, &p) == nil {
-			c.setAuthNeeded(p.AuthStatus.Kind == "none")
+			c.setAuthNeededW(w, p.AuthStatus.Kind == "none")
 		}
-	default:
-		if c.opts.OnExt != nil && c.opts.OnExt(c.cfg, m) {
+	case MElicitComplete:
+		if !c.elicitURL() { // not advertised: an extension like any other
+			c.onExt(m)
 			return
 		}
-		if !strings.HasPrefix(m.Method, "_") {
-			c.logf("ignoring notification %s", m.Method)
-		}
+		c.onElicitComplete(w, m)
+	default:
+		c.onExt(m)
 	}
 }
 
-func (c *Client) onUpdate(raw json.RawMessage) {
+// onExt is a notification the client does not handle itself.
+func (c *Client) onExt(m *Message) {
+	if c.opts.OnExt != nil && c.opts.OnExt(c.cfg, m) {
+		return
+	}
+	if !strings.HasPrefix(m.Method, "_") {
+		c.logf("ignoring notification %s", m.Method)
+	}
+}
+
+func (c *Client) onUpdate(w *Wire, raw json.RawMessage) {
 	var env UpdateEnvelope
 	if json.Unmarshal(raw, &env) != nil {
 		return
@@ -59,7 +72,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			text = contentPlaceholder(raw)
 		}
 		if env.SessionUpdate == UpThoughtChunk {
-			c.emit(NewEvent(EvThoughtDelta, withParent(map[string]any{"text": text}, raw)))
+			c.emitW(w, NewEvent(EvThoughtDelta, withParent(map[string]any{"text": text}, raw)))
 			return
 		}
 		role := "agent"
@@ -70,7 +83,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 		if u.MessageID != "" {
 			d["messageId"] = u.MessageID
 		}
-		c.emit(NewEvent(EvMessageDelta, withParent(d, raw)))
+		c.emitW(w, NewEvent(EvMessageDelta, withParent(d, raw)))
 	case UpToolCall, UpToolCallUpdate:
 		var u ToolCallUpdate
 		if json.Unmarshal(raw, &u) != nil {
@@ -105,11 +118,11 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 		if env.SessionUpdate == UpToolCall {
 			typ = EvToolCall
 		}
-		c.emit(NewEvent(typ, d))
+		c.emitW(w, NewEvent(typ, d))
 	case UpPlan:
 		var u PlanUpdate
 		if json.Unmarshal(raw, &u) == nil {
-			c.emit(NewEvent(EvPlan, map[string]any{"entries": u.Entries}))
+			c.emitW(w, NewEvent(EvPlan, map[string]any{"entries": u.Entries}))
 		}
 	case UpUsage:
 		var u UsageUpdate
@@ -117,7 +130,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			c.mu.Lock()
 			c.usage = &u
 			c.mu.Unlock()
-			c.emit(c.partialStatus(map[string]any{"usage": u}))
+			c.emitW(w, c.partialStatus(map[string]any{"usage": u}))
 		}
 	case UpCurrentMode:
 		var u CurrentModeUpdate
@@ -128,7 +141,7 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			}
 			c.modes.CurrentModeID = u.CurrentModeID
 			c.mu.Unlock()
-			c.emit(c.partialStatus(map[string]any{"currentMode": u.CurrentModeID}))
+			c.emitW(w, c.partialStatus(map[string]any{"currentMode": u.CurrentModeID}))
 		}
 	case UpConfigOption:
 		var u ConfigOptionUpdate
@@ -136,15 +149,15 @@ func (c *Client) onUpdate(raw json.RawMessage) {
 			c.mu.Lock()
 			c.options = u.ConfigOptions
 			c.mu.Unlock()
-			c.emitOptions()
+			c.emitW(w, c.optionsEvent())
 		}
 	case UpSessionInfo:
 		var u SessionInfoUpdate
 		if json.Unmarshal(raw, &u) == nil && u.Title != "" {
-			c.emit(c.partialStatus(map[string]any{"title": u.Title}))
+			c.emitW(w, c.partialStatus(map[string]any{"title": u.Title}))
 		}
 	case UpAvailableCmds:
-		c.onCommands(raw)
+		c.onCommands(w, raw)
 	default:
 		c.logf("ignoring session update %s", env.SessionUpdate)
 	}
@@ -192,16 +205,20 @@ func (c *Client) onRequest(m *Message) (any, *Error) {
 		for i, o := range p.Options {
 			opts[i] = PermissionOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind}
 		}
-		pd, auto := c.cfg.Perms.Request(tc, opts, m.ID)
-		// rule: what "allow for the session" would remember (nothing when the
-		// call has neither kind nor title — the clients hide the option then)
-		c.emit(NewEvent(EvPermissionRequest, map[string]any{"pid": pd.PID, "toolCall": tc, "options": opts,
-			"rule": map[string]any{"kind": tc.Kind, "title": tc.Title, "scoped": tc.Rule()}, "meta": permissionMeta(m.Params)}))
-		if auto != nil {
-			_ = c.RespondPermission(auto)
+		w := c.wireOf(m)
+		pd, auto, dup := c.cfg.Perms.file(tc, opts, m.ID)
+		if dup { // read again after a handoff: it is already waiting
 			return nil, nil
 		}
-		c.setStatus(StatusWaiting, "")
+		// rule: what "allow for the session" would remember (nothing when the
+		// call has neither kind nor title — the clients hide the option then)
+		c.emitW(w, NewEvent(EvPermissionRequest, map[string]any{"pid": pd.PID, "toolCall": tc, "options": opts,
+			"rule": map[string]any{"kind": tc.Kind, "title": tc.Title, "scoped": tc.Rule()}, "meta": permissionMeta(m.Params)}))
+		if auto != nil {
+			_ = c.respondPermission(w, auto)
+			return nil, nil
+		}
+		c.setStatusW(w, StatusWaiting, "")
 		return nil, nil // answered by RespondPermission
 	case MElicitCreate:
 		return c.onElicit(m)
@@ -270,13 +287,17 @@ func (c *Client) Cancel() error {
 // RespondPermission answers the agent (selected or cancelled) and tells the
 // clients.
 func (c *Client) RespondPermission(res *Resolution) error {
+	return c.respondPermission(&Wire{RPCID: res.RPCID}, res)
+}
+
+func (c *Client) respondPermission(w *Wire, res *Resolution) error {
 	out := RequestPermissionResult{Outcome: PermissionOutcome{Outcome: "selected", OptionID: res.OptionID}}
 	if res.Cancel {
 		out.Outcome = PermissionOutcome{Outcome: "cancelled"}
 	}
 	// logged before the agent hears it, so the resolution precedes whatever
 	// the agent does next in every client's stream
-	c.emit(NewEvent(EvPermissionResolved, map[string]any{"pid": res.PID, "optionId": res.OptionID, "by": res.By}))
+	c.emitW(w, NewEvent(EvPermissionResolved, map[string]any{"pid": res.PID, "optionId": res.OptionID, "by": res.By}))
 	var err error
 	if res.By == "cancel" && res.OptionID == "" && !res.Cancel {
 		err = c.conn.Reply(res.RPCID, nil, &Error{Code: CodeRequestCancelled, Message: "request cancelled"})
@@ -287,7 +308,7 @@ func (c *Client) RespondPermission(res *Resolution) error {
 	busy, st := c.busy, c.status
 	c.mu.Unlock()
 	if busy && st != StatusCancelling && c.cfg.Perms.Count() == 0 && c.elicits.count() == 0 {
-		c.setStatus(StatusRunning, "")
+		c.setStatusW(w, StatusRunning, "")
 	}
 	return err
 }

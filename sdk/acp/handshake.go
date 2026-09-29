@@ -37,6 +37,9 @@ func (c *Client) handshake() error {
 	if init.AgentCapabilities != nil && init.AgentCapabilities.PromptCapabilities != nil {
 		c.promptCaps = *init.AgentCapabilities.PromptCapabilities
 	}
+	c.steering = steeringSupported(init.Meta)
+	c.authMethods = init.AuthMethods
+	c.initialized = true
 	c.mu.Unlock()
 	if init.ProtocolVersion != ProtocolVersion {
 		c.logf("agent speaks protocol version %d, we speak %d — continuing", init.ProtocolVersion, ProtocolVersion)
@@ -44,17 +47,28 @@ func (c *Client) handshake() error {
 	// No authenticate call: the CLI authenticates itself from its own $HOME
 	// (in xbind the same per-user home a shell terminal gets), so a login
 	// done once in a terminal serves every agent session. If the home holds
-	// no login, session/new returns -32000 and we surface how to sign in.
+	// no login, session/new returns -32000 and we surface how to sign in
+	// (an embedder may sign in through the agent instead: Authenticate).
+	return c.openSession(ctx)
+}
+
+// openSession is session/new (or session/load for cfg.ResumeID), then the
+// requested mode and options; idle once open.
+func (c *Client) openSession(ctx context.Context) error {
 	var sess SessionNewResult
 	if c.cfg.ResumeID != "" {
 		// resume: reopen the agent's earlier session — it streams the prior
-		// turns back as session/update (they land in the log like live ones),
-		// then the session continues. Only an agent that said loadSession.
+		// turns back as session/update (they land in the log like live ones,
+		// Wire.Replay set), then the session continues. Only an agent that
+		// said loadSession.
 		if !c.loadable {
 			return ErrResumeUnsupported
 		}
 		var ld SessionLoadResult
-		if err := c.conn.CallCtx(ctx, MSessionLoad, SessionLoadParams{SessionID: c.cfg.ResumeID, Cwd: c.cfg.Cwd, MCPServers: []any{}, Meta: c.cfg.Provider.SessionMeta}, &ld); err != nil {
+		c.replaying.Store(true) // cleared by the read loop on the load's answer
+		err := c.conn.CallCtx(ctx, MSessionLoad, SessionLoadParams{SessionID: c.cfg.ResumeID, Cwd: c.cfg.Cwd, MCPServers: []any{}, Meta: c.cfg.Provider.SessionMeta}, &ld)
+		if err != nil {
+			c.replaying.Store(false)
 			return fmt.Errorf("session/load: %w", c.authHint(deadlineHint(err, "reopen the session")))
 		}
 		sess = SessionNewResult{SessionID: c.cfg.ResumeID, Modes: ld.Modes, ConfigOptions: ld.ConfigOptions}
@@ -139,7 +153,7 @@ func (c *Client) SetOption(ctx context.Context, id, value string) error {
 	if err := c.setOption(id, value); err != nil {
 		return err
 	}
-	c.emitOptions()
+	c.emit(c.optionsEvent())
 	return nil
 }
 
@@ -175,12 +189,28 @@ func (c *Client) setModeLive(mode string) error {
 	return nil
 }
 
-// emitOptions publishes the current options on a status event.
-func (c *Client) emitOptions() {
+// optionsEvent is a status event with the current options.
+func (c *Client) optionsEvent() Event {
 	c.mu.Lock()
 	opts := append([]ConfigOption(nil), c.options...)
 	c.mu.Unlock()
-	c.emit(c.partialStatus(map[string]any{"options": opts}))
+	return c.partialStatus(map[string]any{"options": opts})
+}
+
+// steeringSupported reads initialize's _meta.steering.supported (the
+// steering extension's advertisement: claude-agent-acp, codex-acp).
+func steeringSupported(meta map[string]any) bool {
+	st, _ := meta["steering"].(map[string]any)
+	ok, _ := st["supported"].(bool)
+	return ok
+}
+
+// signedOut: initialize answered, no session, the agent said it is not
+// signed in — what Authenticate recovers from (ClientOptions.AwaitLogin).
+func (c *Client) signedOut() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.initialized && c.sessionID == "" && c.authNeeded
 }
 
 func sortedOptionIDs(m map[string]string) []string {

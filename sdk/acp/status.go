@@ -7,18 +7,24 @@ package acp
 // setAuthNeeded records whether the agent says it is signed out and, on a
 // change, re-emits the current status so the clients show (or clear) the
 // sign-in prompt. The status carries the login command (Provider.Login).
-func (c *Client) setAuthNeeded(need bool) {
+func (c *Client) setAuthNeeded(need bool) { c.setAuthNeededW(nil, need) }
+
+// setAuthNeededW is setAuthNeeded for what a frame said (w: its place).
+func (c *Client) setAuthNeededW(w *Wire, need bool) {
 	c.mu.Lock()
 	changed := c.authNeeded != need
 	c.authNeeded = need
 	st := c.status
 	c.mu.Unlock()
 	if changed && st != "" {
-		c.setStatus(st, "")
+		c.setStatusW(w, st, "")
 	}
 }
 
-func (c *Client) setStatus(status, detail string) {
+func (c *Client) setStatus(status, detail string) { c.setStatusW(nil, status, detail) }
+
+// setStatusW is setStatus for what a frame caused (w: its place).
+func (c *Client) setStatusW(w *Wire, status, detail string) {
 	c.mu.Lock()
 	c.status = status
 	modes := c.modes
@@ -53,7 +59,9 @@ func (c *Client) setStatus(status, detail string) {
 		d["login"] = c.login()
 	}
 	// a terminal status never blocks on a pump that is gone
-	c.send(NewEvent(EvStatus, d), status != StatusExited && status != StatusError)
+	e := NewEvent(EvStatus, d)
+	e.Wire = w
+	c.send(e, status != StatusExited && status != StatusError)
 }
 
 // partialStatus is a status event saying only what changed (fields) and the

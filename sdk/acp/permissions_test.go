@@ -63,3 +63,47 @@ func TestPermissionsFirstAnswerWins(t *testing.T) {
 		t.Fatalf("list: %+v", l)
 	}
 }
+
+// Across processes: Request is idempotent by rpc id while the request
+// waits, Restore keeps a pid and never lets a later one reuse it, and the
+// rules carry over — but never one that would allow everything.
+func TestPermissionsRestoreAndRules(t *testing.T) {
+	opts := []PermissionOption{{OptionID: "always", Kind: AllowAlways}, {OptionID: "once", Kind: AllowOnce}}
+	p := NewPermissions()
+	a, _ := p.Request(ToolCallRef{ID: "t1", Kind: "execute", Title: "ls"}, opts, json.RawMessage(`"h1.1-4"`))
+	b, _ := p.Request(ToolCallRef{ID: "t1", Kind: "execute", Title: "ls"}, opts, json.RawMessage(`"h1.1-4"`))
+	if a != b || p.Count() != 1 {
+		t.Fatalf("filed twice: %s %s", a.PID, b.PID)
+	}
+	res, err := p.Resolve(a.PID, "always", "", "user:a")
+	if err != nil || len(p.Rules()) != 1 {
+		t.Fatal(err, p.Rules())
+	}
+	if string(res.RPCID) != `"h1.1-4"` {
+		t.Fatalf("rpc id %s", res.RPCID)
+	}
+
+	q := NewPermissions()
+	q.SetRules(append(p.Rules(), Rule{}))
+	if got := q.Rules(); len(got) != 1 || got[0] != (Rule{Kind: "execute", Title: "ls"}) {
+		t.Fatalf("rules %v (an empty one must be dropped)", got)
+	}
+	q.Restore(Pending{PID: "p7", ToolCall: ToolCallRef{ID: "t9", Kind: "edit"}, Options: opts}, json.RawMessage(`12`))
+	q.Restore(Pending{PID: "p8", ToolCall: ToolCallRef{ID: "t9", Kind: "edit"}, Options: opts}, json.RawMessage(`12`))
+	if q.Count() != 1 {
+		t.Fatalf("restored twice: %d", q.Count())
+	}
+	if pd, _ := q.Request(ToolCallRef{ID: "t9", Kind: "edit"}, opts, json.RawMessage(`12`)); pd.PID != "p7" {
+		t.Fatalf("read again: %s", pd.PID)
+	}
+	if pd, auto := q.Request(ToolCallRef{ID: "t2", Kind: "execute", Title: "ls"}, opts, json.RawMessage(`13`)); auto == nil || pd.PID != "p8" {
+		t.Fatalf("the carried rule answers, the next pid follows the restored one: %v %v", pd, auto)
+	}
+	res, err = q.Resolve("p7", "", RejectOnce, "user:a")
+	if err == nil {
+		t.Fatal("no reject option offered")
+	}
+	if res, err = q.Resolve("p7", "once", "", "user:a"); err != nil || string(res.RPCID) != "12" {
+		t.Fatalf("the restored one answers to its rpc id: %v %v", res, err)
+	}
+}

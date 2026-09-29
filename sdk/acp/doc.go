@@ -26,12 +26,17 @@
 // The Spawner starts the adapter wherever it runs and hands back its stdio;
 // ClientOptions (NewWith) are the embedder's seams: the capabilities
 // advertised, where a prompt's files go, the sign-in wording, extension
-// notifications.
+// notifications, request ids, and taking over a session another process
+// started (Attach: an embedder that keeps the agent running across its own
+// restarts saves State with each event's Wire offset, and its successor
+// resumes mid-turn).
 //
 // Files: rpc.go the codec (Conn, Decoder, Encode); types.go the protocol
 // subset; event.go the events; permissions.go the pending requests and
 // their session rules; providers.go the catalog of known adapters;
 // attachments.go a prompt's files; config.go what a session and a client
 // are set up with; client.go, handshake.go, updates.go, status.go,
-// prompt.go, elicit.go, toolmeta.go, commands.go the client itself.
+// prompt.go, elicit.go, toolmeta.go, commands.go the client itself;
+// state.go taking a session over; steer.go steering a running turn;
+// auth.go signing the agent in.
 package acp
