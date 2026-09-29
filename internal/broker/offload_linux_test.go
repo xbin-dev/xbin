@@ -48,7 +48,7 @@ func TestConfinedOffloadFull(t *testing.T) {
 		}
 	}
 	const comp = "apps/calendar"
-	b := testBroker(t)
+	b := plaintextVault(testBroker(t))
 	root := b.Reg.Root
 	confine.Configure(rootfs)
 	t.Cleanup(func() { // whatever a failure left: only a confined rm clears a sub-uid's files
