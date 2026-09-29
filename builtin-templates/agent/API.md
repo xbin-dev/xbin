@@ -145,9 +145,10 @@ llm-gw's logs. Give team members `read` on the tile.
 | `DELETE /runs/{id}/grants/{cap}` | — | the owner takes a grant back before it expires → `{revoked}` (false when none was in force); **404** for an unknown `cap` |
 | `POST /runs/{id}/interrupt` | — | stop the turn in flight (never an error); the run goes idle, its subagents are cancelled, and messages still queued come back as `{returned:[{text, files}]}` |
 | `POST /runs/{id}/resume` | — | drive the run again |
-| `POST /runs/{id}/compact` | — | force a compaction now (answers when it is done) |
+| `POST /runs/{id}/compact` | — | force a compaction now — both stages, see **The task and compaction** (answers when it is done) |
+| `GET /runs/{id}/asks` | — | the run's task ledger (D133): `{asks: [{id, runId, msgId, seq, source, who, text, at, live}]}`, oldest first — every request it was given, verbatim. Read-only: nothing writes it but delivery. `source` is `human`, `parent`, `schedule`, `trigger`, `channel` or `learn`; `live` is false once the message was compacted out of the model's window (it is then pinned in the prompt) |
 | `POST /runs/{id}/learn` | — | distill the run into a saved skill (the /learn flow) |
-| `PUT /runs/{id}/memory` | `{key, value}` | set a memory block |
+| `PUT /runs/{id}/memory` | `{key, value}` | set a memory block (one of the agent's notes) |
 | `DELETE /runs/{id}/memory?key=` | — | delete a memory block |
 | `POST /runs/{id}/cancel` | `{scope?, reason?}` | durable cancel; `scope` defaults to `subtree` |
 | `GET /runs/{id}/tree` | — | the whole workflow this run belongs to: nodes (each with its `link` and `phase`), statuses, blockers, cost. Metadata only |
@@ -205,7 +206,7 @@ The stream is Server-Sent Events, `data:` a JSON `{type, run, root, seq, data}`:
 
 | type | data |
 |---|---|
-| `run` | a run's summary changed (or `{deleted:true}`); top-level runs arrive whatever run is followed — the sidebar. It carries the run's coding sandbox: `sandbox` — the active binding's `{ref, name, cwd, egress, manager}` or `null` — and `attached` (how many), as does the view's `run` (§Coding sandboxes) |
+| `run` | a run's summary changed (or `{deleted:true}`); top-level runs arrive whatever run is followed — the sidebar. It carries the run's coding sandbox: `sandbox` — the active binding's `{ref, name, cwd, egress, manager}` or `null` — and `attached` (how many), as does the view's `run` (§Coding sandboxes); and its pinned task, `task`: `{count, first, latest?}` (each `{id, seq, source, who, text, cut, at, live}`, `text` clipped — `cut` says so; the whole ledger is `GET /runs/{id}/asks`), or `null` when it has none (a watcher's) |
 | `message` | a message added or rewritten (a settled tool result); upsert by `id` |
 | `step` | a journal step |
 | `inbox` | `{queued}` — the run's undelivered messages |
@@ -354,8 +355,9 @@ their parent's, and **a schedule the agent creates gets the creating run's**.
 | `threads` | `schedules_list`, `schedule_inspect`, `threads_list`, `thread_inspect` |
 | `skills` | `skills_list`, `skill_view`, `skill_manage` |
 
-The core tools — `memory_set`/`memory_get`, `note`, `recall`, `finish`,
-`yield`, `ask_user`, `state_changed`, `attach_to_reply` — are in every class.
+The core tools — `memory_set`/`memory_get`/`memory_delete`, `note`, `recall`,
+`message_get`, `finish`, `yield`, `ask_user`, `state_changed`,
+`attach_to_reply` — are in every class.
 The Features menu can still switch an optional toolset off, and a run's
 `deny` list still hides tools.
 
@@ -455,7 +457,10 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
     "memory": "", "vlm": ""    //   memory←summarizing, vlm←vlm)
   },
   "system": "…",
-  "tokenBudget": 12000,        // compaction trigger (provider prompt tokens when known)
+  "tokenBudget": 0,            // compaction trigger in prompt tokens (the provider's count when
+                               //   known); 0 — and 12000, the old default — = 60% of the model's
+                               //   context window as its provider lists it, at least 32000
+                               //   (32000 when unknown). See **The task and compaction**
   "maxIters": 12,              // legacy: sizes the default maxTurnSteps (8×)
   "maxTurnSteps": 96,          // model calls in one turn before it stops as incomplete
   "toolTimeout": 120,          // seconds per tool call
@@ -850,13 +855,16 @@ a private-lane result by guessing.
 
 ## Loop & tools
 
-Each step: deliver queued messages and background answers → assemble context
-(system + a stable date + memory blocks + skill list + running summary + live
-transcript, compacting the oldest turns when over budget) → LLM call (streamed
-when the feature is on) → execute tool calls (a step's non-control tools run in
-parallel, each under `toolTimeout`) → repeat, up to `maxTurnSteps` per turn.
-Built-in tools: `memory_set`/`memory_get`, `note`, `recall` (FTS5 over full
-history), `xbin_call` (reach other granted components; `internal`),
+Each step: deliver queued messages and background answers → compact when over
+budget → assemble context (the system prompt, the pinned task, a stable date,
+the sandbox, the agent's notes, the skill list, the running summary, then the
+live transcript and the task reminder — see **The task and compaction**) → LLM
+call (streamed when the feature is on) → execute tool calls (a step's
+non-control tools run in parallel, each under `toolTimeout`) → repeat, up to
+`maxTurnSteps` per turn.
+Built-in tools: `memory_set`/`memory_get`/`memory_delete` (the agent's notes),
+`note`, `recall` (search of the whole history), `message_get` (one message in
+full), `xbin_call` (reach other granted components; `internal`),
 `web_search`/`web_fetch` (`web`), `schedule`/`unschedule`, `state_changed`
 (watcher), `schedules_list`/`schedule_inspect`/`threads_list`/`thread_inspect`
 (below), `skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`,
@@ -864,6 +872,79 @@ history), `xbin_call` (reach other granted components; `internal`),
 plus any bound MCP tool — each as its class allows (**Agent classes**).
 MCP servers are bound via the `mcp` interface (multi:true, like the chat tile).
 Extend these in `_backend/tools.go`.
+
+### The task and compaction (D133)
+
+**The task ledger.** Every request a run is given is recorded verbatim, in the
+transaction that delivers it into the transcript: `POST /runs` and `POST /ask`,
+a person's message, **Learn skill**, a schedule's firing (a run of its own, or
+a message into a conversation), a trigger's event, a channel's message, a
+subagent's task and every `subagent_message` its parent sends it. A watcher's
+"check now" is not a request (its job is its instructions), and neither is a
+background subagent's answer. The model reads the ledger but no tool writes
+it. `GET /runs/{id}/asks` serves it; the tile pins it under its top bar. A run
+from before the ledger has its first user message recorded when the tile
+upgrades (and a run an older process makes meanwhile, when it is first read).
+
+**What the model sees.** The system prompt holds, in order: the configured
+system prompt; `# Your task (verbatim — it outranks your notes and the
+summary)` — the first request, then later requests whose turns were compacted,
+newest last (the first up to 6000 characters, the others 1500, 12000 in all; a
+cut one names the `message_get {"seq": N}` that has the rest); the date; the
+bound sandbox; `# Your notes (you wrote these; the task above outranks them)`
+— the memory blocks, sorted by key; the skills; the latest summary. Requests
+still in the conversation are not repeated, so everything up to the last
+message changes only when a compaction runs, a note is written or the date
+turns — the provider's prompt cache keeps hitting. The last message of every
+request carries a reminder that is never stored:
+
+```
+<task-reminder>
+Current task — "<title>". Latest request (#12, human alice): "<up to 400 characters>". Its full text: # Your task, the conversation, or message_get {"seq": 12}.
+</task-reminder>
+```
+
+— appended to that message's text (a tool result, or the person's message;
+a parts array gets one more text part), on both wires; it is left out when the
+last message is the latest request itself. The call right after a compaction
+also carries, once: "Earlier turns were compacted: old tool outputs are now
+short stubs (message_get restores one) and older turns are summarized. Re-read
+# Your task before you continue."
+
+**Compaction** runs when the last call's prompt (as the provider counted it)
+passed the budget — `tokenBudget` when set, else 60% of the model's context
+window (read from the providers' model lists: `context_length`,
+`max_input_tokens`, `context_window`, `max_model_len`, … — llm-gw passes them
+through), at least 32000 — or when asked (`POST /runs/{id}/compact` runs both
+stages):
+
+1. **Masking.** Tool results older than the newest 5 steps (and over 1200
+   bytes) are shown to the model as a stub — `[bash output, 41.3 KB — hidden
+   to save context; message_get {"seq": 812} shows it, or bash_output {"job":
+   3, "offset": 0} rereads the job while the sandbox keeps it]` with its first
+   and last words. The message keeps its content (`masked: true` in the view;
+   the chat still shows it) and stays searchable. If that brings the prompt
+   under 75% of the budget, compaction stops here.
+2. **Summary.** Otherwise the oldest turns — all but those that fit in half the
+   budget, at least the newest 6 messages — are folded into a summary by the
+   `memory` model, and leave the window (`compacted`). The summarizer is shown
+   the pinned task (not to restate it: requests appear in what it folds only as
+   `[a request — pinned verbatim]`), the prior summary and the turns with their
+   tool calls. Each summary is kept (`summaries`, searched by `recall`);
+   `runs.summary` is the latest.
+
+The journal's `compaction` step says what happened: `{messages?,
+summaryTokens?, masked?, savedTokens?, budget, budgetFrom, promptTokens}`.
+
+**Getting it back.** `recall {query, match?, order?, limit?}` searches the
+whole transcript — compacted and masked messages included — and the summary
+history: ranked by relevance (bm25) by default, `order: "oldest"` (the
+original request) or `"newest"`; every word must match unless `match: "any"`;
+8 hits by default, 20 at most. Its own earlier results (and `message_get`'s)
+are never hits. A short hit is shown whole, a long one as an excerpt with its
+size. `message_get {seq, offset?}` returns one message in full, 12000
+characters a page. Notes: `memory_set` (8000 characters at most),
+`memory_get`, `memory_delete`.
 
 MCP tool lists are cached per server and persisted: a list younger than 5
 minutes is used as is, an older one is used at once and refreshed in the

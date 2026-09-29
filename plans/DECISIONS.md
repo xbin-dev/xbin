@@ -5093,6 +5093,103 @@ Deviations and refinements made while implementing; all deliberate:
     owner's scope for B2); a separate target picker in the app (the Dev API
     tag shows the session's; switching it stays a terminal restart on the
     web).
+- **D133 — The agent template keeps its task through compaction: a
+  pinned, read-only ask ledger; masking before summarising; the budget
+  from the model's window (2026-09-29).** builtin-templates/agent/API.md
+  §The task and compaction; `_backend/asks.go`, `compact.go`,
+  `recall.go`. From an agent's retrospective on the harness: after a few
+  compactions it had lost the original request and optimised a goal it had
+  reconstructed. The code showed why: the request was only the first user
+  message, compacted like any other; the budget defaulted to 12 000 tokens,
+  so most coding turns compacted; each summary was a summary of the last
+  one, without the tool calls; `recall` returned the newest 8 hits with
+  every word required, so the oldest message — the request — was the first
+  crowded out; and memory blocks rendered in random map order, which also
+  broke the provider's cached prefix on every call.
+  - **(a) A ledger, verbatim, never rewritten by a model.** `asks(run_id,
+    msg_id, seq, source, who, text, at)` gets every request in the
+    transaction that delivers it (POST /runs and /ask, messages, Learn
+    skill, schedule and trigger firings, channel messages, a subagent's
+    task and its parent's `subagent_message`s; a watcher's "check now" is
+    not one). No tool writes it; `GET /runs/{id}/asks` reads it. The
+    migration is additive (two tables, `messages.masked`,
+    `runs.compact_note`) and pins each existing run's first user message;
+    a run an older binary makes during a blue/green overlap is pinned when
+    first read. Evidence: *Lost in the Middle* (Liu et al., TACL 2024) — a
+    compacted first turn ends up mid-context, where it is used worst; goal
+    drift follows accumulated off-goal context (Arike et al., AIES 2025);
+    repeated LLM rewrites collapse context (ACE, Zhang et al., ICLR 2026);
+    Letta's read-only blocks and Codex keeping user turns verbatim.
+  - **(b) Pinned high, recited low, the prefix kept stable.** After the
+    configured system prompt, `# Your task (verbatim — it outranks your
+    notes and the summary)`: the first request, then later requests whose
+    turns were compacted, newest last (capped; a cut item names the
+    `message_get` that has the rest). Requests still in the conversation
+    are not repeated there, so the system prompt changes only when a
+    compaction runs (which breaks the cache anyway), never per message.
+    The last message of every call gets a `<task-reminder>` — the title and
+    the latest request, clipped — appended to its text and never stored:
+    recency without touching the cached prefix (only the last message
+    differs from the previous call), on both wires (a tool result's text, a
+    user message's text or one more part; a trailing `user` after `tool` is
+    refused by some providers, a trailing `system` is hoisted or refused by
+    others). The call after a compaction is told so once. Evidence: Manus
+    recites the task at the end of the context; *LLMs Get Lost in
+    Multi-Turn Conversation* (Laban et al., ICLR 2026) — a consolidated
+    restatement recovers most of the loss.
+  - **(c) Notes, not the task.** Memory renders sorted under `# Your notes
+    (you wrote these; the task above outranks them)`; `memory_delete`;
+    `memory_set` says the task is pinned (don't restate it) and caps a note
+    at 8000 characters. The UI's word for the blocks stays "Memory".
+  - **(d) Mask first, summarise only if still over.** Stage 1 shows tool
+    results older than the newest 5 steps (over 1200 bytes) as stubs that
+    say how to restore them (`message_get {"seq": N}`, and `bash_output
+    {job, offset: 0}` for a job) with their first and last words; the row
+    and the search index keep every byte. Stage 2, only when stage 1 left
+    the prompt over 75% of the budget: the summarizer gets the pinned task
+    (to judge, never to restate), the prior summary and the turns with
+    their tool calls; requests appear in it only by reference. Summaries are
+    kept as a history (recall searches it); `runs.summary` is the latest.
+    Evidence: *The Complexity Trap* (Lindenbauer et al., NeurIPS'25
+    workshop) — observation masking alone matches or beats LLM
+    summarisation at a fraction of the cost; SWE-agent's
+    last-5-observations ablation; ACON (ICML 2026) — test the compressor
+    against regression cases (the Go tests: the task survives three
+    compactions verbatim; stubs restore byte for byte).
+  - **(e) The budget from the window.** 60% of the model's context window
+    as its provider lists it (`context_length`, `max_input_tokens`,
+    `context_window`, `max_model_len`, … — llm-gw passes model objects
+    through), at least 32 000 and never over 80% of the window; 32 000 when
+    unknown (OpenAI's list says nothing). An explicit `tokenBudget` wins;
+    `0` and `12000` — the old default every stored config carries — read as
+    unset, so existing runs get the new budget. An owner who really wants
+    12 000 sets 12 001.
+  - **(f) recall and message_get.** bm25 ranking by default, `order:
+    oldest|newest`, `match: any`, up to 20 hits; its own earlier results
+    and `message_get`'s are never hits; the summary history is searched
+    too; a long hit is an excerpt with its size. `message_get {seq,
+    offset?}` returns any message of the run in full, 12 000 characters a
+    page — compacted and masked ones included.
+  - **(g) UI.** The web top bar pins the first request on a line under the
+    controls, unfolding to the ledger; the native view has **Task** in the
+    run menu, a screen of every request. Both read-only (feature
+    `top.task`). A compaction step says what was summarised and how many
+    outputs were hidden.
+  - **Also fixed:** the call right after a compaction was assembled from
+    the run as read before it — without the new summary (and the note).
+  - **Not chosen:** an LLM "goal checker" before `finish` (measure the
+    pinned task first); a task block holding every request (a new message
+    would break the whole cached prefix); a trailing system message for the
+    reminder; a per-model context table in the agent (a guess that goes
+    stale — providers that say it are read, the rest get the floor).
+  - **Open (the owner, 2026-09-29):** no budget ceiling for now — a
+    1M-token window gets a 600k budget, each step resending it (masking
+    and the provider's cache soften the cost); revisit with real runs.
+    Follow-up: a per-model `contextWindow` override in llm-gw's config,
+    injected into its `/v1/models` answer, for upstreams that list none
+    (OpenAI's) — llm-gw has no config route for per-model settings yet
+    (its pricing map has none either), so it is a route and a UI, not a
+    field.
 - **D134 — The agent's sandbox tools: jobs that don't kill themselves or
   lose their output, a tile sandbox with the rootfs toolchains, and tool
   descriptions that state their limits first (2026-09-29).**

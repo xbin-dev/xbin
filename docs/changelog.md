@@ -63,6 +63,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   and a miss names the other place. Existing conversations and files keep
   working (older rows show no hash or source); template instances pick this
   up with a template update. Nothing to change.
+- **Agent template: the task survives compaction** (D133,
+  `builtin-templates/agent/API.md` §The task and compaction). Every request
+  a conversation is given — a person's message, a schedule's or trigger's
+  firing, a channel message, a subagent's task and its parent's messages —
+  is recorded verbatim in a read-only task ledger (`GET
+  /runs/{id}/asks`) and pinned in the agent's prompt under `# Your task`,
+  with a short reminder at the end of every call (never stored, so the
+  provider's prompt cache keeps hitting). Compaction first hides old tool
+  outputs behind stubs the agent can restore (`message_get`), and
+  summarises only if that was not enough; summaries are kept and
+  searchable. The compaction budget now comes from the model's context
+  window when its provider lists it (60%, at least 32 000 tokens); an
+  explicit `tokenBudget` still wins, and `0` or the old default `12000`
+  mean "from the model". `recall` ranks by relevance, can search oldest
+  first or for any word, and skips its own results; `memory_delete` joins
+  the notes. The run header pins the task (web: under the top bar; the xbin
+  app: **Task** in the run menu). Instances pick it up with a template
+  update; their databases migrate in place (each run's first request is
+  pinned). Nothing to change.
 
 ## 2026-09-28
 
