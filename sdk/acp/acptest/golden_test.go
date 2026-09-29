@@ -61,6 +61,8 @@ type driver struct {
 	auto  map[string]string // an agent request's method → the reply's body
 	exit  func() int        // waits for the agent to end: its exit code
 	after map[int]func()    // run once the response to this call id is read
+	// newAnswered, when set, is told once session/new's answer is read
+	newAnswered func()
 }
 
 const wait = 10 * time.Second
@@ -203,9 +205,31 @@ func (d *driver) handshake() {
 	d.t.Helper()
 	d.call(1, "initialize", initParams)
 	d.response(1)
-	d.call(2, "session/new", newParams)
-	d.response(2)
-	d.update("available_commands_update", "")
+	d.sessionNew(2, newParams)
+}
+
+// sessionNew is session/new's answer, once the slash commands the agent
+// sends 50 ms later are in too (in either order: a stalled machine may
+// swap them; the in-process goldens pin the order with newAnswered).
+func (d *driver) sessionNew(id int, params string) *frame {
+	d.t.Helper()
+	d.call(id, "session/new", params)
+	want := strconv.Itoa(id)
+	var answer *frame
+	commands := false
+	d.until("session/new's answer and the slash commands", func(f *frame) bool {
+		if f.Method == "" && string(f.ID) == want && answer == nil {
+			answer = f
+			if d.newAnswered != nil {
+				d.newAnswered()
+			}
+		}
+		if f.Method == "session/update" && f.Params.Update.Kind == "available_commands_update" {
+			commands = true
+		}
+		return answer != nil && commands
+	})
+	return answer
 }
 
 // turn prompts and waits for the turn's answer.
@@ -481,21 +505,29 @@ func runServe(t testing.TB, dir string, o Options) *driver {
 	return d
 }
 
-// thirdTickWaits holds the third 200 ms pause until release is closed: a
-// cancel sent after "tick 2" lands mid-turn however loaded the machine is.
-func thirdTickWaits(release chan struct{}) func(time.Duration) {
+// goldenWait keeps the transcripts' order however loaded the machine is:
+// the slash commands' 50 ms pause ends only once session/new's answer was
+// read, and (with release) the third 200 ms tick waits until release is
+// closed, so a cancel sent after "tick 2" lands mid-turn.
+func goldenWait(answered <-chan struct{}, release chan struct{}) func(time.Duration) {
 	var mu sync.Mutex
-	n := 0
+	ticks := 0
 	return func(d time.Duration) {
-		mu.Lock()
-		if d == 200*time.Millisecond {
-			n++
-		}
-		third := n == 3
-		mu.Unlock()
-		if third {
-			<-release
-			return
+		switch d {
+		case 50 * time.Millisecond:
+			select {
+			case <-answered:
+			case <-time.After(wait):
+			}
+		case 200 * time.Millisecond:
+			mu.Lock()
+			ticks++
+			third := ticks == 3
+			mu.Unlock()
+			if third && release != nil {
+				<-release
+				return
+			}
 		}
 		time.Sleep(d)
 	}
@@ -521,13 +553,17 @@ func TestGolden(t *testing.T) {
 			case bin != "":
 				d = runBinary(t, bin, dir)
 				sc.play(d)
-			case sc.name == "slow-cancel":
-				release := make(chan struct{})
-				d = runServe(t, dir, Options{Getenv: goldenEnv, wait: thirdTickWaits(release)})
-				d.after = map[int]func(){3: func() { close(release) }}
-				sc.play(d)
 			default:
-				d = runServe(t, dir, Options{Getenv: goldenEnv})
+				answered := make(chan struct{})
+				var release chan struct{}
+				if sc.name == "slow-cancel" {
+					release = make(chan struct{})
+				}
+				d = runServe(t, dir, Options{Getenv: goldenEnv, wait: goldenWait(answered, release)})
+				d.newAnswered = func() { close(answered) }
+				if release != nil {
+					d.after = map[int]func(){3: func() { close(release) }}
+				}
 				sc.play(d)
 			}
 			file := filepath.Join("testdata", "golden", sc.name+".txt")

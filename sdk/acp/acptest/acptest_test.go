@@ -310,12 +310,10 @@ func TestPersist(t *testing.T) {
 	d := runServe(t, home, Options{Persist: true, Getenv: env})
 	d.call(1, "initialize", initParams)
 	d.response(1)
-	d.call(2, "session/new", newParams)
-	sid := str(get(d.response(2), "result", "sessionId"))
+	sid := str(get(d.sessionNew(2, newParams), "result", "sessionId"))
 	if !strings.HasPrefix(sid, "fake-") || sid == "fake-1" {
 		t.Fatalf("a persisted session's id %q", sid)
 	}
-	d.update("available_commands_update", "")
 	d.call(3, "session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"hello"}]}`)
 	d.response(3)
 	d.finish()
