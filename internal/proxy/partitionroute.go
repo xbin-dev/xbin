@@ -125,6 +125,9 @@ func (h *backendHold) done() {
 // tile, a partitioned tile's global instance — as today.
 func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, target string, d Decision) (string, *backendHold, error) {
 	if !d.Partition.IsUser() {
+		// Every unpartitioned tile's one instance, and a partitioned tile's
+		// global one (today's instance, PD-04).
+		// deployment: the target Route returned.
 		sock, err := px.Runner.EnsureDeployment(ctx, comp, target)
 		if err != nil {
 			return "", nil, err

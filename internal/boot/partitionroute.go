@@ -7,15 +7,15 @@ package boot
 // classes and refusal errors) speaks its own types. partitionStarts adapts
 // one to the other explicitly — never by a type assertion that could
 // quietly fail on a signature drift — and partitionRunnerOf builds it from
-// the runner. Until the runner has that side, partitionRunnerOf is nil:
-// a call reaching a user partition answers 503 "no partition runner", and
-// boot logs an error naming every partitioned tile, so the gap is never
-// silent. TestPartitionRunnerWired fails once the runner grows
-// EnsurePartition while partitionRunnerOf is still nil.
+// the runner. Without one (partitionRunnerOf nil) a call reaching a user
+// partition answers 503 "no partition runner", and boot logs an error
+// naming every partitioned tile, so the gap is never silent;
+// TestPartitionRunnerWired fails a build whose runner has EnsurePartition
+// while partitionRunnerOf is nil.
 //
 // Also here: registerPartitionInstance, the runner's
 // RegisterPartitionInstance hook (auth's RegisterInstancePartition with the
-// person's uid from the users store).
+// uid of the person's incarnation the runner's state was made for).
 
 import (
 	"context"
@@ -29,20 +29,23 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// partitionRunnerOf builds the proxy's PartitionRunner over run; nil while
-// the runner can't start people's partitions. The integrator of the
-// runner's side sets it (plans/partitions/records/F2.md, "Seams"):
-//
-//	partitionRunnerOf = func(run *runner.Runner) proxy.PartitionRunner {
-//		return partitionStarts[runner.StartClass]{
-//			ensure: run.EnsurePartition, track: run.TrackPartition,
-//			classes: [...]runner.StartClass{proxy.StartInteractive: runner.StartInteractive,
-//				proxy.StartBackground: runner.StartBackground, proxy.StartMail: runner.StartMail},
-//			unavailable: []error{runner.ErrPartitionBusy, runner.ErrPartitionDeferred,
-//				runner.ErrPartitionRefused, runner.ErrNoPartition},
-//		}
-//	}
-var partitionRunnerOf func(run *runner.Runner) proxy.PartitionRunner
+// partitionRunnerOf builds the proxy's PartitionRunner over run: the
+// runner's EnsurePartition and TrackPartition, its start classes by name,
+// and its refusals — the caps (ErrPartitionBusy, whose text is the 503's
+// exactly), a deferred delivery, a start this xbind can't make now
+// (ErrPartitionRefused: no --isolate, a person who may not run it, …) and
+// a missing global instance (which the proxy never asks this for) — each a
+// 503 keeping its text. nil would leave every person's partition at 503
+// "no partition runner" (TestPartitionRunnerWired).
+var partitionRunnerOf = func(run *runner.Runner) proxy.PartitionRunner {
+	return partitionStarts[runner.StartClass]{
+		ensure: run.EnsurePartition, track: run.TrackPartition,
+		classes: [...]runner.StartClass{proxy.StartInteractive: runner.StartInteractive,
+			proxy.StartBackground: runner.StartBackground, proxy.StartMail: runner.StartMail},
+		unavailable: []error{runner.ErrPartitionBusy, runner.ErrPartitionDeferred,
+			runner.ErrPartitionRefused, runner.ErrNoPartition},
+	}
+}
 
 // partitionStarts is a proxy.PartitionRunner over a runner's start and
 // hold functions, whose start class type is C.
@@ -98,15 +101,14 @@ func (st *State) wirePartitionProxy(px *proxy.Proxy) {
 // registerPartitionInstance registers the instance token of a generation
 // of partition part of deployment dep of tile (the runner's
 // RegisterPartitionInstance hook): auth's RegisterInstancePartition with
-// the person's uid, which the runner's PartitionIdent minted before the
-// start. A person without one registers nothing (fail closed).
-func (st *State) registerPartitionInstance(token, tile, dep, part string) {
-	pt := util.Partition(part)
-	uid := ""
-	if id, ok := pt.User(); ok && st.Users != nil {
-		if u, ok := st.Users.Get(id); ok {
-			uid = u.UID
-		}
+// the uid of the person's incarnation the runner's state was made for
+// (PartitionIdent's answer), so a token of an earlier incarnation never
+// authenticates as a recreated person (coverage compares the uid on every
+// lookup). No uid registers nothing (fail closed). The runner calls it
+// under its state's lock: it never calls into the runner.
+func (st *State) registerPartitionInstance(token, tile, dep, part, uid string) {
+	if uid == "" {
+		return
 	}
-	st.Auth.RegisterInstancePartition(token, tile, dep, pt, uid)
+	st.Auth.RegisterInstancePartition(token, tile, dep, util.Partition(part), uid)
 }

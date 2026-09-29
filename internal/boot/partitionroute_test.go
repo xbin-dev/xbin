@@ -105,8 +105,8 @@ func TestPartitionStartsAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &State{Auth: au, Users: st}
-	s.registerPartitionInstance("tok-alice", "apps/t", "main", "user:alice")
-	s.registerPartitionInstance("tok-bob", "apps/t", "main", "user:bob") // no uid yet: nothing
+	s.registerPartitionInstance("tok-alice", "apps/t", "main", "user:alice", uid)
+	s.registerPartitionInstance("tok-bob", "apps/t", "main", "user:bob", "") // no uid: nothing
 	lookup := func(tok string) (auth.Principal, bool) {
 		r := httptest.NewRequest("GET", "/api/xbin/whoami", nil)
 		r.Header.Set("Authorization", "Bearer "+tok)
@@ -179,7 +179,11 @@ func TestPartitionWiring(t *testing.T) {
 		t.Errorf("alice's document: %d %s", code, body)
 	}
 	frame := map[string]string{auth.FrameTokenHeader: d.st.Auth.MintFrameToken("apps/pa", "alice", time.Hour)}
-	if code, body := do("GET", "/api/xbin/kv/res:apps/pa/db/k", frame); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
+	if code, body := do("GET", "/api/xbin/bus/subscriptions", frame); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
+		t.Errorf("alice's frame on bus subscriptions: %d %s", code, body)
+	}
+	// kv acts on her partition (the data plane): past the gate, to the handler
+	if code, body := do("GET", "/api/xbin/kv/res:apps/pa/db/k", frame); code != 404 || !strings.Contains(body, "no such kv resource") {
 		t.Errorf("alice's frame on kv: %d %s", code, body)
 	}
 	if code, body := do("GET", "/api/xbin/whoami", frame); code != 200 {
