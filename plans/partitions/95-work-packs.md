@@ -456,7 +456,11 @@ file and the split are named under "Merge contention".
   - cron, bus, mail, ingress → global;
   - the consent policy off and on;
   - personal binds.
-- `test/isolated`: partition binds, `"read"` read-only, host-net isolation.
+- `test/isolated`: partition binds, `"read"` read-only, host-net isolation;
+  the sandbox-manager suite's `user-partitions` section through xbind (a
+  partitioned fixture consumer bound to the coding-sandbox copy, so the
+  manager's parser meets F2's real headers; drop its skip in
+  `codingsandbox_test.go`, B1).
 - `test/downgrade_test.go`: the previous release's xbind, uid re-adoption,
   a plaintext archive restored by the old release, and a sealed one
   refused.

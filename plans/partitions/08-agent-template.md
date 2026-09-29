@@ -277,8 +277,8 @@ conversations in global's `db`. `run_grants` (D111), `asks`, `summaries`,
 - **Labels:** `xbin.agent/home=<global | partition id>` beside
   `xbin.agent/conversation=<id>` (`sandbox_routes.go:506-509`), so ids of
   different homes never collide.
-- **Old managers (C12):** in user mode, a bound manager whose `hello` lacks
-  `caps.partitions` is not used: sandbox tools are unavailable in private
+- **Old managers (C12):** in user mode, a bound manager whose `hello.caps`
+  lack the word `partitions` is not used: sandbox tools are unavailable in private
   conversations, with one banner naming the manager tile and the update
   command; shared conversations (global) keep working with it. The switch
   confirmation (01 §2.5), instantiation and `bx doctor` check bound managers

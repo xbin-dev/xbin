@@ -436,7 +436,7 @@ func TestXbinBackendMapping(t *testing.T) {
 	a := tg.As(t, "apps/agent").Verified("alice")
 
 	h := hello(t, a)
-	if caps := strs(h["caps"]); !slices.Equal(caps, []string{"exec", "files", "tar", "tty", "snapshots", "clone"}) {
+	if caps := strs(h["caps"]); !slices.Equal(caps, []string{"exec", "files", "tar", "tty", "snapshots", "clone", "partitions"}) { // (partitions: the manager's own)
 		t.Fatalf("hello's caps are the runtime's (never archive): %v", caps)
 	}
 	if eg := strs(h["egress"]); !slices.Equal(eg, []string{"none", "internet"}) {
@@ -584,7 +584,7 @@ func TestXbinBackendRuntimeUnbuilt(t *testing.T) {
 	a := tg.As(t, "apps/agent")
 	h := hello(t, a)
 	notes := fmt.Sprint(h["notes"])
-	if len(strs(h["caps"])) != 0 || len(h["images"].([]any)) != 1 ||
+	if !slices.Equal(strs(h["caps"]), []string{"partitions"}) || len(h["images"].([]any)) != 1 || // (the manager's own alone)
 		!strings.Contains(notes, "setup script are hidden") || !strings.Contains(notes, "exec or files yet") {
 		t.Fatalf("hello while the runtime is unbuilt: %v", h)
 	}

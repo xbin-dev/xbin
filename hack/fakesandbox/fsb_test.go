@@ -42,7 +42,7 @@ func newFake(t *testing.T, tweak ...func(*fsbManager)) (*fsbManager, sandboxcont
 
 func TestContract(t *testing.T) {
 	tg := fakeTarget(t, sandboxcontract.Knobs{})
-	tg.Caps = []string{"exec", "files", "tar", "snapshots", "clone", "archive"}
+	tg.Caps = []string{"exec", "files", "tar", "snapshots", "clone", "archive", "partitions"}
 	if fsbHasPTY() {
 		tg.Caps = append(tg.Caps, "tty")
 	}
@@ -191,6 +191,31 @@ func TestFakeTTYStdin(t *testing.T) {
 	a.Call("POST", "/sandboxes/"+id+"/execs/"+x.ID+"/stdin?eof=1", nil, http.StatusNoContent, nil)
 	if out, c := a.Drain(id, x.ID); !strings.Contains(out, "done") || c.ExitCode == nil || *c.ExitCode != 0 {
 		t.Fatalf("after ^D: %q %+v", out, c)
+	}
+}
+
+// Without "partitions" in its Caps the fake is a manager from before
+// partitions (a consumer's degrade path is tested against it): it ignores
+// X-XBin-Partition*, so every partition of a consumer is that consumer. With
+// them, the calls it saw say which partition made them.
+func TestFakeWithoutPartitions(t *testing.T) {
+	t.Parallel()
+	m, tg := newFake(t, func(m *fsbManager) { m.Caps = []string{"exec", "files"} })
+	a := tg.As(t, "apps/a")
+	alice, bob := a.InPartition("alice", "u-a"), a.InPartition("bob", "u-b")
+	sb := alice.Create(map[string]any{"name": "merged", "visibility": "team"})
+	if sb.Owner.PartitionID != "" || sb.Owner.User != "" {
+		t.Fatalf("an old manager's owner: %+v", sb.Owner)
+	}
+	bob.Get(sb.ID)
+	a.Get(sb.ID)
+	alice.Asserting("mallory").Get(sb.ID) // no person from the partition either
+	var last fsbCall
+	for _, c := range m.Calls() {
+		last = c
+	}
+	if last.Partition != "user:alice" || last.PartitionID != "u-a" || last.SbxUser != "mallory" {
+		t.Fatalf("the call it saw: %+v", last)
 	}
 }
 

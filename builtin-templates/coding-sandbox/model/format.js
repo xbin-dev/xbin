@@ -78,8 +78,12 @@ export function whoText(s) {
   const members = (s && s.members) || [];
   const here = s && s.visibility === 'team' ? 'everyone its consumer serves'
     : `its owner${members.length ? ` and ${members.join(', ')}` : ''}`;
-  return [here, ...((s && s.shares) || []).map((x) => `${x.consumer} (${usersText(x.users)})`)].join(' · ');
+  return [here, ...((s && s.shares) || []).map((x) => `${consumerText(x.consumer, x.partitionId)} (${usersText(x.users)})`)].join(' · ');
 }
+
+// consumerText: a consumer tile, or one user partition of a partitioned
+// consumer (its opaque id, shortened).
+export const consumerText = (consumer, partitionId) => (partitionId ? `${consumer}/${String(partitionId).slice(0, 8)}` : consumer);
 
 // parseUsers: "*" or "" → "*" (everyone); a list of ids, split on commas and spaces.
 export function parseUsers(text) {

@@ -53,7 +53,7 @@ import (
 type fsbManager struct {
 	Root        string        // sandboxes live in <Root>/<id>/, snapshots in <Root>/.snaps/
 	DefaultFrom string        // the consumer when X-XBin-From is missing (a test calling directly)
-	Caps        []string      // the capabilities hello offers (nil = all; tty where the host has terminals)
+	Caps        []string      // the capabilities hello offers (nil = all; tty where the host has terminals). Without "partitions" it is a manager from before them: it ignores X-XBin-Partition*
 	Grace       time.Duration // TERM → KILL on a timeout (0 = 5 s)
 	Ring        int           // an exec's output ring (0 = 1 MiB); it keeps between Ring and 2×Ring bytes
 	FileMax     int64         // limits.fileMax (0 = 64 MiB)
@@ -75,6 +75,7 @@ type fsbManager struct {
 // fsbCall is one request the manager saw (tests assert on them).
 type fsbCall struct {
 	Method, Path, Query, From, User, SbxUser, Body string
+	Partition, PartitionID                         string // X-XBin-Partition, X-XBin-Partition-Id
 }
 
 type fsbFault struct {
@@ -98,10 +99,15 @@ type fsbSize struct {
 	DiskGiB int    `json:"diskGiB"`
 }
 
+// fsbOwner is the sandbox's home — its consumer and, for a partitioned
+// consumer's user partition, that partition (absent: the consumer's
+// non-personal identity, "" ≡ global) — and its person.
 type fsbOwner struct {
-	User     string `json:"user"`
-	Via      string `json:"via"`
-	Asserted bool   `json:"asserted"`
+	User        string `json:"user"`
+	Via         string `json:"via"`
+	PartitionID string `json:"partitionId,omitempty"`
+	Partition   string `json:"partition,omitempty"`
+	Asserted    bool   `json:"asserted"`
 }
 
 // fsbUsers is a share's people: "*" (everyone the consumer serves) or a list.
@@ -146,8 +152,9 @@ func (u fsbUsers) has(user string) bool {
 }
 
 type fsbShare struct {
-	Consumer string   `json:"consumer"`
-	Users    fsbUsers `json:"users"`
+	Consumer    string   `json:"consumer"`
+	PartitionID string   `json:"partitionId,omitempty"` // one user partition of it ("": its non-personal identity)
+	Users       fsbUsers `json:"users"`
 }
 
 // fsbSandbox is the contract's sandbox resource.
@@ -313,9 +320,14 @@ func (m *fsbManager) Close() {
 
 // --- plumbing ----------------------------------------------------------------
 
+// fsbCaller is who asks: the consumer and, from a partitioned consumer's
+// user partition, that partition (partID "" is the consumer's non-personal
+// identity: unpartitioned, or its global instance) — the consumer identity
+// is (from, partID) — and the person.
 type fsbCaller struct {
-	from, user string
-	verified   bool
+	from, user   string
+	partID, part string
+	verified     bool
 }
 
 func (m *fsbManager) caller(r *http.Request) fsbCaller {
@@ -323,10 +335,55 @@ func (m *fsbManager) caller(r *http.Request) fsbCaller {
 	if from == "" {
 		from = m.DefaultFrom
 	}
+	if m.hasCap("partitions") {
+		if id, part, person, _ := fsbPartitionOf(r); id != "" { // (ServeHTTP refused the ones that don't agree)
+			return fsbCaller{from: from, user: person, partID: id, part: part, verified: true}
+		}
+	}
 	if u := r.Header.Get("X-XBin-User"); u != "" {
 		return fsbCaller{from: from, user: u, verified: true}
 	}
 	return fsbCaller{from: from, user: r.Header.Get("Sbx-User")}
+}
+
+// key is the consumer identity as one string (clientIds): the consumer
+// alone, or with its user partition.
+func (c fsbCaller) key() string {
+	if c.partID == "" {
+		return c.from
+	}
+	return c.from + "\x01" + c.partID
+}
+
+// fsbPartitionOf reads X-XBin-Partition ("user:<id>" or "global") and
+// X-XBin-Partition-Id: a user partition's id, its "user:<id>" and its
+// person ("" for none and for global), or why they don't agree.
+func fsbPartitionOf(r *http.Request) (id, part, person string, err error) {
+	part, id = r.Header.Get("X-XBin-Partition"), r.Header.Get("X-XBin-Partition-Id")
+	switch {
+	case id == "" && (part == "" || part == "global"):
+		return "", "", "", nil
+	case !strings.HasPrefix(part, "user:") || part == "user:" || id == "":
+		return "", "", "", fmt.Errorf("the partition headers don't agree (%q, id %q)", part, id)
+	}
+	return id, part, strings.TrimPrefix(part, "user:"), nil
+}
+
+// fsbPartitionCheck is why r can't be served as the partition it comes from
+// ("" when it can): a user partition's call is its person's — a page's
+// X-XBin-User or a backend's Sbx-User naming another is refused.
+func fsbPartitionCheck(r *http.Request) string {
+	id, part, person, err := fsbPartitionOf(r)
+	switch {
+	case err != nil:
+		return err.Error()
+	case id == "":
+		return ""
+	case r.Header.Get("X-XBin-User") != "" && r.Header.Get("X-XBin-User") != person,
+		r.Header.Get("Sbx-User") != "" && r.Header.Get("Sbx-User") != person:
+		return "a call from " + part + "'s partition is " + person + "'s"
+	}
+	return ""
 }
 
 type fsbError struct {
@@ -381,9 +438,20 @@ func (m *fsbManager) caps() []string {
 		return m.Caps
 	}
 	if fsbHasPTY() {
-		return []string{"exec", "files", "tar", "tty", "snapshots", "clone", "archive", "ports"}
+		return []string{"exec", "files", "tar", "tty", "snapshots", "clone", "archive", "ports", "partitions"}
 	}
-	return []string{"exec", "files", "tar", "snapshots", "clone", "archive", "ports"}
+	return []string{"exec", "files", "tar", "snapshots", "clone", "archive", "ports", "partitions"}
+}
+
+// boxCaps are a sandbox's: hello's, but partitions (the manager's own).
+func (m *fsbManager) boxCaps() []string {
+	out := []string{}
+	for _, c := range m.caps() {
+		if c != "partitions" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (m *fsbManager) hasCap(c string) bool {
@@ -427,8 +495,15 @@ func (m *fsbManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	m.mu.Lock()
 	m.calls = append(m.calls, fsbCall{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery,
-		From: r.Header.Get("X-XBin-From"), User: r.Header.Get("X-XBin-User"), SbxUser: r.Header.Get("Sbx-User"), Body: body})
+		From: r.Header.Get("X-XBin-From"), User: r.Header.Get("X-XBin-User"), SbxUser: r.Header.Get("Sbx-User"), Body: body,
+		Partition: r.Header.Get("X-XBin-Partition"), PartitionID: r.Header.Get("X-XBin-Partition-Id")})
 	m.mu.Unlock()
+	if m.hasCap("partitions") {
+		if why := fsbPartitionCheck(r); why != "" {
+			fsbFail(w, http.StatusForbidden, "not-allowed", why)
+			return
+		}
+	}
 	m.mux.ServeHTTP(w, r)
 }
 
@@ -492,32 +567,59 @@ func (m *fsbManager) noTTY(w http.ResponseWriter) bool {
 
 // --- access ------------------------------------------------------------------
 
-// visible: the caller's consumer is the sandbox's home or it was shared with it.
-func (b *fsbBox) share(consumer string) (fsbShare, bool) {
+// share is the sandbox's share with consumer's partition partID ("": its
+// non-personal identity).
+func (b *fsbBox) share(consumer, partID string) (fsbShare, bool) {
 	for _, s := range b.Shares {
-		if s.Consumer == consumer {
+		if s.Consumer == consumer && s.PartitionID == partID {
 			return s, true
 		}
 	}
 	return fsbShare{}, false
 }
 
-func (b *fsbBox) visible(c fsbCaller) bool {
-	if b.Owner.Via == c.from {
-		return true
-	}
-	_, ok := b.share(c.from)
-	return ok
+// home: the caller is the sandbox's consumer, in the same partition of it.
+func (b *fsbBox) home(c fsbCaller) bool {
+	return b.Owner.Via == c.from && b.Owner.PartitionID == c.partID
 }
 
-// personOK: on a verified call the person must be allowed; a backend call is
-// the consumer's to police.
+// consumerHome: c is a user partition of the consumer whose non-personal
+// identity the sandbox is homed at.
+func (b *fsbBox) consumerHome(c fsbCaller) bool {
+	return c.partID != "" && b.Owner.Via == c.from && b.Owner.PartitionID == ""
+}
+
+// visible: the caller is the sandbox's home or it was shared with it; a
+// user partition also sees what its person may use at its consumer's
+// non-personal identity (never the converse).
+func (b *fsbBox) visible(c fsbCaller) bool {
+	if b.home(c) {
+		return true
+	}
+	if _, ok := b.share(c.from, c.partID); ok {
+		return true
+	}
+	if c.partID == "" {
+		return false
+	}
+	_, viaShare := b.share(c.from, "")
+	return (viaShare || b.consumerHome(c)) && b.personOK(c)
+}
+
+// personOK: on a verified call (a page's, a user partition's) the person
+// must be allowed; a backend call is the consumer's to police.
 func (b *fsbBox) personOK(c fsbCaller) bool {
 	if !c.verified {
 		return true
 	}
-	if b.Owner.Via != c.from {
-		if s, _ := b.share(c.from); !s.Users.has(c.user) {
+	if !b.home(c) && !b.consumerHome(c) {
+		s, ok := b.share(c.from, c.partID)
+		in := ok && s.Users.has(c.user)
+		if c.partID != "" {
+			s, ok = b.share(c.from, "")
+			in = in || ok && s.Users.has(c.user)
+		}
+		if !in {
 			return false
 		}
 	}
@@ -534,13 +636,13 @@ func (b *fsbBox) personOK(c fsbCaller) bool {
 
 // canAdmin: who may change visibility, members and shares.
 func (b *fsbBox) canAdmin(c fsbCaller) bool {
-	return b.Owner.Via == c.from && (!c.verified || c.user == b.Owner.User)
+	return b.home(c) && (!c.verified || c.user == b.Owner.User)
 }
 
 // view is the resource as c sees it.
 func (b *fsbBox) view(c fsbCaller) fsbSandbox {
 	v := b.fsbSandbox
-	v.Shared = b.Owner.Via != c.from
+	v.Shared = !b.home(c)
 	if v.Members == nil {
 		v.Members = []string{}
 	}
@@ -700,7 +802,7 @@ func (m *fsbManager) create(w http.ResponseWriter, r *http.Request) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ikey := c.from + "\x00create\x00" + q.ClientID
+	ikey := c.key() + "\x00create\x00" + q.ClientID
 	if q.ClientID != "" {
 		if prev, ok := m.idem[ikey]; ok {
 			if prev.hash != fsbHash(q) {
@@ -754,10 +856,10 @@ func (m *fsbManager) create(w http.ResponseWriter, r *http.Request) {
 	b.fsbSandbox = fsbSandbox{ID: id, Name: q.Name, State: "running",
 		Image: fsbRef{ID: "base", Title: "the host's tools (a test fixture)"}, Size: fsbSizes[0],
 		Isolation: "other", Egress: orFsb(q.Egress, "none"),
-		Owner:      fsbOwner{User: c.user, Via: c.from, Asserted: !c.verified && c.user != ""},
+		Owner:      fsbOwner{User: c.user, Via: c.from, PartitionID: c.partID, Partition: c.part, Asserted: !c.verified && c.user != ""},
 		Visibility: orFsb(q.Visibility, "private"), Members: q.Members, Labels: q.Labels,
 		Workdir: filepath.Join(dir, "work"), Home: filepath.Join(dir, "home"), User: "dev", Shell: "/bin/sh",
-		Caps: m.caps(), Created: now, LastActive: now, AutoStopMin: 30, Version: 1}
+		Caps: m.boxCaps(), Created: now, LastActive: now, AutoStopMin: 30, Version: 1}
 	if q.Start != nil && !*q.Start {
 		b.State = "stopped"
 	}
@@ -897,7 +999,7 @@ func (m *fsbManager) del(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if b.Owner.Via != c.from {
+	if !b.home(c) {
 		m.mu.Unlock()
 		fsbFail(w, http.StatusForbidden, "not-allowed", "only its home consumer deletes a sandbox")
 		return
@@ -1420,7 +1522,7 @@ func (m *fsbManager) launch(w http.ResponseWriter, r *http.Request, q fsbCmdReq)
 	if !ok {
 		return nil, 0
 	}
-	ikey := c.from + "\x00exec\x00" + b.ID + "\x00" + q.ClientID
+	ikey := c.key() + "\x00exec\x00" + b.ID + "\x00" + q.ClientID
 	if q.ClientID != "" {
 		if prev, ok := m.idem[ikey]; ok {
 			e := b.execs[prev.id]
@@ -2605,7 +2707,7 @@ func (m *fsbManager) snapCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ikey := c.from + "\x00snap\x00" + b.ID + "\x00" + q.ClientID
+	ikey := c.key() + "\x00snap\x00" + b.ID + "\x00" + q.ClientID
 	// again answers a repeated clientId (m.mu held; false: not a repeat).
 	again := func() bool {
 		prev, ok := m.idem[ikey]

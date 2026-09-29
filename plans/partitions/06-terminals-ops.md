@@ -247,7 +247,7 @@ The `partitions` event:
   - live reload plus writers on the tile and its bound providers;
   - global binds on partitioned tiles, for review;
   - non-partitioned requesters bound without global;
-  - sandbox managers without `caps.partitions`;
+  - sandbox managers whose `hello.caps` lack `partitions`;
   - untracked files in partitioned tiles' directories;
   - orphaned partitions;
   - caps hit recently;

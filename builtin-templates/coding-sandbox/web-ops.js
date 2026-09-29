@@ -114,9 +114,9 @@ export function sharesTpl(ui, shares, save, key) {
   };
   return html`<div class="shares" id="shares">
     <b>Shared with</b>
-    ${shares.length ? html`<ul class="plain">${shares.map((s) => html`<li data-consumer=${s.consumer}><span class="mono">${s.consumer}</span>
+    ${shares.length ? html`<ul class="plain">${shares.map((s) => html`<li data-consumer=${s.consumer}><span class="mono">${F.consumerText(s.consumer, s.partitionId)}</span>
       — ${F.usersText(s.users)} <button class="small rm" data-act="unshare" ?disabled=${!!ui.busy}
-        @click=${() => ui.run('unshare', () => save(O.unshare(shares, s.consumer)), `no longer shared with ${s.consumer}`)}>Stop sharing</button></li>`)}</ul>`
+        @click=${() => ui.run('unshare', () => save(O.unshare(shares, s.consumer, s.partitionId)), `no longer shared with ${F.consumerText(s.consumer, s.partitionId)}`)}>Stop sharing</button></li>`)}</ul>`
       : html`<div class="muted">no other consumer</div>`}
     <div class="row"><input id="share-consumer" class="mono" placeholder="apps/sandbox-terminal" .value=${f.consumer} @input=${set('consumer')}>
       <input id="share-users" placeholder="* (everyone it serves) or alice, bob" .value=${f.users} @input=${set('users')}>

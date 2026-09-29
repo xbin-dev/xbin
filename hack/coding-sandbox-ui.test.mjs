@@ -39,6 +39,10 @@ test('format: states, networks, sizes, bytes, times, paths', () => {
   assert.ok(F.looksBinary('PNG\u0000x') && !F.looksBinary('hello\n'));
   assert.equal(F.whoText({ visibility: 'private', members: ['bob'], shares: [{ consumer: 'apps/term', users: ['carol'] }] }), 'its owner and bob · apps/term (carol)');
   assert.equal(F.whoText({ visibility: 'team', shares: [] }), 'everyone its consumer serves');
+  // a partitioned consumer's user partition (its opaque id, shortened)
+  assert.equal(F.whoText({ visibility: 'team', shares: [{ consumer: 'apps/agent', partitionId: 'u-0123456789abcdef', users: '*' }] }),
+    'everyone its consumer serves · apps/agent/u-012345 (everyone it serves)');
+  assert.equal(F.consumerText('apps/agent', ''), 'apps/agent');
 });
 
 test('ops: rows, usage, the substrate, the mode, images', () => {
@@ -85,6 +89,13 @@ test('ops: the editors — images, sizes, quotas, shares, mounts', () => {
   assert.deepEqual(q.people, { alice: { running: 5 } });
   assert.deepEqual(O.setQuota(q, 'person', 'alice', null).people, {});
   assert.deepEqual(O.shareWith([{ consumer: 'apps/a', users: '*' }], 'apps/a', 'bob').shares, [{ consumer: 'apps/a', users: ['bob'] }]);
+  // a share with one user partition is kept by the page's own, and removed by its id
+  const part = { consumer: 'apps/a', partitionId: 'u-1', users: '*' };
+  assert.deepEqual(O.shareWith([part], 'apps/a', '*').shares, [part, { consumer: 'apps/a', users: '*' }]);
+  assert.deepEqual(O.unshare([part, { consumer: 'apps/a', users: '*' }], 'apps/a'), [part]);
+  assert.deepEqual(O.unshare([part, { consumer: 'apps/a', users: '*' }], 'apps/a', 'u-1'), [{ consumer: 'apps/a', users: '*' }]);
+  assert.equal(O.sandboxRows({ sandboxes: [{ id: 'sb-p', name: 'apps/agent/u-012345 #1', consumer: 'apps/agent', state: 'stopped',
+    owner: { user: 'alice', via: 'apps/agent', partitionId: 'u-0123456789abcdef', partition: 'user:alice' } }] })[0].consumer, 'apps/agent/u-012345');
   assert.deepEqual(O.parseMount('res:apps/cs/cache:go /cache ro').mount, { res: 'res:apps/cs/cache', at: '/cache', path: 'go', ro: true });
   assert.ok(O.parseMount('apps/cs/cache /cache').error);
 });

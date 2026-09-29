@@ -28,7 +28,7 @@ export function sandboxRows(st, now = Date.now()) {
         confirm: `Delete ${s.name} (${s.id}) of ${s.consumer}? Its files and snapshots go with it — for everyone who uses it.` });
     }
     return {
-      id: s.id, name: s.name, consumer: s.consumer, owner: F.ownerText(s.owner), state: s.state,
+      id: s.id, name: s.name, consumer: F.consumerText(s.consumer, s.owner && s.owner.partitionId), owner: F.ownerText(s.owner), state: s.state,
       stateLabel: F.STATES[s.state] || s.state, tone: F.stateTone(s.state), stateDetail: s.stateDetail || '',
       image: (s.image && (s.image.title || s.image.id)) || '', imageId: (s.image && s.image.id) || '',
       size: (s.size && s.size.id) || '', sizeText: F.sizeText(s.size), egress: s.egress || 'none', egressText: F.egressText(s),
@@ -227,13 +227,16 @@ export function setQuota(quotas, kind, key, values) {
 }
 
 // shares: a sandbox's shares with one added (or its people changed) or removed.
+// The page shares with consumer tiles; a share with one user partition of a
+// partitioned consumer (partitionId) is kept as it is, and removed by its id.
 export function shareWith(shares, consumer, users) {
   const c = String(consumer || '').trim();
   if (!c) return { error: 'a share names its consumer tile (apps/…)' };
-  const rest = (shares || []).filter((s) => s.consumer !== c);
+  const rest = (shares || []).filter((s) => s.consumer !== c || s.partitionId);
   return { shares: [...rest, { consumer: c, users: F.parseUsers(users) }] };
 }
-export const unshare = (shares, consumer) => (shares || []).filter((s) => s.consumer !== consumer);
+export const unshare = (shares, consumer, partitionId = '') =>
+  (shares || []).filter((s) => s.consumer !== consumer || (s.partitionId || '') !== partitionId);
 
 // mountText: a configured mount in words.
 export const mountText = (m) => `${m.res}${m.path ? '/' + m.path : ''} → ${m.at}${m.ro ? ' (read-only)' : ''}`;
