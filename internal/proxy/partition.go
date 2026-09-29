@@ -33,8 +33,8 @@ func PartitionPaused(comp *registry.Component) (msg string, body any, ok bool) {
 		if req != nil {
 			to = registry.SpecOf(req.Spec)
 		}
-		return fmt.Sprintf("%s is paused: a partition mode switch is requested (%s → %s); a manager of %s must switch (deleting all its data) or keep the current mode",
-			comp.Path, r, to, comp.Path), partitionBody{State: st.String(), From: &r, To: &to}, true
+		return fmt.Sprintf("%s is paused: a partition mode switch is requested (%s → %s); a manager of %s must switch (%s) or keep the current mode",
+			comp.Path, r, to, comp.Path, registry.SwitchDeleting(r, to)), partitionBody{State: st.String(), From: &r, To: &to}, true
 	case registry.PartitionInvalid:
 		return fmt.Sprintf("%s doesn't run: %s", comp.Path, comp.PartitionErr),
 			partitionBody{State: st.String(), Error: comp.PartitionErr}, true

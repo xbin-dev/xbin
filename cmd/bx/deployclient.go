@@ -348,7 +348,8 @@ type deployImpact struct {
 	Data             string        `json:"data"`
 	Joins            *joins        `json:"joins"`
 	Placeholders     []string      `json:"placeholders"`
-	Branch           *branchImpact `json:"branch"` // deploybranch.go
+	Branch           *branchImpact `json:"branch"`    // deploybranch.go
+	Partition        string        `json:"partition"` // code asking for another partition mode (docs/partitions.md)
 	PausesLiveReload bool          `json:"pausesLiveReload"`
 	Stops            []string      `json:"stops"`
 	Affects          string        `json:"affects"`

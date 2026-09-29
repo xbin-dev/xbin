@@ -368,6 +368,7 @@ type Impact struct {
 	Joins            *Joins        `json:"joins,omitempty"`        // add: the existing namespace joined (m2types.go)
 	Placeholders     []string      `json:"placeholders,omitempty"` // a new primary's vault keys with no value (D127i)
 	Branch           *BranchImpact `json:"branch,omitempty"`       // the target's assigned branch and the work tree's (D131)
+	Partition        string        `json:"partition,omitempty"`    // code onto the primary asking for another partition mode (partition.go)
 	PausesLiveReload bool          `json:"pausesLiveReload"`
 	Stops            []string      `json:"stops"`
 	Affects          string        `json:"affects"`

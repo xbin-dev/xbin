@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -58,5 +59,70 @@ func TestPrimaryRefusedWhenPartitioned(t *testing.T) {
 	}
 	if f.rec(opSite).Primary != "dev" {
 		t.Error("the unpartitioned reassignment didn't move the primary")
+	}
+}
+
+// covers PD-44 01§2.7 01§2.5 — a deploy, promote or roll back onto the
+// primary of code asking for another partition mode says in its dry run
+// what follows: a tile that holds data pauses for a tile manager's
+// decision, one that holds none takes the mode at once, a declined request
+// keeps running; code that asks nothing new says nothing. A manager's
+// switch writes one deploy-log line on the primary, with no checkpoint; a
+// tile without a record writes none.
+func TestPartitionPreflightAndLog(t *testing.T) {
+	f := newOpsFx(t, true)
+	if err := f.p.LogPartitionSwitch(opAPI, "user:ana", "session"); err != nil || len(f.st.logged(opAPI)) != 0 {
+		t.Fatalf("a tile without a record logged a switch: %v %v", err, f.st.logged(opAPI))
+	}
+	f.settle(opAPI, f.must(ownerP, OpPause, &PauseRequest{Tile: opAPI}))
+	f.write(opAPI+"/xbin.json", `{"runtime":"go","partition":["user"]}`)
+	holds := true
+	f.p.PartitionHolds = func(string) bool { return holds }
+	warn := func() string {
+		t.Helper()
+		res, err := f.do(ownerP, OpDeploy, &DeployRequest{Tile: opAPI, DryRun: true})
+		dr, ok := res.(DryRunAnswer)
+		if err != nil || !ok {
+			t.Fatalf("dry deploy: %#v %v", res, err)
+		}
+		return dr.Impact.Partition
+	}
+	if w := warn(); !strings.Contains(w, "apps/api will pause for a partition-mode decision") || !strings.Contains(w, "asks for user, it runs unpartitioned") {
+		t.Errorf("a tile with data: %q", w)
+	}
+	holds = false
+	if w := warn(); !strings.Contains(w, "holds no data, so the mode follows at once") {
+		t.Errorf("a tile without data: %q", w)
+	}
+	f.reg.PartitionModes = func(a registry.PartitionAsk) registry.PartitionMode {
+		if a.Tile == opAPI {
+			return registry.PartitionMode{Request: &registry.PartitionRequest{Spec: &registry.PartitionSpec{User: true}, Declined: true}}
+		}
+		return registry.PartitionMode{}
+	}
+	if err := f.reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if w := warn(); !strings.Contains(w, "which a manager of apps/api declined") {
+		t.Errorf("a declined request: %q", w)
+	}
+	f.reg.PartitionModes = nil
+	f.write(opAPI+"/xbin.json", `{"runtime":"go"}`)
+	f.write(opAPI+"/main.go", "package main // v2\n")
+	if err := f.reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if w := warn(); w != "" {
+		t.Errorf("code asking nothing new: %q", w)
+	}
+
+	if err := f.p.LogPartitionSwitch(opAPI, "user:ana", "session"); err != nil {
+		t.Fatal(err)
+	}
+	logged := f.st.logged(opAPI)
+	last := logged[len(logged)-1]
+	if last.How != "partition-switch" || last.By != "user:ana" || last.Via != "session" || last.Result != resultOK ||
+		last.Tree != "" || last.Deployment != "main" {
+		t.Errorf("the switch's entry: %+v", last)
 	}
 }

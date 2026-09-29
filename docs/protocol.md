@@ -633,7 +633,25 @@ current mode", "docs": …, "partition": {"state": "pending", "from":
 `{"error": "<tile> doesn't run: partition: <why>", "docs": …,
 "partition": {"state": "invalid", "error": "partition: <why>"}}`. A caller
 the tile refuses gets its 403 first; public ingress to such a tile answers
-503 as for a disabled one. On a partitioned tile a call reaches the
+503 as for a disabled one. The clause after "must switch" says what the
+switch deletes: `deleting all its data` between user partitions and
+unpartitioned, otherwise `deleting nothing (…)` when `"global"` comes or
+`deleting the global instance's data …` when it goes. While a switch is
+pending, a document load of the tile is xbind's own page instead of the
+tile's — 409, `Cache-Control: no-store`, a `sandbox` CSP with no scripts —
+saying a switch is requested (R → Q), what it deletes (all data in the
+tile will be deleted for it to happen, or, when `"global"` comes or goes,
+nothing or the global instance's data), the tile's `partitionNote` (as
+text), and who decides where (`POST /api/xbin/partitions/mode`, `bx
+partition switch|keep`). A document load is a request with `Sec-Fetch-Dest`
+`document`, `iframe`, `frame`, `embed` or `object`, or — without Fetch
+Metadata — a GET of `/c/<tile>/…/`, an `.html` file or `?native=1` under a
+login session or by the tile's own frame (the app). Any other read (a
+fetch, a script, a bearer token, another tile's code grant) and the tile's
+other files are served as before. The primary's deployment URL
+(`/c/<tile>+<primary>/`, and a deployment origin's bare URL) shows the page
+too; another deployment's URL isn't paused.
+On a partitioned tile a call reaches the
 partition §Authentication names (403 with the reason when it reaches none),
 and a person's partition that can't start now answers 503 with why;
 public ingress reaches only the tile's global instance, and a tile without
@@ -1090,7 +1108,18 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    keys aren't in any exported key bundle
                                    yet, or the vault passphrase changed
                                    after the last export (GET /backup-keys;
-                                   cleared by POST /backup-keys/export)
+                                   cleared by POST /backup-keys/export).
+                                   Kind partition-switch (warn, tile): a
+                                   partition mode switch is requested for
+                                   the tile, which doesn't run until a tile
+                                   manager switches or keeps the current
+                                   mode (POST /partitions/mode) — admins and
+                                   the tile's readers; it goes when the
+                                   request is decided or withdrawn. Kind
+                                   partition-invalid (warn, tile): the
+                                   tile's partition request can't run (or
+                                   its mode record can't be read), so its
+                                   primary doesn't — same audience
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin,suspended?,via?,viaGroups?}]
@@ -2551,6 +2580,66 @@ POST   /lifecycle                  admin, the tile's user-owner, or an
                                    dataErased? / dataMissing? when a sealed
                                    backup's data couldn't come back.
 
+POST   /partitions/mode            a tile manager (the tile's user-owner, an
+                                   admin of its owning org, or a workspace
+                                   admin) acting as a person: their own
+                                   session, app, device or the root token, or
+                                   the admin tile's frame under their login;
+                                   every other tile principal (instance,
+                                   frame, terminal, agent session) 403.
+                                   body {tile, act: "keep"|"switch", from, to,
+                                   confirm?, yes?, dryRun?} — decide a
+                                   partition mode switch request R → Q
+                                   (docs/partitions.md §The mode).
+                                   from/to are {user, global} (null:
+                                   unpartitioned) and must still be the
+                                   request's R and Q, else 409 with the
+                                   current partition {state, from, to?,
+                                   declined?}; 409 too for an invalid request
+                                   or an unreadable mode record. keep answers
+                                   an open request: R runs again at once,
+                                   nothing is deleted — {ok, tile, act, mode,
+                                   declined}. switch answers an open or a
+                                   declined request; confirm must be the tile
+                                   path (400); user partitions need xbind's
+                                   --isolate (409); an offloaded tile is 409;
+                                   when to has user partitions and the tile
+                                   binds sandbox managers whose GET
+                                   /sbx/hello caps lack "partitions", 409
+                                   {managers} unless yes. It stops every
+                                   instance, deletes the tile's data — from
+                                   or to unpartitioned: every namespace
+                                   (main's and every deployment's), vault file
+                                   and registration (cron, bus, interface
+                                   instances, ingress hosts), and erases its
+                                   ns: backup keys (tile: stays); removing
+                                   "global": global's namespace, vault and
+                                   registrations and global's ns: key only;
+                                   adding "global": nothing — then records R
+                                   := Q and tells each person whose partition
+                                   went (push kind tile.partition-deleted).
+                                   → {ok, tile, act, from, to, deletes,
+                                   wiped: {namespaces, partitions, vaultKeys,
+                                   registrations, bytes, subkeys,
+                                   keyFilesLeft?}, keeps: [text], people?,
+                                   managers?, archiver?, eraseError?}
+                                   (eraseError, keyFilesLeft: keys erased
+                                   whose files aren't removed yet — refused
+                                   everywhere all the same). A wipe that
+                                   fails part-way, or an erase of the backup
+                                   keys that fails, is 500 with wiped:
+                                   nothing is recorded, the request stays
+                                   open, a retry finishes it. A tile at the
+                                   path "workspace" never counts or deletes
+                                   the workspace-level resources. dryRun
+                                   counts the same, deletes nothing and needs
+                                   no confirm. Audited. A request opening
+                                   pushes to the tile's managers (kind
+                                   tile.partition-switch; at most one per
+                                   tile every 15 minutes), and every mode
+                                   change reloads the tile's frames (event
+                                   reload).
+
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
                                    env + a manager tile's sandbox definitions,
@@ -2759,7 +2848,12 @@ parameter: a tile's path, never a ref — a deployment is named with
 `deployment=` (D127j; §Tile deployments, *Tile refs in a query string*). Each
 body takes dryRun:true (judged as for real, refusals included, nothing
 changes → {state, impact}) and seq (the record's sequence the caller acted
-on: 409 when it moved; optional everywhere). confirm tokens guard data: remove "erase", reset and a restore into data "erase-data", seed
+on: 409 when it moved; optional everywhere). A dry run of a deploy, roll
+back or promote onto the primary whose code asks for another partition
+mode than the tile records carries impact.partition, a warning: the tile
+will pause for a partition-mode decision (it holds data), the mode follows
+at once (it holds none), or a manager declined that mode (docs/partitions.md
+§The mode). confirm tokens guard data: remove "erase", reset and a restore into data "erase-data", seed
 and add with data:"seed" "copy-data", primary "data-stays" — a missing one
 is 400 naming it. An operation answers {state, deploy?, …} (each row names
 its answer) once the record change is committed; deploys are asynchronous
@@ -3612,7 +3706,12 @@ tile, `agent/<session>` for an agent session.
 Sources: `POST /notify` (kind `tile` or `tile.<kind>`), and the agent
 sessions of the device's user — a `permission.request` (`agent.permission`)
 or `elicitation.request` (`agent.question`) still unanswered 3 s later, and
-a `turn.end` that the user did not cancel (`agent.turn`). Limits (token
+a `turn.end` that the user did not cancel (`agent.turn`), and xbind's own
+partition notices: a tile's partition mode switch request to its managers
+(`tile.partition-switch`, collapse per tile, at most one per tile every
+15 minutes) and, after a switch, to each
+person whose partition was deleted (`tile.partition-deleted`), both linking
+`c/<tile>/`, spending the person's budget and ignoring tile mutes. Limits (token
 buckets): 120/hour per tile (burst 20) — a tile's frontend and terminals
 have a bucket per tile and person, apart from its backend's; 240/hour per
 user from all tiles together (burst 40); agent sessions have their own
@@ -3882,7 +3981,8 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   writes, and every admin API (backups, the vault barrier, vaults,
   resources, auth-overview, backends, runtime, ingress, gpus, the VM policy,
   token rotation, view-as, the native-runtime, chrome, branding and
-  workspace-policies writes, push config and devices). Deciding a PR (`POST /code/pr/state`) is
+  workspace-policies writes, push config and devices), and partition mode
+  decisions (`POST /partitions/mode`). Deciding a PR (`POST /code/pr/state`) is
   primary-only for backends: 403 `deciding a PR is the primary's act: a
   non-primary deployment's backend can't do it (<deployment>)`.
 - **Audit.** A tile credential acting in a deployment other than `main`

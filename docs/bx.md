@@ -94,6 +94,10 @@ bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|of
                                        workspace policies for partitioned tiles
                                        (PD-55): read (anyone signed in), set
                                        (admin)
+bx partition switch <tile> [--dry-run] [--confirm <tile>] [--yes] [--json]
+bx partition keep <tile> [--json]     decide a tile's partition mode switch
+                                       request (a tile manager): switch deletes
+                                       all its data, keep deletes nothing
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
 bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <user> [level]]
                                        per-tile access entries — exact entries
@@ -338,6 +342,29 @@ confirm, or 24 h after they're notified). `bx policies` prints them (`--json`:
 the `GET /api/xbin/workspace-policies` answer; a person's session, or a
 terminal or agent session they drive, or an admin); `bx policies set <switch> on|off` changes one (admin,
 `PUT`). Neither changes anything for tiles that aren't partitioned.
+
+**`bx partition switch|keep <tile>`** — decide a partition mode switch
+request ([partitions.md §The mode](/docs/partitions.md)): a tile that holds
+data whose code asks for another `partition` is paused until a tile manager
+— the tile's owner, an admin of its owning org, or a workspace admin, with
+bx on the root token or their own login (a tile's terminal can't decide) —
+does one of two things. `keep` records "keep the current mode": the tile
+runs again at once and nothing is deleted (the code keeps asking, and
+`switch` stays possible). `switch` first shows what it deletes — data
+namespaces, people's partitions, vault keys, registrations, bytes and backup
+keys — and what it keeps, then asks for the tile's path (`--confirm <tile>`
+answers without asking; `--dry-run` only shows). It then deletes the tile's
+data and takes the mode the code asks for; everyone whose partition was
+deleted is told. Adding `"global"` to a partitioned tile deletes nothing;
+removing it deletes only the global instance's data and the shared
+resources. A switch to user partitions needs xbind's `--isolate`; if the
+tile binds sandbox managers that don't keep people apart (their hello lacks
+`partitions`), it is refused unless `--yes`. Both read the request from the
+tile's `/components` row and send it back, so a request that changed
+meanwhile is refused rather than decided blind. They exit 6 against an
+xbind without partitioned tiles (one older than them: its rows carry no
+partition and it lacks the route). The typed confirmation's prompt goes to
+stderr, so `--json` keeps stdout to the JSON answer.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset

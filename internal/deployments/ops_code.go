@@ -715,7 +715,7 @@ func (p *Plane) promoteCode(ctx context.Context, o *op, seq *int64, dry bool, fr
 			p.measure(ctx, o.c, im.Code, o.by, *d.Checkpoint, tree)
 		}
 		if !unchanged {
-			im.Reloads = []string{dep}
+			im.Reloads, im.Partition = []string{dep}, p.partitionPreflight(o, dep, tree)
 		}
 		return p.answer(ctx, true, nil, im, false)
 	}

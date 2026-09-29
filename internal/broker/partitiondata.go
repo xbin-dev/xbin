@@ -87,31 +87,35 @@ func holdsOffloaded(b *Broker, ask registry.PartitionAsk) (bool, error) {
 // (data/kv.db buckets res:<scope>/<name>, file volumes under
 // data/resources-enc/<ScopeKey>, the plaintext data/resources/<ScopeKey>) and
 // every deployment's (data/resources-enc/.deployments/<escS>/<d>). A tile
-// that doesn't root its scope holds none of its scope's data. Content is a
-// kv key, a volume file beyond gocryptfs's own config, or any entry in the
-// plaintext directory: empty volumes a provisioning made don't count.
+// that doesn't root its scope holds none of its scope's data, and main's
+// namespace counts only when it is the scope's own (ownsMainData: never the
+// workspace-level resources, nor a data key another scope holds). Content
+// is a kv key, a volume file beyond gocryptfs's own config, or any entry in
+// the plaintext directory: empty volumes a provisioning made don't count.
 func holdsNamespaces(b *Broker, ask registry.PartitionAsk) (bool, error) {
 	if !ask.RootsScope {
 		return false, nil
 	}
 	scope := ask.Scope
-	main, _ := scopeKeys(scope, util.MainDeployment) // main's keys: never an error
-	db, err := b.scopeKV(scope, util.MainDeployment, false)
-	if err != nil {
-		return true, err
-	}
-	if held, err := kvHasKey(db, []byte(resTarget{Scope: scope}.String())); held || err != nil { // res:<scope>/
-		return held, err
-	}
-	if held, err := volumesHold(filepath.Join(b.Reg.Root, filepath.FromSlash(main.Enc))); held || err != nil {
-		return held, err
-	}
-	// walk-ok: data/resources is xbind's; only the entries' presence is read
-	switch entries, err := os.ReadDir(filepath.Join(b.Reg.Root, filepath.FromSlash(main.Plain))); {
-	case err != nil && !absent(err):
-		return true, err
-	case len(entries) > 0:
-		return true, nil
+	if b.ownsMainData(scope) {
+		main, _ := scopeKeys(scope, util.MainDeployment) // main's keys: never an error
+		db, err := b.scopeKV(scope, util.MainDeployment, false)
+		if err != nil {
+			return true, err
+		}
+		if held, err := kvHasKey(db, []byte(resTarget{Scope: scope}.String())); held || err != nil { // res:<scope>/
+			return held, err
+		}
+		if held, err := volumesHold(filepath.Join(b.Reg.Root, filepath.FromSlash(main.Enc))); held || err != nil {
+			return held, err
+		}
+		// walk-ok: data/resources is xbind's; only the entries' presence is read
+		switch entries, err := os.ReadDir(filepath.Join(b.Reg.Root, filepath.FromSlash(main.Plain))); {
+		case err != nil && !absent(err):
+			return true, err
+		case len(entries) > 0:
+			return true, nil
+		}
 	}
 	if len(escS(scope)) > maxEscS {
 		return false, nil // no deployment beyond main can have a namespace (08-data §3.2)

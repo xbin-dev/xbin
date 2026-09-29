@@ -74,6 +74,9 @@ func (st *State) setupPush(srv *server.Server) error {
 	// one of the last run's turns end now
 	ps.EndActivities()
 	if st.Broker != nil {
+		// partition mode acts: a switch request to the tile's managers, a
+		// wipe notice to each person whose partition went (F13a)
+		st.Broker.SetPartitionPush(ps.Notice)
 		// signed out everywhere, disabled or deleted: the devices lose their
 		// pushes with their sessions (a deleted account's preferences go too)
 		prev := st.Broker.OnUserSignedOut

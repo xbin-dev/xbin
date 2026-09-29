@@ -320,6 +320,7 @@ func (b *Broker) setPolicies(patch policiesPatch) (old, cur WorkspacePolicies, e
 func (b *Broker) registerPolicies(srv *server.Server) {
 	srv.RegisterAPI("GET /workspace-policies", b.apiPoliciesGet)
 	srv.RegisterAPI("PUT /workspace-policies", b.apiPoliciesPut)
+	b.registerPartitionMode(srv) // POST /partitions/mode: keep or switch (partitionswitch.go)
 }
 
 // canReadPolicies: admins (the admin tile through xbin:admin included), and
