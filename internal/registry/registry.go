@@ -49,6 +49,9 @@ type TemplateMeta struct {
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	DefaultName string `json:"defaultName,omitempty"` // suggested instance basename
+	// Partition is the partition mode new instances start in, written as
+	// their top-level "partition" at instantiation (partition.go, PD-52).
+	Partition PartitionList `json:"partition,omitempty"`
 }
 
 // Manifest is a component's xbin.json. All fields optional; a bare directory
@@ -103,6 +106,15 @@ type Manifest struct {
 	// stream (tcp/udp) ports relayed from a host port. Keyed by slot; bound by
 	// the owner like interfaces (unbound = unreachable, today's default-deny).
 	Exposes map[string]ExposeDef `json:"exposes,omitempty"`
+
+	// Partition asks for one backend per person ("user"), plus a background
+	// "global" instance: the request only — the recorded mode follows it by
+	// itself while the tile holds no data (partition.go, docs/elements.md).
+	// PartitionMail is where xbind rings the mail doorbell; PartitionNote is
+	// shown when a mode switch is requested (at most 280 characters).
+	Partition     PartitionList `json:"partition,omitempty"`
+	PartitionMail string        `json:"partitionMail,omitempty"`
+	PartitionNote string        `json:"partitionNote,omitempty"`
 }
 
 // KindSandboxNet is a request-side interface kind: one class of network a
@@ -251,7 +263,8 @@ func (d ExposeDef) StreamProto() string {
 
 // Resource is a broker-provisioned resource declared in scope.json.
 type Resource struct {
-	Type string `json:"type"` // filesystem|sqlite|kv|blob|bus|cron
+	Type   string     `json:"type"`             // filesystem|sqlite|kv|blob|bus|cron
+	Shared SharedMode `json:"shared,omitempty"` // a partitioned scope's one namespace (partition.go)
 }
 
 // ScopeManifest is a scope.json: marks a directory as a scope root.
@@ -476,6 +489,11 @@ type Component struct {
 	CodeRoot   string        // the host directory holding the view's code when it isn't Dir (a materialized checkpoint); "" = Dir
 	WorkTree   *WorkTreeScan // the work tree's own scan while the primary is pinned
 	Kept       bool          // registered for its pinned primary though the work tree has neither xbin.json nor index.html, or a broken xbin.json
+
+	// PartitionErr says why the primary's partition request is invalid
+	// (also in ManifestErr); partition is the settled mode (partition.go).
+	PartitionErr string
+	partition    partitionInfo
 }
 
 // WorkTreeScan is the work tree's own scan of a tile whose primary is pinned
@@ -541,6 +559,9 @@ type Registry struct {
 	// the deployment-level fields follow the primary's code (D119e). An O(1)
 	// lookup that answers false for every other path; nil means today's scan.
 	PinnedPrimary func(rel string) (*PinnedCode, bool)
+	// PartitionModes, set by the broker at boot, settles a tile's partition
+	// mode on every rescan (partition.go); nil: nothing is recorded.
+	PartitionModes func(PartitionAsk) PartitionMode
 
 	mu         sync.RWMutex
 	components map[string]*Component
@@ -645,6 +666,8 @@ func (r *Registry) Rescan() error {
 	for _, c := range comps {
 		c.Scope = nearestScope(scopes, c.Path)
 	}
+
+	r.settlePartitions(comps, scopes, ws) // before the lock: the mode store may read the registry
 
 	r.mu.Lock()
 	r.warnWorkspaceResources(ws)
