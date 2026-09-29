@@ -140,13 +140,21 @@ only the record:
 **Where it shows, and where managers decide.** While a switch is pending:
 
 - the tile's documents are xbind's page, in every shell and in the app —
-  the switch (for example `unpartitioned → user`), that all data in the
-  tile will be deleted for it to happen, the tile's `partitionNote`, and
-  who decides; the tile's API answers 409 ([protocol.md](protocol.md));
+  the switch (for example `unpartitioned → user`), what it deletes (all
+  data in the tile will be deleted for it to happen; when `"global"` comes
+  or goes, nothing or only the global instance's data), the tile's
+  `partitionNote`, and who decides; the tile's API answers 409
+  ([protocol.md](protocol.md)). The page is what a browser or the app
+  loads to show the tile — its frame, a navigation, the primary's
+  deployment URL; a script's fetch of the tile's HTML, or a tool reading
+  it with a token, still gets the file;
 - `GET /api/xbin/alerts` carries a `partition-switch` alert for admins and
-  the tile's readers, which the shell shows as its top banner;
+  the tile's readers, which the shell shows as its top banner (and a
+  `partition-invalid` alert, the same way, for a tile whose `partition`
+  can't run);
 - the tile's managers get a push notification (kind
-  `tile.partition-switch`) when the request opens.
+  `tile.partition-switch`) when the request opens — at most one per tile
+  every 15 minutes, however often the code toggles `partition`.
 
 Managers decide with `bx partition switch <tile>` or `bx partition keep
 <tile>` ([bx.md](bx.md)), or `POST /api/xbin/partitions/mode`. A switch
@@ -160,9 +168,11 @@ as sandboxes at a sandbox manager — clean them up there), and backups made
 before backups were sealed, which no key erases. The manager types the
 tile's path; xbind stops the tile, deletes, erases the data's backup keys,
 records the new mode (with what it deleted, in the tile's mode history)
-and writes a line in the tile's deploy log. A switch that fails part-way
-records nothing and can be retried. A switch to user partitions needs
-xbind's `--isolate`.
+and writes a line in the tile's deploy log. A switch that fails part-way —
+erasing the backup keys included — records nothing and can be retried. A
+switch to user partitions needs xbind's `--isolate`. A tile at the path
+`workspace` never counts or deletes the workspace-level resources, whose
+keys its own would share.
 
 A promote or roll back of a tile's primary to code that asks for another
 mode is a request like an edit: its dry run warns that the tile will pause

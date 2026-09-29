@@ -357,7 +357,9 @@ tile binds sandbox managers that don't keep people apart (their hello lacks
 `partitions`), it is refused unless `--yes`. Both read the request from the
 tile's `/components` row and send it back, so a request that changed
 meanwhile is refused rather than decided blind. They exit 6 against an
-xbind without partitioned tiles.
+xbind without partitioned tiles (one older than them: its rows carry no
+partition and it lacks the route). The typed confirmation's prompt goes to
+stderr, so `--json` keeps stdout to the JSON answer.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset

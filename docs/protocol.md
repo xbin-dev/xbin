@@ -560,15 +560,24 @@ current mode", "docs": …, "partition": {"state": "pending", "from":
 `{"error": "<tile> doesn't run: partition: <why>", "docs": …,
 "partition": {"state": "invalid", "error": "partition: <why>"}}`. A caller
 the tile refuses gets its 403 first; public ingress to such a tile answers
-503 as for a disabled one. While a switch is pending, a document of the
-tile (`/c/<tile>/…/`, an `.html` file, a navigation, `?native=1`) is xbind's
-own page instead of the tile's — 409, `Cache-Control: no-store`, a
-`sandbox` CSP with no scripts — saying a switch is requested (R → Q), that
-all data in the tile will be deleted for it to happen, the tile's
-`partitionNote` (as text), and who decides where (`POST
-/api/xbin/partitions/mode`, `bx partition switch|keep`); the tile's other
-files are served as before. A deployment URL (`/c/<tile>+<name>/`) isn't
-paused.
+503 as for a disabled one. The clause after "must switch" says what the
+switch deletes: `deleting all its data` between user partitions and
+unpartitioned, otherwise `deleting nothing (…)` when `"global"` comes or
+`deleting the global instance's data …` when it goes. While a switch is
+pending, a document load of the tile is xbind's own page instead of the
+tile's — 409, `Cache-Control: no-store`, a `sandbox` CSP with no scripts —
+saying a switch is requested (R → Q), what it deletes (all data in the
+tile will be deleted for it to happen, or, when `"global"` comes or goes,
+nothing or the global instance's data), the tile's `partitionNote` (as
+text), and who decides where (`POST /api/xbin/partitions/mode`, `bx
+partition switch|keep`). A document load is a request with `Sec-Fetch-Dest`
+`document`, `iframe`, `frame`, `embed` or `object`, or — without Fetch
+Metadata — a GET of `/c/<tile>/…/`, an `.html` file or `?native=1` under a
+login session or by the tile's own frame (the app). Any other read (a
+fetch, a script, a bearer token, another tile's code grant) and the tile's
+other files are served as before. The primary's deployment URL
+(`/c/<tile>+<primary>/`, and a deployment origin's bare URL) shows the page
+too; another deployment's URL isn't paused.
 
 ### xbind API (`/api/xbin/…`)
 
@@ -1016,7 +1025,11 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    manager switches or keeps the current
                                    mode (POST /partitions/mode) — admins and
                                    the tile's readers; it goes when the
-                                   request is decided or withdrawn
+                                   request is decided or withdrawn. Kind
+                                   partition-invalid (warn, tile): the
+                                   tile's partition request can't run (or
+                                   its mode record can't be read), so its
+                                   primary doesn't — same audience
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin,suspended?,via?,viaGroups?}]
@@ -2439,15 +2452,23 @@ POST   /partitions/mode            a tile manager (the tile's user-owner, an
                                    went (push kind tile.partition-deleted).
                                    → {ok, tile, act, from, to, deletes,
                                    wiped: {namespaces, partitions, vaultKeys,
-                                   registrations, bytes, subkeys}, keeps:
-                                   [text], people?, managers?, archiver?}. A
-                                   wipe that fails part-way is 500 with
-                                   wiped: nothing is recorded, the request
-                                   stays open, a retry finishes it. dryRun
+                                   registrations, bytes, subkeys,
+                                   keyFilesLeft?}, keeps: [text], people?,
+                                   managers?, archiver?, eraseError?}
+                                   (eraseError, keyFilesLeft: keys erased
+                                   whose files aren't removed yet — refused
+                                   everywhere all the same). A wipe that
+                                   fails part-way, or an erase of the backup
+                                   keys that fails, is 500 with wiped:
+                                   nothing is recorded, the request stays
+                                   open, a retry finishes it. A tile at the
+                                   path "workspace" never counts or deletes
+                                   the workspace-level resources. dryRun
                                    counts the same, deletes nothing and needs
                                    no confirm. Audited. A request opening
                                    pushes to the tile's managers (kind
-                                   tile.partition-switch), and every mode
+                                   tile.partition-switch; at most one per
+                                   tile every 15 minutes), and every mode
                                    change reloads the tile's frames (event
                                    reload).
 
@@ -3458,7 +3479,8 @@ sessions of the device's user — a `permission.request` (`agent.permission`)
 or `elicitation.request` (`agent.question`) still unanswered 3 s later, and
 a `turn.end` that the user did not cancel (`agent.turn`), and xbind's own
 partition notices: a tile's partition mode switch request to its managers
-(`tile.partition-switch`, collapse per tile) and, after a switch, to each
+(`tile.partition-switch`, collapse per tile, at most one per tile every
+15 minutes) and, after a switch, to each
 person whose partition was deleted (`tile.partition-deleted`), both linking
 `c/<tile>/`, spending the person's budget and ignoring tile mutes. Limits (token
 buckets): 120/hour per tile (burst 20) — a tile's frontend and terminals
@@ -3730,7 +3752,8 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   writes, and every admin API (backups, the vault barrier, vaults,
   resources, auth-overview, backends, runtime, ingress, gpus, the VM policy,
   token rotation, view-as, the native-runtime, chrome, branding and
-  workspace-policies writes, push config and devices). Deciding a PR (`POST /code/pr/state`) is
+  workspace-policies writes, push config and devices), and partition mode
+  decisions (`POST /partitions/mode`). Deciding a PR (`POST /code/pr/state`) is
   primary-only for backends: 403 `deciding a PR is the primary's act: a
   non-primary deployment's backend can't do it (<deployment>)`.
 - **Audit.** A tile credential acting in a deployment other than `main`
