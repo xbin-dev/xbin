@@ -388,6 +388,25 @@ own, so testing against it never touches what everyone else sees.
   a scope whose data key is longer than 200 bytes can't have deployments
   beyond `main`.
 
+## Partitioned tiles: `shared`
+
+A tile whose `xbin.json` asks for `"partition"` ([elements.md](/docs/elements.md)
+§Manifest) keeps its scope's data per partition. A resource of that scope
+opts out with `"shared"`, keeping one copy:
+
+```jsonc
+{ "resources": {
+    "db":   { "type": "sqlite" },                     // per partition (the default)
+    "conf": { "type": "kv",     "shared": "read" },   // the global instance writes, people's partitions read
+    "team": { "type": "sqlite", "shared": true } } }  // every partition reads and writes one copy
+```
+
+`shared` is ignored in a scope no tile partitions, so a template can ship it
+ready, and on a `cron` resource. In a partitioned scope any other value, and
+`"read"` on a `sqlite` resource (its readers write its journal), make the
+tile's partition request invalid: its backend doesn't run, and the manifest
+error names the resource.
+
 ## Choosing
 
 | Need | Use |

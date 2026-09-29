@@ -218,6 +218,9 @@ func runPrimary(ctx context.Context, p *Plane, g Grant, r *PrimaryRequest) (any,
 	if y == x { // already the primary
 		return p.answer(ctx, r.DryRun, nil, Impact{}, true)
 	}
+	if err := partitionedPrimary(o.c, x); err != nil { // partition.go (PD-17)
+		return nil, err
+	}
 	err = confirmed(r.Confirm, ConfirmDataStays, "making "+y+" the primary sends everyone to "+y+"'s data, and "+x+"'s data stays behind")
 	if err == nil && protected && (r.Expect == "" || r.Seq == nil) {
 		err = unreviewed(o.tile, "expect")

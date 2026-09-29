@@ -42,7 +42,8 @@ func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingre
 		http.Error(w, "this site is not being served right now", http.StatusServiceUnavailable)
 		return
 	}
-	if state := px.Reg.LifecycleState(comp.Path); state != registry.StateEnabled {
+	_, _, paused := PartitionPaused(comp) // a pending or invalid partition mode (partition.go)
+	if state := px.Reg.LifecycleState(comp.Path); state != registry.StateEnabled || paused {
 		http.Error(w, "this site is not being served right now", http.StatusServiceUnavailable)
 		return
 	}
