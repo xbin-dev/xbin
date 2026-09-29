@@ -75,9 +75,9 @@ func (a partitionStarts[C]) TrackPartition(tile, dep, part string, passive bool)
 	return a.track(tile, dep, part, passive)
 }
 
-// wirePartitionRunner installs the proxy's partition runner, or — without
+// wirePartitionProxy installs the proxy's partition runner, or — without
 // one — says which partitioned tiles' people can't be served.
-func (st *State) wirePartitionRunner(px *proxy.Proxy) {
+func (st *State) wirePartitionProxy(px *proxy.Proxy) {
 	if partitionRunnerOf != nil {
 		px.Partitions = partitionRunnerOf(st.Run)
 	}

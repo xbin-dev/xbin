@@ -562,7 +562,7 @@ func (st *State) stepProxy() error {
 		return proxy.Decision(brk.Route(p, c, q))
 	}
 	px.Deployments = st.Deployments
-	st.wirePartitionRunner(px) // user partitions start through the runner's adapter (partitionroute.go)
+	st.wirePartitionProxy(px) // user partitions start through the runner's adapter (partitionroute.go)
 	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
 	px.UserLevel = func(uid, tile string) string {
 		acc, ok := userStore.Access(uid)
