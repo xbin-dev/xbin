@@ -231,9 +231,12 @@ func (d *diskMon) scan() {
 			continue
 		}
 		a.Tile, a.Deployment = bk.tile, bk.alertDep
-		if bk.nonPrimary {
+		switch {
+		case bk.nonPrimary:
 			firsts = append(firsts, a) // the alert names non-primary namespaces first (08-data §12)
-		} else {
+		case bk.partition: // one person's: admins' alert only, never in the count every tile shows (PD-46)
+			alerts = append(alerts, a)
+		default:
 			primaryBlocked++
 			alerts = append(alerts, a)
 		}
@@ -418,6 +421,7 @@ type nsBucket struct {
 	label      string // how messages name it
 	tile       string // the alert's tile: beyond main its quota key, which no component path equals; "" for a non-primary main
 	alertDep   string // the alert's deployment: set for every namespace but the primary's main
+	partition  bool   // a user partition's namespace (diskpart.go)
 }
 
 // deployFacts is what a scan measures beyond today's: usage of every
@@ -471,6 +475,7 @@ func (b *Broker) deployFacts(d *diskMon, records func(string) deployments.Found,
 			fx.buckets[k.Quota] = b.bucketOf(id, limits[id])
 		}
 	})
+	b.partitionFacts(fx, limits) // each user partition's namespace, a bucket of its own (diskpart.go)
 	for scope := range b.scopesAndWorkspace() {
 		id := nsOf(scope, util.MainDeployment)
 		if bk := b.bucketOf(id, limits[id]); bk.limit > 0 || bk.nonPrimary {

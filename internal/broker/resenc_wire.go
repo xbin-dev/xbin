@@ -178,12 +178,19 @@ func (b *Broker) DeploymentEncryptionHold(tile, dep string) bool {
 // deploymentHoldReason is why DeploymentEncryptionHold holds deployment dep
 // of tile ("" when it doesn't).
 func (b *Broker) deploymentHoldReason(tile, dep string) string {
+	return b.holdReasonIn(tile, dep, "", nil)
+}
+
+// holdReasonIn is deploymentHoldReason for user partition pkey of dep ("" is
+// the deployment's own): its own scope's resources that aren't shared are in
+// the partition's namespace (plans/partitions/03 §B.6).
+func (b *Broker) holdReasonIn(tile, dep, pkey string, who *nsPartition) string {
 	c, ok := b.Reg.Component(tile)
 	if !ok {
 		return ""
 	}
 	dep = cmp.Or(dep, util.MainDeployment)
-	if b.nsHeld(tile, c.Scope, dep) {
+	if pkey == "" && b.nsHeld(tile, c.Scope, dep) || pkey != "" && c.Scope != "" && b.nsStartBlockedID(partNS(c.Scope, dep, pkey)) != nil {
 		// a data act holds dep's own namespace, or left it partial: nothing mounts
 		return "is held: a data operation on its deployment's data namespace is under way or didn't finish"
 	}
@@ -195,13 +202,18 @@ func (b *Broker) deploymentHoldReason(tile, dep string) string {
 		}
 		switch {
 		case fileBackedType(res.Type):
-			ns := dep
+			ns, pk := dep, ""
 			if rt.Scope == "" || rt.Scope != c.Scope {
 				ns = b.scopePrimary(rt.Scope)
+			} else if res.Shared != registry.SharedAll && res.Shared != registry.SharedRead {
+				pk = pkey // shared: today's volume
 			}
-			k, err := b.resKeys(rt, ns)
+			k, err := b.resKeysIn(rt, ns, pk)
 			if err != nil {
 				return "is held: it uses the encrypted resource " + u.Target + ", whose name is refused" // never mounted
+			}
+			if pk != "" && who != nil && b.notePartitionNS(partNS(rt.Scope, ns, pk), *who) != nil {
+				return "is held: its partition's data namespace can't be recorded (xbind's log says why)"
 			}
 			if k.NS != "" && b.ensureVolume(k, rt.Scope, res.Type) || k.NS == "" && b.fsReady(k) {
 				continue

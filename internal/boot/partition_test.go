@@ -119,6 +119,21 @@ func TestNoPartitionGolden(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(ws, "data", "partitions")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("data/partitions exists on a workspace without partitions: %v", err)
 	}
+	// Nor a partition namespace level, a key in the main kv store's place,
+	// or a partition member on a resource row (plans/partitions/03 §B.1, §B.7).
+	for _, rel := range []string{"data/resources-enc/.partitions", ".xbin/resenc/.partitions"} {
+		if _, err := os.Stat(filepath.Join(ws, filepath.FromSlash(rel))); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s exists on a workspace without partitions: %v", rel, err)
+		}
+	}
+	if code, body := d.do(t, "GET", "/api/xbin/kv/res:apps/np/db/k", owner); code != 200 {
+		t.Errorf("the kv key back from today's store: %d %s", code, body)
+	}
+	for _, r := range d.st.Broker.ResourceUsage() {
+		if r.Partition != "" {
+			t.Errorf("a resource row names a partition: %+v", r)
+		}
+	}
 }
 
 // covers PD-44 PD-50 — the wiring of a booted xbind: the broker installs the

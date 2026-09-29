@@ -28,10 +28,14 @@ type ResourceInfo struct {
 	// tiles have deployments beyond main: main's rows say "main". Beyond
 	// main only the storage types have rows.
 	Deployment string `json:"deployment,omitempty"`
-	Type       string `json:"type"`             // kv|sqlite|blob|bus|cron
-	Size       int64  `json:"size"`             // bytes on disk (0 for ephemeral)
-	Detail     string `json:"detail"`           // "N keys" | "N files" | "N jobs" | "ephemeral"
-	Events     int64  `json:"events,omitempty"` // bus: events published since start (cumulative — the admin UI derives events/min)
+	// Partition names whose user partition's namespace the row measures
+	// ("user:<id>"), on the rows of a partitioned scope's people's partitions
+	// (plans/partitions/03 §B.7); absent on every other row.
+	Partition string `json:"partition,omitempty"`
+	Type      string `json:"type"`             // kv|sqlite|blob|bus|cron
+	Size      int64  `json:"size"`             // bytes on disk (0 for ephemeral)
+	Detail    string `json:"detail"`           // "N keys" | "N files" | "N jobs" | "ephemeral"
+	Events    int64  `json:"events,omitempty"` // bus: events published since start (cumulative — the admin UI derives events/min)
 }
 
 // resUsageTTL bounds how often a walk-heavy resource (filesystem/blob tree
@@ -109,17 +113,12 @@ func (b *Broker) ResourceUsage() []ResourceInfo {
 			add(scope, dep, dep, set)
 		}
 	}
-	rank := func(ri ResourceInfo) string { // main's row before the others of its id
-		if ri.Deployment == util.MainDeployment {
-			return ""
-		}
-		return ri.Deployment
-	}
+	out = append(out, b.partitionUsageRows()...) // people's partitions (diskpart.go)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].ID != out[j].ID {
 			return out[i].ID < out[j].ID
 		}
-		return rank(out[i]) < rank(out[j])
+		return usageRank(out[i]) < usageRank(out[j]) // main's row before the others of its id
 	})
 	return out
 }
