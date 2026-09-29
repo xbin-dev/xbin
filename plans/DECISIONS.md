@@ -5093,3 +5093,84 @@ Deviations and refinements made while implementing; all deliberate:
     owner's scope for B2); a separate target picker in the app (the Dev API
     tag shows the session's; switching it stays a terminal restart on the
     web).
+- **D134 — The agent's sandbox tools: jobs that don't kill themselves or
+  lose their output, a tile sandbox with the rootfs toolchains, and tool
+  descriptions that state their limits first (2026-09-29).**
+  builtin-templates/agent/_backend/{sandbox_jobs,sandbox_wait,sandbox_tools,
+  sandbox_fs,files,actor_tools}.go, model/tool-heads.js;
+  internal/tilesbx/{launch,command}.go, internal/sandbox RootfsPATH;
+  docker/rootfs.Dockerfile. From an agent's own retrospective after the
+  owner had it process data in its coding sandbox and show a page (plan:
+  "Agent template harness: fixes from an agent's retrospective", WP1): it
+  found no browser, `pkill -f` killed its own job, killed jobs lost their
+  output, and the tool descriptions misled it. The code showed each.
+  - **The tile-sandbox PATH was ours.** Tile-sandbox commands got
+    `/usr/local/sbin:…:/bin` — no `/usr/local/{go,node,bun}/bin`, unlike
+    terminals, backends, their setup scripts and sandbox sessions — so an
+    agent's `bash` found no node, npx or Playwright although the rootfs
+    ships Node 22, Playwright and Chromium. One definition now,
+    `sandbox.RootfsPATH`, for all of them, and `PLAYWRIGHT_BROWSERS_PATH=
+    /usr/local/ms-playwright` where the rootfs has that directory (the
+    Dockerfile's `ENV` doesn't survive `docker export`, so Playwright
+    looked under `$HOME`). Additive: a command's own env and
+    `defaults.env` still win. `TestLiveToolchain` runs node, go and
+    `npx playwright --version` in a sandbox over the rootfs. The rootfs
+    gains `xxd` (the binary-file hint already named it); its base version
+    is the Dockerfile's hash, so `make rootfs` rebuilds it.
+  - **No self-match.** Commands ran as `$SHELL -lc <cmd>`: the job's own
+    shell had the pattern in its cmdline, and pkill excludes only itself.
+    The command now reaches the shell through the environment — `cmd` is
+    `eval "$AGENT_JOB_CMD"` — so its text is in no process's cmdline. The
+    contract is unchanged (a consumer's `env` passes through every
+    manager); the name is not `XBIN_*`, which tile sandboxes refuse in a
+    command's env. The exec's label carries the command for people looking
+    at the sandbox. Handles, never names (pgrep(1), cgroup v2
+    `cgroup.kill`, pidfd, and the Claude Code field reports #16135, #2782,
+    #29787): a poka-yoke refuses a command with `pkill -f`/`--full` or
+    `killall` — "stop jobs with bash_kill {job}…", with the job list —
+    and `force: true` runs it anyway. Per-job cgroups stay a later
+    hardening in tilesbx: process groups already reach the tree.
+  - **Output survives a stop.** `bash_kill` answers with the job's last
+    output (≤ 4 KiB since it was last read) and how it ended; an
+    interrupted `bash` keeps what it collected (a `partialResult` the
+    engine settles the call with) and names the job; the signal is a new
+    `sandbox_jobs.signal` column (an additive `ALTER`), so later reads say
+    `killed by TERM`. No TTY means Python block-buffers and a TERM loses
+    what is unflushed: `PYTHONUNBUFFERED=1` is in the job's env, and the
+    `bash` description says to use `stdbuf -oL` for others.
+  - **`jobs`** lists the conversation's jobs (the running ones asked of
+    their sandboxes first), and **`yield` wakes when a job ends**: a run
+    yielding with jobs of its own running sleeps as `{kind: sleep, since}`
+    and wakes when one ends; `until_job` waits for one (an ended one
+    answers at once). The wake is decided from the jobs table on every
+    pass, so it is durable like the timer; the table learns of an end from
+    whoever reads the job, or from the engine's per-run watcher — a
+    long-poll per job at its manager while the run sleeps, no ticker
+    (D81's rule).
+  - **Waits say when they were cut.** A `timeout_s`/`wait_s` the model gave
+    that the tool call's time limit (about 117 s) or the cap cut short is
+    stated in the footer, never silent.
+  - **Descriptions state their limits first** (ToolBeHonest, EMNLP 2024:
+    "the tool exists but is limited" is the worst failure; Faghih et al.,
+    EMNLP 2025: a description alone shifts tool choice 7–11×; "MCP Tool
+    Descriptions Are Smelly!", 2026: 89.8% omit limitations). The first
+    sentence of `bash`, `bash_output`, `bash_kill`, `jobs`, `yield`,
+    `render_html` and the sandbox file tools gives the purpose, the scope
+    and the key limit; `TestToolDescriptionFirstSentences` pins them, so a
+    change is a reviewed change. `render_html` keeps its name (renaming
+    breaks old transcripts and shifts tool choice unpredictably) and says
+    first that it is a static snapshot, not a browser, pointing to
+    `browser_check` and `preview_port` (other work packages add them). The
+    `# Sandbox` prompt names the image's advertised tools (hello's
+    `images[].tools`, kept in the binding) and the two places files live.
+  - **Compatibility.** Instances pick this up by template update; the
+    migration is additive, old transcripts and sleeping runs (no pending
+    state: the timer alone) are unchanged, and a binding stored before has
+    no `tools` (the prompt says nothing of them). The coding-sandbox
+    manager's default image advertises `git, go, node, python3, rg, make,
+    gcc` — not Playwright; a follow-up there can say so.
+  - **Not chosen:** keeping `$SHELL -lc <cmd>` and only warning (the
+    self-kill stays one typo away); `unset`ting the variable before the
+    `eval` (portable only to POSIX shells, and the variable is bounded by
+    the command-line limit anyway); a job-end inbox row to wake the run (a
+    poke plus the table is the same durability without a row per end).

@@ -20,6 +20,29 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   was pinned is gone from the tree — the window's head and the tile menu
   still show it ([tile-deployments.md](tile-deployments.md)). Existing
   workspaces take it with `bx builtin update scaffold:shell`.
+- **Tile sandboxes: the rootfs toolchains on `PATH`, and Playwright's
+  browsers named** (D134, [protocol.md](protocol.md) §Tile sandboxes). A
+  command in a tile sandbox now gets `/usr/local/{go,node,bun}/bin` first on
+  its `PATH`, as terminals and backends do, and
+  `PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright` where the base rootfs
+  ships Playwright's browsers — `node`, `npx` and `npx playwright` just
+  work (the coding sandbox's `bash`, a manager's `run`). A command's own
+  `env` and `defaults.env` still win. The base rootfs gains `xxd`
+  (`make rootfs` to rebuild yours). Nothing to change.
+- **The agent template's sandbox jobs** (D134, the template's API.md §The
+  coding tools). `bash` passes the command to the sandbox's shell through
+  its environment (the exec's `cmd` is `eval "$AGENT_JOB_CMD"`), so a
+  `pkill -f <pattern>` in a job no longer kills the job itself; a command
+  using `pkill -f`/`killall` is refused with the job list unless
+  `force: true`. `bash_kill` answers with the job's last output and how it
+  ended, an interrupted `bash` keeps what it had read, and the ending
+  signal is kept (`killed by TERM`). New: `jobs` lists them; `yield` wakes
+  when a job the run started ends, and takes `until_job`. Jobs run with
+  `PYTHONUNBUFFERED=1`; a wait the tool's time limit cut short says so.
+  The tool descriptions state their scope and limits first — `render_html`
+  that it is a static snapshot, not a browser — and the `# Sandbox` prompt
+  names the image's tools. Instances pick this up with a template update;
+  the database change is additive.
 
 ## 2026-09-28
 
