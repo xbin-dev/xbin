@@ -11,6 +11,8 @@
 //     (from the next turn);
 //   - bash (its exit reading), write, edit, a command that outlives its
 //     timeout as a job, and a job that survives the agent's backend swap;
+//   - D134: a command with pkill -f isn't run until forced, and then doesn't
+//     kill its own job; bash_kill answers with the job's tail and signal;
 //   - sandbox_create parks for the conversation owner's grant: the owner may
 //     allow it, a participant may only deny;
 //   - people (D83): dev1 doesn't see admin's private sandbox; in a
@@ -285,6 +287,23 @@ async function agentSandbox(browser) {
     const ocard = await lastCard(a, 'bash_output');
     check(ocard && ocard.fam === 'box' && /^exit 0\b/.test(ocard.oc) && /Output of job \d+/.test(ocard.hl), `bash_output reads the job to its end (${ocard && ocard.hl} → ${ocard && ocard.oc})`);
     await shot(a, 'agent-sandbox-job', { fullPage: false });
+
+    // D134: a kill-by-name command isn't run until forced, and then doesn't
+    // kill its own job; bash_kill answers with the tail and the signal
+    const pk = await turn(a, 'sandbox pkill', 'Ran: ');
+    check(pk === 'Ran: before', `"sandbox pkill": refused, then forced (${pk})`);
+    const pkCards = await a.$$eval('#timeline .tcard[data-tool="bash"]', (els) => els.slice(-2).map((e) => e.querySelector('.oc')?.textContent.trim() || ''));
+    check(pkCards[0] === 'not run: kills by name', `the refused bash card says so (${pkCards[0]})`);
+    check(/^exit 0\b/.test(pkCards[1] || ''), `the forced one outlived its own pkill -f: exit 0 (${pkCards[1]})`);
+    const killed = await turn(a, 'sandbox kill', 'Killed: ');
+    check(/^Killed: \[job \d+ stopped · killed by TERM\]$/.test(killed), `"sandbox kill": bash_kill says how it ended (${killed})`);
+    const kcard = await lastCard(a, 'bash_kill');
+    check(kcard && /^job \d+ stopped · killed by TERM$/.test(kcard.oc), `the bash_kill card reads its footer (${kcard && kcard.oc})`);
+    await a.click('#timeline .tcard[data-tool="bash_kill"] .tch >> nth=-1');
+    await until(a, () => !!document.querySelector('#timeline .tcard.on[data-tool="bash_kill"] .res'));
+    const kres = await a.textContent('#timeline .tcard.on[data-tool="bash_kill"] .res');
+    check(/line \d+/.test(kres), `its result shows the job's last output (${kres.replace(/\s+/g, ' ').trim().slice(0, 120)})`);
+    await a.click('#timeline .tcard[data-tool="bash_kill"] .tch >> nth=-1');
 
     // ---- 4. a team conversation: dev1 in its team sandbox; the owner's grant ----
     await a.click('#home');

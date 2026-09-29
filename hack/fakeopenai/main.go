@@ -29,6 +29,12 @@
 //	sandbox cat  bash "cat hello.txt" → "Ran: <its first line>" (what write/edit left)
 //	sandbox long bash "sleep 3; echo slow done" with timeout_s 1 → it becomes a
 //	             job → bash_output {job, wait_s 20} → "Job: <its first line>"
+//	sandbox pkill
+//	             bash "echo before; pkill -f marker-h1; echo after marker-h1":
+//	             refused (it kills by name, D134) → the same with force:true →
+//	             "Ran: <its first line>" (the job outlived its own pkill -f)
+//	sandbox kill bash "…3000 lines…; echo last words; sleep 60" in the background
+//	             → bash_kill {job} → "Killed: <its last line>" (the footer)
 //	sandbox restart
 //	             bash "sleep 8; echo survived" (the harness restarts the agent's
 //	             backend under it); the lost call names its job → bash_output
@@ -92,6 +98,8 @@ var (
 	recs  []*reqRec
 	seen  = map[string]bool{} // "restart me" turns already asked once
 	jobRe = regexp.MustCompile(`\bjob (\d+)`)
+	// pkillCmd would kill its own shell if the command were in its cmdline
+	pkillCmd = "echo before; pkill -f marker-h1; echo after marker-h1"
 )
 
 func record(wire, model string, conv []turn, system string) *reqRec {
@@ -228,6 +236,14 @@ func script(conv []turn, system string) plan {
 			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
 			return plan{Text: "Found: " + first}
 		case "bash":
+			if strings.HasPrefix(last.Text, "not run:") { // the kill-by-name guard (D134): force it
+				return plan{Calls: []call{{"bash", map[string]any{"command": pkillCmd, "force": true, "summary": "Kill by name anyway"}}}}
+			}
+			if m := jobRe.FindStringSubmatch(last.Text); m != nil && strings.Contains(lastUser, "sandbox kill") {
+				n, _ := strconv.Atoi(m[1])
+				time.Sleep(300 * time.Millisecond) // let it write
+				return plan{Calls: []call{{"bash_kill", map[string]any{"job": n, "summary": "Stop the job"}}}}
+			}
 			// a command still running (a timeout, or lost to a restart) names its job
 			if m := jobRe.FindStringSubmatch(last.Text); m != nil && !strings.Contains(last.Text, "[exit") {
 				n, _ := strconv.Atoi(m[1])
@@ -238,6 +254,9 @@ func script(conv []turn, system string) plan {
 		case "bash_output":
 			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
 			return plan{Text: "Job: " + first}
+		case "bash_kill":
+			lines := strings.Split(strings.TrimSpace(last.Text), "\n")
+			return plan{Text: "Killed: " + lines[len(lines)-1]}
 		case "write":
 			return plan{Text: "Wrote it."}
 		case "edit":
@@ -290,6 +309,11 @@ func script(conv []turn, system string) plan {
 		return plan{Calls: []call{{"glob", map[string]any{"pattern": "**/*.txt", "summary": "Find text files"}}}}
 	case strings.Contains(lastUser, "sandbox long"):
 		return plan{Calls: []call{{"bash", map[string]any{"command": "sleep 3; echo slow done", "timeout_s": 1, "summary": "Run something slow"}}}}
+	case strings.Contains(lastUser, "sandbox pkill"):
+		return plan{Calls: []call{{"bash", map[string]any{"command": pkillCmd, "summary": "Kill by name"}}}}
+	case strings.Contains(lastUser, "sandbox kill"):
+		return plan{Calls: []call{{"bash", map[string]any{"command": "for i in $(seq 1 3000); do echo line $i; done; echo last words; sleep 60",
+			"background": true, "summary": "Start a chatty job"}}}}
 	case strings.Contains(lastUser, "sandbox restart"):
 		return plan{Calls: []call{{"bash", map[string]any{"command": "sleep 8; echo survived", "summary": "Survive a restart"}}}}
 	case strings.Contains(lastUser, "new sandbox"):
