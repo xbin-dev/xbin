@@ -143,6 +143,16 @@ func TestHarnessesSavedConfig(t *testing.T) {
 	if c := open(t, string(b)); c.Images[0].Harnesses != nil || len(c.Images[1].Harnesses) != 1 || c.Images[1].Harnesses[0].ID != "codex" {
 		t.Fatalf("a config saved with harnesses: %+v", c.Images)
 	}
+	// a first image saved with argvs of its own: decoded over the default
+	// config's, they never reach the defaults (baseHarnesses)
+	withThem.Images[0].Harnesses = []Harness{{ID: "claude", Argv: []string{"not-claude"}}, {ID: "codex", Argv: []string{"x", "y"}}}
+	b, _ = json.Marshal(withThem)
+	if c := open(t, string(b)); len(c.Images[0].Harnesses) != 2 || c.Images[0].Harnesses[0].Argv[0] != "not-claude" {
+		t.Fatalf("a first image saved with argvs: %+v", c.Images[0])
+	}
+	if d := defaultConfig().Images[0].Harnesses; strings.Join(d[0].Argv, " ") != "claude-agent-acp" || strings.Join(d[1].Argv, " ") != "codex-acp" {
+		t.Fatalf("a saved config changed the default image's harnesses: %+v", d)
+	}
 }
 
 // Every command runs with IS_SANDBOX=1 beside IN_SANDBOX=1.

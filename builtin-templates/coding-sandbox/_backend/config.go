@@ -141,6 +141,17 @@ func (q Quotas) forPerson(u string) Quota {
 	return q.Person
 }
 
+// cloneHarnesses is hs with argvs of their own: store.config decodes a
+// saved config into defaultConfig's, and a saved argv must never land in
+// baseHarnesses' (a shallow copy's Argv is the same array).
+func cloneHarnesses(hs []Harness) []Harness {
+	out := slices.Clone(hs)
+	for i := range out {
+		out[i].Argv = slices.Clone(out[i].Argv)
+	}
+	return out
+}
+
 // baseTools are the commands xbin's base rootfs has beyond a POSIX shell
 // (docker/rootfs.Dockerfile; its best-effort installs are listed in
 // /etc/xbin-rootfs-tools), the coding agents' own CLIs included. Not bun (a
@@ -154,7 +165,7 @@ func defaultConfig() Config {
 	return Config{
 		Mode: "vm",
 		Images: []Image{{ID: "base", Title: "Ubuntu with git, Go, Node and Python", Default: true,
-			Tools: slices.Clone(baseTools), Harnesses: slices.Clone(baseHarnesses)}},
+			Tools: slices.Clone(baseTools), Harnesses: cloneHarnesses(baseHarnesses)}},
 		Sizes: []Size{
 			{ID: "small", Title: "Small", MemMiB: 2048, VCPUs: 2, DiskGiB: 20, Default: true},
 			{ID: "medium", Title: "Medium", MemMiB: 4096, VCPUs: 4, DiskGiB: 40},
