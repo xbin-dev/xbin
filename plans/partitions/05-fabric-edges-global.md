@@ -64,8 +64,7 @@ refusals and picks the instance. The refusal texts name the reason.
 
 **The rule.** A call (Route rule 4) or a resource bind or reach (03 §B.2)
 from `user:A` of Z into `user:A` of X needs:
-- the grant (admin-approved; for a partitioned Z on a shared X, §3's
-  admin-only rule applies);
+- the grant (approved under today's bind authority, §3);
 - **A's read access on X**, which stops Z creating data for A in a tile A
   can't open.
 - **only when the workspace policy `partitionConsent` is on**, A's consent
@@ -139,15 +138,18 @@ has two kinds:
 | Routing | the edge matrix (§1) | the provider's primary, with `X-XBin-From: <requester>`, `X-XBin-Partition: user:<id>`, `X-XBin-Partition-Id` |
 | Removed by | admins | the person, an admin, a provider transfer (the owner changes), user delete (uid), the requester's mode switch (01 §2.6) |
 
-**Why global binds on partitioned requesters are admin-only** (the owner's
-rule). A global bind puts the provider in *every* person's trust base: it
-sees what each partition sends (PD-23, S7). Admins "could also change that
-shared tile's code", so their bind adds no new trust. The same rule covers
-**approving a partitioned tile's `uses` grant on a non-partitioned target**
-(`grantMutation`, `broker.go:710-764`), because an http binding is a grant
-(`broker.go:467-470`); otherwise the rule could be sidestepped. The refusal
-text: `<requester> keeps each person's data apart: only a workspace admin
-wires it to shared tiles (people add their own tiles with a personal bind)`.
+**Who may create a global bind** (owner ruling, 2026-09-29): **today's
+bind authority, unchanged by partitioning** — whoever may manage the
+requesting tile's bindings **and** has authority to bind to the target
+(workspace admins; org admins within their org, D26/D33; personal owners of
+both ends, D88). A global bind puts the provider in *every* person's trust
+base (PD-23, S7), but the people who can create one could already change
+the shared tile's code, so partitioning adds no new rule here; the same
+authority covers approving a partitioned tile's `uses` grant on a
+non-partitioned target (`grantMutation`, `broker.go:710-764`; an http
+binding is a grant, `broker.go:467-470`). The only partition-specific
+addition: binding **to a user-owned tile** may use a **personal bind**
+instead (below), which reaches only that owner's partition.
 
 **Existing global binds** of a tile that becomes partitioned stay: they
 are wiring, and a switch doesn't delete them. The trust panel and
@@ -207,8 +209,7 @@ user partitions don't use a manager without it; they degrade instead
 **Providers are in the partition's trust base (PD-23, decided):** every
 non-partitioned provider a partition calls sees what it sends. `bx doctor`
 and the trust panel (06 §4, §12) list bound providers, their writer counts
-and their last code change. Global binds on partitioned requesters are
-admin-only (§3).
+and their last code change. Global binds follow today's bind authority (§3).
 
 ### 5. The global instance
 
@@ -278,7 +279,7 @@ principals never satisfy a governance check.
   - `403 <user> hasn't let <Z> use their <t> data` (consent policy on);
   - `409` for the bind-time refusal;
   - `404 <t> has no global instance`;
-  - `403` for the admin-only global-bind rule.
+  - `403` when the caller lacks today's bind authority (unchanged).
 - `GET/PUT /api/xbin/workspace-policies` and the `policies` event.
 - `GET/POST/DELETE /api/xbin/partitions/consents` (PersonOnly).
 - `GET/POST/DELETE /api/xbin/partitions/binds`.

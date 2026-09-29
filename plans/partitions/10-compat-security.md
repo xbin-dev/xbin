@@ -135,7 +135,7 @@ It is independent of partitions and ships with its own migration note.
 | `/api/xbin/workspace-policies`, `policies` event | new; defaults keep today's behaviour | yes |
 | a pending tile's documents and API | switch page / 409 body; `/alerts` kind `partition-switch` | new tiles' state only |
 | `XBIN_IFACE_<SLOT>` multi entries, `xbin-interfaces` | `personal: true` rows for the person's own partition | yes (partitioned tiles only) |
-| binding/grant approval on a partitioned requester | global binds admin-only (PD-54) | new tiles only |
+| binding/grant approval on a partitioned requester | today's bind authority, unchanged (PD-54, owner ruling) | — |
 | `POST /templates/new` | `partition: false`; `template.partition` default | yes |
 | `bx builtin update` | keeps the installed `partition` value | yes (never changes a mode) |
 | held credentials (`credentialResetConfirm`) | off by default | yes |
@@ -233,7 +233,7 @@ unchanged.
 | a code writer | switch the mode to wipe people's data | can't: deciding needs `mayManageTile` with a person credential; the tile's own principals are refused |
 | a tile manager | switch mode to wipe everyone's data | governance (like offload/removal): typed confirmation, history, deploy log, audit, every affected person notified |
 | a builtin update or template merge | add/remove `partition` and trigger a wipe prompt | the installed value is kept; the default lives in the stripped template block |
-| an org admin or personal owner | bind a shared provider into a partitioned tile (widening everyone's trust base) | 403: global binds on partitioned requesters are admin-only; the same for `uses` approvals |
+| someone without bind authority on both ends | bind a shared provider into a partitioned tile (widening everyone's trust base) | 403 under today's bind rules (unchanged); people with that authority could change the shared code anyway (PD-23 trust panel lists it) |
 | bob's partition (or global) of tile Z | call alice's personal tile bound personally into her partition of Z | 403: a personal bind grants only alice's partition (owner and uid checked per call); bob's env never lists it |
 | an admin | approve Z `uses` X (both partitioned) with the consent policy off | **data flows** for people who can read X (AR-19); approval warning, ledger, the policy switch |
 | an archiver or its operator | read backups | ciphertext; subkey ids and sizes only |

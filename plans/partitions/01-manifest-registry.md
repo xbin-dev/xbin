@@ -95,6 +95,14 @@ manifest sets the mode only while the tile holds no data; on a tile that
 holds data, a change is a mode-switch request**, which a tile manager either
 confirms — deleting all the tile's data — or declines.
 
+**Adding or removing `global` on an already-partitioned tile is not a wiping
+switch** (owner ruling H1, 2026-09-29): it goes through the same pending
+state and manager confirmation, but adding `global` only creates the empty
+global instance, and removing it deletes only global's namespace and the
+tile's shared resources (the §2.6 items that belong to global) — every
+person's partition stays. Only user-partitioned ↔ unpartitioned deletes
+everything.
+
 #### 2.1 The record and the states
 
 ```

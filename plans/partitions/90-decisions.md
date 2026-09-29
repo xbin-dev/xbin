@@ -226,14 +226,13 @@ questions they raised.
 
 **PD-54 — Bind records and rules.** DEFAULT (new; implements PD-16).
 - **Global binds** are today's record, `bindings` in the workspace
-  `xbin.json` (`internal/registry/registry.go:300`), unchanged in shape. On
-  a **partitioned requester**, creating one is **admin only** (`Broker.IsAdmin`):
-  - the delegated paths (org admins D26/D33, personal owners D88) are
-    refused there;
-  - the same rule applies to approving a partitioned tile's `uses` grant on
-    a non-partitioned target, because an http binding is a grant
-    (`internal/broker/broker.go:467-470`);
-  - unpartitioned requesters keep today's rules.
+  `xbin.json` (`internal/registry/registry.go:300`), unchanged in shape.
+  **DECIDED (owner, 2026-09-29):** creating one follows **today's bind
+  authority, partitioned or not** — whoever may manage the requester's
+  bindings and has authority to bind to the target (workspace admin, org
+  admin D26/D33, personal owner D88); the same for approving a `uses` grant
+  (an http binding is a grant, `internal/broker/broker.go:467-470`). The
+  only partition-specific addition is the personal bind below.
 - **Personal binds** are xbind state at `data/partitions/binds/<uid>.json`:
   - only the owner of a user-owned provider creates one, for their own
     partition of a partitioned requester they can read, and only on a multi
@@ -541,7 +540,7 @@ questions they raised.
 | "frontend routes to the viewer's partition" vs the agent's shared UI | PD-16 (decided): default routing unchanged; attributed F5 to the own global instance |
 | "global talks to users via shared resources" vs handing one person a DM | PD-15: partition mail |
 | "outgoing calls land in the same user's partition" vs a tile reading everyone's data through that edge | PD-13 (decided): grant + read; per-person consent as a workspace policy |
-| "binds to non-partitioned tiles are allowed" vs every partition's trust base widening | PD-16/PD-54: global binds on partitioned requesters are admin-only; people add their own tiles with personal binds |
+| "binds to non-partitioned tiles are allowed" vs every partition's trust base widening | PD-16/PD-54: global binds need today's bind authority (admin or org admin on both ends); people add their own tiles with personal binds |
 | "owner is admin" vs "admins shouldn't have easy access" | PD-07 (decided): governance kept, read paths removed, takeover audited; confirm-reset policy |
 | the `partition` flag is sandbox-writable (D118) | PD-44 (decided): it sets the mode only on an empty tile; afterwards it only requests a switch that a manager confirms (wiping) or declines |
 | "turning partitions on keeps existing data" (rev. 2) vs the owner's switch rule | PD-44/PD-34 (decided): a switch deletes all the tile's data; no migration |
@@ -559,7 +558,7 @@ questions they raised.
 | S4 | mail forgeable; `outbox/add` to any addr | PD-15 |
 | S5 | user partitions get the primary's network wiring | PD-28 |
 | S6 | account takeover missing from G2 | PD-07 (decided): residual named, audit + notice, confirm-reset policy |
-| S7 | trust base understated | PD-23 (decided); global binds admin-only (PD-54) |
+| S7 | trust base understated | PD-23 (decided); global binds need today's bind authority, listed in the trust panel (PD-54) |
 | S8 | routing from rows every partition can write | PD-45, PD-30 |
 | S9 | legacy data mounted into every partition | PD-30; PD-34 (decided): no legacy data survives a switch |
 | S10 | private triggers capture webhooks | PD-38 |
@@ -597,7 +596,23 @@ questions they raised.
 | C22 | `?partition=` 400 everywhere | 400 on partitioned tiles only |
 | C23 | scaffold not updated | PD-47 |
 
-## H. Open questions raised by the rulings
+## H. Open questions raised by the rulings — answered (owner, 2026-09-29)
+
+- **H1 — adding or removing `global` on a partitioned tile: non-destructive.**
+  Adding it creates the empty global instance; removing it (after the same
+  confirmation) deletes only global's data and the shared resources —
+  people's partitions stay. Only user ↔ unpartitioned is a wiping switch
+  (01 §2.6).
+- **H2 — marker: A**, the teal half-split disc (06 §12.2).
+- **H3 — sealing for existing workspaces: seal at once**, with a persistent
+  admin alert until the first key-bundle export, plus the migration note
+  (11).
+- **Grant rule (PD-54): today's bind authority**, not a new admin-only rule
+  — see PD-54.
+
+The questions as they were raised:
+
+
 
 Three, each with the plan's default in place until the owner answers.
 

@@ -236,10 +236,10 @@ file and the split are named under "Merge contention".
 - Accept: `TestPartitionEdgeMatrix` in both policy settings; PersonOnly
   refusals; the ledger counts.
 
-### F15 — Bind types: global (admin-only) and personal (05 §3) — M ∥
+### F15 — Bind types: global (today's authority) and personal (05 §3) — M ∥
 - Files:
   - `internal/broker/netfn.go`: in `apiBindingSet` (`:780-794`), the
-    partitioned requester is admin-only; the `validateBinding` 409 for a
+    partitioned requester keeps today's authority checks; the `validateBinding` 409 for a
     non-partitioned requester → a partitioned provider without global;
     per-partition `HTTPSlots`/`HTTPInterfaces` (`:325-392`);
   - `internal/broker/delegated.go`/`personal.go` (delegated paths refused
@@ -440,7 +440,7 @@ file and the split are named under "Merge contention".
 ### B3 — Bridge, webhooks, sandbox-terminal, llm-gw (09 §2-5) — S/M ∥
 - Files: bridge `AGENTS.md`, webhooks/sandbox-terminal `API.md`,
   `docs/agent-inbox.md`, and llm-gw's per-(From, Partition-Id) counters.
-  The notes cover admin-only global binds and personal binds.
+  The notes cover global binds (today's authority) and personal binds.
 - Depends on: B2c (for the e2e).
 - Accept: the bridge and webhooks e2e against a partitioned agent; llm-gw
   counters per partition id.

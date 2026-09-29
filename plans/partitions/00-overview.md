@@ -27,8 +27,10 @@ A small half-split teal marker (proposed) shows partitioned tiles on the
 window head and sidebar row.
 
 **User → global (PD-16)** is modelled as **bind types**:
-- **Global binds** of a partitioned tile are admin-only, since admins
-  could change the shared tile's code anyway.
+- **Global binds** follow today's bind authority, unchanged by partitioning
+  (owner ruling): whoever may manage the requesting tile's bindings **and**
+  has authority to bind to the target (a workspace admin or an org admin)
+  may create one — those people could change the shared tile's code anyway.
 - **Personal binds** are new. A person wires their own user-owned tile into
   their own partition only. Other people's partitions and global never see
   it, and xbind lets it through only when the caller's partition is the
@@ -113,7 +115,7 @@ credential, never from the URL or a header the caller controls:
 | **user partition** | one per person who uses the tile; primary deployment only in v1 (PD-17) |
 | **partitioned / shared resource** | per-partition namespaces by default; `"shared": true` or `"read"` in `scope.json` for one namespace at today's keys |
 | **partition mail** | xbind-owned, durable, per-addressee inbox; global → one person, or a person's partition → global (04 §3) |
-| **global bind** | today's binding record in the workspace `xbin.json`, seen by every instance; on a partitioned requester, admin-only (05 §3) |
+| **global bind** | today's binding record in the workspace `xbin.json`, seen by every instance; created under today's bind authority, partitioned or not (05 §3) |
 | **personal bind** | xbind state per person (`data/partitions/binds/<uid>.json`): the owner of a user-owned tile wires it into their own partition of a partitioned tile; only that partition sees and reaches it (05 §3) |
 | **workspace policies** | `data/workspace-policies.json`: `partitionConsent`, `credentialResetConfirm`, both off by default (PD-55) |
 | **edge consent** | a person's recorded "tile Z may use my data in tile X"; required only with `partitionConsent` on |
