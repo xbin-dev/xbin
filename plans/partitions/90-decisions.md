@@ -207,8 +207,10 @@ questions they raised.
 **PD-14 — Partitioned caller → non-partitioned provider.** DEFAULT.
 - Rec: allowed through a global bind (PD-16) or grant. xbind sends
   `X-XBin-Partition` (display) and `X-XBin-Partition-Id` (key). Providers
-  key on (From, Deployment, Partition-Id), with `""` ≡ `global`, and there
-  is a consumer-side degrade for sandbox managers without `caps.partitions`.
+  key on (From, Partition-Id) — plus Deployment where they already key on
+  it (user partitions are primary-only, PD-17) — with `""` ≡ `global`, and
+  there is a consumer-side degrade for sandbox managers whose `hello.caps`
+  lack `partitions`.
 
 **PD-16 — User partitions → global things.** **DECIDED (owner, 2026-09-29).**
 - Ruling: yes, modelled as **bind types**.
@@ -505,7 +507,7 @@ questions they raised.
   - global-home records are visible to the same consumer's partitions when
     `personOK` passes;
   - operator names are redacted;
-  - `caps.partitions`, and the agent degrades with old managers.
+  - `partitions` in `hello.caps`, and the agent degrades with old managers.
 
 ## E. Accepted risks (why each is acceptable)
 

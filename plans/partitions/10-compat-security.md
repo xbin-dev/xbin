@@ -113,7 +113,8 @@ It is independent of partitions and ships with its own migration note.
 - Old SDKs: `CallerInfo` lacks `Partition`/`PartitionID`; the headers are
   ignored; nothing fails (rule 8).
 - **Providers keyed on `X-XBin-From` alone merge partitions** (NP-09-19).
-  The shipped sandbox-manager contract gains `caps.partitions`; the agent's
+  The shipped sandbox-manager contract gains the `partitions` capability
+  (a word in `hello.caps`); the agent's
   user partitions don't use an old manager (they degrade, 08 §6); third-party
   providers are documented (docs/partitions.md §Providers: key on the
   partition id, `""` ≡ `global`) and flagged by `bx doctor` when bound to a

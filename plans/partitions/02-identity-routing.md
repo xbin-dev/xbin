@@ -196,9 +196,11 @@ if a := d.Attribute; a != nil {                        // F5 from a user partiti
   header.
 - **`X-XBin-Partition-Id`** (new, C11): the caller's pkey, for user
   partitions only — opaque, stable for the person's incarnation. Providers
-  key per-caller state on (`X-XBin-From`, `X-XBin-Deployment`,
-  `X-XBin-Partition-Id`) and show `X-XBin-Partition` as the display name, so
-  a deleted-then-recreated `alice` never inherits the old alice's records.
+  key per-caller state on (`X-XBin-From`, `X-XBin-Partition-Id`) — plus
+  `X-XBin-Deployment` where they already key on it: user partitions run
+  only on the primary (PD-17), so the id never spans deployments — and show
+  `X-XBin-Partition` as the display name, so a deleted-then-recreated
+  `alice` never inherits the old alice's partition's records.
 - **F5 attribution (S3):** an F5 request from a user partition — whatever
   the credential (frame, terminal, instance token) — reaches global as its
   **person**: `X-XBin-User=<id>`, `X-XBin-User-Level=<the person's level on

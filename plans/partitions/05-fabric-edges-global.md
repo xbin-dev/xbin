@@ -197,12 +197,17 @@ caller tile is calling, and `X-XBin-Partition-Id` gives a stable key. The
 rule for providers (docs/partitions.md, docs/sandbox-manager.md,
 docs/agent-inbox.md) is:
 - **a provider that keeps per-caller state keys it on (`X-XBin-From`,
-  `X-XBin-Deployment`, `X-XBin-Partition-Id`);**
+  `X-XBin-Partition-Id`)** — plus `X-XBin-Deployment` where it already keys
+  on it: user partitions run only on the primary (PD-17), so the id never
+  spans deployments, and a consumer's non-primary deployments keep calling
+  as its non-personal identity (the sandbox-manager contract keys the pair,
+  B1);
 - it treats an absent partition and `global` as the same consumer;
 - it uses `X-XBin-Partition` for display only.
 
 Enforcement is on the **consumer** side for the contracts xbin ships. The
-sandbox-manager contract gains `caps.partitions: 1` (07 §4). The agent's
+sandbox-manager contract gains the capability `partitions` in
+`hello.caps` (a word, like every capability; 07 §4). The agent's
 user partitions don't use a manager without it; they degrade instead
 (C12, 08 §6).
 

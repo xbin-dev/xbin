@@ -259,8 +259,8 @@ showing "code asks for Q; R kept (declined by …)" with a **Switch…** action.
 - It answers 409 unless R and Q still match the request (race) and Q is
   valid.
 - A switch to user partitions is refused without `--isolate` (PD-19).
-- For a tile with sandbox-manager slots, it lists bound managers that lack
-  `caps.partitions` (C12) and needs `--yes`.
+- For a tile with sandbox-manager slots, it lists bound managers whose
+  `hello.caps` lack the word `partitions` (C12) and needs `--yes`.
 
 It then runs these steps in order:
 1. Stop every instance of the primary. Revoke their tokens synchronously
