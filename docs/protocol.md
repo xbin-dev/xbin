@@ -1754,6 +1754,30 @@ PUT    /native-runtime            admin. {enabled: bool} → the same view.
                                    answers 410 with the reason (&preview=1
                                    still served). Kept in users.json;
                                    publishes `native`; audited
+GET    /workspace-policies        a person (session, device, terminal or
+                                   agent session) or admin; other tile
+                                   principals (frames, instances, cron, bus)
+                                   403.
+                                   {schema: 1, partitionConsent,
+                                   credentialResetConfirm} — the workspace
+                                   policies for partitioned tiles (PD-55),
+                                   both off by default. partitionConsent: a
+                                   partitioned tile uses another partitioned
+                                   tile's data of a person only with that
+                                   person's consent; credentialResetConfirm:
+                                   an admin-set sign-in link, password or SSO
+                                   email for someone holding partitions waits
+                                   for them to confirm, or 24 h after they
+                                   are notified. Kept in
+                                   data/workspace-policies.json (not
+                                   users.json, which an older xbind rewrites
+                                   without keys it doesn't know)
+PUT    /workspace-policies        admin. {partitionConsent?,
+                                   credentialResetConfirm?}: each present key
+                                   replaces that switch, an absent one is
+                                   left alone (at least one; any other key is
+                                   400) → the full view; publishes
+                                   `policies`; audited
 GET    /chrome                    admin. {tiles: [{path, requested,
                                    approved, shipped?, chrome, missing?}]} —
                                    every component whose xbin.json says
@@ -3422,7 +3446,7 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   writes, and every admin API (backups, the vault barrier, vaults,
   resources, auth-overview, backends, runtime, ingress, gpus, the VM policy,
   token rotation, view-as, the native-runtime, chrome and branding writes,
-  push config and devices). Deciding a PR (`POST /code/pr/state`) is
+  the workspace policies, push config and devices). Deciding a PR (`POST /code/pr/state`) is
   primary-only for backends: 403 `deciding a PR is the primary's act: a
   non-primary deployment's backend can't do it (<deployment>)`.
 - **Audit.** A tile credential acting in a deployment other than `main`
@@ -4642,6 +4666,7 @@ required). JSON text frames:
 {"type":"grants"}                                    // grant table changed
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
 {"type":"native"}                                    // the native-runtime switch changed (D101): re-read whoami (native.runtime)
+{"type":"policies"}                                  // a workspace policy changed (PD-55): re-read GET /workspace-policies
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}

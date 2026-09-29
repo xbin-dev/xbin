@@ -308,6 +308,8 @@ var routeClasses = map[string]RouteClass{
 	"PUT /native-runtime":                    PrimaryOnly,
 	"PUT /chrome":                            PrimaryOnly,
 	"PUT /branding":                          PrimaryOnly,
+	"GET /workspace-policies":                PrimaryOnly, // people and admins only; tile code gets 403 (PD-55)
+	"PUT /workspace-policies":                PrimaryOnly,
 	"GET /push/config":                       PrimaryOnly,
 	"PUT /push/config":                       PrimaryOnly,
 	"DELETE /push/config":                    PrimaryOnly,
