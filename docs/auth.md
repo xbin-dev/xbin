@@ -135,10 +135,13 @@ the prefix it already is. A ticket is an HMAC under the workspace secret
 with a purpose tag of its own (it never verifies as a frame, asset or
 tile-origin credential, nor they as it), binds the tile, the person, the
 login's generation (it dies with the login), the deployment and a view-as
-session (it stays read-only), expires after 12 hours, and works only from
-an address that signed in within the last hour — as the `/c/` subresource
-rule — so a ticket the page sends elsewhere is no use there. On a tile
-origin only that tile's tickets are served.
+session (it stays read-only), expires after 12 hours, needs the person to
+still read the tile at every use, and works only from an address that
+signed in within the last hour — as the `/c/` subresource rule — so a
+ticket the page sends elsewhere is no use there. On a tile origin only that
+tile's tickets are served, and whatever a ticket reaches answers with
+`Content-Security-Policy: sandbox allow-scripts allow-forms` (xbind's,
+whatever the backend sets).
 
 **Chrome is the exception.** Components that must act as the signed-in human
 run unsandboxed and keep the cookie: the shell itself (root, shell), the

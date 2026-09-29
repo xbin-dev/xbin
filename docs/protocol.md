@@ -532,8 +532,11 @@ that signed in within the hour (the `/c/` subresource rule's; 401
 otherwise), dies with the login that minted it, expires after 12 h (401),
 and on a tile origin only that tile's tickets are served (403). A request
 without the slash after the ticket is redirected to it. Cookies and
-`Authorization` never pass through it, and a backend's `Set-Cookie`
-never comes back.
+`Authorization` never pass through it, a backend's `Set-Cookie` never
+comes back, and every answer carries `Content-Security-Policy: sandbox
+allow-scripts allow-forms` and `nosniff` whatever the backend sets (an
+opaque origin, even opened directly). The person must still read the tile
+at every use.
 
 Errors are JSON:
 `{"error": "...", "docs": "/docs/...", "detail": "compiler output"?}` —
