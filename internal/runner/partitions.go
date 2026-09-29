@@ -526,10 +526,12 @@ func (r *Runner) StopPartitions(tile string) {
 // state is Partitioned). Boot calls it from the registry's
 // OnPartitionChange, before the scan that changed it is published, so
 // the runner answers from the new spec at once (partitionSpec). Without
-// user partitions every partition instance stops, its token revoked here;
-// the global instance stops when the new spec has none, and restarts when
-// the tile turned partitioned or unpartitioned, so XBIN_PARTITION says what
-// it is.
+// user partitions every partition instance stops, its token revoked here.
+// The primary's running generation stops when the new spec has no global
+// instance, and when the tile turned partitioned or unpartitioned: the
+// next request (or alwaysOn's wake) starts it again with XBIN_PARTITION
+// saying what it is now. Nothing starts here — c may be a tile the scan
+// dropped.
 func (r *Runner) PartitionsChanged(c *registry.Component, old, new registry.PartitionSpec) {
 	r.mu.Lock()
 	if r.parts.mode == nil {
@@ -540,14 +542,10 @@ func (r *Runner) PartitionsChanged(c *registry.Component, old, new registry.Part
 	if !new.User {
 		r.StopPartitions(c.Path)
 	}
-	switch primary := r.primary(c.Path); {
-	case old == new:
-	case new.User && !new.Global:
-		if s := r.existingStateOf(c.Path, primary); s != nil {
+	if old != new && (old.User != new.User || new.User && !new.Global) {
+		if s := r.existingStateOf(c.Path, r.primary(c.Path)); s != nil {
 			go r.stopState(s) // under the scan lock: never wait for a drain here
 		}
-	case old.User != new.User:
-		r.Changed(c) // the running generation restarts with the new env; none starts
 	}
 }
 

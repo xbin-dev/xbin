@@ -698,7 +698,19 @@ func TestPartitionStops(t *testing.T) {
 		t.Errorf("a partition after the switch: %s", got)
 	}
 
-	w.r.PartitionsChanged(w.c, registry.PartitionSpec{}, userGlobal)
+	w.ensure("") // today's instance, unpartitioned
+	w.f.takeLog()
+	w.r.PartitionsChanged(w.c, registry.PartitionSpec{}, userGlobal) // auto: it becomes the global instance
+	for deadline := time.Now().Add(2 * time.Second); count(w.f.takeLogPeek(), "stop apps/x main") == 0; {
+		if time.Now().After(deadline) {
+			t.Fatal("today's instance never stopped")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond) // nothing may start meanwhile
+	if log := w.f.takeLog(); count(log, "stop apps/x main") != 1 || count(log, "start ") != 0 {
+		t.Errorf("turning partitioned: %q, want today's instance stopped (its next start says global) and nothing started", log)
+	}
 	w.ensure("global")
 	w.r.PartitionsChanged(w.c, userGlobal, userOnly) // global removed (H1)
 	deadline := time.Now().Add(2 * time.Second)
