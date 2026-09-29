@@ -592,18 +592,27 @@ func (st *State) stepProxy() error {
 	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
 	brk.WakeBackends = run.WakeAlwaysOn
 	// A component may spawn only if enabled AND its encrypted tile state is
-	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md.
+	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md
+	// — and its primary isn't paused by its partition mode (pending or
+	// invalid, plans/partitions/01 §2.3).
 	run.HoldReason = func(comp string) string {
 		if s := reg.LifecycleState(comp); s != registry.StateEnabled {
 			return "is " + s
 		}
+		if why := brk.PartitionHoldReason(comp); why != "" {
+			return why
+		}
 		return brk.EncryptionHoldReason(comp)
 	}
 	run.ShouldRun = func(comp string) bool { return run.HoldReason(comp) == "" }
-	// ...per deployment: the hold of the namespaces that deployment reaches.
+	// ...per deployment: the hold of the namespaces that deployment reaches;
+	// the partition hold is the primary's alone (non-primary deployments keep
+	// running while a mode switch is pending).
 	run.ShouldRunDeployment = func(tile, dep string) bool {
-		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep)
+		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep) &&
+			(dep != st.Deployments.Primary(tile) || brk.PartitionHoldReason(tile) == "")
 	}
+	brk.SetPartitionStop(func(tile string) { run.StopDeployment(tile, st.Deployments.Primary(tile)) })
 	brk.Version = st.Cfg.Version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 	st.Proxy = px
