@@ -374,6 +374,11 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 			out = append(out, a)
 		}
 	}
+	if admin {
+		if a, bad := b.policiesAlert(); bad { // an unreadable data/workspace-policies.json (PD-55)
+			out = append(out, a)
+		}
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})
 }
 

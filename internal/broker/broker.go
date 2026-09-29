@@ -53,6 +53,7 @@ type Broker struct {
 	Users     *users.Store          // human users (nil = single-user/root-only)
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
 	tileSbx   tileSbxSlot           // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
+	pol       policiesStore         // data/workspace-policies.json, cached (policies.go, PD-55)
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
@@ -333,6 +334,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerTemplates(srv)
 	b.registerUsers(srv)
 	b.registerScreens(srv)
+	b.registerPolicies(srv)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
 		Primary:      b.primaryOf, Addressed: b.addressed}

@@ -76,11 +76,17 @@ from `user:A` of Z into `user:A` of X needs:
   separate from `data/users.json`, because an older xbind that rewrites the
   users store would drop an unknown key (precedent: `data/branding.json`,
   `internal/boot/boot.go:680`).
-- API: `GET /api/xbin/workspace-policies` (any signed-in person; tile
-  principals get 403) and `PUT` (admin only). The PUT has deployment class
-  PrimaryOnly, like `PUT /native-runtime` (`internal/server/deployclass.go:308`),
-  and partition class Neutral (02 §8). A change publishes a `policies`
-  event. `bx policies [set partition-consent on|off]`.
+- API: `GET /api/xbin/workspace-policies` (any signed-in person, through
+  their session or device or a terminal or agent session they drive —
+  `bx policies` runs in one; admins, the admin tile through `xbin:admin`
+  included; other tile principals get 403; deployment class Neutral, like
+  `GET /branding`) and `PUT` (admin only: `Broker.IsAdmin`, as for every
+  governance write, so the admin tile's frame passes, 06 §12.3). The PUT has
+  deployment class PrimaryOnly, like `PUT /native-runtime`
+  (`internal/server/deployclass.go:308`), and partition class Neutral
+  (02 §8). A change publishes a `policies`
+  event. `bx policies [set partition-consent on|off]`. A switch xbind can't
+  read from the file keeps its last value, or is on (fail closed; F16).
 - UI: a new **workspace → policies** tab in the admin tile (06 §12.3).
 - **Off** (the default): nothing is prompted and no consent records are
   written. The approval warning (below) and the ledger still apply.

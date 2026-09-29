@@ -485,7 +485,9 @@ words and confirmations imported from `/vendor/deploy-state.js` and
 `backup`, `binding` for grants/roles/providers/wiring, `ingress` for
 expose/endpoints, `orgs` for the org list, one org's page (`#orgs/<id>`
 — the router passes the hash's `sub` down), policy ceilings and the
-workspace defaults, `users`, `signin`, `sessions`); the
+workspace defaults, `users`, `signin`, `sessions`, and the workspace
+group's `branding`, `nativeapp` and `policies` — the workspace policies for
+partitioned tiles, PD-55); the
 router renders it with its inputs as properties and imports it
 **relatively** (`./tabs/map.js`) — a sandboxed tile may import its own
 siblings, and `bx builtin update` delivers new files inside the unit, so an
@@ -518,7 +520,9 @@ older workspace's monolith keeps working while a fresh one gets the split
   (`permset:`, `netset:`, `bindcustom:`, `orgallow:`/`ws:`, `user:`).
 
 Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
-`render()`, and the `adminTabs` harness pass opens every id in `GROUPS`
+`render()` — or, for a tab that takes no inputs (sandboxes, deployments,
+branding, nativeapp, policies), its import and one line in
+`plain-tabs.js`'s `PLAIN_TABS` instead — and the `adminTabs` harness pass opens every id in `GROUPS`
 (it reads them from `BxAdmin.tabsFlat()`) and fails on an empty or `.err`
 body (`hack/ui-harness/shots.js`). The `sandboxes` pass
 (`hack/ui-harness/passes/sandboxes.js`) checks the sandboxes tab live —
@@ -527,7 +531,12 @@ refused VMs — and against a routed VM-capable host. The `adminDeployments`
 pass (`hack/ui-harness/passes/admindeploy.js`) drives the deployments tab
 inside the shell on the deployments pass's fixture: protect, deliveries,
 unprotect and the reassign confirmation, each through the admin tile's
-frame, and the link to the tile's Deployments panel.
+frame, and the link to the tile's Deployments panel. `adminTabs` also
+counts the policies tab's two switches; the `adminPolicies` pass
+(`hack/ui-harness/passes/policies.js`) drives it: the confirmation before
+"ask each person" turns on (cancel, then Turn on), the credential-reset
+switch saving at once, a second console following the `policies` event,
+and a user's read-only access.
 
 ## The shell (`workspace-template/shell`)
 
