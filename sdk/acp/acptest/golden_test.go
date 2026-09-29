@@ -4,7 +4,7 @@ package acptest
 // as it played when it was hack/fakeacp's main package, driven over its
 // stdio like a client would and recorded frame by frame ("> " the client's
 // line, "< " the agent's, then how it exited). The moved engine must
-// reproduce them byte for byte.
+// reproduce them byte for byte — TestGolden plays each against Serve.
 //
 //	ACPTEST_CAPTURE=<binary> go test -run TestGolden   re-record from a binary
 //	ACPTEST_BIN=<binary> go test -run TestGolden       compare a binary
@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -59,6 +60,7 @@ type driver struct {
 	dir   string            // $DIR in a client line: a scratch directory
 	auto  map[string]string // an agent request's method → the reply's body
 	exit  func() int        // waits for the agent to end: its exit code
+	after map[int]func()    // run once the response to this call id is read
 }
 
 const wait = 10 * time.Second
@@ -139,7 +141,11 @@ func (d *driver) until(what string, match func(*frame) bool) *frame {
 func (d *driver) response(id int) *frame {
 	d.t.Helper()
 	want := strconv.Itoa(id)
-	return d.until("response "+want, func(f *frame) bool { return f.Method == "" && string(f.ID) == want })
+	f := d.until("response "+want, func(f *frame) bool { return f.Method == "" && string(f.ID) == want })
+	if fn := d.after[id]; fn != nil {
+		fn()
+	}
+	return f
 }
 
 func (d *driver) request(method string) *frame {
@@ -444,11 +450,59 @@ func runBinary(t *testing.T, bin, dir string) *driver {
 	return d
 }
 
+// goldenEnv is the environment the transcripts were captured in.
+func goldenEnv(key string) string {
+	return map[string]string{"HOME": "/home/fake", "FAKE_API_KEY": "sekrit"}[key]
+}
+
+// runServe plays the agent in-process, as Serve, over pipes.
+func runServe(t testing.TB, dir string, o Options) *driver {
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	served := make(chan error, 1)
+	go func() {
+		err := Serve(inR, outW, o)
+		_ = outW.Close()
+		served <- err
+	}()
+	d := newDriver(t, inW, outR, dir)
+	d.exit = func() int {
+		err := <-served
+		_ = inR.Close()
+		var exit *ExitError
+		if errors.As(err, &exit) {
+			return exit.Code
+		}
+		if err != nil {
+			t.Fatalf("serve: %v", err)
+		}
+		return 0
+	}
+	return d
+}
+
+// thirdTickWaits holds the third 200 ms pause until release is closed: a
+// cancel sent after "tick 2" lands mid-turn however loaded the machine is.
+func thirdTickWaits(release chan struct{}) func(time.Duration) {
+	var mu sync.Mutex
+	n := 0
+	return func(d time.Duration) {
+		mu.Lock()
+		if d == 200*time.Millisecond {
+			n++
+		}
+		third := n == 3
+		mu.Unlock()
+		if third {
+			<-release
+			return
+		}
+		time.Sleep(d)
+	}
+}
+
 func TestGolden(t *testing.T) {
 	capture, bin := os.Getenv("ACPTEST_CAPTURE"), os.Getenv("ACPTEST_BIN")
-	if capture == "" && bin == "" {
-		t.Skip("set ACPTEST_CAPTURE or ACPTEST_BIN to a fakeacp binary")
-	}
 	if capture != "" {
 		bin = capture
 		if err := os.MkdirAll(filepath.Join("testdata", "golden"), 0o755); err != nil {
@@ -462,8 +516,20 @@ func TestGolden(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "data.bin"), []byte("7 bytes"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			d := runBinary(t, bin, dir)
-			sc.play(d)
+			var d *driver
+			switch {
+			case bin != "":
+				d = runBinary(t, bin, dir)
+				sc.play(d)
+			case sc.name == "slow-cancel":
+				release := make(chan struct{})
+				d = runServe(t, dir, Options{Getenv: goldenEnv, wait: thirdTickWaits(release)})
+				d.after = map[int]func(){3: func() { close(release) }}
+				sc.play(d)
+			default:
+				d = runServe(t, dir, Options{Getenv: goldenEnv})
+				sc.play(d)
+			}
 			file := filepath.Join("testdata", "golden", sc.name+".txt")
 			if capture != "" {
 				if err := os.WriteFile(file, []byte(d.transcript()), 0o644); err != nil {
