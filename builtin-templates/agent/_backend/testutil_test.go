@@ -148,7 +148,7 @@ func lastUser(s string) func(LLMRequest) bool {
 	return func(r LLMRequest) bool {
 		for i := len(r.Msgs) - 1; i >= 0; i-- {
 			if r.Msgs[i].Role == "user" {
-				return strings.Contains(asString(r.Msgs[i].Content), s)
+				return strings.Contains(stripReminder(asText(r.Msgs[i].Content)), s)
 			}
 		}
 		return false
@@ -162,7 +162,7 @@ func lastIs(role, s string) func(LLMRequest) bool {
 			return false
 		}
 		m := r.Msgs[len(r.Msgs)-1]
-		return m.Role == role && strings.Contains(asString(m.Content), s)
+		return m.Role == role && strings.Contains(stripReminder(asText(m.Content)), s)
 	}
 }
 
@@ -293,6 +293,34 @@ func transcript(db *DB, id int64) string {
 		b.WriteString(" | ")
 	}
 	return b.String()
+}
+
+// noReminder takes the task reminder (asks.go) off the last message, for
+// tests that compare what a request carries.
+func noReminder(msgs []wireMsg) []wireMsg {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	out := append([]wireMsg(nil), msgs...)
+	last := &out[len(out)-1]
+	switch c := last.Content.(type) {
+	case string:
+		last.Content = stripReminder(c)
+	case json.RawMessage:
+		var parts []json.RawMessage
+		if json.Unmarshal(c, &parts) == nil {
+			kept := parts[:0:0]
+			for _, p := range parts {
+				var tp struct{ Text string }
+				if json.Unmarshal(p, &tp) != nil || !strings.HasPrefix(tp.Text, reminderOpen) {
+					kept = append(kept, p)
+				}
+			}
+			b, _ := json.Marshal(kept)
+			last.Content = json.RawMessage(b)
+		}
+	}
+	return out
 }
 
 // fullText is every message's content, unclipped.

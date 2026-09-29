@@ -29,7 +29,7 @@ func TestSendersArePrefixedWhenShared(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return msgs
+		return noReminder(msgs)
 	}
 	say("alice", "just me")
 	msgs := ctx()

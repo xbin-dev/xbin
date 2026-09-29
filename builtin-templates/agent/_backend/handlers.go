@@ -125,6 +125,15 @@ func (ag *Agent) startRunTx(t *DB, o runOpts) (int64, error) {
 		if _, err := t.addMessage(m); err != nil {
 			return 0, err
 		}
+		// the request, pinned (D133): a schedule's or other automation's goal
+		// under its origin, else the person (or element) who asked
+		src, who := orStr(o.Meta.Origin, "human"), o.Sender
+		if o.Meta.Origin != "" {
+			who = orStr(o.Sender, o.Meta.Label)
+		}
+		if err := t.recordAsk(m, src, who); err != nil {
+			return 0, err
+		}
 		_, _ = t.q.Exec(`UPDATE runs SET turn_started=? WHERE id=?`, now(), id)
 	}
 	if o.Note != "" {

@@ -48,6 +48,11 @@ func (d *DB) migrate() error {
 	} {
 		_, _ = d.q.Exec(q)
 	}
+	// D133: the task ledger, summary history, observation masking (asks.go).
+	// Before anything below reads messages: msgCols names messages.masked.
+	if err := d.addAskSchema(); err != nil {
+		return err
+	}
 	if err := d.addConvSchema(); err != nil {
 		return err
 	}

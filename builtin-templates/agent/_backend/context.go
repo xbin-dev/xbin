@@ -13,26 +13,31 @@ import (
 )
 
 // assembleContext builds the message list sent to the model: a system
-// message (base prompt + date + memory blocks + skills + running summary)
-// followed by the live (uncompacted) transcript. An assistant message carries
-// its stored meta, so a wire can replay the reasoning it produced.
+// message (base prompt + the pinned task + date + sandbox + the model's notes
+// + skills + running summary) followed by the live (uncompacted) transcript,
+// masked tool results as their stubs, and the task reminder appended to the
+// last message (asks.go; never stored). An assistant message carries its
+// stored meta, so a wire can replay the reasoning it produced.
+//
+// Everything before the reminder changes only when a compaction runs, a note
+// is written or the day turns — so the provider's prompt cache keeps hitting.
 func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]wireMsg, error) {
 	mem, err := ag.db.memory(run.ID)
 	if err != nil {
 		return nil, err
 	}
+	asks, err := ag.db.asks(run.ID)
+	if err != nil {
+		return nil, err
+	}
 	var sys strings.Builder
 	sys.WriteString(cfg.System)
+	sys.WriteString(taskBlock(asks)) // D133: verbatim, before anything the model wrote
 	// Date only (not a full timestamp) keeps the system prefix stable within a
 	// day, so prompt caching keeps hitting.
 	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))
 	sys.WriteString(sandboxPrompt(cfg)) // the bound sandbox; "" when none (sandbox_tools.go)
-	if len(mem) > 0 {
-		sys.WriteString("\n\n# Memory blocks\n")
-		for k, v := range mem {
-			fmt.Fprintf(&sys, "- %s: %s\n", k, v)
-		}
-	}
+	sys.WriteString(notesBlock(mem))    // sorted: the same bytes every call
 	if cfg.feature("skills") {
 		if skills := ag.db.visibleSkills(ag.scopeOf(run, cfg)); len(skills) > 0 {
 			sys.WriteString("\n\n# Skills (call skill_view to load one's full steps)\n")
@@ -62,13 +67,22 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 
 	out := []wireMsg{{Role: "system", Content: sys.String()}}
 	pos := make([]int, len(live))
+	var jobs map[string]int
+	lastID := int64(0) // the newest message the model sees
 	for i, m := range live {
 		pos[i] = -1
 		if m.Role == "system" {
 			continue // the base/system prompt is rebuilt above
 		}
 		pos[i] = len(out)
+		lastID = m.ID
 		var content any = m.Content
+		if m.Masked && m.Role == "tool" {
+			if jobs == nil {
+				jobs = ag.db.jobsByCall(run.ID, live)
+			}
+			content = maskStub(m, jobs[m.ToolCallID])
+		}
 		if m.Role == "user" {
 			content = contentValue(m.Content)
 			if s, ok := content.(string); ok && shared {
@@ -90,7 +104,14 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 		out = append(out, wm)
 	}
 	// Images are added here, at assembly, and never stored (attach.go).
-	return ag.withImages(ctx, run, cfg, live, out, pos), nil
+	out = ag.withImages(ctx, run, cfg, live, out, pos)
+	// The reminder: the task's title and latest request, unless the last
+	// message is that request; the one-time note after a compaction.
+	var latest *Ask
+	if len(asks) > 0 {
+		latest = asks[len(asks)-1]
+	}
+	return withReminder(out, reminderText(run.Title, latest, latest != nil && latest.MsgID != lastID, run.CompactNote)), nil
 }
 
 // validateWire checks the provider's contract before a request goes out:
@@ -188,79 +209,9 @@ func wireNames(msgs []wireMsg, specs []toolSpec) ([]wireMsg, []toolSpec, map[str
 	return outMsgs, outSpecs, back
 }
 
-// --- compaction -------------------------------------------------------------------
+// --- compaction (compact.go) ---------------------------------------------------
 
-// maybeCompact folds the oldest live turns into the running summary when the
-// context exceeds the token budget (or when asked), never splitting an
-// assistant tool-call from its results. A forced compaction consumes the
-// compaction requests queued for the run.
-func (e *Engine) maybeCompact(ctx context.Context, ts *turnState, force bool) {
-	defer func() {
-		if force {
-			e.consumeCompact(ts.run.ID)
-		}
-	}()
-	run, err := e.db.getRun(ts.run.ID)
-	if err != nil {
-		return
-	}
-	cfg := ts.cfg
-	live, err := e.db.messages(run.ID, true)
-	if err != nil {
-		return
-	}
-	total := estimateTokens(cfg.System) + estimateTokens(run.Summary)
-	for _, m := range live {
-		total += m.Tokens
-	}
-	if run.LastPromptTokens > 0 {
-		total = run.LastPromptTokens // provider-reported truth beats the estimate
-	}
-	if !force && total <= cfg.TokenBudget {
-		return
-	}
-	const keepTail = 6
-	cut := len(live) - keepTail
-	if cut < 1 {
-		cut = len(live) / 2
-	}
-	if cut < 1 {
-		return
-	}
-	for cut < len(live) && live[cut].Role == "tool" {
-		cut++
-	}
-	if cut >= len(live) {
-		return
-	}
-	prefix := live[:cut]
-	var buf strings.Builder
-	for _, m := range prefix {
-		fmt.Fprintf(&buf, "%s: %s\n", m.Role, m.Content)
-	}
-	summary := e.summarize(ctx, run, cfg, run.Summary, buf.String())
-	if summary == "" {
-		return
-	}
-	ids := make([]int64, len(prefix))
-	for i, m := range prefix {
-		ids[i] = m.ID
-	}
-	_ = e.fenced(func(t *DB) error {
-		if err := t.markCompacted(ids); err != nil {
-			return err
-		}
-		if err := t.setSummary(run.ID, summary); err != nil {
-			return err
-		}
-		t.setPromptTokens(run.ID, 1) // stale: the next call reports the new size
-		e.emitStep(t, rootOf(run), t.journal(run.ID, "compaction",
-			map[string]any{"messages": len(prefix), "summaryTokens": estimateTokens(summary)}))
-		e.emitRun(t, run.ID)
-		return nil
-	})
-}
-
+// consumeCompact marks the compaction requests queued for a run delivered.
 func (e *Engine) consumeCompact(runID int64) {
 	var ids []int64
 	_ = e.fenced(func(t *DB) error {
@@ -274,28 +225,6 @@ func (e *Engine) consumeCompact(runID int64) {
 	for _, id := range ids {
 		e.delivered(id)
 	}
-}
-
-// summarize is one model call under the gate (it competes for the same slots
-// as every other call).
-func (e *Engine) summarize(ctx context.Context, run *Run, cfg Config, prior, transcript string) string {
-	release, err := e.gate.acquire(ctx, run.Depth == 0)
-	if err != nil {
-		return ""
-	}
-	defer release()
-	sys := "You compact a conversation for an AI agent. Merge the prior summary and the new transcript into a single concise summary that preserves facts, decisions, open threads, and anything needed to continue. Output only the summary."
-	user := "Prior summary:\n" + prior + "\n\nNew transcript to fold in:\n" + transcript
-	reply, err := e.llm.Chat(ctx, LLMRequest{
-		Run: run.ID, Purpose: "compact",
-		Model: modelFor(ctx, cfg, "memory"),
-		Msgs:  []wireMsg{{Role: "system", Content: sys}, {Role: "user", Content: user}},
-		Wire:  cfg.Wire,
-	}, nil)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(asString(reply.Msg.Content))
 }
 
 // senderOf is who wrote a user message ("" for the agent's own prompts).

@@ -318,6 +318,7 @@ func (e *Engine) publishRun(runID int64) {
 		return
 	}
 	data := runSummary(r)
+	data["task"] = e.db.taskView(r.ID) // the pinned task (D133)
 	if cfg, err := e.db.runConfig(r.ID); err == nil {
 		data["sandbox"], data["attached"] = sandboxSummary(cfg)
 	}

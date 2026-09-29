@@ -36,7 +36,7 @@ func TestClassToolMatrix(t *testing.T) {
 	useClasses(t,
 		agentClass{ID: "notes", Name: "Notes", Toolsets: []string{tsFiles, tsSkills}},
 		agentClass{ID: "comm", Name: "Comm", Toolsets: []string{tsInternal}, MCP: classSet{Names: []string{"comm"}}})
-	core := []string{"memory_set", "memory_get", "note", "finish", "yield", "ask_user", "recall"}
+	core := []string{"memory_set", "memory_get", "memory_delete", "message_get", "note", "finish", "yield", "ask_user", "recall"}
 	for _, tc := range []struct {
 		class     string
 		want, not []string

@@ -296,7 +296,11 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 		if _, err := t.addMessage(&Message{RunID: childID, Role: "system", Content: child.System}); err != nil {
 			return err
 		}
-		if _, err := t.addMessage(&Message{RunID: childID, Role: "user", Content: task}); err != nil {
+		tm := &Message{RunID: childID, Role: "user", Content: task}
+		if _, err := t.addMessage(tm); err != nil {
+			return err
+		}
+		if err := t.recordAsk(tm, "parent", fmt.Sprintf("#%d", run.ID)); err != nil { // its task, pinned (D133)
 			return err
 		}
 		mode, tcID, deadline := "bg", "", int64(0)

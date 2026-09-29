@@ -538,6 +538,7 @@ func TestFileViewImageFollowsTheToolBlock(t *testing.T) {
 	addToolResult(t, db, id, note, "noted")
 
 	out, _ := ag.assembleContext(context.Background(), run, Config{})
+	out = noReminder(out)
 	assertWireValid(t, out)
 	// system, user, assistant, tool×3, then the image turn.
 	if len(out) != 7 || out[6].Role != "user" {
@@ -551,6 +552,7 @@ func TestFileViewImageFollowsTheToolBlock(t *testing.T) {
 	// The owner replies: the image now rides that message instead.
 	_, _ = db.addMessage(&Message{RunID: id, Role: "user", Content: "and?"})
 	out, _ = ag.assembleContext(context.Background(), run, Config{})
+	out = noReminder(out)
 	assertWireValid(t, out)
 	if len(out) != 7 {
 		t.Fatalf("wire roles = %v", roles(out))

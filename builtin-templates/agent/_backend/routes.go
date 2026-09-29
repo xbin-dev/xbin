@@ -68,6 +68,7 @@ func routeTable() []routeDef {
 		{"POST /runs/{id}/interrupt", needParticipant, handleInterrupt},
 		{"POST /runs/{id}/cancel", needParticipant, handleCancel},
 		{"GET /runs/{id}/tree", needViewer, handleRunTree},
+		{"GET /runs/{id}/asks", needViewer, handleAsks}, // the task ledger, read-only (D133)
 		{"GET /halt", needAny, handleHaltGet},
 		{"PUT /halt", needManager, handleHaltPut},
 		{"POST /runs/{id}/resume", needParticipant, handleResume},

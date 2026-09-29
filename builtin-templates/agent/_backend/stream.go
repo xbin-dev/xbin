@@ -31,6 +31,9 @@ func messageView(m *Message) map[string]any {
 		"id": m.ID, "runId": m.RunID, "seq": m.Seq, "role": m.Role, "content": clip(m.Content, 64<<10),
 		"name": m.Name, "toolCallId": m.ToolCallID, "compacted": m.Compacted, "created": m.Created,
 	}
+	if m.Masked {
+		v["masked"] = true // the model sees it as a stub (D133)
+	}
 	if m.ToolCalls != "" {
 		var calls []toolCall
 		if json.Unmarshal([]byte(m.ToolCalls), &calls) == nil {
@@ -124,6 +127,7 @@ func (e *Engine) runViewPage(id int64, pg *viewPage) (map[string]any, error) {
 	sum["sandbox"], sum["attached"] = sandboxSummary(cfg)
 	sum["pendingState"] = parsePending(run.Pending)
 	sum["summary"] = run.Summary
+	sum["task"] = e.db.taskView(id) // the pinned task (D133)
 	if run.ParentID == 0 {
 		sum["grants"] = e.db.liveGrants(run.ID)
 	}

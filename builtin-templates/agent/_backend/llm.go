@@ -50,11 +50,15 @@ type Config struct {
 	// picker, POST /ask {model}, PATCH /runs/{id} {model}): it wins over the
 	// tiers for the main loop; compaction and titles keep theirs. A model
 	// reference (llm_providers.go): a bare id, or "<provider>|<id>".
-	Pick        string `json:"pick,omitempty"`
-	System      string `json:"system"`      // base system prompt
-	TokenBudget int    `json:"tokenBudget"` // context assembly budget
-	MaxIters    int    `json:"maxIters"`    // legacy: sizes the default turn step cap (8×)
-	ToolTimeout int    `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
+	Pick   string `json:"pick,omitempty"`
+	System string `json:"system"` // base system prompt
+	// TokenBudget is the compaction trigger in prompt tokens. 0 (and 12000,
+	// the default every config before D133 stored) = unset: 60% of the
+	// model's context window when its provider says, at least 32000
+	// (compact.go tokenBudget).
+	TokenBudget int `json:"tokenBudget"`
+	MaxIters    int `json:"maxIters"`    // legacy: sizes the default turn step cap (8×)
+	ToolTimeout int `json:"toolTimeout"` // seconds per tool call (0 ⇒ default)
 	// REPL sandbox limits (0 ⇒ defaults). The time budget is per statement and
 	// far below ToolTimeout on purpose: a runaway loop should come back as a
 	// normal tool error the model can react to, not eat the whole tool slot.
@@ -211,7 +215,7 @@ func defaultConfig() Config {
 	return Config{
 		Model:       "", // resolved from llm-gw preferred (use-type "agent")
 		System:      "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
-		TokenBudget: 12000,
+		TokenBudget: 0, // from the model's context window (compact.go)
 		MaxIters:    12,
 		ToolTimeout: 120,
 		Subagents:   true,
@@ -225,8 +229,8 @@ func parseConfig(raw string) Config {
 	if raw != "" {
 		_ = json.Unmarshal([]byte(raw), &c)
 	}
-	if c.TokenBudget <= 0 {
-		c.TokenBudget = 12000
+	if c.TokenBudget < 0 {
+		c.TokenBudget = 0
 	}
 	if c.MaxIters <= 0 {
 		c.MaxIters = 12

@@ -117,6 +117,67 @@ type catalogModel struct {
 	Ref      string `json:"ref"`
 	OwnedBy  string `json:"owned_by,omitempty"`
 	AliasOf  string `json:"alias_of,omitempty"`
+	// ContextWindow is the model's input limit in tokens when its provider
+	// says (0: unknown). It sizes the compaction budget (D133).
+	ContextWindow int `json:"contextWindow,omitempty"`
+}
+
+// contextKeys are where OpenAI-compatible model lists put a context size:
+// Anthropic (max_input_tokens), OpenRouter and Together (context_length,
+// top_provider.context_length), Groq (context_window), vLLM (max_model_len),
+// LM Studio (max_context_length), Gemini (inputTokenLimit) — and our own
+// field, when GET /models output is read back. llm-gw passes the upstream's
+// model objects through untouched.
+var contextKeys = []string{"contextWindow", "max_input_tokens", "context_length", "context_window",
+	"max_model_len", "max_context_length", "inputTokenLimit"}
+
+// UnmarshalJSON reads a model object field by field: the list is the
+// provider's, and a field of an unexpected type must cost only that field,
+// never the whole list.
+func (m *catalogModel) UnmarshalJSON(b []byte) error {
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	m.ID, m.Provider, m.Ref = str(raw["id"]), str(raw["provider"]), str(raw["ref"])
+	m.OwnedBy, m.AliasOf = str(raw["owned_by"]), str(raw["alias_of"])
+	m.ContextWindow = 0
+	for _, k := range contextKeys {
+		if n := toInt(raw[k]); n > 0 {
+			m.ContextWindow = n
+			return nil
+		}
+	}
+	if tp, ok := raw["top_provider"].(map[string]any); ok {
+		m.ContextWindow = max(toInt(tp["context_length"]), 0)
+	}
+	return nil
+}
+
+// contextWindow is a model reference's context size as its provider lists it
+// (an alias: its target's), 0 when unknown. Read from the cached catalog.
+func contextWindow(ctx context.Context, ref string) int {
+	prov, id := splitModelRef(ref)
+	c := modelCatalog(ctx)
+	find := func(id string) *catalogModel {
+		for i := range c.Models {
+			m := &c.Models[i]
+			if (m.ID == id || m.Ref == id) && (prov == "" || m.Provider == prov) {
+				return m
+			}
+		}
+		return nil
+	}
+	m := find(id)
+	if m == nil {
+		return 0
+	}
+	if m.ContextWindow == 0 && m.AliasOf != "" {
+		if t := find(m.AliasOf); t != nil {
+			return t.ContextWindow
+		}
+	}
+	return m.ContextWindow
 }
 
 // catalogProvider is one provider's answer: its models, or why none.

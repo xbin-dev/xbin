@@ -98,6 +98,9 @@ type Run struct {
 	SessionKey string `json:"sessionKey"` // "sched:3", "watch:1", "chan:…" — "" for plain chats
 	TitleSrc   string `json:"titleSrc"`   // clip | auto | user | origin ("" legacy: never auto-titled)
 	ActivityMs int64  `json:"activityMs"` // last meaningful activity (unix ms), roots only
+	// CompactNote: the next model call carries the one-time "context was
+	// compacted" note (D133); cleared when that call's answer is recorded.
+	CompactNote bool `json:"-"`
 }
 
 type Message struct {
@@ -111,7 +114,10 @@ type Message struct {
 	ToolCalls  string `json:"toolCalls"`  // json array (assistant tool_calls)
 	Tokens     int    `json:"tokens"`     // rough estimate
 	Compacted  bool   `json:"compacted"`  // folded into Summary, out of window
-	Created    int64  `json:"created"`
+	// Masked: a tool result the model sees as a restorable stub (D133,
+	// compaction stage 1). The content is untouched here and in the index.
+	Masked  bool  `json:"masked,omitempty"`
+	Created int64 `json:"created"`
 	// Meta is the assistant message's msgMeta as stored (reasoning, usage,
 	// wire). Raw on purpose: views strip what they must not carry.
 	Meta json.RawMessage `json:"meta,omitempty"`
@@ -269,18 +275,18 @@ func (d *DB) createRunStamped(title, config string, parentID int64, status strin
 	return id, nil
 }
 
-const runCols = `id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated, root_id, depth, detached, outcome, settled_at, cancel_req, llm_calls, prompt_tokens, completion_tokens, turn_steps, turn_started, owner, visibility, team_role, origin, origin_id, session_key, title_src, activity_ms`
+const runCols = `id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated, root_id, depth, detached, outcome, settled_at, cancel_req, llm_calls, prompt_tokens, completion_tokens, turn_steps, turn_started, owner, visibility, team_role, origin, origin_id, session_key, title_src, activity_ms, compact_note`
 
 func scanRun(scan func(dest ...any) error) (*Run, error) {
 	r := &Run{}
-	var detached int
+	var detached, note int
 	if err := scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending,
 		&r.LastPromptTokens, &r.Created, &r.Updated, &r.RootID, &r.Depth, &detached, &r.Outcome, &r.SettledAt,
 		&r.CancelReq, &r.LLMCalls, &r.PromptTokens, &r.CompletionTokens, &r.TurnSteps, &r.TurnStarted,
-		&r.Owner, &r.Visibility, &r.TeamRole, &r.Origin, &r.OriginID, &r.SessionKey, &r.TitleSrc, &r.ActivityMs); err != nil {
+		&r.Owner, &r.Visibility, &r.TeamRole, &r.Origin, &r.OriginID, &r.SessionKey, &r.TitleSrc, &r.ActivityMs, &note); err != nil {
 		return nil, err
 	}
-	r.Detached = detached != 0
+	r.Detached, r.CompactNote = detached != 0, note != 0
 	return r, nil
 }
 
@@ -423,6 +429,9 @@ func (d *DB) deleteOneRun(id int64) error {
 			`DELETE FROM messages_fts WHERE run_id=?`,
 			`DELETE FROM steps WHERE run_id=?`,
 			`DELETE FROM memory WHERE run_id=?`,
+			`DELETE FROM asks WHERE run_id=?`,
+			`DELETE FROM summaries WHERE run_id=?`,
+			`DELETE FROM summaries_fts WHERE run_id=?`,
 			`DELETE FROM repl_files WHERE run_id=?`,
 			`DELETE FROM repl_file_versions WHERE run_id=?`,
 			`DELETE FROM repl_log WHERE run_id=?`,
@@ -653,16 +662,16 @@ func (d *DB) setSeqs(runID int64, ids []int64) error {
 	})
 }
 
-const msgCols = `id, run_id, seq, role, content, name, tool_call_id, tool_calls, tokens, compacted, created, meta`
+const msgCols = `id, run_id, seq, role, content, name, tool_call_id, tool_calls, tokens, compacted, created, meta, masked`
 
 func scanMessage(scan func(dest ...any) error) (*Message, error) {
 	m := &Message{}
-	var comp int
+	var comp, masked int
 	var meta string
-	if err := scan(&m.ID, &m.RunID, &m.Seq, &m.Role, &m.Content, &m.Name, &m.ToolCallID, &m.ToolCalls, &m.Tokens, &comp, &m.Created, &meta); err != nil {
+	if err := scan(&m.ID, &m.RunID, &m.Seq, &m.Role, &m.Content, &m.Name, &m.ToolCallID, &m.ToolCalls, &m.Tokens, &comp, &m.Created, &meta, &masked); err != nil {
 		return nil, err
 	}
-	m.Compacted = comp != 0
+	m.Compacted, m.Masked = comp != 0, masked != 0
 	if meta != "" && json.Valid([]byte(meta)) {
 		m.Meta = json.RawMessage(meta)
 	}
@@ -744,6 +753,7 @@ func (d *DB) maxMessageSeq(runID int64) int {
 // deleteMessagesAfter removes a run's messages with seq > mark (and their FTS
 // rows) — a watcher round's rollback when nothing changed.
 func (d *DB) deleteMessagesAfter(runID int64, seq int) {
+	_, _ = d.q.Exec(`DELETE FROM asks WHERE msg_id IN (SELECT id FROM messages WHERE run_id=? AND seq>?)`, runID, seq)
 	_, _ = d.q.Exec(`DELETE FROM messages_fts WHERE msg_id IN (SELECT id FROM messages WHERE run_id=? AND seq>?)`, runID, seq)
 	_, _ = d.q.Exec(`DELETE FROM message_files WHERE msg_id IN (SELECT id FROM messages WHERE run_id=? AND seq>?)`, runID, seq)
 	_, _ = d.q.Exec(`DELETE FROM messages WHERE run_id=? AND seq>?`, runID, seq)

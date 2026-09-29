@@ -669,6 +669,9 @@ func (e *Engine) recordAssistant(ts *turnState, reply LLMReply, calls []toolCall
 		}
 		t.setPromptTokens(run.ID, reply.Usage.PromptTokens)
 		t.addRunCost(run.ID, reply.Usage.PromptTokens, reply.Usage.CompletionTokens)
+		if run.CompactNote { // the call that carried the compaction note is answered
+			_, _ = t.q.Exec(`UPDATE runs SET compact_note=0 WHERE id=?`, run.ID)
+		}
 		if _, err := t.q.Exec(`UPDATE runs SET turn_steps=turn_steps+1 WHERE id=?`, run.ID); err != nil {
 			return err
 		}
@@ -802,6 +805,7 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 	run := ts.run
 	var delivered []int64
 	err := e.fenced(func(t *DB) error {
+		asked := false
 		rows := t.undelivered(run.ID)
 		for _, r := range rows {
 			switch r.Kind {
@@ -833,6 +837,15 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 			if _, err := t.addMessage(m); err != nil {
 				return err
 			}
+			// every request joins the task ledger as it is delivered (D133);
+			// a watcher's "check now" is not one (its job is its system prompt)
+			if r.Kind == inboxUser {
+				src, who := askSource(r.Body)
+				if err := t.recordAsk(m, src, who); err != nil {
+					return err
+				}
+				asked = true
+			}
 			if err := e.ag.linkMessageFilesTx(t, run.ID, m.ID, files); err != nil {
 				return err
 			}
@@ -844,6 +857,9 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 		}
 		if n := e.deliverNotices(t, ts); n > 0 || len(delivered) > 0 {
 			e.emitInbox(t, ts.root, run.ID)
+		}
+		if asked {
+			e.emitRun(t, run.ID) // its pinned task changed
 		}
 		return nil
 	})
