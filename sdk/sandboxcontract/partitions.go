@@ -160,6 +160,28 @@ var userPartitionChecks = []check{
 		// unshared: gone again
 		a.Call("PATCH", "/sandboxes/"+sb.ID, map[string]any{"shares": []map[string]any{}}, http.StatusOK, nil)
 		bob.Refused("GET", "/sandboxes/"+sb.ID, nil, 404, "not-found")
+		// a share makes a sandbox visible, and the person rules still apply:
+		// a private one shared with a partition whose person is neither its
+		// owner nor a member is refused, and listed nowhere — until they are
+		// a member. So with one the consumer shares with its own partition.
+		priv := a.Asserting("erin").Create(map[string]any{"name": "erin's", "start": false})
+		a.Call("PATCH", "/sandboxes/"+priv.ID, map[string]any{"shares": []map[string]any{
+			{"consumer": b.from, "partitionId": pid("bob"), "users": "*"},
+			{"consumer": a.from, "partitionId": pid("dave"), "users": "*"}}}, http.StatusOK, nil)
+		dave := a.InPartition("dave", pid("dave"))
+		for _, p := range []Caller{bob, dave} {
+			p.Refused("GET", "/sandboxes/"+priv.ID, nil, 403, "not-allowed")
+			p.Refused("POST", "/sandboxes/"+priv.ID+"/run", map[string]any{"cmd": "true"}, 403, "not-allowed")
+			if _, ok := p.List()[priv.ID]; ok {
+				t.Fatalf("%s lists a private sandbox its person may not use", p.who())
+			}
+		}
+		a.Call("PATCH", "/sandboxes/"+priv.ID, map[string]any{"members": []string{"bob", "dave"}}, http.StatusOK, nil)
+		for _, p := range []Caller{bob, dave} {
+			if got := p.Get(priv.ID); !got.Shared {
+				t.Fatalf("%s's view of a private sandbox shared with it, its person a member: %+v", p.who(), got)
+			}
+		}
 	}},
 	{"person", func(t *testing.T, e *env) {
 		// a user partition's person is verified: a call naming another is refused
@@ -177,7 +199,7 @@ var userPartitionChecks = []check{
 	}},
 	{"recreated", func(t *testing.T, e *env) {
 		// a person deleted and made again has a new partition id: nothing of
-		// the old one's
+		// what the old one's partition holds
 		a := e.as("a")
 		old := a.InPartition("alice", pid("alice-1"))
 		priv := old.Create(map[string]any{"name": "old", "start": false})
@@ -188,6 +210,14 @@ var userPartitionChecks = []check{
 		}
 		if l := again.List(); len(l) != 0 {
 			t.Fatalf("the new alice's partition lists %d sandboxes", len(l))
+		}
+		// but what the consumer's non-personal identity has follows its
+		// person rules, by user id — as a page's call there always has: a
+		// sandbox the old alice owned at global is the new alice's too (the
+		// manager can't tell two people of one id apart there)
+		glob := a.Asserting("alice").Create(map[string]any{"name": "alice's at global", "start": false})
+		if got := again.Get(glob.ID); !got.Shared || got.Owner.User != "alice" {
+			t.Fatalf("the new alice's partition's view of a global sandbox owned by alice: %+v", got)
 		}
 		var raw []byte
 		old.Call("GET", "/sandboxes/"+priv.ID, nil, http.StatusOK, &raw)
