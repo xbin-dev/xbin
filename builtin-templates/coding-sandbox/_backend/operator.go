@@ -3,7 +3,7 @@
 // config (backend, images, sizes, quotas, layout), lifecycle and deletion,
 // image builds. Operators are the tile's owner and the people with write
 // access to it. Nothing here reads or writes a sandbox's contents — no
-// commands, no files: those go through a consumer's partition only. A
+// commands, no files: those go through a consumer that may use it. A
 // sandbox homed in a partitioned consumer's user partition shows neither its
 // name, its labels nor its snapshots' names here (opRedact).
 package main

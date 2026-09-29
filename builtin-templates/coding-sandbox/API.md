@@ -46,13 +46,13 @@ the contract's §Partitioned consumers). A call whose partition headers
 don't agree, or that names a person other than its user partition's, is
 `403 not-allowed`.
 `/sbx/*` admits the `consumer` role and the tile itself (its own page is a
-consumer with a partition of its own). **Operators** — the tile's owner and
+consumer of its own). **Operators** — the tile's owner and
 the people with write access to it — use `/ops/*`: they see every
 sandbox's metadata and run its lifecycle (start, stop, delete, snapshots)
 within the quotas they set. They never change who may use a sandbox: its
 `visibility`, `members` and `shares` change only through its home consumer
 (that consumer's backend, or its verified owner there). No route reads or
-writes a sandbox's contents except through a consumer's own partition.
+writes a sandbox's contents except as a consumer that may use it.
 
 **The tile's own page** is a consumer like any other, with one more rule
 (docs/auth.md, D29's rule for mutating endpoints): its calls run at the
@@ -110,7 +110,7 @@ trusts its consumers.
   isn't offered yet (its routes answer 501). Hello's also carry
   `partitions`, the manager's own (a sandbox's `caps` never do).
 - **Ports** (D135): `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` is
-  checked as an exec is — the partition, the person rules — then forwarded
+  checked as an exec is — the consumer, the person rules — then forwarded
   to the runtime's ports route (the SDK's `PortRoute`), the consumer's
   escaped path and query unchanged. A stopped sandbox is 409 `state`,
   never started for it. Offered while the runtime's `caps` carry `ports`
@@ -211,9 +211,12 @@ Every sandbox these routes answer is as its home consumer sees it, with one
 exception: a sandbox homed in a partitioned consumer's **user partition**
 (`owner.partitionId`) is named `<consumer>/<partition id, first 8> #<n>`
 (`n` its place among that partition's sandboxes, oldest first) and has no
-`labels` — a person's agent may have named it after their work — unless
-it is shared with the operator asking (they could use it as a consumer).
-Its owner, consumer, state, sizes and usage are shown as for any other.
+`labels`, and `GET /ops/sandboxes/{id}/snapshots` names its snapshots
+`snapshot #<n>` (oldest first) — a person's agent may have named them
+after their work — unless it is shared with the operator asking (they
+could use it as a consumer). Its owner, consumer, state, sizes, usage and
+snapshot ids are shown as for any other. A call to `/ops/*` whose
+partition headers don't agree is `403 not-allowed`, as on `/sbx/*`.
 
 A built image is `{id, runtime, snapshot, setupHash, mode, state:
 building|ready|error, detail, log, started, built, previous?}`. `previous`
@@ -246,8 +249,8 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
     defaults and each override), the layout, the idle stop and mounts.
   - **Yours** — below.
 - **People with write access** get **their own sandboxes** (the operators'
-  Yours tab): the page calls `/sbx/*` as a consumer of its own (its
-  partition is this tile's path; the person is verified), within the
+  Yours tab): the page calls `/sbx/*` as a consumer of its own (the
+  consumer is this tile's path; the person is verified), within the
   per-person quota. Create
   (name, image, size, network, who may use it), start, stop, delete,
   visibility and shares; a **file browser** (list, view the first 256 KiB of
@@ -297,7 +300,9 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
   `idleStopMin` (`autoStopMin`), `for`/`forUser` (the consumer and the
   person, as claims — `for` the consumer tile, whichever partition of it),
   `labels` `{coding-sandbox/id}`, plus `coding-sandbox/partition` for a
-  sandbox homed in a user partition (never the consumer's own labels),
+  sandbox homed in a user partition (never the consumer's own labels; the
+  runtime keeps them with the definition — the admin's sandbox registry
+  lists `for`/`forUser`, not labels),
   `clientId` = the runtime name, and `from` for clones and images;
 - **PATCH**: `net`, the sizes, `idleStopMin`, and `defaults` on a rename;
 - **commands**: `uid`/`gid` the layout's (the first start's prepare runs as

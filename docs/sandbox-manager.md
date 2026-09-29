@@ -64,7 +64,7 @@ below is under `<url>/sbx/`.
 Nothing else travels in headers: parameters are in the query or the JSON
 body (a sandboxed page can't set custom request headers).
 
-## Partitions, sharing and people
+## Consumers, sharing and people
 
 - **A sandbox's home** is the consumer that created it (`owner.via`). A
   consumer sees — lists, reads, uses — only the sandboxes whose home it is
@@ -117,13 +117,32 @@ the manager's (never in a sandbox's `caps`):
 - **Shares** may name one partition: `shares: [{consumer, partitionId?,
   users}]`. Without `partitionId` a share is with the consumer's
   non-personal identity — today's meaning, and by the rule above the
-  people it names in the consumer's partitions.
+  people it names in the consumer's partitions. A share makes a sandbox
+  visible; the person rules still apply to the partition's person. So a
+  `private` sandbox shared with a partition whose person is neither its
+  owner nor a member is `403 not-allowed` there and listed nowhere: make
+  them a member (or the sandbox `team`).
+- **A recreated person** (deleted and made again) has a new partition id,
+  so nothing homed in the old one's partition is theirs. What the
+  consumer's non-personal identity holds follows its person rules, by user
+  id, as a page's call there always has: a sandbox the old person owned or
+  was a member of there is the new one's too.
+- **Isolation stops at the sandbox.** Every partition that sees a sandbox
+  shares its files, execs and terminals: any of them can list the execs,
+  read their output, attach to a terminal, type into it or end it. A
+  consumer keeps a person's private work in sandboxes homed in that
+  person's partition, never in one its non-personal identity holds or
+  shares with several.
 - **Quotas** a manager keeps per consumer count a tile's sandboxes across
   all its partitions; per person, as ever (now verified on a partition's
   calls).
 - A partitioned consumer uses a manager from a user partition only when
   `hello.caps` carry `partitions`: one without it would see every person's
   sandboxes as one consumer's.
+- **Not keyed on `X-XBin-Deployment`.** User partitions run only on a
+  consumer's primary deployment, so the partition id already names one;
+  the consumer's other deployments call as its non-personal identity, as
+  they did before partitions, and keep the sandboxes they made.
 
 ## Conventions
 
@@ -506,17 +525,18 @@ manager of its own (its `API.md` has everything):
   change who may use another consumer's sandbox; only its home consumer
   does. A sandbox homed in a partitioned consumer's user partition shows
   to them as `<consumer>/<partition id, first 8> #<n>`, without its labels
-  — a model may have named it — unless it is shared with them. People with
-  read access get a read-only view of the sandboxes they
-  may use: a change from the page needs write access to the tile. The app
-  draws the same natively.
+  and with its snapshots named `snapshot #<n>` — a model may have named
+  them — unless it is shared with them. People with read access get a
+  read-only view of the sandboxes they may use: a change from the page
+  needs write access to the tile. The app draws the same natively.
 - **Partitioned consumers** (`partitions`, §Partitioned consumers): the
   runtime is told the consumer tile and the person as ever, plus the
-  partition id as the label `coding-sandbox/partition` (the admin's
-  sandbox registry shows it); its quotas per consumer count every
-  partition of the tile. Whoever may change the manager's code (its
-  writers, admins) could reach every sandbox it holds: they are in the
-  trust base of every person whose partition uses it.
+  partition id as the runtime label `coding-sandbox/partition` (kept with
+  the sandbox's definition; the admin's sandbox registry doesn't show
+  labels); its quotas per consumer count every partition of the tile.
+  Whoever may change the manager's code (its writers, admins) could reach
+  every sandbox it holds: they are in the trust base of every person whose
+  partition uses it.
 - **Other substrates**: a copy adds a backend (a cloud's API and ssh) in one
   Go file; its `AGENTS.md` says how, and how to run the conformance suite
   against it.
@@ -606,8 +626,11 @@ Every section of this page is a group of parallel subtests (`go test -run
 `X-XBin-Partition`, `X-XBin-Partition-Id` and `Sbx-User` as xbind and a
 consumer would, and delete the sandboxes they make. A section whose
 optional capability hello leaves out is skipped; its routes must answer
-`unsupported`. The `user-partitions` section (§Partitioned consumers) runs
-when hello's caps carry `partitions`. The rest of `Target`:
+`unsupported`. The `partitions` section is about consumers — one
+consumer's sandboxes apart from another's (§Consumers, sharing and people);
+the `user-partitions` section is about a partitioned consumer's people
+(§Partitioned consumers) and runs when hello's caps carry `partitions` (a
+capability with no routes of its own). The rest of `Target`:
 
 - `Client` — the HTTP client for every call and terminal (TLS, a proxy).
 - `Consumer`, `Verified`, `Asserted`, `Partition` — how to call as a

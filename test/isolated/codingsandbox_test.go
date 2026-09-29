@@ -248,7 +248,8 @@ func (e *csEnv) pageTok(t *testing.T, tile, person string) string {
 func (e *csEnv) target() sandboxcontract.Target {
 	// A user partition's call is a partitioned consumer's instance: xbind
 	// sets X-XBin-Partition*, and strips what a caller sends. Until the
-	// suite can drive a partitioned consumer through xbind, the section runs
+	// suite can drive a partitioned consumer through xbind (a partitioned
+	// fixture tile: the partitioned-tiles plan's I1), the section runs
 	// in-process only (the template's contract_test.go).
 	skip := map[string]string{"user-partitions": "the calls of a partitioned consumer's user partitions need a partitioned consumer tile: in-process only (coding-sandbox's contract_test.go)"}
 	if !e.people { // the checks that act as verified people

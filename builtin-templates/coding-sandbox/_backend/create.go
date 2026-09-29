@@ -313,10 +313,10 @@ func (m *Manager) chooseMode(rt *xbin.SandboxRuntime) (string, error) {
 	return "", errf(http.StatusServiceUnavailable, "unavailable", "the substrate runs no sandboxes now: %s", unavailableWhy(rt))
 }
 
-// runtimeLabels are the labels the substrate keeps for rec's sandbox (the
-// admin's sandbox registry shows them — metadata, never the consumer's own
-// labels): its contract id and, for one homed in a user partition, that
-// partition's id (For stays the consumer tile).
+// runtimeLabels are the labels the substrate keeps with rec's sandbox
+// (metadata, never the consumer's own labels; the orphans list shows them —
+// the admin's sandbox registry doesn't): its contract id and, for one homed
+// in a user partition, that partition's id (For stays the consumer tile).
 func runtimeLabels(rec record) map[string]string {
 	l := map[string]string{"coding-sandbox/id": rec.ID}
 	if rec.Owner.PartitionID != "" {
