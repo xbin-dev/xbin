@@ -7,13 +7,18 @@
  *   xbin.deployment        — only in a document of a tile deployment other
  *                             than the tile's primary (/c/<tile>+<name>/):
  *                             its name. Absent means the primary
+ *   xbin.partition         — only in a partitioned tile's document
+ *                             (docs/partitions.md): the partition the viewer
+ *                             reaches, "user:<id>" (their own) or "global"
  *   xbin.iface(slot)       — a bound http interface: { url, service } — or, for a
  *                             multi:true slot, { service, multi, endpoints: [...] }.
  *                             Call a typed, swappable dependency instead of a
  *                             hard-coded path, e.g. xbin.iface('llm').url
  *   xbin.fetch(url, opts)  — fetch with frame-token attribution attached;
  *                             REQUIRED for calling other elements' APIs
- *                             (streams fine: SSE / chunked responses work)
+ *                             (streams fine: SSE / chunked responses work).
+ *                             opts.partition = 'global' calls the tile's
+ *                             global instance from a user partition
  *   xbin.ws(path)          — attributed WebSocket to an element API, e.g.
  *                             xbin.ws(`/api/apps/other/stream`) — browsers
  *                             can't set WS headers, so the frame token rides
@@ -57,6 +62,13 @@ let frameToken = meta('xbin-frame-token');
 // the server adds <meta name="xbin-deployment"> to those documents only.
 // Token renewal needs nothing of it — the server copies the claim.
 const deployment = meta('xbin-deployment');
+// The partition of a partitioned tile this document's viewer reaches
+// (docs/partitions.md): "user:<id>" — their own — or "global" (the root
+// token, --no-auth). The server adds <meta name="xbin-partition"> to a
+// partitioned tile's documents only; like the deployment, xbind decides it
+// from the credential, and the frame token needs nothing of it.
+const partition = meta('xbin-partition');
+const inUserPartition = partition.startsWith('user:');
 
 // Resolved http interface slots this component is bound to (docs/overview/11-interfaces.md):
 // { <slot>: { url, service } }. xbin.iface(slot) returns the bound provider so a
@@ -101,10 +113,25 @@ async function refreshToken() {
 if (frameToken) setInterval(refreshToken, 10 * 60 * 1000);
 
 // --- attributed fetch ---
+// opts.partition: 'global' reaches the tile's global instance from a user
+// partition's document (xbind attributes the call to the viewer there). The
+// option is always stripped and means nothing outside a user partition, so it
+// never reaches the network otherwise — not on an older xbind either.
 function bfetch(url, opts = {}) {
-  const headers = new Headers(opts.headers || {});
+  const { partition: want, ...init } = opts;
+  const headers = new Headers(init.headers || {});
   if (frameToken) headers.set('X-XBin-Frame-Token', frameToken);
-  return fetch(url, { ...opts, headers });
+  if (inUserPartition && want != null && want !== '') {
+    if (want !== 'global') return Promise.reject(new TypeError(`xbin.fetch: partition must be 'global', not ${JSON.stringify(want)}`));
+    url = url instanceof Request ? new Request(toGlobal(url.url), url) : toGlobal(String(url));
+  }
+  return fetch(url, { ...init, headers });
+}
+// The same URL with xbin-partition=global added to its query.
+function toGlobal(u) {
+  const i = u.indexOf('#');
+  const [head, hash] = i < 0 ? [u, ''] : [u.slice(0, i), u.slice(i)];
+  return `${head}${head.includes('?') ? '&' : '?'}xbin-partition=global${hash}`;
 }
 
 // --- attributed WebSocket (long-lived cross-element streams) ---
@@ -426,4 +453,4 @@ if (document.querySelector('link[rel~="stylesheet"][href*="/vendor/theme.css"]')
 // /vendor/xb-native.js adds the methods (docs/frontend-kit.md).
 const nativeApi = (window.xbin && typeof window.xbin.native === 'object' && window.xbin.native) || (meta('xbin-native') ? {} : null);
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify, ...(deployment ? { deployment } : {}), ...(nativeApi ? { native: nativeApi } : {}) });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });

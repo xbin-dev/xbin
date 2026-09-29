@@ -476,6 +476,9 @@ xbin.deployment                 // "dev" — only in a document of a tile deploy
                                 // xbin.self stays the tile path, and
                                 // xbin.fetch(`/api/${xbin.self}/…`) reaches this
                                 // document's own deployment
+xbin.partition                  // "user:alice" | "global" — only in a partitioned
+                                // tile's document (partitions.md, in development):
+                                // the partition the viewer reaches
 
 // a bound http interface (docs/overview/11-interfaces.md): { url, service } or null. Call a
 // typed, swappable dependency instead of hard-coding a path — the owner binds
@@ -491,6 +494,9 @@ if (llm) await xbin.fetch(`${llm.url}/v1/chat/completions`, { method: 'POST', �
 // grant, so always use xbin.fetch (auth.md). Streaming (SSE) works.
 const r = await xbin.fetch(`/api/${xbin.self}/events`);
 const r2 = await xbin.fetch('/api/apps/calendar/events'); // needs a grant
+// from a user partition's document: the tile's global instance, as the viewer
+// (partitions.md). The option is stripped, and ignored in any other document
+const r3 = await xbin.fetch(`/api/${xbin.self}/shared/42`, { partition: 'global' });
 
 // attributed WebSocket to an element API (browsers can't set WS headers,
 // so the frame token rides a query param xbind consumes — the callee
