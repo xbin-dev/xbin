@@ -198,7 +198,7 @@ type Decision struct {
 	CallerPartition   util.Partition    // the partition the caller acts in: X-XBin-Partition
 	CallerPartitionID string            // its partition id, user partitions only: X-XBin-Partition-Id
 	Attribute         *auth.Attribution // an F5 call reaching global as its person (05 §6); nil until F9 builds it
-	Background        bool              // a cron, bus or mail delivery: a start it causes is a background one
+	Delivery          string            // "cron", "bus" or "mail" for a delivery (a start it causes is a background one), else ""
 }
 
 // NotGrantedError is the refusal of a caller holding no role on the target:

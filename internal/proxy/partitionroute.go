@@ -27,7 +27,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sbx"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const (
@@ -47,22 +46,40 @@ const (
 	HeaderPartitionID = "X-XBin-Partition-Id"
 )
 
-// Start classes of a user partition's start (03 §A.5): a cron, bus or mail
-// delivery's is background; everything else interactive.
+// PartitionStart is why a user partition is started (03 §A.5), the
+// runner's start class by name: a cron or bus delivery's start is
+// background, a mail doorbell's background and counted against the tile's
+// mail start rate, everything else interactive.
+type PartitionStart uint8
+
 const (
-	StartInteractive = "interactive"
-	StartBackground  = "background"
+	StartInteractive PartitionStart = iota
+	StartBackground
+	StartMail
 )
 
-// PartitionRunner is the runner's side of user partitions (03 §A.2):
-// EnsurePartition starts (or reuses) partition part of deployment dep of c
-// and answers its socket; TrackPartition holds it while a request runs, a
-// passive hold (a live event stream) not counting as use. Boot installs the
-// runner when it provides both; without it no user partition runs here, and
-// a call reaching one answers 503.
+// startOf is the start class of a call Route decided.
+func startOf(d Decision) PartitionStart {
+	switch d.Delivery {
+	case "":
+		return StartInteractive
+	case "mail":
+		return StartMail
+	}
+	return StartBackground
+}
+
+// PartitionRunner is the runner's side of user partitions (03 §A.2), part
+// "user:<id>" (string(util.Partition)): EnsurePartition starts (or reuses)
+// partition part of deployment dep of c and answers its socket;
+// TrackPartition holds it while a request runs, a passive hold (a live
+// event stream) not counting as use. An admission refusal wraps
+// sbx.ErrRefused (503). Boot installs an adapter over the runner's methods
+// (internal/boot/partitionroute.go); without it no user partition runs
+// here, and a call reaching one answers 503.
 type PartitionRunner interface {
-	EnsurePartition(ctx context.Context, c *registry.Component, dep string, part util.Partition, class string) (string, error)
-	TrackPartition(tile, dep string, part util.Partition, passive bool) func()
+	EnsurePartition(ctx context.Context, c *registry.Component, dep, part string, class PartitionStart) (string, error)
+	TrackPartition(tile, dep, part string, passive bool) func()
 }
 
 // errNoPartitionRunner answers a call reaching a user partition on an
@@ -117,15 +134,12 @@ func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, tar
 	if px.Partitions == nil {
 		return "", nil, errNoPartitionRunner
 	}
-	class := StartInteractive
-	if d.Background {
-		class = StartBackground
-	}
-	sock, err := px.Partitions.EnsurePartition(ctx, comp, target, d.Partition, class)
+	part := string(d.Partition)
+	sock, err := px.Partitions.EnsurePartition(ctx, comp, target, part, startOf(d))
 	if err != nil {
 		return "", nil, err
 	}
-	h := &backendHold{release: px.Partitions.TrackPartition(comp.Path, target, d.Partition, false)}
+	h := &backendHold{release: px.Partitions.TrackPartition(comp.Path, target, part, false)}
 	h.onResponse = func(res *http.Response) {
 		if !strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
 			return
@@ -133,7 +147,7 @@ func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, tar
 		// a live stream alone doesn't keep a partition in use: take the
 		// passive hold before dropping the active one, so the instance is
 		// never unheld in between
-		passive := px.Partitions.TrackPartition(comp.Path, target, d.Partition, true)
+		passive := px.Partitions.TrackPartition(comp.Path, target, part, true)
 		h.mu.Lock()
 		active := h.release
 		h.release = passive
@@ -143,8 +157,10 @@ func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, tar
 	return sock, h, nil
 }
 
-// ensureStatus is the status of a failed ensure of a user partition: an
-// admission refusal is 503 (03 §A.5); the rest as for a deployment.
+// ensureStatus is the status of a failed ensure of a user partition: a
+// refusal (sbx.ErrRefused: the caps, a deferred delivery, a start this
+// xbind can't make now — boot's adapter marks the runner's) is 503 (03
+// §A.5); the rest as for a deployment.
 func ensureStatus(d Decision, err error) (int, bool) {
 	if d.Partition.IsUser() && errors.Is(err, sbx.ErrRefused) {
 		return http.StatusServiceUnavailable, true

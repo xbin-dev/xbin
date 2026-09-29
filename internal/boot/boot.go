@@ -475,7 +475,7 @@ func (st *State) stepBroker() error {
 	brk.Users = userStore
 	// a person's partition token authenticates only while covered (plans/partitions/02 §2)
 	st.Auth.SetPartitionCoverage(brk.PartitionCovered)
-	// D54:a terminal's network on an org-owned tile is the org's network
+	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
 	brk.HoldTermEnv = st.Term.HoldEnv // a restore swaps the terminal layer in whole (WP-9)
@@ -562,11 +562,8 @@ func (st *State) stepProxy() error {
 		return proxy.Decision(brk.Route(p, c, q))
 	}
 	px.Deployments = st.Deployments
-	// user partitions start through the runner, once it runs them (plans/partitions/03 §A.2)
-	if pr, ok := any(run).(proxy.PartitionRunner); ok {
-		px.Partitions = pr
-	}
-	// D29:backends get the driving user attributed (X-XBin-User[-Level]).
+	st.wirePartitionRunner(px) // user partitions start through the runner's adapter (partitionroute.go)
+	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
 	px.UserLevel = func(uid, tile string) string {
 		acc, ok := userStore.Access(uid)
 		if !ok {

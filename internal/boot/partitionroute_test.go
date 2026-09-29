@@ -1,19 +1,124 @@
 package boot
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/proxy"
+	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/runner"
+	"github.com/xbin-dev/xbin/internal/sbx"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
+
+// covers PD-18 — the merge guard of the proxy's partition runner: once the
+// runner can start people's partitions (it has EnsurePartition),
+// partitionRunnerOf must build the adapter, or every call reaching a user
+// partition answers 503 "no partition runner".
+func TestPartitionRunnerWired(t *testing.T) {
+	if _, ok := reflect.TypeOf(&runner.Runner{}).MethodByName("EnsurePartition"); ok && partitionRunnerOf == nil {
+		t.Error("runner.Runner has EnsurePartition but partitionRunnerOf is nil: set it (internal/boot/partitionroute.go's doc, plans/partitions/records/F2.md)")
+	}
+}
+
+// covers PD-18 S13 — partitionStarts, the adapter: the proxy's start
+// classes map onto the runner's; the runner's listed refusals become
+// sbx.ErrRefused (503) keeping their text, any other error passes as it
+// is; holds pass through; and registerPartitionInstance registers a
+// person's partition token with their uid, nothing without one.
+func TestPartitionStartsAdapter(t *testing.T) {
+	errBusy, errOther := errors.New("caps reached"), errors.New("boom")
+	var asked []string
+	a := partitionStarts[string]{
+		ensure: func(_ context.Context, c *registry.Component, dep, part, class string) (string, error) {
+			asked = append(asked, c.Path+" "+dep+" "+part+" "+class)
+			switch part {
+			case "user:busy":
+				return "", fmt.Errorf("apps/t: %w", errBusy)
+			case "user:broken":
+				return "", errOther
+			}
+			return "/sock", nil
+		},
+		track: func(tile, dep, part string, passive bool) func() {
+			asked = append(asked, fmt.Sprintf("hold %s %s %s %v", tile, dep, part, passive))
+			return func() {}
+		},
+		classes:     [3]string{proxy.StartInteractive: "i", proxy.StartBackground: "b", proxy.StartMail: "m"},
+		unavailable: []error{errBusy},
+	}
+	c := &registry.Component{Path: "apps/t"}
+	for class, want := range map[proxy.PartitionStart]string{proxy.StartInteractive: "i", proxy.StartBackground: "b", proxy.StartMail: "m"} {
+		asked = nil
+		if sock, err := a.EnsurePartition(context.Background(), c, "main", "user:alice", class); sock != "/sock" || err != nil ||
+			len(asked) != 1 || asked[0] != "apps/t main user:alice "+want {
+			t.Errorf("class %d: %q, %v, asked %v", class, sock, err, asked)
+		}
+	}
+	if _, err := a.EnsurePartition(context.Background(), c, "main", "user:busy", proxy.StartInteractive); !errors.Is(err, sbx.ErrRefused) ||
+		!errors.Is(err, errBusy) || err.Error() != "apps/t: caps reached" {
+		t.Errorf("a listed refusal: %v", err)
+	}
+	if _, err := a.EnsurePartition(context.Background(), c, "main", "user:broken", proxy.StartInteractive); errors.Is(err, sbx.ErrRefused) || err != errOther {
+		t.Errorf("another error: %v", err)
+	}
+	if _, err := a.EnsurePartition(context.Background(), c, "main", "user:alice", proxy.PartitionStart(9)); !errors.Is(err, sbx.ErrRefused) {
+		t.Errorf("an unknown class: %v", err)
+	}
+	asked = nil
+	a.TrackPartition("apps/t", "main", "user:alice", true)()
+	if len(asked) != 1 || asked[0] != "hold apps/t main user:alice true" {
+		t.Errorf("the hold: %v", asked)
+	}
+
+	root := t.TempDir()
+	au, err := auth.Load(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	au.SetPartitionCoverage(func(string, util.Partition, string) bool { return true })
+	st, err := users.Open(filepath.Join(root, "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"alice", "bob"} {
+		if _, err := st.Upsert(users.User{ID: id, Role: users.RoleUser}, "password1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	au.SetUsers(st)
+	uid, err := st.EnsureUID("alice", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &State{Auth: au, Users: st}
+	s.registerPartitionInstance("tok-alice", "apps/t", "main", "user:alice")
+	s.registerPartitionInstance("tok-bob", "apps/t", "main", "user:bob") // no uid yet: nothing
+	lookup := func(tok string) (auth.Principal, bool) {
+		r := httptest.NewRequest("GET", "/api/xbin/whoami", nil)
+		r.Header.Set("Authorization", "Bearer "+tok)
+		return au.FromRequest(r)
+	}
+	if p, ok := lookup("tok-alice"); !ok || p.Component != "apps/t" || p.Partition != "user:alice" || uid == "" {
+		t.Errorf("alice's partition token: %+v %v", p, ok)
+	}
+	if p, ok := lookup("tok-bob"); ok {
+		t.Errorf("bob's partition token registered without a uid: %+v", p)
+	}
+}
 
 // covers PD-10 PD-29 S13 — identity and routing wired in a booted xbind
 // (plans/partitions/02): on a partitioned tile (user + global), the owner
@@ -80,8 +185,20 @@ func TestPartitionWiring(t *testing.T) {
 	if code, body := do("GET", "/api/xbin/whoami", frame); code != 200 {
 		t.Errorf("alice's frame on whoami: %d %s", code, body)
 	}
-	if code, body := do("GET", "/api/apps/pa/hello", frame); code != 503 || !strings.Contains(body, "no partition runner") {
+	// without the runner's side this xbind has no partition runner; with it
+	// (not --isolate here) the runner refuses the start: 503 either way,
+	// never a silent "no partition runner" once the runner can start one
+	code, body = do("GET", "/api/apps/pa/hello", frame)
+	if noRunner := strings.Contains(body, "no partition runner"); code != 503 || noRunner != (partitionRunnerOf == nil) {
 		t.Errorf("alice's frame on the tile's API: %d %s", code, body)
+	}
+	// the runner's people's-partitions hooks this plane fills are installed
+	// once the runner has them (records/F2.md)
+	rv := reflect.ValueOf(d.st.Run).Elem()
+	for _, hook := range []string{"PartitionIdent", "ShouldRunPartition", "RegisterPartitionInstance", "PartitionEvent"} {
+		if f := rv.FieldByName(hook); f.IsValid() && f.Kind() == reflect.Func && f.IsNil() {
+			t.Errorf("the runner's %s hook isn't installed (plans/partitions/records/F2.md, Seams)", hook)
+		}
 	}
 	if u, _ := d.st.Users.Get("alice"); !users.UIDOK(u.UID) {
 		t.Errorf("alice's first partition minted no uid: %q", u.UID)

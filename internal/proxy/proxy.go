@@ -90,12 +90,13 @@ type Decision struct {
 
 	// Partitioned tiles (partitionroute.go): the target's partition the
 	// call reaches, the one the caller acts in and its id, the F5
-	// attribution, and whether a start it causes is a background one.
+	// attribution, and the delivery ("cron", "bus", "mail") a start it
+	// causes is for — a background start — "" for everything else.
 	Partition         util.Partition
 	CallerPartition   util.Partition
 	CallerPartitionID string
 	Attribute         *auth.Attribution
-	Background        bool
+	Delivery          string
 }
 
 type Proxy struct {
@@ -303,21 +304,16 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if target != primary {
 		answering = target
 	}
-	px.forwardWith(w, r, sock, endpoint, answering, hold.onResponse)
+	px.forward(w, r, sock, endpoint, answering, hold.onResponse)
 }
 
 // forward proxies r to the backend listening on sock, at /<endpoint>.
 // answering names the deployment that answers when it isn't the target's
 // primary: the response then carries X-XBin-Deployment, set over any value
 // the backend set (NP-11-12). A primary's responses pass as they always
-// have.
-func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint, answering string) {
-	px.forwardWith(w, r, sock, endpoint, answering, nil)
-}
-
-// forwardWith is forward, with onResponse (when set) seeing the backend's
-// response before it is copied back.
-func (px *Proxy) forwardWith(w http.ResponseWriter, r *http.Request, sock, endpoint, answering string, onResponse func(*http.Response)) {
+// have. onResponse, when set, sees the backend's response before it is
+// copied back (a user partition's hold, partitionroute.go).
+func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint, answering string, onResponse func(*http.Response)) {
 	// The ?frame= auth credential (browser WS attribution) is consumed
 	// here; never forward it — the callee could replay it as the caller.
 	outQuery := r.URL.Query()

@@ -19,7 +19,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/sbx"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const alicePKey = "u-0123456789abcdef0123456789abcdef"
@@ -75,14 +74,16 @@ type fakeParts struct {
 	events []string
 }
 
-func (f *fakeParts) EnsurePartition(_ context.Context, c *registry.Component, dep string, part util.Partition, class string) (string, error) {
+var startNames = map[PartitionStart]string{StartInteractive: "interactive", StartBackground: "background", StartMail: "mail"}
+
+func (f *fakeParts) EnsurePartition(_ context.Context, c *registry.Component, dep, part string, class PartitionStart) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.asked = append(f.asked, fmt.Sprintf("%s %s %s %s", c.Path, dep, part, class))
+	f.asked = append(f.asked, fmt.Sprintf("%s %s %s %s", c.Path, dep, part, startNames[class]))
 	return f.sock, f.err
 }
 
-func (f *fakeParts) TrackPartition(tile, dep string, part util.Partition, passive bool) func() {
+func (f *fakeParts) TrackPartition(tile, dep, part string, passive bool) func() {
 	kind := "active"
 	if passive {
 		kind = "passive"
@@ -154,8 +155,9 @@ func partProxyWorld(t *testing.T) (*Proxy, *fakeParts, *Decision) {
 }
 
 // covers PD-18 PD-19 — ServeHTTP on a user partition (02 §7): the reached
-// partition starts through the runner's EnsurePartition — interactive, or
-// background for a delivery — never EnsureDeployment (nil here: reaching it
+// partition starts through the runner's EnsurePartition — interactive,
+// background for a cron or bus delivery, mail for a mail doorbell — never
+// EnsureDeployment (nil here: reaching it
 // would panic); the backend sees the caller's partition; a text/event-
 // stream answer turns the hold passive without a gap; an admission refusal
 // is 503; and an xbind without a partition runner answers 503.
@@ -174,21 +176,25 @@ func TestPartitionProxy(t *testing.T) {
 	if rec := call(alice, "/api/apps/pg/x"); rec.Code != 200 || rec.Body.String() != "user:alice|"+alicePKey+"|alice" {
 		t.Errorf("alice's frame: %d %q", rec.Code, rec.Body.String())
 	}
-	d.Background = true
+	d.Delivery = "cron"
 	if rec := call(auth.Principal{Component: "xbin/cron", Via: "cron", Partition: "user:alice"}, "/api/apps/pg/tick"); rec.Code != 200 {
 		t.Errorf("alice's cron: %d %q", rec.Code, rec.Body.String())
 	}
-	d.Background = false
+	d.Delivery = "mail"
+	if rec := call(auth.Principal{Component: "xbin/mail", Via: "mail", Partition: "user:alice"}, "/api/apps/pg/mail"); rec.Code != 200 {
+		t.Errorf("alice's mail doorbell: %d %q", rec.Code, rec.Body.String())
+	}
+	d.Delivery = ""
 	if rec := call(alice, "/api/apps/pg/stream"); rec.Code != 200 || !strings.Contains(rec.Body.String(), "data: hi") {
 		t.Errorf("the stream: %d %q", rec.Code, rec.Body.String())
 	}
 	fp.mu.Lock()
 	asked, evs, holds := strings.Join(fp.asked, ","), strings.Join(fp.events, " "), fmt.Sprint(fp.holds)
 	fp.mu.Unlock()
-	if asked != "apps/pg main user:alice interactive,apps/pg main user:alice background,apps/pg main user:alice interactive" {
+	if asked != "apps/pg main user:alice interactive,apps/pg main user:alice background,apps/pg main user:alice mail,apps/pg main user:alice interactive" {
 		t.Errorf("EnsurePartition asked %s", asked)
 	}
-	if evs != "+active -active +active -active +active +passive -active -passive" || holds != "map[active:0 passive:0]" {
+	if evs != "+active -active +active -active +active -active +active +passive -active -passive" || holds != "map[active:0 passive:0]" {
 		t.Errorf("holds: %s (%s)", evs, holds)
 	}
 

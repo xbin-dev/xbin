@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -75,13 +76,17 @@ func partRouteWS(t *testing.T) *partWS {
 	return w
 }
 
-// setConsentPolicy writes the workspace policy partitionConsent.
-func (w *partWS) setConsentPolicy(on bool) {
+// partRouteConsent writes the workspace policy partitionConsent (a plain
+// function, not a partWS method: F4's fixture has its own).
+func partRouteConsent(w *partWS, on bool) {
 	w.t.Helper()
 	body := fmt.Sprintf(`{"schema":1,"partitionConsent":%v,"credentialResetConfirm":false}`, on)
-	if err := os.WriteFile(filepath.Join(w.root, "data", "workspace-policies.json"), []byte(body), 0o600); err != nil {
+	p := filepath.Join(w.root, "data", "workspace-policies.json")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		w.t.Fatal(err)
 	}
+	later := time.Now().Add(time.Duration(len(body)) * time.Second)
+	_ = os.Chtimes(p, later, later) // the policies cache keys on size and mtime
 	if got := w.b.Policies().PartitionConsent; got != on {
 		w.t.Fatalf("the policy reads %v after writing %v", got, on)
 	}
@@ -176,6 +181,8 @@ func TestAddressedPartition(t *testing.T) {
 		{"the root token", "apps/pg", auth.Principal{Owner: true, Via: "bearer"}, "global", ""},
 		{"the root token, no global", "apps/pu", auth.Principal{Owner: true, Via: "bearer"}, "", "sign in as a person"},
 		{"--no-auth", "apps/pg", auth.Principal{Owner: true, Via: "dev"}, "global", ""},
+		{"an anonymous subrequest", "apps/pg", auth.Principal{}, "", "sign in as a person: apps/pg"},
+		{"a person-less session", "apps/pg", auth.Principal{Via: "session"}, "", "sign in as a person: apps/pg"},
 		// other tiles: the edge matrix (05 §1)
 		{"apps/q as alice", "apps/pg", instanceOf("apps/q", "user:alice"), "user:alice", ""},
 		{"apps/q's frame of alice", "apps/pu", frameOf("apps/q", "alice"), "user:alice", ""},
@@ -209,13 +216,13 @@ func TestAddressedPartition(t *testing.T) {
 	}
 	// the consent policy (PD-13): with it on, another partitioned tile
 	// reaches alice's partition only with her consent (F10's records)
-	w.setConsentPolicy(true)
+	partRouteConsent(w, true)
 	if _, err := b.addressedPartition(instanceOf("apps/q", "user:alice"), "apps/pg"); err == nil ||
 		err.Error() != "alice hasn't let apps/q use their apps/pg data" {
 		t.Errorf("consent policy on, no consent: %v", err)
 	}
-	withSeam(t, &partitionConsentHolds, func(_ *Broker, id, caller, target string) bool {
-		return id == "alice" && caller == "apps/q" && target == "apps/pg"
+	withSeam(t, &partitionConsentHolds, func(_ *Broker, id, from, to string) bool {
+		return id == "alice" && from == "apps/q" && to == "apps/pg"
 	})
 	if got, err := b.addressedPartition(instanceOf("apps/q", "user:alice"), "apps/pg"); got != "user:alice" || err != nil {
 		t.Errorf("consent policy on, consented: %q, %v", got, err)
@@ -248,12 +255,13 @@ func TestRoutePartitions(t *testing.T) {
 		t.Fatal("carol has a uid before any partition")
 	}
 	var counted []string
-	withSeam(t, &partitionEdgeCounted, func(_ *Broker, caller string, part util.Partition, target string) {
-		counted = append(counted, caller+"/"+string(part)+"→"+target)
+	withSeam(t, &partitionEdgeCounted, func(_ *Broker, id, from, to string) {
+		counted = append(counted, from+"/user:"+id+"→"+to)
 	})
 	type want struct {
 		dep, role, part, caller string
-		id, bg                  bool   // CallerPartitionID set (and the person's pkey); Background
+		id                      bool   // CallerPartitionID set (and the person's pkey)
+		delivery                string // Delivery
 		deny                    string // a substring of the refusal
 	}
 	check := func(name string, p auth.Principal, target, qualifier string, wt want) {
@@ -271,7 +279,7 @@ func TestRoutePartitions(t *testing.T) {
 		}
 		gotID := d.CallerPartitionID != ""
 		if d.Deployment != wt.dep || d.Role != wt.role || string(d.Partition) != wt.part || string(d.CallerPartition) != wt.caller ||
-			gotID != wt.id || d.Background != wt.bg {
+			gotID != wt.id || d.Delivery != wt.delivery {
 			t.Errorf("%s: %+v; want %+v", name, d, wt)
 		}
 		if id, ok := d.CallerPartition.User(); ok && d.CallerPartitionID != w.pkeyOf(id) {
@@ -281,9 +289,13 @@ func TestRoutePartitions(t *testing.T) {
 	main := util.MainDeployment
 	cron := auth.Principal{Component: CronPrincipal, Via: "cron", Role: "writer", Partition: "user:alice"}
 	// rule 1: deliveries
-	check("alice's cron", cron, "apps/pg", "", want{dep: main, role: "writer", part: "user:alice", caller: "user:alice", id: true, bg: true})
+	check("alice's cron", cron, "apps/pg", "", want{dep: main, role: "writer", part: "user:alice", caller: "user:alice", id: true, delivery: "cron"})
 	check("global's cron", auth.Principal{Component: CronPrincipal, Via: "cron", Role: "writer"}, "apps/pg", "",
-		want{dep: main, role: "writer", part: "global", caller: "global", bg: true})
+		want{dep: main, role: "writer", part: "global", caller: "global", delivery: "cron"})
+	check("alice's bus delivery", auth.Principal{Component: BusPrincipal, Via: "bus", Role: "reader", Partition: "user:alice"}, "apps/pg", "",
+		want{dep: main, role: "reader", part: "user:alice", caller: "user:alice", id: true, delivery: "bus"})
+	check("alice's mail doorbell", auth.Principal{Component: partitionMailPrincipal, Via: "mail", Role: "writer", Partition: "user:alice"}, "apps/pg", "",
+		want{dep: main, role: "writer", part: "user:alice", caller: "user:alice", id: true, delivery: "mail"})
 	check("a cron without global", auth.Principal{Component: CronPrincipal, Via: "cron", Role: "writer"}, "apps/pu", "",
 		want{deny: "has no global instance"})
 	check("a disabled person's bus delivery", auth.Principal{Component: BusPrincipal, Via: "bus", Role: "reader", Partition: "user:dave"},
@@ -325,13 +337,13 @@ func TestRoutePartitions(t *testing.T) {
 		t.Errorf("the ledger counted %v", counted)
 	}
 	// the consent policy on: without consent refused, with it allowed
-	w.setConsentPolicy(true)
+	partRouteConsent(w, true)
 	check("consent on, none", instanceOf("apps/q", "user:alice"), "apps/pg", "", want{deny: "alice hasn't let apps/q use their apps/pg data"})
 	check("consent on, apps/x → pg", instanceOf("apps/x", ""), "apps/pg", "", want{dep: main, role: "reader", part: "global"})
-	withSeam(t, &partitionConsentHolds, func(_ *Broker, id, caller, target string) bool { return id == "alice" && caller == "apps/q" })
+	withSeam(t, &partitionConsentHolds, func(_ *Broker, id, from, to string) bool { return id == "alice" && from == "apps/q" })
 	check("consent on, consented", instanceOf("apps/q", "user:alice"), "apps/pg", "",
 		want{dep: main, role: "reader", part: "user:alice", caller: "user:alice", id: true})
-	w.setConsentPolicy(false)
+	partRouteConsent(w, false)
 	// a personal bind (F15's seam): only its owner's partition
 	withSeam(t, &personalBindGrant, func(_ *Broker, caller string, part util.Partition, target string) (string, bool) {
 		return "reader", target == "users/alice/mcp" && part == "user:alice"

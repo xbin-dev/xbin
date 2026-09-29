@@ -24,12 +24,16 @@ package broker
 //
 // Seams other packs fill (the defaults fail closed or do nothing):
 // partitionConsentHolds (F10), personalBindGrant (F15), partitionEdgeCounted
-// (F10's ledger), partitionAdoptUID (F5's records).
+// (F10's ledger), partitionAdoptUID (F4's adoptablePartitionUID). The first
+// and third have the shape of F4's partitionConsentSeam and
+// partitionEdgeSeam, so the integrator keeps one of each
+// (plans/partitions/records/F2.md).
 
 import (
 	"cmp"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -42,30 +46,44 @@ import (
 const partitionMailPrincipal = "xbin/mail"
 
 // isDelivery reports a cron, bus or mail delivery's synthetic principal.
-func isDelivery(p auth.Principal) bool {
-	return p.Component == CronPrincipal || p.Component == BusPrincipal || p.Component == partitionMailPrincipal
+func isDelivery(p auth.Principal) bool { return deliveryOf(p) != "" }
+
+// deliveryOf names the delivery p is — "cron", "bus" or "mail" — or "" for
+// every other principal (Decision.Delivery).
+func deliveryOf(p auth.Principal) string {
+	switch p.Component {
+	case CronPrincipal:
+		return "cron"
+	case BusPrincipal:
+		return "bus"
+	case partitionMailPrincipal:
+		return "mail"
+	}
+	return ""
 }
 
 // Seams, filled by the packs that own them.
 var (
-	// partitionConsentHolds reports whether userID consented to caller's
-	// partition using their data in target (05 §2), asked only while the
-	// workspace policy partitionConsent is on. nil: no consent is recorded
+	// partitionConsentHolds reports whether userID consented to tile from
+	// using their data in tile to (05 §2), asked only while the workspace
+	// policy partitionConsent is on. The default: no consent is recorded
 	// anywhere, so every such call is refused (F10 fills it).
-	partitionConsentHolds func(b *Broker, userID, caller, target string) bool
+	partitionConsentHolds = func(b *Broker, userID, from, to string) bool { return false }
 	// personalBindGrant is the role a personal bind gives caller acting in
 	// callerPart on target (05 §3): only its owner's live partition. nil: no
 	// personal binds exist (F15 fills it, beside grantedRoleIn).
 	personalBindGrant func(b *Broker, caller string, callerPart util.Partition, target string) (role string, ok bool)
-	// partitionEdgeCounted counts one allowed cross-tile call made by
-	// caller's partition callerPart in its egress ledger (06 §6). nil:
-	// nothing is counted (F10 fills it).
-	partitionEdgeCounted func(b *Broker, caller string, callerPart util.Partition, target string)
+	// partitionEdgeCounted counts one allowed cross-tile call by tile from,
+	// acting in userID's partition, to tile to in that partition's egress
+	// ledger (06 §6). The default counts nothing (F10 fills it).
+	partitionEdgeCounted = func(b *Broker, userID, from, to string) {}
 	// partitionAdoptUID is the uid userID's partition records carry, when
-	// they were created after the person's record (03 §E): what a person
-	// whose uid an older xbind dropped adopts instead of a new one. nil or
-	// "": none (F5 fills it).
-	partitionAdoptUID func(b *Broker, userID string, created int64) string
+	// they were created at or after the person's record (created; 03 §E,
+	// PD-43) and agree: what a person whose uid an older xbind dropped
+	// adopts instead of a new one. ok false: none. nil while no store keeps
+	// such records; F4's adoptablePartitionUID fills it, and
+	// TestPartitionUIDAdoptionWired fails a merge that leaves it nil.
+	partitionAdoptUID func(b *Broker, userID string, created time.Time) (uid string, ok bool)
 )
 
 // tilePartitioning answers tile's recorded mode when it has user
@@ -179,11 +197,17 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 	case own || p.Component == "":
 		// the tile's frames, terminals, agent sessions and path tickets, and
 		// people and the root token: the person's own partition (an admin's
-		// too, PD-11); without a person, global (PD-10)
-		if p.UserID == "" {
-			return globalOf(spec, fmt.Errorf("sign in as a person: %s keeps each person's data apart", tile))
+		// too, PD-11); without a person, global (PD-10) — for the tile's own
+		// credentials and the root token (--no-auth's too) only, never an
+		// anonymous principal
+		refused := fmt.Errorf("sign in as a person: %s keeps each person's data apart", tile)
+		switch {
+		case p.UserID != "":
+			return b.userPartition(p.UserID, tile)
+		case !own && !p.Owner:
+			return "", refused
 		}
-		return b.userPartition(p.UserID, tile)
+		return globalOf(spec, refused)
 	}
 	// another tile's principal: its own partition, mapped onto tile (05 §1)
 	cp, err := b.callerPartition(p)
@@ -194,7 +218,7 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 		if err := b.personLive(id, tile); err != nil {
 			return "", err
 		}
-		if b.Policies().PartitionConsent && (partitionConsentHolds == nil || !partitionConsentHolds(b, id, p.Component, tile)) {
+		if b.Policies().PartitionConsent && !partitionConsentHolds(b, id, p.Component, tile) {
 			return "", fmt.Errorf("%s hasn't let %s use their %s data", id, p.Component, tile)
 		}
 		return cp, nil
@@ -220,36 +244,69 @@ func (b *Broker) partitionID(part util.Partition) (string, error) {
 	if !ok {
 		return "", nil
 	}
+	uid, err := b.mintPartitionUID(id)
+	if err != nil {
+		return "", err
+	}
+	return util.PartitionKey(id, uid), nil
+}
+
+// mintPartitionUID is person userID's uid (PD-43), given to their record at
+// their first partition: adopted from the partition records an older
+// xbind's rewrite of the store left without it (partitionAdoptUID), else
+// fresh. The one place a uid is minted — F4's partitionMintUIDSeam is this.
+func (b *Broker) mintPartitionUID(userID string) (string, error) {
 	if b.Users == nil {
-		return "", fmt.Errorf("no person %q in this workspace", id)
+		return "", fmt.Errorf("no person %q in this workspace", userID)
 	}
-	u, ok := b.Users.Get(id)
+	u, ok := b.Users.Get(userID)
 	if !ok {
-		return "", fmt.Errorf("%s no longer exists", id)
+		return "", fmt.Errorf("%s no longer exists", userID)
 	}
-	uid := u.UID
-	if uid == "" {
-		adopt := ""
-		if partitionAdoptUID != nil {
-			adopt = partitionAdoptUID(b, u.ID, u.Created)
-		}
-		var err error
-		if uid, err = b.Users.EnsureUID(u.ID, adopt); err != nil {
-			return "", fmt.Errorf("%s's partition identity can't be recorded: %w", id, err)
-		}
+	if u.UID != "" {
+		return u.UID, nil
 	}
-	return util.PartitionKey(u.ID, uid), nil
+	adopt := ""
+	if partitionAdoptUID != nil {
+		adopt, _ = partitionAdoptUID(b, u.ID, time.Unix(u.Created, 0))
+	}
+	uid, err := b.Users.EnsureUID(u.ID, adopt)
+	if err != nil {
+		return "", fmt.Errorf("%s's partition identity can't be recorded: %w", userID, err)
+	}
+	return uid, nil
+}
+
+// storedPartitionUID is person userID's uid as the users store keeps it,
+// never minted: "" while the record has none or is gone (F4's
+// partitionUIDSeam is this).
+func (b *Broker) storedPartitionUID(userID string) string {
+	if b.Users == nil {
+		return ""
+	}
+	if u, ok := b.Users.Get(userID); ok {
+		return u.UID
+	}
+	return ""
+}
+
+// addressedPartitionKey is addressedPartition as a plain string (F4's
+// addressedPartitionSeam is this).
+func (b *Broker) addressedPartitionKey(p auth.Principal, tile string) (string, error) {
+	part, err := b.addressedPartition(p, tile)
+	return string(part), err
 }
 
 // routePartition adds the partition dimension to Route's decision d (02 §4):
 // the target's partition (Partition), the caller's (CallerPartition, with
-// its id), and whether a start it causes is a background one. A call
-// between two unpartitioned ends returns d as it came, byte for byte.
+// its id), and the delivery a start it causes is for (Delivery: a
+// background start). A call between two unpartitioned ends returns d as it
+// came, byte for byte.
 func (b *Broker) routePartition(p auth.Principal, target *registry.Component, d Decision) Decision {
 	t := target.Path
 	_, partitioned, terr := b.tilePartitioning(t)
-	delivery := isDelivery(p)
-	crossTile := p.Component != "" && !delivery && p.Component != t
+	delivery := deliveryOf(p)
+	crossTile := p.Component != "" && delivery == "" && p.Component != t
 	var cp util.Partition
 	if crossTile {
 		var err error
@@ -286,13 +343,13 @@ func (b *Broker) routePartition(p auth.Principal, target *registry.Component, d 
 				return Decision{Deny: err}
 			}
 		}
-		d.Partition, d.Background = part, delivery
+		d.Partition, d.Delivery = part, delivery
 	}
 	d.CallerPartition = d.Partition
 	if crossTile {
 		d.CallerPartition = cp
-		if cp.IsUser() && partitionEdgeCounted != nil {
-			partitionEdgeCounted(b, p.Component, cp, t)
+		if id, ok := cp.User(); ok {
+			partitionEdgeCounted(b, id, p.Component, t)
 		}
 	}
 	id, err := b.partitionID(d.CallerPartition)
@@ -305,15 +362,44 @@ func (b *Broker) routePartition(p auth.Principal, target *registry.Component, d 
 
 // busPartitionAllows is busFilter's partition rule (02 §9): an event in a
 // user partition's namespace reaches a subscriber only when that is the
-// partition it reaches on the scope's (partitioned) root tile. The grant
+// partition it acts in there — a tile of the scope, the root or a sibling,
+// its own partition (as the data plane reaches its own scope); any other
+// tile its partition mapped onto the scope's (partitioned) root. The grant
 // and namespace checks follow as for every bus event.
 func (b *Broker) busPartitionAllows(p auth.Principal, e events.Event) bool {
 	rt, ok := b.resScope(e.Topic)
 	if !ok || rt.Scope == "" || p.ReadOnly() {
 		return false
 	}
-	part, err := b.addressedPartition(p, rt.Scope)
-	return err == nil && string(part) == e.Partition
+	var part util.Partition
+	var err error
+	if c, ok := b.Reg.Component(p.Component); ok && c.Scope == rt.Scope {
+		part, err = b.callerPartition(p)
+	} else {
+		part, err = b.addressedPartition(p, rt.Scope)
+	}
+	return err == nil && part.IsUser() && string(part) == e.Partition
+}
+
+// publishPartitionBus publishes a bus event in user partition part's
+// namespace of rt's scope (deployment dep, the primary; 04 §2): the event
+// carries Partition, so /ws/events delivers it to that partition only
+// (busFilter), and counts as the resource's. A partition's subscriptions
+// are delivered by F5's dormant-registration plane, not here. F4's
+// publishPartitionBusSeam is this, with its reach's rt, dep and part.
+func (b *Broker) publishPartitionBus(rt resTarget, dep string, part util.Partition, topic string, data any) error {
+	if !part.IsUser() {
+		return fmt.Errorf("%s: %q is no person's partition", rt, part)
+	}
+	id := rt.String()
+	ev := events.Event{Type: "bus", Topic: id + "/" + topic, Data: data, Partition: string(part)}
+	counter := id
+	if dep != util.MainDeployment {
+		ev.Deployment, counter = dep, id+"\x00"+dep
+	}
+	b.Hub.Publish(ev)
+	b.countBusEvent(counter)
+	return nil
 }
 
 // PartitionCovered reports whether a user partition's instance token still
