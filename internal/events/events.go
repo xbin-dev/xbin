@@ -23,8 +23,12 @@ type Event struct {
 	// tile an event belongs to: a bus event in that partition's namespace,
 	// or that partition's status, runner or partitions event. Such an event
 	// reaches only that partition's principals and its person's own
-	// sockets — admins get no blanket pass (plans/partitions/02 §9). Empty
-	// for everything else, the global instance's included: today's bytes.
+	// sockets — admins get no blanket pass (plans/partitions/02 §9). A bus
+	// event on a partitioned scope's own (not shared) bus is stamped
+	// "global" when the global instance published it, and reaches only
+	// subscribers acting in global there (04 §2). Empty for everything
+	// else — every event of a tile that isn't partitioned, and the global
+	// instance's other events: today's bytes.
 	Partition string `json:"partition,omitempty"`
 	Data      any    `json:"data,omitempty"` // bus payload / structured extras
 }

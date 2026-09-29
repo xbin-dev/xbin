@@ -2048,7 +2048,9 @@ POST   /create                     owner/admin, a user creating a tile
                                    entries, a deployment record or
                                    checkpoint store; and, at the path or
                                    under it, a deployment's vault,
-                                   registrations or data — listed in the
+                                   registrations or data, a partitioned
+                                   tile's partition mode record or its
+                                   people's partition data — listed in the
                                    error; the path's owner is exempt);
                                    creation by anyone drops a deployment
                                    record left at the path, so the new
@@ -5338,11 +5340,14 @@ event in that partition's data, that partition's `status`, runner and
 partitions events — and reaches only that partition: the person's own
 sockets and the tile's credentials acting in it, never admins' (there is no
 blanket admin pass for them), another person, another tile or view-as. A
-`bus` one still needs the reader grant. `term` and `session` events of a
-partitioned tile reach only the session's person (their browsers, and their
-terminal on the tile): admins don't receive them there. Events without
-`partition` — every event of a tile that isn't partitioned, and the global
-instance's — are delivered as above.
+`bus` one still needs the reader grant. A `bus` event on a partitioned
+scope's own (not shared) bus that the global instance published carries
+`"partition":"global"` and likewise reaches only subscribers acting in the
+global instance there, with no admin pass. `term` and `session` events of
+a partitioned tile reach only the session's person (their browsers, and
+their terminal on the tile): admins don't receive them there. Events
+without `partition` — every event of a tile that isn't partitioned, a
+shared bus's, and the global instance's others — are delivered as above.
 
 ### Agent session events
 

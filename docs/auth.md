@@ -859,8 +859,10 @@ creation (clone, workspace-template instantiate) additionally requires
   deployment state (a deployment record, a checkpoint store:
   [tile-deployments.md](/docs/tile-deployments.md)) — and, at the path and under
   it, what its deployments beyond `main` left: their vaults,
-  registrations and data. The refusal lists them; pick another path or have
-  an admin clear them. Re-creating a path you already own is fine (the
+  registrations and data, and a partitioned tile's recorded partition mode
+  and its people's partition data ([partitions.md](/docs/partitions.md)).
+  The refusal lists them; pick another path or have an admin clear them.
+  Re-creating a path you already own is fine (the
   path's owner is exempt). Whoever creates the tile, admins included, the
   path's deployment record is dropped first, so the new tile starts with
   plain live reload; a checkpoint store left there stays on disk, unread;
