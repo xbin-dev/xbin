@@ -1,8 +1,14 @@
 // hack/ui-harness/passes/livepreview.js — the live port preview (D135), end
-// to end: in a coding conversation bound to a fresh sandbox (apps/fakesbx —
-// its sandboxes are host directories — or, with HARNESS_ISOLATE=1, the real
-// coding-sandbox), fakeopenai's "sandbox serve" writes a page, serves it with
-// python3 -m http.server as a background job and calls preview_port. It pins:
+// to end: in a coding conversation bound to a fresh sandbox, fakeopenai's
+// "sandbox serve" writes a page, serves it with python3 -m http.server as a
+// background job and calls preview_port. The seed binds the agent to
+// apps/fakesbx (its sandboxes are directories — under HARNESS_ISOLATE=1 inside
+// its own isolated backend). For the real coding-sandbox on the tilesbx
+// runtime, on a HARNESS_ISOLATE=1 --keep instance: approve its pending
+// cap:sandboxes grant (POST /api/xbin/grants), PUT its /ops/config
+// {"mode":"auto"} (namespace sandboxes over the rootfs), bind the agent's
+// `sandboxes` slot to apps/coding-sandbox alone, then --shots livePreview.
+// It pins:
 //   - the pane opens on the live step, labelled "live from the sandbox",
 //     with Reload, the static frame hidden;
 //   - the frame is sandbox="allow-scripts allow-forms" (never
