@@ -2659,7 +2659,12 @@ parameter: a tile's path, never a ref — a deployment is named with
 `deployment=` (D127j; §Tile deployments, *Tile refs in a query string*). Each
 body takes dryRun:true (judged as for real, refusals included, nothing
 changes → {state, impact}) and seq (the record's sequence the caller acted
-on: 409 when it moved; optional everywhere). confirm tokens guard data: remove "erase", reset and a restore into data "erase-data", seed
+on: 409 when it moved; optional everywhere). A dry run of a deploy, roll
+back or promote onto the primary whose code asks for another partition
+mode than the tile records carries impact.partition, a warning: the tile
+will pause for a partition-mode decision (it holds data), the mode follows
+at once (it holds none), or a manager declined that mode (docs/partitions.md
+§The mode). confirm tokens guard data: remove "erase", reset and a restore into data "erase-data", seed
 and add with data:"seed" "copy-data", primary "data-stays" — a missing one
 is 400 naming it. An operation answers {state, deploy?, …} (each row names
 its answer) once the record change is committed; deploys are asynchronous
@@ -3451,7 +3456,11 @@ tile, `agent/<session>` for an agent session.
 Sources: `POST /notify` (kind `tile` or `tile.<kind>`), and the agent
 sessions of the device's user — a `permission.request` (`agent.permission`)
 or `elicitation.request` (`agent.question`) still unanswered 3 s later, and
-a `turn.end` that the user did not cancel (`agent.turn`). Limits (token
+a `turn.end` that the user did not cancel (`agent.turn`), and xbind's own
+partition notices: a tile's partition mode switch request to its managers
+(`tile.partition-switch`, collapse per tile) and, after a switch, to each
+person whose partition was deleted (`tile.partition-deleted`), both linking
+`c/<tile>/`, spending the person's budget and ignoring tile mutes. Limits (token
 buckets): 120/hour per tile (burst 20) — a tile's frontend and terminals
 have a bucket per tile and person, apart from its backend's; 240/hour per
 user from all tiles together (burst 40); agent sessions have their own
