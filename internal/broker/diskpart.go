@@ -43,7 +43,9 @@ func (b *Broker) partitionFacts(fx deployFacts, limits map[nsID]int64) {
 		if v := partitionDiskCeilingSeam(b, id.scope); v > 0 && (limit == 0 || v < limit) {
 			limit = v
 		}
-		fx.buckets[k.Quota] = nsBucket{limit: limit, label: b.partitionNSLabel(id), tile: id.scope, alertDep: id.dep, partition: true}
+		// tile is its quota key, which no component path equals: /tile-status never
+		// shows it (TileAlerts), and its deployment keeps it from non-admins (PD-46)
+		fx.buckets[k.Quota] = nsBucket{limit: limit, label: b.partitionNSLabel(id), tile: k.Quota, alertDep: id.dep, partition: true}
 	})
 	if err != nil {
 		slog.Warn("disk: people's partitions", "err", err)

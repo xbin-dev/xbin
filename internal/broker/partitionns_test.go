@@ -3,6 +3,7 @@ package broker
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/resenc"
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -147,9 +150,17 @@ func TestTileHoldsDataPartitions(t *testing.T) {
 	}
 	_ = os.Chmod(dir, 0o700)
 
-	n, err := b.wipePartitionNamespaces("apps/docs")
-	if err != nil || n != 2 {
-		t.Fatalf("wipe: %d %v", n, err)
+	// A dry run (the switch's confirmation) counts, and deletes nothing.
+	dry, err := b.wipePartitionNamespaces("apps/docs", true)
+	if err != nil || dry.Namespaces != 2 || dry.Partitions != 2 || dry.Bytes <= 0 || strings.Join(dry.People, ",") != "alice,carol" {
+		t.Fatalf("dry run: %+v %v", dry, err)
+	}
+	if held, _, _ := b.tileHoldsData(ask); !held {
+		t.Fatal("a dry run deleted people's partitions")
+	}
+	sum, err := b.wipePartitionNamespaces("apps/docs", false)
+	if err != nil || sum.Namespaces != dry.Namespaces || sum.Bytes != dry.Bytes || strings.Join(sum.People, ",") != "alice,carol" {
+		t.Fatalf("wipe: %+v %v, want the dry run's %+v", sum, err, dry)
 	}
 	if held, store, _ := b.tileHoldsData(ask); held {
 		t.Errorf("after the wipe the tile holds data in %s", store)
@@ -160,8 +171,8 @@ func TestTileHoldsDataPartitions(t *testing.T) {
 	if code, _ := nsKV(t, b, "GET", aliceDocs, "res:apps/docs/docs/k", ""); code != 404 {
 		t.Errorf("alice's key after the wipe: %d", code)
 	}
-	if n, err := b.wipePartitionNamespaces("apps/plain"); n != 0 || err != nil {
-		t.Errorf("a tile without partitions: %d %v", n, err)
+	if n, err := b.wipePartitionNamespaces("apps/plain", false); n.Namespaces != 0 || err != nil {
+		t.Errorf("a tile without partitions: %+v %v", n, err)
 	}
 }
 
@@ -222,12 +233,13 @@ func TestPartitionOrphanRules(t *testing.T) {
 
 	// uid re-adoption: records made since alice's Created carry her uid;
 	// carol's only record predates her and is orphaned: nothing to adopt.
-	if uid, ok := b.adoptablePartitionUID("alice", now); !ok || uid != "uid-alice" {
-		t.Errorf("alice adopts %q %v", uid, ok)
+	if uid := b.adoptablePartitionUID("alice", now.Unix()); uid != "uid-alice" {
+		t.Errorf("alice adopts %q", uid)
 	}
-	if uid, ok := b.adoptablePartitionUID("carol", now.Add(-time.Hour)); ok {
+	if uid := b.adoptablePartitionUID("carol", now.Add(-time.Hour).Unix()); uid != "" {
 		t.Errorf("carol adopts %q from a previous holder's record", uid)
 	}
+	var _ func(*Broker, string, int64) string = (*Broker).adoptablePartitionUID // F2's partitionAdoptUID seam
 
 	// The delete hook orphans alice's; the tile paused (pending) keeps it
 	// past the retention; unpaused, the sweep deletes it and erases its key.
@@ -326,5 +338,193 @@ func TestPartitionIdleKVClose(t *testing.T) {
 	}
 	if code, body := nsKV(t, b, "GET", aliceDocs, "res:apps/docs/docs/k", ""); code != 200 || body != "v" {
 		t.Errorf("GET after the close: %d %s", code, body)
+	}
+}
+
+// covers PD-26 PD-43 — the uid decides whose a namespace is when both the
+// store and the record carry one, whatever the clocks say (a step back of
+// the host clock never orphans a live person's data); only without one does
+// the time decide, and a record made in the very second its person's id was
+// (re)created can't be told: it is kept, and never adopted from.
+func TestPartitionOrphanUID(t *testing.T) {
+	w := partFx(t)
+	b := w.b
+	for _, id := range []string{"frank", "greg"} {
+		if _, err := b.Users.Upsert(users.User{ID: id, Tiles: map[string]string{"apps/docs": "read"}}, "pw-"+id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prev := partitionUIDSeam
+	t.Cleanup(func() { partitionUIDSeam = prev })
+	partitionUIDSeam = func(b *Broker, userID string) string { // frank's and greg's records lost their uid
+		if userID == "frank" || userID == "greg" {
+			return ""
+		}
+		return "uid-" + userID
+	}
+	created := func(id string) time.Time {
+		u, _ := b.Users.Get(id)
+		return time.Unix(u.Created, 0)
+	}
+	ns := func(user, uid string, at time.Time) nsID {
+		t.Helper()
+		id := partNS("apps/docs", util.MainDeployment, partitionKeyFor(user, uid))
+		if err := b.notePartitionNS(id, nsPartition{User: user, UID: uid}); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.updateNS(id, false, func(m *nsMeta) { m.Partition.Created = at.UTC().Format(time.RFC3339Nano) }); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	event := func(id nsID) string {
+		m, ok, _ := b.readNS(id)
+		if !ok || m.Partition == nil {
+			return "gone"
+		}
+		return m.Partition.Orphan
+	}
+	alice := ns("alice", "uid-alice", created("alice").Add(-time.Hour)) // the clock stepped back: the same uid keeps it
+	frankOld := ns("frank", "uid-f0", created("frank").Add(-2*time.Second))
+	gregSame := ns("greg", "uid-g0", created("greg").Add(500*time.Millisecond))
+	b.sweepPartitionNamespaces(time.Now())
+	if e := event(alice) + "," + event(frankOld) + "," + event(gregSame); e != ",user-deleted," {
+		t.Errorf("after a sweep: %q, want alice's and greg's kept, frank's previous holder's orphaned", e)
+	}
+	if m, _, _ := b.readNS(alice); m.Partition.Tile != "apps/docs" {
+		t.Errorf("the record's tile is %q, want the scope's root", m.Partition.Tile)
+	}
+	// greg's record made in his id's own second is never adopted; one made
+	// after it is.
+	if uid := b.adoptablePartitionUID("greg", created("greg").Unix()); uid != "" {
+		t.Errorf("greg adopts %q from a record of his id's own second", uid)
+	}
+	ns("greg", "uid-g1", created("greg").Add(2*time.Second))
+	if uid := b.adoptablePartitionUID("greg", created("greg").Unix()); uid != "uid-g1" {
+		t.Errorf("greg adopts %q, want uid-g1", uid)
+	}
+	// Two records that disagree: nothing is adopted.
+	ns("greg", "uid-g2", created("greg").Add(3*time.Second))
+	if uid := b.adoptablePartitionUID("greg", created("greg").Unix()); uid != "" {
+		t.Errorf("greg adopts %q from records that disagree", uid)
+	}
+}
+
+// covers PD-26 03§B.8 — a mode never orphans people's data: a declined
+// request (the manager kept R) and an invalid manifest leave every
+// namespace unorphaned, and an invalid tile's are never swept, even past the
+// retention.
+func TestPartitionOrphanNeverOnMode(t *testing.T) {
+	w := partFx(t)
+	b := w.b
+	for _, p := range []auth.Principal{aliceDocs, carolDocs} {
+		if code, body := nsKV(t, b, "PUT", p, "res:apps/docs/docs/k", "v"); code != 200 {
+			t.Fatalf("PUT: %d %s", code, body)
+		}
+	}
+	var ids []nsID
+	_ = b.eachPartitionNamespace("apps/docs", func(id nsID) { ids = append(ids, id) })
+	if len(ids) != 2 {
+		t.Fatalf("namespaces: %+v", ids)
+	}
+	kept := func(when string) {
+		t.Helper()
+		for _, id := range ids {
+			m, ok, err := b.readNS(id)
+			if err != nil || !ok || m.Partition == nil || m.Partition.Orphan != "" {
+				t.Errorf("%s: %s's namespace: %+v %v %v", when, id.pkey, m.Partition, ok, err)
+			}
+		}
+	}
+	later := time.Now().Add(partitionRetention + time.Hour)
+
+	// Declined: the code dropped the key, a manager kept R.
+	w.write(map[string]string{"apps/docs/xbin.json": strings.Replace(partFxFiles["apps/docs/xbin.json"], `"partition":["user","global"],`, "", 1)})
+	w.rescan()
+	if err := b.recordDecision("apps/docs", modeOpKeep, registry.PartitionSpec{User: true, Global: true}, registry.PartitionSpec{}, "root", nil); err != nil {
+		t.Fatal(err)
+	}
+	w.rescan()
+	if st, _, req := w.state("apps/docs"); st != registry.PartitionPartitioned || req == nil || !req.Declined {
+		t.Fatalf("apps/docs: %s %+v, want partitioned with a declined request", st, req)
+	}
+	b.sweepPartitionNamespaces(later)
+	kept("declined")
+
+	// Invalid: nothing runs, nothing is decided or deleted.
+	w.write(map[string]string{"apps/docs/xbin.json": strings.Replace(partFxFiles["apps/docs/xbin.json"], `"partition":["user","global"]`, `"partition":["user","nonsense"]`, 1)})
+	w.rescan()
+	if st, _, _ := w.state("apps/docs"); st != registry.PartitionInvalid {
+		t.Fatalf("apps/docs: %s, want invalid", st)
+	}
+	b.sweepPartitionNamespaces(later)
+	kept("invalid")
+}
+
+// covers PD-46 03§B.7 — a person's partition is a disk bucket of its own:
+// over its ceiling, that person's writes are 507 and no one else's; the
+// alert names the tile and whose partition for admins only — never in
+// /tile-status (TileAlerts), a non-admin's /alerts or the count every tile
+// shows.
+func TestPartitionDiskCeiling(t *testing.T) {
+	w := partFx(t)
+	b := w.b
+	if _, err := b.Users.Upsert(users.User{ID: "ana", Role: users.RoleAdmin}, "pw-ana"); err != nil {
+		t.Fatal(err)
+	}
+	free := 50 * gib
+	d := quietDisk(t, b, 8*gib, &free)
+	b.SetDeploymentQuota(quotaRecords(map[string]map[string]int64{}))
+	for _, p := range []auth.Principal{aliceDocs, carolDocs} {
+		if code, body := nsKV(t, b, "PUT", p, "res:apps/docs/docs/k", "v"); code != 200 {
+			t.Fatalf("PUT: %d %s", code, body)
+		}
+	}
+	alice, err := nsKeysFor("apps/docs", util.MainDeployment, partitionKeyFor("alice", "uid-alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sparse(t, filepath.Join(w.root, filepath.FromSlash(alice.Enc), "fs", "files", "c0"), 9*gib)
+	d.scan()
+	if code, body := nsKV(t, b, "PUT", aliceDocs, "res:apps/docs/docs/k2", "v"); code != http.StatusInsufficientStorage || !strings.Contains(body, "over its 8.0GB quota") {
+		t.Errorf("alice's write over her partition's ceiling: %d %s", code, body)
+	}
+	for _, p := range []auth.Principal{carolDocs, docsGlobal} {
+		if code, body := nsKV(t, b, "PUT", p, "res:apps/docs/docs/k2", "v"); code != 200 {
+			t.Errorf("%s/%s's write beside a full partition: %d %s", p.Component, p.UserID, code, body)
+		}
+	}
+	mine := func(a Alert) bool { return strings.Contains(a.Message, "user:alice partition") }
+	a := findAlert(d.Alerts(), mine)
+	switch {
+	case a == nil:
+		t.Fatalf("no alert names alice's partition: %+v", d.Alerts())
+	case a.System || a.Tile != alice.Quota || a.Deployment != util.MainDeployment:
+		t.Errorf("alice's alert: %+v", *a)
+	}
+	if a := findAlert(alertsFor(t, b, deployPerson(t, b, "ana")), mine); a == nil {
+		t.Error("admins don't see alice's partition's alert")
+	}
+	if a := findAlert(alertsFor(t, b, deployPerson(t, b, "carol")), mine); a != nil {
+		t.Errorf("a reader of apps/docs sees %+v", *a)
+	}
+	if a := findAlert(b.TileAlerts("apps/docs"), mine); a != nil {
+		t.Errorf("/tile-status shows %+v", *a)
+	}
+	if a := findAlert(d.Alerts(), func(a Alert) bool { return a.Kind == "blocking" }); a != nil {
+		t.Errorf("the count every tile shows counts a person's partition: %+v", *a)
+	}
+	// The ceiling a manager lowers applies to each partition.
+	prev := partitionDiskCeilingSeam
+	t.Cleanup(func() { partitionDiskCeilingSeam = prev })
+	partitionDiskCeilingSeam = func(b *Broker, tile string) int64 { return 1 << 20 }
+	carol, _ := nsKeysFor("apps/docs", util.MainDeployment, partitionKeyFor("carol", "uid-carol"))
+	sparse(t, filepath.Join(w.root, filepath.FromSlash(carol.Enc), "fs", "files", "c0"), 2<<20)
+	d.scan()
+	if code, _ := nsKV(t, b, "PUT", carolDocs, "res:apps/docs/docs/k3", "v"); code != http.StatusInsufficientStorage {
+		t.Errorf("carol over the lowered ceiling: %d", code)
+	}
+	if code, _ := nsKV(t, b, "PUT", docsGlobal, "res:apps/docs/docs/k3", "v"); code != 200 {
+		t.Errorf("global under a partition's lowered ceiling: %d", code)
 	}
 }

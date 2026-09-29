@@ -121,6 +121,7 @@ func (b *Broker) ensureVolume(k resKeys, scope, rtype string) bool {
 		return false
 	}
 	if volumeMounted(b.resenc, k) {
+		b.resenc.Touch(k.DirKey, k.Name) // a use: a partition's idle clock restarts
 		return true
 	}
 	if _, err := b.resenc.Ensure(k.FSLabel, k.DirKey, k.Name, b.resSingleTenant(scope, rtype)); err != nil {
@@ -190,8 +191,11 @@ func (b *Broker) holdReasonIn(tile, dep, pkey string, who *nsPartition) string {
 		return ""
 	}
 	dep = cmp.Or(dep, util.MainDeployment)
-	if pkey == "" && b.nsHeld(tile, c.Scope, dep) || pkey != "" && c.Scope != "" && b.nsStartBlockedID(partNS(c.Scope, dep, pkey)) != nil {
-		// a data act holds dep's own namespace, or left it partial: nothing mounts
+	if pkey == "" && b.nsHeld(tile, c.Scope, dep) || pkey != "" && c.Scope != "" &&
+		(b.nsStartBlockedID(partNS(c.Scope, dep, pkey)) != nil || b.nsStartBlocked(c.Scope, dep) != nil) {
+		// a data act holds dep's own namespace, or left it partial: nothing
+		// mounts. A person's partition also waits for one on the namespace
+		// its shared resources are in (dep's own, at today's keys).
 		return "is held: a data operation on its deployment's data namespace is under way or didn't finish"
 	}
 	sealedVault := b.barrier != nil && b.barrier.Initialized() && b.barrier.Sealed()

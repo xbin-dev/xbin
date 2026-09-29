@@ -22,9 +22,11 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -129,9 +131,12 @@ func partNS(scope, dep, pkey string) nsID {
 
 // notePartitionNS writes id's identity into its ns.json unless it has one:
 // at the first write into the namespace or its instance's first start, so
-// the namespace names its person before it holds anything. An act holding
-// id leaves it for later (the request is refused meanwhile).
+// the namespace names its person before it holds anything. Its tile is
+// always the scope's root, which owns the namespace (whoever wrote first: a
+// nested tile's start included). An act holding id leaves it for later (the
+// request is refused meanwhile).
 func (b *Broker) notePartitionNS(id nsID, who nsPartition) error {
+	who.Tile = id.scope
 	dir, err := b.nsDir(id)
 	if err != nil {
 		return err
@@ -229,33 +234,62 @@ func init() {
 
 // ---- the switch's wipe ----
 
+// partitionWipe is what wipePartitionNamespaces deleted — or, on a dry run,
+// would delete — for the switch's summary (F13a's wipeSummary).
+type partitionWipe struct {
+	Namespaces int64    // people's partitions' namespaces
+	Partitions int64    // people's partitions (partition keys) among them
+	Bytes      int64    // stored bytes: ciphertext, kv files, records
+	People     []string // whose they are (their ns.json), each once, sorted
+}
+
 // wipePartitionNamespaces deletes every user partition's namespace of the
 // scope tile roots, whole — volumes unmounted and verified first, kv files
-// closed — for a confirmed mode switch (plans/partitions/01 §2.6): the wipe
-// executor calls it once the tile's instances are stopped and revoked, under
-// the tile's backup lock. It answers how many it deleted; one an act holds,
-// or that is still mounted, is an error, and the executor keeps the switch
-// from completing. A tile that doesn't root its scope has none.
-func (b *Broker) wipePartitionNamespaces(tile string) (int, error) {
+// closed — for a confirmed switch that deletes everything (plans/partitions/
+// 01 §2.6; F13a's wipeEverything, never wipeGlobal or wipeNone, which keep
+// people's partitions): the wipe executor calls it once the tile's
+// instances are stopped and revoked, under the tile's backup lock. dryRun
+// only counts, for the confirmation. It answers what it deleted; one an act
+// holds, or that is still mounted, is an error, and the executor keeps the
+// switch from completing. A tile that doesn't root its scope has none.
+func (b *Broker) wipePartitionNamespaces(tile string, dryRun bool) (partitionWipe, error) {
+	var sum partitionWipe
 	c, ok := b.Reg.Component(tile)
 	scope := tile
 	if ok && c.Scope != tile || tile == "" || len(escS(scope)) > maxEscS {
-		return 0, nil
+		return sum, nil
 	}
 	var ids []nsID
 	if err := b.eachPartitionNamespace(scope, func(id nsID) { ids = append(ids, id) }); err != nil {
-		return 0, err
+		return sum, err
 	}
-	n := 0
+	people, pkeys := map[string]bool{}, map[string]bool{}
 	var errs []error
 	for _, id := range ids {
-		if err := b.dropPartitionNS(id); err != nil {
-			errs = append(errs, err)
-			continue
+		size := int64(0)
+		if k, err := id.keys(); err == nil {
+			size, _ = treeUsage(filepath.Join(b.Reg.Root, filepath.FromSlash(k.Enc)))
 		}
-		n++
+		who := ""
+		if m, ok, _ := b.readNS(id); ok && m.Partition != nil {
+			who = m.Partition.User
+		}
+		if !dryRun {
+			if err := b.dropPartitionNS(id); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+		}
+		sum.Namespaces++
+		sum.Bytes += size
+		pkeys[id.pkey] = true
+		if who != "" {
+			people[who] = true
+		}
 	}
-	if len(errs) == 0 { // what no namespace's walk reached: never through a mount
+	sum.Partitions = int64(len(pkeys))
+	sum.People = slices.Sorted(maps.Keys(people))
+	if len(errs) == 0 && !dryRun { // what no namespace's walk reached: never through a mount
 		mounts := filepath.Join(b.Reg.Root, ".xbin", "resenc", partitionsLevel, escS(scope))
 		if pts, err := nsMountPoints(mounts); err != nil || len(pts) > 0 {
 			errs = append(errs, cmpErr(err, fmt.Errorf("%s is still mounted: stop what uses it and try again", strings.Join(pts, ", "))))
@@ -263,7 +297,7 @@ func (b *Broker) wipePartitionNamespaces(tile string) (int, error) {
 			errs = append(errs, os.RemoveAll(filepath.Join(b.partitionsDir(), escS(scope))), os.RemoveAll(mounts))
 		}
 	}
-	return n, errors.Join(errs...)
+	return sum, errors.Join(errs...)
 }
 
 // dropPartitionNS deletes namespace id whole under its hold.
@@ -316,10 +350,14 @@ func (b *Broker) orphanPartitionNS(id nsID, event, stamp string) {
 
 // partitionOrphanEvent is the event that orphans namespace id, whose
 // ns.json is m, now: its tile no longer registered (tile-removed), or its
-// person's id held by someone else — a record created before the id's
-// current holder was, or naming another uid than the store's (user-deleted).
-// "" keeps it: a missing record, an unknown person (bx doctor reports it),
-// or anything that can't be told.
+// person's id held by someone else (user-deleted). The uid decides when
+// both the store and the record carry one: the same uid is the same
+// incarnation whatever the clocks say, another is someone else's. Only
+// without one does the time decide: a record created in a second before
+// the id's current holder was. A record made in the holder's own second
+// can't be told either way: kept, and logged for bx doctor. "" keeps it: a
+// missing record, an unknown person (bx doctor reports it), or anything
+// that can't be told.
 func (b *Broker) partitionOrphanEvent(id nsID, m nsMeta) string {
 	pi := m.Partition
 	if pi == nil {
@@ -335,12 +373,22 @@ func (b *Broker) partitionOrphanEvent(id nsID, m nsMeta) string {
 	if !ok {
 		return ""
 	}
-	if uid := partitionUIDSeam(b, pi.User); uid != "" && pi.UID != "" && uid != pi.UID {
+	if uid := partitionUIDSeam(b, pi.User); uid != "" && pi.UID != "" {
+		if uid == pi.UID {
+			return ""
+		}
 		return orphanUserDeleted
 	}
 	created, err := time.Parse(time.RFC3339Nano, pi.Created)
-	if err == nil && u.Created > 0 && created.Before(time.Unix(u.Created, 0)) {
+	if err != nil || u.Created <= 0 {
+		return ""
+	}
+	switch holder := time.Unix(u.Created, 0); {
+	case created.Before(holder):
 		return orphanUserDeleted
+	case created.Before(holder.Add(time.Second)):
+		slog.Warn("partition data: made in the second its person's id was (re)created, so whose it is can't be told; kept",
+			"scope", id.scope, "partition", id.pkey, "user", pi.User)
 	}
 	return ""
 }
@@ -402,7 +450,7 @@ func (b *Broker) sweepPartitionOne(id nsID, now time.Time) error {
 	if err != nil || now.Sub(since) < partitionRetention {
 		return nil
 	}
-	tile := cmpTile(pi.Tile, id.scope)
+	tile := id.scope // the scope's root owns the namespace and its archives, whatever the record says
 	defer b.holdBackups(tile)()
 	if err := b.dropPartitionNS(id); err != nil {
 		return err
@@ -438,15 +486,6 @@ func cmpErr(err, alt error) error {
 	return alt
 }
 
-// cmpTile is the tile a namespace's record names, or its scope (the tile
-// that roots it).
-func cmpTile(tile, scope string) string {
-	if tile != "" {
-		return tile
-	}
-	return scope
-}
-
 // partitionBackupSubject is the backup subject of a user partition's
 // archives (plans/partitions/11 §2): part:<TileKey>/<dep>/<pkey>, whose key
 // the sweep erases.
@@ -455,11 +494,15 @@ func partitionBackupSubject(tile, dep, pkey string) string {
 }
 
 // adoptablePartitionUID is the uid person userID's live partition records
-// carry, for a users-store record without one whose Created is created
-// (PD-43): only records made at or after it count — older ones were a
-// previous holder's — and only when they agree. The identity plane adopts
-// it rather than mint a new uid (partitionMintUIDSeam).
-func (b *Broker) adoptablePartitionUID(userID string, created time.Time) (string, bool) {
+// carry, for a users-store record without one whose Created (Unix seconds)
+// is created (PD-43); "" for none. Only records made after the second the
+// record was created count — older ones were a previous holder's, and one
+// made in that very second can't be told from theirs — and only when they
+// agree. Its signature is F2's partitionAdoptUID seam's
+// (`partitionAdoptUID = (*Broker).adoptablePartitionUID`): the identity
+// plane adopts it rather than mint a new uid.
+func (b *Broker) adoptablePartitionUID(userID string, created int64) string {
+	after := time.Unix(created, 0).Add(time.Second)
 	uid, conflict := "", false
 	_ = b.eachPartitionNamespace("", func(id nsID) {
 		m, ok, err := b.readNS(id)
@@ -467,7 +510,7 @@ func (b *Broker) adoptablePartitionUID(userID string, created time.Time) (string
 			return
 		}
 		at, err := time.Parse(time.RFC3339Nano, m.Partition.Created)
-		if err != nil || at.Before(created) || m.Partition.UID == "" {
+		if err != nil || at.Before(after) || m.Partition.UID == "" {
 			return
 		}
 		switch {
@@ -477,7 +520,11 @@ func (b *Broker) adoptablePartitionUID(userID string, created time.Time) (string
 			conflict = true
 		}
 	})
-	return uid, uid != "" && !conflict
+	if conflict {
+		slog.Warn("partition data: records of one person carry different uids; none is adopted", "user", userID)
+		return ""
+	}
+	return uid
 }
 
 // ---- idle volumes and kv files (PD-48) ----
@@ -486,10 +533,15 @@ func (b *Broker) adoptablePartitionUID(userID string, created time.Time) (string
 // open with no user before it is unmounted or closed.
 var partitionIdle = 60 * time.Minute
 
-// partitionRunningSeam reports whether user partition pkey of tile's
-// deployment dep has a running instance (the runner fills it): its volumes
-// stay mounted. The default answers true — until the runner says, nothing
-// is unmounted for idleness, as before.
+// partitionRunningSeam reports whether user partition pkey of scope's
+// deployment dep has an instance (the runner fills it, F3): its volumes stay
+// mounted, and the idle clock restarts at each scan that sees it. The
+// runner must answer true from the moment a start asks PartitionEnv for its
+// binds until that instance's sandbox has exited — starting, running and
+// stopping alike: xbind's unmount of a view a sandbox still binds (in its
+// own mount namespace) succeeds, and the next mount would then be a second
+// gocryptfs on the same ciphertext. The default answers true — until the
+// runner says, nothing is unmounted for idleness, as before.
 var partitionRunningSeam = func(b *Broker, scope, dep, pkey string) bool { return true }
 
 // partKV tracks a workspace's partition kv files in use: requests in
@@ -566,7 +618,11 @@ func (b *Broker) reapIdlePartitions(now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for ns, last := range t.last {
-		if t.refs[ns] == 0 && now.Sub(last) >= partitionIdle && !running(ns) {
+		if running(ns) {
+			t.last[ns] = now // its idle clock starts when its instance stops
+			continue
+		}
+		if t.refs[ns] == 0 && now.Sub(last) >= partitionIdle {
 			if err := b.kv.closeNamespace(ns); err != nil {
 				slog.Warn("partition kv: idle close", "namespace", ns, "err", err)
 				continue
