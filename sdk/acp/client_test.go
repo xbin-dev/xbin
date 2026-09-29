@@ -10,8 +10,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/xbin-dev/xbin/internal/agent"
 )
 
 // fakeAgent is the agent side of ACP over in-process pipes: it answers the
@@ -19,7 +17,6 @@ import (
 // permission request it waits on, an update, usage, then the turn's end.
 type fakeAgent struct {
 	conn   *Conn
-	out    *io.PipeWriter // the agent's stdout (its conn writes there)
 	mu     sync.Mutex
 	prompt json.RawMessage // the in-flight prompt's request id
 	mode   string
@@ -34,10 +31,11 @@ type fakeAgent struct {
 	// prompts with attachments (prompt_test.go)
 	promptCaps *PromptCapabilities // advertised in initialize
 	blocks     json.RawMessage     // the last session/prompt's content
-	attached   []string            // _xbin/attach calls seen ("name:len")
-	attachErr  bool                // answer _xbin/attach with an error (no host)
-	attachGate chan struct{}       // answer _xbin/attach only once this is closed (a slow host)
+	attached   []string            // Drop calls seen ("name:len")
+	attachErr  bool                // fail Drop (nowhere to put the file)
+	attachGate chan struct{}       // answer Drop only once this is closed (a slow hand-off)
 	nprompts   int                 // session/prompt calls seen
+	newErr     *Error              // session/new answers this error (seams_test.go)
 }
 
 // opts is the fake's config options: one select, "model".
@@ -52,16 +50,16 @@ func (f *fakeAgent) opts() []ConfigOption {
 		Options: []ConfigValue{{Value: "m-default", Name: "Default"}, {Value: "m-fast", Name: "Fast"}}}}
 }
 
-func newFake(script func(f *fakeAgent, text string)) (*fakeAgent, agent.Spawner) {
+func newFake(script func(f *fakeAgent, text string)) (*fakeAgent, Spawner) {
 	f := &fakeAgent{script: script, mode: "ask"}
-	spawn := func(ctx context.Context, cfg agent.Config) (*agent.Process, error) {
+	spawn := func(ctx context.Context, cfg Config) (*Process, error) {
 		inR, inW := io.Pipe()   // client → agent
 		outR, outW := io.Pipe() // agent → client
-		f.conn, f.out = NewConn(inR, outW), outW
+		f.conn = NewConn(inR, outW)
 		f.conn.OnRequest = f.onRequest
 		f.conn.OnNotify = f.onNotify
 		go func() { _ = f.conn.Serve(); outW.Close() }()
-		return &agent.Process{Stdin: inW, Stdout: outR, Kill: func() { inW.Close(); outW.Close() }}, nil
+		return &Process{Stdin: inW, Stdout: outR, Kill: func() { inW.Close(); outW.Close() }}, nil
 	}
 	return f, spawn
 }
@@ -78,23 +76,6 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 		f.mu.Unlock()
 		return InitializeResult{ProtocolVersion: 1, AgentInfo: &Info{Name: "fake-agent", Version: "1"}, AuthMethods: []AuthMethod{{ID: "api-key", Name: "API key"}},
 			AgentCapabilities: &AgentCapabilities{LoadSession: !f.noLoad, PromptCapabilities: f.promptCaps}}, nil
-	case MXbinAttach: // the host's half, stood in for (prompt_test.go)
-		var p AttachParams
-		_ = json.Unmarshal(m.Params, &p)
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		if f.attachErr {
-			return nil, &Error{Code: ErrNotFound, Message: "method not found: " + m.Method}
-		}
-		f.attached = append(f.attached, fmt.Sprintf("%s:%d", p.Name, len(p.Data)))
-		if gate := f.attachGate; gate != nil {
-			go func() {
-				<-gate
-				_ = f.conn.Reply(m.ID, AttachResult{Path: "/tmp/xbin-attachments-1/" + p.Name}, nil)
-			}()
-			return nil, nil // answered when the gate opens
-		}
-		return AttachResult{Path: "/tmp/xbin-attachments-1/" + p.Name}, nil
 	case MAuthenticate:
 		f.mu.Lock()
 		f.authed = true
@@ -107,7 +88,11 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 		_ = json.Unmarshal(m.Params, &p)
 		f.mu.Lock()
 		f.meta = p.Meta
+		newErr := f.newErr
 		f.mu.Unlock()
+		if newErr != nil {
+			return nil, newErr
+		}
 		f.sid = "s-1"
 		return SessionNewResult{SessionID: "s-1", Modes: &SessionModes{CurrentModeID: "ask", AvailableModes: []ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}},
 			ConfigOptions: f.opts()}, nil
@@ -130,7 +115,7 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 		}
 		f.mu.Unlock()
 		if p.ConfigID != "model" {
-			return nil, &Error{Code: ErrInvalidParam, Message: "no such option"}
+			return nil, &Error{Code: CodeInvalidParams, Message: "no such option"}
 		}
 		opts := f.opts()
 		f.update(map[string]any{"sessionUpdate": UpConfigOption, "configOptions": opts}) // as the real adapters do
@@ -157,7 +142,28 @@ func (f *fakeAgent) onRequest(m *Message) (any, *Error) {
 		go f.script(f, p.Prompt[0].Text)
 		return nil, nil // answered by the script
 	}
-	return nil, &Error{Code: ErrNotFound, Message: m.Method}
+	return nil, &Error{Code: CodeMethodNotFound, Message: m.Method}
+}
+
+// drop is the Drop seam for the tests (prompt_test.go): it records the
+// file and says where the agent would find it.
+func (f *fakeAgent) drop(ctx context.Context, conn *Conn, a Attachment) (string, error) {
+	f.mu.Lock()
+	if f.attachErr {
+		f.mu.Unlock()
+		return "", errors.New("nowhere to put it")
+	}
+	f.attached = append(f.attached, fmt.Sprintf("%s:%d", a.Name, len(a.Data)))
+	gate := f.attachGate
+	f.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	return "/tmp/xbin-attachments-1/" + a.Name, nil
 }
 
 func (f *fakeAgent) onNotify(m *Message) {
@@ -209,22 +215,22 @@ func standard(f *fakeAgent, text string) {
 	f.end("end_turn")
 }
 
-func rig(t *testing.T, script func(f *fakeAgent, text string), mode string, env ...string) (*Client, *fakeAgent, *agent.Permissions, []string) {
+func rig(t *testing.T, script func(f *fakeAgent, text string), mode string, env ...string) (*Client, *fakeAgent, *Permissions, []string) {
 	t.Helper()
 	return rigWith(t, script, mode, nil, env...)
 }
 
 // rigWith is rig with the fake set up before the handshake.
-func rigWith(t *testing.T, script func(f *fakeAgent, text string), mode string, setup func(f *fakeAgent), env ...string) (*Client, *fakeAgent, *agent.Permissions, []string) {
+func rigWith(t *testing.T, script func(f *fakeAgent, text string), mode string, setup func(f *fakeAgent), env ...string) (*Client, *fakeAgent, *Permissions, []string) {
 	t.Helper()
 	f, spawn := newFake(script)
 	if setup != nil {
 		setup(f)
 	}
-	perms := agent.NewPermissions()
+	perms := NewPermissions()
 	var logs []string
-	c := New()
-	cfg := agent.Config{Provider: agent.Provider{ID: "fake", Login: "fake-login"}, Mode: mode, Cwd: "/w/apps/x",
+	c := NewWith(ClientOptions{Drop: f.drop})
+	cfg := Config{Provider: Provider{ID: "fake", Login: "fake-login"}, Mode: mode, Cwd: "/w/apps/x",
 		Env: env, Spawn: spawn, Perms: perms, Version: "test", Log: func(s string) { logs = append(logs, s) }, Meta: map[string]string{"tile": "apps/x"}}
 	if err := c.Start(context.Background(), cfg); err != nil {
 		t.Fatalf("start: %v", err)
@@ -233,9 +239,9 @@ func rigWith(t *testing.T, script func(f *fakeAgent, text string), mode string, 
 }
 
 // collect drains events until a predicate holds or the timeout passes.
-func collect(t *testing.T, c *Client, until func(e agent.Event) bool) []agent.Event {
+func collect(t *testing.T, c *Client, until func(e Event) bool) []Event {
 	t.Helper()
-	var out []agent.Event
+	var out []Event
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
@@ -253,7 +259,7 @@ func collect(t *testing.T, c *Client, until func(e agent.Event) bool) []agent.Ev
 	}
 }
 
-func types(es []agent.Event) string {
+func types(es []Event) string {
 	var s []string
 	for _, e := range es {
 		s = append(s, e.Type)
@@ -261,7 +267,7 @@ func types(es []agent.Event) string {
 	return strings.Join(s, " ")
 }
 
-func data(e agent.Event) map[string]any {
+func data(e Event) map[string]any {
 	var m map[string]any
 	_ = json.Unmarshal(e.Data, &m)
 	return m
@@ -270,7 +276,7 @@ func data(e agent.Event) map[string]any {
 func TestHandshakeAuthAndMode(t *testing.T) {
 	c, f, _, _ := rig(t, standard, "yolo")
 	defer c.Close()
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	if types(es) != "status status" {
 		t.Fatalf("handshake events: %s", types(es))
 	}
@@ -291,14 +297,14 @@ func TestHandshakeAuthAndMode(t *testing.T) {
 func TestTurnWithPermission(t *testing.T) {
 	c, _, perms, _ := rig(t, standard, "")
 	defer c.Close()
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	if err := c.Send(context.Background(), "list files"); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Send(context.Background(), "again"); err == nil {
 		t.Fatal("a second prompt while a turn runs must fail")
 	}
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvPermissionRequest })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvPermissionRequest })
 	want := "message.delta status message.delta thought.delta tool.call permission.request"
 	if types(es) != want {
 		t.Fatalf("up to the request: %s\nwant %s", types(es), want)
@@ -314,18 +320,18 @@ func TestTurnWithPermission(t *testing.T) {
 		t.Fatalf("pending: %v", req)
 	}
 	// status waiting follows the request
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus })
-	if data(es[len(es)-1])["status"] != agent.StatusWaiting {
+	es = collect(t, c, func(e Event) bool { return e.Type == EvStatus })
+	if data(es[len(es)-1])["status"] != StatusWaiting {
 		t.Fatal("no waiting status")
 	}
-	res, err := perms.Resolve("p1", "", agent.AllowOnce, "user:dev1")
+	res, err := perms.Resolve("p1", "", AllowOnce, "user:dev1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := c.RespondPermission(res); err != nil {
 		t.Fatal(err)
 	}
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
+	es = collect(t, c, func(e Event) bool { return e.Type == EvTurnEnd })
 	got := types(es)
 	for _, w := range []string{"permission.resolved", "tool.update", "message.delta", "status", "turn.end"} {
 		if !strings.Contains(got, w) {
@@ -339,8 +345,8 @@ func TestTurnWithPermission(t *testing.T) {
 	if u := end["usage"].(map[string]any); u["used"] != float64(120) {
 		t.Fatalf("usage: %v", u)
 	}
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus })
-	if data(es[len(es)-1])["status"] != agent.StatusIdle {
+	es = collect(t, c, func(e Event) bool { return e.Type == EvStatus })
+	if data(es[len(es)-1])["status"] != StatusIdle {
 		t.Fatal("idle after the turn")
 	}
 	// the second turn: the "always" rule auto-resolves the same request
@@ -348,24 +354,24 @@ func TestTurnWithPermission(t *testing.T) {
 	if err := c.Send(context.Background(), "once more"); err != nil {
 		t.Fatal(err)
 	}
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvPermissionRequest })
+	es = collect(t, c, func(e Event) bool { return e.Type == EvPermissionRequest })
 	_ = perms2
-	res, err = perms.Resolve("p2", "", agent.AllowAlways, "user:dev1")
+	res, err = perms.Resolve("p2", "", AllowAlways, "user:dev1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	c.RespondPermission(res)
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
+	collect(t, c, func(e Event) bool { return e.Type == EvTurnEnd })
 	if err := c.Send(context.Background(), "third"); err != nil {
 		t.Fatal(err)
 	}
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
+	es = collect(t, c, func(e Event) bool { return e.Type == EvTurnEnd })
 	got = types(es)
 	if !strings.Contains(got, "permission.request permission.resolved") || perms.Count() != 0 {
 		t.Fatalf("auto-allowed third turn: %s", got)
 	}
 	for _, e := range es {
-		if e.Type == agent.EvPermissionResolved && data(e)["by"] != "auto" {
+		if e.Type == EvPermissionResolved && data(e)["by"] != "auto" {
 			t.Fatalf("resolved by %v, want auto", data(e)["by"])
 		}
 	}
@@ -374,22 +380,22 @@ func TestTurnWithPermission(t *testing.T) {
 func TestCancelResolvesPermissionAndEndsTurn(t *testing.T) {
 	c, _, perms, _ := rig(t, standard, "")
 	defer c.Close()
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	_ = c.Send(context.Background(), "go")
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvPermissionRequest })
+	collect(t, c, func(e Event) bool { return e.Type == EvPermissionRequest })
 	if err := c.Cancel(); err != nil {
 		t.Fatal(err)
 	}
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvTurnEnd })
 	got := types(es)
 	if !strings.Contains(got, "permission.resolved") || !strings.Contains(got, "tool.update") {
 		t.Fatalf("cancel: %s", got)
 	}
 	for _, e := range es {
-		if e.Type == agent.EvPermissionResolved && data(e)["by"] != "cancel" {
+		if e.Type == EvPermissionResolved && data(e)["by"] != "cancel" {
 			t.Fatalf("resolved by %v", data(e)["by"])
 		}
-		if e.Type == agent.EvToolUpdate && data(e)["status"] != "cancelled" && data(e)["status"] != "failed" {
+		if e.Type == EvToolUpdate && data(e)["status"] != "cancelled" && data(e)["status"] != "failed" {
 			t.Fatalf("tool marked %v", data(e)["status"])
 		}
 	}
@@ -407,26 +413,26 @@ func TestAuthErrorNamesTheLogin(t *testing.T) {
 		id := f.prompt
 		f.prompt = nil
 		f.mu.Unlock()
-		_ = f.conn.Reply(id, nil, &Error{Code: ErrAuthRequired, Message: "Please run /login"})
+		_ = f.conn.Reply(id, nil, &Error{Code: CodeAuthRequired, Message: "Please run /login"})
 	}, "")
 	defer c.Close()
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	_ = c.Send(context.Background(), "hi")
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusError })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusError })
 	d := data(es[len(es)-1])
-	detail := d["detail"].(string)
-	if !strings.Contains(detail, "fake-login") || !strings.Contains(detail, "apps/x") || strings.Contains(detail, "vault") {
-		t.Fatalf("the auth error points at the home login, not a vault key: %v", detail)
+	// the default hint: the agent's message, then the provider's login
+	if detail := d["detail"].(string); detail != "Please run /login: the agent isn't signed in — run: fake-login" {
+		t.Fatalf("the auth error names the login: %v", detail)
 	}
 	for _, e := range es {
-		if e.Type == agent.EvTurnEnd && data(e)["stopReason"] != "error" {
-			t.Fatal("turn.end stopReason error")
+		if e.Type == EvTurnEnd && (data(e)["stopReason"] != "error" || data(e)["error"] != d["detail"]) {
+			t.Fatalf("turn.end: %v", data(e))
 		}
 	}
 }
 
 // loginOf returns a status event's login map (nil when it carries none).
-func loginOf(e agent.Event) map[string]any {
+func loginOf(e Event) map[string]any {
 	lg, _ := data(e)["login"].(map[string]any)
 	return lg
 }
@@ -445,19 +451,19 @@ func TestSignedOutLoginInStatus(t *testing.T) {
 		f.mu.Unlock()
 		if first {
 			_ = f.conn.Notify(MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
-			_ = f.conn.Reply(id, nil, &Error{Code: ErrAuthRequired, Message: "Please run /login"})
+			_ = f.conn.Reply(id, nil, &Error{Code: CodeAuthRequired, Message: "Please run /login"})
 			return
 		}
 		f.update(map[string]any{"sessionUpdate": UpAgentChunk, "content": ContentBlock{Type: "text", Text: "ok"}, "messageId": "m1"})
 		_ = f.conn.Reply(id, PromptResult{StopReason: "end_turn"}, nil)
 	}, "")
 	defer c.Close()
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 
 	if err := c.Send(context.Background(), "hi"); err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd }) // turn 1 done
+	es := collect(t, c, func(e Event) bool { return e.Type == EvTurnEnd }) // turn 1 done
 	var lg map[string]any
 	for _, e := range es {
 		if l := loginOf(e); l != nil {
@@ -470,7 +476,7 @@ func TestSignedOutLoginInStatus(t *testing.T) {
 	// …and so does every partial status while signed out (a mode, usage,
 	// commands or title update must not drop the sign-in prompt)
 	f.update(map[string]any{"sessionUpdate": UpCurrentMode, "currentModeId": "plan"})
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["currentMode"] == "plan" })
+	es = collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["currentMode"] == "plan" })
 	if loginOf(es[len(es)-1]) == nil {
 		t.Fatalf("a partial status while signed out dropped the login: %v", data(es[len(es)-1]))
 	}
@@ -479,7 +485,7 @@ func TestSignedOutLoginInStatus(t *testing.T) {
 	if err := c.Send(context.Background(), "hi again"); err != nil {
 		t.Fatalf("second send: %v", err)
 	}
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	es = collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	if loginOf(es[len(es)-1]) != nil {
 		t.Fatalf("a successful turn should clear login: %v", data(es[len(es)-1]))
 	}
@@ -487,20 +493,22 @@ func TestSignedOutLoginInStatus(t *testing.T) {
 
 func TestAgentExitAndBadLines(t *testing.T) {
 	f, spawn := newFake(standard)
-	perms := agent.NewPermissions()
+	perms := NewPermissions()
 	var logs []string
 	var lmu sync.Mutex
 	c := New()
-	cfg := agent.Config{Provider: agent.Provider{ID: "fake"}, Cwd: "/w", Spawn: spawn, Perms: perms,
+	cfg := Config{Provider: Provider{ID: "fake"}, Cwd: "/w", Spawn: spawn, Perms: perms,
 		Log: func(s string) { lmu.Lock(); logs = append(logs, s); lmu.Unlock() }}
 	if err := c.Start(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	// a junk line from the agent is logged and skipped
-	_, _ = f.out.Write([]byte("not json at all\n")) // an io.Pipe write never lands inside another frame
+	f.conn.wmu.Lock()
+	_, _ = f.conn.w.Write([]byte("not json at all\n"))
+	f.conn.wmu.Unlock()
 	f.update(map[string]any{"sessionUpdate": UpCurrentMode, "currentModeId": "yolo"})
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["currentMode"] == "yolo" })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["currentMode"] == "yolo" })
 	if len(es) == 0 {
 		t.Fatal("mode update lost after the bad line")
 	}
@@ -516,9 +524,9 @@ func TestAgentExitAndBadLines(t *testing.T) {
 		t.Fatal("the bad line was not logged")
 	}
 	// the agent dies: status exited, the channel closes
-	f.out.Close()
-	es = collect(t, c, func(e agent.Event) bool { return false })
-	if len(es) == 0 || es[len(es)-1].Type != agent.EvStatus || data(es[len(es)-1])["status"] != agent.StatusExited {
+	f.conn.w.(*io.PipeWriter).Close()
+	es = collect(t, c, func(e Event) bool { return false })
+	if len(es) == 0 || es[len(es)-1].Type != EvStatus || data(es[len(es)-1])["status"] != StatusExited {
 		t.Fatalf("after exit: %s", types(es))
 	}
 	select {
@@ -566,13 +574,13 @@ func TestRPCCodec(t *testing.T) {
 func TestConfigOptions(t *testing.T) {
 	f, spawn := newFake(standard)
 	c := New()
-	cfg := agent.Config{Provider: agent.Provider{ID: "fake", Login: "fake-login"}, Cwd: "/w", Spawn: spawn, Perms: agent.NewPermissions(),
+	cfg := Config{Provider: Provider{ID: "fake", Login: "fake-login"}, Cwd: "/w", Spawn: spawn, Perms: NewPermissions(),
 		Options: map[string]string{"model": "m-fast", "nope": "x"}, Log: func(string) {}}
 	if err := c.Start(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	idle := data(es[len(es)-1])
 	opts, _ := idle["options"].([]any)
 	if len(opts) != 1 {
@@ -593,9 +601,9 @@ func TestConfigOptions(t *testing.T) {
 	if err := c.SetOption(context.Background(), "model", "m-default"); err != nil {
 		t.Fatal(err)
 	}
-	es = collect(t, c, func(e agent.Event) bool {
+	es = collect(t, c, func(e Event) bool {
 		os, _ := data(e)["options"].([]any)
-		return e.Type == agent.EvStatus && len(os) > 0 && os[0].(map[string]any)["currentValue"] == "m-default"
+		return e.Type == EvStatus && len(os) > 0 && os[0].(map[string]any)["currentValue"] == "m-default"
 	})
 	if len(es) == 0 {
 		t.Fatal("no status with the new value")
@@ -607,22 +615,22 @@ func TestConfigOptions(t *testing.T) {
 
 // A session rule is never a wildcard and never recorded on a fallback.
 func TestPermissionRuleScope(t *testing.T) {
-	perms := agent.NewPermissions()
+	perms := NewPermissions()
 	// no kind, no title: allow_always must not remember "everything"
-	pd, _ := perms.Request(agent.ToolCallRef{ID: "t0"}, []agent.PermissionOption{{OptionID: "always", Kind: agent.AllowAlways}}, nil)
-	if _, err := perms.Resolve(pd.PID, "", agent.AllowAlways, "u"); err != nil {
+	pd, _ := perms.Request(ToolCallRef{ID: "t0"}, []PermissionOption{{OptionID: "always", Kind: AllowAlways}}, nil)
+	if _, err := perms.Resolve(pd.PID, "", AllowAlways, "u"); err != nil {
 		t.Fatal(err)
 	}
-	if _, auto := perms.Request(agent.ToolCallRef{ID: "t1", Kind: "execute", Title: "rm -rf /"}, []agent.PermissionOption{{OptionID: "always", Kind: agent.AllowAlways}}, nil); auto != nil {
+	if _, auto := perms.Request(ToolCallRef{ID: "t1", Kind: "execute", Title: "rm -rf /"}, []PermissionOption{{OptionID: "always", Kind: AllowAlways}}, nil); auto != nil {
 		t.Fatal("a rule from a kind-less, title-less call auto-approved an unrelated call")
 	}
 	// the agent offered no allow_always: the fallback allows once and remembers nothing
-	perms = agent.NewPermissions()
-	pd, _ = perms.Request(agent.ToolCallRef{ID: "t2", Kind: "execute", Title: "ls"}, []agent.PermissionOption{{OptionID: "once", Kind: agent.AllowOnce}}, nil)
-	if res, err := perms.Resolve(pd.PID, "", agent.AllowAlways, "u"); err != nil || res.OptionID != "once" {
+	perms = NewPermissions()
+	pd, _ = perms.Request(ToolCallRef{ID: "t2", Kind: "execute", Title: "ls"}, []PermissionOption{{OptionID: "once", Kind: AllowOnce}}, nil)
+	if res, err := perms.Resolve(pd.PID, "", AllowAlways, "u"); err != nil || res.OptionID != "once" {
 		t.Fatalf("fallback: %+v %v", res, err)
 	}
-	if _, auto := perms.Request(agent.ToolCallRef{ID: "t3", Kind: "execute", Title: "ls"}, []agent.PermissionOption{{OptionID: "once", Kind: agent.AllowOnce}}, nil); auto != nil {
+	if _, auto := perms.Request(ToolCallRef{ID: "t3", Kind: "execute", Title: "ls"}, []PermissionOption{{OptionID: "once", Kind: AllowOnce}}, nil); auto != nil {
 		t.Fatal("a fallback to allow_once recorded a rule")
 	}
 }
@@ -632,20 +640,20 @@ func TestPermissionRuleScope(t *testing.T) {
 // of waiting forever (it used to: the session never left the directory).
 func TestSpawnFailureEndsEvents(t *testing.T) {
 	c := New()
-	err := c.Start(context.Background(), agent.Config{Provider: agent.Provider{ID: "fake"}, Perms: agent.NewPermissions(),
-		Spawn: func(context.Context, agent.Config) (*agent.Process, error) {
+	err := c.Start(context.Background(), Config{Provider: Provider{ID: "fake"}, Perms: NewPermissions(),
+		Spawn: func(context.Context, Config) (*Process, error) {
 			return nil, errors.New("write |1: broken pipe")
 		}})
 	if err == nil {
 		t.Fatal("Start succeeded")
 	}
-	var last agent.Event
+	var last Event
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
 		case e, ok := <-c.Events():
 			if !ok {
-				if d := data(last); last.Type != agent.EvStatus || d["status"] != agent.StatusError || !strings.Contains(fmt.Sprint(d["detail"]), "broken pipe") {
+				if d := data(last); last.Type != EvStatus || d["status"] != StatusError || !strings.Contains(fmt.Sprint(d["detail"]), "broken pipe") {
 					t.Fatalf("last event: %s %v", last.Type, d)
 				}
 				return
@@ -667,14 +675,14 @@ func TestSlashCommands(t *testing.T) {
 		f.end("end_turn")
 	}, "")
 	defer c.Close()
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	if err := c.Send(context.Background(), "hi"); err != nil {
 		t.Fatal(err)
 	}
 	want := `[{"name":"review","description":"Review changes","hint":"what to focus on"},{"name":"compact","description":"Compact the conversation"}]`
 	var seen, idle bool
-	collect(t, c, func(e agent.Event) bool {
-		if e.Type != agent.EvStatus {
+	collect(t, c, func(e Event) bool {
+		if e.Type != EvStatus {
 			return false
 		}
 		var d struct {
@@ -683,7 +691,7 @@ func TestSlashCommands(t *testing.T) {
 		}
 		_ = json.Unmarshal(e.Data, &d)
 		if string(d.Commands) == want {
-			if seen && d.Status == agent.StatusIdle {
+			if seen && d.Status == StatusIdle {
 				idle = true
 			}
 			seen = true
@@ -714,7 +722,7 @@ func TestElicitation(t *testing.T) {
 		f.end("end_turn")
 	}, "")
 	defer c.Close()
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	f.mu.Lock()
 	caps := string(f.caps)
 	f.mu.Unlock()
@@ -725,9 +733,9 @@ func TestElicitation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var eid string
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusWaiting })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusWaiting })
 	for _, e := range es {
-		if e.Type == agent.EvElicitRequest {
+		if e.Type == EvElicitRequest {
 			d := data(e)
 			eid, _ = d["eid"].(string)
 			if d["toolCallId"] != "ask1" || d["message"] != "Pick one" || d["schema"] == nil {
@@ -754,19 +762,19 @@ func TestElicitation(t *testing.T) {
 	if qs := c.PendingElicitations(); len(qs) != 0 {
 		t.Fatalf("an answered question is still pending: %+v", qs)
 	}
-	if err := c.RespondElicitation(eid, "decline", nil, "user:b"); !errors.Is(err, agent.ErrNoElicitation) {
+	if err := c.RespondElicitation(eid, "decline", nil, "user:b"); !errors.Is(err, ErrNoElicitation) {
 		t.Fatalf("second answer: %v", err)
 	}
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
+	es = collect(t, c, func(e Event) bool { return e.Type == EvTurnEnd })
 	if types(es) == "" || !strings.Contains(types(es), "elicitation.resolved") {
 		t.Fatalf("events after the answer: %s", types(es))
 	}
 	// cancelling the turn answers a pending question "cancel"
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	if err := c.Send(context.Background(), "ask again"); err != nil {
 		t.Fatal(err)
 	}
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvElicitRequest })
+	collect(t, c, func(e Event) bool { return e.Type == EvElicitRequest })
 	if err := c.Cancel(); err != nil {
 		t.Fatal(err)
 	}
@@ -780,15 +788,15 @@ func TestElicitation(t *testing.T) {
 // Claude's summarized thinking display, without which no thought streams.
 func TestClientAndSessionMeta(t *testing.T) {
 	f, spawn := newFake(standard)
-	claude, _ := agent.Lookup("claude")
+	claude, _ := Lookup("claude")
 	c := New()
-	cfg := agent.Config{Provider: agent.Provider{ID: "fake", SessionMeta: claude.SessionMeta}, Cwd: "/w/apps/x", Spawn: spawn,
-		Perms: agent.NewPermissions(), Version: "test", Log: func(string) {}}
+	cfg := Config{Provider: Provider{ID: "fake", SessionMeta: claude.SessionMeta}, Cwd: "/w/apps/x", Spawn: spawn,
+		Perms: NewPermissions(), Version: "test", Log: func(string) {}}
 	if err := c.Start(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	f.mu.Lock()
 	caps, meta := string(f.caps), string(f.meta)
 	f.mu.Unlock()
@@ -805,10 +813,10 @@ func TestClientAndSessionMeta(t *testing.T) {
 // use auto mode"), so answering one records no rule and the next plan is
 // asked again, never approved unseen with the first allow_always option.
 func TestPlanApprovalNeverScoped(t *testing.T) {
-	perms := agent.NewPermissions()
-	plan := agent.ToolCallRef{ID: "t1", Name: "ExitPlanMode", Kind: agent.KindSwitchMode, Title: "Approve Plan"}
-	opts := []agent.PermissionOption{{OptionID: "exit-plan-clear-auto", Kind: agent.AllowAlways}, {OptionID: "auto", Kind: agent.AllowAlways},
-		{OptionID: "exit-plan-default", Kind: agent.AllowOnce}, {OptionID: "reject", Kind: agent.RejectOnce}}
+	perms := NewPermissions()
+	plan := ToolCallRef{ID: "t1", Name: "ExitPlanMode", Kind: KindSwitchMode, Title: "Approve Plan"}
+	opts := []PermissionOption{{OptionID: "exit-plan-clear-auto", Kind: AllowAlways}, {OptionID: "auto", Kind: AllowAlways},
+		{OptionID: "exit-plan-default", Kind: AllowOnce}, {OptionID: "reject", Kind: RejectOnce}}
 	if plan.Rule() {
 		t.Fatal("a switch_mode call must not be scopable")
 	}
@@ -822,28 +830,67 @@ func TestPlanApprovalNeverScoped(t *testing.T) {
 	}
 }
 
+// The adapters' tool-call _meta lifts into plain event fields.
+func TestToolExtras(t *testing.T) {
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		name string
+		u    ToolCallUpdate
+		want map[string]any
+	}{
+		{"claude bash: name, description as label, terminal output + exit",
+			ToolCallUpdate{ToolCallID: "a", RawInput: json.RawMessage(`{"command":"ls","description":"List files"}`),
+				Meta: json.RawMessage(`{"claudeCode":{"toolName":"Bash"},"terminal_output":{"terminal_id":"a","data":"x\n"},"terminal_exit":{"terminal_id":"a","exit_code":2,"signal":null}}`)},
+			map[string]any{"name": "Bash", "label": "List files", "output": "x\n", "exitCode": 2}},
+		{"claude subagent child + the Task call itself",
+			ToolCallUpdate{ToolCallID: "b", Name: str("Task"), Meta: json.RawMessage(`{"claudeCode":{"toolName":"Task","parentToolUseId":"p0","title":"Explore the repo"}}`)},
+			map[string]any{"name": "Task", "label": "Explore the repo", "parent": "p0", "subagent": true}},
+		{"codex: streamed delta, plan review",
+			ToolCallUpdate{ToolCallID: "c", Meta: json.RawMessage(`{"terminal_output_delta":{"terminal_id":"c","data":"chunk"},"codex":{"kind":"plan_review"}}`)},
+			map[string]any{"outputDelta": "chunk", "planReview": true}},
+		{"codex: a finished command's formatted output",
+			ToolCallUpdate{ToolCallID: "d", RawOutput: json.RawMessage(`{"formatted_output":"done","exit_code":0}`)},
+			map[string]any{"output": "done"}},
+		{"an unknown _meta shape is ignored",
+			ToolCallUpdate{ToolCallID: "e", Meta: json.RawMessage(`{"claudeCode":"weird","terminal_output":7}`)},
+			map[string]any{}},
+	}
+	for _, c := range cases {
+		d := map[string]any{}
+		addToolExtras(d, c.u)
+		got, _ := json.Marshal(d)
+		want, _ := json.Marshal(c.want)
+		if string(got) != string(want) {
+			t.Errorf("%s:\n got %s\nwant %s", c.name, got, want)
+		}
+	}
+	if d := withParent(map[string]any{"text": "hi"}, json.RawMessage(`{"_meta":{"claudeCode":{"parentToolUseId":"p9"}}}`)); d["parent"] != "p9" {
+		t.Fatalf("withParent: %+v", d)
+	}
+}
+
 // session_info_update titles the session; a non-text chunk leaves a
 // placeholder; "mode" is settable through SetOption even without a mode
 // config option (session/set_mode).
 func TestTitleModeAndPlaceholders(t *testing.T) {
 	c, f, _, _ := rig(t, standard, "")
 	defer c.Close()
-	collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	f.update(map[string]any{"sessionUpdate": UpSessionInfo, "title": "Fix the build"})
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["title"] == "Fix the build" })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["title"] == "Fix the build" })
 	if len(es) == 0 {
 		t.Fatal("no title status")
 	}
 	f.update(map[string]any{"sessionUpdate": UpAgentChunk, "content": map[string]any{"type": "image", "mimeType": "image/png", "data": "AAAA"}})
 	f.update(map[string]any{"sessionUpdate": UpAgentChunk, "content": map[string]any{"type": "resource_link", "uri": "file:///w/a.go", "name": "a.go"}})
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvMessageDelta && data(e)["text"] == "[link: a.go]" })
+	es = collect(t, c, func(e Event) bool { return e.Type == EvMessageDelta && data(e)["text"] == "[link: a.go]" })
 	if len(es) < 2 || data(es[len(es)-2])["text"] != "[image]" {
 		t.Fatalf("placeholders: %v", types(es))
 	}
 	if err := c.SetOption(context.Background(), "mode", "yolo"); err != nil {
 		t.Fatal(err)
 	}
-	es = collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["currentMode"] == "yolo" })
+	es = collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["currentMode"] == "yolo" })
 	if len(es) == 0 || c.Mode() != "yolo" {
 		t.Fatalf("mode via SetOption: %s / %s", types(es), c.Mode())
 	}
@@ -865,17 +912,17 @@ func TestTitleModeAndPlaceholders(t *testing.T) {
 func TestSessionLoadResume(t *testing.T) {
 	_, spawn := newFake(standard)
 	c := New()
-	cfg := agent.Config{Provider: agent.Provider{ID: "fake", Login: "fake-login"}, Cwd: "/w", ResumeID: "s-old", Spawn: spawn,
-		Perms: agent.NewPermissions(), Version: "test", Meta: map[string]string{"tile": "apps/x"}}
+	cfg := Config{Provider: Provider{ID: "fake", Login: "fake-login"}, Cwd: "/w", ResumeID: "s-old", Spawn: spawn,
+		Perms: NewPermissions(), Version: "test", Meta: map[string]string{"tile": "apps/x"}}
 	if err := c.Start(context.Background(), cfg); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	defer c.Close()
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvStatus && data(e)["status"] == agent.StatusIdle })
+	es := collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
 	replayed := false
 	for _, e := range es {
 		txt, _ := data(e)["text"].(string)
-		if e.Type == agent.EvMessageDelta && data(e)["role"] == "user" && strings.Contains(txt, "earlier: s-old") {
+		if e.Type == EvMessageDelta && data(e)["role"] == "user" && strings.Contains(txt, "earlier: s-old") {
 			replayed = true
 		}
 	}
@@ -890,7 +937,7 @@ func TestSessionLoadResume(t *testing.T) {
 	f2, spawn2 := newFake(standard)
 	f2.noLoad = true
 	cfg.Spawn = spawn2
-	if err := New().Start(context.Background(), cfg); err != agent.ErrResumeUnsupported {
+	if err := New().Start(context.Background(), cfg); err != ErrResumeUnsupported {
 		t.Fatalf("resume on a non-loadable agent: %v", err)
 	}
 }

@@ -11,8 +11,6 @@ package acp
 
 import (
 	"encoding/json"
-
-	"github.com/xbin-dev/xbin/internal/agent"
 )
 
 // clientMeta is clientCapabilities._meta: the adapter extensions this client
@@ -132,8 +130,8 @@ func addToolExtras(d map[string]any, u ToolCallUpdate) {
 }
 
 // toolRef is the permission request's view of its tool call.
-func toolRef(u ToolCallUpdate) agent.ToolCallRef {
-	tc := agent.ToolCallRef{ID: u.ToolCallID, RawInput: u.RawInput, Content: u.Content, Name: toolName(u.Name, readToolMeta(u.Meta))}
+func toolRef(u ToolCallUpdate) ToolCallRef {
+	tc := ToolCallRef{ID: u.ToolCallID, RawInput: u.RawInput, Content: u.Content, Name: toolName(u.Name, readToolMeta(u.Meta))}
 	if u.Title != nil {
 		tc.Title = *u.Title
 	}
