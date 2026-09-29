@@ -10,6 +10,7 @@ import { html, nothing, keyed } from '/vendor/lit-all.min.js';
 import * as F from './model/format.js';
 import * as M from './model/mine.js';
 import { sharesTpl } from './web-ops.js';
+import { portsTpl } from './web-ports.js';
 
 const ask = (text) => !text || confirm(text);
 
@@ -84,9 +85,9 @@ function detailTpl(app, ui, r) {
     title=${why} @click=${() => { ui.sub = id; ui.paint(); }}>${label}</button>`;
   return html`<div class="detail-pane" id="detail">
     <div class="hd"><b>${r.name}</b> <span class="mono muted small">${r.id}</span> <span class="grow"></span>
-      <nav class="tabs">${tab('files', 'Files', r.filesWhy)}${tab('term', 'Terminal', r.termWhy)}${tab('share', 'Sharing', r.shareWhy)}</nav>
+      <nav class="tabs">${tab('files', 'Files', r.filesWhy)}${tab('term', 'Terminal', r.termWhy)}${tab('share', 'Sharing', r.shareWhy)}${tab('ports', 'Ports', app.readOnly ? 'probing a port takes write access to this page' : '')}</nav>
       <button class="ghost" id="detail-close" title="Close" @click=${() => { endTerm(app, ui); ui.sel = ''; app.closeFiles(); ui.paint(); }}>✕</button></div>
-    ${sub === 'files' ? filesTpl(app, ui, r) : sub === 'share' && r.canShare ? shareTpl(app, ui, r) : nothing}
+    ${sub === 'files' ? filesTpl(app, ui, r) : sub === 'share' && r.canShare ? shareTpl(app, ui, r) : sub === 'ports' && !app.readOnly ? portsTpl(app, ui, r) : nothing}
     ${sub === 'term' || (ui.term && ui.term.id === r.id) ? html`<div ?hidden=${sub !== 'term'}>${termTpl(app, ui, r)}</div>` : nothing}
   </div>`;
 }

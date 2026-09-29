@@ -55,6 +55,7 @@ func (m *Manager) operatorRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /ops/sandboxes/{id}/snapshots/{sid}", m.op(m.opSnapDelete))
 	mux.HandleFunc("POST /ops/images/{id}/build", m.op(m.opBuild))
 	mux.HandleFunc("DELETE /ops/orphans/{name}", m.op(m.opOrphan))
+	m.portProbeRoutes(mux) // the pages' Ports rows (ports.go): operators, and the people who may use a sandbox
 }
 
 // opView is a sandbox's metadata as operators see it: the contract's
