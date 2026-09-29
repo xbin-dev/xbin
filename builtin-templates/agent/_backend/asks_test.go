@@ -589,3 +589,64 @@ func TestLedgerMigratesAnOldDatabase(t *testing.T) {
 		t.Fatalf("a late run: %s", got)
 	}
 }
+
+// The reminder rides both wires where the provider takes it: in a tool
+// result's text (Chat's tool message, the Responses function_call_output),
+// and in a person's message — as text, or as one more part of a parts array.
+func TestReminderOnBothWires(t *testing.T) {
+	rem := reminderText("t", &Ask{Seq: 1, Source: "human", Text: "do the thing"}, true, true)
+	call := tc("c1", "note", `{}`)
+	toolLast := withReminder([]wireMsg{{Role: "system", Content: "s"}, {Role: "user", Content: "do the thing"},
+		{Role: "assistant", ToolCalls: []toolCall{call}}, {Role: "tool", ToolCallID: "c1", Name: "note", Content: "noted"}}, rem)
+	parts := partsOf(nil, "look", []json.RawMessage{json.RawMessage(`{"type":"image_url","image_url":{"url":"data:image/png;base64,AA"}}`)})
+	userLast := withReminder([]wireMsg{{Role: "system", Content: "s"}, {Role: "user", Content: parts}}, rem)
+	if err := validateWire(toolLast); err != nil {
+		t.Fatal(err)
+	}
+	chatLast := func(msgs []wireMsg) (role string, content any) {
+		b, err := chatCodec{}.encode(LLMRequest{Model: "m", Msgs: msgs})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content any    `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal(b, &body); err != nil {
+			t.Fatal(err)
+		}
+		m := body.Messages[len(body.Messages)-1]
+		return m.Role, m.Content
+	}
+	if role, content := chatLast(toolLast); role != "tool" || !strings.HasPrefix(str(content), "noted\n\n"+reminderOpen) {
+		t.Fatalf("chat, tool last: %s %v", role, content)
+	}
+	role, content := chatLast(userLast)
+	ps, _ := content.([]any)
+	if role != "user" || len(ps) != 3 || str(ps[1].(map[string]any)["type"]) != "image_url" ||
+		!strings.HasPrefix(str(ps[2].(map[string]any)["text"]), reminderOpen) {
+		t.Fatalf("chat, parts last: %s %v", role, content)
+	}
+	b, err := responsesCodec{}.encode(LLMRequest{Model: "gpt-5", Msgs: toolLast})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Input []map[string]any `json:"input"`
+	}
+	_ = json.Unmarshal(b, &body)
+	last := body.Input[len(body.Input)-1]
+	if last["type"] != "function_call_output" || !strings.HasPrefix(str(last["output"]), "noted\n\n"+reminderOpen) {
+		t.Fatalf("responses, tool last: %v", last)
+	}
+	if n := strings.Count(string(b), "task-reminder"); n != 2 { // open and close, once
+		t.Fatalf("the reminder appears %d times: %s", n/2, b)
+	}
+	// Nothing else to append to: a user message of its own.
+	after := withReminder([]wireMsg{{Role: "system", Content: "s"}, {Role: "assistant", Content: "hi"}}, rem)
+	if len(after) != 3 || after[2].Role != "user" || !strings.HasPrefix(asText(after[2].Content), reminderOpen) {
+		t.Fatalf("after an assistant message: %+v", after)
+	}
+}
