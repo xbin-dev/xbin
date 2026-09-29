@@ -182,4 +182,13 @@ export const IMPLEMENTS = {
   'link.conv': 'agent.js — followHash (model/router.js)',
   'link.auto': 'agent.js — followHash (model/router.js)',
   'link.join': 'agent.js — followHash (model/router.js)',
+
+  // Coding agents — the transcript
+  'harness.tool': 'harness-cards.js — cardTpl (ext.block; model/harness-heads.js acpChip)',
+  'harness.tool.output': 'harness-cards.js — execTpl',
+  'harness.tool.diff': 'harness-cards.js — editTpl, patchTpl (xbind\'s code viewer highlights it when it loads, else model/harness-heads.js patchLines)',
+  'harness.subagent': 'harness-cards.js — subagentTpl (model/fold.js nests its blocks)',
+  'harness.plan': 'harness-cards.js — planTpl (ext.top)',
+  'harness.usage': 'harness-cards.js — topTpl (model/harness.js usageBadge)',
+  'harness.files': 'harness-cards.js — topTpl (model/harness.js countsWords)',
 };

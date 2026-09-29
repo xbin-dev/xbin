@@ -10,6 +10,7 @@
 // U2 start a conversation
 
 // U3 the transcript
+import './harness-cards.js';
 
 // U4 asking and controls
 

@@ -182,4 +182,13 @@ export const IMPLEMENTS = {
 
   // Needs you, beyond the tile
   'needs.push': '_backend/needs_push.go — a question, an approval or a failed automation run is pushed to who may act on it (POST /api/xbin/notify, link #c=<run>); native.js — the app opens the link: app.follow',
+
+  // Coding agents — the transcript
+  'harness.tool': 'native/harness-cards.js — cardTpl: a toolcard (ctx.ext.block) with its chips',
+  'harness.tool.output': 'native/harness-cards.js — execTpl (code); all of it: the hcall screen (toolcard ↗)',
+  'harness.tool.diff': 'native/harness-cards.js — diffTpl: the diff primitive (files, patch); every patch: the hcall screen',
+  'harness.subagent': 'native/harness-cards.js — bodyTpl: a nested transcript in the Task\'s toolcard',
+  'harness.plan': 'native/harness-cards.js — badgeTpl (the toolbar\'s 📋 N/M), progressScreen: the plan primitive (⋯ → Progress)',
+  'harness.usage': 'native/harness-cards.js — badgeTpl (the toolbar), progressScreen',
+  'harness.files': 'native/harness-cards.js — progressScreen',
 };

@@ -21,6 +21,7 @@ export const AREAS = {
   state: 'States the whole tile can be in',
   link: 'Deep links',
   needs: 'Needs you — beyond the tile',
+  harness: 'Coding agents — a conversation with Claude Code, Codex, Gemini or opencode in a coding sandbox',
 };
 
 export const FEATURES = {
@@ -207,6 +208,15 @@ export const FEATURES = {
 
   // Needs you, beyond the tile
   'needs.push': 'a question, an approval or a failed automation reaches your phone (the backend pushes it; tapping it opens the conversation)',
+
+  // Coding agents — the transcript (D-harness §8 U3)
+  'harness.tool': 'a coding agent\'s call as a card of its ACP kind (execute, edit, read, search, fetch, delete, move, think, switch_mode, other): what it did in words, what it came to (exit code, +a −d, lines, matches) and its status (pending, running, needs approval, failed, cancelled); a failed one opens by itself',
+  'harness.tool.output': 'a command\'s card: the command (to copy), its output without colour codes — the end of it, all of it on asking — streamed while it runs, and the exit code',
+  'harness.tool.diff': 'an edit\'s card: each file it changed (added, modified, deleted; +a −d), unfolding to its patch; a patch past 64 KiB says it stops there',
+  'harness.subagent': 'a coding agent\'s own subagent (a Claude Task): its steps and text inside its card, which says how many; one whose card is further back shows where it is, marked ↳',
+  'harness.plan': 'the coding agent\'s live plan, pinned: its progress and the entry in progress, unfolding to every entry with its status',
+  'harness.usage': 'the context in use (as a share of the window, the tokens on asking) and the cost so far, when the coding agent reports them',
+  'harness.files': 'what the conversation changed: its tool calls, the files edited and the lines added and deleted (across restarts of the coding agent); each edit\'s patch is on its card',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.
