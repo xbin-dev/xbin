@@ -18,7 +18,8 @@
  *                             REQUIRED for calling other elements' APIs
  *                             (streams fine: SSE / chunked responses work).
  *                             opts.partition = 'global' calls the tile's
- *                             global instance from a user partition
+ *                             global instance from a user partition — on
+ *                             the tile's own /api/<self>/… only
  *   xbin.ws(path)          — attributed WebSocket to an element API, e.g.
  *                             xbin.ws(`/api/apps/other/stream`) — browsers
  *                             can't set WS headers, so the frame token rides
@@ -114,24 +115,63 @@ if (frameToken) setInterval(refreshToken, 10 * 60 * 1000);
 
 // --- attributed fetch ---
 // opts.partition: 'global' reaches the tile's global instance from a user
-// partition's document (xbind attributes the call to the viewer there). The
-// option is always stripped and means nothing outside a user partition, so it
-// never reaches the network otherwise — not on an older xbind either.
+// partition's document (xbind attributes the call to the viewer there). It
+// applies to this tile's own API only — /api/<self> and below, on this
+// document's host — and any falsy value means the viewer's own partition. The
+// option is always stripped, and it changes the request only in a user
+// partition's document, so it never reaches the network otherwise — not on an
+// older xbind either. Misuse (another value, another URL) rejects with a
+// TypeError in every document, so it shows up before the tile is partitioned.
 function bfetch(url, opts = {}) {
   const { partition: want, ...init } = opts;
-  const headers = new Headers(init.headers || {});
+  const isReq = url instanceof Request;
+  // A Request's own headers stand unless opts.headers replaces them, as with
+  // fetch itself (init.headers would otherwise drop them).
+  const headers = new Headers(init.headers || (isReq ? url.headers : {}));
   if (frameToken) headers.set('X-XBin-Frame-Token', frameToken);
-  if (inUserPartition && want != null && want !== '') {
+  if (want) {
+    const target = isReq ? url.url : String(url);
     if (want !== 'global') return Promise.reject(new TypeError(`xbin.fetch: partition must be 'global', not ${JSON.stringify(want)}`));
-    url = url instanceof Request ? new Request(toGlobal(url.url), url) : toGlobal(String(url));
+    if (!ownApi(target)) return Promise.reject(new TypeError(`xbin.fetch: partition 'global' reaches this tile's own /api/${self}/… only, not ${target}`));
+    if (inUserPartition) {
+      if (isReq) return globalRequest(url).then((req) => fetch(req, { ...init, headers }));
+      url = toGlobal(target);
+    }
   }
   return fetch(url, { ...init, headers });
+}
+// Whether u, resolved against this document, is this tile's own API: on this
+// document's host (or the workspace origin xbind names on a tile origin), at
+// /api/<self> or below. location.origin is "null" in a sandboxed frame, so
+// hosts are compared, as burl builds them.
+function ownApi(u) {
+  if (!self) return false;
+  let abs;
+  try { abs = new URL(u, location.href); } catch { return false; }
+  const at = `${abs.protocol}//${abs.host}`;
+  if (at !== `${location.protocol}//${location.host}` && at !== WORKSPACE) return false;
+  const base = `/api/${self}`;
+  return abs.pathname === base || abs.pathname.startsWith(`${base}/`);
 }
 // The same URL with xbin-partition=global added to its query.
 function toGlobal(u) {
   const i = u.indexOf('#');
   const [head, hash] = i < 0 ? [u, ''] : [u.slice(0, i), u.slice(i)];
   return `${head}${head.includes('?') ? '&' : '?'}xbin-partition=global${hash}`;
+}
+// A Request's copy at toGlobal(its url). Its body is read out explicitly:
+// passing the Request itself as the init would take the body from
+// Request.prototype.body, which Firefox doesn't implement — the copy would go
+// out empty. A clone is read, so the caller's Request stays unused.
+async function globalRequest(req) {
+  const body = /^(GET|HEAD)$/.test(req.method) ? undefined : await req.clone().arrayBuffer();
+  return new Request(toGlobal(req.url), {
+    method: req.method, headers: req.headers, body,
+    ...(req.mode && req.mode !== 'navigate' ? { mode: req.mode } : {}),
+    credentials: req.credentials, cache: req.cache, redirect: req.redirect,
+    referrer: req.referrer, referrerPolicy: req.referrerPolicy, integrity: req.integrity,
+    keepalive: req.keepalive, signal: req.signal,
+  });
 }
 
 // --- attributed WebSocket (long-lived cross-element streams) ---
