@@ -69,6 +69,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   ignores them. The SDK's `sdk/acp` catalog gains `ApproveMode`, `PlanMode`
   and `acp.Fake(argv)` (the test agent as a provider); its JSON is
   unchanged.
+- **Agent template: seams for feature modules.** A feature can now land as
+  a module of its own that hooks into the views instead of editing
+  `agent.js`, `chat-cards.js` or `native/chat.js`: `web-ext.js`
+  (`ext.register({block, end, top, paint, newChat})`, with `ctx.app`) and
+  `native/ext.js` (`block`, `end`, `toolbar`, `menu`, `composer`,
+  `newChat`, `screen`), imported from `harness-web.js` and
+  `native/harness-all.js` (`builtin-templates/agent/API.md` §The frontend).
+  Nothing changes on screen; an instance's own modules can use them too.
+  They carry the coding-harness UI now being built, whose model modules
+  (`model/harness*.js`, `app.harness`) and test fixtures land with them.
 
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)

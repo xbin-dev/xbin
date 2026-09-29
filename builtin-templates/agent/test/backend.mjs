@@ -9,7 +9,12 @@
 // the three built-ins, or seed.classes; PUT refuses a mixed class it was not
 // told to confirm), the coding sandboxes (D115: seed.sandboxes and
 // seed.sbxManagers — GET/POST/PATCH/DELETE /sandboxes, their lifecycle, and
-// PATCH /runs {sandbox, detach} into the view's config) — and a live stream
+// PATCH /runs {sandbox, detach} into the view's config), the coding
+// harnesses (D-harness §4, until the backend serves them: the
+// catalog seed.harnesses, the per-person modes seed.harnessModes, a harness
+// ask or run, GET|PATCH /runs/{id}/harness, …/answer, …/authenticate, …/log,
+// approve {option, feedback}, conversation rows' waiting and kids, seed.trees
+// — test/harness-fixtures.mjs has a seed of each) — and a live stream
 // the test drives with window.__push(event) (the same SSE the real backend
 // writes). Tests add or override routes with window.__route(method, regexp,
 // fn) from their own init script, and read what the tile sent from
@@ -91,7 +96,7 @@ export function STUB(seed) {
     // the conversation list (D83): roots, newest activity first; pins apart
     ['GET', /\/conversations\?(.*)$/, (m) => {
       const q = new URLSearchParams(m[1]);
-      const conv = (r) => ({ access: 'owner', mine: true, visibility: 'private', origin: 'chat', activityMs: r.id * 1000, ...r });
+      const conv = (r) => ({ access: 'owner', mine: true, visibility: 'private', origin: 'chat', activityMs: r.id * 1000, ...r, ...below(r) });
       let rows = window.__runs.filter((r) => !r.parentId).map(conv).filter((r) => ['', 'chat', 'api'].includes(r.origin));
       if (q.get('q')) {
         const t = q.get('q').toLowerCase();
@@ -149,12 +154,12 @@ export function STUB(seed) {
       const b = JSON.parse((o && o.body) || '{}');
       const now = ((window.__views[+m[1]] || {}).run || window.__runs.find((r) => r.id === +m[1]) || {}).pendingState?.park;
       if (b.park && now && b.park !== now) return json({ error: 'that approval is no longer pending — the agent is asking something else now' }, 409);
-      return json({ ok: 'true' });
+      return harnessApprove(+m[1], b) || json({ ok: 'true' });
     }],
     ['DELETE', /\/runs\/(\d+)\/inbox\/(\d+)$/, () => json({ ok: 'true' })],
     ['GET', /\/halt$/, () => json({ on: false })],
     ['GET', /\/me$/, () => json(seed.me || { kind: 'user', user: 'admin', level: 'terminal', manager: true, halted: false })],
-    ['GET', /\/runs\/(\d+)\/tree$/, (m) => json({ root: +m[1], nodes: [], totals: {} })],
+    ['GET', /\/runs\/(\d+)\/tree$/, (m) => json((seed.trees || {})[m[1]] || { root: +m[1], nodes: [], totals: {} })],
     // agent classes (D116), as _backend/classes.go answers them
     ['GET', /\/classes$/, () => json(classesView())],
     ['PUT', /\/classes$/, (m, o) => {
@@ -265,6 +270,200 @@ export function STUB(seed) {
       window.__sbx.sandboxes = window.__sbx.sandboxes.filter((x) => x.ref !== ref);
       for (const [id, v] of Object.entries(window.__views)) if (JSON.stringify(v.config || {}).includes(ref)) bindRun(+id, { detach: ref });
       return json({ ok: true, detached: 0 });
+    }],
+  );
+  // --- coding harnesses (D-harness §4) ------------------------------------
+  // window.__harness = {catalog, modes, logs}: GET /harnesses' entries
+  // (§4.3.10, `setting` from modes), the caller's Auto / Always approve
+  // (§4.3.12), each run's adapter stderr. A harness run is a run with
+  // engine "harness" and its `harness` summary (§4.3.2) — its view may hold
+  // harnessSession and harnessRules for GET /runs/{id}/harness. Changes land
+  // in the run as the stub holds it and go out as the backend's events.
+  const H = window.__harness = { catalog: seed.harnesses || [], modes: { ...(seed.harnessModes || {}) }, logs: seed.harnessLogs || {} };
+  const person = () => (seed.me || { kind: 'user' }).kind === 'user';
+  const hentry = (id) => H.catalog.find((h) => h.id === id);
+  const hname = (id) => (hentry(id) || {}).name || id;
+  const runsOf = (id) => [(window.__views[id] || {}).run, window.__runs.find((r) => r.id === id)].filter(Boolean);
+  const hrun = (id) => runsOf(id).find((r) => r.engine === 'harness') || null;
+  const notHarness = () => json({ error: 'not a coding-agent conversation' }, 409);
+  // setRun changes a run where the stub holds it and says so on the stream
+  const setRun = (id, patch) => {
+    for (const r of runsOf(id)) Object.assign(r, patch);
+    const r = runsOf(id)[0] || { id };
+    window.__push({ type: 'run', run: id, root: r.rootId || id, data: { id, ...patch, harness: r.harness } });
+  };
+  const setHarness = (id, patch) => {
+    const r = hrun(id);
+    const h = { ...r.harness, ...patch };
+    for (const x of runsOf(id)) x.harness = h;
+    window.__push({ type: 'harness', run: id, root: r.rootId || id, data: h });
+    return h;
+  };
+  // unpark: a park answered — the run goes on (the backend's next events say more)
+  const unpark = (id) => {
+    const h = { ...hrun(id).harness, state: 'working' };
+    delete h.pending;
+    setRun(id, { status: 'running', pendingState: {}, harness: h });
+  };
+  const oneOf = (xs) => xs.join(', ');
+  // below: a conversation row's waiting and kids (§4.3.8), from the runs under it
+  const LIVE = ['running', 'awaiting', 'sleeping', 'waiting_input'];
+  const below = (r) => {
+    const kids = window.__runs.filter((x) => x.id !== r.id && (x.rootId === r.id || x.parentId === r.id));
+    const k = { harness: kids.filter((x) => x.engine === 'harness' && LIVE.includes(x.status)).length, waiting: kids.filter((x) => x.status === 'waiting_input').length };
+    return { ...(r.status === 'waiting_input' || k.waiting ? { waiting: true } : {}), ...(k.harness || k.waiting ? { kids: k } : {}) };
+  };
+  // startHarness: POST /ask or /runs with a harness (§4.2.3) — refused as the
+  // backend refuses, else a new run (and its view) with the first message
+  const startHarness = (b, text) => {
+    const hb = b.harness || {};
+    const h = hentry(hb.provider);
+    if (!h) return json({ error: `harness.provider: no coding agent "${hb.provider || ''}" (GET /harnesses lists them)` }, 400);
+    if (b.system) return json({ error: 'system: a coding agent keeps its own instructions — system is for the built-in agent' }, 400);
+    if (b.model) return json({ error: "model: a coding agent's model is harness.options.model" }, 400);
+    const opts = hb.options || {};
+    if ('mode' in opts || (h.options || []).some((x) => x.category === 'mode' && x.id in opts)) return json({ error: 'harness.options: the mode is harness.mode' }, 400);
+    if (b.class && !(h.classes || []).includes(b.class)) return json({ error: `class: the ${b.class} class doesn't allow ${h.name}` }, 400);
+    const cls = b.class || (h.classes || [])[0];
+    if (!cls) return json({ error: `no class you may use allows ${h.name}` }, 403);
+    if (hb.mode && !(h.modes || []).some((x) => x.id === hb.mode)) return json({ error: `harness.mode: one of ${oneOf((h.modes || []).map((x) => x.id))}` }, 400);
+    if (hb.mode && !person()) return json({ error: `only a person can start ${h.name} in ${hb.mode}` }, 403);
+    if (!b.sandbox || !b.sandbox.ref) return json({ error: `a coding agent needs a sandbox: sandbox {ref, cwd?} whose image has ${h.name}` }, 400);
+    const s = box(b.sandbox.ref);
+    if (!s) return json({ error: 'no such sandbox' }, 404);
+    if (![s.egress, s.egressNext].some((e) => e && e !== 'none')) return json({ error: `${h.name} must reach its provider — ${s.name}'s egress is none` }, 409);
+    if (!(h.images || []).some((i) => i.provider === s.provider && i.image === ((s.image || {}).id || s.image))) return json({ error: `${s.name}'s image doesn't have ${h.name}` }, 409);
+    const id = Math.max(100, ...window.__runs.map((r) => r.id)) + 1;
+    const setting = H.modes[h.id] || 'approve';
+    const mode = hb.mode || (setting === 'auto' ? h.autoMode : h.approveMode) || h.defaultMode || '';
+    const harness = { provider: h.id, name: h.name, state: b.hold ? 'stopped' : 'starting', error: '',
+      mode: { current: mode, available: h.modes || [] }, options: h.options || [], commands: [], counts: { tools: 0, files: 0, add: 0, del: 0 },
+      sandbox: { ref: s.ref, name: s.name, cwd: b.sandbox.cwd || s.workdir || '/work', shared: s.visibility === 'team' || (s.shares || []).length > 0 },
+      steering: false, title: '', gen: 0 };
+    const run = { id, title: b.title || String(text || '').slice(0, 60), status: b.hold ? 'idle' : 'running', parentId: 0, rootId: id,
+      engine: 'harness', harness, class: cls, pendingState: {} };
+    window.__runs.push(run);
+    window.__views[id] = { access: 'owner', run, config: { sandbox: binding(s, b.sandbox.cwd), engine: 'harness', harness: { provider: h.id, mode, options: opts, ref: s.ref, cwd: b.sandbox.cwd || '' } },
+      messages: b.hold || !text ? [] : [{ id: 1, runId: id, seq: 1, role: 'user', content: text, created: Math.floor(Date.now() / 1000) }] };
+    window.__push({ type: 'run', run: id, root: id, data: run });
+    return json(run);
+  };
+  // harnessApprove: a verdict on a harness park (§4.2.9); null: not one (the built-in answer stands)
+  const harnessApprove = (id, b) => {
+    const r = hrun(id);
+    const ps = r && r.pendingState;
+    if (!r || !ps || !ps.harness || ps.kind !== 'approval') {
+      return b.option ? json({ error: "option is for a coding agent's permission request" }, 400) : null;
+    }
+    const opts = ps.harness.options || [];
+    const o = b.option ? opts.find((x) => x.optionId === b.option) : null;
+    if (b.option && !o) return json({ error: `option: one of ${oneOf(opts.map((x) => x.optionId))}` }, 400);
+    const allow = o ? o.kind.startsWith('allow') : !!b.approve;
+    if (b.feedback && allow) return json({ error: 'feedback goes with a rejection' }, 400);
+    if (o && o.explicit && (window.__views[id] || {}).access !== 'owner') return json({ error: `only the owner can allow ${o.name}` }, 403);
+    unpark(id);
+    return json({ ok: 'true' });
+  };
+  base.push(
+    ['GET', /\/harnesses(?:\?probe=([^&]+))?$/, (m) => json({ harnesses: H.catalog.map((h) => {
+      const out = { ...h, setting: H.modes[h.id] || 'approve' };
+      const s = m[1] && box(decodeURIComponent(m[1]));
+      if (s && s.state === 'running' && !(h.sandboxes || {})[s.ref]) {
+        const has = (h.images || []).some((i) => i.provider === s.provider && i.image === ((s.image || {}).id || s.image));
+        out.sandboxes = { ...(h.sandboxes || {}), [s.ref]: { installed: has, signedIn: false, at: Date.now() } };
+      }
+      return out;
+    }) })],
+    ['GET', /\/prefs\/harness-mode$/, () => (person() ? json({ modes: H.modes }) : json({ error: "the setting is a person's own" }, 403))],
+    ['PUT', /\/prefs\/harness-mode\/([^/?]+)$/, (m, o) => {
+      const b = JSON.parse(o.body || '{}');
+      const id = decodeURIComponent(m[1]);
+      const h = hentry(id);
+      if (!person()) return json({ error: "the setting is a person's own" }, 403);
+      if (b.mode !== 'auto' && b.mode !== 'approve') return json({ error: 'mode is "auto" or "approve"' }, 400);
+      if (!h) return json({ error: `no coding agent "${id}"` }, 400);
+      if (b.mode === 'auto' && !h.autoMode) return json({ error: `${h.name} has no auto mode — it asks as its own settings say` }, 400);
+      H.modes[id] = b.mode;
+      return json({ provider: id, mode: b.mode });
+    }],
+    // without a harness these answer as before (a test routes /ask itself)
+    ['POST', /\/ask$/, (m, o) => { const b = JSON.parse(o.body || '{}'); return b.harness ? startHarness(b, b.text) : json({}); }],
+    ['POST', /\/runs$/, (m, o) => { const b = JSON.parse(o.body || '{}'); return b.harness ? startHarness(b, b.goal) : json({}); }],
+    ['GET', /\/runs\/(\d+)\/harness$/, (m) => {
+      const r = hrun(+m[1]);
+      if (!r) return notHarness();
+      const v = window.__views[+m[1]] || {};
+      return json({ harness: r.harness, session: { gen: r.harness.gen || 0, execId: '', acpSessionId: '', loadable: false, steering: !!r.harness.steering, startedAt: 0, lastActive: 0,
+        ...(v.harnessSession || {}) }, rules: v.harnessRules || [] });
+    }],
+    ['PATCH', /\/runs\/(\d+)\/harness$/, (m, o) => {
+      const id = +m[1];
+      const r = hrun(id);
+      if (!r) return notHarness();
+      const b = JSON.parse(o.body || '{}');
+      const h = r.harness;
+      const patch = {};
+      if (b.mode != null) {
+        const modes = (h.mode || {}).available || [];
+        const md = modes.find((x) => x.id === b.mode);
+        if (!md) return json({ error: `mode: one of ${oneOf(modes.map((x) => x.id))}` }, 400);
+        if (md.explicit && (window.__views[id] || {}).access !== 'owner') return json({ error: `only the owner can switch ${h.name} to ${md.name}` }, 403);
+        patch.mode = { ...h.mode, current: b.mode };
+      }
+      if (b.option) {
+        const opt = (h.options || []).find((x) => x.id === b.option.id);
+        if (!opt) return json({ error: `option: one of ${oneOf((h.options || []).map((x) => x.id))}` }, 400);
+        if (!(opt.options || []).some((x) => x.value === b.option.value)) return json({ error: `value: one of ${oneOf((opt.options || []).map((x) => x.value))}` }, 400);
+        patch.options = h.options.map((x) => (x.id === opt.id ? { ...x, currentValue: b.option.value } : x));
+      }
+      if (!('mode' in patch) && !('options' in patch)) return json({ error: 'mode or option: name one' }, 400);
+      return json({ harness: setHarness(id, patch) });
+    }],
+    ['POST', /\/runs\/(\d+)\/harness\/answer$/, (m, o) => {
+      const id = +m[1];
+      const r = hrun(id);
+      if (!r) return notHarness();
+      const b = JSON.parse(o.body || '{}');
+      const ps = r.pendingState || {};
+      if (r.status !== 'waiting_input' || ps.kind !== 'question') return json({ error: 'no pending question' }, 400);
+      if (b.park && b.park !== ps.park) return json({ error: 'that question is no longer pending — the agent is asking something else now' }, 409);
+      if (!['accept', 'decline', 'cancel'].includes(b.action)) return json({ error: 'action is accept, decline or cancel' }, 400);
+      if (b.action === 'accept' && (!b.content || typeof b.content !== 'object' || Array.isArray(b.content))) return json({ error: "content: an object with the form's fields" }, 400);
+      unpark(id);
+      return json({ ok: 'true' });
+    }],
+    ['POST', /\/runs\/(\d+)\/harness\/authenticate$/, (m, o) => {
+      const id = +m[1];
+      const r = hrun(id);
+      if (!r) return notHarness();
+      const b = JSON.parse(o.body || '{}');
+      const h = r.harness;
+      if (h.state !== 'login') return json({ error: `${h.name} is signed in` }, 409); // its methods went with its login
+      const methods = ((h.login || {}).methods || []).filter((x) => x.kind === 'api-key' || x.kind === 'device-code');
+      const md = methods.find((x) => x.id === b.method);
+      if (!md) return json({ error: `method: one of ${oneOf(methods.map((x) => x.id))}` }, 400);
+      if (md.kind === 'api-key' && !b.apiKey) return json({ error: `apiKey: needed for ${md.name}` }, 400);
+      if (md.kind !== 'api-key' && b.apiKey) return json({ error: 'apiKey: only for an API-key method' }, 400);
+      if ((h.sandbox || {}).shared && !b.confirm) {
+        return json({ error: `anyone who may use ${(h.sandbox || {}).name} acts as you with ${h.name} there — confirm to sign in`, confirm: true }, 409);
+      }
+      if (md.kind === 'device-code') {
+        const device = { url: 'https://example.invalid/device', message: 'Enter code FAKE-1234 at https://example.invalid/device' };
+        setHarness(id, { login: { ...h.login, device } });
+        return json({ ok: 'true', device }, 202);
+      }
+      if (b.apiKey === 'bad') return json({ error: 'invalid API key' }, 502);
+      const next = { ...h, state: 'ready' };
+      delete next.login; delete next.pending;
+      setRun(id, { status: 'running', pendingState: {}, harness: next });
+      return json({ ok: 'true', state: 'ready' });
+    }],
+    ['GET', /\/runs\/(\d+)\/harness\/log(?:\?max=(\d+))?$/, (m) => {
+      if (!hrun(+m[1])) return notHarness();
+      const log = H.logs[m[1]];
+      if (log == null) return json({ error: 'no log yet' }, 404);
+      const max = Math.min(65536, Number(m[2]) || 65536);
+      return new Response(log.slice(-max), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }],
   );
   window.xbin = {

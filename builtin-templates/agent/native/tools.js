@@ -48,7 +48,8 @@ export function toolScreens() {
   return ui.stack.map((s, i) => {
     if (!s.id) s.id = ++seq;
     const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
-    return { key: `tool:${s.id}`, entry: s, tpl: () => (tpl ? tpl(s) : html`<screen title="?"/>`), leave: () => { ui.stack.length = Math.min(ui.stack.length, i); } };
+    // a kind this file doesn't know is a seam's (ctx.ext.screen, native/ext.js)
+    return { key: `tool:${s.id}`, entry: s, tpl: () => (tpl ? tpl(s) : ctx.ext.screen(s) || html`<screen title="?"/>`), leave: () => { ui.stack.length = Math.min(ui.stack.length, i); } };
   });
 }
 

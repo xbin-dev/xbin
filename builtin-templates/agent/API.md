@@ -1742,6 +1742,8 @@ the same model.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
+| `harness.js`, `harness-heads.js`, `harness-store.js` | coding harnesses (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — being built; their routes are documented here when the backend serves them): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
+| `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 
 `createApp({deltas, page})`: drafts arrive as deltas (`/stream?deltas=1`,
@@ -1778,6 +1780,24 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the ▣ in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
+| `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
+
+**Seams.** A feature can land as a module of its own instead of edits to the
+views' hot files: it registers hooks on a view's seams when imported —
+`web-ext.js` (`ext.register({block, end, top, paint, newChat})`; `ctx.app`,
+`ctx.paint()` once agent.js starts) for the web, imported from
+`harness-web.js`; `native/ext.js` (`block`, `end`, `toolbar`, `menu`,
+`composer`, `newChat`, `screen`; the native `ctx` as before) for the native
+view, imported from `native/harness-all.js`. A hook answers a template, or
+null when the block, run or screen isn't its: `block` replaces the built-in
+card of a transcript block, `end` adds to the end of the transcript (a
+coding harness's park is then its to draw), `top`/`toolbar`/`menu` add
+controls, `composer` a placeholder, slash commands and buttons, `newChat`
+a field of the new-chat dialog and its part of the ask, `screen` a pushed
+native screen of its own kind. Each file's header says the signatures; a
+hook that throws is logged and skipped. An instance can add modules of its
+own the same way. The coding harnesses' UI is built on them, tested
+against the STUB's harness routes and `test/harness-fixtures.mjs`.
 
 **Customising an instance.** A persona or domain changes `HOME` in
 `model/home.js`. The web files keep their names, and the modules that moved

@@ -116,10 +116,11 @@ export function newChatSheet() {
   const app = ctx.app;
   const done = () => { ui.newChat = null; ctx.paint(); };
   const set = (k) => (e) => { f[k] = e.value; };
+  const more = ctx.ext.newChat(f) || []; // the seams' sections (native/ext.js)
   const start = guard(async () => {
     const text = f.text.trim();
     if (!text) return;
-    await app.ask({ text, title: f.title.trim(), system: f.system.trim(), class: f.class });
+    await app.ask(Object.assign({ text, title: f.title.trim(), system: f.system.trim(), class: f.class }, ...more.map((x) => (x.body ? x.body() : {}))));
     ui.newChat = null;
   });
   return html`<sheet open title="New chat" @dismiss=${done}>
@@ -130,6 +131,7 @@ export function newChatSheet() {
         <field kind="multiline" placeholder="what should it do?" value=${f.text} @input=${set('text')}/>
       </section>
       ${classSectionTpl(f)}
+      ${more.map((x) => (x.tpl ? x.tpl() : nothing))}
       <section title="Optional">
         <field label="Title" placeholder="from the first message" value=${f.title} @input=${set('title')}/>
         <field label="Instructions" kind="multiline" placeholder="extra system instructions" value=${f.system} @input=${set('system')}/>

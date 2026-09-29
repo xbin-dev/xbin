@@ -20,6 +20,7 @@ export function homeScreen() {
       ${classPickerTpl()}
       ${modelPickerTpl(null)}
       ${sandboxPickerTpl()}
+      ${ctx.ext.toolbar(null) || nothing}
       <menu icon="ellipsis" label="More">${mainMenu()}</menu>
     </toolbar>
     ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}

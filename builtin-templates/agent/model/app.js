@@ -20,6 +20,7 @@
 //   toolset   the lane of your class        attach  an attachment chip changed
 //   model     the model pick or the model list changed
 //   sandboxes the sandbox list, the new chat's sandbox or a conversation's binding changed (app.sbx)
+//   harness   the coding agents' catalog or your picks and settings changed (app.harness)
 //   sending   a send started or settled (app.sending)
 //   select(id)   a conversation is being opened (before it loads)
 //   selected(id) …and is open
@@ -37,6 +38,7 @@ import * as router from './router.js';
 import { HOME } from './home.js';
 import * as classes from './classes.js';
 import { createSandboxStore } from './sandbox-store.js';
+import { createHarnessStore } from './harness-store.js';
 
 /**
  * createApp builds the model.
@@ -363,8 +365,12 @@ export function createApp(opts = {}) {
   }, { deltas: opts.deltas, page: opts.page });
   // picked: a new ask's model — only when you picked one (none = the agent's
   // default) — and its sandbox, while the ask's class has the sandbox toolset
-  // (D115; app.sbx.pick). No class read yet: no sandbox.
-  const picked = (cls = app.classId) => ({ ...(app.model ? { model: app.model } : {}), ...(cls ? app.sbx.askPart(cls) : {}) });
+  // (D115; app.sbx.pick). No class read yet: no sandbox. A coding agent
+  // picked to answer (app.harness) goes with it, and the model is its option.
+  const picked = (cls = app.classId) => {
+    const h = app.harness.askPart();
+    return { ...(app.model && !h.harness ? { model: app.model } : {}), ...(cls ? app.sbx.askPart(cls) : {}), ...h };
+  };
   // asking: POST /ask — one refused for the sandbox it named drops that pick
   // and says so (app.sbx.refused), so the next ask isn't refused the same way.
   const asking = async (body) => {
@@ -389,6 +395,8 @@ export function createApp(opts = {}) {
   app.attach = new actions.Attachments({ change: () => emit('attach') });
   // the coding sandboxes (D115): the list, the new chat's pick, binding (model/sandbox-store.js)
   app.sbx = createSandboxStore(app);
+  // coding harnesses (D-harness): the catalog, your picks and settings, a harness run's calls
+  app.harness = createHarnessStore(app);
   app.session.ui.act.select = (id) => app.select(id);
   app.session.ui.me = () => app.me.user;
   app.session.ui.who = () => app.me;

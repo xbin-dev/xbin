@@ -1,9 +1,11 @@
 // model/tool-heads.js — what a tool call is, in a few words, for the chat.
 // (tool-heads.js at the tile's root re-exports it.)
 //
-// Pure (no imports, no DOM): node-tested in hack/agent-template-chat.test.mjs.
+// Pure (no DOM): node-tested in hack/agent-template-chat.test.mjs.
 // A call's headline is the one-line `summary` the model wrote for it (every
 // tool schema asks for one), else a reading of its arguments, else its name.
+// A coding harness's calls (`acp:<kind>`) are harness-heads.js's.
+import { isAcp, acpFamily, acpReading, acpSubline, acpOutcome, ACP_ICON } from './harness-heads.js';
 
 // The families a tool belongs to — the card's icon and colour.
 const FAMILY = {
@@ -27,11 +29,12 @@ const FAMILY = {
 
 export const ICON = {
   net: '⇄', web: '🌐', file: '📄', code: '{ }', mem: '🧠', note: '✎', skill: '✦', time: '⏱',
-  agent: '⑂', done: '✓', ask: '?', mcp: '⚙', thread: '☰', box: '▣', other: '•',
+  agent: '⑂', done: '✓', ask: '?', mcp: '⚙', thread: '☰', box: '▣', other: '•', ...ACP_ICON,
 };
 
 export function family(name) {
   if (String(name || '').startsWith('mcp:')) return 'mcp';
+  if (isAcp(name)) return acpFamily(name);
   return FAMILY[name] || 'other';
 }
 
@@ -106,6 +109,7 @@ function reading(name, a) {
     case 'subagent_cancel': case 'workflow_cancel': return `Stop ${ids(a.ids)}`;
   }
   if (FAMILY[name] === 'box') return boxReading(name, a);
+  if (isAcp(name)) return acpReading(name, a);
   if (String(name).startsWith('mcp:')) {
     const [, srv, tool] = String(name).split(':');
     return `${tool || name} · ${srv || 'mcp'}`;
@@ -145,6 +149,7 @@ function boxReading(name, a) {
 // pattern) under a headline that is the model's summary; '' otherwise — the
 // headline already says them.
 export function subline(name, rawArgs) {
+  if (isAcp(name)) return acpSubline(name, parseArgs(rawArgs));
   if (FAMILY[name] !== 'box') return '';
   const a = parseArgs(rawArgs);
   return typeof a.summary === 'string' && a.summary.trim() ? boxReading(name, a) : '';
@@ -154,8 +159,9 @@ export function subline(name, rawArgs) {
 // bash's footer ([exit 1 · 14s · job 3], still running · job 3), a command
 // that went on as a job across a restart, how many matches, entries or
 // files, a size. {text, tone: ok | bad | run | ''} or null (none to say, or
-// not a sandbox call).
-export function outcome(name, content) {
+// not a sandbox call). A harness call's is read from its tool row's acp.
+export function outcome(name, content, acp = null) {
+  if (isAcp(name)) return acpOutcome(name, content, acp);
   if (FAMILY[name] !== 'box') return null;
   const c = String(content ?? '');
   const st = resultState(c);
