@@ -4273,7 +4273,10 @@ error.
   the definition's (`users: root` allows only 0). `argv` and `env` together
   are at most 256 KiB (413). The environment is xbind's: `IN_SANDBOX=1`
   (always), `SANDBOX_ID` and `SANDBOX_NAME` (the sandbox's name), `HOME`
-  (`/root` for root, `/` for any other user) and a `PATH`, with
+  (`/root` for root, `/` for any other user) and a `PATH` with the base
+  rootfs's toolchains first (`/usr/local/{go,node,bun}/bin`, as terminals
+  and backends have it), plus `PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright`
+  where the rootfs ships Playwright's browsers, with
   `defaults.env` and then the command's `env` over them; `XBIN_*` keys are
   400. Nothing of xbind's or of the agent's own environment gets in, nor
   xbind's user's supplementary groups: a command has none (except on a

@@ -19,6 +19,12 @@ var ErrUnsupported = errors.New("sandbox: only supported on linux")
 // host interface being visible (see relay.Config.Gateway/HostFwd).
 const GatewayIP = "10.0.2.2"
 
+// RootfsPATH is the PATH a process in the base rootfs gets when nothing
+// names another: the rootfs toolchains (Go, Node, Bun) first, then the
+// system directories. Terminals, backends, their setup scripts, sandbox
+// sessions and tile sandboxes all use it (D134).
+const RootfsPATH = "/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 // Handle carries the parent-side state of a launched sandbox: cleanup and, when
 // egress is requested (Spec.Net == "relay"), the control socket over which the
 // in-namespace init passes the TUN fd back to us. RecvTUN is Linux-only.

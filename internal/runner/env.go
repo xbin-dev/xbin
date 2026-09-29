@@ -28,7 +28,7 @@ const envRootHint = "the tile's environment layer holds it: its setup script mad
 
 // envSetupPATH mirrors the rootfs toolchain PATH used elsewhere, so `apt`,
 // language package managers, etc. resolve inside the setup sandbox.
-const envSetupPATH = "PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+const envSetupPATH = "PATH=" + sandbox.RootfsPATH
 
 // envLayerDir is the per-component, per-hash directory holding the env layer.
 // Empty when the component declares no setup or isolation is off.

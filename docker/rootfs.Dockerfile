@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential pkg-config passwd sudo \
       iproute2 iputils-ping traceroute dnsutils net-tools \
       procps psmisc lsof strace \
-      jq unzip zip xz-utils file tree \
+      jq unzip zip xz-utils file tree xxd \
       htop netcat-openbsd socat rsync openssh-client gnupg \
       fd-find bat shellcheck zsh \
     && rm -rf /var/lib/apt/lists/*

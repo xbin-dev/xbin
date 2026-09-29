@@ -25,7 +25,7 @@ import (
 // Inside a namespace sandbox.
 const (
 	agentPath   = "/opt/xbin/bin/bx" // the static bx, bound read-only: the agent (`bx __sbx-agent`)
-	defaultPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	defaultPATH = sandbox.RootfsPATH // the rootfs toolchains first, as terminals and backends have it (D134)
 )
 
 // Launcher starts a sandbox's first process from its Spec.

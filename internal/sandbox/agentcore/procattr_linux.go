@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
 )
 
@@ -92,7 +93,7 @@ func idMapped(file string, id uint32) bool {
 
 // defaultPATH is a session's PATH when its exec names none: the rootfs
 // toolchains first, as terminals and backends have it.
-const defaultPATH = "/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+const defaultPATH = sandbox.RootfsPATH
 
 // sessionEnv is the environment a session starts with: exactly the exec's,
 // plus defaultPATH when it names no PATH — never the agent's own (a nil

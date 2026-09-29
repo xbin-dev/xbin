@@ -10,6 +10,8 @@ package tilesbx
 // reports.
 
 import (
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,21 +112,43 @@ func (m *Manager) execOf(d *Def, c command) (proto.Exec, error) {
 	if gid == nil {
 		gid = d.Defaults.GID
 	}
-	return proto.Exec{Argv: argv, Env: sessionEnv(d, c.Env, uid), Cwd: cwd, CwdStrict: true,
+	return proto.Exec{Argv: argv, Env: sessionEnv(d, m.rootfsEnv(), c.Env, uid), Cwd: cwd, CwdStrict: true,
 		UID: uid, GID: gid, NoSync: true}, nil
+}
+
+// playwrightBrowsers is where the base rootfs keeps Playwright's browsers
+// (docker/rootfs.Dockerfile's PLAYWRIGHT_BROWSERS_PATH, an ENV the exported
+// rootfs doesn't carry).
+const playwrightBrowsers = "/usr/local/ms-playwright"
+
+// rootfsEnv is what the base rootfs adds to a session's environment (D134):
+// PLAYWRIGHT_BROWSERS_PATH where it ships Playwright's browsers — without
+// it Playwright looks under $HOME and finds none.
+func (m *Manager) rootfsEnv() map[string]string {
+	if m.rootfs == "" {
+		return nil
+	}
+	if fi, err := os.Stat(filepath.Join(m.rootfs, playwrightBrowsers)); err != nil || !fi.IsDir() {
+		return nil
+	}
+	return map[string]string{"PLAYWRIGHT_BROWSERS_PATH": playwrightBrowsers}
 }
 
 // sessionEnv is a command's environment (§8.3): IN_SANDBOX=1 always,
 // SANDBOX_ID and SANDBOX_NAME (the sandbox's name), HOME (/root for root,
-// / for any other user) and a PATH, then the definition's defaults.env
-// and the command's env over them — never an XBIN_* variable (validate.go
-// refuses them; this drops one that got past).
-func sessionEnv(d *Def, env map[string]string, uid *uint32) []string {
+// / for any other user) and a PATH (the rootfs toolchains first), what the
+// base rootfs adds (rootfsEnv), then the definition's defaults.env and the
+// command's env over them — never an XBIN_* variable (validate.go refuses
+// them; this drops one that got past).
+func sessionEnv(d *Def, rootfs, env map[string]string, uid *uint32) []string {
 	home := "/root"
 	if uid != nil && *uid != 0 {
 		home = "/"
 	}
 	vars := map[string]string{"PATH": defaultPATH, "HOME": home, "SANDBOX_ID": d.Name, "SANDBOX_NAME": d.Name}
+	for k, v := range rootfs {
+		vars[k] = v
+	}
 	for _, layer := range []map[string]string{d.Defaults.Env, env} {
 		for k, v := range layer {
 			if checkEnv(map[string]string{k: v}, "") == nil {

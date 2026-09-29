@@ -279,7 +279,7 @@ func (fe *fakeEnv) waitState(name, state string) Info {
 // agent client, its combined output and how it ended.
 func execRun(t *testing.T, r *run, argv []string) (string, SessionExit) {
 	t.Helper()
-	s, streams, err := r.client().Exec(proto.Exec{Argv: argv, Env: sessionEnv(r.def, nil, nil), Merge: true, NoStdin: true, CwdStrict: false})
+	s, streams, err := r.client().Exec(proto.Exec{Argv: argv, Env: sessionEnv(r.def, nil, nil, nil), Merge: true, NoStdin: true, CwdStrict: false})
 	if err != nil {
 		t.Fatalf("exec %q: %v", argv, err)
 	}

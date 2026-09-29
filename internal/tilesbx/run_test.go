@@ -2,6 +2,8 @@ package tilesbx
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -83,7 +85,7 @@ func TestSignalWords(t *testing.T) {
 // an XBIN_* variable.
 func TestSessionEnv(t *testing.T) {
 	d := &Def{Name: "sb-1", Defaults: Defaults{Env: map[string]string{"SANDBOX_NAME": "My box", "A": "def", "XBIN_TOKEN": "x"}}}
-	env := strings.Join(sessionEnv(d, map[string]string{"A": "cmd", "IN_SANDBOX": "0", "xbin_gateway": "y"}, nil), "\n")
+	env := strings.Join(sessionEnv(d, nil, map[string]string{"A": "cmd", "IN_SANDBOX": "0", "xbin_gateway": "y"}, nil), "\n")
 	for _, want := range []string{"IN_SANDBOX=1", "SANDBOX_ID=sb-1", "SANDBOX_NAME=My box", "HOME=/root", "A=cmd", "PATH=" + defaultPATH} {
 		if !strings.Contains("\n"+env+"\n", "\n"+want+"\n") {
 			t.Errorf("no %s in\n%s", want, env)
@@ -93,11 +95,41 @@ func TestSessionEnv(t *testing.T) {
 		t.Errorf("an xbin variable got through:\n%s", env)
 	}
 	u := uint32(1000)
-	if env := strings.Join(sessionEnv(d, nil, &u), "\n"); !strings.Contains(env, "HOME=/\n") {
+	if env := strings.Join(sessionEnv(d, nil, nil, &u), "\n"); !strings.Contains(env, "HOME=/\n") {
 		t.Errorf("a non-root user's HOME:\n%s", env)
 	}
 	d.Defaults.Env["HOME"] = "/home/dev"
-	if env := strings.Join(sessionEnv(d, nil, &u), "\n"); !strings.Contains(env, "HOME=/home/dev") {
+	if env := strings.Join(sessionEnv(d, nil, nil, &u), "\n"); !strings.Contains(env, "HOME=/home/dev") {
 		t.Errorf("defaults.env's HOME:\n%s", env)
+	}
+	// the rootfs toolchains are on PATH (D134), and what the rootfs adds
+	// sits under defaults.env and the command's own
+	if !strings.Contains(defaultPATH, "/usr/local/node/bin") || !strings.Contains(defaultPATH, "/usr/local/go/bin") {
+		t.Errorf("PATH lacks the rootfs toolchains: %s", defaultPATH)
+	}
+	rootfs := map[string]string{"PLAYWRIGHT_BROWSERS_PATH": "/usr/local/ms-playwright", "A": "rootfs"}
+	env = strings.Join(sessionEnv(d, rootfs, nil, nil), "\n")
+	for _, want := range []string{"PLAYWRIGHT_BROWSERS_PATH=/usr/local/ms-playwright", "A=def"} {
+		if !strings.Contains("\n"+env+"\n", "\n"+want+"\n") {
+			t.Errorf("no %s in\n%s", want, env)
+		}
+	}
+}
+
+// rootfsEnv names Playwright's browsers only where the rootfs has them.
+func TestRootfsEnv(t *testing.T) {
+	root := t.TempDir()
+	m := &Manager{rootfs: root}
+	if env := m.rootfsEnv(); env != nil {
+		t.Errorf("a rootfs without browsers: %v", env)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "usr/local/ms-playwright"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if env := m.rootfsEnv(); env["PLAYWRIGHT_BROWSERS_PATH"] != "/usr/local/ms-playwright" {
+		t.Errorf("a rootfs with browsers: %v", env)
+	}
+	if env := (&Manager{}).rootfsEnv(); env != nil {
+		t.Errorf("no rootfs: %v", env)
 	}
 }
