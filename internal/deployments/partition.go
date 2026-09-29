@@ -37,7 +37,7 @@ func partitionedPrimary(c *registry.Component, primary string) error {
 // partitionPreflight is a move's dry-run warning (plans/partitions/01 §2.7):
 // tree, put on o's primary, asks for another partition mode than the one
 // the tile records. On a tile that holds data that pauses it for a tile
-// manager's decision (switch, deleting all its data, or keep); on one that
+// manager's decision (switch, deleting what it deletes, or keep); on one that
 // holds none the mode follows at once. "" when the move changes nothing of
 // the mode: another deployment, the same request, or a tile without a
 // registry entry.
@@ -61,8 +61,8 @@ func (p *Plane) partitionPreflight(o *op, dep, tree string) string {
 	case p.PartitionHolds != nil && !p.PartitionHolds(o.tile):
 		return fmt.Sprintf("its code at this checkpoint asks for partition mode %s (%s runs %s); it holds no data, so the mode follows at once", registry.SpecOf(q), o.tile, r)
 	}
-	return fmt.Sprintf("%s will pause for a partition-mode decision: its code at this checkpoint asks for %s, it runs %s and holds data — a tile manager must switch (deleting all its data) or keep the current mode",
-		o.tile, registry.SpecOf(q), r)
+	return fmt.Sprintf("%s will pause for a partition-mode decision: its code at this checkpoint asks for %s, it runs %s and holds data — a tile manager must switch (%s) or keep the current mode",
+		o.tile, registry.SpecOf(q), r, registry.SwitchDeleting(r, registry.SpecOf(q)))
 }
 
 // howPartitionSwitch is the deploy-log entry of a partition mode switch.

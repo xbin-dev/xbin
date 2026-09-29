@@ -494,7 +494,7 @@ func (b *Broker) PartitionHoldReason(tile string) string {
 	if pm == nil {
 		return ""
 	}
-	if why := b.switchHold(tile); why != "" { // a manager's switch is wiping it (partitionswitch.go)
+	if why := b.switchStartHold(tile); why != "" { // a manager's switch is wiping it, or its scope (partitionswitch.go)
 		return why
 	}
 	pm.heldMu.RLock()

@@ -21,20 +21,21 @@ package broker
 //   - switch needs the typed tile path (confirm), --isolate for user
 //     partitions (PD-19), a tile that isn't offloaded, and — when the tile
 //     binds sandbox managers whose hello.caps lack "partitions" (C12) — yes.
-//     Then, in order: every instance stops (the tile's deployments, the
-//     scope's other tiles, each plane's stop hook — the partition instances,
-//     revoked synchronously), the namespaces are held (holdNS) and the tile's
-//     backups locked (holdBackups), every wipe hook runs
+//     Then, in order: the namespaces are held (holdNS), every instance
+//     stops (the tile's deployments, the scope's other tiles, each plane's
+//     stop hook — the partition instances, revoked synchronously), the
+//     tile's backups are locked (holdBackups), every wipe hook runs
 //     (partitionwipe.go), the backup keys of the wiped data are erased
 //     (F17a's eraseBackupSubjectsHeld: every ns: and part: key, or global's
-//     ns: key alone when "global" goes), R := Q is recorded with the wiped
-//     summary, and people whose partition went are told. Instances start
-//     lazily in Q.
+//     ns: key alone when "global" goes; an erase that fails fails the
+//     switch), R := Q is recorded with the wiped summary, and people whose
+//     partition went are told. Instances start lazily in Q.
 //   - dryRun counts what a switch would delete and names what it keeps,
 //     deleting nothing: the typed confirmation shows it.
 //
-// While a switch runs the tile's primary may not start (switchHold, read by
-// PartitionHoldReason), even on a declined tile whose R was running.
+// While a switch runs neither the tile's primary nor the scope's other
+// tiles may start (switchStartHold, read by PartitionHoldReason), even on a
+// declined tile whose R was running.
 
 import (
 	"cmp"
@@ -46,6 +47,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -53,7 +55,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
-	"github.com/xbin-dev/xbin/internal/users"
 )
 
 const (
@@ -134,18 +135,54 @@ func (b *Broker) pushPerson(user, kind, title, body, link, collapse string) {
 
 // ---- the switch hold ----
 
-var switching sync.Map // switchKey → the act's hold text
+var (
+	switching  sync.Map     // switchKey → the act's hold text
+	switchingN atomic.Int32 // switches running: a start's check reads nothing more while none does
+)
 
 type switchKey struct {
 	b    *Broker
 	tile string
 }
 
-// switchHold is why tile's primary may not start while a switch runs on it
-// ("": none).
+// beginSwitch holds tile for a switch with the text hold; ok false when a
+// switch of it already runs. end releases the hold, once.
+func (b *Broker) beginSwitch(tile, hold string) (end func(), ok bool) {
+	if _, busy := switching.LoadOrStore(switchKey{b, tile}, hold); busy {
+		return nil, false
+	}
+	switchingN.Add(1)
+	var once sync.Once
+	return func() {
+		once.Do(func() { switching.Delete(switchKey{b, tile}); switchingN.Add(-1) })
+	}, true
+}
+
+// switchHold is the hold text of a switch running on tile itself ("":
+// none): "holds data" answers yes meanwhile (partitionmode.go's decide).
 func (b *Broker) switchHold(tile string) string {
+	if switchingN.Load() == 0 {
+		return ""
+	}
 	if v, ok := switching.Load(switchKey{b, tile}); ok {
 		return v.(string)
+	}
+	return ""
+}
+
+// switchStartHold is why tile's backends may not start while a switch runs
+// ("": none) — read by PartitionHoldReason: tile's own switch, or one of
+// the tile rooting tile's scope, which empties the namespaces tile reads
+// too. Nothing of the scope starts between the switch's stop and its wipe.
+func (b *Broker) switchStartHold(tile string) string {
+	if switchingN.Load() == 0 {
+		return ""
+	}
+	if why := b.switchHold(tile); why != "" {
+		return why
+	}
+	if c, ok := b.Reg.Component(tile); ok && c.Scope != "" && c.Scope != tile && b.switchHold(c.Scope) != "" {
+		return "is paused: " + c.Scope + "'s partition mode is switching and the data of its scope is being deleted"
 	}
 	return ""
 }
@@ -300,14 +337,15 @@ func (b *Broker) actSwitch(w http.ResponseWriter, person auth.Principal, c *regi
 		server.WriteError(w, http.StatusConflict, tile+" is offloaded: restore it (bx enable) before switching its partition mode, so its data can be deleted everywhere", modeDocs)
 		return
 	case !body.DryRun && body.Confirm != tile:
-		server.WriteError(w, http.StatusBadRequest, "a switch deletes "+wipeWhat(wipeKindOf(from, to))+": confirm by typing the tile's path ("+tile+")", modeDocs)
+		server.WriteError(w, http.StatusBadRequest, "a switch deletes "+registry.SwitchDeletes(from, to)+": confirm by typing the tile's path ("+tile+")", modeDocs)
 		return
 	}
 	var lacking []string
 	if to.User {
 		lacking = b.managersLackingPartitions(c)
 	}
-	t := wipeTarget{Tile: tile, Scope: c.Scope, RootsScope: c.Scope != "" && c.Scope == c.Path, From: from, To: to,
+	roots := c.Scope != "" && c.Scope == c.Path
+	t := wipeTarget{Tile: tile, Scope: c.Scope, RootsScope: roots, OwnsMain: roots && b.ownsMainData(c.Scope), From: from, To: to,
 		Kind: wipeKindOf(from, to), By: deciderName(person), At: time.Now(), DryRun: body.DryRun}
 	if body.DryRun {
 		sum, err := b.countWipe(t)
@@ -325,11 +363,12 @@ func (b *Broker) actSwitch(w http.ResponseWriter, person auth.Principal, c *regi
 		return
 	}
 	hold := "is paused: its partition mode is switching (" + from.String() + " → " + to.String() + ") and its data is being deleted"
-	if _, busy := switching.LoadOrStore(switchKey{b, tile}, hold); busy {
+	end, ok := b.beginSwitch(tile, hold)
+	if !ok {
 		server.WriteError(w, http.StatusConflict, "a partition mode switch of "+tile+" is already running", modeDocs)
 		return
 	}
-	defer switching.Delete(switchKey{b, tile})
+	defer end()
 	sum, gc, err := b.runSwitch(t)
 	if err != nil {
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]any{"docs": modeDocs, "wiped": sum.counts(),
@@ -344,21 +383,37 @@ func (b *Broker) actSwitch(w http.ResponseWriter, person auth.Principal, c *regi
 			"error": "the switch of " + tile + " deleted its data, but the mode wasn't recorded: " + err.Error() + " — look again"})
 		return
 	}
-	switching.Delete(switchKey{b, tile}) // before the rescan: nothing holds the new mode back
+	end() // before the rescan: nothing holds the new mode back
 	b.settleAfterDecision(tile)
 	b.afterSwitch(t, sum, person)
 	extra := map[string]any{"ok": true}
 	if gc != "" {
 		extra["archiver"] = gc
 	}
+	if sum.EraseErr != "" {
+		extra["eraseError"] = sum.EraseErr
+	}
 	server.WriteJSON(w, http.StatusOK, switchAnswer(t, sum, lacking, extra))
 }
 
-// runSwitch stops, holds, wipes and erases (01 §2.5 steps 1–3). A failure
+// runSwitch holds, stops, wipes and erases (01 §2.5 steps 1–3). Every
+// namespace to wipe is held first (holdNS: no backend starts in it, no API
+// write lands), then every instance stops — the tile's primary and the
+// scope's other tiles can't start again meanwhile (switchStartHold) — so
+// nothing started in between keeps writing into what is wiped. A failure
 // before anything is removed removes nothing; one during the wipe leaves
-// what was removed removed.
+// what was removed removed. An erase that wrote no tombstone fails the
+// switch as well: the data went, but its sealed backups would still read,
+// so nothing is recorded and a retry erases (the wipe finds nothing left).
 func (b *Broker) runSwitch(t wipeTarget) (sum wipeSummary, gc string, err error) {
-	b.StopBackendSafe(t.Tile) // every deployment of the tile; the primary is held already, or by switchHold
+	for _, id := range b.wipeHeldNamespaces(t) {
+		release, err := b.holdNS(id, nsResetting)
+		if err != nil {
+			return sum, "", fmt.Errorf("%s's data is busy (%w): nothing was deleted", id.dep, err)
+		}
+		defer release()
+	}
+	b.StopBackendSafe(t.Tile) // every deployment of the tile
 	if t.RootsScope {
 		for _, o := range b.Reg.Components() {
 			if o.Scope == t.Scope && o.Path != t.Tile {
@@ -370,13 +425,6 @@ func (b *Broker) runSwitch(t wipeTarget) (sum wipeSummary, gc string, err error)
 		if h.stop != nil {
 			h.stop(b, t)
 		}
-	}
-	for _, id := range b.wipeHeldNamespaces(t) {
-		release, err := b.holdNS(id, nsResetting)
-		if err != nil {
-			return sum, "", fmt.Errorf("%s's data is busy (%w): nothing was deleted", id.dep, err)
-		}
-		defer release()
 	}
 	defer b.holdBackups(t.Tile)() // no backup seals the doomed data under a fresh key meanwhile (F17a)
 	for _, h := range wipeHooks {
@@ -390,10 +438,22 @@ func (b *Broker) runSwitch(t wipeTarget) (sum wipeSummary, gc string, err error)
 	}
 	erased, gc, err := b.eraseBackupSubjectsHeld(t.Tile, match, "partition mode switch "+t.From.String()+" → "+t.To.String(), t.By)
 	sum.Subkeys = int64(len(erased))
-	if err != nil {
+	switch {
+	case err != nil && len(erased) == 0: // no tombstone written: every key as it was
+		return sum, "", fmt.Errorf("erasing the deleted data's backup keys: %w", err)
+	case err != nil: // erased all the same; the key files left are removed wherever met
+		sum.EraseErr, sum.KeyFilesLeft = err.Error(), int64(countErrs(err))
 		slog.Warn("partitions: a switch's backup keys are erased, but not every key file is removed yet", "tile", t.Tile, "err", err)
 	}
 	return sum, gc, nil
+}
+
+// countErrs counts the errors err joins (1 for a single one).
+func countErrs(err error) int {
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		return len(j.Unwrap())
+	}
+	return 1
 }
 
 // erasedSubjects picks the backup subjects a switch erases (11 §3): every
@@ -405,8 +465,8 @@ func erasedSubjects(t wipeTarget) func(subject string) bool {
 	case wipeEverything:
 		return func(s string) bool { return strings.HasPrefix(s, "ns:") || strings.HasPrefix(s, "part:") }
 	case wipeGlobal:
-		if !t.RootsScope {
-			return nil
+		if !t.OwnsMain {
+			return nil // global's namespace at today's keys isn't the tile's: nothing of it went
 		}
 		main := nsSubject(t.Scope, "")
 		return func(s string) bool { return s == main }
@@ -424,7 +484,10 @@ func (b *Broker) countWipe(t wipeTarget) (wipeSummary, error) {
 		}
 	}
 	if match := erasedSubjects(t); match != nil {
-		keys, _ := b.backupKeys().list()
+		keys, err := b.backupKeys().list()
+		if err != nil {
+			return sum, fmt.Errorf("the backup keys: %w", err)
+		}
 		for _, k := range keys {
 			if k.Tile == t.Tile && match(k.Subject) {
 				sum.Subkeys++
@@ -432,17 +495,6 @@ func (b *Broker) countWipe(t wipeTarget) (wipeSummary, error) {
 		}
 	}
 	return sum, nil
-}
-
-// wipeWhat says what a switch of kind k deletes.
-func wipeWhat(k wipeKind) string {
-	switch k {
-	case wipeGlobal:
-		return "the global instance's data and the tile's shared resources (people's partitions stay)"
-	case wipeNone:
-		return "nothing (the global instance starts empty)"
-	}
-	return "all data in this tile"
 }
 
 // switchKeeps is what a switch keeps (01 §2.6).
@@ -465,7 +517,7 @@ func switchKeeps(k wipeKind) []string {
 // switchAnswer is a switch's answer, or its dry run's.
 func switchAnswer(t wipeTarget, sum wipeSummary, lacking []string, extra map[string]any) map[string]any {
 	out := map[string]any{"tile": t.Tile, "act": modeActSwitch, "from": t.From, "to": t.To,
-		"deletes": wipeWhat(t.Kind), "wiped": sum.counts(), "keeps": switchKeeps(t.Kind)}
+		"deletes": registry.SwitchDeletes(t.From, t.To), "wiped": sum.counts(), "keeps": switchKeeps(t.Kind)}
 	if len(lacking) > 0 {
 		out["managers"] = lacking
 	}
@@ -549,65 +601,4 @@ func (b *Broker) managerKeepsPartitions(prov string) bool {
 		Caps []string `json:"caps"`
 	}
 	return json.Unmarshal(body, &hello) == nil && slices.Contains(hello.Caps, "partitions")
-}
-
-// ---- requests: the managers' push, the frames, the alert ----
-
-// partitionModeChanged is told each history entry a rescan records (auto,
-// request, withdrawn): the tile's frames reload — the switch page appears
-// or goes — and a new request pushes to the tile's managers. Called off the
-// settle's locks.
-func (b *Broker) partitionModeChanged(tile string, h modeHistory) {
-	b.Hub.Publish(events.Event{Type: "reload", Component: tile})
-	if h.Op != modeOpRequest {
-		return
-	}
-	from, to := registry.SpecOf(h.From), registry.SpecOf(h.To)
-	title := tile + " is paused: a partition mode switch is requested"
-	body := fmt.Sprintf("%s → %s. Switching deletes %s; keeping the current mode deletes nothing. Until a manager decides, %s doesn't run.",
-		from, to, wipeWhat(wipeKindOf(from, to)), tile)
-	for _, user := range b.tileManagers(tile) {
-		b.pushPerson(user, "tile.partition-switch", title, body, "c/"+tile+"/", "partition-switch:"+tile)
-	}
-}
-
-// tileManagers are the people who decide for tile: every enabled user
-// mayManageTile passes, and the root token's own devices ("owner", the
-// push plane's key for it).
-func (b *Broker) tileManagers(tile string) []string {
-	out := []string{"owner"}
-	if b.Users == nil {
-		return out
-	}
-	for _, u := range b.Users.List() {
-		if u.Disabled {
-			continue
-		}
-		acc, _ := b.Users.Access(u.ID)
-		if b.mayManageTile(auth.Principal{UserID: u.ID, User: userRef(u), Access: acc}, tile) {
-			out = append(out, u.ID)
-		}
-	}
-	return out
-}
-
-func userRef(u users.User) *users.User { return &u }
-
-// partitionAlerts are the /alerts rows of the tiles whose switch request
-// waits for a manager (kind partition-switch): admins and each tile's
-// readers see them; the old shells show them as the top banner.
-func (b *Broker) partitionAlerts(p auth.Principal, admin bool) []Alert {
-	var out []Alert
-	for _, c := range b.Reg.Components() {
-		st, r, req := c.PartitionState()
-		if st != registry.PartitionPending || req == nil || !admin && !p.CanReadTile(c.Path) {
-			continue
-		}
-		q := registry.SpecOf(req.Spec)
-		out = append(out, Alert{Level: "warn", Kind: "partition-switch", Tile: c.Path,
-			Message: fmt.Sprintf("A partition mode switch is requested for %s (%s → %s): switching deletes %s. Until a manager of %s switches or keeps the current mode (bx partition switch|keep %s), it doesn't run.",
-				c.Path, r, q, wipeWhat(wipeKindOf(r, q)), c.Path, c.Path)})
-	}
-	slices.SortFunc(out, func(a, b Alert) int { return strings.Compare(a.Tile, b.Tile) })
-	return out
 }

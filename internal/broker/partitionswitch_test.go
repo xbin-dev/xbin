@@ -31,16 +31,23 @@ type switchFx struct {
 
 const docsManifest = `{"runtime":"go","uses":[{"target":"res:apps/docs/db","role":"writer"}]}`
 
-func newSwitchFx(t *testing.T) *switchFx {
+func newSwitchFx(t *testing.T) *switchFx { return newSwitchFxWith(t, nil) }
+
+// newSwitchFxWith is newSwitchFx with more files in the workspace.
+func newSwitchFxWith(t *testing.T, more map[string]string) *switchFx {
 	t.Helper()
-	w := newPartWS(t, map[string]string{
+	files := map[string]string{
 		"apps/docs/scope.json":       `{"resources":{"db":{"type":"kv"},"files":{"type":"filesystem"},"events":{"type":"bus"}}}`,
 		"apps/docs/xbin.json":        docsManifest,
 		"apps/docs/inner/scope.json": `{"resources":{"db":{"type":"kv"}}}`,
 		"apps/docs/inner/xbin.json":  `{"runtime":"go"}`,
 		"apps/other/scope.json":      `{"resources":{"db":{"type":"kv"}}}`,
 		"apps/other/xbin.json":       `{"runtime":"go"}`,
-	}, nil)
+	}
+	for k, v := range more {
+		files[k] = v
+	}
+	w := newPartWS(t, files, nil)
 	st, err := users.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -162,9 +169,14 @@ func (f *switchFx) fill() (nsKey, tileKey string) {
 	}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
 		ws.IfaceInstances = map[string]map[string]string{"apps/docs": {"a": "b"}}
+		ws.IngressHosts = map[string][]string{"apps/docs": {"a.sites.example.com"}}
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/docs", Target: "res:apps/other/db", Role: "reader"})
+		ws.Bindings = map[string]map[string]registry.Binding{"apps/docs": {"peer": {{Ref: "apps/other"}}}}
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// the tile's deployment record: code, kept
+	f.write(map[string]string{"data/deployments/" + util.TileKey("apps/docs") + ".json": `{"schema":1,"primary":"main"}`})
 	s := b.backupKeys()
 	for i, k := range []struct{ subject, tile string }{{nsSubject("apps/docs", ""), "apps/docs"},
 		{tileSubject("apps/docs"), "apps/docs"}, {nsSubject("apps/other", ""), "apps/other"}} {
@@ -336,16 +348,22 @@ func TestPartitionModeSwitch(t *testing.T) {
 	}
 	// deleted
 	checks := map[string]bool{
-		"main's kv":             !f.bucketHas("res:apps/docs/db"),
-		"main's volume":         !f.exists("data/resources-enc/apps~docs"),
-		"main's plaintext":      !f.exists("data/resources/apps~docs"),
-		"main's vault":          !f.exists("data/vault/" + util.CompKey("apps/docs") + ".json"),
-		"dev's vault":           !f.exists("data/vault/.deployments/" + util.TileKey("apps/docs") + "/dev.json"),
-		"dev's kv":              !f.exists("data/resources-enc/.deployments/" + escS("apps/docs") + "/dev/kv.db"),
-		"dev's cron file":       !f.exists("data/deployments/" + util.TileKey("apps/docs") + "/dev/" + depCronFile),
-		"the cron job":          len(f.b.cronJobsFor("apps/docs")) == 0,
-		"the bus subscription":  len(f.b.bus.forComponent("apps/docs")) == 0,
-		"interface instances":   len(f.b.Reg.Workspace().IfaceInstances["apps/docs"]) == 0,
+		"main's kv":            !f.bucketHas("res:apps/docs/db"),
+		"main's volume":        !f.exists("data/resources-enc/apps~docs"),
+		"main's plaintext":     !f.exists("data/resources/apps~docs"),
+		"main's vault":         !f.exists("data/vault/" + util.CompKey("apps/docs") + ".json"),
+		"dev's vault":          !f.exists("data/vault/.deployments/" + util.TileKey("apps/docs") + "/dev.json"),
+		"dev's kv":             !f.exists("data/resources-enc/.deployments/" + escS("apps/docs") + "/dev/kv.db"),
+		"dev's cron file":      !f.exists("data/deployments/" + util.TileKey("apps/docs") + "/dev/" + depCronFile),
+		"the cron job":         len(f.b.cronJobsFor("apps/docs")) == 0,
+		"the bus subscription": len(f.b.bus.forComponent("apps/docs")) == 0,
+		"interface instances":  len(f.b.Reg.Workspace().IfaceInstances["apps/docs"]) == 0,
+		"the ingress host":     len(f.b.Reg.Workspace().IngressHosts["apps/docs"]) == 0,
+		"kept: the record":     f.exists("data/deployments/" + util.TileKey("apps/docs") + ".json"),
+		"kept: the grant": slices.ContainsFunc(f.b.Reg.Workspace().Grants, func(g registry.Grant) bool {
+			return g.From == "apps/docs" && g.Target == "res:apps/other/db"
+		}),
+		"kept: the binding":     len(f.b.Reg.Workspace().Bindings["apps/docs"]["peer"]) == 1,
 		"the ns: backup key":    !f.exists("data/vault/.backup-keys/" + nsKey + ".json"),
 		"kept: the tile: key":   f.exists("data/vault/.backup-keys/" + tileKey + ".json"),
 		"kept: the code":        f.exists("apps/docs/xbin.json") && f.exists("apps/docs/scope.json"),

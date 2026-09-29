@@ -79,11 +79,14 @@ type wipeTarget struct {
 	// RootsScope: the tile roots its scope, whose data namespaces are then
 	// the tile's (a tile that doesn't holds none of them, 01 §2.2).
 	RootsScope bool
-	From, To   registry.PartitionSpec
-	Kind       wipeKind
-	By         string
-	At         time.Time
-	DryRun     bool // count only, delete nothing
+	// OwnsMain: main's namespace of the scope at today's keys is the
+	// scope's own (ownsMainData) — never the workspace-level resources'.
+	OwnsMain bool
+	From, To registry.PartitionSpec
+	Kind     wipeKind
+	By       string
+	At       time.Time
+	DryRun   bool // count only, delete nothing
 }
 
 // wipeSummary is what a switch deleted, or — dry — would delete.
@@ -94,6 +97,10 @@ type wipeSummary struct {
 	Registrations int64 // cron jobs, bus subscriptions, interface instances, ingress hosts
 	Bytes         int64 // stored bytes removed (ciphertext and plaintext files)
 	Subkeys       int64 // backup keys erased (crypto-erasing those archives)
+	// KeyFilesLeft and EraseErr: erased keys whose files aren't removed yet
+	// (tombstoned, so refused everywhere; removed wherever met), and why.
+	KeyFilesLeft int64
+	EraseErr     string
 	// People are the users whose partition was deleted: each is told
 	// (partitionswitch.go). Hooks of the partition planes add them.
 	People []string
@@ -101,8 +108,12 @@ type wipeSummary struct {
 
 // counts is the summary as the history's "wiped" and the answers carry it.
 func (s *wipeSummary) counts() map[string]int64 {
-	return map[string]int64{"namespaces": s.Namespaces, "partitions": s.Partitions, "vaultKeys": s.VaultKeys,
+	m := map[string]int64{"namespaces": s.Namespaces, "partitions": s.Partitions, "vaultKeys": s.VaultKeys,
 		"registrations": s.Registrations, "bytes": s.Bytes, "subkeys": s.Subkeys}
+	if s.KeyFilesLeft > 0 {
+		m["keyFilesLeft"] = s.KeyFilesLeft
+	}
+	return m
 }
 
 // addPerson records a user whose partition went, once.
@@ -115,10 +126,13 @@ func (s *wipeSummary) addPerson(user string) {
 // wipeHook is one plane's part of a switch (01 §2.6).
 type wipeHook struct {
 	name string
-	// stop runs first, before anything is held or removed: a plane that runs
-	// something for the tile — the partition instances (whose instance
-	// tokens it revokes synchronously), a person's terminal — stops it. nil:
-	// the plane runs nothing. Not called on a dry run.
+	// stop runs once the scope's namespaces are held and its backends
+	// stopped, before the backups are locked and anything is removed: a
+	// plane that runs something for the tile — the partition instances
+	// (whose instance tokens it revokes synchronously), a person's terminal
+	// — stops it, and holds what it wipes so nothing starts again (a plane's
+	// own namespaces: hold them here, or in wipe). nil: the plane runs
+	// nothing. Not called on a dry run.
 	stop func(b *Broker, t wipeTarget)
 	// wipe removes the plane's data of t.Tile as t.Kind says — or, on a dry
 	// run, only counts it — adding to sum. An error stops the switch: the
@@ -140,15 +154,25 @@ func init() {
 }
 
 // wipeHeldNamespaces are the namespaces of the tile's scope a switch holds
-// (holdNS) while it wipes: main's and, when it deletes everything, every
-// deployment's on disk. None for a tile that doesn't root its scope.
+// (holdNS) before it stops anything and while it wipes: main's and, when it
+// deletes everything, every deployment's on disk and every deployment the
+// tile's record names (one without a namespace yet mustn't start and make
+// one mid-wipe). None for a tile that doesn't root its scope.
 func (b *Broker) wipeHeldNamespaces(t wipeTarget) []nsID {
 	if !t.RootsScope || t.Kind == wipeNone {
 		return nil
 	}
 	ids := []nsID{nsOf(t.Scope, util.MainDeployment)}
 	if t.Kind == wipeEverything {
-		for _, dep := range b.namespaceDeps(t.Scope) {
+		deps := b.namespaceDeps(t.Scope)
+		if _, names := b.deploymentsOf(t.Tile); len(names) > 1 {
+			for _, dep := range names {
+				if _, err := scopeKeys(t.Scope, dep); err == nil && dep != util.MainDeployment && !slices.Contains(deps, dep) {
+					deps = append(deps, dep)
+				}
+			}
+		}
+		for _, dep := range deps {
 			ids = append(ids, nsOf(t.Scope, dep))
 		}
 	}
@@ -197,18 +221,34 @@ func wipeNamespaces(b *Broker, t wipeTarget, sum *wipeSummary) error {
 	return errors.Join(errs...)
 }
 
+// ownsMainData reports whether main's namespace of scope at today's keys —
+// the kv buckets res:<scope>/<name> in data/kv.db, data/resources-enc/<key>
+// and data/resources/<key> — is scope's own, so "holds data" may count it
+// and a switch may delete it. It is when the scope holds its data key
+// (D118) and its buckets aren't the workspace-level resources': a scope at
+// the path "workspace" renders res:workspace/, the prefix of every
+// workspace-level resource, and shares their data key, so it owns none of
+// them (its own resources are refused, D118).
+func (b *Broker) ownsMainData(scope string) bool {
+	return scope != "" && resTarget{Scope: scope}.String() != resTarget{}.String() && b.Reg.HoldsScopeKey(scope)
+}
+
 // wipeMainNamespace empties main's namespace of t.Scope, whatever its
 // scope.json declares today (a resource it dropped still holds data): the
-// kv buckets of one segment below res:<scope>/, and — when the scope holds
-// its data key (D118) — its volumes, unmounted and verified first, and its
-// plaintext directory. It counts first.
+// kv buckets of one segment below res:<scope>/, its volumes, unmounted and
+// verified first, and its plaintext directory — only when that namespace is
+// the scope's own (t.OwnsMain, ownsMainData): nothing of a scope that
+// doesn't hold its data key, or of the workspace-level resources, is
+// counted or removed. It counts first.
 func (b *Broker) wipeMainNamespace(t wipeTarget, sum *wipeSummary) error {
+	if !t.OwnsMain {
+		return nil
+	}
 	main, _ := scopeKeys(t.Scope, util.MainDeployment) // main's keys: never an error
 	prefix := []byte(resTarget{Scope: t.Scope}.String())
 	enc := filepath.Join(b.Reg.Root, filepath.FromSlash(main.Enc))
 	plain := filepath.Join(b.Reg.Root, filepath.FromSlash(main.Plain))
 	mounts := filepath.Join(b.Reg.Root, ".xbin", "resenc", filepath.FromSlash(main.DirKey))
-	ownsDirs := b.Reg.HoldsScopeKey(t.Scope)                  // data/resources*/<key> is the scope's that holds the key
 	db, err := b.scopeKV(t.Scope, util.MainDeployment, false) // data/kv.db
 	if err != nil {
 		return err
@@ -217,20 +257,14 @@ func (b *Broker) wipeMainNamespace(t wipeTarget, sum *wipeSummary) error {
 	if err != nil {
 		return err
 	}
-	var size int64
-	held := keys > 0
-	if ownsDirs {
-		vols, err := volumesHold(enc)
-		if err != nil {
-			return err
-		}
-		n, _ := treeBytes(enc)
-		p, pfiles := treeBytes(plain)
-		size = n + p
-		held = held || vols || pfiles > 0
+	vols, err := volumesHold(enc)
+	if err != nil {
+		return err
 	}
-	sum.Bytes += size
-	if held {
+	n, _ := treeBytes(enc)
+	p, pfiles := treeBytes(plain)
+	sum.Bytes += n + p
+	if keys > 0 || vols || pfiles > 0 {
 		sum.Namespaces++
 	}
 	if t.DryRun {
@@ -239,13 +273,10 @@ func (b *Broker) wipeMainNamespace(t wipeTarget, sum *wipeSummary) error {
 	g := b.nsTab().gate(nsOf(t.Scope, util.MainDeployment))
 	g.Lock()
 	defer g.Unlock()
-	var errs []error
-	if ownsDirs {
-		if err := b.unmountUnder(mounts, main.DirKey); err != nil {
-			return err // still mounted: nothing of the files is removed
-		}
-		errs = append(errs, os.RemoveAll(enc), os.RemoveAll(mounts), os.RemoveAll(plain))
+	if err := b.unmountUnder(mounts, main.DirKey); err != nil {
+		return err // still mounted: nothing of the files is removed
 	}
+	errs := []error{os.RemoveAll(enc), os.RemoveAll(mounts), os.RemoveAll(plain)}
 	if db != nil && len(buckets) > 0 {
 		errs = append(errs, db.Update(func(tx *bolt.Tx) error {
 			for _, name := range buckets {
