@@ -51,7 +51,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   one the conversation was given (the header's `+N` still opens every
   request); the model's own `# Your task` keeps the first. `finish` is
   worded by depth: a top-level run's `result` is a short status line with
-  the answer in the reply before it; a subagent's is the full answer.
+  the answer in the reply before it; a subagent's is the full answer, and
+  so is a channel conversation's or a trigger's (its `result` is what is
+  posted).
 - **Admin: a tile sandbox's port requests.** `GET /api/xbin/sandboxes`
   (admin) gives each `tileSandboxes` row `ports` — its latest 8 port
   requests (D135), newest last: `{at, port, status?, refusal?, from}` —

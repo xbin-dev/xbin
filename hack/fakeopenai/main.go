@@ -793,8 +793,6 @@ const livePage = `<!doctype html><html><head><title>live</title></head><body>
 </script></body></html>
 `
 
-// serveScript is "sandbox serve": write the page and start its server, then
-// preview_port it, then say so.
 // reportCmd writes a report over the agent's 64 KB text cap: stored as a
 // binary session file, it must still render (up to 2 MB).
 const reportCmd = `mkdir -p rep && { printf '<!doctype html><html><body><h1 id="t">big report</h1>\n'; ` +
@@ -816,6 +814,8 @@ func reportScript(conv []turn) plan {
 	return plan{Delay: 6 * time.Second, Text: "Report shown."}
 }
 
+// serveScript is "sandbox serve": write the page and start its server, then
+// preview_port it, then say so.
 func serveScript(conv []turn) plan {
 	did := map[string]bool{}
 	for i := len(conv) - 1; i >= 0 && conv[i].Role != "user"; i-- {

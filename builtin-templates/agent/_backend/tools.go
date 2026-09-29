@@ -31,15 +31,6 @@ func strProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
 }
 
-// toolSpecs builds the model's tool list for this run's config, including
-// any MCP-sourced tools. The run's class (classes.go, D116) decides which
-// toolsets are offered — the core tools (memory, note, finish, yield,
-// ask_user, recall, state_changed, attach_to_reply) always are — and the
-// Features menu can still switch an optional one off. depth is the caller's
-// position in the run graph: the delegation and scheduling tools are ABSENT
-// at the limit rather than present-and-erroring, because leaves are the most
-// numerous runs in any fan-out and would otherwise pay ~600 prompt tokens per
-// call for tools they cannot use.
 // finishSpec is finish, worded for who reads its result. A top-level run's
 // result is a line under its answer (the ✓ step, plain text): the answer
 // itself belongs in the reply, which renders as markdown — models put a
@@ -59,6 +50,40 @@ func finishSpec(depth int) toolSpec {
 	}}
 }
 
+// postedFinishSpec is finish for a top-level run whose result is POSTED as
+// its reply — a channel conversation's, a trigger's (channelTurnEnd posts
+// result; the last reply only when result is empty): there, result is the
+// answer, as it always was.
+func postedFinishSpec() toolSpec {
+	return toolSpec{Type: "function", Function: funcDef{
+		Name: "finish", Description: "End your turn: result is posted to the conversation as your reply (basic Markdown works) — make it the full answer, not a status line.",
+		Parameters: obj([]string{"result"}, map[string]any{"result": strProp("your reply, as posted — the full answer")}),
+	}}
+}
+
+// runToolSpecs is toolSpecs for run: a top-level run whose result is posted
+// (a channel's, a trigger's) gets postedFinishSpec's finish.
+func runToolSpecs(cfg Config, run *Run, mcp []toolSpec) []toolSpec {
+	specs := toolSpecs(cfg, run.Depth, mcp)
+	if run.ParentID == 0 && (run.Origin == "channel" || run.Origin == "trigger") {
+		for i := range specs {
+			if specs[i].Function.Name == "finish" {
+				specs[i] = postedFinishSpec()
+			}
+		}
+	}
+	return specs
+}
+
+// toolSpecs builds the model's tool list for this run's config, including
+// any MCP-sourced tools. The run's class (classes.go, D116) decides which
+// toolsets are offered — the core tools (memory, note, finish, yield,
+// ask_user, recall, state_changed, attach_to_reply) always are — and the
+// Features menu can still switch an optional one off. depth is the caller's
+// position in the run graph: the delegation and scheduling tools are ABSENT
+// at the limit rather than present-and-erroring, because leaves are the most
+// numerous runs in any fan-out and would otherwise pay ~600 prompt tokens per
+// call for tools they cannot use.
 func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	cls := classOf(cfg)
 	// A subagent has no one to ask: it would park on a human while its parent

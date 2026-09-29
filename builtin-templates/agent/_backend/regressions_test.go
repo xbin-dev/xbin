@@ -130,6 +130,29 @@ func TestFinishSpecByDepth(t *testing.T) {
 	if !strings.Contains(sub, "the answer your parent receives") || !strings.Contains(subArg, "full answer") || strings.Contains(sub, "SHORT") {
 		t.Fatalf("a subagent's finish: %q / %q", sub, subArg)
 	}
+	// A channel's or a trigger's top-level run posts its finish result as the
+	// reply (channelTurnEnd): there, result stays the full answer — a status
+	// line would be all the peer ever got.
+	finishOf := func(r *Run) string {
+		for _, s := range runToolSpecs(defaultConfig(), r, nil) {
+			if s.Function.Name == "finish" {
+				return s.Function.Description
+			}
+		}
+		t.Fatalf("no finish for %+v", r)
+		return ""
+	}
+	for _, origin := range []string{"channel", "trigger"} {
+		if d := finishOf(&Run{Origin: origin}); !strings.Contains(d, "posted to the conversation as your reply") || strings.Contains(d, "SHORT") {
+			t.Fatalf("a %s run's finish: %q", origin, d)
+		}
+		if d := finishOf(&Run{Origin: origin, ParentID: 1, Depth: 1}); !strings.Contains(d, "the answer your parent receives") {
+			t.Fatalf("a subagent under a %s run: %q", origin, d)
+		}
+	}
+	if d := finishOf(&Run{Origin: "schedule"}); d != top {
+		t.Fatalf("a scheduled top-level run's finish is the tile's: %q", d)
+	}
 }
 
 // A manager updated after its hello was cached (ports added) is asked

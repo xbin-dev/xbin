@@ -873,7 +873,9 @@ plus any bound MCP tool — each as its class allows (**Agent classes**).
 `finish` is worded for who reads its result: a top-level run ends its turn,
 its `result` a one- or two-sentence status line (the chat's `✓` line, which
 renders markdown) with the answer itself in the reply before it; a
-subagent's `result` is the full answer its parent receives.
+subagent's `result` is the full answer its parent receives; and a channel
+conversation's or a trigger's top-level run keeps `result` as the full
+reply, because that is what is posted (§Channels).
 MCP servers are bound via the `mcp` interface (multi:true, like the chat tile).
 Extend these in `_backend/tools.go`.
 

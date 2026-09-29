@@ -5200,7 +5200,10 @@ Deviations and refinements made while implementing; all deliberate:
     by depth — a top-level run ends its turn with a one- or two-sentence
     status line, the answer in its reply before it (which renders); a
     subagent's result is the answer its parent receives (the contract it
-    always had). Pinned: TestFinishSpecByDepth, test/chat.mjs.
+    always had), and so is a channel conversation's or a trigger's
+    top-level run's: its result is what is posted (channelTurnEnd), so its
+    `finish` keeps "the full answer" (`runToolSpecs`). Pinned:
+    TestFinishSpecByDepth, test/chat.mjs.
 - **D134 — The agent's sandbox tools: jobs that don't kill themselves or
   lose their output, a tile sandbox with the rootfs toolchains, and tool
   descriptions that state their limits first (2026-09-29).**
