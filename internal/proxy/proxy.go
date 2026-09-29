@@ -87,6 +87,15 @@ type Decision struct {
 	// Deny is non-nil when the call is refused: util.ErrNoDeployment is a
 	// 404, anything else a 403 whose text is the answer's error.
 	Deny error
+
+	// Partitioned tiles (partitionroute.go): the target's partition the
+	// call reaches, the one the caller acts in and its id, the F5
+	// attribution, and whether a start it causes is a background one.
+	Partition         util.Partition
+	CallerPartition   util.Partition
+	CallerPartitionID string
+	Attribute         *auth.Attribution
+	Background        bool
 }
 
 type Proxy struct {
@@ -106,6 +115,9 @@ type Proxy struct {
 	// tile's deployments (a record, its deployments, its primary): the
 	// deployments plane. nil = no tile has a record.
 	Deployments registry.DeploymentLookup
+	// Partitions starts and holds user partitions (partitionroute.go); nil
+	// = none runs here.
+	Partitions PartitionRunner
 
 	// UserLevel resolves the attributed user's access level on a tile for
 	// the X-XBin-User-Level header (D29). Installed by main from the user
@@ -256,17 +268,22 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	px.identify(r, p, d.Role, comp.Path)
+	px.identifyPartition(r, d)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
 	// Route's answer, and never another (09-fabric §4.1): the primary for a
 	// bare URL from anyone but the tile itself, the caller's own on a
-	// self-call, the named one on a qualified URL.
+	// self-call, the named one on a qualified URL; and, on a partitioned
+	// tile, the partition it reached (partitionroute.go).
 	// deployment: the target Route returned.
-	sock, err := px.Runner.EnsureDeployment(ctx, comp, target)
+	sock, hold, err := px.ensureTarget(ctx, comp, target, d)
 	if err != nil {
 		var be *runner.BuildError
+		code, partErr := ensureStatus(d, err)
 		switch {
+		case partErr:
+			jsonErr(w, code, err.Error(), "")
 		case errors.As(err, &be):
 			jsonErr(w, http.StatusBadGateway, "backend build failed", be.Output)
 		case errors.Is(err, util.ErrNoDeployment):
@@ -279,15 +296,14 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Hold the backend for the whole connection: SSE and WebSocket streams
 	// block in forward below, and the idle reaper must not stop a backend
-	// that is mid-stream.
-	release := px.Runner.TrackDeployment(comp.Path, target)
-	defer release()
+	// that is mid-stream (ensureTarget took the hold).
+	defer hold.done()
 
 	answering := ""
 	if target != primary {
 		answering = target
 	}
-	px.forward(w, r, sock, endpoint, answering)
+	px.forwardWith(w, r, sock, endpoint, answering, hold.onResponse)
 }
 
 // forward proxies r to the backend listening on sock, at /<endpoint>.
@@ -296,6 +312,12 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // the backend set (NP-11-12). A primary's responses pass as they always
 // have.
 func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint, answering string) {
+	px.forwardWith(w, r, sock, endpoint, answering, nil)
+}
+
+// forwardWith is forward, with onResponse (when set) seeing the backend's
+// response before it is copied back.
+func (px *Proxy) forwardWith(w http.ResponseWriter, r *http.Request, sock, endpoint, answering string, onResponse func(*http.Response)) {
 	// The ?frame= auth credential (browser WS attribution) is consumed
 	// here; never forward it — the callee could replay it as the caller.
 	outQuery := r.URL.Query()
@@ -325,6 +347,9 @@ func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint,
 			}
 			if answering != "" {
 				res.Header.Set(HeaderDeployment, answering)
+			}
+			if onResponse != nil {
+				onResponse(res)
 			}
 			return nil
 		},

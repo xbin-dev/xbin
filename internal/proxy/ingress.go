@@ -43,7 +43,10 @@ func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingre
 		return
 	}
 	_, _, paused := PartitionPaused(comp) // a pending or invalid partition mode (partition.go)
-	if state := px.Reg.LifecycleState(comp.Path); state != registry.StateEnabled || paused {
+	// a partitioned tile's public surface is its global instance's, which
+	// is today's; without one it serves nothing (plans/partitions/02 §7)
+	spec, partitioned := comp.Partitioned()
+	if state := px.Reg.LifecycleState(comp.Path); state != registry.StateEnabled || paused || partitioned && !spec.Global {
 		http.Error(w, "this site is not being served right now", http.StatusServiceUnavailable)
 		return
 	}
