@@ -36,15 +36,22 @@ type templateItem struct {
 	Title       string `json:"title"`       //
 	Description string `json:"description"` //
 	DefaultName string `json:"defaultName"` // suggested instance basename
+	// The mode new instances start in (template.partition), and why this
+	// xbind won't write it ("needs --isolate"); both absent when the
+	// template names none (templatepartition.go).
+	Partition        []string `json:"partition,omitempty"`
+	PartitionSkipped string   `json:"partitionSkipped,omitempty"`
 }
 
 func (b *Broker) apiTemplatesList(w http.ResponseWriter, r *http.Request) {
 	out := []templateItem{}
 	if b.templates != nil {
 		for _, t := range b.templates.List() {
+			_, skipped := instanceOpts(t.Partition, nil)
 			out = append(out, templateItem{
 				ID: t.Name, Source: "builtin",
 				Title: t.Title, Description: t.Description, DefaultName: t.DefaultName,
+				Partition: t.Partition, PartitionSkipped: skipped,
 			})
 		}
 	}
@@ -57,9 +64,12 @@ func (b *Broker) apiTemplatesList(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = path.Base(c.Path)
 		}
+		def := workspaceTemplateDefault(c)
+		_, skipped := instanceOpts(def, nil)
 		out = append(out, templateItem{
 			ID: c.Path, Source: "workspace",
 			Title: tm.Title, Description: tm.Description, DefaultName: name,
+			Partition: def, PartitionSkipped: skipped,
 		})
 	}
 	server.WriteJSON(w, http.StatusOK, out)
@@ -70,9 +80,12 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"` // builtin name or workspace component path
 		Path   string `json:"path"`   // target component path (optional)
 		Owner  string `json:"owner"`  // as /create: "org:<id>" | "user:<id>" | "" (D24/D52)
+		// false: the instance doesn't start in the template's partition mode
+		// (PD-35 opt-out); absent or true: it does, under --isolate.
+		Partition *bool `json:"partition"`
 	}
 	if err := server.DecodeJSON(r, &body); err != nil || body.Source == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {source, path?, owner?}", "/docs/protocol.md")
+		server.WriteError(w, http.StatusBadRequest, "need {source, path?, owner?, partition?}", "/docs/protocol.md")
 		return
 	}
 	// Resolve the source and the effective target FIRST — instantiating
@@ -124,6 +137,17 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", target, "err", err)
 	}
 
+	var def []string // the template's default partition mode (templatepartition.go)
+	if isBuiltin {
+		t, _ := b.templates.Get(body.Source)
+		def = t.Partition
+	} else {
+		def = workspaceTemplateDefault(srcComp)
+	}
+	opts, skipped := instanceOpts(def, body.Partition)
+	who := b.noteInstantiator(target, p) // the first auto mode record names who
+	defer who.done()
+
 	var (
 		installed   string
 		files       []string
@@ -133,14 +157,15 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case isBuiltin:
 		builtinName = body.Source
-		installed, files, err = b.templates.Instantiate(b.Reg.Root, body.Source, target)
+		installed, files, err = b.templates.Instantiate(b.Reg.Root, body.Source, target, opts)
 	default:
-		installed, files, err = instantiateWorkspace(b.Reg.Root, srcComp.Path, target)
+		installed, files, err = instantiateWorkspace(b.Reg.Root, srcComp.Path, target, opts)
 	}
 	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	who.created() // this request's copy is the one written
 
 	// Seed the instance's repo from the template's served repo BEFORE
 	// EnsureComponentRepos can give it an unrelated fresh root — shared
@@ -176,6 +201,12 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 	}
 	b.assignOwner(installed, owner) // D24: creator-owned (workspace-owned for admins) unless requested
 	out := map[string]any{"path": installed, "files": files, "pendingGrants": pending}
+	switch {
+	case skipped != "":
+		out["partitionSkipped"] = skipped
+	case def != nil && opts.Partition:
+		out["partition"] = def
+	}
 	server.WriteJSON(w, http.StatusOK, out)
 }
 
@@ -185,13 +216,14 @@ func templateExists(s *builtins.TemplateSet, name string) bool {
 }
 
 // instantiateWorkspace copies a workspace template component (at srcPath) into
-// a named instance, stripping the template marker. Default target basename is
-// the template's DefaultName under apps/.
-func instantiateWorkspace(root, srcPath, targetPath string) (string, []string, error) {
+// a named instance, stripping the template marker; it starts in the partition
+// mode opts allows. Default target basename is the template's DefaultName
+// under apps/.
+func instantiateWorkspace(root, srcPath, targetPath string, opts builtins.InstanceOpts) (string, []string, error) {
 	if targetPath == "" {
 		targetPath = "apps/" + path.Base(srcPath)
 	}
-	written, err := builtins.CopyTree(os.DirFS(root), srcPath, root, targetPath, srcPath, true)
+	written, err := builtins.CopyTree(os.DirFS(root), srcPath, root, targetPath, srcPath, &opts)
 	if err != nil {
 		return "", written, err
 	}

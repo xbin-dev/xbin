@@ -189,9 +189,10 @@ func (b *Broker) SetBuiltins(s *builtins.Set) { b.tiles = s }
 // before Register.
 func (b *Broker) SetBuiltinTemplates(s *builtins.TemplateSet) { b.templates = s }
 
-// SetUpdater installs the builtin update tracker (plans/builtin-updates.md).
+// SetUpdater installs the builtin update tracker (plans/builtin-updates.md),
+// reading the mode store for a manifest it can't read (templatepartition.go).
 // Call before Register.
-func (b *Broker) SetUpdater(u *builtins.Updater) { b.updater = u }
+func (b *Broker) SetUpdater(u *builtins.Updater) { b.updater = b.withRecordedPartition(u) }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
 	b := &Broker{Reg: reg, Hub: hub}

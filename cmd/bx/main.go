@@ -115,7 +115,7 @@ func usage() {
                                         scaffold a component
   bx tile ls | import <name> [as <path>]
                                         list/install builtin tiles
-  bx template ls | new <source> [as <path>]
+  bx template ls | new <source> [as <path>] [--no-partition]
                                         list/instantiate template components
   bx builtin updates | update <id> [--replace|--merge]
                                         update copied builtins (scaffold, tiles)

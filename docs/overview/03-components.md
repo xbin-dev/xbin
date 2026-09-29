@@ -290,6 +290,9 @@ an openable tile, and exists to be copied. Instantiating (Tile Manager →
 *New from template*, `bx template new`, `POST /api/xbin/templates/new`)
 copies the files to a new path, strips the `template` block, and yields an
 independent component — same capability gate as creating any component.
+A `partition` in the block is the mode new instances start in: the copy
+gets it as its own top-level key unless the creator opts out or xbind runs
+without `--isolate` ([partitions](../partitions.md)).
 Sources are the embedded builtin catalog and any workspace component
 carrying the block. Instances get a read-only `template` git remote pointing
 at the blueprint's repo, so upstream fixes can be pulled deliberately

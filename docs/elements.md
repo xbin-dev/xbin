@@ -235,7 +235,11 @@ JSONC (comments and trailing commas allowed). Everything is optional.
     "title": "AI Agent",
     "description": "A blank-slate agentic loop you clone and build up.",
     "defaultName": "agent",  // suggested instance basename (under apps/)
-    "partition": ["user", "global"] // optional: the mode instances start in
+    // Optional: the mode new instances start in, written as the copy's own
+    // top-level "partition" unless the creator opts out (--no-partition)
+    // or xbind runs without --isolate (docs/partitions.md). Never put the
+    // key at a template's top level.
+    "partition": ["user", "global"]
   }
 }
 ```

@@ -1961,26 +1961,74 @@ GET    /builtins/updates            any. builtins (scaffold + imported tiles) wi
 POST   /builtins/update             xbin:writer. body {id, mode:
                                    replace|merge|pr|pin|unpin}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
-                                   both → {files} and re-record provenance
-                                   eagerly. mode "pr" (D49) writes NOTHING:
+                                   both → {files, notes?} and re-record provenance
+                                   eagerly. No mode adds, removes or changes a
+                                   tile's mode request, each xbin.json's
+                                   top-level "partition" (any key case, as
+                                   xbind reads it — docs/partitions.md):
+                                   replace writes the INSTALLED value (present,
+                                   absent or its list, spliced where the
+                                   installed file has it; from the builder's
+                                   own side of conflict markers an earlier
+                                   merge left; for a file that doesn't parse,
+                                   the mode xbind last read from the tile —
+                                   and when even that is unknown the manifest
+                                   is left as it is and the update stays
+                                   offered); merge and "pr" undo upstream's own
+                                   change to the key before git sees it, so
+                                   the builder's line merges untouched. notes
+                                   (absent when empty) name each manifest
+                                   where upstream asks otherwise ("…/xbin.json:
+                                   partition kept as installed (<ours>; upstream
+                                   asks <theirs>): edit it deliberately to
+                                   request a switch") — replace whenever it
+                                   does, merge and "pr" when upstream changed
+                                   the key — and a "pr" proposal's message
+                                   says so too. mode "pr" (D49) writes NOTHING:
                                    the update is filed as a change proposal
                                    against the tile → {pr:{target,number,…}} —
                                    the tile's own plane reviews and `git am`s
                                    it, and provenance refreshes only when the
-                                   PR closes merged. Idempotent per embed
+                                   PR closes merged. When upstream changed
+                                   nothing but a partition there is nothing to
+                                   propose: "pr" answers {files: [], notes}
+                                   instead and records the version as applied
+                                   (the tile's files are what a merge would
+                                   leave). Idempotent per embed
                                    version; a newer embed auto-withdraws the
                                    stale open proposal. Such PRs carry
                                    kind:"builtin-update" + builtin/toVersion/
                                    toHash in their meta. Never touches
                                    template instances.
 GET    /templates                   any. template blueprints (builtin ∪ workspace).
-                                   [{id,source,title,description,defaultName}]
+                                   [{id,source,title,description,defaultName,
+                                   partition?,partitionSkipped?}] — partition:
+                                   the mode new instances start in (the
+                                   template block's "partition", e.g.
+                                   ["user","global"]); partitionSkipped:
+                                   "needs --isolate" when this xbind runs
+                                   without isolation and won't write it. Both
+                                   absent for a template that names no mode.
 POST   /templates/new               same authority as /create on the
                                    resolved target; a workspace-template
                                    source also needs READ. body {source,
-                                   path?, owner?} → {path,
-                                   files, pendingGrants} — instantiates a template
-                                   into a named copy (docs/overview/03-components.md §Templates). A
+                                   path?, owner?, partition?} → {path,
+                                   files, pendingGrants, partition?,
+                                   partitionSkipped?} — instantiates a template
+                                   into a named copy (docs/overview/03-components.md §Templates).
+                                   The copy's top-level "partition" is the
+                                   template block's (docs/partitions.md) unless
+                                   the body says "partition": false or xbind
+                                   runs without --isolate; the answer carries
+                                   partition (the mode written) or
+                                   partitionSkipped ("opted out" | "needs
+                                   --isolate"), both absent when the template
+                                   names no mode. Without the default the copy
+                                   asks for no mode at all. An xbind older
+                                   than partitioned tiles refuses the
+                                   partition field (400 "need {source, path?,
+                                   owner?}"); it never writes a mode, so send
+                                   the field only when opting out. A
                                    builtin-template instance gets a read-only
                                    `template` git remote (below), and its repo
                                    is SEEDED from the template's repo (D50):

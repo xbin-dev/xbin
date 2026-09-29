@@ -396,6 +396,7 @@ func (pm *partitionModes) decide(b *Broker, rec *modeRecord, ask registry.Partit
 		return held
 	}
 	mode, next := decideMode(rec, ask, holds, pm.now())
+	b.stampAutoBy(ask.Tile, rec, next) // an instantiation's auto record names who (templatepartition.go)
 	if next != nil && sealed && mode.State == registry.PartitionPending {
 		// A sealed vault is the only answer: pause, record nothing, and
 		// settle again once it unseals (resettleAfterUnseal).

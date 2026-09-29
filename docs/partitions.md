@@ -141,12 +141,38 @@ counts), a vault key, a cron job, bus subscription, interface instance or
 ingress host registration, or a partition, its mail or a personal bind.
 Volumes that are provisioned but empty don't count.
 
-Templates and updates never switch a mode. A template asks for the mode of
-**new** instances in its `template` block (`"template": {"partition":
-[…]}`), which is stripped from instances, so `git merge template/main`
-can't add `partition`; `bx builtin update` keeps an instance's installed
-value. The agent template starts new instances partitioned, with an opt-out
-when you create one; existing instances stay as they are.
+Templates and updates never switch a mode:
+
+- **A template** asks for the mode of **new** instances in its `template`
+  block (`"template": {"partition": […]}`), never at its top level.
+  Instantiating writes it as the instance's own top-level `partition`, and
+  the fresh instance, which holds no data, starts in that mode at once (the
+  record names who created it). You can opt out when you create one: untick
+  **Keep each person's data apart** on the Tile Manager's template card,
+  run `bx template new <source> --no-partition`, or send `"partition":
+  false` to `POST /api/xbin/templates/new`
+  ([protocol.md](protocol.md)). Without `xbind --isolate` the default isn't
+  written at all (the box is off, "needs --isolate"), since people's
+  partitions need isolation. The block is stripped from instances, so `git
+  merge template/main` can't add `partition`: an upstream change to the
+  default touches lines the instance dropped and shows up as a conflict.
+- **`bx builtin update`** (replace, merge or a proposal) keeps each
+  `xbin.json`'s **installed** `partition` — present, absent or its list, in
+  whatever case you wrote the key — and changes nothing else about it.
+  Replace puts your value where your file has it; merge and proposals never
+  take upstream's change to the key, so your line (comment included) merges
+  as it is. After a merge that left conflict markers, a replace reads your
+  side of them; for a manifest that doesn't parse at all it writes the mode
+  xbind last read from the tile, or, when that isn't known either, leaves
+  the file alone and keeps the update offered. When upstream asks for
+  something else, it prints `partition kept as installed (…; upstream asks
+  …): edit it deliberately to request a switch`. A proposal whose only
+  change would be the partition has nothing to propose: the version is
+  recorded instead.
+
+The agent template is to start new instances partitioned, with that
+opt-out, once the agent can run partitioned (**TODO**: not yet — today its
+instances start unpartitioned); existing instances stay as they are.
 
 ## Shared resources
 
