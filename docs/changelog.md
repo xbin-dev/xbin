@@ -43,6 +43,26 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   that it is a static snapshot, not a browser — and the `# Sandbox` prompt
   names the image's tools. Instances pick this up with a template update;
   the database change is additive.
+- **Agent template: a real browser in the sandbox, and one view of its
+  files** (D136, `builtin-templates/agent/API.md` §Coding sandboxes and
+  §Session files). `browser_check {target, wait_ms?, screenshots_ms?,
+  viewport?, script?}` loads a page — a sandbox file, a session file or a
+  URL the sandbox reaches, such as `http://localhost:8080/` — in a headless
+  Chromium inside the conversation's sandbox (Playwright; the xbin image has
+  both) and reports raw facts: the final URL and title, console messages,
+  page errors, failed requests (those the sandbox's egress blocked named as
+  such), an accessibility snapshot, screenshots saved as session files and
+  shown to the model, and a script's JSON return value. The session files
+  now record each version's sha256, where it came from and the version it
+  replaced, and keep earlier versions: `sandbox_download` **overwrites the
+  session file in place** (no more `report-2.html` piles; an unchanged file
+  writes nothing; `keep_both: true` keeps the old suffix behaviour), and the
+  new `file_info` and `file_diff` read either place. `file_read`,
+  `file_view`, `render_html` and `browser_check` take `session:<file>` or a
+  sandbox path (`/work/x`, `./x`); a bare name is a session file as before,
+  and a miss names the other place. Existing conversations and files keep
+  working (older rows show no hash or source); template instances pick this
+  up with a template update. Nothing to change.
 
 ## 2026-09-28
 

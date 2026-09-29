@@ -326,6 +326,20 @@ test('the tool cards: the box family, its sublines and what a call came to', () 
   assert.equal(T.outcome('write', 'wrote /work/a.go (1.2 KiB)').text, '1.2 KiB');
   assert.equal(T.outcome('edit', 'edited /work/a.go (1 replacement)\n   3\tfoo').text, '1 replacement');
   assert.equal(T.outcome('web_fetch', 'x (y)'), null);
+  // D136: browser_check's headline, sandbox_download in place
+  const bc = 'browser_check file:///w/index.html — loaded in 12 ms · status 200 · 3 console message(s), 1 error(s) · 0 page error(s) · 2 failed request(s)\n{}';
+  assert.deepEqual(T.outcome('browser_check', bc), { text: '1 console error · 2 failed requests', tone: 'bad' });
+  assert.deepEqual(T.outcome('browser_check', 'browser_check http://localhost:8080/ — loaded in 9 ms · status 200 · 0 console message(s), 0 error(s) · 0 page error(s) · 0 failed request(s)\n{}'),
+    { text: 'no errors', tone: 'ok' });
+  assert.deepEqual(T.outcome('browser_check', 'browser_check http://localhost:1/ — did not load: net::ERR_CONNECTION_REFUSED · 0 console message(s), 0 error(s) · 0 page error(s) · 1 failed request(s)'),
+    { text: 'did not load', tone: 'bad' });
+  assert.equal(T.headline('browser_check', '{"target":"./index.html","script":"return 1"}'), 'Check ./index.html in a browser (+ script)');
+  assert.equal(T.family('browser_check'), 'box');
+  assert.equal(T.outcome('sandbox_download', 'unchanged: the session file r.html already holds /w/r.html (sha abc, v2) — nothing written').text, 'unchanged');
+  assert.equal(T.outcome('sandbox_download', 'downloaded /w/r.html to the session file r.html (text, 21 B) — v2, replacing v1, copied from …; file_diff {"a": "r.html"} shows what changed\n\nsession files: …').text, 'v2 (was v1)');
+  assert.equal(T.outcome('sandbox_download', 'downloaded /w/r.html to the session file r.html (text, 21 B)\n\nsession files: …').text, 'text, 21 B');
+  assert.equal(T.headline('file_diff', '{"a":"r.html"}'), 'Diff r.html → its previous version');
+  assert.equal(T.family('file_info'), 'file');
 });
 
 test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events', async () => {

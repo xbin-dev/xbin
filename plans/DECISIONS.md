@@ -5174,3 +5174,90 @@ Deviations and refinements made while implementing; all deliberate:
     `eval` (portable only to POSIX shells, and the variable is bounded by
     the command-line limit anyway); a job-end inbox row to wake the run (a
     poke plus the table is the same durability without a row per end).
+
+- **D136 — The agent verifies pages in a real browser in its sandbox
+  (browser_check), and sees its files in one view with two explicit places:
+  session files carry a hash, a source and earlier versions; sandbox_download
+  overwrites in place (2026-09-29).**
+  builtin-templates/agent/_backend/{browser_check.go, browser_runner.mjs,
+  files_meta.go, files_paths.go}, files.go, files_store.go, sandbox_move.go,
+  attach.go (shownImages); model/tool-heads.js. From an agent's
+  retrospective in the builtin template (plans: "next-because-of-the-cuddly-
+  newt", WP3 — B2, C1–C3): asked to process data in its coding sandbox and
+  show a page, it found "no browser" (render_html is a static srcdoc frame,
+  and Node, Playwright and Chromium were in the rootfs but off the
+  tile-sandbox PATH — D134's part), and the session files vs sandbox split
+  confused it while `-2`, `-3` duplicates piled up (sandbox_download always
+  went through the uploads' freePath, and nothing had a hash). The owner
+  chose the recommended options: an in-sandbox browser tool, explicit
+  places with content addresses.
+  - **browser_check returns raw facts, measured in a real browser, with no
+    model reading the page in between.** The final URL and title, console
+    messages (level, text, location), page errors, failed requests (URL,
+    error or status — a network error for an outside host with egress
+    `none`, or a private address with egress `internet`, is named a sandbox
+    egress block), a pruned accessibility snapshot, screenshots at the
+    moments asked for, and a script's JSON return value. Evidence:
+    WebArena and AgentOccam (an accessibility tree, pruned, is what agents
+    act on best), ArtifactsBench (screenshots at several moments catch what
+    one misses — animations, late renders), WatchPoint (2026: measured
+    values, no LLM interpreting the page), Chrome DevTools MCP (console and
+    network are the first things a developer reads). Its description
+    states its scope in the first line (ToolBeHonest: "exists but limited"
+    is the worst failure): it runs in the sandbox, its loads use the
+    sandbox's egress, it needs Node and Playwright there.
+  - **The runner lives in the template, runs in the sandbox.** An embedded
+    ES module written to `~/.cache/xbin-browser/runner-<hash>.mjs` once per
+    version, run with the contract's `run` (bounded time and output; the
+    manager kills it with the call) through `sh -c` that finds
+    `/usr/local/node/bin/node` by its absolute path — so it works on xbinds
+    without D134's PATH fix — else `node` on the PATH. Playwright is found
+    in the project first, then the global installs (the rootfs's `npm i -g`
+    under /usr/local/node); browsers under `$PLAYWRIGHT_BROWSERS_PATH`, else
+    /usr/local/ms-playwright. No new contract surface: an old manager runs
+    it, and a sandbox without Node, Playwright or Chromium gets that said
+    in so many words with the install command. It is a side effect (the
+    approval gate) when the sandbox has egress, like bash. Not a numbered
+    job: it is one bounded check, not a process to follow.
+  - **Screenshots are session files the model is shown.** `shots/<page>-
+    <ms>ms.png`, in place (the next check of the page replaces them, the
+    earlier kept), with a `browser` source; the result lists them on one
+    line that shownImages (attach.go) reads, as it reads file_view's —
+    whose own result now names the key it shows, so a sandbox path works
+    and an old transcript's result still reads.
+  - **Files are content-addressed with provenance.** Each version records
+    sha256, its source (a tool call, a sandbox path + etag, a person's
+    upload, a screenshot) and the version it replaced; an overwrite keeps
+    the replaced version (repl_file_versions: 10 per file, 1 MiB of text
+    and 32 MiB of objects per run). Evidence: Venti (FAST 2002) and git's
+    objects — name content by its hash, so "same content" and "changed"
+    are exact; PASS (USENIX ATC 2006) — provenance recorded at write time
+    is what makes a file's history answerable later; CORVUS (2026) —
+    agents act on stale copies unless staleness is surfaced, hence
+    file_list's "changed in the sandbox since" (one etag stat per copy,
+    only while that sandbox is attached).
+  - **sandbox_download overwrites in place.** The same file again writes
+    nothing (the recorded etag answers without a read; else the hash);
+    a changed one becomes the next version. `keep_both` keeps the old
+    suffixes; freePath stays for people's uploads, whose names must never
+    shadow another file the model referred to.
+  - **Two places, named explicitly.** `session:<key>[@v]` or a sandbox
+    path (`/…`, `./…`, `~/…`, `sandbox:…`) in file_read, file_view,
+    render_html, browser_check, file_info and file_diff; a bare key still
+    means a session file (old transcripts and habits), and `./x` without a
+    sandbox is still the session file `x`. A miss names the other place
+    when it has the file.
+  - **Compatibility.** The migration is additive (four columns, one
+    table). A row an older backend wrote — before, or during a blue/green
+    overlap, when it bumps the version without the new columns — carries a
+    `meta_ver` that isn't its version, so its hash and source read as
+    unknown, never wrong. The tools' results keep their old first words
+    (`downloaded … to the session file …`, `Showing …`, `rendered …`).
+  - **Not chosen:** mounting the session store into the sandbox with FUSE
+    (sqlite rows and blob objects; FUSE costs dominate small-file churn —
+    Vangoor et al., FAST 2017); making the sandbox the store (runs without
+    one, and sandboxes are deleted); an xbind-side browser service (a heavy
+    dependency and a new host trust boundary — the owner chose the sandbox);
+    renaming render_html (breaks transcripts; a description shift moves
+    tool choice unpredictably — Faghih et al., EMNLP 2025); keeping every
+    version forever (the per-run store stays bounded).

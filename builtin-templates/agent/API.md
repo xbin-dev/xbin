@@ -344,11 +344,11 @@ their parent's, and **a schedule the agent creates gets the creating run's**.
 
 | Toolset | Tools |
 |---|---|
-| `files` | the session files and `render_html` (`file_view` with the `vision` feature) |
+| `files` | the session files (`file_*`, including `file_info` and `file_diff`) and `render_html` (`file_view` with the `vision` feature) |
 | `repl` | the JavaScript sandbox (`js_eval`, `js_run`, `js_reset`) |
 | `web` | `web_search`, `web_fetch` |
 | `internal` | `xbin_call` and the bound MCP servers' tools — `mcp` narrows them |
-| `sandbox` | the coding-sandbox tools; `managers` and `sandboxEgress` narrow what may be bound |
+| `sandbox` | the coding-sandbox tools, `browser_check` among them; `managers` and `sandboxEgress` narrow what may be bound |
 | `subagents` | the `subagent_*` tools |
 | `schedule` | `schedule`, `unschedule` |
 | `threads` | `schedules_list`, `schedule_inspect`, `threads_list`, `thread_inspect` |
@@ -922,7 +922,8 @@ conversation no person owns.
 Feature key `files` (on by default). A per-run file store held in sqlite, not on
 disk: `file_write` · `file_read` (whole file, or a line range with
 `offset`/`limit`) · `file_edit` (exact-string replace) · `file_list` ·
-`render_html` · `file_view` (an image — see Attachments). They touch only this
+`file_info` · `file_diff` · `render_html` · `file_view` (an image — see
+Attachments). They touch only this
 run's private rows — no egress, no other component — so they are offered in
 **both** capability lanes and are not `sideEffect()` tools: the approval gate
 never fires for them. Caps: 64 KiB per text file, 64 files and 512 KiB of text
@@ -949,10 +950,59 @@ lit from the xbin checkout the template lives in (in an instance:
 Playwright with a Chromium build and skips without it. The backend: `go vet
 ./_backend && go test ./_backend` with a `go.mod` copied from `go.mod.tile`.
 
-File versions are monotonic but **not snapshotted**: clicking an older render
-chip shows the file's current content, with the header noting the difference.
-The tile's Files tab edits them too, sending back the version it loaded so a
-write the agent made in between comes back as a 409 instead of being lost.
+File versions are monotonic. Clicking an older render chip shows the file's
+current content, with the header noting the difference. The tile's Files tab
+edits them too, sending back the version it loaded so a write the agent made
+in between comes back as a 409 instead of being lost.
+
+### Hashes, sources and earlier versions (D136)
+
+Every write records, for the version it makes, the content's **sha256**, its
+**source** and the version it replaced (`parent`): `{kind: "tool", tool,
+call}` (file_write, file_edit), `{kind: "sandbox", sandbox, box, path, etag,
+tool, call}` (a copy of a sandbox file), `{kind: "browser", target, atMs,
+call}` (a browser_check screenshot), `{kind: "upload"}` (a person's upload).
+`GET /runs/{id}/files` rows carry `sha256`, `source` and `parent` when known.
+A row written before D136 — or by an older backend during a blue/green
+overlap, which bumps the version without them (`meta_ver` ≠ `version`) — has
+none: unknown, never wrong; a text file's hash is computed on demand. An
+overwrite keeps the version it replaces in `repl_file_versions` (the last 10
+per file; 1 MiB of earlier text and 32 MiB of earlier binary objects per run,
+oldest out first), so `file_diff` and `file_read session:x@N` can reach it.
+Deleting a file deletes its earlier versions (and their objects).
+
+- `file_list` — one line per file: size, version, a short hash, where it came
+  from; `same content as …` for duplicates; `changed in the sandbox since` /
+  `gone from the sandbox since` for a copy whose sandbox file's etag moved
+  (one stat each, at most 10, only while that sandbox is attached).
+- `file_info {path}` — a session file's full hash, source, parent, duplicates,
+  sandbox drift and earlier versions; or a sandbox file's type, size, mode,
+  mtime, etag, sha256 and the session files copied from it.
+- `file_diff {a, b?}` — a unified diff (3 lines of context, ≤ 12 KiB) of two
+  text files, each in either place; identical content is reported by hash,
+  binary files by hash and size. `b` omitted: a session file's previous
+  version against its current one, or a sandbox file's session copy against
+  it.
+
+### Two places, one way to name them (D136)
+
+`file_read`, `file_view`, `render_html`, `file_info`, `file_diff` and
+`browser_check` take:
+
+| Path | Means |
+|---|---|
+| `report.html`, `session:report.html` | a session file (a bare key always meant one) |
+| `session:report.html@2` | an earlier version of one (`file_read`, `file_info`, `file_diff`) |
+| `/work/report.html`, `./out/r.html`, `~/r.html`, `sandbox:r.html` | a file in the bound sandbox (relative to the binding's cwd) |
+
+Without a bound sandbox (or the `sandbox` toolset), `./x` stays the session
+file `x` and `/x` is refused with that reason. A miss names the other place
+when it has the file: `no such file "notes.md" — not a session file, but the
+sandbox has /work/notes.md`, or `/work/todo.md doesn't exist in the sandbox —
+session:todo.md is a session file`. `file_read` of a sandbox path is the
+sandbox's `read`; `render_html` and `file_view` of one copy it into the
+session files first, in place, as `sandbox_download` does (its result line
+leads).
 
 ## Coding sandboxes (D115)
 
@@ -1126,9 +1176,40 @@ attached ones — built from the binding alone, so it changes on a rebind only
 | `glob` | `{pattern, path?}` | files by name, relative to the working directory, sorted, at most 200: `**` spans directories, a pattern without `/` matches names at any depth, `{a,b}` alternates. The listing is the sandbox's own `rg --files` (which honours `.gitignore`) or `find` (skipping `.git` and `node_modules`) — at most 20 000 files — matched here |
 | `grep` | `{pattern, path?, glob?, ignore_case?}` | `path:line: text` lines, at most 100 (then how many more), text clipped at 300 characters: `rg` where the sandbox has it (its regex syntax), else `grep -rE`; skips `.git` and binary files |
 | `sandbox_upload` | `{file, path?}` | copies a session file (text or attachment) into the sandbox: to `path`, into it when it ends in `/` or is a directory (default: the working directory). Feature `files` |
-| `sandbox_download` | `{path, name?}` | copies a sandbox file (≤ 16 MiB) into the session files as an upload would be stored — text within the text cap as text, anything else as an attachment — under `name` or its own (a taken name gets a suffix). A directory is refused: pack it with `bash` first. Feature `files` |
+| `sandbox_download` | `{path, name?, keep_both?}` | copies a sandbox file (≤ 16 MiB) into the session files — text within the text cap as text, anything else as an attachment — under `name` or its own, **in place** (D136): an existing session file of that name becomes the next version, the replaced one kept (`file_diff`), text or binary either way. A file that hasn't changed writes nothing — `unchanged: … (sha …, v2)` — known by the etag the copy recorded (no read) or else by its sha256. `keep_both: true` is the old behaviour: a taken name gets a suffix (`-2`, `-3`…). A directory is refused: pack it with `bash` first. Feature `files` |
+| `browser_check` | `{target, wait_ms? (1000, ≤ 20000), screenshots_ms? ([wait_ms], ≤ 4), viewport? {width, height}, script?}` | loads a page in a headless Chromium **inside the sandbox** and returns raw facts (below). A side effect when the sandbox has egress |
 | `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. Offered when more than one sandbox is attached |
 | `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps — or why it is unavailable) and the conversation's latest 15 jobs |
+
+**`browser_check`** (D136). The target is a sandbox path (a directory:
+its `index.html`), `session:<file>` (copied to
+`~/.cache/xbin-browser/session/<run>/` in the sandbox first) or an `http(s)`
+URL the sandbox reaches — `http://localhost:8080/` for a server started with
+`bash background:true`. The runner (`_backend/browser_runner.mjs`, embedded)
+is written to `~/.cache/xbin-browser/runner-<hash>.mjs` once per version and
+run with the contract's `run` (`sh -c` finding `/usr/local/node/bin/node`,
+else `node` on the PATH); it finds Playwright in the project
+(`node_modules` up from the cwd), then the global installs
+(`/usr/local/node/lib/node_modules`, …), and browsers in
+`$PLAYWRIGHT_BROWSERS_PATH`, else `/usr/local/ms-playwright` (the xbin
+rootfs). Its time budget is what the tool timeout leaves, at most 90 s (the
+navigation at most 20 s; a script 15 s). The result is a headline —
+`browser_check <url> — loaded in 12 ms · status 200 · 3 console message(s), 1
+error(s) · 0 page error(s) · 2 failed request(s)` — then
+`screenshots (shown to you after these tool results): shots/index-0ms.png`
+and JSON (≤ 12 KiB, the snapshot and lists shrunk to fit): `url`, `title`,
+`status`, `load {state, ms, error?}`, `console [{type, text, location,
+at_ms}]` (≤ 60), `page_errors [{message, stack}]`, `requests_failed [{url,
+method, resource, error | status, blocked?}]` — `blocked` names a request
+the sandbox's egress refused (a network error for an outside host with
+egress `none`, or for a private address with egress `internet`) —,
+`snapshot` (Playwright's aria snapshot of `body`, ≤ 9000 characters),
+`screenshots [{at_ms, file, bytes}]`, `script {value} | {error, stack}` (the
+return value, JSON as it is, ≤ 16 KiB). Screenshots are PNG session files
+`shots/<page>-<ms>ms.png` (in place: the next check of the page replaces them,
+keeping the earlier version) and are shown to a vision model as `file_view`'s
+are. Without the `files` feature none are taken. A sandbox without Node,
+Playwright or a Chromium gets an error saying which, and how to install it.
 
 **`sandbox_create`** `{name, manager?, image?, size?, egress?, cwd?}` — the
 agent makes a sandbox for its conversation. It is offered to a top-level

@@ -9,6 +9,7 @@
 const FAMILY = {
   xbin_call: 'net', web_search: 'web', web_fetch: 'web',
   file_write: 'file', file_read: 'file', file_edit: 'file', file_list: 'file', file_view: 'file', render_html: 'file',
+  file_info: 'file', file_diff: 'file',
   js_eval: 'code', js_run: 'code', js_reset: 'code',
   memory_set: 'mem', memory_get: 'mem', recall: 'mem', note: 'note',
   skills_list: 'skill', skill_view: 'skill', skill_manage: 'skill',
@@ -21,6 +22,7 @@ const FAMILY = {
   // the coding sandbox (D115): commands, its files, moving files in and out
   bash: 'box', bash_output: 'box', bash_kill: 'box', jobs: 'box', read: 'box', write: 'box', edit: 'box', ls: 'box', glob: 'box', grep: 'box',
   sandbox_upload: 'box', sandbox_download: 'box', sandbox_copy: 'box', sandbox_info: 'box', sandbox_create: 'box',
+  browser_check: 'box', // a page in a headless Chromium in the sandbox (D136)
 };
 
 export const ICON = {
@@ -68,6 +70,8 @@ function reading(name, a) {
     case 'file_list': return 'List session files';
     case 'file_view': return `Look at ${a.path || 'an image'}`;
     case 'render_html': return `Render ${a.path || 'a page'}`;
+    case 'file_info': return `Describe ${a.path || 'a file'}`;
+    case 'file_diff': return `Diff ${a.a || '?'} → ${a.b || 'its previous version'}`;
     case 'js_eval': {
       const n = String(a.code || '').split('\n').length;
       return n > 1 ? `Run JavaScript (${n} lines)` : `Run ${one(a.code, 60)}`;
@@ -130,6 +134,7 @@ function boxReading(name, a) {
     case 'sandbox_copy': return `Copy ${spot(a.from)} → ${spot(a.to)}`;
     case 'sandbox_info': return 'Look at the sandboxes';
     case 'sandbox_create': return `Create sandbox ${a.name || ''}`.trim();
+    case 'browser_check': return `Check ${one(a.target, 70) || 'a page'} in a browser${a.script ? ' (+ script)' : ''}`;
   }
   return name;
 }
@@ -203,8 +208,29 @@ export function outcome(name, content) {
       return n ? { text: `${n} line${n === 1 ? '' : 's'}`, tone: '' } : null;
     }
     case 'sandbox_info': return null;
+    case 'browser_check': return browserOutcome(first);
+    case 'sandbox_download': {
+      if (/^unchanged: /.test(first)) return { text: 'unchanged', tone: '' };
+      const v = /— v(\d+), replacing v(\d+)/.exec(first);
+      if (v) return { text: `v${v[1]} (was v${v[2]})`, tone: '' };
+      return paren(first.split(' — ')[0]);
+    }
   }
   return paren(first);
+}
+
+// browserOutcome reads browser_check's headline (_backend/browser_check.go
+// browserText): errors are bad news, a clean page is good news.
+function browserOutcome(first) {
+  if (/ — did not load: /.test(first)) return { text: 'did not load', tone: 'bad' };
+  const n = (re) => { const m = re.exec(first); return m ? +m[1] : 0; };
+  const ce = n(/, (\d+) error\(s\)/), pe = n(/ (\d+) page error\(s\)/), rf = n(/ (\d+) failed request\(s\)/);
+  const parts = [];
+  if (ce) parts.push(`${ce} console error${ce === 1 ? '' : 's'}`);
+  if (pe) parts.push(`${pe} page error${pe === 1 ? '' : 's'}`);
+  if (rf) parts.push(`${rf} failed request${rf === 1 ? '' : 's'}`);
+  if (!/^browser_check /.test(first)) return null;
+  return parts.length ? { text: parts.join(' · '), tone: ce || pe ? 'bad' : '' } : { text: 'no errors', tone: 'ok' };
 }
 
 // headline is a call's one-line description.
