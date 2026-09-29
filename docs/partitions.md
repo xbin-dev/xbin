@@ -175,8 +175,9 @@ Each person's partition has its own disk ceiling (by default the tile's
 per-namespace quota): a full partition answers that person's writes 507,
 nobody else's. Where the data sits on disk, and when it is deleted, is in
 [resources.md](resources.md#partitioned-tiles-shared). A bus that isn't
-shared can't be published to from a person's partition yet (503, **TODO**:
-partitioned bus events); a shared one works as today.
+shared keeps each partition's events apart: an event published on it — the
+global instance's too — reaches only subscribers in the publisher's
+partition. A shared bus's events reach every reader, as today.
 
 A `cron` resource can't be shared: `shared` on it is ignored, with a
 warning. In a scope no tile partitions, `shared` is ignored silently, so a
