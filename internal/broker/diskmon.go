@@ -374,6 +374,9 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 			out = append(out, a)
 		}
 	}
+	if admin {
+		out = append(out, b.backupKeyAlerts()...) // keys no export holds yet: admins only (backupkeys.go)
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})
 }
 

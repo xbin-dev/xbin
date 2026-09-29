@@ -122,10 +122,14 @@ type Manifest struct {
 	Kind string `json:"kind,omitempty"`
 }
 
-// DataRef names a data archive: its archiver key and version.
+// DataRef names a data archive: its archiver key and version, and the
+// subkey it is sealed under — so a restore can tell a data archive whose
+// key was erased (and whose versions the archiver then deleted) from one
+// that is missing.
 type DataRef struct {
 	Key     string `json:"key"`
 	Version string `json:"version"`
+	Subkey  string `json:"subkey,omitempty"`
 }
 
 // Deployments is the manifest's deployment section: what of the tile's

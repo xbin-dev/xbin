@@ -301,6 +301,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("GET /backup-schedule", b.apiBackupScheduleList)
 	srv.RegisterAPI("POST /backup-schedule", b.apiBackupScheduleSet)
 	srv.RegisterAPI("DELETE /backup-schedule", b.apiBackupScheduleDelete)
+	b.registerBackupKeys(srv) // backup key bundles, export status, erase (backupkeys_api.go)
 	srv.RegisterAPI("GET /vault-status", b.apiVaultStatus)
 	srv.RegisterAPI("POST /vault-unseal", b.apiVaultUnseal)
 	srv.RegisterAPI("POST /vault-seal", b.apiVaultSeal)

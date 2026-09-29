@@ -44,14 +44,29 @@ import (
 // without symlinks; a symlink met on the way to a restored file is replaced,
 // never followed. The terminal layer is rebuilt in a fresh staging dir and
 // swapped in whole once the sessions holding it are gone (restoreDst.finish).
+//
+// The archive is read through backup.Open: a sealed one is decrypted with
+// its backup key, a plaintext one — of any age — read as it always was.
 func (b *Broker) restore(comp string, r io.Reader, put deploymentRestorer) (backup.Manifest, error) {
-	br, err := backup.NewReader(r)
+	br, err := backup.Open(r, b.backupKeyFunc())
 	if err != nil {
 		return backup.Manifest{}, err
 	}
+	return b.restoreFrom(comp, br, nil, put)
+}
+
+// restoreFrom is restore of an opened archive, and of the data archive a
+// split main archive names (data: nil when it names none, or its key was
+// erased), whose data members are written as an inline archive's are.
+func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymentRestorer) (backup.Manifest, error) {
 	m := br.M
-	if m.DeploymentArchive() {
+	switch {
+	case m.DeploymentArchive():
 		return m, fmt.Errorf("the archive holds deployment %q's data of %s, not a tile: restore it into a deployment (POST /deployments/restore)", m.Deployment, m.Component)
+	case m.DataArchive():
+		return m, fmt.Errorf("the archive holds the data of %s, not a tile: restore its main archive, or restore it into main (POST /deployments/restore)", m.Component)
+	case data != nil && (!data.M.DataArchive() || data.M.Component != comp || data.M.Scope != comp || !data.M.ScopeRoot):
+		return m, fmt.Errorf("the data archive isn't %s's data", comp)
 	}
 	// deployment state is refused first when it isn't comp's (nothing on
 	// disk yet: it only checks)
@@ -97,58 +112,28 @@ func (b *Broker) restore(comp string, r io.Reader, put deploymentRestorer) (back
 		if err := dep.settle(); err != nil {
 			return m, err
 		}
-		var (
-			tree *destTree
-			rel  string
-		)
-		switch {
-		case name == backup.KVName:
-			if !withData {
-				continue
-			}
-			body, _ := io.ReadAll(rd)
-			if err := b.loadKV(m.Scope, body); err != nil {
-				return m, err
-			}
-			continue
-		case strings.HasPrefix(name, backup.SQLitePrefix), strings.HasPrefix(name, backup.FSPrefix),
-			strings.HasPrefix(name, backup.BlobPrefix):
-			if !withData {
-				continue
-			}
-			rest := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(name,
-				backup.SQLitePrefix), backup.FSPrefix), backup.BlobPrefix)
-			res, sub, _ := strings.Cut(rest, "/")
-			if rel = cleanRel(sub); rel == "" {
-				continue // the mount itself: nothing to write
-			}
-			if tree, err = dst.resource(m.Scope, res); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.SourcePrefix):
-			if rel = cleanRel(strings.TrimPrefix(name, backup.SourcePrefix)); rel == "" {
-				continue
-			}
-			if tree, err = dst.source(); err != nil {
-				return m, err
-			}
-		case strings.HasPrefix(name, backup.TermPrefix):
-			rel = cleanRel(strings.TrimPrefix(name, backup.TermPrefix))
-			if top, _, _ := strings.Cut(rel, "/"); top == "" || top == "vm" {
-				continue // a VM terminal's disk is never in a backup; the layer keeps its own
-			}
-			if tree, err = dst.term(); err != nil {
-				return m, err
-			}
-		default:
-			continue
-		}
-		if err := tree.write(rel, br.Perm(), rd); err != nil {
-			return m, fmt.Errorf("restore %s: %w", name, err)
+		if err := dst.member(name, m.Scope, withData, br, rd); err != nil {
+			return m, err
 		}
 	}
 	if err := dep.settle(); err != nil { // an archive of nothing else
 		return m, err
+	}
+	// A split archive's data, from its data archive: its data members only.
+	for data != nil {
+		name, rd, err := data.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return m, fmt.Errorf("its data archive: %w", err)
+		}
+		if !strings.HasPrefix(name, backup.DataPrefix) {
+			continue
+		}
+		if err := dst.member(name, m.Scope, withData, data, rd); err != nil {
+			return m, err
+		}
 	}
 	if err := dst.finish(); err != nil {
 		return m, err
@@ -176,6 +161,60 @@ func (b *Broker) restore(comp string, r io.Reader, put deploymentRestorer) (back
 		b.bus.persist()
 	}
 	return m, nil
+}
+
+// member writes one archive member where it belongs: the scope's resource
+// data (withData: the tile roots the scope the archive names), the tile's
+// source, or the staged terminal layer. Anything else is skipped.
+func (d *restoreDst) member(name, scope string, withData bool, br *backup.Reader, rd io.Reader) error {
+	var (
+		tree *destTree
+		rel  string
+		err  error
+	)
+	switch {
+	case name == backup.KVName:
+		if !withData {
+			return nil
+		}
+		body, _ := io.ReadAll(rd)
+		return d.b.loadKV(scope, body)
+	case strings.HasPrefix(name, backup.SQLitePrefix), strings.HasPrefix(name, backup.FSPrefix),
+		strings.HasPrefix(name, backup.BlobPrefix):
+		if !withData {
+			return nil
+		}
+		rest := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(name,
+			backup.SQLitePrefix), backup.FSPrefix), backup.BlobPrefix)
+		res, sub, _ := strings.Cut(rest, "/")
+		if rel = cleanRel(sub); rel == "" {
+			return nil // the mount itself: nothing to write
+		}
+		if tree, err = d.resource(scope, res); err != nil {
+			return err
+		}
+	case strings.HasPrefix(name, backup.SourcePrefix):
+		if rel = cleanRel(strings.TrimPrefix(name, backup.SourcePrefix)); rel == "" {
+			return nil
+		}
+		if tree, err = d.source(); err != nil {
+			return err
+		}
+	case strings.HasPrefix(name, backup.TermPrefix):
+		rel = cleanRel(strings.TrimPrefix(name, backup.TermPrefix))
+		if top, _, _ := strings.Cut(rel, "/"); top == "" || top == "vm" {
+			return nil // a VM terminal's disk is never in a backup; the layer keeps its own
+		}
+		if tree, err = d.term(); err != nil {
+			return err
+		}
+	default:
+		return nil
+	}
+	if err := tree.write(rel, br.Perm(), rd); err != nil {
+		return fmt.Errorf("restore %s: %w", name, err)
+	}
+	return nil
 }
 
 // cleanRel is a tar entry's path below its prefix, cleaned and relative ("" for

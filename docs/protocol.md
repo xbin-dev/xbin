@@ -958,7 +958,11 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    the primary): admins only. A limit alert
                                    names the deployment whose cgroup leaf hit
                                    its cap; a tile's checkpoint and build
-                                   storage warns at 90% of its quota
+                                   storage warns at 90% of its quota. Kind
+                                   backup-keys (admins only, warn): N backup
+                                   keys aren't in any exported key bundle
+                                   yet (GET /backup-keys; cleared by POST
+                                   /backup-keys/export)
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin,suspended?,via?,viaGroups?}]
@@ -2319,7 +2323,27 @@ POST   /backup                     admin. body {component} — build a self-
                                    deployment's schedule), under its own key,
                                    so it never uses the tile's retention.
                                    Readers take schema 1 and 2; an older
-                                   xbind refuses a deployment archive
+                                   xbind refuses a deployment archive.
+                                   Sealed backups (docs/overview/14-
+                                   lifecycle.md §Sealed archives): with a
+                                   vault barrier every archive is sealed —
+                                   XBINSEAL, a cleartext header naming the
+                                   backup subkey's id, then AES-256-GCM in
+                                   64 KiB chunks over the same tar — under
+                                   its subject's key (the main archive:
+                                   tile:, the data: ns:<namespace>), and the
+                                   PUT carries X-XBin-Backup-Subkey: bk-….
+                                   A scope root's main data goes to a data
+                                   archive of its own (key .data.<tile-key>,
+                                   schema 3, kind "data"), written before
+                                   the main archive, whose manifest (schema
+                                   3) names it: data {key, version, subkey}.
+                                   Without a barrier (--insecure-vault,
+                                   --no-auth) archives are today's plain
+                                   tars. 502 while the vault is sealed: no
+                                   archive is written. Readers take schema
+                                   1-3 and plaintext archives of any age;
+                                   an older xbind refuses a sealed archive
 GET    /backups?component=…         admin. the archiver's version list passed
                                    through: {versions:[{version,time,size}]}
 POST   /restore                    admin. body {component, version?, file?}.
@@ -2327,8 +2351,26 @@ POST   /restore                    admin. body {component, version?, file?}.
                                    component, replaces its data/source from the
                                    archive; version defaults to latest). With file
                                    → stream one member back (recover without a full
-                                   rollback). Restore is fully archive-driven — no
+                                   rollback): xbind fetches the version and
+                                   extracts it itself (data/… of a split
+                                   archive from its data archive); 404 for
+                                   a member it doesn't hold, 409 when a key
+                                   is erased or unknown. Restore is fully archive-driven — no
                                    local metadata needed (docs/overview/14-lifecycle.md).
+                                   A sealed archive is authenticated whole
+                                   before anything stops or is written
+                                   (a damaged or tampered one: 502, "the
+                                   sealed archive is damaged or was
+                                   tampered with"). Its key erased: "this
+                                   backup's data was erased on <date>
+                                   (<reason>)" — a split main archive whose
+                                   data key alone was erased restores its
+                                   source and terminal layer, and the answer
+                                   gains dataErased: "<why>", without "data"
+                                   in restored. A key this workspace never
+                                   had: "this backup was sealed by another
+                                   workspace: import its keys (bx backup
+                                   keys import)".
                                    {ok, component, restored:[parts],
                                    sandboxesSkipped?:[…]} — a manager's sandbox
                                    definitions come back by uid, stopped (§Tile
@@ -2356,6 +2398,49 @@ POST   /backup-schedule            admin. body {component, schedule, retention} 
                                    owner-scheduled backup on the cron engine;
                                    retention prunes to N newest versions per run.
 DELETE /backup-schedule?component= admin. remove a component's schedule
+GET    /backup-keys                admin. {mode, keys, unexported, lastExport?,
+                                   exports, erased, erasedSinceExport} — mode
+                                   sealed | plaintext (no vault barrier:
+                                   archives are plain tars) | vault-sealed
+                                   (no backup until unsealed); unexported
+                                   counts the backup keys no exported bundle
+                                   holds (the /alerts kind backup-keys, bx
+                                   doctor and the admin console's Backup tab
+                                   nudge on it).
+POST   /backup-keys/export         admin. The disaster-recovery key bundle
+                                   {schema:1, workspace, created, barrier,
+                                   keys:[…], erased:[…]}: the vault's
+                                   barrier descriptor (the data key wrapped
+                                   under the passphrase), every backup key
+                                   file (wrapped under the data key) and
+                                   every erase tombstone — nothing without
+                                   the vault passphrase. Recorded as an
+                                   export. 409 without a vault barrier.
+POST   /backup-keys/import         admin. body {bundle, passphrase} — the
+                                   bundle another workspace exported, and
+                                   that workspace's vault passphrase: its
+                                   data key is unwrapped in memory only,
+                                   each backup key re-wrapped under this
+                                   vault (never used to seal new archives),
+                                   and its tombstones taken (a key they
+                                   name is erased here too). {imported,
+                                   present, erased}. 400 for a wrong
+                                   passphrase or a bad bundle (nothing is
+                                   imported); needs this vault unsealed.
+POST   /backup/erase               admin. body {component, what: "data"|"all"}
+                                   — crypto-erase a tile's backups: data
+                                   deletes its data keys (main's and every
+                                   deployment's namespace: the source stays
+                                   restorable), all every key of the tile.
+                                   Each is tombstoned (a restore then says
+                                   why), the subject gets a new key at its
+                                   next backup, and the archiver is asked to
+                                   delete the versions sealed under them
+                                   (POST /archive/erase; an archiver without
+                                   it keeps them, unreadable, until
+                                   retention prunes them). {ok, component,
+                                   erased:[{id, subject, gen}], archiver:
+                                   "<what the archiver did>"}
 
 Tile deployments: pausing live reload, a tile's deployments, promotion
 (docs/tile-deployments.md; conventions and texts: §Tile deployments below

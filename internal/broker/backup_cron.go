@@ -113,6 +113,7 @@ func (b *Broker) runScheduledBackup(s backupSchedule) {
 	}
 	if s.Retention > 0 {
 		b.pruneVersions(s.Component, s.Retention)
+		b.pruneKey(s.Component, dataArchiveKey(s.Component), s.Retention) // a sealed workspace's data archive (none: nothing listed)
 		for dep := range archives {
 			b.pruneKey(s.Component, archiveKey(s.Component, dep), s.Retention)
 		}
@@ -265,7 +266,7 @@ func (b *Broker) putDeploymentArchives(c *registry.Component, provider string, e
 // putDeploymentArchive archives deployment dep's data of root tile c under
 // dep's own key.
 func (b *Broker) putDeploymentArchive(c *registry.Component, provider, dep string) (string, error) {
-	return b.putArchive(provider, archiveKey(c.Path, dep), func(bw *backup.Writer) error { return b.writeDeploymentArchive(bw, c, dep) })
+	return b.putArchive(provider, archiveKey(c.Path, dep), deploymentSeal(c.Path, dep), func(bw *backup.Writer) error { return b.writeDeploymentArchive(bw, c, dep) })
 }
 
 // gateNamespaces holds, exclusively, the write gate of every namespace

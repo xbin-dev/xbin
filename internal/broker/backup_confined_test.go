@@ -220,7 +220,7 @@ func TestRestoreKeepsPermissionBits(t *testing.T) {
 	c, _ := b.Reg.Component(comp)
 	buf.Reset()
 	bw := backup.NewWriter(&buf)
-	if err := b.writeBackup(bw, c, nil); err != nil {
+	if err := b.writeBackup(bw, c, nil, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := bw.Close(); err != nil {

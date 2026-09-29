@@ -425,6 +425,7 @@ func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) 
 	}
 	r.Header.Set(HeaderFrom, p.From())
 	r.Header.Set(HeaderRole, role)
+	setBackupSubkey(r) // xbind's own archive PUTs only: from the context, never the request
 	// The role rule (11-contract §4) (D127j): a tile's own principal bound to
 	// a deployment that isn't its primary names that deployment, on its
 	// self-calls and on its calls to other tiles; X-XBin-From stays the
