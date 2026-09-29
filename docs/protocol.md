@@ -543,6 +543,19 @@ Errors are JSON:
 404 unknown component, 403 no grant, 410 a tile whose manifest declares the
 removed runtime `cgi` (the error says so; its code never runs — D117), 502
 build/backend failure (build failures carry compiler output in `detail`).
+409 for a call that would reach the primary of a tile paused by its
+partition mode — its code asks for another `partition` than the one
+recorded, on a tile that holds data, or for an invalid one: no instance of
+the primary runs until a tile manager decides (§Manifest "partition" in
+[elements.md](/docs/elements.md)). The body adds `partition`:
+`{"error": "<tile> is paused: a partition mode switch is requested (<R> →
+<Q>); a manager of <tile> must switch (deleting all its data) or keep the
+current mode", "docs": …, "partition": {"state": "pending", "from":
+{user, global}, "to": {user, global}}}`, or for an invalid request
+`{"error": "<tile> doesn't run: partition: <why>", "docs": …,
+"partition": {"state": "invalid", "error": "partition: <why>"}}`. A caller
+the tile refuses gets its 403 first; public ingress to such a tile answers
+503 as for a disabled one.
 
 ### xbind API (`/api/xbin/…`)
 
@@ -889,7 +902,25 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    code (its checkpoint while pinned), roles,
                                    uses, deps and manifestError the work
                                    tree, and origin is the primary's.
-                                   Deployments are never rows
+                                   Deployments are never rows.
+                                   The entry of a tile whose primary's code
+                                   asks for a "partition", or whose
+                                   recorded partition mode has one, gains
+                                   partition: {state: partitioned |
+                                   unpartitioned | pending | invalid, user,
+                                   global (the recorded mode), request?:
+                                   {user, global, declined} (what the code
+                                   asks when it differs: pending, or kept
+                                   by a tile manager — declined)} and, for
+                                   an invalid request, partitionError (also
+                                   in manifestError). A tile with a
+                                   recorded mode whose code's xbin.json, or
+                                   whose mode record, can't be read is
+                                   invalid too, with partitionError saying
+                                   so (user and global: the recorded mode,
+                                   both false when the record can't be
+                                   read). Both are absent for every other
+                                   tile
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
                                    (component as above, native included)
 GET    /tile-assets                any (read-filtered); ?component=<p> for one.
@@ -2040,7 +2071,14 @@ POST   /grants                     admin — any. An org admin may approve on
                                    Granting xbin or an xbin:* target to a tile
                                    that has non-primary deployments answers
                                    409 "<tile> has non-primary deployments:
-                                   remove them before granting it <target>"
+                                   remove them before granting it <target>".
+                                   Granting xbin, xbin:*, cap:sandboxes,
+                                   cap:net-admin or cap:containers to a
+                                   tile whose recorded partition mode, or
+                                   whose code's request, has user
+                                   partitions answers 409 "<tile> is
+                                   partitioned (or asks to be): a
+                                   partitioned tile can't hold <target> …"
 DELETE /grants                     admin; also both D26/D33 edges (an org
                                    admin may always revoke their org's or
                                    their property's rows, a personal
@@ -2605,7 +2643,11 @@ POST   /deployments/primary        tile manager. {tile, deployment,
                                    "reassigning the primary of <tile> would
                                    split <scope>'s data: …" unless the tile
                                    is in the workspace scope or alone in the
-                                   scope it roots
+                                   scope it roots; "<tile> is partitioned:
+                                   switching the primary would leave every
+                                   person's data with <primary>: promote
+                                   instead" when its recorded partition
+                                   mode has user partitions
 POST   /deployments/protect        tile manager. {tile, on, expect?} →
                                    {state, deploy?, nested?, warnings?}: on
                                    pins the primary in place (while live

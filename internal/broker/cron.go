@@ -185,6 +185,11 @@ func (cr *cronRunner) fire(j cronJob) {
 	if j.Component != "" && cr.b.Reg.LifecycleState(j.Component) != registry.StateEnabled {
 		return
 	}
+	// A primary its partition mode pauses (pending or invalid) misses its
+	// ticks quietly, as a disabled one does (plans/partitions/01 §2.3).
+	if j.Component != "" && cr.b.partitionPaused(j.Component, "") {
+		return
+	}
 	// main's jobs fire while main's registrations are active: always without
 	// a deployment record; with one, unless main isn't the primary and a
 	// tile manager switched its deliveries off (the active set, dormant.go)

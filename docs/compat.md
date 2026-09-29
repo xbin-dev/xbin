@@ -54,6 +54,19 @@ migrations is checked against it.
    `"runtime": "cgi"` (and `bx new --runtime cgi`) — such a tile keeps
    serving its files and reports a manifest error
    ([changes/2026-09-27-cgi-removed.md](/docs/changes/2026-09-27-cgi-removed.md)).
+   One key fails closed by design: `"partition"`. A word this xbind
+   doesn't know (a later `"org"`), or a value that isn't a list, makes the
+   tile's request invalid — its backend doesn't run, the manifest error
+   says why, xbind logs it once per tile — rather than run a mode other
+   than the one asked for. A tile that already kept a top-level
+   `"partition"` key of its own is caught by this after the upgrade
+   ([changes/2026-09-29-partition-key.md](/docs/changes/2026-09-29-partition-key.md)).
+   Without the key nothing changes, and `partitionMail`, `partitionNote` and
+   `scope.json`'s `shared` are ignored while no tile of the scope asks for
+   partitions. A tile's partition mode changes by itself only while the
+   tile holds no data; on one that does, a change pauses the tile until a
+   tile manager keeps the mode or switches, deleting its data — nothing
+   an upgrade, a `bx builtin update` or a template merge does starts that.
 8. **The SDK stays zero-dependency**, and its semantics change only in the
    permissive direction (a call that succeeds today keeps succeeding), with
    a changelog entry.

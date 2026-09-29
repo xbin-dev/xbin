@@ -248,6 +248,12 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, code, d.Deny.Error(), "")
 		return
 	}
+	// The partition gate (partition.go): a pending or invalid mode runs no
+	// instance of the primary; the caller learns why, never the runner.
+	if msg, body, paused := PartitionPaused(comp); paused && target == primary {
+		writePartitionPaused(w, msg, body)
+		return
+	}
 
 	px.identify(r, p, d.Role, comp.Path)
 

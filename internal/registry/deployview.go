@@ -8,8 +8,8 @@ package registry
 //   - the inbound surface (template, exposes, expose, provides, chrome) comes
 //     from the primary's code, since only the primary receives inbound edges;
 //   - deployment-level fields (runtime, entry, setup, alwaysOn, vm, inject,
-//     native, scope.json's resources and importMap) come from the
-//     deployment's own code.
+//     native, partition, partitionMail, partitionNote, scope.json's
+//     resources and importMap) come from the deployment's own code.
 //
 // The registry's component describes the primary. While the PinnedPrimary
 // hook answers for a tile, Rescan composes its component from the pinned
@@ -165,6 +165,11 @@ func composeManifest(tile, inbound, code Manifest) Manifest {
 		VM:       code.VM,
 		Inject:   code.Inject,
 		Native:   code.Native,
+		// deployment-level too: the running code is what must know how to
+		// be partitioned (plans/partitions/01 §1)
+		Partition:     code.Partition,
+		PartitionMail: code.PartitionMail,
+		PartitionNote: code.PartitionNote,
 	}
 }
 
@@ -231,6 +236,10 @@ func composePinned(wt *Component, pc *PinnedCode, valid bool) *Component {
 		c.ManifestErr += keptNotice
 	}
 	c.Manifest = composeManifest(tile, pc.Manifest, pc.Manifest)
+	// The checkpoint's manifest unread (it doesn't parse, or the checkpoint
+	// isn't or can't be prepared): the code's partition request is unknown,
+	// not absent (partition.go).
+	c.partition.unread = pc.ManifestErr
 	return c
 }
 

@@ -172,6 +172,11 @@ type componentInfo struct {
 	// above describe the primary's code; manifestError, roles, uses and deps
 	// the work tree. Deployments are never rows.
 	Deployments *deploymentsSummary `json:"deployments,omitempty"`
+	// Partition is the tile's partition mode and PartitionErr why its
+	// request is invalid; both absent for a tile that neither asks for nor
+	// records one (partitionrow.go).
+	Partition    *partitionInfo `json:"partition,omitempty"`
+	PartitionErr string         `json:"partitionError,omitempty"`
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +213,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			ci.Uses = c.Manifest.Uses
 		}
 		ci.Deployments = s.primarySummary(c.Path)
+		partitionOf(&ci, c)
 		out = append(out, ci)
 	}
 	WriteJSON(w, http.StatusOK, out)
@@ -239,6 +245,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 		ci.Uses = c.Manifest.Uses
 	}
 	ci.Deployments = s.primarySummary(c.Path)
+	partitionOf(&ci, c)
 	apiMD := ""
 	if b, err := os.ReadFile(filepath.Join(c.Dir, "API.md")); err == nil {
 		apiMD = string(b)

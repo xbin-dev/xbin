@@ -56,6 +56,8 @@ type Broker struct {
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
+	partitionSlot // each tile's recorded partition mode (partitionmode.go)
+
 	// edgeTallies: (tile, deployment, edge) → *edgeTally, refused and clamped calls (edgepolicy.go).
 	edgeTallies sync.Map
 
@@ -210,6 +212,7 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 	b.disk = newDiskMon(reg.Root, envQuota(), b.scopeDiskUsage)
 	b.disk.sbxUsage, b.disk.onLow = b.sandboxUsage, b.sandboxesLowDisk // disk pressure only (tilesbx_hooks.go)
 	go b.disk.run()
+	b.initPartitionModes() // before the first Provision: a pending tile's mode is known
 	b.Provision()
 	return b, nil
 }
@@ -257,6 +260,7 @@ func (b *Broker) UnsealOrInit(passphrase string) error {
 			return err
 		}
 		b.MountEncrypted()
+		b.resettleAfterUnseal() // a tile a sealed vault paused (partitionmode.go)
 		b.wakeBackends()
 		return nil
 	}
@@ -265,6 +269,7 @@ func (b *Broker) UnsealOrInit(passphrase string) error {
 	}
 	b.migrateVaults()
 	b.MountEncrypted() // default-on: encrypt file-backed resources from now on
+	b.resettleAfterUnseal()
 	b.wakeBackends()
 	return nil
 }
@@ -738,7 +743,7 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 			server.WriteError(w, http.StatusBadRequest, msg)
 			return registry.Grant{}, false
 		}
-		if err := b.xbinGrantRefusal(g); err != nil { // D127k
+		if err := b.grantRefusal(g); err != nil { // D127k, PD-28 (partitionmode.go)
 			server.WriteError(w, http.StatusConflict, err.Error())
 			return registry.Grant{}, false
 		}

@@ -73,6 +73,36 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // backend fails with the reason (never a silent fallback). Not with "setup".
   "vm": false,
 
+  // A partitioned tile (optional): ["user"] asks for one backend per person
+  // who uses the tile, ["user", "global"] for one more, background instance
+  // that callers who aren't a person (other tiles, ingress, webhooks) reach.
+  // It is a request: xbind records the mode it runs, and follows this key
+  // by itself only while the tile holds no data (no kv key, volume file,
+  // vault key, cron job, bus subscription or other registration). On a tile
+  // that holds data, adding, removing or changing it — an edit, a rollback
+  // or a promote — pauses the tile: its API answers 409, its backend
+  // doesn't run (cron ticks are missed, bus deliveries dropped), and a tile
+  // manager either switches, which deletes all the tile's data, or keeps
+  // the current mode. Any other value ([], ["global"] alone, an unknown
+  // word, a value that isn't a list) is invalid: the backend never runs,
+  // and the manifest error says why. A tile with a recorded mode whose
+  // xbin.json doesn't parse (or whose pinned checkpoint can't be read)
+  // waits the same way until it can be read: a typo is never a switch
+  // request. Not with chrome, vm, or an xbin, xbin:*,
+  // cap:sandboxes, cap:net-admin or cap:containers grant; every tile of a
+  // scope asks alike, and a tile that uses its scope's resources must root
+  // that scope. /components reports the mode as partition. A template sets
+  // its instances' mode in its "template" block instead (below).
+  "partition": ["user", "global"],
+  // Where xbind rings the partition mail doorbell of the global instance
+  // (an absolute path without a query; read only beside "global"), and a
+  // note of at most 280 characters shown, after xbind's own text, when a
+  // mode switch is requested (read only beside "partition"). Where they are
+  // read, a malformed partitionMail or a longer note makes the request
+  // invalid, as above.
+  "partitionMail": "/mailbox",
+  "partitionNote": "Switching deletes every conversation, memory and schedule.",
+
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), reserved capabilities
   // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",
@@ -204,7 +234,8 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   "template": {
     "title": "AI Agent",
     "description": "A blank-slate agentic loop you clone and build up.",
-    "defaultName": "agent"   // suggested instance basename (under apps/)
+    "defaultName": "agent",  // suggested instance basename (under apps/)
+    "partition": ["user", "global"] // optional: the mode instances start in
   }
 }
 ```
