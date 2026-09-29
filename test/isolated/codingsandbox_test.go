@@ -246,10 +246,16 @@ func (e *csEnv) pageTok(t *testing.T, tile, person string) string {
 // calling from its page; a verified person is that page's token minted by
 // their session; an asserted one is Sbx-User, as the suite sets it.
 func (e *csEnv) target() sandboxcontract.Target {
-	var skip map[string]string
+	// A user partition's call is a partitioned consumer's instance: xbind
+	// sets X-XBin-Partition*, and strips what a caller sends. Until the
+	// suite can drive a partitioned consumer through xbind, the section runs
+	// in-process only (the template's contract_test.go).
+	skip := map[string]string{"user-partitions": "the calls of a partitioned consumer's user partitions need a partitioned consumer tile: in-process only (coding-sandbox's contract_test.go)"}
 	if !e.people { // the checks that act as verified people
 		why := "no verified people: this xbind runs --no-auth"
-		skip = map[string]string{"people/visibility": why, "people/owners": why, "partitions/shares": why, "tty/refusals": why}
+		for _, k := range []string{"people/visibility", "people/owners", "partitions/shares", "tty/refusals"} {
+			skip[k] = why
+		}
 	}
 	return sandboxcontract.Target{
 		Skip:     skip,
@@ -388,7 +394,7 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 			Images, Sizes       []struct{ ID string }
 		}
 		cons(t).Call("GET", "/hello?protocol=1", nil, 200, &h)
-		if fmt.Sprint(h.Caps) != "[exec files tar tty snapshots clone ports]" || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
+		if fmt.Sprint(h.Caps) != "[exec files tar tty snapshots clone ports partitions]" || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
 			t.Errorf("hello: %+v", h)
 		}
 		if len(h.Images) != 1 || h.Images[0].ID != "base" || len(h.Sizes) != 2 || h.Sizes[0].ID != "tiny" {
