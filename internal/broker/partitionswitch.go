@@ -337,7 +337,11 @@ func (b *Broker) actSwitch(w http.ResponseWriter, person auth.Principal, c *regi
 		return
 	}
 	if err := b.recordDecision(tile, modeOpSwitch, from, to, t.By, sum.counts()); err != nil {
-		b.writeDecisionErr(w, c, err)
+		// the code asked for something else meanwhile: the data is gone, the
+		// mode isn't recorded — the next settle judges the tile, now empty
+		slog.Warn("partitions: a switch deleted the data, but its decision can't be recorded", "tile", tile, "err", err)
+		server.WriteJSON(w, http.StatusConflict, map[string]any{"docs": modeDocs, "wiped": sum.counts(),
+			"error": "the switch of " + tile + " deleted its data, but the mode wasn't recorded: " + err.Error() + " — look again"})
 		return
 	}
 	switching.Delete(switchKey{b, tile}) // before the rescan: nothing holds the new mode back

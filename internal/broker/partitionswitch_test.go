@@ -325,9 +325,14 @@ func TestPartitionModeSwitch(t *testing.T) {
 		t.Fatal("the dry run deleted data")
 	}
 
+	var deployLog []string
+	f.b.SetPartitionDeployLog(func(tile, by, via string) error { deployLog = append(deployLog, tile+" "+by); return nil })
 	code, out = f.act(root, switchUser)
 	if code != 200 || out["ok"] != true {
 		t.Fatalf("switch: %d %v", code, out)
+	}
+	if !slices.Equal(deployLog, []string{"apps/docs owner"}) {
+		t.Errorf("the deploy log got %q", deployLog)
 	}
 	// deleted
 	checks := map[string]bool{
