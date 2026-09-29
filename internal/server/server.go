@@ -663,8 +663,8 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 func (s *Server) eventFilter(p auth.Principal) events.Filter {
 	tile := s.credentialTile(p) // once, outside the hub's lock (deployaudience.go)
 	return func(e events.Event) bool {
-		if e.Partition != "" && e.Type != "bus" { // a person's partition's own (partitionevents.go)
-			return s.partitionEventFor(p, tile, e)
+		if e.Partition != "" && e.Type != "bus" && !s.partitionEventFor(p, tile, e) {
+			return false // a person's partition's own (partitionevents.go); then the type's rules
 		}
 		// pr events name a component that has PR activity — D40 visibility:
 		// only subscribers who can read that tile see them.

@@ -14,8 +14,9 @@ package server
 //     (auth.Principal.Partition) for the handler;
 //   - the global instance, people, the root token and every principal of a
 //     tile that isn't partitioned never meet the table (global is today's
-//     instance) — except PersonOnly routes, which no tile principal of any
-//     partition performs;
+//     instance) — except PersonOnly routes, which only a person's own
+//     session, app or device credential performs (never a tile principal
+//     of any partition, view-as, or the root token);
 //   - a guard over the route inventory keeps the table complete
 //     (internal/apicheck's TestPartitionRouteClasses).
 //
@@ -122,8 +123,8 @@ func (s *Server) ownPartition(p auth.Principal) (util.Partition, error) {
 // handler's place.
 func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFunc) {
 	p := auth.PrincipalOf(r2)
-	if p.Component == "" || s.apiMux == nil {
-		return r2, nil // people and the owner: their partition is per call
+	if s.apiMux == nil {
+		return r2, nil
 	}
 	_, pattern := s.apiMux.Handler(r2)
 	if pattern == "" {
@@ -131,7 +132,15 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 	}
 	class := partitionClasses[pattern]
 	if class == PersonOnly {
-		return r2, refusal(http.StatusForbidden, "this is a person's own act: sign in and do it yourself — a tile's credentials can't")
+		// a person's own session, app or device credential only: never a
+		// tile's, view-as, or one that names no person (the root token)
+		if p.Component != "" || p.Impersonator != "" || p.UserID == "" {
+			return r2, refusal(http.StatusForbidden, "this is a person's own act: sign in and do it yourself — a tile's credentials can't")
+		}
+		return r2, nil
+	}
+	if p.Component == "" {
+		return r2, nil // people and the owner: their partition is per call
 	}
 	part, err := s.ownPartition(p)
 	switch {
@@ -146,6 +155,9 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 	case PartitionScoped, PartitionNeutral:
 		if why := partitionUnconverted[pattern]; why != "" && class == PartitionScoped {
 			return r2, refusal(http.StatusForbidden, "this route isn't available to a partition's credentials yet ("+why+")")
+		}
+		if why := partitionPersonKeyed[pattern]; why != "" && p.UserID == "" {
+			return r2, refusal(http.StatusForbidden, "this route isn't available to a partition's credentials that name no person yet ("+why+")")
 		}
 		p.Partition = part
 		return r2.WithContext(auth.WithPrincipal(r2.Context(), p)), nil
@@ -162,27 +174,74 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 // partitions until the pack that converts it removes the row
 // (plans/partitions/95).
 var partitionUnconverted = map[string]string{
-	"GET /kv/{rest...}":                "per-partition data namespaces",
-	"PUT /kv/{rest...}":                "per-partition data namespaces",
-	"DELETE /kv/{rest...}":             "per-partition data namespaces",
-	"GET /blob/{rest...}":              "per-partition data namespaces",
-	"PUT /blob/{rest...}":              "per-partition data namespaces",
-	"DELETE /blob/{rest...}":           "per-partition data namespaces",
-	"POST /bus/publish":                "per-partition data namespaces",
-	"GET /bus/subscriptions":           "per-partition registrations",
-	"PUT /bus/subscriptions":           "per-partition registrations",
-	"DELETE /bus/subscriptions/{name}": "per-partition registrations",
-	"GET /cron/jobs":                   "per-partition registrations",
-	"PUT /cron/jobs":                   "per-partition registrations",
-	"DELETE /cron/jobs/{name}":         "per-partition registrations",
-	"GET /vault/{rest...}":             "per-partition vaults",
-	"PUT /vault/{rest...}":             "per-partition vaults",
-	"DELETE /vault/{rest...}":          "per-partition vaults",
-	"POST /notify":                     "a partition's clamped notifications",
-	"GET /logs":                        "per-partition backend logs",
-	"GET /tile-status":                 "per-partition tile status",
-	"POST /term/sessions":              "per-person terminal layers",
-	"POST /term/sessions/{id}/restart": "per-person terminal layers",
+	"GET /kv/{rest...}":                           "per-partition data namespaces",
+	"PUT /kv/{rest...}":                           "per-partition data namespaces",
+	"DELETE /kv/{rest...}":                        "per-partition data namespaces",
+	"GET /blob/{rest...}":                         "per-partition data namespaces",
+	"PUT /blob/{rest...}":                         "per-partition data namespaces",
+	"DELETE /blob/{rest...}":                      "per-partition data namespaces",
+	"POST /bus/publish":                           "per-partition data namespaces",
+	"GET /bus/subscriptions":                      "per-partition registrations",
+	"PUT /bus/subscriptions":                      "per-partition registrations",
+	"DELETE /bus/subscriptions/{name}":            "per-partition registrations",
+	"GET /cron/jobs":                              "per-partition registrations",
+	"PUT /cron/jobs":                              "per-partition registrations",
+	"DELETE /cron/jobs/{name}":                    "per-partition registrations",
+	"GET /vault/{rest...}":                        "per-partition vaults",
+	"PUT /vault/{rest...}":                        "per-partition vaults",
+	"DELETE /vault/{rest...}":                     "per-partition vaults",
+	"POST /notify":                                "a partition's clamped notifications",
+	"GET /logs":                                   "per-partition backend logs",
+	"GET /tile-status":                            "per-partition tile status",
+	"POST /term/sessions":                         "per-person terminal layers",
+	"POST /term/sessions/{id}/restart":            "per-person terminal layers",
+	"POST /term/sessions/{id}/prompt":             "per-person terminal layers",
+	"POST /term/sessions/{id}/cancel":             "per-person terminal layers",
+	"POST /term/sessions/{id}/permissions/{pid}":  "per-person terminal layers",
+	"POST /term/sessions/{id}/elicitations/{eid}": "per-person terminal layers",
+	"POST /term/sessions/{id}/options":            "per-person terminal layers",
+}
+
+// partitionPersonKeyed names the PartitionScoped routes whose handler keys
+// on the credential's person (p.UserID): a person's frames, terminals and
+// agent sessions reach their own bucket, which is their partition's; a user
+// partition's instance token names no person and would land in the tile's
+// person-less bucket — global's and the owner's frames' — so such a
+// credential is refused until the handler keys it by its partition.
+var partitionPersonKeyed = map[string]string{
+	"GET /prefs":          "per-partition prefs",
+	"GET /prefs/{key}":    "per-partition prefs",
+	"PUT /prefs/{key}":    "per-partition prefs",
+	"DELETE /prefs/{key}": "per-partition prefs",
+}
+
+// PartitionPersonKeyed returns a copy of partitionPersonKeyed.
+func PartitionPersonKeyed() map[string]string {
+	out := make(map[string]string, len(partitionPersonKeyed))
+	for p, why := range partitionPersonKeyed {
+		out[p] = why
+	}
+	return out
+}
+
+// partitionPlanned names rows whose route another pack of the partitions
+// plan mounts (plans/partitions/95), and which: the guard
+// (TestPartitionRouteClasses) doesn't ask for them to be mounted, so a merge
+// in either order stays green. The integrator drops each entry once its
+// route is mounted; the handlers judge the person and refuse every
+// credential of the target tile (02 §8's governance acts).
+var partitionPlanned = map[string]string{
+	"POST /partitions/limits": "F3",
+	"POST /partitions/mode":   "F13a",
+}
+
+// PartitionPlanned returns a copy of partitionPlanned.
+func PartitionPlanned() map[string]string {
+	out := make(map[string]string, len(partitionPlanned))
+	for p, pack := range partitionPlanned {
+		out[p] = pack
+	}
+	return out
 }
 
 // partitionClasses is the table (02 §8). Everything D127r made primary-only
@@ -216,7 +275,7 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /notify":                     PartitionScoped,
 	"POST /term/sessions":              PartitionScoped,
 	"POST /term/sessions/{id}/restart": PartitionScoped,
-	"GET /prefs":                       PartitionScoped, // already per person
+	"GET /prefs":                       PartitionScoped, // per person: refused to one naming none (partitionPersonKeyed)
 	"GET /prefs/{key}":                 PartitionScoped,
 	"PUT /prefs/{key}":                 PartitionScoped,
 	"DELETE /prefs/{key}":              PartitionScoped,
@@ -424,6 +483,12 @@ var partitionClasses = map[string]PartitionClass{
 	"DELETE /push/devices/{user}":            GlobalOnlyRefused,
 	"DELETE /push/devices/{user}/{deviceId}": GlobalOnlyRefused,
 
+	// ---- partitions' governance acts (02 §8): their handlers judge the
+	// person and refuse the target tile's own credentials; mounted by
+	// other packs (partitionPlanned) ----
+	"POST /partitions/limits": PartitionNeutral,
+	"POST /partitions/mode":   PartitionNeutral,
+
 	// ---- reads of workspace facts ----
 	"GET /whoami":               PartitionNeutral,
 	"GET /status":               PartitionNeutral,
@@ -462,11 +527,11 @@ var partitionClasses = map[string]PartitionClass{
 	"PATCH /term/sessions/{id}":                   PartitionNeutral,
 	"GET /term/sessions/{id}":                     PartitionNeutral,
 	"DELETE /term/sessions/{id}":                  PartitionNeutral,
-	"POST /term/sessions/{id}/prompt":             PartitionNeutral,
-	"POST /term/sessions/{id}/cancel":             PartitionNeutral,
-	"POST /term/sessions/{id}/permissions/{pid}":  PartitionNeutral,
-	"POST /term/sessions/{id}/elicitations/{eid}": PartitionNeutral,
-	"POST /term/sessions/{id}/options":            PartitionNeutral,
+	"POST /term/sessions/{id}/prompt":             PartitionScoped, // 02 §8: every POST /term/sessions*
+	"POST /term/sessions/{id}/cancel":             PartitionScoped,
+	"POST /term/sessions/{id}/permissions/{pid}":  PartitionScoped,
+	"POST /term/sessions/{id}/elicitations/{eid}": PartitionScoped,
+	"POST /term/sessions/{id}/options":            PartitionScoped,
 	"GET /term/sessions/{id}/events":              PartitionNeutral,
 	"GET /term/sessions/{id}/log":                 PartitionNeutral,
 	"GET /term/sessions/{id}/diff":                PartitionNeutral,

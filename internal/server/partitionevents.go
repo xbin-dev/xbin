@@ -16,6 +16,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // partitionEventFor reports whether e, a non-bus event of a user partition,
@@ -51,9 +52,12 @@ func (s *Server) termEventVisible(p auth.Principal, e events.Event) bool {
 // partitionHead is the D4 injection's partition part for one of compPath's
 // documents (02 §10): <meta name="xbin-partition" content="<key>"> when the
 // tile is partitioned and the viewer resolves to a partition — theirs, or
-// "global" for the root token and --no-auth. viewAs: an admin viewing as
-// someone gets the document without a frame token, as the API would refuse
-// it anyway (PD-08). Nothing for a tile that isn't partitioned.
+// "global" for the root token and --no-auth. A non-primary deployment's
+// document (/c/<tile>+<dep>/) says "global": its frame token is bound to
+// that deployment, whose one instance every writer shares (PD-17). viewAs:
+// an admin viewing as someone gets the document without a frame token, as
+// the API would refuse it anyway (PD-08). Nothing for a tile that isn't
+// partitioned.
 func (s *Server) partitionHead(r *http.Request, compPath string) (meta string, viewAs bool) {
 	if !s.tilePartitioned(compPath) {
 		return "", false
@@ -62,9 +66,12 @@ func (s *Server) partitionHead(r *http.Request, compPath string) (meta string, v
 	if p.ReadOnly() {
 		return "", true
 	}
-	part, err := s.addressedPartition(p, s.owningTile(compPath))
-	if err != nil || part == "" {
-		return "", false
+	part := util.PartitionGlobal
+	if sv := s.servedDeployment(r, compPath); sv.dep == sv.primary {
+		var err error
+		if part, err = s.addressedPartition(p, s.owningTile(compPath)); err != nil || part == "" {
+			return "", false
+		}
 	}
 	return fmt.Sprintf("<meta name=\"xbin-partition\" content=\"%s\">\n", htmlEscape(string(part))), false
 }

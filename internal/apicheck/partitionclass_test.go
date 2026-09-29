@@ -24,9 +24,10 @@ import (
 // covers PD-29 S12 C10 — TestPartitionRouteClasses, the guard of
 // plans/partitions/02 §8: every /api/xbin route xbind mounts has a class in
 // internal/server/partitionclass.go, every DeploymentScoped route of the
-// deployment table among them, and every row names a route that exists;
-// every route web/xbin-client.js or the Go SDK (sdk/) calls has a row; and
-// every route still waiting for its handler's conversion is a
+// deployment table among them, and every row names a route that exists (or
+// one another pack of the plan mounts: partitionPlanned); every route
+// web/xbin-client.js or the Go SDK (sdk/) calls has a row; and every route
+// still waiting for its handler's conversion, or keyed on a person, is a
 // PartitionScoped one. Its "refusals" subtest drives the table through
 // handleAPI with real credentials.
 func TestPartitionRouteClasses(t *testing.T) {
@@ -44,14 +45,25 @@ func TestPartitionRouteClasses(t *testing.T) {
 			problems = append(problems, "the deployment-scoped route "+p+" has no partition class")
 		}
 	}
+	planned := server.PartitionPlanned()
 	for p, c := range table {
-		if _, ok := inv[p]; !ok {
+		if _, ok := inv[p]; !ok && planned[p] == "" {
 			problems = append(problems, "internal/server/partitionclass.go classes "+p+" ("+c.String()+"), which no code registers: drop the row")
+		}
+	}
+	for p, pack := range planned {
+		if table[p] == server.PartitionUnclassified {
+			problems = append(problems, "partitionPlanned lists "+p+" ("+pack+"), which has no row")
 		}
 	}
 	for p := range server.PartitionUnconverted() {
 		if table[p] != server.PartitionScoped {
 			problems = append(problems, "partitionUnconverted lists "+p+", which isn't partition-scoped")
+		}
+	}
+	for p := range server.PartitionPersonKeyed() {
+		if table[p] != server.PartitionScoped {
+			problems = append(problems, "partitionPersonKeyed lists "+p+", which isn't partition-scoped")
 		}
 	}
 	for path, where := range clientRoutes(t) {
@@ -144,7 +156,8 @@ func (partitionPolicy) AddressedPartition(p auth.Principal, tile string) (util.P
 // tile's instance and frame, and the owner:
 //   - a user partition is refused on every unconverted partition-scoped,
 //     dormant, global-only and unclassified route before any handler runs,
-//     and reaches the others with its partition on its principal;
+//     its instance (which names no person) on the person-keyed ones (prefs)
+//     too, and reaches the others with its partition on its principal;
 //   - global, an unpartitioned tile and the owner reach every route, their
 //     principal carrying no partition.
 func partitionRefusals(t *testing.T, inv map[string]string) {
@@ -211,22 +224,24 @@ func partitionRefusals(t *testing.T, inv map[string]string) {
 	a.RegisterInstance("inst-global", "apps/pt")
 	a.RegisterInstance("inst-other", "apps/other")
 	type cred struct {
-		name   string
-		header http.Header
-		user   bool // acts in a user partition
+		name     string
+		header   http.Header
+		user     bool // acts in a user partition
+		noPerson bool // names no person (an instance token)
 	}
 	bearer := func(tok string) http.Header { return http.Header{"Authorization": {"Bearer " + tok}} }
 	frame := func(tok string) http.Header { return http.Header{auth.FrameTokenHeader: {tok}} }
 	creds := []cred{
-		{"alice's partition's instance", bearer("inst-alice"), true},
-		{"alice's frame of apps/pt", frame(a.MintFrameToken("apps/pt", "alice", time.Hour)), true},
-		{"alice's terminal on apps/pt", bearer(a.MintTerminal("apps/pt", "alice")), true},
-		{"the owner's frame of apps/pt, global", frame(a.MintFrameToken("apps/pt", "", time.Hour)), false},
-		{"the global instance", bearer("inst-global"), false},
-		{"an unpartitioned tile's instance", bearer("inst-other"), false},
-		{"alice's frame of an unpartitioned tile", frame(a.MintFrameToken("apps/other", "alice", time.Hour)), false},
-		{"the owner", bearer(a.OwnerTokenValue()), false},
+		{"alice's partition's instance", bearer("inst-alice"), true, true},
+		{"alice's frame of apps/pt", frame(a.MintFrameToken("apps/pt", "alice", time.Hour)), true, false},
+		{"alice's terminal on apps/pt", bearer(a.MintTerminal("apps/pt", "alice")), true, false},
+		{"the owner's frame of apps/pt, global", frame(a.MintFrameToken("apps/pt", "", time.Hour)), false, true},
+		{"the global instance", bearer("inst-global"), false, true},
+		{"an unpartitioned tile's instance", bearer("inst-other"), false, true},
+		{"alice's frame of an unpartitioned tile", frame(a.MintFrameToken("apps/other", "alice", time.Hour)), false, false},
+		{"the owner", bearer(a.OwnerTokenValue()), false, true},
 	}
+	personKeyed := server.PartitionPersonKeyed()
 	call := func(c cred, pattern string) (int, string) {
 		t.Helper()
 		method, path, ok := strings.Cut(pattern, " ")
@@ -276,6 +291,8 @@ func partitionRefusals(t *testing.T, inv map[string]string) {
 			case !c.user:
 			case class == server.PartitionScoped && unconverted[pattern] != "":
 				want, wantCode = "this route isn't available to a partition's credentials yet ("+unconverted[pattern]+")", http.StatusForbidden
+			case class == server.PartitionScoped && c.noPerson && personKeyed[pattern] != "":
+				want, wantCode = "this route isn't available to a partition's credentials that name no person yet ("+personKeyed[pattern]+")", http.StatusForbidden
 			case class == server.PartitionScoped, class == server.PartitionNeutral:
 			case class == server.GlobalOnlyDormant:
 				want, wantCode = "this route isn't available to a partition's credentials yet (dormant registrations)", http.StatusForbidden

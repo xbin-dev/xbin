@@ -57,9 +57,10 @@ either way, no storage, no ambient cookie. Served HTML also carries
 `<meta name="xbin-sandbox">` with the full token list (absent on chrome).
 A partitioned tile's documents carry `<meta name="xbin-partition"
 content="user:<id>">` naming the partition the viewer reaches (`global` for
-the owner token and `--no-auth`; none when the viewer reaches none), which
-the client exposes as `xbin.partition`; an admin viewing as someone gets the
-document without a frame token.
+the owner token and `--no-auth`, and in a non-primary deployment's document,
+`/c/<tile>+<name>/`, whose one instance every writer shares; none when the
+viewer reaches none), which the client exposes as `xbin.partition`; an
+admin viewing as someone gets the document without a frame token.
 Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
 (or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
@@ -199,10 +200,13 @@ global instance's registrations), global-only (refused: `403 this route is
 the global instance's alone: a person's partition (user:<id>) can't use
 it`), person-only (a person's own session, app or device credential only:
 `403 this is a person's own act …` for every tile credential, partitioned
-or not) or neutral — and a route without one, or whose handler doesn't act
-per partition yet, answers `403 this route isn't available to a partition's
-credentials yet`. The global instance, and every credential of a tile that
-isn't partitioned, meet none of this.
+or not, the owner token and view-as) or neutral — and a route without one,
+or whose handler doesn't act per partition yet, answers `403 this route
+isn't available to a partition's credentials yet`. The `/prefs` routes keep
+a person's own bucket, so a user partition's frames, terminals and agent
+sessions use them, while its instance token, which names no person, is
+refused them (`403 … that name no person yet`). The global instance, and
+every credential of a tile that isn't partitioned, meet none of this.
 
 ## HTTP routes
 
@@ -3226,8 +3230,11 @@ POST   /tile-report                      element (self) or owner (?component=).
                                          that person (§/ws/events); GET
                                          /tile-report answers such a caller
                                          its partition's own record for its
-                                         tile (none: no entry). Cleared when
-                                         the tile's code rebuilds
+                                         tile (none: no entry), and never a
+                                         deleted person's to one created
+                                         later under the same id. Cleared when
+                                         that partition's instance restarts
+                                         or the tile's code rebuilds
 
 POST   /notify                           element: a tile's backend (instance
                                          token). body {user, title, body?, link?,

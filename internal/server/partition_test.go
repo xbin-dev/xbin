@@ -80,6 +80,7 @@ func TestPartitionEvents(t *testing.T) {
 	bus := events.Event{Type: "bus", Topic: "res:apps/a/feed/x", Partition: "user:ana"}
 	term := events.Event{Type: "term", Component: "apps/a", Data: termChange{Op: "open", ID: "t1", User: "ana"}}
 	session := events.Event{Type: "session", Component: "apps/a", Data: termChange{User: "ana"}}
+	partSession := events.Event{Type: "session", Component: "apps/a", Partition: "user:ana", Data: termChange{User: "ana"}}
 	for _, c := range []struct {
 		name string
 		p    auth.Principal
@@ -104,6 +105,12 @@ func TestPartitionEvents(t *testing.T) {
 		{"view-as ana, her term event", viewAna, term, false},
 		{"the owner, a session event on apps/a", owner, session, false},
 		{"ana, her session event", ana, session, true},
+		// a partition's stamp narrows the type's own rules, never replaces them
+		{"ana, her partition's session event", ana, partSession, true},
+		{"ana's frame, her partition's session event", anaFrame, partSession, false},
+		{"ana's partition's instance, its session event", anaInstance, partSession, false},
+		{"ana's terminal on apps/a, her partition's session event", anaTerm, partSession, true},
+		{"the owner, a partition's session event", owner, partSession, false},
 		{"the owner, a term event on apps/b", owner, events.Event{Type: "term", Component: "apps/b", Data: termChange{User: "ana"}}, true},
 		{"bob, a status of no partition", bob, events.Event{Type: "status", Component: "apps/a", Data: map[string]any{}}, true},
 	} {
@@ -116,8 +123,9 @@ func TestPartitionEvents(t *testing.T) {
 // covers PD-08 PD-10 PD-29 — the partition gate beyond the table (02 §8):
 // a view-as frame of a partitioned tile is refused on everything but
 // neutral routes; a PersonOnly route refuses every tile principal —
-// instance, frame and terminal, of any tile, partitioned or not — and
-// passes a person; the principal a handler sees carries its user partition.
+// instance, frame and terminal, of any tile, partitioned or not — the root
+// token, --no-auth, view-as and an anonymous subrequest, and passes a
+// person; the principal a handler sees carries its user partition.
 func TestPartitionGate(t *testing.T) {
 	w := partServer(t)
 	partitionClasses["POST /zz-person-only"] = PersonOnly
@@ -157,6 +165,16 @@ func TestPartitionGate(t *testing.T) {
 	} {
 		if code, body, _ := gate("POST", "/zz-person-only", p); code != 403 || !strings.Contains(body, "a person's own act") {
 			t.Errorf("PersonOnly for %s via %s: %d %s", p.Component, p.Via, code, body)
+		}
+	}
+	for name, p := range map[string]auth.Principal{
+		"the root token":          {Owner: true, Via: "cookie"},
+		"--no-auth":               {Owner: true, Via: "dev"},
+		"view-as ana":             {UserID: "ana", Via: "session", Impersonator: "owner"},
+		"an anonymous subrequest": {},
+	} {
+		if code, body, _ := gate("POST", "/zz-person-only", p); code != 403 || !strings.Contains(body, "a person's own act") {
+			t.Errorf("PersonOnly for %s: %d %s", name, code, body)
 		}
 	}
 	if code, _, _ := gate("POST", "/zz-person-only", auth.Principal{UserID: "ana", Via: "session"}); code != 200 {
@@ -218,5 +236,39 @@ func TestPartitionMeta(t *testing.T) {
 	body := w.do("/c/apps/a/", cookie(auth.CookieName, sid)).Body.String()
 	if strings.Contains(body, meta) || !strings.Contains(body, `<meta name="xbin-frame-token" content="">`) {
 		t.Errorf("view-as: a token or partition meta in\n%s", body)
+	}
+}
+
+// partURLPolicy is urlPolicy with apps/a partitioned as partPolicy says.
+type partURLPolicy struct{ *urlPolicy }
+
+func (partURLPolicy) AddressedPartition(p auth.Principal, tile string) (util.Partition, error) {
+	return partPolicy{}.AddressedPartition(p, tile)
+}
+
+// covers PD-17 — a non-primary deployment's document of a partitioned tile
+// (/c/<tile>+<dep>/) names global, not the viewer's own partition: its
+// frame token is bound to that deployment, whose one instance every writer
+// shares; the primary's document names the viewer's partition.
+func TestPartitionMetaNonPrimary(t *testing.T) {
+	w := newDepWS(t, TileAssetsLegacy)
+	w.s.Reg.PartitionModes = func(a registry.PartitionAsk) registry.PartitionMode {
+		if a.Tile == "apps/a" {
+			return registry.PartitionMode{State: registry.PartitionPartitioned, Recorded: registry.PartitionSpec{User: true, Global: true}}
+		}
+		return registry.PartitionMode{}
+	}
+	w.rescan()
+	w.s.Pol = partURLPolicy{w.pol}
+	meta := `<meta name="xbin-partition" content="`
+	for url, want := range map[string]string{"/c/apps/a/": "user:wes", "/c/apps/a+dev/": "global"} {
+		rec := w.do(url, w.session("wes"))
+		body := rec.Body.String()
+		if rec.Code != 200 || !strings.Contains(body, meta+want+`">`) || strings.Count(body, meta) != 1 {
+			t.Errorf("%s: %d, want one %q partition meta in\n%s", url, rec.Code, want, body)
+		}
+		if frameTokenIn(t, body) == "" {
+			t.Errorf("%s: no frame token", url)
+		}
 	}
 }
