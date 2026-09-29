@@ -806,3 +806,35 @@ func TestTrackPartitionConn(t *testing.T) {
 	}
 	w.r.TrackPartitionConn("apps/x", "main", "user:nobody").Release() // no state: nothing
 }
+
+// covers PD-19 — TestEnsurePartitionNeedsIsolate (03 §Tests): without
+// --isolate no person's partition starts, and nothing is left of the try.
+func TestEnsurePartitionNeedsIsolate(t *testing.T) {
+	w := newPartWorld(t, userGlobal, registry.Manifest{})
+	w.r.Isolate = false
+	_, err := w.r.EnsurePartition(context.Background(), w.c, "main", "user:alice", StartInteractive)
+	if !errors.Is(err, ErrPartitionRefused) || !strings.Contains(err.Error(), "--isolate") {
+		t.Errorf("without isolation: %v", err)
+	}
+	if n := len(w.r.partStates("")); n != 0 || len(w.f.takeLog()) != 0 {
+		t.Errorf("a refused partition left %d states or ran something", n)
+	}
+}
+
+// covers PD-17 — TestEnsurePartitionPrimaryOnly (03 §Tests): a person's
+// partition runs on the tile's primary deployment only.
+func TestEnsurePartitionPrimaryOnly(t *testing.T) {
+	w := newPartWorld(t, userGlobal, registry.Manifest{})
+	for _, dep := range []string{"dev", "global"} {
+		_, err := w.r.EnsurePartition(context.Background(), w.c, dep, "user:alice", StartInteractive)
+		if !errors.Is(err, ErrPartitionRefused) || !strings.Contains(err.Error(), "primary deployment only") {
+			t.Errorf("a partition on %s: %v", dep, err)
+		}
+	}
+	if n := len(w.r.partStates("")); n != 0 {
+		t.Errorf("refused partitions left %d states", n)
+	}
+	if got := w.ensure("user:alice"); got != "g1" {
+		t.Errorf("on the primary: %s", got)
+	}
+}
