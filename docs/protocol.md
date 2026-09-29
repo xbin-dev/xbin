@@ -696,7 +696,8 @@ PUT    /vm/policy                  admin. body: any of {terminals,backends,
 GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    {sandboxes:[{id,kind (backend|terminal|
                                    agent|tile),tile,parent?,user?,label?,
-                                   for?,forUser?,mode
+                                   for?,forUser?,partition? (a person's
+                                   partition's backend: user:<id>),mode
                                    (vm|namespace|host),accel? (kvm|emulate),
                                    memMiB?,vcpus?,pid,gen?,started,leaf?,
                                    disk?,net?,restricted?,owner?,name?,
@@ -704,7 +705,7 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    scope}}], disks:[{kind (terminal|tile),
                                    key,sandbox?,sandboxUid?,path,tile?,
                                    apparentBytes,allocatedBytes,inUse}],
-                                   failures:[{time,kind,tile,user?,mode,stage
+                                   failures:[{time,kind,tile,partition?,user?,mode,stage
                                    (refused|start|health|exit),error,count}],
                                    failureCounts:{<stage>:n}, cgroup,
                                    intervalSec, health:{isolation:{tier,
@@ -765,7 +766,13 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    tile's rows sum per leaf. leaf is the
                                    generation's own: the flat <key> while main
                                    runs alone, tile-<key>/d-<name>/backend
-                                   otherwise. failures[] of another deployment
+                                   otherwise. A person's partition's backend
+                                   (docs/partitions.md) has the id
+                                   backend@<pkey>:<key>:g<gen>, partition
+                                   (user:<id>), its own leaf
+                                   tile-<key>/p-<hash>/backend and stats
+                                   scope "partition"; metadata only.
+                                   failures[] of another deployment
                                    carry deployment? (a start past the caps
                                    or the VM room of §Tile deployments shows
                                    here, stage refused).
@@ -1832,6 +1839,34 @@ PUT    /workspace-policies        admin. {partitionConsent?,
                                    key of the file; 500 without writing on a
                                    file it can't read; publishes `policies`;
                                    audited with each switch's old→new
+POST   /partitions/limits         admin; a tile manager (with their own
+                                   session, app or device) may lower their
+                                   own tile's. {tile?, maxRunning?,
+                                   partitionBytes?}: without tile, the
+                                   workspace's cap on people's partition
+                                   instances running at once (maxRunning,
+                                   admin only; partitionBytes 400); with
+                                   tile, that tile's cap and the byte ceiling
+                                   of each person's partition of it — an
+                                   admin's values, or a manager's lower ones
+                                   (above the admin's value or the default:
+                                   403). 0 clears a value; maxRunning is
+                                   ≤ 4096, partitionBytes ≥ 1 MiB. The caps
+                                   default from host memory (per tile
+                                   clamp(MemTotal/4 ÷ E, 4, 32), workspace
+                                   clamp(MemTotal/2 ÷ E, 8, 128), E ≈ 160
+                                   MiB), the ceiling to the tile's
+                                   per-namespace one. → {tile?, limits?:
+                                   {maxRunning, partitionBytes}, workspace:
+                                   {maxRunning}, defaults: {maxRunning,
+                                   workspaceMaxRunning}} (effective values;
+                                   partitionBytes 0 = the default). The
+                                   tile's own credentials 403, an unknown
+                                   tile 404. Kept in
+                                   data/partition-limits.json (a file xbind
+                                   can't read: the defaults apply and POST
+                                   answers 500); applies at the next start;
+                                   audited (docs/partitions.md)
 GET    /chrome                    admin. {tiles: [{path, requested,
                                    approved, shipped?, chrome, missing?}]} —
                                    every component whose xbin.json says
@@ -5142,6 +5177,19 @@ a time, sub-paths traversal-stripped. The native runtime document
   checkpoint instead of the work tree — read-only at the tile's own path,
   restarted from its kept build on every restart — and a save doesn't reach
   you: a crash loop clears with a deploy or a restart. Your env is the same.
+- A partitioned tile (in development, docs/partitions.md) runs one process per person who
+  uses it, `XBIN_PARTITION=user:<id>`, beside its optional global instance
+  (`XBIN_PARTITION=global`, today's process at today's keys): started on
+  the person's first use, never at boot, stopped 10 min after its last
+  use (an open SSE stream isn't use), capped per tile and workspace (503
+  `too many people's instances of <tile> are running; try again shortly`),
+  and wired as a non-primary deployment is: relayed egress under the tile's
+  policy, no host network, splice, roster, lan-ingress legs, ingress or
+  stream-slot dials. Its socket, token, log and cgroup are its own; its code
+  and build are the tile's. `XBIN_PARTITION` is set after
+  `XBIN_COMPONENT` (after `XBIN_DEPLOYMENT` when that is set, for a
+  non-primary deployment whose code asks for partitions: `global`) and
+  never on an unpartitioned tile.
 - A tile may run several deployments, each its own process with its own
   code, manifest, data, vault and log. A deployment that isn't the tile's
   primary needs `--isolate`; it starts on its first request and is reaped

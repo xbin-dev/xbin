@@ -613,6 +613,7 @@ func (st *State) stepProxy() error {
 			(dep != st.Deployments.Primary(tile) || brk.PartitionHoldReason(tile) == "")
 	}
 	brk.SetPartitionStop(func(tile string) { run.StopDeployment(tile, st.Deployments.Primary(tile)) })
+	st.wirePartitionRunner() // people's partitions: caps and mode transitions (partitionrunner.go)
 	brk.Version = st.Cfg.Version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 	st.Proxy = px

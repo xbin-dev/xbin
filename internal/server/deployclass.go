@@ -313,6 +313,7 @@ var routeClasses = map[string]RouteClass{
 	"PUT /chrome":                            PrimaryOnly,
 	"PUT /branding":                          PrimaryOnly,
 	"PUT /workspace-policies":                PrimaryOnly,
+	"POST /partitions/limits":                PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
 	"GET /push/config":                       PrimaryOnly,
 	"PUT /push/config":                       PrimaryOnly,
 	"DELETE /push/config":                    PrimaryOnly,

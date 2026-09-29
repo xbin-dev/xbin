@@ -54,6 +54,7 @@ type Broker struct {
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
 	tileSbx   tileSbxSlot           // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
 	pol       policiesStore         // data/workspace-policies.json, cached (policies.go, PD-55)
+	plim      partitionLimits       // data/partition-limits.json (partitionlimits.go, PD-18)
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
@@ -180,18 +181,6 @@ func (b *Broker) Close() {
 		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
 }
-
-// SetBuiltins installs the embedded builtin tile catalog (from main, which
-// owns the embedded FS). Call before Register.
-func (b *Broker) SetBuiltins(s *builtins.Set) { b.tiles = s }
-
-// SetBuiltinTemplates installs the embedded builtin template catalog. Call
-// before Register.
-func (b *Broker) SetBuiltinTemplates(s *builtins.TemplateSet) { b.templates = s }
-
-// SetUpdater installs the builtin update tracker (plans/builtin-updates.md).
-// Call before Register.
-func (b *Broker) SetUpdater(u *builtins.Updater) { b.updater = u }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
 	b := &Broker{Reg: reg, Hub: hub}
@@ -336,6 +325,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerUsers(srv)
 	b.registerScreens(srv)
 	b.registerPolicies(srv)
+	b.registerPartitionLimits(srv)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
 		Primary:      b.primaryOf, Addressed: b.addressed}

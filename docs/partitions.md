@@ -94,7 +94,8 @@ A template's own `partition` isn't checked: its instances carry it
 Some things apply to a partitioned tile's global instance only, so without
 `"global"` they do nothing: `alwaysOn`, `exposes` (ingress), a `net → host`
 binding, a net provider or a provider splice. People's partitions get only
-relayed egress under the tile's egress policy. A static tile may declare
+relayed egress under the tile's egress policy
+([§How people's partitions run](#how-peoples-partitions-run)). A static tile may declare
 `partition`, with a warning: it has no backend to partition.
 
 Two optional keys go with it — **TODO**, documented when they are built:
@@ -250,6 +251,54 @@ into it that act for a partition: a person reaching their partition
 at global — a user partition's call to it (`user:<id>`, with `X-XBin-From`
 the tile's own path; see above). A tile that isn't partitioned calling in
 sends neither header.
+
+## How people's partitions run
+
+Each person's partition is **its own backend process**, in its own sandbox:
+
+- **Started on first use, stopped when idle.** Nothing starts a person's
+  partition at boot. It starts on their first request (or a cron or bus
+  delivery of theirs), and stops **10 minutes** after its last use. A
+  request in progress or a held connection counts as use; an open event
+  stream (SSE) doesn't, so a background tab doesn't keep it running —
+  frames reconnect their streams while they are visible. The next use
+  starts it again. The global instance keeps the usual 30 minutes, and
+  `alwaysOn` keeps up the global instance only.
+- **What it gets.** `XBIN_PARTITION=user:<id>` (the global instance gets
+  `global`; an unpartitioned tile gets nothing new), the same
+  `XBIN_COMPONENT`, `XBIN_RES_*` paths and code as every other instance,
+  its own socket, instance token, log and cgroup, and its own data behind
+  those paths. Its network is a non-primary deployment's: relayed egress
+  under the tile's egress policy, and no host network, provider splice,
+  net-provider roster, lan-ingress leg, ingress path or stream-slot dial —
+  none of which the global instance loses.
+- **One build.** A change to the tile's code builds it once; every running
+  partition restarts onto that build (a few at a time), and the others
+  pick it up on their next start. A pinned primary's checkpoint is shared
+  the same way.
+- **Only on the primary, only with `--isolate`.** A person's partition
+  runs only on the tile's primary deployment, and only on an xbind started
+  with `--isolate`; elsewhere the tile's API answers that a person's
+  partition can't run here.
+
+**Limits.** How many people's instances run at once is capped, per tile and
+for the whole workspace, from the host's memory — per tile
+clamp(MemTotal/4 ÷ E, 4, 32), workspace-wide clamp(MemTotal/2 ÷ E, 8, 128),
+with E about 160 MiB per instance (a 4 GiB machine runs 6 per tile, 12 in
+all). At the cap, a person's start stops the least recently used partition
+that isn't in use (no request in the last 2 minutes and no held
+connection); with none to stop, it answers **503** `too many people's
+instances of <tile> are running; try again shortly`. A cron, bus or mail
+start never stops a partition that is in use or streaming, runs at most 4
+at once in the workspace (mail: 6 a minute per tile), and otherwise waits
+and retries. An admin sets the caps, and each person's byte ceiling on a
+tile, with `POST /api/xbin/partitions/limits` ([protocol.md](protocol.md));
+a tile manager may lower their own tile's.
+
+**Admins** see who has an instance running — the tile and the partition
+key, in the sandbox list (`/api/xbin/sandboxes` rows gain `partition`) —
+never what it holds. A person's partition's crash messages name the
+partition, not its log.
 
 ## In your code
 
