@@ -68,10 +68,18 @@ async function stateOf(ctx) {
   const body = await r.json().catch(() => null);
   return { status: r.status(), body: body || {}, error: body?.error || '' };
 }
+// post waits out the capture rate like the Go tests' postPaced: a tile
+// checkpoints a burst of 10, then one per 3 s, and an op over it answers 429
+// "… checkpointed too often; retry in Ns", having changed nothing — the
+// passes before this one (and the next) spend the same tile's budget.
 async function post(ctx, op, data) {
-  const r = await ctx.request.post(`${URL}/api/xbin/deployments/${op}`, { data });
-  const body = await r.json().catch(() => ({}));
-  return { status: r.status(), body, error: body?.error || '' };
+  for (let i = 0; ; i++) {
+    const r = await ctx.request.post(`${URL}/api/xbin/deployments/${op}`, { data });
+    const body = await r.json().catch(() => ({}));
+    const m = r.status() === 429 && /checkpointed too often; retry in (\d+)s/.exec(body?.error || '');
+    if (!m || i === 20) return { status: r.status(), body, error: body?.error || '' };
+    await sleep(Number(m[1]) * 1000 + 100);
+  }
 }
 const dep = (s, name) => (s?.deployments || []).find((d) => d.name === name) || null;
 const same = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a)); // two prefixes of one checkpoint id

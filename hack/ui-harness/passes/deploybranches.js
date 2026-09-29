@@ -159,9 +159,14 @@ async function run(X) {
   await fr(P, TILE, (f) => f.open('deployments'));
   await D.pn(P, (p) => { p.refresh(); p.select('feat'); p.tab('log'); return true; });
   await D.waitPanel(P, (p) => (p.log || []).length > 0, null, "feat's deploy log");
-  const log = await D.pn(P, (p) => p.log.map((r) => [r.how, r.branch]));
-  check(log[0]?.[0] === 'resume live reload' && log[0][1] === OTHER && log.some(([h, b]) => h === 'added' && b === FEAT),
-    `the deploy log names each entry's branch: the resume this time on wpd-other, the add on wpd-feat (${JSON.stringify(log)})`);
+  const log = await D.pn(P, (p) => p.log.map((r) => [r.how, r.branch, !!r.checkpoint]));
+  // a resume whose capture the tile's rate refused (the passes before this
+  // one spend apps/deployy's budget) still returns to the work tree, and its
+  // entry names no checkpoint and so no branch (Branch: "" when it captured
+  // none, D131)
+  const resumeOK = log[0]?.[0] === 'resume live reload' && log[0][1] === (log[0][2] ? OTHER : '');
+  check(resumeOK && log.some(([h, b]) => h === 'added' && b === FEAT),
+    `the deploy log names each entry's branch: the resume this time on wpd-other (when it captured), the add on wpd-feat (${JSON.stringify(log)})`);
   await shot(P, 'deploybranches-log', { fullPage: false });
   await D.pn(P, (p) => { p.tab('overview'); return true; });
   await D.act(P, 'clearBranch');
