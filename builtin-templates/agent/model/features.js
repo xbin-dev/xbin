@@ -21,6 +21,7 @@ export const AREAS = {
   state: 'States the whole tile can be in',
   link: 'Deep links',
   needs: 'Needs you — beyond the tile',
+  harness: 'Coding agents — a conversation with Claude Code, Codex, Gemini or opencode in a coding sandbox',
 };
 
 export const FEATURES = {
@@ -91,7 +92,7 @@ export const FEATURES = {
   // Composer
   'composer.text': 'a text box that grows with its text',
   'composer.keys': 'Enter sends, Shift+Enter is a new line, an IME\'s Enter is the IME\'s',
-  'composer.placeholder': 'its prompt by state: a new ask, view only, steer, answer, follow up',
+  'composer.placeholder': 'its prompt by state: a new ask, view only, steer, answer, follow up — a coding agent\'s own words (it steers or queues, what interrupts, a reply to its park)',
   'composer.disabled': 'disabled in a conversation you may only read',
   'composer.class': 'the class for new chats (D116): icon and name, each one\'s description in its menu, only the classes you may use (GET /classes); your last pick is your default',
   'composer.model': 'the model: any bound provider\'s, grouped by provider — the open conversation\'s from its next turn, or the next new chat\'s; your last pick is your default',
@@ -207,6 +208,16 @@ export const FEATURES = {
 
   // Needs you, beyond the tile
   'needs.push': 'a question, an approval or a failed automation reaches your phone (the backend pushes it; tapping it opens the conversation)',
+
+  // Coding agents — asking and controls (D-harness §8 U4)
+  'harness.permission': 'a coding agent\'s permission request: its own options as buttons (reject first when it defaults to no; one that raises it to a bypass mode only for the owner, marked ⚠ and confirmed), the call — title, command, a diff preview — what "always" would remember, and an optional word sent with a rejection',
+  'harness.planApproval': 'its plan approval (leaving plan mode): the plan, its options, and a "keep planning" box sent with the rejection',
+  'harness.question': 'its question: a form from its schema (choices, "Other", yes/no, numbers, text) with Submit and Skip; a page to open (url mode), then Done',
+  'harness.mode': 'the conversation\'s live mode, from the agent\'s own modes (PATCH /runs/{id}/harness); a bypass mode is marked ⚠, the owner\'s only, and confirmed',
+  'harness.options': 'its config options (model, effort…), switched live — the built-in model picker hides in its conversation',
+  'harness.slash': 'the slash commands it advertises, offered while "/" is typed',
+  'harness.steer': 'while its turn runs a message steers it or waits for it (the queued chip says which; a steered one is said); ⌘/Ctrl+Enter — Send now on the app — interrupts the turn and sends; Stop interrupts',
+  'harness.autonomy': 'your Auto / Always approve per coding agent (/prefs/harness-mode): how its new conversations, and the ones the agent starts for you, begin',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.

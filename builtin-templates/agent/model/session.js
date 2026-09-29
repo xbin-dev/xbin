@@ -514,11 +514,11 @@ export class Session {
 
   // send posts a message. While the run works it is queued (and shown above
   // the composer) until the agent's next step; a retried post is deduplicated
-  // by its client id.
-  async send(text, files) {
+  // by its client id. interrupt: a coding harness's turn is cut short first.
+  async send(text, files, { interrupt = false } = {}) {
     const v = this.current();
     if (!v) throw new Error('no run selected');
-    const r = await api(`/runs/${v.run.id}/message`, jbody({ text, files, clientId: cid() }, 'POST'));
+    const r = await api(`/runs/${v.run.id}/message`, jbody({ text, files, clientId: cid(), ...(interrupt ? { interrupt: true } : {}) }, 'POST'));
     return r;
   }
 

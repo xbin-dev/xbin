@@ -519,17 +519,16 @@ test('native: a harness conversation — its cards, a seam\'s block, end, toolba
   assert.ok(all(t, { t: 'button', has: 'probe toolbar' }).length, 'the toolbar hook');
   assert.ok(all(t, { t: 'button', has: 'probe menu #21' }).length, 'the menu hook');
   const composer = all(t, { t: 'composer' })[0];
-  assert.equal(composer.p.placeholder, 'probe placeholder');
-  assert.deepEqual(composer.p.slash, [{ name: 'probe', description: 'a probe command' }]);
+  assert.equal(composer.p.placeholder, 'message Claude Code…', 'the last placeholder given (U4\'s, registered after the probe)');
+  assert.deepEqual(composer.p.slash[0], { name: 'probe', description: 'a probe command' }, 'slash commands add up');
 });
 
 test('native: parks — the seam\'s end takes a harness park; the built-in card stays for the rest', async () => {
   const r22 = await runNativeSeed([{ snapshot: 'p' }], 'c=22');
-  assert.equal(all(r22.snapshots.p.root, { t: 'approval' }).length, 0, 'the end hook answered: the park is its');
-  const plain = await runNativeSeed([{ snapshot: 'p' }], 'c=22', 'test/native-stub.mjs');
-  const card = all(plain.snapshots.p.root, { t: 'approval' });
-  assert.equal(card.length, 1, 'no hook: the built-in card, the fallback');
-  assert.match(card[0].p.text, /acp:execute/);
+  const cards = all(r22.snapshots.p.root, { t: 'approval' });
+  assert.equal(cards.length, 1, 'the end hooks answered: the park is theirs (U4\'s card; the probe\'s notice)');
+  assert.doesNotMatch(cards[0].p.text, /acp:execute/, 'not the built-in card');
+  assert.match(texts(r22.snapshots.p.root), /probe end: working/);
   const r25 = await runNativeSeed([{ snapshot: 'p' }], 'c=25');
   const t = r25.snapshots.p.root;
   const agents = all(t, { t: 'toolcard' }).filter((c) => c.p.family === 'agent');

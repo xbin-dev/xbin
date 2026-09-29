@@ -12,6 +12,8 @@
 // U3 the transcript
 
 // U4 asking and controls
+import './harness-ask.js';
+import './harness-controls.js';
 
 // U5 terminals and sign-in
 

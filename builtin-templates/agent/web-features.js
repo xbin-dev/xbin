@@ -71,7 +71,7 @@ export const IMPLEMENTS = {
   // Composer
   'composer.text': 'agent.js — #msg, autosize',
   'composer.keys': 'agent.js — keydown',
-  'composer.placeholder': 'agent.js — paint() (model/rules.js composer)',
+  'composer.placeholder': 'agent.js — paint() (model/rules.js composer); harness-controls.js — a coding agent\'s (model/harness-ask.js steerWords)',
   'composer.disabled': 'agent.js — paint() (model/rules.js composer)',
   'composer.class': 'classes.js — makeClassPicker: #tset opens .clsmenu (model/classes.js classPicker → app.pickClass)',
   'composer.model': 'agent.js — #msel (rules.modelPicker → app.pickModel)',
@@ -182,4 +182,14 @@ export const IMPLEMENTS = {
   'link.conv': 'agent.js — followHash (model/router.js)',
   'link.auto': 'agent.js — followHash (model/router.js)',
   'link.join': 'agent.js — followHash (model/router.js)',
+
+  // Coding agents — asking and controls
+  'harness.permission': 'harness-ask.js — permissionTpl through ext.end (model/harness-ask.js permission → app.harness.permit)',
+  'harness.planApproval': 'harness-ask.js — permissionTpl (plan) through ext.end',
+  'harness.question': 'harness-ask.js — questionTpl through ext.end (model/harness-ask.js question, formFields → app.harness.answer)',
+  'harness.mode': 'harness-controls.js — #hctl popover (model/harness-ask.js controls → app.harness.setMode)',
+  'harness.options': 'harness-controls.js — #hctl popover (app.harness.setOptionOf); model/rules.js modelPicker hides #msel',
+  'harness.slash': 'harness-controls.js — #slash (model/harness-ask.js slashMatches)',
+  'harness.steer': 'harness-controls.js — ⌘/Ctrl+Enter, #hsteer (steerTrack); agent.js — queueTpl words (steerWords), #stop',
+  'harness.autonomy': 'harness-controls.js — #hctl: settingTpl, at home for the harness that answers new chats (app.harness.setSetting)',
 };
