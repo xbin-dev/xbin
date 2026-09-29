@@ -164,8 +164,7 @@ driver as a drop-in hardening).
 
 In a workspace with a vault barrier, **every archive xbind writes is
 sealed** — main archives, data archives and deployment archives alike —
-and an archiver only ever holds ciphertext
-(plans/partitions/11-backup-encryption.md, PD-25/PD-56):
+and an archiver only ever holds ciphertext (decisions PD-25, PD-56):
 
 ```
 vault passphrase ─Argon2id→ KEK ─wraps→ data key (DEK)

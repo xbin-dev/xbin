@@ -80,5 +80,5 @@ Backups used to leave xbind as plaintext tars, trusting the archiver to
 encrypt them (VD-4), and a backup could never be erased short of finding and
 deleting every copy. With one key per subject, the archiver holds only
 ciphertext, and deleting a key — a tile's data, a partition, a person's
-data — erases that data in every backup at once
-(plans/partitions/11-backup-encryption.md).
+data — erases that data in every backup at once (decisions PD-25 and
+PD-56).

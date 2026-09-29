@@ -283,6 +283,19 @@ func TestPlaintextArchiveRestoresSealed(t *testing.T) {
 	}
 }
 
+// covers PD-56 11§4 — a data archive no main archive names doesn't stay: a
+// failed main PUT deletes it, so retention by count keeps the two aligned.
+func TestSealedBackupMainFails(t *testing.T) {
+	f := sealFx(t)
+	f.arch.fail = backupKey(bkTile)
+	if _, err := f.b.doBackup(bkTile); err == nil {
+		t.Fatal("a failed main PUT succeeded")
+	}
+	if got := f.arch.versions(dataArchiveKey(bkTile)); len(got) != 0 {
+		t.Errorf("an orphan data archive stayed: %v", got)
+	}
+}
+
 // covers PD-56 11§7 — a sealed vault blocks every backup: the main archive
 // too, before anything reaches the archiver; a scheduled run logs and skips.
 func TestSealedVaultSkipsBackups(t *testing.T) {

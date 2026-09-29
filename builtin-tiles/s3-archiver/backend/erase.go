@@ -1,7 +1,7 @@
 package main
 
 // erase.go — sealed archives and their backup keys
-// (plans/partitions/11-backup-encryption.md §6). xbind seals every archive
+// (docs/overview/14-lifecycle.md §Sealed archives; PD-56). xbind seals every archive
 // of a workspace with a vault under a backup subkey, and names the key's
 // opaque id on the PUT (X-XBin-Backup-Subkey). This tile never sees key
 // material or plaintext: it records the id as an empty marker object,

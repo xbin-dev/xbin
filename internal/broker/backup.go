@@ -304,6 +304,11 @@ func (b *Broker) backupTile(comp string, every bool) (string, map[string]string,
 		}
 	}
 	v, err := b.putArchive(provider, backupKey(comp), mainSeal(comp), func(bw *backup.Writer) error { return b.writeBackup(bw, c, archives, split, data) })
+	if err != nil && data != nil {
+		// no main archive names it: drop it, or retention (by count) would
+		// keep it in place of one a kept main archive names
+		_, _, _ = b.archiveDo("DELETE", provider, "/archive/"+data.Key+"/versions/"+data.Version, nil)
+	}
 	return v, archives, err
 }
 

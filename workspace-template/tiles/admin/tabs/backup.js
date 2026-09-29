@@ -104,7 +104,7 @@ export class BxAdminBackup extends WithRouter(LitElement) {
     finally { this._busy = null; }
   }
 
-  // The disaster-recovery key bundle (plans/partitions/11 §5): downloaded,
+  // The disaster-recovery key bundle (docs/overview/14-lifecycle.md §Sealed archives): downloaded,
   // and recorded as an export, which clears the backup-keys alert.
   async _exportKeys() {
     if (!confirm('Download the backup key bundle? Keep it with the vault passphrase: without the passphrase it opens nothing, and without the bundle a new machine can\'t restore sealed backups.')) return;
