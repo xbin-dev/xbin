@@ -111,7 +111,14 @@ func (e *Engine) maybeCompact(ctx context.Context, ts *turnState, force bool) {
 	if len(mask) > 0 {
 		detail["masked"], detail["savedTokens"] = len(mask), saved
 	}
+	// write commits what this compaction did; the turn goes on with the run
+	// as it now is (its summary, the pending note).
 	write := func(extra func(t *DB) error) {
+		defer func() {
+			if r, err := e.db.getRun(run.ID); err == nil {
+				ts.run = r
+			}
+		}()
 		_ = e.fenced(func(t *DB) error {
 			if err := t.markMasked(mask); err != nil {
 				return err

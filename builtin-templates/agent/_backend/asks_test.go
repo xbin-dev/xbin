@@ -218,12 +218,28 @@ func TestTaskSurvivesThreeCompactions(t *testing.T) {
 			t.Fatalf("summarizer input:\n%s", clip(fold, 3000))
 		}
 	}
-	// The compaction note: once, on the call right after a compaction.
-	noted := 0
-	for _, c := range turns {
-		if strings.Contains(lastText(c), compactedNote) {
+	// The call right after a compaction carries the note, once (so the notes
+	// count the compactions — masking ones too); after a summary, it carries
+	// the new summary.
+	noted, summarized, summary := 0, false, ""
+	for i, c := range f.callsFor(id) {
+		if c.Purpose == "compact" {
+			summarized = true
+			continue
+		}
+		has := strings.Contains(lastText(c), compactedNote)
+		if has {
 			noted++
 		}
+		if summarized {
+			s := sysOf(c)
+			if j := strings.Index(s, "SUMMARY-"); !has || j < 0 || s[j:j+9] == summary {
+				t.Fatalf("call %d, right after a summary: note %v, summary %q (had %q)", i, has, s[max(j, 0):max(j, 0)+9], summary)
+			} else {
+				summary = s[j : j+9]
+			}
+		}
+		summarized = false
 	}
 	var steps, masks int
 	_ = db.q.QueryRow(`SELECT count(*), count(json_extract(detail, '$.masked')) FROM steps WHERE run_id=? AND kind='compaction'`, id).Scan(&steps, &masks)
@@ -231,10 +247,10 @@ func TestTaskSurvivesThreeCompactions(t *testing.T) {
 	if masks == 0 {
 		t.Fatal("stage 1 never masked an output")
 	}
-	if noted == 0 || noted > steps {
+	if noted != steps {
 		t.Fatalf("the note was shown %d time(s) for %d compaction(s)", noted, steps)
 	}
-	if r, _ := db.getRun(id); r.CompactNote && r.Status == statusIdle && noted == steps {
+	if r, _ := db.getRun(id); r.CompactNote {
 		t.Fatal("the note is still pending after it was shown")
 	}
 	assertTranscriptValid(t, db, id)

@@ -170,6 +170,12 @@ func contextWindow(ctx context.Context, ref string) int {
 	}
 	m := find(id)
 	if m == nil {
+		// llm-gw takes "<backend>/<model>" but lists bare ids when it has one backend
+		if i := strings.LastIndex(id, "/"); i >= 0 {
+			m = find(id[i+1:])
+		}
+	}
+	if m == nil {
 		return 0
 	}
 	if m.ContextWindow == 0 && m.AliasOf != "" {
