@@ -114,6 +114,11 @@ func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	if s.tileReadRefused(w, r, auth.PrincipalOf(r), owner) {
 		return
 	}
+	// A pending partition mode switch: the tile's documents are xbind's own
+	// page, no tile HTML touched (partitionpage.go; the D36 precedent).
+	if s.servePartitionSwitchPage(w, r, owner, cleaned) {
+		return
+	}
 	// The bare URL serves the owner's primary: its work tree below, as
 	// always, or its pinned checkpoint (deployserve.go); nothing when that
 	// code can't be served.

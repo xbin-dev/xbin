@@ -411,6 +411,7 @@ func (pm *partitionModes) decide(b *Broker, rec *modeRecord, ask registry.Partit
 	if err == nil {
 		if h, ok := newEntry(rec, next); ok {
 			slog.Info("partitions: mode", "tile", ask.Tile, "op", h.Op, "from", registry.SpecOf(h.From).String(), "to", registry.SpecOf(h.To).String())
+			go b.partitionModeChanged(ask.Tile, h) // frames reload, a request pushes to managers (partitionswitch.go)
 		}
 		pm.mu.Lock()
 		pm.recs[ask.Tile] = next
@@ -490,6 +491,9 @@ func (b *Broker) PartitionHoldReason(tile string) string {
 	if pm == nil {
 		return ""
 	}
+	if why := b.switchHold(tile); why != "" { // a manager's switch is wiping it (partitionswitch.go)
+		return why
+	}
 	pm.heldMu.RLock()
 	defer pm.heldMu.RUnlock()
 	return pm.held[tile]
@@ -509,8 +513,9 @@ var errModeStale = errors.New("the tile's partition mode or request changed sinc
 // recordDecision records a tile manager's act on tile's open request R → Q
 // (F13a's routes judge who may act): "keep" declines Q (R runs again,
 // nothing deleted); "switch" sets R := Q with the wiped summary, after the
-// wipe. from and to must still be R and Q. The registry settles the new
-// record at the next rescan, which the caller triggers.
+// wipe — on an open request, or on a declined one (a manager may still
+// switch after keeping). from and to must still be R and Q. The registry
+// settles the new record at the next rescan, which the caller triggers.
 func (b *Broker) recordDecision(tile, op string, from, to registry.PartitionSpec, by string, wiped map[string]int64) error {
 	pm := b.parts
 	if pm == nil {
@@ -524,7 +529,9 @@ func (b *Broker) recordDecision(tile, op string, from, to registry.PartitionSpec
 	if bad != "" {
 		return errRecordUnread
 	}
-	if rec == nil || rec.Request == nil || rec.recorded() != from || registry.SpecOf(rec.Request.Spec) != to {
+	open := rec != nil && rec.Request != nil && registry.SpecOf(rec.Request.Spec) == to
+	declined := op == modeOpSwitch && rec != nil && rec.Request == nil && rec.Declined != nil && registry.SpecOf(rec.Declined.Spec) == to
+	if !open && !declined || rec.recorded() != from {
 		return errModeStale
 	}
 	next, now := rec.clone(tile), pm.now()

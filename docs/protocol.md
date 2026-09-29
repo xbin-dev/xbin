@@ -560,7 +560,15 @@ current mode", "docs": …, "partition": {"state": "pending", "from":
 `{"error": "<tile> doesn't run: partition: <why>", "docs": …,
 "partition": {"state": "invalid", "error": "partition: <why>"}}`. A caller
 the tile refuses gets its 403 first; public ingress to such a tile answers
-503 as for a disabled one.
+503 as for a disabled one. While a switch is pending, a document of the
+tile (`/c/<tile>/…/`, an `.html` file, a navigation, `?native=1`) is xbind's
+own page instead of the tile's — 409, `Cache-Control: no-store`, a
+`sandbox` CSP with no scripts — saying a switch is requested (R → Q), that
+all data in the tile will be deleted for it to happen, the tile's
+`partitionNote` (as text), and who decides where (`POST
+/api/xbin/partitions/mode`, `bx partition switch|keep`); the tile's other
+files are served as before. A deployment URL (`/c/<tile>+<name>/`) isn't
+paused.
 
 ### xbind API (`/api/xbin/…`)
 
@@ -1001,7 +1009,14 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    keys aren't in any exported key bundle
                                    yet, or the vault passphrase changed
                                    after the last export (GET /backup-keys;
-                                   cleared by POST /backup-keys/export)
+                                   cleared by POST /backup-keys/export).
+                                   Kind partition-switch (warn, tile): a
+                                   partition mode switch is requested for
+                                   the tile, which doesn't run until a tile
+                                   manager switches or keeps the current
+                                   mode (POST /partitions/mode) — admins and
+                                   the tile's readers; it goes when the
+                                   request is decided or withdrawn
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin,suspended?,via?,viaGroups?}]
@@ -2383,6 +2398,58 @@ POST   /lifecycle                  admin, the tile's user-owner, or an
                                    deployments, sandboxesSkipped?, and
                                    dataErased? / dataMissing? when a sealed
                                    backup's data couldn't come back.
+
+POST   /partitions/mode            a tile manager (the tile's user-owner, an
+                                   admin of its owning org, or a workspace
+                                   admin) acting as a person: their own
+                                   session, app, device or the root token, or
+                                   the admin tile's frame under their login;
+                                   every other tile principal (instance,
+                                   frame, terminal, agent session) 403.
+                                   body {tile, act: "keep"|"switch", from, to,
+                                   confirm?, yes?, dryRun?} — decide a
+                                   partition mode switch request R → Q
+                                   (docs/partitions.md §The mode).
+                                   from/to are {user, global} (null:
+                                   unpartitioned) and must still be the
+                                   request's R and Q, else 409 with the
+                                   current partition {state, from, to?,
+                                   declined?}; 409 too for an invalid request
+                                   or an unreadable mode record. keep answers
+                                   an open request: R runs again at once,
+                                   nothing is deleted — {ok, tile, act, mode,
+                                   declined}. switch answers an open or a
+                                   declined request; confirm must be the tile
+                                   path (400); user partitions need xbind's
+                                   --isolate (409); an offloaded tile is 409;
+                                   when to has user partitions and the tile
+                                   binds sandbox managers whose GET
+                                   /sbx/hello caps lack "partitions", 409
+                                   {managers} unless yes. It stops every
+                                   instance, deletes the tile's data — from
+                                   or to unpartitioned: every namespace
+                                   (main's and every deployment's), vault file
+                                   and registration (cron, bus, interface
+                                   instances, ingress hosts), and erases its
+                                   ns: backup keys (tile: stays); removing
+                                   "global": global's namespace, vault and
+                                   registrations and global's ns: key only;
+                                   adding "global": nothing — then records R
+                                   := Q and tells each person whose partition
+                                   went (push kind tile.partition-deleted).
+                                   → {ok, tile, act, from, to, deletes,
+                                   wiped: {namespaces, partitions, vaultKeys,
+                                   registrations, bytes, subkeys}, keeps:
+                                   [text], people?, managers?, archiver?}. A
+                                   wipe that fails part-way is 500 with
+                                   wiped: nothing is recorded, the request
+                                   stays open, a retry finishes it. dryRun
+                                   counts the same, deletes nothing and needs
+                                   no confirm. Audited. A request opening
+                                   pushes to the tile's managers (kind
+                                   tile.partition-switch), and every mode
+                                   change reloads the tile's frames (event
+                                   reload).
 
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal

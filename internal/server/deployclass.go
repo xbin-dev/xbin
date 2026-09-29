@@ -225,6 +225,7 @@ var routeClasses = map[string]RouteClass{
 	"POST /builtins/import": PrimaryOnly,
 	"POST /builtins/update": PrimaryOnly,
 	"POST /lifecycle":       PrimaryOnly,
+	"POST /partitions/mode": PrimaryOnly, // a tile manager's keep/switch, a person's act (plans/partitions/01 §2.5)
 
 	// ---- grants, bindings, ownership and access ----
 	"GET /grants":                   Neutral,
