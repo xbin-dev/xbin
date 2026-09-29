@@ -200,8 +200,10 @@ func (r *Runner) partitionLoad(tile, self string, now time.Time, class StartClas
 		last time.Time
 	}
 	var mine, others []cand
+	counted := map[string]bool{}
 	for _, s := range r.partStates("") {
-		if partStateKey(s.comp, s.dep, s.pt.pkey) == self {
+		k := partStateKey(s.comp, s.dep, s.pt.pkey)
+		if k == self {
 			continue
 		}
 		s.mu.Lock()
@@ -213,6 +215,7 @@ func (r *Runner) partitionLoad(tile, self string, now time.Time, class StartClas
 		if !live {
 			continue
 		}
+		counted[k] = true
 		wsN++
 		if s.comp == tile {
 			tileN++
@@ -226,7 +229,7 @@ func (r *Runner) partitionLoad(tile, self string, now time.Time, class StartClas
 		}
 	}
 	for k, t := range reserved {
-		if k != self {
+		if k != self && !counted[k] { // a start that went live is counted once
 			wsN++
 			if t == tile {
 				tileN++
