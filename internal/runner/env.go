@@ -223,7 +223,7 @@ func (r *Runner) envSetupSpec(c *registry.Component, upper, work string) *sandbo
 // when a retained checkpoint's setup can't be read: nothing is collected.
 func (r *Runner) envKeep(c *registry.Component, built string, retained ...string) map[string]bool {
 	keep := map[string]bool{built: true}
-	for _, s := range r.allStates(c.Path) {
+	for _, s := range append(r.allStates(c.Path), r.partStates(c.Path)...) {
 		s.mu.Lock()
 		if s.cur != nil && s.cur.envHash != "" {
 			keep[s.cur.envHash] = true

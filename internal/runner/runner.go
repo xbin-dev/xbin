@@ -86,8 +86,9 @@ type state struct {
 	lastErr   error         // sticky build/crash error until next change
 	dirty     bool          // changed since last successful build
 	lastReq   time.Time
-	active    int // in-flight proxied connections (incl. SSE/WS streams)
+	active    int // in-flight proxied connections (incl. SSE/WS streams; a partition's passive ones apart)
 	crashes   []time.Time
+	pt        *partInfo // a person's partition's (partitions.go); nil for every other state
 }
 
 type Runner struct {
@@ -171,8 +172,10 @@ type Runner struct {
 	vms        vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
 	Sandboxes       *sbx.Registry
-	DeploymentHooks       // installed by the deployments plane; nil-safe (deploy.go)
-	inUse           inUse // inspect.go: the trees and artifacts generations use
+	DeploymentHooks                 // installed by the deployments plane; nil-safe (deploy.go)
+	PartitionHooks                  // installed by the identity and data planes; fail-closed (partitions.go)
+	inUse           inUse           // inspect.go: the trees and artifacts generations use
+	parts           partitionsState // people's partitions (partitions.go, partadmit.go)
 
 	mu     sync.Mutex
 	states map[string]*state
@@ -224,6 +227,9 @@ func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep s
 			}
 		}
 		return "", fmt.Errorf("component %s %s", c.Path, why)
+	}
+	if r.noGlobal(c.Path, dep) { // only people's partitions run (partitions.go)
+		return "", globalRefusal(c.Path)
 	}
 	return r.ensureState(ctx, c, r.stateOf(c.Path, dep))
 }
@@ -301,6 +307,7 @@ func (r *Runner) Changed(c *registry.Component) {
 	if !c.HasBackend() {
 		return
 	}
+	r.changedPartitions(c) // a new shared build, before the primary's; people's partitions follow
 	s := r.state(c.Path)
 	s.mu.Lock()
 	s.dirty = true
@@ -327,8 +334,8 @@ func (r *Runner) Changed(c *registry.Component) {
 func (r *Runner) runCurrent(c *registry.Component, s *state) error {
 	code, err := r.recordCode(c.Path, s.dep)
 	if err != nil {
-		r.emit(c.Path, s.dep, "build-start", "")
-		r.emit(c.Path, s.dep, "build-error", err.Error())
+		r.emitState(s, "build-start", "")
+		r.emitState(s, "build-error", err.Error())
 		return err
 	}
 	return r.buildAndStart(c, s, code)
@@ -340,14 +347,17 @@ func (r *Runner) runCurrent(c *registry.Component, s *state) error {
 // (resolveGenFor, inspect.go).
 func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error {
 	dep := s.dep
-	r.emit(c.Path, dep, "build-start", "")
+	r.emitState(s, "build-start", "")
 
 	g, err := r.resolveGenFor(c, dep, code)
 	if err != nil {
-		r.emit(c.Path, dep, "build-error", err.Error())
+		r.emitState(s, "build-error", err.Error())
 		return err
 	}
 	v, bin := g.view, g.bin
+	if s.pt != nil { // a person's partition spawns from its own copy of the view
+		v = partitionView(v, s.pt.part, s.pt.pkey)
+	}
 
 	s.mu.Lock()
 	s.gen++
@@ -366,7 +376,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 	inst, err := r.startFor(v, dep, bin, gen)
 	if err != nil {
 		g.release()
-		r.emit(c.Path, dep, "build-error", err.Error())
+		r.emitState(s, "build-error", err.Error())
 		return err
 	}
 	inst.code, inst.root, inst.artifact = code, g.root, g.artifact
@@ -378,7 +388,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		r.stopGen(inst, 2*time.Second)
 		g.release()
 		err = fmt.Errorf("backend did not become healthy: %w", err)
-		r.emit(c.Path, dep, "build-error", err.Error())
+		r.emitState(s, "build-error", err.Error())
 		return err
 	}
 
@@ -409,15 +419,15 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 			}
 		}
 		if recent >= crashLimit { // a save never reaches pinned code (07-runtime §7)
-			s.lastErr = crashLoopError(c.Path, dep, code, recent)
-			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
+			s.lastErr = r.crashLoop(s, code, recent)
+			r.emitState(s, "build-error", s.lastErr.Error())
 		} else {
-			s.dirty = true           // transparent restart on next request
-			go r.afterExitOf(c, dep) // alwaysOn: each deployment's own (alwayson.go)
+			s.dirty = true       // transparent restart on next request
+			go r.afterExit(c, s) // alwaysOn: each deployment's own (alwayson.go); never a partition's
 		}
 	}()
 
-	r.emit(c.Path, dep, "build-ok", "")
+	r.emitState(s, "build-ok", "")
 	slog.Info("backend up", "component", c.Path, "gen", gen)
 	return nil
 }
@@ -460,7 +470,7 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		if c.CodeRoot != "" { // no mount namespace shows a checkpoint at c.Dir (D119h)
 			return nil, fmt.Errorf("%s: a checkpoint runs only in a sandbox (--isolate)", c.Path)
 		}
-		if dep != util.MainDeployment || c.Deployment != "" { // nor binds its own data at its paths (D119h)
+		if dep != util.MainDeployment || c.Deployment != "" || c.Partition != "" { // nor binds its own data at its paths (D119h)
 			return nil, fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate)", c.Path, dep)
 		}
 		switch c.Manifest.Runtime { // exec-ok (all three): isolation off — the workspace has no sandbox; SpawnUser may drop to a scope uid
@@ -497,9 +507,9 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 	}
 	// limits.go: flat while main runs alone; the registry lists the leaf the
 	// generation is placed in
-	leaf := r.chooseLeaf(c.Path, dep)
+	leaf := r.leafOf(c, dep)
 	mode, unlist := r.modeOf(c, sock), r.sbxAddLeaf(c, gen, sock, cmd.Process.Pid, r.listedLeaf(leaf))
-	r.registerInstance(token, c.Path, dep)
+	r.registerGen(token, c, dep) // a person's partition's with its partition (partitions.go)
 	r.joinLeaf(c.Path, dep, leaf, sock, cmd.Process.Pid)
 	// Range-uid sandbox: map the child's uids and release its init (which is
 	// blocked waiting) before anything reads back from it (e.g. the TUN fd).

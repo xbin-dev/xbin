@@ -65,7 +65,7 @@ func (r *Runner) modeOf(c *registry.Component, sock string) sbx.Mode {
 // cgroup leaf its deployment's generation starts in (genLeaf). start lists
 // its generation with sbxAddLeaf and the leaf it placed it in.
 func (r *Runner) sbxAdd(c *registry.Component, gen int, sock string, pid int) func() {
-	return r.sbxAddLeaf(c, gen, sock, pid, r.genLeaf(c, r.viewDeployment(c)))
+	return r.sbxAddLeaf(c, gen, sock, pid, r.listedLeaf(r.leafOf(c, r.viewDeployment(c))))
 }
 
 // sbxAddLeaf lists generation gen of the deployment view c describes, whose
@@ -76,7 +76,7 @@ func (r *Runner) sbxAddLeaf(c *registry.Component, gen int, sock string, pid int
 		return func() {}
 	}
 	dep := r.sbxDeployment(c)
-	e := sbx.Entry{ID: sbxID(c.Path, dep, gen), Kind: sbx.Backend, Tile: c.Path, Deployment: dep,
+	e := sbx.Entry{ID: sbxPartID(c, dep, gen), Kind: sbx.Backend, Tile: c.Path, Deployment: dep, Partition: c.Partition,
 		Mode: r.modeOf(c, sock), PID: pid, Gen: gen, Leaf: leaf}
 	if v, ok := r.vmInfo(sock); ok {
 		e.MemMiB, e.VCPUs, e.Accel = v.MemMiB, v.VCPUs, sbx.KVM
@@ -109,6 +109,19 @@ func sbxID(tile, dep string, gen int) string {
 	return fmt.Sprintf("backend+%s:%s:g%d", dep, util.CompKey(tile), gen)
 }
 
+// sbxPartID is sbxID for the view c spawns: a person's partition's names
+// its pkey after an '@' (sbxID's prefixes hold no '@', and a pkey no ':').
+func sbxPartID(c *registry.Component, dep string, gen int) string {
+	if c.Partition == "" {
+		return sbxID(c.Path, dep, gen)
+	}
+	prefix := "backend"
+	if dep != "" {
+		prefix += "+" + dep
+	}
+	return fmt.Sprintf("%s@%s:%s:g%d", prefix, c.PartitionID, util.CompKey(c.Path), gen)
+}
+
 // genLeaf is the cgroup leaf a new generation of deployment dep of c starts
 // in (07-runtime §10.3), as the registry lists it: chooseLeaf's (limits.go),
 // "" without cgroup accounting.
@@ -139,7 +152,7 @@ func leafFor(key, dep string, nested bool) string {
 // sbxFail records a sandbox that couldn't be set up or started for the
 // deployment view c.
 func (r *Runner) sbxFail(c *registry.Component, stage sbx.Stage, err error) {
-	r.Sandboxes.Fail(sbx.Failure{Kind: sbx.Backend, Tile: c.Path, Deployment: r.sbxDeployment(c),
+	r.Sandboxes.Fail(sbx.Failure{Kind: sbx.Backend, Tile: c.Path, Deployment: r.sbxDeployment(c), Partition: c.Partition,
 		Mode: r.intendedMode(c), Stage: sbx.StageOf(err, stage), Error: err.Error()})
 }
 
@@ -154,6 +167,9 @@ func (r *Runner) sbxExited(c *registry.Component, mode sbx.Mode, ps *os.ProcessS
 		return // stopped (drain, restart) or killed: not the sandbox's failure
 	}
 	logFile := deploymentLog(c.Path, r.viewDeployment(c)) // main's: .xbin/log/<CompKey>.log, as before
+	if c.Partition != "" {
+		logFile = c.Partition + "'s instance log" // never its path (plans/partitions/06 §5)
+	}
 	switch {
 	case code == 125 && mode == sbx.VM:
 		r.sbxFail(c, sbx.Exit, fmt.Errorf("the VM exited (125) — see %s", logFile))

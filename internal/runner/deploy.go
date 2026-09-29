@@ -318,8 +318,13 @@ func (r *Runner) ChangedTile(c *registry.Component) {
 // primary it is its removal: the runner forgets its state and its run dir,
 // and a build still running for it stops the generation it starts (the
 // deployments plane removes the rest of .xbin/deploy/<TileKey>/d/<name>/).
+// The primary's stop stops its people's partitions too (a partition mode
+// hold stops "every primary instance", plans/partitions/01 §6).
 // Stop stops every deployment of the tile.
 func (r *Runner) StopDeployment(tile, dep string) {
+	if dep == r.primary(tile) {
+		r.StopPartitions(tile)
+	}
 	s := r.existingStateOf(tile, dep)
 	if s == nil {
 		return

@@ -183,6 +183,9 @@ func (r *Runner) viewOf(c *registry.Component, dep string, code Code, root strin
 // (07-runtime §9): past the admission caps, through the engine's start in
 // tests, startDeployment otherwise.
 func (r *Runner) startFor(c *registry.Component, dep, bin string, gen int) (*instance, error) {
+	if c.Partition == "" && c.Deployment == "" && r.noGlobal(c.Path, dep) { // every path's one door (partitions.go)
+		return nil, globalRefusal(c.Path)
+	}
 	if err := r.admit(c, dep); err != nil {
 		r.sbxFail(c, sbx.Start, err)
 		return nil, err
@@ -218,7 +221,14 @@ type genSpawn struct {
 //   - a fresh instance token;
 //   - today's XBIN_SOCKET, XBIN_COMPONENT (the bare tile path), XBIN_GATEWAY
 //     and XBIN_TOKEN, plus XBIN_DEPLOYMENT=<name> when the view is not the
-//     primary's (the role rule), then EnvFor's env for the deployment.
+//     primary's (the role rule), then EnvFor's env for the deployment;
+//   - XBIN_PARTITION where partitionEnvKey says, right after XBIN_COMPONENT
+//     (after XBIN_DEPLOYMENT when that is set); never on an unpartitioned
+//     tile, whose env stays today's.
+//
+// A person's partition's view (c.Partition) takes its own run dir
+// (partSockDir), log (partitionLog), env (PartitionEnv) and token
+// (registerGen) instead (plans/partitions/03 §A.4).
 //
 // A view that names another deployment than dep is refused, and so is a
 // deployment other than main while auth can't bind its instance token to
@@ -232,11 +242,18 @@ func (r *Runner) spawnSetup(c *registry.Component, dep string, gen int) (genSpaw
 			return genSpawn{}, fmt.Errorf("%s: deployment %s can't start: its instance token can't be bound to it", c.Path, dep)
 		}
 	}
-	sp := genSpawn{dir: filepath.Join(r.RunDir, sockDir(c.Path, dep)), log: filepath.Join(r.Root, filepath.FromSlash(deploymentLog(c.Path, dep)))}
+	dir, logRel := sockDir(c.Path, dep), deploymentLog(c.Path, dep)
+	if c.Partition != "" {
+		if err := r.partitionSpawnable(c, dep); err != nil {
+			return genSpawn{}, err
+		}
+		dir, logRel = partSockDir(c.Path, dep, c.PartitionID), partitionLog(c.Path, dep, c.PartitionID)
+	}
+	sp := genSpawn{dir: filepath.Join(r.RunDir, dir), log: filepath.Join(r.Root, filepath.FromSlash(logRel))}
 	if err := os.MkdirAll(sp.dir, 0o755); err != nil {
 		return genSpawn{}, err
 	}
-	if dep != util.MainDeployment {
+	if dep != util.MainDeployment || c.Partition != "" {
 		if err := os.MkdirAll(filepath.Dir(sp.log), 0o755); err != nil {
 			return genSpawn{}, err
 		}
@@ -247,14 +264,22 @@ func (r *Runner) spawnSetup(c *registry.Component, dep string, gen int) (genSpaw
 	sp.env = append(backendEnv(r.Isolate && sandboxable(c.Manifest.Runtime)),
 		"XBIN_SOCKET="+sp.sock,
 		"XBIN_COMPONENT="+c.Path,
+	)
+	part := r.partitionEnvKey(c)
+	if part != "" && c.Deployment == "" {
+		sp.env = append(sp.env, "XBIN_PARTITION="+part)
+	}
+	sp.env = append(sp.env,
 		"XBIN_GATEWAY="+filepath.Join(r.RunDir, "gateway.sock"),
 		"XBIN_TOKEN="+sp.token,
 	)
 	if c.Deployment != "" {
 		sp.env = append(sp.env, "XBIN_DEPLOYMENT="+dep)
+		if part != "" {
+			sp.env = append(sp.env, "XBIN_PARTITION="+part)
+		}
 	}
-	env, _ := r.envFor(c, dep)
-	sp.env = append(sp.env, env...)
+	sp.env = append(sp.env, r.genEnv(c, dep)...)
 	return sp, nil
 }
 
@@ -339,6 +364,7 @@ func (r *Runner) admit(c *registry.Component, dep string) error {
 // deployments reload naming the old primary. Events of today's types never
 // name a deployment (rule C2).
 func (r *Runner) Reassign(ctx context.Context, c *registry.Component, from, to string) error {
+	r.StopPartitions(c.Path) // people's partitions start again on the new primary, on their next use
 	var errs []error
 	order := []string{to, from}
 	if from == to {

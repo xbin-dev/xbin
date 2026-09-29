@@ -43,6 +43,7 @@ func (r *Runner) Stop(comp string) {
 		wg.Add(1)
 		go func() { defer wg.Done(); r.stopState(s) }()
 	}
+	r.stopParts(func(s *state) bool { return s.comp == comp }, true) // people's partitions (partitions.go)
 	wg.Wait()
 }
 
@@ -51,6 +52,9 @@ func (r *Runner) StopAll() {
 	r.mu.Lock()
 	states := make([]*state, 0, len(r.states))
 	for _, s := range r.states {
+		states = append(states, s)
+	}
+	for _, s := range r.parts.states { // people's partitions (partitions.go)
 		states = append(states, s)
 	}
 	r.mu.Unlock()
@@ -174,6 +178,7 @@ func (r *Runner) reapOnce() {
 		slog.Info("reaping idle backend", "component", comp, "deployment", s.dep)
 		go r.stopGen(inst, 5*time.Second)
 	}
+	r.reapPartitions() // people's partitions: after 10 idle minutes (partadmit.go)
 }
 
 // idle: a running generation that has served nothing for idleReap; callers

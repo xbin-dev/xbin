@@ -63,7 +63,9 @@ const (
 // isolation (D119h, ErrNeedsIsolation), and there, too, a backend of any
 // deployment but main as the primary.
 func (r *Runner) Deploy(ctx context.Context, c *registry.Component, dep string, code Code, commit func() error, progress DeployProgress) error {
-	return r.deploy(ctx, c, dep, code, commit, progress, false)
+	err := r.deploy(ctx, c, dep, code, commit, progress, false)
+	r.followPrimary(c, dep, err) // people's partitions move with the primary (partadmit.go)
+	return err
 }
 
 // Restart starts a new generation of deployment dep's current code (its
@@ -77,7 +79,9 @@ func (r *Runner) Restart(ctx context.Context, c *registry.Component, dep string,
 	if err != nil {
 		return err
 	}
-	return r.deploy(ctx, c, dep, code, nil, progress, true)
+	err = r.deploy(ctx, c, dep, code, nil, progress, true)
+	r.followPrimary(c, dep, err)
+	return err
 }
 
 // deployPlan is one deploy, resolved before its turn.
@@ -152,6 +156,9 @@ func (r *Runner) deploy(ctx context.Context, c *registry.Component, dep string, 
 	if err != nil {
 		return err
 	}
+	if p.code.WorkTree {
+		r.nextBuild(c.Path) // a partitioned tile's shared build is a new one (partadmit.go)
+	}
 	if commit == nil {
 		commit = func() error { return nil }
 	}
@@ -184,8 +191,8 @@ func (r *Runner) deploy(ctx context.Context, c *registry.Component, dep string, 
 		}
 		rep.ok()
 		return nil
-	case !p.restart && old == nil && !failing:
-		return r.deployIdle(c, s, p, commit, rep, changed)
+	case !p.restart && old == nil && !failing, r.noGlobal(c.Path, dep):
+		return r.deployIdle(c, s, p, commit, rep, changed) // no global instance: prepared for people's partitions
 	}
 	return r.deploySwap(c, s, p, commit, rep, changed)
 }
