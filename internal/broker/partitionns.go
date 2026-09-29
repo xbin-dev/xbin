@@ -16,8 +16,6 @@ package broker
 // this file reads nothing of it.
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -73,21 +71,9 @@ func partitionedNow(c *registry.Component) bool {
 	return ok
 }
 
-// partitionKeyFor is the partition key of person userID while their uid is
-// uid (plans/partitions/02 §1, PD-43): "u-" and the hex of the first 16
-// bytes of SHA-256("xbin-partition-v1" ‖ 0 ‖ id ‖ 0 ‖ uid).
-//
-// LOCAL COPY, to be deduplicated by the integrator: the identity plane's
-// internal/util/partition.go owns this encoder; this one follows the same
-// grammar so the keys agree byte for byte.
-func partitionKeyFor(userID, uid string) string {
-	h := sha256.New()
-	h.Write([]byte("xbin-partition-v1\x00" + userID + "\x00" + uid))
-	return "u-" + hex.EncodeToString(h.Sum(nil)[:16])
-}
-
-// partitionKeyOf is person userID's partition key and uid, minting the uid
-// on their first partition (partitionMintUIDSeam).
+// partitionKeyOf is person userID's partition key (util.PartitionKey, the
+// identity plane's one encoder, 02 §1) and uid, minting the uid on their
+// first partition (partitionMintUIDSeam).
 func (b *Broker) partitionKeyOf(userID string) (pkey, uid string, err error) {
 	uid, err = partitionMintUIDSeam(b, userID)
 	if err == nil && uid == "" {
@@ -96,7 +82,7 @@ func (b *Broker) partitionKeyOf(userID string) (pkey, uid string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	return partitionKeyFor(userID, uid), uid, nil
+	return util.PartitionKey(userID, uid), uid, nil
 }
 
 // ---- a namespace's identity (ns.json) ----

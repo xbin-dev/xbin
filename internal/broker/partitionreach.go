@@ -46,12 +46,13 @@ type partReach struct {
 
 // ---- seams other packs fill ----
 
-// partitionEdgeSeam counts one cross-scope reach by tile caller, acting in
-// user partition callerPart ("user:<id>"), into the same person's namespace
-// of scope target, in the caller partition's egress ledger (06 §6): F2's
-// partitionEdgeCounted, which the ledger plane (F10) fills. A no-op until
-// then.
-var partitionEdgeSeam = func(b *Broker, caller, callerPart, target string) {}
+// partitionEdgeSeam counts one allowed cross-tile edge by tile from, acting
+// in person userID's partition, to tile (or scope) to, in that partition's
+// egress ledger (06 §6.1): Route's cross-tile partition calls
+// (routePartition) and the data plane's cross-scope reaches into the same
+// person's namespace (reachPartition) — the one ledger seam, which the
+// ledger plane (F10) fills. A no-op until then.
+var partitionEdgeSeam = func(b *Broker, userID, from, to string) {}
 
 // partitionIfaceEnvSeam adds a user partition's personal binds to its env
 // (XBIN_IFACE_<SLOT> rows with personal: true, 05 §3). The bind-types
@@ -127,9 +128,9 @@ func (b *Broker) partitionReach(p auth.Principal, ra *reach) error {
 // partition in its egress ledger.
 func (b *Broker) reachPartition(p auth.Principal, scope string, own bool) (string, error) {
 	part, err := b.partitionOf(p, scope, own)
-	if err == nil && !own && p.Component != "" && strings.HasPrefix(part, "user:") {
+	if user, isUser := strings.CutPrefix(part, "user:"); err == nil && !own && p.Component != "" && isUser {
 		if _, isTile := b.Reg.Component(p.Component); isTile {
-			partitionEdgeSeam(b, p.Component, part, scope)
+			partitionEdgeSeam(b, user, p.Component, scope)
 		}
 	}
 	return part, err

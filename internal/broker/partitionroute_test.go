@@ -255,7 +255,7 @@ func TestRoutePartitions(t *testing.T) {
 		t.Fatal("carol has a uid before any partition")
 	}
 	var counted []string
-	withSeam(t, &partitionEdgeCounted, func(_ *Broker, id, from, to string) {
+	withSeam(t, &partitionEdgeSeam, func(_ *Broker, id, from, to string) {
 		counted = append(counted, from+"/user:"+id+"→"+to)
 	})
 	type want struct {

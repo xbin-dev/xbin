@@ -560,8 +560,10 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 // resource (resNamespace) and it can read the bus there (08-data §4.3;
 // 09-fabric §5.10). A frame is never an admin, so a primary's frontend
 // never sees a publish of another namespace, even in an admin's browser.
+// On a partitioned scope's own bus it reaches only a subscriber acting in
+// the partition the event is stamped with (busPartitionReaches, 02 §9).
 func (b *Broker) busFilter(p auth.Principal, e events.Event) bool {
-	if p.Component == "" || e.Partition != "" && !b.busPartitionAllows(p, e) {
+	if p.Component == "" {
 		return false
 	}
 	ns := cmp.Or(e.Deployment, util.MainDeployment)

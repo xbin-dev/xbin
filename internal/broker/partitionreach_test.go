@@ -29,12 +29,12 @@ import (
 func TestPartitionReachTable(t *testing.T) {
 	w := partFx(t)
 	b := w.b
-	pk := func(user string) string { return partitionKeyFor(user, "uid-"+user) }
+	pk := func(user string) string { return util.PartitionKey(user, "uid-"+user) }
 	var edges []string
 	prevEdge := partitionEdgeSeam
 	t.Cleanup(func() { partitionEdgeSeam = prevEdge })
-	partitionEdgeSeam = func(b *Broker, caller, callerPart, target string) {
-		edges = append(edges, callerPart+" "+caller+"→"+target)
+	partitionEdgeSeam = func(b *Broker, userID, from, to string) {
+		edges = append(edges, "user:"+userID+" "+from+"→"+to)
 	}
 	type cell struct {
 		name     string
@@ -188,7 +188,7 @@ func TestPartitionReachPaused(t *testing.T) {
 	if r := zeroDataCall(t, w.b.apiBusPublish, "POST", "", `{"resource":"res:apps/docs/wall","topic":"t"}`, docsGlobal); r.Code != 409 {
 		t.Errorf("a bus publish on an unreadable record: %d %s", r.Code, r.Body)
 	}
-	ev := events.Event{Type: "bus", Topic: "res:apps/docs/bus/t", Data: stubbedStamp{partGlobalKey, nil}}
+	ev := events.Event{Type: "bus", Topic: "res:apps/docs/bus/t", Partition: partGlobalKey}
 	if w.b.busFilter(docsGlobal, ev) {
 		t.Error("an event of a scope whose record can't be read was delivered")
 	}
@@ -239,7 +239,7 @@ func TestPartitionKVRoundTrip(t *testing.T) {
 		t.Errorf("alice's agent wrote into %q", a)
 	}
 	// The namespace names its person.
-	m, ok, err := b.readNS(partNS("apps/docs", util.MainDeployment, partitionKeyFor("alice", "uid-alice")))
+	m, ok, err := b.readNS(partNS("apps/docs", util.MainDeployment, util.PartitionKey("alice", "uid-alice")))
 	if err != nil || !ok || m.Partition == nil || m.Partition.User != "alice" || m.Partition.UID != "uid-alice" || m.Partition.Tile != "apps/docs" {
 		t.Fatalf("alice's ns.json: %+v %v %v", m, ok, err)
 	}
@@ -378,7 +378,7 @@ func TestPartitionEnv(t *testing.T) {
 	if strings.Join(env, "\n") != strings.Join(b.EnvFor(c), "\n") {
 		t.Errorf("alice's env differs from EnvFor's:\n%s", strings.Join(env, "\n"))
 	}
-	pkey := partitionKeyFor("alice", "uid-alice")
+	pkey := util.PartitionKey("alice", "uid-alice")
 	own := func(name string) string {
 		k, err := b.resKeysIn(resTarget{Scope: "apps/docs", Name: name}, util.MainDeployment, pkey)
 		if err != nil {
@@ -423,7 +423,7 @@ func TestPartitionEnv(t *testing.T) {
 		t.Errorf("alice's partition during a restore of the shared data: %q", reason)
 	}
 	release()
-	release, err = b.holdNS(partNS("apps/docs", util.MainDeployment, partitionKeyFor("carol", "uid-carol")), nsResetting)
+	release, err = b.holdNS(partNS("apps/docs", util.MainDeployment, util.PartitionKey("carol", "uid-carol")), nsResetting)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +462,7 @@ func TestPartitionBlob(t *testing.T) {
 			t.Errorf("%s/%s reads alice's blob: %d", p.Component, p.UserID, code)
 		}
 	}
-	pkey := partitionKeyFor("alice", "uid-alice")
+	pkey := util.PartitionKey("alice", "uid-alice")
 	k, _ := b.resKeysIn(resTarget{Scope: "apps/docs", Name: "box"}, util.MainDeployment, pkey)
 	if data, err := os.ReadFile(filepath.Join(b.resMount(k, false), "a.txt")); err != nil || string(data) != "alice's blob" {
 		t.Errorf("alice's volume holds %q %v", data, err)

@@ -8,8 +8,8 @@ package broker
 //
 //   - PartitionIdent → PartitionHooks.PartitionIdent;
 //   - ShouldRunPartition → the identity half of
-//     PartitionHooks.ShouldRunPartition (the data plane's encryption hold is
-//     the other);
+//     PartitionHooks.ShouldRunPartition (the data plane's
+//     PartitionEncryptionHoldReason is the other; boot joins them);
 //   - PublishPartitionState → PartitionHooks.PartitionEvent.
 
 import (
@@ -20,29 +20,33 @@ import (
 )
 
 // PartitionIdent is the partition id (pkey) of partition part
-// ("user:<id>") of tile, minting its person's uid at their first partition
-// (PD-43). Anything but a live person's user partition is an error: the
-// runner starts nothing.
-func (b *Broker) PartitionIdent(tile, part string) (string, error) {
+// ("user:<id>") of tile and its person's uid, minting the uid at their
+// first partition (PD-43). Anything but a live person's user partition is
+// an error: the runner starts nothing.
+func (b *Broker) PartitionIdent(tile, part string) (pkey, uid string, err error) {
 	pt, err := util.ParsePartition(part)
 	id, ok := pt.User()
 	if err != nil || !ok {
-		return "", fmt.Errorf("%s: %q is no person's partition", tile, part)
+		return "", "", fmt.Errorf("%s: %q is no person's partition", tile, part)
 	}
 	if err := b.personLive(id, tile); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return b.partitionID(pt)
+	if uid, err = b.mintPartitionUID(id); err != nil {
+		return "", "", err
+	}
+	return util.PartitionKey(id, uid), uid, nil
 }
 
 // ShouldRunPartition reports whether partition part of deployment dep of
-// tile may run, as far as identity goes (PD-17, PD-20): tile runs user
-// partitions (its recorded mode, not paused), dep is its primary, and
-// part's person exists, is enabled and can read tile.
-func (b *Broker) ShouldRunPartition(tile, dep, part string) bool {
+// tile may run for the person's incarnation uid (the runner state's), as
+// far as identity goes (PD-17, PD-20): tile runs user partitions (its
+// recorded mode, not paused), dep is its primary, and part's person exists
+// with that same uid, is enabled and can read tile.
+func (b *Broker) ShouldRunPartition(tile, dep, part, uid string) bool {
 	pt, err := util.ParsePartition(part)
 	id, ok := pt.User()
-	if err != nil || !ok {
+	if err != nil || !ok || uid == "" || b.storedPartitionUID(id) != uid {
 		return false
 	}
 	c, found := b.Reg.Component(tile)

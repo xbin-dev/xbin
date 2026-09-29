@@ -23,11 +23,9 @@ package broker
 // gate holds its backend (fail closed toward the partitions).
 //
 // Seams other packs fill (the defaults fail closed or do nothing):
-// partitionConsentHolds (F10), personalBindGrant (F15), partitionEdgeCounted
-// (F10's ledger), partitionAdoptUID (F4's adoptablePartitionUID). The first
-// and third have the shape of F4's partitionConsentSeam and
-// partitionEdgeSeam, so the integrator keeps one of each
-// (plans/partitions/records/F2.md).
+// partitionConsentHolds (F10), personalBindGrant (F15) and partitionEdgeSeam
+// (F10's ledger, partitionreach.go: the one count for calls and data alike);
+// partitionAdoptUID is F4's adoptablePartitionUID (partitionwire.go).
 
 import (
 	"cmp"
@@ -36,7 +34,6 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
-	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -66,17 +63,15 @@ func deliveryOf(p auth.Principal) string {
 var (
 	// partitionConsentHolds reports whether userID consented to tile from
 	// using their data in tile to (05 §2), asked only while the workspace
-	// policy partitionConsent is on. The default: no consent is recorded
-	// anywhere, so every such call is refused (F10 fills it).
+	// policy partitionConsent is on — by addressedPartition, so for calls
+	// and data alike (the data plane asks addressedPartition too). The
+	// default: no consent is recorded anywhere, so every such call is
+	// refused (F10 fills it).
 	partitionConsentHolds = func(b *Broker, userID, from, to string) bool { return false }
 	// personalBindGrant is the role a personal bind gives caller acting in
 	// callerPart on target (05 §3): only its owner's live partition. nil: no
 	// personal binds exist (F15 fills it, beside grantedRoleIn).
 	personalBindGrant func(b *Broker, caller string, callerPart util.Partition, target string) (role string, ok bool)
-	// partitionEdgeCounted counts one allowed cross-tile call by tile from,
-	// acting in userID's partition, to tile to in that partition's egress
-	// ledger (06 §6). The default counts nothing (F10 fills it).
-	partitionEdgeCounted = func(b *Broker, userID, from, to string) {}
 	// partitionAdoptUID is the uid userID's partition records carry, when
 	// they were created at or after the person's record (created; 03 §E,
 	// PD-43) and agree: what a person whose uid an older xbind dropped
@@ -349,7 +344,7 @@ func (b *Broker) routePartition(p auth.Principal, target *registry.Component, d 
 	if crossTile {
 		d.CallerPartition = cp
 		if id, ok := cp.User(); ok {
-			partitionEdgeCounted(b, id, p.Component, t)
+			partitionEdgeSeam(b, id, p.Component, t)
 		}
 	}
 	id, err := b.partitionID(d.CallerPartition)
@@ -360,47 +355,9 @@ func (b *Broker) routePartition(p auth.Principal, target *registry.Component, d 
 	return d
 }
 
-// busPartitionAllows is busFilter's partition rule (02 §9): an event in a
-// user partition's namespace reaches a subscriber only when that is the
-// partition it acts in there — a tile of the scope, the root or a sibling,
-// its own partition (as the data plane reaches its own scope); any other
-// tile its partition mapped onto the scope's (partitioned) root. The grant
-// and namespace checks follow as for every bus event.
-func (b *Broker) busPartitionAllows(p auth.Principal, e events.Event) bool {
-	rt, ok := b.resScope(e.Topic)
-	if !ok || rt.Scope == "" || p.ReadOnly() {
-		return false
-	}
-	var part util.Partition
-	var err error
-	if c, ok := b.Reg.Component(p.Component); ok && c.Scope == rt.Scope {
-		part, err = b.callerPartition(p)
-	} else {
-		part, err = b.addressedPartition(p, rt.Scope)
-	}
-	return err == nil && part.IsUser() && string(part) == e.Partition
-}
-
-// publishPartitionBus publishes a bus event in user partition part's
-// namespace of rt's scope (deployment dep, the primary; 04 §2): the event
-// carries Partition, so /ws/events delivers it to that partition only
-// (busFilter), and counts as the resource's. A partition's subscriptions
-// are delivered by F5's dormant-registration plane, not here. F4's
-// publishPartitionBusSeam is this, with its reach's rt, dep and part.
-func (b *Broker) publishPartitionBus(rt resTarget, dep string, part util.Partition, topic string, data any) error {
-	if !part.IsUser() {
-		return fmt.Errorf("%s: %q is no person's partition", rt, part)
-	}
-	id := rt.String()
-	ev := events.Event{Type: "bus", Topic: id + "/" + topic, Data: data, Partition: string(part)}
-	counter := id
-	if dep != util.MainDeployment {
-		ev.Deployment, counter = dep, id+"\x00"+dep
-	}
-	b.Hub.Publish(ev)
-	b.countBusEvent(counter)
-	return nil
-}
+// A partition's bus events: the data plane stamps and filters them
+// (partitionbus.go — publishPartitioned, busPartitionReaches), asking
+// addressedPartition through addressedPartitionSeam, so one rule decides.
 
 // PartitionCovered reports whether a user partition's instance token still
 // authenticates (02 §2, S13; auth.SetPartitionCoverage): tile is

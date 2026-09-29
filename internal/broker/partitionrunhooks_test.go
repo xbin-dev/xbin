@@ -19,9 +19,9 @@ import (
 func TestPartitionRunHooks(t *testing.T) {
 	w := partRouteWS(t)
 	b := w.b
-	pkey, err := b.PartitionIdent("apps/pg", "user:alice")
-	if err != nil || pkey != w.pkeyOf("alice") || !util.PartitionKeyOK(pkey) {
-		t.Errorf("alice's ident: %q, %v", pkey, err)
+	pkey, uid, err := b.PartitionIdent("apps/pg", "user:alice")
+	if err != nil || pkey != w.pkeyOf("alice") || !util.PartitionKeyOK(pkey) || uid == "" || uid != b.storedPartitionUID("alice") {
+		t.Errorf("alice's ident: %q %q, %v", pkey, uid, err)
 	}
 	for _, c := range []struct{ tile, part, refused string }{
 		{"apps/pg", "user:carol", "carol can't read apps/pg"},
@@ -30,28 +30,39 @@ func TestPartitionRunHooks(t *testing.T) {
 		{"apps/pg", "global", "is no person's partition"},
 		{"apps/pg", "user:Alice", "is no person's partition"},
 	} {
-		if got, err := b.PartitionIdent(c.tile, c.part); err == nil || got != "" || !strings.Contains(err.Error(), c.refused) {
-			t.Errorf("PartitionIdent(%s, %s) = %q, %v; want a refusal saying %q", c.tile, c.part, got, err, c.refused)
+		if got, gotUID, err := b.PartitionIdent(c.tile, c.part); err == nil || got != "" || gotUID != "" || !strings.Contains(err.Error(), c.refused) {
+			t.Errorf("PartitionIdent(%s, %s) = %q %q, %v; want a refusal saying %q", c.tile, c.part, got, gotUID, err, c.refused)
 		}
 	}
 	if u, _ := b.Users.Get("carol"); u.UID != "" {
 		t.Error("a refused ident minted carol a uid")
 	}
+	_, bobUID, err := b.PartitionIdent("apps/pu", "user:bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	carolUID, err1 := b.mintPartitionUID("carol") // their own uids: the liveness gate refuses them, not the uid
+	daveUID, err2 := b.mintPartitionUID("dave")
+	if err1 != nil || err2 != nil {
+		t.Fatal(err1, err2)
+	}
 	for _, c := range []struct {
-		tile, dep, part string
-		want            bool
+		tile, dep, part, uid string
+		want                 bool
 	}{
-		{"apps/pg", "main", "user:alice", true},
-		{"apps/pu", "main", "user:bob", true},
-		{"apps/pg", "dev", "user:alice", false},
-		{"apps/pg", "main", "user:carol", false},
-		{"apps/pg", "main", "user:dave", false},
-		{"apps/pg", "main", "global", false},
-		{"apps/x", "main", "user:alice", false},
-		{"apps/none", "main", "user:alice", false},
+		{"apps/pg", "main", "user:alice", uid, true},
+		{"apps/pu", "main", "user:bob", bobUID, true},
+		{"apps/pg", "main", "user:alice", "0123456789abcdef0123456789abcdef", false}, // another incarnation's (PD-20)
+		{"apps/pg", "main", "user:alice", "", false},
+		{"apps/pg", "dev", "user:alice", uid, false},
+		{"apps/pg", "main", "user:carol", carolUID, false},
+		{"apps/pg", "main", "user:dave", daveUID, false},
+		{"apps/pg", "main", "global", uid, false},
+		{"apps/x", "main", "user:alice", uid, false},
+		{"apps/none", "main", "user:alice", uid, false},
 	} {
-		if got := b.ShouldRunPartition(c.tile, c.dep, c.part); got != c.want {
-			t.Errorf("ShouldRunPartition(%s, %s, %s) = %v", c.tile, c.dep, c.part, got)
+		if got := b.ShouldRunPartition(c.tile, c.dep, c.part, c.uid); got != c.want {
+			t.Errorf("ShouldRunPartition(%s, %s, %s, %q) = %v", c.tile, c.dep, c.part, c.uid, got)
 		}
 	}
 	ch, cancel := b.Hub.Subscribe(func(e events.Event) bool { return e.Type == "partitions" })
@@ -120,9 +131,10 @@ func TestPartitionUIDFillers(t *testing.T) {
 // scope, the root or a sibling, reaches its own partition's events there
 // whatever the consent policy says (as the data plane reaches its own
 // scope); another partitioned tile only through the cross-tile mapping (so,
-// with the policy on, with consent); nothing reaches another person's, and
-// publishPartitionBus stamps the partition and refuses anything but a user
-// partition.
+// with the policy on, with consent); nothing reaches another person's. The
+// publish goes through the data plane's stamp (publishPartitioned) and the
+// rule is its busPartitionReaches, on the identity plane's real answers
+// (the wired seams, no stand-ins).
 func TestBusPartitionScope(t *testing.T) {
 	w := partRouteWS(t)
 	b := w.b
@@ -138,9 +150,10 @@ func TestBusPartitionScope(t *testing.T) {
 	partRouteConsent(w, true)
 	ch, cancel := b.Hub.Subscribe(func(e events.Event) bool { return e.Type == "bus" })
 	defer cancel()
-	rt, _ := b.resScope("res:apps/sc/feed")
-	if err := b.publishPartitionBus(rt, util.MainDeployment, "user:alice", "news", 1); err != nil {
-		t.Fatal(err)
+	alice := frameOf("apps/sc", "alice")
+	alice.Role = "writer"
+	if r := zeroDataCall(t, b.apiBusPublish, "POST", "", `{"resource":"res:apps/sc/feed","topic":"news","data":1}`, alice); r.Code != 200 {
+		t.Fatalf("alice's publish: %d %s", r.Code, r.Body)
 	}
 	var e events.Event
 	select {
@@ -151,8 +164,11 @@ func TestBusPartitionScope(t *testing.T) {
 	if e.Partition != "user:alice" || e.Topic != "res:apps/sc/feed/news" || e.Deployment != "" {
 		t.Errorf("the partition's bus event: %+v", e)
 	}
-	if err := b.publishPartitionBus(rt, util.MainDeployment, "global", "news", 1); err == nil {
-		t.Error("publishPartitionBus took global")
+	rt, _ := b.resScope("res:apps/sc/feed")
+	set, _ := b.declaredIn(rt.Scope, util.MainDeployment)
+	reaches := func(p auth.Principal, e events.Event) bool {
+		_, own, err := b.resNamespace(p, rt.Scope)
+		return err == nil && b.busPartitionReaches(p, rt, set[rt.Name], own, e)
 	}
 	for _, c := range []struct {
 		name string
@@ -166,13 +182,24 @@ func TestBusPartitionScope(t *testing.T) {
 		{"another partitioned tile as alice, no consent", instanceOf("apps/q", "user:alice"), false},
 		{"a view-as frame", auth.Principal{Component: "apps/sc/side", UserID: "alice", Via: "frame", Impersonator: "bob"}, false},
 	} {
-		if got := b.busPartitionAllows(c.p, e); got != c.want {
+		if got := reaches(c.p, e); got != c.want {
 			t.Errorf("%s: %v", c.name, got)
 		}
 	}
 	withSeam(t, &partitionConsentHolds, func(_ *Broker, id, from, to string) bool { return id == "alice" && from == "apps/q" })
-	if !b.busPartitionAllows(instanceOf("apps/q", "user:alice"), e) {
+	if !reaches(instanceOf("apps/q", "user:alice"), e) {
 		t.Error("another partitioned tile as alice, consented")
+	}
+	// a person's stamped event on a scope that no longer partitions (the
+	// stamp outlived a switch) reaches no one; a global one stays today's
+	w.write(map[string]string{"apps/other/scope.json": `{"resources":{"feed":{"type":"bus"}}}`, "apps/other/xbin.json": `{"runtime":"go"}`})
+	w.rescan()
+	ort, _ := b.resScope("res:apps/other/feed")
+	oset, _ := b.declaredIn(ort.Scope, util.MainDeployment)
+	other := frameOf("apps/other", "alice")
+	if b.busPartitionReaches(other, ort, oset[ort.Name], true, events.Event{Type: "bus", Topic: "res:apps/other/feed/t", Partition: "user:alice"}) ||
+		!b.busPartitionReaches(other, ort, oset[ort.Name], true, events.Event{Type: "bus", Topic: "res:apps/other/feed/t"}) {
+		t.Error("an unpartitioned scope: a person's stamp must reach no one, an unstamped event everyone")
 	}
 }
 

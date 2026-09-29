@@ -29,10 +29,10 @@ func TestNsKeysPartition(t *testing.T) {
 	b := deployBroker(t)
 	uid := "0123456789abcdef0123456789abcdef"
 	sum := sha256.Sum256([]byte("xbin-partition-v1\x00alice\x00" + uid))
-	if got, want := partitionKeyFor("alice", uid), "u-"+hex.EncodeToString(sum[:16]); got != want || !pkeyOK(got) {
+	if got, want := util.PartitionKey("alice", uid), "u-"+hex.EncodeToString(sum[:16]); got != want || !pkeyOK(got) {
 		t.Fatalf("pkey %q, want %q", got, want)
 	}
-	pkeys := []string{partitionKeyFor("alice", uid), partitionKeyFor("alice", "other"), partitionKeyFor("alice."+uid, "")}
+	pkeys := []string{util.PartitionKey("alice", uid), util.PartitionKey("alice", "other"), util.PartitionKey("alice."+uid, "")}
 	deps := []string{"", util.MainDeployment, "dev", "global"}
 	seen := map[string]string{}
 	for _, scope := range keyScopes {
@@ -194,7 +194,7 @@ func TestPartitionOrphanRules(t *testing.T) {
 	now := time.Now()
 	ns := func(user, uid string, created time.Time) nsID {
 		t.Helper()
-		id := partNS("apps/docs", util.MainDeployment, partitionKeyFor(user, uid))
+		id := partNS("apps/docs", util.MainDeployment, util.PartitionKey(user, uid))
 		if err := b.notePartitionNS(id, nsPartition{User: user, UID: uid, Tile: "apps/docs"}); err != nil {
 			t.Fatal(err)
 		}
@@ -214,7 +214,7 @@ func TestPartitionOrphanRules(t *testing.T) {
 	alice := ns("alice", "uid-alice", now.Add(time.Hour))   // alice, as the store knows her
 	stale := ns("carol", "uid-old", now.Add(-24*time.Hour)) // carol's id's previous holder
 	dave := ns("dave", "uid-dave", now)                     // no such person: kept
-	bare := partNS("apps/docs", util.MainDeployment, partitionKeyFor("erin", "uid-erin"))
+	bare := partNS("apps/docs", util.MainDeployment, util.PartitionKey("erin", "uid-erin"))
 	if err := os.MkdirAll(filepath.Join(b.partitionsDir(), escS("apps/docs"), util.MainDeployment, bare.pkey), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestPartitionIdleKVClose(t *testing.T) {
 	if code, body := nsKV(t, b, "PUT", aliceDocs, "res:apps/docs/docs/k", "v"); code != 200 {
 		t.Fatalf("PUT: %d %s", code, body)
 	}
-	k, _ := b.resKeysIn(resTarget{Scope: "apps/docs", Name: "docs"}, util.MainDeployment, partitionKeyFor("alice", "uid-alice"))
+	k, _ := b.resKeysIn(resTarget{Scope: "apps/docs", Name: "docs"}, util.MainDeployment, util.PartitionKey("alice", "uid-alice"))
 	open := func() bool {
 		b.kv.mu.Lock()
 		defer b.kv.mu.Unlock()
@@ -368,7 +368,7 @@ func TestPartitionOrphanUID(t *testing.T) {
 	}
 	ns := func(user, uid string, at time.Time) nsID {
 		t.Helper()
-		id := partNS("apps/docs", util.MainDeployment, partitionKeyFor(user, uid))
+		id := partNS("apps/docs", util.MainDeployment, util.PartitionKey(user, uid))
 		if err := b.notePartitionNS(id, nsPartition{User: user, UID: uid}); err != nil {
 			t.Fatal(err)
 		}
@@ -480,7 +480,7 @@ func TestPartitionDiskCeiling(t *testing.T) {
 			t.Fatalf("PUT: %d %s", code, body)
 		}
 	}
-	alice, err := nsKeysFor("apps/docs", util.MainDeployment, partitionKeyFor("alice", "uid-alice"))
+	alice, err := nsKeysFor("apps/docs", util.MainDeployment, util.PartitionKey("alice", "uid-alice"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestPartitionDiskCeiling(t *testing.T) {
 	prev := partitionDiskCeilingSeam
 	t.Cleanup(func() { partitionDiskCeilingSeam = prev })
 	partitionDiskCeilingSeam = func(b *Broker, tile string) int64 { return 1 << 20 }
-	carol, _ := nsKeysFor("apps/docs", util.MainDeployment, partitionKeyFor("carol", "uid-carol"))
+	carol, _ := nsKeysFor("apps/docs", util.MainDeployment, util.PartitionKey("carol", "uid-carol"))
 	sparse(t, filepath.Join(w.root, filepath.FromSlash(carol.Enc), "fs", "files", "c0"), 2<<20)
 	d.scan()
 	if code, _ := nsKV(t, b, "PUT", carolDocs, "res:apps/docs/docs/k3", "v"); code != http.StatusInsufficientStorage {

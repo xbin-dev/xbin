@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
-	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
@@ -98,13 +97,6 @@ func partFxWith(t *testing.T, extra map[string]string) *partWS {
 // runs (nil: nobody consented).
 var partitionConsentStub func(user, caller, target string) bool
 
-// stubbedStamp is the bus stamp the tests carry in an event's Data, while
-// events.Event has no Partition field (F2's).
-type stubbedStamp struct {
-	part string
-	data any
-}
-
 // stubPartitionIdentity stands the identity plane's seams in for a test, as
 // F2's addressedPartition answers (02 §3, 05 §1): a person acts in their own
 // partition of a partitioned tile, the tile's person-less principals (its
@@ -113,8 +105,9 @@ type stubbedStamp struct {
 // target — the same person's, when they can read it and, with
 // partitionConsent on, consented (partitionConsentStub) — or, acting in
 // none (global, or an unpartitioned tile), the target's global instance,
-// refused without one. A person's uid is "uid-<id>". The bus stamp rides
-// in Data (stubbedStamp).
+// refused without one. A person's uid is "uid-<id>". The bus stamp is the
+// wired one (events.Event.Partition); a test may unset it, and it comes
+// back at cleanup.
 func stubPartitionIdentity(t *testing.T) {
 	t.Helper()
 	prevAddr, prevMint, prevUID := addressedPartitionSeam, partitionMintUIDSeam, partitionUIDSeam
@@ -162,11 +155,6 @@ func stubPartitionIdentity(t *testing.T) {
 	addressedPartitionSeam = addressed
 	partitionMintUIDSeam = func(b *Broker, userID string) (string, error) { return "uid-" + userID, nil }
 	partitionUIDSeam = func(b *Broker, userID string) string { return "uid-" + userID }
-	stampBusPartition = func(ev *events.Event, part string) { ev.Data = stubbedStamp{part, ev.Data} }
-	busEventPartition = func(e events.Event) string {
-		s, _ := e.Data.(stubbedStamp)
-		return s.part
-	}
 	partitionConsentStub = nil
 }
 

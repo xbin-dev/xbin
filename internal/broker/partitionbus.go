@@ -10,15 +10,16 @@ package broker
 // today; a "read" one refuses people's partitions' publishes (readClamp,
 // 403). A scope no tile partitions is untouched: no stamp, no filter.
 //
-// The stamp is events.Event.Partition, the identity plane's field (F2):
-// this pack stamps and filters through the two seams below, which the
-// integrator points at that field when F2 lands (TestBusPartitionStampWired
-// fails until then). Unwired, a partitioned scope's own bus carries nothing:
-// a publish answers 503 and nothing on it is delivered, rather than reach
-// every partition.
+// The stamp is events.Event.Partition, the identity plane's field (F2),
+// reached through the two seams below, which partitionwire.go points at
+// that field (TestBusPartitionStampWired pins it). Unwired, a partitioned
+// scope's own bus carries nothing: a publish answers 503 and nothing on it
+// is delivered, rather than reach every partition. /ws/events' admin pass
+// never covers a stamped bus event (server.eventFilter, 02 §9 G2).
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -91,12 +92,14 @@ func (b *Broker) busPartitionReaches(p auth.Principal, rt resTarget, res registr
 	case root.PartitionRecordUnknown():
 		return false
 	}
-	if _, partitioned := b.Reg.PartitionedScope(rt.Scope); !partitioned || sharedRes(res) {
-		return true
-	}
 	stamp := ""
 	if busEventPartition != nil {
 		stamp = busEventPartition(e)
+	}
+	if _, partitioned := b.Reg.PartitionedScope(rt.Scope); !partitioned || sharedRes(res) {
+		// a person's event never reaches past their partition, even when
+		// the scope stopped partitioning between its publish and now
+		return !strings.HasPrefix(stamp, "user:")
 	}
 	part, err := b.partitionOf(p, rt.Scope, own)
 	return err == nil && stamp != "" && part == stamp

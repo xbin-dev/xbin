@@ -58,7 +58,8 @@ type Broker struct {
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 
-	partitionSlot // each tile's recorded partition mode (partitionmode.go)
+	partitionSlot                  // each tile's recorded partition mode (partitionmode.go)
+	partRun       partitionRunSlot // the runner's side of people's partitions (partitionwire.go)
 
 	// edgeTallies: (tile, deployment, edge) → *edgeTally, refused and clamped calls (edgepolicy.go).
 	edgeTallies sync.Map
