@@ -40,6 +40,10 @@ overview is the map that puts them in context.
   promoting, the deploy log, rolling back, protecting the primary, and
   `git fetch xbin-deploy` (tiles that never opt in keep live reload and no
   deploy step)
+- [partitions.md](/docs/partitions.md) — partitioned tiles (in
+  development): one backend instance per person, the mode a tile records
+  and how it switches, shared resources, global and personal binds, and what
+  providers key on
 - [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,
   generated from the daemon's configuration
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
