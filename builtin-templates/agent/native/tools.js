@@ -8,7 +8,7 @@ import { html, repeat, nothing, native } from '/vendor/xb-native.js';
 import * as actions from '../model/actions.js';
 import { ui, ctx, push, fmtN, clip, base, when, thumb, raw, IMAGE } from './ui.js';
 import { renderDoc } from './render-doc.js';
-import { liveURL, liveLabel } from '../model/live.js';
+import { liveLabel } from '../model/live.js';
 import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
 
@@ -300,10 +300,12 @@ export function openRender(run, path, ver, live) {
   ctx.paint();
 }
 
-// openLive shows a preview_port step's page, live (live.js, D135): the
-// canvas src= island — a sandboxed WebView (allow-scripts allow-forms, never
-// same-origin) on a relative URL below an xbind path ticket; live: it
-// follows the run's newest one.
+// openLive shows what a preview_port step made live (D135) — and, in the
+// app, no more than that: its only WebView island (canvas src=) is a tile
+// WebView with the tile's bridge and frame token, which an untrusted page
+// must never get (the D135 review). The page itself opens on the web, in a
+// sandboxed opaque-origin frame (live.js). live: it follows the run's newest
+// one.
 export function openLive(run, det, live) {
   const cur = ui.stack.find((x) => x.kind === 'live' || x.kind === 'render');
   const s = { kind: 'live', run, det, live: !!live, loaded: false, src: '' };
@@ -312,12 +314,9 @@ export function openLive(run, det, live) {
 }
 
 function liveTpl(s) {
-  load(s, async () => { s.src = await liveURL(s.run, s.det); });
-  return html`<screen title="Live preview" subtitle=${liveLabel(s.det)}>
-    <toolbar><button icon="refresh" @tap=${() => { s.src = ''; reload(s)(); }}>Reload</button></toolbar>
-    <notice tone="info" text="Live from the sandbox: its scripts run, isolated from this workspace (no cookies, no storage, no reach into your tiles)."/>
-    ${s.err ? html`<notice tone="danger" text=${s.err}/>` : nothing}
-    ${s.src ? html`<canvas src=${s.src} height="xl"/>` : s.err ? nothing : html`<progress label="loading…"/>`}
+  const d = s.det || {};
+  return html`<screen title="Live preview" subtitle=${liveLabel(d)}>
+    <notice tone="info" text=${`The agent is serving ${d.path || '/'} live from port ${d.port} in the sandbox ${d.name || d.sandbox}. Its scripts run, so it opens only on the web, in an isolated frame: open this conversation in the browser to see it.`}/>
   </screen>`;
 }
 

@@ -1427,8 +1427,9 @@ referrerpolicy="no-referrer">` — never `allow-same-origin` — whose URL is
 below an xbind **path ticket** (docs/auth.md §Path tickets) the pane mints
 for `runs/{id}/live/{sbx}/{port}` (`model/live.js`): the frame holds no
 token or cookie, so the credential rides in the path and reaches that prefix
-only. The native view shows it as a `canvas src=` island (the same
-sandbox). `test/live-policy.mjs` drives a hostile page through the real
+only. The native view says what is live and that it opens on the web: its
+only WebView island (`canvas src=`) is a tile WebView with the tile's
+bridge and frame token, never for an untrusted page. `test/live-policy.mjs` drives a hostile page through the real
 frame in Chromium: its scripts run, and it gets no cookie, no storage, no
 identity from `/api/xbin/whoami` or this tile's API, no parent or top
 document, no top navigation or pop-up, and its `postMessage` changes

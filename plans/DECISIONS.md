@@ -5334,7 +5334,11 @@ Deviations and refinements made while implementing; all deliberate:
       `Alt-Svc`, CORS, `WWW-Authenticate`, `X-XBin-*`). The pane: `<iframe
       sandbox="allow-scripts allow-forms" credentialless
       referrerpolicy="no-referrer">`, never `allow-same-origin`, labelled
-      live, with Reload; native: `canvas src=` on the same URL.
+      live, with Reload. **Native shows no page**: the app's only WebView
+      island (`canvas src=`) is a tile WebView with the tile's bridge and
+      frame token, which an untrusted page must never get — its live screen
+      says what is live and that it opens on the web (a dedicated untrusted
+      island is future work).
     - **`frame-ancestors 'self'` is dropped** from the plan's CSP: the pane
       framing the page is itself an opaque origin (a sandboxed tile
       frame), which no source expression matches — Chromium blocked the
@@ -5349,8 +5353,24 @@ Deviations and refinements made while implementing; all deliberate:
     a stricter `connect-src` preview for `none` sandboxes is a later
     option. Root-absolute URLs in a page (`/app.js`) don't resolve under
     the prefix (the tool says so).
-  - **Security review** (an adversarial reviewer on the finished diff):
-    see the review note below.
+  - **Security review** (an adversarial reviewer on the finished diff; no
+    exploitable hole found). Acted on: the native pane showed the page in
+    a `canvas src=` island — dead today (iOS refuses `/api/` pages) and
+    unsafe if admitted (the island carries the bridge and frame token) — so
+    native shows no page; 1xx answers and trailers bypassed the header
+    filters (the ReverseProxy copies a 103's headers before ModifyResponse)
+    — both proxies drop 1xx but 101 and trailers, and a refusal keeps the
+    live CSP; a ticket outlived a person's read access to the tile — it is
+    re-checked on every use; xbind now stamps `CSP: sandbox allow-scripts
+    allow-forms` and nosniff on everything a ticket reaches, whatever the
+    backend sets. Accepted: a new live step opens the pane without a click,
+    as a render does — the page runs sandboxed in each viewing
+    participant's browser, on that browser's network (a prompt-injected
+    agent could probe a viewer's LAN where Private Network Access doesn't
+    apply); click-to-run is the option if that matters. `{port}` on the live
+    route is any port of the bound sandbox, not only previewed ones (a
+    participant steers the agent anyway). The fake manager dials the host
+    loopback (test only).
   - **Not chosen:** public preview URLs (E2B/Daytona style: exposure beyond
     the run's people); rewriting HTML to prefix URLs (one sanctioned HTML
     transform, in xbind); the frame token in the page's URL (the page

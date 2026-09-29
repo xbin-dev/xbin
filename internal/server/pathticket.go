@@ -50,6 +50,9 @@ func (s *Server) apiPathTicket(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]any{"url": "/api/~" + tok + "/", "expires": exp.UnixMilli()})
 }
 
+// pathTicketCSP is on every answer a path ticket reaches.
+const pathTicketCSP = "sandbox allow-scripts allow-forms"
+
 // isPathTicket: /api/~<ticket>/….
 func isPathTicket(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, "/api/~") }
 
@@ -108,7 +111,12 @@ func (s *Server) servePathTicket(w http.ResponseWriter, r *http.Request, originI
 	for _, h := range []string{"Cookie", "Authorization", auth.FrameTokenHeader} {
 		r2.Header.Del(h)
 	}
+	// Whatever a ticket reaches is framed where no credential rides: it
+	// answers as an opaque origin whatever its backend sets (browsers
+	// intersect this with the backend's own policy).
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", pathTicketCSP)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if s.ComponentAPI == nil {
 		http.Error(w, `{"error":"component backends not enabled"}`, http.StatusNotImplemented)
 		return

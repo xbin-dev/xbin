@@ -252,6 +252,7 @@ func proxyPort(w http.ResponseWriter, r *http.Request, port int, tail string, di
 			dropXBinHeaders(h)
 		},
 		ModifyResponse: func(res *http.Response) error {
+			res.Trailer = nil // trailers would bypass the filter
 			res.Header.Del("Set-Cookie")
 			dropXBinHeaders(res.Header)
 			return nil
@@ -271,8 +272,22 @@ func proxyPort(w http.ResponseWriter, r *http.Request, port int, tail string, di
 			writeErr(w, &Error{Refusal: RefNotListening, Msg: fmt.Sprintf("the server on port %d in the sandbox didn't answer: %v", port, err)})
 		},
 	}
-	rp.ServeHTTP(w, r)
+	rp.ServeHTTP(no1xx{w}, r)
 }
+
+// no1xx drops the informational answers a sandbox's server sends before its
+// response (the ReverseProxy would copy a 103's headers out before
+// ModifyResponse filters them); 101 passes (the WebSocket handshake).
+type no1xx struct{ http.ResponseWriter }
+
+func (w no1xx) WriteHeader(code int) {
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w no1xx) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // dropXBinHeaders removes every X-XBin-* header.
 func dropXBinHeaders(h http.Header) {

@@ -253,6 +253,7 @@ func handleLive(w http.ResponseWriter, r *http.Request) {
 			}
 		},
 		ModifyResponse: func(res *http.Response) error {
+			res.Trailer = nil // trailers would bypass the allowlist
 			keep := http.Header{}
 			for k, v := range res.Header {
 				if liveKeep[http.CanonicalHeaderKey(k)] || res.StatusCode == http.StatusSwitchingProtocols && liveUpgradeKeep[http.CanonicalHeaderKey(k)] {
@@ -268,12 +269,28 @@ func handleLive(w http.ResponseWriter, r *http.Request) {
 		ErrorLog:      log.New(io.Discard, "", 0),
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if r.Context().Err() == nil {
+				liveHeaders(w.Header())
 				xbin.WriteError(w, http.StatusBadGateway, "the sandbox manager didn't answer: "+err.Error())
 			}
 		},
 	}
-	rp.ServeHTTP(w, r)
+	rp.ServeHTTP(no1xx{w}, r)
 }
+
+// no1xx drops the informational answers a proxied server sends before its
+// response (a 103's headers would reach the browser unfiltered: the
+// ReverseProxy copies them before ModifyResponse runs); 101 passes (the
+// WebSocket handshake).
+type no1xx struct{ http.ResponseWriter }
+
+func (w no1xx) WriteHeader(code int) {
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w no1xx) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // liveHeaders are this tile's, on every live answer (the proxied ones and
 // the refusals alike).

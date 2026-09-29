@@ -131,6 +131,11 @@ func (a *Auth) VerifyPathTicket(tok string) (Principal, string, bool) {
 		if _, found := a.userSnapshot(c.User); !found {
 			return Principal{}, "", false
 		}
+		// it outlives a frame token (12 h, not minutes): the person must
+		// still read the tile, checked on every use (as asset tokens are)
+		if !a.UserCanReadTile(c.User, c.Tile) {
+			return Principal{}, "", false
+		}
 		p.Access = a.accessSnapshot(c.User)
 	}
 	return p, c.Prefix, true

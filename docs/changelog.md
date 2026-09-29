@@ -107,8 +107,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - **The agent template**: the tool **`preview_port {port, path?}`**, a
     `live` step, and the pane showing the page in a frame sandboxed
     `allow-scripts allow-forms` (never same-origin) with this tile's CSP,
-    for the run's participants only; web and native (API.md §Live
-    previews). An older xbind or manager lacks the capability, and the tool
+    for the run's participants only (API.md §Live previews); the app says
+    what is live and opens it on the web. An older xbind or manager lacks the capability, and the tool
     says so.
 
 ## 2026-09-28
