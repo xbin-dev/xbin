@@ -20,6 +20,11 @@ var gitFlags = []string{
 	"-c", "commit.gpgsign=false",
 	"-c", "tag.gpgsign=false",
 	"-c", "core.pager=cat",
+	// automatic gc/maintenance runs inside the call, never detached: a
+	// background git outliving it would be killed with the throwaway
+	// sandbox mid-write, or (unconfined) race whoever touches the repo next
+	"-c", "gc.autoDetach=false",
+	"-c", "maintenance.autoDetach=false",
 }
 
 // gitEnv: no system or global config (the daemon's own ~/.gitconfig must not
