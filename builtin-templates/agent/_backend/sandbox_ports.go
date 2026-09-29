@@ -96,9 +96,12 @@ func (ag *Agent) toolPreviewPort(ctx context.Context, run *Run, cfg Config, args
 	if err != nil {
 		return "", err
 	}
-	ag.db.journal(run.ID, "live", map[string]any{
+	st := ag.db.journal(run.ID, "live", map[string]any{
 		"sandbox": use.ID, "name": use.Box.Name, "port": port, "path": "/" + p + qsuffix(q),
 	})
+	if ag.eng != nil { // streamed at once: the pane opens while the turn goes on
+		ag.eng.emitStep(ag.db, rootOf(run), st)
+	}
 	note := ""
 	if status >= 400 {
 		note = fmt.Sprintf(" The server answered %d for that page — check the path.", status)

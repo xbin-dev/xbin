@@ -45,6 +45,12 @@
 //	sandbox download twice
 //	             sandbox_download hello.txt, then again → "Downloaded: <the
 //	             second result's first line>" (in place: "unchanged: …")
+//	sandbox serve
+//	             write site/index.html (a page whose script reports what it can
+//	             reach: cookie, storage, whoami, the tile API), bash
+//	             "python3 -m http.server <port> --bind 127.0.0.1" as a background
+//	             job (port: this server's + 1), then preview_port {port,
+//	             "/index.html"} (D135) → "Showing it live."
 //	new sandbox  sandbox_create {name "scratch"} — the owner is asked to allow
 //	             it → "Created: <its first line>"
 //	restart me   the FIRST request of that turn hangs 30 s (the harness restarts
@@ -87,6 +93,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -288,6 +295,9 @@ func script(conv []turn, system string) plan {
 			ps[i] = fmt.Sprintf("Paragraph %d of the answer, streamed.", i+1)
 		}
 		return plan{Text: strings.Join(ps, "\n\n")}
+	}
+	if strings.Contains(lastUser, "sandbox serve") {
+		return serveScript(conv)
 	}
 	if last.Role == "tool" {
 		switch last.Tool {
@@ -732,6 +742,10 @@ func writeJSON(w http.ResponseWriter, v any) {
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18977", "listen address")
 	flag.Parse()
+	if _, p, err := net.SplitHostPort(*addr); err == nil {
+		n, _ := strconv.Atoi(p)
+		servePort = n + 1
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"object": "list", "data": []any{
@@ -747,4 +761,48 @@ func main() {
 	})
 	log.Printf("fakeopenai on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, mux))
+}
+
+// servePort is "sandbox serve"'s: this server's port + 1 (main).
+var servePort = 18978
+
+// livePage is "sandbox serve"'s page: its script says it ran and what it
+// could reach, in the DOM the harness reads (#r).
+const livePage = `<!doctype html><html><head><title>live</title></head><body>
+<h1 id="h">static</h1><pre id="r">…</pre>
+<script>
+(async () => {
+  document.getElementById('h').textContent = 'scripts ran';
+  const r = { origin: String(self.origin) };
+  try { r.cookie = document.cookie; } catch (e) { r.cookie = 'threw'; }
+  try { localStorage.setItem('x', '1'); r.storage = 'usable'; } catch (e) { r.storage = 'threw'; }
+  for (const [k, u] of [['whoami', '/api/xbin/whoami'], ['tileApi', '/api/apps/agent/runs']]) {
+    try { const res = await fetch(u, { credentials: 'include' }); r[k] = res.status; } catch (e) { r[k] = 'threw'; }
+  }
+  try { top.location.href = 'about:blank#escaped'; r.topNav = 'no throw'; } catch (e) { r.topNav = 'threw'; }
+  try { parent.postMessage({ op: 'close' }, '*'); } catch (e) { /* none */ }
+  document.getElementById('r').textContent = JSON.stringify(r);
+})();
+</script></body></html>
+`
+
+// serveScript is "sandbox serve": write the page and start its server, then
+// preview_port it, then say so.
+func serveScript(conv []turn) plan {
+	did := map[string]bool{}
+	for i := len(conv) - 1; i >= 0 && conv[i].Role != "user"; i-- {
+		if conv[i].Role == "tool" {
+			did[conv[i].Tool] = true
+		}
+	}
+	switch {
+	case !did["write"]:
+		return plan{Calls: []call{
+			{"write", map[string]any{"path": "site/index.html", "content": livePage, "summary": "Write the page"}},
+			{"bash", map[string]any{"command": fmt.Sprintf("cd site && exec python3 -m http.server %d --bind 127.0.0.1", servePort), "background": true, "summary": "Serve it"}},
+		}}
+	case !did["preview_port"]:
+		return plan{Delay: 1500 * time.Millisecond, Calls: []call{{"preview_port", map[string]any{"port": servePort, "path": "/index.html", "summary": "Show it live"}}}}
+	}
+	return plan{Text: "Showing it live."}
 }
