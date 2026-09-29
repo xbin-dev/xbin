@@ -293,6 +293,46 @@ the last line read, bad lines included; a reader that lost bytes returns
 line and reports `acp.ErrGap`), `acp.Encode` and the protocol types — for a
 proxy between a client and an agent, or a scripted agent in tests.
 
+### Testing an ACP client — `github.com/xbin-dev/xbin/sdk/acp/acptest`
+
+A **scripted ACP agent** to test your client against without a real
+adapter, a model or a network — the one xbind's own tests and the `fake`
+provider (`XBIN_AGENT_FAKE`) run. It answers the handshake the way
+claude-agent-acp and codex-acp do and plays a script chosen by words in the
+prompt: `echo` by default, `perm` and `perm-edit` (a permission request),
+`plan…` (a plan approval), `ask…` (a form question), `subagent…`, `think…`,
+`todo` (plan updates), `cards` (one tool call of every kind), `run: <cmd>`
+(a `terminal/*` round trip), `slow`, `stall` (nothing until
+`session/cancel`), `fail` (signed out), `crash`, and more — the package
+doc lists every script and what it sends.
+
+```go
+import "github.com/xbin-dev/xbin/sdk/acp/acptest"
+
+// in-process: your client writes to inW and reads outR
+inR, inW := io.Pipe()
+outR, outW := io.Pipe()
+go acptest.Serve(inR, outW, acptest.Options{Steer: true})
+
+// or as a program: the test binary serves as the agent
+func TestMain(m *testing.M) {
+	acptest.MainIfAdapter() // when started as the agent, serves stdio and exits
+	os.Exit(m.Run())
+}
+argv := acptest.Command("--require-login") // [the test binary, "acptest", flags…]
+```
+
+| flag (`Options`) | what it adds |
+|---|---|
+| `--steer` (`Steer`) | `_session/steering`: `injected` into a running turn (its next chunk says `steered: ‹text›`), `promptRequired` when idle and asked for, else `startedNewTurn` |
+| `--auto-mode` (`AutoMode`) | a mode `auto` between `ask` and `yolo` that skips an edit's permission request |
+| `--require-login` (`RequireLogin`) | signed in only while `$HOME/.fakeacp/credentials` exists; auth methods `fake-login` (terminal, `<agent> login` asks for the code `fake-code`), `fake-api-key` (`_meta["api-key"].apiKey`; `bad` is refused) and `fake-device` (a device code through URL elicitation, then `elicitation/complete`) |
+| `--persist` (`Persist`) | sessions kept in `$HOME/.fakeacp/sessions`; `session/load` replays exactly what a session sent |
+| `--device-ms=N` (`DeviceDelay`) | how long after the URL is accepted the device sign-in completes (1 s) |
+
+`Serve` returns when its reader ends (or `*acptest.ExitError` for
+`crash`); `Options.Getenv` gives it a `HOME` of your test's own.
+
 ### Resources, vault, bus
 
 ```go

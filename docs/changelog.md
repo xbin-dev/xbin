@@ -33,6 +33,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `acp.Gap` / `ErrGap` for a reader that lost bytes. The reserved
   `IDPrefix` and `Attach` are no longer refused by `Start`.
 
+- **A scripted ACP agent for testing ACP clients: `sdk/acp/acptest`**
+  ([sdk.md](sdk.md) §Testing an ACP client). Additive: the engine of
+  xbind's test agent `hack/fakeacp` (now `func main() { acptest.Main() }`)
+  is an SDK package — `Serve(r, w, Options)` in-process, `Main` as a
+  program, `MainIfAdapter`/`Command` for a test binary that serves as the
+  agent, `Login` for its terminal sign-in. Every existing script plays
+  byte-identically (golden transcripts); new are the flags `--steer`
+  (`_session/steering`), `--auto-mode`, `--require-login` (terminal,
+  API-key and device-code sign-in; the `login` subcommand), `--persist`
+  (`session/load` replays what a session sent) and `--device-ms=N`, and
+  the scripts `perm-edit`, `todo`, `stall`, `cards` and `steer…`.
+  `XBIN_AGENT_FAKE` users see no change unless they pass the flags.
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
   §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).

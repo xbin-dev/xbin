@@ -1,0 +1,21 @@
+> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true},"clientInfo":{"name":"golden","version":"1"}}}
+< {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"embeddedContext":true}},"authMethods":[{"id":"api-key","name":"API key"}],"agentInfo":{"name":"fakeacp","version":"1"}}}
+> {"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/work","mcpServers":[]}}
+< {"jsonrpc":"2.0","id":2,"result":{"sessionId":"fake-1","modes":{"currentModeId":"ask","availableModes":[{"id":"ask","name":"Ask"},{"id":"yolo","name":"Yolo"}]},"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"fake-default","options":[{"value":"fake-default","name":"Fake (default)"},{"value":"fake-fast","name":"Fake fast"}]}]}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"availableCommands":[{"description":"Review the pending changes","input":{"hint":"what to focus on"},"name":"review"},{"description":"Summarize the conversation to free context","name":"compact"},{"description":"Write a CLAUDE.md for this project","name":"init"}],"sessionUpdate":"available_commands_update"}}}
+> {"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"fake-1","prompt":[{"type":"text","text":"run: echo ok"}]}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"kind":"execute","rawInput":{"command":"echo ok"},"sessionUpdate":"tool_call","status":"in_progress","title":"echo ok","toolCallId":"run1"}}}
+< {"jsonrpc":"2.0","id":1,"method":"terminal/create","params":{"sessionId":"fake-1","command":"sh","args":["-c","echo ok 2\u003e\u00261"]}}
+> {"jsonrpc":"2.0","id":1,"result":{"terminalId":"term-1"}}
+< {"jsonrpc":"2.0","id":2,"method":"terminal/wait_for_exit","params":{"sessionId":"fake-1","terminalId":"term-1"}}
+> {"jsonrpc":"2.0","id":2,"result":{"exitCode":0,"signal":null}}
+< {"jsonrpc":"2.0","id":3,"method":"terminal/output","params":{"sessionId":"fake-1","terminalId":"term-1"}}
+> {"jsonrpc":"2.0","id":3,"result":{"output":"ok\n","truncated":false}}
+< {"jsonrpc":"2.0","id":4,"method":"terminal/release","params":{"sessionId":"fake-1","terminalId":"term-1"}}
+> {"jsonrpc":"2.0","id":4,"result":{}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"_meta":{"terminal_exit":{"exit_code":0,"terminal_id":"run1"},"terminal_output":{"data":"ok\n","terminal_id":"run1"}},"content":[{"terminalId":"run1","type":"terminal"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"run1"}}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"content":{"type":"text","text":"run: ok"},"messageId":"m","sessionUpdate":"agent_message_chunk"}}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"sessionUpdate":"usage_update","size":1000,"used":42}}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"sessionUpdate":"session_info_update","title":"fake: run: echo ok"}}}
+< {"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}
+exit 0
