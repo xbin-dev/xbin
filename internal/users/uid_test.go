@@ -87,4 +87,13 @@ func TestUID(t *testing.T) {
 	if got, _ := s3.EnsureUID("alice", "not-a-uid"); got == uid || !UIDOK(got) {
 		t.Errorf("the recreated alice's uid = %q (the old one was %q)", got, uid)
 	}
+
+	// An invited account starts without one too, whatever the caller's
+	// record (a decoded User) carried.
+	if _, err := s3.UpsertInvited(User{ID: "bob", Role: RoleUser, UID: uid, Devices: []Device{{ID: "d1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := s3.Get("bob"); u.UID != "" || len(u.Devices) != 0 {
+		t.Errorf("an invited bob got the caller's uid %q or devices %v", u.UID, u.Devices)
+	}
 }

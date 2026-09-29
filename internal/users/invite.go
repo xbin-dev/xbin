@@ -156,6 +156,7 @@ func (s *Store) UpsertInvited(u User) (*User, error) {
 		return nil, fmt.Errorf("email %s is already bound to another user", u.Email)
 	}
 	u.PassHash = ""
+	u.Devices, u.UID = nil, "" // store-owned, as in Upsert: never a caller's (a prior incarnation's uid, PD-43)
 	u.Created = time.Now().Unix()
 	s.seedNewUserLocked(&u) // new-account defaults (D52) — union with the request
 	nu := u
