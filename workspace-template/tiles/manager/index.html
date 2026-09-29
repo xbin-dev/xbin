@@ -181,6 +181,7 @@
       recommended path when you've customized it. <b>Merge</b> writes 3-way
       conflict markers straight into the files (legacy; everything is in git,
       so it's recoverable). Template instances are yours and aren't tracked.</p>
+    <div id="update-notes" class="imsg" style="margin:0 0 8px" hidden></div>
     <div id="updates"><span class="muted">loading…</span></div>
   </div>
 
@@ -512,11 +513,18 @@
           const d = await r.json();
           if (!r.ok) throw new Error(d.error ?? r.status);
           imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
-          imsg.textContent = mode === 'pr'
+          imsg.textContent = mode === 'pr' && d.pr
             ? `proposed as ${d.pr.target}#${d.pr.number} — review it in the tile's terminal (⇄ tab); closing it merged completes the update`
-            : mode === 'merge'
-              ? `merged ${(d.files || []).length} file(s) — resolve any <<<<<<< conflict markers`
-              : `${mode}d — reload tiles to see changes`;
+            : mode === 'pr'
+              ? 'nothing to propose — recorded as applied'
+              : mode === 'merge'
+                ? `merged ${(d.files || []).length} file(s) — resolve any <<<<<<< conflict markers`
+                : `${mode}d — reload tiles to see changes`;
+          // Notes (a manifest's partition kept as installed, docs/partitions.md)
+          // outlive the card, which the reload below replaces.
+          const notes = document.getElementById('update-notes');
+          notes.hidden = !(Array.isArray(d.notes) && d.notes.length);
+          notes.innerHTML = notes.hidden ? '' : `<b>${esc(u.id)}</b>: ${d.notes.map((n) => esc(n)).join('<br>')}`;
           loadUpdates();
         } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
         finally { b.disabled = false; }
