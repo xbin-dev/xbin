@@ -776,7 +776,13 @@ bx expose apps/mc   game=runtime --listen :25565</pre>
           <pre>POST /api/xbin/backup    { "component": "apps/thing" }
 POST /api/xbin/restore   { "component": "apps/thing", "file": "data/kv.json" }</pre>
           <p>Schedule it with a retention count and it prunes old versions
-          itself.</p>`,
+          itself.</p>
+          <p>With a vault set up, every archive is <strong>sealed</strong> by
+          xbind under a backup key — the archiver holds ciphertext only. Export
+          the key bundle (<code>bx backup keys export</code>, or the backup tab)
+          and keep it with the vault passphrase: a new machine needs both to
+          restore. <code>bx backup erase</code> crypto-erases a tile's backups
+          everywhere.</p>`,
       },
       {
         id: 'offload', title: 'lifecycle & offload', color: 'rose',
