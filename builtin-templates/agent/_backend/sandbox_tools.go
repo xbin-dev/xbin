@@ -138,7 +138,8 @@ func boundSandboxSpecs(cfg Config) []toolSpec {
 	}
 	specs = append(specs, sandboxFileSpecs()...)
 	specs = append(specs, browserCheckSpec(cfg))
-	return append(specs, sandboxMoveSpecs(cfg)...)
+	specs = append(specs, sandboxMoveSpecs(cfg)...)
+	return append(specs, sandboxPortSpecs(cfg)...) // preview_port (sandbox_ports.go)
 }
 
 // runSandboxTool dispatches the coding tools. Called from runTool.
@@ -160,6 +161,8 @@ func (ag *Agent) runSandboxTool(ctx context.Context, run *Run, cfg Config, name 
 		return ag.toolJobs(ctx, run, cfg, args)
 	case "browser_check":
 		return ag.toolBrowserCheck(ctx, run, cfg, args)
+	case "preview_port":
+		return ag.toolPreviewPort(ctx, run, cfg, args) // sandbox_ports.go
 	}
 	if sandboxFileTools[name] {
 		return ag.runSandboxFileTool(ctx, run, cfg, name, args)

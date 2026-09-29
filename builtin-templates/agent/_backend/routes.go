@@ -131,7 +131,7 @@ func routeTable() []routeDef {
 // level (the tile itself and its owner); who the human behind a call is, and
 // what they may do with a run, is decided here.
 func routes(mux *http.ServeMux) {
-	for _, rt := range append(routeTable(), sandboxRoutes()...) {
+	for _, rt := range append(append(routeTable(), sandboxRoutes()...), liveRoutes()...) {
 		mux.Handle(rt.pattern, xbin.RoleFunc("admin", guard(rt.need, rt.h)))
 	}
 }

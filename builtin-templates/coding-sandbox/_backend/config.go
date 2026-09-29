@@ -120,7 +120,7 @@ func defaultConfig() Config {
 	return Config{
 		Mode: "vm",
 		Images: []Image{{ID: "base", Title: "Ubuntu with git, Go, Node and Python", Default: true,
-			Tools: []string{"git", "go", "node", "python3", "rg", "make", "gcc"}}},
+			Tools: []string{"git", "go", "node", "python3", "rg", "make", "gcc", "playwright", "chromium"}}},
 		Sizes: []Size{
 			{ID: "small", Title: "Small", MemMiB: 2048, VCPUs: 2, DiskGiB: 20, Default: true},
 			{ID: "medium", Title: "Medium", MemMiB: 4096, VCPUs: 4, DiskGiB: 40},
