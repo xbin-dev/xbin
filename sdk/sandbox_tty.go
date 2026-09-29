@@ -5,12 +5,12 @@ package xbin
 // sandbox-manager contract, so a manager serves output reads, stdin,
 // signals, resizes, files, tar and terminals by passing its own request
 // through: Forward, to a route built by a typed builder (ExecOutput,
-// FilesRoute, TarRoute, …), streams both bodies and tunnels a WebSocket
-// upgrade byte for byte (the consumer's masked frames reach xbind
+// ExecStdio, FilesRoute, TarRoute, …), streams both bodies and tunnels a
+// WebSocket upgrade byte for byte (the consumer's masked frames reach xbind
 // unchanged, so frame counts and echo acks stay exact), with no WebSocket
 // code of its own.
 // DialTTY (sandbox_dialtty.go) is for a manager that drives a terminal
-// itself.
+// itself; RelayStdio and DialStdio (sandbox_stdio.go) are the stdio socket's.
 
 import (
 	"encoding/json"
@@ -70,6 +70,10 @@ func ExecResize(id string) SandboxRoute { return execSub(id, "resize") }
 // ExecTTY is execs/{id}/tty: the WebSocket attach (RelayTTY forwards to it
 // with TTYOptions as the query).
 func ExecTTY(id string) SandboxRoute { return execSub(id, "tty") }
+
+// ExecStdio is execs/{id}/stdio: a non-tty exec's stdio WebSocket
+// (?since=, errSince; RelayStdio forwards to it).
+func ExecStdio(id string) SandboxRoute { return execSub(id, "stdio") }
 
 // FilesOp is one of the runtime's file operations, files/{op}.
 type FilesOp string

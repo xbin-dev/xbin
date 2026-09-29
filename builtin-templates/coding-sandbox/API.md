@@ -55,7 +55,7 @@ to the tile (write or terminal). With read access a person may look: hello,
 the list, a sandbox, a running sandbox's files and trees, its execs and
 their output, its snapshots. Every change is `403 not-allowed` before it is
 routed: create, PATCH, DELETE, start and stop, run, execs and their stdin,
-signals and resizes, terminals (both `tty` routes), file writes, moves and
+signals and resizes, terminals (both `tty` routes), stdio sockets, file writes, moves and
 removes, `PUT …/tar`, and taking, restoring or deleting snapshots. A read
 never starts a stopped sandbox for them: that is `403 not-allowed` too, and
 `409 state` while one starts. Calls from every other consumer are as the
@@ -103,8 +103,17 @@ trusts its consumers.
   that runs everything as root (the runtime's `users: root`), the user is
   root at `/root`.
 - **`caps`** are the substrate's (`exec`, `files`, `tar`, `tty`,
-  `snapshots`, `clone`, and `ports` where xbind serves it); `archive`
-  isn't offered yet (its routes answer 501).
+  `snapshots`, `clone`, and `ports` and `stdio` where xbind serves them);
+  `archive` isn't offered yet (its routes answer 501).
+- **stdio** (docs/sandbox-manager.md §stdio): `POST …/execs {split: true}`
+  keeps a non-tty exec's stderr apart (`…/output?stream=stderr`, the
+  exec's `errTotal`), and `GET …/execs/{eid}/stdio?since=&errSince=` is a
+  relay of the runtime's stdio WebSocket, checked as an exec is — the
+  partition, the person rules — its frames as the runtime sends them (the
+  exec ids are the runtime's). Offered while the runtime's `caps` carry
+  `stdio` and the backend serves it (`StdioBox`); otherwise `split` and
+  `stream` are ignored, as by any manager without it, and the route
+  answers 501.
 - **Ports** (D135): `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` is
   checked as an exec is — the partition, the person rules — then forwarded
   to the runtime's ports route (the SDK's `PortRoute`), the consumer's
@@ -288,7 +297,8 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
 substrate's offer, and sandboxes by name: list, create — clones with
 `from` —, get, patch, delete, start, stop) and a `Box` per sandbox (run,
 execs and their output by offset, stdin, signals, resizes, the terminal
-relay, files, trees, snapshots). The shapes are the Go SDK's
+relay, files, trees, snapshots — and, optionally, the stdio socket relay:
+`StdioBox`). The shapes are the Go SDK's
 (`sdk/sandbox*.go`). Refusals are `*xbin.SandboxError` with the contract's
 refusal enum; any other error answers `503 unavailable`. Adding one — a
 cloud's API and ssh, say — is `AGENTS.md`.
@@ -364,7 +374,7 @@ notes have the commands):
    `sandboxes` slot is bound to it (`bx bind apps/csc sandboxes=apps/cs`).
    Binding another consumer doesn't restart the manager: calls in flight
    (relayed terminals, long polls) carry on.
-2. Hello: `caps` are the runtime's (`exec files tar tty snapshots
+2. Hello: `caps` are the runtime's (`exec files tar tty stdio snapshots
    clone ports`), `egress` `none internet`, no `notes` but the missing ones.
 3. The conformance suite through xbind's proxy, every section but
    `archive`: each consumer the suite names (`apps/ct-…`) is a tile bound
@@ -373,7 +383,7 @@ notes have the commands):
    session (xbind sets `X-XBin-User`); an asserted one is `Sbx-User`. On a
    `--no-auth` xbind there are no verified people: the checks that act as
    them (`people/visibility`, `people/owners`, `partitions/shares`,
-   `tty/refusals`) go in `Target.Skip`, saying so.
+   `tty/refusals`, `stdio/refusals`) go in `Target.Skip`, saying so.
 4. `mode`: `auto` gives `vm` with KVM (the sandbox's `isolation` `vm`),
    `namespace` without; `vm` on a host without VMs refuses the create with
    the runtime's reason.

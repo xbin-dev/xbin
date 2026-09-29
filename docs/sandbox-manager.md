@@ -121,7 +121,7 @@ body (a sandboxed page can't set custom request headers).
 ```json
 {"protocol": 1, "protocols": [1],
  "manager": {"name": "coding-sandbox", "title": "Coding sandboxes", "version": "1.0.0"},
- "caps": ["exec", "files", "tar", "tty", "snapshots", "clone", "archive", "ports"],
+ "caps": ["exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports"],
  "egress": ["none", "internet"],
  "images": [{"id": "base", "title": "Debian with git, Go and Node", "default": true, "tools": ["git", "go", "node", "rg"],
              "harnesses": [{"id": "claude", "title": "Claude Code", "argv": ["claude-agent-acp"], "login": "claude /login"},
@@ -132,10 +132,11 @@ body (a sandboxed page can't set custom request headers).
             "fileMax": 67108864, "tarMax": 1073741824, "waitMaxSec": 120}}
 ```
 
-`exec` and `files` are required in protocol 1; `tar`, `tty`, `snapshots`,
-`clone`, `archive` and `ports` are optional, and a route whose capability
-is missing answers `unsupported` (a manager from before `ports`, D135,
-answers its route `not-found` — a consumer checks `caps` first). `limits.sandboxes` 0 means no fixed limit.
+`exec` and `files` are required in protocol 1; `tar`, `tty`, `stdio`,
+`snapshots`, `clone`, `archive` and `ports` are optional, and a route whose
+capability is missing answers `unsupported` (a manager from before `ports`,
+D135, or `stdio` answers its route `not-found` — a consumer checks `caps`
+first). `limits.sandboxes` 0 means no fixed limit.
 
 An **image** is `{id, title, default, tools, harnesses?}`; exactly one is
 the default, and `tools` names what it has beyond a POSIX shell (§Inside a
@@ -257,24 +258,26 @@ its request: if the caller hangs up, the group is killed. Output is UTF-8
 
 | Method & path | Body / query | Result |
 |---|---|---|
-| `POST /sbx/sandboxes/{id}/execs` | `{cmd\|argv, cwd?, env?, tty?, rows?, cols?, stdin?, timeoutMs?, label?, clientId?}` | **201** + the exec |
+| `POST /sbx/sandboxes/{id}/execs` | `{cmd\|argv, cwd?, env?, tty?, rows?, cols?, stdin?, split?, timeoutMs?, label?, clientId?}` | **201** + the exec (`split`: `stdio`) |
 | `GET /sbx/sandboxes/{id}/execs` | | `{"execs": [exec…]}` |
 | `GET /sbx/sandboxes/{id}/execs/{eid}` | | the exec |
-| `GET /sbx/sandboxes/{id}/execs/{eid}/output` | `since, max, waitMs, encoding` | a chunk (below) |
+| `GET /sbx/sandboxes/{id}/execs/{eid}/output` | `since, max, waitMs, encoding, stream?` | a chunk (below) |
 | `POST /sbx/sandboxes/{id}/execs/{eid}/stdin` | raw bytes; `?eof=1` closes stdin | **204** (only with `stdin: true`) |
 | `POST /sbx/sandboxes/{id}/execs/{eid}/signal` | `{signal: "INT"\|"TERM"\|"KILL"\|"HUP", group?}` | **204** (`group` defaults to true) |
 | `POST /sbx/sandboxes/{id}/execs/{eid}/resize` | `{rows, cols}` | **204** (a `tty` exec) |
+| `GET /sbx/sandboxes/{id}/execs/{eid}/stdio` | `since, errSince` | a WebSocket (`stdio`, below) |
 | `DELETE /sbx/sandboxes/{id}/execs/{eid}` | | **204** — kills the group, forgets the exec |
 
 An exec is `{id, label, cmd, argv, cwd, tty, state, exitCode, signal,
-started, ended, total, clientId}`; `state` is `running`, `exited`, `killed`
+started, ended, total, clientId}` (a `split` one adds `split` and
+`errTotal`); `state` is `running`, `exited`, `killed`
 (a signal, its timeout, a stop or a `DELETE` ended it — `exitCode` is null
 when a signal did) or `lost`; `timeoutMs` 0 means none. `stdin` to an exec
 started without `stdin: true`, or after `eof`, is `invalid`; after it
 ended, `state`. Its stdout and stderr are **one
-combined byte stream** (a `tty` exec's is the terminal's), kept in a ring
-of at least `limits.outputRing` bytes. A finished exec is kept at least an
-hour or the last 50 per sandbox.
+combined byte stream** (a `tty` exec's is the terminal's; a `split` one's
+are two, `stdio` below), kept in a ring of at least `limits.outputRing`
+bytes. A finished exec is kept at least an hour or the last 50 per sandbox.
 
 **Reading output** — `GET …/output?since=<offset>&max=<bytes>&waitMs=<ms>&encoding=text|base64`
 (`max` ≤ 1 MiB, default 64 KiB; `waitMs` ≤ 30000):
@@ -291,6 +294,52 @@ running it waits up to `waitMs` for more — and answers as soon as the exec
 ends. `text` is UTF-8 with invalid bytes
 replaced; `base64` is exact. A reader resumes from the last `end` it saw —
 across its own restarts, too.
+
+### A program's streams on one socket (`stdio`)
+
+For a program a consumer drives over its stdin and stdout — a coding agent
+speaking ACP — without polling, and with its stderr apart. Where `caps`
+lacks `stdio`, the routes above do the same (`split` is then a field the
+manager doesn't know: it ignores it, and the exec answers `split` false).
+
+- **`split: true`** on `POST …/execs` (not with `tty`: `invalid`) keeps
+  stderr out of the exec's stream: `…/output` and `total` are its stdout,
+  `…/output?stream=stderr` reads its stderr — offsets of its own, a ring of
+  its own — and the exec gains `split: true` and `errTotal`.
+  `stream=stderr` on an exec that isn't split is `invalid`; `stream=stdout`
+  is the default.
+- **`GET …/execs/{eid}/stdio?since=<n>&errSince=<n>`** is a WebSocket for
+  a non-`tty` exec (a `tty` exec is `invalid`: its route is `…/tty`), from
+  stdout offset `since` and stderr offset `errSince` (both default 0; past
+  their stream's end is `invalid`). Offsets are `…/output`'s: a reader may
+  switch between the two. Refusals come before the upgrade, as JSON
+  (`not-found`, `invalid`, `lost`, `unsupported`).
+- **Server → client**: `{"op":"hello","id":"<eid>","total":N,"errTotal":M,"state":"running","stdin":true,"split":true}`
+  first; **binary frames** are stdout from `since`, the ring's bytes and
+  then live ones, preceded by `{"op":"gap","stream":"stdout","from":<n>,"to":<ring start>}`
+  where the ring dropped some; a split exec's stderr comes as
+  `{"op":"stderr","off":<offset of its first byte>,"data":"<base64>"}` (its
+  own `gap` with `"stream":"stderr"`); `{"op":"exit","code":0,"signal":"","total":N,"errTotal":M}`
+  once the exec has ended and all its output is out (`code` null when a
+  signal ended it), then a normal close (1000); `{"op":"pong","t":…}` for
+  each ping (`t` echoed); `{"op":"error","refusal":"invalid","error":"…"}`
+  for a client frame that couldn't be done — stdin to an exec without
+  `stdin: true` or after `eof` (`invalid`), after its end (`state`) —
+  and the socket goes on.
+- **Client → server**: **binary frames** are stdin (each at most
+  `limits.stdinMax`); `{"op":"eof"}` closes stdin; `{"op":"ping","t":…}`.
+  A stdin frame is taken when the command reads it: the socket's own flow
+  control holds the client meanwhile (no 30 s / `unavailable` as on
+  `POST …/stdin`). Unknown ops are ignored both ways.
+- **The socket attached last holds stdin**: attaching closes the one
+  before it with code **4001** (`replaced`) — a consumer handing a program
+  to another process (a restart, a new replica) just attaches. Frames of a
+  socket that was replaced are dropped.
+- A client that leaves doesn't end the command; attaching to an exec that
+  has ended replays from the offsets and says `exit`.
+- **Who dials it**: a consumer's backend, through xbind with its instance
+  credential and its person in `Sbx-User`, as any backend call (in Go,
+  `xbin.DialManagerStdio`, docs/sdk.md), or a page with its frame token.
 
 ### Terminals (`tty`)
 
@@ -490,8 +539,8 @@ manager of its own (its `API.md` has everything):
   a VM where the workspace runs VMs for tiles, else a namespace — or only
   the one mode its operators choose, never falling back (`isolation` always
   says which). `caps` are what the runtime serves (`exec`, `files`, `tar`,
-  `tty`, `snapshots`, `clone`, and `ports` on an xbind that has it; not
-  `archive`), `hello.notes` say what it
+  `tty`, `snapshots`, `clone`, and `ports` and `stdio` on an xbind that has
+  them; not `archive`), `hello.notes` say what it
   lacks.
 - **Images** are the runtime's base plus a setup script, built once as root
   and cloned (a rebuild that fails keeps the previous good build);
@@ -567,6 +616,7 @@ the cause is gone:
 | create / start / stop / delete, `?wait` | the provider's instance API, polled |
 | `run` | `ssh host -- 'cd -- <cwd> && exec setsid $SHELL -lc <cmd>'`; a timeout sends `kill -TERM -<pgid>` over a second connection |
 | execs | `setsid nohup <cmd> > /var/lib/sbx/<eid>/out 2>&1; echo $? > /var/lib/sbx/<eid>/exit`; output is `tail -c +<offset+1>`; signals are `kill -<SIG> -<pgid>` |
+| `split`, `stdio` | `2>` a second log beside the exec's; the socket is one ssh session per attach: `tail -c +<off+1> -f` of each log as frames, stdin into a fifo the exec reads (held open by the manager, so `eof` closes it); or leave `stdio` out — consumers read and write through `…/output` and `…/stdin` |
 | `tty` | `ssh -t` with the terminal's environment (`TERM`, `COLORTERM`, `LANG`; §Inside a sandbox) into a holder on the instance (`dtach`, `tmux`) that keeps the command and its pty past the connection, its output logged as the exec's (`…/output`, replayed on an attach, which is another `ssh -t`); window-change on resize. The same for a page's terminal and a consumer backend's (`Sbx-User`) |
 | files | sftp: stat, ranged reads, write to a temporary name and rename, readdir; `etag` a sha256 |
 | `tar` | `tar -C <dir> -cf -` / `-xf -` over ssh |
@@ -595,7 +645,9 @@ Every section of this page is a group of parallel subtests (`go test -run
 'TestContract/tty'` picks one). The checks act as consumers of their own
 (`apps/ct-<section>-<check>-a`, …), setting `X-XBin-From`, `X-XBin-User`
 and `Sbx-User` as xbind and a consumer would, and delete the sandboxes they
-make — `tty/backend` opens terminals as a consumer's backend does, for an
+make — `stdio` drives programs over the stdio socket (replay from an
+offset, gaps, split stderr, exit, `eof`, the newest attach winning);
+`tty/backend` opens terminals as a consumer's backend does, for an
 asserted person who is neither the sandbox's owner nor a member, and on a
 sandbox shared with it. A section whose optional capability hello leaves
 out is skipped; its routes must answer `unsupported`. The rest of

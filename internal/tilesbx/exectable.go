@@ -91,7 +91,7 @@ func (t *execTable) pruneLocked(now int64) {
 	}
 }
 
-// forget removes an exec: it is no longer listed or found, its ring's bytes
+// forget removes an exec: it is no longer listed or found, its rings' bytes
 // go back to the tile's budget, and its clientId may be used again.
 func (t *execTable) forget(e *execRec) {
 	t.mu.Lock()
@@ -114,6 +114,9 @@ func (t *execTable) forgetLocked(e *execRec) {
 		delete(t.byClient, e.clientID)
 	}
 	e.ring.Drop()
+	if e.errRing != nil {
+		e.errRing.Drop()
+	}
 }
 
 // forgetAll forgets every exec (the sandbox was deleted).

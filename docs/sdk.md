@@ -340,7 +340,7 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   manager's routes pass its own request through to a typed route:
   `sb.Forward(w, r, xbin.ExecOutput(eid), q)`. The routes are
   `xbin.ExecRoute(eid)` (GET, DELETE), `ExecOutput`, `ExecStdin`,
-  `ExecSignal`, `ExecResize`, `ExecTTY`, `FilesRoute(xbin.FilesStat |
+  `ExecSignal`, `ExecResize`, `ExecTTY`, `ExecStdio`, `FilesRoute(xbin.FilesStat |
   FilesContent | FilesList | FilesMkdir | FilesRemove | FilesMove)` and
   `TarRoute()`; there is no free-form one. Each builder checks its id
   against the grammar and escapes it itself, so a consumer's id (one with a
@@ -382,6 +382,19 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   itself (an SSH bridge) dials it with `sb.DialTTY(ctx, eid,
   xbin.TTYOptions{…})`, which returns an `sdk/ws` connection speaking the
   same wire.
+- **Stdio sockets** (the contract's `stdio`; `SandboxRuntime.Caps` carries
+  `"stdio"` on an xbind that has them). `xbin.ExecRequest{Split: true}`
+  keeps a non-tty exec's stderr apart — `sb.Output(ctx, eid,
+  xbin.OutputQuery{Stream: "stderr"})` reads it, `ExecInfo.ErrTotal`
+  counts it — and `sb.RelayStdio(w, r, eid, since, errSince)` relays a
+  consumer's stdio WebSocket to the exec's (a byte tunnel, like
+  `RelayTTY`: the exec ids in its frames are the runtime's).
+  `sb.DialStdio(ctx, eid, since, errSince)` is the socket itself: binary
+  frames are stdout from `since` and your stdin, JSON frames decode as
+  `xbin.StdioFrame` (`hello`, `gap`, `stderr`, `exit`, `pong`, `error`;
+  you send `eof` and `ping`). The socket attached last holds stdin: the
+  one before it is closed with `xbin.StdioReplaced` (4001). An older xbind
+  ignores `Split` and `Stream`.
 - **Compatibility.** Request structs omit empty fields and answers decode
   leniently, so a newer SDK works against an older xbind.
 - **Never hand your token to a sandbox.** A sandbox has no xbin identity:
@@ -444,6 +457,30 @@ c, err := xbin.DialManagerTTY(ctx, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{
   people: owner, members, `team`, a share's `users`) yourself, and whether
   they may have a terminal at all, before the relay. A manager on xbind's runtime still refuses a person with
   `noTerminal`.
+
+**A program's stdio** (where the manager's `hello.caps` has `stdio`,
+[sandbox-manager.md](sandbox-manager.md) §stdio): start it as a non-tty
+exec with `{"stdin": true, "split": true}` (`POST …/execs` through your
+binding, `Sbx-User` your person), then drive it over one socket:
+
+```go
+c, err := xbin.DialManagerStdio(ctx, sb.ManagerURL, sb.ID, execID,
+	xbin.ManagerStdioOptions{Since: readOff, ErrSince: errOff, User: person})
+for {
+	typ, msg, err := c.ReadMessage()
+	if err != nil { break } // a close 4001 (xbin.StdioReplaced): another attach took over
+	if typ == ws.BinaryMessage { stdout.Write(msg); readOff += int64(len(msg)); continue }
+	var f xbin.StdioFrame
+	_ = json.Unmarshal(msg, &f) // hello, gap (bytes the ring dropped), stderr (f.Data from f.Off), exit, pong, error
+}
+// elsewhere: c.WriteMessage(ws.BinaryMessage, line) is stdin; {"op":"eof"} closes it
+```
+
+The offsets are the exec's `…/output` offsets, so a consumer that
+restarts resumes where it read to, and attaching again replaces the socket
+before. `xbin.ManagerStdioURL` builds the route (typed parts only, as
+`ManagerTTYURL`). Without `stdio` the exec's `…/output` and `…/stdin`
+routes do the same by polling.
 
 ## node backend (no SDK needed)
 

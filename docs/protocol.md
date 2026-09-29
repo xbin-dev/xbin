@@ -3811,11 +3811,12 @@ sandboxes).
 - **In this xbind** the definition routes work — runtime, policy, list,
   create, get, patch, delete — and so do start, stop, reset and rebase, in
   both modes, the commands (`run`, execs and their output, stdin, signals,
-  resizes and the TTY WebSocket), the file, tar and copy routes, and
-  snapshots, restores and clones, and the ports proxy; `runtime.caps` lists
-  the contract capabilities served (`exec`, `tty`, `files`, `tar`,
-  `snapshots`, `clone`, and `ports` since D135 — an older xbind leaves it
-  out, and its ports route is a 404).
+  resizes, the TTY WebSocket and the stdio WebSocket), the file, tar and
+  copy routes, and snapshots, restores and clones, and the ports proxy;
+  `runtime.caps` lists the contract capabilities served (`exec`, `tty`,
+  `files`, `tar`, `snapshots`, `clone`, `ports` since D135 and `stdio` —
+  an older xbind leaves them out, and their routes are a 404; it ignores
+  `split` and `stream`).
 - **Ports** (D135). `ANY /sandboxes/<name>/ports/<port>/<path>` proxies
   the request — any method, a WebSocket upgrade included — to a server
   listening on TCP `<port>` (1–65535) on the sandbox's **own loopback**:
@@ -3878,7 +3879,7 @@ GET    /sandboxes/<name>/execs               manager. → {execs:[Exec]}
 POST   /sandboxes/<name>/execs               manager. → 201 Exec (200 on a clientId repeat)
 GET    /sandboxes/<name>/execs/<id>          manager. → Exec
 DELETE /sandboxes/<name>/execs/<id>          manager. kill the group, forget it → 204
-GET    /sandboxes/<name>/execs/<id>/output?since=&max=&waitMs=&encoding=text|base64
+GET    /sandboxes/<name>/execs/<id>/output?since=&max=&waitMs=&encoding=text|base64&stream=stdout|stderr
                                              manager. → the contract's chunk
 POST   /sandboxes/<name>/execs/<id>/stdin?eof=   manager. raw body → 204 (eof=1 closes stdin)
 POST   /sandboxes/<name>/execs/<id>/signal   manager. {signal: INT|TERM|KILL|HUP,
@@ -3886,6 +3887,9 @@ POST   /sandboxes/<name>/execs/<id>/signal   manager. {signal: INT|TERM|KILL|HUP
 POST   /sandboxes/<name>/execs/<id>/resize   manager. {rows, cols} → 204 (tty)
 GET    /sandboxes/<name>/execs/<id>/tty?sessionId=&sandboxId=&forUser=
                                              manager. WebSocket: attach (below)
+GET    /sandboxes/<name>/execs/<id>/stdio?since=&errSince=
+                                             manager. WebSocket: a non-tty exec's
+                                             streams (below)
 GET    /sandboxes/<name>/tty?cwd=&cmd=&rows=&cols=&uid=&gid=&forUser=&sessionId=&sandboxId=
                                              manager. WebSocket: start a tty exec
                                              (the login shell unless cmd) and attach
@@ -4364,7 +4368,7 @@ error.
   from before xbind restarted is 410 `lost` — the only `lost` — and one
   this sandbox doesn't have is 404. An exec is `{id, label, cmd, argv,
   cwd, tty, state (running | exited | killed), exitCode, signal, started,
-  ended, total, clientId, forUser, uid}`: `killed` when a signal ended it
+  ended, total, split?, errTotal?, clientId, forUser, uid}`: `killed` when a signal ended it
   (`exitCode` null, `signal` names it), and when its timeout or a `DELETE`
   did. **A stop — the manager's, an admin's, or however the sandbox ended
   — ends its running execs `killed` with `signal: "KILL"`**; their records
@@ -4373,8 +4377,13 @@ error.
   the sandbox forgets them all. `timeoutMs` (0 = none) sends TERM to the
   group, then KILL 5 s later.
 - **Output.** A non-tty exec's stdout and stderr are one stream, a tty
-  exec's is its terminal, kept in a ring of `limits.outputRing` bytes;
-  the tile's rings share the policy's `outputBudgetMiB`, and past it the
+  exec's is its terminal, kept in a ring of `limits.outputRing` bytes —
+  unless it was started with `split: true` (not with `tty`: 400), which
+  keeps its stderr in a second ring: `…/output` and `total` are then its
+  stdout, `…/output?stream=stderr` its stderr (offsets of its own), and the
+  exec answers `split: true` and `errTotal`; `stream=stderr` on an exec
+  that isn't split is 400. The tile's rings share the policy's
+  `outputBudgetMiB`, and past it the
   oldest finished exec's bytes go first (its `ringStart` moves). `GET
   …/output?since=&max=&waitMs=&encoding=` answers `{start, end, total,
   ringStart, data, encoding, state, exitCode, signal}`: the bytes from
@@ -4415,6 +4424,26 @@ set demoted (by the users API, an org role or SSO) — kills the tty execs
 claimed for them and those they attached to; non-tty execs aren't
 restricted by it. One tty exec is attached for at most 64 distinct
 `forUser` values; a new one past them is 429 `limit`.
+
+**The stdio route** (`GET …/execs/<id>/stdio?since=&errSince=`, the
+contract's `stdio`, [sandbox-manager.md](sandbox-manager.md) §stdio) is
+a WebSocket for a non-tty exec: `{"op":"hello","id","total","errTotal","state","stdin","split"}`
+first; stdout as binary frames from `since` — the ring's bytes, then live
+— after `{"op":"gap","stream":"stdout","from","to"}` where the ring
+dropped some; a split exec's stderr from `errSince` as
+`{"op":"stderr","off","data"}` (base64; its own gap); `{"op":"exit","code","signal","total","errTotal"}`
+once the exec ended and all its output is out, then a close (1000);
+`{"op":"pong","t"}`; and `{"op":"error","refusal","error"}` for a client
+frame that couldn't be done (stdin without `stdin: true` or after `eof`:
+`invalid`; after the end: `state`). The client sends stdin as binary
+frames (each at most `stdinMax`: past it the socket closes 1009),
+`{"op":"eof"}` and `{"op":"ping","t"}`; a stdin frame waits for the
+command to read it (the socket holds the client meanwhile — no 503).
+The socket attached last holds stdin: attaching closes the one before it
+with 4001. Refusals come before the upgrade, as JSON: not a WebSocket, a
+tty exec, or an offset past its stream's end is 400. A client that leaves
+doesn't end the command. Only the manager's instance token reaches it;
+the manager relays it to its consumer (the SDK's `RelayStdio`).
 
 ## WebSockets
 

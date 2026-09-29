@@ -73,6 +73,44 @@ var sandboxIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 // *SandboxError, invalid); every segment and query value is escaped here,
 // so no id reaches another route. o.User and o.Client aren't part of it.
 func ManagerTTYURL(endpoint, sandboxID string, o ManagerTTYOptions) (string, error) {
+	base, err := managerSandboxURL(endpoint, sandboxID)
+	if err != nil {
+		return "", err
+	}
+	if o.Rows < 0 || o.Cols < 0 {
+		return "", invalidf("rows and cols are positive (0: the manager's default)")
+	}
+	route := base + "/tty"
+	q := url.Values{}
+	if o.ExecID != "" {
+		seg, err := managerExecSeg(o.ExecID)
+		if err != nil {
+			return "", err
+		}
+		if o.Cmd != "" || o.Cwd != "" || o.Rows != 0 || o.Cols != 0 {
+			return "", invalidf("an attach to exec %s takes no Cmd, Cwd, Rows or Cols (send a resize frame)", quoteID(o.ExecID))
+		}
+		route = base + "/execs/" + seg + "/tty"
+	} else {
+		setNonEmpty(q, "cmd", o.Cmd)
+		setNonEmpty(q, "cwd", o.Cwd)
+		if o.Rows > 0 {
+			q.Set("rows", strconv.Itoa(o.Rows))
+		}
+		if o.Cols > 0 {
+			q.Set("cols", strconv.Itoa(o.Cols))
+		}
+	}
+	if len(q) > 0 {
+		route += "?" + q.Encode()
+	}
+	return route, nil
+}
+
+// managerSandboxURL is the WebSocket URL of sandbox sandboxID's routes at
+// the manager at endpoint (…/sbx/sandboxes/{id}): the endpoint a manager's
+// url, the id in the contract's grammar.
+func managerSandboxURL(endpoint, sandboxID string) (string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
 		return "", invalidf("endpoint %s isn't a manager's url (http://xbin/api/<manager>)", quoteID(endpoint))
@@ -88,34 +126,40 @@ func ManagerTTYURL(endpoint, sandboxID string, o ManagerTTYOptions) (string, err
 	if !sandboxIDRE.MatchString(sandboxID) {
 		return "", invalidf("sandbox id %s isn't one (the contract's are [A-Za-z0-9][A-Za-z0-9._-]{0,63})", quoteID(sandboxID))
 	}
-	if o.Rows < 0 || o.Cols < 0 {
-		return "", invalidf("rows and cols are positive (0: the manager's default)")
+	return u.Scheme + "://" + u.Host + strings.TrimSuffix(u.EscapedPath(), "/") + "/sbx/sandboxes/" + sandboxID, nil
+}
+
+// managerExecSeg is a manager's exec id as one escaped path segment:
+// protocol 1 fixes no grammar for them, so any id that is one segment (not
+// empty, "." or "..", no "/" and no control character) is one.
+func managerExecSeg(id string) (string, error) {
+	if id == "" || id == "." || id == ".." || strings.ContainsFunc(id, func(r rune) bool { return r == '/' || r < 0x20 || r == 0x7f }) {
+		return "", invalidf("exec id %s isn't one path segment", quoteID(id))
 	}
-	route := "/sbx/sandboxes/" + sandboxID + "/tty"
-	q := url.Values{}
-	if o.ExecID != "" {
-		if o.ExecID == "." || o.ExecID == ".." || strings.ContainsFunc(o.ExecID, func(r rune) bool { return r == '/' || r < 0x20 || r == 0x7f }) {
-			return "", invalidf("exec id %s isn't one path segment", quoteID(o.ExecID))
-		}
-		if o.Cmd != "" || o.Cwd != "" || o.Rows != 0 || o.Cols != 0 {
-			return "", invalidf("an attach to exec %s takes no Cmd, Cwd, Rows or Cols (send a resize frame)", quoteID(o.ExecID))
-		}
-		route = "/sbx/sandboxes/" + sandboxID + "/execs/" + url.PathEscape(o.ExecID) + "/tty"
-	} else {
-		setNonEmpty(q, "cmd", o.Cmd)
-		setNonEmpty(q, "cwd", o.Cwd)
-		if o.Rows > 0 {
-			q.Set("rows", strconv.Itoa(o.Rows))
-		}
-		if o.Cols > 0 {
-			q.Set("cols", strconv.Itoa(o.Cols))
-		}
+	return url.PathEscape(id), nil
+}
+
+// managerDial dials u at a manager as this consumer, for user (Sbx-User):
+// a refusal is a *SandboxError.
+func managerDial(ctx context.Context, u, user string, hc *http.Client) (*ws.Conn, error) {
+	if user != "" && strings.ContainsFunc(user, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return nil, invalidf("user %s has a control character", quoteID(user))
 	}
-	s := u.Scheme + "://" + u.Host + strings.TrimSuffix(u.EscapedPath(), "/") + route
-	if len(q) > 0 {
-		s += "?" + q.Encode()
+	if hc == nil {
+		hc = Client()
 	}
-	return s, nil
+	h := http.Header{}
+	if user != "" {
+		h.Set("Sbx-User", user)
+	}
+	c, resp, err := ws.Dial(ctx, u, h, &ws.DialOptions{Client: hc, MaxMessageSize: managerTTYMax})
+	if err != nil {
+		if resp != nil && resp.StatusCode >= http.StatusBadRequest {
+			return nil, sandboxError(resp)
+		}
+		return nil, err
+	}
+	return c, nil
 }
 
 // DialManagerTTY opens a terminal on sandbox sandboxID of the manager at
@@ -133,25 +177,7 @@ func DialManagerTTY(ctx context.Context, endpoint, sandboxID string, o ManagerTT
 	if err != nil {
 		return nil, err
 	}
-	if o.User != "" && strings.ContainsFunc(o.User, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-		return nil, invalidf("user %s has a control character", quoteID(o.User))
-	}
-	hc := o.Client
-	if hc == nil {
-		hc = Client()
-	}
-	h := http.Header{}
-	if o.User != "" {
-		h.Set("Sbx-User", o.User)
-	}
-	c, resp, err := ws.Dial(ctx, u, h, &ws.DialOptions{Client: hc, MaxMessageSize: managerTTYMax})
-	if err != nil {
-		if resp != nil && resp.StatusCode >= http.StatusBadRequest {
-			return nil, sandboxError(resp)
-		}
-		return nil, err
-	}
-	return c, nil
+	return managerDial(ctx, u, o.User, o.Client)
 }
 
 // RelayManagerTTY serves a person's terminal WebSocket (r, a request of

@@ -72,8 +72,12 @@ func (b *Sandbox) Run(ctx context.Context, r RunRequest) (*RunResult, error) {
 }
 
 // ExecRequest starts a background exec (POST …/execs). A non-tty exec's
-// stdout and stderr are one stream; a tty exec's is its terminal. Stdin
-// true keeps its stdin open for Stdin. TimeoutMs 0 is none.
+// stdout and stderr are one stream — unless Split, which keeps stderr its
+// own (Output with Stream "stderr", and the stdio socket: DialStdio); a tty
+// exec's is its terminal. Stdin true keeps its stdin open for Stdin (and
+// the stdio socket). TimeoutMs 0 is none. Split needs the runtime's stdio
+// capability (SandboxRuntime.Caps): an xbind without it ignores the field,
+// and the exec answers Split false.
 type ExecRequest struct {
 	Cmd       string            `json:"cmd,omitempty"`
 	Argv      []string          `json:"argv,omitempty"`
@@ -83,6 +87,7 @@ type ExecRequest struct {
 	Rows      int               `json:"rows,omitempty"`
 	Cols      int               `json:"cols,omitempty"`
 	Stdin     bool              `json:"stdin,omitempty"`
+	Split     bool              `json:"split,omitempty"` // stderr apart from stdout (not with TTY)
 	TimeoutMs int64             `json:"timeoutMs,omitempty"`
 	Label     string            `json:"label,omitempty"`
 	ClientID  string            `json:"clientId,omitempty"` // per sandbox: a repeat answers the same exec
@@ -94,7 +99,8 @@ type ExecRequest struct {
 // ExecInfo is an exec: State is running, exited or killed (a signal, its
 // timeout, a stop or a Kill ended it; ExitCode nil when a signal did). An
 // exec of an earlier xbind start isn't answered at all: its calls are
-// ErrSandboxLost. Total is the bytes its output stream has had.
+// ErrSandboxLost. Total is the bytes its output stream has had — a Split
+// exec's stdout, ErrTotal its stderr's.
 type ExecInfo struct {
 	ID       string   `json:"id"`
 	Label    string   `json:"label,omitempty"`
@@ -108,13 +114,16 @@ type ExecInfo struct {
 	Started  int64    `json:"started"` // unix ms
 	Ended    int64    `json:"ended,omitempty"`
 	Total    int64    `json:"total"`
+	Split    bool     `json:"split,omitempty"`
+	ErrTotal int64    `json:"errTotal,omitempty"`
 	ClientID string   `json:"clientId,omitempty"`
 	ForUser  string   `json:"forUser,omitempty"`
 	UID      *int     `json:"uid,omitempty"`
 }
 
 // Exec starts a background exec. The command's output is read with Output
-// or Follow; a tty exec is attached with RelayTTY or DialTTY.
+// or Follow (or, a non-tty one's, over the stdio socket: RelayStdio,
+// DialStdio); a tty exec is attached with RelayTTY or DialTTY.
 func (b *Sandbox) Exec(ctx context.Context, r ExecRequest) (*ExecInfo, error) {
 	path, err := b.route("execs")
 	if err != nil {
@@ -169,13 +178,16 @@ func (b *Sandbox) Kill(ctx context.Context, id string) error {
 
 // OutputQuery reads an exec's output from byte offset Since, at most Max
 // bytes, waiting up to WaitMs for more while it runs. Encoding is "text"
-// (the default: UTF-8, invalid bytes replaced) or "base64" (exact). The
-// runtime clamps Max and WaitMs to its limits.
+// (the default: UTF-8, invalid bytes replaced) or "base64" (exact). Stream
+// "stderr" reads a Split exec's stderr (its own offsets); "" or "stdout" is
+// the exec's output stream. The runtime clamps Max and WaitMs to its
+// limits.
 type OutputQuery struct {
 	Since    int64
 	Max      int64
 	WaitMs   int64
 	Encoding string
+	Stream   string
 }
 
 func (q OutputQuery) values() url.Values {
@@ -191,6 +203,9 @@ func (q OutputQuery) values() url.Values {
 	}
 	if q.Encoding != "" {
 		v.Set("encoding", q.Encoding)
+	}
+	if q.Stream != "" {
+		v.Set("stream", q.Stream)
 	}
 	return v
 }

@@ -478,6 +478,9 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	if m.portsOffered(rt) { // D135 (ports.go)
 		o.caps = append(o.caps, "ports")
 	}
+	if slices.Contains(rt.Caps, "stdio") && m.stdioBackend() {
+		o.caps = append(o.caps, "stdio")
+	}
 	clones := slices.Contains(o.caps, "clone") && slices.Contains(o.caps, "snapshots")
 	hidden := 0
 	for _, im := range cfg.Images {
@@ -519,6 +522,14 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	}
 	o.sizes = oneDefault(o.sizes, func(s *Size) *bool { return &s.Default })
 	return o, nil
+}
+
+// stdioBackend reports that the backend's sandboxes serve stdio sockets
+// (StdioBox): a backend written before them builds without it, and the
+// manager doesn't offer `stdio` over it.
+func (m *Manager) stdioBackend() bool {
+	_, ok := m.backend().Sandbox("").(StdioBox)
+	return ok
 }
 
 // missingCaps are those of want that caps lacks.

@@ -10,6 +10,33 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-09-30
+
+- **Sandbox managers can offer a program's streams on one socket: the
+  optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
+  §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).
+  Additive: `POST …/execs {split: true}` keeps a non-tty exec's stderr
+  apart (`…/output?stream=stderr`, the exec's `split` and `errTotal`), and
+  `GET …/execs/{eid}/stdio?since=&errSince=` is a WebSocket — `hello`
+  first, stdout as binary frames from `since` (a `gap` frame where the ring
+  dropped bytes), stderr as `stderr` frames, `exit` then a normal close;
+  stdin back as binary frames, `eof`, `ping` — where the socket attached
+  last holds stdin (the one before is closed with 4001). A manager
+  advertises it in `hello.caps` and `sandbox.caps`; one without it ignores
+  `split` and answers the route `unsupported` (older ones `not-found`), and
+  consumers keep using `…/output` and `…/stdin`. xbind's tile-sandbox
+  runtime serves it (`runtime.caps` gains `stdio`, the route is
+  `GET /sandboxes/<name>/execs/<id>/stdio`); the Go SDK adds
+  `ExecRequest.Split`, `OutputQuery.Stream`, `ExecInfo.Split`/`ErrTotal`,
+  `xbin.ExecStdio`, `Sandbox.RelayStdio`/`DialStdio`, `xbin.StdioFrame`,
+  and for consumers `xbin.DialManagerStdio`/`ManagerStdioURL`. The
+  `coding-sandbox` template offers it on an xbind that has it (a backend
+  added to a copy serves it by implementing the optional `StdioBox`; one
+  that doesn't keeps building and isn't offered it), `hack/fakesandbox`
+  always. The conformance suite gains a `stdio` section (skipped for a
+  manager without the capability; `caps/missing` checks the refusals) and
+  knows `stdio` among hello's caps. Nothing to change.
+
 ## 2026-09-29
 
 - **Consumer backends open and relay terminals in a manager's sandboxes**

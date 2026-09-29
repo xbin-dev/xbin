@@ -5,7 +5,8 @@
 // sizes, egress words, quotas. A Backend does only what is specific to the
 // substrate, at the level of xbind's tile-sandbox runtime
 // (docs/protocol.md §Tile sandboxes): sandboxes by NAME, their lifecycle,
-// commands, files, trees, terminals and snapshots.
+// commands, files, trees, terminals and snapshots — and, optionally
+// (StdioBox), stdio sockets.
 //
 // The shapes are the Go SDK's (sdk/sandbox*.go) on purpose: the `xbin`
 // backend is *xbin.Sandboxes itself (Fleet) and *xbin.Sandbox (Box), all but
@@ -92,6 +93,21 @@ type Box interface {
 	Snapshot(ctx context.Context, name, clientID string) (*xbin.Snapshot, error)
 	RestoreSnapshot(ctx context.Context, id string) (*xbin.SandboxInfo, error)
 	DeleteSnapshot(ctx context.Context, id string) error
+}
+
+// StdioBox is a Box that also serves the contract's optional `stdio`
+// capability (docs/sandbox-manager.md §stdio): an exec started with
+// ExecRequest.Split keeps its stderr apart (Output with Stream "stderr",
+// ExecInfo.ErrTotal), and RelayStdio serves the consumer's stdio WebSocket
+// for a non-tty exec (r, already checked by the manager) from stdout offset
+// since and stderr offset errSince — refusals before the upgrade, in the
+// contract's error shape. *xbin.Sandbox has it. It is optional: the manager
+// offers `stdio` only when the backend's Runtime lists it and its Box has
+// this method, so a backend written before it keeps building and working
+// (its consumers read execs by offset instead).
+type StdioBox interface {
+	Box
+	RelayStdio(w http.ResponseWriter, r *http.Request, execID string, since, errSince int64)
 }
 
 // Backend is a substrate: its fleet and each of its sandboxes.

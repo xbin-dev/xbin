@@ -256,7 +256,7 @@ func TestRuntime(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &rt); err != nil {
 		t.Fatal(err)
 	}
-	if !rt.Enabled || !rt.Isolation || rt.Users != "root" || strings.Join(rt.Caps, ",") != "exec,tty,files,tar,snapshots,clone,ports" ||
+	if !rt.Enabled || !rt.Isolation || rt.Users != "root" || strings.Join(rt.Caps, ",") != "exec,tty,stdio,files,tar,snapshots,clone,ports" ||
 		rt.Limits.Sandboxes != 32 || rt.Limits.Running != 4 || rt.Limits.PerSandbox.MaxMemMiB != 8192 ||
 		rt.Limits.OutputRing != 1<<20 || rt.Limits.WaitMaxSec != 120 || rt.Used.Sandboxes != 1 {
 		t.Fatalf("runtime %+v", rt)
