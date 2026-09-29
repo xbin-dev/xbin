@@ -1,8 +1,11 @@
 # S3 Archiver — API
 
 An `archive` interface provider (see `docs/overview/14-lifecycle.md`). xbind, acting as the
-owner, streams component backup tars here; this tile stores them in S3 as
-`<prefix>/<key>/<version>.tar` and serves them back. Bind a component's
+owner, streams component backup archives here; this tile stores them in S3 as
+`<prefix>/<key>/<version>.tar` and serves them back. In a workspace with a
+vault, every archive is **sealed** by xbind (`XBINSEAL`, a cleartext header
+naming the backup key's id, then AES-256-GCM): this tile sees the key's
+opaque id, sizes and times, never plaintext or key material. Bind a component's
 `@archive` to it, or make it the workspace default:
 
     bx bind '*' @archive=apps/s3-archiver
@@ -20,11 +23,19 @@ owner must bind (it has zero egress under isolation until then):
 
 | Method | Path | Body / Query | Returns |
 |--------|------|--------------|---------|
-| PUT | `/archive/{key}` | tar stream | `{version, size}` |
+| PUT | `/archive/{key}` | archive stream; `X-XBin-Backup-Subkey: bk-…` when sealed | `{version, size}` |
 | GET | `/archive/{key}/versions` | — | `{versions: [{version, time, size}]}` |
-| GET | `/archive/{key}/versions/{v}` | `v` or `latest` | the tar stream |
-| GET | `/archive/{key}/versions/{v}/file` | `?path=` | one member's bytes |
+| GET | `/archive/{key}/versions/{v}` | `v` or `latest` | the archive stream |
+| GET | `/archive/{key}/versions/{v}/file` | `?path=` | one member's bytes (a plain tar); 422 `sealed archive: xbind extracts it` for a sealed one |
 | DELETE | `/archive/{key}/versions/{v}` | — | `{ok}` |
+| POST | `/archive/erase` | `{"subkeys": ["bk-…"]}` | `{deleted}` — every version sealed under those keys, across keys |
+
+A sealed PUT also writes an empty marker object,
+`<prefix>/.subkeys/<id>/<key>/<version>` (S3 listings carry only names, sizes
+and times), which `POST /archive/erase` follows when xbind erases a backup key
+(`bx backup erase`, a deleted partition): the data sealed under it is
+unreadable from then on, and this deletes the dead versions. New xbinds
+extract single files themselves; the `/file` route stays for older ones.
 
 ## Settings (this tile's own frontend)
 

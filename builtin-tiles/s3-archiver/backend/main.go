@@ -1,12 +1,15 @@
 // s3-archiver backend: an `archive` interface provider (docs/overview/14-lifecycle.md)
-// that stores xbind's component backup tars in an S3 bucket. xbind (the owner)
-// PUTs a tar per version; this tile lists versions, streams a version back, or
-// extracts one file from a version. Config (endpoint/region/bucket/prefix) lives
+// that stores xbind's component backup archives in an S3 bucket. xbind (the owner)
+// PUTs an archive per version — sealed (XBINSEAL…) in a workspace with a vault,
+// a plain tar without one; this tile lists versions, streams a version back,
+// extracts one file from a plain tar, and deletes every version sealed under
+// an erased backup key (erase.go). Config (endpoint/region/bucket/prefix) lives
 // in this tile's kv; the S3 credentials live in its vault.
 package main
 
 import (
 	"archive/tar"
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -40,7 +43,8 @@ func loadConfig() config {
 	return c
 }
 
-func client() (*S3, config, error) {
+// client is the bucket and its config (a variable: tests stand a fake S3 in).
+var client = func() (*S3, config, error) {
 	c := loadConfig()
 	ak, _ := xbin.Secret("accessKey")
 	sk, _ := xbin.Secret("secretKey")
@@ -90,6 +94,14 @@ func putArchive(w http.ResponseWriter, r *http.Request) {
 	if err := s3.Put(objKey(cfg.Prefix, key, version), tmp, n); err != nil {
 		fail(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	// A sealed archive names its backup key: the marker lets an erase find
+	// every version sealed under it (S3 listings carry names only).
+	if id := r.Header.Get(headerSubkey); subkeyID.MatchString(id) {
+		if err := s3.Put(markerKey(cfg.Prefix, id, key, version), strings.NewReader(""), 0); err != nil {
+			fail(w, http.StatusBadGateway, "stored, but its backup key's marker wasn't: "+err.Error())
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"version": version, "size": n})
@@ -195,7 +207,12 @@ func getFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	tr := tar.NewReader(resp.Body)
+	body := bufio.NewReader(resp.Body)
+	if head, _ := body.Peek(len(sealMagic)); string(head) == sealMagic {
+		fail(w, http.StatusUnprocessableEntity, "sealed archive: xbind extracts it")
+		return
+	}
+	tr := tar.NewReader(body)
 	for {
 		h, err := tr.Next()
 		if err != nil {
@@ -273,6 +290,7 @@ func main() {
 	m.HandleFunc("GET /archive/{key}/versions/{v}", getVersion)
 	m.HandleFunc("GET /archive/{key}/versions/{v}/file", getFile)
 	m.HandleFunc("DELETE /archive/{key}/versions/{v}", deleteVersion)
+	m.HandleFunc("POST /archive/erase", eraseSubkeys) // optional: every version sealed under erased keys
 	// This tile's own settings panel.
 	m.HandleFunc("GET /config", getConfig)
 	m.HandleFunc("PUT /config", putConfig)
