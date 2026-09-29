@@ -308,8 +308,8 @@ admin console's workspace → policies tab, both off by default:
 their data) and `credential-reset-confirm` (a sign-in link, password or SSO
 email an admin sets for someone who holds partitions works only after they
 confirm, or 24 h after they're notified). `bx policies` prints them (`--json`:
-the `GET /api/xbin/workspace-policies` answer; a person's session or
-terminal, or an admin); `bx policies set <switch> on|off` changes one (admin,
+the `GET /api/xbin/workspace-policies` answer; a person's session, or a
+terminal or agent session they drive, or an admin); `bx policies set <switch> on|off` changes one (admin,
 `PUT`). Neither changes anything for tiles that aren't partitioned.
 
 **`bx fix assets`** — the codemod for strict tile asset gating

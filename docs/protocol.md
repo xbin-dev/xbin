@@ -951,6 +951,8 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system}]} — disk quota / low
                                    disk / cgroup at-limit; system alerts to all,
                                    tile alerts to admins + that tile's users.
+                                   An unreadable data/workspace-policies.json
+                                   is kind `policies`, admins only.
                                    An alert about a deployment's data beyond
                                    the primary's main carries deployment (the
                                    data's deployment; tile is then the data's
@@ -1754,8 +1756,9 @@ PUT    /native-runtime            admin. {enabled: bool} → the same view.
                                    answers 410 with the reason (&preview=1
                                    still served). Kept in users.json;
                                    publishes `native`; audited
-GET    /workspace-policies        a person (session, device, terminal or
-                                   agent session) or admin; other tile
+GET    /workspace-policies        a person (session, device, or a
+                                   terminal or agent session they drive,
+                                   any deployment) or admin; other tile
                                    principals (frames, instances, cron, bus)
                                    403.
                                    {schema: 1, partitionConsent,
@@ -1771,13 +1774,23 @@ GET    /workspace-policies        a person (session, device, terminal or
                                    are notified. Kept in
                                    data/workspace-policies.json (not
                                    users.json, which an older xbind rewrites
-                                   without keys it doesn't know)
+                                   without keys it doesn't know), each
+                                   switch by its exact key. A file xbind
+                                   can't read (not a JSON object, a value
+                                   not true or false, a mis-cased key) never
+                                   turns a switch off: one it can't read
+                                   keeps the last value xbind read, or is
+                                   on; GET answers 500 (admins get the
+                                   reason) and admins see a `policies`
+                                   alert until the file is fixed by hand
 PUT    /workspace-policies        admin. {partitionConsent?,
                                    credentialResetConfirm?}: each present key
                                    replaces that switch, an absent one is
                                    left alone (at least one; any other key is
-                                   400) → the full view; publishes
-                                   `policies`; audited
+                                   400) → the full view; keeps every other
+                                   key of the file; 500 without writing on a
+                                   file it can't read; publishes `policies`;
+                                   audited with each switch's old→new
 GET    /chrome                    admin. {tiles: [{path, requested,
                                    approved, shipped?, chrome, missing?}]} —
                                    every component whose xbin.json says
@@ -3445,8 +3458,8 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   its impact report, access, users, orgs, sets, policy, defaults, screen
   writes, and every admin API (backups, the vault barrier, vaults,
   resources, auth-overview, backends, runtime, ingress, gpus, the VM policy,
-  token rotation, view-as, the native-runtime, chrome and branding writes,
-  the workspace policies, push config and devices). Deciding a PR (`POST /code/pr/state`) is
+  token rotation, view-as, the native-runtime, chrome, branding and
+  workspace-policies writes, push config and devices). Deciding a PR (`POST /code/pr/state`) is
   primary-only for backends: 403 `deciding a PR is the primary's act: a
   non-primary deployment's backend can't do it (<deployment>)`.
 - **Audit.** A tile credential acting in a deployment other than `main`

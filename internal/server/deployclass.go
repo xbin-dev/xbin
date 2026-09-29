@@ -308,7 +308,6 @@ var routeClasses = map[string]RouteClass{
 	"PUT /native-runtime":                    PrimaryOnly,
 	"PUT /chrome":                            PrimaryOnly,
 	"PUT /branding":                          PrimaryOnly,
-	"GET /workspace-policies":                PrimaryOnly, // people and admins only; tile code gets 403 (PD-55)
 	"PUT /workspace-policies":                PrimaryOnly,
 	"GET /push/config":                       PrimaryOnly,
 	"PUT /push/config":                       PrimaryOnly,
@@ -330,6 +329,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /native-runtime":       Neutral,
 	"GET /chrome":               Neutral,
 	"GET /branding":             Neutral,
+	"GET /workspace-policies":   Neutral, // people and admins; the handler refuses tile code (PD-55)
 
 	// ---- a person's own sign-in, account, devices and sessions ----
 	"POST /login":                     Neutral,
