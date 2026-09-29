@@ -12,6 +12,163 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-29
 
+- **Partitioned tiles, step two: who acts in which partition**
+  ([partitions.md](/docs/partitions.md) §Who reaches which partition,
+  [protocol.md](/docs/protocol.md) §Authentication, §/ws/events, §Backend
+  contract). On a tile whose recorded mode has user partitions, xbind decides
+  the partition every credential acts in: a person — their session, and the
+  tile's frames, terminals, agent sessions and path tickets they open — their
+  own `user:<id>` while they exist, are enabled and can read the tile (an
+  admin too, never someone else's); the owner token `global`, or nothing
+  without a global instance (`403 sign in as a person: …`); view-as nothing
+  (`403 <tile> keeps <user>'s data private: view-as can't open it`); a
+  backend the partition it was started for; cron and bus deliveries their
+  registration's; another partitioned tile its person's partition when the
+  grant allows and the person can read the callee (with the
+  `partitionConsent` policy on, and consented); everything else the global
+  instance, or `403 <tile> is partitioned: …`. Callees learn it through
+  `X-XBin-Partition` (`user:<id>` | `global`) and `X-XBin-Partition-Id` (an
+  opaque id, user partitions only), set by xbind and stripped inbound like
+  every `X-XBin-*` header; a partitioned tile's documents carry
+  `<meta name="xbin-partition">` (`xbin.partition`; `global` in a
+  non-primary deployment's document); a user partition's instance token
+  answers 401 the moment its partition is no longer covered. A user
+  partition's credentials are default-deny on `/api/xbin/*` (a second class
+  table beside the deployments one; its instance token is refused `/prefs`,
+  which keep a person's own bucket), person-only routes take a person's own
+  credential only, and `/ws/events` delivers a partition's events
+  (`"partition":"user:<id>"`) only to that person and the partition's own
+  credentials — admins get no blanket pass for them, nor for a partitioned
+  tile's `term` and `session` events. Public ingress reaches a partitioned
+  tile's global instance only (503 without one). Partitioned tiles are
+  still in development: a person's partition runs only under
+  `xbind --isolate` (without it, a call reaching one answers 503 saying
+  so). Nothing changes for a workspace without a
+  partitioned tile — no header, meta, field, class or answer differs.
+  Nothing to change.
+- **Partitioned tiles: people's instances in the runner, and their limits
+  — in development** ([partitions.md](/docs/partitions.md) §How people's
+  partitions run, [protocol.md](/docs/protocol.md),
+  [elements.md](/docs/elements.md) backend env). xbind can now run one
+  backend per person of a partitioned tile beside its global instance:
+  started on the person's first use and never at boot, stopped 10 minutes
+  after its last use (an open event stream doesn't count), only on the
+  tile's primary and only with `--isolate`, each with its own socket, token,
+  log, cgroup and data, `XBIN_PARTITION=user:<id>`, and a non-primary
+  deployment's network (relayed egress under the tile's policy; no host
+  network, provider splice, ingress or stream-slot dials). The global
+  instance is today's process at today's keys with `XBIN_PARTITION=global`;
+  `alwaysOn` keeps it alone up, and a `["user"]` tile never runs it. A code
+  change — a save, a deploy or a restart of the primary — builds once and
+  restarts people's running instances onto that build; a person's start
+  that fails for them alone is tried again on their next request. People's
+  instances are capped per tile and workspace from host memory, or xbind's
+  own cgroup memory limit when that is lower (503 `too many people's
+  instances of <tile> are running; try again shortly` past the cap when
+  nothing idle can be stopped); the new admin route `POST
+  /api/xbin/partitions/limits {tile?, maxRunning?, partitionBytes?}` sets
+  the caps and a tile's per-person byte ceiling, and a tile manager may
+  lower their own tile's. `/api/xbin/sandboxes` rows of a person's instance
+  carry `partition`; a person's instance hitting its memory or pids limit
+  alerts admins only, naming the tile, never the person. People's
+  partitions start on first use under `xbind --isolate`; a tile without
+  `partition` is unchanged, byte for byte.
+- **Partitioned tiles: each person's data** ([resources.md](/docs/resources.md)
+  §Partitioned tiles, [partitions.md](/docs/partitions.md) §Shared resources,
+  [protocol.md](/docs/protocol.md) kv/blob/bus and `/runtime`). In a
+  partitioned tile's scope every resource that isn't `"shared"` is kept per
+  person: each person's partition has its own kv file and volumes under
+  `data/resources-enc/.partitions/`, reached at the same `XBIN_RES_*` paths
+  and `res:` ids, while the global instance and every shared resource keep
+  today's keys. An event on a partitioned scope's own bus carries
+  `partition` (the publisher's, `global` included) and reaches only that
+  partition's subscribers; a shared bus's reaches every reader. A
+  `"shared": "read"` resource is mounted read-only in people's partitions
+  and their kv, blob and bus writes answer 403 `res:<scope>/<name> is
+  read-only for people's partitions`. A person's partition of another
+  partitioned tile holding a grant reaches the same person's data only if
+  they can read the tile (and, with the `partitionConsent` policy on,
+  allowed it); other tiles reach the global instance's, or nothing when
+  the tile has none. Each partition has its own disk ceiling (507 for that
+  person only, the alert to admins only), and is deleted 30 days after its
+  tile is removed or its person's id is given to someone new. A paused
+  partitioned tile's data, or one whose mode record can't be read, answers
+  409. `/runtime`'s resource rows gain `partition` on people's partitions'
+  rows. Nothing changes for a tile without `"partition"`. Nothing to
+  change.
+- **Partitioned tiles: deciding a mode switch**
+  ([partitions.md](/docs/partitions.md) §The mode, [bx.md](/docs/bx.md),
+  [protocol.md](/docs/protocol.md), [tile-deployments.md](/docs/tile-deployments.md)).
+  A tile that holds data whose code asks for another `partition` pauses
+  until a tile manager decides, and now the decision can be made: `bx
+  partition keep <tile>` keeps the current mode (it runs again at once,
+  nothing is deleted), and `bx partition switch <tile>` shows what a switch
+  deletes and keeps, asks for the tile's path, deletes the tile's data —
+  every data namespace (the tile's own and every deployment's), vault file,
+  cron job, bus subscription, interface instance and ingress host — erases
+  its data's backup keys, and takes the mode the code asks for (adding
+  `"global"` to a partitioned tile deletes nothing; removing it deletes only
+  the global instance's data). Both call the new `POST
+  /api/xbin/partitions/mode {tile, act: "keep"|"switch", from, to,
+  confirm?, yes?, dryRun?}` — a tile manager (the tile's owner, an admin of
+  its owning org, a workspace admin) in their own session, never a tile's
+  credential. While a switch is pending, the tile's frame (and its
+  primary's deployment URL) shows xbind's own page (409) with the switch,
+  what it deletes ("all data in this tile will be deleted" between user
+  partitions and unpartitioned), the tile's `partitionNote` as text and who
+  decides; a script's fetch of the tile's HTML and a token's read still get
+  the file. `GET /api/xbin/alerts` carries kind `partition-switch` for
+  admins and the tile's readers, which the shell shows as its top banner,
+  and kind `partition-invalid` for a tile whose `partition` can't run; the
+  tile's managers get a push (`tile.partition-switch`, at most one per tile
+  every 15 minutes), and after a switch each person whose partition was
+  deleted gets one (`tile.partition-deleted`). A switch writes a
+  `partition-switch` entry in the deploy log of a tile with deployments, and
+  the dry run of a deploy, roll back or promote onto the primary of code
+  asking for another mode warns (`impact.partition`, shown by `bx deploy`).
+  A switch to user partitions needs `--isolate`. Tiles that never ask for
+  `partition` are unchanged. Nothing to change.
+- **Partitioned tiles: templates and builtin updates never switch a
+  partition mode** ([partitions.md](/docs/partitions.md) §The mode,
+  [protocol.md](/docs/protocol.md) `/templates`, `/templates/new`,
+  `/builtins/update`, [bx.md](/docs/bx.md), [elements.md](/docs/elements.md)
+  §Manifest). A template's `"template": {"partition": [...]}` is the mode
+  its **new** instances start in: instantiating writes it as the copy's own
+  top-level `partition`, and the fresh instance's mode is recorded at once,
+  naming who created it. Opt out per instance with the Tile Manager's new
+  **Keep each person's data apart** box on the template card, `bx template
+  new <source> --no-partition`, or `"partition": false` in `POST
+  /api/xbin/templates/new`; without `xbind --isolate` the default isn't
+  written (the box is off, "needs --isolate"). `GET /templates` items gain
+  `partition` and `partitionSkipped`, and the instantiation's answer
+  `partition` or `partitionSkipped` — all absent for templates that name no
+  mode. `bx builtin update` never adds, removes or changes a manifest's
+  `partition` (in any key case): **replace** writes the installed value
+  where the installed file has it (read from your side of conflict markers
+  an earlier merge left; for a file that doesn't parse, the mode xbind last
+  read from the tile; when even that is unknown the manifest is left alone
+  and the update stays offered), and **merge** and **PR proposals** undo
+  upstream's own change to the key, so your line merges untouched. `POST
+  /builtins/update` answers `notes` where upstream asks otherwise
+  (`partition kept as installed (…; upstream asks …): edit it deliberately
+  to request a switch`), `bx` prints them and the Tile Manager's Updates tab
+  shows them; a PR proposal whose only change would be the partition
+  answers `{files: [], notes}` and records the version. No shipped template
+  or builtin names a mode yet, so nothing changes today. Existing
+  workspaces get the template-card box and the notes line with `bx builtin
+  update scaffold:tiles/manager` (the API and `bx` work without it).
+  Nothing to change.
+- **Partitioned tiles: the global bus, idle volumes, leftovers of a removed
+  tile** ([protocol.md](/docs/protocol.md) §/ws/events,
+  [resources.md](/docs/resources.md), [auth.md](/docs/auth.md) §Creating
+  tiles). A `bus` event the global instance publishes on a partitioned
+  scope's own bus carries `"partition":"global"` and reaches only
+  subscribers acting in the global instance. A person's partition volumes
+  unmount after an hour unused while none of that person's instances runs.
+  A removed partitioned tile's mode record and its people's data are
+  leftovers of its path, so only its owner (or an admin) creates a tile
+  there again (`POST /create`). Nothing changes for a workspace without a
+  partitioned tile.
 - **Partitioned tiles, step one: the manifest's `partition` and the
   recorded mode** ([elements.md](elements.md) §Manifest,
   [resources.md](resources.md) §Partitioned tiles,
