@@ -88,7 +88,7 @@ export function opScreen(s) {
     <section title="Who may use it" footer="Only its home consumer, or its owner there, changes this.">
       <row title="Here" detail=${r.visibility === 'team' ? 'everyone its consumer serves' : 'its owner and members'}/>
       ${r.members.length ? html`<row title="Members" detail=${r.members.join(', ')}/>` : nothing}
-      ${r.shares.length ? repeat(r.shares, (x) => x.consumer, (x) => html`<row title=${x.consumer} subtitle=${F.usersText(x.users)} mono="title"/>`)
+      ${r.shares.length ? repeat(r.shares, (x) => x.consumer + '/' + (x.partitionId || ''), (x) => html`<row title=${F.consumerText(x.consumer, x.partitionId)} subtitle=${F.usersText(x.users)} mono="title"/>`)
         : html`<row title="no other consumer" tone="muted"/>`}
     </section>
   </screen>`;
@@ -103,8 +103,8 @@ export function sharesSection(shares, save, key, f) {
     act('share', () => save(r.shares).then(() => { ui.forms[key] = null; }), `shared with ${g.consumer.trim()}`);
   };
   return html`<section title="Shared with" footer="A consumer tile you share it with lists it among its own; with named people, only they use it there.">
-    ${shares.length ? repeat(shares, (x) => x.consumer, (x) => html`<row title=${x.consumer} subtitle=${F.usersText(x.users)} mono="title">
-      <actions><button icon="xmark" role="destructive" @tap=${() => act('unshare', () => save(O.unshare(shares, x.consumer)), `no longer shared with ${x.consumer}`)}>Stop sharing</button></actions></row>`)
+    ${shares.length ? repeat(shares, (x) => x.consumer + '/' + (x.partitionId || ''), (x) => html`<row title=${F.consumerText(x.consumer, x.partitionId)} subtitle=${F.usersText(x.users)} mono="title">
+      <actions><button icon="xmark" role="destructive" @tap=${() => act('unshare', () => save(O.unshare(shares, x.consumer, x.partitionId)), `no longer shared with ${F.consumerText(x.consumer, x.partitionId)}`)}>Stop sharing</button></actions></row>`)
       : html`<row title="no other consumer" tone="muted"/>`}
     <field label="Consumer" placeholder="apps/sandbox-terminal" value=${f.consumer} @input=${set(key, 'consumer')}/>
     <field label="People" placeholder="* (everyone it serves) or alice, bob" value=${f.users} @input=${set(key, 'users')}/>
