@@ -475,6 +475,18 @@ Only the **wrapped** DEK and the KDF salt sit on disk (`data/vault/.barrier.json
 without the passphrase they yield nothing. So a stolen workspace dir, backup,
 or disk snapshot is just ciphertext.
 
+**Backups** are sealed under the same hierarchy: the DEK wraps a random
+**backup key** per subject (a tile's source, a namespace's data) in
+`data/vault/.backup-keys/`, and each archive is AES-256-GCM-sealed under a
+key derived from one — archivers see only the key's opaque id. Deleting a
+backup key crypto-erases that data in every archive (`bx backup erase`).
+The keys never leave the workspace except in an exported **key bundle**
+(`bx backup keys export`: the barrier descriptor plus the wrapped keys),
+which opens nothing without the passphrase and which a new machine needs to
+restore sealed backups (`bx backup keys import`, prompting for the old
+passphrase; the new vault keeps its own). See
+[14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives.
+
 **Seal / unseal**, like Vault:
 
 - Sealed → the DEK isn't in memory; vault reads/writes return `503 sealed`.

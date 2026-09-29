@@ -150,16 +150,89 @@ backup runs is left out too, never read through. A tile whose own directory
 has turned into a symlink (a nested tile its parent replaced) fails the
 backup instead of archiving wherever the link points.
 
-Two honesty notes. **Backups are plaintext tars**: xbind reads resources
-through the decrypted view and re-encrypts on restore, so backing up (and
-restoring) **requires the vault to be unsealed** when encrypted resources
-are involved — encryption-at-rest is the *archiver's* responsibility, not
-the tar's (docs/resources.md §Encryption at rest). And **sqlite is copied as files** (the db
+Two honesty notes. **Backups need the vault unsealed**: xbind reads
+resources through the decrypted view and re-encrypts on restore, and it
+seals every archive itself (§Sealed archives below), which needs the
+vault's data key. And **sqlite is copied as files** (the db
 plus its `-wal`/`-shm` sidecars), not `VACUUM INTO`-checkpointed yet: the
 copy is guaranteed-consistent when the backend is stopped — which is what
 the disable-first offload gate above ensures — while a backup of a live,
 mid-write component is best-effort (the design record lists a checkpoint
 driver as a drop-in hardening).
+
+## Sealed archives
+
+In a workspace with a vault barrier, **every archive xbind writes is
+sealed** — main archives, data archives and deployment archives alike —
+and an archiver only ever holds ciphertext
+(plans/partitions/11-backup-encryption.md, PD-25/PD-56):
+
+```
+vault passphrase ─Argon2id→ KEK ─wraps→ data key (DEK)
+DEK ─wraps→ backup key       data/vault/.backup-keys/bk-<32 hex>.json
+backup key ─HKDF(salt of the archive)→ archive key ─AES-256-GCM→ the archive
+```
+
+- **One backup key per subject, one archive object per key.** A tile's
+  main archive (source, terminal layer, deployment records) is sealed under
+  its `tile:` key; a scope root's main data now goes to a **data archive**
+  of its own, `.data.<tile-key>`, under the namespace's `ns:` key, written
+  just before the main archive, whose manifest (schema 3) names it
+  (`data: {key, version, subkey}`); a deployment archive is sealed under its
+  namespace's `ns:` key. Keys are random, not derived, so deleting one
+  **crypto-erases** that data in every archive ever sealed under it.
+- **The format.** `XBINSEAL`, a 4-byte header length, a cleartext JSON
+  header (`{"v":1, "subkey":"bk-…", "salt", "chunk":65536, "kind":
+  "main|data|deployment|partition", "created"}`), then the same tar as
+  before, in 64 KiB chunks, each AES-256-GCM-sealed with its index and a
+  last-chunk flag in the nonce and the header bound to the first — so a
+  chunk changed, reordered, dropped or appended, or a header edited, fails
+  to open. A restore authenticates the whole archive before it writes
+  anything.
+- **What an archiver sees:** the object key (as before), the backup key's
+  opaque id (on the PUT, `X-XBin-Backup-Subkey`, which it may store to
+  delete by key), sizes, times and the cleartext header. Never plaintext,
+  never key material.
+- **Where keys live:** only in `data/vault/.backup-keys/`, wrapped under
+  the vault's data key — never in an archive, at an archiver, in an API
+  answer or in a sandbox. A key is unwrapped only for one backup or
+  restore. A **sealed vault stops every backup** (none can be sealed
+  without the data key); a scheduled run logs and skips.
+- **Plaintext archives still restore.** Every restore sniffs the magic: an
+  archive made before sealing — or by a workspace without a barrier
+  (`--insecure-vault`, `--no-auth`, which keep writing today's schema-1
+  tars, data inline) — restores exactly as it always did.
+
+**Erase.** `bx backup erase <tile> --data` deletes the tile's data keys
+(main's namespace and every deployment's); `--all` also its `tile:` key
+(`POST /api/xbin/backup/erase`, admin). Each key file is deleted (the
+directory fsynced) and **tombstoned** — metadata only — so a restore says
+why an archive is unreadable: `this backup's data was erased on <date>
+(<reason>)`. A main archive whose data key alone was erased restores its
+source and terminal layer, and says so (`dataErased`). The subject gets a
+new key at its next backup. xbind then asks the archiver to delete the
+dead versions (`POST /archive/erase`, below); one that can't keeps them,
+unreadable, until retention prunes them.
+
+**Disaster recovery.** The keys aren't in any archive, so a new machine
+needs them: `bx backup keys export > keys.xbk` (admin; or *export key
+bundle* on the admin console's Backup tab) writes the vault's barrier
+descriptor (the data key wrapped under the passphrase), every backup key
+(wrapped under the data key) and the tombstones — useless without the
+vault passphrase. On the new workspace, `bx backup keys import keys.xbk`
+asks for the *old* vault passphrase, unwraps the old data key in memory,
+re-wraps each backup key under the new vault, and takes the tombstones; it
+never adopts the old key or passphrase. An archive sealed by a workspace
+whose keys were never imported is refused: `this backup was sealed by
+another workspace: import its keys (bx backup keys import)`. Until the first
+export, admins see an alert (`/alerts` kind `backup-keys`: "N backup keys
+aren't in any export yet"), and `bx doctor` says so. A bundle exported
+before an erase still holds the erased key: **export again after erasing,
+and destroy older bundles.**
+
+**Downgrades.** An older xbind can't read a sealed archive (it finds no
+`backup.json` and refuses it, writing nothing); it writes plaintext
+archives of its own, which the newer one restores.
 
 ## The archiver is an interface (LC-3)
 
@@ -172,15 +245,22 @@ internally *as the owner* through the same proxy every element call uses
 principals).
 
 ```
-PUT    /archive/<key>                        tar stream in → {version, size}
-GET    /archive/<key>/versions               → {versions: [{version, time, size}]}  (newest first)
-GET    /archive/<key>/versions/<v>           tar stream out ("latest" accepted)
-GET    /archive/<key>/versions/<v>/file?path=…   one member's bytes
+PUT    /archive/<key>                        archive stream in → {version, size}
+                                             (sealed: X-XBin-Backup-Subkey: bk-…, which it MAY store)
+GET    /archive/<key>/versions               → {versions: [{version, time, size, subkey?}]}  (newest first)
+GET    /archive/<key>/versions/<v>           archive stream out ("latest" accepted)
+GET    /archive/<key>/versions/<v>/file?path=…   one member's bytes (older xbinds only; a
+                                             sealed archive can't be read: xbind extracts it)
 DELETE /archive/<key>/versions/<v>           prune (retention)
+POST   /archive/erase {"subkeys": ["bk-…"]}  OPTIONAL → {deleted}: every version sealed under
+                                             those keys, across keys; 404/405 = unsupported
 ```
 
-`<key>` is the component's stable hashed key. What the archiver does behind
-the contract — S3 objects, dedupe, compression — is its business.
+`<key>` is the component's stable hashed key (`.deployments.<tile-key>.<name>`
+and `.data.<tile-key>` for the other archives). What the archiver does behind
+the contract — S3 objects, dedupe, compression — is its business: it stores
+opaque bytes, so an older archiver keeps working with sealed archives, only
+without deleting by key.
 
 **Binding is the authorization.** The component being backed up declares
 nothing; the *owner* binds an archiver under the reserved pseudo-slot
@@ -192,13 +272,17 @@ bx bind apps/crm @archive=apps/other-arch    # per-component override
 ```
 
 Unbound means no backups, loudly, on the first attempt. That's deliberate:
-an archiver is a **privileged tap** — it receives a component's entire
-plaintext state — so pointing one at your data is an explicit owner
-decision, exactly like binding a `net` provider.
+an archiver is a **privileged tap** — it holds a component's entire state
+(sealed, in a workspace with a vault; in the clear without one) and decides
+what survives — so pointing one at your data is an explicit owner decision,
+exactly like binding a `net` provider.
 
 The worked example is the **s3-archiver builtin**: SigV4-signed, path-style,
 dependency-free S3 client (works against AWS, MinIO, R2, B2), storing
-`<prefix>/<key>/<version>.tar`. Its endpoint/region/bucket/prefix are
+`<prefix>/<key>/<version>.tar`, plus an empty marker
+`<prefix>/.subkeys/<id>/<key>/<version>` per sealed version, which its
+`POST /archive/erase` follows (`bx builtin update s3-archiver` brings it to
+an existing workspace). Its endpoint/region/bucket/prefix are
 configured on its own page; **credentials live in its vault**, never in a
 resource; and it declares a `net` interface the owner must bind
 (`net=internet` for a public bucket, a `lan:` or provider tile for a LAN
@@ -238,8 +322,9 @@ fully **archive-driven**: the tar's manifest says where everything goes.
   planted in the source, the terminal layer or a resource — is replaced by
   the real directory or file, never followed, and a tile directory reached
   through a symlink refuses the restore.
-- **Single file** (`file` set): the archiver streams one member back and
-  xbind hands you the bytes — a download for recovering a clobbered config
+- **Single file** (`file` set): xbind fetches the version, extracts the
+  member itself (from the data archive for a split archive's `data/…`) and
+  hands you the bytes — a download for recovering a clobbered config
   or database *without* rolling the whole component back. It does not write
   into the live tree; putting the file back where you want it is your move.
 
@@ -302,9 +387,10 @@ Two rules connect this system to the vault barrier
   lifecycle state: a sealed vault (kv values undecodable) or an unmounted
   encrypted file resource holds the backend rather than letting it run
   against missing or ciphertext data.
-- **Backups and restores refuse while sealed** — the tar is plaintext by
-  contract, so both directions need the decrypted view. Unseal first; the
-  error says exactly that.
+- **Backups and restores refuse while sealed** — both directions need the
+  decrypted view, and every archive is sealed under a backup key the vault's
+  data key wraps (§Sealed archives). Unseal first; the error says exactly
+  that.
 
 ## Getting code in
 
