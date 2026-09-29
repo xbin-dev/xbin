@@ -323,9 +323,7 @@ func (m *Manager) record(k, mount string, singleTenant bool, epoch uint64) error
 		}
 		return errUnmountedMeanwhile
 	}
-	if _, ok := m.mounts[k]; !ok {
-		m.used[k] = time.Now()
-	}
+	m.used[k] = time.Now() // every Ensure is a use: the idle clock restarts
 	m.mounts[k] = mount
 	m.modes[k] = singleTenant
 	return nil
@@ -418,17 +416,38 @@ func (m *Manager) Hold(scopeKey, name string) (release func()) {
 	}
 }
 
+// Touch restarts a mounted view's idle clock: a use that found it already
+// mounted (the broker's Ensure short-circuit). A no-op for a view this
+// Manager doesn't hold.
+func (m *Manager) Touch(scopeKey, name string) {
+	k := mkey(scopeKey, name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.mounts[k]; ok {
+		m.used[k] = time.Now()
+	}
+}
+
 // UnmountIdle unmounts every user partition's view (PartitionVolume) that
-// nobody holds and nobody held since before now-idle, and for which keep
+// nobody holds and nobody used since before now-idle, and for which keep
 // (nil: none) doesn't answer true — the broker's word that its partition's
-// instance runs. A view something still has open stays mounted (fusermount
-// refuses it) and is tried again at the next call. Other views stay mounted
-// until seal, as always. It answers the views it unmounted.
+// instance runs, which restarts its idle clock at now (so it runs from when
+// the instance stopped). A view something still has open stays mounted
+// (fusermount refuses it) and is tried again at the next call. Other views
+// stay mounted until seal, as always. It answers the views it unmounted.
 func (m *Manager) UnmountIdle(now time.Time, idle time.Duration, keep func(scopeKey, name string) bool) []Mount {
 	var out []Mount
 	for _, mt := range m.Mounts() {
 		k := mkey(mt.ScopeKey, mt.Name)
-		if !PartitionVolume(mt.ScopeKey) || keep != nil && keep(mt.ScopeKey, mt.Name) {
+		if !PartitionVolume(mt.ScopeKey) {
+			continue
+		}
+		if keep != nil && keep(mt.ScopeKey, mt.Name) {
+			m.mu.Lock()
+			if _, ok := m.mounts[k]; ok {
+				m.used[k] = now
+			}
+			m.mu.Unlock()
 			continue
 		}
 		unlock := m.lockKey(k)
@@ -532,6 +551,11 @@ func (m *Manager) run(pw string, args ...string) error {
 }
 
 // isMounted reports whether dir is a mount point (scans mountinfo).
+// IsMountPoint reports whether dir is itself a mount point (an encrypted
+// view is up there), not the bare directory under it: the runner's check
+// before it binds a user partition's volume into a sandbox.
+func IsMountPoint(dir string) bool { return isMounted(dir) }
+
 func isMounted(dir string) bool {
 	abs, err := filepath.Abs(dir)
 	if err != nil {

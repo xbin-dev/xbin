@@ -122,7 +122,25 @@ func TestPartitionVolumeIdleUnmount(t *testing.T) {
 	if got := m.UnmountIdle(time.Now().Add(2*time.Hour), time.Hour, keep); len(got) != 0 {
 		t.Fatalf("unmounted what keep claims: %+v", got)
 	}
-	got := m.UnmountIdle(time.Now().Add(2*time.Hour), time.Hour, nil)
+	// keep restarted its clock: idle only an hour after the instance stopped.
+	if got := m.UnmountIdle(time.Now().Add(150*time.Minute), time.Hour, nil); len(got) != 0 {
+		t.Fatalf("unmounted within an hour of its instance's stop: %+v", got)
+	}
+	// Every Ensure is a use, a mounted view's too (and Touch, the broker's
+	// short-circuit): the clock restarts.
+	m.used[mkey(partKey, "db")] = time.Now().Add(-3 * time.Hour)
+	if _, err := m.Ensure(partKey+"/db", partKey, "db", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.UnmountIdle(time.Now().Add(30*time.Minute), time.Hour, nil); len(got) != 0 {
+		t.Fatalf("unmounted right after an Ensure: %+v", got)
+	}
+	m.used[mkey(partKey, "db")] = time.Now().Add(-3 * time.Hour)
+	m.Touch(partKey, "db")
+	if got := m.UnmountIdle(time.Now().Add(30*time.Minute), time.Hour, nil); len(got) != 0 {
+		t.Fatalf("unmounted right after a Touch: %+v", got)
+	}
+	got := m.UnmountIdle(time.Now().Add(4*time.Hour), time.Hour, nil)
 	if len(got) != 1 || got[0].ScopeKey != partKey {
 		t.Fatalf("idle unmount: %+v (mounted before: %s)", got, all)
 	}

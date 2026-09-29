@@ -99,7 +99,8 @@ type sharedLookup func(canon string) (mode registry.SharedMode, ok bool)
 // path (Src == the path, and nowhere else), and only when shared — the
 // runner's own reading of the registry (sharedResources), never the env or
 // the broker's word alone — says the resource is shared; a "read" resource
-// is bound read-only whatever the entry says (06-security C7).
+// is bound read-only whatever the entry says (06-security C7). Every source
+// under .xbin/resenc must be a mounted view, never its bare mountpoint.
 func partitionBindsFor(env []string, root, who string, remap map[string]ResBind, shared sharedLookup) ([]sandbox.Bind, error) {
 	if remap == nil {
 		return nil, fmt.Errorf("%s has no data namespace: refused", who)
@@ -152,7 +153,7 @@ func remapBinds(env []string, root, who string, remap map[string]ResBind, shared
 		case mainData(root, src) || within(src, d) || within(d, src):
 			return nil, fmt.Errorf("%s's resource %s would bind main's data (%s): refused", who, k, src)
 		}
-		if fi, err := os.Lstat(src); err != nil || !fi.IsDir() {
+		if fi, err := os.Lstat(src); err != nil || !fi.IsDir() || shared != nil && !viewUp(root, src) {
 			return nil, fmt.Errorf("%s's resource %s: its data namespace %s isn't mounted", who, k, src)
 		}
 		ro := rb.RO
@@ -171,7 +172,7 @@ func remapBinds(env []string, root, who string, remap map[string]ResBind, shared
 // mounted. A "read" resource is read-only.
 func sharedBind(k, who, d, src string, rb ResBind, shared sharedLookup) (sandbox.Bind, error) {
 	if shared == nil {
-		return sandbox.Bind{}, fmt.Errorf("%s's resource %s: a shared bind is a user partition's only: refused", who, k)
+		return sandbox.Bind{}, fmt.Errorf("%s's resource %s: a shared bind is a user partition's only (its binds come from partitionBindsFor, never resourceBindsFor): refused", who, k)
 	}
 	if !filepath.IsAbs(rb.Src) || src != d {
 		return sandbox.Bind{}, fmt.Errorf("%s's resource %s: a shared resource binds at its own path %s, not %s: refused", who, k, d, rb.Src)
@@ -180,10 +181,24 @@ func sharedBind(k, who, d, src string, rb ResBind, shared sharedLookup) (sandbox
 	if !ok {
 		return sandbox.Bind{}, fmt.Errorf("%s's resource %s isn't shared in its scope.json: refused", who, k)
 	}
-	if fi, err := os.Lstat(d); err != nil || !fi.IsDir() {
+	if fi, err := os.Lstat(d); err != nil || !fi.IsDir() || !mountPoint(d) {
 		return sandbox.Bind{}, fmt.Errorf("%s's shared resource %s isn't mounted", who, k)
 	}
 	return sandbox.Bind{Src: d, Dst: d, RO: rb.RO || mode == registry.SharedRead}, nil
+}
+
+// mountPoint reports whether dir is a mount point: resenc's mountinfo
+// check. The unit tests, which have no FUSE, stand a fake in.
+var mountPoint = resenc.IsMountPoint
+
+// viewUp reports, for a user partition's bind source src, that an encrypted
+// view under root's .xbin/resenc is mounted there, not its bare mountpoint:
+// between the broker's mount and this start the view may have been
+// unmounted (a seal, the idle unmount), and binding the bare directory would
+// let the instance write plaintext a later mount then hides. A source
+// elsewhere is judged by remapBinds' other rules.
+func viewUp(root, src string) bool {
+	return !within(src, filepath.Join(root, ".xbin", "resenc")) || mountPoint(src)
 }
 
 // sharedResources is the runner's own reading of which file resources of

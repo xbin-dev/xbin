@@ -55,7 +55,27 @@ func partBindsWS(t *testing.T, partitioned bool) (*Runner, *registry.Component, 
 			t.Fatal(err)
 		}
 	}
+	for _, d := range dirs {
+		setMounted(t, d, true)
+	}
 	return &Runner{Root: root, Reg: reg, states: map[string]*state{}}, c, dirs
+}
+
+// fakeViews stands in for FUSE while a test runs: a directory it marks up
+// is a mounted view, anything else a bare mountpoint.
+var fakeViews map[string]bool
+
+// setMounted marks dir a mounted view (up) or a bare mountpoint for the
+// rest of the test.
+func setMounted(t *testing.T, dir string, up bool) {
+	t.Helper()
+	if fakeViews == nil {
+		fakeViews = map[string]bool{}
+		prev := mountPoint
+		mountPoint = func(dir string) bool { return fakeViews[filepath.Clean(dir)] }
+		t.Cleanup(func() { mountPoint, fakeViews = prev, nil })
+	}
+	fakeViews[filepath.Clean(dir)] = up
 }
 
 // covers PD-45 C7 S8 — TestSharedBindNeedsRegistryShared (plans/partitions/03
@@ -134,6 +154,18 @@ func TestSharedBindNeedsRegistryShared(t *testing.T) {
 	// A deployment's remap never takes a Shared entry.
 	if _, err := resourceBindsFor(env, r.Root, "dev", good); err == nil || !strings.Contains(err.Error(), "user partition's only") {
 		t.Errorf("a deployment's Shared entry: %v", err)
+	}
+
+	// A bare mountpoint — the view unmounted between the broker's mount and
+	// the start — is never bound: the instance would write plaintext there.
+	setMounted(t, d["files@part"], false)
+	refused("a partition's volume not mounted", good, shared, "isn't mounted")
+	setMounted(t, d["files@part"], true)
+	setMounted(t, d["team"], false)
+	refused("a shared volume not mounted", good, shared, "isn't mounted")
+	setMounted(t, d["team"], true)
+	if _, err := partitionBindsFor(env, r.Root, "apps/docs:user:alice", good, shared); err != nil {
+		t.Errorf("mounted again: %v", err)
 	}
 
 	// The main-data guard: .partitions is not main's.
