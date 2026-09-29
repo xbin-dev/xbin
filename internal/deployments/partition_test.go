@@ -38,6 +38,13 @@ func TestPrimaryRefusedWhenPartitioned(t *testing.T) {
 	}
 	_, err := f.do(ownerP, OpPrimary, &PrimaryRequest{Tile: opSite, Deployment: "dev", Confirm: ConfirmDataStays, Seq: ptr(r0.Seq)})
 	wantErr(t, "reassigning a pending partitioned tile's primary", err, http.StatusConflict, want)
+	// A record xbind can't read: R is unknown, so it may be partitioned.
+	recorded = registry.PartitionMode{State: registry.PartitionInvalid, Unknown: true}
+	if err := f.p.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.do(ownerP, OpPrimary, &PrimaryRequest{Tile: opSite, Deployment: "dev", Confirm: ConfirmDataStays, Seq: ptr(r0.Seq)})
+	wantErr(t, "reassigning the primary of a tile whose mode record can't be read", err, http.StatusConflict, want)
 	if f.rec(opSite).Primary != "main" {
 		t.Fatal("a refused reassignment moved the primary")
 	}

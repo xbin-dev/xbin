@@ -20,8 +20,8 @@ func partitionedPrimary(c *registry.Component, primary string) error {
 	if c == nil {
 		return nil
 	}
-	if _, r, _ := c.PartitionState(); !r.User {
-		return nil
+	if _, r, _ := c.PartitionState(); !r.User && !c.PartitionRecordUnknown() {
+		return nil // a record that can't be read may be partitioned: refused too
 	}
 	return &Error{Status: http.StatusConflict, Kind: KindPolicy, Msg: c.Path + " is partitioned: switching the primary would leave every person's data with " +
 		primary + ": promote instead"}

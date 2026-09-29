@@ -260,6 +260,7 @@ func (b *Broker) UnsealOrInit(passphrase string) error {
 			return err
 		}
 		b.MountEncrypted()
+		b.resettleAfterUnseal() // a tile a sealed vault paused (partitionmode.go)
 		b.wakeBackends()
 		return nil
 	}
@@ -268,6 +269,7 @@ func (b *Broker) UnsealOrInit(passphrase string) error {
 	}
 	b.migrateVaults()
 	b.MountEncrypted() // default-on: encrypt file-backed resources from now on
+	b.resettleAfterUnseal()
 	b.wakeBackends()
 	return nil
 }

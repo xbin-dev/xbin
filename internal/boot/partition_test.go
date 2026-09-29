@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -59,6 +60,11 @@ func TestNoPartitionGolden(t *testing.T) {
 	}
 	d := zsBoot(t, ws)
 	owner := "Bearer " + d.owner
+	if _, err := d.st.Users.Upsert(users.User{ID: "ana", Role: users.RoleUser,
+		Tiles: map[string]string{"apps/zs": users.LevelRead, "notes+ideas": users.LevelWrite, "apps/np": users.LevelRead}}, "password1"); err != nil {
+		t.Fatal(err)
+	}
+	ana := "Cookie: xbin_session=" + d.st.Auth.NewSession("ana", "127.0.0.1")
 	if code, body := d.do(t, "PUT", "/api/xbin/kv/res:apps/np/db/k", owner); code/100 != 2 {
 		t.Fatalf("a kv write: %d %s", code, body)
 	}
@@ -74,36 +80,41 @@ func TestNoPartitionGolden(t *testing.T) {
 		}
 		return body
 	}
-	comps := get(owner)
-	for _, k := range strings.Split(zsKeys(t, comps), ",") {
-		if strings.HasPrefix(k, "partition") {
-			t.Errorf("/components rows carry %q in a workspace without partitions", k)
+	for who, cred := range map[string]string{"the owner": owner, "ana": ana} {
+		comps := get(cred)
+		for _, k := range strings.Split(zsKeys(t, comps), ",") {
+			if strings.HasPrefix(k, "partition") {
+				t.Errorf("%s: /components rows carry %q in a workspace without partitions", who, k)
+			}
 		}
-	}
-	for _, g := range zsListingGoldens {
-		if g.path != "/api/xbin/components" || g.as != "the owner" {
-			continue
+		var rows []map[string]any
+		if err := json.Unmarshal(comps, &rows); err != nil {
+			t.Fatal(err)
 		}
-		if got := zsNorm(t, zsPick(t, comps, "path"), nil, nil); got != g.want {
-			t.Errorf("the zero-state fixture's rows:\n%s\nwant\n%s", got, g.want)
+		var np, rest []any
+		for _, r := range rows {
+			if r["path"] == "apps/np" {
+				np = append(np, r)
+			} else {
+				rest = append(rest, r)
+			}
 		}
-	}
-	var rows []map[string]any
-	if err := json.Unmarshal(comps, &rows); err != nil {
-		t.Fatal(err)
-	}
-	var np []any
-	for _, r := range rows {
-		if r["path"] == "apps/np" {
-			np = append(np, r)
+		b, _ := json.Marshal(rest)
+		for _, g := range zsListingGoldens {
+			if g.path != "/api/xbin/components" || g.as != who {
+				continue
+			}
+			if got := zsNorm(t, zsPick(t, b, "path"), nil, nil); got != g.want {
+				t.Errorf("%s: the zero-state fixture's rows:\n%s\nwant\n%s", who, got, g.want)
+			}
 		}
-	}
-	b, _ := json.Marshal(np)
-	if got := zsNorm(t, b, nil, nil); got != npGolden {
-		t.Errorf("apps/np's row:\n%s\nwant\n%s", got, npGolden)
-	}
-	if code, body := d.do(t, "GET", "/api/xbin/components/apps/np", owner); code != 200 || strings.Contains(string(body), `"partition`) {
-		t.Errorf("GET /components/apps/np: %d %s", code, body)
+		b, _ = json.Marshal(np)
+		if got := zsNorm(t, b, nil, nil); got != npGolden {
+			t.Errorf("%s: apps/np's row:\n%s\nwant\n%s", who, got, npGolden)
+		}
+		if code, body := d.do(t, "GET", "/api/xbin/components/apps/np", cred); code != 200 || strings.Contains(string(body), `"partition`) {
+			t.Errorf("%s: GET /components/apps/np: %d %s", who, code, body)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(ws, "data", "partitions")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("data/partitions exists on a workspace without partitions: %v", err)
@@ -180,5 +191,15 @@ func TestPartitionModeBoot(t *testing.T) {
 	c, _ := d.st.Reg.Component("apps/pt")
 	if _, err := d.st.Run.Ensure(context.Background(), c); err == nil || !strings.Contains(err.Error(), "is paused") {
 		t.Errorf("the runner started a pending primary: %v", err)
+	}
+	// The hold is the primary's alone: a deployment beyond it keeps
+	// D127's behaviour (PD-17), and a tile that isn't held runs as today.
+	for _, c := range []struct {
+		tile, dep string
+		want      bool
+	}{{"apps/pt", "main", false}, {"apps/pt", "dev", true}, {"apps/pa", "main", true}} {
+		if got := d.st.Run.ShouldRunDeployment(c.tile, c.dep); got != c.want {
+			t.Errorf("ShouldRunDeployment(%s, %s) = %v, want %v", c.tile, c.dep, got, c.want)
+		}
 	}
 }

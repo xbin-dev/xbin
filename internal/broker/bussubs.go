@@ -422,7 +422,9 @@ func (bs *busSubs) deliver(dispatch BusDispatch, owner string, sub busSub, d bus
 	if _, ok := b.Reg.Component(sub.Component); !ok {
 		return "gone", ""
 	}
-	if b.Reg.LifecycleState(sub.Component) != registry.StateEnabled || dispatch == nil {
+	// A disabled tile, or a primary its partition mode pauses (pending or
+	// invalid, plans/partitions/01 §2.3), drops the event quietly.
+	if b.Reg.LifecycleState(sub.Component) != registry.StateEnabled || dispatch == nil || b.partitionPaused(sub.Component, owner) {
 		return "dropped", ""
 	}
 	if !b.firing(sub.Component, owner) {

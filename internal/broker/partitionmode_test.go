@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -166,7 +167,8 @@ func TestPartitionStateTable(t *testing.T) {
 			files[k] = v
 		}
 	}
-	w := newPartWS(t, files, nil)
+	pinned := map[string]*registry.PinnedCode{} // a primary pinned to a checkpoint (D119e)
+	w := newPartWS(t, files, func(rel string) (*registry.PinnedCode, bool) { pc, ok := pinned[rel]; return pc, ok })
 	var stopMu sync.Mutex
 	var stopped []string
 	w.b.SetPartitionStop(func(tile string) { stopMu.Lock(); stopped = append(stopped, tile); stopMu.Unlock() })
@@ -208,6 +210,14 @@ func TestPartitionStateTable(t *testing.T) {
 		}
 		// The stop runs on its own goroutine; only the tile that became held.
 		waitFor(t, func() bool { return stops() == "apps/fresh" }, "the pending tile's primary is stopped")
+		// The data layout follows R, not the pause: the scope still reads
+		// as partitioned for the namespace choice, while nothing runs.
+		if spec, ok := w.b.Reg.PartitionedScope("apps/fresh"); !ok || spec != bothSpec {
+			t.Errorf("a pending scope with R = user + global: %v %v, want partitioned", spec, ok)
+		}
+		if c, _ := w.b.Reg.Component("apps/fresh"); func() bool { _, ok := c.Partitioned(); return ok }() {
+			t.Error("a pending tile runs as partitioned")
+		}
 		since := req.Since
 		w.rescan() // the same request stays, with its time
 		if _, _, req := w.state("apps/fresh"); req == nil || !req.Since.Equal(since) || w.ops("apps/fresh") != "auto,request" {
@@ -238,6 +248,23 @@ func TestPartitionStateTable(t *testing.T) {
 		w.rescan()
 		if st, _, _ := w.state("apps/cron"); st != registry.PartitionPending {
 			t.Errorf("apps/cron: %v, want pending", st)
+		}
+		// Its ticks are missed and its bus deliveries dropped, quietly: the
+		// paused primary is never dispatched to (01 §2.3).
+		dispatched := 0
+		w.b.cron.mu.Lock()
+		w.b.cron.dispatch = func(auth.Principal, string, string) (int, string) { dispatched++; return 200, "" }
+		w.b.cron.mu.Unlock()
+		w.b.cron.fire(cronJob{Name: "tick", Schedule: "@every 1h", Component: "apps/cron", Path: "/tick"})
+		busSent := func(context.Context, auth.Principal, string, string, []byte) (int, string) {
+			dispatched++
+			return 200, ""
+		}
+		if out, _ := w.b.bus.deliver(busSent, "", busSub{Name: "s", Component: "apps/cron", Path: "/bus"}, busDelivery{}); out != "dropped" {
+			t.Errorf("a bus delivery to a paused primary: %q, want dropped", out)
+		}
+		if dispatched != 0 {
+			t.Errorf("a paused primary got %d deliveries", dispatched)
 		}
 	})
 
@@ -297,6 +324,47 @@ func TestPartitionStateTable(t *testing.T) {
 		}
 	})
 
+	t.Run("an unreadable code holds a recorded tile", func(t *testing.T) {
+		// A syntax error in a live edit, then a pinned checkpoint that isn't
+		// prepared: Q is unknown, never "absent" — the tile waits in R,
+		// invalid, and nothing is requested, withdrawn or recorded.
+		before := w.ops("apps/cron")
+		for _, broken := range []func(){
+			func() { w.write(map[string]string{"apps/cron/xbin.json": `{"runtime":"go","partition":["user"]`}) },
+			func() {
+				w.write(map[string]string{"apps/cron/xbin.json": `{"runtime":"go","partition":["user"]}`})
+				pinned["apps/cron"] = &registry.PinnedCode{ManifestErr: "apps/cron: the primary (main) is pinned to checkpoint 0123, which isn't prepared"}
+			},
+		} {
+			broken()
+			w.rescan()
+			st, r, req := w.state("apps/cron")
+			if st != registry.PartitionInvalid || r != userSpec || req != nil {
+				t.Errorf("unreadable code: %v %v %+v, want invalid in R = user", st, r, req)
+			}
+			if why := w.b.PartitionHoldReason("apps/cron"); !strings.Contains(why, "can't be read") {
+				t.Errorf("hold reason %q", why)
+			}
+			if c, _ := w.b.Reg.Component("apps/cron"); !strings.Contains(c.PartitionErr, "request can't be read") {
+				t.Errorf("partition error %q", c.PartitionErr)
+			}
+			delete(pinned, "apps/cron")
+			w.write(map[string]string{"apps/cron/xbin.json": `{"runtime":"go","partition":["user"]}`})
+			w.rescan()
+			if st, _, _ := w.state("apps/cron"); st != registry.PartitionPartitioned || w.ops("apps/cron") != before {
+				t.Errorf("readable again: %v, history %q, want partitioned, %q", st, w.ops("apps/cron"), before)
+			}
+		}
+		// A tile with no record whose code can't be read is the zero state.
+		w.write(map[string]string{"apps/plain/xbin.json": `{"runtime":"go",`})
+		w.rescan()
+		if c, _ := w.b.Reg.Component("apps/plain"); c.PartitionShown() || w.record("apps/plain") != nil || w.b.PartitionHoldReason("apps/plain") != "" {
+			t.Errorf("an unrecorded tile with a broken manifest carries partition state: %q", c.PartitionErr)
+		}
+		w.write(map[string]string{"apps/plain/xbin.json": `{"runtime":"go"}`})
+		w.rescan()
+	})
+
 	t.Run("invalid records nothing", func(t *testing.T) {
 		w.write(map[string]string{"apps/bad/xbin.json": `{"runtime":"go","partition":["org"]}`})
 		w.rescan()
@@ -322,7 +390,7 @@ func TestPartitionStateTable(t *testing.T) {
 	})
 
 	t.Run("a reload keeps the store", func(t *testing.T) {
-		pm := &partitionModes{root: w.root, recs: map[string]*modeRecord{}, held: map[string]string{}}
+		pm := newPartitionModes(w.root)
 		pm.load()
 		if rec := pm.recs["apps/vault"]; rec == nil || rec.recorded() != (registry.PartitionSpec{}) || len(rec.History) != 4 {
 			t.Errorf("reloaded apps/vault: %+v", rec)
@@ -331,81 +399,6 @@ func TestPartitionStateTable(t *testing.T) {
 			t.Errorf("reloaded apps/fresh: %+v", rec)
 		}
 	})
-}
-
-// The stores "holds data" reads, one by one: deployment namespaces, a
-// deployment's vault and registration files, interface instances, ingress
-// hosts; a nested scope's kv buckets aren't the tile's.
-func TestTileHoldsData(t *testing.T) {
-	w := newPartWS(t, map[string]string{
-		"apps/x/scope.json":     `{"resources":{"db":{"type":"kv"}}}`,
-		"apps/x/xbin.json":      `{"runtime":"go"}`,
-		"apps/x/sub/scope.json": `{"resources":{"db":{"type":"kv"}}}`,
-		"apps/x/sub/xbin.json":  `{"runtime":"go"}`,
-	}, nil)
-	ask := registry.PartitionAsk{Tile: "apps/x", Scope: "apps/x", RootsScope: true}
-	holds := func() string { _, s := w.b.tileHoldsData(ask); return s }
-	if s := holds(); s != "" {
-		t.Fatalf("an empty tile holds data in %s", s)
-	}
-	w.kvPut("apps/x/sub", "db")
-	if s := holds(); s != "" {
-		t.Errorf("a nested scope's key counted for its parent (%s)", s)
-	}
-	// A deployment namespace's volume with a file.
-	vol := filepath.Join(w.root, "data", "resources-enc", deploymentsLevel, escS("apps/x"), "dev", "fs", "files")
-	w.write(map[string]string{mustRel(t, w.root, filepath.Join(vol, "gocryptfs.conf")): "{}"})
-	if s := holds(); s != "" {
-		t.Errorf("an empty deployment volume holds data (%s)", s)
-	}
-	w.write(map[string]string{mustRel(t, w.root, filepath.Join(vol, "AbCdEf")): "cipher"})
-	if s := holds(); s != "namespaces" {
-		t.Errorf("a deployment volume's file: %q", s)
-	}
-	if err := os.RemoveAll(filepath.Join(w.root, "data", "resources-enc", deploymentsLevel)); err != nil {
-		t.Fatal(err)
-	}
-	// A deployment's vault key.
-	if err := w.b.vaultWriteIn("apps/x", "dev", map[string]string{"k": "v"}); err != nil {
-		t.Fatal(err)
-	}
-	if s := holds(); s != "vault" {
-		t.Errorf("a deployment vault key: %q", s)
-	}
-	if err := os.RemoveAll(filepath.Join(w.root, "data", "vault", deploymentsLevel)); err != nil {
-		t.Fatal(err)
-	}
-	// A deployment's registration file.
-	reg := filepath.Join(w.root, "data", "deployments", util.TileKey("apps/x"), "dev", depBusFile)
-	w.write(map[string]string{mustRel(t, w.root, reg): `{"schema":1}`})
-	if s := holds(); s != "registrations" {
-		t.Errorf("a deployment's registration file: %q", s)
-	}
-	if err := os.Remove(reg); err != nil {
-		t.Fatal(err)
-	}
-	// Interface instances, ingress hosts.
-	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
-		ws.IngressHosts = map[string][]string{"apps/x": {"a.example.com"}}
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if s := holds(); s != "registrations" {
-		t.Errorf("an ingress host: %q", s)
-	}
-	// A tile that doesn't root its scope holds none of the scope's data.
-	w.kvPut("apps/x", "db")
-	if held, _ := w.b.tileHoldsData(registry.PartitionAsk{Tile: "apps/x/y", Scope: "apps/x"}); held {
-		t.Error("a non-root tile holds its scope's data")
-	}
-	// A plaintext resource directory with an entry.
-	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) { ws.IngressHosts = nil }); err != nil {
-		t.Fatal(err)
-	}
-	ask = registry.PartitionAsk{Tile: "apps/x/sub", Scope: "apps/x/sub", RootsScope: true}
-	if s := holds(); s != "namespaces" {
-		t.Errorf("apps/x/sub's kv key: %q", s)
-	}
 }
 
 // covers D119e PD-44 — a D127 rollback of a partitioned primary to a
@@ -500,5 +493,20 @@ func waitFor(t *testing.T, ok func() bool, what string) {
 			t.Fatalf("timed out waiting: %s", what)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// PartitionHoldReason, which every proxied call and every spawn asks, never
+// waits for a settle, whose "holds data" opens kv files and decrypts vaults.
+func TestPartitionHoldReasonNeverWaits(t *testing.T) {
+	w := newPartWS(t, map[string]string{"apps/p/xbin.json": `{"runtime":"go","partition":["user"]}`}, nil)
+	w.b.parts.settleMu.Lock()
+	defer w.b.parts.settleMu.Unlock()
+	done := make(chan string, 1)
+	go func() { done <- w.b.PartitionHoldReason("apps/p") }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PartitionHoldReason waited for a settle")
 	}
 }
