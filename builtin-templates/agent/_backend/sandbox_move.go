@@ -31,11 +31,11 @@ func sandboxMoveSpecs(cfg Config) []toolSpec {
 			}},
 			toolSpec{Type: "function", Function: funcDef{
 				Name: "sandbox_download",
-				Description: fmt.Sprintf("Copy a file from the coding sandbox into the session files (up to %s), to keep it with the conversation or hand it to people. "+
+				Description: fmt.Sprintf("Copy a file from the coding sandbox into the session files (up to %d MB), to keep it with the conversation or hand it to people. "+
 					"It overwrites the session file of that name in place: the version it replaces is kept (file_diff shows what changed), "+
 					"and a file that hasn't changed (same etag or sha256) writes nothing. "+
 					"render_html and file_view take a sandbox path directly — no download needed first. "+
-					"A directory: pack it with bash (tar czf) first.", humanBytes(maxBinaryFileBytes)),
+					"A directory: pack it with bash (tar czf) first.", maxBinaryFileBytes>>20),
 				Parameters: obj([]string{"path"}, map[string]any{
 					"path":      strProp("the file in the sandbox"),
 					"name":      strProp("the session file's name (default: the file's own)"),

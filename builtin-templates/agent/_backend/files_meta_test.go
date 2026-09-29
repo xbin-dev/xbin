@@ -393,6 +393,39 @@ fetch('http://127.0.0.1:9/nothing').catch(() => {});
 	}
 }
 
+// D136's tools state their scope in their first sentence (after D134's
+// tooldesc_test.go): pinned, so a change to one is a reviewed change.
+func TestD136ToolDescriptionFirstSentences(t *testing.T) {
+	want := map[string]string{
+		"browser_check": "Load a page in a real headless Chromium inside your sandbox and report what happened: " +
+			"console, errors, failed requests, an accessibility snapshot, screenshots.",
+		"sandbox_download": "Copy a file from the coding sandbox into the session files (up to 16 MB), to keep it with the conversation or hand it to people.",
+		"file_read":        "Read a session file, or — given a sandbox path (/…, ./…) — a file in the coding sandbox, as its read does.",
+		"file_info": "Describe one file — a session file (its sha256, source, the version it replaced, earlier versions kept, " +
+			"whether its sandbox copy changed since) or a sandbox file (size, mode, etag, sha256, its session copies).",
+		"file_diff": "A unified diff (diff -u) of two text files, each a session file (a version of one: session:x@2) or a sandbox file.",
+	}
+	cfg := defaultConfig()
+	cfg.Class = "coding"
+	b := SandboxBinding{Ref: "apps/cs|sb-1", Name: "box", Egress: "none"}
+	cfg.Sandbox, cfg.Attached = &b, []SandboxBinding{b}
+	got := map[string]string{}
+	for _, s := range toolSpecs(cfg, 0, nil) {
+		got[s.Function.Name] = s.Function.Description
+	}
+	for name, w := range want {
+		if f := firstSentence(got[name]); f != w {
+			t.Errorf("%s's first sentence changed:\n got: %s\nwant: %s", name, f, w)
+		}
+	}
+	// without a sandbox, file_read reads session files only
+	for _, s := range toolSpecs(defaultConfig(), 0, nil) {
+		if s.Function.Name == "file_read" && firstSentence(s.Function.Description) != "Read a session file." {
+			t.Errorf("file_read without a sandbox: %s", s.Function.Description)
+		}
+	}
+}
+
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func tcall(id, name, args string) toolCall {

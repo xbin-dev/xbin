@@ -47,7 +47,7 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH && fs.existsSync('/usr/local/ms-playwr
 function findPlaywright() {
   const tried = [];
   const bases = [];
-  if (process.env.XBIN_PLAYWRIGHT) bases.push(process.env.XBIN_PLAYWRIGHT);
+  if (process.env.BROWSER_CHECK_PLAYWRIGHT) bases.push(process.env.BROWSER_CHECK_PLAYWRIGHT); // a playwright module's directory
   bases.push(path.join(process.cwd(), 'package.json'));
   const prefix = path.dirname(path.dirname(process.execPath));
   for (const d of [path.join(prefix, 'lib', 'node_modules'), '/usr/local/node/lib/node_modules',

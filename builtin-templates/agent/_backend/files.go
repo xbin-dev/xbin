@@ -23,13 +23,14 @@ func fileToolSpecs(cfg Config) []toolSpec {
 	boolProp := func(desc string) map[string]any {
 		return map[string]any{"type": "boolean", "description": desc}
 	}
-	replHint, svgHint := "", ""
+	replHint, svgHint, readWhat := "", "", "Read a session file."
 	// the paths a reading tool takes (files_paths.go)
 	anyPath := "a session file key ('report.html', or session:report.html; session:report.html@2 is an earlier version)"
 	showPath := "file key of the HTML file to show, e.g. 'report.html'"
 	if sandboxToolsOn(cfg) {
 		anyPath += ", or a sandbox path — absolute ('/work/out.txt'), ./relative to its working directory, or ~/…"
 		showPath += ", or a sandbox path ('/work/report.html', './report.html') — copied into the session files first, in place"
+		readWhat = "Read a session file, or — given a sandbox path (/…, ./…) — a file in the coding sandbox, as its read does."
 	}
 	if cfg.feature("repl") {
 		replHint = " They are the durable half of the sandbox: put reusable functions here instead of re-pasting them, then js_run the file."
@@ -46,7 +47,7 @@ func fileToolSpecs(cfg Config) []toolSpec {
 		}},
 		{Type: "function", Function: funcDef{
 			Name:        "file_read",
-			Description: "Read a session file. Returns the whole file by default; pass offset/limit to read a line range from a file too large to return at once. Read before file_edit so your old_string matches exactly.",
+			Description: readWhat + " Returns the whole file by default; pass offset/limit to read a line range from a file too large to return at once. Read before file_edit so your old_string matches exactly.",
 			Parameters: obj([]string{"path"}, map[string]any{
 				"path":   strProp(anyPath),
 				"offset": map[string]any{"type": "integer", "description": "1-based first line to return (default 1)"},
