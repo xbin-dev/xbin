@@ -87,7 +87,7 @@ func TestSandboxDownloadInPlace(t *testing.T) {
 	r, cfg, box := sbxRun(t, ag, "d", "none")
 	hp := put(t, box, "out/report.html", "<h1>v1</h1>\n<p>a</p>\n")
 	out := mustTool(t, ag, r, cfg, "d1", "sandbox_download", map[string]any{"path": "out/report.html"})
-	if !strings.HasPrefix(out, "downloaded "+box.Workdir+"/out/report.html to the session file report.html (text, ") {
+	if !strings.HasPrefix(out, "downloaded "+box.Workdir+`/out/report.html from the sandbox "d" to the session file report.html (text, `) {
 		t.Fatalf("first: %q", out)
 	}
 	f, _ := ag.db.replFile(r.ID, "report.html")
@@ -107,7 +107,7 @@ func TestSandboxDownloadInPlace(t *testing.T) {
 	}
 	put(t, box, "out/report.html", "<h1>v2</h1>\n<p>a</p>\n")
 	out = mustTool(t, ag, r, cfg, "d4", "sandbox_download", map[string]any{"path": "out/report.html"})
-	if !strings.Contains(out, "session file report.html (text, 21 B) — v2, replacing v1, copied from the sandbox") || !strings.Contains(out, `file_diff {"a": "report.html"}`) {
+	if !strings.Contains(out, `from the sandbox "d" to the session file report.html (text, 21 B) — v2, replacing v1 (copied from the sandbox "d": `) || !strings.Contains(out, `file_diff {"a": "report.html"}`) {
 		t.Fatalf("changed: %q", out)
 	}
 	files, _ := ag.db.replFiles(r.ID)
@@ -216,7 +216,7 @@ func TestFilePaths(t *testing.T) {
 	// render_html and file_view take sandbox paths, copying them in place
 	put(t, box, "site/index.html", "<h1>hi</h1>")
 	out := mustTool(t, ag, r, cfg, "h1", "render_html", map[string]any{"path": "./site/index.html"})
-	if !strings.Contains(out, "downloaded "+box.Workdir+"/site/index.html to the session file index.html") || !strings.Contains(out, "rendered index.html (11 B, v1)") {
+	if !strings.Contains(out, "downloaded "+box.Workdir+`/site/index.html from the sandbox "c1" to the session file index.html`) || !strings.Contains(out, "rendered index.html (11 B, v1)") {
 		t.Fatalf("render_html of a sandbox path: %q", out)
 	}
 	if out := mustTool(t, ag, r, cfg, "h2", "render_html", map[string]any{"path": "./site/index.html"}); !strings.HasPrefix(out, "unchanged: the session file index.html") {

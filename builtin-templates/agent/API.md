@@ -154,7 +154,7 @@ llm-gw's logs. Give team members `read` on the tile.
 | `GET /runs/{id}/tree` | — | the whole workflow this run belongs to: nodes (each with its `link` and `phase`), statuses, blockers, cost. Metadata only |
 | `GET /halt` · `PUT /halt` | `{on}` | the global brake: cancels live runs and blocks new spawns |
 | `GET /runs/{id}/files` | — | the run's session files: `[{path, bytes, version, updated, mime?, binary?}]`, no content |
-| `GET /runs/{id}/file?path=` | — | one file with its content |
+| `GET /runs/{id}/file?path=` | — | one file with its content — a binary-stored text file up to 2 MiB too (a report over the text cap that `render_html` shows), still `binary: true` |
 | `PUT /runs/{id}/file` | `{path, content, version?}` | write a file; a non-zero `version` that no longer matches answers **409** |
 | `DELETE /runs/{id}/file?path=` | — | delete a file (and its blob, for an attachment) |
 | `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 16 MiB, **502** when the blob store fails |
@@ -870,6 +870,10 @@ full), `xbin_call` (reach other granted components; `internal`),
 (below), `skills_list`/`skill_view`/`skill_manage`, `finish`, `ask_user`,
 `yield`, the `subagent_*` tools above, the session-file and sandbox tools below,
 plus any bound MCP tool — each as its class allows (**Agent classes**).
+`finish` is worded for who reads its result: a top-level run ends its turn,
+its `result` a one- or two-sentence status line (the chat's `✓` line, which
+renders markdown) with the answer itself in the reply before it; a
+subagent's `result` is the full answer its parent receives.
 MCP servers are bound via the `mcp` interface (multi:true, like the chat tile).
 Extend these in `_backend/tools.go`.
 
@@ -882,7 +886,9 @@ a message into a conversation), a trigger's event, a channel's message, a
 subagent's task and every `subagent_message` its parent sends it. A watcher's
 "check now" is not a request (its job is its instructions), and neither is a
 background subagent's answer. The model reads the ledger but no tool writes
-it. `GET /runs/{id}/asks` serves it; the tile pins it under its top bar. A run
+it. `GET /runs/{id}/asks` serves it; the tile pins the **current** request —
+the latest one (the run's `task.latest`, else `task.first`) — under its top
+bar, and **Task (+N)** unfolds every request. A run
 from before the ledger has its first user message recorded when the tile
 upgrades (and a run an older process makes meanwhile, when it is first read).
 
@@ -1010,13 +1016,19 @@ run's private rows — no egress, no other component — so they are offered in
 never fires for them. Caps: 64 KiB per text file, 64 files and 512 KiB of text
 per run; attachments have their own.
 
-`render_html` journals a `render` step (`{path, version, bytes}`) and the tile
+`render_html` journals a `render` step (`{path, version, bytes}`) and
+streams it at once, so the pane opens while the turn goes on; the tile
 shows that file in a `sandbox=""` iframe with a prepended meta CSP
 (`default-src 'none'; style-src 'unsafe-inline'; img-src data:`). **Scripts
 never run and nothing external loads** — so charts must be inline SVG. Its
 description and result say so first (D134): a static snapshot, not a
 browser, that verifies no JavaScript. Verify
-with `node test/frame-policy.mjs`.
+with `node test/frame-policy.mjs`. It shows HTML up to **2 MiB**: a file
+over the 64 KiB text cap (a report written in the sandbox, typically) is
+stored as a binary session file (`text/html`) and still renders — `GET
+/runs/{id}/file` answers its text, painted through the same policy. The
+chat's `🖼 rendered …` line is a button that shows the file again once the
+pane is closed (a subagent's, from its own run's files).
 
 The tile's frontend is **one model, thin views** — see **The frontend** below.
 The chat's state is `model/session.js` (fed by `model/stream.js`),
@@ -1083,7 +1095,16 @@ sandbox has /work/notes.md`, or `/work/todo.md doesn't exist in the sandbox —
 session:todo.md is a session file`. `file_read` of a sandbox path is the
 sandbox's `read`; `render_html` and `file_view` of one copy it into the
 session files first, in place, as `sandbox_download` does (its result line
-leads).
+leads). The copy's name keeps different files apart: the session file an
+earlier copy of that very file (sandbox and path) holds — a repeated render
+is its next version — else the first free of its base name, its parent
+directory and base name (`site/index.html`), and the sandbox's name with
+both (`web/site/index.html`); two different `…/index.html` never become
+versions of each other, nor overwrite a session file the agent wrote. A
+download's result names the sandbox it came from, with the replaced
+version's own source in parentheses (`downloaded /work/r.txt from the
+sandbox "b" to the session file r.txt (text, 7 B) — v2, replacing v1
+(copied from the sandbox "a": /work/r.txt)`).
 
 ## Coding sandboxes (D115)
 
@@ -1259,8 +1280,8 @@ attached ones — built from the binding alone, so it changes on a rebind only
 | `sandbox_upload` | `{file, path?}` | copies a session file (text or attachment) into the sandbox: to `path`, into it when it ends in `/` or is a directory (default: the working directory). Feature `files` |
 | `sandbox_download` | `{path, name?, keep_both?}` | copies a sandbox file (≤ 16 MiB) into the session files — text within the text cap as text, anything else as an attachment — under `name` or its own, **in place** (D136): an existing session file of that name becomes the next version, the replaced one kept (`file_diff`), text or binary either way. A file that hasn't changed writes nothing — `unchanged: … (sha …, v2)` — known by the etag the copy recorded (no read) or else by its sha256. `keep_both: true` is the old behaviour: a taken name gets a suffix (`-2`, `-3`…). A directory is refused: pack it with `bash` first. Feature `files` |
 | `browser_check` | `{target, wait_ms? (1000, ≤ 20000), screenshots_ms? ([wait_ms], ≤ 4), viewport? {width, height}, script?}` | loads a page in a headless Chromium **inside the sandbox** and returns raw facts (below). A side effect when the sandbox has egress |
-| `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. Offered when more than one sandbox is attached |
-| `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps — or why it is unavailable) and the conversation's latest 15 jobs |
+| `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. The source streams as the destination's request body, so a failure names the side that failed: `reading "a":/p failed: …` (the source's refusal, or its stream cut short — the destination may hold a partial copy) or `writing "b":/q failed: …`. Offered when more than one sandbox is attached |
+| `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps, the manager's caps and whether a live preview works — or why it is unavailable) and the conversation's latest 15 jobs |
 
 **`browser_check`** (D136). The target is a sandbox path (a directory:
 its `index.html`), `session:<file>` (copied to
@@ -1344,7 +1365,16 @@ tool_call_id, ref, exec_id, command, cwd, state, exit_code, read_off, fg,
 created_ms, ended_ms, client_id, signal` — `client_id` set when it isn't
 `agent:<run>:<call>`; `signal` the signal that ended it, `''` when none or
 recorded before D134); a conversation runs at most **8** at once (asked of
-the manager before a start is refused). **Detaching a sandbox** (`PATCH
+the manager before a start is refused). **A sandbox deleted elsewhere** (by
+an operator, another tile, or no longer shared with whoever bound it) comes
+off the conversation the first time anything finds it gone — a tool call, a
+live page, the popover: detached in one transaction, and when it was the
+active one the first other attached sandbox becomes active (the sandbox
+tools need one); the run event says so, and the refusal tells the model
+what is active now (`…is gone … and was detached; the active sandbox is now
+"b" from your next step (attached: "b", "c")`, or that none is bound: ask
+the user, or `sandbox_create`). `sandbox_info` names the active one after.
+**Detaching a sandbox** (`PATCH
 /runs/{id} {detach}`, or deleting it, which detaches it everywhere) KILLs
 the process group of every job the conversation still runs in it — best
 effort, in the background, so the change doesn't wait for a manager — and
@@ -1394,7 +1424,15 @@ program in your sandbox (e.g. python3 -m http.server 8000) — scripts run,
 in an isolated frame." Offered with the other coding tools; it needs the
 manager's `ports` capability (docs/sandbox-manager.md §Ports — an older
 manager or xbind lacks it, and the tool says so and points at
-`render_html`). It checks the binding as every coding tool does, asks the
+`render_html`). The manager is asked again before that refusal (the agent
+caches its hello for minutes; an updated manager is never refused on a
+stale one — so is the `tar` check of `sandbox_copy`), and the refusal names
+the manager, its version and what it offers. `sandbox_info` prints the
+manager's caps beside the sandbox's and `live preview (preview_port):
+available`, or `not available — <why>`. xbind's refusal for a sandbox whose
+agent predates ports (started under an older xbind, or from an older VM
+image) reaches the model verbatim, with what to do: have the sandbox
+restarted, then preview_port again. It checks the binding as every coding tool does, asks the
 page once through the manager (nothing listening is an error that says to
 start the server as a background job, on 127.0.0.1 or 0.0.0.0) and records
 a **`live` step** `{sandbox, name, port, path}`; the result states the
@@ -1419,8 +1457,21 @@ encoding, range, ETag, Last-Modified, Vary, Location, …) — never
 `WWW-Authenticate` or `X-XBin-*`. The viewer's cookies, credentials,
 identity headers, `Referer` and forwarding headers never reach the sandbox.
 
+**Diagnostics** (participants, as the live route; never the page's body):
+
+| Route | Answers |
+|---|---|
+| `GET /runs/{id}/ports` | `{previews: [{sandbox, name, port, path, run, at, ok, status?, contentType?, refusal?, error?, ms}]}` — the conversation tree's live previews (its `live` steps), newest first, at most 8 distinct, each probed now as its binder reaches it (the live route's checks, then the manager's ports route) |
+| `GET /runs/{id}/ports/{sbx}/{port}?path=` | one such probe of any port of a sandbox bound to the run (`{sbx}` its id at the manager) |
+
+`refusal` is the contract's (`not-listening`, `state`, `unsupported` — a
+sandbox started before its runtime served ports: restart it), the agent's
+(`not-attached`, `not-allowed`, `unbound`, …) or `invalid`. The live route's
+own refusals now carry `refusal` beside `error` too.
+
 **The pane.** A new `live` step opens the render pane (as a render does;
-one you closed stays closed) on the page, labelled **● live from the
+one you closed stays closed; the chat's `📡 showing …` line opens it again)
+on the page, labelled **● live from the
 sandbox — name:port/path**, with **↻ Reload**: an `<iframe
 sandbox="allow-scripts allow-forms" credentialless
 referrerpolicy="no-referrer">` — never `allow-same-origin` — whose URL is
@@ -1429,8 +1480,20 @@ for `runs/{id}/live/{sbx}/{port}` (`model/live.js`): the frame holds no
 token or cookie, so the credential rides in the path and reaches that prefix
 only. The native view says what is live and that it opens on the web: its
 only WebView island (`canvas src=`) is a tile WebView with the tile's
-bridge and frame token, never for an untrusted page. `test/live-policy.mjs` drives a hostile page through the real
-frame in Chromium: its scripts run, and it gets no cookie, no storage, no
+bridge and frame token, never for an untrusted page — its live screen has
+**Check** (the probe route above). On the web a **status strip** under the
+pane's header checks the page's own URL (`/api/~<ticket>/…`, a plain fetch —
+the ticket rides in it) as the frame loads, and again on **Check**: the HTTP
+status and type, or the refusal and what to do about it — nothing listening
+(start the server), the sandbox stopped, an agent from before ports
+(restart the sandbox), xbind's 401s (the link expired or the sign-in ended:
+↻ Reload; the link works only from where you signed in within the hour),
+the tile-origin 403. A page that answers an error is said there, with the
+frame hidden, never shown blank. The ▣ popover's **Ports** section lists
+the previews with their probes and **Open**, and probes any port of the
+active sandbox. `test/live-policy.mjs` drives a hostile page through the real
+frame in Chromium (and the strip's Check on an answer, a `not-listening`
+and an expired link); its scripts run, and it gets no cookie, no storage, no
 identity from `/api/xbin/whoami` or this tile's API, no parent or top
 document, no top navigation or pop-up, and its `postMessage` changes
 nothing.
