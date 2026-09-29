@@ -113,10 +113,16 @@ type CallerInfo struct {
 	// of its non-primary deployments (X-XBin-Deployment); "" otherwise. From
 	// stays the bare tile path.
 	Deployment string
-	// Partition is the partition the caller acts in when it is one of a
-	// partitioned tile's (X-XBin-Partition, docs/partitions.md):
-	// "user:<id>" or "global"; "" for every other caller. A display name:
-	// key per-caller state on PartitionID.
+	// Partition is the partition the call acts in (X-XBin-Partition,
+	// docs/partitions.md): "user:<id>" or "global". xbind sets it on calls
+	// from a partitioned tile's principals — its instances, frames,
+	// terminals, … — to any tile, and on calls into a partitioned tile that
+	// act for a partition: a person reaching their own ("user:<id>"), the
+	// root token reaching the global instance ("global"), and a user
+	// partition calling its own global instance ("user:<id>" of that person,
+	// although From is this tile — never treat such a call as the tile
+	// itself). "" otherwise, e.g. for a tile that isn't partitioned calling
+	// in. A display name: key per-caller state on PartitionID.
 	Partition string
 	// PartitionID is X-XBin-Partition-Id: the stable, opaque key of the
 	// caller's user partition ("" for a global instance and for callers that
@@ -377,7 +383,10 @@ type BusEvent struct {
 // starts with prefix ("" = all) to path on this backend, as a BusEvent. The
 // component needs `reader` on the bus (declare it in "uses"). Subscriptions
 // persist and are idempotent by name — calling it at every start is fine. An
-// idle backend is started for a delivery; delivery is at-most-once.
+// idle backend is started for a delivery; delivery is at-most-once. The one
+// exception is a user partition of a partitioned tile (docs/partitions.md,
+// in development): events of a shared bus or another tile's bus reach it
+// only while it runs and never start it.
 func Subscribe(name, resource, prefix, path string) error {
 	body, err := json.Marshal(map[string]string{"name": name, "resource": resource, "prefix": prefix, "path": path})
 	if err != nil {

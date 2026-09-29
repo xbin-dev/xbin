@@ -24,9 +24,10 @@ const (
 
 // Partition returns this backend's partition of a partitioned tile:
 // "user:<id>" (one person's instance) or "global" (the tile's global
-// instance, and every instance of a non-primary deployment of a tile that
-// asks for partitions); "" when the tile isn't partitioned — or when an older
-// xbind runs it, which doesn't know partitions (see RequirePartition).
+// instance, and the one instance of a non-primary deployment whose code asks
+// for partitions — every writer who reaches it shares it); "" when the tile
+// isn't partitioned — or when an older xbind runs it, which doesn't know
+// partitions (see RequirePartition).
 func Partition() string { return os.Getenv("XBIN_PARTITION") }
 
 // PartitionUser is the person of a user partition — the id in "user:<id>" —
@@ -51,12 +52,19 @@ func validPartition(p string) bool {
 }
 
 // RequirePartition exits the process (status 3, a line on stderr) unless
-// xbind runs it as a partition. A tile whose code must never serve several
-// people from one instance calls it first thing in main: an older xbind,
-// which ignores "partition" in xbin.json, then runs no backend at all instead
-// of one shared one. It also fails closed on a tile whose managers kept it
-// unpartitioned after its code asked for partitions (docs/partitions.md
-// §The mode).
+// xbind runs it as a partition. A tile whose code expects xbind to keep
+// people apart calls it first thing in main: an older xbind, which ignores
+// "partition" in xbin.json, then runs no backend at all instead of one shared
+// one. It also fails closed on a tile whose managers kept it unpartitioned
+// after its code asked for partitions (docs/partitions.md §The mode).
+//
+// It returns in "global" too, and the global instance is one instance for
+// everyone who reaches it: other tiles calling this one, the root token,
+// public requests, every person's calls to it (GlobalURL) — and every writer of a
+// non-primary deployment, which runs as "global" whenever its code asks for
+// partitions, even if the primary isn't partitioned. Code that must keep
+// people apart serves per-person data only when PartitionUser() != "", or
+// treats "global" explicitly (by Caller(r).User, say).
 func RequirePartition() {
 	p := Partition()
 	if validPartition(p) {
