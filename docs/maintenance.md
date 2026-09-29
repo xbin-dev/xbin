@@ -520,7 +520,9 @@ older workspace's monolith keeps working while a fresh one gets the split
   (`permset:`, `netset:`, `bindcustom:`, `orgallow:`/`ws:`, `user:`).
 
 Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
-`render()`, and the `adminTabs` harness pass opens every id in `GROUPS`
+`render()` — or, for a tab that takes no inputs (sandboxes, deployments,
+branding, nativeapp, policies), its import and one line in
+`plain-tabs.js`'s `PLAIN_TABS` instead — and the `adminTabs` harness pass opens every id in `GROUPS`
 (it reads them from `BxAdmin.tabsFlat()`) and fails on an empty or `.err`
 body (`hack/ui-harness/shots.js`). The `sandboxes` pass
 (`hack/ui-harness/passes/sandboxes.js`) checks the sandboxes tab live —
