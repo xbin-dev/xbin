@@ -21,6 +21,7 @@ export const AREAS = {
   state: 'States the whole tile can be in',
   link: 'Deep links',
   needs: 'Needs you — beyond the tile',
+  harness: 'Coding agents — a conversation with Claude Code, Codex, Gemini or opencode in a coding sandbox',
 };
 
 export const FEATURES = {
@@ -147,9 +148,11 @@ export const FEATURES = {
   'tools.live.check': 'what the live page answers now — status, type, a refusal and what to do (nothing listening, the sandbox stopped, an agent from before ports, an expired or misplaced link) — and Check to ask again; a page that answers an error is said, never shown blank',
   'tools.live.ports': 'Ports, where the conversation\'s sandbox is described: its live previews, each probed now, with Open, and a probe of any port (GET /runs/{id}/ports)',
   'tools.sandboxes': 'the Sandboxes screen (D115): every sandbox you may see — state, manager, image, egress, owner, private/team, last active, where it is bound — with start, stop, archive, thaw, share with the team / make private and delete (confirmed) as your rights allow, and "Use here"',
-  'tools.sandboxes.terminal': 'a terminal in a sandbox whose manager offers one (tty): Open terminal in the ▣ popover (the active sandbox, at its working directory) and Terminal on a Sandboxes row — the page dials the manager as you (its per-person rules apply); closing it ends the shell',
+  'tools.sandboxes.terminal': 'a terminal in a sandbox whose manager offers one (tty): Open terminal in the ▣ popover (the active sandbox, at its working directory) and Terminal on a Sandboxes row — the page dials the manager as you (its per-person rules apply), the app through the tile\'s relay (which checks you may use it, D-harness §4.2.8); closing it ends the shell',
   'tools.sandboxes.create': 'create a sandbox: manager, name, image, size, network (what the class allows), private or team, a working directory; made in a conversation it is bound there (a team conversation\'s is a team one), at home the next new chat starts in it',
   'tools.sandboxes.shareTerminal': 'share a sandbox of yours (this agent its home) with a terminal tile — the builtin sandbox-terminal (D121): its path (apps/sandbox-terminal by default), for you, or everyone who may use it when it is a team one; the shares it has now, each stopped (confirmed)',
+  'tools.terminal': 'a terminal in a coding agent\'s conversation: a shell in its sandbox at its working directory, as you (D-harness §2.1: terminals are part of the sandbox interface)',
+  'tools.terminal.tabs': 'several terminals at once, as tabs of one dock: another shell here, ✕ ends one (and its shell), Hide keeps them running behind a pill ("2 terminals"); they stay open across conversations',
 
   // Sharing
   'share.visibility': 'who can see it: only invited people, the team to read, the team to write',
@@ -207,6 +210,9 @@ export const FEATURES = {
 
   // Needs you, beyond the tile
   'needs.push': 'a question, an approval or a failed automation reaches your phone (the backend pushes it; tapping it opens the conversation)',
+
+  // Coding agents — terminals and sign-in (D-harness §8 U5)
+  'harness.login': 'a coding agent waiting for a sign-in (pendingState "login"): its methods — a login terminal running its sign-in command in the sandbox, then "Signed in? Retry"; an API key, sent once and never stored or shown; a device code (the page to open, the code) — the warning that credentials land in the sandbox\'s shared home, a confirm on a sandbox others may use, and whom to ask when you may not use it',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.
@@ -223,7 +229,7 @@ export const DIFFERENCES = {
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
     'chat.jumpLatest': 'the native view never lets the live end go: the app\'s transcript keeps a row still only at its bottom, so letting go below the reader would move what they read — until the renderer anchors a row across a trim (D130 E3/E4), and the app scrolls to the end itself',
     'tools.live.ports': 'the ▣ popover is the web\'s; on the app a live preview\'s screen has its own Check (tools.live.check), which probes what the Ports section would',
-    'tools.sandboxes.terminal':'the app\'s terminal primitive dials only the tile\'s own routes (TileTerminal refuses any other address), and a manager\'s tty is another tile\'s; relaying it through the agent\'s backend would make the person the manager checks an asserted one instead of the verified one. Until the app takes a bound interface\'s URL, terminals are on the web',
+    'tools.terminal.tabs': 'the app\'s terminal primitive closes its socket when its screen goes and names no session to attach again, so a native terminal is one pushed screen at a time (going back leaves its shell to end itself); the web\'s dock keeps several running',
   },
 };
 

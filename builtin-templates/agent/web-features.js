@@ -125,9 +125,11 @@ export const IMPLEMENTS = {
   'tools.live.check': 'live-status.js — #live-strip, #live-check, .lsmsg (model/live.js probeWords)',
   'tools.live.ports': 'ports.js — #sbx-ports in the ▣ popover (sandboxes.js popExtra)',
   'tools.sandboxes': 'sandboxes.js — the #sbxdlg dialog: .sbxrow [data-act] (model/sandboxes.js sandboxRows → app.sbx.act, share, remove, choose)',
-  'tools.sandboxes.terminal': 'sandboxes.js — #sbx-term in the popover, a row\'s [data-act="terminal"] → openTerm: the #sbxterm pane with <bx-terminal src> (model/sandboxes.js terminal → app.sbx.terminal, endTerminal)',
+  'tools.sandboxes.terminal': 'sandboxes.js — #sbx-term in the popover, a row\'s [data-act="terminal"] → openTerm: a tab of the terminal dock (terminals.js termDock) with <bx-terminal src> on the manager (model/sandboxes.js terminal → app.sbx.terminal, endTerminal)',
   'tools.sandboxes.create': 'sandboxes.js — #sbx-form (model/sandboxes.js createForm → app.sbx.create)',
   'tools.sandboxes.shareTerminal': 'sandboxes.js — a row\'s [data-act="shareTerm"] → shareTpl #sbx-share: #sbxs-tile, #sbxs-who, #sbxs-share, [data-unshare] (model/sandboxes.js shareForm → app.sbx.shareTerminal, unshare)',
+  'tools.terminal': 'terminals.js — #hterm in the top bar of a coding agent\'s conversation (its sandbox at its cwd, app.sbx.terminal)',
+  'tools.terminal.tabs': 'terminals.js — #sbxterm-pane: .sbxttabs [data-tab] with [data-close], #sbxterm-new, #sbxterm-hide, the top bar\'s #sbxterm-pill (model/terminals.js createTerms)',
 
   // Sharing
   'share.visibility': 'share.js',
@@ -182,4 +184,7 @@ export const IMPLEMENTS = {
   'link.conv': 'agent.js — followHash (model/router.js)',
   'link.auto': 'agent.js — followHash (model/router.js)',
   'link.join': 'agent.js — followHash (model/router.js)',
+
+  // Coding agents — terminals and sign-in (D-harness §8 U5)
+  'harness.login': 'signin.js — #hlogin (ext.end, a login park only): [data-kind] methods, a login tab in the dock (terminals.js #sbxterm-retry), the password form, #hl-device, #hl-confirm, #hl-ask, #hl-retry (model/terminals.js signIn)',
 };

@@ -125,6 +125,8 @@ export const IMPLEMENTS = {
   'tools.sandboxes': 'native/sandboxes.js — listTpl: a row per sandbox, its actions (sandboxRows) behind swipe and ⋯, archive and delete confirmed',
   'tools.sandboxes.create': 'native/sandboxes.js — newTpl (createForm → app.sbx.create)',
   'tools.sandboxes.shareTerminal': 'native/sandboxes.js — a row\'s Share with a terminal tile… (swipe or ⋯) pushes shareTpl: the path field, For, Share in the toolbar, Stop sharing behind a shared row\'s swipe (confirmed)',
+  'tools.sandboxes.terminal': 'native/sandboxes.js — a row\'s Terminal and the ▣ screen\'s Open terminal → native/terminal.js termTpl: <terminal src> on the tile\'s relay (model/sandboxes.js relaySrc; app.sbx.tty = RELAY in native.js)',
+  'tools.terminal': 'native/terminal.js — ⋯ → Terminal in a coding agent\'s conversation: termTpl on its run\'s relay (model/terminals.js runTerminalSrc)',
 
   // Sharing
   'share.visibility': 'native/share.js',
@@ -182,4 +184,7 @@ export const IMPLEMENTS = {
 
   // Needs you, beyond the tile
   'needs.push': '_backend/needs_push.go — a question, an approval or a failed automation run is pushed to who may act on it (POST /api/xbin/notify, link #c=<run>); native.js — the app opens the link: app.follow',
+
+  // Coding agents — terminals and sign-in (D-harness §8 U5)
+  'harness.login': 'native/terminal.js — the notice and device link (ext.end, a login park only), Sign in in the composer and ⋯, signInTpl: a login terminal (termTpl, Retry in its toolbar), a secure field, the device page and code, the confirm toggle, whom to ask, Retry',
 };
