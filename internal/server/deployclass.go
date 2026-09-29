@@ -116,6 +116,7 @@ var routeClasses = map[string]RouteClass{
 	"PUT /prefs/{key}":        DeploymentScoped,
 	"DELETE /prefs/{key}":     DeploymentScoped,
 	"GET /frame-token":        DeploymentScoped,
+	"POST /path-tickets":      DeploymentScoped,
 	"GET /sandboxes":          DeploymentScoped,
 	// a session's target (11-contract §7.4): the handler applies its gates
 	"POST /term/sessions":              DeploymentScoped,

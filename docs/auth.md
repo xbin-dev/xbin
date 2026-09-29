@@ -122,6 +122,24 @@ Source is still no place for secrets. That credential-less rule is the
 **legacy** mode; the strict modes that replace it are below (*Tile asset
 gating*).
 
+**Path tickets** (D135) are a tile page's credential for a document it
+frames from its own backend in an opaque-origin sandbox — the agent
+template's live preview of a server in a coding sandbox — whose relative
+loads carry neither the frame token nor a cookie. The page mints one with
+its frame token (`POST /api/xbin/path-tickets {path}`) for a **prefix of its
+own tile's API**, and `/api/~<ticket>/<p>` reaches `/api/<tile>/<prefix>/<p>`
+as the page's frame principal — and nothing else: no other route of the
+tile, no other tile, no `/api/xbin`, no `/ws` (a `.`/`..` segment is 400).
+The framed content may read the ticket from its URL; all it holds then is
+the prefix it already is. A ticket is an HMAC under the workspace secret
+with a purpose tag of its own (it never verifies as a frame, asset or
+tile-origin credential, nor they as it), binds the tile, the person, the
+login's generation (it dies with the login), the deployment and a view-as
+session (it stays read-only), expires after 12 hours, and works only from
+an address that signed in within the last hour — as the `/c/` subresource
+rule — so a ticket the page sends elsewhere is no use there. On a tile
+origin only that tile's tickets are served.
+
 **Chrome is the exception.** Components that must act as the signed-in human
 run unsandboxed and keep the cookie: the shell itself (root, shell), the
 shipped `tiles/organisations` (it raw-fetches as the user by design), and

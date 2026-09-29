@@ -72,6 +72,10 @@ func (s *Server) RegisterPublicAPI(pattern string, h http.HandlerFunc) {
 func (s *Server) authedAPI(next http.Handler) http.Handler {
 	gated := s.authed(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPathTicket(r) { // its own credential, in the path (pathticket.go, D135)
+			s.servePathTicket(w, r, "")
+			return
+		}
 		if rest, ok := strings.CutPrefix(r.URL.Path, "/api/xbin/"); ok && s.publicAPI[r.Method+" /"+rest] {
 			next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{})))
 			return

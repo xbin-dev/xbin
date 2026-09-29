@@ -204,6 +204,9 @@ func (s *Server) serveTileOrigin(w http.ResponseWriter, r *http.Request, id stri
 			}
 			return
 		}
+	case strings.HasPrefix(p, "/api/~"): // a path ticket: its own credential (pathticket.go, D135)
+		s.servePathTicket(w, r, id)
+		return
 	case strings.HasPrefix(p, "/api/"), p == "/ws/events":
 	default:
 		if !s.toWorkspace(w, r) {

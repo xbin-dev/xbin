@@ -409,6 +409,12 @@ func firstSeg(p string) string {
 
 // redactAssetToken hides an asset token in a logged /c/~<tok>/… path.
 func redactAssetToken(p string) string {
+	if strings.HasPrefix(p, "/api/~") { // a path ticket (pathticket.go)
+		if i := strings.IndexByte(p[6:], '/'); i >= 0 {
+			return "/api/~…" + p[6+i:]
+		}
+		return "/api/~…"
+	}
 	if !strings.HasPrefix(p, "/c/~") {
 		return p
 	}

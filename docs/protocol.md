@@ -494,6 +494,8 @@ GET  /docs/<file>.md             these docs (HTML viewer for browsers; ?raw=1
                                  or non-HTML Accept for plain markdown)
 ANY  /api/<component-path>/<p>   → component backend (see below)
 ANY  /api/xbin/<p>              → xbind's own API (below)
+ANY  /api/~<ticket>/<p>         → a path ticket's prefix of one tile's API
+                                 (§Path tickets below, D135)
 ```
 
 `/api/<component>` resolution is longest-prefix over registered components;
@@ -514,6 +516,25 @@ role there, as on the bare URL. The qualifier is consumed: the backend sees
 credential is accepted for browser WS attribution and is consumed by xbind
 (stripped before forwarding). Backends with active streams are exempt from
 idle reaping; streams still end at the callee's blue/green drain (D8).
+**Path tickets** (D135). A tile's page mints one with `POST
+/api/xbin/path-tickets {path}` (its frame token; below) for a prefix of
+its own tile's API, and `/api/~<ticket>/<p>` then reaches
+`/api/<tile>/<prefix>/<p>` — any method, WebSocket upgrades too — as that
+page's frame principal (the tile, the person, the login's deployment and
+view-as binding), and nothing else: never another route of the tile,
+another tile, `/api/xbin` or `/ws`. It is for a document the page frames
+from its own backend in an opaque-origin sandbox — the agent template's
+live preview of a server in a sandbox — whose relative loads carry no
+token and no cookie; the framed content can read the ticket in its own URL,
+and all it reaches is the prefix it already is. A `<p>` segment that
+decodes to `.` or `..` is 400; the ticket works only from an address
+that signed in within the hour (the `/c/` subresource rule's; 401
+otherwise), dies with the login that minted it, expires after 12 h (401),
+and on a tile origin only that tile's tickets are served (403). A request
+without the slash after the ticket is redirected to it. Cookies and
+`Authorization` never pass through it, and a backend's `Set-Cookie`
+never comes back.
+
 Errors are JSON:
 `{"error": "...", "docs": "/docs/...", "detail": "compiler output"?}` —
 404 unknown component, 403 no grant, 410 a tile whose manifest declares the
@@ -912,6 +933,16 @@ GET    /frame-token?component=<p>  a principal that may use the tile: humans
                                    included), and "a tile's own credentials
                                    act only on their own deployment
                                    (<bound>)"; 404 unknown
+POST   /path-tickets              a tile's page (its frame token) only.
+                                   {path: "<prefix>"} → {url: "/api/~<ticket>/",
+                                   expires (unix ms)}: a path ticket (D135,
+                                   below) to a prefix of the page's own
+                                   tile's API. The prefix is a relative path
+                                   of unreserved characters (A–Z a–z 0–9
+                                   . _ ~ -), no . or .. segment, ≤ 256 bytes
+                                   (400 otherwise); anyone but a tile's page
+                                   is 403. The url is used as
+                                   /api/~<ticket>/<rest> (§Path tickets)
 
 GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system}]} — disk quota / low
