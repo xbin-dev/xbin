@@ -175,12 +175,19 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	// Mode "pr" writes nothing to the workspace: the update is filed as a
 	// change proposal against the tile (D49); its own plane applies it.
 	if body.Mode == "pr" {
-		m, perr := b.ProposeBuiltinPR(body.ID, auth.PrincipalOf(r))
-		if perr != nil {
+		m, notes, perr := b.ProposeBuiltinPR(body.ID, auth.PrincipalOf(r))
+		switch {
+		case perr != nil:
 			server.WriteError(w, http.StatusBadRequest, perr.Error())
-			return
+		case m == nil: // upstream changed only a partition: recorded, nothing to propose (PD-52)
+			out := map[string]any{"files": []string{}}
+			if len(notes) > 0 {
+				out["notes"] = notes
+			}
+			server.WriteJSON(w, http.StatusOK, out)
+		default:
+			server.WriteJSON(w, http.StatusOK, map[string]any{"pr": m})
 		}
-		server.WriteJSON(w, http.StatusOK, map[string]any{"pr": m})
 		return
 	}
 	var (

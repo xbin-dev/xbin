@@ -1962,23 +1962,39 @@ POST   /builtins/update             xbin:writer. body {id, mode:
                                    replace|merge|pr|pin|unpin}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
                                    both → {files, notes?} and re-record provenance
-                                   eagerly. Every mode keeps each xbin.json's
-                                   INSTALLED top-level "partition" (present,
-                                   absent or its list, spliced in place —
-                                   docs/partitions.md): an update never adds,
-                                   removes or changes a tile's mode request;
-                                   notes (absent when empty) name each manifest
+                                   eagerly. No mode adds, removes or changes a
+                                   tile's mode request, each xbin.json's
+                                   top-level "partition" (any key case, as
+                                   xbind reads it — docs/partitions.md):
+                                   replace writes the INSTALLED value (present,
+                                   absent or its list, spliced where the
+                                   installed file has it; from the builder's
+                                   own side of conflict markers an earlier
+                                   merge left; for a file that doesn't parse,
+                                   the mode xbind last read from the tile —
+                                   and when even that is unknown the manifest
+                                   is left as it is and the update stays
+                                   offered); merge and "pr" undo upstream's own
+                                   change to the key before git sees it, so
+                                   the builder's line merges untouched. notes
+                                   (absent when empty) name each manifest
                                    where upstream asks otherwise ("…/xbin.json:
                                    partition kept as installed (<ours>; upstream
                                    asks <theirs>): edit it deliberately to
-                                   request a switch"), and a "pr" proposal's
-                                   series leaves the key alone and says so in
-                                   its message. mode "pr" (D49) writes NOTHING:
+                                   request a switch") — replace whenever it
+                                   does, merge and "pr" when upstream changed
+                                   the key — and a "pr" proposal's message
+                                   says so too. mode "pr" (D49) writes NOTHING:
                                    the update is filed as a change proposal
                                    against the tile → {pr:{target,number,…}} —
                                    the tile's own plane reviews and `git am`s
                                    it, and provenance refreshes only when the
-                                   PR closes merged. Idempotent per embed
+                                   PR closes merged. When upstream changed
+                                   nothing but a partition there is nothing to
+                                   propose: "pr" answers {files: [], notes}
+                                   instead and records the version as applied
+                                   (the tile's files are what a merge would
+                                   leave). Idempotent per embed
                                    version; a newer embed auto-withdraws the
                                    stale open proposal. Such PRs carry
                                    kind:"builtin-update" + builtin/toVersion/
@@ -2008,7 +2024,11 @@ POST   /templates/new               same authority as /create on the
                                    partitionSkipped ("opted out" | "needs
                                    --isolate"), both absent when the template
                                    names no mode. Without the default the copy
-                                   asks for no mode at all. A
+                                   asks for no mode at all. An xbind older
+                                   than partitioned tiles refuses the
+                                   partition field (400 "need {source, path?,
+                                   owner?}"); it never writes a mode, so send
+                                   the field only when opting out. A
                                    builtin-template instance gets a read-only
                                    `template` git remote (below), and its repo
                                    is SEEDED from the template's repo (D50):

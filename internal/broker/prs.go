@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -331,12 +332,24 @@ func (b *Broker) prCreateLocked(m *prMeta, series string) error {
 // hash): an open proposal with the same content is returned as-is; open
 // proposals for an older embed are auto-withdrawn as superseded first. The
 // filing principal is recorded as From (who clicked propose); Kind marks the
-// proposal so the merged-close refreshes update tracking (apiPRState).
-func (b *Broker) ProposeBuiltinPR(id string, p auth.Principal) (*prMeta, error) {
+// proposal so the merged-close refreshes update tracking (apiPRState). When
+// upstream changed nothing but a manifest's partition, which an update never
+// changes (PD-52), there is nothing to propose: the version is recorded at
+// once (the tile's files are what a merge would leave) and notes say so.
+func (b *Broker) ProposeBuiltinPR(id string, p auth.Principal) (*prMeta, []string, error) {
 	prop, err := b.updater.Propose(id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	if prop.Series == "" {
+		return nil, prop.Notes, b.updater.RecordApplied(id, prop.ToHash)
+	}
+	m, err := b.fileBuiltinPR(id, p, prop)
+	return m, nil, err
+}
+
+// fileBuiltinPR files prop (ProposeBuiltinPR).
+func (b *Broker) fileBuiltinPR(id string, p auth.Principal, prop *builtins.Proposal) (*prMeta, error) {
 	target := prop.InstallPath
 	if _, ok := b.Reg.Component(target); !ok {
 		return nil, fmt.Errorf("update target %s is not a component", target)
@@ -373,7 +386,7 @@ func (b *Broker) ProposeBuiltinPR(id string, p auth.Principal) (*prMeta, error) 
 		Kind: "builtin-update", Builtin: id,
 		ToVersion: prop.ToVersion, ToHash: prop.ToHash,
 	}
-	err = b.prCreateLocked(m, prop.Series)
+	err := b.prCreateLocked(m, prop.Series)
 	b.prsMu.Unlock()
 	if err != nil {
 		return nil, err

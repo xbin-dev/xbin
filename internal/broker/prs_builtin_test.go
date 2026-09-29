@@ -24,7 +24,7 @@ func TestBuiltinUpdatePR(t *testing.T) {
 	b.SetUpdater(v1)
 	owner := auth.Principal{Owner: true}
 
-	m1, err := b.ProposeBuiltinPR("scaffold:apps/calendar", owner)
+	m1, _, err := b.ProposeBuiltinPR("scaffold:apps/calendar", owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestBuiltinUpdatePR(t *testing.T) {
 		t.Fatalf("bad proposal meta: %+v", m1)
 	}
 	// Same embed again → the same open PR, no duplicate.
-	if again, err := b.ProposeBuiltinPR("scaffold:apps/calendar", owner); err != nil || again.Number != 1 {
+	if again, _, err := b.ProposeBuiltinPR("scaffold:apps/calendar", owner); err != nil || again.Number != 1 {
 		t.Fatalf("refile must be idempotent: %+v err=%v", again, err)
 	}
 
@@ -41,7 +41,7 @@ func TestBuiltinUpdatePR(t *testing.T) {
 		"apps/calendar/index.html": {Data: []byte("<html>upstream-v2</html>\n")},
 	})
 	b.SetUpdater(v2)
-	m2, err := b.ProposeBuiltinPR("scaffold:apps/calendar", owner)
+	m2, _, err := b.ProposeBuiltinPR("scaffold:apps/calendar", owner)
 	if err != nil {
 		t.Fatal(err)
 	}

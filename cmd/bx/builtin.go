@@ -74,13 +74,21 @@ func cmdBuiltin(args []string) error {
 		}
 		if mode == "pr" {
 			var out struct {
-				PR struct {
+				PR *struct {
 					Target string `json:"target"`
 					Number int    `json:"number"`
 				} `json:"pr"`
+				Notes []string `json:"notes"` // no PR: upstream changed only a partition
 			}
 			if err := apiJSON("POST", "/api/xbin/builtins/update", map[string]string{"id": id, "mode": mode}, &out); err != nil {
 				return err
+			}
+			if out.PR == nil {
+				fmt.Printf("nothing to propose for %s: upstream changed only what an update never changes; recorded as applied\n", id)
+				for _, n := range out.Notes {
+					fmt.Println("note: " + n)
+				}
+				return nil
 			}
 			fmt.Printf("proposed %s as %s#%d — the tile's terminal/agent reviews and applies it:\n  bx code pr show %d %s\n",
 				id, out.PR.Target, out.PR.Number, out.PR.Number, out.PR.Target)

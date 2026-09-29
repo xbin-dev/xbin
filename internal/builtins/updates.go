@@ -129,6 +129,7 @@ type Updater struct {
 	root       string
 	tiles      *Set
 	scaffoldFS fs.FS
+	recorded   func(tile string) (raw []byte, has, ok bool) // SetRecordedPartition
 }
 
 func NewUpdater(root string, tiles *Set, scaffoldFS fs.FS) *Updater {
@@ -525,8 +526,9 @@ func (u *Updater) applyReplace(id string, notes *[]string) ([]string, error) {
 			}
 		}
 	}
-	written, err := WriteTree(filepath.Join(u.root, filepath.FromSlash(installPath)), installPath, u.keepPartition(installPath, theirs, notes))
-	if err != nil {
+	kept, whole := u.keepPartition(installPath, theirs, notes) // whole: no manifest left as it is
+	written, err := WriteTree(filepath.Join(u.root, filepath.FromSlash(installPath)), installPath, kept)
+	if err != nil || !whole { // a manifest left as it is keeps the update offered
 		return written, err
 	}
 	return written, u.record(def, installPath, theirs)
@@ -551,7 +553,8 @@ func (u *Updater) applyMerge(id string, notes *[]string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	snap, kept := u.snapDir(id), u.keepPartition(installPath, theirs, notes) // theirs, each installed "partition" kept
+	snap := u.snapDir(id)
+	kept, whole := u.mergeTheirs(installPath, snap, theirs, notes) // theirs, upstream's "partition" change undone
 	var written []string
 	seen := map[string]bool{}
 	for rel := range theirs {
@@ -601,6 +604,9 @@ func (u *Updater) applyMerge(id string, notes *[]string) ([]string, error) {
 			written = append(written, installPath+"/"+rel)
 		}
 	}
+	if !whole { // a manifest left as it is keeps the update offered
+		return written, nil
+	}
 	return written, u.record(def, installPath, theirs)
 }
 
@@ -616,9 +622,10 @@ type Proposal struct {
 	InstallPath string
 	Title       string
 	Message     string
-	Series      string // format-patch mbox
+	Series      string // format-patch mbox; "" when upstream changed nothing but a partition (Notes say so)
 	ToVersion   int
 	ToHash      string // rollup of theirs; RecordApplied verifies the embed hasn't moved
+	Notes       []string
 }
 
 // Propose renders a unit's pending update as a Proposal. Errors when the
@@ -686,11 +693,13 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 		"  git -C \"$XBIN_WORKSPACE/" + installPath + "\" pull /tmp/upd && bx code pr close <n> --merged\n" +
 		"Closing merged refreshes update tracking; rejecting keeps the update offered.")
 
-	to, note := u.proposalPartition(installPath, base, theirs) // the series never touches "partition"
-	msg.WriteString(note)
-	series, err := patchSeries(base, to, title, msg.String())
-	if err != nil {
-		return nil, err
+	to, notes := u.proposalPartition(installPath, base, theirs) // the series never touches "partition"
+	msg.WriteString(proposalNote(notes))
+	series := "" // stays "" when upstream changed nothing else: nothing to propose
+	if !sameFiles(base, to) {
+		if series, err = patchSeries(base, to, title, msg.String()); err != nil {
+			return nil, err
+		}
 	}
 	hashes := make(map[string]string, len(theirs))
 	for rel, data := range theirs {
@@ -698,7 +707,7 @@ func (u *Updater) Propose(id string) (*Proposal, error) {
 	}
 	return &Proposal{
 		ID: id, InstallPath: installPath, Title: title, Message: msg.String(),
-		Series: series, ToVersion: uu.ToVersion, ToHash: rollup(hashes),
+		Series: series, ToVersion: uu.ToVersion, ToHash: rollup(hashes), Notes: notes,
 	}, nil
 }
 
@@ -817,30 +826,4 @@ func writeFile(p string, data []byte) (string, error) {
 		return "", err
 	}
 	return p, os.WriteFile(p, data, 0o644)
-}
-
-// mergeFile runs `git merge-file -p` on (ours, base, theirs) and returns the
-// merged bytes (with conflict markers where both sides changed the same lines).
-func mergeFile(ours, base, theirs []byte) ([]byte, error) {
-	dir, err := os.MkdirTemp("", "bx-merge")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(dir)
-	write := func(name string, b []byte) (string, error) {
-		p := filepath.Join(dir, name)
-		return p, os.WriteFile(p, b, 0o644)
-	}
-	op, _ := write("ours", ours)
-	bp, _ := write("base", base)
-	tp, _ := write("theirs", theirs)
-	// confined (D78): "ours" is the installed tile's file
-	outs, err := confine.GitCmd(context.Background(), confine.Cmd{Dir: dir}, "merge-file", "-p", "--diff3", op, bp, tp)
-	// git merge-file exits with the conflict count (>0) — not a real error.
-	if err != nil {
-		if code, ok := confine.ExitCode(err); !ok || code < 0 {
-			return nil, fmt.Errorf("git merge-file: %w", err)
-		}
-	}
-	return []byte(outs), nil
 }

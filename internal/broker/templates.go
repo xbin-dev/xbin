@@ -85,7 +85,7 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		Partition *bool `json:"partition"`
 	}
 	if err := server.DecodeJSON(r, &body); err != nil || body.Source == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {source, path?, owner?}", "/docs/protocol.md")
+		server.WriteError(w, http.StatusBadRequest, "need {source, path?, owner?, partition?}", "/docs/protocol.md")
 		return
 	}
 	// Resolve the source and the effective target FIRST — instantiating
@@ -145,7 +145,8 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		def = workspaceTemplateDefault(srcComp)
 	}
 	opts, skipped := instanceOpts(def, body.Partition)
-	defer b.noteInstantiator(target, p)() // the first auto mode record names who
+	who := b.noteInstantiator(target, p) // the first auto mode record names who
+	defer who.done()
 
 	var (
 		installed   string
@@ -164,6 +165,7 @@ func (b *Broker) apiTemplatesNew(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	who.created() // this request's copy is the one written
 
 	// Seed the instance's repo from the template's served repo BEFORE
 	// EnsureComponentRepos can give it an unrelated fresh root — shared

@@ -157,10 +157,18 @@ Templates and updates never switch a mode:
   merge template/main` can't add `partition`: an upstream change to the
   default touches lines the instance dropped and shows up as a conflict.
 - **`bx builtin update`** (replace, merge or a proposal) keeps each
-  `xbin.json`'s **installed** `partition` — present, absent or its list —
-  and changes nothing else about it. When upstream asks for something
-  else, it prints `partition kept as installed (…; upstream asks …): edit it
-  deliberately to request a switch`.
+  `xbin.json`'s **installed** `partition` — present, absent or its list, in
+  whatever case you wrote the key — and changes nothing else about it.
+  Replace puts your value where your file has it; merge and proposals never
+  take upstream's change to the key, so your line (comment included) merges
+  as it is. After a merge that left conflict markers, a replace reads your
+  side of them; for a manifest that doesn't parse at all it writes the mode
+  xbind last read from the tile, or, when that isn't known either, leaves
+  the file alone and keeps the update offered. When upstream asks for
+  something else, it prints `partition kept as installed (…; upstream asks
+  …): edit it deliberately to request a switch`. A proposal whose only
+  change would be the partition has nothing to propose: the version is
+  recorded instead.
 
 The agent template is to start new instances partitioned, with that
 opt-out, once the agent can run partitioned (**TODO**: not yet — today its
