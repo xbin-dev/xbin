@@ -223,12 +223,73 @@ default:
 | `AuthHint` | the text of an error the agent answered "auth required" (-32000) to (the agent's message, then `the agent isn't signed in — run: <LoginCmd>`); the error still unwraps to the agent's `*acp.Error` |
 | `OnExt` | sees a notification the client does not handle itself — an extension — and says whether it handled it |
 | `InlineBudget` | bytes of images one prompt sends inline (`acp.MaxInlineImagesBytes`; negative: none) |
-| `IDPrefix`, `Attach` | reserved: `Start` refuses them in this version |
+| `IDPrefix` | request ids become strings `"<prefix>-N"` (numbers `1, 2, …`) — give each process that drives the same agent its own prefix |
+| `Attach` | take over a session another process started, from its `SessionState` (below) — no handshake |
+| `AwaitLogin` | an agent that refuses to open a session signed out (-32000) stays up: `Start` still returns the error (status `error` with `login`), and `Authenticate` signs in and opens the session (off: `Start` closes it) |
 
-The codec is exported too — `acp.NewConn(r, w)` (`Call`, `CallCtx`,
-`Notify`, `Reply`, `Serve`), `acp.NewDecoder`, `acp.Encode` and the
-protocol types — for a proxy between a client and an agent, or a scripted
-agent in tests.
+**Steering, signing in, device codes.**
+
+- `c.Steer(ctx, acp.Prompt{…})` gives the running turn a message through
+  the adapters' `_session/steering` (claude-agent-acp, codex-acp: they
+  advertise it as `initialize`'s `_meta.steering.supported`), sent with
+  `idleBehavior: "promptRequired"`. It returns the outcome:
+  `acp.SteerInjected` (taken into the turn; a user `message.delta` with
+  `steered: true` records it), `acp.SteerPromptRequired` (no turn runs —
+  send it with `Prompt`; answered at once without asking the agent when the
+  client has no turn running), or `acp.SteerStartedNewTurn` (the agent
+  started a turn of its own with it — codex-acp does when the turn had just
+  ended; no `turn.end` reports that turn). `acp.ErrSteeringUnsupported`
+  when the agent did not advertise it.
+- `c.AuthMethods()` is how the agent signs in (`AuthMethod` carries `Args`
+  and the adapter's `Meta`: `"api-key"`, `"terminal-auth"`, …);
+  `c.Authenticate(ctx, methodID, meta)` signs it in (`meta` is the method's
+  input, e.g. codex's `{"api-key": {"apiKey": "…"}}`) and clears the
+  signed-out state.
+- **URL questions.** Advertise `Caps.Elicitation.URL` (`&struct{}{}`) and
+  an agent may ask the person to open a URL — codex's device-code sign-in
+  during `Authenticate`: an `elicitation.request` with `mode: "url"`,
+  `url`, `message` (the code) and `elicitationId`. Answer it with
+  `RespondElicitation(eid, "accept", nil, by)` (no content) once the person
+  has it; the agent's `elicitation/complete` then arrives as an
+  `elicitation.resolved` with `action: "complete"`, `by: "agent"`. Without
+  the capability such a request is declined.
+
+**Surviving your own restart** (the agent keeps running — in a sandbox, a
+long-lived exec — while the process driving it hands off to its
+successor):
+
+- Every event the agent's output caused carries `Event.Wire` (never
+  serialized): `Off`, the output offset after the frame that caused it
+  (where a reader resumes to get what follows; counted from `Process.Off`,
+  where your spawner's reader starts), `RPCID` (the agent's request id for a
+  permission or a question; the prompt's id on its echo and `turn.end`), and
+  `Replay` (a `session/load` replaying earlier turns). An event the client
+  caused itself has `Off` 0.
+- `c.State()` is a JSON-serializable `acp.SessionState` (session id,
+  capabilities, modes, options, commands, auth methods, per-call tool
+  status, the turn and the in-flight prompt's request id, the open
+  questions). Store it with the offset of the event you handled, the
+  pending permissions (`perms.List()`, each with its `RPCID()`) and
+  `perms.Rules()`.
+- The successor: `perms.Restore(p, rpcID)` and `perms.SetRules(rules)`,
+  then `acp.NewWith(acp.ClientOptions{IDPrefix: <a new one>, Attach:
+  &state})` and `Start` with a spawner that reattaches to the running agent
+  and reads from the stored offset (`Process.Off`). No handshake is sent;
+  the in-flight prompt's answer still ends its turn (`Conn.Expect`), and a
+  permission or question read again is not filed twice (`Request` is
+  idempotent by request id). The state may be newer than the offset —
+  everything replays idempotently except a prompt that ended meanwhile: if
+  your own record says a prompt is still in flight, set `PromptRPC` and
+  `Turn` from it before attaching.
+
+The codec is exported too — `acp.NewConn(r, w)` / `acp.NewConnWith(r, w,
+acp.ConnOptions{IDPrefix, Offset})` (`Call`, `CallCtx`, `Notify`, `Reply`,
+`Serve`, `Expect` to adopt a call an earlier process sent, `Offset`),
+`acp.NewDecoder` / `NewDecoderAt` (`Offset()`: the bytes consumed through
+the last line read, bad lines included; a reader that lost bytes returns
+`*acp.Gap{Lost}` from `Read` and the decoder counts them, drops the broken
+line and reports `acp.ErrGap`), `acp.Encode` and the protocol types — for a
+proxy between a client and an agent, or a scripted agent in tests.
 
 ### Resources, vault, bus
 

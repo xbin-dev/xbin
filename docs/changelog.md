@@ -12,6 +12,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **`sdk/acp` can steer a running turn, sign an agent in, and hand a
+  live session to another process** ([sdk.md](sdk.md) §Driving a coding
+  agent). Additive; a client with the default options is unchanged (the
+  same frames, numeric ids). `Client.Steer` (the adapters'
+  `_session/steering`: `injected` | `promptRequired` | `startedNewTurn`,
+  `ErrSteeringUnsupported`); `Client.AuthMethods` / `Authenticate`
+  (`AuthMethod` gains `Args` and `Meta`) and `ClientOptions.AwaitLogin`
+  (an agent that refuses the session signed out stays up to be signed in);
+  URL questions with `Caps.Elicitation.URL` (a device-code sign-in:
+  `elicitation.request` `mode: "url"`, `elicitation/complete` →
+  `elicitation.resolved` `action: "complete"`). Taking a session over:
+  `Event.Wire` is filled (the output offset, the request id, the replay
+  flag — never serialized), `Client.State()` → `SessionState` →
+  `ClientOptions.Attach` (no handshake; the in-flight prompt still ends its
+  turn), `ClientOptions.IDPrefix` (string request ids), `Process.Off`,
+  `Permissions.Restore` / `Rules` / `SetRules` (and `Request` is idempotent
+  by request id). Codec: `NewConnWith(r, w, ConnOptions{IDPrefix, Offset})`,
+  `Conn.Expect`, `Conn.Offset`, `NewDecoderAt`, `Decoder.Offset`, and
+  `acp.Gap` / `ErrGap` for a reader that lost bytes. The reserved
+  `IDPrefix` and `Attach` are no longer refused by `Start`.
+
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
   §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).

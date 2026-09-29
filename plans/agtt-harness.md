@@ -1283,3 +1283,35 @@ why this spec picked what it did:
 
 WPs record here, one dated line each, anything they built differently from
 this spec and why.
+
+- 2026-09-30 (A2) `IDPrefix` and `Attach` stay in `ClientOptions` (A1's
+  placement, set with `NewWith`), not `Config`; "`Caps.ElicitURL`" is
+  `Caps.Elicitation.URL` (`&struct{}{}`) and `TerminalAuth` is
+  `Caps.Meta["terminal-auth"]` — A1 made `Caps` the wire
+  `ClientCapabilities`, so there is no separate `ClientCaps`.
+- 2026-09-30 (A2) Added beyond §6.2: `ClientOptions.AwaitLogin` (codex-acp
+  1.13.1 refuses `session/new` signed out, so `authenticate` must be
+  possible before a session exists: `Start` returns the -32000 but leaves
+  the agent up, `Authenticate` then opens the session); `Process.Off`,
+  `ConnOptions.Offset` and `NewDecoderAt` (offsets stay absolute after a
+  reattach); `acp.Gap{Lost}` / `ErrGap` (a pipe's reader returns `*Gap`
+  from `Read` where the ring lost bytes; the decoder counts them, drops the
+  line broken on each side, `Serve` reports it to `OnBad`); `AuthMethod.Args`.
+- 2026-09-30 (A2) `Steer` answers `promptRequired` without asking the agent
+  when the client has no turn running. codex-acp 1.13.1 ignores
+  `idleBehavior` (a steer that lands just after the turn ended starts a
+  detached turn: `startedNewTurn`, and no `turn.end` reports it) and may
+  answer `outcome: "failed"` (returned with an error). `injected` and
+  `startedNewTurn` emit a user `message.delta` with `steered: true`.
+- 2026-09-30 (A2) URL elicitation: an accept emits `elicitation.resolved`
+  (`accept`), the agent's `elicitation/complete` a second one (`action:
+  "complete"`, `by: "agent"`); a `complete` before any answer resolves it
+  and answers the request `cancel`. A url request outside a turn does not
+  set status `waiting_permission`.
+- 2026-09-30 (A2) `Request` (and question filing) is idempotent against
+  requests still **pending** under the same non-empty rpc id, not against
+  answered ones (one `Permissions` per agent process). `State()` is the
+  client's state now and may be newer than the offset an embedder commits:
+  A8 sets `SessionState.PromptRPC`/`Turn` from `harness_sessions.prompt_rpc`
+  / `turn` before attaching when its own record says the prompt is still in
+  flight.
