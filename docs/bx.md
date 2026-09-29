@@ -85,6 +85,10 @@ bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)
 bx chrome [ls] | approve <tile> | revoke <tile>
                                        trusted chrome (admin, D118): tiles whose
                                        xbin.json asks for chrome, and approvals
+bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
+                                       workspace policies for partitioned tiles
+                                       (PD-55): read (anyone signed in), set
+                                       (admin)
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
 bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <user> [level]]
                                        per-tile access entries — exact entries
@@ -296,6 +300,17 @@ only once a workspace admin approves it; until then it runs sandboxed.
 approval (also a removed tile's). Admin credentials (`GET`/`PUT
 /api/xbin/chrome`). Approving a tile trusts every writer of it — its
 terminal users and their coding agents — as much as the shell.
+
+**`bx policies`** — the workspace policies for partitioned tiles (tiles
+where each person has their own data; PD-55), the same two switches as the
+admin console's workspace → policies tab, both off by default:
+`partition-consent` (ask each person before another partitioned tile uses
+their data) and `credential-reset-confirm` (a sign-in link, password or SSO
+email an admin sets for someone who holds partitions works only after they
+confirm, or 24 h after they're notified). `bx policies` prints them (`--json`:
+the `GET /api/xbin/workspace-policies` answer; a person's session or
+terminal, or an admin); `bx policies set <switch> on|off` changes one (admin,
+`PUT`). Neither changes anything for tiles that aren't partitioned.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset
