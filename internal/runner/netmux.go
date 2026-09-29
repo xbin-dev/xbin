@@ -90,8 +90,8 @@ type netPlan struct {
 // provider and its clients. Its relay keeps only stream-slot forwards, each
 // dial checked as its deployment; log is its backend log.
 func (r *Runner) netPlanFor(c *registry.Component, dep string, log io.Writer) netPlan {
-	np := netPlan{fwd: r.ingressFwd(c), dial: r.hostDialFor(c.Path, dep, log)}
-	if c.Deployment != "" {
+	np := netPlan{fwd: r.ingressFwd(c), dial: r.hostDialFor(c.Path, dep, c.UserPartition(), log)}
+	if c.Deployment != "" || c.UserPartition() { // a person's partition too (plans/partitions/03 §A.4)
 		return np
 	}
 	if r.NetRoster != nil {
@@ -125,7 +125,7 @@ func (r *Runner) spawnEgress(c *registry.Component) (pol sandbox.EgressPolicy, w
 	if r.Egress != nil {
 		pol = r.Egress(c)
 	}
-	if c.Deployment == "" {
+	if c.Deployment == "" && !c.UserPartition() { // a person's partition follows the non-primary rule
 		return pol, ""
 	}
 	if r.NetHost != nil && r.NetHost(c) {

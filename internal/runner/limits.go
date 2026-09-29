@@ -10,6 +10,8 @@ package runner
 // deployment whose leaf it is (D127q).
 
 import (
+	"strings"
+
 	"github.com/xbin-dev/xbin/internal/cgroup"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -107,7 +109,11 @@ type LimitHit struct {
 	Deployment string
 	// Leaf is the cgroup leaf's name, the key its counters are tracked by:
 	// util.CompKey(tile) for the flat leaf.
-	Leaf      string
+	Leaf string
+	// Partition: the leaf is a person's partition's (tile-<key>/p-<hash>/,
+	// partitionLeaf) — whose it is stays out of alerts (admins see "a
+	// person's partition"; plans/partitions/03 §A.9).
+	Partition bool
 	Mem, Pids int64
 }
 
@@ -123,9 +129,11 @@ func (r *Runner) AtLimitTile(tile string) []LimitHit {
 		return nil
 	}
 	var hits []LimitHit
+	node := cgroup.TileNode(util.CompKey(tile))
 	for _, l := range cg.TileLeaves(util.CompKey(tile)) {
 		if mem, pids, ok := cg.AtLimit(l.Name); ok {
-			hits = append(hits, LimitHit{Deployment: l.Deployment, Leaf: l.Name, Mem: mem, Pids: pids})
+			rest, nested := strings.CutPrefix(l.Name, node)
+			hits = append(hits, LimitHit{Deployment: l.Deployment, Leaf: l.Name, Partition: nested && strings.HasPrefix(rest, "p-"), Mem: mem, Pids: pids})
 		}
 	}
 	return hits

@@ -159,6 +159,11 @@ func (c *Component) Partitioned() (PartitionSpec, bool) {
 	return c.partition.mode.Recorded, true
 }
 
+// UserPartition reports whether c is a runner's view of one person's
+// partition ("user:<id>"): it spawns with the non-primary network rule and
+// the partition's own data, never the tile's (plans/partitions/03 §A.4).
+func (c *Component) UserPartition() bool { return strings.HasPrefix(c.Partition, "user:") }
+
 // PartitionRecordUnknown reports whether c's recorded mode can't be read
 // (its record is unreadable; c is Invalid): R is unknown, so every refusal
 // that R's user partitions would give applies — fail closed.
@@ -455,6 +460,53 @@ func (r *Registry) settlePartitions(comps map[string]*Component, scopes map[stri
 		c.partition = partitionInfo{mode: mode, asked: ask.Requested, unread: ask.Unread, detail: detail}
 	}
 	r.partScan.logInvalid(invalid)
+	r.partScan.notify(r, comps)
+}
+
+// OnPartitionChange adds f to the hooks every Rescan calls — under the
+// scan's serialization, before it publishes the scan and with no registry
+// lock held, in the order they were added — for each tile whose settled
+// state or recorded mode differs from the published component's, and for
+// each tile the scan drops that had one (new is then the zero mode). Boot
+// adds the runner's PartitionsChanged first, so instances a new state
+// doesn't cover stop, and their tokens are revoked, before any reader sees
+// that state (01 §6, 02 §2); other planes add theirs after it, never in
+// its place. f must not rescan.
+func (r *Registry) OnPartitionChange(f func(c *Component, old, new PartitionMode)) {
+	defer r.partScan.serialize()()
+	r.partScan.changed = append(r.partScan.changed, f)
+}
+
+// notify calls the change hooks for the tiles whose settled partition state
+// moved from the published scan to comps. Called under the scan lock.
+func (s *partitionScan) notify(r *Registry, comps map[string]*Component) {
+	if len(s.changed) == 0 {
+		return
+	}
+	call := func(c *Component, old, new PartitionMode) {
+		for _, f := range s.changed {
+			f(c, old, new)
+		}
+	}
+	r.mu.RLock()
+	prev := r.components
+	r.mu.RUnlock()
+	moved := func(a, b PartitionMode) bool { return a.State != b.State || a.Recorded != b.Recorded }
+	for _, rel := range slices.Sorted(maps.Keys(comps)) {
+		c := comps[rel]
+		var old PartitionMode
+		if p := prev[rel]; p != nil {
+			old = p.partition.mode
+		}
+		if moved(old, c.partition.mode) {
+			call(c, old, c.partition.mode)
+		}
+	}
+	for _, rel := range slices.Sorted(maps.Keys(prev)) {
+		if p := prev[rel]; comps[rel] == nil && moved(p.partition.mode, PartitionMode{}) {
+			call(p, p.partition.mode, PartitionMode{})
+		}
+	}
 }
 
 // partitionMode asks the mode store about one tile. Without one (a registry
@@ -479,8 +531,9 @@ func (r *Registry) partitionMode(ask PartitionAsk) PartitionMode {
 // older scan must never record — or publish — after a newer one. It also
 // remembers the invalid requests it logged.
 type partitionScan struct {
-	mu     sync.Mutex
-	logged map[string]string // tile → why its request is invalid, as last logged
+	mu      sync.Mutex
+	logged  map[string]string                            // tile → why its request is invalid, as last logged
+	changed []func(c *Component, old, new PartitionMode) // OnPartitionChange's hooks, in order
 }
 
 // serialize takes the scan lock and answers its release.

@@ -208,7 +208,7 @@ func (st *State) deploymentStats(tile string) (split map[string]bool, byGen map[
 	backends := st.Sbx.List(sbx.Filter{Tile: tile, Kind: sbx.Backend})
 	split = map[string]bool{}
 	for _, e := range backends {
-		if e.Deployment != "" {
+		if e.Deployment != "" || e.Partition != "" { // a person's partition's leaf is its own too
 			split[e.Tile] = true
 		}
 	}
@@ -225,9 +225,13 @@ func (st *State) deploymentStats(tile string) (split map[string]bool, byGen map[
 	now := time.Now()
 	scopes := map[string]string{}
 	for _, e := range gens {
-		scopes[genStatsKey(e)] = "tile"
-		if e.Deployment != "" {
+		switch {
+		case e.Partition != "":
+			scopes[genStatsKey(e)] = "partition"
+		case e.Deployment != "":
 			scopes[genStatsKey(e)] = "deployment"
+		default:
+			scopes[genStatsKey(e)] = "tile"
 		}
 	}
 	for k, u := range st.Run.GenUsage(gens, genStatsKey) {
@@ -238,7 +242,9 @@ func (st *State) deploymentStats(tile string) (split map[string]bool, byGen map[
 
 // genStatsKey groups a backend generation with the others of its deployment
 // that share its leaf.
-func genStatsKey(e sbx.Entry) string { return e.Tile + "\x00" + e.Deployment + "\x00" + e.Leaf }
+func genStatsKey(e sbx.Entry) string {
+	return e.Tile + "\x00" + e.Deployment + "\x00" + e.Partition + "\x00" + e.Leaf
+}
 
 // genCPU keeps each deployment stats group's last CPU reading: its rate is
 // taken between two polls (the tab polls every intervalSec), and a poll

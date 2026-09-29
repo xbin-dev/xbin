@@ -493,7 +493,8 @@ func (st *State) stepBroker() error {
 // installed). Sessions with a leaf of their own — a VM's, a restricted
 // user's — are watched too. Every leaf of a tile counts (runner.AtLimitTile):
 // the flat one, or one per deployment; a non-primary deployment's hit names
-// it and reaches admins only (D127h).
+// it and reaches admins only (D127h), as does a person's partition's, which
+// names neither the person nor the partition (plans/partitions/03 §A.9).
 func (st *State) stepLimitAlerts() error {
 	run, reg, brk, dp := st.Run, st.Reg, st.Broker, st.Deployments
 	if run.Cgroup != nil && run.Cgroup.Enabled() {
@@ -504,7 +505,10 @@ func (st *State) stepLimitAlerts() error {
 			for _, c := range reg.Components() {
 				for _, h := range run.AtLimitTile(c.Path) {
 					who, tile := c.Path, c.Path
-					if h.Deployment != "" && h.Deployment != dp.Primary(c.Path) {
+					switch {
+					case h.Partition:
+						who, tile = "a person's partition of "+c.Path, ""
+					case h.Deployment != "" && h.Deployment != dp.Primary(c.Path):
 						who, tile = c.Path+"'s deployment "+h.Deployment, ""
 					}
 					if h.Mem > lastMem[h.Leaf] {
@@ -616,6 +620,7 @@ func (st *State) stepProxy() error {
 			(dep != st.Deployments.Primary(tile) || brk.PartitionHoldReason(tile) == "")
 	}
 	brk.SetPartitionStop(func(tile string) { run.StopDeployment(tile, st.Deployments.Primary(tile)) })
+	st.wirePartitionRunner() // people's partitions: caps and mode transitions (partitionrunner.go)
 	brk.Version = st.Cfg.Version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 	st.Proxy = px
