@@ -11,7 +11,7 @@
 import { html, nothing, repeat, unsafeHTML, classMap, directive, Directive, noChange } from '/vendor/lit-all.min.js';
 import { md, mdInto } from './chat-md.js';
 import { ICON, argsShown } from './model/tool-heads.js';
-import { grantAsk } from './model/rules.js';
+import { grantAsk, compactionWords } from './model/rules.js';
 
 // mdOf(b, slot, text): the HTML of a block's markdown, parsed once per block
 // object (a changed message is a new block: parsed again).
@@ -185,7 +185,7 @@ function stepTpl(b) {
   let g = '•', txt = '';
   switch (b.kind) {
     case 'error': g = '⚠'; txt = d.error || d.text || ''; break;
-    case 'compaction': g = '🗜'; txt = `compacted ${d.messages || 0} message(s) into the summary`; break;
+    case 'compaction': g = '🗜'; txt = compactionWords(d); break;
     case 'yield': g = '⏸'; txt = `slept ${d.seconds ?? ''}s`; break;
     case 'finish': g = '✓'; txt = d.result ? `finished: ${d.result}` : 'finished'; break;
     case 'state_changed': g = '✳'; txt = `state changed${d.summary ? ': ' + d.summary : ''}`; break;

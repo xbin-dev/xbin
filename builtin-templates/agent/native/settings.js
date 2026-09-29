@@ -70,7 +70,7 @@ function configTpl(s) {
     </section>
     <section title="Base system prompt"><field kind="multiline" value=${f.system} @input=${(e) => { f.system = e.value; }}/></section>
     <section title="Limits">
-      <field label="Token budget" kind="number" value=${f.tokenBudget} @input=${(e) => { f.tokenBudget = e.value; }}/>
+      <field label="Token budget (0 = from the model)" kind="number" value=${f.tokenBudget} @input=${(e) => { f.tokenBudget = e.value; }}/>
       <field label="Max iterations per drive" kind="number" value=${f.maxIters} @input=${(e) => { f.maxIters = e.value; }}/>
       <field label="Tool timeout (s)" kind="number" value=${f.toolTimeout} @input=${(e) => { f.toolTimeout = e.value; }}/>
     </section>

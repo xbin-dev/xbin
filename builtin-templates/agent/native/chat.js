@@ -170,7 +170,7 @@ export function openChild(id) {
 
 const STEP = {
   error: ['⚠', 'danger', (d) => d.error || d.text || ''],
-  compaction: ['🗜', 'muted', (d) => `compacted ${d.messages || 0} message(s) into the summary`],
+  compaction: ['🗜', 'muted', (d) => ctx.app.rules.compactionWords(d)],
   yield: ['⏸', 'muted', (d) => `slept ${d.seconds ?? ''}s`],
   finish: ['✓', 'ok', (d) => (d.result ? `finished: ${d.result}` : 'finished')],
   state_changed: ['✳', 'accent', (d) => `state changed${d.summary ? ': ' + d.summary : ''}`],
@@ -362,6 +362,7 @@ function runMenu(v, t) {
     ${t.own ? html`<button icon="pencil" @tap=${() => { ui.rename = { id: t.shareRun.id, title: t.shareRun.title || '' }; ctx.paint(); }}>Rename…</button>` : nothing}
     ${t.compact ? html`<button icon="archive" @tap=${control('compact')}>Compact</button>
       <button icon="sparkles" @tap=${control('learn')}>Learn skill</button>` : nothing}
+    ${t.task ? html`<button icon="pin" @tap=${() => push({ kind: 'task', run: id })}>${t.task.more ? `Task (+${t.task.more})` : 'Task'}</button>` : nothing}
     <button icon="database" @tap=${() => push({ kind: 'memory', run: id })}>${`Memory (${t.memory})`}</button>
     <button icon="folder" @tap=${() => push({ kind: 'files', run: id })}>${`Files (${t.files})`}</button>
     ${sandboxMenuTpl(v)}

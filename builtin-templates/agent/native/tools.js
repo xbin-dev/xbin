@@ -40,7 +40,7 @@ function refreshView() {
 }
 const stale = (kind, run) => { for (const s of ui.stack) if (s.kind === kind && s.run === run) s.loaded = false; };
 
-const SCREENS = { memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl };
+const SCREENS = { task: taskTpl, memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl };
 
 // toolScreens: ui.stack as nav screens (native.js puts them over the chat or home).
 export function toolScreens() {
@@ -49,6 +49,23 @@ export function toolScreens() {
     const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
     return { key: `tool:${s.id}`, entry: s, tpl: () => (tpl ? tpl(s) : html`<screen title="?"/>`), leave: () => { ui.stack.length = Math.min(ui.stack.length, i); } };
   });
+}
+
+// --- the task (D133) ------------------------------------------------------------------------
+
+// taskTpl: every request the conversation was given, verbatim, oldest first —
+// its task ledger, read-only (the agent sees it pinned at the top of its
+// context). The web unfolds the same list under its top bar.
+function taskTpl(s) {
+  load(s, async () => { s.asks = await actions.asks(s.run); });
+  const head = (a, i) => `${i ? 'Then' : 'The request'} · #${a.seq} · ${ctx.app.rules.askFrom(a)}`;
+  return html`<screen title="Task" subtitle=${`run ${s.run}`} style="form" refreshable @refresh=${reload(s)}>
+    ${errTpl(s)}
+    ${!s.asks ? html`<section><progress label="loading…"/></section>` : s.asks.length ? repeat(s.asks, (a) => a.id, (a, i) => html`
+      <section title=${head(a, i)} footer=${new Date(a.at * 1000).toLocaleString() + (a.live ? '' : ' · compacted — the agent sees it pinned')}>
+        <text selectable>${a.text}</text>
+      </section>`) : html`<section><empty title="no requests recorded"/></section>`}
+  </screen>`;
 }
 
 // --- memory ------------------------------------------------------------------------------

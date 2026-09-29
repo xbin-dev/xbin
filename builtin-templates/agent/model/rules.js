@@ -41,6 +41,8 @@ export function topBar(v, row, me) {
     tree: !!(r.parentId || (v.links || []).length || v.linkCount), // linkCount: a paged view's total
     // the model it was switched to (a pick); '' = the agent's default
     model: modelName((v.config && v.config.pick) || ''),
+    // its task, pinned (D133): pinnedTask below; null when it has none
+    task: pinnedTask(v),
     // sharing is per conversation: a subagent shares its root
     shareRun: { id: r.rootId || r.id, title: r.title },
     share: shareStatus(v, row),
@@ -48,6 +50,46 @@ export function topBar(v, row, me) {
     grants: grantChips(v, me),
     del: own,
   };
+}
+
+// --- the pinned task (D133) -------------------------------------------------------
+
+// pinnedTask is the open conversation's task as its header shows it: the
+// request that started it, verbatim, folded to one line, and how many came
+// after (the whole ledger: actions.asks). null when there is none — a
+// watcher's (its job is its instructions), or an older backend's.
+export function pinnedTask(v) {
+  const t = v && v.run && v.run.task;
+  if (!t || !t.first) return null;
+  const text = t.first.text || '';
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return {
+    line: flat.length > 160 ? flat.slice(0, 159) + '…' : flat,
+    text, cut: !!t.first.cut, from: askFrom(t.first),
+    more: Math.max(0, (t.count || 1) - 1),
+    count: t.count || 1,
+  };
+}
+
+// askFrom says who a request came from: a person, the parent run, an
+// automation (schedule, trigger, channel), or the Learn skill button.
+export function askFrom(a) {
+  switch (a.source) {
+    case 'human': case '': case undefined: return a.who || 'a person';
+    case 'parent': return `its parent ${a.who || ''}`.trim();
+    case 'learn': return 'Learn skill';
+  }
+  return a.who ? `${a.source} ${a.who}` : a.source;
+}
+
+// compactionWords is a compaction step's line (D133): what was summarised,
+// what was hidden behind stubs.
+export function compactionWords(d) {
+  d = d || {};
+  const parts = [];
+  if (d.messages) parts.push(`compacted ${d.messages} message(s) into the summary`);
+  if (d.masked) parts.push(`hid ${d.masked} old tool output(s) — the agent can restore them`);
+  return parts.join('; ') || `compacted ${d.messages || 0} message(s) into the summary`;
 }
 
 // --- grants (D111) ----------------------------------------------------------------

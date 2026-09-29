@@ -59,6 +59,10 @@ export const returnedText = (back) => (back || []).map((q) => q.text).filter(Boo
 export const control = (runId, action) => api(`/runs/${runId}/${action}`, { method: 'POST' });
 export const deleteRun = (runId) => api(`/runs/${runId}`, { method: 'DELETE' });
 
+// asks is a run's task ledger (D133): every request it was given, verbatim,
+// oldest first — read-only ([{seq, source, who, text, at, live}]).
+export const asks = (runId) => api(`/runs/${runId}/asks`).then((r) => (r && r.asks) || []);
+
 // The workflow tree of a run's root, and stopping all of it.
 export const tree = (rootId) => api(`/runs/${rootId}/tree`);
 export const cancelTree = (rootId) => api(`/runs/${rootId}/cancel`, jbody({ scope: 'subtree', reason: 'stopped from the tile' }, 'POST'));

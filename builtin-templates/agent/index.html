@@ -185,6 +185,14 @@
     .top { flex: none; padding: 8px 12px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .top .title { font-weight: 600; flex: 1; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .timeline { overflow: auto; flex: 1; padding: 10px 12px; min-height: 0; }
+    /* the pinned task (D133, agent.js taskTpl): a line under the controls, unfolding to every request */
+    .top .taskpin { flex-basis: 100%; display: flex; gap: 6px; align-items: baseline; min-width: 0; font-size: 12px; }
+    .top .taskpin .tasktoggle { flex: none; align-self: flex-start; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: var(--bx-muted); }
+    .top .taskpin .taskline { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .top .taskpin.open { flex-direction: column; align-items: stretch; }
+    .top .taskpin .asks { max-height: 40vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+    .top .taskpin .askhead { color: var(--bx-muted); font-size: 11px; }
+    .top .taskpin .asktext { white-space: pre-wrap; overflow-wrap: anywhere; }
     .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; align-items: flex-end; }
     .composer textarea { flex: 1; resize: none; min-height: 30px; max-height: 40vh; line-height: 1.4; padding: 5px 8px; }
     .composer .btn { height: 30px; }

@@ -107,6 +107,27 @@ await push({ type: 'run', run: 2, root: 1, data: { id: 2, title: 'research', sta
 await page.waitForTimeout(100);
 ok('a subagent never appears in the sidebar', (await page.$$('#runs .run')).length === 1);
 
+// The pinned task (D133): the first request on a line under the top bar's
+// controls; unfolded, the whole ledger (GET /runs/1/asks) — read-only.
+await page.evaluate(() => window.__route('GET', /\/runs\/1\/asks$/, () => window.__json({ asks: [
+  { id: 1, seq: 1, source: 'human', who: 'alice', text: 'plan it\nwith the whole team', at: 1700000000, live: false },
+  { id: 2, seq: 9, source: 'schedule', who: 'nudge', text: 'check the budget', at: 1700000100, live: true }] })));
+await push({ type: 'run', run: 1, root: 1, data: { id: 1, title: 'plan the quarter', status: 'running', parentId: 0, rootId: 1,
+  task: { count: 2, first: { seq: 1, source: 'human', who: 'alice', text: 'plan it\nwith the whole team' },
+    latest: { seq: 9, source: 'schedule', who: 'nudge', text: 'check the budget' } } } });
+await page.waitForSelector('.taskpin .taskline');
+ok('the task is pinned under the top bar, on one line', (await page.textContent('.taskpin .taskline')) === 'plan it with the whole team'
+  && (await page.textContent('.taskpin .tasktoggle')).includes('+1'), await page.textContent('.taskpin'));
+await page.click('.taskpin .tasktoggle');
+await page.waitForSelector('.taskpin .taskreq:nth-child(2)');
+const asks = await page.$$eval('.taskpin .taskreq', (els) => els.map((e) => e.textContent));
+ok('unfolded: every request, verbatim, who sent it, and what was compacted', asks.length === 2 && asks[0].includes('with the whole team')
+  && asks[0].includes('compacted') && asks[1].includes('schedule nudge') && !asks[1].includes('compacted'), asks.join(' | '));
+ok('…with nothing to edit', !(await page.$('.taskpin input, .taskpin textarea, .taskpin [contenteditable]')));
+await page.click('.taskpin .tasktoggle');
+await page.waitForSelector('.taskpin .taskline');
+ok('…and it folds again', true);
+
 // A message while the run works is queued, removable until delivered.
 await page.fill('#msg', 'and also check Q4');
 await page.press('#msg', 'Enter');

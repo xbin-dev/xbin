@@ -190,7 +190,33 @@ function topTpl(v) {
       title=${t.share.title}>${t.share.icon} ${t.share.label}</button>
     ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
       ? html`<button class="linkbtn" title="stop it now" @click=${() => session.revokeGrant(g.run, g.cap).catch((e) => alert(e.message))}>revoke</button>` : nothing}</span>`)}
-    ${t.del ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}`;
+    ${t.del ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}
+    ${taskTpl(v)}`;
+}
+
+// The pinned task (D133): the request that started the conversation, folded
+// to a line under the controls; unfolded, every request it was given — the
+// task ledger (GET /runs/{id}/asks), read-only, as the agent sees it pinned.
+let taskOpen = 0;    // the run whose task is unfolded
+let taskAsks = null; // {run, count, list, err}: its ledger, read when unfolded
+function taskTpl(v) {
+  const p = rules.pinnedTask(v);
+  if (!p) return nothing;
+  const id = v.run.id, open = taskOpen === id;
+  if (open && !(taskAsks && taskAsks.run === id && taskAsks.count === p.count)) {
+    const mine = taskAsks = { run: id, count: p.count, list: null, err: '' };
+    actions.asks(id).then((list) => { mine.list = list; }).catch((e) => { mine.err = e.message; }).finally(() => paint());
+  }
+  const toggle = () => { taskOpen = open ? 0 : id; paint(); };
+  return html`<div class="taskpin ${open ? 'open' : ''}">
+    <button class="tasktoggle" @click=${toggle} title=${open ? 'fold the task'
+      : 'the task, pinned: every request this conversation was given, verbatim — the agent always sees them'}>📌 Task${p.more ? ` (+${p.more})` : ''} ${open ? '▾' : '▸'}</button>
+    ${open ? html`<div class="asks">${taskAsks.err ? html`<span class="err">${taskAsks.err}</span>`
+      : !taskAsks.list ? html`<span class="muted">loading…</span>`
+      : taskAsks.list.map((a) => html`<div class="taskreq"><div class="askhead">#${a.seq} · ${rules.askFrom(a)} · ${new Date(a.at * 1000).toLocaleString()}${a.live ? '' : ' · compacted (the agent sees it pinned)'}</div>
+        <div class="asktext">${a.text}</div></div>`)}</div>`
+    : html`<span class="taskline" title=${p.text}>${p.line}</span>`}
+  </div>`;
 }
 
 // paint draws everything that depends on the session. lit patches only what
@@ -753,7 +779,7 @@ async function tabConfig(bd) {
     </div>
     <div class="sec"><h4>Base system prompt</h4><textarea id="cf-system" rows="5">${esc(c.system || '')}</textarea></div>
     <div class="sec"><h4>Limits</h4><div class="grid4">
-      <div class="field"><label>Token budget</label><input id="cf-budget" type="number" value="${num(c.tokenBudget)}"></div>
+      <div class="field"><label title="the prompt size that starts compaction; 0 (or the old default 12000) = 60% of the model's context window, at least 32000">Token budget (0 = from the model)</label><input id="cf-budget" type="number" value="${num(c.tokenBudget)}"></div>
       <div class="field"><label>Max iters / drive</label><input id="cf-iters" type="number" value="${num(c.maxIters)}"></div>
       <div class="field"><label>Tool timeout (s)</label><input id="cf-timeout" type="number" value="${num(c.toolTimeout)}"></div>
     </div></div>

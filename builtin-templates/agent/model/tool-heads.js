@@ -11,7 +11,7 @@ const FAMILY = {
   file_write: 'file', file_read: 'file', file_edit: 'file', file_list: 'file', file_view: 'file', render_html: 'file',
   file_info: 'file', file_diff: 'file',
   js_eval: 'code', js_run: 'code', js_reset: 'code',
-  memory_set: 'mem', memory_get: 'mem', recall: 'mem', note: 'note',
+  memory_set: 'mem', memory_get: 'mem', memory_delete: 'mem', recall: 'mem', message_get: 'mem', note: 'note',
   skills_list: 'skill', skill_view: 'skill', skill_manage: 'skill',
   schedule: 'time', unschedule: 'time', yield: 'time', schedules_list: 'time', schedule_inspect: 'time',
   threads_list: 'thread', thread_inspect: 'thread',
@@ -80,7 +80,9 @@ function reading(name, a) {
     case 'js_reset': return 'Reset the JavaScript sandbox';
     case 'memory_set': return `Remember ${a.key || ''}`.trim();
     case 'memory_get': return `Recall memory ${a.key || ''}`.trim();
-    case 'recall': return `Search history: ${one(a.query, 60)}`;
+    case 'memory_delete': return `Forget ${a.key || ''}`.trim();
+    case 'recall': return `Search history: ${one(a.query, 60)}${a.order === 'oldest' ? ' (oldest first)' : ''}`;
+    case 'message_get': return `Reread message #${a.seq ?? '?'}`;
     case 'note': return `Note: ${one(a.text, 80)}`;
     case 'state_changed': return `Changed: ${one(a.summary, 80)}`;
     case 'skills_list': return 'List skills';
