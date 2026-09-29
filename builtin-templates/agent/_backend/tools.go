@@ -49,7 +49,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	askUser := depth == 0
 	specs := []toolSpec{
 		{Type: "function", Function: funcDef{
-			Name: "memory_set", Description: "Save one of your notes for this conversation — always shown to you under # Your notes, and it survives compaction. For facts learned, decisions and a running plan; not for the task, which is already pinned verbatim under # Your task (don't restate or reinterpret it). At most 8000 characters per note; setting a key again replaces it.",
+			Name: "memory_set", Description: "Save a note for this conversation (at most 8000 characters) — always shown to you under # Your notes and kept through compaction; not for the task, which is pinned verbatim under # Your task. For facts learned, decisions and a running plan (don't restate or reinterpret the task); setting a key again replaces it.",
 			Parameters: obj([]string{"key", "value"}, map[string]any{"key": strProp("short note name"), "value": strProp("the note")}),
 		}},
 		{Type: "function", Function: funcDef{
@@ -61,7 +61,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"key"}, map[string]any{"key": strProp("note name")}),
 		}},
 		{Type: "function", Function: funcDef{
-			Name: "message_get", Description: "Read one message of THIS conversation in full by its #number — including turns compacted out of your context and tool outputs shown to you as stubs. Long ones come in 12000-character pages (offset).",
+			Name: "message_get", Description: "Read one message of THIS conversation in full by its #number — compacted turns and tool outputs shown as stubs too — 12000 characters per call (offset reads on).",
 			Parameters: obj([]string{"seq"}, map[string]any{
 				"seq":    map[string]any{"type": "integer", "description": "the message's #number (from a stub, recall, or # Your task)"},
 				"offset": map[string]any{"type": "integer", "description": "character offset to start from (default 0)"},
@@ -86,7 +86,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 	}
 	if cfg.feature("recall") {
 		specs = append(specs, toolSpec{Type: "function", Function: funcDef{
-			Name: "recall", Description: "Full-text search of THIS conversation's whole history — turns compacted out of your context, tool outputs hidden as stubs, and earlier summaries — ranked by relevance (bm25). Returns up to 8 hits as short excerpts with their #numbers; message_get reads one in full.",
+			Name: "recall", Description: "Search THIS conversation's whole history by words — turns compacted out of your context, tool outputs hidden as stubs, earlier summaries — for at most 20 short excerpts (8 by default), most relevant first. Each hit has its #number, and message_get reads one in full; order:oldest finds the first request.",
 			Parameters: obj([]string{"query"}, map[string]any{
 				"query": strProp("search words (plain words, stemmed)"),
 				"match": map[string]any{"type": "string", "enum": []string{"all", "any"}, "description": "all (default): every word must match; any: at least one"},

@@ -650,3 +650,24 @@ func TestReminderOnBothWires(t *testing.T) {
 		t.Fatalf("after an assistant message: %+v", after)
 	}
 }
+
+// The first sentences of the notes and history tools (D133), pinned like
+// the sandbox tools' (tooldesc_test.go): purpose, scope and limit first.
+func TestTaskToolsFirstSentences(t *testing.T) {
+	want := map[string]string{
+		"memory_set":    "Save a note for this conversation (at most 8000 characters) — always shown to you under # Your notes and kept through compaction; not for the task, which is pinned verbatim under # Your task.",
+		"memory_get":    "Read one of your notes by key (they are all shown under # Your notes already).",
+		"memory_delete": "Delete one of your notes by key — for one that is done or no longer true.",
+		"message_get":   "Read one message of THIS conversation in full by its #number — compacted turns and tool outputs shown as stubs too — 12000 characters per call (offset reads on).",
+		"recall":        "Search THIS conversation's whole history by words — turns compacted out of your context, tool outputs hidden as stubs, earlier summaries — for at most 20 short excerpts (8 by default), most relevant first.",
+	}
+	got := map[string]string{}
+	for _, s := range toolSpecs(defaultConfig(), 0, nil) {
+		got[s.Function.Name] = s.Function.Description
+	}
+	for name, w := range want {
+		if f := firstSentence(got[name]); f != w {
+			t.Errorf("%s's first sentence changed:\n got: %s\nwant: %s", name, f, w)
+		}
+	}
+}

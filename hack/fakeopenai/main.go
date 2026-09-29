@@ -113,13 +113,15 @@ type reqRec struct {
 	Purpose  string `json:"purpose"`  // turn | compact | title
 }
 
-// Where the agent's task reminder starts (the agent's asks.go).
-const reminderOpen = "\n\n<task-reminder>"
+// Where the agent's task reminder starts (the agent's asks.go): after two
+// newlines in a text, or as a parts array's last text part (which
+// contentText joins on without a separator).
+const reminderOpen = "<task-reminder>"
 
 // cutReminder splits a message's text from the task reminder appended to it.
 func cutReminder(s string) (text, reminder string) {
 	if i := strings.Index(s, reminderOpen); i >= 0 {
-		return s[:i], strings.TrimSpace(s[i:])
+		return strings.TrimRight(s[:i], "\n"), strings.TrimSpace(s[i:])
 	}
 	return s, ""
 }
