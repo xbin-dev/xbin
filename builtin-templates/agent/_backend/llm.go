@@ -120,6 +120,18 @@ type Config struct {
 	// it binds or works in is marked too (sandbox_access.go: the mark spreads
 	// within a conversation). Kept on the root, never cleared.
 	HeldInternal bool `json:"heldInternal,omitempty"`
+
+	// Engine is who answers the run: "" (the agent's own loop) or "harness"
+	// (a coding agent over ACP in a sandbox; Harness says which). Fixed for
+	// the run's life, like runs.engine; the global defaults never hold
+	// either (PUT /config). harness_store.go.
+	Engine  string         `json:"engine,omitempty"`
+	Harness *HarnessConfig `json:"harness,omitempty"`
+	// HarnessIdleMin: a coding agent with no turn is stopped after this many
+	// minutes (nil = 15; 0 = never). MaxHarness: coding agents running at
+	// once per conversation tree (0 = 3). Tile-wide, from the global config.
+	HarnessIdleMin *int `json:"harnessIdleMin,omitempty"`
+	MaxHarness     int  `json:"maxHarness,omitempty"`
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.

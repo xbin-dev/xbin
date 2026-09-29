@@ -380,6 +380,7 @@ func runSummary(r *Run) map[string]any {
 		"created": r.Created, "updated": r.Updated, "pendingState": parsePending(r.Pending),
 		"owner": r.Owner, "visibility": r.Visibility, "teamRole": r.TeamRole, "origin": r.Origin,
 		"originId": r.OriginID, "sessionKey": r.SessionKey, "titleSrc": r.TitleSrc, "activityMs": r.ActivityMs,
+		"engine": r.Engine,
 	}
 }
 

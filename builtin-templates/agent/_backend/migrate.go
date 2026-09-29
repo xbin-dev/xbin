@@ -48,6 +48,11 @@ func (d *DB) migrate() error {
 	} {
 		_, _ = d.q.Exec(q)
 	}
+	// Coding agents (harness_store.go): runs.engine and the harness tables.
+	// Before anything below reads runs: runCols names runs.engine.
+	if err := d.addHarnessSchema(); err != nil {
+		return err
+	}
 	// D133: the task ledger, summary history, observation masking (asks.go).
 	// Before anything below reads messages: msgCols names messages.masked.
 	if err := d.addAskSchema(); err != nil {

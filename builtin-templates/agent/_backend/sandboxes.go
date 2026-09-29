@@ -105,6 +105,20 @@ type sbxImage struct {
 	Title   string   `json:"title,omitempty"`
 	Default bool     `json:"default,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
+	// Harnesses are the coding agents the manager says the image has
+	// (harness_catalog.go); nil on every image of a manager that predates
+	// the field — unknown, not none.
+	Harnesses []sbxHarness `json:"harnesses,omitempty"`
+}
+
+// sbxHarness is one of hello.images[].harnesses: a coding agent speaking
+// ACP on stdio. A catalog id needs nothing else (the sdk's catalog has its
+// title, argv and login); any other needs argv.
+type sbxHarness struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title,omitempty"`
+	Argv  []string `json:"argv,omitempty"`
+	Login string   `json:"login,omitempty"`
 }
 
 type sbxSize struct {
