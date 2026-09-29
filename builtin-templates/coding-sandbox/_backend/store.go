@@ -53,18 +53,26 @@ type record struct {
 	Plan *createPlan `json:"plan,omitempty"`
 }
 
-// owner is the contract's owner: {user, via, asserted}.
+// owner is the contract's owner: {user, via, partitionId?, partition?,
+// asserted}. PartitionID is the user partition of a partitioned consumer the
+// sandbox is homed in (Partition its "user:<id>", for display): absent for
+// the consumer's non-personal identity — every sandbox from before
+// partitions, and a partitioned consumer's global instance's.
 type owner struct {
-	User     string `json:"user"`
-	Via      string `json:"via"`
-	Asserted bool   `json:"asserted"`
+	User        string `json:"user"`
+	Via         string `json:"via"`
+	PartitionID string `json:"partitionId,omitempty"`
+	Partition   string `json:"partition,omitempty"`
+	Asserted    bool   `json:"asserted"`
 }
 
-// share is a sandbox shared with another consumer: all the people it serves
-// ("*") or a list.
+// share is a sandbox shared with another consumer — or one user partition
+// of it (PartitionID; "" is its non-personal identity): all the people it
+// serves ("*") or a list.
 type share struct {
-	Consumer string `json:"consumer"`
-	Users    users  `json:"users"`
+	Consumer    string `json:"consumer"`
+	PartitionID string `json:"partitionId,omitempty"`
+	Users       users  `json:"users"`
 }
 
 // users is a share's people: "*" or a list of user ids.

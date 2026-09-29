@@ -3,11 +3,14 @@
 // config (backend, images, sizes, quotas, layout), lifecycle and deletion,
 // image builds. Operators are the tile's owner and the people with write
 // access to it. Nothing here reads or writes a sandbox's contents — no
-// commands, no files: those go through a consumer's partition only.
+// commands, no files: those go through a consumer's partition only. A
+// sandbox homed in a partitioned consumer's user partition shows neither its
+// name nor its labels here (opRedact).
 package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -128,12 +131,18 @@ func (m *Manager) opState(w http.ResponseWriter, r *http.Request) {
 	}
 	known := map[string]bool{}
 	views := []opView{}
+	viewer, seq := callerOf(r), map[string]int{} // seq: each user partition's sandboxes so far (recs are oldest first)
 	for _, rec := range recs {
 		known[rec.Runtime] = true
 		in := byName[rec.Runtime]
-		v := opView{sandboxView: m.view(rec, in, caller{from: rec.Owner.Via}, nil), Consumer: rec.Owner.Via, Runtime: rec.Runtime}
+		v := opView{sandboxView: m.view(rec, in, homeOf(rec), nil), Consumer: rec.Owner.Via, Runtime: rec.Runtime}
 		if in != nil {
 			v.Mode, v.DiskBytes, v.ExecsRunning, v.Base = in.Mode, in.DiskBytes, in.ExecsRunning, in.Base
+		}
+		if rec.Owner.PartitionID != "" {
+			k := homeOf(rec).key()
+			seq[k]++
+			opRedact(&v.sandboxView, rec, seq[k], viewer)
 		}
 		views = append(views, v)
 	}
@@ -389,9 +398,47 @@ func (m *Manager) opAnswer(w http.ResponseWriter, r *http.Request, id string, in
 			return
 		}
 	}
-	v := opView{sandboxView: m.view(*rec, in, caller{from: rec.Owner.Via}, nil), Consumer: rec.Owner.Via, Runtime: rec.Runtime}
+	v := opView{sandboxView: m.view(*rec, in, homeOf(*rec), nil), Consumer: rec.Owner.Via, Runtime: rec.Runtime}
 	if in != nil {
 		v.Mode, v.DiskBytes, v.ExecsRunning, v.Base = in.Mode, in.DiskBytes, in.ExecsRunning, in.Base
 	}
+	if rec.Owner.PartitionID != "" {
+		opRedact(&v.sandboxView, *rec, m.partitionSeq(*rec), callerOf(r))
+	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+// homeOf is the caller rec's home consumer is: its consumer and partition.
+func homeOf(rec record) caller { return caller{from: rec.Owner.Via, partID: rec.Owner.PartitionID} }
+
+// opRedact hides from operators what a sandbox homed in a user partition
+// carries of its consumer's content (S19): its name — a model may have
+// chosen it — shows as <consumer>/<partition id, first 8> #<n>, n its place
+// among that partition's sandboxes (oldest first), and its labels as none.
+// Unless the viewer may use it as a consumer (it is shared with them): then
+// they see it as they would there.
+func opRedact(v *sandboxView, rec record, n int, viewer caller) {
+	if rec.Owner.PartitionID == "" || rec.visible(viewer) && rec.personOK(viewer) {
+		return
+	}
+	id := rec.Owner.PartitionID
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	v.Name, v.Labels = fmt.Sprintf("%s/%s #%d", rec.Owner.Via, id, n), map[string]string{}
+}
+
+// partitionSeq is rec's place among its user partition's sandboxes, oldest
+// first (opRedact's n).
+func (m *Manager) partitionSeq(rec record) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, r := range m.recs {
+		if r.Owner.Via == rec.Owner.Via && r.Owner.PartitionID == rec.Owner.PartitionID &&
+			(r.Created < rec.Created || r.Created == rec.Created && r.ID <= rec.ID) {
+			n++
+		}
+	}
+	return n
 }

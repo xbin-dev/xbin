@@ -73,7 +73,7 @@ func freshTarget(t *testing.T, k sandboxcontract.Knobs) sandboxcontract.Target {
 
 func TestContract(t *testing.T) {
 	tg := freshTarget(t, sandboxcontract.Knobs{})
-	tg.Caps = []string{"exec", "files", "tar", "snapshots", "clone"}
+	tg.Caps = []string{"exec", "files", "tar", "snapshots", "clone", "partitions"}
 	if fkHasPTY() {
 		tg.Caps = append(tg.Caps, "tty")
 	}

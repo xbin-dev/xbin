@@ -104,9 +104,9 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if q.ClientID != "" { // one create per clientId at a time
-		defer m.lock("create\x00" + c.from + "\x00" + q.ClientID)()
+		defer m.lock("create\x00" + c.key() + "\x00" + q.ClientID)()
 	}
-	ikey, h := "create\x00"+c.from+"\x00"+q.ClientID, hashOf(q)
+	ikey, h := "create\x00"+c.key()+"\x00"+q.ClientID, hashOf(q) // per consumer (and user partition)
 	if q.ClientID != "" {
 		target, prev, found, err := m.st.idem(ikey)
 		if err != nil {
@@ -169,7 +169,7 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 	plan.Size = sizeSpec{size.MemMiB, size.VCPUs, size.DiskGiB}
 	lay := m.layout(o.rt)
 	rec := &record{ID: "sb-" + randHex(5), Runtime: "s" + randHex(6), Name: q.Name, Image: image, Size: size.ID,
-		Egress: orStr(q.Egress, "none"), Owner: owner{User: c.user, Via: c.from, Asserted: !c.verified && c.user != ""},
+		Egress: orStr(q.Egress, "none"), Owner: owner{User: c.user, Via: c.from, PartitionID: c.partID, Partition: c.part, Asserted: !c.verified && c.user != ""},
 		Visibility: orStr(q.Visibility, "private"), Members: q.Members, Labels: q.Labels,
 		Workdir: lay.Workdir, Home: lay.Home, User: lay.User, UID: lay.UID, GID: lay.GID, Shell: lay.Shell,
 		Created: now(), Version: 1, Overlay: "creating", Plan: plan, Mode: mode}
@@ -309,6 +309,18 @@ func (m *Manager) chooseMode(rt *xbin.SandboxRuntime) (string, error) {
 	return "", errf(http.StatusServiceUnavailable, "unavailable", "the substrate runs no sandboxes now: %s", unavailableWhy(rt))
 }
 
+// runtimeLabels are the labels the substrate keeps for rec's sandbox (the
+// admin's sandbox registry shows them — metadata, never the consumer's own
+// labels): its contract id and, for one homed in a user partition, that
+// partition's id (For stays the consumer tile).
+func runtimeLabels(rec record) map[string]string {
+	l := map[string]string{"coding-sandbox/id": rec.ID}
+	if rec.Owner.PartitionID != "" {
+		l["coding-sandbox/partition"] = rec.Owner.PartitionID
+	}
+	return l
+}
+
 // defaults is what every command in rec's sandbox gets.
 func defaultsOf(rec record) *xbin.SandboxDefaults {
 	uid, gid := rec.UID, rec.GID
@@ -400,7 +412,7 @@ func (m *Manager) makeSandbox(ctx context.Context, id string) (err error) {
 	}
 	spec := xbin.SandboxSpec{Name: rec.Runtime, Mode: mode, MemMiB: plan.Size.MemMiB, VCPUs: plan.Size.VCPUs, DiskGiB: plan.Size.DiskGiB,
 		Net: &xbin.SandboxNet{Egress: egressClass(rec.Egress)}, Defaults: defaultsOf(rec),
-		Labels: map[string]string{"coding-sandbox/id": rec.ID}, For: rec.Owner.Via, ForUser: rec.Owner.User,
+		Labels: runtimeLabels(rec), For: rec.Owner.Via, ForUser: rec.Owner.User,
 		IdleStopMin: plan.AutoStopMin, ClientID: rec.Runtime, Mounts: cfg.sandboxMounts()}
 	switch {
 	case plan.FromRuntime != "":
