@@ -412,6 +412,34 @@ ready, and on a `cron` resource. In a partitioned scope any other value, and
 tile's partition request invalid: its backend doesn't run, and the manifest
 error names the resource.
 
+What each partition sees:
+
+- **The same names and paths.** `XBIN_RES_<NAME>` and `res:` ids are the
+  same in every partition, so the code doesn't change: xbind binds each
+  partition's own volume at the canonical path, and a shared one's single
+  copy there. A `"read"` directory is mounted read-only in people's
+  partitions; a `"read"` kv, blob or bus answers their writes 403
+  `res:<scope>/<name> is read-only for people's partitions`.
+- **Its own disk ceiling.** A person's partition is measured on its own
+  (by default at the tile's per-namespace quota): when it is full, that
+  person's kv and blob writes answer 507 — nobody else's.
+- **On disk** a person's partition sits under
+  `data/resources-enc/.partitions/<scope>/<deployment>/<partition id>/`
+  (its `kv.db`, `fs/<resource>/` per volume and `ns.json`, which names
+  the person), beside the tile's own data, which keeps today's keys and is
+  the global instance's. Its volumes mount on first use and are unmounted
+  after an hour nobody uses them.
+- **Other tiles' access** is today's grants: an unpartitioned tile, or the
+  global instance of a partitioned one, reaches the tile's own (global's)
+  data; a person's partition of another partitioned tile reaches that same
+  person's partition here, and only when they can read this tile (and, if
+  the workspace's `partitionConsent` policy is on, have allowed it).
+
+A partition's data is deleted when its person is deleted (30 days later),
+when its tile is removed (30 days later, unless the tile comes back), and
+at once when a tile manager switches the tile's partition mode
+([partitions.md](/docs/partitions.md)).
+
 ## Choosing
 
 | Need | Use |
