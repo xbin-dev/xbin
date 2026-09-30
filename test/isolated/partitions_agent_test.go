@@ -19,6 +19,10 @@ package isolated
 //     conversations and session files; admins (carol's own partition, the
 //     owner token at global) see neither's; a person's conversation ids
 //     start at 2^40, global's at 1.
+//   - Shared chats (B2b; partitions_agent_shared_test.go): made and run at
+//     the global instance, reached through ?xbin-partition=global; two
+//     people's streams of one shared run both get its deltas live; publish
+//     a copy, copy back, a join link redeemed from a partition.
 //   - alice's partition never has the global instance's db (or files)
 //     mounted: its mount table (read from /proc on the host) shows her
 //     partition's volumes and the shared `team`, nothing of global's own
@@ -361,6 +365,8 @@ func TestPartitionsAgent(t *testing.T) {
 			t.Errorf("sharing from a person's partition: %d, want 409", st)
 		}
 	})
+
+	t.Run("shared-chats", func(t *testing.T) { paSharedChats(t, e) }) // partitions_agent_shared_test.go (B2b)
 
 	t.Run("global-db-not-mounted", func(t *testing.T) {
 		// 08 §2: no person's partition mounts global's db. From the host:

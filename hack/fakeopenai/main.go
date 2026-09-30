@@ -64,6 +64,8 @@
 //	             markdown line "**Unit k** of the long turn…" with a note call
 //	             "Note unit k", then "done: N units" — a long transcript fast
 //	             (N ≤ the agent's maxTurnSteps − 1)
+//	             ("starts the message" allows a shared conversation's
+//	             "[<user id>] " before it)
 //	paras N      (starts the message) an answer of N paragraphs "Paragraph k of
 //	             the answer, streamed.", word by word
 //	huge context "ok: <text>", reporting a 5 000 000-token prompt: the agent's
@@ -658,7 +660,11 @@ func responses(w http.ResponseWriter, r *http.Request) {
 
 // countAfter reads "<prefix><n>" at the start of s (n in 1…2000).
 func countAfter(s, prefix string) (int, bool) {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(s), prefix)
+	s = strings.TrimSpace(s)
+	if i := strings.Index(s, "] "); strings.HasPrefix(s, "[") && i > 0 {
+		s = s[i+2:] // a shared conversation's "[<user id>] " before a person's message
+	}
+	rest, ok := strings.CutPrefix(s, prefix)
 	if !ok {
 		return 0, false
 	}
