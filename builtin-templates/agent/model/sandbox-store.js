@@ -38,13 +38,14 @@ export function createSandboxStore(app) {
   // the agent just made (sandbox_create), or bound elsewhere since — is read
   // again (fresh, once per ref) rather than shown as gone.
   const checked = new Set();
-  const recheck = (v) => {
-    if (!v || !loadedAt || inflight) return;
-    const missing = [S.bindingOf(v), ...S.attachedOf(v)].filter((b) => b && !find(b.ref) && !checked.has(b.ref));
+  const recheckRefs = (refs) => {
+    if (!loadedAt || inflight) return;
+    const missing = refs.filter((ref) => ref && !find(ref) && !checked.has(ref));
     if (!missing.length) return;
-    missing.forEach((b) => checked.add(b.ref));
+    missing.forEach((ref) => checked.add(ref));
     sbx.load(true).catch(() => {});
   };
+  const recheck = (v) => { if (v) recheckRefs([S.bindingOf(v), ...S.attachedOf(v)].map((b) => b && b.ref)); };
 
   // patchShares PATCHes ref's whole shares list as bodyOf(sandbox) computes
   // it from the sandbox as the list has it — with its version, so a change
@@ -91,7 +92,9 @@ export function createSandboxStore(app) {
       return inflight;
     },
     // ensure reads it once a view needs it; refresh again when it is older than 15 s.
-    ensure() { if (!loadedAt && !inflight) sbx.load().catch(() => {}); },
+    // ref: a sandbox the view names (a sign-in card's) that the list read
+    // before lacks is read again, fresh, once (recheck) — not shown as gone.
+    ensure(ref) { if (!loadedAt && !inflight) sbx.load().catch(() => {}); else if (ref) recheckRefs([ref]); },
     refresh() { if (Date.now() - loadedAt > 15e3) sbx.load().catch(() => {}); },
 
     // What the views draw (model/sandboxes.js), for where you are. rows:

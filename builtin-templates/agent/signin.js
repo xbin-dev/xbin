@@ -42,7 +42,7 @@ ext.register({
     if (!v || !s.run || v.run.id !== s.run.id) return null;
     const c = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, (v.run.harness || {}).provider), me: app.me });
     if (!c) return null;
-    app.sbx.ensure();
+    app.sbx.ensure(c.sandbox.ref);
     return cardTpl(app, c);
   },
 });

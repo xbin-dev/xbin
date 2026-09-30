@@ -48,7 +48,7 @@ function harnessOfView(v) {
   const c = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, h.provider), me: app.me });
   const sb = h.sandbox && h.sandbox.ref ? h.sandbox : null;
   const tt = sb ? app.sbx.terminal(sb.ref, sb.cwd) : null;
-  if (c || tt) app.sbx.ensure();
+  if (c || tt) app.sbx.ensure(c && c.sandbox.ref);
   return { h, c, sb, tt };
 }
 

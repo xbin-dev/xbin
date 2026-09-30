@@ -287,6 +287,20 @@ test('native: three cards — identity as chips, the status line, where; a park 
   assert.deepEqual(sent(r, 'POST', /\/runs\/25\/approve$/), []);
 });
 
+test('native: a card\'s sign-in in a sandbox the list read lacks (just made: the backend\'s cached list) reads it again once — not "gone"', async () => {
+  const s = kidsSeed();
+  const FRESH = 'apps/coding-sandbox|sb-fresh';
+  const c28 = s.runs.find((r) => r.id === 28);
+  c28.harness = { ...c28.harness, sandbox: { ref: FRESH, name: 'fresh-box', cwd: '/work' } };
+  const cached = { sandboxes: s.sandboxes.slice(), managers: [{ provider: 'apps/coding-sandbox', title: 'Coding sandboxes', ok: true, caps: ['exec', 'files'] }] };
+  s.sandboxes.push({ ...s.sandboxes[0], ref: FRESH, id: 'sb-fresh', name: 'fresh-box', boundTo: [28] });
+  s.routes = [['GET', '/sandboxes$', cached]]; // ?fresh=1 is the stub's: it has it
+  const r = await runSeed([{ wait: 100 }, { snapshot: 'p' }], 'c=25', s);
+  const si = find(find(r.snapshots.p.root, CARD('Write the changelog')), { t: 'notice' });
+  assert.equal(si.p.text, 'Claude Code needs you to sign in (in ▣ fresh-box). Open it (↗) and tap Sign in.');
+  assert.equal(reads(r, /\/sandboxes\?fresh=1$/).length, 1, 'read again once');
+});
+
 test('native: an open card reads the child\'s newest page and draws its last 3 blocks; ↗ opens its chat', async () => {
   const r = await runSeed([
     { event: [CARD('Split the router'), 'toggle', { open: true }] }, { wait: 50 },

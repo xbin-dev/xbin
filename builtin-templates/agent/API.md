@@ -2042,7 +2042,9 @@ there, and its clones and snapshots keep them — and on a sandbox others
 may use it asks for a confirm first (`confirm: true`). Someone who may not
 use the sandbox is told whom to ask (its binder — or, when you bound it,
 its owner); a sandbox missing from `GET /sandboxes` (which lists every
-sandbox bound to a conversation you see) is gone, or its manager is
+sandbox bound to a conversation you see) — even once read again fresh
+(`?fresh=1`, once per sandbox: one just made may be missing from the
+cached list) — is gone, or its manager is
 unbound or down, and the card says so in place of the methods — start a
 new chat in another sandbox, or Retry once its manager is back; someone the conversation is shared
 with to read sees what it waits for and no actions (nor the app's ⋯ →

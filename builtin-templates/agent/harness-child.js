@@ -95,7 +95,7 @@ function parkTpl(app, b, run, c, who) {
     const held = app.session.merged(run.id);
     const v = held ? { ...held, run: { ...held.run, ...run } } : { run, access: who.access, config: {} };
     const si = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, c.provider), me: app.me });
-    if (si) { app.sbx.ensure(); return signInTpl(app, si); }
+    if (si) { app.sbx.ensure(si.sandbox.ref); return signInTpl(app, si); }
   }
   // a park the summary has only in brief: its own chat answers it
   return c.park ? html`<div class="hint hkopen">${c.status} — <button class="lnk" @click=${() => app.select(c.id)}>open it ↗</button> to answer</div>` : nothing;

@@ -174,6 +174,35 @@ for (const where of ['conv', 'home']) {
   await c2.close();
 }
 
+// --- a child's sign-in in a sandbox the list read doesn't have yet: read again (once), not "gone" -------------
+// (28 signs in to a sandbox of its own, just made — the backend's cached list, read first, lacks it; not 25's,
+// whose ▣ reads the list again anyway)
+{
+  const s = kidsSeed();
+  const FRESH = 'apps/coding-sandbox|sb-fresh';
+  const c28 = s.runs.find((r) => r.id === 28);
+  c28.harness = { ...c28.harness, sandbox: { ref: FRESH, name: 'fresh-box', cwd: '/work' } };
+  s.trees[25].nodes = s.trees[25].nodes.map((n) => (n.id === 28 ? { ...n, harness: c28.harness } : n));
+  s.sandboxes.push({ ...s.sandboxes[0], ref: FRESH, id: 'sb-fresh', name: 'fresh-box', boundTo: [28] });
+  const c2 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await serveTile(c2);
+  await c2.addInitScript(STUB, s);
+  // GET /sandboxes answers from the backend's cache (made before it); ?fresh=1 has it
+  await c2.addInitScript((ref) => window.__route('GET', /\/sandboxes$/,
+    () => window.__json({ ...window.__sbx, sandboxes: window.__sbx.sandboxes.filter((x) => x.ref !== ref) })), FRESH);
+  const p = await c2.newPage();
+  p.on('pageerror', (e) => errors.push(e.message));
+  await p.goto(`${ORIGIN}/#c=25`);
+  await p.waitForSelector('#hbchip');
+  await p.click('#hbchip');
+  await p.waitForSelector(`${row(28)} .hlogin`);
+  const methods = await p.waitForSelector(`${row(28)} .hlogin [data-kind]`, { timeout: 3000 }).then(() => true, () => false);
+  const fresh = await p.evaluate(() => window.__calls.filter((c) => /\/sandboxes\?fresh=1$/.test(c.url)).length);
+  ok('a child\'s sign-in in a sandbox the list read lacks: read again once, then its methods — not "gone"',
+    methods && !(await p.$(`${row(28)} #hl-gone`)) && fresh === 1, `${await p.textContent(`${row(28)} .hlogin`)} (fresh reads: ${fresh})`);
+  await c2.close();
+}
+
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();
 done('harness-board');
