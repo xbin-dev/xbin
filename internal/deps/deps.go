@@ -8,6 +8,8 @@
 //   - go.work: a generated workspace file at the root listing every Go
 //     component module (plus the xbin SDK), so any shell and any gopls sees
 //     the whole workspace. Marker-guarded: hand-edited files are left alone.
+//     No tile's build reads it: each Go build gets a go.work of its own,
+//     made from the tile's go.mod (buildwork.go, D166).
 package deps
 
 import (
@@ -190,36 +192,6 @@ func renderGoWork(mods []string, sdkPath string) string {
 		fmt.Fprintf(&sb, "\nreplace github.com/xbin-dev/xbin/sdk => %s\n", sdkPath)
 	}
 	return sb.String()
-}
-
-// AbsGoWork is a go.work xbind generated (GoWork), its paths made absolute
-// against root, the workspace: the same workspace for a `go` run whose
-// GOWORK names a copy elsewhere — a confined tile build's own, so the
-// go.work.sum beside it is the tile's own (internal/runner). ok=false for a
-// hand-managed go.work (no marker): its paths aren't xbind's to rewrite.
-func AbsGoWork(content, root string) (string, bool) {
-	if !strings.HasPrefix(content, workMarker+"\n") {
-		return "", false
-	}
-	var sb strings.Builder
-	for _, line := range strings.SplitAfter(content, "\n") {
-		t := strings.TrimSpace(line)
-		nl := ""
-		if strings.HasSuffix(line, "\n") {
-			nl = "\n"
-		}
-		switch {
-		case strings.HasPrefix(t, "./"): // a use (renderGoWork's)
-			line = "\t" + filepath.Join(root, t) + nl
-		case strings.HasPrefix(t, "replace ") && strings.Contains(t, " => "):
-			i := strings.Index(t, " => ")
-			if p := strings.TrimSpace(t[i+4:]); !filepath.IsAbs(p) {
-				line = t[:i+4] + filepath.Join(root, p) + nl
-			}
-		}
-		sb.WriteString(line)
-	}
-	return sb.String(), true
 }
 
 // missingModules returns the wanted `use` paths not referenced by an existing

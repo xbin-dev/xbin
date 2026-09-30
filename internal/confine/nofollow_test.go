@@ -44,6 +44,9 @@ var nofollowScope = []string{
 	"internal/broker/deployseed_copy.go",
 	"internal/broker/backup_restore.go",
 	"internal/runner/deploy.go",
+	"internal/deps/buildwork.go", // a Go build's workspace: work trees and checkpoints read (D166)
+	"internal/deps/modfile.go",
+	"internal/runner/gowork.go",
 }
 
 // walkOK is the escape hatch: `// walk-ok: <why>` on the call's line or one

@@ -15,6 +15,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/backup"
 	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/deps"
 )
 
 // The operations TestNoFollowingHostWalks' behavioural half drives through a
@@ -28,7 +29,62 @@ func init() {
 		confine.NofollowOperation{Name: "checkpoint drift count", Run: nofollowDrift},
 		confine.NofollowOperation{Name: "backup of a checkpoint store", Run: nofollowStoreBackup},
 		confine.NofollowOperation{Name: "checkpoint purge", Run: nofollowPurge},
+		confine.NofollowOperation{Name: "go build workspace", Run: nofollowBuildWork},
 	)
+}
+
+// covers D166 — rule C5 for a Go build's own workspace (deps.BuildWork, the
+// case of internal/deps' TestScanImportsSafe): the root go.work, a tile's
+// go.mod, a Go file and a package directory are links to the FIFO or its
+// directory, and another tile's go.mod and a Go file are FIFOs; the
+// workspace is computed (the go.mods read, every Go file's imports
+// scanned) without anything opening them.
+func nofollowBuildWork(t *testing.T, fifo string) {
+	root := filepath.Join(t.TempDir(), "ws")
+	for rel, s := range map[string]string{
+		"apps/x/backend/main.go": "package main\n\nimport _ \"y\"\n",
+		"apps/y/go.mod":          "module y\n",
+		"apps/z/backend/z.go":    "package main\n",
+	} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for rel, target := range map[string]string{
+		"go.work":             fifo,
+		"apps/x/go.mod":       fifo,
+		"apps/x/backend/l.go": fifo,
+		"apps/x/pkg":          filepath.Dir(fifo),
+		"apps/y/y.go":         fifo,
+	} {
+		if err := os.Symlink(target, filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rel := range []string{"apps/z/go.mod", "apps/z/backend/pipe.go"} {
+		if err := syscall.Mkfifo(filepath.Join(root, filepath.FromSlash(rel)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		rw, _ := deps.ReadRootWork(root) // refused: it leaves the workspace
+		mod := func(rel string) deps.Module {
+			return deps.Module{Dir: filepath.Join(root, rel), Root: root, Rel: rel, Tile: rel}
+		}
+		deps.BuildWork(deps.Build{Tile: "apps/x", Own: []deps.Module{mod("apps/x")}, Others: []deps.Module{mod("apps/y"), mod("apps/z")}, Root: rw})
+		deps.BuildWork(deps.Build{Tile: "apps/z", Own: []deps.Module{mod("apps/z")}, Others: []deps.Module{mod("apps/x"), mod("apps/y")}, Root: rw})
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Minute):
+		t.Fatal("the build workspace blocked on a FIFO")
+	}
 }
 
 // covers D119g T2 — rule C5 for the checkpoint estimate and capture (the case
