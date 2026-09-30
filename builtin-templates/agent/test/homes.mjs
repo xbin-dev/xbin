@@ -177,6 +177,10 @@ await page.evaluate(([MINE_H, TEAM_H, ps, h]) => {
   window.__homeRows.global.push(row(TEAM_H, 'the team\'s coding agent', { visibility: 'team', teamRole: 'participant', owner: 'bob', access: 'participant',
     mine: false, status: 'waiting_input', pendingState: ps, harness: h }));
   window.__route('POST', /\/runs\/(\d+)\/approve$/, () => j({ ok: 'true' }));
+  // hers in the shared space (from before coding agents stayed in a person's own), shared with the team — then privately with carol
+  window.__homeRows.global.push(row(4, 'her shared coding agent', { visibility: 'team', teamRole: 'participant', owner: 'admin', harness: h }));
+  window.__acl4 = { owner: 'admin', visibility: 'team', teamRole: 'participant', members: [], links: [] }; // the stub's me
+  window.__route('GET', /\/runs\/4\/members$/, () => j(window.__acl4));
 }, [MINE_H, TEAM_H, HSEED.views[22].run.pendingState, HSEED.views[22].run.harness]);
 await page.click('#views .seg:has-text("Mine")');
 await page.waitForSelector(`#runs .run[data-id="${MINE_H}"]`);
@@ -207,6 +211,23 @@ await page.click('#top .sharepill');
 await page.waitForSelector('#sharedlg #copy-mine');
 ok('its share dialog: no Copy to my own space, no "Use my private resources…" — a copy of her files still',
   !(await page.$('#sharedlg #sh-copy')) && !(await page.$('#sharedlg #host-use')));
+await page.click('#sharedlg .dlg-ft .btn');
+// hers in the shared space: never left shared with no one — that would move it (the backend refuses: 409)
+await page.evaluate(() => { location.hash = 'c=4'; });
+await page.waitForSelector('#top .sharepill');
+await page.click('#top .sharepill');
+await page.waitForSelector('#sharedlg #sh-stays');
+const privOff = () => page.$eval('#sharedlg input[name="vis"]', (e) => e.disabled);
+const radios = () => page.$$eval('#sharedlg input[name="vis"]', (els) => els.map((e) => e.disabled));
+ok('her coding agent\'s in the shared space: "Only you…" with no one below is disabled, saying why — the team\'s choices aren\'t',
+  JSON.stringify(await radios()) === '[true,false,false]' && /would move to your own space/.test(await page.textContent('#sharedlg #sh-stays')), JSON.stringify(await radios()));
+await page.click('#sharedlg .dlg-ft .btn');
+await page.evaluate(() => { window.__acl4 = { ...window.__acl4, visibility: 'private', members: [{ user: 'carol', role: 'participant' }] }; });
+await page.click('#top .sharepill');
+await page.waitForSelector('#sharedlg .prow .btn.ghost');
+const rm = await page.$$eval('#sharedlg .prow button', (els) => els.filter((e) => e.textContent.trim() === 'Remove').map((e) => ({ off: e.disabled, t: e.title })));
+ok('…private with carol: "Only you…" is fine, but carol, the last one, can\'t be removed', !(await privOff()) && rm.length === 1 && rm[0].off && /stays shared/.test(rm[0].t),
+  JSON.stringify(rm));
 await page.click('#sharedlg .dlg-ft .btn');
 await page.click('#newopts');
 await page.waitForSelector('#newdlg[open] #n-agent');

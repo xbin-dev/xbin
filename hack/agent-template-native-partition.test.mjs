@@ -55,3 +55,30 @@ test('MCP servers: a partitioned instance lists the static ones and marks one wi
   assert.equal(find(topScreen(u.snapshots.mcp), { t: 'section', p: { title: 'Static servers (config)' } }), null, 'unpartitioned: the bound ones only');
   assert.equal(called(u, 'GET', /\/config$/).length, 0, 'unpartitioned: the screen reads no config');
 });
+
+// a coding agent's conversation in the shared space (model/harness-homes.js unshareWhy): shared with no
+// one it would move to the person's own space, and a coding agent's never moves — the sheet says why
+test('share sheet: a coding agent\'s conversation in the shared space isn\'t made private; unpartitioned, as ever', async () => {
+  const { harnessSeed } = await import(TPL + 'test/harness-fixtures.mjs');
+  const { STAYS_SHARED } = await import(TPL + 'model/harness-homes.js');
+  const acl = { owner: 'admin', visibility: 'team', teamRole: 'participant', members: [], links: [] };
+  const seed = (partition) => ({ ...harnessSeed(), partition, routes: [['GET', '/runs/21/members$', acl]] });
+  const steps = [
+    { wait: 50 },
+    { tap: { t: 'button', p: { label: 'Share' }, in: { t: 'menu' } } },
+    { wait: 20 },
+    { snapshot: 'sheet' },
+    { event: [{ t: 'picker', p: { style: 'inline' } }, 'change', { value: 'private' }] },
+    { wait: 20 },
+    { snapshot: 'picked' },
+  ];
+  const p = await run(seed('user:admin'), steps, { state: { hash: 'c=21' } });
+  const sec = find(p.snapshots.sheet, { t: 'section', p: { title: 'Who can see it' } });
+  assert.equal(sec.p.footer, STAYS_SHARED, 'the sheet says why');
+  assert.equal(find(sec, { t: 'picker' }).p.options[0].label, 'Only you and the people below — stays shared');
+  assert.equal(find(p.snapshots.picked, { t: 'notice', p: { tone: 'danger' } }).p.text, STAYS_SHARED, 'picking it says why…');
+  assert.equal(called(p, 'PATCH', /\/runs\/21$/).length, 0, '…and sends nothing');
+  const u = await run(seed(undefined), steps, { state: { hash: 'c=21' } });
+  assert.equal(find(u.snapshots.sheet, { t: 'section', p: { title: 'Who can see it' } }).p.footer, undefined, 'unpartitioned: no word of it');
+  assert.equal(called(u, 'PATCH', /\/runs\/21$/).length, 1, 'unpartitioned: made private, as ever');
+});

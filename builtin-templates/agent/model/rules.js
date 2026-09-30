@@ -8,7 +8,7 @@ import { badge } from './classes.js';
 import { sharing } from './partition.js';
 import { publishes } from './homes.js';
 import { hostingOf } from './hosted.js';
-import { keepsHome } from './harness-homes.js';
+import { keepsHome, barredWhy, BARRED_WORDS } from './harness-homes.js';
 
 // access: what you may do in a conversation (its view's `access`: owner |
 // system | participant | viewer; absent from an older backend = everything).
@@ -44,8 +44,10 @@ export function topBar(v, row, me) {
     cls: badge(v),
     viewOnly: !talk,
     talk, own,
-    // (a coding agent cut off or that couldn't start: Retry resumes its session)
-    retry: talk && (r.status === 'error' || r.status === 'canceled' || (harness && ['lost', 'failed'].includes((r.harness || {}).state))),
+    // (a coding agent cut off or that couldn't start: Retry resumes its
+    // session — not one in the shared space, which never runs again:
+    // model/harness-homes.js barredWhy)
+    retry: talk && !barredWhy(r) && (r.status === 'error' || r.status === 'canceled' || (harness && ['lost', 'failed'].includes((r.harness || {}).state))),
     compact: talk && !hosted && (!harness || hasCompact),
     learn: talk && !hosted && !harness,
     memory: harness ? null : Object.keys(v.memory || {}).length, // null: no Memory
@@ -172,12 +174,14 @@ export function grantChips(v, me, now = Date.now()) {
 export function composer(v, HOME) {
   const isBusy = !!(v && busy(v.run.status));
   const viewOnly = !!(v && v.access === 'viewer');
+  const barred = !!(v && barredWhy(v.run)); // a coding agent's run in the shared space: read and stopped, never driven (model/harness-homes.js)
   return {
     busy: isBusy,
     stop: isBusy,
-    disabled: viewOnly,
+    disabled: viewOnly || barred,
     placeholder: !v ? HOME.placeholder
       : viewOnly ? 'view only — shared with you to read'
+      : barred ? BARRED_WORDS
       : isBusy ? 'steer — delivered at the agent\'s next step…'
       : v.run.status === 'waiting_input' && (v.run.pendingState || {}).kind !== 'approval' ? 'answer the question…' : 'follow up…',
   };

@@ -19,8 +19,12 @@
 //   - the new-chat dialog (sharedNewChat): a chat shared with others is
 //     the built-in agent's, and takes along no sandbox the shared space
 //     can't see (sharedSees);
+//   - a coding agent's run in the shared space (data from before this
+//     rule — barredWhy): read, stopped, never driven again (no message,
+//     no Retry, no mode or options);
 //   - moving (keepsHome): a coding agent's conversation stays where it
-//     started.
+//     started — one in the shared space is never left shared with no one
+//     (unshareWhy), which would move it.
 //
 // An unpartitioned page gets '' / true everywhere: today's behaviour. Pure
 // functions, no lit, no DOM; node-tested in
@@ -88,6 +92,40 @@ export const sharedNewChat = (vis, state = partitionState()) => (state === 'user
  * instance can't see it, and would refuse the ask.
  */
 export const sharedSees = (s) => !!(s && s.shared);
+
+// inShared: conversation id is the shared space's — this page is the
+// global instance's own, or a person's partition and id lives at global.
+const inShared = (id, state) => state === 'global' || (state === 'user' && homeOf(id, state) === 'global');
+
+/** BARRED / BARRED_WORDS: why a coding agent's run in the shared space isn't driven (the card, the composer). */
+export const BARRED = 'Coding agents work only in a person\'s own conversations: this one is in the shared space, so it doesn\'t run again — read it, or start one in your own space.';
+export const BARRED_WORDS = 'a coding agent doesn\'t run in the shared space — start one in your own conversations';
+
+/**
+ * barredWhy: '' when harness run r (a run, or a row: {id, engine}) may be
+ * driven from this page — messaged, retried, its mode or options switched —
+ * else why not: a coding agent's run in the shared space (a shared
+ * conversation's in a person's partition, or any on the global instance's
+ * own page), which the backend never runs again (its engine bars every
+ * coding agent at the global instance). Only data from before that rule
+ * holds one; it is still read, and Stop and Cancel still end it.
+ */
+export const barredWhy = (r, state = partitionState()) => (r && r.engine === 'harness' && inShared(r.id, state) ? BARRED : '');
+
+/** STAYS_SHARED: why a coding agent's conversation in the shared space isn't left shared with no one. */
+export const STAYS_SHARED = 'A coding agent\'s conversation doesn\'t move between spaces: shared with no one, this one would move to your own space — so it stays shared';
+
+/**
+ * unshareWhy: '' when the share dialog of conversation run ({id, engine,
+ * parentId}: its root) may leave it shared with no one — "Only you and the
+ * people below" with no one below, or removing the last person from a
+ * private one — else why not. In a person's partition a shared
+ * conversation left shared with no one moves to their own space, and a
+ * coding agent's never moves (the backend answers 409), so one from before
+ * that rule stays shared. Elsewhere '' (the global instance's own page
+ * un-shares as ever: a person's is refused there, and says why).
+ */
+export const unshareWhy = (run, state = partitionState()) => (state === 'user' && keepsHome(run) && homeOf(run.id, state) === 'global' ? STAYS_SHARED : '');
 
 /** keepsHome: a coding agent's conversation (a harness run at its root:
  * a row, a run, or a share dialog's {id, title, engine}) — it never moves

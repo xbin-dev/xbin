@@ -262,6 +262,7 @@ const S = await import(new URL('sandboxes.js', MODEL).href);
 const { catalogOf } = await import(new URL('harness.js', MODEL).href);
 const { steerWords } = await import(new URL('harness-ask.js', MODEL).href);
 const { createHarnessStore } = await import(new URL('harness-store.js', MODEL).href);
+const HC = await import(new URL('harness-child.js', MODEL).href);
 const AGENT_ID = HS.AGENT;
 const { harnessSeed, SBX, API_DEV } = await import(new URL('../test/harness-fixtures.mjs', MODEL).href);
 
@@ -298,6 +299,13 @@ test('coding agents in a partitioned agent, the rules: where one starts, its san
   assert.deepEqual([{ engine: 'harness', parentId: 0 }, { engine: 'harness', parentId: 25 }, { engine: '' }, null].map(HH.keepsHome), [true, false, false, false],
     'a coding agent\'s conversation (a child is its root\'s: the built-in agent\'s)');
   assert.deepEqual([OWN, TEAM, null, { ...OWN, shared: false }].map(HH.sharedSees), [false, true, false, false], 'a shared chat takes along only what the shared space sees');
+  const hr = (id) => ({ id, engine: 'harness' });
+  assert.deepEqual([HH.barredWhy(hr(5), 'user'), HH.barredWhy(hr(B + 5), 'user'), HH.barredWhy(hr(5), 'global'), HH.barredWhy(hr(5), 'legacy'),
+    HH.barredWhy({ id: 5, engine: '' }, 'user'), HH.barredWhy(null, 'user')], [HH.BARRED, '', HH.BARRED, '', '', ''],
+  'a coding agent\'s run in the shared space isn\'t driven; the built-in agent\'s is, and one of her own');
+  assert.deepEqual([HH.unshareWhy({ id: 5, engine: 'harness', parentId: 0 }, 'user'), HH.unshareWhy({ id: B + 5, engine: 'harness', parentId: 0 }, 'user'),
+    HH.unshareWhy({ id: 5, engine: '' }, 'user'), HH.unshareWhy({ id: 5, engine: 'harness', parentId: 0 }, 'global'), HH.unshareWhy({ id: 5, engine: 'harness', parentId: 0 }, 'legacy')],
+  [HH.STAYS_SHARED, '', '', '', ''], 'a coding agent\'s conversation in the shared space is never left shared with no one (it would move)');
 });
 
 test('a person\'s partition: a coding agent\'s calls and the app\'s run terminal go to its home', async () => {
@@ -364,7 +372,7 @@ test('a person\'s partition: the sandbox a coding agent starts in is her own; it
   Object.assign(own.run, { id: B + 24, rootId: B + 24 });
   const c = T.signIn(own, { list: lst, me: 'admin' });
   assert.deepEqual([c.talk, c.away, c.view, c.methods.length], [true, '', '', 3], 'her own: the sign-in, as ever');
-  assert.equal(steerWords(seed.views[24]).placeholder, 'Codex is waiting for a sign-in — your message waits with it…', 'the composer doesn\'t ask for one');
+  assert.equal(steerWords(seed.views[24]).placeholder, HH.BARRED_WORDS, 'the composer doesn\'t ask for one: a shared one isn\'t driven');
   assert.equal(steerWords(own).placeholder, 'sign in to Codex first — then message it…');
 
   // a coding agent's conversation stays in her own space
@@ -382,7 +390,7 @@ test('a person\'s partition: the sandbox a coding agent starts in is her own; it
   assert.doesNotMatch(HS.topChip({ ...hv, run: { ...hv.run, id: 21, rootId: 21 } }).title, /own space/, 'a shared one isn\'t in her own space');
 });
 
-test('a person\'s partition: a new chat picks from her own list; a shared one takes no sandbox of hers', () => {
+test('a person\'s partition: a new chat picks from her own list; a shared one takes no sandbox of hers; a shared coding agent is read, not driven', () => {
   as('user:alice');
   const claude = cat().harnesses.find((h) => h.id === 'claude');
   // the list where she is (a shared conversation open: the global instance's) and her own
@@ -408,6 +416,28 @@ test('a person\'s partition: a new chat picks from her own list; a shared one ta
   assert.ok(!('sandbox' in HS.newChatPick(app, AGENT_ID, '')), 'a chat of her own: the pick goes, as ever');
   assert.equal(HS.newChatPick(app, 'claude', OWN.ref).sandbox.ref, OWN.ref, '…and a coding agent\'s is its own');
 
+  // a coding agent's run in the shared space (from before the rule): read, stopped — never driven
+  const seed = harnessSeed();
+  const lost = structuredClone(seed.views[21]);
+  Object.assign(lost.run, { status: 'error', harness: { ...lost.run.harness, state: 'lost' } });
+  const t = R.topBar(lost, null, { user: 'alice' });
+  assert.equal(t.retry, false, 'no Retry');
+  const c = R.composer(lost, { placeholder: 'ask' });
+  assert.deepEqual([c.disabled, c.placeholder], [true, HH.BARRED_WORDS], 'the composer is off, saying why');
+  assert.equal(steerWords(lost).placeholder, HH.BARRED_WORDS);
+  const mine = structuredClone(lost);
+  Object.assign(mine.run, { id: B + 21, rootId: B + 21 });
+  assert.deepEqual([R.topBar(mine, null, { user: 'alice' }).retry, R.composer(mine, { placeholder: 'ask' }).disabled], [true, false], 'her own: Retry, the composer');
+  const busyRun = structuredClone(seed.views[21]);
+  busyRun.run.status = 'running';
+  assert.deepEqual([R.composer(busyRun, {}).stop, R.composer(busyRun, {}).disabled], [true, true], 'a shared one still running: Stop stays');
+  const built = { ...structuredClone(lost), run: { ...lost.run, engine: '', harness: undefined } };
+  assert.deepEqual([R.topBar(built, null, { user: 'alice' }).retry, R.composer(built, {}).disabled], [true, false], 'the built-in agent\'s in the shared space: as ever');
+  const kid = (id) => HC.childCard({ childId: id, link: { state: 'running' } }, { id, harness: { provider: 'claude', state: 'working' }, status: 'running' });
+  assert.deepEqual([kid(26).can.message, kid(26).can.stop, kid(26).can.cancel, kid(B + 26).can.message], [false, true, true, true],
+    'a coding agent the agent started in the shared space: no message; Stop and Cancel stay');
+  as('');
+  assert.deepEqual([R.topBar(lost, null, { user: 'alice' }).retry, R.composer(lost, {}).disabled, kid(26).can.message], [true, false, true], 'unpartitioned: as ever');
 });
 
 test('the global instance\'s own page: no coding agent answers or signs in; an unpartitioned page as ever', async () => {
@@ -424,6 +454,7 @@ test('the global instance\'s own page: no coding agent answers or signs in; an u
   const c = T.signIn(seed.views[24], { me: 'admin' });
   assert.deepEqual([c.talk, c.away], [false, HH.SIGNIN_GLOBAL], 'no sign-in at the global instance');
   assert.equal(T.runTerminalSrc(24), 'runs/24/harness/terminal', 'one home: the path as ever');
+  assert.deepEqual([R.composer(seed.views[21], {}).disabled, steerWords(seed.views[21]).placeholder], [true, HH.BARRED_WORDS], 'its coding agents\' runs are read, not driven');
   calls.length = 0;
   await hs.steer(24, 'x');
   assert.deepEqual(calls.map((x) => x.home), [''], 'its own runs at its own backend');

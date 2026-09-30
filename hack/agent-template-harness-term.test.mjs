@@ -336,7 +336,7 @@ test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal th
 
 // a partitioned agent (model/harness-homes.js): a coding agent signs in only in a person's own conversations
 test('native, a partitioned agent: a shared conversation\'s coding agent — the notice says why, no Sign in; its terminal at global', async () => {
-  const { SIGNIN_SHARED, SIGNIN_GLOBAL } = await import(new URL('model/harness-homes.js', TPL));
+  const { SIGNIN_SHARED, SIGNIN_GLOBAL, BARRED_WORDS } = await import(new URL('model/harness-homes.js', TPL));
   const steps = [
     { wait: 50 },
     { snapshot: 'chat' },
@@ -349,6 +349,8 @@ test('native, a partitioned agent: a shared conversation\'s coding agent — the
   assert.equal(find(chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text, `Codex is waiting for a sign-in (in ▣ api-dev). ${SIGNIN_SHARED}`);
   assert.equal(find(chat, { t: 'button', p: { label: 'Sign in' }, in: { t: 'composer' } }), null, 'no Sign in in the composer…');
   assert.equal(find(chat, { t: 'button', p: { label: 'Sign in…' }, in: { t: 'menu' } }), null, '…nor in the menu');
+  const comp = find(chat, { t: 'composer' }).p;
+  assert.deepEqual([comp.disabled, comp.placeholder], [true, BARRED_WORDS], 'the shared space runs no coding agent: its composer is off, saying why');
   assert.deepEqual(find(topScreen(r.snapshots.shell), { t: 'terminal' }).p, { src: 'runs/24/harness/terminal?xbin-partition=global', title: 'Terminal · api-dev' },
     'its shell: the run\'s relay at the global instance');
   assert.ok(r.calls.filter((c) => /\/runs\/24\//.test(c.url)).length > 0);

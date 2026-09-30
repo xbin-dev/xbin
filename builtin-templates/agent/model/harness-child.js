@@ -15,6 +15,7 @@
 import { isHarness, nameOf, monogram, pendingOf, pendingWords, countsWords, planOf } from './harness.js';
 import { parseArgs } from './tool-heads.js';
 import { ICON } from './sandboxes.js';
+import { barredWhy } from './harness-homes.js';
 
 export const TAIL = 3;      // the child's blocks a card shows
 export const TAIL_READ = 8; // the messages read for them (GET /runs/{id}/view?limit=)
@@ -142,8 +143,9 @@ export function childCard(b, run, now = Date.now()) {
   const to = Number(link.settled) || now / 1000;
   const elapsed = from && to > from ? span(to - from) : '';
   const live = ['starting', 'working', 'approval', 'question', 'login', 'lost'].includes(key);
+  const id = run.id || b.childId || 0;
   return {
-    id: run.id || b.childId || 0, parent: link.parentId || run.parentId || 0,
+    id, parent: link.parentId || run.parentId || 0,
     provider, mono: monogram(provider), name,
     title: link.label || firstLine(task, 100) || run.title || b.headline || name,
     task,
@@ -152,8 +154,11 @@ export function childCard(b, run, now = Date.now()) {
     status: statusLine(key, run, park, name, answer),
     counts, cost, elapsed, meta: [counts, cost, elapsed].filter(Boolean).join(' · '),
     plan: planOf(h), park, answer, live,
-    // Stop: its turn, or the ask it parked on (a sign-in waits for no turn)
-    can: { stop: key === 'working' || key === 'starting' || key === 'approval' || key === 'question', cancel: live, message: key !== 'canceled' },
+    // Stop: its turn, or the ask it parked on (a sign-in waits for no turn);
+    // no message to one in the shared space, which never runs again
+    // (model/harness-homes.js barredWhy)
+    can: { stop: key === 'working' || key === 'starting' || key === 'approval' || key === 'question', cancel: live,
+      message: key !== 'canceled' && !barredWhy({ id, engine: 'harness' }) },
   };
 }
 

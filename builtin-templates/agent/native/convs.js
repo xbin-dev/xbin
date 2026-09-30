@@ -107,7 +107,7 @@ function itemTpl(i, r) {
   switch (i.action) {
     case 'rename': return html`<button icon="pencil" @tap=${() => { ui.rename = { id: r.id, title: r.title || '' }; close(); }}>${i.label}</button>`;
     case 'pin': return html`<button icon="pin" @tap=${guard(() => app.actions.pin(app.convs, r))}>${i.label}</button>`;
-    case 'share': return html`<button icon="people" @tap=${() => { ui.share = { run: { id: r.id, title: r.title } }; close(); }}>${i.label}</button>`;
+    case 'share': return html`<button icon="people" @tap=${() => { ui.share = { run: { id: r.id, title: r.title, engine: r.engine, parentId: r.parentId } }; close(); }}>${i.label}</button>`;
     case 'archive': return html`<button icon="archive" @tap=${guard(() => app.actions.archive(app.convs, r))}>${i.label}</button>`;
     case 'delete': return html`<button icon="trash" role="destructive" confirm=${{ title: `Delete "${title}" and its history?`, label: 'Delete', destructive: true }}
       @tap=${guard(async () => { await app.actions.deleteRun(r.id); app.convs.remove(r.id); if (app.root === r.id) app.home(); })}>${i.label}</button>`;
