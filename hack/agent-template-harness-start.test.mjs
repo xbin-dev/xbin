@@ -71,6 +71,28 @@ test('its sandbox: the ones it fits first; the one last used with it; the create
   assert.equal(HS.createPrefill(claude, empty, noNet), null, 'a class that allows no egress: nothing it could start in');
 });
 
+test('its sandbox: one the class it starts in may not use is passed over — a refused ask doesn\'t pick it again', () => {
+  const claude = cat.harnesses[0];
+  const held = { ...seed.sandboxes[0], labels: { 'xbin.agent/internal': 'true' } }; // held internal data: the coding class reaches out
+  const other = { ...seed.sandboxes[0], ref: `${SBX}|sb-other`, id: 'sb-other', name: 'other', visibility: 'private', labels: {} };
+  const two = listOf({ sandboxes: [held, other, ...seed.sandboxes.slice(1)], managers: list.managers });
+  assert.equal(HS.preferredSandbox(claude, two, API_DEV, '').value, API_DEV, 'the harness alone fits it');
+  const opts = HS.sandboxOptions(claude, two, CODING);
+  assert.match(opts.find((o) => o.value === API_DEV).why, /held data from an internal-reach conversation/);
+  assert.equal(HS.preferredSandbox(claude, two, API_DEV, API_DEV, CODING).value, `${SBX}|sb-other`, 'its class may not use it: the next that fits');
+  const only = { ...CODING, managers: ['apps/other-sandboxes'] };
+  assert.equal(HS.preferredSandbox(claude, list, API_DEV, '', only), null, 'a class that allows none of its managers: none');
+  assert.equal(HS.setupOf(claude, list, API_DEV, only).kind, 'create', '…and the setup card says so');
+  // keepSandbox: the pick a refused ask dropped (sbx.refused) isn't picked again
+  const chosen = [];
+  const app = { sel: null, classId: 'internal', classes: C.listOf({ classes: [CODING], default: 'internal' }),
+    harness: { picked: () => claude, sandboxes: { claude: API_DEV }, rememberSandbox(p, ref) { this.sandboxes = { ...this.sandboxes, [p]: ref }; }, load: async () => {} },
+    sbx: { list: two, pick: null, ensure() {}, choose: async (ref) => { chosen.push(ref); app.sbx.pick = { ref }; } } };
+  HS.keepSandbox(app);
+  assert.deepEqual(chosen, [`${SBX}|sb-other`]);
+  assert.equal(app.harness.sandboxes.claude, `${SBX}|sb-other`, 'and remembered for it');
+});
+
 test('the setup card: no sandbox fits → Create; not signed in there → say so, and where it is', () => {
   const [claude, codex] = cat.harnesses;
   assert.equal(HS.setupOf(claude, listOf(null), '', CODING), null, 'the list not read yet');

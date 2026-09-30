@@ -12,7 +12,7 @@
 // DOM — node-tested in hack/agent-template-harness-start.test.mjs.
 import { HARNESSES, findHarness, nameOf, monogram, whyNot, resolveClass, sandboxFits, harnessOf, stateWords } from './harness.js';
 import { HOME } from './home.js';
-import { splitRef, classAllows, STATES as SBX_STATES, ICON as SBX } from './sandboxes.js';
+import { splitRef, classAllows, taintWhy, firewallEgress, STATES as SBX_STATES, ICON as SBX } from './sandboxes.js';
 import * as classes from './classes.js';
 import { AGENT } from './harness-store.js'; // "Who answers": the built-in agent (prefs/agent)
 
@@ -87,13 +87,23 @@ export function agentPicker(cat, pick, o = {}) {
 // can) — the sandbox picker's rows (model/sandboxes.js sandboxPicker fits).
 export const fitsWhy = (h) => (s) => sandboxFits(h, s).why;
 
-// sandboxOptions: every sandbox you may use for a conversation with h —
-// those it fits first (signed in, then running), each {value, name, label,
-// state, disabled, why, signedIn}.
-export function sandboxOptions(h, list) {
+// fitsIn: may a conversation with h in class cls start in sandbox s —
+// sandboxFits, then (cls given) what the class allows, as the sandbox
+// picker and the backend's binding check it (its managers, its egress, a
+// sandbox that held internal data): {ok, why, signedIn}.
+function fitsIn(h, s, cls) {
+  const f = sandboxFits(h, s);
+  const why = f.why || (cls ? classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s), s.manager) || taintWhy(cls, s) : '');
+  return { ...f, ok: !why, why };
+}
+
+// sandboxOptions: every sandbox you may use for a conversation with h (in
+// class cls, when given) — those it fits first (signed in, then running),
+// each {value, name, label, state, disabled, why, signedIn}.
+export function sandboxOptions(h, list, cls = null) {
   const rank = (r) => (r.disabled ? 2 : 0) + (r.signedIn ? 0 : 1) * 0.5 + (r.state === 'running' ? 0 : 0.25);
   return usable(list).map((s) => {
-    const f = sandboxFits(h, s);
+    const f = fitsIn(h, s, cls);
     const st = SBX_STATES[s.state] || s.state || '';
     return { value: s.ref, name: sbxName(s), label: `${sbxName(s)}${st ? ' · ' + st : ''}${f.signedIn ? ' · signed in' : ''}`,
       state: s.state || '', disabled: !f.ok, why: f.why, signedIn: f.signedIn };
@@ -102,10 +112,11 @@ export function sandboxOptions(h, list) {
 
 // preferredSandbox: the sandbox a new chat with h starts in — the one you
 // last used with it (remembered), else the one picked now, else the best
-// that fits (signed in, running); null when none fits.
-export function preferredSandbox(h, list, remembered, pick) {
+// that fits (signed in, running); null when none fits. cls: the class it
+// starts in (a sandbox it doesn't allow is passed over, as the backend refuses it).
+export function preferredSandbox(h, list, remembered, pick, cls = null) {
   if (!h) return null;
-  const fits = sandboxOptions(h, list).filter((r) => !r.disabled);
+  const fits = sandboxOptions(h, list, cls).filter((r) => !r.disabled);
   const by = (ref) => (ref ? fits.find((r) => r.value === ref) : null);
   return by(remembered) || by(pick) || fits[0] || null;
 }
@@ -143,7 +154,7 @@ export function createPrefill(h, list, cls) {
 export function setupOf(h, list, pick, cls) {
   if (!h || !list || !list.loaded) return null;
   const name = nameOf(h);
-  const opts = sandboxOptions(h, list);
+  const opts = sandboxOptions(h, list, cls);
   const fits = opts.filter((r) => !r.disabled);
   if (!fits.length) {
     const form = createPrefill(h, list, cls);
@@ -210,9 +221,13 @@ export function startOf(app) {
   return {
     picker, harness: h, cls,
     setup: h ? setupOf(h, app.sbx.list, pick, cls) : null,
-    placeholder: h ? `ask ${nameOf(h)}${s && sandboxFits(h, s).ok ? ` — it works in ${sbxName(s)}` : ''}…` : '',
+    placeholder: h ? `ask ${nameOf(h)}${s && fitsIn(h, s, cls).ok ? ` — it works in ${sbxName(s)}` : ''}…` : '',
   };
 }
+
+// startClass: the class (GET /classes' entry) a new chat with h starts in —
+// yours if it allows h, else the first you may use that does (§4.2.3).
+export const startClass = (app, h) => classes.find(app.classes, resolveClass(h, app.classId));
 
 // chooseAgent: who answers new chats (prefs/agent) — a coding agent takes
 // the sandbox it starts in along (keepSandbox).
@@ -256,9 +271,10 @@ export function keepSandbox(app) {
     if (!list.loaded) return;
     let pick = app.sbx.pick && app.sbx.pick.ref;
     const find = (ref) => (ref ? usable(list).find((x) => x.ref === ref) : null);
+    const cls = startClass(app, h);
     let s = find(pick);
-    if (!(s && sandboxFits(h, s).ok)) {
-      const to = preferredSandbox(h, list, app.harness.sandboxes[h.id], pick);
+    if (!(s && fitsIn(h, s, cls).ok)) { // one it can't start in — nor may its class (a refused ask dropped the pick: not the same one again)
+      const to = preferredSandbox(h, list, app.harness.sandboxes[h.id], pick, cls);
       if (!to) return; // the setup card says what to do
       if (to.value !== pick) app.sbx.choose(to.value).catch(() => {});
       pick = to.value;

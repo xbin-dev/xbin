@@ -1727,7 +1727,7 @@ resolves as `POST /ask` resolves it: yours when it allows the coding agent,
 else the first in `classes` — and the model picker (its model is an
 option); the sandbox picker keeps the sandboxes it fits (their (manager,
 image) is in `images`, their egress isn't `none`, a probe didn't find it
-missing) and starts with the one you last used with it (xbind's
+missing, and the class may use them) and starts with the one you last used with it (xbind's
 `prefs/harness-sandbox`: `{"<id>": "<ref>"}`), else the best that fits. A
 running sandbox it wasn't looked for in is probed. When none fits, a setup
 card offers the create form filled in for it (a manager and image that have

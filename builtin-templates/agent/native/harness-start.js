@@ -80,9 +80,9 @@ ext.register({
     const h = f.agent !== AGENT ? app.harness.find(f.agent) : null;
     const coding = h && h.available ? h : null;
     if (coding) {
-      const opts = HS.sandboxOptions(coding, app.sbx.list);
+      const opts = HS.sandboxOptions(coding, app.sbx.list, HS.startClass(app, coding));
       if (!opts.some((o) => o.value === f.hsbx && !o.disabled)) {
-        const to = HS.preferredSandbox(coding, app.sbx.list, app.harness.sandboxes[coding.id], app.sbx.pick && app.sbx.pick.ref);
+        const to = HS.preferredSandbox(coding, app.sbx.list, app.harness.sandboxes[coding.id], app.sbx.pick && app.sbx.pick.ref, HS.startClass(app, coding));
         f.hsbx = to ? to.value : '';
       }
     }
@@ -99,7 +99,7 @@ ext.register({
           ctx.paint();
         };
         const row = coding && p.rows.find((r) => r.value === coding.id);
-        const opts = coding ? HS.sandboxOptions(coding, app.sbx.list) : [];
+        const opts = coding ? HS.sandboxOptions(coding, app.sbx.list, HS.startClass(app, coding)) : [];
         const sbx = (e) => {
           const o = opts.find((x) => x.value === e.value);
           if (o && o.disabled) return fail(`${o.name}: ${o.why}`);

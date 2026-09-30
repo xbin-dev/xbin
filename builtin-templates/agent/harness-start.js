@@ -132,9 +132,9 @@ ext.register({
       for (const id of ['n-class', 'n-system']) { const el = $(id)?.closest('.field'); if (el) el.style.display = on ? 'none' : ''; }
     };
     const refOf = (h) => {
-      const opts = HS.sandboxOptions(h, app.sbx.list);
+      const opts = HS.sandboxOptions(h, app.sbx.list, HS.startClass(app, h));
       if (f.ref && opts.some((o) => o.value === f.ref && !o.disabled)) return f.ref;
-      const to = HS.preferredSandbox(h, app.sbx.list, app.harness.sandboxes[h.id], app.sbx.pick && app.sbx.pick.ref);
+      const to = HS.preferredSandbox(h, app.sbx.list, app.harness.sandboxes[h.id], app.sbx.pick && app.sbx.pick.ref, HS.startClass(app, h));
       return (f.ref = to ? to.value : '');
     };
     return {
@@ -145,7 +145,7 @@ ext.register({
           remembered: h && ref ? { ...app.harness.sandboxes, [h.id]: ref } : app.harness.sandboxes }); // its sign-in where it would start
         fields(!!h);
         if (!p.shown && !h) return nothing;
-        const opts = h ? HS.sandboxOptions(h, app.sbx.list) : [];
+        const opts = h ? HS.sandboxOptions(h, app.sbx.list, HS.startClass(app, h)) : [];
         const cls = h ? p.rows.find((r) => r.value === h.id)?.detail : '';
         return html`<div class="field"><label>Who answers — fixed once it starts</label>
             <select id="n-agent" @change=${(e) => { f.agent = e.target.value; f.ref = ''; redraw(); }}>
