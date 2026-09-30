@@ -439,8 +439,12 @@ notes have the commands):
    them (`people/visibility`, `people/owners`, `partitions/shares`,
    `tty/refusals`, `stdio/refusals`) go in `Target.Skip`, saying so.
    `user-partitions` needs a partitioned consumer's calls, which xbind
-   makes (and strips from anyone else): it runs in-process
-   (`_backend/contract_test.go`).
+   makes (and strips from anyone else): its consumers are partitioned
+   tiles, and a person's partition is their page of one. Its checks that
+   need a caller xbind never makes, or the suite's own partition ids
+   (`apart`, `shares`, `person`, `recreated`), are skipped, saying so, and
+   run in-process (`_backend/contract_test.go`); `global`, `global-home`
+   and `sockets` run through xbind.
 4. `mode`: `auto` gives `vm` with KVM (the sandbox's `isolation` `vm`),
    `namespace` without; `vm` on a host without VMs refuses the create with
    the runtime's reason.

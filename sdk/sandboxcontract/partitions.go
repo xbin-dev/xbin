@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 )
 
@@ -196,6 +197,80 @@ var userPartitionChecks = []check{
 		alice.Asserting("mallory").Refused("GET", "/sandboxes/"+sb.ID, nil, 403, "not-allowed")
 		alice.Asserting("mallory").Refused("GET", "/sandboxes", nil, 403, "not-allowed")
 		alice.Verified("alice").Get(sb.ID)
+	}},
+	{"sockets", func(t *testing.T, e *env) {
+		// the sockets — a terminal, a tty exec's, a program's stdio (whose
+		// attach takes over its stdin: a coding agent's) — keep the
+		// partitions as every route does: a partition-homed sandbox's are
+		// that partition's alone, refused before the upgrade; the partition's
+		// backend is its person's; a team sandbox at the consumer's
+		// non-personal identity is the partition's person's to use
+		tty, stdio := e.has("tty"), e.has("stdio")
+		if !tty && !stdio {
+			t.Skip("neither tty nor stdio")
+		}
+		a := e.as("a")
+		alice, bob := a.InPartition("alice", pid("alice")), a.InPartition("bob", pid("bob"))
+		sb := alice.Create(map[string]any{"name": "alice's", "visibility": "team"})
+		var paths []string
+		var tx Exec // a tty exec
+		var agent *pipe
+		if tty {
+			tx = alice.Exec(sb.ID, map[string]any{"cmd": `read l; echo "got:$l"`, "tty": true})
+			paths = append(paths, ttyPath(sb.ID, url.Values{"cmd": {"true"}}), "/sandboxes/"+sb.ID+"/execs/"+tx.ID+"/tty")
+		}
+		if stdio {
+			x := alice.Exec(sb.ID, map[string]any{"cmd": "cat", "stdin": true, "split": true})
+			agent = openPipe(t, alice, sb.ID, x.ID, 0, 0) // alice's partition holds its stdin
+			paths = append(paths, stdioPath(sb.ID, x.ID, 0, 0))
+		}
+		for _, path := range paths {
+			// another partition (its backend, its page, its backend naming
+			// its person), the consumer's global instance and that instance
+			// naming alice: for them it doesn't exist
+			for _, other := range []Caller{bob, bob.Verified("bob"), bob.Asserting("bob"), a, a.Global(), a.Asserting("alice"), a.Global().Asserting("alice")} {
+				dialRefused(t, other, path, 404, "not-found")
+			}
+			// the partition naming another person
+			dialRefused(t, alice.Asserting("mallory"), path, 403, "not-allowed")
+		}
+		if stdio { // none of the refused dials took its stdin
+			agent.send("still alice's\n")
+			agent.expect("still alice's\n")
+			agent.op(map[string]any{"op": "eof"})
+			agent.exited(code(0), "")
+		}
+		if tty { // its partition's backend, naming its person, and its page
+			at := attach(t, alice.Asserting("alice"), "/sandboxes/"+sb.ID+"/execs/"+tx.ID+"/tty")
+			at.send("x\r")
+			at.expect("got:x")
+			at.exited(0)
+			sh := attach(t, alice.Verified("alice"), ttyPath(sb.ID, url.Values{"cmd": {"echo hers-$((6*7))"}}))
+			sh.expect("hers-42")
+			sh.exited(0)
+		}
+		// at the consumer's non-personal identity: another person's private
+		// sandbox isn't the partition's, a team one is its person's to use
+		carol := a.Asserting("carol")
+		private := carol.Create(map[string]any{"name": "carol's", "visibility": "private"})
+		team := a.Create(map[string]any{"name": "team", "visibility": "team"})
+		if tty {
+			dialRefused(t, alice, ttyPath(private.ID, url.Values{"cmd": {"true"}}), 404, "not-found")
+			tm := attach(t, alice, ttyPath(team.ID, url.Values{"cmd": {"echo team-$((6*7))"}}))
+			tm.expect("team-42")
+			tm.exited(0)
+		}
+		if stdio {
+			theirs := carol.Exec(private.ID, map[string]any{"cmd": "cat", "stdin": true})
+			dialRefused(t, alice, stdioPath(private.ID, theirs.ID, 0, 0), 404, "not-found")
+			carol.Call("DELETE", "/sandboxes/"+private.ID+"/execs/"+theirs.ID, nil, http.StatusNoContent, nil)
+			x := alice.Exec(team.ID, map[string]any{"cmd": "cat", "stdin": true})
+			p := openPipe(t, alice, team.ID, x.ID, 0, 0)
+			p.send("team\n")
+			p.expect("team\n")
+			p.op(map[string]any{"op": "eof"})
+			p.exited(code(0), "")
+		}
 	}},
 	{"recreated", func(t *testing.T, e *env) {
 		// a person deleted and made again has a new partition id: nothing of

@@ -759,8 +759,10 @@ does for a route it doesn't know. The `partitions` section is about
 consumers — one consumer's sandboxes apart from another's (§Consumers,
 sharing and people); the `user-partitions` section is about a partitioned
 consumer's people (§Partitioned consumers) and runs when hello's caps
-carry `partitions` (a capability with no routes of its own). The rest of
-`Target`:
+carry `partitions` (a capability with no routes of its own) — its
+`sockets` check dials the `tty` and `stdio` routes, where hello offers
+them, as another partition, the consumer's global instance, a person they
+assert, and the partition naming someone else. The rest of `Target`:
 
 - `Client` — the HTTP client for every call and terminal (TLS, a proxy).
 - `Consumer`, `Verified`, `Asserted`, `Partition` — how to call as a

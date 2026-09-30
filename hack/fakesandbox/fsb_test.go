@@ -74,7 +74,7 @@ func TestContractBeforeStdio(t *testing.T) {
 	}
 	tg := fresh(t, sandboxcontract.Knobs{})
 	tg.Skip = map[string]string{}
-	for _, s := range []string{"hello", "sandboxes", "partitions", "people", "lifecycle", "run", "execs", "tty", "stdio", "files", "tar", "snapshots", "ports"} {
+	for _, s := range []string{"hello", "sandboxes", "partitions", "user-partitions", "people", "lifecycle", "run", "execs", "tty", "stdio", "files", "tar", "snapshots", "ports"} {
 		tg.Skip[s] = "TestContract runs it; this one is caps/missing's"
 	}
 	sandboxcontract.Run(t, tg)
@@ -99,7 +99,7 @@ func TestContractPolicingTTY(t *testing.T) {
 	}))
 	t.Cleanup(func() { srv.Close(); m.Close() })
 	tg := sandboxcontract.Target{URL: srv.URL, Grace: m.Grace, Skip: map[string]string{}}
-	for _, s := range []string{"hello", "sandboxes", "partitions", "people", "lifecycle", "run", "execs", "stdio", "files", "tar", "snapshots", "ports", "caps"} {
+	for _, s := range []string{"hello", "sandboxes", "partitions", "user-partitions", "people", "lifecycle", "run", "execs", "stdio", "files", "tar", "snapshots", "ports", "caps"} {
 		tg.Skip[s] = "TestContract runs it; this one is tty/backend's warning"
 	}
 	sandboxcontract.Run(t, tg)
