@@ -11,15 +11,21 @@
 //     "Copy to my own space"; on her own it is "Share a copy": the copy is
 //     published from her partition and opens;
 //   - New chat with options asks who can see it; a shared one is made at
-//     global.
+//     global;
+//   - coding agents (model/harness-homes.js) only in her own conversations:
+//     hers offers no Share a copy; a shared one's (the shared space's) calls
+//     go to global and its share dialog has no copy and no hosting; a new
+//     chat shared with others is the built-in agent's.
 //
 //   node test/homes.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
+import { harnessSeed } from './harness-fixtures.mjs';
 
 const { ok, done } = checker();
 const MINE = 2 ** 40 + 1;
 const COPY = 2 ** 40 + 9;
-const seed = { runs: [] };
+const HSEED = harnessSeed();
+const seed = { runs: [], harnesses: HSEED.harnesses }; // the coding agents' catalog: "Who answers" in New chat with options
 
 const browser = await launch();
 const ctx = await browser.newContext();
@@ -143,6 +149,55 @@ await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.ur
 const ask2 = (await calls(/\/ask$/))[1];
 ok('a chat shared with people is made at global, with them', ask2.home === 'global' &&
   JSON.stringify(JSON.parse(ask2.body).share) === '{"members":[{"user":"carol","role":"participant"},{"user":"dave","role":"participant"}]}', ask2.body);
+
+// coding agents (D147): only in her own conversations (model/harness-homes.js)
+const MINE_H = 2 ** 40 + 5; // her own coding agent's conversation
+const TEAM_H = 3;           // a coding agent's in the shared space, parked on a permission
+await page.evaluate(([MINE_H, TEAM_H, ps, h]) => {
+  const j = window.__json;
+  const row = (id, title, extra) => ({ id, title, status: 'idle', access: 'owner', mine: true, origin: 'chat', visibility: 'private',
+    activityMs: 5000 + (id % 1000), parentId: 0, rootId: id, engine: 'harness', ...extra });
+  window.__homeRows[''].push(row(MINE_H, 'my coding agent', { harness: { ...h, state: 'ready', pending: undefined } }));
+  window.__homeRows.global.push(row(TEAM_H, 'the team\'s coding agent', { visibility: 'team', teamRole: 'participant', owner: 'bob', access: 'participant',
+    mine: false, status: 'waiting_input', pendingState: ps, harness: h }));
+  window.__route('POST', /\/runs\/(\d+)\/approve$/, () => j({ ok: 'true' }));
+}, [MINE_H, TEAM_H, HSEED.views[22].run.pendingState, HSEED.views[22].run.harness]);
+await page.click('#views .seg:has-text("Mine")');
+await page.waitForSelector(`#runs .run[data-id="${MINE_H}"]`);
+const hm = await menu(MINE_H);
+ok('her coding agent\'s conversation: no "Share a copy…" (it never moves)', !hm.includes('Share a copy…') && !hm.includes('Share…'), hm.join());
+await page.evaluate((id) => { location.hash = 'c=' + id; }, MINE_H);
+await page.waitForSelector('#top #hchip');
+ok('…nor Share in its top bar; its chip says it stays in her own space', !(await page.$('#top .sharepill')) &&
+  /stays in your own space/.test(await page.getAttribute('#top #hchip', 'title')));
+await page.evaluate((id) => { location.hash = 'c=' + id; }, TEAM_H);
+await page.waitForSelector('.hask [data-opt="allow"]');
+await page.click('.hask [data-opt="allow"]');
+await page.waitForFunction((id) => window.__calls.some((c) => c.url.endsWith(`/runs/${id}/approve`)), TEAM_H);
+const ap = await calls(new RegExp(`/runs/${TEAM_H}/approve$`));
+ok('a shared coding agent\'s permission is answered at global', ap.length === 1 && ap[0].home === 'global' && JSON.parse(ap[0].body).option === 'allow',
+  JSON.stringify(ap));
+await page.click('#top .sharepill');
+await page.waitForSelector('#sharedlg #copy-mine');
+ok('its share dialog: no Copy to my own space, no "Use my private resources…" — a copy of her files still',
+  !(await page.$('#sharedlg #sh-copy')) && !(await page.$('#sharedlg #host-use')));
+await page.click('#sharedlg .dlg-ft .btn');
+await page.click('#newopts');
+await page.waitForSelector('#newdlg[open] #n-agent');
+await page.selectOption('#n-share', 'mine');
+await page.selectOption('#n-agent', 'claude');
+await page.waitForSelector('#newdlg #n-sandbox');
+ok('a new chat of her own: a coding agent may answer', !(await page.$eval('#n-agent', (e) => e.disabled)));
+await page.selectOption('#n-share', 'team-participant');
+await page.waitForSelector('#newdlg #n-agent-shared');
+ok('shared with others: "Who answers" is the built-in agent, saying why',
+  await page.$eval('#n-agent', (e) => e.disabled && e.value === 'agent') && !(await page.$('#newdlg #n-sandbox')));
+await page.fill('#n-goal', 'for the team');
+await page.click('#n-create');
+await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.url)).length === 3);
+const ask3 = (await calls(/\/ask$/))[2];
+ok('…made at global, the built-in agent\'s', ask3.home === 'global' && !('harness' in JSON.parse(ask3.body)) && !!JSON.parse(ask3.body).share, ask3.body);
+
 ok('no page errors', !errors.length, errors.join(' | '));
 await browser.close();
 done('homes');
