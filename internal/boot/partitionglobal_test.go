@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -141,6 +142,12 @@ func TestGlobalAddressWiring(t *testing.T) {
 	}
 	if code, _, raw := do("GET", "/api/apps/pa/hello?xbin-partition=user:wendy", frame("apps/pa", "alice"), ""); code != 400 {
 		t.Errorf("another value: %d %s", code, raw)
+	}
+	// a cron delivery of alice's partition, through the dispatch cron uses
+	dispatch := broker.DispatchViaProxy(d.st.Proxy)
+	cron := auth.Principal{Component: broker.CronPrincipal, Via: "cron", Role: "writer", Partition: util.UserPartition("alice")}
+	if code, raw := dispatch(cron, "apps/pa", "/tick?xbin-partition=global"); code != 403 || !strings.Contains(raw, "a cron delivery acts in the partition it was registered for") {
+		t.Errorf("alice's cron delivery: %d %s", code, raw)
 	}
 	// a path ticket: its own partition only
 	tk := frame("apps/pa", "alice")
