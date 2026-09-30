@@ -13,14 +13,15 @@ import (
 )
 
 // PD-44 — /components rows carry "partition" (the settled state, the
-// recorded mode, an open or declined request) and "partitionError" only for
-// a tile that asks for a mode or records one; every other row keeps its keys.
+// recorded mode, an open or declined request, the partitionNote while the
+// request is pending) and "partitionError" only for a tile that asks for a
+// mode or records one; every other row keeps its keys.
 func TestComponentsPartitionFields(t *testing.T) {
 	w := newAssetWS(t, TileAssetsLegacy)
 	for rel, body := range map[string]string{
 		"apps/part/xbin.json": `{"runtime":"go","partition":["user","global"]}`,
-		"apps/pend/xbin.json": `{"runtime":"go","partition":["user"]}`,
-		"apps/kept/xbin.json": `{"runtime":"go","partition":["user"]}`,
+		"apps/pend/xbin.json": `{"runtime":"go","partition":["user"],"partitionNote":" Your notes live here, yours alone. "}`,
+		"apps/kept/xbin.json": `{"runtime":"go","partition":["user"],"partitionNote":"declined: not shown"}`,
 		"apps/bad/xbin.json":  `{"runtime":"go","partition":["user","org"]}`,
 		"apps/gone/xbin.json": `{"runtime":"go"}`,
 	} {
@@ -64,7 +65,8 @@ func TestComponentsPartitionFields(t *testing.T) {
 	}
 	for tile, want := range map[string]string{
 		"apps/part": `{"state":"partitioned","user":true,"global":true}`,
-		"apps/pend": `{"state":"pending","user":false,"global":false,"request":{"user":true,"global":false,"declined":false}}`,
+		// the note (trimmed) only while the request waits for a manager
+		"apps/pend": `{"state":"pending","user":false,"global":false,"request":{"user":true,"global":false,"declined":false},"note":"Your notes live here, yours alone."}`,
 		"apps/kept": `{"state":"unpartitioned","user":false,"global":false,"request":{"user":true,"global":false,"declined":true}}`,
 		"apps/bad":  `{"state":"invalid","user":false,"global":false} "partition: unknown word \"org\" (this xbind knows \"user\" and \"global\"; an unknown word runs no backend)"`,
 		"apps/gone": `{"state":"pending","user":true,"global":false,"request":{"user":false,"global":false,"declined":false}}`,
