@@ -256,8 +256,13 @@ func classRefusals(t *testing.T, inv map[string]string) {
 					continue
 				}
 				code, body := call(c, pattern)
+				// a person's own act (the partition table's PersonOnly): no
+				// credential here is a person's session, app or device
+				personOnly := !refused && server.PartitionClassOf(pattern) == server.PersonOnly
 				var want string
 				switch {
+				case personOnly:
+					want = "this is a person's own act"
 				case !refused:
 					want = `"ran":"` + pattern + `"`
 				case c.dep == "gone":
@@ -273,7 +278,7 @@ func classRefusals(t *testing.T, inv map[string]string) {
 				switch {
 				case refused && c.dep == "gone":
 					wantCode = http.StatusNotFound
-				case refused:
+				case refused, personOnly:
 					wantCode = http.StatusForbidden
 				}
 				if code != wantCode || !strings.Contains(body, want) {

@@ -33,6 +33,7 @@ func (st *State) wirePartitionRunner() {
 	run.PartitionCapsFor = brk.PartitionCaps
 	brk.SetPartitionCapDefaults(run.DefaultPartitionCaps)
 	brk.SetPartitionRunner(run.PartitionRunning, run.StopPartitions, st.Auth.RevokePartitionInstances)
+	brk.SetPartitionRestart(run.StopPartition) // a person's personal binds changed: their instance restarts (05 §3)
 	st.Reg.OnPartitionChange(func(c *registry.Component, old, new registry.PartitionMode) {
 		run.PartitionsChanged(c, runningSpec(old), runningSpec(new))
 	})

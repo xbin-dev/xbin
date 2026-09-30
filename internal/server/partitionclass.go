@@ -385,6 +385,9 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /bindings":                 PartitionNeutral,
 	"POST /bindings":                GlobalOnlyRefused,
 	"DELETE /bindings":              GlobalOnlyRefused,
+	"GET /partitions/binds":         PartitionNeutral,  // personal binds (05 §3): the person's own, or all for admins
+	"POST /partitions/binds":        PersonOnly,        // a person wires their own tile into their own partition
+	"DELETE /partitions/binds":      GlobalOnlyRefused, // the person, or an admin (the admin tile included)
 	"GET /owner":                    PartitionNeutral,
 	"GET /owner/preview":            GlobalOnlyRefused,
 	"POST /owner":                   GlobalOnlyRefused,

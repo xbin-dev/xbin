@@ -60,6 +60,7 @@ type Broker struct {
 
 	partitionSlot                  // each tile's recorded partition mode (partitionmode.go)
 	partRun       partitionRunSlot // the runner's side of people's partitions (partitionwire.go)
+	pbind         personalBindSlot // people's personal binds (personalbind.go, PD-54)
 
 	// edgeTallies: (tile, deployment, edge) → *edgeTally, refused and clamped calls (edgepolicy.go).
 	edgeTallies sync.Map
@@ -287,6 +288,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("GET /bindings", b.apiBindingsList)
 	srv.RegisterAPI("POST /bindings", b.apiBindingSet)
 	srv.RegisterAPI("DELETE /bindings", b.apiBindingSet)
+	b.registerPersonalBinds(srv) // GET/POST/DELETE /partitions/binds (personalbind_api.go)
 	srv.RegisterAPI("PUT /iface-instances", b.apiIfaceInstancesSet)
 	srv.RegisterAPI("PUT /ingress-hosts", b.apiIngressHosts)
 	srv.RegisterAPI("GET /ingress-routes", b.apiIngressRoutes)

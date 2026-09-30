@@ -161,6 +161,9 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   //                          url: "http://xbin/api/…", service}]
   //   frontend (both):       xbin.iface(slot) urls are same-origin PATHS
   //                          ("/api/…") — fetch them directly.
+  //   a partitioned tile:    a person's partition (and their frames) also
+  //                          lists their personal binds on multi slots, each
+  //                          with personal: true (/docs/partitions.md)
   // "http://xbin" is the gateway pseudo-host (backends dial the unix socket).
   // Rebinding a slot (or an instance re-registration) RESTARTS the requester
   // backend — the env is captured at spawn.

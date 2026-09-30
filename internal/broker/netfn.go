@@ -309,6 +309,9 @@ type IfaceEndpoint struct {
 	Provider string `json:"provider"`
 	Instance string `json:"instance,omitempty"`
 	URL      string `json:"url"`
+	// Personal: the viewer's own personal bind, in a partition's view only
+	// (HTTPInterfacesIn, plans/partitions/05 §3).
+	Personal bool `json:"personal,omitempty"`
 }
 
 // ResolvedIface is one requested http slot with its resolved endpoints.
@@ -441,6 +444,9 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		Component string                    `json:"component"`
 		Interface map[string]registry.Iface `json:"interfaces,omitempty"`
 		Provides  map[string]registry.Iface `json:"provides,omitempty"`
+		// Partitioned: its bindings are global binds; its people add personal
+		// ones (plans/partitions/05 §3)
+		Partitioned bool `json:"partitioned,omitempty"`
 	}
 	var comps []ifaceInfo
 	for _, c := range b.Reg.Components() {
@@ -450,7 +456,8 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		if scoped && !inScope(c.Path) {
 			continue
 		}
-		comps = append(comps, ifaceInfo{Component: c.Path, Interface: c.Manifest.Interfaces, Provides: c.Manifest.Provides})
+		_, part, _ := b.tilePartitioning(c.Path)
+		comps = append(comps, ifaceInfo{Component: c.Path, Interface: c.Manifest.Interfaces, Provides: c.Manifest.Provides, Partitioned: part})
 	}
 	bindings := b.Reg.Workspace().Bindings
 	pending := b.pendingBindings(!scoped)
@@ -794,7 +801,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	}
 	if !del {
 		if err := b.validateBinding(body.Component, body.Slot, next); err != nil {
-			server.WriteError(w, http.StatusBadRequest, err.Error())
+			server.WriteError(w, bindingStatus(err), err.Error()) // 409: a bindConflict (personalbind_api.go)
 			return
 		}
 	}
@@ -965,6 +972,9 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 				}
 			case inst != "":
 				return fmt.Errorf("%s has no instances (bind it plain)", prov)
+			}
+			if err := b.partitionedProviderRefusal(comp, slot, ref); err != nil {
+				return err // 409: no call of it would reach a partitioned provider (plans/partitions/05 §1)
 			}
 		}
 	}

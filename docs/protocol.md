@@ -2469,6 +2469,16 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    admin's rights are judged on the route
                                    added. A stream INTERFACE slot binds
                                    "provider#expose-slot".
+                                   A new ref of an unpartitioned component's
+                                   http slot to a tile whose partition mode
+                                   has user partitions and no global
+                                   instance is 409: no call of it would
+                                   reach that tile (docs/partitions.md); a
+                                   ref the slot already holds isn't judged
+                                   again. A partitioned
+                                   component binds under the same rules as
+                                   any other: its bindings are global binds,
+                                   seen by every person's partition.
 DELETE /bindings                   admin / owning-org admin (always) /
                                    provider-org admin (withdrawing
                                    service). body {component, slot} — clear a binding
@@ -2641,6 +2651,55 @@ POST   /partitions/mode            a tile manager (the tile's user-owner, an
                                    tile every 15 minutes), and every mode
                                    change reloads the tile's frames (event
                                    reload).
+GET    /partitions/binds           a person (their own personal binds), or
+                                   admin (every person's; the admin tile
+                                   included); every other tile principal 403.
+                                   → {binds: [{id, user, requester, slot,
+                                   provider, at, live, why?}]} — live: the
+                                   bind holds now; why: why not (the provider
+                                   changed owner, the requester no longer
+                                   partitions, …). A deleted person's rows are
+                                   never listed (docs/partitions.md §Bind
+                                   types).
+POST   /partitions/binds           a person's own act: their session, app or
+                                   device (never a tile principal, view-as or
+                                   the root token — 403). body {requester,
+                                   slot, provider} — wire provider into the
+                                   caller's OWN partition of requester. 403
+                                   unless the caller owns provider
+                                   personally (user:<id>) and can read
+                                   requester, or when the policy ceiling
+                                   denies the edge; 404 an unknown tile; 409
+                                   when requester isn't partitioned or is
+                                   paused, slot isn't a multi:true http slot,
+                                   provider is partitioned, doesn't provide
+                                   the slot's service or exposes instances,
+                                   or is already bound on the slot for
+                                   everyone. Only that person's partition
+                                   instance gets the row in
+                                   XBIN_IFACE_<SLOT> (restarted: its env is
+                                   captured at spawn) and only their frames'
+                                   xbin-interfaces meta lists it, each with
+                                   personal: true; it lets a call through
+                                   only from requester acting in their
+                                   partition, while they still own provider
+                                   (every other caller: today's 403). Adding
+                                   the same bind again answers the existing
+                                   one. → {ok, bind: {id, user, requester,
+                                   slot, provider, at, live}}; publishes
+                                   grants for requester to that person's
+                                   sockets and frames only.
+DELETE /partitions/binds           the bind's person, or admin. body {id} or
+                                   {requester, slot, provider[, user]} (user:
+                                   whose, default the caller's own; an admin's
+                                   {id} matches anyone's) → {ok, removed:
+                                   [{id, user, requester, slot, provider,
+                                   at}]}; 404 when nothing matches. Restarts
+                                   that person's partition instance of
+                                   requester. A personal bind also goes when
+                                   its provider changes owner, its person is
+                                   deleted, or requester switches between
+                                   user partitions and unpartitioned.
 
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
@@ -5529,7 +5588,11 @@ a time, sub-paths traversal-stripped. The native runtime document
   partitioned tile's instances ([partitions.md](/docs/partitions.md), in
   development): the person's partition the instance serves, or its global
   instance (a non-primary deployment's included); absent for every tile that
-  isn't partitioned. `XBIN_RES_*` then name the partition's own data.
+  isn't partitioned. `XBIN_RES_*` then name the partition's own data. A
+  person's partition's multi-slot `XBIN_IFACE_<slot>` also lists their
+  personal binds, each `{provider, url, service, personal: true}` after the
+  global rows (`POST /api/xbin/partitions/binds`); the global instance's
+  never does.
 
 ## Filesystem contract
 

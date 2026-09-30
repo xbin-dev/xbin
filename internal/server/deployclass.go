@@ -234,6 +234,9 @@ var routeClasses = map[string]RouteClass{
 	"GET /bindings":                 Neutral,
 	"POST /bindings":                PrimaryOnly,
 	"DELETE /bindings":              PrimaryOnly,
+	"GET /partitions/binds":         Neutral,     // a person's own, or every one for admins; the handler refuses tile code (plans/partitions/05 §3)
+	"POST /partitions/binds":        PrimaryOnly, // a person's own act (PersonOnly)
+	"DELETE /partitions/binds":      PrimaryOnly, // the person, or an admin
 	"GET /owner":                    Neutral,
 	"GET /owner/preview":            PrimaryOnly,
 	"POST /owner":                   PrimaryOnly,
