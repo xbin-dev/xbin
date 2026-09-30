@@ -28,6 +28,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,25 +92,42 @@ func ensureHostEngine() *Engine {
 	return e
 }
 
-// startHosting (main.go, after the main engine starts): a partition that
-// hosts something starts its host engine once team is open.
+// startHosting (main.go, after the main engine starts), once team is open:
+// a person's partition takes up the moves it asked for before a stop
+// (hosted_move.go) and starts its host engine if it hosts something; the
+// global instance settles moves that never finished.
 func startHosting() {
-	if !userMode() || agent == nil || !agent.db.hostsAny() {
+	if agent == nil {
+		return
+	}
+	global := globalMode() && partitioned()
+	if !global && (!userMode() || (!agent.db.hostsAny() && !agent.db.hostingMovesWait())) {
 		return
 	}
 	deadline := time.Now().Add(teamWait + 5*time.Second) // team opens in the background (partition_start.go)
 	for teamRuns() == nil {
 		if time.Now().After(deadline) {
-			logf("hosting: the team database isn't usable — hosted conversations wait for the next start")
+			if !global {
+				logf("hosting: the team database isn't usable — hosted conversations wait for the next start")
+			}
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	ensureHostEngine()
+	if global {
+		settleHostedMoves(teamView())
+		return
+	}
+	reconcileHostingMoves()
+	if agent.db.hostsAny() {
+		ensureHostEngine()
+	}
 }
 
 // stopHosting stops the host engine with the main one (main.go): at once
-// (wait 0), or waiting up to wait for its actors and leaving its wake-up.
+// (wait 0), or waiting up to wait for its actors and leaving its wake-up —
+// and what its forwarder still holds goes to the global instance (or, if
+// that fails, as hosted/changed mail).
 func stopHosting(wait time.Duration) {
 	e := hostEngine.Load()
 	if e == nil {
@@ -120,6 +138,7 @@ func stopHosting(wait time.Duration) {
 		return
 	}
 	e.Shutdown(wait)
+	hostedFwd.flush()
 }
 
 // haltHosted abandons what the host's engine is doing in a conversation
@@ -141,22 +160,79 @@ func haltHosted(root int64) {
 	}
 }
 
-// hostedWakeUp is the host engine's exit (Engine.wake): runnable work in a
-// conversation it drives leaves the partition's resume job — a paused one
-// waits for its host, who opens the tile anyway.
+// hostedWakeUp is the host engine's exit (Engine.wake): what the
+// conversations it drives (active in its own table) wait for leaves the
+// partition's wake-up, by resume_mode.go's rule (08 §9 C4) — `resume` for
+// work a pass would take up now, else the `wake` job at the earliest timed
+// wait (the earlier of its own and the main engine's: they share the name);
+// a paused one waits for its host, who opens the tile anyway.
 func hostedWakeUp(ag *Agent, tr *DB) {
-	ids := scanIDs(tr.q.Query(`SELECT id FROM runs WHERE status IN ('running','queued')
-		UNION SELECT DISTINCT run_id FROM inbox WHERE delivered_at=0`))
-	for _, id := range ids {
-		run, err := tr.getRun(id)
-		if err != nil {
-			continue
+	if brakeIdle() {
+		return
+	}
+	roots := scanIDs(agent.db.q.Query(`SELECT conversation FROM hosted WHERE state='active'`))
+	if len(roots) == 0 {
+		return
+	}
+	switch at := tr.hostedWake(roots, time.Now()); {
+	case at.runnable:
+		ag.registerResumeJob()
+	case at.wake > 0:
+		if own := agent.db.userWake(time.Now()); !own.runnable && own.wake > 0 && own.wake < at.wake {
+			at.wake = own.wake
 		}
-		if row, err := agent.db.hostedRow(rootOf(run)); err == nil && row.State == hostActive {
-			ag.registerResumeJob()
-			return
+		ag.registerWakeJob(at.wake)
+	}
+}
+
+// hostedWake is DB.userWake (resume_mode.go) over the trees of roots only.
+func (d *DB) hostedWake(roots []int64, now time.Time) userWakeAt {
+	in := strings.TrimSuffix(strings.Repeat("?,", len(roots)), ",")
+	args := make([]any, 0, 2*len(roots))
+	for _, id := range roots {
+		args = append(args, id)
+	}
+	for _, id := range roots {
+		args = append(args, id)
+	}
+	tree := func(alias string) string {
+		return "(" + alias + ".id IN (" + in + ") OR " + alias + ".root_id IN (" + in + "))"
+	}
+	var n int
+	_ = d.q.QueryRow(`SELECT
+		(SELECT count(*) FROM runs r WHERE r.status IN ('running','queued') AND `+tree("r")+`)
+		+ (SELECT count(*) FROM inbox i JOIN runs r ON r.id = i.run_id WHERE i.delivered_at=0 AND `+tree("r")+`)
+		+ (SELECT count(*) FROM links l JOIN runs p ON p.id = l.parent_id
+			WHERE l.state<>'running' AND l.delivered=0 AND `+tree("p")+` AND (
+				(l.mode='fg' AND p.status IN ('running','queued','awaiting'))
+				OR (l.mode='bg' AND p.parent_id=0 AND p.status IN ('running','queued','sleeping','idle','done','canceled'))))`,
+		append(append(append([]any{}, args...), args...), args...)...).Scan(&n)
+	if n > 0 {
+		return userWakeAt{runnable: true}
+	}
+	rows, err := d.q.Query(`SELECT r.pending FROM runs r WHERE r.status='sleeping' AND r.pending<>'' AND `+tree("r"), args...)
+	if err == nil {
+		sleeps := false
+		for rows.Next() {
+			var p string
+			if rows.Scan(&p) == nil && parsePending(p).Kind == "sleep" {
+				sleeps = true
+			}
+		}
+		rows.Close()
+		if sleeps {
+			return userWakeAt{runnable: true} // a run sleeping on a sandbox job: seen only by looking
 		}
 	}
+	var wake int64
+	_ = d.q.QueryRow(`SELECT COALESCE(min(r.wake_at), 0) FROM runs r WHERE r.status IN ('sleeping','awaiting') AND r.wake_at > 0 AND `+tree("r"), args...).Scan(&wake)
+	switch {
+	case wake == 0:
+		return userWakeAt{}
+	case wake <= now.Unix()+60:
+		return userWakeAt{runnable: true}
+	}
+	return userWakeAt{wake: wake}
 }
 
 // armHostPauses times the drop of every paused conversation (hostPauseTTL
@@ -233,6 +309,18 @@ func hostedChangedAtGlobal(root int64) {
 	hostedFwd.add(&Event{Type: "hosted", Run: root, Root: root})
 }
 
+// flush sends what is queued now, once (the process is stopping): what
+// doesn't get through is mailed.
+func (f *hostedForwarder) flush() {
+	f.mu.Lock()
+	batch := f.q
+	f.q, f.pos = nil, map[string]int{}
+	f.mu.Unlock()
+	if len(batch) > 0 {
+		f.sendWith(batch, []time.Duration{0}, 5*time.Second)
+	}
+}
+
 func (f *hostedForwarder) loop() {
 	for range f.kick {
 		time.Sleep(fwdWindow)
@@ -247,9 +335,13 @@ func (f *hostedForwarder) loop() {
 }
 
 // send posts one batch, a few times; what global never took is mailed as
-// hosted/changed per conversation (drafts are simply lost: the next /view
-// has the committed text).
+// hosted/changed per conversation (global drops its drafts and has the
+// members' streams re-read it: they missed what the batch carried).
 func (f *hostedForwarder) send(batch []fwdEvent) {
+	f.sendWith(batch, []time.Duration{0, 200 * time.Millisecond, time.Second, 3 * time.Second}, 30*time.Second)
+}
+
+func (f *hostedForwarder) sendWith(batch []fwdEvent, tries []time.Duration, mailTimeout time.Duration) {
 	body, err := json.Marshal(map[string]any{"events": batch})
 	if err != nil {
 		logf("hosted events: %v", err)
@@ -261,7 +353,7 @@ func (f *hostedForwarder) send(batch []fwdEvent) {
 	if post == nil {
 		post = postHostedEvents
 	}
-	for i, wait := range []time.Duration{0, 200 * time.Millisecond, time.Second, 3 * time.Second} {
+	for i, wait := range tries {
 		if wait > 0 {
 			time.Sleep(wait)
 		}
@@ -278,7 +370,7 @@ func (f *hostedForwarder) send(batch []fwdEvent) {
 		roots[ev.Root] = true
 	}
 	for root := range roots {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), mailTimeout)
 		if _, err := sendMail(ctx, "global", topicHostedChanged, map[string]any{"conversation": root}, ""); err != nil {
 			logf("hosted/changed for #%d: %v", root, err)
 		}

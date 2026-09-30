@@ -49,6 +49,7 @@ var hostedHandlers = map[string]http.HandlerFunc{
 	"POST /runs/{id}/answer":             handleHostedMessage,
 	"POST /runs/{id}/interrupt":          handleHostedControl,
 	"POST /runs/{id}/cancel":             handleHostedControl,
+	"POST /runs/{id}/resume":             handleHostedResume,
 	"DELETE /runs/{id}/inbox/{iid}":      handleHostedRemoveQueued,
 	"POST /runs/{id}/approve":            handleHostedApprove,
 	"GET /runs/{id}/asks":                handleHostedAsks,
@@ -175,6 +176,10 @@ func talkable(w http.ResponseWriter, h *teamHost) bool {
 		return true
 	case hostPaused:
 		xbin.WriteError(w, 409, "paused: waiting for "+hostOf(h)+" to confirm who is in it now")
+	case hostPending:
+		xbin.WriteError(w, 409, "being set up: waiting for "+hostOf(h)+"'s partition to take it up — try again in a moment")
+	case hostContinuing:
+		xbin.WriteError(w, 409, "someone is continuing it without "+hostOf(h)+"'s private resources right now")
 	default:
 		xbin.WriteError(w, 409, hostOf(h)+" no longer hosts it: continue it without their resources (POST /hosted/{id}/continue)")
 	}
@@ -400,7 +405,10 @@ func handleHostedControl(w http.ResponseWriter, r *http.Request) {
 // handleHostedApprove is a verdict on a parked approval (POST
 // /runs/{id}/approve), into team for the host's engine. A call that needs a
 // grant (D111) is the conversation owner's to allow — for its own person's
-// capabilities, which in a hosted conversation are the host's: refused.
+// capabilities, which in a hosted conversation are the host's: refused. Any
+// other parked call runs with the host's private resources (a sandbox
+// command, another tile's partition): only the host allows it; any
+// participant may deny it.
 func handleHostedApprove(w http.ResponseWriter, r *http.Request) {
 	tv, root, h, ok := hostedRootOf(w, r)
 	if !ok || !talkable(w, h) {
@@ -428,8 +436,27 @@ func handleHostedApprove(w http.ResponseWriter, r *http.Request) {
 	case p.Grant != "" && body.Approve:
 		xbin.WriteError(w, 409, "a grant can't be given in a non-secure conversation: deny it, or ask its host to do this in their own space")
 		return
+	case body.Approve && callerOf(r).user != hostOf(h):
+		xbin.WriteError(w, 403, "it runs with "+hostOf(h)+"'s private resources: only "+hostOf(h)+" approves it (you may deny it)")
+		return
 	}
 	if _, _, err := tv.queue(id, inboxApprove, inboxBody{Approve: body.Approve, Sender: callerOf(r).tag(), Park: p.Park}, ""); err != nil {
+		xbin.WriteError(w, 500, err.Error())
+		return
+	}
+	wakeHost(tv, root.ID, hostedInput{Run: id})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
+}
+
+// handleHostedResume: POST /runs/{id}/resume (a run that ended on an error:
+// Retry) — a wake into team for the host's engine.
+func handleHostedResume(w http.ResponseWriter, r *http.Request) {
+	tv, root, h, ok := hostedRootOf(w, r)
+	if !ok || !talkable(w, h) {
+		return
+	}
+	id := pathID(r)
+	if _, _, err := tv.queue(id, inboxWake, inboxBody{}, ""); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
@@ -528,8 +555,30 @@ func handleHostedRemoveMember(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = tv.db.q.Exec(`DELETE FROM run_members WHERE run_id=? AND user=?`, root.ID, user)
 	_, _ = tv.db.q.Exec(`DELETE FROM run_user_state WHERE run_id=? AND user=?`, root.ID, user)
-	audienceChanged(tv, root.ID)
+	if back := unshareIfOwnerOnly(tv, root.ID, callerOf(r)); back != nil {
+		xbin.WriteJSON(w, 200, map[string]any{"ok": "true", "movedTo": back.ID})
+		return
+	}
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
+}
+
+// unshareIfOwnerOnly: after a change of who shares root — only its owner
+// left, it stops being hosted and goes back to the global instance
+// (unshareHosted; its new conversation there); otherwise the host is rung
+// (its engine pauses it if it is wider than confirmed, stops if the host is
+// no longer in it). nil: still shared.
+func unshareIfOwnerOnly(tv *Agent, root int64, c who) *Run {
+	if !ownerOnly(tv, root) {
+		audienceChanged(tv, root)
+		return nil
+	}
+	back, err := unshareHosted(tv, root, c)
+	if err != nil {
+		logf("hosted conversation #%d: un-shared, but it stays hosted for now: %v", root, err)
+		audienceChanged(tv, root)
+		return nil
+	}
+	return back
 }
 
 // handleHostedPatch: a person's pin and archive; the owner's title and who
@@ -628,17 +677,22 @@ func handleHostedPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if changedACL {
-		audienceChanged(tv, root.ID)
+		if back := unshareIfOwnerOnly(tv, root.ID, c); back != nil { // no private conversation stays in the shared space
+			it := agent.convItem(back, c, agent.db.userStates(c.user, []int64{back.ID})[back.ID])
+			it["movedFrom"] = root.ID
+			xbin.WriteJSON(w, 200, it)
+			return
+		}
 	}
 	run, _ := tv.db.getRun(root.ID)
 	st := tv.db.userStates(c.user, []int64{root.ID})[root.ID]
 	xbin.WriteJSON(w, 200, tv.convItem(run, c, st))
 }
 
-// handleHostedDelete: its owner deletes it (the host's engine finds nothing
-// left to drive).
+// handleHostedDelete: its owner deletes it; its host is rung and finds
+// nothing left to drive (the step in flight stops).
 func handleHostedDelete(w http.ResponseWriter, r *http.Request) {
-	tv, root, _, ok := hostedRootOf(w, r)
+	tv, root, h, ok := hostedRootOf(w, r)
 	if !ok {
 		return
 	}
@@ -652,6 +706,9 @@ func handleHostedDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	dropConversation(tv, root.ID, "deleted")
 	_, _ = tv.db.q.Exec(`DELETE FROM team_hosts WHERE run_id=?`, root.ID)
+	if h.State == hostActive || h.State == hostPaused || h.State == hostPending {
+		ringHost(tv, h, root.ID, hostedInput{Signal: "audience"})
+	}
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
@@ -707,6 +764,11 @@ func hostedList(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 		h, err := tv.db.teamHost(x.ID)
 		if err != nil {
 			continue
+		}
+		if h.State == hostPending && h.MovedFrom > 0 {
+			if _, err := agent.db.getRun(h.MovedFrom); err == nil {
+				continue // its move didn't finish: the original is the one listed (hosted_move.go)
+			}
 		}
 		it := tv.convItem(x, c, states[x.ID])
 		if scope != "shared" && it["mine"] != true {

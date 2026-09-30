@@ -37,6 +37,7 @@ const (
 	hostPaused  = "paused"  // waiting for the host to confirm a wider audience
 	hostDropped = "dropped" // the host declined, took their resources back, or didn't answer in time
 	hostGone    = "gone"    // the host's partition can't be reached any more (deleted, disabled, lost read)
+	// pending, continuing, continued: hosted_move.go
 )
 
 const teamHostsSQL = `CREATE TABLE IF NOT EXISTS team_hosts (
@@ -47,6 +48,7 @@ const teamHostsSQL = `CREATE TABLE IF NOT EXISTS team_hosts (
   resources TEXT NOT NULL DEFAULT '[]',
   pending TEXT NOT NULL DEFAULT '',
   moved_from INTEGER NOT NULL DEFAULT 0,
+  continued_to INTEGER NOT NULL DEFAULT 0,
   since INTEGER NOT NULL DEFAULT 0,
   created INTEGER NOT NULL DEFAULT 0
 )`
@@ -146,15 +148,17 @@ type teamHost struct {
 	Resources []string `json:"resources"`
 	Pending   string   `json:"-"`
 	MovedFrom int64    `json:"movedFrom,omitempty"`
-	Since     int64    `json:"since"`
-	Created   int64    `json:"created"`
+	// ContinuedTo is a continued one's new id at the global instance (a tombstone).
+	ContinuedTo int64 `json:"continuedTo,omitempty"`
+	Since       int64 `json:"since"`
+	Created     int64 `json:"created"`
 }
 
 func (d *DB) teamHost(root int64) (*teamHost, error) {
 	h := &teamHost{}
 	var res string
-	err := d.q.QueryRow(`SELECT run_id, host, state, reason, resources, pending, moved_from, since, created FROM team_hosts WHERE run_id=?`, root).
-		Scan(&h.RunID, &h.Host, &h.State, &h.Reason, &res, &h.Pending, &h.MovedFrom, &h.Since, &h.Created)
+	err := d.q.QueryRow(`SELECT run_id, host, state, reason, resources, pending, moved_from, continued_to, since, created FROM team_hosts WHERE run_id=?`, root).
+		Scan(&h.RunID, &h.Host, &h.State, &h.Reason, &res, &h.Pending, &h.MovedFrom, &h.ContinuedTo, &h.Since, &h.Created)
 	if err != nil {
 		return nil, err
 	}
@@ -165,6 +169,14 @@ func (d *DB) teamHost(root int64) (*teamHost, error) {
 // setTeamHostState records a hosted conversation's state in team (for the
 // members' view at global; the host's own table decides what runs).
 func (d *DB) setTeamHostState(root int64, state, reason, pending string) error {
-	_, err := d.q.Exec(`UPDATE team_hosts SET state=?, reason=?, pending=?, since=? WHERE run_id=?`, state, reason, pending, now(), root)
+	_, err := d.q.Exec(`UPDATE team_hosts SET state=?, reason=?, pending=?, since=? WHERE run_id=? AND state NOT IN ('continuing','continued')`,
+		state, reason, pending, now(), root)
+	return err
+}
+
+// setTeamHostPending rewrites what a paused conversation waits for (its
+// audience changed again): its pause keeps its start (since — its 7 days).
+func (d *DB) setTeamHostPending(root int64, pending string) error {
+	_, err := d.q.Exec(`UPDATE team_hosts SET pending=? WHERE run_id=? AND state='paused'`, pending, root)
 	return err
 }

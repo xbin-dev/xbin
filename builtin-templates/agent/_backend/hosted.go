@@ -144,6 +144,9 @@ func (d *DB) addHostedSchema() error {
 		paused_at INTEGER NOT NULL DEFAULT 0,
 		created INTEGER NOT NULL DEFAULT 0
 	)`)
+	if err == nil {
+		_, err = d.q.Exec(hostingMovesSQL) // moves asked for, until taken up (hosted_move.go)
+	}
 	return err
 }
 
@@ -230,83 +233,6 @@ func handleHostingList(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, 200, map[string]any{"items": rows, "resources": hostResources})
 }
 
-// handleHostingStart: POST /hosting {conversation, seen} — the person lets a
-// shared conversation use their resources (after the warning: seen is the
-// audience the page showed them). The global instance moves it into team;
-// this partition records it and drives it. A wider audience than seen
-// (it changed meanwhile) is recorded paused: they are asked again.
-func handleHostingStart(w http.ResponseWriter, r *http.Request) {
-	if !hostOnly(w, r) {
-		return
-	}
-	var body struct {
-		Conversation int64     `json:"conversation"`
-		Seen         *audience `json:"seen"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Conversation <= 0 {
-		xbin.WriteError(w, 400, "need {conversation, seen: the audience you were shown}")
-		return
-	}
-	if body.Conversation >= partitionIDBase {
-		xbin.WriteError(w, 409, "a conversation in your own space is yours alone — hosting is for a shared one (share a copy of this one first)")
-		return
-	}
-	req, _ := json.Marshal(map[string]any{"conversation": body.Conversation, "resources": hostResources})
-	res, err := callGlobal(r.Context(), http.MethodPost, "/hosted", req, "application/json")
-	if err != nil {
-		xbin.WriteError(w, 502, "the shared instance didn't answer: "+err.Error())
-		return
-	}
-	if res.Status != 200 {
-		w.Header().Set("Content-Type", orStr(res.Type, "application/json"))
-		w.WriteHeader(res.Status)
-		_, _ = w.Write(res.Body)
-		return
-	}
-	var moved struct {
-		Conversation int64    `json:"conversation"`
-		Audience     audience `json:"audience"`
-	}
-	if err := json.Unmarshal(res.Body, &moved); err != nil || !hostedID(moved.Conversation) {
-		xbin.WriteError(w, 502, "the shared instance's answer: "+clip(string(res.Body), 200))
-		return
-	}
-	if moved.Audience.Members == nil {
-		moved.Audience.Members = map[string]string{}
-	}
-	snap, state, pending := moved.Audience, hostActive, ""
-	if body.Seen != nil {
-		seen := *body.Seen
-		if seen.Members == nil {
-			seen.Members = map[string]string{}
-		}
-		if len(moved.Audience.beyond(seen)) > 0 { // it widened after the warning: ask again
-			snap, state, pending = seen, hostPaused, moved.Audience.key()
-		}
-	}
-	resJSON, _ := json.Marshal(hostResources)
-	t := now()
-	pausedAt := int64(0)
-	if state == hostPaused {
-		pausedAt = t
-	}
-	if _, err := agent.db.q.Exec(`INSERT INTO hosted (conversation, state, snapshot, resources, pending, confirmed_at, paused_at, created)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(conversation) DO UPDATE SET state=excluded.state, snapshot=excluded.snapshot,
-		resources=excluded.resources, pending=excluded.pending, confirmed_at=excluded.confirmed_at, paused_at=excluded.paused_at`,
-		moved.Conversation, state, snap.key(), string(resJSON), pending, t, pausedAt, t); err != nil {
-		xbin.WriteError(w, 500, err.Error())
-		return
-	}
-	if state == hostPaused {
-		teamHostPaused(moved.Conversation, moved.Audience, snap)
-	}
-	if e := ensureHostEngine(); e != nil {
-		e.recover() // inputs that waited in team (a re-adopted conversation)
-	}
-	row, _ := agent.db.hostedRow(moved.Conversation)
-	xbin.WriteJSON(w, 200, row)
-}
-
 // handleHostingConfirm: POST /hosting/{id}/confirm {seen} — the host lets
 // the audience it was asked about in. seen (the prompt's pendingKey) must
 // still be what the conversation's audience is: another change meanwhile is
@@ -318,11 +244,19 @@ func handleHostingConfirm(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Seen string `json:"seen"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Seen == "" {
+		xbin.WriteError(w, 400, "need {seen: the pendingKey of the audience you were asked about}")
+		return
+	}
 	id := pathID(r)
 	row, err := agent.db.hostedRow(id)
-	if err != nil || row.State == hostDropped || row.State == hostGone {
+	if err != nil || (row.State != hostActive && row.State != hostPaused) {
 		xbin.WriteError(w, 404, "you don't host that conversation")
+		return
+	}
+	if row.State == hostPaused && row.PausedAt > 0 && time.Since(time.Unix(row.PausedAt, 0)) > hostPauseTTL {
+		dropHosting(id, "expired") // what its members have been shown since: it doesn't come back
+		xbin.WriteError(w, 409, fmt.Sprintf("it waited more than %s for you: hosting ended — its members may continue it without your resources", hostPauseTTL))
 		return
 	}
 	tr := teamRuns()
@@ -332,8 +266,13 @@ func handleHostingConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur := audienceOf(acl)
-	if body.Seen != "" && body.Seen != cur.key() {
+	if body.Seen != cur.key() {
 		xbin.WriteError(w, 409, "who is in it changed again — look at the new list first")
+		return
+	}
+	if acl.level(who{kind: whoUser, user: runUser, level: "read"}) < lvParticipant {
+		dropHosting(id, "left")
+		xbin.WriteError(w, 409, "you can no longer talk in it: hosting ended")
 		return
 	}
 	if _, err := agent.db.q.Exec(`UPDATE hosted SET state='active', snapshot=?, pending='', confirmed_at=?, paused_at=0 WHERE conversation=?`,
@@ -383,46 +322,72 @@ func dropHosting(id int64, reason string) bool {
 		return false
 	}
 	if tr := teamRuns(); tr != nil {
-		_ = tr.setTeamHostState(id, hostDropped, reason, "")
+		_, _ = tr.q.Exec(`UPDATE team_hosts SET state=?, reason=?, pending='', since=? WHERE run_id=? AND state IN ('pending','active','paused')`,
+			hostDropped, reason, now(), id)
 	}
 	haltHosted(id)
-	hostedChangedAtGlobal(id)
+	if reason != "deleted" {
+		hostedChangedAtGlobal(id)
+	}
 	return true
 }
 
 // --- the audience check (the host's engine, each pass) -------------------------------
 
 // hostDrives: the host's engine may take up run id — its conversation is
-// in this partition's own hosted table, active, and read by no one the host
-// didn't confirm. A wider audience pauses it here (and asks the host).
+// in this partition's own hosted table, active, its host still in it, and
+// read by no one the host didn't confirm. It looks at the audience each time
+// (at every pass, every step of a turn, and on global's audience ring):
+//
+//   - the host no longer in it (removed, left, made a viewer): hosting drops
+//     — the members may continue it without them;
+//   - wider than confirmed: paused here (and the host asked); while paused,
+//     a further change rewrites what the host is asked about, and an
+//     audience back within what they confirmed makes it active again;
+//   - gone from team (deleted, continued without the host): dropped.
 func hostDrives(tr *DB, id int64) bool {
 	run, err := tr.getRun(id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) { // deleted, or continued without the host: nothing left to host
-			_, _ = agent.db.q.Exec(`UPDATE hosted SET state='dropped', pending='' WHERE conversation=? AND state<>'dropped'`, id)
+			dropHosting(id, "deleted")
 		}
 		return false
 	}
 	root := rootOf(run)
 	row, err := agent.db.hostedRow(root)
-	if err != nil || row.State != hostActive {
+	if err != nil || (row.State != hostActive && row.State != hostPaused) {
 		return false
 	}
 	acl, err := tr.loadACL(root)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			dropHosting(root, "deleted")
+		}
+		return false
+	}
+	if acl.level(who{kind: whoUser, user: runUser, level: "read"}) < lvParticipant {
+		logf("hosted conversation #%d: %s can no longer talk in it — hosting drops", root, runUser)
+		dropHosting(root, "left")
 		return false
 	}
 	cur := audienceOf(acl)
-	if len(cur.beyond(row.Snapshot)) == 0 {
+	wider := cur.beyond(row.Snapshot)
+	switch {
+	case len(wider) == 0 && row.State == hostActive:
 		return true
+	case len(wider) == 0: // paused, and back within what the host confirmed
+		return resumeHosting(root)
+	case row.State == hostActive:
+		pauseHosting(tr, root, cur, row.Snapshot)
+	case cur.key() != row.PendingKey: // paused, and who is in it changed again: ask about what it is now
+		repauseHosting(tr, root, cur, row.Snapshot)
 	}
-	pauseHosting(tr, root, cur, row.Snapshot)
 	return false
 }
 
 // pauseHosting records a wider audience than the host confirmed: paused in
 // the host's table (with who waits) and in team, the step in flight
-// abandoned.
+// abandoned, the host asked; 7 days unanswered drop it.
 func pauseHosting(tr *DB, root int64, cur, snap audience) {
 	res, err := agent.db.q.Exec(`UPDATE hosted SET state='paused', pending=?, paused_at=? WHERE conversation=? AND state='active'`,
 		cur.key(), now(), root)
@@ -437,20 +402,70 @@ func pauseHosting(tr *DB, root int64, cur, snap audience) {
 	teamHostPaused(root, cur, snap)
 	go haltHosted(root)
 	hostedChangedAtGlobal(root)
-	if p := agent.needs; p != nil { // the host's phone: they are the one who must answer
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			title := "A conversation using your private resources is paused"
-			if run, err := tr.getRun(root); err == nil && run.Title != "" {
-				title = "“" + clip(run.Title, 80) + "” is paused"
-			}
-			if err := p.send(ctx, xbin.UserNotification{User: runUser, Title: title, Link: fmt.Sprintf("#c=%d", root), Kind: "hosted",
-				Body: joined + " can now read it. Confirm to let the agent keep using your private resources there, or decline.", CollapseID: fmt.Sprintf("hosted:%d", root)}); err != nil {
-				logf("hosted conversation #%d: telling %s: %v", root, runUser, err)
-			}
-		}()
+	time.AfterFunc(hostPauseTTL+time.Second, expireHostPauses)
+	askHost(tr, root, joined)
+}
+
+// repauseHosting: a paused conversation's audience changed again while it
+// waited — the host is asked about who is new now (the key they confirm is
+// the new one). Its 7 days still run from the first pause.
+func repauseHosting(tr *DB, root int64, cur, snap audience) {
+	res, err := agent.db.q.Exec(`UPDATE hosted SET pending=? WHERE conversation=? AND state='paused' AND pending<>?`, cur.key(), root, cur.key())
+	if err != nil {
+		return
 	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return
+	}
+	joined := strings.Join(cur.beyond(snap), ", ")
+	logf("hosted conversation #%d: who is in it changed again while paused — %s asked about %s", root, runUser, joined)
+	if tr := teamRuns(); tr != nil {
+		b, _ := json.Marshal(teamPending{Audience: cur, New: cur.beyond(snap)})
+		_ = tr.setTeamHostPending(root, string(b))
+	}
+	hostedChangedAtGlobal(root)
+	askHost(tr, root, joined)
+}
+
+// resumeHosting: a paused conversation's audience is back within what the
+// host confirmed (the new people left again): active again, nothing to ask.
+func resumeHosting(root int64) bool {
+	res, err := agent.db.q.Exec(`UPDATE hosted SET state='active', pending='', paused_at=0 WHERE conversation=? AND state='paused'`, root)
+	if err != nil {
+		return false
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false
+	}
+	logf("hosted conversation #%d: its audience is back within what %s confirmed — active again", root, runUser)
+	if tr := teamRuns(); tr != nil {
+		_ = tr.setTeamHostState(root, hostActive, "", "")
+	}
+	hostedChangedAtGlobal(root)
+	if e := hostEngine.Load(); e != nil {
+		go e.recover() // what waited while it was paused
+	}
+	return true
+}
+
+// askHost pushes the host's phone: they are the one who must answer.
+func askHost(tr *DB, root int64, joined string) {
+	p := agent.needs
+	if p == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		title := "A conversation using your private resources is paused"
+		if run, err := tr.getRun(root); err == nil && run.Title != "" {
+			title = "“" + clip(run.Title, 80) + "” is paused"
+		}
+		if err := p.send(ctx, xbin.UserNotification{User: runUser, Title: title, Link: fmt.Sprintf("#c=%d", root), Kind: "hosted",
+			Body: joined + " can now read it. Confirm to let the agent keep using your private resources there, or decline.", CollapseID: fmt.Sprintf("hosted:%d", root)}); err != nil {
+			logf("hosted conversation #%d: telling %s: %v", root, runUser, err)
+		}
+	}()
 }
 
 // teamHostPaused writes the pause into team, for the members' view: the

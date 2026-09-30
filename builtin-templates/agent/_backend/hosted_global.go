@@ -1,14 +1,8 @@
 // hosted_global.go — the global instance's side of non-secure (hosted)
-// conversations (hosted.go): moving a shared conversation into team for its
-// host and back out of it, fanning the host's live run out to the members,
+// conversations (hosted.go): the team view it reads them with, fanning the
+// host's live run out to the members (POST /hosted/events {events}, batched),
 // and ringing the host when members write (partition mail hosted/input).
-//
-//	POST /hosted {conversation, resources}  a person's partition hosts one of
-//	                                        its shared conversations (it moves
-//	                                        into team: a new id from 2^39)
-//	POST /hosted/events {events}            the host's live run (batched)
-//	POST /hosted/{id}/continue              a member takes a dropped one back
-//	                                        (without the host's resources)
+// Moving one into team and back out of it is hosted_move.go's.
 //
 // The global instance's engine never drives a team row: it only reads team
 // (hosted_serve.go) and writes what members do into it.
@@ -18,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -68,8 +61,11 @@ func teamView() *Agent {
 // hostedInfo is a hosted conversation's hosting as its members see it.
 func hostedInfo(h *teamHost) map[string]any {
 	state, reason := h.State, h.Reason
-	if state == hostPaused && time.Since(time.Unix(h.Since, 0)) > hostPauseTTL {
+	switch {
+	case state == hostPaused && time.Since(time.Unix(h.Since, 0)) > hostPauseTTL:
 		state, reason = hostDropped, "expired" // the host never answered: whatever its partition says
+	case state == hostPending && time.Since(time.Unix(h.Since, 0)) > hostPendingTTL:
+		state, reason = hostDropped, "unclaimed" // its host's partition never took it up (hosted_move.go)
 	}
 	out := map[string]any{"host": hostOf(h), "state": state, "reason": reason, "resources": h.Resources,
 		"since": h.Since, "movedFrom": h.MovedFrom}
@@ -96,265 +92,17 @@ func publishHosted(tv *Agent, root int64) {
 	tv.eng.publishRun(root)
 }
 
-// --- moving a conversation into team ---------------------------------------------
-
-// handleHostedMove: POST /hosted {conversation} from a person's partition
-// (hosted.go handleHostingStart): the person — a participant — hosts it.
-// Idempotent for its host (a re-adopt answers the conversation as it is).
-func handleHostedMove(w http.ResponseWriter, r *http.Request) {
-	if !globalMode() {
-		xbin.WriteError(w, 404, "hosting is arranged at the agent's shared instance")
-		return
-	}
-	if !personFromPartition(r) {
-		xbin.WriteError(w, 403, "a person hosts a conversation from their own partition (POST /hosting there)")
-		return
-	}
-	if teamUnavailable(w) {
-		return
-	}
-	tv := teamView()
-	c := callerOf(r)
-	var body struct {
-		Conversation int64 `json:"conversation"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	id := body.Conversation
-	if hostedID(id) {
-		h, err := tv.db.teamHost(id)
-		_, lv, lerr := hostedLevel(tv.db, c, id)
-		switch {
-		case err != nil || lerr != nil || lv == lvNone:
-			xbin.WriteError(w, 404, "no such conversation")
-		case h.Host != "user:"+c.user:
-			xbin.WriteError(w, 409, hostOf(h)+" hosts it: one host per conversation")
-		case h.State == hostGone:
-			xbin.WriteError(w, 409, "hosting it ended: continue it without the host first")
-		default:
-			if h.State == hostDropped {
-				_ = tv.db.setTeamHostState(id, hostActive, "", "")
-				publishHosted(tv, id)
-			}
-			acl, _ := tv.db.loadACL(id)
-			xbin.WriteJSON(w, 200, map[string]any{"conversation": id, "audience": audienceOf(acl)})
-		}
-		return
-	}
-	run, lv, err := agent.runAccess(c, id)
-	switch {
-	case err != nil || lv == lvNone:
-		xbin.WriteError(w, 404, "no such conversation")
-		return
-	case run.ParentID != 0:
-		xbin.WriteError(w, 400, "host the conversation (its first run), not a subagent")
-		return
-	case lv < lvParticipant:
-		xbin.WriteError(w, 403, "only someone who may talk in it can let it use their resources")
-		return
-	case automationOrigins[run.Origin]:
-		xbin.WriteError(w, 409, "an automation's conversation can't be hosted")
-		return
-	case !resting(run.Status) || len(agent.db.undelivered(id)) > 0:
-		xbin.WriteError(w, 409, "the agent is working in it: wait until it finishes (or stop it), then try again")
-		return
-	}
-	moved, left, err := moveIntoTeam(r.Context(), tv, run, c)
-	if err != nil {
-		writeImportErr(w, err)
-		return
-	}
-	acl, _ := tv.db.loadACL(moved)
-	xbin.WriteJSON(w, 200, map[string]any{"conversation": moved, "from": id, "audience": audienceOf(acl), "left": left})
-}
-
-// moveIntoTeam copies conversation run into team — its transcript, task
-// ledger, text session files, audience and the members' pins — hosted by c,
-// then deletes it here (its share links with it). Binary session files stay
-// behind (they live in this instance's blob store): named in left.
-func moveIntoTeam(ctx context.Context, tv *Agent, run *Run, c who) (int64, []string, error) {
-	b, err := agent.exportConv(ctx, run.ID, true)
-	if err != nil {
-		return 0, nil, err
-	}
-	var left []string
-	files := b.Files[:0]
-	for _, f := range b.Files {
-		if f.Binary {
-			left = append(left, f.Path)
-			continue
-		}
-		files = append(files, f)
-	}
-	b.Files, left = files, append(left, b.Left...)
-	acl, err := agent.db.loadACL(run.ID)
-	if err != nil {
-		return 0, nil, err
-	}
-	spec := &shareSpec{}
-	for u, role := range acl.members {
-		spec.Members = append(spec.Members, shareMember{User: u, Role: role})
-	}
-	st := runStamp{Owner: acl.owner, Visibility: acl.visibility, TeamRole: acl.teamRole}
-	cls, err := importClass(c, b)
-	if err != nil {
-		return 0, nil, err
-	}
-	note := fmt.Sprintf("%s hosts this conversation now: the agent may use %s's private resources in it "+
-		"(their sandboxes, their data in other tiles, their vault). It is not private: its members, the agent's managers, "+
-		"workspace admins and anyone who can change the agent's code can read it.", c.user, c.user)
-	if len(left) > 0 {
-		note += " Left behind: " + strings.Join(left, ", ") + "."
-	}
-	moved, err := tv.importConv(ctx, b, c, st, cls, spec, note, false)
-	if err != nil {
-		return 0, nil, err
-	}
-	// its own settings as its viewers may see them (no MCP headers: team is readable by every partition's code)
-	var raw string
-	_ = agent.db.q.QueryRow(`SELECT config FROM runs WHERE id=?`, run.ID).Scan(&raw)
-	if clean, _ := confConfig(raw); clean != "" {
-		_, _ = tv.db.q.Exec(`UPDATE runs SET config=? WHERE id=?`, clean, moved.ID)
-		_, _ = tv.db.q.Exec(`UPDATE messages SET content=? WHERE run_id=? AND role='system'`, parseConfig(clean).System, moved.ID)
-	}
-	for _, s := range agent.db.userStatesOf(run.ID) {
-		_, _ = tv.db.q.Exec(`INSERT OR REPLACE INTO run_user_state (run_id, user, pinned_at, archived_at, read_ms) VALUES (?, ?, ?, ?, ?)`,
-			moved.ID, s.user, s.PinnedAt, s.ArchivedAt, s.ReadMs)
-	}
-	res, _ := json.Marshal(hostResources)
-	if _, err := tv.db.q.Exec(`INSERT INTO team_hosts (run_id, host, state, resources, moved_from, since, created) VALUES (?, ?, 'active', ?, ?, ?, ?)`,
-		moved.ID, "user:"+c.user, string(res), run.ID, now(), now()); err != nil {
-		_ = tv.deleteRunTree(moved.ID)
-		return 0, nil, err
-	}
-	dropConversation(agent, run.ID, "hosted: it moved to the non-secure space")
-	tv.aclChanged(moved.ID)
-	tv.eng.publishRun(moved.ID)
-	return moved.ID, left, nil
-}
-
-// personState is one person's pin/archive/read of a conversation.
-type personState struct {
-	user string
-	userState
-}
-
-func (d *DB) userStatesOf(root int64) []personState {
-	rows, err := d.q.Query(`SELECT user, pinned_at, archived_at, read_ms FROM run_user_state WHERE run_id=?`, root)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []personState
-	for rows.Next() {
-		var s personState
-		if rows.Scan(&s.user, &s.PinnedAt, &s.ArchivedAt, &s.ReadMs) == nil {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// dropConversation deletes conversation root from ag's store as DELETE
-// /runs/{id} does (its members, links and people's states too), telling the
-// list streams.
-func dropConversation(ag *Agent, root int64, why string) {
-	acl, _ := ag.db.loadACL(root)
-	_ = ag.db.Tx(func(t *DB) error {
-		ag.cancelRuns(t, root, true, why)
-		return nil
-	})
-	_ = ag.deleteRunTree(root)
-	ag.acl.flush(root)
-	for _, q := range []string{`DELETE FROM run_members WHERE run_id=?`, `DELETE FROM share_links WHERE run_id=?`,
-		`DELETE FROM run_user_state WHERE run_id=?`} {
-		_, _ = ag.db.q.Exec(q, root)
-	}
-	if ag.eng != nil {
-		ag.eng.hub.publish(&Event{Type: evRun, Run: root, Root: root, Data: map[string]any{"id": root, "deleted": true}, acl: acl})
-	}
-}
-
-// --- continuing without the host -----------------------------------------------------
-
-// handleHostedContinue: POST /hosted/{id}/continue — a participant takes a
-// conversation whose hosting ended (declined, taken back, 7 days unanswered,
-// its host gone) back into the shared space, without the host's resources:
-// a plain shared conversation again (a new id), the team copy deleted.
-func handleHostedContinue(w http.ResponseWriter, r *http.Request) {
-	if !globalMode() {
-		xbin.WriteError(w, 404, "hosted conversations are the agent's shared instance's")
-		return
-	}
-	if teamUnavailable(w) {
-		return
-	}
-	tv := teamView()
-	c := callerOf(r)
-	id := pathID(r)
-	run, lv, err := hostedLevel(tv.db, c, id)
-	if err != nil || lv == lvNone {
-		xbin.WriteError(w, 404, "no such conversation")
-		return
-	}
-	if lv < lvParticipant {
-		xbin.WriteError(w, 403, "only someone who may talk in it can continue it")
-		return
-	}
-	h, err := tv.db.teamHost(rootOf(run))
-	if err != nil {
-		xbin.WriteError(w, 404, "no such conversation")
-		return
-	}
-	if st := hostedInfo(h)["state"]; st != hostDropped && st != hostGone {
-		xbin.WriteError(w, 409, fmt.Sprintf("%s still hosts it (%s): it continues without their resources once they stop hosting it", hostOf(h), st))
-		return
-	}
-	root := rootOf(run)
-	b, err := tv.exportConv(r.Context(), root, true)
-	if err != nil {
-		writeBundleErr(w, err)
-		return
-	}
-	files := b.Files[:0]
-	for _, f := range b.Files {
-		if !f.Binary { // the host's blob store: not readable here
-			files = append(files, f)
-		}
-	}
-	b.Files = files
-	acl, err := tv.db.loadACL(root)
-	if err != nil {
-		xbin.WriteError(w, 404, "no such conversation")
-		return
-	}
-	spec := &shareSpec{}
-	for u, role := range acl.members {
-		spec.Members = append(spec.Members, shareMember{User: u, Role: role})
-	}
-	cls, err := importClass(c, b)
-	if err != nil {
-		writeClassErr(w, err)
-		return
-	}
-	note := fmt.Sprintf("Continued by %s without %s's private resources: a shared conversation again.", orStr(c.user, "the agent"), orStr(hostOf(h), "its host"))
-	back, err := agent.importConv(r.Context(), b, c, runStamp{Owner: acl.owner, Visibility: acl.visibility, TeamRole: acl.teamRole},
-		cls, spec, note, false)
-	if err != nil {
-		writeImportErr(w, err)
-		return
-	}
-	dropConversation(tv, root, "continued without its host")
-	_, _ = tv.db.q.Exec(`DELETE FROM team_hosts WHERE run_id=?`, root)
-	xbin.WriteJSON(w, 200, map[string]any{"conversation": back.ID, "from": root})
-}
-
 // --- the host's live run, fanned out ----------------------------------------------------
 
 // handleHostedEvents: POST /hosted/events {events} — the host's engine's
 // events, which the global instance publishes on its own hub for the
 // members' streams (each subscribed under the conversation's ACL). Only
-// events of conversations team says the caller hosts go out; a run's summary
-// is re-read from team rather than taken from the post.
+// events of conversations team says the caller hosts, and of runs in that
+// conversation's tree, go out; what is durable — a run's summary, a message,
+// a step, the queue, a link — is re-read from team by its id rather than
+// taken from the post (a person's frame may post here too: xbind attributes
+// it to the same person); only a model call in flight, which exists nowhere
+// else, is taken as posted.
 func handleHostedEvents(w http.ResponseWriter, r *http.Request) {
 	if !globalMode() {
 		xbin.WriteError(w, 404, "hosted conversations are the agent's shared instance's")
@@ -377,7 +125,7 @@ func handleHostedEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	host := "user:" + callerOf(r).user
-	hosts := map[int64]bool{}
+	hosts, trees := map[int64]bool{}, map[int64]int64{}
 	published, refused := 0, 0
 	for _, ev := range body.Events {
 		ok, seen := hosts[ev.Root]
@@ -386,42 +134,130 @@ func handleHostedEvents(w http.ResponseWriter, r *http.Request) {
 			ok = err == nil && h.Host == host
 			hosts[ev.Root] = ok
 		}
-		if !ok {
-			refused++
-			continue
+		root, seen := trees[ev.Run]
+		if !seen {
+			if run, err := tv.db.getRun(ev.Run); err == nil {
+				root = rootOf(run)
+			}
+			trees[ev.Run] = root
 		}
-		switch ev.Type {
-		case "hosted":
-			publishHosted(tv, ev.Root)
-		case evRun:
-			tv.eng.publishRun(ev.Run)
-		case evMessage, evStep, evInbox, evLink, evText, evThinking, evToolArgs, evDraftEnd:
-			noteHostedDraft(tv.eng, ev)
-			tv.eng.hub.publish(&Event{Type: ev.Type, Run: ev.Run, Root: ev.Root, Data: ev.Data, key: ev.Key})
-		default: // a stream's own words (reset, bye, revoked…) are the global instance's to say
+		if !ok || root != ev.Root || !publishHostedEvent(tv, ev) {
 			refused++
 			continue
 		}
 		published++
 	}
 	if refused > 0 {
-		logf("hosted events from %s: %d refused (not conversations it hosts)", host, refused)
+		logf("hosted events from %s: %d refused (not runs of conversations it hosts, or not what they say)", host, refused)
 	}
 	xbin.WriteJSON(w, 200, map[string]int{"published": published, "refused": refused})
 }
 
+// publishHostedEvent publishes one of the host's events for the members
+// (false: not a run's own event, or not what team holds).
+func publishHostedEvent(tv *Agent, ev fwdEvent) bool {
+	e := tv.eng
+	out := &Event{Type: ev.Type, Run: ev.Run, Root: ev.Root}
+	switch ev.Type {
+	case "hosted":
+		if ev.Run != ev.Root {
+			return false
+		}
+		publishHosted(tv, ev.Root)
+		return true
+	case evRun:
+		e.publishRun(ev.Run)
+		return true
+	case evMessage:
+		m, err := tv.db.messageByID(eventID(ev.Data))
+		if err != nil || m.RunID != ev.Run {
+			return false
+		}
+		out.Data = messageView(m)
+	case evStep:
+		st, err := hostedStep(tv.db, eventID(ev.Data))
+		if err != nil || st.RunID != ev.Run {
+			return false
+		}
+		out.Data = st
+	case evInbox:
+		out.Data = map[string]any{"queued": tv.db.queuedView(ev.Run)}
+	case evLink:
+		l, err := tv.db.getLink(eventID(ev.Data))
+		if err != nil || l.ParentID != ev.Run {
+			return false
+		}
+		out.Data = e.linkView(l)
+	case evText, evThinking, evToolArgs, evDraftEnd: // a model call in flight: only its host has it
+		if !noteHostedDraft(e, ev) {
+			return false
+		}
+		out.Data, out.key = ev.Data, hostedDraftKey(ev)
+	default: // a stream's own words (reset, bye, revoked…) are the global instance's to say
+		return false
+	}
+	e.hub.publish(out)
+	return true
+}
+
+// eventID is the id in a posted event's data ({id: …}).
+func eventID(data any) int64 {
+	d, _ := data.(map[string]any)
+	f, _ := d["id"].(float64)
+	return int64(f)
+}
+
+// hostedStep is one journal step of team by its id.
+func hostedStep(tr *DB, id int64) (*Step, error) {
+	s := &Step{}
+	err := tr.q.QueryRow(`SELECT id, run_id, seq, kind, detail, created FROM steps WHERE id=?`, id).
+		Scan(&s.ID, &s.RunID, &s.Seq, &s.Kind, &s.Detail, &s.Created)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// hostedDraftKey is a posted draft's coalescing key, made here (draft.go's).
+func hostedDraftKey(ev fwdEvent) string {
+	switch ev.Type {
+	case evText:
+		return "text:" + itoa(ev.Run)
+	case evThinking:
+		return "thinking:" + itoa(ev.Run)
+	case evToolArgs:
+		d, _ := ev.Data.(map[string]any)
+		idx, _ := d["index"].(float64)
+		return "tool:" + itoa(ev.Run) + ":" + itoa(int64(idx))
+	}
+	return ""
+}
+
+// hostedDraftTTL: a draft of the host's with no word for this long is gone
+// (its host stopped mid-answer, or its end was lost).
+var hostedDraftTTL = 60 * time.Second
+
+var hostedDraftTimers = struct {
+	sync.Mutex
+	m map[int64]*time.Timer
+}{m: map[int64]*time.Timer{}}
+
 // noteHostedDraft keeps the host's model call in flight on the team view's
 // engine, so a member who connects mid-answer gets the text so far (the
-// stream's and /view's drafts).
-func noteHostedDraft(e *Engine, ev fwdEvent) {
+// stream's and /view's drafts) — never touching another conversation's
+// draft (false), and letting one go that hears nothing for hostedDraftTTL.
+func noteHostedDraft(e *Engine, ev fwdEvent) bool {
 	d, _ := ev.Data.(map[string]any)
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	dr := e.drafts[ev.Run]
+	if dr != nil && dr.root != ev.Root {
+		e.mu.Unlock()
+		return false
+	}
 	switch ev.Type {
 	case evDraftEnd:
 		delete(e.drafts, ev.Run)
 	case evText, evThinking:
-		dr := e.drafts[ev.Run]
 		if dr == nil {
 			dr = &draft{Run: ev.Run, Tools: map[int]*draftTool{}, root: ev.Root}
 			e.drafts[ev.Run] = dr
@@ -436,10 +272,54 @@ func noteHostedDraft(e *Engine, ev fwdEvent) {
 			dr.Thinking, dr.ThinkStart = text, int64(started)
 		}
 	}
+	e.mu.Unlock()
+	hostedDraftTimers.Lock()
+	if t := hostedDraftTimers.m[ev.Run]; t != nil {
+		t.Stop()
+		delete(hostedDraftTimers.m, ev.Run)
+	}
+	if ev.Type != evDraftEnd {
+		run, root := ev.Run, ev.Root
+		hostedDraftTimers.m[run] = time.AfterFunc(hostedDraftTTL, func() { expireHostedDraft(e, run, root) })
+	}
+	hostedDraftTimers.Unlock()
+	return true
+}
+
+// expireHostedDraft lets a silent draft go, and tells the streams.
+func expireHostedDraft(e *Engine, run, root int64) {
+	hostedDraftTimers.Lock()
+	delete(hostedDraftTimers.m, run)
+	hostedDraftTimers.Unlock()
+	e.mu.Lock()
+	dr := e.drafts[run]
+	gone := dr != nil && dr.root == root
+	if gone {
+		delete(e.drafts, run)
+	}
+	e.mu.Unlock()
+	if gone {
+		e.hub.publish(&Event{Type: evDraftEnd, Run: run, Root: root})
+	}
+}
+
+// resetHosted drops conversation root's drafts here and has its streams
+// re-read it (what the host's lost posts carried is in team).
+func resetHosted(tv *Agent, root int64) {
+	e := tv.eng
+	e.mu.Lock()
+	for run, dr := range e.drafts {
+		if dr.root == root {
+			delete(e.drafts, run)
+		}
+	}
+	e.mu.Unlock()
+	e.hub.publishTo(func(s *subscriber) bool { return s.root == root }, &Event{Type: evReset, Run: root, Root: root})
 }
 
 // handleHostedChangedMail (global): the host's live post didn't get through
-// — re-read the conversation from team for its streams.
+// — its drafts here are stale and its streams missed commits: they re-read
+// the conversation from team.
 func handleHostedChangedMail(_ context.Context, t *DB, it mailItem) error {
 	if !globalMode() || !strings.HasPrefix(it.From, "user:") {
 		return nil
@@ -456,6 +336,7 @@ func handleHostedChangedMail(_ context.Context, t *DB, it mailItem) error {
 			return
 		}
 		if h, err := tv.db.teamHost(d.Conversation); err == nil && h.Host == it.From {
+			resetHosted(tv, d.Conversation)
 			publishHosted(tv, d.Conversation)
 		}
 	})
@@ -467,6 +348,9 @@ func handleHostedChangedMail(_ context.Context, t *DB, it mailItem) error {
 // wakeRetries is how the global instance retries ringing a host; what it
 // rang for is in team either way (the host's next start takes it up).
 var wakeRetries = []time.Duration{0, time.Second, 5 * time.Second, 30 * time.Second, 2 * time.Minute}
+
+// ringing counts rings in flight (tests wait for them).
+var ringing sync.WaitGroup
 
 var wakes = struct {
 	sync.Mutex
@@ -482,6 +366,12 @@ func wakeHost(tv *Agent, root int64, in hostedInput) {
 	if err != nil || (h.State != hostActive && h.State != hostPaused) {
 		return
 	}
+	ringHost(tv, h, root, in)
+}
+
+// ringHost mails h's host about conversation root whatever team says now
+// (deleted or continued: its partition finds it gone and stops).
+func ringHost(tv *Agent, h *teamHost, root int64, in hostedInput) {
 	in.Conversation = root
 	plain := in.Signal == ""
 	if plain {
@@ -493,7 +383,10 @@ func wakeHost(tv *Agent, root int64, in hostedInput) {
 		wakes.busy[h.Host] = true
 		wakes.Unlock()
 	}
+	retries := wakeRetries
+	ringing.Add(1)
 	go func() {
+		defer ringing.Done()
 		defer func() {
 			if plain {
 				wakes.Lock()
@@ -501,7 +394,7 @@ func wakeHost(tv *Agent, root int64, in hostedInput) {
 				wakes.Unlock()
 			}
 		}()
-		for _, wait := range wakeRetries {
+		for _, wait := range retries {
 			time.Sleep(wait)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			_, err := sendMail(ctx, h.Host, topicHostedInput, in, "")
@@ -511,7 +404,7 @@ func wakeHost(tv *Agent, root int64, in hostedInput) {
 				return
 			case errors.Is(err, errMailRefused):
 				logf("hosted conversation #%d: its host %s can't be reached (%v) — hosting is gone", root, h.Host, err)
-				_ = tv.db.setTeamHostState(root, hostGone, "left", "")
+				_, _ = tv.db.q.Exec(`UPDATE team_hosts SET state='gone', reason='left', pending='', since=? WHERE run_id=? AND state IN ('pending','active','paused')`, now(), root)
 				publishHosted(tv, root)
 				return
 			}
