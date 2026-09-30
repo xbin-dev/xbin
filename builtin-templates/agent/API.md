@@ -836,11 +836,11 @@ Tools (all need `subagents` on and depth below `maxDepth`):
 
 | tool | what it does |
 |---|---|
-| `subagent_spawn {task, label?, wait?, timeout_s?, after?, system?}` | start a subagent. `wait:true` (default) waits for its answer — several in one step run in parallel, and their answers land in call order in one step. Past `timeout_s` (default `subagentTimeout`) the wait ends with a progress digest and the subagent **moves to the background**; its answer arrives later. `wait:false` starts it in the background at once. `after:[ids]` starts it once those runs settled, with their results in its first message |
+| `subagent_spawn {task, label?, wait?, timeout_s?, after?, system?, harness?, harness_mode?}` | start a subagent. `wait:true` (default) waits for its answer — several in one step run in parallel, and their answers land in call order in one step. Past `timeout_s` (default `subagentTimeout`) the wait ends with a progress digest and the subagent **moves to the background**; its answer arrives later. `wait:false` starts it in the background at once. `after:[ids]` starts it once those runs settled, with their results in its first message. `harness` starts a **coding agent** instead (§Coding agents, "The agent's coding agents") |
 | `subagent_wait {ids, mode?, timeout_s?}` | wait for background subagents: `all` or `any`; answers for the settled, digests for the rest |
 | `subagent_status {ids?}` | phase, elapsed time, model calls, its latest tool summaries, pending approval, queued messages |
 | `subagent_result {id, offset?, limit?}` | page through a long answer |
-| `subagent_message {id, text, wait?}` | steer a working subagent, or give a finished one a follow-up |
+| `subagent_message {id, text, wait?}` | steer a working subagent, or give a finished one a follow-up (a coding agent's: sent as is, into its running turn, after it, or as its next prompt) |
 | `subagent_cancel {ids, reason?}` | stop subagents and everything below them |
 
 The pre-D81 names (`spawn_subagent`, `workflow_spawn`, `workflow_status`,
@@ -866,8 +866,8 @@ The rules that keep a tree from hanging:
   the chat resumes.
 
 Limits, all in `Config`: `maxDepth` 3, `maxSpawn` 32 per tree (lifetime, so
-spawn→finish→spawn cannot loop forever), `maxSpawnPerTurn` 8, enforced when the
-spawn runs. Subagents get neither `ask_user` nor `schedule` (a cron-agent
+spawn→finish→spawn cannot loop forever), `maxSpawnPerTurn` 8, `maxHarness` 3
+coding agents at work per tree, enforced when the spawn runs. Subagents get neither `ask_user` nor `schedule` (a cron-agent
 outlives the tree that made it).
 
 Every `subagent_*` id resolves through the caller's **own subtree**. That
@@ -2057,6 +2057,63 @@ its terminals dial the manager directly, as you (verified).
   person who may use ‹sandbox› can read its log`; **404** `no log yet`
   (never started, or no file); **409** on a built-in run; **400** `max: a
   number of bytes, at most 65536`.
+
+**The agent's coding agents (the tools)** (D-harness §4.4, §4.3.13).
+`subagent_spawn` takes **`harness`** — an enum of the coding agents the
+class allows (`harnesses`) that the spawn's sandbox (the active one, or the
+attached one `sandbox` names) offers (its binding's `harnesses`; the SDK
+catalog's four when its manager says nothing) with an egress other than
+`none` — and **`harness_mode`** (`approve` | `plan`). Both are offered only
+when the class holds the `harness` toolset and at least one coding agent
+qualifies. Its description says the limit first: a coding agent sees only
+the sandbox and the task, not the conversation; each is a full CLI costing
+hundreds of MB in the sandbox; parallel ones want a distinct `cwd` or a git
+worktree each. The child is a harness run (`engine: "harness"`, its
+config's `harness: {provider, mode, ref, cwd}`) of its parent's class in
+that sandbox; the task is its first prompt (an `hprompt` row: the user row
+and the task ledger's entry, source `parent`, are written as it is
+delivered). Its mode is the **root conversation owner's** Auto / Always
+approve for that coding agent (`/prefs/harness-mode`; a conversation owned
+by no person: Always approve), which `harness_mode` only narrows —
+`approve` asks before every edit and command, `plan` only plans (the
+provider's plan mode, else its approve mode); the model never picks an
+explicit (bypass) mode. The link, the placeholder, the digest and the
+delivery are a subagent's: the child's turn end settles the link —
+answered with its turn's last text, incomplete, error with the error, or
+canceled. Refused, as the call's result: `system` with `harness` (`system:
+a coding agent keeps its own instructions — leave system out with
+harness`), `after` with `harness`, `harness_mode` other than `approve` or
+`plan` or without `harness`, a coding agent the class doesn't allow or the
+sandbox doesn't offer (`harness: <sandbox> doesn't offer <name> (it offers
+…)`), a sandbox without egress or known not to have it, one the
+conversation may no longer use, **`3 coding agents already run in this
+conversation (the limit) — wait for one or cancel one`** (`maxHarness`,
+tile config, default 3: harness runs below the root with a turn running or
+parked on a person), and — so a coding agent's own commands have room —
+**`<sandbox> runs N commands (its limit is M) — a coding agent needs
+room`** when the sandbox's running execs would exceed its manager's
+`limits.execsRunning` − 4. `subagent_message` to a coding agent queues an
+`hprompt` sent as is (no `[message from your parent run …]` wrapper) and
+answers `steered into #N's running turn` (it steers), `queued until #N's
+current turn ends` (it doesn't), `sent as #N's next prompt` (idle; a new
+link, so its answer comes back), or — while it waits for a person —
+`queued: #N is waiting for a person to approve: <title> — it gets your
+message once they have`: the parent's message never answers a child's
+permission or question (a person's reply would reject it; the agent's
+waits). `subagent_status`/`_wait`/`_result`/`_cancel` work as for any
+subagent; a coding agent's digest line is `#N <label> — <phase> for <time>,
+harness <provider> · N tool calls · $0.40` (the cost when the coding agent
+reports one), with `waiting for a person to approve: <title>` / `to
+answer: <question>` / `to sign in` below it, and in detail `doing:
+<activity>`, its last calls (by their summaries) and its latest text. The
+parent model is never offered a child's permission: a park goes to people
+(Needs, push, the child card). **A person's direct message** (`POST
+/runs/{child}/message` or `/answer` by a person, not the parent agent) is
+told to the parent as an `hnote` inbox row — `[direct message to #<child>
+(<name>) from <user>]\n<message>` — delivered as a user-role notice at the
+parent's next step boundary, or before its next turn's first message; it
+never starts a turn, isn't a request of the task ledger, and doesn't count
+for `hasWork` (an older build ignores the kind).
 
 **The agent's coding agents (the UI).** A coding agent the agent started
 (`subagent_spawn` with `harness`, D-harness §4.4) is drawn where the spawn
