@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **Agent template: the agent starts and steers coding agents**
+  (`builtin-templates/agent/API.md` §Coding agents, "The agent's coding
+  agents (the tools)"). `subagent_spawn` gains `harness` (the coding agents
+  the class allows that the spawn's sandbox offers, reaching out) and
+  `harness_mode` (`approve` | `plan`: it only narrows the conversation
+  owner's own Auto / Always approve): the child is a harness run whose
+  first prompt is the task, and its turn's end answers the spawn like a
+  subagent's. At most `maxHarness` (3) run per conversation tree, and none
+  starts where the sandbox's running commands would come within 4 of its
+  manager's `limits.execsRunning`. `subagent_message` to one is sent as is
+  and says whether it was steered into the running turn, queued until it
+  ends, or sent as the next prompt; its digest reads `harness <provider> ·
+  N tool calls · $cost` and what person it waits for — the agent never
+  answers its permission requests (its message waits for the person). A
+  person's direct message to such a coding agent is told to the agent as a
+  notice (`[direct message to #N (<name>) from <user>]`, an `hnote` inbox
+  row) at its next step, without starting a turn. Additive.
 - **Agent template: a coding agent asks, steers, signs in and rests**
   (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
   `POST /runs/{id}/approve` gains `option` (one of the coding agent's own

@@ -807,8 +807,9 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 
 // deliverBoundary moves what is waiting into the transcript, in one
 // transaction: queued messages (in order, with their attachments), watcher
-// rounds, and one notice for every background subagent that finished. False
-// means the engine lost ownership.
+// rounds, a person's word to a coding agent below (hnote: a notice, never a
+// request — D-harness §4.3.13), and one notice for every background
+// subagent that finished. False means the engine lost ownership.
 func (e *Engine) deliverBoundary(ts *turnState) bool {
 	run := ts.run
 	var delivered []int64
@@ -818,6 +819,17 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 		for _, r := range rows {
 			switch r.Kind {
 			case inboxUser, inboxWatch:
+			case inboxHNote:
+				m := &Message{RunID: run.ID, Role: "user", Content: r.Body.Text}
+				if _, err := t.addMessage(m); err != nil {
+					return err
+				}
+				if !t.consume(r.ID, m.ID) {
+					return fmt.Errorf("inbox row %d consumed twice", r.ID)
+				}
+				delivered = append(delivered, r.ID)
+				e.emitMessage(t, ts.root, m)
+				continue
 			default:
 				continue
 			}

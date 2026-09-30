@@ -90,6 +90,18 @@ func (h hInbox) nextPrompt() *InboxRow {
 	return nil
 }
 
+// replyPrompt is the prompt that answers a park by replying: nextPrompt's
+// choice among the ones a parent agent didn't send.
+func (h hInbox) replyPrompt() *InboxRow {
+	var own hInbox
+	for _, r := range h.prompt {
+		if r.Body.Source != "parent" {
+			own.prompt = append(own.prompt, r)
+		}
+	}
+	return own.nextPrompt()
+}
+
 // harnessPass is pass() for a harness run: cancel > stop > interrupt >
 // halt > answers (approve, hanswer) > wake > prompts (a message while a
 // park waits rejects it first; one during a turn is steered, else waits)
@@ -147,7 +159,12 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 		e.harnessWake(ctx, run, hs, h.wake)
 		return
 	case len(h.prompt) > 0 && parked:
-		e.harnessReplyToPark(ctx, run, h.nextPrompt())
+		// a person's reply answers the park first; the parent agent's waits
+		// for them — the parent model never answers a child's permission
+		// (D-harness §4.4)
+		if p := h.replyPrompt(); p != nil {
+			e.harnessReplyToPark(ctx, run, p)
+		}
 		return
 	case len(h.prompt) > 0 && turn && s != nil:
 		// a turn being interrupted isn't steered: the message sent with the

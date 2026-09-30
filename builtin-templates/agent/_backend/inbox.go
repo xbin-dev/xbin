@@ -259,7 +259,14 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 			agent.interruptHarness(run)
 		}
 	}
-	iid, _, err := agent.queue(id, kind, in, body.ClientID)
+	iid, dup, err := agent.queue(id, kind, in, body.ClientID)
+	if c := callerOf(r); err == nil && !dup && run.Engine == engineHarness && run.ParentID != 0 && c.kind == whoUser && c.viewedBy == "" {
+		// a person's word to a coding agent the agent started: its parent is
+		// told at its next step (D-harness §4.3.13, harness_spawn.go)
+		if nerr := agent.db.Tx(func(t *DB) error { return agent.noteParentTx(t, run, c.user, body.Text, body.Files) }); nerr != nil {
+			logf("run #%d: telling its parent about a direct message: %v", id, nerr)
+		}
+	}
 	if err == nil {
 		agent.db.bumpActivity(id)
 		if run, err := agent.db.getRun(id); err == nil {

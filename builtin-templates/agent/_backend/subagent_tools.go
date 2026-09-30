@@ -66,6 +66,9 @@ func subagentToolSpecs(cfg Config, depth int) []toolSpec {
 	sandboxSpawnProps(cfg, spawnProps) // {sandbox, cwd} (sandbox_move.go)
 	desc := "Start a subagent on a focused task in its own fresh context and wait for its answer. Emit several in one step to run them in parallel. " +
 		"If it takes longer than timeout_s it moves to the background: you get a progress digest now and its answer later as a message."
+	if harnessSpawnProps(cfg, spawnProps) { // {harness, harness_mode} (harness_spawn.go)
+		desc += " With harness it starts a coding agent in the sandbox instead."
+	}
 	if bg {
 		spawnProps["wait"] = boolProp("true (default): wait for the answer. false: start it in the background and continue; its answer arrives as a message when it finishes")
 		spawnProps["after"] = idsProp("subagent ids that must finish first; this one starts after them and receives their results (implies wait:false)")
@@ -152,7 +155,7 @@ func (e *Engine) subagentTool(ctx context.Context, ts *turnState, tc toolCall) {
 	default:
 		switch name {
 		case "subagent_spawn":
-			out, err = e.spawn(ts, tc, args)
+			out, err = e.spawn(ctx, ts, tc, args)
 		case "subagent_wait":
 			out, err = e.waitTool(ts, tc, args)
 		case "subagent_status":
@@ -227,9 +230,10 @@ func clampTimeout(v, def, lo, hi int) int {
 	return v
 }
 
-// spawn starts a child. Foreground: the call's placeholder waits for it.
+// spawn starts a child — a subagent, or with `harness` a coding agent
+// (harness_spawn.go). Foreground: the call's placeholder waits for it.
 // Background (or after:[…]): answered at once with the new id.
-func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string, error) {
+func (e *Engine) spawn(ctx context.Context, ts *turnState, tc toolCall, args map[string]any) (string, error) {
 	run, cfg := ts.run, ts.cfg
 	task := strings.TrimSpace(str(args["task"]))
 	if task == "" {
@@ -258,14 +262,24 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 	if err != nil {
 		return "", err
 	}
+	coder, err := e.harnessSpawnOf(ctx, ts, args, onSandbox)
+	if err != nil {
+		return "", err
+	}
 	label := strings.TrimSpace(str(args["label"]))
 	title := label
 	if title == "" {
 		title = "subagent: " + clip(task, 60)
+		if coder != nil {
+			title = coder.prov.Name + ": " + clip(task, 60)
+		}
 	}
 	var childID int64
 	err = e.fenced(func(t *DB) error {
 		root := ts.root
+		if coder != nil && t.runningHarnesses(root) >= cfg.maxHarness() {
+			return errMaxHarness(cfg)
+		}
 		ok, spawned, max := t.reserveSpawn(root, cfg.maxSpawn())
 		if !ok {
 			return fmt.Errorf("this workflow has already created %d runs (its lifetime budget of %d) — finish with what you have, or ask the owner to raise maxSpawn", spawned, max)
@@ -273,6 +287,11 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 		child := childConfig(cfg, str(args["system"]))
 		if onSandbox != nil {
 			child.Sandbox = onSandbox
+		}
+		var stamp runStamp
+		if coder != nil {
+			coder.apply(&child, cfg)
+			stamp.Engine = engineHarness
 		}
 		cfgJSON, _ := json.Marshal(child)
 		status, pending := statusRunning, ""
@@ -286,7 +305,7 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 			}
 		}
 		var err error
-		childID, err = t.createRunStatus(title, string(cfgJSON), run.ID, status)
+		childID, err = t.createRunStamped(title, string(cfgJSON), run.ID, status, stamp)
 		if err != nil {
 			return err
 		}
@@ -296,12 +315,21 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 		if _, err := t.addMessage(&Message{RunID: childID, Role: "system", Content: child.System}); err != nil {
 			return err
 		}
-		tm := &Message{RunID: childID, Role: "user", Content: task}
-		if _, err := t.addMessage(tm); err != nil {
-			return err
-		}
-		if err := t.recordAsk(tm, "parent", fmt.Sprintf("#%d", run.ID)); err != nil { // its task, pinned (D133)
-			return err
+		if coder != nil {
+			// a coding agent's task is its first prompt: its user row and the
+			// ledger's entry are written as it is delivered (harness_pass.go)
+			if _, _, err := t.enqueue(childID, inboxHPrompt, inboxBody{Text: task, Source: "parent", From: run.ID}, ""); err != nil {
+				return err
+			}
+			e.emitInbox(t, root, childID)
+		} else {
+			tm := &Message{RunID: childID, Role: "user", Content: task}
+			if _, err := t.addMessage(tm); err != nil {
+				return err
+			}
+			if err := t.recordAsk(tm, "parent", fmt.Sprintf("#%d", run.ID)); err != nil { // its task, pinned (D133)
+				return err
+			}
 		}
 		mode, tcID, deadline := "bg", "", int64(0)
 		if wait {
@@ -319,10 +347,12 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 			// Every dependency already finished: hand over their results now.
 			_, _ = t.q.Exec(`UPDATE runs SET status=?, pending='{"kind":"deps"}' WHERE id=?`, statusAwait, childID)
 		}
-		e.emitStep(t, root, t.journal(run.ID, "spawn", map[string]any{
-			"runId": childID, "linkId": linkID, "toolCallId": tc.ID, "task": clip(task, 200),
-			"mode": mode, "after": idsOf(after),
-		}))
+		step := map[string]any{"runId": childID, "linkId": linkID, "toolCallId": tc.ID, "task": clip(task, 200),
+			"mode": mode, "after": idsOf(after)}
+		if coder != nil {
+			step["harness"] = coder.prov.ID
+		}
+		e.emitStep(t, root, t.journal(run.ID, "spawn", step))
 		if wait {
 			if ok, _ := t.setToolPlaceholder(run.ID, tc.ID, fmt.Sprintf("(waiting for subagent #%d…)", childID)); ok {
 				if id, _, err := t.toolResultRow(run.ID, tc.ID); err == nil {
@@ -343,6 +373,9 @@ func (e *Engine) spawn(ts *turnState, tc toolCall, args map[string]any) (string,
 		return "", nil // the placeholder waits; resolveAwait answers it
 	}
 	msg := fmt.Sprintf("started subagent #%d in the background; its answer will arrive as a message when it finishes", childID)
+	if coder != nil {
+		msg = fmt.Sprintf("started coding agent #%d (%s) in the background; its answer will arrive as a message when its turn ends", childID, coder.prov.Name)
+	}
 	if len(after) > 0 {
 		msg += fmt.Sprintf(" (it starts after %s finish, with their results)", idList(idsOf(after)))
 	}
@@ -465,15 +498,33 @@ func (e *Engine) messageTool(ts *turnState, tc toolCall, args map[string]any) (s
 	timeout := clampTimeout(toInt(args["timeout_s"]), ts.cfg.subagentTimeout(), 30, 3600)
 	open := e.db.latestLink(n.ID)
 	working := open != nil && open.State == linkRunning
+	// a coding agent's is an hprompt, sent as is: into its running turn,
+	// after it, or as its next prompt (harness_spawn.go)
+	coding := n.Engine == engineHarness
+	kind := inboxUser
+	if coding {
+		kind = inboxHPrompt
+	}
 	var reply string
 	err = e.fenced(func(t *DB) error {
-		if _, _, err := t.enqueue(n.ID, inboxUser, inboxBody{Text: text, Source: "parent", From: ts.run.ID}, ""); err != nil {
+		where := ""
+		if coding {
+			cur, err := t.getRun(n.ID)
+			if err != nil {
+				return err
+			}
+			where = e.harnessMessageReply(t, cur)
+		}
+		if _, _, err := t.enqueue(n.ID, kind, inboxBody{Text: text, Source: "parent", From: ts.run.ID}, ""); err != nil {
 			return err
 		}
 		e.emitInbox(t, ts.root, n.ID)
 		switch {
 		case working && !wait:
 			reply = fmt.Sprintf("sent to #%d — it reads it at its next step", n.ID)
+			if coding {
+				reply = where
+			}
 		case working && wait:
 			ts.waits = append(ts.waits, waitEntry{TC: tc.ID, Links: []int64{open.ID}, Need: "all", Deadline: e.unix() + int64(timeout)})
 			_, _ = t.setToolPlaceholder(ts.run.ID, tc.ID, fmt.Sprintf("(waiting for #%d…)", n.ID))
@@ -492,6 +543,9 @@ func (e *Engine) messageTool(ts *turnState, tc toolCall, args map[string]any) (s
 				_, _ = t.setToolPlaceholder(ts.run.ID, tc.ID, fmt.Sprintf("(waiting for subagent #%d…)", n.ID))
 			} else {
 				reply = fmt.Sprintf("#%d is working on it; its answer will arrive as a message", n.ID)
+				if coding {
+					reply = where + "; its answer will arrive as a message"
+				}
 			}
 		}
 		t.AfterCommit(func() { e.Poke(n.ID) })
