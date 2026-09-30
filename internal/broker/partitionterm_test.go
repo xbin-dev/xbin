@@ -105,6 +105,20 @@ func (f *fakeTerms) WipePartitionTile(tile string, dry bool) (term.PartitionTile
 	return term.PartitionTileWipe{Layers: len(f.keys), Keys: f.keys}, nil
 }
 
+func (f *fakeTerms) StopPartitionSessions(tile, pkey string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "stop "+tile+" "+pkey)
+	return nil
+}
+
+func (f *fakeTerms) WipePartitionKey(tile, pkey string, dry bool) (term.PartitionTileWipe, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "wipe "+tile+" "+pkey)
+	return term.PartitionTileWipe{Layers: 1, Keys: []string{pkey}}, nil
+}
+
 func (f *fakeTerms) take() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -181,6 +195,20 @@ func TestPartitionTermSwitch(t *testing.T) {
 	}
 	if people := b.peopleOfPartitionKeys([]string{alice.Key, "u-nobody"}); !slices.Equal(people, []string{"alice"}) {
 		t.Errorf("peopleOfPartitionKeys: %q", people)
+	}
+	// one partition's end (F7b's reset, purge, sweep): its sessions stop
+	// first, then its layers and history go; a dry run only counts
+	if got, err := b.wipePersonTerminalsOf("apps/docs", alice.Key, false); err != nil || got.Layers != 1 {
+		t.Errorf("wipePersonTerminalsOf: %+v %v", got, err)
+	}
+	if got, want := f.take(), []string{"stop apps/docs " + alice.Key, "wipe apps/docs " + alice.Key}; !slices.Equal(got, want) {
+		t.Errorf("one partition's end: %q, want %q", got, want)
+	}
+	if _, err := b.wipePersonTerminalsOf("", alice.Key, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.take(); !slices.Equal(got, []string{"wipe  " + alice.Key}) {
+		t.Errorf("a dry sweep: %q", got)
 	}
 }
 

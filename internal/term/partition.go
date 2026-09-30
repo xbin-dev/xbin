@@ -250,7 +250,12 @@ var stopWait = 15 * time.Second
 // didn't end in time (the switch then fails before deleting anything of
 // the terminals').
 func (m *Manager) StopTileSessions(tile string) error {
-	on := func(s *Session) bool { return s.Cwd == tile || s.part.tile == tile }
+	return m.stopWhere(func(s *Session) bool { return s.Cwd == tile || s.part.tile == tile }, tile)
+}
+
+// stopWhere ends every session on matches and waits for their teardown;
+// what names them in the error.
+func (m *Manager) stopWhere(on func(*Session) bool, what string) error {
 	deadline := time.Now().Add(stopWait)
 	killed := map[*Session]bool{}
 	for {
@@ -264,7 +269,7 @@ func (m *Manager) StopTileSessions(tile string) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%d terminal or agent session(s) on %s did not end in time", len(live), tile)
+			return fmt.Errorf("%d terminal or agent session(s) of %s did not end in time", len(live), what)
 		}
 		for _, s := range live {
 			if !killed[s] {
@@ -274,6 +279,69 @@ func (m *Manager) StopTileSessions(tile string) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// StopPartitionSessions ends the sessions acting in partition id pkey — on
+// tile, or on every tile when tile is "" — and waits for their teardown,
+// as StopTileSessions does: the stop before WipePartitionKey (a partition's
+// reset or purge, a deleted person's sweep).
+func (m *Manager) StopPartitionSessions(tile, pkey string) error {
+	return m.stopWhere(func(s *Session) bool {
+		return pkey != "" && s.part.key == pkey && (tile == "" || s.part.tile == tile)
+	}, pkey)
+}
+
+// WipePartitionKey deletes partition id pkey's person layer and partition
+// agent history — of tile, or of every tile when tile is "" — as
+// WipePartitionTile does for a whole tile; dry only counts. For a
+// partition's reset or purge and a deleted person's sweep (F7b's people
+// and partitions hooks); the caller has stopped its sessions
+// (StopPartitionSessions).
+func (m *Manager) WipePartitionKey(tile, pkey string, dry bool) (PartitionTileWipe, error) {
+	var out PartitionTileWipe
+	if pkey == "" || strings.ContainsAny(pkey, `/\.`) {
+		return out, fmt.Errorf("%q is no partition id", pkey)
+	}
+	var layers, hists []string
+	if tile != "" {
+		tk := util.TileKey(tile)
+		layers = []string{filepath.Join(m.Root, ".xbin", partLayerDir, tk, pkey)}
+		hists = []string{filepath.Join(m.Root, "data", "agent-history", partHistoryDir, pkey, tk)}
+	} else {
+		tiles, _ := os.ReadDir(filepath.Join(m.Root, ".xbin", partLayerDir)) // walk-ok: .xbin is xbind's own
+		for _, e := range tiles {
+			if e.IsDir() {
+				layers = append(layers, filepath.Join(m.Root, ".xbin", partLayerDir, e.Name(), pkey))
+			}
+		}
+		hists = []string{filepath.Join(m.Root, "data", "agent-history", partHistoryDir, pkey)}
+	}
+	for _, d := range layers {
+		if fi, err := os.Lstat(d); err != nil || !fi.IsDir() {
+			continue
+		}
+		out.Layers++
+		if !dry {
+			if err := m.removeLayer(d); err != nil {
+				return out, fmt.Errorf("a person's terminal layer: %w", err)
+			}
+		}
+	}
+	for _, d := range hists {
+		if fi, err := os.Lstat(d); err != nil || !fi.IsDir() {
+			continue
+		}
+		out.Histories++
+		if !dry {
+			if err := os.RemoveAll(d); err != nil {
+				return out, fmt.Errorf("a person's agent history: %w", err)
+			}
+		}
+	}
+	if out.Layers+out.Histories > 0 {
+		out.Keys = []string{pkey}
+	}
+	return out, nil
 }
 
 // PartitionTileWipe is what WipePartitionTile removed (or, dry, would):

@@ -586,3 +586,63 @@ func TestPartitionModeChangedEndsStaleSessions(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// covers PD-22 PD-26 — one partition's end (F7b's reset, purge and a
+// deleted person's sweep): its sessions on the tile stop — nobody else's —
+// and its person layer and partition history go, of one tile or of every
+// tile; other people's stay.
+func TestPartitionKeyWipe(t *testing.T) {
+	h := &partHooks{}
+	m, _ := partManager(t, h)
+	m.rmTree = os.RemoveAll
+	mk := func(parts ...string) string {
+		d := filepath.Join(append([]string{m.Root}, parts...)...)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	tp, tu := util.TileKey("apps/p"), util.TileKey("apps/u")
+	anaP := mk(".xbin", "term-part", tp, "k-ana", "upper")
+	anaU := mk(".xbin", "term-part", tu, "k-ana", "upper")
+	bobP := mk(".xbin", "term-part", tp, "k-bob", "upper")
+	anaHistP := mk("data", "agent-history", ".partitions", "k-ana", tp)
+	anaHistU := mk("data", "agent-history", ".partitions", "k-ana", tu)
+	bobHist := mk("data", "agent-history", ".partitions", "k-bob", tp)
+
+	ana, bob := termPerson("ana", "apps/p"), termPerson("bob", "apps/p")
+	a1, _, _ := openShell(t, m, ana, "apps/p", "")
+	b1, _, _ := openShell(t, m, bob, "apps/p", "")
+	if err := m.StopPartitionSessions("apps/p", "k-ana"); err != nil {
+		t.Fatal(err)
+	}
+	if sessionOf(m, a1) != nil || sessionOf(m, b1) == nil {
+		t.Fatalf("after ana's stop: ana's %v, bob's %v", sessionOf(m, a1) != nil, sessionOf(m, b1) != nil)
+	}
+	got, err := m.WipePartitionKey("apps/p", "k-ana", false)
+	if err != nil || got.Layers != 1 || got.Histories != 1 {
+		t.Fatalf("ana's apps/p: %+v %v", got, err)
+	}
+	for _, gone := range []string{anaP, anaHistP} {
+		if _, err := os.Stat(gone); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s survived", gone)
+		}
+	}
+	for _, kept := range []string{anaU, bobP, anaHistU, bobHist} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("%s went: %v", kept, err)
+		}
+	}
+	if got, err := m.WipePartitionKey("", "k-ana", true); err != nil || got.Layers != 1 || got.Histories != 1 {
+		t.Errorf("ana's dry sweep: %+v %v", got, err)
+	}
+	if got, err := m.WipePartitionKey("", "k-ana", false); err != nil || got.Layers != 1 {
+		t.Errorf("ana's sweep: %+v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(m.Root, "data", "agent-history", ".partitions", "k-ana")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("ana's partition history survived the sweep: %v", err)
+	}
+	if _, err := m.WipePartitionKey("", "../k", false); err == nil {
+		t.Error("a path as a partition id")
+	}
+}

@@ -108,11 +108,13 @@ func (b *Broker) PersonPartitionKey(userID string) string {
 	return ""
 }
 
-// PartitionTerminals is the terminal manager's side of a mode switch
-// (*term.Manager).
+// PartitionTerminals is the terminal manager's side of a mode switch, and
+// of one partition's end (*term.Manager).
 type PartitionTerminals interface {
 	StopTileSessions(tile string) error
 	WipePartitionTile(tile string, dryRun bool) (term.PartitionTileWipe, error)
+	StopPartitionSessions(tile, pkey string) error
+	WipePartitionKey(tile, pkey string, dryRun bool) (term.PartitionTileWipe, error)
 }
 
 // partitionTerms holds each broker's PartitionTerminals (a broker without
@@ -168,6 +170,25 @@ func wipePersonTerminals(b *Broker, t wipeTarget, sum *wipeSummary) error {
 		sum.addPerson(user)
 	}
 	return err
+}
+
+// wipePersonTerminalsOf ends the sessions of partition id pkey on tile
+// ("" every tile) and deletes its person layers and partition agent
+// history there — a dry run only counts. For one partition's end, which F7b
+// owns: a person's reset of their partition, an admin's purge of an
+// orphaned one, a deleted person's sweep (plans/partitions/06 §2, §6, §9).
+// A broker without terminals has none: the zero wipe.
+func (b *Broker) wipePersonTerminalsOf(tile, pkey string, dry bool) (term.PartitionTileWipe, error) {
+	tm := b.partitionTerminals()
+	if tm == nil {
+		return term.PartitionTileWipe{}, nil
+	}
+	if !dry {
+		if err := tm.StopPartitionSessions(tile, pkey); err != nil {
+			return term.PartitionTileWipe{}, err
+		}
+	}
+	return tm.WipePartitionKey(tile, pkey, dry)
 }
 
 // peopleOfPartitionKeys names the people whose current partition id is one
