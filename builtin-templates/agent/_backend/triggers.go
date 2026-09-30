@@ -293,10 +293,16 @@ func (tr *Trigger) prompt(ev trigEvent) string {
 
 // fireTrigger runs one event through a trigger, in one transaction: the
 // record (dedupe), the halt, the data class, the hourly cap, the delivery.
-func (ag *Agent) fireTrigger(tr *Trigger, ev trigEvent) (v trigVerdict, err error) {
+func (ag *Agent) fireTrigger(tr *Trigger, ev trigEvent) (trigVerdict, error) {
+	return ag.fireTriggerIn(ag.db, tr, ev)
+}
+
+// fireTriggerIn is fireTrigger in db's transaction, or a new one (a mail
+// handler hands it its own: handoff_user.go). The run is poked, and the
+// page told, once that commits.
+func (ag *Agent) fireTriggerIn(db *DB, tr *Trigger, ev trigEvent) (v trigVerdict, err error) {
 	v.Trigger = tr.Name
-	var poke int64
-	err = ag.db.Tx(func(t *DB) error {
+	err = db.Tx(func(t *DB) error {
 		res, err := t.q.Exec(`INSERT INTO trigger_events (trigger_id, event_id, source, topic, created) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT DO NOTHING`, tr.ID, clip(ev.ID, 200), ev.Source, clip(ev.Topic, 200), now())
 		if err != nil {
@@ -306,10 +312,14 @@ func (ag *Agent) fireTrigger(tr *Trigger, ev trigEvent) (v trigVerdict, err erro
 			v.Dup = true
 			return nil
 		}
+		t.AfterCommit(func() { emitAutomation("trigger", tr.ID) })
 		refuse := func(reason string) error {
 			v.Reason = reason
 			_, err := t.q.Exec(`UPDATE trigger_events SET reason=? WHERE trigger_id=? AND event_id=?`, reason, tr.ID, clip(ev.ID, 200))
 			return err
+		}
+		if host := t.hostAtGlobal(tr); host != "" { // a person's private trigger: their partition runs it (trigger_registry.go)
+			return ag.handEvent(t, tr, host, ev, &v, refuse)
 		}
 		switch {
 		case !tr.Enabled:
@@ -354,15 +364,14 @@ func (ag *Agent) fireTrigger(tr *Trigger, ev trigEvent) (v trigVerdict, err erro
 		_, _ = t.q.Exec(`UPDATE trigger_events SET accepted=1, run_id=? WHERE trigger_id=? AND event_id=?`, runID, tr.ID, clip(ev.ID, 200))
 		_, _ = t.q.Exec(`UPDATE triggers SET last_event=?, last_run_id=? WHERE id=?`, now(), runID, tr.ID)
 		_, _ = t.q.Exec(`DELETE FROM trigger_events WHERE trigger_id=? AND created<?`, tr.ID, now()-30*86400)
-		v.Accepted, v.RunID, poke = true, runID, runID
+		v.Accepted, v.RunID = true, runID
+		t.AfterCommit(func() {
+			if ag.eng != nil {
+				ag.eng.Poke(runID)
+			}
+		})
 		return nil
 	})
-	if err == nil && poke != 0 && ag.eng != nil {
-		ag.eng.Poke(poke)
-	}
-	if err == nil && !v.Dup {
-		emitAutomation("trigger", tr.ID)
-	}
 	return v, err
 }
 
@@ -524,7 +533,7 @@ func trigSubName(id int64) string { return "trig-" + strconv.FormatInt(id, 10) }
 // enabled) and records how that went: a missing grant is "needs-grant: …",
 // with the platform's message naming the uses entry.
 func (ag *Agent) syncTriggerBus(tr *Trigger) {
-	if ag.noGateway || tr.Source != "bus" {
+	if ag.noGateway || tr.Source != "bus" || hostedHere(ag.db, tr) { // a person's bus trigger subscribes in their partition
 		return
 	}
 	if !tr.Enabled {

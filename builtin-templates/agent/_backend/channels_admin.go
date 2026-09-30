@@ -52,6 +52,9 @@ func (c *Channel) title() string {
 // manager also the others' (that they exist, not how they are set up) and
 // the unclaimed ones, to claim.
 func channelItems(w who) []AutomationItem {
+	if userMode() { // a person's partition lists the global instance's (handoff_user.go)
+		return globalChannelItems(w)
+	}
 	var out []AutomationItem
 	for _, c := range agent.db.listChannels() {
 		it := AutomationItem{Kind: "channel", ID: c.ID, Name: c.title(),

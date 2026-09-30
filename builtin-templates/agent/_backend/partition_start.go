@@ -41,6 +41,9 @@ func startMode(db *DB) {
 	if !partitioned() {
 		return
 	}
+	if err := db.addHandoffSchema(); err != nil { // channels and triggers through partition mail (handoff.go)
+		logf("handoff tables: %v", err)
+	}
 	limit := func() int { return parseConfig(db.getSetting("config")).maxActiveRuns() }
 	conf, team := xbin.Resource("conf"), xbin.Resource("team")
 	if conf == "" || team == "" {

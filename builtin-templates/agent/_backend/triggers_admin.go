@@ -83,6 +83,9 @@ func deliverOK(c who, key string) string {
 	if key == "" {
 		return ""
 	}
+	if userMode() { // a person's partition: their own chats (trigger_registry.go)
+		return deliverInPartition(key)
+	}
 	var chID int64
 	if err := agent.db.q.QueryRow(`SELECT origin_id FROM sessions WHERE key=? AND origin='channel'`, key).Scan(&chID); err != nil {
 		return "no such channel session: " + key
@@ -122,6 +125,13 @@ func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "that conversation isn't one you can post in")
 		return
 	}
+	if sharesInPartition(&tr.Visibility, nil) {
+		xbin.WriteError(w, http.StatusConflict, noShareWords)
+		return
+	}
+	if !registerPrivate(w, r, &tr, "") { // a person's partition: the name and match at global's registry (trigger_registry.go)
+		return
+	}
 	if err := agent.db.saveTrigger(&tr); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			xbin.WriteError(w, 409, "a trigger with that name exists")
@@ -148,6 +158,9 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		xbin.WriteError(w, 400, "bad json")
+		return
+	}
+	if hostedEditRefused(w, tr, patch) { // a registry row at global (trigger_registry.go)
 		return
 	}
 	if lv < lvOwner {
@@ -190,6 +203,16 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if sharesInPartition(&next.Visibility, nil) {
+		xbin.WriteError(w, http.StatusConflict, noShareWords)
+		return
+	}
+	if next.Name != tr.Name || next.Source != tr.Source || next.SourceRef != tr.SourceRef || next.Match != tr.Match ||
+		next.Enabled != tr.Enabled || next.MaxPerHour != tr.MaxPerHour {
+		if !registerPrivate(w, r, &next, tr.Name) { // trigger_registry.go
+			return
+		}
+	}
 	if err := agent.db.saveTrigger(&next); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
@@ -216,6 +239,9 @@ func handleDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	if lv < lvOwner && !c.manager() {
 		xbin.WriteError(w, 403, "only its owner or a manager can remove it")
+		return
+	}
+	if !unregisterPrivate(w, r, tr) { // trigger_registry.go
 		return
 	}
 	if tr.Source == "bus" && !agent.noGateway {

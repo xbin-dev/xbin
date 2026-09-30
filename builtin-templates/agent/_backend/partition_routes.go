@@ -75,8 +75,8 @@ var userRoutes = map[string]userRoute{
 	"POST /runs/{id}/members":   userNoShare,
 	"POST /runs/{id}/links":     userNoShare,
 	"POST /join":                userNoShare,
-	"POST /channels/{id}/claim": userNoChannels,
-	"POST /triggers":            userNoChannels,
+	"POST /channels/{id}/claim": userGlobal, // channels are global's (the rest of their routes: channelUserRoutes)
+	"POST /triggers":            userLocal,  // a person's own, registered at global (trigger_registry.go)
 }
 
 // sharesInPartition: a change that would share a conversation (or an

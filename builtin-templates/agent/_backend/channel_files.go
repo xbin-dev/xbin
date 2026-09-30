@@ -234,6 +234,9 @@ func handleAdapterFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	of := rows[0].Body.Files[i]
+	if serveStagedFile(w, r, of) { // a person's partition's reply (handoff.go)
+		return
+	}
 	f, err := agent.db.replFile(rows[0].RunID, of.Path)
 	if err != nil {
 		xbin.WriteError(w, 404, "the file is gone from its conversation")
