@@ -141,8 +141,12 @@ func (e *csEnv) consumer(t *testing.T, tile string) {
 }
 
 func (e *csEnv) makeConsumer(tile string) error {
+	part := "" // the user-partitions section's consumers are partitioned (csPartitioned)
+	if csPartitioned(tile) {
+		part = `"partition": ["user", "global"], `
+	}
 	if err := e.d.WriteFiles(tile, map[string]string{
-		"xbin.json":  `{"interfaces": {"sandboxes": {"kind": "http", "service": "sandbox-manager", "multi": true}}}`,
+		"xbin.json":  `{` + part + `"interfaces": {"sandboxes": {"kind": "http", "service": "sandbox-manager", "multi": true}}}`,
 		"index.html": "<!doctype html><title>a consumer</title>",
 	}); err != nil {
 		return err
@@ -246,12 +250,12 @@ func (e *csEnv) pageTok(t *testing.T, tile, person string) string {
 // calling from its page; a verified person is that page's token minted by
 // their session; an asserted one is Sbx-User, as the suite sets it.
 func (e *csEnv) target() sandboxcontract.Target {
-	// A user partition's call is a partitioned consumer's instance: xbind
-	// sets X-XBin-Partition*, and strips what a caller sends. Until the
-	// suite can drive a partitioned consumer through xbind (a partitioned
-	// fixture tile: the partitioned-tiles plan's I1), the section runs
-	// in-process only (the template's contract_test.go).
-	skip := map[string]string{"user-partitions": "the calls of a partitioned consumer's user partitions need a partitioned consumer tile: in-process only (coding-sandbox's contract_test.go)"}
+	// A user partition's call is a partitioned consumer's: its consumers
+	// are partitioned tiles (csPartitioned), a person's partition is their
+	// page of it, and xbind sets X-XBin-Partition and -Id from that
+	// credential (the partitioned-tiles plan's I1). The checks that need a
+	// caller xbind never makes are skipped, said so (csPartitionSkips).
+	skip := csPartitionSkips(e.people)
 	if !e.people { // the checks that act as verified people
 		why := "no verified people: this xbind runs --no-auth"
 		for _, k := range []string{"people/visibility", "people/owners", "partitions/shares", "tty/refusals"} {
@@ -264,8 +268,11 @@ func (e *csEnv) target() sandboxcontract.Target {
 		Client:   &http.Client{Transport: csTransport{e}},
 		Consumer: func(r *http.Request, consumer string) { r.Header.Set("X-Csenv-From", consumer) },
 		Verified: func(r *http.Request, user string) { r.Header.Set("X-Csenv-User", user) },
-		Caps:     []string{"exec", "files", "tar", "tty", "snapshots", "clone"},
-		Grace:    5 * time.Second,
+		// a partition is the person's page of a partitioned consumer: the
+		// id xbind derives, never the suite's (csTransport maps them)
+		Partition: func(r *http.Request, part, _ string) { r.Header.Set("X-Csenv-Part", part) },
+		Caps:      []string{"exec", "files", "tar", "tty", "snapshots", "clone"},
+		Grace:     5 * time.Second,
 	}
 }
 
@@ -274,10 +281,19 @@ func (e *csEnv) target() sandboxcontract.Target {
 type csTransport struct{ e *csEnv }
 
 func (tr csTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	tile, person := r.Header.Get("X-Csenv-From"), r.Header.Get("X-Csenv-User")
+	tile, person, part := r.Header.Get("X-Csenv-From"), r.Header.Get("X-Csenv-User"), r.Header.Get("X-Csenv-Part")
 	r = r.Clone(r.Context())
 	r.Header.Del("X-Csenv-From")
 	r.Header.Del("X-Csenv-User")
+	r.Header.Del("X-Csenv-Part")
+	if csPartitioned(tile) { // csPartitionPage: the page that is this caller, or why xbind never makes it
+		var err error
+		if person, err = csPartitionPage(person, part); err != nil {
+			return nil, fmt.Errorf("%s: %w", tile, err)
+		}
+	} else if part != "" {
+		return nil, fmt.Errorf("the contract names a partition of %s, which isn't a partitioned consumer here", tile)
+	}
 	if tile != "" {
 		if _, ok := tr.e.sess[person]; person != "" && !ok {
 			return nil, fmt.Errorf("the contract names a person with no account here: %s", person)
@@ -299,6 +315,7 @@ func (tr csTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestCodingSandboxContract(t *testing.T) {
 	e, _ := setupCS(t, false)
 	sandboxcontract.Run(t, e.target())
+	t.Run("user-partitions-xbind", func(t *testing.T) { t.Parallel(); testCSPartitionIDs(t, e) }) // codingsandbox_partitions_test.go
 }
 
 // TestCodingSandboxContractVM is the same with VM sandboxes (the manager's
