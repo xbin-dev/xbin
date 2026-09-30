@@ -202,6 +202,17 @@ func TestPartitionsSmokeMail(t *testing.T) {
 		if len(pg.Items) != 0 {
 			t.Errorf("alice's inbox after her handler acked: %s", pg.Items)
 		}
+		// the owner token's frame acts as global: it reads the global
+		// instance's inbox (empty: its handler acked) and sends nothing
+		owner := e.fr(t, pmTile, "")
+		d.Must(t, "GET", "/api/xbin/partitions/mail", nil, 200, owner).Decode(t, &pg)
+		if len(pg.Items) != 0 {
+			t.Errorf("global's inbox through the owner's frame: %s", pg.Items)
+		}
+		if r := d.Call(t, "POST", "/api/xbin/partitions/mail", map[string]string{"to": "user:alice", "topic": "forged"}, owner); r.Status != 403 ||
+			!strings.Contains(string(r.Body), "only the global instance's backend") {
+			t.Errorf("the owner token's frame mails as global: %d %s", r.Status, r)
+		}
 	})
 
 	t.Run("listing", func(t *testing.T) {
