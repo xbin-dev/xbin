@@ -643,20 +643,42 @@ func wipeConsentsHook(b *Broker, t wipeTarget, _ *wipeSummary) error {
 	if t.Kind != wipeEverything {
 		return nil
 	}
+	if !t.DryRun {
+		b.dropAsksNaming(t.Tile)
+	}
 	return b.dropConsentsNaming(t.Tile, t.DryRun)
+}
+
+// dropAsksNaming forgets the day's prompts naming tile, as caller or callee,
+// with their answers: a tile that went, or whose switch took the consents
+// naming it, leaves no ask in GET /partitions/consents' `asked` — one its
+// person could only answer with a 404 (the shell hides such asks by the
+// tiles it lists; the partitions page lists what xbind says). A new tile at
+// the path that asks the same day asks afresh.
+func (b *Broker) dropAsksNaming(tile string) {
+	cs := b.consents()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	for k := range cs.asked {
+		if parts := strings.Split(k, "\x00"); len(parts) == 3 && (parts[1] == tile || parts[2] == tile) {
+			delete(cs.asked, k)
+			delete(cs.answered, k)
+		}
+	}
 }
 
 // PartitionTileChanged is the consents' partition-change hook (boot:
 // Registry.OnPartitionChange): a tile that went — deleted or moved away,
-// its mode now the zero one — takes every consent naming it, so a new tile
-// later at its path never inherits what people allowed the old one's code.
-// A switch to unpartitioned took them already (the wipe hook): nothing is
-// left to find then. Consent files are few and small; this runs in the
-// scan, which it never asks.
+// its mode now the zero one — takes every consent naming it, and the day's
+// asks, so a new tile later at its path never inherits what people allowed
+// the old one's code. A switch to unpartitioned took them already (the
+// wipe hook): nothing is left to find then. Consent files are few and
+// small; this runs in the scan, which it never asks.
 func (b *Broker) PartitionTileChanged(c *registry.Component, _, new registry.PartitionMode) {
 	if c == nil || new != (registry.PartitionMode{}) {
 		return
 	}
+	b.dropAsksNaming(c.Path)
 	if err := b.dropConsentsNaming(c.Path, false); err != nil {
 		slog.Warn("partitions: consents naming a tile that went can't all be removed", "tile", c.Path, "err", err)
 	}

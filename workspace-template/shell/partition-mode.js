@@ -146,15 +146,22 @@ export const switchLabel = (from, to) => (switchDeletes(from, to) === DELETES_AL
 // pendingText(path, view, alerts) → the card's words for a pending tile: the
 // /alerts row's message (xbind's words, as the banner shows them) when there
 // is one for this request, else the same facts from the row. The message's
-// `bx partition switch|keep` hint is left out: the card has the buttons, and
-// says who decides.
+// hint — the parenthesis from `(bx partition switch|keep <tile>` to its
+// close, whatever else it names (the partitions page) — is left out: the
+// card has the buttons, and says who decides.
 export function pendingText(path, v, alerts) {
   const rq = `(${modeName(v?.from)} → ${modeName(v?.to)})`;
   const a = (Array.isArray(alerts) ? alerts : []).find((x) => x?.kind === 'partition-switch' && x?.tile === path
     && typeof x?.message === 'string' && x.message.includes(rq));
-  if (a) return a.message.replace(` (bx partition switch|keep ${path})`, '');
+  if (a) return stripHint(a.message, ` (bx partition switch|keep ${path}`);
   return `A partition mode switch is requested for ${path} ${rq}: switching deletes `
     + `${switchDeletes(v?.from, v?.to)}. Until a manager of ${path} switches or keeps the current mode, it doesn't run.`;
+}
+// stripHint(msg, head) → msg without the parenthesis that starts with head
+// (through its closing ')'); msg itself when it has none.
+function stripHint(msg, head) {
+  const i = msg.indexOf(head), j = i < 0 ? -1 : msg.indexOf(')', i + head.length);
+  return j < 0 ? msg : msg.slice(0, i) + msg.slice(j + 1);
 }
 
 // whoDecides(owner) → who decides this tile, from its row's owner
@@ -308,10 +315,10 @@ export function switchResolve(path, detail, dry = {}) {
 // and this browser stops showing that ask (xbind asks again, at most once
 // a day, when the tile tries again).
 export const CONSENTS_API = '/api/xbin/partitions/consents';
-// PARTITIONS_PAGE: the person's partitions page, where a consent is taken
-// back — '' while this xbind doesn't serve one; set, the words name it
-// instead of the bx command.
-export const PARTITIONS_PAGE = '';
+// PARTITIONS_PAGE: the person's partitions page (xbind's own, top-level:
+// it refuses frames), where a consent is taken back — the Allow answer
+// names and links it; '' would name the bx command instead.
+export const PARTITIONS_PAGE = '/xbin/partitions';
 export const CONSENT_HEAD = 'Partitioned tiles ask for your data';
 export const CONSENT_REGION = 'Partitioned tiles\' consent prompts';
 export const CONSENT_DENY_TITLE = 'Nothing is stored: its calls stay refused, and xbind asks again, at most once a day, when it tries again';
@@ -366,7 +373,8 @@ export const CONSENT_COVERED = 'This question was just shown, covered or partly 
 // /partitions/consents' answer: none unless the policy is on; each asked
 // edge once — unless this browser dismissed that very ask (dismissed[key]
 // is its `at`) — and, given paths (the tiles the shell knows), only while
-// both tiles are still there (an ask outlives a removed tile for its day).
+// both tiles are still there (xbind drops an ask naming a tile that went;
+// the shell's list may be a moment behind or ahead of xbind's).
 export function consentPrompts(view, { dismissed = {}, paths = null } = {}) {
   if (!view?.policy?.partitionConsent) return [];
   const seen = new Set(), out = [];

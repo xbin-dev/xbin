@@ -633,3 +633,64 @@ func decode(t *testing.T, r interface {
 		t.Fatal(err)
 	}
 }
+
+// covers PD-13 05§2 — an ask goes with its tile: a tile that went (deleted
+// or moved away: the partition-change hook with the zero mode) or whose
+// switch took the consents naming it (the wipe hook, not a dry run) leaves
+// no ask naming it in GET /partitions/consents' asked — the partitions page
+// lists what xbind says, and allowing one would answer 404 — while the
+// other asks stay; a new tile at the path that asks the same day asks
+// afresh.
+func TestConsentAsksGoWithTheTile(t *testing.T) {
+	f := newEdgeFx(t)
+	b := f.b
+	partRouteConsent(f.partWS, true)
+	aliceP := personP(t, f.partWS, "alice")
+	asked := func() string {
+		var v struct {
+			Asked []struct{ From, To string } `json:"asked"`
+		}
+		decode(t, call(t, b.apiConsentsList, aliceP, "GET", "/partitions/consents", "", nil), 200, &v)
+		var out []string
+		for _, a := range v.Asked {
+			out = append(out, a.From+"→"+a.To)
+		}
+		return strings.Join(out, " ")
+	}
+	b.consentNeeded("alice", "apps/q", "apps/pg")
+	b.consentNeeded("alice", "apps/q", "apps/pu")
+	waitFor(t, func() bool { return len(f.pushed()) == 2 }, "both prompts")
+	if got := asked(); got != "apps/q→apps/pg apps/q→apps/pu" {
+		t.Fatalf("asked: %q", got)
+	}
+
+	// a dry run of a switch of apps/pu keeps its ask; the switch doesn't
+	if err := wipeConsentsHook(b, wipeTarget{Tile: "apps/pu", Kind: wipeEverything, DryRun: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := asked(); got != "apps/q→apps/pg apps/q→apps/pu" {
+		t.Errorf("a dry run dropped an ask: %q", got)
+	}
+	if err := wipeConsentsHook(b, wipeTarget{Tile: "apps/pu", Kind: wipeEverything}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := asked(); got != "apps/q→apps/pg" {
+		t.Errorf("after apps/pu's switch: %q, want pg's ask only", got)
+	}
+
+	// apps/pg goes: its ask with it
+	pg, _ := b.Reg.Component("apps/pg")
+	was := registry.PartitionMode{State: registry.PartitionPartitioned}
+	b.PartitionTileChanged(pg, was, registry.PartitionMode{})
+	if got := asked(); got != "" {
+		t.Errorf("after apps/pg went: %q", got)
+	}
+	// a new tile at the path asks afresh the same day; a mode change that
+	// isn't a tile going leaves its ask alone
+	b.consentNeeded("alice", "apps/q", "apps/pg")
+	waitFor(t, func() bool { return len(f.pushed()) == 3 }, "the new apps/pg's prompt")
+	b.PartitionTileChanged(pg, registry.PartitionMode{}, was)
+	if got := asked(); got != "apps/q→apps/pg" {
+		t.Errorf("after a mode change: %q", got)
+	}
+}

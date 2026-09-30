@@ -1270,7 +1270,9 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    partition mode switch is requested for
                                    the tile, which doesn't run until a tile
                                    manager switches or keeps the current
-                                   mode (POST /partitions/mode) — admins and
+                                   mode (POST /partitions/mode; the message
+                                   names bx partition switch|keep and
+                                   /xbin/partitions) — admins and
                                    the tile's readers; it goes when the
                                    request is decided or withdrawn. Kind
                                    partition-invalid (warn, tile): the
@@ -3032,7 +3034,9 @@ GET    /partitions/consents        a person's own session, app or device
                                    it returns) and the edges they were asked
                                    about in the last day and haven't allowed
                                    since (an allow answers the ask: taking
-                                   the consent back doesn't list it again)
+                                   the consent back doesn't list it again;
+                                   a tile deleted, moved or switched to
+                                   another mode takes the asks naming it)
                                    (docs/partitions.md §Calls between
                                    partitioned tiles)
 POST   /partitions/consents        PersonOnly, as above. {from, to}: let

@@ -117,8 +117,8 @@ func (b *Broker) partitionAlerts(p auth.Principal, admin bool) []Alert {
 		}
 		q := registry.SpecOf(req.Spec)
 		out = append(out, Alert{Level: "warn", Kind: "partition-switch", Tile: c.Path,
-			Message: fmt.Sprintf("A partition mode switch is requested for %s (%s → %s): switching deletes %s. Until a manager of %s switches or keeps the current mode (bx partition switch|keep %s), it doesn't run.",
-				c.Path, r, q, registry.SwitchDeletes(r, q), c.Path, c.Path)})
+			Message: fmt.Sprintf("A partition mode switch is requested for %s (%s → %s): switching deletes %s. Until a manager of %s switches or keeps the current mode (bx partition switch|keep %s, or on %s), it doesn't run.",
+				c.Path, r, q, registry.SwitchDeletes(r, q), c.Path, c.Path, "/"+consentPage)})
 	}
 	slices.SortFunc(out, func(a, b Alert) int { return strings.Compare(a.Tile, b.Tile) })
 	return out

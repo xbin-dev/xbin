@@ -176,7 +176,9 @@ only the record:
   deployment URL; a script's fetch of the tile's HTML, or a tool reading
   it with a token, still gets the file;
 - `GET /api/xbin/alerts` carries a `partition-switch` alert for admins and
-  the tile's readers, which the shell shows as its top banner (and a
+  the tile's readers, naming `bx partition switch|keep` and the
+  [partitions page](#your-partitions-page), which the shell shows as its
+  top banner (and a
   `partition-invalid` alert, the same way, for a tile whose `partition`
   can't run);
 - the tile's managers get a push notification (kind
@@ -1122,9 +1124,9 @@ from its own code's request.
 `/xbin/partitions` is xbind's own page for everything partitions ask of a
 person. It ships with xbind — no `bx builtin update` needed. The pushes
 that ask someone to decide or consent link it, the refusals for want of a
-consent or a log share name it, and the shell's card of a paused tile links
-it (**details…**); the shell's switch banner still names `bx partition
-switch|keep`. It opens only on its own, top-level (never inside a tile or
+consent or a log share and the shell's switch banner name it, and the
+shell's card of a paused tile and its answer to an allowed consent link it
+(**details…**, **open it**). It opens only on its own, top-level (never inside a tile or
 another page), with your own sign-in — signed out, you sign in and land
 back on it — and acts through the same API as `bx partition`: xbind judges
 each act again. Times show in your browser's zone, named (xbind's notices

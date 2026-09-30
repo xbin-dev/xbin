@@ -24,7 +24,7 @@ import { LitElement, html, css, nothing, repeat } from 'lit';
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
 import { consentPerson, consentWatch, consentPrompts, keepDismissed, consentEventOp, consentCall, consentKey, consentAsk, consentWhy,
   consentAllowTitle, allowedText, declinedText, errorText, consentStoreKey, coverPoints, CONSENT_HEAD, CONSENT_REGION, CONSENT_DENY_TITLE,
-  CONSENT_COVERED } from './partition-mode.js';
+  CONSENT_COVERED, PARTITIONS_PAGE } from './partition-mode.js';
 
 // This browser's dismissed asks of the signed-in person ({"from→to": at},
 // under consentStoreKey(who) — one key per person): a per-viewer
@@ -185,8 +185,8 @@ export class BxPartConsent extends LitElement {
     }
   }
 
-  _say(key, text) {
-    const d = { key, text };
+  _say(key, text, link = '') {
+    const d = { key, text, link };
     d.timer = setTimeout(() => this._drop(d), DONE_MS);
     this._done = [...this._done.filter((x) => x.key !== key), d];
   }
@@ -204,7 +204,7 @@ export class BxPartConsent extends LitElement {
     const res = await consentCall((u, i) => fetch(u, i), 'POST', a);
     if (res.ok) {
       this._setRow(a.key, null);
-      this._say(a.key, allowedText(a.from, a.to));
+      this._say(a.key, allowedText(a.from, a.to), PARTITIONS_PAGE);
     } else {
       this._setRow(a.key, { err: errorText(res) });
     }
@@ -236,7 +236,7 @@ export class BxPartConsent extends LitElement {
         </div>`;
       })}
       ${repeat(this._done, (d) => d.key, (d) => html`<div class="done" data-consent-done=${d.key} role="status">
-        <span>${d.text}</span><button class="x" title="close" @click=${() => this._drop(d)}>✕</button></div>`)}
+        <span>${d.text}${d.link ? html` <a href=${d.link} target="_blank" rel="noopener">open it</a>` : nothing}</span><button class="x" title="close" @click=${() => this._drop(d)}>✕</button></div>`)}
     </div>`;
   }
 }

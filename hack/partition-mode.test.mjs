@@ -174,6 +174,10 @@ test('the card takes the alert of this request, without the CLI hint', () => {
   assert.equal(pendingText('apps/p', v, [{ kind: 'partition-switch', tile: 'apps/p', message: msg }]),
     'A partition mode switch is requested for apps/p (unpartitioned → user): switching deletes all data in this tile. '
     + 'Until a manager of apps/p switches or keeps the current mode, it doesn\'t run.');
+  // xbind's hint names the partitions page too: the whole parenthesis goes
+  const paged = msg.replace('(bx partition switch|keep apps/p)', '(bx partition switch|keep apps/p, or on /xbin/partitions)');
+  assert.equal(pendingText('apps/p', v, [{ kind: 'partition-switch', tile: 'apps/p', message: paged }]),
+    pendingText('apps/p', v, [{ kind: 'partition-switch', tile: 'apps/p', message: msg }]));
   // an alert of an older request (alerts and rows load apart): the row's words
   const old = msg.replace('(unpartitioned → user)', '(unpartitioned → user + global)');
   assert.equal(pendingText('apps/p', v, [{ kind: 'partition-switch', tile: 'apps/p', message: old }]), pendingText('apps/p', v, []));
@@ -354,8 +358,8 @@ test('consent calls are the person\'s own: GET the view, POST allows, DELETE tak
 test('the consent prompt\'s words name both tiles and what answering does', () => {
   assert.equal(consentAsk('apps/z', 'apps/x'), 'apps/z asks to use your data in apps/x');
   assert.match(consentWhy('apps/z', 'apps/x'), /^Your workspace asks you first\. Allowing lets apps\/z's code — and everyone who can change it — reach your apps\/x data/);
-  assert.equal(PARTITIONS_PAGE, ''); // no partitions page served yet: the words name bx
+  assert.equal(PARTITIONS_PAGE, '/xbin/partitions'); // xbind serves the person's page (F11): the words name it
   assert.equal(allowedText('apps/z', 'apps/x'),
-    'Allowed: apps/z can use your apps/x data from its next call. Take it back with bx partition consent apps/z apps/x --revoke.');
+    'Allowed: apps/z can use your apps/x data from its next call. Take it back on your partitions page (/xbin/partitions).');
   assert.match(declinedText('apps/z', 'apps/x'), /^Not allowed: apps\/z's calls into your apps\/x data stay refused\./);
 });

@@ -211,8 +211,12 @@ async function partitionConsent(browser) {
     const ok = D.page.locator(`bx-part-consent [data-consent-done="${B}→${X}"]`);
     await ok.waitFor({ timeout: 10000 });
     const okText = await ok.innerText();
-    check(okText.includes(`Allowed: ${B} can use your ${X} data from its next call`) && okText.includes(`bx partition consent ${B} ${X} --revoke`),
+    check(okText.includes(`Allowed: ${B} can use your ${X} data from its next call`) && okText.includes('on your partitions page (/xbin/partitions)'),
       `Allow: the shell says so, and how to take it back (${okText})`);
+    const okLink = await ok.locator('a').getAttribute('href').catch(() => null);
+    const pageRes = okLink ? await D.ctx.request.get(new globalThis.URL(okLink, URL).href) : null;
+    check(okLink === '/xbin/partitions' && pageRes?.status() === 200 && (await pageRes.text()).includes('partitions-page'),
+      `the answer links the partitions page, which xbind serves to dev1 (${okLink} → ${pageRes?.status()})`);
     await shotEl(D.page, PANEL, 'partition-consent-allowed');
     r = await read(D.page, B);
     check(r.status === 200, `the retry goes through (${r.status} ${r.text})`);
