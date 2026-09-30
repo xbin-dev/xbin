@@ -3,7 +3,8 @@
 W6's frontend pack, [96-agtt-merge.md](../96-agtt-merge.md) §B3 (U-M1 to
 U-M5, U-S3 to U-S5). It implements the owner's ruling 90 §I15 in the agent
 template's page: coding agents (D147's harnesses) run only in a person's own
-conversations. Branch `pt/w6-u` on `pt/w6-base` (3fdb5ca0).
+conversations. Branch `pt/w6-u` on `pt/w6-base` (3fdb5ca0); the review's
+fixes are on `pt/w6-u-fix` (see "Review fixes").
 
 Scope: the agent template's frontend only, meaning `model/`, the web view,
 the native view, their tests and the template's API.md.
@@ -20,7 +21,12 @@ Commits (oldest first):
 - the tests (`04d890c4`);
 - the composer's words for a sign-in the page can't offer (`4c0d9d63`);
 - the dialog's fixed "Who answers" as its own select (`c399cb73`);
-- this record.
+- this record (`94eb3280`);
+- on `pt/w6-u-fix`, the review's fixes:
+  - a new chat's sandbox list and a shared chat's pick (`78977711`);
+  - runs in the shared space, and un-sharing (`e06afe2a`);
+  - API.md and the three registries (`1dc6681a`);
+  - this record's update.
 
 ## What was built
 
@@ -57,6 +63,11 @@ views follow it, and an unpartitioned page gets today's answers from it.
     made from a person's page is homed in their partition.
   - `agentPicker`'s "signed in on ‹sandbox›" detail is left out for a
     remembered sandbox that isn't the person's own.
+  - New chat with options (the web dialog, the app's sheet) picks from the
+    person's own partition's list, whatever conversation is open
+    (`model/harness-start.js newChatList`: `app.sbx.listAt('')`). A
+    coding agent's chat is always made there. Before the review fix it
+    read the open conversation's list (see "Review fixes").
   - The seam is in "Seams" below.
 - **U-M4: sign-in only where the credentials stay the person's.**
   `signInAway(id)` decides where the sign-in is offered:
@@ -75,9 +86,11 @@ views follow it, and an unpartitioned page gets today's answers from it.
     - the composer has no Sign in button;
     - ⋯ has no **Sign in…** (`native/terminal.js`, now gated on `c.talk`);
     - a child card's notice shows `si.view` (`native/harness-child.js`).
-  - The composer's placeholder (`model/harness-ask.js steerWords`) says
-    "‹name› is waiting for a sign-in — your message waits with it…" in place
-    of "sign in first" (`4c0d9d63`).
+  - The composer: `4c0d9d63` made its placeholder say "‹name› is waiting
+    for a sign-in — your message waits with it…". The review fix replaced
+    that. A sign-in the page doesn't offer is always for a run in the
+    shared space, which is now read and not driven: the composer is off
+    and says why (see "Review fixes").
 - **U-M5: "Who answers".**
   - The new-chat dialog's `#n-agent` (`harness-start.js`) reads
     homes-ui.js's `#n-share` and redraws when it changes. For a share other
@@ -87,7 +100,11 @@ views follow it, and an unpartitioned page gets today's answers from it.
       shows again when the share goes back;
     - `#n-agent-shared` says why, and the sandbox field goes away;
     - the class and instructions fields come back;
-    - the ask carries no `harness`.
+    - the ask carries no `harness`. It also carries no sandbox the shared
+      space can't see (`newChatPick`'s shared case,
+      `harness-homes.js sharedSees`). The next chat's pick goes along only
+      when its row is marked `shared` (the team's, or one shared with the
+      agent). One homed in the person's partition stays behind.
 
     Switching back to "Only you" restores the pick.
   - In the `global` state, `agentPicker` lists no coding agent, so it is not
@@ -108,6 +125,37 @@ views follow it, and an unpartitioned page gets today's answers from it.
   - `topChip`'s title adds "stays in your own space" for the person's own
     harness conversation. With no share pill, it is the one place that says
     so.
+  - Un-sharing (review fix, `harness-homes.js unshareWhy`) applies to a
+    coding agent's root in the shared space, seen from a person's
+    partition. It is never left shared with no one, because that is the
+    §I10 move and W6-A answers it with 409:
+    - The web dialog disables "Only you and the people below" when no one
+      is below. It also disables Remove on the last person of a private
+      one. `#sh-stays` says why.
+    - The app's sheet marks the option. Picking it, or Remove, says why
+      and sends nothing.
+    - On the global instance's own page un-sharing is as before. A
+      person's harness conversation there is refused with 409, and the
+      dialog shows the refusal.
+- **Review fix: a coding agent's run in the shared space is read, not
+  driven** (`harness-homes.js barredWhy`). W6-A's engine bars every
+  coding agent at the global instance, so a harness run there never runs
+  again. Such runs are data from before the rule, seen either on the
+  global instance's own page or in a shared conversation from a person's
+  partition. For them:
+  - `rules.js topBar` offers no Retry;
+  - `rules.js composer` is off, with `BARRED_WORDS` as its placeholder
+    (`steerWords` says the same for the app);
+  - the mode and options are shown but not switched
+    (`harness-controls.js` who, `native/harness-ask.js` controls);
+  - a child card offers no Message (`model/harness-child.js`
+    `can.message`).
+
+  Stop, Cancel, the log and the U-M1 routing stay. Permission and
+  question cards still send their answer to global, where W6-A's engine
+  refuses to run the coding agent again. This page doesn't test that
+  path against the backend; it is B5's. The home's Needs line still says
+  "needs you to sign in" (see Deviations).
 - **U-S4: a relay holds its partition.** API.md's "Terminal relays" gains a
   bullet: the app's relay socket is a held connection
   ([/docs/partitions.md](/docs/partitions.md) §How people's partitions run).
@@ -125,16 +173,18 @@ views follow it, and an unpartitioned page gets today's answers from it.
 
 ## Seams
 
-- **Per-row `homed` / `bindWhy` (W6-A, A-S3).** `homedWhy` takes the
+- **Per-row `homed` / `why` (W6-A, A-S3).** `homedWhy` takes the
   backend's word when a GET /sandboxes row has a boolean `homed`. If `homed`
-  is false, its reason is `bindWhy`, or else the default text.
+  is false, its reason is `why` (as W6-A's `sandboxItem` sends it; `bindWhy`
+  is read too), or else the default text. The review fix aligned this
+  field with W6-A.
   - Until then the page derives it as `_backend/sandbox_partition.go
     homedHere` checks it: not `shared`, `owner.partitionId` set,
     `owner.partition === xbin.partition` and `owner.via === xbin.self`. (The
     page can't see the partition id, so it compares the key.)
-  - The plan says `homed`/`bindWhy` and the task said `homed`/`why`. I read
-    `bindWhy`, because a bare `why` on a sandbox row is ambiguous. If W6-A
-    names it otherwise, one line changes in `homedWhy`.
+  - The plan says `homed`/`bindWhy`. The task and W6-A say `homed`/`why`.
+    The first version read `bindWhy` only, which would have dropped the
+    backend's words at the fold.
 - **A-S3's "keyed by home" for `prefs/harness-sandbox`.** Only the page
   writes that pref. With U-M3 a remembered ref that isn't the person's own
   doesn't fit, so `keepSandbox` replaces it with a homed one. The page needs
@@ -150,8 +200,19 @@ views follow it, and an unpartitioned page gets today's answers from it.
   409 is shown as the dialog's error:
   - Share a copy… (its row carries `kids`, but it may finish);
   - Copy to my own space;
-  - the share dialog's un-share, "Only you and the people below". This holds
-    for a harness root at global too.
+  - the share dialog's un-share, "Only you and the people below".
+
+  For a harness **root** in the shared space, un-sharing is now disabled
+  in a person's partition (`unshareWhy`, review fix).
+- **A member's Leave (W6-A, not this pack's).** Take a private coding-agent
+  conversation in the shared space. When its last member leaves, it is
+  shared with no one. `moveIfUnshared` then runs `harnessStays` and W6-A
+  answers 409, so that member can't leave (`share.go`
+  handleRemoveMember → `writeTxErr`). This comes from reading `pt/w6-a`'s
+  code, not from a run. The page can't help, because Leave
+  is the member's own. The wiring pass should decide whether a harness
+  conversation left by its last member stays at global, private to its
+  owner, rather than refusing the leave.
 - **The native sandbox relay (`relaySrc`, not the run relay)** in a shared
   conversation dials the person's partition. U-M2 left it as it was. A-S2
   sends that relay through `partitionBoxRefusal`, which would refuse a team
@@ -173,12 +234,17 @@ views follow it, and an unpartitioned page gets today's answers from it.
   - In your own partition a coding agent starts only in a sandbox of your
     own space. The team's sandboxes, and ones shared with you, are shown as
     not fitting, with the reason, and the setup card offers to create one.
-  - New chat with options answers a chat shared with others with the
-    built-in agent.
+  - New chat with options offers a coding agent your own sandboxes,
+    whatever conversation is open. A chat shared with others is answered
+    by the built-in agent and takes along no sandbox of yours.
   - A sign-in is offered only in your own conversations; elsewhere its card
     says why.
   - A coding agent's conversation has no Share a copy…, Copy to my own
-    space or "Use my private resources…".
+    space or "Use my private resources…". One in the shared space isn't
+    left shared with no one, because that would move it.
+  - A coding agent's conversation in the shared space, from before this
+    rule, is read but not driven. It has no Retry, its composer is off,
+    and its mode and options are shown but not switched.
   - A shared conversation's coding agent is reached at the shared instance,
     so its buttons (approve, answer, mode, stop…) and the app's terminal
     work there.
@@ -206,7 +272,7 @@ folds into that entry or stands on its own:
       coding agent's conversation never moves. Both views follow it, and
       it answers today's values unpartitioned.
     - **A sandbox is the person's own** by the backend's per-row word when
-      it sends one (`homed`, `bindWhy`), else derived as the backend's
+      it sends one (`homed`, `why`), else derived as the backend's
       `homedHere` checks it (not `shared`; the owner's partition and tile
       are this page's). Rows that aren't stay listed, disabled with the
       reason, so a person sees why the team's box isn't offered and is
@@ -217,6 +283,13 @@ folds into that entry or stands on its own:
       sign-in it refuses.
     - **Calls follow the run's home** (the harness store and the app's run
       relay), as every other call about a conversation does.
+    - **A coding agent's chat starts from the person's own list.** Its
+      sandbox is picked from their own partition's list, whatever
+      conversation is open. A shared new chat carries only a sandbox the
+      shared space sees (a row marked `shared`).
+    - **A coding agent's run in the shared space is read, not driven**:
+      no message, Retry, mode or options. Stop, Cancel and the log stay,
+      because the backend never runs one there again.
     - **"Share a copy", "Copy to my own space" and hosting are hidden on a
       coding agent's root conversation**; copying one's files into a
       shared one stays.
@@ -227,6 +300,10 @@ folds into that entry or stands on its own:
       agents below it: that state passes, and the backend's 409 says why.
     - Keying `prefs/harness-sandbox` by home: a remembered sandbox that
       isn't the person's own doesn't fit, and is replaced.
+    - Treating a run in the shared space as view-only (`access().talk`
+      false). It would also make its permission and question cards
+      read-only, with the wrong words ("someone who may write here
+      answers it").
 ```
 
 ## Deviations
@@ -236,11 +313,17 @@ folds into that entry or stands on its own:
   the same UI side, so "Use my private resources…" is hidden too. "Add a
   copy of my files…" moves nothing and stays.
 - **Extras beyond B3:**
-  - the composer's placeholder for a sign-in the page doesn't offer;
+  - the composer's placeholder for a sign-in the page doesn't offer
+    (later replaced by the barred words);
   - `topChip`'s "stays in your own space" line;
   - `agentPicker` leaving out "signed in on" for a sandbox that isn't the
     person's own.
-- **The seam's field name** is `bindWhy`, not `why` (see "Seams").
+- **The seam's field name** is `why`, as W6-A sends it; `bindWhy` is read
+  too (see "Seams"; the first version read `bindWhy` only).
+- **The home's Needs line** for a sign-in in the shared space still says
+  "needs you to sign in". `model/home.js` is the instance customization
+  point (HOME), and a change there risks a merge conflict in instances
+  that edited HOME. The card itself says why.
 - **The read-only sign-in card offers no Retry.** "Elsewhere a read-only
   card says why" is taken literally.
 
@@ -256,6 +339,19 @@ folds into that entry or stands on its own:
   reader of a parent conversation was told "Open it (↗) and tap Sign in."
   for a child they may only read. Fixed along with U-M4
   (`native/harness-child.js` now shows `view` first).
+- **The review's findings, all fixed on `pt/w6-u-fix`** (details in
+  "Review fixes"):
+  - the new-chat dialog listed the open conversation's sandboxes, and
+    could not start a coding agent from a shared conversation (400);
+  - a shared new chat carried a partition-homed pick, and the global
+    instance refused it;
+  - `bindWhy` against W6-A's `why`;
+  - un-sharing a coding agent's conversation in the shared space was
+    offered and refused;
+  - runs in the shared space were offered Retry, the composer, mode and
+    options.
+- **Seen, not fixed (W6-A's):** the last member of a private coding-agent
+  conversation in the shared space can't leave it (409; see "Seams").
 - **Seen, not fixed (outside B3):** in a person's partition the built-in
   agent's sandbox picker still offers the team's sandboxes. The backend
   (`partitionBoxRefusal`) refuses to bind them for any conversation there,
@@ -268,10 +364,22 @@ folds into that entry or stands on its own:
 1. Should the built-in agent's sandbox picker in a person's partition also
    show the team's sandboxes disabled, with the reason, as a coding agent's
    pick now does? Today it offers them and the bind is refused.
-2. A shared (global-home) coding-agent conversation exists only as data from
-   before A-M1 and A-M2. Should its share dialog also hide un-sharing (make
-   private), which A-M3 refuses? Today it is offered and the refusal is
-   shown.
+2. (Answered by the review fix: un-sharing a coding agent's conversation in
+   the shared space is disabled with the reason, rather than offered and
+   refused.) Should its last member be able to leave it? Today W6-A
+   refuses the leave, because it would move the conversation (see
+   "Seams").
+
+## Review fixes (`pt/w6-u-fix`)
+
+| # | Finding | Resolution |
+|---|---------|------------|
+| 1 (medium) | The new-chat dialog and the app's sheet read `app.sbx.list`, which is the open conversation's home. With a shared conversation open, her own sandboxes weren't listed and the ask went without one (400 "a coding agent needs a sandbox"). | **Fixed** (`78977711`). `model/harness-start.js newChatList(app)` returns `app.sbx.listAt('')`, ensured with `app.sbx.ensure('', '')`. Both seams (`harness-start.js`, `native/harness-start.js`) use it for `sandboxOptions`, `preferredSandbox`, `agentPicker`'s list and the ref. At home, and on a page with one home, it is the same list as before. `test/homes.mjs` seeds each home's sandboxes, opens the dialog from TEAM_H, and asserts that `my-dev` is offered and sent (`ask4`). With the fix reverted in the scratch copy, the test fails. |
+| 2 (medium) | A shared new chat (fixed to the built-in agent) still carried the next chat's pick, which U-M3 had made partition-homed, and the global instance refused it at prepareBinding. | **Fixed** (`78977711`). `newChatPick(…, {shared})` returns `sandbox: undefined` unless the pick's row in her own list is one the shared space sees (`harness-homes.js sharedSees`: `shared`). That covers every shared chat on the web, the built-in agent's too, because the seam's `body()` always runs. `test/homes.mjs` `ask3` (class `coding`) asserts there is no `sandbox`; with the fix reverted, the test fails. The node test covers the team's pick going along and an unknown pick staying behind. |
+| 3 (medium) | `homedWhy` read `bindWhy`, while W6-A sends `why`. | **Fixed** (`78977711`). It reads `s.why`, then `bindWhy`. API.md says `homed` (with `why`), and the seam note is updated. Node cases cover `{homed: false, why}` and `bindWhy`. `test/homes.mjs` seeds `why` and checks that the rows show it. |
+| 4 (low) | Un-sharing a coding agent's root in the shared space was offered, and W6-A answered 409. API.md said "never moves". | **Fixed** (`e06afe2a`). `unshareWhy(run)` is non-empty for a person's partition, a harness root, and the global home. The web dialog disables "Only you…" with no one below, and Remove on the last person of a private one (`#sh-stays` says why). The app's sheet marks the option and refuses both with the reason. The row menu now passes `engine`. The rule is limited to a person's partition because only a person's chat moves (`moveIfUnshared`). Tested by `test/homes.mjs` and a native test (`agent-template-native-partition.test.mjs`); unpartitioned, it is made private as before. |
+| 5 (low) | A harness run at global (pre-W6) was offered Retry, the composer, and mode/options, and each try failed it again. | **Fixed** (`e06afe2a`). `barredWhy(r)` is read by `rules.topBar` (no Retry), `rules.composer` (off, `BARRED_WORDS`), `steerWords`, both views' controls (not switched) and the child card (no Message). Stop, Cancel and the log stay. The Needs line is **not** reworded (Deviations: `model/home.js`). `4c0d9d63`'s "waits with it" placeholder was unreachable after this, and is gone. |
+| 6 (low) | Weak tests. | **Fixed.** (1) and (2) as above. (3) The new `test/harness-homes.mjs` covers the global page: no `#apick`, no `#n-agent`/`#n-sandbox`, no `#hsetup`. It also checks a login-parked global-home run in both states: `#hl-view` with the reason, no methods, no `#hl-retry`. Finally it checks the barred composer, that there is no Retry, and that mode and options are disabled. With `barredWhy` reverted, the barred checks fail. (4) `agentHarness` was re-run on the final code (see Tests). |
 
 ## Tests
 
@@ -315,3 +423,35 @@ On `pt/w6-u`:
   afterwards.
 - **Not run:** `hack/tile-check.sh agent`. No Go changed and the script
   copies only `_backend/`. The isolated e2e is B5's.
+
+On `pt/w6-u-fix` (the review's fixes):
+
+- **`make js-test`**: 635 tests, 634 pass, 1 skipped, 0 fail. The new
+  cases:
+  - `agent-template-homes.test.mjs`: `why`/`bindWhy`, `sharedSees`,
+    `barredWhy` and `unshareWhy` in the rules. A new test covers
+    `newChatList`, the shared pick (hers stays behind, the team's goes
+    along, an unknown one stays behind, a chat of her own sends it), and a
+    barred run (topBar, composer, steerWords, the child card; her own and
+    the built-in agent's as before; unpartitioned as before). The global
+    page's test adds a barred run.
+  - `agent-template-harness-term.test.mjs`: the native composer of a
+    shared harness run is off, saying why.
+  - `agent-template-native-partition.test.mjs`: the share sheet's refusal
+    (no PATCH); unpartitioned, it is made private as before.
+- **`make js-check`**, and `go test ./internal/sizebudget
+  ./internal/assetscan ./internal/docscheck ./internal/builtins`: ok.
+- **The template's browser tests** from a scratch copy all passed:
+  homes, harness-homes (new), partition, share, hosted, native, harness,
+  harness-ask, harness-board, harness-cards, harness-child,
+  harness-manage, harness-start, harness-term, sandbox, home, chat and
+  sidebar. `homes` and `harness-start` also passed on `78977711` alone.
+  Mutation runs in the scratch copy failed the new checks: the dialog
+  reading `app.sbx.list`, the shared flag dropped, and `barredWhy`
+  returning ''.
+- **UI harness `agentHarness`**, unisolated, on the final code
+  (`PORT=9116`, `HARNESS_DIR=…/w6/W6-U-fix/h`, with `.dev.mk`'s
+  `XBIN_GOCRYPTFS`: without it the pass SKIPs): 72 PASS, 0 FAIL, no SKIP.
+  The admin console's resource 404s in `shots.log` are the same 18 as on
+  `pt/w6-u`. xbind was stopped and `ws/` deleted.
+- **Not run:** `hack/tile-check.sh agent` (no Go changed).
