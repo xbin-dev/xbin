@@ -12,7 +12,7 @@
 //
 // The plan is not drawn at the transcript's end: the end seam is a run's park
 // (native/ext.js) — its progress and the context in use sit in the
-// conversation's one toolbar badge (native/harness-start.js), all of it on
+// start of the conversation's subtitle (native/harness-start.js), all of it on
 // its screen.
 // Memoized per block and open state (rowTpl asks the seams every render).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
