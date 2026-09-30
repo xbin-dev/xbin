@@ -618,6 +618,22 @@ func TestHarnessNotesOrder(t *testing.T) {
 	if got := order(db); got != "user:a hnote:n2 user:b hnote:legacy watch:c hnote:n3" {
 		t.Fatalf("one delivered: %s", got)
 	}
+	// one an earlier build's process wrote after the start (a blue/green
+	// swap: it serves until it exits) moves as it is read — every notice
+	// read is one deliverBoundary consumes, and no inbox row waits
+	add(inboxUser, "d")
+	add(inboxHNote, "late")
+	if got := order(db); got != "user:a hnote:n2 user:b hnote:legacy watch:c hnote:n3 user:d hnote:late" {
+		t.Fatalf("a late one: %s", got)
+	}
+	if n := len(db.inboxRows(`WHERE kind=?`, inboxHNote)); n != 0 {
+		t.Fatalf("a late note left in the inbox: %d", n)
+	}
+	for _, r := range db.undeliveredWithNotes(7) {
+		if r.Kind == inboxHNote && r.Body.Text == "late" && !db.consumeHarnessNote(r.ID, 2) {
+			t.Fatalf("the late note isn't one to consume: %+v", r)
+		}
+	}
 	if err := db.deleteOneRun(7); err != nil || len(db.harnessNotes(7, false)) != 0 {
 		t.Fatalf("a deleted run's notes: %v", err)
 	}

@@ -390,9 +390,32 @@ func (d *DB) harnessNotesAfter(runID int64, pending bool) ([]*InboxRow, []int64)
 	return out, after
 }
 
+// moveInboxNotes moves the notices an earlier build of this program left
+// in the inbox (run's; 0: every run's) to harness_notes, each where it
+// was. At the start (addHarnessSchema), and as a run's input is read: a
+// process of that build still serves through a blue/green swap, after the
+// start's move. d: a transaction.
+func (d *DB) moveInboxNotes(runID int64) error {
+	where, args := `kind='`+inboxHNote+`' AND delivered_at=0`, []any{}
+	if runID != 0 {
+		where, args = where+` AND run_id=?`, append(args, runID)
+	}
+	var n int
+	if err := d.q.QueryRow(`SELECT count(*) FROM inbox WHERE `+where, args...).Scan(&n); err != nil || n == 0 {
+		return err
+	}
+	if _, err := d.q.Exec(`INSERT INTO harness_notes (run_id, after, body, created)
+		SELECT run_id, id - 1, body, created FROM inbox WHERE `+where+` ORDER BY id`, args...); err != nil {
+		return err
+	}
+	_, err := d.q.Exec(`DELETE FROM inbox WHERE `+where, args...)
+	return err
+}
+
 // undeliveredWithNotes is run's pending input with its notices among it,
 // each after the inbox rows that were there when it was written.
 func (d *DB) undeliveredWithNotes(runID int64) []*InboxRow {
+	_ = d.moveInboxNotes(runID)
 	rows := d.undelivered(runID)
 	notes, after := d.harnessNotesAfter(runID, true)
 	if len(notes) == 0 {

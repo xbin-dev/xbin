@@ -114,14 +114,7 @@ func (d *DB) addHarnessSchema() error {
 	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN turn_seq INTEGER NOT NULL DEFAULT 0`)
 	// a parent's notices waiting in the inbox, where an earlier build of
 	// this program wrote them: moved to harness_notes (harness_spawn.go)
-	if err := d.Tx(func(t *DB) error {
-		if _, err := t.q.Exec(`INSERT INTO harness_notes (run_id, after, body, created)
-			SELECT run_id, id - 1, body, created FROM inbox WHERE kind='hnote' AND delivered_at=0 ORDER BY id`); err != nil {
-			return err
-		}
-		_, err := t.q.Exec(`DELETE FROM inbox WHERE kind='hnote' AND delivered_at=0`)
-		return err
-	}); err != nil {
+	if err := d.Tx(func(t *DB) error { return t.moveInboxNotes(0) }); err != nil {
 		return err
 	}
 	_, err := d.q.Exec(harnessTurnCapSQL)
