@@ -138,6 +138,7 @@ func (ag *Agent) pullMail(ctx context.Context) (mailCounts, error) {
 	}
 	after := ""
 	for {
+		from := after
 		items, more, err := partitionMail.Page(ctx, after, mailPage)
 		if err != nil {
 			return c, err
@@ -184,7 +185,7 @@ func (ag *Agent) pullMail(ctx context.Context) (mailCounts, error) {
 				return c, err
 			}
 		}
-		if !more || len(items) == 0 {
+		if !more || after == from { // the end, or a page that moved nothing on
 			break
 		}
 	}
