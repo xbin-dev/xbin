@@ -8,7 +8,8 @@ package isolated
 // (whose fixture and helpers it shares): a backup of a partitioned tile
 // writes each person's partition to an archive of its own, sealed; alice
 // restores her own partition (her data comes back, bob's doesn't move);
-// nobody else, and no tile credential, restores hers; erasing the tile's
+// nobody else, and no tile credential, restores hers, and she can't name
+// bob's partition id (to list or restore it); erasing the tile's
 // data keys makes her archive unrestorable and has the archiver drop it.
 //
 //	set -a; eval "$(sed -n 's/^export \([A-Z_]*\) := \(.*\)$/\1=\2/p' .dev.mk | grep -v ^PATH)"; set +a
@@ -184,6 +185,7 @@ func TestPartitionsSmokeBackups(t *testing.T) {
 	e.put(t, api+"/kv/kv/secret", "alice-changed", e.fr(t, pbTile, "alice"))
 	e.put(t, api+"/kv/kv/secret", "bob-changed", e.fr(t, pbTile, "bob"))
 	restore := map[string]any{"tile": pbTile, "confirm": pbTile + " user:alice"}
+	bobPK := util.PartitionKey("bob", e.uid(t, "bob"))
 	for _, c := range []struct {
 		who  string
 		hdrs []xbindtest.Header
@@ -193,10 +195,15 @@ func TestPartitionsSmokeBackups(t *testing.T) {
 		{"bob, for alice", e.as("bob"), map[string]any{"tile": pbTile, "user": "alice", "confirm": pbTile + " user:alice"}, 403},
 		{"alice's frame", []xbindtest.Header{e.fr(t, pbTile, "alice")}, restore, 403},
 		{"alice without the typed confirmation", e.as("alice"), map[string]any{"tile": pbTile}, 400},
+		{"alice naming bob's partition id", e.as("alice"), map[string]any{"tile": pbTile, "partitionId": bobPK, "dryRun": true}, 403},
 	} {
-		if r := d.Call(t, "POST", "/api/xbin/partitions/restore", c.body, c.hdrs...); r.Status != c.want {
+		if r := d.Call(t, "POST", "/api/xbin/partitions/restore", c.body, c.hdrs...); r.Status != c.want || c.want == 403 && strings.Contains(r.String(), "user:bob") {
 			t.Errorf("%s: %d %s, want %d", c.who, r.Status, r, c.want)
 		}
+	}
+	// a person names only their own partition id: bob's isn't listed to alice
+	if r := d.Call(t, "GET", "/api/xbin/partitions/backups?tile="+pbTile+"&partitionId="+bobPK, nil, e.as("alice")...); r.Status != 403 || strings.Contains(r.String(), "v0") {
+		t.Errorf("alice lists bob's partition's backups: %d %s", r.Status, r)
 	}
 	var done struct {
 		OK   bool
