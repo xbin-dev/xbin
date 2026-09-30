@@ -146,7 +146,7 @@ func sbxStatus(refusal string) int {
 		return http.StatusNotFound
 	case "not-allowed":
 		return http.StatusForbidden
-	case "state", "exists":
+	case "state", "exists", "partitions": // partitions: an old manager in a person's partition (sandbox_partition.go)
 		return http.StatusConflict
 	case "precondition":
 		return http.StatusPreconditionFailed
@@ -249,6 +249,9 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 	box, err := conn.Get(ctx, id)
 	if err != nil {
 		return SandboxBinding{}, err
+	}
+	if why := partitionBoxRefusal(box); why != "" { // sandbox_partition.go
+		return SandboxBinding{}, refuse(403, "%s", why)
 	}
 	if !sandboxAccess(w, box).Use {
 		return SandboxBinding{}, refuse(403, "you may not use this sandbox (%s) — its owner can add you as a member", box.Name)

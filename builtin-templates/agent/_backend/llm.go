@@ -383,7 +383,7 @@ func preferredModel(ctx context.Context, use string) string {
 	// ever made — which is indistinguishable from a hung agent.
 	ctx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
 	defer cancel()
-	provs := llmProviders()
+	provs := llmProvidersIn(context.Background()) // the tile's providers: a person's own never set the default
 	model := ""
 	for _, p := range provs {
 		if m := askPreferred(ctx, p, use); m != "" {

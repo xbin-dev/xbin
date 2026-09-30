@@ -124,6 +124,7 @@ func routeTable() []routeDef {
 		{"GET /triggers/{id}/events", needAutomation, handleTriggerEvents},
 		{"POST /tick", needCron, handleTick},
 		{"GET /engine/hold", needSelf, handleHold},
+		{"GET /health", needAny, handleHealth}, // partition_routes.go
 	}
 }
 
@@ -132,8 +133,10 @@ func routeTable() []routeDef {
 // what they may do with a run, is decided here.
 func routes(mux *http.ServeMux) {
 	for _, rt := range append(append(append(routeTable(), sandboxRoutes()...), liveRoutes()...), probeRoutes()...) {
-		mux.Handle(rt.pattern, xbin.RoleFunc("admin", guard(rt.need, rt.h)))
+		// agentRole is RoleFunc("admin") unless partitioned (partition_routes.go)
+		mux.Handle(rt.pattern, agentRole(guard(rt.need, partitionRoute(rt.pattern, rt.h))))
 	}
+	mailboxRoutes(mux) // partition mail's doorbell (mailbox.go)
 }
 
 type ctxKey int
@@ -149,6 +152,7 @@ const (
 // is nobody else's business; one they see but may not change is a 403.
 func guard(n need, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		notePartitionID(r) // a person's partition learns its id (mode.go)
 		c := principal(r)
 		deny := func(msg string) { xbin.WriteError(w, http.StatusForbidden, msg) }
 		switch {

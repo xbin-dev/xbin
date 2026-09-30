@@ -393,6 +393,7 @@ func (e *Engine) denyParked(run *Run, p pendingState, text string) bool {
 // in force (read again here); else they are dropped and the run stays parked.
 func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 	ctx, cancel := context.WithCancelCause(e.base)
+	ctx = e.ag.personalCtx(ctx, run) // a person's own providers in their own conversations (iface_personal.go)
 	e.setStepCancel(run.ID, cancel)
 	defer func() {
 		e.setStepCancel(run.ID, nil)
@@ -606,7 +607,7 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 	specs, own := injectSummaries(runToolSpecs(cfg, run, ts.mcp))
 	ts.own = own
 	msgs, specs, ts.back = wireNames(msgs, specs)
-	release, err := e.gate.acquire(ctx, run.Depth == 0)
+	release, err := e.acquireLLM(ctx, run.Depth == 0)
 	if err != nil {
 		e.failTurn(ctx, ts, err.Error())
 		return LLMReply{}, false
@@ -928,10 +929,9 @@ func (e *Engine) halted() bool { return e.db.getSetting("halt") == "1" }
 // halt that silently swallows prompts is indistinguishable from a broken
 // agent.
 func (ag *Agent) resumeIfHalted(runID int64) {
-	if ag.db.getSetting("halt") != "1" {
+	if ag.db.getSetting("halt") != "1" || !ag.clearHalt() { // clearHalt: partition_routes.go
 		return
 	}
-	_ = ag.db.putSetting("halt", "")
 	if runID != 0 {
 		ag.db.journal(runID, "note", map[string]string{"text": "halt cleared: you sent a message, which resumes the agent"})
 	}

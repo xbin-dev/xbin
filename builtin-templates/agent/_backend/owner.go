@@ -235,4 +235,7 @@ func (ag *Agent) clearWakeJobs() {
 	}
 	ag.cronDelete("resume")
 	ag.cronDelete("heartbeat")
+	if userMode() {
+		ag.cronDelete("wake") // a person's partition's sleeping-run wake (resume_mode.go)
+	}
 }
