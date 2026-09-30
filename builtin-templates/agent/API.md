@@ -1842,14 +1842,16 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   message so — parks the run on `pendingState: {kind: "login", park,
   harness: {login}}` (`waiting_input`; `harness.state` `login`,
   `harness.login: {command, methods: [{id, name, kind: terminal | api-key
-  | device-code}], device?}`) and keeps the message that failed. **Retry**
+  | device-code}], device?: {by}}`) and keeps the message that failed. **Retry**
   (`/resume`) ends the signed-out coding agent, starts a fresh one — it
   reads what a terminal sign-in left in the sandbox's home — and sends the
   message again (signed out still, it parks again). Signing in through the
   coding agent (an API key, a device code) is `POST /runs/{id}/harness/
   authenticate`: the key goes to the coding agent once and is never
-  stored; a device code's page (`harness.login.device: {url, message}`)
-  stays up until you finish, then the run goes on by itself. A page the
+  stored; a device code's page and code are yours alone — the answer, and
+  your `GET /runs/{id}/harness` — while everyone sees who is signing in
+  (`harness.login.device: {by}`); it stays up until you finish, then the
+  run goes on by itself. A page the
   coding agent asks to have opened at any other time is declined.
 - **Stops and restarts.** `/interrupt` stops the turn: a permission or
   question waiting settles `(interrupted)` and the coding agent ends its
@@ -1904,7 +1906,7 @@ loop answers they are **409** `not a coding-agent conversation`.
 
 | Method & path | Who | Body | Answer |
 |---|---|---|---|
-| `GET /runs/{id}/harness` | a viewer | — | `{harness, session: {gen, execId, acpSessionId, loadable, steering, startedAt, lastActive}, rules: [{kind, title}]}` — its summary, the adapter process (`startedAt`: its current generation's start, ms) and what "allow always" answers remember in this conversation |
+| `GET /runs/{id}/harness` | a viewer | — | `{harness, session: {gen, execId, acpSessionId, loadable, steering, startedAt, lastActive}, rules: [{kind, title}]}` — its summary, the adapter process (`startedAt`: its current generation's start, ms) and what "allow always" answers remember in this conversation; to the person who started a device-code sign-in that waits, its `harness.login.device` is `{url, message, by}` (everyone else's, and every other view's, only `{by}`) |
 | `PATCH /runs/{id}/harness` | a participant; an explicit mode: the owner | `{mode?, option?: {id, value}}` | `{harness}` |
 | `POST /runs/{id}/harness/answer` | a participant | `{park?, action: accept\|decline\|cancel, content?}` | `{ok: "true"}` |
 | `POST /runs/{id}/harness/authenticate` | a participant who may use its sandbox | `{method, apiKey?, confirm?}` | **200** `{ok: "true", state: "ready"}` · **202** `{ok: "true", device: {url, message}}` |
@@ -1949,8 +1951,13 @@ loop answers they are **409** `not a coding-agent conversation`.
   one of `harness.login.methods` of kind `api-key` (`apiKey` needed — it
   goes to the coding agent once, in the one call, and is never stored,
   logged or echoed; within 30 s the answer is 200 and the message that
-  waited goes) or `device-code` (the page and code within 30 s: 202, also
-  `harness.login.device`; the run goes on by itself once you finish). Only
+  waited goes) or `device-code` (the page and code within 30 s: 202; the
+  run goes on by itself once you finish). The page and code are yours
+  alone — never stored, and in no summary but your own `GET
+  /runs/{id}/harness` (anyone else who saw them could enter the code
+  first, signing the coding agent in as themselves); everyone sees
+  `harness.login.device: {by}`, and asking again for the device code of
+  the sign-in you started answers it again (202). Only
   a person who may use the sandbox **themself** — asked of its manager now
   (the manager doesn't police the person this agent names) — and, on a
   sandbox others may use too (team visibility, members or shares: they act

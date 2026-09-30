@@ -68,13 +68,20 @@ func writeHeld(w http.ResponseWriter, name string) {
 }
 
 // handleGetHarness is a coding agent's summary (§4.3.2), its session and
-// what "allow always" answers remember in this conversation.
+// what "allow always" answers remember in this conversation — to the person
+// who started a device-code sign-in that waits, with its page and code in
+// harness.login.device (everyone else sees only who started it).
 //
 //	GET /runs/{id}/harness → {harness, session: {gen, execId, acpSessionId, loadable, steering, startedAt, lastActive}, rules}
 func handleGetHarness(w http.ResponseWriter, r *http.Request) {
 	_, _, sum, ok := harnessRoute(w, pathID(r))
 	if !ok {
 		return
+	}
+	if agent.eng != nil {
+		if d := agent.eng.deviceFor(pathID(r), sbxUserOf(callerOf(r))); d != nil {
+			sum = withDevice(sum, d)
+		}
 	}
 	hs, err := agent.db.harnessSession(pathID(r))
 	if err != nil {
@@ -92,6 +99,22 @@ func handleGetHarness(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"harness": sum, "rules": rules, "session": map[string]any{
 		"gen": hs.Gen, "execId": hs.ExecID, "acpSessionId": hs.ACPSession, "loadable": hs.Loadable,
 		"steering": steering || hs.Steering, "startedAt": hs.StartedMs, "lastActive": hs.LastActiveMs}})
+}
+
+// withDevice is summary sum with d as its login's device (a copy).
+func withDevice(sum map[string]any, d *hDevice) map[string]any {
+	raw, ok := sum["login"].(json.RawMessage)
+	var l map[string]any
+	if !ok || json.Unmarshal(raw, &l) != nil || l["device"] == nil {
+		return sum
+	}
+	l["device"] = d
+	out := make(map[string]any, len(sum))
+	for k, v := range sum {
+		out[k] = v
+	}
+	out["login"] = l
+	return out
 }
 
 // handlePatchHarness switches a coding agent's mode or one of its config
@@ -418,6 +441,9 @@ func handleHarnessAnswer(w http.ResponseWriter, r *http.Request) {
 //
 //	POST /runs/{id}/harness/authenticate {method, apiKey?, confirm?}
 //	  → 200 {ok, state: "ready"} | 202 {ok, device: {url, message}}
+//
+// The device code is the caller's alone (harness.login.device says only
+// {by}); asking again for the one they started answers it again.
 func handleHarnessAuthenticate(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	run, cfg, sum, ok := harnessRoute(w, id)
@@ -466,7 +492,7 @@ func handleHarnessAuthenticate(w http.ResponseWriter, r *http.Request) {
 			"error": fmt.Sprintf("anyone who may use %s acts as you with %s there — confirm to sign in", sbxLabel(box), name)})
 		return
 	}
-	res, err := agent.eng.harnessAuthenticate(r.Context(), run, body.Method, body.APIKey)
+	res, err := agent.eng.harnessAuthenticate(r.Context(), run, body.Method, body.APIKey, sbxUserOf(c))
 	var ae *hAuthErr
 	switch {
 	case errors.As(err, &ae):

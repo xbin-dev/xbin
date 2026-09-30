@@ -248,8 +248,8 @@ func TestHarnessShapes(t *testing.T) {
 	lists()
 	add("authenticate", call("POST", fmt.Sprintf("/runs/%d/harness/authenticate", login), map[string]any{"method": "fake-device"}))
 	add("authenticate", call("POST", fmt.Sprintf("/runs/%d/harness/authenticate", login), map[string]any{"method": "fake-device", "confirm": true}))
-	add("harnessGet", call("GET", fmt.Sprintf("/runs/%d/harness", login), nil))
-	view(login) // login.device
+	add("harnessGet", call("GET", fmt.Sprintf("/runs/%d/harness", login), nil)) // the requester's: login.device's code
+	view(login)                                                                 // login.device: who
 	answered(login, "echo: echo one")
 	events(evs)
 	// an API key on alice's own
@@ -331,7 +331,7 @@ func TestHarnessShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	loginFull, _ := json.Marshal(hLogin{Command: "fake login", Methods: []hLoginMethod{{ID: "fake-api-key", Name: "API key", Kind: "api-key"}},
-		Device: &hDevice{URL: "https://example.invalid/device", Message: "Enter code FAKE-1234"}})
+		Device: &hDevice{By: "alice"}}) // as stored: the code is the requester's alone (GET …/harness)
 	ag.eng.endHarness(ag.eng.base, key)
 	hs, _ = ag.db.harnessSession(key)
 	hs.State, hs.ExecID, hs.Snapshot, hs.Login, hs.Title = hsLogin, "", string(snap), string(loginFull), "Fix it"

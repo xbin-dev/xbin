@@ -493,8 +493,11 @@ engine starts the adapter (initialize only) when none is live.
 - api-key → waits for the result (≤ 30 s): 200 `{ok: "true", state:
   "ready"}`, the held prompt resent.
 - device-code → waits for the URL elicitation (≤ 30 s): 202 `{ok: "true",
-  device: {url, message}}` (also in `harness.login.device`); the run leaves
-  `login` by itself when the person finishes.
+  device: {url, message}}` — the requester's alone (routes-fix): kept in
+  memory with the sign-in, served again only to them (their `GET
+  /runs/{id}/harness`, or the same method asked again); stored and
+  published is `harness.login.device: {by}`. The run leaves `login` by
+  itself when the person finishes.
 - Errors: 400 `method: one of …`; 400 `apiKey: needed for ‹method name›` /
   `apiKey: only for an API-key method`; 409 `‹name› is signed in` (state not
   `login`); 403 `only someone who may use ‹sandbox› can sign it in`; 409
@@ -614,7 +617,7 @@ run has no `harness` key.
  "pending": {"park": "Xq3…", "kind": "approval", "title": "Run go test ./..."},
  "login": {"command": "CLAUDE_CODE_REMOTE=1 claude /login",
            "methods": [{"id": "claude-login", "name": "Log in with Claude", "kind": "terminal"}],
-           "device": {"url": "https://…", "message": "Enter code ABCD-1234 at …"}},
+           "device": {"by": "alice"}},
  "sandbox": {"ref": "apps/coding-sandbox|sb-7f3a", "name": "api-dev", "cwd": "/work/api", "shared": true},
  "steering": true, "title": "Fix the flaky test", "gen": 2}
 ```
@@ -634,7 +637,7 @@ run has no `harness` key.
 | `activity` | `kind`: `idle` · `thinking` (thought chunks) · `writing` (message chunks) · `tool` (a call in progress; `title` its summary) · `waiting` (a park); `at` when it began |
 | `counts` | this conversation's harness calls, distinct files edited, lines added/deleted (across respawns) |
 | `pending` | the park, compact: `kind` `approval` \| `question` \| `login`, `title` (the tool's title, the question's message, "Sign in to ‹name›"); the full card data is `pendingState.harness` |
-| `login` | present while `state == "login"` (and during a sign-in): `command` for the login terminal (the adapter's terminal-auth argv shell-quoted when it offers one, else the catalog's `LoginCmd`); `methods` from the adapter's `authMethods`, `kind` `terminal` \| `api-key` \| `device-code` (others are not offered); `device` while a device-code sign-in waits |
+| `login` | present while `state == "login"` (and during a sign-in): `command` for the login terminal (the adapter's terminal-auth argv shell-quoted when it offers one, else the catalog's `LoginCmd`); `methods` from the adapter's `authMethods`, `kind` `terminal` \| `api-key` \| `device-code` (others are not offered); `device` while a device-code sign-in waits: `{by}`, who started it — its `url` and `message` (the code) only in that person's own `GET /runs/{id}/harness` (routes-fix) |
 | `sandbox` | the fixed sandbox and cwd; `shared`: others may use it (team visibility, members or shares) — the UI's privacy note |
 | `steering` | the adapter steers mid-turn (§3.5) |
 | `title` | the adapter's own session title |
@@ -1439,3 +1442,4 @@ this spec and why.
 - 2026-09-30 (Afix) verifier: claude-agent-acp 0.81 (the rootfs pin) offers its plan approval's modes under ids that name none — `exit-plan-bypass` / `exit-plan-clear-bypass` ("Yes, [clear context and] bypass permissions", `allow_always`), `exit-plan-auto`, `exit-plan-clear-auto`, `exit-plan-accept-edits`, `exit-plan-clear-accept-edits`, `exit-plan-default` (`allow_once`) — so the rule "an allow that names such a mode" let any participant approve a plan into bypass. The sdk catalog gains `acp.Provider.OptionModes` (claude: those ids → their modes; `json:"-"`), and an option is `explicit` when the mode it names (its id, else `OptionModes`) isn't open, or — default-deny — when it is an `allow_always` of a `switch_mode` call whose mode the catalog can't place (a harness the catalog lacks, a newer adapter's id). An `allow_once` that names no mode stays anyone's (codex's `implement_plan`, gemini's `proceed_once`, the fake's `exit-plan-default`), so `approve: true` still works for a participant.
 - 2026-09-30 (routes-fix) Classes (§2.2, A5): settings `k='classes'` stores the `harness` toolset apart from `toolsets` (`harness: true` on the stored class; toolsets that already hold it are read as they are) — an agent from before coding agents (v0.3.64) rolled back to refused every class save (`class coding: unknown toolset "harness"`: its editor resends every stored class, its normalize knows no such toolset). `GET /classes` and the API are unchanged; a class such a build saves again has lost its coding agents.
 - 2026-09-30 (routes-fix) §3.2 `hnote`: kept in a table of its own, `harness_notes (id, run_id, after, body, created, delivered_at, msg_id)`, not `inbox` — `after` is the inbox's highest id when it was written, so `deliverBoundary` reads it among the parent's rows in the order they came; on start, undelivered `hnote` inbox rows an earlier build of this program wrote move there; a deleted run's notes go with it. An `hnote` row an idle parent kept for good (by design) was work to a rolled-back v0.3.64 forever (its `hasWork` counts every undelivered inbox row, its pass never consumes the kind): its resume job woke the tile every minute. `hprompt`/`hanswer` rows queued at a rollback still do — documented (§3.2, API.md, changelog) with the clean-up.
+- 2026-09-30 (routes-fix) §4.2.6/§4.3.2 a device code is the requester's alone: `harness_sessions.login` and the park's `login` store — and every summary, view, `/tree`, `/needs` and event publishes — `login.device: {by}` only; the page and code stay in memory with the sign-in (`hAuth.dev`), answered in the 202, in the requester's own `GET /runs/{id}/harness` (`{url, message, by}`, while this process drives the session), and again (202) to the same person asking again for the same method (else 409 `already under way`). Everyone who saw the conversation — a viewer, a participant `authenticate` refuses — could read the code and enter it first, signing the shared sandbox's harness in as themselves (A9b had put it in the summary for the UI; its cards already fall back to the 202). The app keeps the 202's device per park for its transcript link too. `Engine.harnessAuthenticate` gains `by`.

@@ -380,7 +380,8 @@ test('STUB: sign-in and the adapter\'s log (§4.2.6, §4.2.7)', async () => {
   const dev = await auth({ method: 'device-code', confirm: true });
   assert.equal(dev.status, 202);
   assert.match(dev.data.device.message, /FAKE-1234/);
-  assert.equal(pushed.at(-1).data.login.device.url, 'https://example.invalid/device');
+  assert.deepEqual(pushed.at(-1).data.login.device, { by: 'admin' }, 'published: who, never the code');
+  assert.equal((await req('GET', '/runs/24/harness')).data.harness.login.device.url, 'https://example.invalid/device', 'the requester reads it');
   assert.deepEqual(await auth({ method: 'openai-api-key', apiKey: 'sk-1', confirm: true }), { status: 200, data: { ok: 'true', state: 'ready' } });
   assert.equal((await auth({ method: 'openai-api-key', apiKey: 'sk-1', confirm: true })).data.error, 'Codex is signed in');
   assert.equal((await req('GET', '/runs/22/harness/log?max=10')).data, '-22 ready\n', 'its tail');

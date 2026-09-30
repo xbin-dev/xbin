@@ -430,7 +430,9 @@ export function STUB(seed) {
       const r = hrun(+m[1]);
       if (!r) return notHarness();
       const v = window.__views[+m[1]] || {};
-      return json({ harness: r.harness, session: { gen: r.harness.gen || 0, execId: '', acpSessionId: '', loadable: false, steering: !!r.harness.steering, startedAt: 0, lastActive: 0,
+      const dev = (H.devices || {})[+m[1]];
+      const harness = dev && r.harness.login && r.harness.login.device ? { ...r.harness, login: { ...r.harness.login, device: dev } } : r.harness;
+      return json({ harness, session: { gen: r.harness.gen || 0, execId: '', acpSessionId: '', loadable: false, steering: !!r.harness.steering, startedAt: 0, lastActive: 0,
         ...(v.harnessSession || {}) }, rules: v.harnessRules || [] });
     }],
     ['PATCH', /\/runs\/(\d+)\/harness$/, (m, o) => {
@@ -485,8 +487,12 @@ export function STUB(seed) {
         return json({ error: `anyone who may use ${(h.sandbox || {}).name} acts as you with ${h.name} there — confirm to sign in`, confirm: true }, 409);
       }
       if (md.kind === 'device-code') {
+        // the code is the requester's: the answer and their GET …/harness;
+        // the summary says only who started it
         const device = { url: 'https://example.invalid/device', message: 'Enter code FAKE-1234 at https://example.invalid/device' };
-        setHarness(id, { login: { ...h.login, device } });
+        const by = (seed.me || {}).user || 'admin';
+        (H.devices = H.devices || {})[id] = { ...device, by };
+        setHarness(id, { login: { ...h.login, device: { by } } });
         return json({ ok: 'true', device }, 202);
       }
       if (b.apiKey === 'bad') return json({ error: 'invalid API key' }, 502);

@@ -59,7 +59,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   start; an explicit mode only for the conversation's owner), `POST
   /runs/{id}/harness/answer` (its question) and `…/harness/authenticate`
   (an API key or a device code, for a person who may use the sandbox, with
-  a confirm on a shared one; the key is never stored). `/tree` nodes carry
+  a confirm on a shared one; the key is never stored, and a device code's
+  page and code are the requester's alone — the answer, their `GET
+  /runs/{id}/harness`, asking again — while the summary's
+  `login.device` says only `{by}`). `/tree` nodes carry
   `engine` and a coding agent's compact `harness`; conversation rows gain
   `waiting` and `kids: {harness, waiting}`; `/needs` gains reason `login`
   and the waiting coding agent's `harness`; `POST /ask`/`/runs` answer

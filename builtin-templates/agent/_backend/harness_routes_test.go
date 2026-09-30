@@ -604,7 +604,7 @@ func TestHarnessModeDefaultDeny(t *testing.T) {
 
 	// its sign-in's errors name it as its manager does
 	ag.eng.endHarness(ag.eng.base, run.ID)
-	if _, err := ag.eng.harnessAuthenticate(ag.eng.base, &run, "x", ""); err == nil || !strings.Contains(err.Error(), "House agent is signed in") {
+	if _, err := ag.eng.harnessAuthenticate(ag.eng.base, &run, "x", "", "alice"); err == nil || !strings.Contains(err.Error(), "House agent is signed in") {
 		t.Fatalf("authenticate: %v", err)
 	}
 }

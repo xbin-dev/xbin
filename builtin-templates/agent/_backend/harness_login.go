@@ -13,8 +13,12 @@
 //     side): the adapter's own authenticate — an API key (in
 //     _meta["api-key"].apiKey, once: never stored, never logged), or a
 //     device code, whose URL the adapter asks the person to open through a
-//     url elicitation (honoured only now: harness.login.device) — then the
-//     held prompt resent to the same adapter.
+//     url elicitation (honoured only now) — then the held prompt resent to
+//     the same adapter. The code is the requester's alone: they get it in
+//     the answer (and again from GET /runs/{id}/harness, or by asking
+//     again); what is stored and published is only harness.login.device
+//     {by} — whoever else sees the conversation could otherwise enter it
+//     first, signing the sandbox's harness in as themselves.
 package main
 
 import (
@@ -37,7 +41,8 @@ var errHarnessLogin = errors.New("the coding agent isn't signed in")
 const hDeviceFor = 15 * time.Minute
 
 // hLogin is §4.3.2 login: the login terminal's command, the ways AgTT can
-// sign the adapter in, the device code while one waits.
+// sign the adapter in, and while a device-code sign-in waits who started it
+// (its page and code only for them: hsess.deviceFor).
 type hLogin struct {
 	Command string         `json:"command,omitempty"`
 	Methods []hLoginMethod `json:"methods"`
@@ -50,9 +55,12 @@ type hLoginMethod struct {
 	Kind string `json:"kind"` // terminal | api-key | device-code
 }
 
+// hDevice is a device code: the page to open and the words that give the
+// code (the requester's only), or — stored and published — By alone.
 type hDevice struct {
-	URL     string `json:"url"`
+	URL     string `json:"url,omitempty"`
 	Message string `json:"message,omitempty"`
+	By      string `json:"by,omitempty"`
 }
 
 // authKind is how AgTT offers an adapter's auth method ("": not offered).
@@ -225,10 +233,14 @@ type hAuthResult struct {
 	Device *hDevice `json:"device,omitempty"`
 }
 
-// hAuth is a sign-in AgTT started on a session: a url question during it
-// is its device code (sent on device).
+// hAuth is a sign-in AgTT started on a session, for the person by: a url
+// question during it is its device code (sent on device, kept in dev while
+// it waits — never stored).
 type hAuth struct {
 	device chan hDevice
+	by     string
+	method string
+	dev    *hDevice // under hsess.mu
 }
 
 // beginAuth claims the session's one sign-in (false: one is under way).
@@ -256,6 +268,27 @@ func (s *hsess) auth() *hAuth {
 	return s.authing
 }
 
+// deviceFor is the device code of the sign-in under way when user started
+// it (nil otherwise: someone else's, or none yet).
+func (s *hsess) deviceFor(user string) *hDevice {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a := s.authing; a != nil && user != "" && a.by == user && a.dev != nil {
+		d := *a.dev
+		return &d
+	}
+	return nil
+}
+
+// deviceFor is run's device code for user (deviceFor), when this process
+// drives its session.
+func (e *Engine) deviceFor(runID int64, user string) *hDevice {
+	if s := e.harnessOf(runID); s != nil {
+		return s.deviceFor(user)
+	}
+	return nil
+}
+
 // harnessAuthenticate signs run's coding agent in through the adapter
 // (D-harness §4.2.6) — the engine side of POST /runs/{id}/harness/
 // authenticate, whose route checks the caller first (participant, sandbox
@@ -267,10 +300,11 @@ func (s *hsess) auth() *hAuth {
 // method is one of harness.login.methods of kind api-key (apiKey needed:
 // it rides authenticate._meta["api-key"].apiKey once — never stored,
 // never logged; the answer within 30 s → State "ready", the held prompt
-// resent) or device-code (the adapter's URL within 30 s → Device, also
-// harness.login.device; the run leaves login by itself when the person
-// finishes).
-func (e *Engine) harnessAuthenticate(ctx context.Context, run *Run, method, apiKey string) (*hAuthResult, error) {
+// resent) or device-code (the adapter's URL within 30 s → Device, for by
+// alone — harness.login.device says only who; the run leaves login by
+// itself when the person finishes). by, the person asking, asking again
+// for the device code of the sign-in they started gets it again.
+func (e *Engine) harnessAuthenticate(ctx context.Context, run *Run, method, apiKey, by string) (*hAuthResult, error) {
 	cfg, err := e.db.runConfig(run.ID)
 	if err != nil || cfg.Harness == nil {
 		return nil, &hAuthErr{409, "not a coding-agent conversation"}
@@ -308,8 +342,13 @@ func (e *Engine) harnessAuthenticate(ctx context.Context, run *Run, method, apiK
 	case kind != "api-key" && apiKey != "":
 		return nil, &hAuthErr{400, "apiKey: only for an API-key method"}
 	}
-	a := &hAuth{device: make(chan hDevice, 1)}
+	a := &hAuth{device: make(chan hDevice, 1), by: by, method: m.ID}
 	if !s.beginAuth(a) {
+		if cur := s.auth(); cur != nil && cur.method == m.ID {
+			if d := s.deviceFor(by); d != nil {
+				return &hAuthResult{Device: &hDevice{URL: d.URL, Message: d.Message}}, nil
+			}
+		}
 		return nil, &hAuthErr{409, "a sign-in to " + name + " is already under way"}
 	}
 	if kind == "api-key" {
@@ -368,11 +407,15 @@ func authFailure(err error, name string) error {
 }
 
 // onDevice is a url question during a sign-in AgTT started: the device
-// code — accepted, shown as harness.login.device.
+// code — accepted, kept for the person who asked (a.dev, the answer);
+// harness.login.device says only who.
 func (s *hsess) onDevice(ev acp.Event, q acp.Elicitation, a *hAuth) {
 	go func() { _ = s.c.RespondElicitation(q.EID, "accept", nil, "agtt") }()
 	d := hDevice{URL: q.URL, Message: q.Message}
-	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error { return s.setDeviceTx(t, hs, &d) })
+	s.mu.Lock()
+	a.dev = &hDevice{URL: q.URL, Message: q.Message, By: a.by}
+	s.mu.Unlock()
+	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error { return s.setDeviceTx(t, hs, &hDevice{By: a.by}) })
 	select {
 	case a.device <- d:
 	default:
@@ -380,7 +423,8 @@ func (s *hsess) onDevice(ev acp.Event, q acp.Elicitation, a *hAuth) {
 	s.publishSummary()
 }
 
-// setDeviceTx puts d (nil: none) in the session's login and the park's.
+// setDeviceTx puts d (nil: none) in the session's login and the park's —
+// stored and published, so never the code itself (onDevice).
 func (s *hsess) setDeviceTx(t *DB, hs *harnessSession, d *hDevice) error {
 	var l hLogin
 	if hs.Login == "" || json.Unmarshal([]byte(hs.Login), &l) != nil {
