@@ -382,9 +382,11 @@ For the adapter this means:
   stream says `working`; the reply comes through the outbox whenever the
   person's partition has it. A person's partition starts when they use the
   agent: a DM that arrives before their partition ever ran waits in its
-  inbox (partition mail never starts one) until they open the agent, with
-  no reply meanwhile. If xbind refuses the hand-off for good — the person can
-  no longer use the agent — the chat gets a `notice` saying so. Treat
+  inbox (partition mail never starts one) until they open the agent. The
+  first such DM is answered at once with a `notice` saying so (open the
+  agent once; the message waits up to 7 days), and the `status` says
+  `idle` instead of `working`. If xbind refuses the hand-off for good — the
+  person can no longer use the agent — the chat gets a `notice` saying so. Treat
   `runId`, `inboxId` and `sessionKey` in a verdict or an `out` row as
   informational, as the bridge template does.
 - **What passes through whom.** A linked person's DM and its reply are

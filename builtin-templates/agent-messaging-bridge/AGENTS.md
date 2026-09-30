@@ -188,7 +188,8 @@ it makes lands there — and nothing in your platform file changes:
 - A **linked** person's DM is handed to their own partition and answered
   from there; the reply reaches you through the same outbox stream. Until
   that person has opened the agent once, their DM waits in their
-  partition's inbox, unanswered. So a DM's reply may come minutes or hours
+  partition's inbox; the first one gets a `notice` asking them to open the
+  agent once (post it like any notice). So a DM's reply may come minutes or hours
   later: never wait for it, and never depend on `runId` or `sessionKey` in
   a verdict or an outbox row (the bridge only logs them). Its files go
   along up to 640 KiB a message; a larger one reaches the person's
