@@ -10,9 +10,10 @@
 //
 //   - A run's next step (or pass) under a halt conf says is on cancels it,
 //     as PUT /halt would have (the reason says a manager paused the agent) —
-//     within a step and confTTL of the halt. Nothing stays running, so a
-//     stopped partition asks for no restart while the brake is on
-//     (resume_mode.go).
+//     within a step and confTTL of the halt. A coding agent's run the same,
+//     at its pass (harness_pass.go) or its turn's next event (brakeSoon,
+//     harness_partition.go). Nothing stays running, so a stopped partition
+//     asks for no restart while the brake is on (resume_mode.go).
 //   - Until conf has been read once (not written yet, a kv error at start)
 //     the brake reads as on but nothing is cancelled: the run is parked, a
 //     request for work is taken and queued, and the partition looks at conf

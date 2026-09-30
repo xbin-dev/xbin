@@ -767,7 +767,17 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 		// adapter is quiet, or interrupted
 		s.followDetached()
 	case hs.PromptState == "" && run.Status != statusWaiting && run.Status != statusRunning && hs.State == hsLive:
-		s.armIdle()
+		if userMode() && hs.LastActiveMs > 0 {
+			// a person's partition: its predecessor stopped with it resting,
+			// and the wake-up it left came back for this reclaim
+			// (harness_partition.go) — due at its last activity plus the
+			// idle time, not a whole idle time from now
+			s.armIdleFrom(time.UnixMilli(hs.LastActiveMs))
+		} else {
+			s.armIdle()
+		}
+	case run.Status == statusWaiting:
+		s.setRest(true) // parked on a person: their answer moves it
 	}
 	return s, nil
 }
@@ -920,6 +930,7 @@ func (s *hsess) consume() {
 		if ev.Type != acp.EvMessageDelta && ev.Type != acp.EvThoughtDelta {
 			s.recheckSoon()
 		}
+		s.brakeSoon() // a person's partition: a halt read from conf, at any event (harness_partition.go)
 	}
 	s.ended()
 }

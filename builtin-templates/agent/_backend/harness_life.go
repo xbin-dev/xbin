@@ -5,7 +5,10 @@
 //     tile's config), armed only while the session is live with no turn
 //     and no park — an idle adapter holds off its sandbox's own idle stop.
 //     It pokes the run; the pass stops the adapter (state stopped) when the
-//     session still rests. No tickers.
+//     session still rests. No tickers. In a person's partition a resting
+//     adapter doesn't keep the backend up; the wake-up a stopping partition
+//     leaves comes back at its reclaim, which a takeover then counts from
+//     last_active (harness_partition.go).
 //   - the sandbox's use re-checked (sandboxUse: the binder's rights, the
 //     class, taint; egress): before every prompt, steer and answer, and at
 //     most once a minute on durable events; a refusal stops the session
@@ -68,8 +71,18 @@ func (e *Engine) harnessIdleFor() time.Duration {
 }
 
 // armIdle (re)arms the reclaim: the session rests now.
-func (s *hsess) armIdle() {
+func (s *hsess) armIdle() { s.armIdleFrom(time.Time{}) }
+
+// armIdleFrom is armIdle for a session resting since `since` (zero: now):
+// its reclaim is due at since + the idle time (harness_partition.go — a
+// person's partition taking over an adapter that rested while it was
+// stopped).
+func (s *hsess) armIdleFrom(since time.Time) {
+	s.setRest(true)
 	d := s.e.harnessIdleFor()
+	if !since.IsZero() && d > 0 {
+		d = max(d-time.Since(since), time.Millisecond)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.idleT != nil {

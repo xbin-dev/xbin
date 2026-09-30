@@ -247,6 +247,7 @@ func (s *hsess) followDetached() {
 	s.detached = true
 	s.quietLocked()
 	s.mu.Unlock()
+	s.setRest(false) // at work: it keeps a person's partition up (harness_partition.go)
 	s.activity("thinking", "")
 }
 

@@ -91,9 +91,10 @@ type holder struct {
 }
 
 // updateHoldLocked (e.mu held) wants the hold while any actor runs, any
-// timer is armed or any coding agent is driven (its idle reclaim is ours).
+// timer is armed or any coding agent is driven (its idle reclaim is ours;
+// in a person's partition only one at work: harness_partition.go).
 func (e *Engine) updateHoldLocked() {
-	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0 || len(e.harness) > 0)
+	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0 || e.harnessHoldsLocked())
 	e.hold.set(want)
 }
 

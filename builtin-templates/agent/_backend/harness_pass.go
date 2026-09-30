@@ -135,6 +135,16 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 		e.harnessInterrupt(ctx, run, h.interrupt)
 	}
 	if e.halted() {
+		// a person's partition reads it from conf: a known halt cancels
+		// the run, one not read yet parks it with a look again (brake.go);
+		// elsewhere the run waits, as ever
+		if !userMode() {
+			return
+		}
+		if r, err := e.db.getRun(run.ID); err == nil {
+			run = r
+		}
+		e.onBrake(run)
 		return
 	}
 	if len(h.stray) > 0 {
@@ -384,6 +394,7 @@ func (e *Engine) harnessPrompt(ctx context.Context, run *Run, row *InboxRow) {
 // it with why.
 func (e *Engine) sendPrompt(ctx context.Context, s *hsess, run *Run, text string) {
 	s.disarmIdle()
+	s.setRest(false) // at work: it keeps a person's partition up (harness_partition.go)
 	s.setInflight(&heldPrompt{Text: text})
 	s.activity("thinking", "")
 	err := s.c.Prompt(ctx, acp.Prompt{Text: text})
