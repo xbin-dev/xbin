@@ -230,8 +230,13 @@ Templates and updates never switch a mode:
   ([protocol.md](protocol.md)). Without `xbind --isolate` the default isn't
   written at all (the box is off, "needs --isolate"), since people's
   partitions need isolation. The block is stripped from instances, so `git
-  merge template/main` can't add `partition`: an upstream change to the
-  default touches lines the instance dropped and shows up as a conflict.
+  merge template/main` can't add `partition` — and a builtin template's
+  served repository (the instances' `template` remote) never changes the
+  block either: one xbind creates carries none, one an older xbind created
+  keeps the block it has. An upstream change to the default is therefore
+  no conflict: the merge leaves your `xbin.json` and its mode as they are,
+  and the snapshot's commit message says, for your information, that the
+  block changed and what new instances now start with.
 - **`bx builtin update`** (replace, merge or a proposal) keeps each
   `xbin.json`'s **installed** `partition` — present, absent or its list, in
   whatever case you wrote the key — and changes nothing else about it.

@@ -2419,7 +2419,13 @@ GET    /templates/{repo}/{rest...}  authenticated. Read-only dumb-HTTP git serve
                                    /templates/agent.git/info/refs. Each instance
                                    has it as its `template` remote, so a builder
                                    pulls upstream fixes: git fetch template &&
-                                   git merge template/main.
+                                   git merge template/main. Its xbin.json never
+                                   changes the "template" block (instances never
+                                   carry it): a repo xbind creates has none, one
+                                   an older xbind created keeps its own; a
+                                   change to the block is a snapshot whose
+                                   message says so (an empty commit when nothing
+                                   else changed; trailer Xbin-Template-Block).
 
 GET    /code/tree                  admin OR code[:<component>]. ?component=<path> → {component, files:
                                    [{path,size}]} — a component's files.
