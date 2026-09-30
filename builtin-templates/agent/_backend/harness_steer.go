@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -36,10 +37,19 @@ const hCancelGrace = 15 * time.Second
 // steers: the adapter takes messages mid-turn.
 func (s *hsess) steers() bool { return s.c != nil && s.c.State().Steering }
 
+// hSteerFor bounds a steer's answer (a var: tests shorten it). One that
+// doesn't come in time may still reach the turn: it is settled as unsure.
+var hSteerFor = 30 * time.Second
+
 // harnessSteer gives the running turn row's message: injected → the user
 // row is written now; promptRequired → it waits for the turn's end, which
 // pokes the run; startedNewTurn → the user row, and the run follows the
-// adapter's own turn. Any failure leaves it queued for the turn's end.
+// adapter's own turn. At most once, as a prompt: the row is marked on its
+// way first (harness_sessions.steer_row). One that never left, or that the
+// adapter refused, waits for the turn's end; one whose answer is lost — a
+// handoff, a stdio drop, no answer in hSteerFor — may have joined the turn:
+// never sent again, it is written as the run's user message with a note
+// (steerUnsure; a successor that finds the mark does the same).
 func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 	s := e.harnessOf(run.ID)
 	if s == nil || s.isHalted() || !s.steers() {
@@ -54,15 +64,45 @@ func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 	}
 	text := promptText(row.Body.Text, files)
 	s.flushDraft() // the text before it is a row of its own
-	out, err := s.c.Steer(ctx, acp.Prompt{Text: text})
-	switch {
-	case err != nil:
-		logf("run #%d: steering %s: %v — the message waits for the turn's end", run.ID, s.prov.Name, err)
+	if !e.markSteer(run.ID, row.ID) {
 		return
-	case out == acp.SteerPromptRequired:
+	}
+	s.steerGoing(nil)
+	sctx, cancel := context.WithTimeout(ctx, hSteerFor)
+	out, err := s.c.Steer(sctx, acp.Prompt{Text: text})
+	cancel()
+	id := s.steerWent()
+	if err != nil {
+		var re *acp.Error
+		why := s.takeAbandoned(id)
+		if len(id) == 0 || refusedBeforeSending(err) || (why == "" && errors.As(err, &re)) {
+			// it never left, or the adapter answered it with an error (it
+			// didn't take it): it waits for the turn's end
+			logf("run #%d: steering %s: %v — the message waits for the turn's end", run.ID, s.prov.Name, err)
+			e.unmarkSteer(run.ID, row.ID)
+			return
+		}
+		logf("run #%d: steering %s: %v — it may have reached the turn; not sent again", run.ID, s.prov.Name, err)
+		switch {
+		case why != "": // the pipe gave up on it (a stdio drop)
+		case s.isHalted() || ctx.Err() != nil:
+			why = "the backend was replaced while it was on its way"
+		case errors.Is(err, context.DeadlineExceeded):
+			why = fmt.Sprintf("no answer within %s", hSteerFor)
+		default:
+			why = err.Error()
+		}
+		e.steerUnsure(run, row.ID, why)
+		return
+	}
+	if out == acp.SteerPromptRequired {
+		e.unmarkSteer(run.ID, row.ID)
 		return
 	}
 	_ = e.fenced(func(t *DB) error {
+		if err := clearSteerTx(t, run.ID, row.ID); err != nil {
+			return err
+		}
 		m, err := e.userRowTx(t, run, row)
 		if err != nil {
 			return err
@@ -89,6 +129,75 @@ func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 	if out == acp.SteerStartedNewTurn {
 		s.followDetached()
 	}
+}
+
+// refusedBeforeSending: the pipe refused the frame before a byte of it
+// left — this process no longer owns the session (hpTarget.Guard), or the
+// adapter's stdin is closed.
+func refusedBeforeSending(err error) bool {
+	return errors.Is(err, errHandoff) || errors.Is(err, errFenced) || errors.Is(err, errHarnessGone) || errors.Is(err, errStdinClosed)
+}
+
+// markSteer marks row's steer on its way (false: not stored — this process
+// no longer owns the run).
+func (e *Engine) markSteer(run, row int64) bool {
+	return e.fenced(func(t *DB) error {
+		_, err := t.q.Exec(`UPDATE harness_sessions SET steer_row=? WHERE run_id=?`, row, run)
+		return err
+	}) == nil
+}
+
+// unmarkSteer: row's steer didn't reach the turn — it stays queued.
+func (e *Engine) unmarkSteer(run, row int64) {
+	_ = e.fenced(func(t *DB) error { return clearSteerTx(t, run, row) })
+}
+
+func clearSteerTx(t *DB, run, row int64) error {
+	_, err := t.q.Exec(`UPDATE harness_sessions SET steer_row=0 WHERE run_id=? AND steer_row=?`, run, row)
+	return err
+}
+
+// steerUnsure settles the steer of inbox row id marked on its way whose
+// outcome isn't known (why): never sent again — the row, when still
+// queued, is written as the run's user message, with a note that the agent
+// may not have it.
+func (e *Engine) steerUnsure(run *Run, id int64, why string) {
+	_ = e.fenced(func(t *DB) error {
+		var cur int64
+		_ = t.q.QueryRow(`SELECT steer_row FROM harness_sessions WHERE run_id=?`, run.ID).Scan(&cur)
+		if cur != id {
+			return nil // settled already
+		}
+		if err := clearSteerTx(t, run.ID, id); err != nil {
+			return err
+		}
+		rows := t.inboxRows(`WHERE id=? AND run_id=? AND delivered_at=0`, id, run.ID)
+		if len(rows) == 0 {
+			return nil // taken back meanwhile
+		}
+		if _, err := e.userRowTx(t, run, rows[0]); err != nil {
+			return err
+		}
+		e.emitStep(t, rootOf(run), t.journal(run.ID, "note", map[string]string{"text": fmt.Sprintf(
+			"%s may not have received this message (%s) — send it again if it doesn't act on it",
+			t.harnessRunName(run.ID, harnessProviderOf(t, run.ID)), why)}))
+		return nil
+	})
+	e.delivered(id)
+}
+
+// steerGoing records the request id of the steer frame about to go on the
+// adapter's stdin (nil: none yet — harnessSteer's start); steerWent reads it.
+func (s *hsess) steerGoing(id json.RawMessage) {
+	s.mu.Lock()
+	s.steerOut = id
+	s.mu.Unlock()
+}
+
+func (s *hsess) steerWent() json.RawMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.steerOut
 }
 
 // userRowTx writes row as the run's user message — its files linked, the

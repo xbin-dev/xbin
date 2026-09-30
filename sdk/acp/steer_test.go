@@ -258,6 +258,32 @@ func TestElicitationIdempotent(t *testing.T) {
 	}
 }
 
+// A url question taken for an accept is remembered as accepted in the same
+// step: a State taken meanwhile never misses it (an embedder that commits
+// the snapshot then attaches to it after a handoff still gets the
+// agent's elicitation/complete); one taken for anything else is gone.
+func TestURLElicitationAcceptAtomic(t *testing.T) {
+	var e elicits
+	u, _ := e.add(json.RawMessage(`3`), Elicitation{Mode: "url", URL: "https://example.invalid", ElicitationID: "dev-1"})
+	f, _ := e.add(json.RawMessage(`4`), Elicitation{Message: "q"})
+	if _, ok := e.take(u, "accept"); !ok {
+		t.Fatal("the url question isn't pending")
+	}
+	st, _ := e.state()
+	if len(st) != 2 || st[0].EID != u || !st[0].Accepted {
+		t.Fatalf("after the accept's take: %+v", st)
+	}
+	if _, ok := e.take(f, "accept"); !ok {
+		t.Fatal("the form question isn't pending")
+	}
+	if st, _ := e.state(); len(st) != 1 || st[0].EID != u {
+		t.Fatalf("after the form's take: %+v", st)
+	}
+	if _, open, ok := e.complete("dev-1"); !ok || open {
+		t.Fatalf("the completion: open %v ok %v", open, ok)
+	}
+}
+
 // Abandon: a prompt the embedder's transport dropped ends its turn with
 // the error at once (turn.end, stopReason error), the client takes the
 // next prompt; a call the agent already answered isn't touched.

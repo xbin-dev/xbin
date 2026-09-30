@@ -64,22 +64,21 @@ func (e *elicits) add(rpcID json.RawMessage, q Elicitation) (eid string, dup boo
 	return q.EID, false
 }
 
-func (e *elicits) take(eid string) (pendingElicit, bool) {
+// take takes question eid for an answer (action). An accepted url one is
+// remembered until its completion in the same step — State never misses it
+// between the two.
+func (e *elicits) take(eid, action string) (pendingElicit, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	p, ok := e.pend[eid]
 	delete(e.pend, eid)
-	return p, ok
-}
-
-// accepted remembers an accepted url question until its completion.
-func (e *elicits) accepted(p pendingElicit) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.urls == nil {
-		e.urls = map[string]pendingElicit{}
+	if ok && action == "accept" && p.q.Mode == "url" && p.q.ElicitationID != "" {
+		if e.urls == nil {
+			e.urls = map[string]pendingElicit{}
+		}
+		e.urls[p.q.ElicitationID] = p
 	}
-	e.urls[p.q.ElicitationID] = p
+	return p, ok
 }
 
 // complete takes the url question an elicitation/complete names: still
@@ -192,7 +191,7 @@ func (c *Client) RespondElicitation(eid, action string, content json.RawMessage,
 	default:
 		return errBadAction
 	}
-	pe, ok := c.elicits.take(eid)
+	pe, ok := c.elicits.take(eid, action) // an accepted url one stays remembered until its completion
 	if !ok {
 		return ErrNoElicitation
 	}
@@ -200,9 +199,6 @@ func (c *Client) RespondElicitation(eid, action string, content json.RawMessage,
 	res := map[string]any{"eid": eid, "action": action, "by": by}
 	switch {
 	case action == "accept" && pe.q.Mode == "url": // no content: the person opens the URL
-		if pe.q.ElicitationID != "" {
-			c.elicits.accepted(pe)
-		}
 	case action == "accept":
 		if len(content) == 0 || string(content) == "null" {
 			content = json.RawMessage(`{}`)

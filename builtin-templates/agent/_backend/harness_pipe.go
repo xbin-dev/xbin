@@ -35,6 +35,7 @@ import (
 	"io"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
@@ -186,10 +187,11 @@ type harnessPipe struct {
 	done     chan struct{}
 	doneOnce sync.Once
 
-	wmu      sync.Mutex // one writer
-	eof      bool       // stdin closed (wmu)
-	wseq     int64      // (wmu)
-	outbox   []*hpUnit  // sent, not acknowledged (wmu)
+	wmu      sync.Mutex   // one writer
+	eof      bool         // stdin closed (wmu)
+	wseq     int64        // (wmu)
+	wlast    atomic.Int64 // wseq, read without wmu (delivered)
+	outbox   []*hpUnit    // sent, not acknowledged (wmu)
 	killOnce sync.Once
 }
 
@@ -253,6 +255,33 @@ func (p *harnessPipe) Err() error {
 
 // Done is closed once Read has returned the stream's end.
 func (p *harnessPipe) Done() <-chan struct{} { return p.done }
+
+// delivered waits (up to d) until the command has everything written to
+// its stdin so far: over the exec routes a write that returned has (a POST
+// answered), over stdio once a pong acknowledged it. false: not known — the
+// pipe was let go or ended first, or d ran out.
+func (p *harnessPipe) delivered(d time.Duration) bool {
+	seq := p.wlast.Load()
+	t := time.NewTimer(d)
+	defer t.Stop()
+	for {
+		p.mu.Lock()
+		ok, over, ch := !p.stdio || p.acked >= seq, p.over, p.changed
+		p.mu.Unlock()
+		switch {
+		case ok:
+			return true
+		case over || p.ctx.Err() != nil:
+			return false
+		}
+		select {
+		case <-ch:
+		case <-p.ctx.Done():
+		case <-t.C:
+			return false
+		}
+	}
+}
 
 // Stdio: the pipe speaks the stdio socket now (else the exec routes).
 func (p *harnessPipe) Stdio() bool {
@@ -611,6 +640,7 @@ func (p *harnessPipe) send(data []byte, eof bool, budget time.Duration, f *hpFra
 		return nil // the rest of a request given up on
 	}
 	p.wseq++
+	p.wlast.Store(p.wseq)
 	u := &hpUnit{seq: p.wseq, data: append([]byte(nil), data...), eof: eof, frame: f, first: first}
 	p.outbox = append(p.outbox, u)
 	deadline := time.Now().Add(budget)

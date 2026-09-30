@@ -109,6 +109,20 @@ func (h hInbox) replyPrompt() *InboxRow {
 // > compact > the idle reclaim.
 func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 	ctx := e.base
+	if hs, _ := e.db.harnessSession(run.ID); hs != nil && hs.SteerRow != 0 {
+		// a steer still marked on its way as a pass starts (passes are
+		// serial: none of this process's is sending it) was let go without
+		// knowing whether the turn took it — a predecessor's, cut off by
+		// the handoff. Never sent again.
+		e.steerUnsure(run, hs.SteerRow, "the backend was replaced while it was on its way")
+		kept := rows[:0:0]
+		for _, r := range rows {
+			if r.ID != hs.SteerRow {
+				kept = append(kept, r)
+			}
+		}
+		rows = kept
+	}
 	h := sortHarnessInbox(rows)
 	if len(h.cancel) > 0 {
 		e.harnessCancel(ctx, run, h)

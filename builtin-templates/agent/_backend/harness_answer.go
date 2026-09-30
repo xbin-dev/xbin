@@ -9,8 +9,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -161,10 +159,8 @@ func (e *Engine) harnessAnswer(ctx context.Context, run *Run, rows []*InboxRow) 
 	if err != nil || e.harnessRights(ctx, run, s) != nil {
 		return
 	}
-	action := orStr(v.Body.Action, "decline")
-	if err := s.c.RespondElicitation(p.Harness.EID, action, v.Body.Content, "user:"+v.Body.Sender); err != nil {
-		logf("run #%d: answering the question: %v", run.ID, err)
-	}
+	s.answer(hAnswer{Kind: "question", Park: p.Harness, Action: orStr(v.Body.Action, "decline"), Content: v.Body.Content,
+		By: "user:" + v.Body.Sender})
 }
 
 // harnessReplyToPark answers the park in force for a message sent while it
@@ -185,30 +181,14 @@ func (e *Engine) harnessReplyToPark(ctx context.Context, run *Run, row *InboxRow
 		s.answerPermission(p.Harness, pickOption(p.Harness.Options, false), by)
 		return
 	}
-	if err := s.c.RespondElicitation(p.Harness.EID, "decline", nil, by); err != nil && !errors.Is(err, acp.ErrNoElicitation) {
-		logf("run #%d: declining the question: %v", run.ID, err)
-	}
+	s.answer(hAnswer{Kind: "question", Park: p.Harness, Action: "decline", By: by})
 }
 
 // answerPermission answers a parked permission with opt ("": the cancelled
 // outcome) — once: one already answered (its resolution not applied yet)
-// is left alone.
+// is left alone; recorded until the adapter has it (hAnswer).
 func (s *hsess) answerPermission(h *hPark, opt, by string) {
-	var res *acp.Resolution
-	if opt != "" {
-		r, err := s.perms.Resolve(h.PID, opt, "", by)
-		if err != nil {
-			return // answered already
-		}
-		res = r
-	} else if res = s.perms.CancelByRPC(json.RawMessage(h.RPCID)); res == nil {
-		return
-	} else {
-		res.By = by
-	}
-	if err := s.c.RespondPermission(res); err != nil {
-		logf("run #%d: answering the permission: %v", s.run, err)
-	}
+	s.answer(hAnswer{Kind: "approval", Park: h, Option: opt, By: by})
 }
 
 // consumeRows marks rows delivered (they caused nothing to write).

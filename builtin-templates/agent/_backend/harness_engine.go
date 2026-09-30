@@ -91,6 +91,7 @@ type hsess struct {
 	endWhy    string            // what ended() says when the end is AgTT's doing
 	endLost   bool              // … and the session is lost, not stopped
 	newSess   bool              // spawned to open a new session (not session/load): its first mode is the adapter's own
+	steerOut  json.RawMessage   // the request id of the steer frame last put on stdin (harness_steer.go)
 }
 
 // newHsess is a session of run at generation gen, started (or attached)
@@ -461,7 +462,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		hs.Gen, hs.State, hs.Error = gen, hsStarting, ""
 		hs.Ref, hs.Cwd, hs.Provider, hs.Argv = h.Ref, cwd, prov.ID, prov.Argv
 		hs.ExecID, hs.ClientID = "", harnessClientID(run.ID, gen)
-		hs.ReadOff, hs.ErrOff, hs.Draft = 0, 0, ""
+		hs.ReadOff, hs.ErrOff, hs.Draft, hs.Answers = 0, 0, "", "" // a new adapter: no request of the old one's to answer
 		hs.Shared, hs.Name = sandboxShared(u.Box), prov.Name
 		hs.LastActiveMs, hs.StartedMs = nowMs(), nowMs()
 		return t.putHarnessSession(hs)
@@ -649,7 +650,9 @@ var attachSeq struct {
 // attachHarness takes over the adapter a predecessor drove: its output
 // read on from read_off, the client rebuilt from the stored snapshot — with
 // the prompt in flight as the record says (A2: the snapshot may be newer
-// than the offset) and the permissions still pending restored.
+// than the offset), the permissions still pending restored and of its
+// questions the ones the record knows (knownQuestions) — then the answers
+// the predecessor had on their way sent again (hAnswer).
 func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *harnessSession, st acp.SessionState) (*hsess, error) {
 	u, prov, err := e.harnessUse(ctx, run, cfg)
 	if err != nil {
@@ -693,6 +696,9 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 	for _, pd := range harnessPendings(p, hs.Queue) {
 		s.perms.Restore(pd.Pending, pd.RPC)
 	}
+	answers := answersOf(hs.Answers, hs.Gen) // on their way when the predecessor let go: answered again below
+	device := hs.State == hsLogin && loginDevice(hs.Login)
+	st.Elicitations = knownQuestions(st.Elicitations, p, hs.Queue, answers, device)
 	var rules []acp.Rule
 	if json.Unmarshal([]byte(hs.Rules), &rules) == nil {
 		s.perms.SetRules(rules)
@@ -720,6 +726,30 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 	if !s.draft.empty() {
 		s.showDraft()
 	}
+	if len(answers) > 0 {
+		go s.reanswer(answers)
+	}
+	if device {
+		// the device code shown: the adapter's URL question, accepted by
+		// the predecessor as it showed it (its accept perhaps lost with the
+		// handoff: accepted again — the adapter ignores a second answer).
+		// Its elicitation/complete wakes the run (onURLComplete). None
+		// restored: a code nobody here waits on is taken away — the person
+		// signs in again, or Retries.
+		urls := 0
+		for _, q := range st.Elicitations {
+			if q.Mode != "url" {
+				continue
+			}
+			urls++
+			if !q.Accepted {
+				go func(eid string) { _ = s.c.RespondElicitation(eid, "accept", nil, "agtt") }(q.EID)
+			}
+		}
+		if urls == 0 {
+			_ = s.commit(nil, func(t *DB, cur *harnessSession) error { return s.setDeviceTx(t, cur, nil) })
+		}
+	}
 	s.publishSummary()
 	switch {
 	case detachedStored(run, hs):
@@ -731,6 +761,58 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 		s.armIdle()
 	}
 	return s, nil
+}
+
+// knownQuestions is what of a snapshot's questions a successor restores:
+// the ones the record knows — the question park's, the queued ones', one
+// whose answer is on its way (hAnswer: added when the snapshot no longer
+// has it, to be answered again), and a sign-in's url one (its device code)
+// when the login shows the code (device) or it was accepted. The snapshot
+// is the client's state as of a commit, and its read loop files a question
+// before the consumer applies it — so a snapshot may hold one whose frame
+// is past read_off. That one is dropped: read again, it parks then (a url
+// one is declined: no sign-in of this process's asked for it); restored,
+// the client would take its frame for one already filed and ask nobody,
+// the adapter waiting for an answer no one is asked for.
+func knownQuestions(list []acp.ElicitationState, p pendingState, queue string, answers []hAnswer, device bool) []acp.ElicitationState {
+	known := map[string]bool{}
+	if p.Kind == "question" && p.Harness != nil && p.Harness.EID != "" {
+		known[p.Harness.EID] = true
+	}
+	var q []hQueued
+	_ = json.Unmarshal([]byte(queue), &q)
+	for _, it := range q {
+		if it.Kind == "question" && it.Perm != nil && it.Perm.EID != "" {
+			known[it.Perm.EID] = true
+		}
+	}
+	answered := map[string]*hPark{}
+	for _, a := range answers {
+		if a.Kind == "question" && a.Park != nil && a.Park.EID != "" {
+			known[a.Park.EID], answered[a.Park.EID] = true, a.Park
+		}
+	}
+	var out []acp.ElicitationState
+	for _, e := range list {
+		if known[e.EID] || (e.Mode == "url" && (e.Accepted || device)) {
+			out = append(out, e)
+			delete(answered, e.EID)
+		}
+	}
+	for eid, h := range answered {
+		q := acp.Elicitation{EID: eid, Message: h.Message, Schema: h.Schema}
+		if h.CallID != "" {
+			q.ToolCallID = acpCallID(h.CallID)
+		}
+		out = append(out, acp.ElicitationState{Elicitation: q, RPCID: json.RawMessage(h.RPCID)})
+	}
+	return out
+}
+
+// loginDevice: the stored login shows a device code.
+func loginDevice(raw string) bool {
+	var l hLogin
+	return raw != "" && json.Unmarshal([]byte(raw), &l) == nil && l.Device != nil
 }
 
 // harnessPending is one permission request a session waits on, as stored:
@@ -774,6 +856,15 @@ type hsStdin struct {
 }
 
 func (w *hsStdin) Write(b []byte) (int, error) {
+	if bytes.Contains(b, []byte(`"`+acp.MSessionSteering+`"`)) { // before it goes: once tried, it may have reached the adapter
+		var m struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if json.Unmarshal(b, &m) == nil && m.Method == acp.MSessionSteering && len(m.ID) > 0 {
+			w.s.steerGoing(m.ID)
+		}
+	}
 	n, err := w.WriteCloser.Write(b)
 	if err == nil && bytes.Contains(b, []byte(`"`+acp.MSessionPrompt+`"`)) {
 		var m struct {
@@ -867,7 +958,7 @@ func (s *hsess) ended() {
 	s.flushDraft()
 	_ = s.commit(nil, func(t *DB, hs *harnessSession) error {
 		inFlight := hs.PromptState != ""
-		hs.State, hs.PromptState, hs.PromptRPC, hs.Queue, hs.Login = hsStopped, "", "", "", ""
+		hs.State, hs.PromptState, hs.PromptRPC, hs.Queue, hs.Login, hs.Answers = hsStopped, "", "", "", "", ""
 		if lost {
 			hs.State, hs.Error = hsLost, why
 		}

@@ -9,7 +9,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
+	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
 )
@@ -167,7 +169,11 @@ func (s *hsess) onResolved(ev acp.Event, key string) {
 		return
 	}
 	id, _ := d[key].(string)
-	if id == "" || d["action"] == "complete" {
+	if d["action"] == "complete" {
+		s.onURLComplete()
+		return
+	}
+	if id == "" {
 		return
 	}
 	match := func(p *hPark) bool {
@@ -243,6 +249,206 @@ func (s *hsess) onResolved(ev acp.Event, key string) {
 	}
 	if rests {
 		s.armIdle()
+	}
+}
+
+// onURLComplete: the adapter says a url question's out-of-band step is done
+// (elicitation/complete) — a device-code sign-in the person finished. The
+// sign-in this process started hears it from its authenticate's answer
+// (signedIn). One a predecessor started lost that answer with the handoff
+// (it went to the predecessor's request id): the run is woken as a Retry
+// wakes it — a fresh adapter reads the sign-in it stored, the held prompt
+// goes again (a still signed-out one parks the run on its sign-in again).
+func (s *hsess) onURLComplete() {
+	if s.auth() != nil {
+		return
+	}
+	woke := false
+	_ = s.e.fenced(func(t *DB) error {
+		hs, err := t.harnessSession(s.run)
+		if err != nil || hs == nil || hs.Gen != s.gen || hs.State != hsLogin || !loginDevice(hs.Login) || s.isHalted() {
+			return err
+		}
+		if _, _, err := t.enqueue(s.run, inboxWake, inboxBody{Reason: "signed in"}, ""); err != nil {
+			return err
+		}
+		woke = true
+		return nil
+	})
+	if woke {
+		s.e.Poke(s.run)
+	}
+}
+
+// --- answers on their way -------------------------------------------------------------
+
+// hAnswer is an answer to a request the adapter waits on (a permission's
+// option, a question's action), recorded in harness_sessions.answers
+// before it goes and forgotten once the adapter has it. The client clears
+// the park as it answers (its resolution precedes the reply, and the
+// consumer commits it): a handoff while the reply is still on its way —
+// a stdin POST retrying, a stdio frame no pong acknowledged yet — would
+// otherwise leave the adapter waiting for an answer that was given, with
+// nothing left to answer. A successor answers each recorded one again
+// (reanswer); an answer to a request it already has is ignored by the
+// adapter (a JSON-RPC response to an id it no longer waits on).
+type hAnswer struct {
+	Gen     int             `json:"gen"`              // the adapter's generation (another one's requests are its own)
+	Kind    string          `json:"kind"`             // approval | question
+	Park    *hPark          `json:"park"`             // the request: its pid or eid, its rpc id
+	Option  string          `json:"option,omitempty"` // approval: the option ("": the cancelled outcome)
+	Action  string          `json:"action,omitempty"` // question: accept | decline | cancel
+	Content json.RawMessage `json:"content,omitempty"`
+	By      string          `json:"by"`
+}
+
+// hDeliveredFor bounds the wait for a stdio pong after an answer's reply
+// (unacknowledged, the answer stays recorded: a successor sends it again).
+const hDeliveredFor = 10 * time.Second
+
+var errAnswered = errors.New("answered already")
+
+func parseAnswers(raw string) []hAnswer {
+	var out []hAnswer
+	_ = json.Unmarshal([]byte(raw), &out)
+	return out
+}
+
+// answersOf are the answers recorded for generation gen's adapter (an
+// older binary rolled back to never clears them when it starts another).
+func answersOf(raw string, gen int) []hAnswer {
+	var out []hAnswer
+	for _, a := range parseAnswers(raw) {
+		if a.Gen == gen && a.Park != nil {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// rpc is the request an answer is to: the adapter's rpc id (else the
+// client's pid or eid).
+func (a hAnswer) rpc() string {
+	switch {
+	case a.Park == nil:
+		return ""
+	case a.Park.RPCID != "":
+		return idKey(a.Park.RPCID)
+	}
+	return a.Kind + ":" + a.Park.PID + a.Park.EID
+}
+
+// answer sends a, once: recorded, answered, forgotten when the adapter
+// has it (a reply that failed stays recorded for a successor).
+func (s *hsess) answer(a hAnswer) {
+	a.Gen = s.gen
+	if a.Park == nil || !s.noteAnswer(a) {
+		return // answered already, or the session isn't this process's any more
+	}
+	s.sendAnswer(a, false)
+}
+
+// sendAnswer answers a through the client — again (a successor's): a
+// permission that is no longer pending here (its park cleared before the
+// handoff) is answered by its rpc id — and forgets it once delivered.
+func (s *hsess) sendAnswer(a hAnswer, again bool) {
+	err := s.respond(a, again)
+	switch {
+	case errors.Is(err, errAnswered):
+		s.forgetAnswer(a)
+	case err != nil:
+		logf("run #%d: answering %s's %s: %v", s.run, s.prov.Name, orStr(a.Kind, "request"), err)
+	case s.pipe.delivered(hDeliveredFor):
+		s.forgetAnswer(a)
+	}
+}
+
+func (s *hsess) respond(a hAnswer, again bool) error {
+	h := a.Park
+	if a.Kind == "question" {
+		err := s.c.RespondElicitation(h.EID, orStr(a.Action, "decline"), a.Content, a.By)
+		if errors.Is(err, acp.ErrNoElicitation) {
+			return errAnswered
+		}
+		return err
+	}
+	var res *acp.Resolution
+	switch {
+	case again && !s.pendingPID(h.PID): // its park cleared before the handoff: the reply alone
+		res = &acp.Resolution{PID: h.PID, OptionID: a.Option, By: a.By, RPCID: json.RawMessage(h.RPCID), Cancel: a.Option == ""}
+	case a.Option != "":
+		r, err := s.perms.Resolve(h.PID, a.Option, "", a.By)
+		if err != nil {
+			return errAnswered
+		}
+		res = r
+	default:
+		if res = s.perms.CancelByRPC(json.RawMessage(h.RPCID)); res == nil {
+			return errAnswered
+		}
+		res.By = a.By
+	}
+	return s.c.RespondPermission(res)
+}
+
+// noteAnswer records a (false: an answer to the same request is recorded
+// already, or this process no longer owns the session).
+func (s *hsess) noteAnswer(a hAnswer) bool {
+	ok := false
+	_ = s.e.fenced(func(t *DB) error {
+		if s.isHalted() {
+			return errHarnessGone
+		}
+		hs, err := t.harnessSession(s.run)
+		if err != nil || hs == nil || hs.Gen != s.gen {
+			return errHarnessStale
+		}
+		list := parseAnswers(hs.Answers)
+		for _, x := range list {
+			if x.rpc() == a.rpc() {
+				return nil
+			}
+		}
+		b, _ := json.Marshal(append(list, a))
+		ok = true
+		_, err = t.q.Exec(`UPDATE harness_sessions SET answers=? WHERE run_id=?`, string(b), s.run)
+		return err
+	})
+	return ok
+}
+
+// forgetAnswer: the adapter has a (or it needs none any more).
+func (s *hsess) forgetAnswer(a hAnswer) {
+	_ = s.e.fenced(func(t *DB) error {
+		hs, err := t.harnessSession(s.run)
+		if err != nil || hs == nil || hs.Gen != s.gen {
+			return err
+		}
+		list := parseAnswers(hs.Answers)
+		kept := list[:0]
+		for _, x := range list {
+			if x.rpc() != a.rpc() {
+				kept = append(kept, x)
+			}
+		}
+		raw := ""
+		if len(kept) > 0 {
+			b, _ := json.Marshal(kept)
+			raw = string(b)
+		}
+		_, err = t.q.Exec(`UPDATE harness_sessions SET answers=? WHERE run_id=?`, raw, s.run)
+		return err
+	})
+}
+
+// reanswer is a successor's: the answers its predecessor recorded, sent
+// again (their requests restored at the attach: attachHarness).
+func (s *hsess) reanswer(list []hAnswer) {
+	for _, a := range list {
+		if s.isHalted() {
+			return
+		}
+		s.sendAnswer(a, true)
 	}
 }
 

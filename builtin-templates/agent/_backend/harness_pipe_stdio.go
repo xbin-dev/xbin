@@ -85,6 +85,7 @@ func (p *harnessPipe) stepSocket() {
 		if json.Unmarshal(f.T, &n) == nil {
 			p.mu.Lock()
 			p.acked = max(p.acked, n)
+			p.bump() // delivered waits for it
 			p.mu.Unlock()
 		}
 	case "error": // a stdin frame it couldn't take (the command ended, stdin closed)

@@ -1765,8 +1765,12 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   waits for you. During a turn, a coding agent that takes messages
   mid-turn (`harness.steering`: claude, codex) gets it at its next step —
   its user row is written then and the turn goes on; one that doesn't gets
-  it as the next prompt once the turn ends. Sent while a permission or a
-  question waits, it answers that first — the permission rejected (reject
+  it as the next prompt once the turn ends. A steer is never sent twice:
+  one whose answer is lost (a save or restart of the agent as it went, the
+  connection to the sandbox dropping, no answer within 30 s) may have
+  joined the turn — its user row is written with a note that the coding
+  agent may not have received it (send it again if it doesn't act on
+  it). Sent while a permission or a question waits, it answers that first — the permission rejected (reject
   once, else always, else the cancelled outcome), the question declined —
   then is steered or waits; while the coding agent waits for a sign-in it
   waits with it. `interrupt: true` stops the running turn first and goes
@@ -1849,7 +1853,10 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   coding agent (an API key, a device code) is `POST /runs/{id}/harness/
   authenticate`: the key goes to the coding agent once and is never
   stored; a device code's page (`harness.login.device: {url, message}`)
-  stays up until you finish, then the run goes on by itself. A page the
+  stays up until you finish, then the run goes on by itself — across a
+  save or restart of the agent too: the next process takes the coding
+  agent's word that the sign-in is done and starts it afresh, as Retry
+  does; a code no process waits on any more is taken away. A page the
   coding agent asks to have opened at any other time is declined.
 - **Stops and restarts.** `/interrupt` stops the turn: a permission or
   question waiting settles `(interrupted)` and the coding agent ends its
@@ -1881,9 +1888,10 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   left it, mid-turn, parked on its sign-in or in a turn of its own too
   (trying again — 2 s, doubling to a minute — while its sandbox manager
   doesn't answer; stopping it, `failed` with why, and ending its turn when
-  the conversation may no longer use the sandbox) — and a process that
-  exits with one running, idle too, and none to follow leaves the resume
-  job (§The engine, "Resume job"),
+  the conversation may no longer use the sandbox; an answer you gave that
+  was still on its way is sent again, a question it had just asked is
+  asked again) — and a process that exits with one running, idle too,
+  and none to follow leaves the resume job (§The engine, "Resume job"),
   whose next process takes it over and stops it once it has been idle for
   `harnessIdleMin`. **Rolling back** to an agent from before coding agents
   (v0.3.64 or older): its model loop never answers a coding agent's

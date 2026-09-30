@@ -114,9 +114,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   survives a save or restart of the agent mid-turn — parked on its sign-in
   or in a turn of its own too, and taken over once its sandbox manager
   answers when that restarts as well; one the conversation may no longer
-  use by then is stopped and its turn ends. Additive: a run of the
-  agent's own loop answers exactly as before. Rolled back to an older build
-  of the agent (v0.3.64 or before), a coding agent's messages wait, and any
+  use by then is stopped and its turn ends. An answer or a question on its
+  way at that moment isn't lost, a device-code sign-in under way still
+  completes, and a message steered into a turn is never sent twice (one
+  whose steer may not have arrived is said so, with a note; `sdk/acp`: a
+  url question accepted never drops out of `State()`). Additive: a run of
+  the agent's own loop answers exactly as before. Rolled back to an older
+  build of the agent (v0.3.64 or before), a coding agent's messages wait, and any
   turn that build would start in its conversation — one left running or
   parked, one a person messages — ends at once at its step cap ("stopped
   after 500 steps in one turn"): a coding agent's run keeps `turnSteps` at
