@@ -112,6 +112,10 @@ func loadCallersLocked() {
 		log.Printf("llm-gw: the per-caller counters in kv are unreadable: starting them afresh")
 		rows = nil
 	}
+	counted := make(map[callerKey]bool, len(callerRows)) // since the start: the people as they are now
+	for k := range callerRows {
+		counted[k] = true
+	}
 	for _, r := range rows {
 		if r == nil || r.From == "" {
 			continue
@@ -128,9 +132,11 @@ func loadCallersLocked() {
 		m.Last = max(m.Last, r.Last)
 	}
 	callersLoaded = true
-	for _, r := range sortedRowsLocked() {
-		if callerRows[r.key()] == r {
-			supersedeLocked(r)
+	for _, current := range []bool{true, false} { // the rows counted since the start first
+		for _, r := range sortedRowsLocked() {
+			if callerRows[r.key()] == r && counted[r.key()] == current {
+				supersedeLocked(r, current)
+			}
 		}
 	}
 	pruneLocked()
@@ -140,14 +146,17 @@ func loadCallersLocked() {
 // of the same calling tile: the display name "user:<id>" came with another
 // partition id, so that person was deleted and recreated (or their
 // partition reset) — the new one never inherits the old one's records, and
-// the old ones aren't kept.
-func supersedeLocked(row *callerRow) {
+// the old ones aren't kept. A row this process counted (current) wins over
+// any other; of rows read back from kv the most recently used one does —
+// never by time alone for a current row: the old partition's last call and
+// the new one's first can fall in the same millisecond.
+func supersedeLocked(row *callerRow, current bool) {
 	if !row.person() {
 		return
 	}
 	for k, o := range callerRows {
 		if o != row && o.person() && o.From == row.From && o.Deployment == row.Deployment &&
-			o.Partition == row.Partition && o.Last <= row.Last {
+			o.Partition == row.Partition && (current || o.Last <= row.Last) {
 			delete(callerRows, k)
 		}
 	}
@@ -171,7 +180,7 @@ func countCaller(c *callerRef, tokIn, tokOut int64, cost float64) {
 	row.TokOut += tokOut
 	row.Cost += cost
 	row.Last = nowMs()
-	supersedeLocked(row)
+	supersedeLocked(row, true)
 	pruneLocked()
 	callersDirty = true
 	callersMu.Unlock()

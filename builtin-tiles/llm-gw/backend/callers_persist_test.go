@@ -141,8 +141,14 @@ func TestCallersRecreatedPerson(t *testing.T) {
 		t.Errorf("the old alice's row is kept: %s", b)
 	}
 	// the same when the old row is only in kv: the new alice's first call
-	// ended while the persisted rows couldn't be read
+	// ended while the persisted rows couldn't be read — also in the same
+	// millisecond as the old alice's last (the clock pinned)
 	fresh(t, 0)
+	setNow := func(f func() int64) { callersMu.Lock(); nowMs = f; callersMu.Unlock() } // its readers hold callersMu
+	realNow := nowMs
+	t.Cleanup(func() { setNow(realNow) })
+	pinned := realNow()
+	setNow(func() int64 { return pinned })
 	proxy(ctx, alice, "m")
 	flush(t)
 	restart()
