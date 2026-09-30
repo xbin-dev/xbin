@@ -376,3 +376,36 @@ func TestGrantApprovalWarning(t *testing.T) {
 		t.Errorf("revoking apps/r on apps/pg: %d %s, want today's answer", code, body)
 	}
 }
+
+// covers 05§2 05§3 06§6.1 PD-54 — a personal bind's calls go to a tile that
+// isn't partitioned: no person's partition of another tile, so no consent
+// is asked, the policy on or off; and the caller partition's ledger counts
+// each as a provider call to the personal tile (never an edge).
+func TestPersonalBindLedgerNoConsent(t *testing.T) {
+	w, st, _ := pbindWS(t)
+	b := w.b
+	alice := principalFor(t, st, "alice")
+	if rec := pbindCall(t, w, alice, "POST", pbindBody("apps/agent", "mcp", "users/alice/mcp")); rec.Code != 200 {
+		t.Fatalf("alice's bind: %d %s", rec.Code, rec.Body.String())
+	}
+	target, _ := b.Reg.Component("users/alice/mcp")
+	for _, on := range []bool{false, true} {
+		partRouteConsent(w, on)
+		if d := b.Route(instanceOf("apps/agent", "user:alice"), target, ""); d.Deny != nil || d.CallerPartition != "user:alice" {
+			t.Errorf("policy %v: alice's partition through her personal bind: %+v", on, d)
+		}
+	}
+	var provider, edge int64
+	for _, d := range b.ledgerDocs() {
+		if d.Tile != "apps/agent" || d.User != "alice" {
+			continue
+		}
+		for _, kinds := range d.Days {
+			provider += kinds[LedgerProvider]["users/alice/mcp"]
+			edge += int64(len(kinds[LedgerEdge]))
+		}
+	}
+	if provider != 2 || edge != 0 {
+		t.Errorf("alice's apps/agent ledger: %d provider calls to users/alice/mcp, %d edge rows; want 2 and 0", provider, edge)
+	}
+}

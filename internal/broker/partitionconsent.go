@@ -118,13 +118,12 @@ func consentEdgeOf(key string) (from, to string, ok bool) {
 var errConsentsUnreadable = errors.New("this xbind can't read the consent record")
 
 // consentState is one broker's consent plane: the files read (by uid, with
-// the stamp they were read at), the prompts sent, and the runner's stop
-// of one partition. Kept beside the Broker, which stays as it is.
+// the stamp they were read at) and the prompts sent. Kept beside the
+// Broker, which stays as it is.
 type consentState struct {
 	mu    sync.Mutex
 	docs  map[string]consentCached
 	asked map[string]time.Time // user\x00from\x00to → the last prompt
-	stop  func(tile, dep, part string)
 }
 
 type consentCached struct {
@@ -141,26 +140,6 @@ var (
 func (b *Broker) consents() *consentState {
 	v, _ := consentStates.LoadOrStore(b, &consentState{docs: map[string]consentCached{}, asked: map[string]time.Time{}})
 	return v.(*consentState)
-}
-
-// SetPartitionEdgeStop installs the runner's stop of one partition instance
-// (runner.StopPartition): a consent's revocation stops the caller tile's
-// instance of that person, dropping the streams it holds into the other
-// tile (boot).
-func (b *Broker) SetPartitionEdgeStop(stop func(tile, dep, part string)) {
-	cs := b.consents()
-	cs.mu.Lock()
-	cs.stop = stop
-	cs.mu.Unlock()
-}
-
-// PartitionEdgeStopWired reports whether the runner's stop is installed:
-// without it a revocation stops nothing (boot's guard, TestPartitionConsentWiring).
-func (b *Broker) PartitionEdgeStopWired() bool {
-	cs := b.consents()
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	return cs.stop != nil
 }
 
 func (b *Broker) consentsBase() string {
@@ -591,12 +570,8 @@ func (b *Broker) apiConsentsRevoke(w http.ResponseWriter, r *http.Request) {
 // stopEdgeCaller stops userID's instance of tile from, when it is
 // partitioned, so nothing it holds open outlives a revoked consent.
 func (b *Broker) stopEdgeCaller(from, userID string) {
-	cs := b.consents()
-	cs.mu.Lock()
-	stop := cs.stop
-	cs.mu.Unlock()
-	if _, partitioned, err := b.tilePartitioning(from); stop != nil && err == nil && partitioned {
-		stop(from, b.primaryOf(from), string(util.UserPartition(userID)))
+	if _, partitioned, err := b.tilePartitioning(from); err == nil && partitioned {
+		b.stopPartitionInstance(from, b.primaryOf(from), string(util.UserPartition(userID))) // SetPartitionInstanceStop (partitionwire.go)
 	}
 }
 

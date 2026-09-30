@@ -34,7 +34,10 @@ func (st *State) wirePartitionRunner() {
 	run.PartitionCapsFor = brk.PartitionCaps
 	brk.SetPartitionCapDefaults(run.DefaultPartitionCaps)
 	brk.SetPartitionRunner(run.PartitionRunning, run.StopPartitions, st.Auth.RevokePartitionInstances)
-	brk.SetPartitionEdgeStop(run.StopPartition) // a revoked consent stops the caller's instance of the person
+	// one person's instance stopped: a revoked consent stops the caller's
+	// instance of the person (F10), a personal bind's change restarts the
+	// person's (F15) — TestPartitionConsentWiring, TestPersonalBindRestartWired
+	brk.SetPartitionInstanceStop(run.StopPartition)
 	st.Reg.OnPartitionChange(func(c *registry.Component, old, new registry.PartitionMode) {
 		run.PartitionsChanged(c, runningSpec(old), runningSpec(new))
 	})
@@ -44,10 +47,6 @@ func (st *State) wirePartitionRunner() {
 		}
 	})
 	st.Reg.OnPartitionChange(brk.PartitionTileChanged) // a tile that went takes the consents naming it
-
-	// a person's personal binds changed: their instance restarts (05 §3;
-	// TestPersonalBindRestartWired)
-	brk.SetPartitionRestart(run.StopPartition)
 }
 
 // runningSpec is the partition spec a tile in mode m runs: its recorded mode

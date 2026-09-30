@@ -75,12 +75,11 @@ type personalBind struct {
 }
 
 // personalBindSlot is the broker's personal-bind state: mu serializes every
-// read-modify-write of a record; restart is the runner's StopPartition (boot
-// installs it, SetPartitionRestart) — a person's instance whose env changed
-// starts again on its next request.
+// read-modify-write of a record. A person's instance whose env changed is
+// stopped through the one stop hook (SetPartitionInstanceStop,
+// partitionwire.go) and starts again on its next request.
 type personalBindSlot struct {
-	mu      sync.Mutex
-	restart func(tile, dep, part string)
+	mu sync.Mutex
 }
 
 func init() {
@@ -92,33 +91,12 @@ func init() {
 	registerWipeHook(wipeHook{name: "personal-binds", wipe: wipePersonalBinds})
 }
 
-// SetPartitionRestart installs the stop of one person's partition instance
-// (runner.StopPartition: tokens revoked, processes waited for; a request
-// starts it again).
-func (b *Broker) SetPartitionRestart(stop func(tile, dep, part string)) {
-	b.pbind.mu.Lock()
-	defer b.pbind.mu.Unlock()
-	b.pbind.restart = stop
-}
-
-// PartitionRestartWired: boot installed the restart (SetPartitionRestart).
-// Unwired, a personal bind's change reaches a person's running instance
-// only when it next starts (internal/boot's TestPersonalBindRestartWired).
-func (b *Broker) PartitionRestartWired() bool {
-	b.pbind.mu.Lock()
-	defer b.pbind.mu.Unlock()
-	return b.pbind.restart != nil
-}
-
 // restartPartition restarts person id's partition instance of tile, its
-// primary's (user partitions run there only, PD-17).
+// primary's (user partitions run there only, PD-17): the one stop hook
+// (SetPartitionInstanceStop; unwired, the change reaches a running
+// instance only when it next starts — boot's TestPersonalBindRestartWired).
 func (b *Broker) restartPartition(tile, id string) {
-	b.pbind.mu.Lock()
-	stop := b.pbind.restart
-	b.pbind.mu.Unlock()
-	if stop != nil {
-		stop(tile, b.primaryOf(tile), string(util.UserPartition(id)))
-	}
+	b.stopPartitionInstance(tile, b.primaryOf(tile), string(util.UserPartition(id)))
 }
 
 // ---- the store ----

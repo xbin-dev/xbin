@@ -100,6 +100,57 @@ type partitionRunSlot struct {
 	running func(scope, pkey string) bool // runner.PartitionRunning
 	stop    func(tile string)             // runner.StopPartitions: tokens revoked, processes waited for
 	revoke  func(tile string) int         // auth.RevokePartitionInstances
+	one     func(tile, dep, part string)  // runner.StopPartition: one person's instance (SetPartitionInstanceStop)
+}
+
+// SetPartitionInstanceStop installs the runner's stop of one person's partition
+// instance of a tile (runner.StopPartition: its token revoked, its
+// processes waited for; the next request starts it again) — the one hook
+// both planes that stop a single instance use (W2): a revoked consent stops
+// the caller tile's instance of the person (F10, stopEdgeCaller), and a
+// personal bind's change restarts the person's instance with its new env
+// (F15, restartPartition). Boot installs it (wirePartitionRunner).
+func (b *Broker) SetPartitionInstanceStop(stop func(tile, dep, part string)) {
+	b.partRun.mu.Lock()
+	defer b.partRun.mu.Unlock()
+	b.partRun.one = stop
+}
+
+// SetPartitionEdgeStop is SetPartitionInstanceStop (F10's name, kept for callers).
+func (b *Broker) SetPartitionEdgeStop(stop func(tile, dep, part string)) {
+	b.SetPartitionInstanceStop(stop)
+}
+
+// SetPartitionRestart is SetPartitionInstanceStop (F15's name, kept for callers).
+func (b *Broker) SetPartitionRestart(stop func(tile, dep, part string)) {
+	b.SetPartitionInstanceStop(stop)
+}
+
+// PartitionInstanceStopWired reports whether boot installed the stop of one
+// person's instance: without it a revoked consent stops nothing and a
+// personal bind's change waits for the instance's next start (boot's
+// guards, TestPartitionConsentWiring and TestPersonalBindRestartWired).
+func (b *Broker) PartitionInstanceStopWired() bool {
+	b.partRun.mu.RLock()
+	defer b.partRun.mu.RUnlock()
+	return b.partRun.one != nil
+}
+
+// PartitionEdgeStopWired is PartitionInstanceStopWired (F10's name).
+func (b *Broker) PartitionEdgeStopWired() bool { return b.PartitionInstanceStopWired() }
+
+// PartitionRestartWired is PartitionInstanceStopWired (F15's name).
+func (b *Broker) PartitionRestartWired() bool { return b.PartitionInstanceStopWired() }
+
+// stopPartitionInstance stops partition part of deployment dep of tile, if
+// the runner's stop is installed.
+func (b *Broker) stopPartitionInstance(tile, dep, part string) {
+	b.partRun.mu.RLock()
+	stop := b.partRun.one
+	b.partRun.mu.RUnlock()
+	if stop != nil {
+		stop(tile, dep, part)
+	}
 }
 
 // SetPartitionRunner installs the runner's side of people's partitions:
