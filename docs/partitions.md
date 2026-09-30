@@ -182,8 +182,9 @@ only the record:
   workspace scaffold: a workspace gets this with `bx builtin update`, and
   an older shell shows the banner and the page only.
 
-Managers decide in the shell, with `bx partition switch <tile>` or `bx
-partition keep <tile>` ([bx.md](bx.md)), or with `POST
+Managers decide in the shell, on the [partitions page](#your-partitions-page)
+(`/xbin/partitions`, where the push links), with `bx partition switch
+<tile>` or `bx partition keep <tile>` ([bx.md](bx.md)), or with `POST
 /api/xbin/partitions/mode`. A switch
 first shows what it deletes — data namespaces (the tile's own and every
 deployment's), people's partitions, vault keys, cron jobs, bus
@@ -570,12 +571,13 @@ prints it once approved (`POST /api/xbin/grants` answers it) — as `bx bind`
 does for a global bind of Z's http slot to X (`POST /api/xbin/bindings`).
 
 **With the policy on**, a call without alice's consent is refused, `403
-alice hasn't let apps/z use their apps/x data`, and alice is asked — a push
+alice hasn't let apps/z use their apps/x data (they allow it at
+/xbin/partitions)`, and alice is asked — a push
 and a `partitions` event to her own sockets (never to X's code), at most
 once a day per edge, and only for an edge an admin approved, so tile code
-can't make people consent ahead of the grant. The push links to the
-partitions page, which isn't served yet (below): she allows it with `bx
-partition consent apps/z apps/x`, from her own sign-in (never tile code:
+can't make people consent ahead of the grant. The push links to her
+[partitions page](#your-partitions-page), where she allows it — or with `bx
+partition consent apps/z apps/x` — from her own sign-in (never tile code:
 `POST /api/xbin/partitions/consents` takes a person's own session, app or
 device only), and takes it back the same way (`--revoke`): the next call
 and data reach are refused, and Z's backend instance of her stops (it
@@ -1006,6 +1008,52 @@ deleted 30 days later with their backup keys; once nothing of the tile is
 left, its partition mode record goes too, so a new tile at the path starts
 from its own code's request.
 
+## Your partitions page
+
+`/xbin/partitions` is xbind's own page for everything partitions ask of a
+person. It ships with xbind — no `bx builtin update` needed — and every
+push, refusal and page that sends someone to decide or consent links it.
+It opens only on its own, top-level (never inside a tile or another page),
+with your own sign-in, and acts through the same API as `bx partition`:
+xbind judges each act again.
+
+- **Credentials waiting for you** — a sign-in link, password or single
+  sign-on email someone else made for your account while
+  credentialResetConfirm is on: **Allow** or **Refuse**
+  ([§Operating people's partitions](#operating-peoples-partitions)).
+- **Partition mode switches to decide** (tile managers): each paused tile —
+  the switch (`unpartitioned → user`), what it deletes and the tile's
+  `partitionNote` — with **Keep the current mode**, or **Switch and delete
+  all data…**, which counts what the switch deletes, lists what it keeps
+  and switches only once you type the tile's path. A kept request stays
+  listed with Switch… ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
+- **Partitioned tiles you use**: your partition of each — running or not,
+  what it holds (bytes, vault keys, cron jobs, bus subscriptions), your
+  inbox's counts, your log's share — with **Stop**, **Share the log for n
+  days** / **Stop sharing**, **Restore from a backup…** (a version of your
+  partition's archive, after you type `<tile> user:<you>`,
+  [§Backups](#backups)) and **Reset…** (the same typed confirmation). Its
+  **trust panel** says who can change the code that runs on your data (its
+  writers, every admin), whether saves reach it live, whether its primary
+  is protected or runs reviewed code only, its last code change, the global
+  binds whose providers every person's partition calls, your personal
+  binds on it, and which tiles used your data in it (30 days).
+- **Consents** — with partitionConsent on, the tiles that asked for your
+  data (**Allow**), your consents (**Take back**) and a form to allow one
+  tile to use your data in another; with it off, what that means, and the
+  consents kept for when it returns ([§Calls between partitioned
+  tiles](#calls-between-partitioned-tiles)).
+- **Personal binds** — yours (**Remove**), and a form to bind a tile you
+  own into your own partition of a partitioned tile's slot; an admin's
+  bind is always a global bind ([§Bind types](#bind-types-global-and-personal)).
+- **Notices** — what xbind told you: your data deleted by a switch or a
+  reset, a credential made for you.
+- **Your partitions' calls, 30 days** — your egress ledger, counts only.
+
+Signed in with the root token, the page offers the switch decisions (the
+owner decides as a manager) and nothing of a person's; viewing as someone,
+it is read-only and shows none of their partitions.
+
 ## What partitions protect, and what they don't
 
 Partitions keep the people who *use* a tile apart, and keep workspace admins
@@ -1023,5 +1071,4 @@ another machine needs the exported backup keys ([§Backups](#backups)).
 
 ## Not documented yet (TODO)
 
-- the partitions page (`/xbin/partitions`), the admin tile's Partitions
-  section, and the shell's consent prompts.
+- the admin tile's Partitions section, and the shell's consent prompts.

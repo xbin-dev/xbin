@@ -203,7 +203,8 @@ credential, never from the URL or a header:
   partition reaches the same person's partition of a partitioned callee
   when the grant allows and the person can read the callee (and, with the
   workspace policy `partitionConsent` on, consented: `403 <id> hasn't let
-  <caller> use their <tile> data`); anything else reaches the callee's
+  <caller> use their <tile> data (they allow it at /xbin/partitions)`);
+  anything else reaches the callee's
   global instance, or `403 <tile> is partitioned: only partitioned tiles
   reach its people's data, and it has no global instance`;
 - a non-primary deployment of a partitioned tile has one instance,
@@ -597,6 +598,19 @@ GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
                                  sandboxed tile frames load it credential-less
 GET  /docs/<file>.md             these docs (HTML viewer for browsers; ?raw=1
                                  or non-HTML Accept for plain markdown)
+GET  /xbin/partitions            the partitions page (docs/partitions.md
+                                 §Your partitions page): xbind's own static
+                                 page — web/partitions.html as shipped, no
+                                 HTML transform, the same bytes for
+                                 everyone — that reads and acts through
+                                 /api/xbin/partitions… with the signed-in
+                                 person's session. Any principal; signed
+                                 out, a browser → /login. Top-level only:
+                                 X-Frame-Options DENY, CSP frame-ancestors
+                                 'none' (with default-src and script-src
+                                 'self', no inline script), COOP
+                                 same-origin. /vendor/partitions.html is
+                                 404: the page has no other copy
 ANY  /api/<component-path>/<p>   → component backend (see below)
 ANY  /api/xbin/<p>              → xbind's own API (below)
 ANY  /api/~<ticket>/<p>         → a path ticket's prefix of one tile's API
@@ -3059,7 +3073,9 @@ GET    /partitions                 anyone; what it answers depends on who
                                    "consents/1", "personal-binds/1",
                                    "global-address/1", "partition-ops/1",
                                    "log-share/1", "credential-confirm/1",
-                                   "partition-mail/1", …] (what this xbind
+                                   "partition-mail/1", "partitions-page/1"
+                                   (GET /xbin/partitions is served), …]
+                                   (what this xbind
                                    serves; a 404 is an
                                    xbind without partitions), policies?:
                                    {partitionConsent,
@@ -4217,7 +4233,8 @@ POST   /bus/publish                      writer on the resource.
                                          read <tile>: …" when the person
                                          can't read the tile, or "<id>
                                          hasn't let <caller> use their
-                                         <tile> data" while the workspace's
+                                         <tile> data (they allow it at
+                                         /xbin/partitions)" while the workspace's
                                          partitionConsent policy is on and
                                          they haven't consented; 409 while
                                          the scope's tile is paused (a
@@ -4619,13 +4636,15 @@ a `turn.end` that the user did not cancel (`agent.turn`), and xbind's own
 partition notices: a tile's partition mode switch request to its managers
 (`tile.partition-switch`, collapse per tile, at most one per tile every
 15 minutes) and, after a switch, to each
-person whose partition was deleted (`tile.partition-deleted`), both linking
-`c/<tile>/`, and — with the workspace policy partitionConsent on — to a
+person whose partition was deleted (`tile.partition-deleted`), and — with
+the workspace policy partitionConsent on — to a
 person whose data in a partitioned tile another one's call was refused for
 want of their consent (`tile.partition-consent`, at most one a day per
-edge, collapse `partition-consent:<from>→<to>`, linking `xbin/partitions`:
-the partitions page, not served yet — an app that doesn't know the link
-opens the workspace), all spending the person's budget and ignoring tile
+edge, collapse `partition-consent:<from>→<to>`), all linking
+`xbin/partitions` — the partitions page, `GET /xbin/partitions`, where
+managers decide and people consent (an app that doesn't know the link
+opens the workspace; `tile.partition-reset` and `account.credential` link
+it too), all spending the person's budget and ignoring tile
 mutes. Limits (token
 buckets): 120/hour per tile (burst 20) — a tile's frontend and terminals
 have a bucket per tile and person, apart from its backend's; 240/hour per
