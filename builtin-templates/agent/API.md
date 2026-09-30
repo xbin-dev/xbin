@@ -241,9 +241,13 @@ What a partitioned instance does differently:
   the change is refused (502) so the two halves agree. It may announce into
   your own DM (`deliver`: that session's key). Managers see the registry's
   rows among the Automations (it exists, whose, what it listens to — not
-  what it does) and may switch one off or delete it there; any other edit
-  of a row there answers 409. A trigger with `visibility: "team"` answers
-  409 in a partition.
+  what it does) — at the global instance, and on their own page in their
+  partition, which lists the global instance's rows of other people (a
+  partition numbers its own triggers from 2^40, so an id below that is a
+  row at the global instance, and `PUT`/`DELETE /triggers/{id}` of one is
+  forwarded there) — and may switch one off or delete it; any other edit of
+  a row there answers 409. A trigger with `visibility: "team"` answers 409
+  in a partition.
 - **Usage totals for managers.** Your partition mails the global instance
   its daily totals — conversations started, model calls and tokens, per UTC
   day; never content or times of day — when it starts and at each UTC

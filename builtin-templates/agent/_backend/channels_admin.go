@@ -449,7 +449,7 @@ func handleChannelRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	oid, _ := strconv.ParseInt(r.PathValue("oid"), 10, 64)
-	res, err := agent.db.q.Exec(`UPDATE outbox SET state='pending', error='' WHERE id=? AND channel_id=? AND state='failed'`, oid, ch.ID)
+	res, err := agent.db.q.Exec(`UPDATE outbox SET state='pending', error='' WHERE id=? AND channel_id=? AND state='failed' AND body<>'{}'`, oid, ch.ID) // a person's reply, forgotten at its ack (handoff.go), isn't sent again
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

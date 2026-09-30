@@ -234,9 +234,13 @@ func TestLinkedDMHandoff(t *testing.T) {
 	}
 	// acknowledged: its content goes, the row stays for the dedupe
 	w = adapterCall(t, gMux, "apps/slack", "POST", "/adapter/ack", map[string]any{"acks": []map[string]any{
-		{"id": answers[0].ID, "ok": true, "ref": "p1"}, {"id": answers[1].ID, "ok": true, "ref": "p2"}}})
+		{"id": answers[0].ID, "ok": true, "ref": "p1"}, {"id": answers[1].ID, "ok": false, "error": "the platform said no"}}})
 	if w.Code != 200 {
 		t.Fatalf("ack: %d %s", w.Code, w.Body)
+	}
+	// a failed one isn't sent again from the channel owner's view: its content is gone
+	if w := callAs(t, gMux, asMgr, "POST", fmt.Sprintf("/channels/%d/outbox/%d/retry", ch, answers[1].ID), nil); w.Code != 404 {
+		t.Fatalf("retrying alice's failed reply: %d %s", w.Code, w.Body)
 	}
 	var body, stagedLeft string
 	_ = gAg.db.q.QueryRow(`SELECT body FROM outbox WHERE id=?`, answers[1].ID).Scan(&body)
@@ -578,5 +582,54 @@ func TestChannelsUnpartitionedUnchanged(t *testing.T) {
 	_ = ag.db.q.QueryRow(`SELECT count(*) FROM pragma_table_info('outbox') WHERE name='origin'`).Scan(&cols)
 	if tables != 0 || cols != 0 || mail.count() != 0 {
 		t.Fatalf("unpartitioned: %d new tables, %d new columns, %d mails", tables, cols, mail.count())
+	}
+}
+
+// TestTriggerOversightInPartition: a manager's own partition lists the
+// other people's registry rows the global instance keeps (and only those),
+// and switching one off there is forwarded to the global instance; its own
+// triggers are numbered from 2^40, so the two never share an id.
+func TestTriggerOversightInPartition(t *testing.T) {
+	setMode(t, modeUser, "mgr")
+	kv := newMemKV()
+	putConf(kv, "", `{}`)
+	ag, mux := chanFixture(t)
+	partitionConf(t, ag, kv)
+	_ = ag.db.addHandoffSchema()
+	g := stubGlobalCalls(t, func(method, path string, _ []byte) (int, string) {
+		if method == "GET" && path == "/automations" {
+			return 200, `{"items":[{"kind":"trigger","id":5,"name":"bobs","owner":"bob","access":"oversee"},` +
+				`{"kind":"trigger","id":6,"name":"team","owner":"","access":"owner"},{"kind":"channel","id":1,"access":"owner"}]}`
+		}
+		return 200, `{"ok":true}`
+	})
+	own := mkTrigger(t, mux, asMgr, map[string]any{"name": "mine", "source": "push", "sourceRef": "apps/webhooks", "match": "m/",
+		"goal": "g", "toolset": "web", "dataClass": "public"})
+	if own.ID < partitionIDBase {
+		t.Fatalf("a partition's trigger id: %d (want ≥ 2^40)", own.ID)
+	}
+	var list struct{ Items []AutomationItem }
+	_ = json.Unmarshal(callAs(t, mux, asMgr, "GET", "/automations", nil).Body.Bytes(), &list)
+	var trig []string
+	for _, it := range list.Items {
+		if it.Kind == "trigger" {
+			trig = append(trig, fmt.Sprintf("%s/%s", it.Name, it.Access))
+		}
+	}
+	if strings.Join(trig, ",") != "bobs/oversee,mine/owner" {
+		t.Fatalf("a manager's partition lists triggers %v", trig)
+	}
+	_ = json.Unmarshal(callAs(t, mux, asAlice, "GET", "/automations", nil).Body.Bytes(), &list)
+	for _, it := range list.Items {
+		if it.Kind == "trigger" && it.Owner == "bob" {
+			t.Fatalf("a reader's partition lists bob's trigger: %+v", it)
+		}
+	}
+	calls := len(g.got())
+	if w := callAs(t, mux, asMgr, "PUT", "/triggers/5", map[string]any{"enabled": false}); w.Code != 200 {
+		t.Fatalf("switching bob's off from a manager's partition: %d %s", w.Code, w.Body)
+	}
+	if c := g.got(); len(c) != calls+1 || !strings.HasPrefix(c[calls], `PUT /triggers/5 {"enabled":false}`) {
+		t.Fatalf("not forwarded: %v", c[calls:])
 	}
 }

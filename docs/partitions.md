@@ -261,6 +261,17 @@ the sandbox managers an agent uses before you create or switch one (a
 manager whose `hello.caps` lack `partitions` isn't used in people's
 partitions, [sandbox-manager.md](sandbox-manager.md#partitioned-consumers)).
 
+A partitioned agent's chat channels and event triggers show how a tile that
+isn't partitioned — the messaging bridge, the webhooks tile — serves people
+privately: it reaches the agent's global instance, which keeps the routing
+(channels, links, the trigger registry) and hands a DM from a chat account
+linked to a person, or an event for their private trigger, to that
+person's partition by [partition mail](#partition-mail); the partition runs
+it and mails its reply back, and the global instance posts it where its own
+record says — only for the person the handoff was for. A private trigger on
+pushes needs a topic prefix that no one else's overlaps. The template's
+API.md ("Partitioned instances") has the details.
+
 ## Shared resources
 
 Every resource of a partitioned tile's scope is **per partition** by

@@ -74,8 +74,13 @@ func (d *DB) addHandoffSchema() error {
 	} {
 		_, _ = d.q.Exec(q) // fails harmlessly when the column is there
 	}
-	_, err := d.q.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_origin ON outbox(origin) WHERE origin<>''`)
-	return err
+	if _, err := d.q.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_origin ON outbox(origin) WHERE origin<>''`); err != nil {
+		return err
+	}
+	if userMode() {
+		return d.seedTriggerIDs() // trigger_registry.go
+	}
+	return nil
 }
 
 // Mail topics.

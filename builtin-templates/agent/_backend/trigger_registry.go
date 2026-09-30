@@ -299,6 +299,58 @@ func registryCall(w http.ResponseWriter, r *http.Request, method, path string, b
 	return true
 }
 
+// seedTriggerIDs: a person's partition numbers its triggers from 2^40, like
+// its conversations (seedPartitionIDs), so the registry rows a manager's
+// own partition lists from the global instance (below 2^40) never share an
+// id with its own. Idempotent.
+func (d *DB) seedTriggerIDs() error {
+	if _, err := d.q.Exec(`INSERT INTO sqlite_sequence (name, seq) SELECT 'triggers', ?
+		WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name='triggers')`, partitionIDBase-1); err != nil {
+		return err
+	}
+	_, err := d.q.Exec(`UPDATE sqlite_sequence SET seq=? WHERE name='triggers' AND seq < ?`, partitionIDBase-1, partitionIDBase-1)
+	return err
+}
+
+// globalTriggerOversight: on a manager's page in their own partition, the
+// other people's registry rows the global instance keeps (oversight: that
+// one exists, whose, what it listens to — never what it does). Nothing for
+// anyone else, or when global doesn't answer within a few seconds.
+func globalTriggerOversight(w who) []AutomationItem {
+	if !userMode() || !w.manager() || w.viewedBy != "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := callGlobal(ctx, http.MethodGet, "/automations", nil, "")
+	if err != nil || res.Status != http.StatusOK {
+		return nil
+	}
+	var all struct{ Items []AutomationItem }
+	_ = json.Unmarshal(res.Body, &all)
+	var out []AutomationItem
+	for _, it := range all.Items {
+		if it.Kind == "trigger" && it.Access == "oversee" && it.ID < partitionIDBase {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// forwardGlobalTrigger: in a person's partition a trigger id below 2^40 is
+// a registry row at the global instance (a manager switching one off or
+// deleting it from their own page): the call is forwarded there, attributed
+// to them. true: answered.
+func forwardGlobalTrigger(w http.ResponseWriter, r *http.Request) bool {
+	if !userMode() || pathID(r) >= partitionIDBase {
+		return false
+	}
+	if body, ok := forwardBody(w, r); ok {
+		relay(w, r, body)
+	}
+	return true
+}
+
 // deliverInPartition is deliverOK in a person's partition: a channel
 // session in this db is the person's own (their linked DM) — a trigger may
 // announce into it.

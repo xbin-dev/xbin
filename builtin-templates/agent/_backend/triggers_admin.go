@@ -29,7 +29,7 @@ func init() {
 }
 
 func triggerItems(w who) []AutomationItem {
-	var out []AutomationItem
+	out := globalTriggerOversight(w) // a manager's own partition: others' rows at the global instance (trigger_registry.go)
 	for _, tr := range agent.db.listTriggers(``) {
 		it := AutomationItem{Kind: "trigger", ID: tr.ID, Name: tr.Name, Owner: tr.Owner, Visibility: tr.Visibility, Enabled: tr.Enabled,
 			Mode: tr.Mode, TargetRun: tr.TargetRun, LastRunID: tr.LastRunID, LastRunAt: tr.LastEvent, LastStatus: tr.Status,
@@ -68,6 +68,9 @@ func triggerSummary(tr *Trigger) string {
 }
 
 func triggerFor(w http.ResponseWriter, r *http.Request) (*Trigger, who, level, bool) {
+	if forwardGlobalTrigger(w, r) { // a registry row at the global instance (trigger_registry.go)
+		return nil, who{}, lvNone, false
+	}
 	c := callerOf(r)
 	tr, err := agent.db.getTrigger(pathID(r))
 	if err != nil || (tr.access(c) == lvNone && !c.manager()) {

@@ -70,17 +70,21 @@ async function channelsPartitioned(browser) {
   // admin's own partition lists the global instance's channel; the claim is forwarded there
   await eventually('the bridge connected', async () => (await ws('GET', 'apps/bridge/status')).body?.state?.phase === 'connected', 180000);
   const item = await eventually('the channel', async () => ((await agent('/automations')).body?.items || []).find((i) => i.kind === 'channel'), 60000);
-  check(item.access === 'claim', `admin's partition offers the global instance's channel to claim (${item.name})`);
+  check(item.access === 'claim' || item.access === 'owner', `admin's partition offers the global instance's channel to claim (${item.name}, ${item.access})`);
   await page.reload();
-  await page.click(`.acard2[data-auto="channel:${item.id}"]`);
-  await page.waitForSelector('.autos-page button:has-text("Claim")');
-  await page.click('.autos-page button:has-text("Claim")');
+  if (item.access === 'claim') {
+    await page.click(`.acard2[data-auto="channel:${item.id}"]`);
+    await page.waitForSelector('.autos-page button:has-text("Claim")');
+    await shot(page, 'channelsp-admin-claim');
+    await page.click('.autos-page button:has-text("Claim")');
+  }
   await eventually('claimed', async () => ((await agent('/automations')).body?.items || []).find((i) => i.kind === 'channel' && i.access === 'owner'));
   const put = await agent(`/channels/${item.id}`, { method: 'PUT', body: { visibility: 'team', policy: { dm: { policy: 'linked' } } } });
   check(put.status === 200, `claimed from admin's partition, forwarded to the global instance (${put.status})`);
-  await page.reload();
-  await page.waitForSelector(`.acard2[data-auto="channel:${item.id}"]`);
-  await shot(page, 'channelsp-admin-automations');
+  await page.goto(`${URL}/c/apps/agent/#auto=channel:${item.id}`);
+  await page.waitForSelector('.autos-page', { timeout: 30000 });
+  await sleep(1500);
+  await shot(page, 'channelsp-admin-channel');
 
   // dev1 opens the agent once: their partition has run, so mail may start it
   const dev = await login(browser, 'dev1', 'devpass123', { viewport: { width: 1200, height: 900 } });
