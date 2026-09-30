@@ -151,6 +151,18 @@ func TestPartitionVolumeIdleUnmount(t *testing.T) {
 	if _, err := m.Ensure(partKey+"/db", partKey, "db", false); err != nil || !strings.Contains(mounted(), ".partitions") {
 		t.Errorf("remount: %v (%s)", err, mounted())
 	}
+	// Expire (a backup's one pass): nothing while held; released and
+	// expired, the view is due at once.
+	release = m.Hold(partKey, "db")
+	m.Expire(partKey, "db")
+	release()
+	if got := m.UnmountIdle(time.Now().Add(time.Minute), time.Hour, nil); len(got) != 0 {
+		t.Fatalf("expired while held: %+v", got)
+	}
+	m.Expire(partKey, "db")
+	if got := m.UnmountIdle(time.Now(), time.Hour, nil); len(got) != 1 || strings.Contains(mounted(), ".partitions") {
+		t.Fatalf("an expired view: %+v (%s)", got, mounted())
+	}
 }
 
 // covers PD-48 — the directory keys resenc takes: main's (one segment), a

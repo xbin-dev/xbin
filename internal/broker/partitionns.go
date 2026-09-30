@@ -444,7 +444,7 @@ func (b *Broker) sweepPartitionOne(id nsID, now time.Time) error {
 		return err
 	}
 	// its part: key, recorded in the tile's history (backup_partition.go)
-	if _, _, err := b.erasePartitionBackupsHeld(tile, id.dep, id.pkey, "partition swept: "+pi.Orphan, ""); err != nil {
+	if _, _, err := b.erasePartitionBackupsHeld([]string{tile}, id.dep, id.pkey, "partition swept: "+pi.Orphan, ""); err != nil {
 		slog.Warn("partition sweep: backup key erase", "tile", tile, "subject", partitionBackupSubject(tile, id.dep, id.pkey), "err", err)
 	}
 	slog.Info("partition data deleted: orphaned past the retention", "scope", id.scope, "partition", id.pkey, "event", pi.Orphan, "since", m.Orphaned)

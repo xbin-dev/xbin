@@ -489,7 +489,7 @@ func TestPartitionSwitchErasesArchives(t *testing.T) {
 	}
 	// the sealed main archive from before the switch: it would bring back
 	// the rows the switch deleted, so it asks too; its data is erased
-	sw, ok := b.lastDeletingSwitch(pbTile)
+	sw, ok, _ := b.lastDeletingSwitch(pbTile)
 	if !ok {
 		t.Fatal("no switch in the history")
 	}

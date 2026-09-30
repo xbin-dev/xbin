@@ -40,10 +40,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/backup"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/resenc"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -160,12 +162,14 @@ func (b *Broker) backupPartitions(c *registry.Component, provider string, sealed
 		slog.Warn("backup: people's partitions aren't archived in a plaintext-vault workspace", "tile", c.Path, "partitions", len(parts))
 		return out
 	}
+	var written []string
 	for _, a := range parts {
 		if a.user == "" {
 			out.Failed = append(out.Failed, a.whose()+": whose partition it is can't be told (no record names it)")
 			continue
 		}
 		key := partitionArchiveKey(c.Path, a.dep, a.pkey)
+		written = append(written, a.dep+"/"+a.pkey) // a PUT that failed may have stored it all the same
 		if _, err := b.putArchive(provider, key, partitionSeal(c.Path, a.dep, a.pkey), func(bw *backup.Writer) error {
 			return b.writePartitionArchive(bw, c, a)
 		}); err != nil {
@@ -175,6 +179,7 @@ func (b *Broker) backupPartitions(c *registry.Component, provider string, sealed
 		}
 		out.Archived++
 	}
+	b.notePartitionArchives(provider, c.Path, written) // retention finds them once the partition is gone (backup_partition_index.go)
 	return out
 }
 
@@ -266,10 +271,20 @@ func (b *Broker) writePartitionData(bw *backup.Writer, scope, dep, pkey string, 
 }
 
 // archiveVolume writes one of a partition's volumes into bw, held for the
-// length of the walk.
+// length of the walk. A volume the backup mounted itself leaves idle at
+// once (resenc.Expire): the disk monitor's next idle pass unmounts it —
+// unless something holds it or its instance runs by then — so a backup of a
+// tile with many people doesn't keep each person's volume mounted for the
+// whole idle time (PD-48).
 func (b *Broker) archiveVolume(bw *backup.Writer, k resKeys, scope, typ string) error {
+	mounted := volumeMounted(b.resenc, k)
 	release := b.holdPartitionVolume(k)
-	defer release()
+	defer func() {
+		release()
+		if !mounted && resenc.PartitionVolume(k.DirKey) {
+			b.resenc.Expire(k.DirKey, k.Name)
+		}
+	}()
 	if !b.ensureVolume(k, scope, typ) {
 		return fmt.Errorf("%s can't be mounted to be archived", k.Name)
 	}
@@ -327,21 +342,6 @@ func (b *Broker) writePartitionRecords(bw *backup.Writer, tile string, a archive
 	return nil
 }
 
-// prunePartitionArchives keeps the newest keep versions of each person's
-// partition's archives of comp (a scheduled backup's retention). A
-// partition that is gone isn't listed: its key was erased with it, and an
-// archiver with erase collection deleted its versions then.
-func (b *Broker) prunePartitionArchives(comp string, keep int) {
-	c, ok := b.Reg.Component(comp)
-	if !ok || keep <= 0 {
-		return
-	}
-	parts, _ := b.partitionsOf(c)
-	for _, a := range parts {
-		b.pruneKey(comp, partitionArchiveKey(comp, a.dep, a.pkey), keep)
-	}
-}
-
 // ---- erasing one person's partition's backups ----
 
 // ErasePartitionBackups crypto-erases person pkey's partition of deployment
@@ -353,28 +353,43 @@ func (b *Broker) prunePartitionArchives(comp string, keep int) {
 // in between. It answers how many keys it erased and what the archiver did.
 func (b *Broker) ErasePartitionBackups(tile, dep, pkey, reason, by string) (int, string, error) {
 	defer b.holdBackups(tile)()
-	return b.erasePartitionBackupsHeld(tile, dep, pkey, reason, by)
+	return b.erasePartitionBackupsHeld([]string{tile}, dep, pkey, reason, by)
 }
 
-// erasePartitionBackupsHeld is ErasePartitionBackups for a caller holding
-// tile's backup lock. The erase is recorded in the tile's history.
-func (b *Broker) erasePartitionBackupsHeld(tile, dep, pkey, reason, by string) (int, string, error) {
-	subject := partitionBackupSubject(tile, cmp.Or(dep, util.MainDeployment), pkey)
-	erased, gc, err := b.eraseBackupSubjectsHeld(tile, func(s string) bool { return s == subject }, reason, by)
-	b.noteBackupErase(tile, erased, reason, by, pkey)
-	return len(erased), gc, err
+// erasePartitionBackupsHeld erases person pkey's partition's part: key of
+// deployment dep of each tile in owners — whose backup locks the caller
+// holds: the tile's own (its records' archives) and, for a tile in another
+// tile's scope, the scope root's (the namespace's) — and records each erase
+// in that tile's history. Every erase of a person's partition's keys goes
+// through it — a sweep, a reset, a purge (F7b's dropOnePartition: owners
+// slices.Compact([]string{scope, tile})) — so each is in the history. It
+// answers how many keys it erased and what the archivers did.
+func (b *Broker) erasePartitionBackupsHeld(owners []string, dep, pkey, reason, by string) (int, string, error) {
+	n, gcs, errs := 0, []string{}, []error{}
+	for _, owner := range owners {
+		subject := partitionBackupSubject(owner, cmp.Or(dep, util.MainDeployment), pkey)
+		erased, gc, err := b.eraseBackupSubjectsHeld(owner, func(s string) bool { return s == subject }, reason, by)
+		b.noteBackupErase(owner, erased, reason, by, pkey)
+		n += len(erased)
+		if gc != "" {
+			gcs = append(gcs, gc)
+		}
+		errs = append(errs, err)
+	}
+	return n, strings.Join(gcs, "; "), errors.Join(errs...)
 }
 
 // dropSweptPartition is the records' sweep of one orphan past the
 // retention (PD-26): its registrations, record and vault go, then its
 // part: key — both under the tile's backup lock, so no backup archives the
-// partition in between.
+// partition in between. (F7b's dropOnePartition replaces it: the whole
+// partition, erased through erasePartitionBackupsHeld.)
 func (b *Broker) dropSweptPartition(t partTarget, event string) error {
 	defer b.holdBackups(t.tile)()
 	if err := b.dropPartition(t); err != nil {
 		return err
 	}
-	if _, _, err := b.erasePartitionBackupsHeld(t.tile, t.dep, t.pkey, "partition swept: "+event, ""); err != nil {
+	if _, _, err := b.erasePartitionBackupsHeld([]string{t.tile}, t.dep, t.pkey, "partition swept: "+event, ""); err != nil {
 		slog.Warn("partition sweep: backup key erase", "tile", t.tile, "partition", t.pkey, "err", err)
 	}
 	return nil

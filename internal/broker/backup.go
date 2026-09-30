@@ -408,7 +408,7 @@ func (b *Broker) restoreTileConfirmed(comp, version, confirm string) (restored, 
 	if m.Deployments == nil || len(m.Deployments.Archives) == 0 {
 		return r, nil, nil
 	}
-	return r, b.restoreListed(comp, m.Deployments.Archives, confirm), nil
+	return r, b.restoreListed(comp, m.Deployments.Archives), nil // judged with main (preSwitchRestore)
 }
 
 // restoreSandboxes merges a restored tile's sandbox definitions by uid

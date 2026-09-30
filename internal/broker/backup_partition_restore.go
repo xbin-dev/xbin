@@ -1,9 +1,8 @@
 package broker
 
 // backup_partition_restore.go — restoring a person's partition from its
-// archive, and the restores a partition mode switch guards
-// (plans/partitions/11-backup-encryption.md §4 "Restore rules"; PD-25,
-// PD-43, PD-56):
+// archive (plans/partitions/11-backup-encryption.md §4 "Restore rules";
+// PD-25, PD-43, PD-56):
 //
 //	GET  /api/xbin/partitions/backups?tile=<t>[&user=<id>][&partitionId=u-…]
 //	POST /api/xbin/partitions/restore {tile, user?, partitionId?, version?, confirm, to?, dryRun?}
@@ -25,11 +24,15 @@ package broker
 // is stopped first and its namespace held meanwhile, so nothing starts or
 // writes into it until the restore is done.
 //
+// A person names only their own partition (its id now); an admin names
+// anyone's, an earlier holder's included. Everything judged before the
+// archive is fetched is judged again under the tile's backup lock
+// (partitionRestoreStill), so an act that took the lock meanwhile — a
+// switch, a reset, a purge, a sweep, an erase — is never undone.
+//
 // Main archives never restore into partitions (they hold none of them,
-// S15), and an archive made before the tile's last partition mode switch
-// that deleted data restores only after a typed confirmation naming the
-// switch (preSwitchRestore) — into the global instance's namespace, at
-// today's keys, as every main archive does.
+// S15); the restores a partition mode switch guards are
+// backup_preswitch.go's.
 
 import (
 	"bytes"
@@ -124,16 +127,24 @@ func (b *Broker) partitionBackupTargetOf(w http.ResponseWriter, actor auth.Princ
 	pkey, uid := "", partitionUIDSeam(b, user)
 	if uid != "" {
 		pkey = util.PartitionKey(user, uid)
-	} else if mint {
+	}
+	switch {
+	case pid != "" && !pkeyOK(pid):
+		server.WriteError(w, http.StatusBadRequest, fmt.Sprintf("%q is not a partition id (u- and 32 hex digits)", pid), partitionBackupDocs)
+		return t, false
+	case pid != "" && !t.admin && pid != pkey:
+		// A person names only their own partition's id: any other is an
+		// earlier holder's of their id (an admin's to restore) or someone
+		// else's — refused before the archiver is asked, and without saying
+		// whose it is (PD-46).
+		server.WriteError(w, http.StatusForbidden, "a person lists and restores only their own partition's backups (its id now); an earlier holder's archive of an id, or anyone else's, only an admin lists or restores", partitionBackupDocs)
+		return t, false
+	case uid == "" && mint:
 		var err error
 		if pkey, uid, err = b.partitionKeyOf(user); err != nil {
 			server.WriteError(w, http.StatusConflict, user+"'s partition: "+err.Error(), partitionBackupDocs)
 			return t, false
 		}
-	}
-	if pid != "" && !pkeyOK(pid) {
-		server.WriteError(w, http.StatusBadRequest, fmt.Sprintf("%q is not a partition id (u- and 32 hex digits)", pid), partitionBackupDocs)
-		return t, false
 	}
 	spec, on := c.Partitioned()
 	t.c, t.dep, t.user, t.uid, t.pkeyNow, t.pkeyFrom = c, cmp.Or(b.primaryOf(tile), util.MainDeployment), user, uid, pkey, cmp.Or(pid, pkey)
@@ -240,7 +251,7 @@ func (b *Broker) apiPartitionRestore(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, status, err.Error(), partitionBackupDocs)
 		return
 	}
-	m, err := b.openPartitionArchive(raw, t)
+	m, subkey, err := b.openPartitionArchive(raw, t)
 	if err != nil {
 		server.WriteError(w, http.StatusConflict, "the archive can't be restored: "+err.Error()+"; nothing was restored", partitionBackupDocs)
 		return
@@ -248,6 +259,9 @@ func (b *Broker) apiPartitionRestore(w http.ResponseWriter, r *http.Request) {
 	earlier := m.Partition.UID != t.uid // the id was deleted and recreated since this backup
 	want := t.c.Path + " " + part
 	switch {
+	case m.Partition.User != t.user && !t.admin: // never whose it is to a person (PD-46)
+		server.WriteError(w, http.StatusForbidden, "this archive isn't your partition's: it restores only into its own person's, never into another id", partitionBackupDocs)
+		return
 	case m.Partition.User != t.user:
 		server.WriteError(w, http.StatusForbidden, "this archive is user:"+m.Partition.User+"'s partition: it restores only into theirs, never into another id", partitionBackupDocs)
 		return
@@ -269,7 +283,7 @@ func (b *Broker) apiPartitionRestore(w http.ResponseWriter, r *http.Request) {
 		server.WriteJSON(w, http.StatusOK, out)
 		return
 	}
-	done, err := b.restorePartition(t, raw)
+	done, err := b.restorePartition(t, raw, subkey)
 	if err != nil {
 		var se statusErr
 		if errors.As(err, &se) {
@@ -312,33 +326,55 @@ func (b *Broker) latestVersion(provider, key string) (string, int, error) {
 // nor another partition's (or tile's) served under its key restores — and
 // a partition manifest naming the tile, the deployment and a person whose
 // id and uid hash to its partition id. An erased key refuses with when and
-// why; an unknown one names the import.
-func (b *Broker) openPartitionArchive(raw []byte, t partitionBackupTarget) (backup.Manifest, error) {
+// why; an unknown one names the import. It answers the archive's subkey,
+// which restorePartition checks again under the tile's backup lock.
+func (b *Broker) openPartitionArchive(raw []byte, t partitionBackupTarget) (backup.Manifest, string, error) {
 	h, sealed, err := backup.ReadSealHeader(bytes.NewReader(raw))
 	switch {
 	case err != nil:
-		return backup.Manifest{}, err
+		return backup.Manifest{}, "", err
 	case !sealed:
-		return backup.Manifest{}, errors.New("it isn't sealed, and a person's partition archive always is: it isn't xbind's")
+		return backup.Manifest{}, "", errors.New("it isn't sealed, and a person's partition archive always is: it isn't xbind's")
 	}
 	br, err := b.openArchive(raw)
 	if err != nil {
-		return backup.Manifest{}, err
+		return backup.Manifest{}, "", err
 	}
-	k, err := b.backupKeys().read(h.Subkey)
-	if err != nil || k.Subject != partitionBackupSubject(t.c.Path, t.dep, t.pkeyFrom) {
-		return backup.Manifest{}, errors.New("it isn't sealed under this partition's backup key: another partition's or tile's")
+	if err := b.partitionKeyLive(h.Subkey, t); err != nil {
+		return backup.Manifest{}, "", err
 	}
 	m := br.M
 	switch pr := m.Partition; {
 	case !m.PartitionArchive() || pr == nil:
-		return m, errors.New("it isn't a partition archive")
+		return m, "", errors.New("it isn't a partition archive")
 	case m.Component != t.c.Path:
-		return m, fmt.Errorf("it is %s's, not %s's", m.Component, t.c.Path)
+		return m, "", fmt.Errorf("it is %s's, not %s's", m.Component, t.c.Path)
 	case pr.ID != t.pkeyFrom || pr.Deployment != t.dep || util.PartitionKey(pr.User, pr.UID) != pr.ID:
-		return m, errors.New("it names another partition than its key")
+		return m, "", errors.New("it names another partition than its key")
 	}
-	return m, nil
+	return m, h.Subkey, nil
+}
+
+// partitionKeyLive checks that backup key id is t's archive's — its subject
+// that partition's archive key's — and not erased: an erase (a switch, a
+// reset, a purge, a sweep, bx backup erase) writes the tombstone before it
+// removes the key file.
+func (b *Broker) partitionKeyLive(id string, t partitionBackupTarget) error {
+	s := b.backupKeys()
+	tombs, err := s.tombstones()
+	if err != nil {
+		return err
+	}
+	for _, tb := range tombs {
+		if tb.ID == id {
+			return erasedError{tb}
+		}
+	}
+	k, err := s.read(id)
+	if err != nil || k.Subject != partitionBackupSubject(t.c.Path, t.dep, t.pkeyFrom) {
+		return errors.New("it isn't sealed under this partition's backup key: another partition's or tile's")
+	}
+	return nil
 }
 
 // partitionRestored is what a partition restore wrote.
@@ -410,15 +446,25 @@ func (b *Broker) partitionArchiveRecords(raw []byte, t partitionBackupTarget) (a
 }
 
 // restorePartition replaces t's person's partition with the archive raw
-// (checked by openPartitionArchive): its instance stopped and its namespace
-// held first; then the data, the vault and the registrations. The records
-// are read and checked before anything is written.
-func (b *Broker) restorePartition(t partitionBackupTarget, raw []byte) (partitionRestored, error) {
+// (checked by openPartitionArchive, sealed under subkey): under the tile's
+// backup lock, the checks again — an act that took the lock while this
+// restore fetched the archive or waited (a switch, a reset, a purge, a
+// sweep, bx backup erase) has happened, and nothing it deleted may come
+// back — then its instance stopped and its namespace held; then the data,
+// the vault and the registrations. The records are read and checked before
+// anything is written.
+func (b *Broker) restorePartition(t partitionBackupTarget, raw []byte, subkey string) (partitionRestored, error) {
 	var done partitionRestored
 	pt := partTarget{tile: t.c.Path, dep: t.dep, pkey: t.pkeyNow, part: util.UserPartition(t.user), user: t.user, uid: t.uid}
-	switch {
-	case b.vaultSealed():
+	if b.vaultSealed() {
 		return done, statusErr{http.StatusConflict, "vault sealed — unseal before restoring a partition"}
+	}
+	// the tile's backup lock: no backup archives the partition half
+	// restored, and no erase of its key runs meanwhile (the sweep's order:
+	// the backup lock, then the namespace's hold)
+	defer b.holdBackups(t.c.Path)()
+	if err := b.partitionRestoreStill(t, subkey); err != nil {
+		return done, err
 	}
 	if err := b.partPausedErr(pt); err != nil {
 		return done, err
@@ -427,10 +473,6 @@ func (b *Broker) restorePartition(t partitionBackupTarget, raw []byte) (partitio
 	if err != nil {
 		return done, statusErr{http.StatusConflict, "the archive can't be restored: " + err.Error() + "; nothing was restored"}
 	}
-	// the tile's backup lock: no backup archives the partition half
-	// restored, and no erase of its key runs meanwhile (the sweep's order:
-	// the backup lock, then the namespace's hold)
-	defer b.holdBackups(t.c.Path)()
 	if err := b.notePartition(pt, false); err != nil { // whose it is: the person's current record
 		return done, err
 	}
@@ -462,6 +504,34 @@ func (b *Broker) restorePartition(t partitionBackupTarget, raw []byte) (partitio
 		return done, err
 	}
 	return done, nil
+}
+
+// partitionRestoreStill is the handler's checks again, under the tile's
+// backup lock: the tile is still registered and keeps people's partitions,
+// in the scope and the primary the restore was judged in; the person is
+// still the incarnation judged (their uid); and the archive's key is still
+// that partition's archive key, not erased.
+func (b *Broker) partitionRestoreStill(t partitionBackupTarget, subkey string) error {
+	const nothing = " — it changed while this restore waited; nothing was restored"
+	c, ok := b.Reg.Component(t.c.Path)
+	if !ok {
+		return statusErr{http.StatusConflict, t.c.Path + " is gone" + nothing}
+	}
+	spec, on := c.Partitioned()
+	switch {
+	case !on || !spec.User:
+		return statusErr{http.StatusConflict, t.c.Path + " isn't partitioned now: a person's partition archive restores only into a tile that keeps people's partitions" + nothing}
+	case c.Scope != t.c.Scope:
+		return statusErr{http.StatusConflict, t.c.Path + "'s scope isn't " + t.c.Scope + nothing}
+	case cmp.Or(b.primaryOf(t.c.Path), util.MainDeployment) != t.dep:
+		return statusErr{http.StatusConflict, t.c.Path + "'s primary deployment isn't " + t.dep + nothing}
+	case partitionUIDSeam(b, t.user) != t.uid:
+		return statusErr{http.StatusConflict, t.user + " was deleted or recreated" + nothing}
+	}
+	if err := b.partitionKeyLive(subkey, t); err != nil {
+		return statusErr{http.StatusConflict, "the archive can't be restored: " + err.Error() + nothing}
+	}
+	return nil
 }
 
 // restorePartitionData writes the archive's data into the partition's
@@ -594,71 +664,4 @@ func (b *Broker) afterPartitionRestore(t partitionBackupTarget, version string, 
 	partitionNotice(b, t.user, t.c.Path, text)
 	b.pushPerson(t.user, "tile.partition-restored", "Your data in "+t.c.Path+" was restored from a backup",
 		fmt.Sprintf("By %s at %s.", t.by, when), "c/"+t.c.Path+"/", "")
-}
-
-// ---- restores a partition mode switch guards ----
-
-// preSwitchError refuses an archive made before its tile's last partition
-// mode switch that deleted data, until confirm names that switch.
-type preSwitchError struct {
-	tile, created string
-	sw            modeHistory
-}
-
-func (e preSwitchError) date() string { return e.sw.At.UTC().Format("2006-01-02") }
-
-func (e preSwitchError) Error() string {
-	return fmt.Sprintf("this backup (made %s) is older than %s's partition mode switch on %s (%s → %s): restoring it brings back data the switch deleted, into the global instance's namespace — confirm with %q (bx restore %s --confirm %s)",
-		e.created, e.tile, e.date(), registry.SpecOf(e.sw.From), registry.SpecOf(e.sw.To), e.date(), e.tile, e.date())
-}
-
-// answer is the switch as POST /restore's 409 names it.
-func (e preSwitchError) answer() map[string]any {
-	return map[string]any{"at": e.sw.At.UTC().Format(time.RFC3339), "from": registry.SpecOf(e.sw.From), "to": registry.SpecOf(e.sw.To),
-		"confirm": e.date()}
-}
-
-// lastDeletingSwitch is tile's last partition mode switch that deleted data
-// (not one that only added "global").
-func (b *Broker) lastDeletingSwitch(tile string) (modeHistory, bool) {
-	rec := b.modeRecordOf(tile)
-	if rec == nil {
-		return modeHistory{}, false
-	}
-	for i := len(rec.History) - 1; i >= 0; i-- {
-		h := rec.History[i]
-		if h.Op == modeOpSwitch && wipeKindOf(registry.SpecOf(h.From), registry.SpecOf(h.To)) != wipeNone {
-			return h, true
-		}
-	}
-	return modeHistory{}, false
-}
-
-// preSwitchRestore refuses an archive of tile's data in deployment dep made
-// before the tile's last partition mode switch that deleted it (11 §4),
-// unless confirm names the switch (its date): the restore brings back what
-// the switch deleted — a plaintext archive's data (a sealed one's was
-// erased with its key) and the registrations the archive lists — into the
-// global instance's namespace, at today's keys; never into a person's
-// partition, which no such archive holds. Removing "global" deleted main's
-// data only, so a deployment's archive from before it restores as ever.
-// An archive made within the switch's second counts as older.
-func (b *Broker) preSwitchRestore(tile string, m backup.Manifest, dep string, confirm string) error {
-	sw, ok := b.lastDeletingSwitch(tile)
-	if !ok {
-		return nil
-	}
-	if cmp.Or(dep, util.MainDeployment) != util.MainDeployment && wipeKindOf(registry.SpecOf(sw.From), registry.SpecOf(sw.To)) != wipeEverything {
-		return nil
-	}
-	created, err := time.Parse(time.RFC3339, m.Created)
-	if err == nil && !created.Before(sw.At.Truncate(time.Second).Add(time.Second)) {
-		return nil // made after the switch
-	}
-	e := preSwitchError{tile: tile, created: m.Created, sw: sw}
-	if confirm == e.date() {
-		slog.Warn("restore: a backup older than the tile's partition mode switch, confirmed", "tile", tile, "created", m.Created, "switch", sw.At)
-		return nil
-	}
-	return e
 }

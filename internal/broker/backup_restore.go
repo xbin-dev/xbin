@@ -43,9 +43,7 @@ type listedRestore struct {
 // lists, by replace, into the deployment of its name when comp has one
 // (08-data §11.4, §11.5 step 5): POST /restore's, or re-enabling an
 // offloaded tile's, both an admin's. Every claimant of each namespace stops.
-// confirm is the main restore's: it names the tile's last partition mode
-// switch when the archives predate it (preSwitchRestore).
-func (b *Broker) restoreListed(comp string, archives map[string]string, confirm string) *listedRestore {
+func (b *Broker) restoreListed(comp string, archives map[string]string) *listedRestore {
 	out := &listedRestore{Restored: []string{}, Skipped: []string{}}
 	for _, dep := range slices.Sorted(maps.Keys(archives)) {
 		var err error
@@ -55,7 +53,7 @@ func (b *Broker) restoreListed(comp string, archives map[string]string, confirm 
 		case !b.hasDeployment(comp, dep):
 			err = util.NoDeployment(comp, dep)
 		default:
-			_, _, _, err = b.restoreData(comp, dataRestore{from: dep, version: archives[dep], into: dep, confirmed: true, switchConfirm: confirm,
+			_, _, _, err = b.restoreData(comp, dataRestore{from: dep, version: archives[dep], into: dep, confirmed: true, tileRestore: true,
 				authorize: func(string) error { return nil }, stop: func(t, _ string) { b.StopBackendSafe(t) }})
 		}
 		if err != nil {
@@ -73,7 +71,7 @@ type dataRestore struct {
 	from, version, into string // whose archive, which version ("" = the latest), the target deployment
 	replace             bool   // main: empty each archived resource first; beyond main always
 	confirmed           bool   // confirm:"erase-data" was sent (or the act is POST /restore's)
-	switchConfirm       string // POST /restore's confirm: names a partition mode switch the archive predates
+	tileRestore         bool   // POST /restore's (listedRestore): the main archive that lists it passed preSwitchRestore
 	dryRun              bool
 	by                  string
 	authorize           func(tile string) error
@@ -176,8 +174,12 @@ func (b *Broker) restoreData(tile string, r dataRestore) (string, []string, []st
 	if err == nil {
 		err = archivedDataOK(br.M, tile, r.from)
 	}
-	if err == nil {
-		err = b.preSwitchRestore(tile, br.M, r.from, r.switchConfirm) // backup_partition_restore.go
+	if err == nil && !r.tileRestore { // POST /deployments/restore: no confirmation (backup_preswitch.go)
+		err = b.preSwitchRestore(tile, br.M, r.from, "")
+		if pre, ok := err.(preSwitchError); ok {
+			pre.deployments = true
+			err = pre
+		}
 	}
 	if err != nil {
 		return "", nil, nil, nsErr(http.StatusConflict, deployments.KindState, "the archive can't be restored: "+err.Error()+"; nothing was restored")
