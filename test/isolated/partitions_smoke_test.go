@@ -30,7 +30,9 @@ package isolated
 // 02/03's tests, 01 §2.4-§2.6); features later packs build (F5 bus
 // subscriptions, cron, vault and notify; F7a terminals; F7b per-partition
 // logs, tile status and the partitions event; F9 ?xbin-partition=global;
-// F10 consent; F15 personal binds) are out of scope.
+// F10 consent; F15 personal binds) are out of scope here, beside F9's
+// answers on this fixture; wave 2's are smoked by TestPartitionsSmokeW2
+// (partitions_smoke_w2_test.go).
 //
 //	set -a; eval "$(sed -n 's/^export \([A-Z_]*\) := \(.*\)$/\1=\2/p' .dev.mk | grep -v ^PATH)"; set +a
 //	go test -tags=integration -count=1 -v -run '^TestPartitionsSmoke$' ./test/isolated/
@@ -308,7 +310,7 @@ func TestPartitionsSmoke(t *testing.T) {
 			path string
 			hdrs []xbindtest.Header
 			own  bool     // it reaches bob's partition: global's data is as wrong as alice's
-			want []psWant // today's answer first; the others are F9's (?xbin-partition=, 05 §6)
+			want []psWant // the one answer (any of them, where several are listed)
 		}
 		ungranted := psWant{403, "user:bob is not granted access to " + psTile, false}
 		otherDep := psWant{403, "never reaches another deployment of its own tile", false}
@@ -319,11 +321,11 @@ func TestPartitionsSmoke(t *testing.T) {
 			{"frame, file", file, with(bobFrame), true, []psWant{psOK("bob-note")}},
 			{"frame, kv keys", keys, with(bobFrame), true, []psWant{psList("bob-only")}},
 			{"frame, files listing", ls, with(bobFrame), true, []psWant{psList("bob-only")}},
-			// F9 turns ?xbin-partition=global into an attributed call to
-			// global (bob's frame is the tile's own credential); until then
-			// the query reaches bob's own instance as a plain one
-			{"frame, ?xbin-partition=global", kv + "?xbin-partition=global", with(bobFrame), false, []psWant{psOK("bob-secret"), psOK("global-secret")}},
-			{"frame, ?xbin-partition=user:alice", file + "?xbin-partition=user:alice", with(bobFrame), true, append([]psWant{psOK("bob-note")}, psRefusedF9...)},
+			// F9 (05 §6): ?xbin-partition=global is an attributed call to
+			// global (bob's frame is the tile's own credential), never
+			// alice's partition; any other value is refused
+			{"frame, ?xbin-partition=global", kv + "?xbin-partition=global", with(bobFrame), false, []psWant{psOK("global-secret")}},
+			{"frame, ?xbin-partition=user:alice", file + "?xbin-partition=user:alice", with(bobFrame), true, []psWant{psBadPartitionParam}},
 			{"frame, spoofed X-XBin-* headers", kv, with(bobFrame, spoofs...), true, []psWant{psOK("bob-secret")}},
 			{"frame, spoofed headers, file", file, with(bobFrame, spoofs...), true, []psWant{psOK("bob-note")}},
 			{"frame, spoofed headers, kv keys", keys, with(bobFrame, spoofs...), true, []psWant{psList("bob-only")}},
@@ -469,8 +471,7 @@ func TestPartitionsSmoke(t *testing.T) {
 		}
 		routes := []route{
 			{"/api/" + psTile + "/kv/kv/secret", []psWant{psOK("carol-secret")}, []psWant{psOK("global-secret")}},
-			{"/api/" + psTile + "/kv/kv/secret?xbin-partition=user:alice",
-				append([]psWant{psOK("carol-secret")}, psRefusedF9...), append([]psWant{psOK("global-secret")}, psRefusedF9...)},
+			{"/api/" + psTile + "/kv/kv/secret?xbin-partition=user:alice", []psWant{psBadPartitionParam}, []psWant{psBadPartitionParam}},
 			{"/api/" + psTile + "/fs/files/note", []psWant{psOK("carol-note")}, []psWant{{404, `"not found"`, false}}},
 			{"/api/" + psTile + "/ls?res=files", []psWant{psList("carol-only")}, []psWant{psList("global-only")}},
 			{"/api/" + psTile + "/keys/kv", []psWant{psList("carol-only")}, []psWant{psList("global-only")}},

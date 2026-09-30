@@ -422,10 +422,10 @@ func (w psWant) String() string {
 func psOK(v string) psWant   { return psWant{status: 200, value: v} }
 func psList(n string) psWant { return psWant{status: 200, value: n, list: true} }
 
-// psRefusedF9 is what F9 (?xbin-partition=, 05 §6) may answer a partition
-// name it doesn't honour — a refusal, never the named partition's data —
-// once it lands; until then the query reaches the backend as a plain one.
-var psRefusedF9 = []psWant{{status: 400}, {status: 403}}
+// psBadPartitionParam is F9's answer (05 §6) to ?xbin-partition naming
+// anything but global on a partitioned tile: 400, never the named
+// partition's data.
+var psBadPartitionParam = psWant{400, "its one value is global", false}
 
 // psOutcome is what r answers: a probe route's status and value — through
 // the probe's /call relay, the relayed call's — else its status and body.
