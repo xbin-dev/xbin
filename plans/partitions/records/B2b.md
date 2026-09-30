@@ -13,7 +13,10 @@ below go there at merge.
 Commits: the backend (`e2454350`), the page's two homes (`5ec856ec`), a
 copy reading whole bundles + the app's uploads (`0eb38947`), the e2e and
 fakeopenai's prefix (`c40d5184`), docs (`7497871f`), the harness pass
-(`0a676be5`), and this record.
+(`0a676be5`), and this record. The review's fixes are on `pt/b2b-fix`
+(see "Review fixes" below): the backend (`dfef7ff4`), the page
+(`86991036`), API.md (`be7e0e21`), the e2e and harness pass, and this
+record's update.
 
 ## Bugs found
 
@@ -23,6 +26,24 @@ fakeopenai's prefix (`c40d5184`), docs (`7497871f`), the harness pass
 - **Found and fixed before commit**: `POST /copy` read global's export
   through `callGlobal`, whose answer `gwDo` cuts at 4 MiB — a copy with
   files would have been truncated; it reads through its own call now.
+- **Found by the review, fixed on `pt/b2b-fix`** (all B2b's own code; the
+  table under "Review fixes"): a person could import a bundle naming
+  someone else as a message's writer; the merged list could list a
+  conversation twice; a person's draft upload at global left a private
+  run in the shared space; a copy lost its task ledger and stubs; the
+  native view's images of a shared conversation 404'd; an oversize copy
+  failed as a truncated body's 400.
+- **Found while fixing, fixed (tests only)**: B2b's own homes tests
+  switched the mode and `confIn` while their runs' passes and titles still
+  read them — a data race under `-race -count=6` (`homeAgent` waited for
+  titles only, and a title could start after the wait); `quiet()` now waits
+  for no pass, then no title, before a mode change and at cleanup.
+- **Pre-existing, fixed (test only)**: B2a's `TestBrakeRequests` swapped
+  `confIn` while the run its first ask queued was still in a pass reading
+  it — a data race under `-race` 4 runs in 5 on this box, on the
+  partitions base (d6499604) alike, which failed `hack/tile-check.sh
+  agent`. It now waits for that pass to end first; nothing it asserts
+  changed (`b8dffee2`).
 - **Observed, not changed** (legacy look): the existing share dialog's
   visibility radios sit inside `.field`, so `.field input { width: 100% }`
   stretches them and `.field label`'s uppercase applies to their labels
@@ -51,15 +72,19 @@ fakeopenai's prefix (`c40d5184`), docs (`7497871f`), the harness pass
   one of your own is **Share a copy…** (a copy goes to the shared space —
   who can see it, its session files or not, the original kept or deleted),
   a shared one's share dialog offers **Copy to my own space**, and **New
-  chat with options** asks who can see the new chat. New routes, in a
-  partitioned instance only: `POST /runs/{id}/publish`, `POST /copy`, `GET
-  /runs/{id}/export`, `POST /import`; `POST /ask` takes `share` (in every
+  chat with options** asks who can see the new chat (only you, the team,
+  or people you name). A copy is the conversation the model reads — every
+  message and tool result, its task ledger — and names a message's writer
+  only when that is who made the copy: anyone else's message comes as
+  "copied · <id>", never as theirs. New routes, in a partitioned instance
+  only: `POST /runs/{id}/publish`, `POST /copy`, `GET /runs/{id}/export`,
+  `POST /import` (413 over 48 MiB); `POST /ask` takes `share` (in every
   instance — unpartitioned it shares the new conversation at once); at the
   global instance a person's `POST /ask` must carry it (409 otherwise) and
-  their `POST /runs` is refused; `POST /join` in a person's partition is
-  redeemed at the global instance. An unpartitioned instance's page, and
-  the global instance's own (the owner token), are unchanged. Nothing to
-  change.
+  their `POST /runs` and `PUT /ask/upload` are refused; `POST /join` in a
+  person's partition is redeemed at the global instance. An unpartitioned
+  instance's page, and the global instance's own (the owner token), are
+  unchanged. Nothing to change.
 ```
 
 ## Decision entry (plans/DECISIONS.md, the next free D-number)
@@ -78,12 +103,12 @@ fakeopenai's prefix (`c40d5184`), docs (`7497871f`), the harness pass
       reads such a call as the person (B2a's `principal`/`agentRole`), so
       D83 applies unchanged — no new ACL code.
     - **The shared space keeps shared conversations**: a person's attributed
-      `POST /ask` at global without `share` (or with a draft) is 409/400, and
-      their `POST /runs` is 409 — a buggy or old page can't put a person's
-      private chat into global's db (B2a's open question). A person may
-      still un-share one there later (it stays in the shared space, readable
-      by its managers). The owner token (the global-viewer state) asks as
-      ever.
+      `POST /ask` at global without `share` (or with a draft) is 409/400,
+      and their `POST /runs` and `PUT /ask/upload` (a new chat's draft) are
+      409 — a buggy or old page can't start a private chat of a person's in
+      global's db (B2a's open question). A person may still un-share one
+      there later (an owner question). The owner token (the global-viewer
+      state) asks as ever.
     - **Two homes by id** (`model/homes.js`): below 2^40 the global
       instance's, from 2^40 the person's partition; every call about a
       conversation — path `/runs/<id>…` — and the stream following it go to
@@ -94,24 +119,35 @@ fakeopenai's prefix (`c40d5184`), docs (`7497871f`), the harness pass
       follows a shared conversation while it is open, and the run list only
       while the list shows shared rows (or the Shared view) — else it is
       closed, so a page with nothing shared never keeps the global instance
-      busy. Both pause while hidden (B2a). Live for every member (90 §I4)
-      holds by construction: each member's page follows global's stream.
+      busy; such a page reads the shared space's first page again when it
+      shows or gains focus (at most every 15 s), and lists what was shared
+      with the person since. Both pause while hidden (B2a). Live for every
+      member (90 §I4) holds by construction: each member's page follows
+      global's stream.
     - **The merged list**: Mine reads both homes and cuts at a horizon (the
-      newest of the last rows of homes that have more pages), holding rows
-      below it until the next page, so paging never shows a row above one a
-      later page could still bring; Shared is global's; search and "needs
-      you" read both.
+      newest of the last rows, as read, of homes that have more pages),
+      holding rows below it until the next page, so paging never shows a
+      row above one a later page could still bring; live events reach held
+      rows too, and each conversation is listed once; Shared is global's;
+      search and "needs you" read both.
     - **Copies between homes**: `POST /runs/{id}/publish {share, files?,
       keep?}` in a person's partition exports the conversation (the root's
-      transcript as the model reads it — tool calls and results, folded
-      ones marked, the summary; session files only with `files`, binary
-      ones ≤ 16 MiB together) and sends it to global's `POST /import`
-      through `callGlobal` (attributed), then deletes the original unless
-      `keep`; `POST /copy {from}` fetches global's `GET
-      /runs/{id}/export` the same way and imports it privately. Subagents'
-      transcripts, memory, grants, sandboxes and the task ledger stay
-      behind; the copy gets a note naming where it came from. The four
-      routes exist only in a partitioned instance.
+      transcript as the model reads it — tool calls and results, folded and
+      masked ones marked, the summary, the task ledger on the messages it
+      pins; session files only with `files`, ≤ 16 MiB together) and sends
+      it to global's `POST /import` through `callGlobal` (attributed), then
+      deletes the original unless `keep`; `POST /copy {from}` fetches
+      global's `GET /runs/{id}/export` the same way and imports it
+      privately. A bundle over 48 MiB is 413. Subagents' transcripts,
+      memory, grants and sandboxes stay behind; the copy gets a note naming
+      where it came from. The four routes exist only in a partitioned
+      instance.
+    - **A bundle is its caller's word**: at `POST /import` a message keeps
+      its writer only when that is the caller; anyone else's comes as a
+      copy (`origin: "copy"`, `label` the id it named — the page shows
+      "copied · <id>", the model reads no `[id]` for it) and a ledger row
+      that isn't the caller's own request becomes a `copy` one. `POST
+      /copy` imports the global instance's own export, whose writers stand.
     - **Sharing in a partition**: `POST /runs/{id}/members`, `/links`,
       `PATCH` visibility and team schedules keep B2a's 409 (a conversation
       there is its person's alone); `POST /join` is relayed to global (join
@@ -124,17 +160,41 @@ fakeopenai's prefix (`c40d5184`), docs (`7497871f`), the harness pass
     deleted only after global took the copy; a second list API merging
     homes server-side (the partition can't read global's ACL'd list as the
     person without a round trip per page); an always-open global stream
-    (keeps global awake for pages with nothing shared); refusing `share` on
-    an unpartitioned `POST /ask` (it is what sharing right after does).
+    (keeps global awake for pages with nothing shared); a membership
+    doorbell for newly shared conversations (a mail or ping per share — the
+    focus/visibility re-read covers the page a person is looking at);
+    trusting a bundle's writers at import (any person could put words in
+    another's name); refusing `share` on an unpartitioned `POST /ask` (it
+    is what sharing right after does).
 ```
+
+## Review fixes (pt/b2b-fix)
+
+Every finding of the B2b review, and what became of it (tests: the
+template `_backend`'s unless said otherwise):
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 (medium) | `POST /import` stored each bundle message's `sender`: a person could import a hand-written bundle in which bob wrote something — carol's page showed it as bob's, and the global agent read it as `[bob] …` | **Fixed** (`vouchedBy`, `_backend/homes_bundle.go`): at `POST /import` only the caller is taken at their word. Anyone else's message (or one naming nobody) is stored as a copy — `origin: "copy"`, `label` the id it named (a valid user id, else none), no sender — so `senderOf` never returns it, the model gets no `[id]` for it and `model/fold.js` shows "copied · bob"; automation prompts keep their origin; a ledger row that isn't the caller's own request becomes `copy`. The owner token vouches for no one. `POST /copy` (the global instance's own export, read by the partition's backend) keeps its senders. `TestImportTakesOnlyTheCallersWord` (carol's view, the ledger, the model's wire messages after carol talks: `[alice]`, `[carol]`, no `[bob]`; the owner token's import; the private copy keeps bob), the e2e (alice's hand-made bundle, read by dave), `hack/agent-template-chat.test.mjs` (fold). |
+| 2 (medium) | the merged Mine listed a conversation twice when a live event reached a row held below the horizon; `ustate` for held rows was dropped | **Fixed** (`model/conv-list.js`): `find()` looks in `held` too; an event on a held row re-places it (it lists once it rises above the horizon); `place()` keeps each id once (the newest row); the horizon is the row as read (`{id, activityMs}`), not the object a later event moves; an unpinned row is re-placed with two homes. `hack/agent-template-homes.test.mjs`: a held row's `ustate`, an event that leaves it held, one that lifts it, then `more()` — each id once. |
+| 3 (medium) | `PUT /ask/upload` at global from a person made a held private run with its file in the shared space, which no shared ask could send | **Fixed:** `globalRoute` refuses it (409: drafts are made in your own space; a shared chat is created held and uploaded into). `TestSharedAskAtGlobal` (409, no held run left; the owner token as ever) and the e2e. The un-share paths are folded into the owner question. |
+| 4 (medium) | a copy wasn't faithful once compacted: a compacted request lost its pin, the agent's own user messages became `human` asks, masked tool results came back full-size | **Fixed:** the bundle carries each message's ledger row (`ask: {source, who}`), `masked`, and a user message's `origin`/`label`; import records exactly those rows (compacted ones included — `readAsks` works out Live) and restores the stubs. `TestCopyKeepsTheLedgerAndMasks` (a compacted first request stays `# Your task`, a `[subagent results]` message is no request, the masked result stays masked). |
+| 5 (low) | the native view's thumbnails, previews and exports of a shared conversation asked the person's own partition (404) | **Fixed:** `native/ui.js` `thumb`/`raw` add `&xbin-partition=global` for a global id, as `uploadTarget` does. `hack/agent-template-homes.test.mjs` (global, own, unpartitioned). |
+| 6 (low) | New chat offered only you / the team — 08 §3's "with people…" missing, unrecorded | **Fixed:** "Only the people you name (shared space)", and people beside the team; none named keeps the dialog open and says so (`agent.js`: one line). `test/homes.mjs`. The composer's plain Send stays a chat of your own — recorded under Deviations. |
+| 7 (low) | the publish notice said "your private files and sandbox stay yours unless you add them" though tool results can quote them | **Fixed:** "A copy of its whole transcript goes … your messages, the agent's answers and everything its tools returned, which can quote your private files, memory or sandbox … Its session files go too only if you add them." `test/homes.mjs`. |
+| 8 (low) | text files and messages were uncounted; an oversize import was cut by `LimitReader` into a `400 unexpected EOF`, `POST /copy` a 502 | **Fixed:** one 16 MiB cap for session files, text and binary (over it: `left`); the bundle is measured as JSON — export and publish answer 413 "too large to copy: N MiB … leave its session files out"; import reads through `http.MaxBytesReader` (413); `POST /copy` passes the export's 413 on. `TestCopyTooLarge`. |
+| 9 (low) | a person with nothing shared listed never learnt live that a conversation was shared with them | **Fixed (the page they look at):** `ConvList.catchUp` — while Mine lists nothing shared (global's list stream closed), showing the page or focusing it re-reads the shared space's first page (at most every 15 s); anything there reloads the list and opens the stream. "Needs you" at global follows with the stream's first run events (the app reloads needs on them) or going home. A doorbell for a background page is not built (Decision "Not chosen"). `hack/agent-template-homes.test.mjs`. |
+| 10 (low) | two merge conflicts with parallel packs not called out | **Recorded** under Merge risks, with the resolution. |
+| 11 (low) | the harness could pass without checking the global-viewer state; SKIP by default | **Fixed:** with `HARNESS_AGENT_PARTITION` set, a page that isn't a person's partition, a missing owner token and an owner-token page not opening as global are failed checks. The pass stays opt-in (`HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1`, run.sh's documented recipe, which already names it for agentTemplate); the default harness seeds the agent unpartitioned for every other pass (B2a review #19). |
 
 ## Seams for the integrator
 
 | Seam | Where | Filled by |
 |---|---|---|
-| `globalRoute(pattern, h)` — global mode's per-route wrapper (today: `POST /runs` from a person → 409) | `_backend/homes.go`, called first in `partitionRoute` (partition_routes.go) | **B2c** may add its global-side refusals there (e.g. a private trigger's registration rules) |
+| `globalRoute(pattern, h)` — global mode's per-route wrapper (today: `POST /runs` and `PUT /ask/upload` from a person → 409) | `_backend/homes.go`, called first in `partitionRoute` (partition_routes.go) | **B2c** may add its global-side refusals there (e.g. a private trigger's registration rules) |
 | `shareSpec` / `askShareOK` / `shareNew` (POST /ask's `share`) | `_backend/homes.go`, three lines in `ask.go` `handleAsk` | **B2d**: a hosted (non-secure) conversation's members snapshot can reuse `shareSpec.check` |
-| `exportConv` / `importConv` (`convBundle` v1) | `_backend/homes.go` | **B2d**'s "share a copy of my …" posts items into an existing shared conversation — a different route, but the bundle's file part (`bundleFile`, `acceptUploadSrc` with source `copy`) is reusable |
+| `exportConv` / `importConv` (`convBundle` v1), `vouchedBy`, `copyOrigin` | `_backend/homes_bundle.go` | **B2d**'s "share a copy of my …" posts items into an existing shared conversation — a different route, but the bundle's file part (`bundleFile`, `acceptUploadSrc` with source `copy`) is reusable, and anything a person posts there on someone else's behalf should go through `vouchedBy` (only the caller is a sender) |
+| `ConvList.catchUp` (a person's page re-reads the shared space's first page when shown/focused while nothing shared is listed) | `model/conv-list.js` | a follow-up could add a membership doorbell (a mail when someone shares a conversation with you) for a page in the background; the page needs nothing more for it than calling `catchUp` |
 | `twoHomes`, `homeOf`, `publishes`, `listHomes`, `splitRows` (pure) and `runApi`/`homeApi`/`homeFetch` | `model/homes.js`, `model/home-api.js` | **B2c/B2d**'s frontend calls: anything about a shared conversation goes through `runApi` (by path) or `homeApi('global', …)` |
 | `Session.liveG`, `Session.homes()`, `wantGlobalList` | `model/session.js` | **B2d**: a hosted conversation's live deltas come through global's stream already (08 §4) — nothing to add on the page |
 | sandboxes in a shared conversation | `model/sandbox-store.js` (unchanged) | follow-up (B2d or later): the picker lists the person's partition's sandboxes; binding one to a shared conversation is refused by global (not its sandbox). The page should read `/sandboxes` at the conversation's home |
@@ -157,8 +217,25 @@ fakeopenai's prefix (`c40d5184`), docs (`7497871f`), the harness pass
   the Shared list is open") — widened to "or Mine shows a shared row", so
   a merged list stays live.
 - **Session files are opt-in on a copy** ("your private files … stay yours
-  unless you add them"): a checkbox; binary files over 16 MiB together are
-  left and named (`left`).
+  unless you add them"): a checkbox; files over 16 MiB together (text and
+  binary) are left and named (`left`). The transcript itself always goes
+  whole, tool results included — the dialog says they can quote private
+  files, memory or the sandbox.
+- **A new shared chat is made from New chat with options** (08 §3: new
+  chats "Shared with the team" / "with people…"): only you, the team (to
+  read or write) or people you name, with the team or alone. The
+  composer's plain Send stays a chat of your own — the composer has no
+  share choice (a person's everyday chat stays private; sharing it later is
+  a copy).
+- **A newly shared conversation reaches a page with nothing shared listed
+  when the page shows or gains focus** (a re-read of the shared space's
+  first page), not live while it sits in the background: global's list
+  stream stays closed for such a page (08 §11). A doorbell is not built.
+- **A copy names a message's writer only when that is who made it** (a
+  bundle at `POST /import` is the caller's word): anyone else's message in
+  a published copy reads "copied · <id>" and is no one's to the model;
+  08 §3 doesn't say — this keeps one person from putting words in
+  another's name.
 - **The native view** gets the merged list, the Shared view and a shared
   conversation's share sheet; publish, copy-to-mine and a shared new chat
   are the web's (feature DIFFERENCES with reasons).
@@ -175,8 +252,21 @@ fakeopenai's prefix (`c40d5184`), docs (`7497871f`), the harness pass
 
 ## Tests
 
-On the final tree (`.dev.mk`'s env exported for the integration runs, the
-Bash sandbox off for isolated ones; no SKIP):
+**The review fixes (`pt/b2b-fix`), on its final tree** (`.dev.mk`'s env
+exported for the integration runs, the Bash sandbox off for isolated ones;
+no SKIP):
+
+| Run | Result |
+|---|---|
+| **the legacy golden**: `TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh agent` — every existing test (B2a's `TestBrakeRequests` with its race fixed, nothing it asserts changed) plus the new ones | PASS (223 s) |
+| template `_backend`, new: `TestImportTakesOnlyTheCallersWord`, `TestCopyKeepsTheLedgerAndMasks`, `TestCopyTooLarge` (homes_copy_test.go); extended: `TestSharedAskAtGlobal` (a person's `PUT /ask/upload` at global 409, no held run left, the owner token's 200) — with every homes test and `TestBrakeRequests`, `-race -count=10`; each new check seen failing with its fix taken out (the vouching, the stubs) | PASS |
+| **e2e** `go test -tags=integration -run '^TestPartitionsAgent$' ./test/isolated/` on a real isolated xbind — all seven cases; `shared-chats` now also imports a bundle alice made naming bob as a writer (dave reads a copy labelled bob, no sender) and has her draft upload at global refused (409) | PASS (67 s) |
+| JS: `hack/agent-template-homes.test.mjs` (+ a held row's `ustate` and run events, then `more()` — each id once; `catchUp` — nothing shared, the 15 s floor, a newly shared row listed and the stream wanted; the native view's `thumb`/`raw` at global, at home, unpartitioned), `hack/agent-template-chat.test.mjs` (+ a copied message is "copied · bob" / "copied"); `make fmt-check vet js-check js-test` (461 pass, 1 skipped as before) | PASS |
+| template browser tests from a scratch copy: `test/homes.mjs` (+ the publish notice's words; New chat with people: none named keeps the dialog open with its error, then a chat shared with carol and dave made at global), and `partition share sidebar chat home attach automations settings native sandbox layout triggers channels grant long live-policy frame-policy` | PASS |
+| repo guards: `go test . ./internal/assetscan ./internal/sizebudget ./internal/docscheck ./internal/builtins ./internal/apicheck` | PASS |
+| UI harness `agentHomes` (PORT 8966, `HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1`, …/scratchpad/h4-B2b): 20 checks, none skipped — the 16 before, the partition and owner-token checks now failures when unmet, and **a copy dev1 shares back shows the admin's message as "copied · admin" and dev1's as dev1's** (the real page). Screenshots looked at: `agent-homes-publish` (the new notice), `-live-dev1`, `-copied` | PASS |
+
+**B2b as first built (`pt/b2b`):**
 
 | Run | Result |
 |---|---|
@@ -212,7 +302,24 @@ Bash sandbox off for isolated ones; no SKIP):
 - **`hack/ui-harness/shots.js`**: `PASSES.agentHomes` on its own line after
   `PASSES.partitionMark`, and one blank line removed inside `reloadFocus`
   (the file's 877-line budget) — another pack cutting the same blank line
-  merges cleanly; one cutting a different line doesn't conflict.
+  merges cleanly; one cutting a different line doesn't conflict. **B2c
+  (`PASSES.channelsPartitioned`), F11 (`PASSES.personPage`), F12
+  (`PASSES.adminPartitions`, `PASSES.partitionLogs`) and F14b insert their
+  lines at the same anchor, so git conflicts on each pair despite the
+  comment**: resolve by keeping every `PASSES.x = …` line (order doesn't
+  matter). The sum stays under the budget, since F12 moves adminMap out.
+- **`_backend/partition_routes.go` `userRoutes`**: B2b changes the `"POST
+  /join"` row (→ `userGlobal`) and B2c the two rows right below it
+  (`"POST /channels/{id}/claim": userGlobal`, `"POST /triggers":
+  userLocal`) — adjacent lines, a textual conflict. Resolve by keeping all
+  three: `"POST /join": userGlobal` (B2b's, with its comment) next to B2c's
+  rows as B2c has them.
+- **`_backend/homes.go` split** (review fix): the bundle code moved to
+  `homes_bundle.go` (homes.go would have passed the 800-line cap); B2b's
+  own files, nothing else moved. `model/fold.js` gains one line (a copied
+  message's "copied · <id>"); `agent.js` one line (New chat's people,
+  now 995 of 1016); `hack/ui-harness/run.sh` one comment line (the
+  partitioned recipe names agentHomes).
 - **B2a's JS expectations changed on purpose**: `sharing('user')` is true;
   `rowMenu`/`topBar` of a person's own conversation offer publish, not
   Share (`hack/agent-template-partition.test.mjs`, `test/partition.mjs`).
@@ -221,8 +328,11 @@ Bash sandbox off for isolated ones; no SKIP):
 
 ## Owner questions
 
-- **A person un-sharing a shared conversation** (PATCH visibility private,
-  no members) leaves a private conversation in the shared space (readable
-  by the agent's managers, as unpartitioned). Refuse it there and offer
-  "Copy to my own space" instead? This pack allows it (D83's rule
-  unchanged).
+- **A person un-sharing a shared conversation** at the global instance —
+  `PATCH /runs/{id}` to `visibility: private` with no members left, or
+  removing the last member (`DELETE /runs/{id}/members/{user}`) — leaves a
+  private conversation of theirs in the shared space (readable by the
+  agent's managers, as unpartitioned). Starting one there is refused now
+  (`POST /ask` without `share`, `POST /runs`, `PUT /ask/upload`); should
+  these two paths be refused too (409: "Copy to my own space", then delete
+  the shared one)? This pack allows them (D83's rule unchanged).
