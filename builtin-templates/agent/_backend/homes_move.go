@@ -10,8 +10,10 @@
 //     like a handoff (handoff_send.go: per person, retried, given up after 7
 //     days). The key is what the partition's backend drives the move with:
 //     xbind stamps a person's page and terminals as it stamps their
-//     partition's backend, and only the backend reads the mail;
-//     its join links are revoked; nothing may change it any more (409) but
+//     partition's backend, and the backend takes the mail as it arrives
+//     (a page could only fish it from the inbox before that — the owner
+//     against their own conversation, which they may delete anyway).
+//     Its join links are revoked; nothing may change it any more (409) but
 //     stopping or answering what it works on — it stays readable where it is;
 //  2. the owner's partition (homes_move_user.go) reads it through
 //     GET /moves/{id}/export — refused while anything in it is under way
@@ -301,9 +303,9 @@ func ownMove(w http.ResponseWriter, r *http.Request) (*convMove, bool) {
 	return m, true
 }
 
-// keyed: the call carries the move's mailed key — it is the owner's
-// partition's backend, which took the conv/move mail (xbind stamps its
-// page and terminals the same way; they don't have the key). 403 otherwise.
+// keyed: the call carries the move's mailed key — the owner's partition's
+// backend, which took the conv/move mail (xbind stamps its page and
+// terminals the same way; they don't hold the key). 403 otherwise.
 func keyed(w http.ResponseWriter, m *convMove, key string) bool {
 	if m.Key != "" && key != m.Key {
 		xbin.WriteError(w, http.StatusForbidden, "a move is made by the agent in your own space, not by hand")

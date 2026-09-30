@@ -114,8 +114,8 @@ move (`2b5844f8`), the e2e and harness pass tightened, docs, this record.
       `deliverInboundTx`).
     - **The partition drives the move** (homes_move_user.go) with the
       mailed key — xbind stamps a person's page and terminals as it stamps
-      their partition's backend, and only the backend takes the mail: the
-      mail is recorded (`moves_in`); off the mailbox, one move at a time
+      their partition's backend, and the backend takes the mail as it
+      arrives: the mail is recorded (`moves_in`); off the mailbox, one move at a time
       with backoff: delete an earlier attempt's hidden copy → `GET
       /moves/{id}/export?key=` (409 while anything in the tree is under
       way: an `active()` status, input not taken, a sandbox command; the
@@ -273,6 +273,12 @@ move (`2b5844f8`), the e2e and harness pass tightened, docs, this record.
   for a draft.
 - **`importConv`** keeps a stamp's `held` origin (a move's hidden copy);
   every other caller stamps `chat` as before.
+- **The mailed key is a bar, not a wall**: the owner's page could read
+  the `conv/move` item from their partition's inbox (`GET
+  /api/xbin/partitions/mail`) before their backend takes it, and then
+  drive the move by hand — only their own conversation, which they may
+  delete or keep private anyway; nobody else's. xbind has no way for a
+  tile to tell its backend's calls from its page's.
 - **`movedTo` reaches everyone the conversation's ACL admits** when it is
   deleted (its owner; system-level viewers such as the owner token's
   page); only the owner's own page follows it.
