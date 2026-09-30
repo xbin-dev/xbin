@@ -588,16 +588,33 @@ layout math — `overlaps()` and `pushLayout()`, the push a dragged or
 resized tile performs on its neighbours (D66) — lit-free, tested in
 `hack/grid-layout.test.mjs`; `shell-kit.js` re-exports the constants and
 holds the rest of what the shell and its children share: `RUNTIME_COLOR`,
-the partitioned marker (`partitionMark(c)`), the `LongPress` gesture,
+the partitioned marker (`partitionMark(c)`), the partition chip's tag
+(`chipTag`) and a pop-out window's head (`spawnTitle`: the framed tile's
+marker, the title and its chip), the `LongPress` gesture,
 `selectedText()` and the `prBadge()` template. `partition-mode.js` is
 partitioned tiles' words and decisions, lit-free: what a row's `partition`
-reads as, the marker's tooltip, a pending card's text, the POST
-`/partitions/mode` bodies and the typed confirmation's spec — tested in
-`hack/partition-mode.test.mjs` (xbind's switch words are pinned against it
-by the registry's `TestShellSwitchWords`), end to end by the harness's
-`partitionMark` pass (the marker on row and head, none on a deployment's
-window; Keep, and Switch… through the confirmation, on pending cards). The
-`partitionSwitch` pass is the old-shell check: its browsers load the shell
+reads as, the marker's tooltip, the window's partition chip
+(`partitionChip`: yours / shared / global / no partition, from the row,
+the deployment shown and `/whoami`; `framedTile` finds the tile a
+pop-out frames), a pending card's text, the POST
+`/partitions/mode` bodies and the typed confirmation's spec, and the
+consent prompts' words, what they show (`consentPrompts`) and their
+calls — tested in `hack/partition-mode.test.mjs` (xbind's switch words are
+pinned against it by the registry's `TestShellSwitchWords`), end to end by
+the harness's `partitionMark` pass (the marker on row and head, none on a
+deployment's window; the chip on a person's, a deployment's and the
+workspace token's windows and on pop-outs; Keep, and Switch… through the
+confirmation, on pending cards). `bx-part-consent.js` is the consent
+prompts' panel in the shell's decision strip (beside `<bx-grants>`,
+`hidden` while there is nothing to answer): it reads `GET
+/partitions/consents` as the person (never view-as or the workspace
+token), follows the `partitions` consent ops and `policies` on the page's
+own events socket (the person's, never the shell tile's), keeps a
+person's "Don't allow" in `localStorage` under a key of their own, and
+keeps Allow disabled while anything covers an ask (a timer hit-tests it;
+`coverPoints`); the harness's `partitionConsent` pass drives it over a
+real refused cross-partition kv read. The `partitionSwitch` pass is the old-shell
+check: its browsers load the shell
 from before partitioned tiles out of git (the parent of the commit that
 added `partition-mode.js`) over the dev overlay, so it needs the repo's
 history.

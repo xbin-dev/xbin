@@ -351,6 +351,15 @@ func TestPartitionEdgeMatrix(t *testing.T) {
 	if d := f.route(qAlice, "apps/pu"); d.Deny != nil {
 		t.Errorf("revoking pg took pu too: %v", d.Deny)
 	}
+	// the ask her allow answered doesn't come back with the revocation, and
+	// q's refused retry that day asks nothing new (she just said no)
+	decode(t, call(t, b.apiConsentsList, aliceP, "GET", "/partitions/consents", "", nil), 200, &asked)
+	if len(asked.Asked) != 0 {
+		t.Errorf("after the revocation, GET consents asks again for %+v", asked.Asked)
+	}
+	if n := len(f.pushed()); n != 2 {
+		t.Errorf("the refused retry after the revocation prompted again the same day: %q", f.pushed())
+	}
 
 	// a person recreated under the same id inherits nothing
 	st := b.Users

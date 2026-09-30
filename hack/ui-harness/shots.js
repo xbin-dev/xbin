@@ -814,7 +814,6 @@ async function adminTabs(browser) {
   await ctx.close();
   done();
 }
-
 // ---- pass registry + CLI ----
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
@@ -824,6 +823,7 @@ const PASSES = {
 PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
 PASSES.adminPartitions = require('./passes/adminpartitions').adminPartitions; // F12, on its own line
 PASSES.partitionLogs = require('./passes/partitionlogs').partitionLogs; // F12, on its own line
+PASSES.partitionConsent = require('./passes/partitionconsent').partitionConsent;
 
 (async () => {
   const args = process.argv.slice(2);

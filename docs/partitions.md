@@ -53,12 +53,23 @@ filled, whose tooltip reads "Partitioned: each person here has their own
 data" — and names the global instance when the tile has one. It marks a
 state; it isn't a button. It follows the recorded mode, so a pending switch
 doesn't change it ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
-A window showing one of the tile's other deployments has no marker: its
-head says `shared` beside the deployment's name, since that deployment's one
-instance is shared by the tile's writers (above), not your partition. A
-theme may set the marker's colour with the `--bx-part` token. The shell is
-workspace scaffold, so a workspace gets the marker with `bx builtin
-update`.
+Every window of a partitioned tile also says, after the tile's path, whose
+partition it shows — its card's head, and the head of a pop-out window
+that frames the tile (`xbin.window`, [elements.md](elements.md): a
+sub-path of a tile is its own page, in the same partition), which carries
+the marker too — a quiet chip in the marker's colour, with a tooltip:
+`yours` (your own partition), `shared` (a window showing one of the tile's
+other deployments, which has no marker: that deployment's one instance is
+shared by the tile's writers, above, not your partition) or `global` (the
+tile's global instance, which a window with no person behind it reaches:
+the workspace token, `--no-auth`). A window that reaches no partition says
+`no partition`: an admin viewing the workspace as someone (view-as never
+opens a person's partition, [below](#who-reaches-which-partition)), or the
+workspace token on a tile without a global instance. A theme may set the
+marker's colour with the `--bx-part` token. The shell is workspace
+scaffold, so a workspace gets the marker, the chip and the consent prompts
+([§Calls between partitioned tiles](#calls-between-partitioned-tiles)) with
+`bx builtin update`.
 
 ## Who reaches which partition
 
@@ -605,13 +616,25 @@ alice hasn't let apps/z use their apps/x data (they allow it at
 /xbin/partitions)`, and alice is asked — a push
 and a `partitions` event to her own sockets (never to X's code), at most
 once a day per edge, and only for an edge an admin approved, so tile code
-can't make people consent ahead of the grant. The push links to her
-[partitions page](#your-partitions-page), where she allows it — or with `bx
-partition consent apps/z apps/x` — from her own sign-in (never tile code:
-`POST /api/xbin/partitions/consents` takes a person's own session, app or
-device only), and takes it back the same way (`--revoke`): the next call
-and data reach are refused, and Z's backend instance of her stops (it
-starts again on its next request, without her consent). A stream that a
+can't make people consent ahead of the grant. In the workspace shell the
+ask shows above her tiles, beside the pending grant requests — "apps/z
+asks to use your data in apps/x", why it asks, **Allow** and **Don't
+allow** — in every shell she has open or opens that day, until she answers
+it; it goes when the policy is turned off. Allow lets the next call
+through; it works only while nothing covers the question (a tile's pop-out
+window over it, say) and not in the moment it appears. Don't allow stores
+nothing: the calls stay refused, that browser stops showing her the ask,
+and xbind asks again, at most once a day, when apps/z tries again. The
+push links to her [partitions page](#your-partitions-page). She allows it
+in the shell, on that page or with `bx partition consent apps/z apps/x`,
+from her own sign-in (never tile code: `POST
+/api/xbin/partitions/consents` takes a person's own session, app or device
+only), and takes it back on that page or with `bx partition consent apps/z
+apps/x --revoke`: the next call and data reach are refused, and Z's
+backend instance of her stops (it starts again on its next request,
+without her consent). Taking it back doesn't bring the answered ask back;
+xbind asks again, at most once a day, when apps/z tries again. A stream
+that a
 page, terminal or agent session of Z opened as her before the revocation
 lasts until it closes; so does one opened before an admin turned the
 policy on. Consents belong to the person as they are now: someone deleted
@@ -1146,7 +1169,3 @@ wait for the person. Switching a tile's partition mode deletes all its data,
 and erases it from backups, after a manager confirms. Backups are encrypted,
 each person's partition under a key of its own, and restoring one on
 another machine needs the exported backup keys ([§Backups](#backups)).
-
-## Not documented yet (TODO)
-
-- the shell's consent prompts.

@@ -3031,6 +3031,8 @@ GET    /partitions/consents        a person's own session, app or device
                                    the policy is off; they apply again when
                                    it returns) and the edges they were asked
                                    about in the last day and haven't allowed
+                                   since (an allow answers the ask: taking
+                                   the consent back doesn't list it again)
                                    (docs/partitions.md §Calls between
                                    partitioned tiles)
 POST   /partitions/consents        PersonOnly, as above. {from, to}: let

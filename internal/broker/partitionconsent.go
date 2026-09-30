@@ -124,6 +124,11 @@ type consentState struct {
 	mu    sync.Mutex
 	docs  map[string]consentCached
 	asked map[string]time.Time // user\x00from\x00to → the last prompt
+	// answered: the prompts an allow answered (the same key → that
+	// prompt's time). askedOf lists them no more — a consent taken back
+	// later doesn't bring back an ask the tile hasn't made since — while
+	// asked still keeps xbind quiet on that edge for the rest of the day.
+	answered map[string]time.Time
 }
 
 type consentCached struct {
@@ -138,7 +143,7 @@ var (
 )
 
 func (b *Broker) consents() *consentState {
-	v, _ := consentStates.LoadOrStore(b, &consentState{docs: map[string]consentCached{}, asked: map[string]time.Time{}})
+	v, _ := consentStates.LoadOrStore(b, &consentState{docs: map[string]consentCached{}, asked: map[string]time.Time{}, answered: map[string]time.Time{}})
 	return v.(*consentState)
 }
 
@@ -274,9 +279,11 @@ func (b *Broker) consentNeeded(userID, from, to string) {
 	for k, at := range cs.asked { // keep the map small: forget old prompts
 		if now.Sub(at) >= consentAskQuiet {
 			delete(cs.asked, k)
+			delete(cs.answered, k)
 		}
 	}
 	cs.asked[key] = now
+	delete(cs.answered, key) // a new prompt: unanswered
 	cs.mu.Unlock()
 	go b.promptConsent(userID, from, to)
 }
@@ -302,14 +309,30 @@ func (b *Broker) promptConsent(userID, from, to string) {
 		consentPage, "partition-consent:"+consentKey(from, to))
 }
 
+// consentAnswered marks userID's prompt for the edge, if any, answered by
+// an allow (consentState.answered).
+func (b *Broker) consentAnswered(userID, from, to string) {
+	cs := b.consents()
+	key := userID + "\x00" + from + "\x00" + to
+	cs.mu.Lock()
+	if at, ok := cs.asked[key]; ok {
+		cs.answered[key] = at
+	}
+	cs.mu.Unlock()
+}
+
 // askedOf are the edges userID was prompted for within the last day and
-// still hasn't allowed: what the partitions page offers.
+// still hasn't allowed — nor allowed since that prompt, even if they took
+// the consent back: what the shell's prompts and the partitions page offer.
 func (b *Broker) askedOf(userID string) []map[string]any {
 	cs := b.consents()
 	now := consentNow()
 	cs.mu.Lock()
 	var out []map[string]any
 	for k, at := range cs.asked {
+		if a, ok := cs.answered[k]; ok && a.Equal(at) {
+			continue
+		}
 		parts := strings.Split(k, "\x00")
 		if len(parts) == 3 && parts[0] == userID && now.Sub(at) < consentAskQuiet {
 			out = append(out, map[string]any{"from": parts[1], "to": parts[2], "at": at.UTC()})
@@ -548,6 +571,7 @@ func (b *Broker) apiConsentsAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("audit", "who", p.From(), "method", "POST", "path", "/partitions/consents", "status", http.StatusOK, "from", from, "to", to)
+	b.consentAnswered(p.UserID, from, to)
 	b.publishConsents(p.UserID, from, to, true)
 	server.WriteJSON(w, http.StatusOK, b.consentsView(p.UserID))
 }

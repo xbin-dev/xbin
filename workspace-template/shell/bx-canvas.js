@@ -5,8 +5,9 @@
  * touch long-press and the right-click that open menus) and the per-card
  * chrome (head buttons, the >_ terminal toggle, the ⇄ and ⇈ badges, the
  * deployment a window shows: ⇈ picks it, a +name tag says so; and on
- * partitioned tiles the marker and a pending switch's overlay, where a tile
- * manager keeps the mode or switches it).
+ * partitioned tiles the marker, the chip saying whose partition the window
+ * shows, and a pending switch's overlay, where a tile manager keeps the
+ * mode or switches it).
  *
  * The tiles array is a property; every geometry change comes back as one
  * `bx-tiles` event carrying the new array — the shell persists it (a shared
@@ -22,14 +23,14 @@ import '/vendor/bx-menu.js';
 import '/vendor/bx-dialog.js';
 import { clampBox, dragPointer, pathHas } from '/vendor/bx-kit.js';
 import { GRID, GAP, MIN_W, MIN_H, snap, RUNTIME_COLOR, LongPress, selectedText, prBadge,
-  followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge, partitionMark } from './shell-kit.js';
+  followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge, partitionMark, chipTag } from './shell-kit.js';
 import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo } from './zorder.js';
 import { canvasCss, prbCss, partCss } from './shell-css.js';
 import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
   switchSpec, switchResolve, staleRefusal, deletesNothing, keptText, switchedText, whoDecides, noteText,
-  depShared, DEP_SHARED } from './partition-mode.js';
+  partitionChip } from './partition-mode.js';
 
 export class BxCanvas extends LitElement {
   static properties = {
@@ -45,6 +46,7 @@ export class BxCanvas extends LitElement {
     scale: { attribute: false },        // px per logical px of the grid — the per-browser grid scale (D68); 1 = 48px cells
     alerts: { attribute: false },       // /alerts rows (optional): a pending tile's card says its partition-switch message
     reload: { attribute: false },       // () → the shell reloads /components and /alerts (optional; after a decision)
+    who: { attribute: false },          // /whoami (optional): whose partition a partitioned tile's window shows (its chip)
     _drag: { state: true },             // a grid drag/resize in flight: {path, rect, moves, dirs, orig, positive}
     _dmenu: { state: true },            // a window head's ⇈ menu: {items, anchor, title}
     _part: { state: true },             // path → a pending card's decision {key, busy, err, done}
@@ -335,8 +337,9 @@ export class BxCanvas extends LitElement {
     const floating = kind === 'float', shown = this._shownDep(o);
     const c = this._rowOf(o.path), pv = partitionView(c);
     // a window on another deployment shows no partitioned marker: that
-    // deployment's one instance is shared by the tile's writers (01 §2.8)
-    const mark = shown ? null : partitionMark(c);
+    // deployment's one instance is shared by the tile's writers (01 §2.8);
+    // the chip says whose partition the window shows (yours/shared/global)
+    const mark = shown ? null : partitionMark(c), chip = partitionChip(pv, { shown, who: this.who });
     const frame = html`<bx-frame src=${o.path} deployment=${shown || nothing} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
     return html`
       <div class="card" data-path=${o.path}
@@ -348,7 +351,7 @@ export class BxCanvas extends LitElement {
           ${mark ?? html`<span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>`}
           <span class="t">${o.path}</span>
           ${shown ? html`<span class="dtag" title=${`this window shows ${o.path}'s deployment ${shown} (/c/${o.path}+${shown}/), not the primary`}>+${shown}</span>` : nothing}
-          ${shown && depShared(pv) ? html`<span class="dshare" title=${DEP_SHARED}>shared</span>` : nothing}
+          ${chipTag(chip)}
           ${prBadge(this.prs?.[o.path], () => this.frameOpen(o.path, 'prs'))}
           ${deployBadge(this._deployIcon(o, shown), (e) => this._deployMenu(e, o))}
           <span class="spacer"></span>
