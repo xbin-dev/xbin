@@ -786,8 +786,12 @@ const post = (room, text, mentions = []) => xbin.fetch(`/api/${xbin.self}/rooms/
   misses posts rather than stalling the room: fetch a room's recent posts
   on (re)connecting if that matters.
 - The builtin agent's shared conversations work this way: everyone in one
-  follows its stream at the global instance
-  ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
+  follows its stream at the global instance, and the partition hosting a
+  non-secure one posts its run there
+  ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)). Its hub
+  ends a follower's stream when the conversation stops admitting them; it
+  doesn't yet ask `xbin.AccessOf` about a follower who loses the agent
+  itself, whose open stream runs on until it ends.
 
 ### 3. Waking a partition: partition mail
 
