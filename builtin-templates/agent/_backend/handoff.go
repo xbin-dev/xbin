@@ -58,10 +58,11 @@ CREATE TABLE IF NOT EXISTS usage_days (
   person TEXT NOT NULL, day TEXT NOT NULL,
   runs INTEGER NOT NULL DEFAULT 0, llm_calls INTEGER NOT NULL DEFAULT 0,
   prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0,
-  at INTEGER NOT NULL, PRIMARY KEY (person, day));
+  at INTEGER NOT NULL, harness_sessions INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (person, day));
 CREATE TABLE IF NOT EXISTS usage_daily (
   day TEXT PRIMARY KEY, llm_calls INTEGER NOT NULL DEFAULT 0,
-  prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0);
+  prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0,
+  harness_sessions INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS partition_people (
   person TEXT PRIMARY KEY, seen INTEGER NOT NULL DEFAULT 0, noticed INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS handoff_files (
@@ -80,6 +81,9 @@ func (d *DB) addHandoffSchema() error {
 		`ALTER TABLE outbox ADD COLUMN origin TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE triggers ADD COLUMN host TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE handoffs ADD COLUMN next_try INTEGER NOT NULL DEFAULT 0`, // a table this version's first builds made
+		// coding agents' sessions in the usage totals (usage.go; tables earlier builds made)
+		`ALTER TABLE usage_days ADD COLUMN harness_sessions INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_daily ADD COLUMN harness_sessions INTEGER NOT NULL DEFAULT 0`,
 	} {
 		_, _ = d.q.Exec(q) // fails harmlessly when the column is there
 	}

@@ -474,6 +474,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		hs.ReadOff, hs.ErrOff, hs.Draft, hs.Answers = 0, 0, "", "" // a new adapter: no request of the old one's to answer
 		hs.Shared, hs.Name = sandboxShared(u.Box), prov.Name
 		hs.LastActiveMs, hs.StartedMs = nowMs(), nowMs()
+		t.harnessUsageTx() // a person's partition's usage totals (harness_partition.go)
 		return t.putHarnessSession(hs)
 	})
 	if err != nil {
