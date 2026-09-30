@@ -285,6 +285,20 @@ and people's pages reach them through their own global instance
 person's from 2^40, the global instance's below), everyone in a shared one
 follows its stream there — so all see a run live — and a person shares one
 of their own by publishing a copy to the global instance.
+A person may also let a shared conversation use **their** private
+resources — their sandboxes, their data in other partitioned tiles, their
+vault — which makes it **non-secure** and **hosted** by their partition:
+the conversation moves into the agent's shared `team` database, the
+person's own partition drives it (only what its own table lists — a row in
+`team` can't make it drive anything), the members keep using it at the
+global instance, which rings the host's partition by partition mail when
+they write and fans the host's live run out to their streams (the global
+instance as the hub for member-scoped live state). Every member is warned
+each time they open it, a wider audience pauses it until the host confirms,
+and it has no join links. The non-hosting alternative is **"Add a copy of
+my …"**: a person's partition sends copies of their own files into a shared
+conversation, whose originals stay private. The template's API.md
+("Non-secure conversations") has the rules.
 
 A partitioned agent's chat channels and event triggers show how a tile that
 isn't partitioned — the messaging bridge, the webhooks tile — serves people
