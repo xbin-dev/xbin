@@ -47,6 +47,7 @@ func (st *State) wirePartitionRunner() {
 		}
 	})
 	st.Reg.OnPartitionChange(brk.PartitionTileChanged) // a tile that went takes the consents naming it
+	st.wirePartitionOps()                              // the partitions API's runner side, the people hooks (partitionops.go)
 }
 
 // runningSpec is the partition spec a tile in mode m runs: its recorded mode

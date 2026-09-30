@@ -58,6 +58,7 @@ func (b *Broker) requestPushDue(tile string) bool {
 // settle's locks.
 func (b *Broker) partitionModeChanged(tile string, h modeHistory) {
 	b.Hub.Publish(events.Event{Type: "reload", Component: tile})
+	b.publishPartitionMode(tile) // the partitions event, op mode (partitiontrust.go)
 	if h.Op != modeOpRequest || !b.requestPushDue(tile) {
 		return
 	}

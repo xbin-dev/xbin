@@ -360,6 +360,7 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 	if l := b.inviteLink(r, tok); l != "" {
 		out["inviteLink"] = l
 	}
+	b.credentialInvite(r, r.PathValue("id"), tok, out) // a partition holder is told; held with credentialResetConfirm (partitioncreds.go)
 	server.WriteJSON(w, http.StatusOK, out)
 }
 
@@ -467,8 +468,10 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	credDone := b.credentialChange(w, r, cur, &nu, &body.Password) // told, or held for a partition holder (partitioncreds.go)
 	u, err := st.Upsert(nu, body.Password)
 	if err == nil {
+		credDone()
 		u, err = b.applyPersonal(srv, st, u, body.personalBody, false)
 	}
 	if err != nil {
@@ -493,11 +496,13 @@ func (b *Broker) apiUsersDelete(srv *server.Server, w http.ResponseWriter, r *ht
 	if st == nil {
 		return
 	}
+	uid := b.storedPartitionUID(r.PathValue("id")) // their incarnation, gone with the record
 	orphaned, err := st.Delete(r.PathValue("id"))
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	b.PartitionPersonDeleted(r.PathValue("id"), uid) // stops, orphans, binds, consents, homes (partitionpeople.go)
 	if srv != nil && srv.Auth != nil {
 		srv.Auth.DropUserSessions(r.PathValue("id"))
 	}
@@ -775,11 +780,4 @@ func (b *Broker) apiSessions(srv *server.Server, w http.ResponseWriter, r *http.
 		out = append(out, row)
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"sessions": out})
-}
-
-func firstNonEmpty(a, b string) string {
-	if strings.TrimSpace(a) != "" {
-		return a
-	}
-	return b
 }

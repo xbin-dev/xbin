@@ -67,7 +67,10 @@ func newEdgeFx(t *testing.T) *edgeFx {
 		f.pushes = append(f.pushes, user+" "+kind+" "+link+" "+collapse)
 		f.mu.Unlock()
 	})
-	ch, cancel := w.b.Hub.Subscribe(func(e events.Event) bool { return e.Type == "partitions" })
+	ch, cancel := w.b.Hub.Subscribe(func(e events.Event) bool {
+		_, other := e.Data.(audienceEvent) // the mode's and the notices' ops (F7b), not the consent plane's
+		return e.Type == "partitions" && !other
+	})
 	t.Cleanup(cancel)
 	f.events = ch
 	return f

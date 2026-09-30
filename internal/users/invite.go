@@ -93,8 +93,8 @@ func (s *Store) InviteUser(token string) (*User, bool) {
 
 // RedeemInvite consumes an invite: sets the user's password and clears the
 // invite (single-use). Expired/unknown tokens fail generically
-// (ErrInvalidInvite); a password failing CheckNewPassword leaves the invite
-// unspent.
+// (ErrInvalidInvite); a password failing CheckNewPassword, and an invite the
+// installed gate holds (ErrInviteHeld, credhold.go), leave it unspent.
 func (s *Store) RedeemInvite(token, password string) (*User, error) {
 	if err := CheckNewPassword(password); err != nil {
 		return nil, err
@@ -109,6 +109,9 @@ func (s *Store) RedeemInvite(token, password string) (*User, error) {
 		}
 		if subtle.ConstantTimeCompare([]byte(u.InviteHash), []byte(want)) != 1 {
 			continue
+		}
+		if err := s.inviteGateLocked(u); err != nil { // a link held for its person (credhold.go): kept unspent
+			return nil, err
 		}
 		salt := make([]byte, 16)
 		if _, err := rand.Read(salt); err != nil {

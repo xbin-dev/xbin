@@ -176,10 +176,7 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 // acts on the tile's own state, and what it lacks: refused to user
 // partitions until the pack that converts it removes the row
 // (plans/partitions/95).
-var partitionUnconverted = map[string]string{
-	"GET /logs":        "per-partition backend logs",
-	"GET /tile-status": "per-partition tile status",
-}
+var partitionUnconverted = map[string]string{}
 
 // partitionPersonKeyed names the PartitionScoped routes whose handler keys
 // on the credential's person (p.UserID): a person's frames, terminals and
@@ -469,6 +466,17 @@ var partitionClasses = map[string]PartitionClass{
 	// a person's partition's (01 §2.5, PD-49) ----
 	"POST /partitions/limits": PartitionNeutral,
 	"POST /partitions/mode":   GlobalOnlyRefused,
+	// the operations (06 §6): a listing whose handler gives tile code only
+	// the tile-level fields; stop, reset and purge judge the person
+	"GET /partitions":        PartitionNeutral,
+	"POST /partitions/stop":  GlobalOnlyRefused,
+	"POST /partitions/reset": GlobalOnlyRefused,
+	"POST /partitions/purge": GlobalOnlyRefused,
+	// a person's own acts: sharing their partition's log, deciding a
+	// credential an admin made for them (06 §5, §9)
+	"POST /partitions/share-log":          PersonOnly,
+	"DELETE /partitions/share-log":        PersonOnly,
+	"POST /partitions/credential-confirm": PersonOnly,
 
 	// ---- cross-tile partition edges (05 §2, 06 §6.1): a person's consents
 	// and egress ledger are their own acts and reads — never tile code's —

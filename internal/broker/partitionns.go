@@ -395,6 +395,7 @@ func (b *Broker) sweepPartitionNamespaces(now time.Time) {
 		slog.Warn("partition namespace sweep", "err", err)
 	}
 	b.sweepPartitionRecords(now) // their records, registrations and vaults (partitionrecords.go)
+	b.sweepRemovedModeRecords()  // a removed tile with nothing left loses its mode record (partitiontrust.go)
 }
 
 func (b *Broker) sweepPartitionOne(id nsID, now time.Time) error {

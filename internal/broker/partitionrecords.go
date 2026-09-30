@@ -475,7 +475,8 @@ func (b *Broker) sweepPartitionRecords(now time.Time) {
 		if err != nil || now.Sub(since) < partitionRetention {
 			return
 		}
-		if err := b.dropPartition(partTarget{tile: rec.Tile, dep: rec.Dep, pkey: d.pkey}); err != nil {
+		// the whole partition: its terminals, log and other planes' stores too, its subkey erased (partitionops.go)
+		if _, err := b.dropOnePartition(rec.Tile, rec.Dep, d.pkey, "partition swept: "+rec.Reason, ""); err != nil {
 			slog.Warn("partition sweep", "tile", rec.Tile, "partition", d.pkey, "err", err)
 			return
 		}

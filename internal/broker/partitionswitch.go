@@ -331,6 +331,7 @@ func (b *Broker) rescanAfterDecision(tile string) {
 
 func (b *Broker) reloadAfterDecision(tile string) {
 	b.Hub.Publish(events.Event{Type: "reload", Component: tile})
+	b.publishPartitionMode(tile) // the partitions event, op mode (partitiontrust.go)
 }
 
 // ---- switch ----

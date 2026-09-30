@@ -189,7 +189,8 @@ func (b *Broker) sandboxOffloadCheck(tile string) error {
 // offloadStatus is the HTTP status an offload failure answers.
 func offloadStatus(err error) int {
 	var e *errSandboxState
-	if errors.As(err, &e) {
+	var pe *errPartitionedOffload // partitionops.go
+	if errors.As(err, &e) || errors.As(err, &pe) {
 		return 409
 	}
 	return 502

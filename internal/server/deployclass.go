@@ -385,6 +385,17 @@ var routeClasses = map[string]RouteClass{
 	"DELETE /partitions/consents": PrimaryOnly,
 	"GET /partitions/ledger":      PrimaryOnly,
 	"GET /partitions/edges":       PrimaryOnly,
+
+	// ---- partitions' operations (plans/partitions 06 §5-§9): the listing is
+	// a read of workspace facts (tile code gets the tile-level fields only);
+	// the acts are a person's, never a tile credential's ----
+	"GET /partitions":                     Neutral,
+	"POST /partitions/stop":               PrimaryOnly,
+	"POST /partitions/reset":              PrimaryOnly,
+	"POST /partitions/purge":              PrimaryOnly,
+	"POST /partitions/share-log":          PrimaryOnly,
+	"DELETE /partitions/share-log":        PrimaryOnly,
+	"POST /partitions/credential-confirm": PrimaryOnly,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

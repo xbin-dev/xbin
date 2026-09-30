@@ -613,7 +613,7 @@ func endpoints() []ep {
 		{"PUT", "/cron/jobs", "Resources", "Register a cron job", "writer (resource grant)", "Registers a schedule that calls back into a component. `component` is owner-only; elements always schedule themselves. A tile credential schedules for its own deployment: from a non-primary deployment the job is its own, dormant while its deliveries are off, and the answer gains dormant:true.", []oapi{deploymentQuery("admin: schedule for that deployment (echoed); a tile credential naming another deployment: 403")},
 			jsonBody("job", oapi{"name": str(""), "resource": str("res:<scope>/<name>"), "schedule": str("@every 1m | 5-field cron"), "path": str("/tick"), "role": str("optional"), "component": str("owner-only")}, "name", "resource", "schedule", "path"), "ok"},
 		{"DELETE", "/cron/jobs/{name}", "Resources", "Delete a cron job", "authenticated", "Element: own jobs; admin: any (via ?component=).", []oapi{pathParam("name", "job name"), queryParam("component", "owner-only: whose job", false), deploymentQuery("admin: that deployment's")}, nil, "ok"},
-	}, append(append(append(append(sandboxEndpoints(), partitionEndpoints()...), partitionModeEndpoints()...), partitionConsentEndpoints()...), personalBindEndpoints()...)...)
+	}, append(append(append(append(append(sandboxEndpoints(), partitionEndpoints()...), partitionModeEndpoints()...), partitionConsentEndpoints()...), personalBindEndpoints()...), partitionOpsEndpoints()...)...)
 }
 
 // OpenAPI builds the OpenAPI 3.1 document.
