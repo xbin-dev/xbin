@@ -68,8 +68,11 @@ page.on('dialog', (d) => d.accept());
 await page.goto(`${ORIGIN}/`);
 await page.waitForSelector(`#runs .run[data-id="${HOSTED}"]`);
 const calls = (re) => page.evaluate((s) => window.__calls.filter((c) => new RegExp(s).test(c.url)), re.source);
-const composer = () => page.evaluate(() => ({ disabled: document.getElementById('msg').disabled, placeholder: document.getElementById('msg').placeholder,
-  bar: !document.getElementById('hostbar')?.hidden }));
+const composer = () => page.evaluate(() => {
+  const bar = document.getElementById('hostbar');
+  return { disabled: document.getElementById('msg').disabled, placeholder: document.getElementById('msg').placeholder,
+    bar: !!bar && !bar.hidden && getComputedStyle(bar).display !== 'none' && bar.offsetHeight > 0 };
+});
 
 ok('a hosted conversation\'s row has the ⚠ chip', await page.$eval(`#runs .run[data-id="${HOSTED}"]`, (e) => !!e.querySelector('.chip.notprivate')));
 ok('…a plain shared one\'s hasn\'t', await page.$eval('#runs .run[data-id="2"]', (e) => !e.querySelector('.chip.notprivate')));

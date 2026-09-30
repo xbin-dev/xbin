@@ -372,8 +372,8 @@ func handleHostingDrop(w http.ResponseWriter, r *http.Request) {
 }
 
 // dropHosting ends hosting of id (the host's table first: the engine stops
-// driving it at its next look; the step in flight is abandoned — writing
-// nothing).
+// driving it at its next look; the step in flight is abandoned — a model
+// call writes nothing, a tool call ends as after a restart).
 func dropHosting(id int64, reason string) bool {
 	res, err := agent.db.q.Exec(`UPDATE hosted SET state='dropped', pending='' WHERE conversation=? AND state IN ('active','paused')`, id)
 	if err != nil {

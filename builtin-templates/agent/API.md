@@ -241,8 +241,10 @@ What a partitioned instance does differently:
     instance re-reads it). Other routes on it answer 409; join links 409.
   - **A wider audience pauses it** — a member added, the team let in, a
     viewer made a participant, at the global instance: the host's engine
-    stops (the step in flight is abandoned, writing nothing), members'
-    messages answer 409, and the host is asked: `POST /hosting/{id}/confirm
+    stops (a model call in flight is abandoned, writing nothing, and made
+    again once confirmed; a tool call in flight ends as after a restart), members'
+    messages answer 409, and the host is asked (on the page, and by a push to
+    their xbin app): `POST /hosting/{id}/confirm
     {seen: pendingKey}` (409 if it changed again) or `/decline`. Declining,
     `DELETE /hosting/{id}`, 7 days without an answer, or the host's
     partition refusing mail for good (the person deleted, disabled or no

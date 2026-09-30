@@ -123,8 +123,10 @@ func stopHosting(wait time.Duration) {
 }
 
 // haltHosted abandons what the host's engine is doing in a conversation
-// (paused or dropped): the step in flight ends writing nothing, and the
-// pass that follows finds it out of scope.
+// (paused or dropped) as a handoff abandons it: a model call in flight writes
+// nothing (the run stays running — made again once confirmed), a tool call
+// in flight ends as after a restart; the pass that follows finds it out of
+// scope.
 func haltHosted(root int64) {
 	e := hostEngine.Load()
 	if e == nil {

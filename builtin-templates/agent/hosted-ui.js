@@ -34,6 +34,7 @@ let locked = false;
 const CSS = `
 #hostbar { flex: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 12px; font-size: 12px;
   border-top: 1px solid var(--bx-border); background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent); }
+#hostbar[hidden] { display: none; }
 .badge.notprivate, .chip.notprivate { color: var(--bx-yellow, #d9a441); border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 60%, var(--bx-border)); }
 .badge.notprivate { cursor: pointer; }
 #hostdlg .warnhd { color: var(--bx-yellow, #d9a441); }
