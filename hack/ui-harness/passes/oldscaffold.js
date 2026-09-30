@@ -16,6 +16,11 @@
 //   - no page error anywhere.
 // The workspace's own scaffold comes back at the end, byte for byte, and
 // apps/opend's request is withdrawn (its code asks nothing again).
+// It needs the workspace's own scaffold served: run.sh's default xbind
+// overlays the source tree's (--dev-overlay), so the pass SKIPs there, said
+// so — neither the default run nor CI covers it; run it as
+//   HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold
+// (and give --shots runs against that instance HARNESS_NO_OVERLAY=1 too).
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, tileFrame, settle, sleep, shot, shotEl, checker } = require('../lib');
@@ -95,6 +100,14 @@ function scaffold() {
 
 async function oldScaffold(browser) {
   const { check, skip, done } = checker('old-scaffold');
+  // --dev-overlay serves the repo's scaffold over the workspace's, so a
+  // swap of the workspace's copies would show nothing: said so, before any
+  // setup (the default run.sh is overlaid; HARNESS_NO_OVERLAY=1 is not)
+  if (!process.env.HARNESS_NO_OVERLAY) {
+    skip(`the harness xbind serves the source tree's scaffold (--dev-overlay): run it with HARNESS_NO_OVERLAY=1 for ${OLD}'s`);
+    done();
+    return;
+  }
   const sc = scaffold();
   const oldShell = sc.oldFiles('shell');
   check(oldShell.length > 0 && !oldShell.includes('partition-mode.js') && !oldShell.includes('bx-part-consent.js'),
@@ -122,11 +135,10 @@ async function oldScaffold(browser) {
     S.page.on('pageerror', (e) => errors.push(`shell: ${e.message}`));
     await openShell(S.page);
     const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('bx-part-consent'));
-    if (src) { // --dev-overlay serves the repo's scaffold over the workspace's
-      skip(`the shell served is the source tree's (--dev-overlay): run the harness with HARNESS_NO_OVERLAY=1 for ${OLD}'s`);
-      return;
-    }
-    check(!src, `the shell served is ${OLD}'s (its bx-shell.js imports no bx-part-consent.js)`);
+    // HARNESS_NO_OVERLAY=1 against an xbind that overlays anyway (a --shots
+    // run on an instance started without it) fails here, not further on
+    check(!src, `the shell served is ${OLD}'s (its bx-shell.js imports no bx-part-consent.js; an overlaid xbind serves the source tree's)`);
+    if (src) done(); // throws: the rest would test the source tree's shell
     await usePersonalScreen(S.page);
     const alerts = S.page.locator('bx-shell .alerts .alert');
     await until(async () => (await alerts.allInnerTexts()).some((x) => x.includes(PEND)), 'the /alerts banner names the pending tile', 20000);
