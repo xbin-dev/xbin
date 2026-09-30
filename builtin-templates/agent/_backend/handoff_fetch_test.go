@@ -171,6 +171,19 @@ func TestHandoffLargeFiles(t *testing.T) {
 	if _, err := gAg.blobs.Get(context.Background(), "chanfiles/big"); n != 0 || err == nil {
 		t.Fatalf("after the ack: %d rows, blob err %v", n, err)
 	}
+	if w := serveAs(gMux, "GET", path, "", asPartition("alice")); w.Code != 404 {
+		t.Fatalf("the held file after the ack: %d", w.Code)
+	}
+	// a mail held back is mailed later: its held file's time starts again
+	_, _ = gAg.db.q.Exec(`INSERT INTO handoff_files (file_id, handoff, person, created) VALUES ('flate', 'hlate', 'alice', ?)`, now()-fetchHeldTTL+60)
+	if err := gAg.holdForFetch(&dmHandoff{Handoff: "hlate"}, "flate", "late.png", "image/png", 1); err != nil {
+		t.Fatal(err)
+	}
+	var created int64
+	_ = gAg.db.q.QueryRow(`SELECT created FROM handoff_files WHERE file_id='flate'`).Scan(&created)
+	if created < now()-5 {
+		t.Fatalf("mailed again, its file's time didn't start again: %d", now()-created)
+	}
 	// one nobody fetched goes after fetchHeldTTL
 	_, _ = gAg.db.q.Exec(`INSERT INTO channel_files (id, channel_id, name, mime, size, content, blob, created) VALUES ('fold', ?, 'o', 'text/plain', 1, 'o', '', ?)`, ch, now())
 	_, _ = gAg.db.q.Exec(`INSERT INTO handoff_files (file_id, handoff, person, created) VALUES ('fold', 'hx', 'alice', ?)`, now()-fetchHeldTTL-1)
@@ -182,8 +195,8 @@ func TestHandoffLargeFiles(t *testing.T) {
 
 	// a reply's file too large for its mail: staged at global first — only
 	// by the handoff's person, once however often — then posted with it
-	stage := func(hdr map[string]string, key string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest("PUT", "/handoffs/"+h.Handoff+"/reply-files?key="+key+"&name=out.png&mime=image/png", bytes.NewReader(big))
+	stageTo := func(handoff string, hdr map[string]string, key string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("PUT", "/handoffs/"+handoff+"/reply-files?key="+key+"&name=out.png&mime=image/png", bytes.NewReader(big))
 		for k, v := range hdr {
 			r.Header.Set(k, v)
 		}
@@ -191,13 +204,20 @@ func TestHandoffLargeFiles(t *testing.T) {
 		gMux.ServeHTTP(w, r)
 		return w
 	}
-	if w := stage(asPartition("bob"), "k1/0"); w.Code != 404 {
+	stage := func(hdr map[string]string, key string) *httptest.ResponseRecorder {
+		return stageTo(h.Handoff, hdr, key)
+	}
+	const k1 = "00112233445566ff-1"
+	if w := stage(asPartition("bob"), k1+"/0"); w.Code != 404 {
 		t.Fatalf("bob stages into alice's reply: %d", w.Code)
+	}
+	if w := stage(asPartition("alice"), "k1/0"); w.Code != 400 {
+		t.Fatalf("a key not a reply's: %d", w.Code)
 	}
 	var st struct{ ID string }
 	for range 2 {
-		w := stage(asPartition("alice"), "k1/0")
-		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &st) != nil || st.ID != replyFileID("alice", "k1/0") {
+		w := stage(asPartition("alice"), k1+"/0")
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &st) != nil || st.ID != replyFileID("alice", k1+"/0") {
 			t.Fatalf("staging: %d %s", w.Code, w.Body)
 		}
 	}
@@ -205,7 +225,13 @@ func TestHandoffLargeFiles(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("staged %d times", n)
 	}
-	reply, _ := json.Marshal(outboxAddItem{Handoff: h.Handoff, Key: "k1", Kind: "answer", Text: "the chart", Staged: []string{st.ID, "rnotmine"}})
+	// bob stages a file for his own chat; alice's reply naming it doesn't take it
+	_, _ = gAg.db.q.Exec(`INSERT INTO handoffs (id, kind, person, channel_id, created, state) VALUES ('hbob', 'dm', 'bob', ?, ?, 'mailed')`, ch, now())
+	var bobs struct{ ID string }
+	if w := stageTo("hbob", asPartition("bob"), k1+"/0"); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &bobs) != nil || bobs.ID == st.ID {
+		t.Fatalf("bob stages for his own chat: %d %s", w.Code, w.Body)
+	}
+	reply, _ := json.Marshal(outboxAddItem{Handoff: h.Handoff, Key: "k1", Kind: "answer", Text: "the chart", Staged: []string{st.ID, bobs.ID}})
 	useMail(t, &fakeMail{items: []mailItem{{ID: "201", From: "user:alice", Topic: topicOutbox, Data: reply, At: time.Now()}}})
 	if _, err := gAg.pullMail(context.Background()); err != nil {
 		t.Fatal(err)
@@ -222,7 +248,38 @@ func TestHandoffLargeFiles(t *testing.T) {
 	if n != 0 {
 		t.Fatal("the staged reply file outlived its ack")
 	}
+	_ = gAg.db.q.QueryRow(`SELECT count(*) FROM handoff_files WHERE file_id=? AND person='bob'`, bobs.ID).Scan(&n)
+	if n != 1 {
+		t.Fatal("alice's reply took bob's staged file")
+	}
 	waitMailIdle(t)
+
+	// what a person may stage and not send: per chat (413: sent without it),
+	// in all (507: later); a chat too old to answer (410)
+	oldPer, oldFiles, oldBytes := maxStagedPerHandoff, maxStagedFiles, maxStagedBytes
+	t.Cleanup(func() { maxStagedPerHandoff, maxStagedFiles, maxStagedBytes = oldPer, oldFiles, oldBytes })
+	maxStagedPerHandoff, maxStagedFiles, maxStagedBytes = 2, 3, 3*len(big)
+	for i, want := range []int{200, 200, 413} {
+		if w := stage(asPartition("alice"), fmt.Sprintf("%s/%d", k1, i+1)); w.Code != want {
+			t.Fatalf("stage %d for one chat: %d %s (want %d)", i+1, w.Code, w.Body, want)
+		}
+	}
+	_, _ = gAg.db.q.Exec(`INSERT INTO handoffs (id, kind, person, channel_id, created, state) VALUES ('h2', 'dm', 'alice', ?, ?, 'mailed'), ('hold', 'dm', 'alice', ?, ?, 'mailed')`,
+		ch, now(), ch, now()-handoffMaxAge-1)
+	if w := stageTo("h2", asPartition("alice"), k1+"/7"); w.Code != 200 {
+		t.Fatalf("a third file, another chat: %d %s", w.Code, w.Body)
+	}
+	if w := stageTo("h2", asPartition("alice"), k1+"/8"); w.Code != 507 {
+		t.Fatalf("past the person's share: %d %s", w.Code, w.Body)
+	}
+	maxStagedFiles = 10
+	if w := stageTo("h2", asPartition("alice"), k1+"/8"); w.Code != 507 {
+		t.Fatalf("past the person's bytes: %d %s", w.Code, w.Body)
+	}
+	maxStagedBytes = 10 * len(big)
+	if w := stageTo("hold", asPartition("alice"), k1+"/9"); w.Code != 410 {
+		t.Fatalf("a chat too old to answer: %d %s", w.Code, w.Body)
+	}
 
 	// the partition's side: a reply whose file doesn't fit is staged, then mailed naming it
 	setMode(t, modeUser, "alice")

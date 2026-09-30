@@ -32,6 +32,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -54,10 +55,14 @@ type hoHeld struct {
 // --- the global instance ----------------------------------------------------------
 
 // holdForFetch (global, mailing a DM): its staged file id is too large for
-// the mail — it stays, held for the handoff, and the mail names it.
+// the mail — it stays, held for the handoff, and the mail names it. Its
+// fetchHeldTTL runs from the latest attempt to mail it, so a mail held back
+// (a full inbox, a partition not answering) still finds its file for the
+// mail's whole life in the inbox.
 func (ag *Agent) holdForFetch(h *dmHandoff, id, name, mime string, size int) error {
-	if _, err := ag.db.q.Exec(`INSERT OR IGNORE INTO handoff_files (file_id, handoff, person, dir, created)
-		VALUES (?, ?, COALESCE((SELECT person FROM handoffs WHERE id=?), ''), 'in', ?)`, id, h.Handoff, h.Handoff, now()); err != nil {
+	if _, err := ag.db.q.Exec(`INSERT INTO handoff_files (file_id, handoff, person, dir, created)
+		VALUES (?, ?, COALESCE((SELECT person FROM handoffs WHERE id=?), ''), 'in', ?)
+		ON CONFLICT(file_id) DO UPDATE SET created=excluded.created`, id, h.Handoff, h.Handoff, now()); err != nil {
 		return err
 	}
 	h.Fetch = append(h.Fetch, hoHeld{ID: id, Name: name, Mime: mime, Size: size})
@@ -183,9 +188,25 @@ func replyFileID(person, key string) string {
 	return "r" + hex.EncodeToString(s[:9])
 }
 
+// What a person may have staged for replies and not yet named in an
+// outbox/add (vars: tests lower them). A reply stages its files and is
+// mailed at once, so a person's partition rarely holds more than one
+// reply's; past the share it waits (507), like the inbox's own share.
+var (
+	maxStagedPerHandoff = 10       // files staged for one chat's replies, not yet taken
+	maxStagedFiles      = 32       // …for all of a person's chats
+	maxStagedBytes      = 64 << 20 // …and their bytes
+)
+
+// replyKeyRe is a reply file's stage key: the partition's outbox key, the
+// reply's row, the file's place (replyFileKey).
+var replyKeyRe = regexp.MustCompile(`^[0-9a-f]{16}-[1-9][0-9]{0,18}/[0-9]{1,3}$`)
+
 // handleReplyFilePut: PUT /handoffs/{id}/reply-files?key=&name=&mime= (body:
 // the bytes, ≤ 16 MiB) — the caller's partition stages a reply's file too
-// large for its mail; outbox/add names it in `staged`. → {id}.
+// large for its mail; outbox/add names it in `staged`. → {id}. 410 for a
+// handoff too old to answer; 413 past maxStagedPerHandoff; 507 past the
+// person's share (later).
 func handleReplyFilePut(w http.ResponseWriter, r *http.Request) {
 	id, chID, ok := handoffOf(w, r)
 	if !ok {
@@ -193,20 +214,41 @@ func handleReplyFilePut(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	key := q.Get("key")
-	if key == "" || len(key) > 200 {
-		xbin.WriteError(w, http.StatusBadRequest, "need ?key= (the reply's, unique to it)")
+	if !replyKeyRe.MatchString(key) {
+		xbin.WriteError(w, http.StatusBadRequest, "need ?key= (the reply's: <outbox key>-<row>/<file>)")
 		return
 	}
-	fid := replyFileID(callerOf(r).user, key)
-	var have int
+	me := callerOf(r).user
+	fid := replyFileID(me, key)
+	var have, created int64
 	_ = agent.db.q.QueryRow(`SELECT count(*) FROM handoff_files WHERE file_id=? AND handoff=?`, fid, id).Scan(&have)
 	if have > 0 {
 		xbin.WriteJSON(w, http.StatusOK, map[string]string{"id": fid}) // staged before (a retry)
 		return
 	}
+	if _ = agent.db.q.QueryRow(`SELECT created FROM handoffs WHERE id=?`, id).Scan(&created); created < now()-handoffMaxAge {
+		xbin.WriteError(w, http.StatusGone, fmt.Sprintf("that chat's message is older than %d days: it can't be answered any more", handoffMaxAge/86400))
+		return
+	}
+	var forChat, files, held int
+	_ = agent.db.q.QueryRow(`SELECT count(*) FROM handoff_files WHERE handoff=? AND dir='out'`, id).Scan(&forChat)
+	_ = agent.db.q.QueryRow(`SELECT count(*), COALESCE(sum(c.size), 0) FROM handoff_files h JOIN channel_files c ON c.id=h.file_id
+		WHERE h.person=? AND h.dir='out'`, me).Scan(&files, &held)
+	switch {
+	case forChat >= maxStagedPerHandoff:
+		xbin.WriteError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("a reply carries at most %d staged files", maxStagedPerHandoff))
+		return
+	case files >= maxStagedFiles:
+		xbin.WriteError(w, http.StatusInsufficientStorage, fmt.Sprintf("you have %d reply files staged and not yet sent: try again once they are", files))
+		return
+	}
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBinaryFileBytes+1))
 	if err != nil || len(data) > maxBinaryFileBytes {
 		xbin.WriteError(w, http.StatusRequestEntityTooLarge, errTooLarge.Error())
+		return
+	}
+	if held+len(data) > maxStagedBytes {
+		xbin.WriteError(w, http.StatusInsufficientStorage, fmt.Sprintf("your reply files staged and not yet sent take %s: try again once they are sent", humanBytes(held)))
 		return
 	}
 	of, err := stageReplyFileAs(r.Context(), fid, chID, hoFile{Name: q.Get("name"), Mime: q.Get("mime"), Data: data})
