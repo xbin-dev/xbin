@@ -12,9 +12,16 @@ package xbin
 // rings that path on the addressee's instance whenever its inbox holds
 // items (a MailBell body, From: xbin/mail); the handler reads with InboxPage
 // and acknowledges with Ack. Without it, the code polls Inbox.
+//
+// Each call has a Context variant (MailContext, MailWithContext,
+// InboxPageContext, InboxContext, AckContext) that gives up when its ctx
+// ends. The plain calls wait for xbind's answer however long it takes, so a
+// handler that must finish in time — a doorbell handler holding a lock, say
+// — bounds its calls with a deadline.
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,11 +73,29 @@ func errNoMail(status string) error {
 // "user:<id>" (a person who can read the tile) or "global"; from a person's
 // partition to "global" only. It answers the item's id.
 func Mail(to, topic string, data any) (string, error) {
-	return MailWith(to, topic, data, MailOptions{})
+	return MailWithContext(context.Background(), to, topic, data, MailOptions{})
+}
+
+// MailContext is Mail that gives up when ctx ends; its error then wraps
+// ctx's (errors.Is(err, context.DeadlineExceeded)). Before sending again
+// after an error, see MailWithContext.
+func MailContext(ctx context.Context, to, topic string, data any) (string, error) {
+	return MailWithContext(ctx, to, topic, data, MailOptions{})
 }
 
 // MailWith is Mail with options.
 func MailWith(to, topic string, data any, o MailOptions) (string, error) {
+	return MailWithContext(context.Background(), to, topic, data, o)
+}
+
+// MailWithContext is MailWith that gives up when ctx ends. The item may
+// then exist or not — xbind may have stored it just before — and the caller
+// never learns its id. Sending again makes a second item with a new id,
+// which the addressee's dedupe by ID doesn't catch: a sender that retries
+// puts its own key in data (the id of the event it passes on, say) for the
+// addressee to dedupe by, or doesn't retry. The same holds for any send
+// that fails without xbind's answer.
+func MailWithContext(ctx context.Context, to, topic string, data any, o MailOptions) (string, error) {
 	body := map[string]any{"to": to, "topic": topic, "data": data}
 	if o.TTL > 0 {
 		body["ttl"] = int64((o.TTL + time.Second - 1) / time.Second)
@@ -82,17 +107,20 @@ func MailWith(to, topic string, data any, o MailOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp, err := Client().Post("http://xbin/api/xbin/partitions/mail", "application/json", bytes.NewReader(raw))
+	resp, err := mailCall(ctx, http.MethodPost, "http://xbin/api/xbin/partitions/mail", raw)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	b, rerr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNotFound && !strings.Contains(string(b), "no such person") {
 			return "", errNoMail(resp.Status)
 		}
 		return "", fmt.Errorf("partition mail: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	if rerr != nil { // the answer cut off (ctx ended while it was read)
+		return "", fmt.Errorf("partition mail: %w", rerr)
 	}
 	var out struct {
 		ID string `json:"id"`
@@ -101,6 +129,23 @@ func MailWith(to, topic string, data any, o MailOptions) (string, error) {
 		return "", fmt.Errorf("partition mail: an answer without an id: %s", strings.TrimSpace(string(b)))
 	}
 	return out.ID, nil
+}
+
+// mailCall sends one request of the mail routes through the gateway,
+// bounded by ctx (body nil: none).
+func mailCall(ctx context.Context, method, u string, body []byte) (*http.Response, error) {
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rd)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return Client().Do(req)
 }
 
 // MailPage is one page of this partition's inbox. More says items wait
@@ -115,6 +160,12 @@ type MailPage struct {
 // is the last id already read ("" from the start), limit at most 1000 (0
 // means 100). Read on with the last item's ID while More.
 func InboxPage(after string, limit int) (MailPage, error) {
+	return InboxPageContext(context.Background(), after, limit)
+}
+
+// InboxPageContext is InboxPage that gives up when ctx ends; its error then
+// wraps ctx's. Nothing is lost: the items stay until acknowledged.
+func InboxPageContext(ctx context.Context, after string, limit int) (MailPage, error) {
 	q := url.Values{}
 	if after != "" {
 		q.Set("after", after)
@@ -126,7 +177,7 @@ func InboxPage(after string, limit int) (MailPage, error) {
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
-	resp, err := Client().Get(u)
+	resp, err := mailCall(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return MailPage{}, err
 	}
@@ -149,13 +200,25 @@ func InboxPage(after string, limit int) (MailPage, error) {
 // the end (it stops at about 8 MiB of data): an empty page is, or use
 // InboxPage and its More.
 func Inbox(after string, limit int) ([]MailItem, error) {
-	pg, err := InboxPage(after, limit)
+	return InboxContext(context.Background(), after, limit)
+}
+
+// InboxContext is Inbox that gives up when ctx ends.
+func InboxContext(ctx context.Context, after string, limit int) ([]MailItem, error) {
+	pg, err := InboxPageContext(ctx, after, limit)
 	return pg.Items, err
 }
 
 // Ack removes items from this partition's inbox; ids already acknowledged
 // or expired are nothing to do.
 func Ack(ids ...string) error {
+	return AckContext(context.Background(), ids...)
+}
+
+// AckContext is Ack that gives up when ctx ends; its error then wraps ctx's.
+// xbind may have removed the items all the same: acknowledging them again is
+// nothing to do.
+func AckContext(ctx context.Context, ids ...string) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -163,7 +226,7 @@ func Ack(ids ...string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := Client().Post("http://xbin/api/xbin/partitions/mail/ack", "application/json", bytes.NewReader(raw))
+	resp, err := mailCall(ctx, http.MethodPost, "http://xbin/api/xbin/partitions/mail/ack", raw)
 	if err != nil {
 		return err
 	}

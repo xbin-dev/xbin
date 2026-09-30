@@ -449,12 +449,10 @@ What each partition sees:
   person's partition here, and only when they can read this tile (and, if
   the workspace's `partitionConsent` policy is on, have allowed it).
 
-A partition's data is deleted 30 days after its tile is removed (unless the
-tile comes back) or its person's id is given to someone new, and at once
-when a tile manager switches the tile's partition mode
-([partitions.md](/docs/partitions.md)). Deleting a deleted person's
-partitions 30 days later is not available yet: until then their data stays
-on disk.
+A partition's data is deleted 30 days after its person is deleted (or
+their id is given to someone new) or its tile is removed (unless the tile
+comes back), and at once when a tile manager switches the tile's partition
+mode or the partition is reset ([partitions.md](/docs/partitions.md)).
 
 ## Choosing
 

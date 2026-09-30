@@ -369,11 +369,11 @@ What a partitioned instance does differently:
 - **Partition mail.** xbind rings `POST /mailbox` (`partitionMail`) as
   `xbin/mail` when items wait in the instance's drop box
   ([/docs/partitions.md](/docs/partitions.md) §Partition mail); it and every
-  start pull the inbox through the SDK (`xbin.InboxPage`, reading on while
+  start pull the inbox through the SDK (`xbin.InboxPageContext`, reading on while
   xbind says `more` — a page cut at ~8 MiB is short but not the end), hand
   each item to its topic's handler once (its id is recorded with the
   handler's effect, so a redelivery is only acknowledged) and acknowledge
-  each page in one `xbin.Ack`; a read or an acknowledgement that fails stops
+  each page in one `xbin.AckContext`; a read or an acknowledgement that fails stops
   the pull (the doorbell rings again). An item a handler fails on stays for
   the next pull. An item whose topic this version has no handler for stays
   for 30 minutes after it was sent — a newer version mid-deploy may read it

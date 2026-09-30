@@ -282,6 +282,29 @@ pending}`, `From: xbin/mail`) to that path while the inbox holds items;
 without it, poll `InboxPage`. On an xbind without partition mail they
 return an error naming `partition-mail/1`.
 
+Each call has a `…Context` variant that gives up when its context ends —
+`MailContext`, `MailWithContext`, `InboxPageContext`, `InboxContext`,
+`AckContext` — with an error wrapping the context's. The plain calls wait
+for xbind however long it takes; a doorbell handler, which xbind rings again
+later anyway, bounds its reads:
+
+```go
+ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+defer cancel()
+pg, err := xbin.InboxPageContext(ctx, after, 100)
+err = xbin.AckContext(ctx, ids...)
+```
+
+A read that gives up loses nothing: an item stays until it is
+acknowledged. An ack that gives up may have taken effect; acknowledging
+again is nothing to do. A **send** that gives up — or fails without
+xbind's answer — may or may not have made its item, and the sender never
+learns the id: sending again makes a second item with a new `ID`, which
+dedupe by `ID` doesn't catch (that catches the same item delivered again).
+A sender that retries puts its own key in `data` — the id of the event it
+passes on, say — and the addressee dedupes by that key too; otherwise,
+don't retry.
+
 ### Notifying a person on their phone
 
 `xbin.NotifyUser` sends a push notification to a person's xbin app devices —
@@ -484,13 +507,115 @@ const req = request({
 req.end();
 ```
 
+**Partition mail** ([partitions.md](/docs/partitions.md) §Partition mail)
+is three routes of xbind's own API, called the same way. A helper that
+answers the JSON, and the two things a partitioned tile does with it —
+hand an item to someone, and drain its own inbox when the doorbell
+(`partitionMail`) rings:
+
+```js
+const http = require('http');
+
+// one call of xbind's API through the gateway; it gives up after a silent minute
+function xbind(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      socketPath: process.env.XBIN_GATEWAY, method, path,
+      headers: { authorization: `Bearer ${process.env.XBIN_TOKEN}`, 'content-type': 'application/json' },
+    }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { text += chunk; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return reject(new Error(`${method} ${path}: ${res.statusCode} ${text}`));
+        try { resolve(JSON.parse(text)); } catch (e) { reject(e); } // a cut-off answer: an error, never a crash
+      });
+    });
+    req.setTimeout(60_000, () => req.destroy(new Error(`${method} ${path}: no answer`)));
+    req.on('error', reject);
+    req.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+}
+
+// the global instance hands alice an item (in an async function); a
+// person's partition mails 'global' only
+const { id } = await xbind('POST', '/api/xbin/partitions/mail', { to: 'user:alice', topic: 'handoff/dm', data: dm });
+
+// POST /mailbox (x-xbin-from: xbin/mail): read page by page, handle, ack.
+// it.from is xbind's ('global' | 'user:<id>'); dedupe by it.id
+async function drain(handle) {
+  let after = '';
+  for (;;) {
+    const q = after ? `?limit=100&after=${encodeURIComponent(after)}` : '?limit=100';
+    const page = await xbind('GET', `/api/xbin/partitions/mail${q}`);
+    for (const it of page.items) { await handle(it); after = it.id; }
+    if (page.items.length) await xbind('POST', '/api/xbin/partitions/mail/ack', { ids: page.items.map((it) => it.id) });
+    if (!page.more) return; // a short page isn't the end; more is
+  }
+}
+```
+
+A handler that throws leaves its page unacknowledged, so it comes again at
+the next ring. The routes' bodies and refusals are in
+[protocol.md](/docs/protocol.md) (`POST /partitions/mail`).
+
 ## python backend
 
 `bx new --runtime python` scaffolds a `UnixStreamServer` +
 `BaseHTTPRequestHandler` skeleton. Gateway calls: any HTTP client that
 supports unix sockets (`requests` + `requests-unixsocket`, or raw
 `http.client.HTTPConnection` with a connected `socket`), bearer token from
-`XBIN_TOKEN`.
+`XBIN_TOKEN`. On partitioned tiles, `os.environ.get("XBIN_PARTITION")`
+and the `X-XBin-Partition` / `X-XBin-Partition-Id` request headers are as
+in node. Partition mail, with the standard library alone:
+
+```python
+import http.client, json, os, socket, urllib.parse
+
+class Gateway(http.client.HTTPConnection):
+    """HTTP to xbind through the gateway socket."""
+    def __init__(self, timeout=60):
+        super().__init__("xbin", timeout=timeout)
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(os.environ["XBIN_GATEWAY"])
+
+def xbind(method, path, body=None):
+    """One call of xbind's API; its JSON answer."""
+    conn = Gateway()
+    try:
+        conn.request(method, path, body=None if body is None else json.dumps(body),
+                     headers={"Authorization": "Bearer " + os.environ["XBIN_TOKEN"],
+                              "Content-Type": "application/json"})
+        resp = conn.getresponse()
+        text = resp.read().decode()
+        if resp.status != 200:
+            raise RuntimeError(f"{method} {path}: {resp.status} {text}")
+        return json.loads(text)
+    finally:
+        conn.close()
+
+# the global instance hands alice an item; a person's partition mails "global" only
+item_id = xbind("POST", "/api/xbin/partitions/mail",
+                {"to": "user:alice", "topic": "handoff/dm", "data": dm})["id"]
+
+# POST /mailbox (X-XBin-From: xbin/mail): read page by page, handle, ack.
+# it["from"] is xbind's ("global" | "user:<id>"); dedupe by it["id"]
+def drain(handle):
+    after = ""
+    while True:
+        q = {"limit": 100, **({"after": after} if after else {})}
+        page = xbind("GET", "/api/xbin/partitions/mail?" + urllib.parse.urlencode(q))
+        for it in page["items"]:
+            handle(it)
+            after = it["id"]
+        if page["items"]:
+            xbind("POST", "/api/xbin/partitions/mail/ack", {"ids": [it["id"] for it in page["items"]]})
+        if not page["more"]:  # a short page isn't the end; more is
+            return
+```
 
 A shell-script endpoint (what the removed `cgi` runtime was for) is a few
 lines of any of these backends running the script per request — see

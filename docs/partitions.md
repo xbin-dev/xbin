@@ -1,13 +1,13 @@
 # Partitioned tiles: one instance per person
 
-> **Status: in development.** The model on this page is settled; xbind is
-> gaining it in stages. Until this line changes, don't rely on a tile being
-> partitioned: an xbind that doesn't run partitioned tiles treats
-> `"partition"` like any manifest key it doesn't know and runs the tile as
-> one ordinary instance ([§Older xbinds](#older-xbinds)). The builder side is
-> in place — the Go SDK's partition functions and `xbin.partition` in the
-> in-frame client ([§In your code](#in-your-code)) — and reads nothing on an
-> xbind that doesn't partition. Items marked **TODO** aren't built yet.
+> **Status: in development until the release notes say otherwise.** This
+> page describes partitioned tiles as built; no release carries them yet.
+> Until one does, don't rely on a tile being partitioned: an xbind that
+> doesn't run partitioned tiles treats `"partition"` like any manifest key
+> it doesn't know and runs the tile as one ordinary instance
+> ([§Older xbinds](#older-xbinds)), and the Go SDK's partition functions and
+> `xbin.partition` in the in-frame client ([§In your code](#in-your-code))
+> read nothing there.
 
 A **partitioned tile** keeps the people who use it apart. It declares, in
 its `xbin.json`:
@@ -28,6 +28,8 @@ its global binds; each one has its own:
 - cron jobs and bus subscriptions;
 - backend log and status;
 - terminal layer;
+- inbox of [partition mail](#partition-mail), when the tile has a global
+  instance;
 - personal binds ([§Bind types](#bind-types-global-and-personal)).
 
 With `"global"`, the tile also runs its **global instance**: one instance,
@@ -36,7 +38,7 @@ act for a person (below). It keeps its data, vault and registrations at
 today's keys — which a switch to partitions empties, so the global instance
 starts empty too ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
 Without `"global"` only people's partitions run: the tile has no public
-surface, and only partitioned tiles can call it.
+surface, and no tile but a partitioned one can call it.
 
 A person's partition starts on their first use and stops when idle, like any
 backend. Partitions run only on the tile's primary deployment, and only on
@@ -80,9 +82,11 @@ never from the URL, and never from a header the caller controls:
 |---|---|
 | a person: their session, and the tile's frames, terminals, agent sessions and path tickets they open | **their own** partition, if they can read the tile. A workspace admin too: an admin reaches their own partition, never someone else's |
 | a user partition's backend calling its own tile | its own partition |
+| a person's page, terminal or partition backend addressing the tile's global instance (`?xbin-partition=global`) | the **global** instance, as that person ([below](#the-global-instance-and-peoples-partitions)) |
 | `user:alice`'s partition of another partitioned tile, holding a grant on this one | `user:alice` of this tile, if alice can read it — and, when the workspace asks people first, has allowed it ([below](#calls-between-partitioned-tiles)) |
 | any other tile, the root token, a public request through a published endpoint | the **global** instance; without one, 403 (503 for a public request) |
 | xbind's cron and bus deliveries | the partition that registered them |
+| xbind's mail doorbell | the instance whose inbox holds the mail ([below](#partition-mail)) |
 | an admin viewing the workspace as a person | no partition: view-as never opens a person's partition. It reaches the global instance only by an explicit call to it ([below](#the-global-instance-and-peoples-partitions)) |
 
 A person who can no longer read the tile, is disabled or is deleted stops
@@ -280,10 +284,11 @@ the sandbox managers an agent uses before you create or switch one (a
 manager whose `hello.caps` lack `partitions` isn't used in people's
 partitions, [sandbox-manager.md](sandbox-manager.md#partitioned-consumers)).
 A partitioned agent's **shared conversations** live at its global instance,
-and people's pages reach them through their own global instance
+and people's pages reach them there from their own partition
 (`?xbin-partition=global`, below): a conversation's id says its home (a
 person's from 2^40, the global instance's below), everyone in a shared one
-follows its stream there — so all see a run live — and a person shares one
+follows its stream there — so all see a run live, the global instance being
+the hub ([§Realtime](#realtime-between-partitions)) — and a person shares one
 of their own by publishing a copy to the global instance.
 
 A partitioned agent's chat channels and event triggers show how a tile that
@@ -414,7 +419,10 @@ own storage keeping a copy, and a person's partition hands something back.
   (sealed under another vault key, or damaged) is dropped at the next read
   and counted as undeliverable, and never holds up the items behind it.
 - **At least once.** An item stays until it is acknowledged or expires, so a
-  handler may see it again: dedupe by `id`.
+  handler may see it again: dedupe by `id`. A send retried after an error
+  is another item, with another `id` — the first may exist too: a sender
+  that retries puts its own key in `data` (the id of the event it passes
+  on, say) and the addressee dedupes by that as well.
 - **The doorbell.** With `"partitionMail": "/mailbox"`, xbind POSTs
   `{"partition": "<addressee>", "pending": <n>}` to that path on the
   addressee's instance, as `xbin/mail` (role `writer`), while its inbox
@@ -442,9 +450,11 @@ id, err := xbin.Mail("user:alice", "handoff/dm", dm)
 
 // the tile's partitionMail handler, the same code in every instance
 mux.HandleFunc("POST /mailbox", func(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), time.Minute) // a hung xbind can't hold it
+	defer cancel()
 	after := ""
 	for {
-		pg, err := xbin.InboxPage(after, 100)
+		pg, err := xbin.InboxPageContext(ctx, after, 100)
 		if err != nil { // the doorbell rings again later
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
@@ -455,7 +465,7 @@ mux.HandleFunc("POST /mailbox", func(w http.ResponseWriter, r *http.Request) {
 			done = append(done, it.ID)
 			after = it.ID
 		}
-		if err := xbin.Ack(done...); err != nil { // one call a page; acknowledged items are gone
+		if err := xbin.AckContext(ctx, done...); err != nil { // one call a page; acknowledged items are gone
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -496,6 +506,322 @@ Anything a partition mails to global is readable by the global instance —
 its code, and the tile's frames, terminals and agent sessions acting as
 global (the owner token's); nothing mailed reaches another person's frame
 or partition directly.
+
+## Realtime between partitions
+
+People's partitions never see each other, so live state that more than
+one person sees needs a place they all reach. There are three, each for
+its own job, and each is built from what a partitioned tile already has:
+
+| You need | Use | It reaches |
+|---|---|---|
+| **tile-wide live state** — a status board, a shared list | a [shared resource](#shared-resources) and a shared bus announcing each change | every reader of the tile: their pages follow the bus |
+| **member-scoped live state** — a room, a document some people share, a shared conversation | the [global instance](#the-global-instance-and-peoples-partitions) as hub: it keeps who is in, pages follow its stream, partitions post to it | the members the global instance keeps — only members post, and a post drops a follower who can no longer read the tile |
+| **a partition that must be woken** — a mention, a hand-off, a job for one person | [partition mail](#partition-mail) | one person's partition, durably, whether or not a page of theirs is open |
+
+The worked example is one tile, `apps/rooms`, which uses all three:
+
+```jsonc
+// xbin.json
+"partition": ["user", "global"],
+"partitionMail": "/mailbox"
+
+// scope.json
+"resources": {
+  "board": { "type": "kv",  "shared": true },  // 1: the status board, one copy
+  "live":  { "type": "bus", "shared": true },  // 1: its changes, to every reader
+  "mine":  { "type": "kv" }                    // 3: each person's own mentions
+}
+```
+
+Its whole backend — the same code in every instance — is the Go SDK's
+`Example_realtime` (`sdk/example_realtime_test.go`), which a test runs
+against a stand-in for xbind; the Go below is quoted from it.
+
+### 1. Tile-wide: a shared resource and a shared bus
+
+A person's partition writes its person's line to `board` — one copy for
+everyone, `"shared": true` — and announces it on `live`, a shared bus, whose
+events reach every reader of the tile rather than only the publisher's
+partition:
+
+```go
+func setStatus(w http.ResponseWriter, r *http.Request) {
+	me := xbin.PartitionUser()
+	if me == "" { // the global instance: nobody's line
+		xbin.WriteError(w, http.StatusForbidden, "set your status from your own partition")
+		return
+	}
+	var st status
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&st); err != nil {
+		xbin.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := xbin.KV(xbin.Resource("board")).PutJSON("status/"+me, st); err != nil {
+		xbin.WriteError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if err := xbin.Publish(xbin.Resource("live"), "status/"+me, st); err != nil {
+		xbin.WriteError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+```
+
+Every reader's page follows the bus and reads the board (`GET /board`, in
+any instance) — in that order, so a change that lands while the board is
+read is applied on top of it rather than lost (the bus doesn't replay);
+setting your own line goes to your own partition:
+
+```js
+// each change as it happens — kept until the board arrives — and the board as it is
+let board = null;
+const early = [];
+const apply = (topic, status) => { board[topic.slice(topic.lastIndexOf('/') + 1)] = status; };
+xbin.bus.on(`res:${xbin.self}/live/status/`, (topic, status) => {
+  if (!board) { early.push([topic, status]); return; }
+  apply(topic, status);
+  render(board);
+});
+board = await (await xbin.fetch(`/api/${xbin.self}/board`)).json();
+for (const [topic, status] of early) apply(topic, status);
+render(board);
+
+// your own line: your partition writes it, and every reader's page sees it
+await xbin.fetch(`/api/${xbin.self}/status`, { method: 'POST', body: JSON.stringify({ text: 'in a meeting' }) });
+```
+
+- A page's event socket opens in the background and reconnects on its own,
+  and a bus event is delivered at most once: one published while it is
+  down is gone. A page that must not show a stale line reads the board
+  again now and then — when it becomes visible again, say.
+- Every partition's code can read and change anything in a `true`
+  resource ([§Shared resources](#shared-resources)) — and so can whatever
+  else acts in a partition, a person's page or terminal with write access
+  to the tile: keep private data out of it. **A row's key is not proof of
+  who wrote it**: `setStatus` writes only `status/<PartitionUser()>`, but
+  nothing stops other code writing `status/bob`, or publishing that topic
+  on the shared bus. Keep in a `true` resource only what anyone who may
+  change the tile may change.
+- When who wrote a row matters, the global instance writes it: a `"read"`
+  resource and a `"read"` bus, which global writes and publishes and
+  people's partitions and pages only read (their writes and publishes
+  answer 403). People's partitions and pages post to global, which stamps
+  the author from the call — as the hub does (2) — and never from the
+  body.
+- Pages get a shared bus's events whenever they are open. A user
+  partition's backend subscription (`xbin.Subscribe`) gets them only while
+  the partition runs, and they never start it: to wake a partition, mail it
+  (3).
+
+### 2. Member-scoped: the global instance as hub
+
+When only some people may see the live state — the members of a room — a
+shared resource reaches too many (every reader) and a partition too few
+(one person). The global instance keeps the membership and relays:
+
+- a member's page **follows** the room at the global instance —
+  `xbin.fetch(…, {partition: 'global'})` from their own page arrives there
+  as them;
+- a member's partition **posts** to it from its own work with
+  `xbin.GlobalURL(…)` — which arrives as its person too — and so can their
+  page;
+- the global instance checks the poster's membership at every post, and
+  **stamps who posted from the call**, never from the body;
+- it relays each post to the followers who may still read the tile, and
+  drops one who can't.
+
+The hub lets in only calls a person makes through their own partition —
+their page, terminal or partition backend. On those `X-XBin-From` is the
+tile's own path and `X-XBin-Partition` names the person; they are never the
+tile itself. Other tiles, the root token, public requests and a page viewed
+as someone act for no member (an admin calling the tile's API directly
+uses its page, like everyone):
+
+```go
+func person(r *http.Request) string {
+	c := xbin.Caller(r)
+	if c.From != xbin.Self() || c.User == "" || c.Partition != "user:"+c.User || c.ViewedBy != "" {
+		return ""
+	}
+	return c.User
+}
+```
+
+The global instance relays a post to every member following the room who
+may still read the tile, and mails each member it mentions (3). A person
+can lose the tile while a page of theirs follows — removed from it,
+disabled, deleted — and xbind doesn't end a stream it has already let
+through, so the hub asks: `stillReaders` puts each follower to
+`xbin.AccessOf` (trusting a yes for 10 seconds), and the post drops those
+who can no longer read the tile:
+
+```go
+func (h *rooms) post(w http.ResponseWriter, r *http.Request) {
+	room, who := r.PathValue("room"), person(r)
+	// … the body: {text, mentions}
+	p := roomPost{Room: room, From: who, Text: in.Text}
+	line, _ := json.Marshal(p)
+	line = append(line, '\n')
+	h.mu.Lock()
+	if !h.members[room][who] { // the poster's membership, at every post
+		h.mu.Unlock()
+		xbin.WriteError(w, http.StatusForbidden, "not a member of "+room)
+		return
+	}
+	following := map[string]bool{}
+	for _, member := range h.follows[room] {
+		following[member] = true
+	}
+	h.mu.Unlock()
+	can, gone := h.stillReaders(r.Context(), following) // each follower's access, from xbind
+	mentioned := map[string]bool{}
+	h.mu.Lock()
+	for member := range gone { // removed from the tile, disabled or deleted
+		h.drop(room, member)
+	}
+	for ch, member := range h.follows[room] {
+		if can[member] {
+			select {
+			case ch <- line:
+			default: // a page that can't keep up misses a post; it never stalls the room
+			}
+		}
+	}
+	// … the members it mentions, mailed below
+```
+
+Members stay until they are taken out — by a member (`DELETE
+/rooms/{room}/members/{user}`; themselves, to leave), or by a post that
+finds they follow the room but can no longer read the tile. (A member who
+can't read the tile and follows nothing reaches nothing either: xbind
+refuses their calls, and their mail.) Either way their streams end at
+once:
+
+```go
+func (h *rooms) drop(room, someone string) {
+	delete(h.members[room], someone)
+	for ch, p := range h.follows[room] {
+		if p == someone {
+			close(ch) // their follow returns: the page's stream ends
+			delete(h.follows[room], ch)
+		}
+	}
+}
+```
+
+A person's partition posts through the global instance:
+
+```go
+	u := xbin.GlobalURL("rooms/" + url.PathEscape(room) + "/posts")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	// …
+	resp, err := xbin.Client().Do(req)
+```
+
+A member's page follows the room — the global instance's `GET
+/rooms/{room}/follow` answers a line of JSON per post — and posts to it:
+
+```js
+// follow a room at the global instance, as the viewer
+async function follow(room, show) {
+  const r = await xbin.fetch(`/api/${xbin.self}/rooms/${encodeURIComponent(room)}/follow`, { partition: 'global' });
+  if (!r.ok) throw new Error(`${room}: ${r.status}`);
+  const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return; // the stream ended (global restarted, or you're out of the room): follow again
+    buf += value;
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      show(JSON.parse(buf.slice(0, nl)));
+      buf = buf.slice(nl + 1);
+    }
+  }
+}
+
+// post to it: the global instance stamps who posted
+const post = (room, text, mentions = []) => xbin.fetch(`/api/${xbin.self}/rooms/${encodeURIComponent(room)}/posts`,
+  { partition: 'global', method: 'POST', body: JSON.stringify({ text, mentions }) });
+```
+
+- The global instance is one instance for everyone who reaches it
+  ([§In your code](#in-your-code)): its routes judge people themselves, as
+  `person` does.
+- Keep the membership in the global instance's own data (the example keeps
+  it in memory). What members post is the global instance's, readable by
+  its code — as everything a partition sends to global is.
+- A page follows again when its stream ends, and one that can't keep up
+  misses posts rather than stalling the room: fetch a room's recent posts
+  on (re)connecting if that matters.
+- The builtin agent's shared conversations work this way: everyone in one
+  follows its stream at the global instance
+  ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
+
+### 3. Waking a partition: partition mail
+
+A page's stream lasts only while the page is open, and a person's partition
+stops 10 minutes after its last use. When one person's partition must act
+while nobody watches — keep a mention in their own data, apply their own
+settings, push their phone — the global instance mails it: xbind keeps the
+item (sealed, until it is acknowledged or expires) and rings the
+partition's `/mailbox`, starting it if it has run before. In the example,
+`post` mails each member a post mentions:
+
+```go
+	for m := range mentioned {
+		if _, err := xbin.MailContext(r.Context(), "user:"+m, "room/mention", p); err != nil {
+			log.Printf("mention of %s in %s: %v", m, room, err)
+		}
+	}
+```
+
+The mentioned person's `/mailbox` handler is
+[§Partition mail](#partition-mail)'s — reading with `InboxPageContext` and
+acknowledging with `AckContext` under a minute's deadline — and it hands
+each `room/mention` from `global` to `keepMention`, which keeps it — once —
+and pushes their phone:
+
+```go
+func keepMention(ctx context.Context, it xbin.MailItem) error {
+	mine := xbin.KV(xbin.Resource("mine"))
+	if _, err := mine.Get("mention/" + it.ID); err == nil {
+		return nil // an earlier ring kept it
+	} else if !errors.Is(err, xbin.ErrNotFound) {
+		return err
+	}
+	var p roomPost
+	if err := json.Unmarshal(it.Data, &p); err != nil {
+		return nil // nothing to keep
+	}
+	if err := mine.Put("mention/"+it.ID, it.Data); err != nil {
+		return err
+	}
+	return xbin.NotifyUser(ctx, xbin.PartitionUser(), p.From+" in "+p.Room, p.Text, "#room="+url.QueryEscape(p.Room))
+}
+```
+
+On the pages, a mention is a post with `mentions`, and each person reads
+their own from their own partition:
+
+```js
+// alice's page mentions bob …
+await post('7', 'the deploy is green, @bob', ['bob']);
+
+// … and bob's page, whenever he opens it, lists his mentions (GET /mentions, his own partition)
+const mine = await (await xbin.fetch(`/api/${xbin.self}/mentions`)).json();
+```
+
+- Mail wakes a partition; it isn't a stream. An item is at most 1 MiB, an
+  inbox holds at most 1000, and the doorbell backs off (1 min, 5 min, …)
+  while items stay unacknowledged: relay live traffic through the global
+  instance (2).
+- Mail never starts a person's first instance: someone whose partition has
+  never run finds their mail when they first open the tile.
+- A person's partition mails only `global`: from one person to another
+  goes through the global instance, which decides.
 
 ## Bind types: global and personal
 
@@ -656,10 +982,9 @@ apps/x --revoke`: the next call and data reach are refused, and Z's
 backend instance of her stops (it starts again on its next request,
 without her consent). Taking it back doesn't bring the answered ask back;
 xbind asks again, at most once a day, when apps/z tries again. A stream
-that a
-page, terminal or agent session of Z opened as her before the revocation
-lasts until it closes; so does one opened before an admin turned the
-policy on. Consents belong to the person as they are now: someone deleted
+that a page, terminal or agent session of Z opened as her before the
+revocation lasts until it closes; so does one opened before an admin turned
+the policy on. Consents belong to the person as they are now: someone deleted
 and created again under the same id has none. They name tiles by path: a
 tile that is deleted or moved, or whose partition mode switches, takes
 every consent naming it, so a new tile at its path starts with none.
@@ -783,8 +1108,9 @@ switch deleting its data — a person's partition can't change its vault or
 registrations (409). A switch of the tile's mode that deletes its data deletes
 all of these (removing or adding `"global"` keeps people's). They are
 deleted with the partition — and erased from its backups
-([§Backups](#backups)) — 30 days after its tile is removed (unless the
-tile comes back) or its person's id is given to someone new.
+([§Backups](#backups)) — 30 days after its person is deleted (or their id
+is given to someone new) or its tile is removed (unless the tile comes
+back).
 
 ## Terminals and agent sessions
 
@@ -901,7 +1227,8 @@ xbin.Partition()        // "user:<id>" | "global" | "" (not partitioned) — $XB
 xbin.PartitionUser()    // the <id> of a user partition, "" otherwise
 xbin.RequirePartition() // exit 3 unless run as a partition (§Older xbinds)
 xbin.GlobalURL(path)    // this tile's global instance, from a user partition
-xbin.Mail(to, topic, data)  // partition mail (§Partition mail); InboxPage, Ack
+xbin.Mail(to, topic, data)  // partition mail (§Partition mail); InboxPage, Ack —
+                            // each with a …Context variant (MailContext, …)
 c := xbin.Caller(r)
 c.Partition             // X-XBin-Partition: the partition the call acts in, "" if none
 c.PartitionID           // X-XBin-Partition-Id: key per-caller state on it
@@ -912,10 +1239,13 @@ root token, public requests, every person's calls to it — and, on a
 non-primary deployment whose code asks for partitions, every writer who
 opens it. Keep per-person data where `xbin.PartitionUser() != ""`, or judge
 `global`'s callers yourself (`c.User`, `c.UserCanWrite()`), as an
-unpartitioned tile does today.
+unpartitioned tile does today — the hub of
+[§Realtime between partitions](#realtime-between-partitions) shows how.
 
 **node / python:** `process.env.XBIN_PARTITION` (`os.environ.get`), and the
-`x-xbin-partition` and `x-xbin-partition-id` request headers.
+`x-xbin-partition` and `x-xbin-partition-id` request headers; partition
+mail is three routes of xbind's API ([sdk.md](sdk.md) has both runtimes'
+helpers).
 
 **In a frame:** `xbin.partition` is the partition the viewer reaches —
 `user:<id>`, or `global` for the root token and `--no-auth` — and is absent
