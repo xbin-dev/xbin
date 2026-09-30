@@ -126,6 +126,7 @@ func (b *Broker) eachMailStore(tile string) ([]mailStoreOf, error) {
 func init() {
 	registerPartitionStore(partitionStore{"partition-mail", holdsPartitionMail})
 	registerWipeHook(wipeHook{name: "partition-mail", wipe: wipePartitionMail})
+	registerPartitionFeature(PartitionMailFeature) // GET /partitions' features (partitionlist.go)
 }
 
 // holdsPartitionMail: an inbox of the tile holds an item — expired ones
