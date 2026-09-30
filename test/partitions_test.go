@@ -23,12 +23,17 @@ import (
 // mode rule end to end — auto, pending (the 409, the in-frame page, the
 // /alerts line an old shell renders), keep (the tile's data byte for byte),
 // switch (refused towards user partitions, which need isolation; towards
-// unpartitioned it deletes), a rollback onto code that asks differently,
-// and a template instance — plus what a non-isolated xbind still serves of
-// a partitioned tile: its global instance, for the root token, cron, the
-// bus and ingress, while every person's partition is refused (fail
-// closed). People's partitions themselves run only under --isolate; their
-// suites are test/isolated's partitions_*_test.go.
+// unpartitioned it deletes every store — kv, cron, bus subscriptions, mail,
+// people's namespaces — and tells the people whose partitions went), a
+// rollback onto code that asks differently (kept, then switched), and a
+// template instance — plus what a non-isolated xbind still serves of a
+// partitioned tile: its global instance, for the root token, cron, the bus,
+// ingress and a person's frame asking for global (F9, attributed), while
+// every person's partition is refused at the backend (fail closed); xbind's
+// own data plane still serves a person's frame their own partition's
+// namespace (pinned). People's partitions themselves run only under
+// --isolate; their suites are test/isolated's partitions_*_test.go. This
+// suite needs no rootfs: it runs in CI's integration job.
 
 const (
 	pnAuto  = "apps/pn-auto"  // a probe partitioned from the start (["user", "global"])
@@ -311,9 +316,13 @@ func TestPartitionsNoIsolate(t *testing.T) {
 
 	t.Run("global-only", func(t *testing.T) {
 		// G3/PD-19: without --isolate no person's partition runs — a
-		// person's frame (a reader's, an admin's) is refused, never served
-		// by the global instance; the root token reaches global, which
-		// runs as today's instance
+		// person's frame (a reader's, an admin's) is refused at the tile's
+		// backend (fail closed), and the global instance doesn't serve it
+		// in its partition's stead; the root token reaches global, which
+		// runs as today's instance. What a non-isolated xbind still gives a
+		// person — as under --isolate — is pinned below: the global
+		// instance when their frame asks for it (F9), and xbind's own data
+		// plane on their partition's namespace
 		c, b, _ := e.call(t, "GET", "/api/"+pnAuto+"/env", "", e.root()...)
 		if c != 200 || !strings.Contains(b, `"XBIN_PARTITION":"global"`) {
 			t.Errorf("the root token's call: %d %s (want the global instance)", c, b)
@@ -331,6 +340,34 @@ func TestPartitionsNoIsolate(t *testing.T) {
 		// the document still names the person's partition; its API refuses
 		if c, b := e.people["alice"].get("/c/" + pnAuto + "/"); c != 200 || !strings.Contains(b, `<meta name="xbin-partition" content="user:alice">`) {
 			t.Errorf("alice's document: %d %s", c, firstN(b, 400))
+		}
+		// F9 (05 §6): her frame asking for global is the global instance's,
+		// attributed to her (her partition, her level), isolation or not
+		c, b, _ = e.call(t, "GET", "/api/"+pnAuto+"/caller?xbin-partition=global", "", e.frame(t, pnAuto, "alice")...)
+		var who struct{ From, User, UserLevel, Partition string }
+		if c != 200 || json.Unmarshal([]byte(b), &who) != nil || who.User != "alice" || who.Partition != "user:alice" || who.From != pnAuto || who.UserLevel != "read" {
+			t.Errorf("alice's frame, ?xbin-partition=global: %d %s (want the global instance, attributed to alice)", c, b)
+		}
+		if c, b, _ := e.call(t, "GET", "/api/"+pnAuto+"/kv/k?xbin-partition=global", "", e.frame(t, pnAuto, "alice")...); c != 200 || b != "global-only-7a" {
+			t.Errorf("alice's frame reads global's kv with ?xbin-partition=global: %d %s", c, b)
+		}
+		// xbind's data plane (not the backend) serves a person's frame on
+		// their own partition's namespace here too: alice's write is hers
+		// alone — not global's, not bob's (10 §A.2; records/I1.md's owner
+		// question on refusing it without --isolate)
+		kvAPI := "/api/xbin/kv/res:" + pnAuto + "/kv/np-own"
+		if c, b, _ := e.call(t, "PUT", kvAPI, "alice-own-2d", e.frame(t, pnAuto, "alice")...); c != 200 {
+			t.Errorf("alice's frame writes her partition's kv through the kv API: %d %s", c, b)
+		}
+		for name, want := range map[string]string{"alice": "200 alice-own-2d", "bob": "404", "root": "404"} {
+			hdrs := e.root()
+			if name != "root" {
+				hdrs = e.frame(t, pnAuto, name)
+			}
+			c, b, _ := e.call(t, "GET", kvAPI, "", hdrs...)
+			if got := fmt.Sprint(c, " ", b); !strings.HasPrefix(got, want) || name != "alice" && strings.Contains(got, "alice-own") {
+				t.Errorf("%s reads alice's partition's key through the kv API: %s (want %s)", name, firstN(got, 200), want)
+			}
 		}
 	})
 
@@ -388,13 +425,16 @@ func TestPartitionsNoIsolate(t *testing.T) {
 		}, time.Minute) || pub != "200 auto-v1" {
 			t.Errorf("ingress to %s: %s", pnHost, pub)
 		}
-		// mail: global → alice is kept; her partition can't start here
+		// mail: global → alice is kept in her inbox (her partition can't
+		// start here to read it; her frame reads it through xbind)
 		if c, b, _ := e.call(t, "POST", "/api/"+pnAuto+"/send?to=user:alice", "for-alice-9e", e.root()...); c != 200 {
 			t.Errorf("global mails alice: %d %s", c, b)
 		}
-		time.Sleep(2 * time.Second)
-		if c, b := e.a.do("GET", "/api/xbin/sandboxes", ""); c != 200 || strings.Contains(b, "user:alice") {
-			t.Errorf("the sandbox list after the mail: %d %s", c, firstN(b, 400))
+		if items := e.inbox(t, pnAuto, "alice"); len(items) != 1 || items[0].From != "global" || !strings.Contains(items[0].Data, "for-alice-9e") {
+			t.Errorf("alice's inbox after global's mail: %+v", items)
+		}
+		if items := e.inbox(t, pnAuto, "bob"); len(items) != 0 {
+			t.Errorf("BUG: bob's inbox holds alice's mail: %+v", items)
 		}
 	})
 
@@ -496,7 +536,14 @@ func TestPartitionsNoIsolate(t *testing.T) {
 
 	t.Run("switch", func(t *testing.T) {
 		// 01 §2.5: pnAuto (partitioned, global's data) drops partition: a
-		// request; the switch deletes global's data after the typed path
+		// request; the switch deletes every store of it after the typed
+		// path. What it holds first: global's kv, the root token's cron job,
+		// global's bus subscription, alice's mail and her partition's kv
+		// (global-only, global-sources)
+		before := e.holds(t, pnAuto)
+		if !before.cron || !before.sub || !before.globalKV || before.aliceMail != 1 || !before.aliceKV || !before.aliceNS {
+			t.Fatalf("%s before the switch: %+v (the checks below would pass vacuously)", pnAuto, before)
+		}
 		pnWrite(t, e.ws, pnAuto, "auto-v1", "")
 		e.waitState(t, pnAuto, "pending")
 		sw := map[string]any{"tile": pnAuto, "act": "switch", "from": map[string]bool{"user": true, "global": true}, "to": nil}
@@ -504,17 +551,21 @@ func TestPartitionsNoIsolate(t *testing.T) {
 			t.Errorf("a switch without the typed path: %d %s", c, b)
 		}
 		sw["confirm"] = pnAuto
-		if c, b := e.mode(t, "carol", sw); c != 200 {
+		c, b := e.mode(t, "carol", sw)
+		t.Logf("carol switches: %d %s", c, firstN(b, 1500))
+		if c != 200 {
 			t.Fatalf("carol switches: %d %s", c, b)
 		}
 		e.waitState(t, pnAuto, "")
 		waitProbeA(t, e.a, pnAuto, "auto-v1")
-		if c, b := e.a.do("GET", "/api/"+pnAuto+"/kv/k", ""); c != 404 {
-			t.Errorf("global's data after the switch: %d %s", c, b)
+		if after := e.holds(t, pnAuto); after != (pnHolds{}) {
+			t.Errorf("%s after the switch still holds %+v (want every store empty)", pnAuto, after)
 		}
 		if ops := e.modeOps(t, pnAuto); len(ops) < 3 || ops[len(ops)-1] != "switch" {
 			t.Errorf("mode.json's history after the switch: %q", ops)
 		}
+		// the people whose partitions went are told (01 §2.5 step 5)
+		e.told(t, "alice", pnAuto+" changed how it keeps data; your data in it was deleted by carol")
 	})
 
 	t.Run("rollback", func(t *testing.T) {
@@ -564,6 +615,24 @@ func TestPartitionsNoIsolate(t *testing.T) {
 		if c, b := e.a.do("GET", "/api/xbin/kv/res:"+pnRB+"/kv/k", ""); c != 200 || !strings.Contains(b, "rb-data-1f") {
 			t.Errorf("the tile's data after keep: %d %s", c, b)
 		}
+		// the rollback's request decided the other way after all: a switch
+		// (a declined request stays switchable), which deletes the tile's
+		// data and records the rolled-back code's mode
+		sw := map[string]any{"tile": pnRB, "act": "switch", "from": map[string]bool{"user": true, "global": true}, "to": nil}
+		if c, b := e.mode(t, "carol", sw); c != 400 || !strings.Contains(b, pnRB) {
+			t.Errorf("a switch of the rolled-back tile without the typed path: %d %s", c, b)
+		}
+		sw["confirm"] = pnRB
+		if c, b := e.mode(t, "carol", sw); c != 200 {
+			t.Fatalf("carol switches the rolled-back tile: %d %s", c, b)
+		}
+		e.waitState(t, pnRB, "")
+		if c, b := e.a.do("GET", "/api/xbin/kv/res:"+pnRB+"/kv/k", ""); c != 404 {
+			t.Errorf("the tile's data after the switch: %d %s (want deleted)", c, b)
+		}
+		if ops := e.modeOps(t, pnRB); len(ops) == 0 || ops[len(ops)-1] != "switch" {
+			t.Errorf("%s's mode.json history after the switch: %q", pnRB, ops)
+		}
 	})
 
 	t.Run("template", func(t *testing.T) {
@@ -598,6 +667,84 @@ func TestPartitionsNoIsolate(t *testing.T) {
 			}
 		}
 	})
+}
+
+// pnMail is one item of a person's inbox (GET /partitions/mail).
+type pnMail struct{ ID, From, Topic, Data string }
+
+// inbox is person's inbox of tile, read with their frame.
+func (e *pnEnv) inbox(t *testing.T, tile, person string) []pnMail {
+	t.Helper()
+	c, b, _ := e.call(t, "GET", "/api/xbin/partitions/mail", "", e.frame(t, tile, person)...)
+	var out struct{ Items []pnMail }
+	if c != 200 || json.Unmarshal([]byte(b), &out) != nil {
+		t.Fatalf("%s's inbox of %s: %d %s", person, tile, c, b)
+	}
+	return out.Items
+}
+
+// pnHolds is what the switch case checks a tile holds: global's kv key k,
+// the root token's cron job tick, global's bus subscription pn, the items
+// of alice's inbox, her partition's kv key np-own, and whether any
+// person's partition namespace of it is on disk.
+type pnHolds struct {
+	globalKV, cron, sub bool
+	aliceMail           int
+	aliceKV, aliceNS    bool
+}
+
+func (e *pnEnv) holds(t *testing.T, tile string) pnHolds {
+	t.Helper()
+	var h pnHolds
+	c, _ := e.a.do("GET", "/api/xbin/kv/res:"+tile+"/kv/k", "")
+	h.globalKV = c == 200
+	var jobs struct {
+		Jobs []struct{ Name, Resource string }
+	}
+	if c, b := e.a.do("GET", "/api/xbin/cron/jobs", ""); c != 200 || json.Unmarshal([]byte(b), &jobs) != nil {
+		t.Fatalf("the cron jobs: %d %s", c, b)
+	}
+	for _, j := range jobs.Jobs {
+		h.cron = h.cron || j.Name == "tick" && strings.HasPrefix(j.Resource, "res:"+tile+"/")
+	}
+	var subs struct {
+		Subscriptions []struct{ Name, Resource string }
+	}
+	if c, b := e.a.do("GET", "/api/xbin/bus/subscriptions", ""); c != 200 || json.Unmarshal([]byte(b), &subs) != nil {
+		t.Fatalf("the bus subscriptions: %d %s", c, b)
+	}
+	for _, s := range subs.Subscriptions {
+		h.sub = h.sub || s.Name == "pn" && strings.HasPrefix(s.Resource, "res:"+tile+"/")
+	}
+	c, b, _ := e.call(t, "GET", "/api/xbin/partitions/mail", "", e.frame(t, tile, "alice")...)
+	var mail struct{ Items []pnMail }
+	if c == 200 && json.Unmarshal([]byte(b), &mail) == nil {
+		h.aliceMail = len(mail.Items)
+	}
+	c, _, _ = e.call(t, "GET", "/api/xbin/kv/res:"+tile+"/kv/np-own", "", e.frame(t, tile, "alice")...)
+	h.aliceKV = c == 200
+	ns, _ := filepath.Glob(filepath.Join(e.ws, "data", "resources-enc", ".partitions", strings.ReplaceAll(tile, "/", "~"), "*", "u-*"))
+	h.aliceNS = len(ns) > 0
+	return h
+}
+
+// told checks that person's notices (GET /partitions, their session) hold
+// text.
+func (e *pnEnv) told(t *testing.T, person, text string) {
+	t.Helper()
+	c, b := e.people[person].get("/api/xbin/partitions")
+	var doc struct {
+		Notices []struct{ Kind, Tile, Text string }
+	}
+	if c != 200 || json.Unmarshal([]byte(b), &doc) != nil {
+		t.Fatalf("%s's partitions document: %d %s", person, c, b)
+	}
+	for _, n := range doc.Notices {
+		if strings.Contains(n.Text, text) {
+			return
+		}
+	}
+	t.Errorf("%s wasn't told %q: %+v", person, text, doc.Notices)
 }
 
 // waitProbeA is waitProbe for a dlAPI: tile answers marker on GET /v.
