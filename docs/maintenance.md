@@ -689,7 +689,14 @@ back, set an edge, read registrations and "would notify", protect the
 primary, and restore the zero state at the end — a part this xbind can't
 exercise prints `SKIP` with what it got. The
 agent passes don't run under `HARNESS_ISOLATE`: their scripted fake agent is
-a host path the tile sandbox can't see.
+a host path the tile sandbox can't see. The harness xbind serves the source
+tree's scaffold over the workspace's copies (`--dev-overlay`);
+`HARNESS_NO_OVERLAY=1` serves the workspace's own, which `oldScaffold` needs:
+it swaps `shell/` and `tiles/admin/` for the last release's
+(`HARNESS_OLD_SCAFFOLD`, a git tag), checks them against partitioned and
+pending tiles, and puts the workspace's back byte for byte. Under the overlay
+— the default run — it `SKIP`s, said so, so only a run with the switch covers
+it (give a `--shots` run against that instance the switch too).
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop
@@ -697,6 +704,7 @@ hack/ui-harness/run.sh --keep             # …and leave xbind up on $PORT
 hack/ui-harness/run.sh --shots windows    # one pass against the running instance
 hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every pass
 HARNESS_ISOLATE=1 hack/ui-harness/run.sh --keep livereload   # xbind with --isolate on $XBIN_TEST_ROOTFS
+HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold  # no --dev-overlay: the workspace's own scaffold (below)
 hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)
 ```

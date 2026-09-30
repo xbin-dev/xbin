@@ -134,6 +134,7 @@ func TestNoPartitionGolden(t *testing.T) {
 			t.Errorf("a resource row names a partition: %+v", r)
 		}
 	}
+	npGoldenWire(t, d, ws, owner, ana) // partition_golden_test.go: env, headers, bus, cron, ?partition=, users
 }
 
 // covers PD-44 PD-50 — the wiring of a booted xbind: the broker installs the
