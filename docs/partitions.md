@@ -1053,6 +1053,13 @@ Each person's partition is **its own backend process**, in its own sandbox:
   frames reconnect their streams while they are visible. The next use
   starts it again. The global instance keeps the usual 30 minutes, and
   `alwaysOn` keeps up the global instance only.
+- **Its token goes before its process.** Every stop of a person's
+  partition — idle, its person's own, a switch, their removal — revokes
+  its instance token first, then stops the process: a backend's calls to
+  xbind while it exits (a cron job registered at SIGTERM, a last mail)
+  are refused. Register what should bring it back — its cron jobs — while
+  it runs, when it goes idle; the agent template does
+  (builtin-templates/agent/API.md "Partitioned instances" → Resume).
 - **What it gets.** `XBIN_PARTITION=user:<id>` (the global instance gets
   `global`; an unpartitioned tile gets nothing new), the same
   `XBIN_COMPONENT`, `XBIN_RES_*` paths and code as every other instance,
