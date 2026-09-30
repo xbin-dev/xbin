@@ -16,9 +16,10 @@
 //
 // It warns that the credentials land in the sandbox's shared HOME, and on a
 // sandbox others may use asks for a confirm first (sent as confirm: true).
-// Someone who may not use the sandbox is told whom to ask; a view-only reader
-// sees what it waits for, and no actions. What it says is model/terminals.js
-// signIn.
+// Someone who may not use the sandbox is told whom to ask; a sandbox that is
+// gone (or whose manager is down) is said as such, with Retry and no methods;
+// a view-only reader sees what it waits for, and no actions. What it says is
+// model/terminals.js signIn.
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { signIn, methodLabel, isHttps } from './model/terminals.js';
 import { findHarness } from './model/harness.js';
@@ -39,7 +40,7 @@ ext.register({
     const app = ctx.app;
     const v = app && app.session.current();
     if (!v || !s.run || v.run.id !== s.run.id) return null;
-    const c = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, (v.run.harness || {}).provider) });
+    const c = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, (v.run.harness || {}).provider), me: app.me });
     if (!c) return null;
     app.sbx.ensure();
     return cardTpl(app, c);
@@ -96,8 +97,8 @@ function cardTpl(app, c) {
   if (!c.talk) return html`<div class="ask hlogin" id="hlogin" data-run=${c.run}><b>${c.title}</b><div class="hint" id="hl-view">${c.view}</div></div>`;
   return html`<div class="ask hlogin" id="hlogin" data-run=${c.run}>
     <b>${c.title}</b>
-    <div class="hint" id="hl-warn">⚠ ${c.warn}</div>
-    ${c.ask ? html`<div id="hl-ask">${c.ask}</div>` : html`
+    ${c.gone ? html`<div id="hl-gone">⚠ ${c.goneText}</div>` : html`<div class="hint" id="hl-warn">⚠ ${c.warn}</div>`}
+    ${c.gone ? nothing : c.ask ? html`<div id="hl-ask">${c.ask}</div>` : html`
       ${c.shared || x.needConfirm ? html`<label class="chk" id="hl-shared"><input type="checkbox" id="hl-confirm" .checked=${!!x.confirm}
         @change=${(e) => { x.confirm = e.target.checked; redraw(); }}> ${c.confirmLabel}</label>` : nothing}
       <div class="hlm">${c.methods.map((m) => METHOD[m.kind](m))}</div>`}

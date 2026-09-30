@@ -67,8 +67,8 @@ function parkTpl(b, run, c, w) {
     const app = ctx.app;
     const held = app.session.merged(run.id);
     const si = signIn(held ? { ...held, run: { ...held.run, ...run } } : { run, access: w.access, config: {} },
-      { list: app.sbx.list, entry: findHarness(app.harness.catalog, c.provider) });
-    if (si) return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${si.title} ${si.ask || 'Open it (↗) and tap Sign in.'}`}/>`;
+      { list: app.sbx.list, entry: findHarness(app.harness.catalog, c.provider), me: app.me });
+    if (si) return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${si.title} ${si.goneText || si.ask || 'Open it (↗) and tap Sign in.'}`}/>`;
   }
   return c.park ? html`<notice tone="warn" title=${c.name} text=${`${c.status} — open it (↗) to answer.`}/>` : nothing;
 }

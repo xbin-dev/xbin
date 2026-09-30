@@ -15,7 +15,9 @@
 //   and the Sign in screen — the terminal login, an API key in a secure
 //   field (sent once, kept nowhere, never a prop), a device code (a link to
 //   open and the code to copy), the shared-HOME warning with a confirm on a
-//   sandbox others may use, and "Signed in? Retry" (POST /runs/{id}/resume).
+//   sandbox others may use, and "Signed in? Retry" (POST /runs/{id}/resume);
+//   a sandbox that is gone (or whose manager is down) says so, with Retry
+//   only (and no Sign in in the composer, as for one you may not use).
 //
 // What they say is model/terminals.js (the web draws the same: terminals.js,
 // signin.js). One terminal at a time: the app's terminal closes its socket
@@ -43,7 +45,7 @@ function harnessOfView(v) {
   const app = ctx.app;
   if (!v || !isHarness(v.run)) return null;
   const h = harnessOf(v) || {};
-  const c = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, h.provider) });
+  const c = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, h.provider), me: app.me });
   const sb = h.sandbox && h.sandbox.ref ? h.sandbox : null;
   const tt = sb ? app.sbx.terminal(sb.ref, sb.cwd) : null;
   if (c || tt) app.sbx.ensure();
@@ -69,13 +71,13 @@ ext.register({
     const x = harnessOfView(v);
     if (!x || !x.c) return null;
     const c = x.c;
-    return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${c.title} ${c.view || c.ask || 'Tap Sign in below.'}`}/>
+    return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${c.title} ${c.view || c.goneText || c.ask || 'Tap Sign in below.'}`}/>
       ${c.device && isHttps(c.device.url) ? html`<markdown source=${`Open [${c.device.url}](${c.device.url}) — ${c.device.message}`}
         @link=${(e) => openLink(e.href)}/>` : nothing}`;
   },
   composer(v) {
     const x = harnessOfView(v);
-    if (!x || !x.c || x.c.ask || !x.c.talk) return null;
+    if (!x || !x.c || x.c.ask || x.c.gone || !x.c.talk) return null;
     return { tpl: () => html`<button icon="key" role="primary" @tap=${() => push({ kind: 'signin', run: v.run.id })}>Sign in</button>` };
   },
   menu(v) {
@@ -178,10 +180,10 @@ function signInTpl(s) {
   const METHOD = { terminal: term, 'api-key': key, 'device-code': device };
   return html`<screen title=${`Sign in to ${c.name}`} subtitle=${`${ICON} ${c.sandbox.name}`} style="form">
     <toolbar><button icon="refresh" ?busy=${s.busy === 'retry'} @tap=${retry}>Retry</button></toolbar>
-    <section><notice tone="warn" text=${c.warn}/></section>
+    <section><notice tone="warn" text=${c.goneText || c.warn}/></section>
     ${s.err ? html`<section><notice tone="danger" text=${s.err}/></section>` : nothing}
     ${s.msg ? html`<section><notice tone="ok" text=${s.msg}/></section>` : nothing}
-    ${c.ask ? html`<section><notice tone="info" text=${c.ask}/></section>` : html`
+    ${c.gone ? nothing : c.ask ? html`<section><notice tone="info" text=${c.ask}/></section>` : html`
       ${c.shared || s.needConfirm ? html`<section footer="Anyone who may use it signs in as you there.">
         <toggle label=${c.confirmLabel} value=${!!s.confirm} @change=${(e) => { s.confirm = !!e.value; ctx.paint(); }}/></section>` : nothing}
       ${c.methods.map((m) => METHOD[m.kind](m))}`}

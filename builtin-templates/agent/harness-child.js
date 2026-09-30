@@ -94,7 +94,7 @@ function parkTpl(app, b, run, c, who) {
   if (ps.kind === 'login') {
     const held = app.session.merged(run.id);
     const v = held ? { ...held, run: { ...held.run, ...run } } : { run, access: who.access, config: {} };
-    const si = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, c.provider) });
+    const si = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, c.provider), me: app.me });
     if (si) { app.sbx.ensure(); return signInTpl(app, si); }
   }
   // a park the summary has only in brief: its own chat answers it

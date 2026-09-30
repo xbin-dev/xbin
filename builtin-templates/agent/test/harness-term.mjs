@@ -9,7 +9,8 @@
 // running behind a pill, across conversations); the top bar's >_ Terminal
 // opens a shell at the agent's cwd; an API key is sent once and never
 // echoed; a device code shows its page and code; a sandbox the person may
-// not use says whom to ask.
+// not use says whom to ask, one that is gone says so; a coding agent's ▣
+// offers no change.
 //
 //   node test/harness-term.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -33,6 +34,16 @@ for (const [id, sb, by] of [[30, 'sb-solo', 'admin'], [31, 'sb-bob', 'bob']]) {
   seed.runs.push(run);
   seed.views[id] = { ...seed.views[24], run, config: { sandbox: { ref: s.ref, name: s.name, cwd: '/work', manager: 'Coding sandboxes', by },
     engine: 'harness', harness: { provider: 'codex', mode: 'agent', ref: s.ref, cwd: '/work', by } } };
+}
+
+// 33: Codex waiting for a sign-in in a sandbox of yours that is gone (no row in GET /sandboxes)
+{
+  const ref = `${SBX}|sb-gone`;
+  const sandbox = { ref, name: 'gone-box', cwd: '/work', shared: false };
+  const run = { ...r24, id: 33, rootId: 33, title: 'sign in 33', harness: { ...r24.harness, sandbox }, pendingState: { ...r24.pendingState, park: 'park33' } };
+  seed.runs.push(run);
+  seed.views[33] = { ...seed.views[24], run, config: { sandbox: { ref, name: 'gone-box', cwd: '/work', manager: 'Coding sandboxes', by: 'admin' },
+    engine: 'harness', harness: { provider: 'codex', mode: 'agent', ref, cwd: '/work', by: 'admin' } } };
 }
 
 // 32: run 24's park, for someone it is shared with to read
@@ -235,6 +246,18 @@ ok('…confirmed, it is sent again with confirm: true', JSON.stringify(b30) === 
 await go(31, '#hlogin');
 await page.waitForSelector('#hl-ask');
 ok('a sandbox you may not use: whom to ask, no methods', (await text('#hl-ask')) === 'Ask bob to sign in — the sandbox is theirs.' && !(await page.$('#hlogin [data-kind]')) && !!(await page.$('#hl-retry')));
+
+// a sandbox that is gone: said as such (not "Ask admin" — admin bound it), with Retry
+await go(33, '#hlogin');
+await page.waitForSelector('#hl-gone');
+ok('a sandbox that is gone: what is wrong and what to do, Retry — no methods, no one to ask, no shared-home warning',
+  (await text('#hl-gone')) === '⚠ ▣ gone-box: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.'
+  && !(await page.$('#hl-ask')) && !(await page.$('#hl-warn')) && !(await page.$('#hlogin [data-kind]')) && !!(await page.$('#hl-retry')), await text('#hlogin'));
+await page.click('#sbxbadge');
+await page.waitForSelector('#sbx-broken');
+ok('…its ▣ says the way out is a new chat', (await text('#sbx-broken')) === '⚠ gone — its manager no longer has it — start a new chat with Codex in another sandbox',
+  await text('#sbx-broken'));
+await page.click('.mback');
 
 // a view-only reader: what it waits for, no actions
 await go(32, '#hlogin');
