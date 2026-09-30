@@ -50,10 +50,12 @@ type ManagerTTYOptions struct {
 	// User is the person the consumer acts for, sent as Sbx-User: the
 	// manager records it and doesn't verify it. "" is the consumer itself.
 	// Check the person may use the sandbox before you open it for them.
-	// From a person's partition of a partitioned tile the person is the
+	// From a person's partition of a partitioned tile, with a manager whose
+	// hello.caps carry "partitions" (use no other there), the person is the
 	// partition's, verified — the manager applies its person rules to them,
 	// and a User naming anyone else is refused (403 not-allowed); "" is
-	// that person there.
+	// that person there. A manager without it takes the partition's call as
+	// the tile's, User asserted and unchecked.
 	User string
 	// Client dials the manager (nil: Client() — through the gateway, with
 	// this instance's credential).

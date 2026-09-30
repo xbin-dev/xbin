@@ -97,7 +97,9 @@ the manager's (never in a sandbox's `caps`):
   consumer's non-personal identity** — an unpartitioned consumer and a
   partitioned one's `global` instance alike (`""` ≡ `global`). So every
   sandbox a consumer made before it was partitioned stays its global
-  instance's.
+  instance's. A partition id alone names no consumer: one person's
+  partitions of two consumers may carry the same id, so a manager keys on
+  both.
 - **Home.** A sandbox made in a user partition is homed there: `owner:
   {user, via, partitionId, partition, asserted}` (`partition` is the
   `user:<id>`, for display; both fields are absent otherwise). The
@@ -136,14 +138,15 @@ the manager's (never in a sandbox's `caps`):
   read their output, attach to a terminal, type into it or end it — and
   attach to an exec's stdio socket (`stdio`), which takes the exec's stdin
   from the socket attached before: a program driven that way, a coding
-  agent, then takes its input from that partition. The sandbox's `home`
-  is shared the same way, with what lands there: a coding agent's sign-in
-  (hello's `harnesses[].login`) leaves its credentials there, so whoever
-  runs that agent in the sandbox afterwards — from any partition that sees
-  it, or in a clone — runs it as the person who signed in, on their
-  account. A consumer keeps a person's private work, and their sign-ins,
-  in sandboxes homed in that person's partition, never in one its
-  non-personal identity holds or shares with several.
+  agent, then takes its input from that partition. The sandbox's home
+  directory (`home`, `$HOME`) is shared the same way, with what lands
+  there: a coding agent's sign-in (hello's `harnesses[].login`) leaves its
+  credentials there, so whoever runs that agent in the sandbox afterwards
+  — from any partition that sees it, or in a clone — runs it as the person
+  who signed in, on their account. A consumer should keep a person's
+  private work, and their sign-ins, in sandboxes homed in that person's
+  partition, never in one its non-personal identity holds or shares with
+  several.
 - **Quotas** a manager keeps per consumer count a tile's sandboxes across
   all its partitions; per person, as ever (now verified on a partition's
   calls).
@@ -240,9 +243,10 @@ consumer runs one as a non-`tty` exec with `stdin: true`. Each is
   `home`, so everyone who may use the sandbox — every consumer and
   partition that sees it (§Partitioned consumers), and its clones — shares
   them, and runs the agent as the person who signed in. A partitioned
-  consumer offers a person the sign-in only in a sandbox homed in their
-  own partition, where the credentials stay theirs unless they share the
-  sandbox on.
+  consumer should offer a person the sign-in only in a sandbox homed in
+  their own partition, where the credentials stay theirs unless they share
+  the sandbox on. That is the consumer's to keep: to the manager a sign-in
+  is a terminal like any other.
 
 The list is the manager's word about the image, not a probe (an image's
 installs can fail): a consumer may check with `command -v <argv[0]>` through
@@ -794,8 +798,11 @@ sharing and people); the `user-partitions` section is about a partitioned
 consumer's people (§Partitioned consumers) and runs when hello's caps
 carry `partitions` (a capability with no routes of its own) — its
 `sockets` check dials the `tty` and `stdio` routes, where hello offers
-them, as another partition, the consumer's global instance, a person they
-assert, and the partition naming someone else. The rest of `Target`:
+them, as another partition, the same person's partition of another
+consumer (the same partition id), the consumer's global instance, a
+person they assert, and the partition naming someone else — and names a
+partition's exec under a sandbox the caller does see. The rest of
+`Target`:
 
 - `Client` — the HTTP client for every call and terminal (TLS, a proxy).
 - `Consumer`, `Verified`, `Asserted`, `Partition` — how to call as a
