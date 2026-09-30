@@ -97,6 +97,14 @@ func TestSharedAskAtGlobal(t *testing.T) {
 		serveJSON(t, h, as("POST", "/ask", c.body, f5("alice", "read")), c.want, nil)
 	}
 	serveJSON(t, h, as("POST", "/runs", `{"goal":"g"}`, f5("alice", "read")), 409, nil)
+	// nor a new ask's draft: a held private run of hers, with its file, in the shared space
+	serveJSON(t, h, as("PUT", "/ask/upload?draft=abcdefgh12&name=a.txt", "hello", f5("alice", "read")), 409, nil)
+	var held int
+	_ = ag.db.q.QueryRow(`SELECT COUNT(*) FROM runs WHERE origin=?`, heldOrigin).Scan(&held)
+	if held != 0 {
+		t.Fatalf("a refused upload left %d held run(s)", held)
+	}
+	serveJSON(t, h, as("PUT", "/ask/upload?draft=abcdefgh12&name=a.txt", "hello", ownerToken), 200, nil) // the owner token's page, as ever
 
 	var team, people, own Run
 	serveJSON(t, h, as("POST", "/ask", `{"text":"for the team","share":{"visibility":"team","teamRole":"viewer"}}`, f5("alice", "read")), 200, &team)

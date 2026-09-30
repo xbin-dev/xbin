@@ -28,7 +28,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,7 +35,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -172,241 +170,28 @@ func shareNew(w http.ResponseWriter, run *Run, s *shareSpec, by who) bool {
 
 // globalRoute is h as the global instance serves pattern: a person's
 // attributed call may not start a conversation of theirs there without
-// sharing it (POST /ask checks its body itself: askShareOK).
+// sharing it (POST /ask checks its body itself: askShareOK) — neither a run
+// (POST /runs) nor a new ask's draft (PUT /ask/upload: a held private run
+// whose file would sit in the shared space, and which no shared ask could
+// ever send — a shared chat is made held and uploaded into instead).
 func globalRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
-	if pattern != "POST /runs" {
+	var why string
+	switch pattern {
+	case "POST /runs":
+		why = noPrivateAtGlobal + " (POST /ask with share)"
+	case "PUT /ask/upload":
+		why = "a new chat's draft is made in your own space; a shared chat is created held (POST /ask {share, hold: true}), " +
+			"then files are uploaded into it (PUT /runs/{id}/upload)"
+	default:
 		return h
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if personFromPartition(r) {
-			xbin.WriteError(w, http.StatusConflict, noPrivateAtGlobal+" (POST /ask with share)")
+			xbin.WriteError(w, http.StatusConflict, why)
 			return
 		}
 		h(w, r)
 	}
-}
-
-// --- the conversation bundle ------------------------------------------------------
-
-const (
-	bundleVersion  = 1
-	maxBundleBytes = 48 << 20 // a bundle as a request body (binary files travel base64)
-	maxBundleBlobs = 16 << 20 // binary files a copy carries, together
-)
-
-// convBundle is one conversation as a copy carries it: its root's
-// transcript as the model reads it (every message, with its tool calls and
-// results, folded ones marked), and — when asked — its session files.
-// Subagents' own transcripts, memory, grants, sandboxes and the task ledger
-// stay behind.
-type convBundle struct {
-	Version  int          `json:"version"`
-	Title    string       `json:"title"`
-	Class    string       `json:"class,omitempty"`
-	Model    string       `json:"model,omitempty"` // the conversation's pick
-	Summary  string       `json:"summary,omitempty"`
-	Owner    string       `json:"owner,omitempty"`
-	Messages []bundleMsg  `json:"messages"`
-	Files    []bundleFile `json:"files,omitempty"`
-	Left     []string     `json:"left,omitempty"` // files not carried (over the size cap)
-}
-
-type bundleMsg struct {
-	Role       string   `json:"role"`
-	Content    string   `json:"content"`
-	Name       string   `json:"name,omitempty"`
-	ToolCallID string   `json:"toolCallId,omitempty"`
-	ToolCalls  string   `json:"toolCalls,omitempty"`
-	Compacted  bool     `json:"compacted,omitempty"`
-	Created    int64    `json:"created"`
-	Sender     string   `json:"sender,omitempty"`
-	Model      string   `json:"model,omitempty"`
-	Files      []string `json:"files,omitempty"` // the session files it carried
-}
-
-type bundleFile struct {
-	Path    string `json:"path"`
-	Mime    string `json:"mime,omitempty"`
-	Content string `json:"content,omitempty"` // a text file
-	Data    []byte `json:"data,omitempty"`    // a binary one (base64 on the wire)
-	Binary  bool   `json:"binary,omitempty"`
-}
-
-// exportConv reads conversation root into a bundle.
-func (ag *Agent) exportConv(ctx context.Context, root int64, withFiles bool) (*convBundle, error) {
-	run, err := ag.db.getRun(root)
-	if err != nil {
-		return nil, err
-	}
-	cfg, _ := ag.db.runConfig(root)
-	b := &convBundle{Version: bundleVersion, Title: run.Title, Class: cfg.Class, Model: cfg.Pick, Summary: run.Summary, Owner: run.Owner}
-	msgs, err := ag.db.messages(root, false)
-	if err != nil {
-		return nil, err
-	}
-	carried := ag.db.messageFiles(root)
-	for _, m := range msgs {
-		if m.Role == "system" {
-			continue // the new home's own system prompt is written at import
-		}
-		bm := bundleMsg{Role: m.Role, Content: m.Content, Name: m.Name, ToolCallID: m.ToolCallID, ToolCalls: m.ToolCalls,
-			Compacted: m.Compacted, Created: m.Created}
-		var meta msgMeta
-		if len(m.Meta) > 0 && json.Unmarshal(m.Meta, &meta) == nil {
-			bm.Sender, bm.Model = meta.Sender, meta.Model
-		}
-		if withFiles {
-			bm.Files = carried[m.ID]
-		}
-		b.Messages = append(b.Messages, bm)
-	}
-	if !withFiles {
-		return b, nil
-	}
-	files, err := ag.db.replFiles(root)
-	if err != nil {
-		return nil, err
-	}
-	blobBytes := 0
-	for _, f := range files {
-		if !f.Binary {
-			full, err := ag.db.replFile(root, f.Path)
-			if err != nil {
-				return nil, err
-			}
-			b.Files = append(b.Files, bundleFile{Path: f.Path, Mime: f.Mime, Content: full.Content})
-			continue
-		}
-		if blobBytes+f.Bytes > maxBundleBlobs {
-			b.Left = append(b.Left, f.Path)
-			continue
-		}
-		data, err := ag.readBlob(ctx, f.Blob)
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", f.Path, err)
-		}
-		blobBytes += len(data)
-		b.Files = append(b.Files, bundleFile{Path: f.Path, Mime: f.Mime, Data: data, Binary: true})
-	}
-	return b, nil
-}
-
-// importConv makes a new conversation of c's from a bundle, stamped st, in
-// class cls (the class's settings are this home's), with a note saying where
-// it came from. Its files first, then the transcript, then the rest in one
-// transaction; a failure leaves nothing behind.
-func (ag *Agent) importConv(ctx context.Context, b *convBundle, c who, st runStamp, cls agentClass, s *shareSpec, note string) (*Run, error) {
-	if b == nil || b.Version != bundleVersion {
-		return nil, errBadRequest(fmt.Sprintf("conversation: a bundle of version %d (GET /runs/{id}/export)", bundleVersion))
-	}
-	if len(b.Messages) == 0 {
-		return nil, errBadRequest("conversation: no messages to copy")
-	}
-	cfg := parseConfig(ag.db.getSetting("config"))
-	cfg.setClass(cls, false)
-	if validPick(b.Model) {
-		cfg.Pick = b.Model
-	}
-	cfgJSON, _ := json.Marshal(cfg)
-	title := strings.TrimSpace(b.Title)
-	if title == "" {
-		title = "a copy"
-	}
-	st.Origin, st.TitleSrc = "chat", "user"
-	var id int64
-	err := ag.db.Tx(func(t *DB) error {
-		var err error
-		if id, err = t.createRunStamped(clip(title, 120), string(cfgJSON), 0, statusIdle, st); err != nil {
-			return err
-		}
-		t.setRunKind(id, "quick")
-		if _, err := t.addMessage(&Message{RunID: id, Role: "system", Content: cfg.System}); err != nil {
-			return err
-		}
-		return s.addMembers(t, id, c)
-	})
-	if err != nil {
-		return nil, err
-	}
-	fail := func(err error) (*Run, error) {
-		_ = ag.deleteRunTree(id)
-		return nil, err
-	}
-	paths := map[string]string{} // the bundle's path → where it landed
-	for _, f := range b.Files {
-		var got *ReplFile
-		var err error
-		if f.Binary {
-			got, err = ag.acceptUploadSrc(ctx, id, f.Path, f.Mime, bytes.NewReader(f.Data), &fileSource{Kind: "copy"})
-		} else {
-			var p string
-			if p, err = normReplPath(f.Path); err == nil {
-				got, err = ag.db.replPutFileSrc(id, p, f.Content, 0, &fileSource{Kind: "copy"})
-				if err == nil && f.Mime != "" {
-					_, _ = ag.db.q.Exec(`UPDATE repl_files SET mime=? WHERE run_id=? AND path=?`, f.Mime, id, got.Path)
-				}
-			}
-		}
-		if err != nil {
-			return fail(fmt.Errorf("copying %s: %w", f.Path, err))
-		}
-		paths[f.Path] = got.Path
-	}
-	err = ag.db.Tx(func(t *DB) error {
-		for _, bm := range b.Messages {
-			switch bm.Role {
-			case "user", "assistant", "tool":
-			default:
-				return errBadRequest("conversation: a message's role is user, assistant or tool")
-			}
-			m := &Message{RunID: id, Role: bm.Role, Content: bm.Content, Name: bm.Name, ToolCallID: bm.ToolCallID,
-				ToolCalls: bm.ToolCalls, Compacted: bm.Compacted}
-			if bm.Sender != "" || bm.Model != "" {
-				m.Meta, _ = json.Marshal(msgMeta{Sender: bm.Sender, Model: bm.Model})
-			}
-			if _, err := t.addMessage(m); err != nil {
-				return err
-			}
-			for _, p := range bm.Files {
-				if at, ok := paths[p]; ok {
-					if _, err := t.q.Exec(`INSERT OR IGNORE INTO message_files (msg_id, run_id, path) VALUES (?, ?, ?)`, m.ID, id, at); err != nil {
-						return err
-					}
-				}
-			}
-			if bm.Role == "user" && !bm.Compacted {
-				if err := t.recordAsk(m, "human", bm.Sender); err != nil {
-					return err
-				}
-			}
-		}
-		if b.Summary != "" {
-			if err := t.setSummary(id, b.Summary); err != nil {
-				return err
-			}
-		}
-		if note != "" {
-			t.journal(id, "note", map[string]string{"text": note})
-		}
-		if ag.eng != nil {
-			ag.eng.emitRun(t, id)
-		}
-		return nil
-	})
-	if err != nil {
-		return fail(err)
-	}
-	if len(s.members()) > 0 {
-		ag.membersChanged(id)
-	}
-	return ag.db.getRun(id)
-}
-
-func (s *shareSpec) members() []shareMember {
-	if s == nil {
-		return nil
-	}
-	return s.Members
 }
 
 // --- the routes -------------------------------------------------------------------
@@ -436,12 +221,18 @@ func handleExport(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
-	b, err := agent.exportConv(r.Context(), rootOf(run), r.URL.Query().Get("files") == "1")
+	files := r.URL.Query().Get("files") == "1"
+	b, err := agent.exportConv(r.Context(), rootOf(run), files)
+	var out []byte
+	if err == nil {
+		out, err = bundleJSON(b, files)
+	}
 	if err != nil {
-		xbin.WriteError(w, 500, err.Error())
+		writeBundleErr(w, err)
 		return
 	}
-	xbin.WriteJSON(w, 200, b)
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(out)
 }
 
 // importBody is POST /import's body.
@@ -459,7 +250,12 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body importBody
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxBundleBytes)).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, int64(maxBundleBytes))).Decode(&body); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeBundleErr(w, tooLargeToCopy{})
+			return
+		}
 		xbin.WriteError(w, 400, "bad body: "+err.Error())
 		return
 	}
@@ -480,7 +276,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	st := c.stamp("chat")
 	body.Share.stamp(&st)
 	note := "Published from " + orStr(c.user, "another space") + "’s own space: a copy of a conversation of theirs."
-	run, err := agent.importConv(r.Context(), body.Conversation, c, st, cls, body.Share, note)
+	run, err := agent.importConv(r.Context(), body.Conversation, c, st, cls, body.Share, note, true)
 	if err != nil {
 		writeImportErr(w, err)
 		return
@@ -541,11 +337,14 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 	}
 	root := rootOf(run)
 	b, err := agent.exportConv(r.Context(), root, body.Files)
+	var payload []byte
+	if err == nil {
+		payload, err = bundleJSON(importBody{Conversation: b, Share: body.Share}, body.Files)
+	}
 	if err != nil {
-		xbin.WriteError(w, 500, err.Error())
+		writeBundleErr(w, err)
 		return
 	}
-	payload, _ := json.Marshal(importBody{Conversation: b, Share: body.Share})
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	res, err := callGlobal(ctx, http.MethodPost, "/import", payload, "application/json")
@@ -598,6 +397,10 @@ func handleCopy(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	res, err := exportAtGlobal(ctx, path)
+	if tl := (tooLargeToCopy{}); errors.As(err, &tl) {
+		writeBundleErr(w, err)
+		return
+	}
 	if err != nil {
 		xbin.WriteError(w, http.StatusBadGateway, "the agent's shared instance didn't answer: "+err.Error())
 		return
@@ -621,7 +424,7 @@ func handleCopy(w http.ResponseWriter, r *http.Request) {
 	}
 	note := "A private copy of a shared conversation" + map[bool]string{true: " of " + b.Owner, false: ""}[b.Owner != "" && b.Owner != c.user] +
 		": only you can open it; the shared one goes on without it."
-	run, err := agent.importConv(r.Context(), &b, c, c.stamp("chat"), cls, nil, note)
+	run, err := agent.importConv(r.Context(), &b, c, c.stamp("chat"), cls, nil, note, false)
 	if err != nil {
 		writeImportErr(w, err)
 		return
@@ -645,7 +448,10 @@ var exportAtGlobal = func(ctx context.Context, path string) (gwResp, error) {
 		return gwResp{}, err
 	}
 	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBundleBytes))
+	b, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBundleBytes)+1))
+	if err == nil && len(b) > maxBundleBytes { // an export says so itself (413); this is a backend that didn't
+		return gwResp{}, tooLargeToCopy{}
+	}
 	return gwResp{Status: resp.StatusCode, Type: resp.Header.Get("Content-Type"), Body: b}, err
 }
 
