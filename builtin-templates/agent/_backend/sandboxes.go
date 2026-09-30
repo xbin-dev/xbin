@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -34,8 +35,27 @@ type sbxManager struct {
 }
 
 // sbxClient reaches the managers (through the xbin gateway); tests point it
-// at plain HTTP servers.
-var sbxClient = xbin.Client
+// at plain HTTP servers with setSbxClient — under a lock, since a harness
+// pipe's background eof or kill can outlive the test that started it.
+var (
+	sbxClientMu sync.RWMutex
+	sbxClientFn = xbin.Client
+)
+
+func sbxClient() *http.Client {
+	sbxClientMu.RLock()
+	f := sbxClientFn
+	sbxClientMu.RUnlock()
+	return f()
+}
+
+// setSbxClient points sbxClient at f and returns what it was (tests).
+func setSbxClient(f func() *http.Client) (old func() *http.Client) {
+	sbxClientMu.Lock()
+	defer sbxClientMu.Unlock()
+	old, sbxClientFn = sbxClientFn, f
+	return old
+}
 
 // sandboxManagers reads the `sandboxes` slot's bindings from the
 // runner-injected env (rebinding restarts the backend). Nothing bound ⇒ none:
@@ -105,6 +125,20 @@ type sbxImage struct {
 	Title   string   `json:"title,omitempty"`
 	Default bool     `json:"default,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
+	// Harnesses are the coding agents the manager says the image has
+	// (harness_catalog.go); nil on every image of a manager that predates
+	// the field — unknown, not none.
+	Harnesses []sbxHarness `json:"harnesses,omitempty"`
+}
+
+// sbxHarness is one of hello.images[].harnesses: a coding agent speaking
+// ACP on stdio. A catalog id needs nothing else (the sdk's catalog has its
+// title, argv and login); any other needs argv.
+type sbxHarness struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title,omitempty"`
+	Argv  []string `json:"argv,omitempty"`
+	Login string   `json:"login,omitempty"`
 }
 
 type sbxSize struct {

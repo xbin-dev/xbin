@@ -45,6 +45,7 @@ const (
 	needQuestion = "question"
 	needApproval = "approval"
 	needFailed   = "failed"
+	needLogin    = "login" // a coding agent waits for a sign-in (D147 §4.3.9)
 )
 
 type needsPusher struct {
@@ -126,6 +127,10 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 	switch {
 	case run.Status == statusWaiting:
 		pend := parsePending(run.Pending)
+		if h := pend.Harness; h != nil { // a coding agent's park, in its own words
+			state, body, fp = harnessNeed(run, pend)
+			break
+		}
 		if pend.Kind == "approval" {
 			state = needApproval
 			var names []string
@@ -218,6 +223,26 @@ func (p *needsPusher) admit(n needsPush) bool {
 	r.tokens--
 	p.sent[key] = now
 	return true
+}
+
+// harnessNeed is a coding agent's park as a push: its state, body and
+// fingerprint.
+func harnessNeed(run *Run, p pendingState) (state, body, fp string) {
+	name := "The coding agent"
+	if h := harnessSummaryOf(run); h != nil {
+		name, _ = h["name"].(string)
+	}
+	switch p.Kind {
+	case "login":
+		return needLogin, name + " needs you to sign in to it.", p.Park
+	case "approval":
+		what := "a command"
+		if t := p.Harness.Tool; t != nil {
+			what = orStr(t.Title, orStr(t.Label, orStr(t.Kind, what)))
+		}
+		return needApproval, clip(name+" wants to run "+what, 200) + " — approve or deny.", p.Park
+	}
+	return needQuestion, clip(orStr(plainText(p.Harness.Message), name+" is waiting for your answer."), 240), p.Park
 }
 
 // person: an owner or member that is a person (not unowned, not a component).

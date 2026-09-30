@@ -342,7 +342,7 @@ export const CHAT_CSS = css`
   .st-ok { color: var(--xb-ok); } .st-err { color: var(--xb-danger); } .st-can { color: var(--xb-muted); }
   .spin.st { width: 1.05em; height: 1.05em; }
   .tc-chev { width: 0.9em; height: 0.9em; color: var(--xb-muted); stroke-width: 2.6; transition: transform 0.15s; }
-  .tool.open .tc-chev { transform: rotate(90deg); }
+  .tool.open > .tc-head .tc-chev { transform: rotate(90deg); } /* its own chevron, not those of the closed cards nested in it */
   .tc-open { padding: 0 12px; color: var(--xb-accent-text); display: flex; align-items: center; }
   .tc-open .ic { width: 16px; height: 16px; }
   .tc-body { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }

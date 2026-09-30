@@ -142,6 +142,7 @@ func routeTable(m *Manager) map[string]http.HandlerFunc {
 		"POST /sandboxes/{name}/execs/{id}/signal":       m.ServeSignal,
 		"POST /sandboxes/{name}/execs/{id}/resize":       m.ServeResize,
 		"GET /sandboxes/{name}/execs/{id}/tty":           m.ServeExecTTY,
+		"GET /sandboxes/{name}/execs/{id}/stdio":         m.ServeExecStdio,
 		"GET /sandboxes/{name}/tty":                      m.ServeTTY,
 		"GET /sandboxes/{name}/files/stat":               m.ServeStat,
 		"GET /sandboxes/{name}/files/content":            m.ServeReadFile,

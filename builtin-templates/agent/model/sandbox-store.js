@@ -15,6 +15,8 @@
 import * as actions from './actions.js';
 import * as S from './sandboxes.js';
 import * as classes from './classes.js';
+import { fitsWhy, createPrefill } from './harness-start.js';
+import { isHarness, harnessOf, nameOf } from './harness.js';
 
 const cid = () => 's' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -36,13 +38,14 @@ export function createSandboxStore(app) {
   // the agent just made (sandbox_create), or bound elsewhere since — is read
   // again (fresh, once per ref) rather than shown as gone.
   const checked = new Set();
-  const recheck = (v) => {
-    if (!v || !loadedAt || inflight) return;
-    const missing = [S.bindingOf(v), ...S.attachedOf(v)].filter((b) => b && !find(b.ref) && !checked.has(b.ref));
+  const recheckRefs = (refs) => {
+    if (!loadedAt || inflight) return;
+    const missing = refs.filter((ref) => ref && !find(ref) && !checked.has(ref));
     if (!missing.length) return;
-    missing.forEach((b) => checked.add(b.ref));
+    missing.forEach((ref) => checked.add(ref));
     sbx.load(true).catch(() => {});
   };
+  const recheck = (v) => { if (v) recheckRefs([S.bindingOf(v), ...S.attachedOf(v)].map((b) => b && b.ref)); };
 
   // patchShares PATCHes ref's whole shares list as bodyOf(sandbox) computes
   // it from the sandbox as the list has it — with its version, so a change
@@ -69,12 +72,16 @@ export function createSandboxStore(app) {
     pick: null,           // the next new chat's sandbox: {ref, cwd, name} (sent while its class has the sandbox toolset)
     error: '',            // why the list could not be read
     // the page's endpoints for its `sandboxes` slot (xbin.iface) — set by a
-    // view that opens terminals (the web's); null: none offered (the native
-    // view: its terminal dials only the tile's own routes — D96 difference)
+    // view that opens terminals (the web's); S.RELAY: through the tile's own
+    // relay (the native view: the app's terminal dials only the tile's own
+    // routes, D147 §4.2.8); null: none offered
     tty: null,
 
     // cls: the class the picker works for — the open conversation's, else the next new chat's.
-    cls() { const v = conv(); return v ? v.class || null : classes.find(app.classes, app.classId); },
+    cls() { const v = conv(); return v ? v.class || null : classes.find(app.classes, app.newClassId()); },
+    // coding: at home, the coding agent answering new chats (D147): the
+    // picker keeps sandboxes it fits, and New sandbox starts as one it fits
+    coding() { return conv() ? null : app.harness.picked(); },
 
     // load reads the list (fresh: past the backend's 15 s cache); one read at a time.
     load(fresh = false) {
@@ -85,17 +92,26 @@ export function createSandboxStore(app) {
       return inflight;
     },
     // ensure reads it once a view needs it; refresh again when it is older than 15 s.
-    ensure() { if (!loadedAt && !inflight) sbx.load().catch(() => {}); },
+    // ref: a sandbox the view names (a sign-in card's) that the list read
+    // before lacks is read again, fresh, once (recheck) — not shown as gone.
+    ensure(ref) { if (!loadedAt && !inflight) sbx.load().catch(() => {}); else if (ref) recheckRefs([ref]); },
     refresh() { if (Date.now() - loadedAt > 15e3) sbx.load().catch(() => {}); },
 
     // What the views draw (model/sandboxes.js), for where you are. rows:
     // order — the refs as the view shows them (kept while its list is open).
-    picker() { return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.classId), pick: sbx.pick }); },
-    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
+    picker() {
+      const h = sbx.coding(), v = conv();
+      const p = S.sandboxPicker(sbx.list, v, app.me, { cls: classes.find(app.classes, app.newClassId()), pick: sbx.pick, fits: h ? fitsWhy(h) : null });
+      // a coding agent's conversation keeps the sandbox it started in (D147 §2.2): no picker
+      return v && isHarness(v.run) ? { ...p, shown: false } : p;
+    },
+    // a coding agent's conversation keeps its sandbox and cwd (D147 §2.2): the badge offers no change
+    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list, undefined, { fixed: v && isHarness(v.run) ? nameOf(harnessOf(v)) : '' }); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
-    // terminal: "Open terminal" for ref at cwd (model/sandboxes.js terminal):
-    // {shown, why, src, …} — src is what <bx-terminal src> dials.
-    terminal(ref, cwd = '') { return S.terminal(sbx.list, ref, sbx.tty, cwd); },
+    // terminal: "Open terminal" for ref at cwd, running cmd ('' = the login
+    // shell) (model/sandboxes.js terminal): {shown, why, src, …} — src is
+    // what <bx-terminal src> (or the app's terminal, through the relay) dials.
+    terminal(ref, cwd = '', cmd = '') { return S.terminal(sbx.list, ref, sbx.tty, cwd, cmd); },
     // endTerminal ends the shell a terminal t (terminal()) started — its
     // session frame named the exec eid; a view calls it when it closes the
     // terminal. The sandbox's lastActive moved: the list is read again.
@@ -113,11 +129,13 @@ export function createSandboxStore(app) {
     // (a team conversation's sandbox is a team one), or the next new chat's.
     form(f = {}) {
       const v = conv();
-      return S.createForm(sbx.list.managers, sbx.cls(), f, { team: !!(v && v.run.visibility === 'team') });
+      const h = sbx.coding();
+      const pre = h && !f.provider ? createPrefill(h, sbx.list, sbx.cls()) : null;
+      return S.createForm(sbx.list.managers, sbx.cls(), pre ? { ...pre, ...f } : f, { team: !!(v && v.run.visibility === 'team') });
     },
 
     // askPart: what a new ask in class id carries — the pick, while that class has the sandbox toolset.
-    askPart(id = app.classId) {
+    askPart(id = app.newClassId()) {
       const p = sbx.pick;
       return p && S.hasSandbox(classes.find(app.classes, id)) ? { sandbox: { ref: p.ref, ...(p.cwd ? { cwd: p.cwd } : {}) } } : {};
     },

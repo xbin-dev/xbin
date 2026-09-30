@@ -48,7 +48,8 @@ export function toolScreens() {
   return ui.stack.map((s, i) => {
     if (!s.id) s.id = ++seq;
     const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
-    return { key: `tool:${s.id}`, entry: s, tpl: () => (tpl ? tpl(s) : html`<screen title="?"/>`), leave: () => { ui.stack.length = Math.min(ui.stack.length, i); } };
+    // a kind this file doesn't know is a seam's (ctx.ext.screen, native/ext.js)
+    return { key: `tool:${s.id}`, entry: s, tpl: () => (tpl ? tpl(s) : ctx.ext.screen(s) || html`<screen title="?"/>`), leave: () => { ui.stack.length = Math.min(ui.stack.length, i); } };
   });
 }
 
@@ -66,6 +67,7 @@ function taskTpl(s) {
       <section title=${head(a, i)} footer=${new Date(a.at * 1000).toLocaleString() + (a.live ? '' : ' · compacted — the agent sees it pinned')}>
         <text selectable>${a.text}</text>
       </section>`) : html`<section><empty title="no requests recorded"/></section>`}
+    ${ctx.ext.task(s) || nothing}
   </screen>`;
 }
 

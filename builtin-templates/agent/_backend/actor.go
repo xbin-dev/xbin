@@ -45,6 +45,9 @@ type pendingState struct {
 	// for (0: any job the run started), and when it went to sleep (unix ms).
 	Job   int   `json:"job,omitempty"`
 	Since int64 `json:"since,omitempty"`
+	// Harness, on a harness run's park (approval, question, login): the
+	// card data (harness_view.go, D147 §4.3.4).
+	Harness *hPark `json:"harness,omitempty"`
 }
 
 // waitEntry is one subagent_wait call the run is parked on.
@@ -115,7 +118,12 @@ func (e *Engine) pass(a *actor) {
 			return
 		}
 	}
-	in := sortInbox(e.db.undelivered(run.ID))
+	rows := e.db.undelivered(run.ID)
+	if run.Engine == engineHarness { // a coding agent answers it (harness_pass.go)
+		e.harnessPass(run, rows)
+		return
+	}
+	in := sortInbox(rows)
 
 	if len(in.cancel) > 0 {
 		e.stopRun(run, in, statusCanceled)
@@ -411,7 +419,7 @@ func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 		}
 	}
 	cfg, err := e.db.runConfig(run.ID)
-	if err != nil {
+	if err != nil || run.Engine == engineHarness { // a coding agent's run never reaches a model here
 		return
 	}
 	ts := &turnState{run: run, cfg: cfg, root: rootOf(run)}
@@ -799,17 +807,30 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 
 // deliverBoundary moves what is waiting into the transcript, in one
 // transaction: queued messages (in order, with their attachments), watcher
-// rounds, and one notice for every background subagent that finished. False
-// means the engine lost ownership.
+// rounds, a person's word to a coding agent below (hnote: a notice, never a
+// request — D147 §4.3.13; kept in harness_notes, harness_spawn.go),
+// and one notice for every background subagent that finished. False means
+// the engine lost ownership.
 func (e *Engine) deliverBoundary(ts *turnState) bool {
 	run := ts.run
 	var delivered []int64
 	err := e.fenced(func(t *DB) error {
-		asked := false
-		rows := t.undelivered(run.ID)
+		asked, noted := false, false
+		rows := t.undeliveredWithNotes(run.ID)
 		for _, r := range rows {
 			switch r.Kind {
 			case inboxUser, inboxWatch:
+			case inboxHNote:
+				m := &Message{RunID: run.ID, Role: "user", Content: r.Body.Text}
+				if _, err := t.addMessage(m); err != nil {
+					return err
+				}
+				if !t.consumeHarnessNote(r.ID, m.ID) {
+					return fmt.Errorf("harness note %d consumed twice", r.ID)
+				}
+				noted = true
+				e.emitMessage(t, ts.root, m)
+				continue
 			default:
 				continue
 			}
@@ -855,7 +876,7 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 			delivered = append(delivered, r.ID)
 			e.emitMessage(t, ts.root, m)
 		}
-		if n := e.deliverNotices(t, ts); n > 0 || len(delivered) > 0 {
+		if n := e.deliverNotices(t, ts); n > 0 || len(delivered) > 0 || noted {
 			e.emitInbox(t, ts.root, run.ID)
 		}
 		if asked {

@@ -135,6 +135,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /sandboxes/{name}/execs/{id}":               DeploymentScoped,
 	"GET /sandboxes/{name}/execs/{id}/output":        DeploymentScoped,
 	"GET /sandboxes/{name}/execs/{id}/tty":           DeploymentScoped,
+	"GET /sandboxes/{name}/execs/{id}/stdio":         DeploymentScoped,
 	"GET /sandboxes/{name}/files/content":            DeploymentScoped,
 	"GET /sandboxes/{name}/files/list":               DeploymentScoped,
 	"GET /sandboxes/{name}/files/stat":               DeploymentScoped,

@@ -463,9 +463,23 @@ func (e *Engine) childDigest(t *DB, childID int64, detail bool) string {
 		since = l.Created
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "#%d %s — %s for %s, %d model call(s)", r.ID, r.Title, phaseWord(r, l), humanDur(e.unix()-since), r.LLMCalls)
+	wait, doing := "", ""
+	if r.Engine == engineHarness { // a coding agent: its harness, calls, cost, and whom it waits for (harness_spawn.go)
+		var head string
+		head, wait, doing = harnessDigestHead(t, r, l, humanDur(e.unix()-since))
+		b.WriteString(head)
+	} else {
+		fmt.Fprintf(&b, "#%d %s — %s for %s, %d model call(s)", r.ID, r.Title, phaseWord(r, l), humanDur(e.unix()-since), r.LLMCalls)
+	}
 	if !detail {
+		if wait != "" {
+			b.WriteString("\n  " + wait)
+		}
 		return b.String()
+	}
+	b.WriteString("\n")
+	if doing != "" {
+		fmt.Fprintf(&b, "  doing: %s\n", doing)
 	}
 	msgs, _ := t.messages(childID, false)
 	var recent []string
@@ -490,7 +504,7 @@ func (e *Engine) childDigest(t *DB, childID int64, detail bool) string {
 		}
 	}
 	if len(recent) > 0 {
-		b.WriteString("\n  recent:\n")
+		b.WriteString("  recent:\n")
 		for i := len(recent) - 1; i >= 0; i-- {
 			b.WriteString(recent[i] + "\n")
 		}
@@ -498,11 +512,13 @@ func (e *Engine) childDigest(t *DB, childID int64, detail bool) string {
 	if txt := t.lastAssistant(childID); txt != "" {
 		fmt.Fprintf(&b, "  latest text: %s\n", clip(oneLine(txt), 240))
 	}
-	if parsePending(r.Pending).Kind == "approval" {
+	if wait != "" {
+		b.WriteString("  " + wait + "\n")
+	} else if parsePending(r.Pending).Kind == "approval" {
 		b.WriteString("  waiting for the owner to approve a tool call\n")
 	}
 	var queued int
-	_ = t.q.QueryRow(`SELECT count(*) FROM inbox WHERE run_id=? AND kind='user' AND delivered_at=0`, childID).Scan(&queued)
+	_ = t.q.QueryRow(`SELECT count(*) FROM inbox WHERE run_id=? AND kind IN ('user','hprompt') AND delivered_at=0`, childID).Scan(&queued)
 	if queued > 0 {
 		fmt.Fprintf(&b, "  %d message(s) queued for it\n", queued)
 	}

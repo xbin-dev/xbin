@@ -4,16 +4,18 @@
 // next new chat's — has the sandbox toolset), the ▣ badge (the header's
 // subtitle, a notice when the binding no longer resolves, and ⋯ → Sandbox:
 // the working directory, switching among the attached ones, Detach,
-// Manage…), and the pushed Sandboxes screens: the list with the lifecycle
+// Manage… — a coding agent's conversation keeps its sandbox: its cwd
+// read-only, no switch, no Detach), and the pushed Sandboxes screens: the list with the lifecycle
 // actions your rights allow, the create form, and sharing one with a
 // terminal tile (the builtin sandbox-terminal, D121). What they say is
 // model/sandboxes.js, what they do app.sbx (model/sandbox-store.js); the web
-// draws the same from sandboxes.js — and a terminal, which this view leaves
-// out (app.sbx.tty stays null: the app's terminal dials only the tile's own
-// routes; model/features.js DIFFERENCES.native).
+// draws the same from sandboxes.js. A terminal (a row's Terminal, the ▣
+// screen's Open terminal) is native/terminal.js's, through the tile's relay
+// (app.sbx.tty = RELAY: the app's terminal dials only the tile's own routes).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import * as S from '../model/sandboxes.js';
 import { ctx, fail, guard, push, ui } from './ui.js';
+import { openSandboxTerminal } from './terminal.js';
 
 const NEW = '+new';
 const MANAGE = '+manage';
@@ -89,7 +91,7 @@ export function badgeWords(v) {
 export function brokenTpl(v) {
   const b = ctx.app.sbx.badge(v);
   if (!b || !b.broken) return nothing;
-  return html`<notice tone="warn" title=${`${S.ICON} ${b.name}`} text=${`${b.broken} — pick another sandbox, or detach it (⋯ → Sandbox)`}/>`;
+  return html`<notice tone="warn" title=${`${S.ICON} ${b.name}`} text=${`${b.broken} — ${b.fixed ? b.advice : 'pick another sandbox, or detach it (⋯ → Sandbox)'}`}/>`;
 }
 
 // sandboxMenuTpl: the run menu's way to the badge's screen.
@@ -125,27 +127,34 @@ function boxTpl(s) {
     ctx.paint();
   };
   const setCwd = run(async () => { await app.sbx.setCwd(s.cwd); s.cwd = S.bindingOf(app.session.current())?.cwd ?? s.cwd; });
+  const tt = app.sbx.terminal(b.ref, b.cwd);
   return html`<screen title=${b.name} subtitle=${`${S.ICON} ${b.detail}`} style="form">
-    ${b.broken ? html`<section><notice tone="warn" title="The binding no longer resolves" text=${`${b.broken} — pick another, or detach it.`}/></section>` : nothing}
+    ${b.broken ? html`<section><notice tone="warn" title="The binding no longer resolves" text=${`${b.broken} — ${b.advice}.`}/></section>` : nothing}
     ${errTpl(s)}
-    <section footer="The tools work there from the agent's next turn; empty is the sandbox's workdir.">
+    ${b.fixed ? html`<section footer="Fixed for this conversation: a coding agent keeps the sandbox and directory it started in.">
+      <row title="Working directory" subtitle=${b.cwd || 'its workdir'} mono="subtitle" icon="folder"/>
+    </section>` : html`<section footer="The tools work there from the agent's next turn; empty is the sandbox's workdir.">
       <field label="Working directory" placeholder="the sandbox's workdir" value=${s.cwd} ?disabled=${!b.canChange} submit="done"
         @input=${(e) => { s.cwd = e.value; }} @submit=${setCwd}/>
       <button ?disabled=${!b.canChange} @tap=${setCwd}>Set</button>
-    </section>
-    ${b.attached.length > 1 ? html`<section title="Attached" footer="The agent works in one at a time.">
+    </section>`}
+    ${b.attached.length > 1 && !b.fixed ? html`<section title="Attached" footer="The agent works in one at a time.">
       ${repeat(b.attached, (a) => a.ref, (a) => html`<row title=${a.name} subtitle=${a.broken || a.cwd || nothing} mono=${a.broken ? nothing : 'subtitle'}
         icon="box" ?selected=${a.on} detail=${a.on ? 'active' : nothing} tone=${a.broken ? 'warn' : nothing}
         @tap=${a.on || !b.canChange ? nothing : run(() => app.sbx.choose(a.ref, a.cwd))}/>`)}
     </section>` : nothing}
-    <section footer="Detaching takes it off this conversation; the sandbox stays.">
+    ${tt.shown ? html`<section footer=${tt.why ? `No terminal: ${tt.why}.` : `A shell in ${b.name} at ${b.cwd || 'its workdir'}, as you.`}>
+      <row title="Open terminal" icon="terminal" nav ?disabled=${!!tt.why} @tap=${tt.why ? nothing : () => openSandboxTerminal(b.ref, b.cwd)}/>
+    </section>` : nothing}
+    ${b.fixed ? html`<section><row title="Manage sandboxes…" icon="list" nav @tap=${() => push({ kind: 'sandboxes' })}/></section>`
+    : html`<section footer="Detaching takes it off this conversation; the sandbox stays.">
       <button role="destructive" ?disabled=${!b.canChange} @tap=${run(() => app.sbx.detach(b.ref), true)}>Detach</button>
       <row title="Manage sandboxes…" icon="list" nav @tap=${() => push({ kind: 'sandboxes' })}/>
-    </section>
+    </section>`}
   </screen>`;
 }
 
-const ACT_ICON = { use: 'check', start: 'play', stop: 'stop', thaw: 'sun', archive: 'archive', team: 'people', private: 'lock', shareTerm: 'terminal', delete: 'trash' };
+const ACT_ICON = { use: 'check', start: 'play', stop: 'stop', thaw: 'sun', archive: 'archive', terminal: 'terminal', team: 'people', private: 'lock', shareTerm: 'link', delete: 'trash' };
 
 // sandboxes: every sandbox you may see (model/sandboxes.js sandboxRows), each
 // row's actions behind its swipe and ⋯ (archive and delete confirmed).
@@ -159,6 +168,7 @@ function listTpl(s) {
   const cant = app.sbx.createWhy();
   const act = (r, a) => async () => {
     if (a.id === 'shareTerm') { push({ kind: 'sandboxShare', ref: r.ref, f: {} }); return; }
+    if (a.id === 'terminal') { openSandboxTerminal(r.ref, a.cwd); return; }
     s.busy = r.ref; s.err = ''; s.msg = '';
     ctx.paint();
     try { s.msg = await app.sbx.perform(r.ref, a.id, r.name); } catch (e) { s.err = `${r.name}: ${e.message}`; }

@@ -114,6 +114,11 @@ export class ConvList {
       this.changed();
       return;
     }
+    if (ev.type === 'harness' && ev.run === ev.root) { // a coding harness's summary (its row's chip)
+      const r = this.find(ev.run);
+      if (r) { r.harness = d; this.changed(); }
+      return;
+    }
     if (ev.type !== 'run' || ev.run !== ev.root) return;
     if (d.deleted) { this.remove(ev.run); this.changed(); return; }
     const r = this.find(ev.run);

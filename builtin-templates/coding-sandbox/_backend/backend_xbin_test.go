@@ -324,7 +324,7 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(body, &q)
 		d.seq++
 		x := xbin.ExecInfo{ID: fmt.Sprintf("b00001-%d", d.seq), Cmd: q.Cmd, Argv: q.Argv, TTY: q.TTY, State: "running",
-			ClientID: q.ClientID, ForUser: q.ForUser, UID: q.UID, Label: q.Label}
+			ClientID: q.ClientID, ForUser: q.ForUser, UID: q.UID, Label: q.Label, Split: q.Split}
 		d.execs[seg[0]] = append(d.execs[seg[0]], x)
 		rtJSON(w, 201, x)
 	case len(seg) == 2 && seg[1] == "execs":
@@ -341,6 +341,9 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		zero := 0
 		rtJSON(w, 200, xbin.OutputChunk{Start: 0, End: 6, Total: 6, Data: "built\n", Encoding: r.URL.Query().Get("encoding"),
 			State: "exited", ExitCode: &zero})
+	case len(seg) == 4 && seg[1] == "execs" && seg[3] == "stdio":
+		// no upgrade here either: a refusal naming its own sandbox
+		rtFail(w, 400, "invalid", "sandbox "+seg[0]+": since "+r.URL.Query().Get("since")+" is past the output's end")
 	case len(seg) == 4 && seg[1] == "execs" && seg[3] == "tty", len(seg) == 2 && seg[1] == "tty":
 		// no upgrade here: a refusal, the way the runtime answers one before
 		// it upgrades (naming its own sandbox)
@@ -702,11 +705,14 @@ func TestXbinBackendTerminal(t *testing.T) {
 	a := tg.As(t, "apps/agent").Verified("alice")
 	sb := a.Create(map[string]any{"name": "t"})
 	rec := m.recCopy(sb.ID)
+	verified := "alice"
 	dial := func(path string) (int, string) {
 		req, _ := http.NewRequest("GET", srv.URL+"/sbx/sandboxes/"+sb.ID+path, nil)
 		req.Header.Set("X-XBin-From", "apps/agent")
 		req.Header.Set("X-XBin-Role", "consumer")
-		req.Header.Set("X-XBin-User", "alice")
+		if verified != "" {
+			req.Header.Set("X-XBin-User", verified)
+		}
 		req.Header.Set("Sbx-User", "mallory")
 		req.Header.Set("Connection", "Upgrade")
 		req.Header.Set("Upgrade", "websocket")
@@ -737,6 +743,125 @@ func TestXbinBackendTerminal(t *testing.T) {
 	q = rt.last(t, "GET", "/execs/b00001-7/tty").Query
 	if q.Get("sessionId") != "b00001-7" || q.Get("sandboxId") != sb.ID || q.Get("forUser") != "alice" || code != 403 || strings.Contains(body, rec.Runtime) {
 		t.Fatalf("an attach: %v → %d %s", q, code, body)
+	}
+	// a consumer's backend (no verified person) opens terminals for the
+	// person it names: an asserted forUser, which xbind checks the same
+	// (noTerminal) — on both routes
+	verified = ""
+	dial("/tty?cmd=claude+%2Flogin")
+	if q := rt.last(t, "GET", "/"+rec.Runtime+"/tty").Query; q.Get("forUser") != "mallory" || q.Get("cmd") != "claude /login" {
+		t.Fatalf("a backend's terminal: %v", q)
+	}
+	dial("/execs/b00001-8/tty")
+	if q := rt.last(t, "GET", "/execs/b00001-8/tty").Query; q.Get("forUser") != "mallory" || q.Get("sessionId") != "b00001-8" {
+		t.Fatalf("a backend's attach: %v", q)
+	}
+}
+
+// wsDial is a WebSocket handshake to the manager's route path of sandbox id
+// as apps/agent's backend, for alice (verified) and mallory (asserted): its
+// status and body (a refusal; the doubles never upgrade).
+func wsDial(t *testing.T, srv *httptest.Server, id, path string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", srv.URL+"/sbx/sandboxes/"+id+path, nil)
+	req.Header.Set("X-XBin-From", "apps/agent")
+	req.Header.Set("X-XBin-Role", "consumer")
+	req.Header.Set("X-XBin-User", "alice")
+	req.Header.Set("Sbx-User", "mallory")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+// Where the runtime has stdio, the manager offers it: split and stream pass
+// to the runtime, and the stdio socket is a relay of the runtime's — the
+// offsets in its query, none of the consumer's headers, a refusal with the
+// contract's ids — while what names no exec, or no offset, is answered here.
+func TestXbinBackendStdio(t *testing.T) {
+	rt := newRuntime("vm")
+	rt.rt.Caps = append(rt.rt.Caps, "stdio")
+	m, srv, tg := xbinManager(t, rt, nil)
+	a := tg.As(t, "apps/agent").Verified("alice")
+	if caps := strs(hello(t, a)["caps"]); !slices.Contains(caps, "stdio") {
+		t.Fatalf("hello's caps with a runtime that has stdio: %v", caps)
+	}
+	sb := a.Create(map[string]any{"name": "s"})
+	if !slices.Contains(sb.Caps, "stdio") {
+		t.Fatalf("the sandbox's caps: %v", sb.Caps)
+	}
+	rec := m.recCopy(sb.ID)
+	x := a.Exec(sb.ID, map[string]any{"argv": []string{"claude-agent-acp"}, "stdin": true, "split": true})
+	var ex xbin.ExecRequest
+	_ = json.Unmarshal([]byte(rt.last(t, "POST", "/execs").Body), &ex)
+	if !ex.Split || !ex.Stdin || !x.Split {
+		t.Fatalf("split reaches the runtime: %+v → %+v", ex, x)
+	}
+	a.Call("GET", "/sandboxes/"+sb.ID+"/execs/"+x.ID+"/output?stream=stderr&since=2&encoding=base64", nil, 200, nil)
+	if q := rt.last(t, "GET", "/output").Query; q.Get("stream") != "stderr" || q.Get("since") != "2" {
+		t.Fatalf("stream reaches the runtime: %v", q)
+	}
+	a.Refused("GET", "/sandboxes/"+sb.ID+"/execs/"+x.ID+"/output?stream=both", nil, 400, "invalid")
+	code, body := wsDial(t, srv, sb.ID, "/execs/"+x.ID+"/stdio?since=3&errSince=1")
+	c := rt.last(t, "GET", "/stdio")
+	if c.Path != "/"+rec.Runtime+"/execs/"+x.ID+"/stdio" || c.Query.Get("since") != "3" || c.Query.Get("errSince") != "1" || c.Header.Get("Upgrade") != "websocket" {
+		t.Fatalf("the relayed socket: %s %v %v", c.Path, c.Query, c.Header)
+	}
+	if c.Header.Get("X-XBin-User") != "" || c.Header.Get("Sbx-User") != "" || c.Header.Get("X-XBin-From") != "" {
+		t.Fatalf("the consumer's headers never pass: %v", c.Header)
+	}
+	if code != 400 || !strings.Contains(body, sb.ID) || strings.Contains(body, rec.Runtime) {
+		t.Fatalf("the refusal: %d %s", code, body)
+	}
+	before := len(rt.calls("GET", "/stdio"))
+	for path, want := range map[string]int{
+		"/execs/" + x.ID + "/stdio?since=-1":     400,
+		"/execs/" + x.ID + "/stdio?errSince=x":   400,
+		"/execs/nope/stdio":                      404,
+		"/execs/b00001-1%2F..%2F..%2Fsb-x/stdio": 404,
+	} {
+		if code, body := wsDial(t, srv, sb.ID, path); code != want {
+			t.Errorf("%s: %d %s, want %d", path, code, body, want)
+		}
+	}
+	if after := len(rt.calls("GET", "/stdio")); after != before {
+		t.Fatalf("%d refused sockets reached the runtime", after-before)
+	}
+}
+
+// Where the runtime lacks stdio (an xbind from before it), the manager
+// doesn't offer it: split and stream are fields it doesn't know, and the
+// route is unsupported.
+func TestXbinBackendNoStdio(t *testing.T) {
+	rt := newRuntime("vm")
+	_, srv, tg := xbinManager(t, rt, nil)
+	a := tg.As(t, "apps/agent").Verified("alice")
+	if caps := strs(hello(t, a)["caps"]); slices.Contains(caps, "stdio") {
+		t.Fatalf("hello offers stdio without the runtime's: %v", caps)
+	}
+	sb := a.Create(map[string]any{"name": "s"})
+	x := a.Exec(sb.ID, map[string]any{"cmd": "true", "stdin": true, "split": true})
+	var ex xbin.ExecRequest
+	_ = json.Unmarshal([]byte(rt.last(t, "POST", "/execs").Body), &ex)
+	if ex.Split || x.Split {
+		t.Fatalf("split without stdio: %+v → %+v", ex, x)
+	}
+	a.Call("GET", "/sandboxes/"+sb.ID+"/execs/"+x.ID+"/output?stream=stderr", nil, 200, nil)
+	if q := rt.last(t, "GET", "/output").Query; q.Has("stream") {
+		t.Fatalf("stream without stdio: %v", q)
+	}
+	if code, body := wsDial(t, srv, sb.ID, "/execs/"+x.ID+"/stdio"); code != 501 || !strings.Contains(body, `"unsupported"`) {
+		t.Fatalf("the stdio route without stdio: %d %s", code, body)
+	}
+	if n := len(rt.calls("GET", "/stdio")); n != 0 {
+		t.Fatalf("%d stdio sockets reached the runtime", n)
 	}
 }
 

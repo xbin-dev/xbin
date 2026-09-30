@@ -1,0 +1,12 @@
+> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true},"clientInfo":{"name":"golden","version":"1"}}}
+< {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"promptCapabilities":{"image":true,"embeddedContext":true}},"authMethods":[{"id":"api-key","name":"API key"}],"agentInfo":{"name":"fakeacp","version":"1"}}}
+> {"jsonrpc":"2.0","id":2,"method":"session/load","params":{"sessionId":"s-old","cwd":"/work","mcpServers":[]}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"content":{"type":"text","text":"resumed s-old"},"sessionUpdate":"user_message_chunk"}}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"content":{"type":"text","text":"echo: resumed s-old"},"messageId":"m0","sessionUpdate":"agent_message_chunk"}}}
+< {"jsonrpc":"2.0","id":2,"result":{"modes":{"currentModeId":"ask","availableModes":[{"id":"ask","name":"Ask"},{"id":"yolo","name":"Yolo"}]},"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"fake-default","options":[{"value":"fake-default","name":"Fake (default)"},{"value":"fake-fast","name":"Fake fast"}]}]}}
+> {"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"s-old","prompt":[{"type":"text","text":"hi"}]}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"content":{"type":"text","text":"echo: hi"},"messageId":"m","sessionUpdate":"agent_message_chunk"}}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"sessionUpdate":"usage_update","size":1000,"used":42}}}
+< {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-1","update":{"sessionUpdate":"session_info_update","title":"fake: hi"}}}
+< {"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}
+exit 0

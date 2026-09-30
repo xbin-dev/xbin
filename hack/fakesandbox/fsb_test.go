@@ -42,9 +42,65 @@ func newFake(t *testing.T, tweak ...func(*fsbManager)) (*fsbManager, sandboxcont
 
 func TestContract(t *testing.T) {
 	tg := fakeTarget(t, sandboxcontract.Knobs{})
+	tg.Strict = true // the reference manager passes what the suite only warns about
 	tg.Caps = []string{"exec", "files", "tar", "snapshots", "clone", "archive"}
 	if fsbHasPTY() {
 		tg.Caps = append(tg.Caps, "tty")
+	}
+	sandboxcontract.Run(t, tg)
+}
+
+// TestContractBeforeStdio: a manager from before the stdio capability — it
+// ignores split, and its stdio route is one it doesn't know (a plain 404,
+// as Go's ServeMux answers one) — still passes caps/missing, as it did
+// before the suite knew stdio: the suite takes any 404 there as well as
+// unsupported.
+func TestContractBeforeStdio(t *testing.T) {
+	t.Parallel()
+	var fresh func(*testing.T, sandboxcontract.Knobs) sandboxcontract.Target
+	fresh = func(t *testing.T, k sandboxcontract.Knobs) sandboxcontract.Target {
+		t.Helper()
+		m := &fsbManager{Root: t.TempDir(), DefaultFrom: "apps/nobody", Grace: 200 * time.Millisecond,
+			Ring: k.OutputRing, FileMax: k.FileMax, Caps: k.Caps}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/stdio") && !m.hasCap("stdio") {
+				http.NotFound(w, r)
+				return
+			}
+			m.ServeHTTP(w, r)
+		}))
+		t.Cleanup(func() { srv.Close(); m.Close() })
+		return sandboxcontract.Target{URL: srv.URL, Grace: m.Grace, Fresh: fresh}
+	}
+	tg := fresh(t, sandboxcontract.Knobs{})
+	tg.Skip = map[string]string{}
+	for _, s := range []string{"hello", "sandboxes", "partitions", "people", "lifecycle", "run", "execs", "tty", "stdio", "files", "tar", "snapshots", "ports"} {
+		tg.Skip[s] = "TestContract runs it; this one is caps/missing's"
+	}
+	sandboxcontract.Run(t, tg)
+}
+
+// TestContractPolicingTTY: a manager built to the earlier suite that
+// refuses a consumer backend's terminal for an asserted person it wouldn't
+// admit on a verified call gets tty/backend's warning — the check skips,
+// saying why — not a failure, in the release that adds the check.
+func TestContractPolicingTTY(t *testing.T) {
+	t.Parallel()
+	if !fsbHasPTY() {
+		t.Skip("no pseudo-terminals here")
+	}
+	m := &fsbManager{Root: t.TempDir(), DefaultFrom: "apps/nobody", Grace: 200 * time.Millisecond}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tty") && r.Header.Get("X-XBin-User") == "" && r.Header.Get("Sbx-User") != "" {
+			fsbFail(w, http.StatusForbidden, "not-allowed", "terminals are for verified people here")
+			return
+		}
+		m.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.Close(); m.Close() })
+	tg := sandboxcontract.Target{URL: srv.URL, Grace: m.Grace, Skip: map[string]string{}}
+	for _, s := range []string{"hello", "sandboxes", "partitions", "people", "lifecycle", "run", "execs", "stdio", "files", "tar", "snapshots", "ports", "caps"} {
+		tg.Skip[s] = "TestContract runs it; this one is tty/backend's warning"
 	}
 	sandboxcontract.Run(t, tg)
 }
@@ -191,6 +247,39 @@ func TestFakeTTYStdin(t *testing.T) {
 	a.Call("POST", "/sandboxes/"+id+"/execs/"+x.ID+"/stdin?eof=1", nil, http.StatusNoContent, nil)
 	if out, c := a.Drain(id, x.ID); !strings.Contains(out, "done") || c.ExitCode == nil || *c.ExitCode != 0 {
 		t.Fatalf("after ^D: %q %+v", out, c)
+	}
+}
+
+// Its image advertises the scripted "fake" harness by default, whatever
+// Harnesses says otherwise (empty: none); a tty exec gets a terminal's
+// environment unless its env names it.
+func TestFakeHarnessesAndTTYEnv(t *testing.T) {
+	t.Parallel()
+	harnesses := func(tg sandboxcontract.Target) []sandboxcontract.Harness {
+		var h sandboxcontract.Hello
+		tg.As(t, "apps/a").Call("GET", "/hello?protocol=1", nil, 200, &h)
+		return h.Images[0].Harnesses
+	}
+	_, tg := newFake(t)
+	if hs := harnesses(tg); len(hs) != 1 || hs[0].ID != "fake" || strings.Join(hs[0].Argv, " ") != "fakeacp" || hs[0].Login == "" {
+		t.Fatalf("the default harnesses: %+v", hs)
+	}
+	_, own := newFake(t, func(m *fsbManager) { m.Harnesses = []fsbHarness{{ID: "fake", Argv: []string{"/bin/acp", "-x"}}} })
+	if hs := harnesses(own); len(hs) != 1 || strings.Join(hs[0].Argv, " ") != "/bin/acp -x" {
+		t.Fatalf("set harnesses: %+v", hs)
+	}
+	_, none := newFake(t, func(m *fsbManager) { m.Harnesses = []fsbHarness{} })
+	if hs := harnesses(none); len(hs) != 0 {
+		t.Fatalf("no harnesses: %+v", hs)
+	}
+	if !fsbHasPTY() {
+		return
+	}
+	a := tg.As(t, "apps/a")
+	id := a.Create(map[string]any{"name": "tty-env"}).ID
+	x := a.Exec(id, map[string]any{"cmd": "echo \"$TERM/$COLORTERM/$LANG\"", "tty": true, "env": map[string]string{"LANG": "de_DE.UTF-8"}})
+	if out, _ := a.Drain(id, x.ID); !strings.Contains(out, "xterm-256color/truecolor/de_DE.UTF-8") {
+		t.Fatalf("a tty's environment: %q", out)
 	}
 }
 

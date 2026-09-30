@@ -105,6 +105,9 @@ func (ag *Agent) startRunTx(t *DB, o runOpts) (int64, error) {
 	if o.Hold {
 		status = statusIdle
 	}
+	if o.Cfg.Engine == engineHarness {
+		o.Stamp.Engine = engineHarness
+	}
 	id, err := t.createRunStamped(o.Title, string(cfgJSON), 0, status, o.Stamp)
 	if err != nil {
 		return 0, err
@@ -115,7 +118,17 @@ func (ag *Agent) startRunTx(t *DB, o runOpts) (int64, error) {
 	if _, err := t.addMessage(&Message{RunID: id, Role: "system", Content: o.Cfg.System}); err != nil {
 		return 0, err
 	}
-	if !o.Hold {
+	if !o.Hold && o.Cfg.Engine == engineHarness {
+		// the first message is the coding agent's first prompt: its user row
+		// is written as it is delivered (harness_pass.go)
+		b := inboxBody{Text: o.Text, Source: orStr(o.Meta.Origin, "human"), Sender: o.Sender, OriginID: o.Meta.OriginID, Label: o.Meta.Label}
+		if _, _, err := t.enqueue(id, inboxHPrompt, b, ""); err != nil {
+			return 0, err
+		}
+		if ag.eng != nil {
+			ag.eng.emitInbox(t, id, id)
+		}
+	} else if !o.Hold {
 		m := &Message{RunID: id, Role: "user", Content: o.Text}
 		meta := o.Meta
 		meta.Sender = o.Sender
@@ -149,13 +162,22 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title, Goal, System, Toolset string
 		Class                        string // D116; else Toolset's built-in, else the caller's default
+		// Harness: a coding agent answers it (D147 §4.2.3; its sandbox
+		// is the body's `sandbox`, bound by askSandbox as for POST /ask).
+		Harness *harnessReq `json:"harness"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Goal == "" {
 		xbin.WriteError(w, 400, "need {goal}")
 		return
 	}
-	cls, err := requestedClass(callerOf(r), body.Class, body.Toolset)
+	var cls agentClass
+	var err error
+	if body.Harness != nil {
+		cls, err = harnessClass(r.Context(), callerOf(r), body.Harness, body.Class, body.System, "")
+	} else {
+		cls, err = requestedClass(callerOf(r), body.Class, body.Toolset)
+	}
 	if err != nil {
 		writeClassErr(w, err)
 		return
@@ -164,6 +186,12 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	cfg.setClass(cls, body.System != "")
 	if body.System != "" {
 		cfg.System = body.System
+	}
+	if !askSandbox(w, r, &cfg) {
+		return
+	}
+	if body.Harness != nil && !harnessApply(w, r, &cfg, body.Harness) {
+		return
 	}
 	w0 := callerOf(r)
 	st := w0.stamp("chat")
@@ -181,7 +209,7 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	xbin.WriteJSON(w, 200, run)
+	xbin.WriteJSON(w, 200, runAnswer(run))
 }
 
 // handleGetRun is the pre-stream run detail, kept for existing tiles.
@@ -226,6 +254,9 @@ func handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 		agent.cancelRuns(t, id, true, "run deleted")
 		return nil
 	})
+	if agent.eng != nil {
+		agent.eng.endHarnesses(r.Context(), id) // a coding agent's adapter goes with it
+	}
 	if err := agent.deleteRunTree(id); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
@@ -285,6 +316,10 @@ func handleRunTree(w http.ResponseWriter, r *http.Request) {
 			"created": n.Created, "updated": n.Updated, "settledAt": n.SettledAt,
 			"result": clip(n.Result, 160), "lastStep": last[n.ID],
 			"llmCalls": n.LLMCalls, "promptTokens": n.PromptTokens, "completionTokens": n.CompletionTokens,
+		}
+		node["engine"] = n.Engine // a coding agent's: its compact summary (D147 §4.3.6)
+		if h := harnessSummaryOf(n); h != nil {
+			node["harness"] = harnessNodeView(h)
 		}
 		if l != nil {
 			node["link"] = map[string]any{"id": l.ID, "mode": l.Mode, "state": l.State, "outcome": l.Outcome,
@@ -409,6 +444,9 @@ func handleHaltPut(w http.ResponseWriter, r *http.Request) {
 
 func handleMemoryPut(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
+	if refuseOnHarness(w, id, "a coding agent has no memory") { // D147 §4.2.11
+		return
+	}
 	var body struct{ Key, Value string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Key == "" {
@@ -423,6 +461,9 @@ func handleMemoryPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
+	if refuseOnHarness(w, pathID(r), "a coding agent has no memory") { // D147 §4.2.11
+		return
+	}
 	if err := agent.db.memoryDelete(pathID(r), r.URL.Query().Get("key")); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
@@ -441,6 +482,7 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg.Sandbox, cfg.Attached, cfg.HeldInternal = nil, nil, false // a conversation's own, never a default
+	cfg.Engine, cfg.Harness = "", nil
 	b, _ := json.Marshal(cfg)
 	if err := agent.db.putSetting("config", string(b)); err != nil {
 		xbin.WriteError(w, 500, err.Error())

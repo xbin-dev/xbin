@@ -20,6 +20,7 @@
 //   toolset   the lane of your class        attach  an attachment chip changed
 //   model     the model pick or the model list changed
 //   sandboxes the sandbox list, the new chat's sandbox or a conversation's binding changed (app.sbx)
+//   harness   the coding agents' catalog or your picks and settings changed (app.harness)
 //   sending   a send started or settled (app.sending)
 //   select(id)   a conversation is being opened (before it loads)
 //   selected(id) …and is open
@@ -37,6 +38,10 @@ import * as router from './router.js';
 import { HOME } from './home.js';
 import * as classes from './classes.js';
 import { createSandboxStore } from './sandbox-store.js';
+import { createHarnessStore } from './harness-store.js';
+import { resolveClass } from './harness.js';
+import { wireStart } from './harness-start.js';
+import { createBoard } from './harness-board.js';
 
 /**
  * createApp builds the model.
@@ -90,6 +95,10 @@ export function createApp(opts = {}) {
     // toolset: the lane of your class for new asks ('private' | 'web') — what
     // the tool mode was before classes, and what older code reads.
     get toolset() { return classes.laneOf(classes.find(app.classes, app.classId)); },
+    // newClassId: the class a new ask starts in — yours, or while a coding
+    // agent answers new chats (app.harness), the class it resolves to: yours
+    // if it allows it, else the first you may use that does (D147 §4.2.3).
+    newClassId() { const h = app.harness.picked(); return (h && resolveClass(h, app.classId)) || app.classId; },
 
     // uploadTarget is where an app that uploads a picked file itself puts it
     // ({method, path}, {name} its name): into the open run, or at home into
@@ -258,8 +267,9 @@ export function createApp(opts = {}) {
     // conversation it is a message — queued while the run works, delivered
     // at its next step. clear() empties the view's text box once the text is
     // on its way — a refused ask keeps it. Only the chips of where you are go
-    // (Attachments.here).
-    async send(text, clear = () => {}) {
+    // (Attachments.here). opts.interrupt: a coding harness's running turn is
+    // interrupted first (ignored elsewhere, D147 §4.2.10).
+    async send(text, clear = () => {}, opts = {}) {
       if (app.sending) return;
       const t = String(text ?? '').trim();
       const att = app.attach;
@@ -314,7 +324,7 @@ export function createApp(opts = {}) {
           return;
         }
         const files = items.length ? await att.upload(base, app.sel, place) : undefined;
-        await app.session.send(t, files);
+        await app.session.send(t, files, opts);
         clear(); att.clear(place);
       } catch (e) {
         app.fail(e);
@@ -335,6 +345,7 @@ export function createApp(opts = {}) {
     event(ev) {
       app.convs.apply(ev);
       if (ev.type === 'run') app.sbx.fromEvent(ev);
+      app.board.take(ev); // the Coding agents board (model/harness-board.js)
       if (ev.type === 'revoked' && ev.run === app.root) {
         app.home();
         globalThis.xbin?.notify?.('info', 'That conversation is no longer shared with you.');
@@ -358,13 +369,17 @@ export function createApp(opts = {}) {
     runs: () => emit('runs'),
     gone: () => app.home(),
     event: (ev) => app.event(ev),
-    reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); },
+    reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); app.board.reset(); },
     frame: opts.frame,
   }, { deltas: opts.deltas, page: opts.page });
   // picked: a new ask's model — only when you picked one (none = the agent's
   // default) — and its sandbox, while the ask's class has the sandbox toolset
-  // (D115; app.sbx.pick). No class read yet: no sandbox.
-  const picked = (cls = app.classId) => ({ ...(app.model ? { model: app.model } : {}), ...(cls ? app.sbx.askPart(cls) : {}) });
+  // (D115; app.sbx.pick). No class read yet: no sandbox. A coding agent
+  // picked to answer (app.harness) goes with it, and the model is its option.
+  const picked = (cls = app.newClassId()) => {
+    const h = app.harness.askPart();
+    return { ...(app.model && !h.harness ? { model: app.model } : {}), ...(cls ? app.sbx.askPart(cls) : {}), ...h };
+  };
   // asking: POST /ask — one refused for the sandbox it named drops that pick
   // and says so (app.sbx.refused), so the next ask isn't refused the same way.
   const asking = async (body) => {
@@ -373,7 +388,7 @@ export function createApp(opts = {}) {
   // classOf: a new ask's class (yours, unless the form named one) and, beside
   // it, its lane as the legacy toolset; nothing before the classes are read
   // (the backend then gives the caller's default).
-  const classOf = (id = app.classId) => {
+  const classOf = (id = app.newClassId()) => {
     const c = classes.find(app.classes, id);
     return c ? { class: c.id, toolset: classes.laneOf(c) } : {};
   };
@@ -389,6 +404,11 @@ export function createApp(opts = {}) {
   app.attach = new actions.Attachments({ change: () => emit('attach') });
   // the coding sandboxes (D115): the list, the new chat's pick, binding (model/sandbox-store.js)
   app.sbx = createSandboxStore(app);
+  // coding harnesses (D147): the catalog, your picks and settings, a harness run's calls
+  app.harness = createHarnessStore(app);
+  wireStart(app); // …and the sandbox a new chat with one starts in (model/harness-start.js)
+  // the Coding agents board: the coding agents in the open tree, or at home yours at work (model/harness-board.js)
+  app.board = createBoard(app);
   app.session.ui.act.select = (id) => app.select(id);
   app.session.ui.me = () => app.me.user;
   app.session.ui.who = () => app.me;

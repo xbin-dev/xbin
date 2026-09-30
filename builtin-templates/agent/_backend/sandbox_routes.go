@@ -145,8 +145,14 @@ func loadRouteSandbox(r *http.Request, ref string) (*routeSandbox, error) {
 
 func (rs *routeSandbox) item() map[string]any { return sandboxItem(rs.entry, rs.access, rs.boundTo) }
 
-// handleSandbox is GET /sandboxes/{ref}: one sandbox, fresh.
+// handleSandbox is GET /sandboxes/{ref}: one sandbox, fresh — or, for a
+// path ending in /terminal (a sandbox id never holds "/"), a terminal in it
+// relayed to the caller (terminal_relay.go).
 func handleSandbox(w http.ResponseWriter, r *http.Request) {
+	if ref, ok := strings.CutSuffix(r.PathValue("ref"), "/terminal"); ok {
+		handleSandboxTerminal(w, r, ref)
+		return
+	}
 	rs, err := loadRouteSandbox(r, r.PathValue("ref"))
 	if err != nil {
 		writeSbxErr(w, err)

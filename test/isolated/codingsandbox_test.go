@@ -249,7 +249,12 @@ func (e *csEnv) target() sandboxcontract.Target {
 	var skip map[string]string
 	if !e.people { // the checks that act as verified people
 		why := "no verified people: this xbind runs --no-auth"
-		skip = map[string]string{"people/visibility": why, "people/owners": why, "partitions/shares": why, "tty/refusals": why}
+		skip = map[string]string{"people/visibility": why, "people/owners": why, "partitions/shares": why, "tty/refusals": why,
+			"stdio/refusals": why}
+	}
+	caps := []string{"exec", "files", "tar", "tty", "snapshots", "clone"}
+	if !e.d.IsRemote() { // this tree's xbind has stdio sockets; a remote one's release may predate them
+		caps = append(caps, "stdio")
 	}
 	return sandboxcontract.Target{
 		Skip:     skip,
@@ -257,8 +262,9 @@ func (e *csEnv) target() sandboxcontract.Target {
 		Client:   &http.Client{Transport: csTransport{e}},
 		Consumer: func(r *http.Request, consumer string) { r.Header.Set("X-Csenv-From", consumer) },
 		Verified: func(r *http.Request, user string) { r.Header.Set("X-Csenv-User", user) },
-		Caps:     []string{"exec", "files", "tar", "tty", "snapshots", "clone"},
+		Caps:     caps,
 		Grace:    5 * time.Second,
+		Strict:   !e.d.IsRemote(), // this tree's coding-sandbox passes what the suite only warns about
 	}
 }
 
@@ -388,7 +394,13 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 			Images, Sizes       []struct{ ID string }
 		}
 		cons(t).Call("GET", "/hello?protocol=1", nil, 200, &h)
-		if fmt.Sprint(h.Caps) != "[exec files tar tty snapshots clone ports]" || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
+		// stdio: this tree's runtime has the sockets; a remote release may
+		// predate them
+		caps := "[exec files tar tty snapshots clone ports stdio]"
+		if d.IsRemote() && !slices.Contains(h.Caps, "stdio") {
+			caps = "[exec files tar tty snapshots clone ports]"
+		}
+		if fmt.Sprint(h.Caps) != caps || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
 			t.Errorf("hello: %+v", h)
 		}
 		if len(h.Images) != 1 || h.Images[0].ID != "base" || len(h.Sizes) != 2 || h.Sizes[0].ID != "tiny" {

@@ -8,10 +8,15 @@
 // the block object, which the fold hands back unchanged until its message
 // changes — and the answer being written re-parses only its last paragraph
 // (mdInto), so a selection above it survives the stream.
+//
+// Seams (web-ext.js, as ui.ext): a feature module may draw a block its own
+// way (ext.block, asked first) and add what follows the transcript (ext.end;
+// a harness park is then its to draw — see sessionTpl).
 import { html, nothing, repeat, unsafeHTML, classMap, directive, Directive, noChange } from '/vendor/lit-all.min.js';
 import { md, mdInto } from './chat-md.js';
 import { ICON, argsShown } from './model/tool-heads.js';
 import { grantAsk, compactionWords } from './model/rules.js';
+import { activityStill } from './model/harness.js';
 
 // mdOf(b, slot, text): the HTML of a block's markdown, parsed once per block
 // object (a changed message is a new block: parsed again).
@@ -44,19 +49,21 @@ const secs = (ms) => {
 };
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
-// ui: {isOpen(id, dflt), toggle(id, dflt), act: {...}}
+// ui: {isOpen(id, dflt), toggle(id, dflt), act: {...}, ext?}
 export function blocksTpl(blocks, ui, depth = 0) {
   return repeat(blocks, (b) => b.id, (b) => blockTpl(b, ui, depth));
 }
 
 function blockTpl(b, ui, depth) {
+  const x = ui.ext?.block(b, ui, depth);
+  if (x) return x;
   switch (b.k) {
     case 'user': return userTpl(b, ui);
     case 'notice': return noticeTpl(b, ui);
     case 'think': return thinkTpl(b, ui);
     case 'assistant': return html`<div class="msg assistant" data-k=${b.id}><div class="md">${unsafeHTML(mdOf(b, 'text', b.text))}</div></div>`;
     case 'draft': return html`<div class="msg assistant live" data-k=${b.id}><div class="md" ${mdLive(b.text)}></div><span class="cur"></span></div>`;
-    case 'tool': return toolTpl(b, ui);
+    case 'tool': return toolTpl(b, ui, depth);
     case 'agent': return agentTpl(b, ui, depth);
     case 'step': return stepTpl(b, ui);
   }
@@ -117,7 +124,7 @@ function argRows(b) {
   })}</div>`;
 }
 
-function toolTpl(b, ui) {
+function toolTpl(b, ui, depth = 0) {
   const open = ui.isOpen(b.id, false);
   const st = b.state;
   return html`<div class=${classMap({ tcard: true, on: open, [st]: true })} data-fam=${b.fam} data-tool=${b.name} data-k=${b.id}>
@@ -133,6 +140,7 @@ function toolTpl(b, ui) {
       <div class="tname mono">${b.name}</div>
       ${argRows(b)}
       ${b.result && st !== 'running' ? resultTpl(b, ui) : nothing}
+      ${b.kids ? html`<div class="acb">${blocksTpl(b.kids, ui, depth + 1)}</div>` : nothing}
     </div>` : nothing}
   </div>`;
 }
@@ -154,7 +162,8 @@ function agentTpl(b, ui, depth) {
   const title = b.link && b.link.label ? b.link.label : b.headline;
   const phase = b.link && b.link.phase ? b.link.phase : child.status || '';
   const steps = child.llmCalls ? `${child.llmCalls} step${child.llmCalls === 1 ? '' : 's'}` : '';
-  if (open && b.childId && !b.blocks) ui.act.loadChild(b.childId);
+  if (open && b.childId && !b.blocks) ui.act.loadChild(b.childId); // once: a failed read waits (model/session.js Failures)
+  const readErr = open && b.childId && !b.blocks && ui.readError ? ui.readError(b.childId) : '';
   return html`<div class=${classMap({ acard: true, on: open, [b.state]: true })} data-k=${b.id}>
     <div class="ach" @click=${() => ui.toggle(b.id, running)}>
       <span class="ic">⑂</span>
@@ -170,7 +179,9 @@ function agentTpl(b, ui, depth) {
     ${open ? html`<div class="acb">
       ${b.task ? html`<div class="task ${ui.isOpen(b.id + ':task', false) ? 'on' : ''}" @click=${() => ui.toggle(b.id + ':task', false)}>
         <span class="k">task</span> ${b.task}</div>` : nothing}
-      ${b.blocks ? blocksTpl(b.blocks, ui, depth + 1) : html`<div class="muted small">loading…</div>`}
+      ${b.blocks ? blocksTpl(b.blocks, ui, depth + 1) : readErr ? html`<div class="small readfail" role="status"><span class="err">Couldn't read its steps: ${readErr}</span>
+        <button class="lnk" data-act="retry" title="read it again" @click=${() => ui.act.retryRead(b.childId)}>Retry</button></div>`
+      : html`<div class="muted small">loading…</div>`}
       ${!running && b.result && !b.result.startsWith('(') ? html`<div class="answer"><span class="k">answer</span>
         <div class="md">${unsafeHTML(mdOf(b, 'answer', stripHead(b.result)))}</div></div>` : nothing}
     </div>` : nothing}
@@ -228,16 +239,19 @@ function approveNoteTpl(ui, runId) {
 // sessionTpl is the chat of the selected run. win (chat-window.js) is the
 // window of its blocks drawn — {start, end, pill, older(), latest()}; all of
 // them without it. Above the window, a line says there is more; what closes
-// the chat (an approval, a question, the activity line) shows only when the
-// window reaches the end; the pill offers the latest while the reader is
-// away from it.
+// the chat (the seams' end, an approval, a question, the activity line) shows
+// only when the window reaches the end; the pill offers the latest while the
+// reader is away from it. A harness park (pendingState.harness) is the end
+// hooks' to draw while any answers; the built-in card is its fallback.
 export function sessionTpl(s, ui, win) {
   const r = s.run || {};
-  const ps = r.pendingState || {};
   const n = s.blocks.length;
   const start = win ? win.start : 0, end = win ? win.end : n;
   const rows = start || end < n ? s.blocks.slice(start, end) : s.blocks;
   const atEnd = end >= n && !s.hasNewer;
+  const ps = r.pendingState || {};
+  const tail = atEnd ? ui.ext?.end(s, ui) : null;
+  const parked = r.status === 'waiting_input' && !(tail && ps.harness); // the built-in card's to draw
   return html`
     ${s.chain && s.chain.length ? html`<div class="crumbs">${s.chain.map((c) => html`
       <a @click=${() => ui.act.select(c.id)}>${c.title || '#' + c.id}</a> ›`)} <b>${r.title || '#' + r.id}</b></div>` : nothing}
@@ -245,22 +259,26 @@ export function sessionTpl(s, ui, win) {
       ? html` <button class="lnk" @click=${() => win.older()}>load earlier</button>` : nothing}</div>`
       : s.olderHidden ? html`<div class="muted small center">— earlier turns were compacted into the summary —</div>` : nothing}
     ${blocksTpl(rows, ui)}
-    ${atEnd && r.status === 'waiting_input' && ps.kind === 'approval'
+    ${tail || nothing}
+    ${atEnd && parked && ps.kind === 'approval'
       ? approvalTpl(ps.toolCalls, (yes, how) => ui.act.approve(r.id, yes, how, ps.park), undefined, grantAsk(r, ui.who ? ui.who() : null)) : nothing}
     ${atEnd ? approveNoteTpl(ui, r.id) : nothing}
-    ${atEnd && r.status === 'waiting_input' && ps.kind !== 'approval' && r.result
+    ${atEnd && parked && ps.kind !== 'approval' && r.result
       ? html`<div class="ask"><b>The agent is asking:</b><div class="md">${unsafeHTML(mdAsk(r.result))}</div>
           <div class="muted small">answer below to continue</div></div>` : nothing}
-    ${atEnd && s.activity ? html`<div class="activity"><span class="spin"></span> ${s.activity}</div>` : nothing}
+    ${atEnd && s.activity ? (activityStill(r) ? html`<div class="activity still">${s.activity}</div>`
+      : html`<div class="activity"><span class="spin"></span> ${s.activity}</div>`) : nothing}
     ${s.conn === 'reconnecting' ? html`<div class="activity warn">live updates lost — reconnecting…</div>` : nothing}
     ${win && win.pill ? html`<div class="jumpw"><button class="jump" @click=${() => win.latest()}>${win.pill}</button></div>` : nothing}
   `;
 }
 
-// queueTpl is the strip of queued messages above the composer.
-export function queueTpl(queued, remove) {
+// queueTpl is the strip of queued messages above the composer; words
+// ({label, title}) say what happens to them otherwise (a coding harness's:
+// model/harness-ask.js steerWords).
+export function queueTpl(queued, remove, words = null) {
   if (!queued || !queued.length) return nothing;
-  return html`${queued.map((q) => html`<span class="qchip" title="queued — delivered at the agent's next step">
-    <span class="ql">queued</span><span class="qt">${q.text || '(files)'}</span>
+  return html`${queued.map((q) => html`<span class="qchip" title=${(words && words.title) || "queued — delivered at the agent's next step"}>
+    <span class="ql">${(words && words.label) || 'queued'}</span><span class="qt">${q.text || '(files)'}</span>
     <button title="take it back" @click=${() => remove(q.id)}>✕</button></span>`)}`;
 }

@@ -20,6 +20,11 @@ export function topBar(v, row, me) {
   const r = v.run;
   const { talk, own } = access(v);
   const web = (v.config && v.config.toolset) === 'web';
+  // a coding agent's conversation (D147 §2.1): memory and skills are the
+  // built-in agent's (the engine turns them off), and Compact is its own
+  // /compact, offered only when it advertises one
+  const harness = r.engine === 'harness';
+  const hasCompact = harness && ((r.harness && r.harness.commands) || []).some((c) => c && c.name === 'compact');
   return {
     // an automation's run links back to it
     crumb: ['schedule', 'watcher'].includes(r.origin) && r.originId ? { kind: r.origin, id: r.originId } : null,
@@ -33,10 +38,11 @@ export function topBar(v, row, me) {
     cls: badge(v),
     viewOnly: !talk,
     talk, own,
-    retry: talk && (r.status === 'error' || r.status === 'canceled'),
-    compact: talk,
-    learn: talk,
-    memory: Object.keys(v.memory || {}).length,
+    // (a coding agent cut off or that couldn't start: Retry resumes its session)
+    retry: talk && (r.status === 'error' || r.status === 'canceled' || (harness && ['lost', 'failed'].includes((r.harness || {}).state))),
+    compact: talk && (!harness || hasCompact),
+    learn: talk && !harness,
+    memory: harness ? null : Object.keys(v.memory || {}).length, // null: no Memory
     files: (v.files || []).length,
     tree: !!(r.parentId || (v.links || []).length || v.linkCount), // linkCount: a paged view's total
     // the model it was switched to (a pick); '' = the agent's default
@@ -178,8 +184,9 @@ export function halt(me, on, rows) {
 // --- a conversation row ------------------------------------------------------
 
 const SPINNING = new Set(['running', 'awaiting', 'sleeping', 'queued', 'blocked']);
-// rowGlyph: '?' waiting for you, '!' failed, a spinner while it works.
-export const rowGlyph = (r) => r.status === 'waiting_input' ? 'ask' : r.status === 'error' ? 'error' : SPINNING.has(r.status) ? 'spin' : '';
+// rowGlyph: '?' waiting for you (the conversation, or a run below it: the
+// row's `waiting`, D147 §4.3.8), '!' failed, a spinner while it works.
+export const rowGlyph = (r) => r.status === 'waiting_input' || r.waiting ? 'ask' : r.status === 'error' ? 'error' : SPINNING.has(r.status) ? 'spin' : '';
 // rowShared: how a shared row is shared, as chips — from whom (someone else's),
 // with the team (to read or to write), with how many people — and whether it
 // is one you shared; null for a private one.
@@ -261,7 +268,7 @@ export function modelPicker(v, homePick, catalog) {
   return {
     value, options,
     groups: provs.length > 1 ? provs.map((p) => ({ path: p, label: providerName(p) })) : [],
-    shown: data.length > 0 || !!value,
+    shown: (data.length > 0 || !!value) && !(v && v.run.engine === 'harness'), // a coding agent's model is its option (#hctl)
     disabled: !!v && !access(v).talk,
     title: v ? 'the model this conversation uses from its next turn' : 'the model for your next new chat',
   };

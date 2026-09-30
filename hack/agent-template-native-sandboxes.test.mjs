@@ -101,6 +101,31 @@ test('coding sandboxes (D115): a re-pick keeps its cwd; a private one into a tea
   assert.equal(called(r, 'POST', /\/sandboxes\/apps\/coding-sandbox%7Cbobs\/start\?wait=20&conversation=9$/).length, 1);
 });
 
+test('coding sandboxes: a coding agent\'s conversation keeps its sandbox — its screen offers no cwd change, switch or Detach', async () => {
+  const { harnessSeed } = await import(TPL + 'test/harness-fixtures.mjs');
+  const r = await run(harnessSeed(), [
+    { wait: 50 },
+    { tap: { t: 'button', has: '"Sandbox: api-dev' } },
+    { wait: 20 },
+    { snapshot: 'box' },
+  ], { state: { hash: 'c=21' } });
+  const box = topScreen(r.snapshots.box);
+  assert.equal(box.p.title, 'api-dev');
+  assert.equal(find(box, { t: 'field' }), null, 'no working directory to type');
+  assert.equal(find(box, { t: 'button', p: { label: 'Set' } }), null);
+  assert.equal(find(box, { t: 'button', p: { label: 'Detach' } }), null, 'no Detach (the backend refuses it)');
+  const cwd = find(box, { t: 'row', p: { title: 'Working directory' } });
+  assert.equal(cwd.p.subtitle, '/work/api', 'its cwd, read-only');
+  assert.ok(find(box, { t: 'row', p: { title: 'Manage sandboxes…' } }), 'Manage stays');
+  assert.deepEqual(called(r, 'PATCH', /\/runs\/21$/), []);
+  // its sandbox gone: the way out is a new chat, not "pick another, or detach it"
+  const seed = harnessSeed();
+  seed.sandboxes = seed.sandboxes.filter((x) => !x.ref.endsWith('|sb-7f3a'));
+  const g = await run(seed, [{ wait: 50 }, { snapshot: 'chat' }], { state: { hash: 'c=21' } });
+  const n = find(g.snapshots.chat, { t: 'notice', p: { title: '▣ api-dev' } });
+  assert.equal(n && n.p.text, 'gone — its manager no longer has it — start a new chat with Claude Code in another sandbox');
+});
+
 test('coding sandboxes (D115): a viewer makes no sandbox for the conversation', async () => {
   const view = { access: 'viewer', run: { title: 'read only', status: 'idle' }, class: CODING, config: { sandbox: bound('api'), attached: [bound('api')] } };
   const r = await run(oneSeed(view, { sandboxes: boxes() }), [

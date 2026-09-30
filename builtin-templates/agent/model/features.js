@@ -21,18 +21,19 @@ export const AREAS = {
   state: 'States the whole tile can be in',
   link: 'Deep links',
   needs: 'Needs you — beyond the tile',
+  harness: 'Coding agents — a conversation with Claude Code, Codex, Gemini or opencode in a coding sandbox',
 };
 
 export const FEATURES = {
   // Home
   'home.greeting': 'the greeting and tagline (HOME, model/home.js)',
   'home.examples': 'example asks; picking one puts it into the composer',
-  'home.needs': '"Needs you" (GET /needs): questions, approvals and failed automations; picking one opens it',
+  'home.needs': '"Needs you" (GET /needs): questions, approvals, a coding agent waiting for you to sign in (named when the item says which, D147 §4.3.9) and failed automations; picking one opens it',
   'home.mcpHint': 'a hint when no MCP server is bound yet',
 
   // Conversations
   'conv.new': 'New chat (home, the composer focused)',
-  'conv.newOptions': 'new chat with options: first message, class, title, instructions',
+  'conv.newOptions': 'new chat with options: first message, who answers (the built-in agent or a coding agent, and the sandbox it starts in — its class resolves, instructions are the built-in agent\'s), class, title, instructions',
   'conv.search': 'search conversations (?q=)',
   'conv.search.snippets': 'search results show the matching line',
   'conv.search.join': 'pasting a #join= link into search joins that conversation',
@@ -40,7 +41,8 @@ export const FEATURES = {
   'conv.pinned': 'your pins first, as their own group',
   'conv.unread': 'unread conversations stand out; looking at one marks it read',
   'conv.shared': 'a shared row says how, as chips: from whom (someone else\'s), the team (to read or to write), how many people',
-  'conv.status': 'status glyphs: ? waiting for you, ! failed, a spinner while it works',
+  'conv.status': 'status glyphs: ? waiting for you (the conversation, or a run below it — D147 §4.3.8), ! failed, a spinner while it works; ⧉ N: the coding agents at work below it',
+  'conv.kind': 'a conversation a coding agent answers says which (D147): its monogram (CC, CX, GM, OC) — its name on the app',
   'conv.more': 'paging: "more" at the end of the list',
   'conv.live': 'the list stays current from the stream: new rows, status, pins, revocations, deletions',
   'conv.rename': 'rename (owner)',
@@ -67,6 +69,9 @@ export const FEATURES = {
   'chat.agent.open': 'open a subagent\'s full session',
   'chat.agent.approval': 'approve a subagent\'s tool call from its card',
   'chat.agent.answer': 'a finished subagent\'s answer on its card',
+  'chat.harnessChild': 'a coding agent the agent started (D147 §8 U6) as its own card where the spawn is: its monogram and name, the task, its state and what it does now, where it works (▣ sandbox:cwd), its counters (tool calls, files +a −d, cost, time), its plan, its last 3 blocks — read once the card is open and on screen, then kept current — its answer once done, and Open ↗ to its own chat',
+  'chat.harnessChild.ask': 'a coding agent\'s permission request, plan approval, question or sign-in drawn on its card in the parent\'s chat (the harness.* cards) and answered on the child\'s run',
+  'chat.harnessChild.steer': 'from its card: Stop (interrupts its turn), Cancel (confirmed; for good) and Message — a person\'s message straight to it (Enter queues or steers, ⌘/Ctrl+Enter interrupts first); the agent that started it is told, and its chat shows that notice',
   'chat.step': 'step lines: notes, errors, sleeps, finishes, renders, cancels',
   'chat.step.finish': 'a finish line\'s result as sanitized markdown (a model often puts its answer there)',
   'chat.step.reopen': 'a render\'s and a live page\'s lines open them again once closed (a subagent\'s, from its own run)',
@@ -91,11 +96,12 @@ export const FEATURES = {
   // Composer
   'composer.text': 'a text box that grows with its text',
   'composer.keys': 'Enter sends, Shift+Enter is a new line, an IME\'s Enter is the IME\'s',
-  'composer.placeholder': 'its prompt by state: a new ask, view only, steer, answer, follow up',
+  'composer.placeholder': 'its prompt by state: a new ask, view only, steer, answer, follow up — a coding agent\'s own words (it steers or queues, what interrupts, a reply to its park)',
   'composer.disabled': 'disabled in a conversation you may only read',
   'composer.class': 'the class for new chats (D116): icon and name, each one\'s description in its menu, only the classes you may use (GET /classes); your last pick is your default',
   'composer.model': 'the model: any bound provider\'s, grouped by provider — the open conversation\'s from its next turn, or the next new chat\'s; your last pick is your default',
   'composer.sandbox': 'the coding sandbox (D115), beside the model — only where the class (the conversation\'s, or the new chat\'s) has the sandbox toolset: grouped This conversation · Yours · Shared · Team, ones you may not use or the class does not allow disabled with the reason, ＋ New and Manage…; a pick binds it from the next turn (at home: the new chat starts in it)',
+  'composer.agent': 'who answers new chats (D147): the built-in agent or a coding agent (GET /harnesses) with its monogram — one not available there, disabled with the reason; picking a coding agent hides the class (it resolves to one you may use that allows it) and the built-in model, and keeps the sandbox picker to sandboxes whose image has it with internet; your last pick is your default (prefs/agent)',
   'composer.attach': 'attach files (a picker)',
   'composer.attach.paste': 'paste an image to attach it',
   'composer.attach.drop': 'drop files on the chat to attach them',
@@ -114,13 +120,16 @@ export const FEATURES = {
   'top.class': 'its class, fixed for its life (icon and name); a class that can move internal data out says so',
   'top.model': 'the model it was switched to, when one was picked',
   'top.task': 'its task, pinned (D133): the current request — the latest it was given — verbatim, and how many others there are — opening to every request it was given (GET /runs/{id}/asks), read-only',
+  'top.task.delegated': 'the unfolded task\'s Delegated section (D147 §8 U7): each coding agent it started below it — its state, its task, a way to its chat — read-only',
+  'top.board': 'the Coding agents chip (D147 §8 U7): "⌨ 3 coding agents · 1 needs you" in a conversation with coding agents below it — at home, yours that run or need you — opening the board',
   'top.sandbox': '▣ its sandbox and working directory, and why a binding no longer resolves (gone, its manager unbound or down, its class no longer allows it); opens the working directory, switching among the attached ones, Detach, Manage…',
+  'top.harness': 'a coding agent\'s conversation: which one, its state, and — its sandbox being shared — that the people who may use it can read what it does',
   'top.status': 'its status',
   'top.viewOnly': 'view only, when shared with you to read',
-  'top.retry': 'Retry, when the run failed or was cancelled',
-  'top.compact': 'Compact',
-  'top.learn': 'Learn skill',
-  'top.memory': 'Memory (n) — opens its memory blocks',
+  'top.retry': 'Retry, when the run failed or was cancelled (a coding agent\'s: cut off or couldn\'t start — it resumes its session)',
+  'top.compact': 'Compact (a coding agent\'s: only when it advertises /compact, which it is sent as)',
+  'top.learn': 'Learn skill (the built-in agent\'s)',
+  'top.memory': 'Memory (n) — opens its memory blocks (the built-in agent\'s)',
   'top.files': 'Files (n) — opens its session files',
   'top.tree': '⑂ tree — opens the workflow tree',
   'top.grant': 'what the owner let the agent read here and until when, with a revoke (the owner)',
@@ -134,6 +143,7 @@ export const FEATURES = {
   'tools.files.attachments': 'an attachment: image preview, download',
   'tools.skills': 'the skill library: list, edit, add, delete',
   'tools.tree': 'the workflow tree: nodes by parent, their state and what blocks them',
+  'tools.board': 'the Coding agents board (D147 §8 U7): every coding agent in the conversation\'s tree (GET /runs/{root}/tree, kept current by the stream) — at home every one of yours that runs or needs you — in the order they started, never re-sorted as they change; each with its state, what it does now, where it works and its counters, its permission, question or sign-in answered in place (on its own run), Stop, Message (the agent is told) and Cancel task; only those that need you (the web: a filter; the app: sections Needs you, Running, Done)',
   'tools.tree.cost': 'cost per node and in total, the running/limit count',
   'tools.tree.stop': 'stop the whole workflow, confirmed',
   'tools.render': 'the render preview of an HTML file: sandboxed, no scripts, nothing external loads',
@@ -147,9 +157,11 @@ export const FEATURES = {
   'tools.live.check': 'what the live page answers now — status, type, a refusal and what to do (nothing listening, the sandbox stopped, an agent from before ports, an expired or misplaced link) — and Check to ask again; a page that answers an error is said, never shown blank',
   'tools.live.ports': 'Ports, where the conversation\'s sandbox is described: its live previews, each probed now, with Open, and a probe of any port (GET /runs/{id}/ports)',
   'tools.sandboxes': 'the Sandboxes screen (D115): every sandbox you may see — state, manager, image, egress, owner, private/team, last active, where it is bound — with start, stop, archive, thaw, share with the team / make private and delete (confirmed) as your rights allow, and "Use here"',
-  'tools.sandboxes.terminal': 'a terminal in a sandbox whose manager offers one (tty): Open terminal in the ▣ popover (the active sandbox, at its working directory) and Terminal on a Sandboxes row — the page dials the manager as you (its per-person rules apply); closing it ends the shell',
+  'tools.sandboxes.terminal': 'a terminal in a sandbox whose manager offers one (tty): Open terminal in the ▣ popover (the active sandbox, at its working directory) and Terminal on a Sandboxes row — the page dials the manager as you (its per-person rules apply), the app through the tile\'s relay (which checks you may use it, D147 §4.2.8); closing it ends the shell',
   'tools.sandboxes.create': 'create a sandbox: manager, name, image, size, network (what the class allows), private or team, a working directory; made in a conversation it is bound there (a team conversation\'s is a team one), at home the next new chat starts in it',
   'tools.sandboxes.shareTerminal': 'share a sandbox of yours (this agent its home) with a terminal tile — the builtin sandbox-terminal (D121): its path (apps/sandbox-terminal by default), for you, or everyone who may use it when it is a team one; the shares it has now, each stopped (confirmed)',
+  'tools.terminal': 'a terminal in a coding agent\'s conversation: a shell in its sandbox at its working directory, as you (D147 §2.1: terminals are part of the sandbox interface)',
+  'tools.terminal.tabs': 'several terminals at once, as tabs of one dock: another shell here, ✕ ends one (and its shell), Hide keeps them running behind a pill ("2 terminals"); they stay open across conversations',
 
   // Sharing
   'share.visibility': 'who can see it: only invited people, the team to read, the team to write',
@@ -193,7 +205,8 @@ export const FEATURES = {
   'manage.config': 'the config: model per tier, system prompt, limits, behaviour',
   'manage.features': 'feature switches',
   'manage.mcp': 'the MCP servers bound',
-  'manage.classes': 'the classes: list, add, edit (name, icon, description, toolsets, MCP servers, sandbox managers and egress, model, system addendum, who), delete — a built-in resets to its default; the default for new chats; saving one that can move internal data out is confirmed',
+  'manage.classes': 'the classes: list, add, edit (name, icon, description, toolsets — coding agents too, and which of them —, MCP servers, sandbox managers and egress, model, system addendum, who), delete — a built-in resets to its default; the default for new chats; saving one that can move internal data out is confirmed; a refusal says why',
+  'manage.harnesses': 'the Coding agents catalog (D147): each coding agent — whether you could start it and why not, the managers and images that have it, the sandboxes it was found or signed in on, the classes that allow it, its default and auto modes, its sign-in command; checking a running sandbox now',
   'manage.halt': 'halt every run (while runs are active), and resume',
 
   // States
@@ -207,6 +220,28 @@ export const FEATURES = {
 
   // Needs you, beyond the tile
   'needs.push': 'a question, an approval or a failed automation reaches your phone (the backend pushes it; tapping it opens the conversation)',
+
+  // Coding agents (D147)
+  'harness.start': 'starting one: the sandbox it starts in — the one you last used with it (prefs/harness-sandbox), else one it fits — and a setup card when none fits (Create, filled in for it) or it isn\'t signed in there; a running sandbox it wasn\'t looked for in is checked; the ask carries harness {provider, options} and the sandbox — the mode is the person\'s setting',
+  // Coding agents — the transcript (D147 §8 U3)
+  'harness.tool': 'a coding agent\'s call as a card of its ACP kind (execute, edit, read, search, fetch, delete, move, think, switch_mode, other): what it did in words, what it came to (exit code, +a −d, lines, matches) and its status (pending, running, needs approval, failed, cancelled); a failed one opens by itself',
+  'harness.tool.output': 'a command\'s card: the command (to copy), its output without colour codes — the end of it, all of it on asking — streamed while it runs, and the exit code',
+  'harness.tool.diff': 'an edit\'s card: each file it changed (added, modified, deleted; +a −d), unfolding to its patch; a patch past 64 KiB says it stops there',
+  'harness.subagent': 'a coding agent\'s own subagent (a Claude Task): its steps and text inside its card, which says how many; one whose card is further back shows where it is, marked ↳',
+  'harness.plan': 'the coding agent\'s live plan, pinned: its progress and the entry in progress, unfolding to every entry with its status',
+  'harness.usage': 'the context in use (as a share of the window, the tokens on asking) and the cost so far, when the coding agent reports them',
+  'harness.files': 'what the conversation changed: its tool calls, the files edited and the lines added and deleted (across restarts of the coding agent); each edit\'s patch is on its card',
+  // Coding agents — asking and controls (D147 §8 U4)
+  'harness.permission': 'a coding agent\'s permission request: its own options as buttons (reject first when it defaults to no; one that raises it to a bypass mode only for the owner, marked ⚠ and confirmed), the call — title, command, a diff preview — what "always" would remember, and an optional word sent with a rejection',
+  'harness.planApproval': 'its plan approval (leaving plan mode): the plan, its options, and a "keep planning" box sent with the rejection',
+  'harness.question': 'its question: a form from its schema (choices, "Other", yes/no, numbers, text) with Submit and Skip; a page to open (url mode), then Done',
+  'harness.mode': 'the conversation\'s live mode, from the agent\'s own modes (PATCH /runs/{id}/harness); a bypass mode is marked ⚠, the owner\'s only, and confirmed',
+  'harness.options': 'its config options (model, effort…), switched live — the built-in model picker hides in its conversation',
+  'harness.slash': 'the slash commands it advertises, offered while "/" is typed',
+  'harness.steer': 'while its turn runs a message steers it or waits for it (the queued chip says which; a steered one is said); ⌘/Ctrl+Enter — Send now on the app — interrupts the turn and sends; Stop interrupts',
+  'harness.autonomy': 'your Auto / Always approve per coding agent (/prefs/harness-mode): how its new conversations, and the ones the agent starts for you, begin',
+  // Coding agents — terminals and sign-in (D147 §8 U5)
+  'harness.login': 'a coding agent waiting for a sign-in (pendingState "login"): its methods — a login terminal running its sign-in command in the sandbox, then "Signed in? Retry"; an API key, sent once and never stored or shown; a device code (the page to open, the code) — the warning that credentials land in the sandbox\'s shared home, a confirm on a sandbox others may use, and whom to ask when you may not use it',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.
@@ -223,7 +258,7 @@ export const DIFFERENCES = {
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
     'chat.jumpLatest': 'the native view never lets the live end go: the app\'s transcript keeps a row still only at its bottom, so letting go below the reader would move what they read — until the renderer anchors a row across a trim (D130 E3/E4), and the app scrolls to the end itself',
     'tools.live.ports': 'the ▣ popover is the web\'s; on the app a live preview\'s screen has its own Check (tools.live.check), which probes what the Ports section would',
-    'tools.sandboxes.terminal':'the app\'s terminal primitive dials only the tile\'s own routes (TileTerminal refuses any other address), and a manager\'s tty is another tile\'s; relaying it through the agent\'s backend would make the person the manager checks an asserted one instead of the verified one. Until the app takes a bound interface\'s URL, terminals are on the web',
+    'tools.terminal.tabs': 'the app\'s terminal primitive closes its socket when its screen goes and names no session to attach again, so a native terminal is one pushed screen at a time (going back ends its shell: the relay ends a terminal it started once its client goes, D147 §4.2.8); the web\'s dock keeps several running',
   },
 };
 

@@ -440,6 +440,33 @@ func call(t *testing.T, srv *httptest.Server, who as, method, path string, body 
 	}
 }
 
+// upgrade sends a WebSocket handshake for path as who: its status, and the
+// body of a refusal (a socket that opened is closed at once).
+func upgrade(t *testing.T, srv *httptest.Server, who as, path string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", srv.URL+path, nil)
+	req.Header.Set("X-XBin-From", who.from)
+	req.Header.Set("X-XBin-Role", who.role)
+	if who.user != "" {
+		req.Header.Set("X-XBin-User", who.user)
+		req.Header.Set("X-XBin-User-Level", who.level)
+	}
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		return resp.StatusCode, ""
+	}
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
 func TestOperators(t *testing.T) {
 	t.Parallel()
 	tm := newTestManager(t, "")
@@ -584,7 +611,7 @@ func TestPageReaders(t *testing.T) {
 		{"POST", "/sbx/sandboxes"}, {"PATCH", sb}, {"DELETE", sb}, {"POST", sb + "/start"}, {"POST", sb + "/stop"},
 		{"POST", sb + "/run"}, {"POST", sb + "/execs"}, {"DELETE", sb + "/execs/e1-1"}, {"POST", sb + "/execs/e1-1/stdin"},
 		{"POST", sb + "/execs/e1-1/signal"}, {"POST", sb + "/execs/e1-1/resize"}, {"GET", sb + "/execs/e1-1/tty"}, {"GET", sb + "/tty"},
-		{"PUT", sb + "/files/content?path=x"}, {"POST", sb + "/files/mkdir"}, {"POST", sb + "/files/remove"}, {"POST", sb + "/files/move"},
+		{"GET", sb + "/execs/e1-1/stdio"}, {"PUT", sb + "/files/content?path=x"}, {"POST", sb + "/files/mkdir"}, {"POST", sb + "/files/remove"}, {"POST", sb + "/files/move"},
 		{"PUT", sb + "/tar?path=/"}, {"POST", sb + "/snapshots"}, {"POST", sb + "/snapshots/s-1/restore"}, {"DELETE", sb + "/snapshots/s-1"},
 		{"POST", "/sbx/sandboxes/sb-nope/start"},
 	} {
@@ -596,6 +623,20 @@ func TestPageReaders(t *testing.T) {
 	}
 	if n := len(tm.m.recs); n != 2 {
 		t.Fatalf("a reader's create made one: %d sandboxes", n)
+	}
+	// a stdio socket is a change: it writes the exec's stdin (and takes it
+	// from the socket attached before) — a reader's upgrade is refused
+	// before it is routed, as is every other upgrade; a writer's attaches
+	var x sandboxcontract.Exec
+	call(t, srv, olga, "POST", sb+"/execs", map[string]any{"cmd": "cat > pwned.txt", "stdin": true, "split": true}, 201, &x)
+	for _, p := range []string{"/execs/" + x.ID + "/stdio", "/execs/" + x.ID + "/stdio?since=0", "/execs/nope/stdio", "/ports/8080/"} {
+		code, body := upgrade(t, srv, rita, sb+p)
+		if code != http.StatusForbidden || !strings.Contains(body, `"not-allowed"`) || !strings.Contains(body, "write access") {
+			t.Fatalf("a reader's upgrade to %s: %d %s", p, code, body)
+		}
+	}
+	if code, body := upgrade(t, srv, olga, sb+"/execs/"+x.ID+"/stdio"); code != http.StatusSwitchingProtocols {
+		t.Fatalf("a writer's stdio socket: %d %s", code, body)
 	}
 	// a read of a stopped sandbox doesn't start it for a reader
 	call(t, srv, rita, "GET", "/sbx/sandboxes/"+off.ID+"/files/list?path="+off.Workdir, nil, 403, nil)

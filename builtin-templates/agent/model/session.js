@@ -37,6 +37,7 @@ export class Session {
     this.open = new Map();   // ui id → explicitly opened/closed
     this.folds = new Map();  // run id → its FoldCache (fold.js): blocks rebuilt only when they change
     this.loading = new Set();
+    this.failed = new Failures(); // a card's child whose view read failed: not read again at every paint
     this.version = 0;        // moves on every change: a view drawing a window knows it is stale
     this.following = true;   // the reader is at the open conversation's end (the view says: follow())
     this.conn = 'live';
@@ -51,6 +52,9 @@ export class Session {
       act: {}, // filled by the page: select, approve, openFile, loadChild
     };
     this.ui.act.loadChild = (id) => this.loadChild(id);
+    // a card whose child could not be read says why ('' = nothing failed), and offers Retry
+    this.ui.readError = (id) => this.failed.why(id);
+    this.ui.act.retryRead = (id) => this.retryRead(id);
     this.ui.file = (msgId, f) => this.fileState(msgId, f);
     // a refused verdict (the ask is gone: 409) is said by the card, never thrown at the page
     this.ui.act.approve = (id, yes, grant, park) => this.approve(id, yes, grant, park).catch((e) => this.noteApprove(id, e));
@@ -85,9 +89,10 @@ export class Session {
   // fetchView reads a run's view (paged: its newest page — the open
   // conversation's, when the session pages). A new read replaces what was
   // held, older pages included (opening a conversation, "jump to latest");
-  // a reset or resync re-reads what is held instead (reread).
-  async fetchView(id, { paged = !!this.pageSize && id === this.sel } = {}) {
-    const v = await api(`/runs/${id}/view${paged ? `?limit=${this.pageSize}` : ''}`);
+  // a reset or resync re-reads what is held instead (reread). limit: a page
+  // of another size (a coding agent's card reads its child's newest few).
+  async fetchView(id, { paged = !!this.pageSize && id === this.sel, limit = this.pageSize } = {}) {
+    const v = await api(`/runs/${id}/view${paged ? `?limit=${limit || 50}` : ''}`);
     v.messages = v.messages || [];
     v.steps = v.steps || [];
     v.links = v.links || [];
@@ -97,6 +102,7 @@ export class Session {
     v.detached = false; // the live tail is among them: live messages are counted (fresh), not held
     v.fresh = 0;
     this.views.set(id, v);
+    this.failed.clear(id);
     this.runs.set(id, { ...(this.runs.get(id) || {}), ...v.run });
     // With deltas the stream drives a live draft: a view read meanwhile must
     // not rewind it (a delta that no longer fits would force a reconnect).
@@ -288,15 +294,26 @@ export class Session {
     return true;
   }
 
+  // loadChild reads a subagent's whole view for its open card — once: a
+  // read that fails is not tried again at the next paint but after a while
+  // (Failures), or on the card's Retry (retryRead).
   loadChild(id) {
-    if (!id || this.views.has(id) || this.loading.has(id)) return;
+    if (!id || this.views.has(id) || this.loading.has(id) || !this.failed.due(id)) return;
     this.loading.add(id);
-    this.fetchView(id, { paged: false }).catch(() => {}).finally(() => { this.loading.delete(id); this.changed(); });
+    this.fetchView(id, { paged: false }).catch((e) => this.failed.fail(id, e)).finally(() => { this.loading.delete(id); this.changed(); });
+  }
+
+  // retryRead: a card's Retry — its child is read again at the next paint.
+  retryRead(id) {
+    this.failed.clear(id);
+    this.changed();
   }
 
   // reload re-reads every view shown (the stream said it cannot replay),
-  // keeping what each holds — the reader's place stays (reread).
+  // keeping what each holds — the reader's place stays (reread). A child
+  // whose read failed is read again too: the backend is back.
   reload() {
+    this.failed.clear();
     this.on.reset?.();
     for (const id of [...this.views.keys()]) this.reread(id).then(() => this.changed()).catch(() => {});
   }
@@ -307,6 +324,8 @@ export class Session {
     const d = ev.data || {};
     const v = this.views.get(ev.run);
     this.on.event?.(ev);
+    // the run moved (and the backend answers): a child whose read failed is tried again soon
+    if (ev.type === 'run' || ev.type === 'harness' || ev.type === 'link') this.failed.soon(ev.type === 'link' ? d.childId : ev.run);
     switch (ev.type) {
       case 'run':
         if (d.deleted) {
@@ -332,6 +351,17 @@ export class Session {
         if (d.child) this.runs.set(d.childId, { ...(this.runs.get(d.childId) || {}), ...d.child });
         const cv = this.views.get(d.childId);
         if (cv && d.child) cv.run = { ...cv.run, ...d.child };
+        break;
+      }
+      case 'harness': {
+        // a coding harness's whole summary (D147 §4.3.3): it
+        // replaces run.harness wherever the run is held — a child's card too
+        if (this.runs.has(ev.run)) this.runs.set(ev.run, { ...this.runs.get(ev.run), harness: d });
+        if (v) v.run = { ...v.run, harness: d };
+        for (const pv of this.views.values()) {
+          const i = (pv.links || []).findIndex((l) => l.childId === ev.run);
+          if (i >= 0) pv.links[i] = { ...pv.links[i], child: { ...(pv.links[i].child || {}), harness: d } };
+        }
         break;
       }
       case 'text': case 'thinking': case 'tool':
@@ -503,11 +533,11 @@ export class Session {
 
   // send posts a message. While the run works it is queued (and shown above
   // the composer) until the agent's next step; a retried post is deduplicated
-  // by its client id.
-  async send(text, files) {
+  // by its client id. interrupt: a coding harness's turn is cut short first.
+  async send(text, files, { interrupt = false } = {}) {
     const v = this.current();
     if (!v) throw new Error('no run selected');
-    const r = await api(`/runs/${v.run.id}/message`, jbody({ text, files, clientId: cid() }, 'POST'));
+    const r = await api(`/runs/${v.run.id}/message`, jbody({ text, files, clientId: cid(), ...(interrupt ? { interrupt: true } : {}) }, 'POST'));
     return r;
   }
 
@@ -567,6 +597,39 @@ export class Session {
   async revokeGrant(runId, cap) {
     await api(`/runs/${runId}/grants/${encodeURIComponent(cap)}`, { method: 'DELETE' });
   }
+}
+
+// Failures: the children a card reads (Session.loadChild; a coding agent's
+// card, model/harness-child.js loadTail) whose read failed — the backend
+// restarting, or refusing — so that a paint does not read them again at
+// once: every paint would, and a failed read ends in a paint. One is read
+// again once its wait is over — 15 s, doubling to 2 min at each failure in a
+// row — at the next paint; sooner (2 s after it failed) once an event says
+// its run moved; at once after a clear (a success, a stream reset, Retry).
+// now: the clock (a test's).
+export const RETRY_WAIT = 15e3, RETRY_MAX = 120e3, RETRY_SOON = 2e3;
+export class Failures {
+  constructor(now = () => Date.now()) {
+    this.m = new Map(); // id → {err, at, n (failures in a row), soon}
+    this.now = now;
+  }
+  // fail notes a failed read of id (e: why).
+  fail(id, e) {
+    const f = this.m.get(id);
+    this.m.set(id, { err: String((e && e.message) || e || 'the read failed'), at: this.now(), n: f ? f.n + 1 : 1, soon: false });
+  }
+  // due: id may be read (nothing failed, or its wait is over).
+  due(id) {
+    const f = this.m.get(id);
+    if (!f) return true;
+    return this.now() - f.at >= (f.soon ? RETRY_SOON : Math.min(RETRY_WAIT * 2 ** (f.n - 1), RETRY_MAX));
+  }
+  // why its last read failed ('' = none did).
+  why(id) { const f = this.m.get(id); return f ? f.err : ''; }
+  // soon: its run moved — read it again 2 s after it failed rather than after the whole wait.
+  soon(id) { const f = this.m.get(id); if (f) f.soon = true; }
+  // clear forgets id's failure (no id: every one's).
+  clear(id) { if (id === undefined) this.m.clear(); else this.m.delete(id); }
 }
 
 function upsert(list, item) {
