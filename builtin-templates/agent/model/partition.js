@@ -4,9 +4,11 @@
 //
 //   legacy  no xbin.partition: an unpartitioned instance — today's page,
 //           unchanged;
-//   user    "user:<id>": the viewer's own partition — their conversations,
-//           with no sharing (a conversation here is theirs alone), and a
-//           banner when a bound sandbox manager can't keep people apart;
+//   user    "user:<id>": the viewer's own partition — their conversations
+//           and, beside them, the shared ones they take part in, which live
+//           at the global instance (model/homes.js: two homes; one of their
+//           own is shared by publishing a copy there), and a banner when a
+//           bound sandbox manager can't keep people apart;
 //   global  "global": the global instance (the owner token, --no-auth) — its
 //           conversations, with a note to sign in as a person for private
 //           ones.
@@ -22,8 +24,11 @@ export function partitionState(p = globalThis.xbin?.partition) {
   return 'legacy';
 }
 
-/** sharing: may a conversation be shared from this page (its menu, top bar and the Shared view)? */
-export const sharing = (state = partitionState()) => state !== 'user';
+/** sharing: does this page share conversations (the menu's and top bar's
+ * Share, the Shared view)? In every layout: in a person's partition the
+ * shared space is the global instance's (model/homes.js), and one of their
+ * own conversations is shared by publishing a copy there. */
+export const sharing = (state = partitionState()) => typeof state === 'string';
 
 /** pausesHidden: do this page's live streams close while it is hidden? Only a
  * partitioned instance's: a background tab mustn't keep a person's partition

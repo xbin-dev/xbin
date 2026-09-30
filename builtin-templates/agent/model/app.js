@@ -377,7 +377,8 @@ export function createApp(opts = {}) {
     const c = classes.find(app.classes, id);
     return c ? { class: c.id, toolset: classes.laneOf(c) } : {};
   };
-  app.convs = new ConvList({ change: () => emit('list'), epoch: () => app.me.epochMs || 0 });
+  app.convs = new ConvList({ change: () => { app.session.homes?.(); emit('list'); }, epoch: () => app.me.epochMs || 0 });
+  app.session.wantGlobalList = () => app.convs.wantsGlobal(); // model/homes.js: the shared space's stream, while the list shows its rows
   // The Automations page; its route() keeps the address of what is open there.
   app.autos = new A({
     change: () => emit('autos'),

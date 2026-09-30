@@ -6,6 +6,7 @@
 import { busy } from './fold.js';
 import { badge } from './classes.js';
 import { sharing } from './partition.js';
+import { publishes } from './homes.js';
 
 // access: what you may do in a conversation (its view's `access`: owner |
 // system | participant | viewer; absent from an older backend = everything).
@@ -47,8 +48,10 @@ export function topBar(v, row, me) {
     // sharing is per conversation: a subagent shares its root
     shareRun: { id: r.rootId || r.id, title: r.title },
     share: shareStatus(v, row),
-    // false in a person's own partition: nobody else can open it (model/partition.js)
-    sharing: sharing(),
+    // Share — or, for a person's own conversation in their partition, which
+    // only a copy in the shared space can share, publish (model/homes.js)
+    sharing: sharing() && !publishes(r.rootId || r.id),
+    publish: publishes(r.rootId || r.id),
     // what the owner let the agent read here, for now (D111)
     grants: grantChips(v, me),
     del: own,
@@ -214,17 +217,21 @@ export function shareStatus(v, row) {
       title: 'Everyone who can open this agent can see it — change who can see it' };
   }
   if (n) return { icon: '👥', label: `shared with ${people}`, tone: 'on', title: 'Shared with people — change who can see it' };
+  if (publishes(r.rootId || r.id)) return { icon: '🔒', label: 'private', tone: '', title: 'Only you can see it — share a copy of it in the shared space' };
   return { icon: '🔒', label: 'private', tone: '', title: 'Only you can see it — share it' };
 }
 
 // rowMenu: a row's actions — its owner renames, shares and deletes; anyone
 // pins and archives for themselves; someone it was shared with may leave.
-export function rowMenu(r) {
+// A person's own conversation in their partition is shared by a copy —
+// offered where the view can publish one (opts.publish: the web).
+export function rowMenu(r, opts = {}) {
   const own = r.access === 'owner' || r.access === 'system';
   const items = [];
   if (own) items.push({ label: 'Rename', action: 'rename' });
   items.push({ label: r.pinnedAt ? 'Unpin' : 'Pin', action: 'pin' });
-  if (own && sharing()) items.push({ label: 'Share…', action: 'share' });
+  if (own && sharing() && !publishes(r.id)) items.push({ label: 'Share…', action: 'share' });
+  else if (own && opts.publish && publishes(r.id)) items.push({ label: 'Share a copy…', action: 'share' });
   items.push({ label: r.archivedAt ? 'Unarchive' : 'Archive', action: 'archive' });
   if (own) items.push({ label: 'Delete', action: 'delete', cls: 'rm' });
   else if (r.mine) items.push({ label: 'Leave', action: 'leave', cls: 'rm' });

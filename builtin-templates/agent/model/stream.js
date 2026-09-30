@@ -28,12 +28,14 @@ export class Live {
    * @param {object} opts      {deltas}: ask for text.delta / thinking.delta / tool.delta
    *                           (API.md "Deltas") instead of the whole draft text (a tool
    *                           call's whole arguments) every time; {pauseHidden}: close
-   *                           while the page is hidden (default: in a partitioned instance)
+   *                           while the page is hidden (default: in a partitioned instance);
+   *                           {home}: 'global' — the shared space's stream (model/homes.js)
    */
   constructor(base, on, opts = {}) {
     this.base = base;
     this.on = on;
     this.deltas = !!opts.deltas;
+    this.home = opts.home || '';
     this.run = null;
     this.cursor = '';
     this.gen = 0;
@@ -101,7 +103,7 @@ export class Live {
       const ctrl = new AbortController();
       this.ctrl = ctrl;
       try {
-        const r = await xbin.fetch(this.url(), { signal: ctrl.signal, headers: { Accept: 'text/event-stream' } });
+        const r = await xbin.fetch(this.url(), { signal: ctrl.signal, headers: { Accept: 'text/event-stream' }, ...(this.home ? { partition: this.home } : {}) });
         if (!r.ok || !r.body) throw new Error(`stream: HTTP ${r.status}`);
         this.on.state?.('live');
         backoff = 400;

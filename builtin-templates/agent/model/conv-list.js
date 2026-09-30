@@ -1,8 +1,13 @@
 // model/conv-list.js — the conversation list's state (D83): your conversations
 // from GET /conversations, paged, kept current by the one live stream (run
 // rows, your own pin/archive/read state, revocations) — never polled.
-// (conv-list.js at the tile's root re-exports it.)
-import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+// (conv-list.js at the tile's root re-exports it.) In a person's partition a
+// view reads both homes (model/homes.js): Mine and the archive merge their
+// own conversations with the shared ones they take part in; Shared is the
+// shared space's.
+import { jbody } from '/vendor/bx-kit.js';
+import { homeOf, listHomes, splitRows, twoHomes } from './homes.js';
+import { runApi as api, homeApi } from './home-api.js';
 import { byActivity, isUnread } from './conv-groups.js';
 
 const CHAT = new Set(['', 'chat', 'api']); // the origins that are conversations
@@ -22,6 +27,10 @@ export class ConvList {
     this.q = '';
     this.results = null;     // search hits, while searching
     this.seq = 0;            // the latest load; older answers are dropped
+    this.cursors = {};       // home → its next page's cursor ('' = no more)
+    this.lasts = {};         // home → the oldest row read from it
+    this.held = [];          // rows read below the horizon (model/homes.js splitRows)
+    this.failed = null;      // the shared space didn't answer (the view shows the rest)
   }
 
   params(extra = {}) {
@@ -32,15 +41,55 @@ export class ConvList {
 
   changed() { this.on.change?.(); }
 
+  // page reads one page of a view from a home. With two homes the shared
+  // space may fail alone: its rows are missing and failed says why.
+  page(home, homes, qs) {
+    return homeApi(home, `/conversations?${qs}`).catch((e) => {
+      if (home === '' || homes.length === 1) throw e;
+      this.failed = e;
+      return {};
+    });
+  }
+
+  // took keeps what pages from homes said (their cursors and oldest rows)
+  // and returns their rows.
+  took(homes, ps) {
+    const rows = [];
+    homes.forEach((h, i) => {
+      const items = (ps[i].items || []).map((r) => this.fix(r));
+      this.cursors[h] = ps[i].next || '';
+      if (items.length) this.lasts[h] = items[items.length - 1];
+      rows.push(...items);
+    });
+    return rows;
+  }
+
+  // place shows rows with what is held, newest first, down to the horizon.
+  place(rows) {
+    const have = new Set([...this.items, ...this.held].map((r) => r.id));
+    const all = [...this.items, ...this.held, ...rows.filter((r) => !have.has(r.id))];
+    const lasts = Object.keys(this.cursors).filter((h) => this.cursors[h]).map((h) => this.lasts[h]).filter(Boolean);
+    const { shown, held } = splitRows(all, lasts, byActivity);
+    this.items = shown;
+    this.held = held;
+    this.next = Object.values(this.cursors).find(Boolean) || '';
+  }
+
   async load() {
     const my = ++this.seq;
     this.loading = true;
     try {
-      const p = await api(`/conversations?${this.params()}`);
+      const homes = listHomes(this.scope);
+      this.failed = null;
+      const ps = await Promise.all(homes.map((h) => this.page(h, homes, this.params())));
       if (my !== this.seq) return;
-      this.pinned = (p.pinned || []).map((r) => this.fix(r));
-      this.items = (p.items || []).map((r) => this.fix(r));
-      this.next = p.next || '';
+      this.cursors = {};
+      this.lasts = {};
+      this.items = [];
+      this.held = [];
+      this.pinned = ps.flatMap((p) => p.pinned || []).map((r) => this.fix(r));
+      if (homes.length > 1) this.pinned.sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0));
+      this.place(this.took(homes, ps));
     } finally {
       if (my === this.seq) this.loading = false;
       this.changed();
@@ -52,11 +101,10 @@ export class ConvList {
     const my = this.seq;
     this.loading = true;
     try {
-      const p = await api(`/conversations?${this.params({ cursor: this.next })}`);
+      const homes = Object.keys(this.cursors).filter((h) => this.cursors[h]);
+      const ps = await Promise.all(homes.map((h) => this.page(h, homes, this.params({ cursor: this.cursors[h] }))));
       if (my !== this.seq) return;
-      const have = new Set(this.items.map((r) => r.id));
-      this.items.push(...(p.items || []).filter((r) => !have.has(r.id)).map((r) => this.fix(r)));
-      this.next = p.next || '';
+      this.place(this.took(homes, ps));
     } finally {
       this.loading = false;
       this.changed();
@@ -67,8 +115,16 @@ export class ConvList {
     this.q = (q || '').trim();
     const my = ++this.seq;
     if (!this.q) { this.results = null; this.changed(); return; }
-    const p = await api(`/conversations?q=${encodeURIComponent(this.q)}`);
-    if (my === this.seq && this.q) { this.results = (p.items || []).map((r) => this.fix(r)); this.changed(); }
+    const homes = listHomes('mine');
+    const ps = await Promise.all(homes.map((h) => this.page(h, homes, `q=${encodeURIComponent(this.q)}`)));
+    if (my === this.seq && this.q) { this.results = ps.flatMap((p) => p.items || []).map((r) => this.fix(r)); this.changed(); }
+  }
+
+  // wantsGlobal: should the shared space's stream keep this list current —
+  // a person's partition showing the Shared view, or any shared row.
+  wantsGlobal() {
+    if (!twoHomes()) return false;
+    return this.scope !== 'mine' || [...this.pinned, ...this.items, ...this.held].some((r) => homeOf(r.id) === 'global');
   }
 
   view(scope, archived) {
@@ -87,6 +143,7 @@ export class ConvList {
   remove(id) {
     this.pinned = this.pinned.filter((r) => r.id !== id);
     this.items = this.items.filter((r) => r.id !== id);
+    this.held = this.held.filter((r) => r.id !== id);
     if (this.results) this.results = this.results.filter((r) => r.id !== id);
   }
 
