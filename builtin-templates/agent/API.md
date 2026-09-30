@@ -579,10 +579,10 @@ What a partitioned instance does differently:
     answers — or one in which a coding agent it spawned still works (a
     turn, a question, its adapter up) — can't be published (`POST
     /runs/{id}/publish`), exported for a copy (`GET /runs/{id}/export`,
-    so `POST /copy`), hosted or moved, and un-sharing one at the global
-    instance answers 409 rather than moving it: 409 saying why. Once the
-    spawned one rests (stopped: `/cancel`, or its idle stop), the
-    conversation copies as any other — without its subagents'
+    so `POST /copy`), hosted or moved — 409, saying why — and un-sharing
+    one at the global instance answers 409 rather than moving it. Once the
+    coding agent it spawned has stopped (`/cancel` on it, or its idle
+    stop), the conversation copies as any other — without its subagents'
     transcripts, as ever.
   - **An idle one doesn't keep your partition running**: only a coding
     agent at work (a turn, not a question waiting for you) holds it up. A
