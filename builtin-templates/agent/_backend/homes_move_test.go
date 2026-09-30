@@ -135,6 +135,7 @@ func TestUnshareMovesAtGlobal(t *testing.T) {
 	serveJSON(t, h, as("PATCH", fmt.Sprintf("/runs/%d", y.ID), `{"title":"kept here"}`, f5("alice", "read")), 200, nil)
 	// …and a done after that is refused: the conversation is still here
 	serveJSON(t, h, as("POST", fmt.Sprintf("/moves/%d/done", y.ID), fmt.Sprintf(`{"to":%d}`, to+2), f5("alice", "read")), 409, nil)
+	serveJSON(t, h, as("POST", fmt.Sprintf("/moves/%d/done", y.ID), fmt.Sprintf(`{"to":%d}`, to+2), f5("bob", "read")), 404, nil) // not his to ask about
 	// a conversation gone with no move on record: the partition's copy is the only one
 	serveJSON(t, h, as("POST", "/moves/999/done", fmt.Sprintf(`{"to":%d}`, to+4), f5("alice", "read")), 200, nil)
 

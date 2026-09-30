@@ -256,7 +256,11 @@ func handleMoveDone(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	m, ok := agent.db.moveOf(id)
 	if !ok {
-		if _, err := agent.db.getRun(id); err == nil {
+		if run, err := agent.db.getRun(id); err == nil {
+			if run.Owner != callerOf(r).user {
+				xbin.WriteError(w, http.StatusNotFound, "no such move") // someone else's conversation is none of their business
+				return
+			}
 			xbin.WriteError(w, http.StatusConflict, "no such move: it was given up, and the conversation is still in the shared space")
 			return
 		}
