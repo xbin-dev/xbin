@@ -225,7 +225,6 @@ func (p *needsPusher) admit(n needsPush) bool {
 	return true
 }
 
-// person: an owner or member that is a person (not unowned, not a component).
 // harnessNeed is a coding agent's park as a push: its state, body and
 // fingerprint.
 func harnessNeed(run *Run, p pendingState) (state, body, fp string) {
@@ -239,13 +238,14 @@ func harnessNeed(run *Run, p pendingState) (state, body, fp string) {
 	case "approval":
 		what := "a command"
 		if t := p.Harness.Tool; t != nil {
-			what = orStr(t.Title, orStr(t.Label, t.Kind))
+			what = orStr(t.Title, orStr(t.Label, orStr(t.Kind, what)))
 		}
 		return needApproval, clip(name+" wants to run "+what, 200) + " — approve or deny.", p.Park
 	}
 	return needQuestion, clip(orStr(plainText(p.Harness.Message), name+" is waiting for your answer."), 240), p.Park
 }
 
+// person: an owner or member that is a person (not unowned, not a component).
 func person(u string) bool { return u != "" && !strings.HasPrefix(u, "el:") }
 
 // automationOrigin: runs an automation started — their failures are news

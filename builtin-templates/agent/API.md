@@ -78,6 +78,8 @@ sealed to their devices, and only when the workspace has push set up):
 | a run (or a subagent) starts waiting on an `ask_user` question | its owner and participant members | kind `question` (the app sees `tile.question`), the question as the body |
 | a run (or a subagent) parks a tool call for approval | its owner and participant members | kind `approval`, the tools it wants to run |
 | a run asks its owner for a grant (D111) | its owner alone | kind `approval`, what it asks to read |
+| a coding agent parks a permission request or a question (D-harness §4.3.9) | its owner and participant members | kind `approval` ("‹name› wants to run ‹title› — approve or deny.") or `question` (its message) |
+| a coding agent waits for a sign-in | its owner and participant members | kind `login` ("‹name› needs you to sign in to it.") |
 | an automation's run (schedule, watcher, channel, trigger) fails | its owner | kind `failed`, the error |
 
 The title is the conversation's; tapping it opens `#c=<run>` (the subagent's

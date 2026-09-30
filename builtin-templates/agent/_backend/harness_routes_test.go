@@ -525,3 +525,25 @@ func TestHarnessAdvertisedName(t *testing.T) {
 		t.Fatalf("the summary: %v", h)
 	}
 }
+
+// A coding agent's park as a push says what it wants in its words — and
+// something still when its tool call names nothing.
+func TestHarnessNeedWords(t *testing.T) {
+	run := &Run{ID: 1}
+	for _, c := range []struct {
+		p           pendingState
+		state, body string
+	}{
+		{pendingState{Kind: "approval", Park: "a", Harness: &hPark{Tool: &hParkTool{Title: "go test ./..."}}}, needApproval,
+			"The coding agent wants to run go test ./... — approve or deny."},
+		{pendingState{Kind: "approval", Park: "b", Harness: &hPark{Tool: &hParkTool{}}}, needApproval,
+			"The coding agent wants to run a command — approve or deny."},
+		{pendingState{Kind: "question", Park: "c", Harness: &hPark{Message: "Which library?"}}, needQuestion, "Which library?"},
+		{pendingState{Kind: "login", Park: "d", Harness: &hPark{}}, needLogin, "The coding agent needs you to sign in to it."},
+	} {
+		state, body, fp := harnessNeed(run, c.p)
+		if state != c.state || body != c.body || fp != c.p.Park {
+			t.Fatalf("%+v: %q %q %q", c.p, state, body, fp)
+		}
+	}
+}
