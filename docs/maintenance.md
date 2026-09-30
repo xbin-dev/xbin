@@ -600,7 +600,10 @@ The frontend has no unit-test runner; browser behaviour is pinned by
 `focusy`, `linky`, `reloady` and `deployy` fixture tiles, the agent template wired to
 `hack/fakeopenai` through llm-gw and to `apps/fakesbx` — `hack/fakesandbox`
 as a sandbox manager tile; `agentTemplateLong` drives it through a long
-conversation) and runs Playwright passes from
+conversation; `agentHarness` drives the coding agents — fakesbx's image
+advertises the scripted ACP agent `fake` from `FSB_HARNESS_FAKE`, set by
+`run.sh` — in the web view and in the native view the reference renderer
+draws at `/c/apps/agent/?native=1&preview=1`) and runs Playwright passes from
 `shots.js` — screenshots and `<select>` dumps to look at, plus asserting
 passes that write `PASS`/`FAIL` lines under `$HARNESS_DIR/out/<pass>.txt`
 and exit 1 on any FAIL. A part the environment cannot exercise writes a
@@ -608,7 +611,7 @@ and exit 1 on any FAIL. A part the environment cannot exercise writes a
 `run.sh`) — never a timeout, never a silent pass: without a `gocryptfs`
 binary (a fresh worktree has no `bin/gocryptfs`: `make helpers`, `make
 gocryptfs`, or `XBIN_GOCRYPTFS`) the seeded agent tiles are held, so `agentTemplate`,
-`agentTemplateLong`, `agentConvs`, `agentSandbox` and `channels` skip; a harness xbind that can
+`agentTemplateLong`, `agentConvs`, `agentSandbox`, `agentHarness` and `channels` skip; a harness xbind that can
 run VM sandboxes skips `vmToggle`'s disabled-toggle half. `livereload` pauses,
 reloads now and resumes live reload on the static `reloady` from the
 terminal window; the harness xbind runs without `--isolate`, so on a node

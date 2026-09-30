@@ -99,9 +99,18 @@ start() {
   # XBIN_AGENT_FAKE registers the scripted "fake" agent provider (D74),
   # XBIN_BIN points the daemon at the bx it binds in as the agent host, and
   # XBIN_SDK_PATH lets Go backends (llm-gw, the agent template) build
-  # against this checkout's sdk/.
+  # against this checkout's sdk/. FSB_HARNESS_FAKE is the coding agent
+  # "fake" apps/fakesbx (hack/fakesandbox as a tile) advertises on its image
+  # (D-harness §7.3): the scripted ACP agent with steering, an auto mode,
+  # sign-in and persisted sessions — the agentHarness pass. A host path
+  # works here: without --isolate fakesbx runs on the host, every sandbox
+  # command is a host process, and a variable without the XBIN_ prefix
+  # reaches its backend. Under HARNESS_ISOLATE neither holds (the agent
+  # passes don't run there).
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
-  (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
+  (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
+      FSB_HARNESS_FAKE="$REPO/bin/fakeacp --steer --auto-mode --require-login --persist" \
+      nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${iso_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
