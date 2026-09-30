@@ -43,7 +43,11 @@ import '/vendor/bx-frame.js';
 tile API; tiles use `xbin.dialog` / `xbin.window`), `/vendor/bx-logs.js`,
 `/vendor/bx-prs.js` (the terminal pop-up's panels — reachable through
 `<bx-frame>`; `<bx-logs deployment="<name>">` shows a non-primary tile
-deployment's log, and nothing unless the server echoes it, and
+deployment's log, and nothing unless the server echoes it — on a
+partitioned tile `<bx-logs partition="global|user:<id>">` asks for the
+global instance's log or a person's shared one under the same echo rule
+(`X-XBin-Partition`), and its corner offers what the viewer may read
+([partitions.md](/docs/partitions.md) §Operating people's partitions) — and
 `<bx-terminal deployment="<name>">` opens sessions targeting one — the
 server's echo is what it shows), `/vendor/bx-agent.js` (the pop-up's Agent
 tab, D74) with `/vendor/bx-md.js` (its hardened markdown renderer),
