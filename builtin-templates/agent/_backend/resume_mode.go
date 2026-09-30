@@ -3,7 +3,8 @@
 //
 //   - Unpartitioned and global: today's rule (owner.go) — any work that
 //     needs no human (running, queued, blocked, awaiting, sleeping, an
-//     undelivered inbox row) leaves the `resume` job, @every 1m.
+//     undelivered inbox row; at global also a handoff waiting to be
+//     mailed) leaves the `resume` job, @every 1m.
 //   - A person's partition: every running partition counts against the
 //     workspace's caps, so it asks to be started only for work that moves
 //     without the person, and only as often as that work can move:
@@ -32,7 +33,7 @@ import (
 // leaveWakeUp registers what brings the backend back for d's pending work.
 func (ag *Agent) leaveWakeUp(d *DB) {
 	if !userMode() {
-		if d.hasWork() {
+		if d.hasWork() || d.handoffsWait() { // handoffsWait: the global instance's queued handoffs (handoff_send.go)
 			ag.registerResumeJob()
 		}
 		return
@@ -69,7 +70,7 @@ func (d *DB) userWake(now time.Time) userWakeAt {
 			WHERE l.state<>'running' AND l.delivered=0 AND (
 				(l.mode='fg' AND p.status IN ('running','queued','awaiting'))
 				OR (l.mode='bg' AND p.parent_id=0 AND p.status IN ('running','queued','sleeping','idle','done','canceled'))))`).Scan(&n)
-	if n > 0 || d.sleepsOnJobs() {
+	if n > 0 || d.sleepsOnJobs() || d.repliesWait() { // repliesWait: handoff_user.go
 		return userWakeAt{runnable: true}
 	}
 	var wake int64

@@ -77,6 +77,7 @@ func main() {
 	go agent.reRegisterSchedules()
 	go agent.reRegisterTriggers()
 	go agent.pullMailAtStart() // mail that waited (mailbox.go; nothing unpartitioned)
+	go agent.startPartitionMail()
 
 	// SIGTERM (a save's blue/green swap, a stop, an idle reap): stop driving
 	// at once so the successor — already booted and waiting on the engine

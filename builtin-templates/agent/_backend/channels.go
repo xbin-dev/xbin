@@ -368,6 +368,9 @@ func (ag *Agent) channelMessage(adapter string, m *adapterMsg) (v msgVerdict, er
 			return nil
 		}
 		v.Accepted = true
+		if handed, err := ag.handDM(t, ch, m, key, string(addrJSON), peer, &v, &after); handed { // a linked DM at a partitioned agent's global instance goes to its person's partition (handoff.go)
+			return err
+		}
 		text := m.Text
 		if cmd, arg := commandOf(m); cmd != "" {
 			v.Command = cmd

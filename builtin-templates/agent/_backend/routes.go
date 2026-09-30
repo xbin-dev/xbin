@@ -122,6 +122,11 @@ func routeTable() []routeDef {
 		{"DELETE /triggers/{id}", needAutomation, handleDeleteTrigger},
 		{"POST /triggers/{id}/test", needAutomation, handleTestTrigger},
 		{"GET /triggers/{id}/events", needAutomation, handleTriggerEvents},
+		// A partitioned agent's global instance: people's private triggers
+		// (trigger_registry.go) and their usage totals (usage.go).
+		{"POST /triggers/registry", needUser, handleRegistryPut},
+		{"DELETE /triggers/registry/{name}", needUser, handleRegistryDelete},
+		{"GET /usage", needManager, handleUsage},
 		{"POST /tick", needCron, handleTick},
 		{"GET /engine/hold", needSelf, handleHold},
 		{"GET /health", needAny, handleHealth}, // partition_routes.go

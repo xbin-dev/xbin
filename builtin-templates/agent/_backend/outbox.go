@@ -79,8 +79,11 @@ func (d *DB) outboxAdd(chID int64, key string, runID int64, kind, addr, text str
 		logf("outbox: %v", err)
 		return
 	}
-	_, _ = d.q.Exec(`DELETE FROM outbox WHERE state<>'pending' AND created<?`, now()-7*86400)
+	_, _ = d.q.Exec(`DELETE FROM outbox WHERE state<>'pending' AND created<?`+handedKept(), now()-7*86400) // handedKept: handoff.go
 	d.AfterCommit(outboxKick)
+	if userMode() { // a person's partition mails its replies to the global instance (handoff_user.go)
+		d.AfterCommit(kickOutboxMail)
+	}
 }
 
 // noReply: the model chose silence (a group message not meant for it).
@@ -346,6 +349,7 @@ func handleAdapterAck(w http.ResponseWriter, r *http.Request) {
 			}
 			if n, _ := res.RowsAffected(); n > 0 {
 				settled++
+				purgeHandedReply(t, a.ID) // a person's reply, handed back by their partition: its content goes (handoff.go)
 				if !a.OK {
 					var ch int64
 					_ = t.q.QueryRow(`SELECT channel_id FROM outbox WHERE id=?`, a.ID).Scan(&ch)

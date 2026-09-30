@@ -246,9 +246,78 @@ What a partitioned instance does differently:
   can — then they go on by themselves. An instance whose `uses` lacks
   `conf` (a customized copy) can't read it at all: people's requests for
   work answer 503 saying so — update it from its template.
-- **Channels and event triggers** belong to the global instance: `POST
-  /channels/{id}/claim` and `POST /triggers` answer 409 in a partition.
-  Schedules work in your partition (its own cron jobs).
+- **Chat channels are the global instance's** — the messaging bridge
+  isn't partitioned, so it reaches the global instance, where the channels,
+  their people, links (`POST /adapter/link`) and rules live. From your own
+  partition the channels' routes (`POST /channels/{id}/claim` and the other
+  `/channels/{id}/…`, `GET /triggers/unmatched`) are forwarded to the global
+  instance, attributed to you, and your Automations page lists its channels.
+  Group messages, and DMs from chat accounts nobody linked, are the global
+  instance's conversations, as ever.
+- **A DM from the chat account you linked is yours.** The global instance
+  keeps a record of where it came from — the channel, the chat account, the
+  reply address and you — and hands it to your partition by partition mail
+  (`handoff/dm`: the message, the rules the channel gives it — lane, class,
+  `deny`, its system text — and its files inline, up to 640 KiB a message;
+  a larger file is named in the text instead). Your partition runs the
+  conversation (yours, private, in your list) and mails each reply back
+  (`outbox/add`, naming the handoff, its files inline); the global instance
+  posts it where **its own record** says the DM came from, and only when
+  xbind stamps the mail as yours and the chat account is still linked to
+  you — a reply naming someone else's handoff is refused (logged, never
+  posted) — once however often it comes, for up to 30 days after the DM.
+  `/help` and `/link` are answered by the global instance, the other chat
+  commands by your partition. Until your partition has run once (open the
+  agent once) your DMs wait in its inbox, and the first one is answered with
+  a notice saying so (a partition mails the global instance
+  `partition/hello` when it first starts). If xbind refuses the mail for
+  good (you can no longer use the agent), or it can't be mailed within
+  7 days, the chat is told. What the global instance holds of it:
+  the message and its files only until they are mailed (or given up, at
+  most 7 days; one person's full inbox holds back only their own); your
+  reply's text and files only until the bridge acknowledged it (the
+  channel's owner sees such a reply wait or fail, never what it says); a
+  record of the handoff (no content) for 30 days.
+- **Your triggers are yours.** `POST /triggers` in your partition keeps the
+  trigger — its goal, class, mode, data class, delivery — and its runs
+  there, after registering its name, source, topic prefix (`match`), on/off
+  and hourly cap at the global instance, as you (`POST /triggers/registry`,
+  `DELETE /triggers/registry/{name}`: your own rows only). Names are unique
+  tile-wide. A trigger on pushes needs a `match`, and one that is a prefix
+  of — or prefixed by — anyone else's on the same tile is refused (409), so
+  nobody can quietly take everyone's webhooks. A push it matches reaches the
+  global instance (the webhooks tile isn't partitioned), which records it —
+  the same event id never runs it twice; its hourly cap and the halt apply
+  there too — hands it to your partition (`handoff/event`, naming its
+  source, which xbind counts in your egress ledger on `/xbin/partitions`)
+  and answers the sender once it is stored, not when it ran; your partition
+  runs it as an unpartitioned agent would. A bus trigger subscribes in your
+  partition itself. A rename, a switch or a new match updates the registry
+  first, and a delete removes it: when the global instance doesn't answer,
+  the change is refused (502) so the two halves agree. It may announce into
+  your own DM (`deliver`: that session's key). Managers see the registry's
+  rows among the Automations (it exists, whose, what it listens to — not
+  what it does) — at the global instance, and on their own page in their
+  partition, which lists the global instance's rows of other people (a
+  partition numbers its own triggers from 2^40, so an id below that is a
+  row at the global instance, and `PUT`/`DELETE /triggers/{id}` of one is
+  forwarded there) — and may switch one off or delete it; any other edit of
+  a row there, and its events or a test, answer 409 there. The global
+  instance keeps a row's events only a day (for the dedupe and the hourly
+  cap) and no time of its last run. A trigger with `visibility: "team"`
+  answers 409 in a partition. A private trigger or schedule is made in
+  your partition: from it, the global instance answers `POST /triggers`,
+  `POST /schedules` and an edit (beyond switching one on or off) of a
+  private one with 409 — so nobody passes the registry's rules there.
+- **Usage totals for managers.** Your partition mails the global instance
+  its daily totals — conversations started, model calls and tokens spent,
+  per UTC day (a call counts on the day it was made, whenever its
+  conversation started); never content or times of day — when it starts and
+  at each UTC midnight while it runs. `GET /usage[?days=30]` (managers; forwarded from a
+  partition; at most 90 days) → `{days, since, people: [{user, days: [{day,
+  runs, llmCalls, promptTokens, completionTokens}], total}]}`; 404 in an
+  unpartitioned agent, whose managers see every conversation anyway.
+- Schedules work in your partition (its own cron jobs).
 - **The global instance** takes a person's calls from their partition — a
   frame's `xbin.fetch(…, {partition: 'global'})`, or the partition's own
   backend — as that person, with their access level (xbind clamps their
@@ -309,8 +378,11 @@ What a partitioned instance does differently:
   the next pull. An item whose topic this version has no handler for stays
   for 30 minutes after it was sent — a newer version mid-deploy may read it
   — and is then acknowledged unhandled (logged), rather than start the
-  partition at every doorbell step until it expires. No topic has a handler
-  yet: add yours to `mailHandlers` (`_backend/mailbox.go`). The doorbell
+  partition at every doorbell step until it expires. The agent's own
+  topics are `handoff/dm` and `handoff/event` (global → a person),
+  `outbox/add`, `usage/day` and `partition/hello` (a person → global),
+  above; an item's files are stored before its transaction; add yours to
+  `mailHandlers` (`_backend/mailbox.go`). The doorbell
   answers `{handled, left, dropped}`. Only xbind's `xbin/mail`, the owner
   token and the tile itself may ring it. `GET /health` → `{ok, mode, team?}` answers whoever may call this
   API — the tile's own frames, terminals and backend, and the owner token
@@ -912,9 +984,12 @@ Where each event goes (`mode`):
 | `POST /triggers` | `{name, source: push\|bus, sourceRef, match?, goal, system?, mode?, targetRun?, class?, toolset?, dataClass?, deliver?, maxPerHour?, visibility?}` | create; the caller owns it. `class` (or the legacy `toolset`) is its runs' class; an edit that changes only `toolset` to the other lane names that lane's built-in. A bus trigger subscribes at once; `status` says `ok`, or `needs-grant: …` naming the `uses` entry (`{"target": "<bus>", "role": "reader"}`) |
 | `PUT /triggers/{id}` | any of the above, `enabled` | its owner; a manager only switches it on or off. `{enabled}` alone is never refused, and the class rules are checked again only when `class`, `toolset`, `dataClass` or `deliver` change — a trigger whose class was edited or deleted since still switches and edits. A `toolset` that switches lanes (without `class`) always applies: the lane's built-in class, picked as on create (its lane is that class's lane now) |
 | `DELETE /triggers/{id}` | — | its owner or a manager |
-| `POST /triggers/{id}/test` | `{topic?, text?, data?}` | fire it with a sample event (its owner) |
-| `GET /triggers/{id}/events` | — | the last 50 events: `{eventId, source, topic, accepted, reason, runId, at}`; `reason` for one refused: `disabled`, `halted`, `data-class`, `class-mixed`, `rate`, `target-gone` |
-| `GET /triggers/unmatched` | — | pushes no trigger took (managers): `{items:[{from, name, count, at}]}` — the Automations page offers to make one |
+| `POST /triggers/{id}/test` | `{topic?, text?, data?}` | fire it with a sample event (its owner). A partitioned agent's global instance answers 409 for a person's registry row (its tests are theirs, in their partition) |
+| `GET /triggers/{id}/events` | — | the last 50 events: `{eventId, source, topic, accepted, reason, runId, at}`; `reason` for one refused: `disabled`, `halted`, `data-class`, `class-mixed`, `rate`, `target-gone`; `handed-off` for one a partitioned agent's global instance handed to its person's partition. The global instance answers 409 for a person's registry row (its events are theirs) |
+| `GET /triggers/unmatched` | — | pushes no trigger took (managers): `{items:[{from, name, count, at}]}` — the Automations page offers to make one. Forwarded to the global instance from a person's partition |
+| `POST /triggers/registry` | `{name, prev?, source, sourceRef, match, enabled, maxPerHour}` | a partitioned agent's global instance: a person's partition registers (or updates) one of its person's private triggers, as them — never anyone else's; `prev` renames. A private push trigger needs a `match` (400), and one that is a prefix of — or prefixed by — anyone else's on the same source is 409; so is a name someone else has → `{id, name, host}`. 404 anywhere else; 403 for any caller but a person from their own partition |
+| `DELETE /triggers/registry/{name}` | — | removes the caller's own registry row (the same callers); 404 when there is none |
+| `GET /usage` | `?days=30` (1–90) | people's daily usage totals (managers; a partitioned agent's global instance, forwarded from a partition): `{days, since, people: [{user, days: [{day, runs, llmCalls, promptTokens, completionTokens}], total}]}`; 404 unpartitioned |
 
 Triggers are kind `trigger` in `GET /automations` (reset starts a persistent
 one's thread afresh). An agent-made loop is refused: a trigger on this

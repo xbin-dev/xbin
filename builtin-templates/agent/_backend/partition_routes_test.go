@@ -172,8 +172,6 @@ func TestUserModeRoutes(t *testing.T) {
 		as("PATCH", "/runs/"+itoa(run), `{"visibility":"team"}`, alicesFrame("write")),
 		as("PATCH", "/runs/"+itoa(run), `{"teamRole":"participant"}`, alicesFrame("write")),
 		as("POST", "/schedules", `{"name":"s","cron":"@every 1h","goal":"g","visibility":"team"}`, alicesFrame("write")),
-		as("POST", "/triggers", `{"name":"x"}`, alicesFrame("write")),
-		as("POST", "/channels/1/claim", `{}`, alicesFrame("write")),
 	} {
 		if rec := do(r); rec.Code != http.StatusConflict {
 			t.Errorf("%s %s: %d %s", r.Method, r.URL.Path, rec.Code, rec.Body)

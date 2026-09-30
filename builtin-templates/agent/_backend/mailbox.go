@@ -18,8 +18,8 @@
 // left for its whole ttl, it would start a stopped partition at every
 // doorbell step until it expires.
 //
-// No topic has a handler yet (channels, triggers and handoffs add theirs to
-// mailHandlers). An unpartitioned instance has no mailbox.
+// The agent's own topics register in mailHandlers from handoff.go,
+// handoff_user.go and usage.go. An unpartitioned instance has no mailbox.
 package main
 
 import (
@@ -83,7 +83,7 @@ var partitionMail mailSource = sdkMail{}
 // same transaction); an error leaves the item unacked for the next pull.
 type mailHandler func(ctx context.Context, t *DB, it mailItem) error
 
-// mailHandlers are the topics this code handles (none yet).
+// mailHandlers are the topics this code handles.
 var mailHandlers = map[string]mailHandler{}
 
 const (
@@ -165,13 +165,15 @@ func (ag *Agent) pullMail(ctx context.Context) (mailCounts, error) {
 				}
 				continue
 			}
+			hctx, settle := prepareMail(ctx, it) // mail_prepare.go: an item's files are stored before its transaction
 			err := ag.db.Tx(func(t *DB) error {
-				if err := h(ctx, t, it); err != nil {
+				if err := h(hctx, t, it); err != nil {
 					return err
 				}
 				_, err := t.q.Exec(`INSERT OR IGNORE INTO mail_seen (id, topic, at) VALUES (?, ?, ?)`, it.ID, it.Topic, now())
 				return err
 			})
+			settle(err == nil)
 			if err != nil {
 				logf("mail %s (%s): %v — left for the next pull", it.ID, it.Topic, err)
 				c.Left++

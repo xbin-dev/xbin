@@ -136,5 +136,8 @@ var callGlobal = func(ctx context.Context, method, path string, body []byte, cty
 	if !userMode() {
 		return gwResp{}, errors.New("only a person's partition calls the global instance")
 	}
+	if method != http.MethodGet {
+		defer noteGlobalWrite() // handoff_user.go: what global lists may have changed
+	}
 	return gwDo(ctx, method, xbin.GlobalURL(path), body, ctype)
 }

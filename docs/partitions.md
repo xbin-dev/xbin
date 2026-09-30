@@ -284,6 +284,19 @@ person's from 2^40, the global instance's below), everyone in a shared one
 follows its stream there — so all see a run live — and a person shares one
 of their own by publishing a copy to the global instance.
 
+A partitioned agent's chat channels and event triggers show how a tile that
+isn't partitioned — the messaging bridge, the webhooks tile — serves people
+privately: it reaches the agent's global instance, which keeps the routing
+(channels, links, the trigger registry) and hands a DM from a chat account
+linked to a person, or an event for their private trigger, to that
+person's partition by [partition mail](#partition-mail); the partition runs
+it and mails its reply back, and the global instance posts it where its own
+record says — only for the person the handoff was for. A private trigger on
+pushes needs a topic prefix that no one else's overlaps, and is made in its
+person's own partition (the global instance refuses a person's private
+automation). The template's API.md ("Partitioned instances") has the
+details.
+
 ## Shared resources
 
 Every resource of a partitioned tile's scope is **per partition** by

@@ -52,6 +52,9 @@ func (c *Channel) title() string {
 // manager also the others' (that they exist, not how they are set up) and
 // the unclaimed ones, to claim.
 func channelItems(w who) []AutomationItem {
+	if userMode() { // a person's partition lists the global instance's (handoff_user.go)
+		return globalChannelItems(w)
+	}
 	var out []AutomationItem
 	for _, c := range agent.db.listChannels() {
 		it := AutomationItem{Kind: "channel", ID: c.ID, Name: c.title(),
@@ -436,7 +439,8 @@ func handleChannelOutbox(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "state is failed or pending")
 		return
 	}
-	xbin.WriteJSON(w, 200, map[string]any{"items": agent.db.outRows(`WHERE channel_id=? AND state=? ORDER BY id DESC LIMIT 100`, ch.ID, state)})
+	items := agent.db.outRows(`WHERE channel_id=? AND state=? ORDER BY id DESC LIMIT 100`, ch.ID, state)
+	xbin.WriteJSON(w, 200, map[string]any{"items": redactHanded(items)}) // people's private replies show no content (handoff.go)
 }
 
 // handleChannelRetry puts a failed reply back in the queue.
@@ -446,7 +450,7 @@ func handleChannelRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	oid, _ := strconv.ParseInt(r.PathValue("oid"), 10, 64)
-	res, err := agent.db.q.Exec(`UPDATE outbox SET state='pending', error='' WHERE id=? AND channel_id=? AND state='failed'`, oid, ch.ID)
+	res, err := agent.db.q.Exec(`UPDATE outbox SET state='pending', error='' WHERE id=? AND channel_id=? AND state='failed' AND body<>'{}'`, oid, ch.ID) // a person's reply, forgotten at its ack (handoff.go), isn't sent again
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

@@ -16,8 +16,7 @@ const {
 const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
 const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions'), { vmToggle } = require('./passes/vmtoggle');
-const { viewAs } = require('./passes/viewas');
-const { windows } = require('./passes/windows');
+const { viewAs } = require('./passes/viewas'), { windows } = require('./passes/windows');
 const { agentTab } = require('./passes/agenttab');
 const { ingressMulti } = require('./passes/ingressmulti');
 const { menuOpen } = require('./passes/menuopen');
@@ -824,6 +823,7 @@ PASSES.adminPartitions = require('./passes/adminpartitions').adminPartitions; //
 PASSES.partitionLogs = require('./passes/partitionlogs').partitionLogs; // F12, on its own line
 PASSES.partitionConsent = require('./passes/partitionconsent').partitionConsent;
 PASSES.agentHomes = require('./passes/agenthomes').agentHomes; // B2b: a partitioned agent's two homes (HARNESS_AGENT_PARTITION=1)
+PASSES.channelsPartitioned = require('./passes/channelspartitioned').channelsPartitioned; // B2c: HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
 
 (async () => {
   const args = process.argv.slice(2);
