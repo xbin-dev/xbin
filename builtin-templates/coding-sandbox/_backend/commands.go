@@ -1,6 +1,6 @@
 // commands.go — the contract's commands: a blocking run, background execs
-// (their output by byte offset, stdin, signals, resizes) and terminals,
-// relayed to the backend's box with the sandbox's user and the person as
+// (their output by byte offset, stdin, signals, resizes), terminals and —
+// where the backend has them — stdio sockets, relayed to the backend's box with the sandbox's user and the person as
 // the claim (forUser). An exec's clientId is per consumer and sandbox: the
 // manager dedupes it (in memory — execs die with their substrate) and hands
 // the backend a clientId prefixed with the consumer, so two consumers of a
@@ -28,6 +28,7 @@ func (m *Manager) commandRoutes(x *http.ServeMux) {
 	x.HandleFunc("POST /sbx/sandboxes/{id}/execs/{eid}/signal", m.execSignal)
 	x.HandleFunc("POST /sbx/sandboxes/{id}/execs/{eid}/resize", m.execResize)
 	x.HandleFunc("GET /sbx/sandboxes/{id}/execs/{eid}/tty", m.ttyAttach)
+	x.HandleFunc("GET /sbx/sandboxes/{id}/execs/{eid}/stdio", m.stdioAttach)
 	x.HandleFunc("GET /sbx/sandboxes/{id}/tty", m.ttyStart)
 }
 
@@ -47,6 +48,13 @@ func (m *Manager) usable(w http.ResponseWriter, r *http.Request) (record, caller
 		return rec, c, false
 	}
 	return rec, c, true
+}
+
+// offers reports that the backend offers capability c now (false when it
+// can't say).
+func (m *Manager) offers(r *http.Request, c string) bool {
+	o, err := m.offer(r.Context())
+	return err == nil && contains(o.caps, c)
 }
 
 // hasCap: the backend offers capability c now (a refusal answered when not).
@@ -115,6 +123,7 @@ type execReq struct {
 	Rows      int               `json:"rows"`
 	Cols      int               `json:"cols"`
 	Stdin     bool              `json:"stdin"`
+	Split     bool              `json:"split"`
 	TimeoutMs int64             `json:"timeoutMs"`
 	Label     string            `json:"label"`
 	ClientID  string            `json:"clientId"`
@@ -134,6 +143,8 @@ type execView struct {
 	Started  int64    `json:"started"`
 	Ended    int64    `json:"ended"`
 	Total    int64    `json:"total"`
+	Split    bool     `json:"split,omitempty"`
+	ErrTotal int64    `json:"errTotal,omitempty"`
 	ClientID string   `json:"clientId,omitempty"`
 }
 
@@ -144,7 +155,8 @@ func clientPrefix(consumer string) string { return "c" + hashOf(consumer)[:8] + 
 // execOut is x as consumer sees it: its own clientId, nobody else's.
 func execOut(x xbin.ExecInfo, consumer string) execView {
 	v := execView{ID: x.ID, Label: x.Label, Cmd: x.Cmd, Argv: x.Argv, Cwd: x.Cwd, TTY: x.TTY, State: x.State,
-		ExitCode: x.ExitCode, Signal: x.Signal, Started: x.Started, Ended: x.Ended, Total: x.Total}
+		ExitCode: x.ExitCode, Signal: x.Signal, Started: x.Started, Ended: x.Ended, Total: x.Total,
+		Split: x.Split, ErrTotal: x.ErrTotal}
 	if v.Argv == nil {
 		v.Argv = []string{}
 	}
@@ -194,7 +206,7 @@ func (m *Manager) execStart(w http.ResponseWriter, r *http.Request) {
 	}
 	uid, gid := rec.UID, rec.GID
 	req := xbin.ExecRequest{Cmd: q.Cmd, Argv: q.Argv, Cwd: q.Cwd, Env: q.Env, TTY: q.TTY, Rows: q.Rows, Cols: q.Cols,
-		Stdin: q.Stdin, TimeoutMs: q.TimeoutMs, Label: q.Label, UID: &uid, GID: &gid, ForUser: c.user}
+		Stdin: q.Stdin, Split: q.Split && m.offers(r, "stdio"), TimeoutMs: q.TimeoutMs, Label: q.Label, UID: &uid, GID: &gid, ForUser: c.user}
 	if q.ClientID != "" {
 		req.ClientID = clientPrefix(c.key()) + q.ClientID
 	}
@@ -273,13 +285,21 @@ func (m *Manager) execOutput(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "invalid", "encoding is text or base64")
 		return
 	}
+	stream := qs.Get("stream")
+	if stream != "" && stream != "stdout" && stream != "stderr" {
+		fail(w, http.StatusBadRequest, "invalid", "stream is stdout or stderr")
+		return
+	}
 	num := func(k string) int64 { n, _ := strconv.ParseInt(qs.Get(k), 10, 64); return max(n, 0) }
 	rec, _, ok := m.find(w, r)
 	if !ok {
 		return
 	}
+	if stream != "" && !m.offers(r, "stdio") {
+		stream = "" // without stdio every exec is one stream: stream names nothing
+	}
 	ch, err := m.box(rec).Output(r.Context(), r.PathValue("eid"),
-		xbin.OutputQuery{Since: num("since"), Max: min(num("max"), 1<<20), WaitMs: min(num("waitMs"), 30000), Encoding: enc})
+		xbin.OutputQuery{Since: num("since"), Max: min(num("max"), 1<<20), WaitMs: min(num("waitMs"), 30000), Encoding: enc, Stream: stream})
 	if err != nil {
 		if r.Context().Err() == nil {
 			writeErr(w, err, &rec)
@@ -401,11 +421,50 @@ func (m *Manager) ttyStart(w http.ResponseWriter, r *http.Request) {
 	sw.finish()
 }
 
-// scrubWriter is a relayed terminal's answer: a refusal (before the
-// upgrade) is held and written with the runtime's name for the sandbox
-// replaced by the contract id — the relay copies it as it came. Anything
-// else passes as it is, and an upgrade hijacks the connection underneath
-// (Unwrap).
+// --- stdio sockets -----------------------------------------------------------------------
+
+// stdioAttach: GET …/execs/{eid}/stdio?since=&errSince= — a non-tty exec's
+// streams on one WebSocket (the stdio capability), relayed. The exec ids
+// are the backend's, so its frames pass as they are.
+func (m *Manager) stdioAttach(w http.ResponseWriter, r *http.Request) {
+	if !m.hasCap(w, r, "stdio", "stdio sockets") {
+		return
+	}
+	rec, _, ok := m.find(w, r)
+	if !ok {
+		return
+	}
+	if !ws.IsUpgrade(r) {
+		fail(w, http.StatusBadRequest, "invalid", "the stdio route is a WebSocket upgrade")
+		return
+	}
+	qs := r.URL.Query()
+	var off [2]int64
+	for i, k := range []string{"since", "errSince"} {
+		if v := qs.Get(k); v != "" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n < 0 {
+				fail(w, http.StatusBadRequest, "invalid", "since and errSince are non-negative numbers")
+				return
+			}
+			off[i] = n
+		}
+	}
+	sb, ok := m.box(rec).(StdioBox)
+	if !ok { // offered only when it is one (stdioBackend)
+		fail(w, http.StatusNotImplemented, "unsupported", "this manager has no stdio sockets (stdio)")
+		return
+	}
+	sw := &scrubWriter{ResponseWriter: w, from: rec.Runtime, to: rec.ID}
+	sb.RelayStdio(sw, r, r.PathValue("eid"), off[0], off[1])
+	sw.finish()
+}
+
+// scrubWriter is a relayed terminal's (or stdio socket's) answer: a
+// refusal (before the upgrade) is held and written with the runtime's name
+// for the sandbox replaced by the contract id — the relay copies it as it
+// came. Anything else passes as it is, and an upgrade hijacks the
+// connection underneath (Unwrap).
 type scrubWriter struct {
 	http.ResponseWriter
 	from, to string

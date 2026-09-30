@@ -186,6 +186,36 @@ func dialRefused(t *testing.T, a Caller, path string, status int, refusal string
 	a.refusal("GET "+path+" (a WebSocket)", resp, b, status, refusal)
 }
 
+// backendTTYWarn: a consumer's backend opens a terminal (a command that
+// exits at once) for a person it asserts whom the manager wouldn't admit on
+// a verified call. The contract always left that person to the consumer
+// (docs/sandbox-manager.md §Who is asking), but the suite checked it for
+// reads and run only, so a manager built to it may refuse the terminal (403
+// or 404). In the release that adds the check (2026-09-30) that is a
+// warning — the check skips, saying why; from the next release it fails,
+// and with Target.Strict it fails now. Any other failure is attach's to
+// report.
+func backendTTYWarn(t *testing.T, e *env, a Caller, id string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	c, resp, err := a.Dial(ctx, ttyPath(id, url.Values{"cmd": {"true"}}))
+	if err == nil {
+		c.Close()
+		return
+	}
+	if resp == nil || resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusNotFound {
+		return
+	}
+	b, _ := io.ReadAll(resp.Body)
+	msg := "the manager refused a consumer backend's terminal for " + a.who() + " (" + resp.Status + " " + strings.TrimSpace(string(b)) +
+		"): a backend call's person is asserted and the consumer's to check, on terminals too — docs/changes/2026-09-30-manager-terminals-for-backends.md"
+	if e.tg.Strict {
+		t.Fatal(msg)
+	}
+	t.Skip("WARNING (a failure from the next release): " + msg)
+}
+
 var ttyChecks = []check{
 	{"unsupported", func(t *testing.T, e *env) {
 		if e.has("tty") {
@@ -268,6 +298,55 @@ var ttyChecks = []check{
 		late := attach(t, a, "/sandboxes/"+sb.ID+"/execs/"+x.ID+"/tty")
 		late.expect("first", "second:again")
 		late.exited(0)
+	}},
+	{"backend", func(t *testing.T, e *env) {
+		// a consumer's backend opens terminals too — to drive them, or to
+		// relay one to its page or app — naming its person in Sbx-User: an
+		// assertion the manager records and doesn't verify (the consumer
+		// polices its people), on its own sandboxes and shared ones alike;
+		// the partitions hold
+		if !e.has("tty") {
+			t.Skip("no tty capability")
+		}
+		a, b, c := e.as("a"), e.as("b"), e.as("c")
+		sb := a.Verified("alice").Create(map[string]any{"name": "backend", "visibility": "private"})
+		be := a.Asserting("bob") // neither its owner nor a member
+		backendTTYWarn(t, e, be, sb.ID)
+		script := `stty size; echo ready; read line; stty size; echo "got:$line"; exit 4`
+		tm := attach(t, be, ttyPath(sb.ID, url.Values{"cmd": {script}, "rows": {"10"}, "cols": {"20"}}))
+		if tm.session["sandbox"] != sb.ID {
+			t.Fatalf("the session frame's sandbox: %v", tm.session)
+		}
+		tm.expect("10 20", "ready")
+		tm.control(map[string]any{"op": "resize", "cols": 100, "rows": 40})
+		tm.send("hi\r")
+		tm.expect("40 100", "got:hi")
+		tm.exited(4)
+		var x Exec
+		be.Call("GET", "/sandboxes/"+sb.ID+"/execs/"+tm.id(), nil, http.StatusOK, &x)
+		if !x.TTY || x.State != "exited" {
+			t.Fatalf("the backend's terminal, as an exec: %+v", x)
+		}
+		// a tty exec the backend started, attached by it
+		y := be.Exec(sb.ID, map[string]any{"cmd": `echo started; read l; echo "line:$l"`, "tty": true, "rows": 5, "cols": 50})
+		at := attach(t, be, "/sandboxes/"+sb.ID+"/execs/"+y.ID+"/tty")
+		if at.id() != y.ID {
+			t.Fatalf("attached to %s, want %s", at.id(), y.ID)
+		}
+		at.expect("started")
+		at.send("x\r")
+		at.expect("line:x")
+		at.exited(0)
+		// shared with another consumer: its backend opens one for whoever
+		// it names, the share's users being its to apply
+		a.Call("PATCH", "/sandboxes/"+sb.ID, map[string]any{"shares": []map[string]any{{"consumer": b.Consumer(), "users": []string{"carol"}}}}, http.StatusOK, nil)
+		backendTTYWarn(t, e, b.Asserting("dave"), sb.ID)
+		sh := attach(t, b.Asserting("dave"), ttyPath(sb.ID, url.Values{"cmd": {"echo shared-$((6*7))"}}))
+		sh.expect("shared-42")
+		sh.exited(0)
+		// a consumer it isn't shared with sees nothing, whoever it names
+		dialRefused(t, c.Asserting("alice"), ttyPath(sb.ID, nil), 404, "not-found")
+		dialRefused(t, c.Asserting("alice"), "/sandboxes/"+sb.ID+"/execs/"+y.ID+"/tty", 404, "not-found")
 	}},
 	{"refusals", func(t *testing.T, e *env) {
 		if !e.has("tty") {

@@ -36,6 +36,7 @@ export function imageScreen(s) {
       <row title="Build" detail=${im.buildText} tone=${im.tone === 'muted' ? undefined : im.tone}/>
       <row title="Offered to consumers" detail=${im.offered ? 'yes' : 'no'}/>
       <row title="Tools" detail=${im.tools.join(', ') || '—'}/>
+      ${im.agents.length ? html`<row title="Coding agents" detail=${im.agents.join(', ')}/>` : nothing}
       ${im.default ? html`<row title="The default image"/>` : nothing}
       ${im.built && im.built.detail ? html`<notice tone="danger" text=${im.built.detail}/>` : nothing}
       ${im.kept ? html`<notice tone="info" text=${im.kept}/>` : nothing}

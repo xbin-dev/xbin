@@ -45,7 +45,7 @@
     .run.unread .t { font-weight: 650; }
     .run .gl { font-size: 10.5px; color: var(--bx-muted); flex: none; }
     .run .gl.err { color: var(--bx-red); }
-    .run .gl.ask { color: var(--bx-yellow, #d9a441); font-weight: 700; }
+    .run .gl.ask { color: var(--bx-yellow, #d9a441); font-weight: 700; background: none; border: 0; padding: 0; margin: 0; } /* not the .ask card */
     .run .rmenu { visibility: hidden; flex: none; border: 0; background: none; color: var(--bx-muted); cursor: pointer; padding: 0 3px; font-size: 13px; line-height: 1; }
     .run:hover .rmenu, .run.on .rmenu { visibility: visible; }
     .run .snip { flex-basis: 100%; font-size: 11px; color: var(--bx-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -178,6 +178,27 @@
     .sbxthd { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; border-bottom: 1px solid var(--bx-border); min-width: 0; white-space: nowrap; }
     .sbxthd > .mono, .sbxthd > .muted { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .sbxtbody { flex: 1 1 0; min-height: 0; display: flex; padding: 4px 2px 2px 8px; background: var(--bx-term-bg, #262c36); }
+    /* the dock's tabs (terminals.js): one per terminal; ▾ hides the dock, a top-bar pill brings it back */
+    .sbxttabs { display: flex; gap: 2px; padding: 4px 6px 0; overflow-x: auto; border-bottom: 1px solid var(--bx-border); scrollbar-width: thin; }
+    .sbxtab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; font-size: 12px; white-space: nowrap; cursor: pointer;
+              border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; color: var(--bx-muted); }
+    .sbxtab.on { color: var(--bx-text); background: var(--bx-panel-2); border-color: var(--bx-border); }
+    .sbxtab.ended { font-style: italic; }
+    .sbxtab .x { background: none; border: 0; color: inherit; cursor: pointer; font-size: 11px; padding: 0 3px; }
+    .sbxthint { padding: 2px 12px 4px; margin: 0; }
+    /* a crowded header (a finished login: ended, "Finished. Signed in?", Retry, New shell) gives up the title, cwd and manager first — never what to do next */
+    .sbxthd > b { overflow: hidden; text-overflow: ellipsis; min-width: 4em; }
+    .sbxthd > .btn, .sbxthd > .badge, .sbxthd > #sbxterm-done { flex: none; }
+    /* a narrow window: the header wraps rather than cut its buttons off (✕ included) */
+    @media (max-width: 640px) { .sbxthd { flex-wrap: wrap; row-gap: 4px; } }
+    .termpill { cursor: pointer; background: none; font: inherit; font-size: 10px; color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
+    /* a coding agent's sign-in (signin.js): its methods, the shared-HOME warning, a device code */
+    .hlogin .hlm { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+    .hlogin .hlm form { display: flex; gap: 6px; align-items: center; }
+    .hlogin .hlm input[type=password] { flex: 1 1 auto; min-width: 0; max-width: 340px; }
+    .hlogin .hlm > .btn { align-self: flex-start; }
+    .hlogin .hldev { margin: 6px 0; padding: 6px 8px; border: 1px dashed var(--bx-border); border-radius: 6px; overflow-wrap: anywhere; }
+    .hlogin .acts { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
     /* the top bar's sharing status (model/rules.js shareStatus) */
     .sharepill.on { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
     .sharepill.in { color: var(--bx-text); }
@@ -203,8 +224,15 @@
     .top .taskpin .asks { max-height: 40vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
     .top .taskpin .askhead { color: var(--bx-muted); font-size: 11px; }
     .top .taskpin .asktext { white-space: pre-wrap; overflow-wrap: anywhere; }
-    .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; align-items: flex-end; }
-    .composer textarea { flex: 1; resize: none; min-height: 30px; max-height: 40vh; line-height: 1.4; padding: 5px 8px; }
+    .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
+    /* the pickers, then the message row; when both don't fit one line (a narrow tile, many pickers)
+       the message row takes a line of its own, so the box keeps its width and Send stays on screen */
+    .composer .cpicks, .composer .cinput { display: flex; gap: 6px; align-items: flex-end; min-width: 0; }
+    .composer .cpicks { flex: 0 1 auto; flex-wrap: wrap; }
+    .composer .cpicks:not(:has(> :not([hidden]))) { display: none; }
+    .composer .cinput { flex: 1 1 17em; }
+    .composer textarea { flex: 1; min-width: 0; resize: none; min-height: 30px; max-height: 40vh; line-height: 1.4; padding: 5px 8px; }
+    .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* one row: a long one ends in … */
     .composer .btn { height: 30px; }
     /* Attachments waiting to be sent: a row above the composer, never inside
        it, so the composer's own geometry (test/layout.mjs) is unchanged. */
@@ -434,6 +462,7 @@
     .acard.error, .acard.stopped { border-left-color: var(--bx-red); }
     .ach .rid { font-family: var(--bx-mono); font-size: 10.5px; color: var(--bx-muted); }
     .acb { padding: 0 10px 8px 16px; border-top: 1px dashed var(--bx-border); }
+    .acb .readfail { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; margin: 6px 0; } /* a subagent that could not be read: why, and Retry */
     .acb .task { font-size: 11.5px; color: var(--bx-muted); margin: 6px 0; cursor: pointer;
                  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .acb .task.on { display: block; white-space: pre-wrap; }
@@ -604,14 +633,19 @@
       <div class="queue" id="queue" hidden></div>
       <div class="attach" id="attach" hidden></div>
       <div class="composer">
-        <span class="clspick" id="cpick" hidden></span>
-        <select class="msel" id="msel" title="the model" hidden></select>
-        <select class="msel ssel" id="ssel" title="the coding sandbox" hidden></select>
-        <button class="btn ghost" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files">📎</button>
-        <input type="file" id="clipin" multiple hidden>
-        <textarea id="msg" rows="1" placeholder="ask anything…" autocomplete="off"></textarea>
-        <button class="btn rm" id="stop" title="Stop the agent — messages still queued come back here" hidden>Stop</button>
-        <button class="btn" id="send">Send</button>
+        <span class="cpicks" id="cpicks">
+          <span class="clspick apick" id="apick" hidden></span>
+          <span class="clspick" id="cpick" hidden></span>
+          <select class="msel" id="msel" title="the model" hidden></select>
+          <select class="msel ssel" id="ssel" title="the coding sandbox" hidden></select>
+        </span>
+        <span class="cinput">
+          <button class="btn ghost" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files">📎</button>
+          <input type="file" id="clipin" multiple hidden>
+          <textarea id="msg" rows="1" placeholder="ask anything…" autocomplete="off"></textarea>
+          <button class="btn rm" id="stop" title="Stop the agent — messages still queued come back here" hidden>Stop</button>
+          <button class="btn" id="send">Send</button>
+        </span>
       </div>
 
       <!-- Tabbed settings, overlaying the run view. -->
@@ -620,6 +654,7 @@
           <button class="tab on" data-tab="config">Config</button>
           <button class="tab" data-tab="features">Features</button>
           <button class="tab" data-tab="classes">Classes</button>
+          <button class="tab" data-tab="harnesses">Coding agents</button>
           <button class="tab" data-tab="memory">Memory</button>
           <button class="tab" data-tab="files">Files</button>
           <button class="tab" data-tab="skills">Skills</button>
@@ -638,6 +673,7 @@
       <div class="dlg-bd">
         <div class="field"><label>First message</label><textarea id="n-goal" rows="3" placeholder="what should the agent do?"></textarea></div>
         <div class="field"><label>Class — fixed once it starts</label><select id="n-class"></select></div>
+        <div id="n-ext" style="display:contents"></div>
         <div class="field"><label>Title (optional)</label><input id="n-title"></div>
         <div class="field"><label>Instructions — replaces the system prompt (optional)</label><textarea id="n-system" rows="3"></textarea></div>
       </div>

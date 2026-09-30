@@ -315,6 +315,7 @@ func (st *State) registerTileSandboxAPI(srv *server.Server) {
 	srv.RegisterAPI("POST /sandboxes/{name}/execs/{id}/signal", m.ServeSignal)
 	srv.RegisterAPI("POST /sandboxes/{name}/execs/{id}/resize", m.ServeResize)
 	srv.RegisterAPI("GET /sandboxes/{name}/execs/{id}/tty", m.ServeExecTTY)
+	srv.RegisterAPI("GET /sandboxes/{name}/execs/{id}/stdio", m.ServeExecStdio)
 	srv.RegisterAPI("GET /sandboxes/{name}/tty", m.ServeTTY)
 	// files and trees
 	srv.RegisterAPI("GET /sandboxes/{name}/files/stat", m.ServeStat)

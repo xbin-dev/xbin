@@ -30,12 +30,14 @@ export function makeClassPicker(app, host) {
   function paint(view) {
     v = view;
     const p = C.classPicker(v, app.classes, app.classId);
-    if (!p.shown) open = false;
-    host.hidden = !p.shown;
+    // a coding agent answering new chats resolves the class itself (D147; model/app.js newClassId)
+    const shown = p.shown && !app.harness.picked();
+    if (!shown) open = false;
+    host.hidden = !shown;
     // the menu opens above the button, kept inside the window
     const w = Math.min(340, innerWidth - 16);
     const left = open ? Math.min(0, innerWidth - 8 - w - host.getBoundingClientRect().left) : 0;
-    render(p.shown ? pickerTpl(p, open, act, `width:${w}px;left:${left}px`) : nothing, host);
+    render(shown ? pickerTpl(p, open, act, `width:${w}px;left:${left}px`) : nothing, host);
   }
   return { paint, get open() { return open; }, close: () => { if (open) act.close(); } };
 }
@@ -85,7 +87,8 @@ export const clsBadgeTpl = (c) => html`<span class="badge" data-cls=${c.id} titl
  */
 export async function tabClasses(bd, app) {
   const st = { state: null, form: null, err: '', msg: '' };
-  app.setClasses(await actions.classes());
+  const [list] = await Promise.all([actions.classes(), app.harness.catalog.harnesses.length ? null : app.harness.load()]); // the coding agents' names
+  app.setClasses(list);
   st.state = app.classes;
   bd.textContent = '';
   const host = document.createElement('div');
@@ -183,6 +186,13 @@ function formTpl(st, app, draw) {
       <input type="checkbox" data-eg=${e.id} .checked=${f.egress.includes(e.id)}
         @change=${(ev) => { f.egress = C.toggle(f.egress, e.id, ev.target.checked); draw(); }}> <b>${e.label}</b> <span class="muted">${e.hint}</span></label>`)}</div>
       ${namesTpl('managers', 'managersMode', C.ifaceNames(globalThis.xbin?.iface?.('sandboxes')), 'Sandbox managers')}` : nothing}
+    ${has('harness') ? html`<div class="field"><label>Coding agents it may start or spawn</label>
+      <select id="clf-harnessesMode" @change=${set('harnessesMode')}>
+        <option value="all" ?selected=${f.harnessesMode !== 'only'}>all of them</option>
+        <option value="only" ?selected=${f.harnessesMode === 'only'}>only these</option></select>
+      ${f.harnessesMode === 'only' ? html`<div class="clsnames">${C.harnessNames(f.harnesses, app.harness.catalog).map((n) => html`<label class="chk">
+        <input type="checkbox" data-harness=${n.id} .checked=${n.on} @change=${() => { f.harnesses = C.toggleName(f.harnesses, n.id); draw(); }}> ${n.name}</label>`)}</div>` : nothing}
+      ${C.harnessWhy(f) ? html`<div class="clsmixed" id="clf-harness-why">⚠ ${C.harnessWhy(f)}: untick Coding agents, or tick Coding sandbox and an egress other than none.</div>` : nothing}</div>` : nothing}
     <div class="field"><label>Model</label><select id="clf-model" @change=${set('model')}>
       ${models.map((o) => html`<option value=${o.value} ?selected=${o.value === f.model}>${o.value ? o.label : '— none: the person\'s pick or the agent\'s default —'}</option>`)}</select>
       <div class="hint">Used when the person picked no model for the conversation.</div></div>

@@ -517,6 +517,7 @@ type sbxExecReq struct {
 	Rows      int               `json:"rows,omitempty"`
 	Cols      int               `json:"cols,omitempty"`
 	Stdin     bool              `json:"stdin,omitempty"`
+	Split     bool              `json:"split,omitempty"` // stderr a stream of its own (a manager offering stdio)
 	TimeoutMs int               `json:"timeoutMs,omitempty"`
 	Label     string            `json:"label,omitempty"`
 	ClientID  string            `json:"clientId,omitempty"`
@@ -536,6 +537,8 @@ type sbxExec struct {
 	Started  int64    `json:"started"`
 	Ended    int64    `json:"ended"`
 	Total    int64    `json:"total"`
+	Split    bool     `json:"split,omitempty"`    // its stderr is apart (…/output?stream=stderr)
+	ErrTotal int64    `json:"errTotal,omitempty"` // a split exec's stderr bytes
 	ClientID string   `json:"clientId,omitempty"`
 }
 

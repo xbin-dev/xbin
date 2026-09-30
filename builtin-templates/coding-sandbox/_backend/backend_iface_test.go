@@ -7,8 +7,11 @@ import xbin "github.com/xbin-dev/xbin/sdk"
 // runtime's grammar can't hold. A change to either side that breaks this
 // fails to compile here.
 var (
-	_ Fleet   = (*xbin.Sandboxes)(nil)
-	_ Box     = (*xbin.Sandbox)(nil)
-	_ Box     = xbinBox{}
-	_ Backend = xbinBackend{}
+	_ Fleet    = (*xbin.Sandboxes)(nil)
+	_ Box      = (*xbin.Sandbox)(nil)
+	_ Box      = xbinBox{}
+	_ StdioBox = (*xbin.Sandbox)(nil)
+	_ StdioBox = xbinBox{}
+	_ Backend  = xbinBackend{}
+	_ StdioBox = (*fkSandbox)(nil) // the fake's too
 )

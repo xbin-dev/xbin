@@ -330,7 +330,10 @@ func defaultsOf(rec record) *xbin.SandboxDefaults {
 	uid, gid := rec.UID, rec.GID
 	return &xbin.SandboxDefaults{Cwd: rec.Workdir, UID: &uid, GID: &gid, Shell: rec.Shell,
 		Env: map[string]string{"HOME": rec.Home, "USER": rec.User, "LOGNAME": rec.User,
-			"IN_SANDBOX": "1", "SANDBOX_ID": rec.ID, "SANDBOX_NAME": rec.Name}}
+			"IN_SANDBOX": "1", "SANDBOX_ID": rec.ID, "SANDBOX_NAME": rec.Name,
+			// the spelling coding agents check (Claude Code: without it, no
+			// bypass mode as root — a users: root substrate's only user)
+			"IS_SANDBOX": "1"}}
 }
 
 // launchCreate starts making sandbox id in the background (m.mu held).

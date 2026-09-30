@@ -1,9 +1,10 @@
 // agent.js — the control tile's web view. Your conversations (sidebar.js —
 // per person, D83; subagents live inside their parent's session), a home
 // view of what needs you, the chat of the selected conversation, the render
-// pane for render_html output (sandboxed, see frameDoc), the workflow tree,
-// the Automations page (automations.js: schedules, watchers), and a tabbed
-// settings area (config / features / classes / memory / files / skills / MCP).
+// pane for render_html output (sandboxed, see frameDoc), the workflow tree
+// (workflow.js), the Automations page (automations.js: schedules, watchers),
+// and a tabbed settings area (config / features / classes / coding agents /
+// memory / files / skills / MCP).
 //
 // The state lives in model/ (shared with the native view): model/app.js wires
 // the Session (chat-view.js adds its lit template), the conversation list and
@@ -11,6 +12,9 @@
 // you are; model/rules.js says which controls show, model/actions.js talks to
 // the backend. This file draws and wires the DOM. No framework beyond lit's
 // render(), no build step; xbin.fetch attributes calls to this element.
+// Feature modules draw into it through the seams (web-ext.js: the chat's
+// blocks and end, the top bar, each paint, the new-chat dialog) —
+// harness-web.js imports them.
 import { html, render, nothing } from '/vendor/lit-all.min.js';
 
 const $ = (id) => document.getElementById(id);
@@ -28,6 +32,7 @@ import './auto-channels.js'; // draws the Channels kind on that page
 import './auto-triggers.js'; // …and Triggers
 import { openShare } from './share.js';
 import { makeClassPicker, classOptionsTpl, tabClasses } from './classes.js';
+import { tabHarnesses } from './harness-catalog.js';
 import { makeSandboxUI } from './sandboxes.js';
 import { createApp } from './model/app.js';
 import { HOME } from './model/home.js';
@@ -40,14 +45,16 @@ import { tabFiles, selectFile } from './settings-files.js';
 import { mountPartitionUI, mountStaticMcp } from './partition-ui.js';
 import { mountNewShare } from './homes-ui.js'; // a person's partition: who can see a new chat (two homes)
 import { hostedChipTpl, hostedPaint } from './hosted-ui.js'; // non-secure (hosted) conversations: the chip, the warning, the lock
+import { makeWorkflow } from './workflow.js';
+import { ext, ctx as extCtx } from './web-ext.js';
+import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
+import { steerWords } from './model/harness-ask.js'; // a coding harness's queued chips
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
 const base = `/api/${xbin.self}`;
 const num = (v) => Number(v) || 0;
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
-// Group digits for readability: 123123 → "123 123" (narrow no-break space).
-const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 const errBox = (e) => `<div class="err">${esc(e && e.message ? e.message : e)}</div>`;
 
 // The model (model/app.js): where you are (app.sel — the selected run id,
@@ -65,6 +72,7 @@ const app = createApp({
   deltas: true, page: 50,
 });
 const { session, convs, autos } = app;
+Object.assign(extCtx, { app, paint: () => paint() }); // what the seams' modules share (web-ext.js)
 const win = new ChatWindow(session);
 globalThis.agentChat = { testApi: () => win.testApi() }; // the UI harness's view of the chat's window
 // opening or closing a card keeps the reader's view, even at the bottom
@@ -82,6 +90,7 @@ const classPicker = makeClassPicker(app, $('cpick'));
 // The coding sandbox (D115): #ssel beside the model, the top bar's ▣, the Sandboxes dialog.
 const ports = makePorts(app, { openLive: (det) => openLive(det), repaint: () => paint() }); // the popover's Ports section
 const sbxUI = makeSandboxUI(app, { sel: $('ssel'), dlg: $('sbxdlg'), repaint: () => paint(), popExtra: ports.tpl });
+extCtx.sbxUI = sbxUI; // the seams' modules open its dialog (harness-start.js: Create, prefilled)
 let models = [];         // model references from GET /models ({data:[{ref, id, provider}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
@@ -105,6 +114,7 @@ app.on('me', () => { $('gear').hidden = !app.me.manager; syncHalt(); });
 app.on('halt', () => syncHalt());
 app.on('class', () => classPicker.paint(session.current()));
 app.on('model', () => paint());
+app.on('harness', () => paint()); // the coding agents' catalog and picks (app.harness)
 app.on('attach', () => renderAttach());
 app.on('sending', () => {
   $('send').disabled = app.sending;
@@ -115,7 +125,7 @@ app.on('error', (e) => alert(e.message));
 // Opening a conversation closes the workflow tree and a preview of another
 // run's file; once it is open the chat starts at its end.
 app.on('select', (id) => {
-  closeWorkflow();
+  wf.close();
   if (preview && preview.runId !== id) closePreview();
   prevSeen = null;
   win.reset();
@@ -126,7 +136,7 @@ app.on('selected', () => {
 });
 app.on('home', () => {
   closePreview(); prevSeen = null; prevDismissed = 0;
-  closeWorkflow();
+  wf.close();
   paintSide(); paint();
 });
 app.on('page', () => { paintSide(); paint(); });
@@ -176,7 +186,7 @@ function setHash(h) {
 
 function topTpl(v) {
   if (!v) return app.page === 'automations' ? html`<span class="title">Automations</span>`
-    : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>`;
+    : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>${ext.top(null) || nothing}`;
   const r = v.run;
   const t = rules.topBar(v, convs.find(r.rootId || r.id), app.me);
   return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
@@ -189,11 +199,12 @@ function topTpl(v) {
     <span class="badge ${r.status}">${r.status}</span>
     ${t.viewOnly ? html`<span class="badge" title="shared with you to read">view only</span>` : nothing}
     ${t.retry ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
-    ${t.compact ? html`<button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>
-    <button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
-    <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>
+    ${t.compact ? html`<button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>` : nothing}
+    ${t.learn ? html`<button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
+    ${t.memory != null ? html`<button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>` : nothing}
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
+    ${ext.top(v) || nothing}
     ${t.sharing || t.publish ? html`<button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
       title=${t.share.title}>${t.share.icon} ${t.share.label}</button>` : nothing}
     ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
@@ -222,7 +233,7 @@ function taskTpl(v) {
     ${open ? html`<div class="asks">${taskAsks.err ? html`<span class="err">${taskAsks.err}</span>`
       : !taskAsks.list ? html`<span class="muted">loading…</span>`
       : taskAsks.list.map((a) => html`<div class="taskreq"><div class="askhead">#${a.seq} · ${rules.askFrom(a)} · ${new Date(a.at * 1000).toLocaleString()}${a.live ? '' : ' · compacted (the agent sees it pinned)'}</div>
-        <div class="asktext">${a.text}</div></div>`)}</div>`
+        <div class="asktext">${a.text}</div></div>`)}${ext.task(v) || nothing}</div>`
     : html`<span class="taskline" title=${p.text}>${p.line}</span>`}
   </div>`;
 }
@@ -249,7 +260,7 @@ function paint() {
   const shown = v ? '' : `${app.page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!(autos.form || autos.custom)}`;
   if (!v && shown !== shownPage) tl.scrollTop = 0;
   shownPage = shown;
-  render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
+  render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message)), steerWords(v)), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
   const c = rules.composer(v, HOME);
   classPicker.paint(v);
@@ -260,7 +271,8 @@ function paint() {
   $('msg').placeholder = c.placeholder;
   hostedPaint(v, app); // a hosted conversation's lock and warning (hosted-ui.js); nothing elsewhere
   if (v) syncPreview(v);
-  if (wfOpen) treeDirty();
+  if (wf.shown) wf.dirty();
+  ext.paint(v);
 }
 
 // The composer's model (model/rules.js modelPicker): the open conversation's,
@@ -284,138 +296,10 @@ function syncModelPicker(v) {
 $('msel').onchange = () => app.pickModel($('msel').value).catch((e) => { alert(e.message); paint(); });
 
 // --- workflow view ------------------------------------------------------
+//
+// The tree of the conversation's runs (workflow.js), from the top bar's ⑂.
 
-let wfOpen = false, wfRoot = null, wfSetKey = '', wfValKey = '', wfSel = null;
-
-const WF_WORDS = { dep: 'waiting on', slot: 'queued — at the concurrency limit',
-                   human: 'waiting on you', sleeping: 'sleeping', cancelling: 'cancelling…' };
-
-function openWorkflow(rootId) {
-  if (rootId == null) return;
-  wfOpen = true; wfRoot = rootId; wfSetKey = ''; wfValKey = '';
-  $('workflow').hidden = false;
-  $('main').classList.add('wfon');
-  loadTree();
-}
-
-function closeWorkflow() {
-  wfOpen = false;
-  $('workflow').hidden = true;
-  $('main').classList.remove('wfon');
-}
-
-async function loadTree() {
-  if (!wfOpen || wfRoot == null) return;
-  let t;
-  try { t = await actions.tree(wfRoot); } catch { return; }
-  if (!wfOpen) return;
-  renderWorkflow(t);
-}
-
-// treeDirty re-reads the tree after the stream reported a change: at most one
-// request in flight, and one more if anything changed while it was.
-let treeBusy = false, treeAgain = false;
-function treeDirty() {
-  if (treeBusy) { treeAgain = true; return; }
-  treeBusy = true;
-  loadTree().finally(() => {
-    treeBusy = false;
-    if (treeAgain) { treeAgain = false; treeDirty(); }
-  });
-}
-
-// The tree is re-read on every link/status event. A wholesale rebuild would
-// drop the hovered row out from under the pointer and kill a button
-// mid-click, so rebuild only when the node SET changes, and patch values
-// otherwise.
-function renderWorkflow(t) {
-  const nodes = t.nodes || [];
-  const setKey = nodes.map((n) => n.id).join(',');
-  const valKey = JSON.stringify(nodes.map((n) => [n.status, n.updated, n.promptTokens, n.blockReason]));
-  paintWorkflowHeader(t);
-  if (setKey !== wfSetKey) { wfSetKey = setKey; wfValKey = valKey; return buildWorkflow(t); }
-  if (valKey === wfValKey) return;
-  wfValKey = valKey;
-  patchWorkflow(t);
-}
-
-function paintWorkflowHeader(t) {
-  const by = (t.totals && t.totals.byStatus) || {};
-  const root = (t.nodes || []).find((n) => n.id === t.root);
-  $('wf-title').textContent = root ? (root.title || 'run ' + t.root) : 'workflow';
-  $('wf-title').title = $('wf-title').textContent;
-  const parts = [];
-  for (const k of ['running', 'queued', 'blocked', 'done', 'error', 'cancelled']) {
-    if (by[k]) parts.push(`${by[k]} ${k}`);
-  }
-  $('wf-counts').textContent = `${(t.totals || {}).nodes || 0} nodes · ${parts.join(' · ') || 'idle'}`;
-  const tot = t.totals || {};
-  // A rate, not just a total: a total is alarming, a rate is actionable.
-  $('wf-cost').textContent =
-    `Σ ${fmtN(tot.promptTokens)}↑ ${fmtN(tot.completionTokens)}↓ · ${fmtN(tot.llmCalls)} calls · ${tot.active}/${tot.limit} running`;
-}
-
-// A run with no relatives gets no chip at all, so the workflow layer costs a
-// plain single run nothing: no extra element in an already-crowded top bar,
-// and no /tree request.
-function wfCostOf(n) { return num(n.promptTokens) + num(n.completionTokens); }
-
-function nodeRow(n, maxCost) {
-  const cost = wfCostOf(n);
-  const pct = maxCost > 0 ? Math.round(100 * cost / maxCost) : 0;
-  const blocked = n.blockReason === 'dep' && (n.blockedOn || []).length;
-  let sub = '', cls = '';
-  if (blocked) { sub = `⛔ waiting on ${n.blockedOn.map((i) => '#' + i).join(', ')}`; cls = 'blk'; }
-  else if (n.blockReason) { sub = '⏳ ' + (WF_WORDS[n.blockReason] || n.blockReason); cls = 'blk'; }
-  else if (n.status === 'error') { sub = '⚠ ' + (n.result || 'failed'); cls = 'bad'; }
-  else if (n.lastStep) { sub = n.lastStep; }
-  return `<div class="wfn${wfSel === n.id ? ' on' : ''}" data-n="${num(n.id)}" style="--d:${Math.min(num(n.depth), 4)}">
-    <span class="nm"><span class="dot ${esc(n.status)}"></span><span class="tt">${esc(n.title || 'run ' + n.id)}</span></span>
-    <span class="cost">${cost ? fmtN(cost) : ''}${cost ? `<i class="share"><i style="width:${pct}%"></i></i>` : ''}</span>
-    <span class="sub ${cls}">${esc(clip(sub, 160))}</span>
-  </div>`;
-}
-
-function buildWorkflow(t) {
-  const nodes = t.nodes || [];
-  const maxCost = Math.max(1, ...nodes.map(wfCostOf));
-  // Sorted by creation within a parent, never by status: status-sorting makes
-  // rows jump under the cursor on every poll.
-  const byParent = new Map();
-  for (const n of nodes) {
-    const k = n.id === t.root ? -1 : n.parentId;
-    if (!byParent.has(k)) byParent.set(k, []);
-    byParent.get(k).push(n);
-  }
-  const out = [];
-  const walk = (list) => {
-    for (const n of (list || []).sort((a, b) => a.created - b.created)) {
-      out.push(nodeRow(n, maxCost));
-      walk(byParent.get(n.id));
-    }
-  };
-  walk(byParent.get(-1));
-  const body = $('wf-body');
-  body.innerHTML = out.join('') || '<div class="empty">no background runs</div>';
-  body.querySelectorAll('[data-n]').forEach((el) => el.onclick = () => selectRun(+el.dataset.n));
-}
-
-function patchWorkflow(t) {
-  const nodes = t.nodes || [];
-  const maxCost = Math.max(1, ...nodes.map(wfCostOf));
-  for (const n of nodes) {
-    const el = $('wf-body').querySelector(`[data-n="${num(n.id)}"]`);
-    if (!el) continue;
-    const dot = el.querySelector('.dot');
-    if (dot) dot.className = 'dot ' + n.status;
-    const tmp = document.createElement('div');
-    tmp.innerHTML = nodeRow(n, maxCost);
-    el.querySelector('.cost').innerHTML = tmp.querySelector('.cost').innerHTML;
-    const sub = tmp.querySelector('.sub');
-    el.querySelector('.sub').className = sub.className;
-    el.querySelector('.sub').textContent = sub.textContent;
-  }
-}
+const wf = makeWorkflow({ selectRun });
 
 // app.me is who the tile is talking for (GET /me, D83): settings, the brake
 // and oversight are the managers' — people with write access to the tile.
@@ -614,7 +498,7 @@ function syncPreview(d) {
   prevSeen = last.seq;
   if (!fresh) return;
   if (prevDismissed === last.seq) return;          // the user closed this one
-  if (settingsOpen || wfOpen) return;              // don't yank an open view away
+  if (settingsOpen || wf.shown) return;            // don't yank an open view away
   if (document.visibilityState !== 'visible') return;
   if (preview && !preview.live) return;            // the user pinned an older chip
   if (last.kind === 'live') return openLive(det);  // preview_port (live.js, D135)
@@ -632,7 +516,7 @@ function refreshView() {
 async function control(action) {
   if (action === 'mem') return openSettings('memory');
   if (action === 'files') return openSettings('files');
-  if (action === 'wf') { const v = session.current(); return openWorkflow(v ? (v.run.rootId || v.run.id) : app.sel); }
+  if (action === 'wf') { const v = session.current(); return wf.open(v ? (v.run.rootId || v.run.id) : app.sel); }
   if (action === 'delete') {
     if (!confirm('Delete this run and its history?')) return;
     try { await actions.deleteRun(app.sel); } catch (e) { return alert(e.message); }
@@ -713,21 +597,14 @@ $('stop').onclick = async () => {
   } catch (e) { alert(e.message); }
 };
 
-// Render pane header. Closing remembers WHICH render was dismissed, so the
-// poll doesn't immediately reopen the same one.
-$('wf-close').onclick = () => closeWorkflow();
-$('wf-stop').onclick = async () => {
-  if (wfRoot == null || !confirm('Cancel this workflow and every run below it?')) return;
-  try { await actions.cancelTree(wfRoot); }
-  catch (e) { return alert(e.message); }
-  loadTree();
-};
 // One click, no confirm — during a runaway every dialog is another second of
 // spend. The undo is the same button.
 $('halt').onclick = async () => {
   try { await app.setHalt(!app.halted); } catch (e) { return alert(e.message); }
-  if (wfOpen) loadTree();
+  if (wf.shown) wf.load();
 };
+// Render pane header. Closing remembers WHICH render was dismissed, so the
+// poll doesn't immediately reopen the same one.
 $('prev-close').onclick = () => { prevDismissed = prevSeen; closePreview(); };
 $('prev-max').onclick = () => {
   $('main').classList.toggle('prev-max');
@@ -744,7 +621,7 @@ document.addEventListener('keydown', (e) => {
   if (classPicker.open) { classPicker.close(); return; }
   if (sbxUI.closePop()) return;
   if (preview) { prevDismissed = prevSeen; closePreview(); return; }
-  if (wfOpen) closeWorkflow();
+  if (wf.shown) wf.close();
 });
 $('home').onclick = goHome;
 
@@ -752,11 +629,15 @@ $('home').onclick = goHome;
 
 $('new').onclick = () => { goHome(); $('msg').focus(); };
 // "New chat with options": a title, a system prompt, a class — the first
-// message is the dialog's text.
+// message is the dialog's text; the seams' fields (ext.newChat) add theirs.
+let newExt = [];
+const drawNewExt = () => render(newExt.map((x) => x.tpl()), $('n-ext'));
 $('newopts').onclick = () => {
   $('n-goal').value = ''; $('n-title').value = ''; $('n-system').value = '';
   render(classOptionsTpl(app, app.classId), $('n-class'));
   $('n-class').value = app.classId;
+  newExt = ext.newChat(drawNewExt) || [];
+  drawNewExt();
   $('newdlg').showModal();
 };
 const newShare = mountNewShare(document.querySelector('#newdlg .dlg-bd')); // {} unless a person's partition
@@ -765,7 +646,8 @@ $('n-create').onclick = async (e) => {
   const share = text ? newShare() : {}; // null: people chosen, none named (the dialog says so and stays)
   if (!text || !share) { e.preventDefault(); return; }
   try {
-    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value, ...share });
+    await app.ask(Object.assign({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value },
+      ...newExt.map((x) => (x.body ? x.body() : {})), share));
   } catch (err) { alert(err.message); }
 };
 let searchT = null;
@@ -794,7 +676,7 @@ function closeSettings() { settingsOpen = false; $('settings').hidden = true; }
 const filesCtx = { app, $, rawBlob, closeSettings, openPreview, closePreview, refreshView, get preview() { return preview; } };
 async function renderTab() {
   const bd = $('sbd');
-  const fns = { config: tabConfig, features: tabFeatures, classes: (b) => tabClasses(b, app), memory: tabMemory, files: (b) => tabFiles(b, filesCtx), skills: tabSkills, mcp: tabMcp };
+  const fns = { config: tabConfig, features: tabFeatures, classes: (b) => tabClasses(b, app), harnesses: (b) => tabHarnesses(b, app), memory: tabMemory, files: (b) => tabFiles(b, filesCtx), skills: tabSkills, mcp: tabMcp };
   const fn = fns[activeTab] || tabConfig;
   bd.innerHTML = '<div class="empty">loading…</div>';
   try { await fn(bd); } catch (e) { bd.innerHTML = errBox(e); }

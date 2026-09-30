@@ -185,6 +185,14 @@ test('the badge: name · cwd, the attached ones, and why a binding no longer res
   assert.match(b.broken, /^not allowed: .*internet/);
   assert.match(S.sandboxBadge({ ...v, class: internal }, list([sb('api')])).broken, /no coding sandbox/);
   assert.equal(S.sandboxBadge({ ...v, access: 'viewer' }, list([sb('api')])).canChange, false);
+  assert.deepEqual([b.fixed, b.advice], [false, 'pick another, or detach it']);
+  // a coding agent's conversation keeps its sandbox (the backend refuses a change): nothing to change, a new chat instead
+  const f = S.sandboxBadge(v, list([sb('web')]), undefined, { fixed: 'Codex' });
+  assert.deepEqual([f.canChange, f.fixed, f.advice], [false, true, 'start a new chat with Codex in another sandbox']);
+  assert.deepEqual([f.talk, b.talk, S.sandboxBadge({ ...v, access: 'viewer' }, list([sb('api')]), undefined, { fixed: 'Codex' }).talk], [true, true, false],
+    'a participant still talks there (the ▣ popover\'s Ports, D135) — a viewer does not');
+  assert.match(f.broken, /^gone/);
+  assert.match(S.sandboxBadge(v, list([sb('api')]), undefined, { fixed: 'Codex' }).title, /— fixed for this conversation$/);
 });
 
 test('the dialog\'s rows: state, owner, the actions your rights allow', () => {
@@ -421,6 +429,11 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   // in a conversation: a pick binds it (PATCH its root), then its config is read again
   await app.select(5);
   assert.equal(app.sbx.badge().label, '▣ api · /work');
+  assert.deepEqual([app.sbx.badge().canChange, app.sbx.badge().fixed], [true, false]);
+  const cv = app.session.current();
+  const hb = app.sbx.badge({ ...cv, run: { ...cv.run, engine: 'harness', harness: { provider: 'claude', name: 'Claude Code' } } });
+  assert.deepEqual([hb.label, hb.canChange, hb.fixed, hb.advice], ['▣ api · /work', false, true, 'start a new chat with Claude Code in another sandbox'],
+    'a coding agent\'s conversation: its sandbox is fixed');
   assert.equal(app.sbx.picker().groups[0].id, 'here');
   await app.sbx.choose(`${MGR}|web`);
   const patch = calls.filter((c) => c.method === 'PATCH').pop();
@@ -567,7 +580,20 @@ test('terminals: offered where the manager has tty and the page is bound to it; 
   assert.deepEqual(rows.run, { id: 'terminal', label: 'Terminal', cwd: '/work/api' });
   assert.deepEqual(rows.stop, { id: 'terminal', label: 'Terminal', cwd: '' }, 'not in this conversation: its workdir');
   assert.deepEqual([rows.arch, rows.bobs, rows.notty, rows.busy], [undefined, undefined, undefined, undefined]);
-  assert.ok(!S.sandboxRows(L, {}, { conv: v }).some((r) => r.actions.some((a) => a.id === 'terminal')), 'no tty endpoints (the native view): never');
+  assert.ok(!S.sandboxRows(L, {}, { conv: v }).some((r) => r.actions.some((a) => a.id === 'terminal')), 'no tty endpoints: never');
+
+  // a command (a coding agent's sign-in) and the tile's own relay (D147 §4.2.8: the native view's)
+  assert.equal(S.terminal(L, `${MGR}|run`, EPS, '/work/api', 'codex login').src,
+    '/api/apps/coding-sandbox/sbx/sandboxes/run/tty?cwd=%2Fwork%2Fapi&cmd=codex%20login');
+  assert.equal(S.terminalSrc({ url: '/api/m' }, 'b1', '', 'CLAUDE_CODE_REMOTE=1 claude /login'), '/api/m/sbx/sandboxes/b1/tty?cmd=CLAUDE_CODE_REMOTE%3D1%20claude%20%2Flogin');
+  const r = S.terminal(L, `${MGR}|run`, S.RELAY, '/work/api');
+  assert.deepEqual([r.shown, r.why, r.relay, r.base, r.src], [true, '', true, '', 'sandboxes/apps/coding-sandbox%7Crun/terminal?cwd=%2Fwork%2Fapi'], 'tile-relative');
+  assert.equal(S.relaySrc(`${MGR}|run`, '', 'gemini'), 'sandboxes/apps/coding-sandbox%7Crun/terminal?cmd=gemini');
+  assert.equal(S.terminal(L, `${MGR}|bobs`, S.RELAY).why, 'you may not use it yourself', 'the relay checks you the same');
+  assert.match(S.terminal(L, `${MGR}|arch`, S.RELAY).why, /thaw it first/);
+  assert.equal(S.terminal(L, `${MGR}|notty`, S.RELAY).shown, false, 'no tty: no relay either');
+  const relayed = Object.fromEntries(S.sandboxRows(L, { user: 'alice' }, { conv: v, tty: S.RELAY }).map((r) => [r.name, r.actions.find((a) => a.id === 'terminal')]));
+  assert.deepEqual([relayed.run, relayed.bobs], [{ id: 'terminal', label: 'Terminal', cwd: '/work/api' }, undefined], 'the native view\'s rows');
 });
 
 test('the store: terminals only where a view set tty; ending one DELETEs its exec at the manager', async () => {

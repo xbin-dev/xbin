@@ -12,6 +12,8 @@ import { sharing } from '../model/partition.js';
 import { summaryCount } from '../model/auto.js';
 import { mainMenu } from './home.js';
 import { classSectionTpl } from './classes.js';
+import { kindOf } from '../model/harness-start.js';
+import { kidsWords } from '../model/harness-child.js';
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
 // the Shared view — in a person's partition, the shared space's (model/partition.js, model/homes.js)
@@ -86,8 +88,11 @@ function rowTpl(r, withMatch) {
   const app = ctx.app;
   const g = GLYPH[rowGlyph(r)];
   const shared = rowShared(r);
-  const sub = withMatch && r.match ? r.match.snippet : [r.hosted ? '⚠ not private' : '', // a non-secure conversation (native/hosted.js)
-    shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : ''].filter(Boolean).join(' · ');
+  const kind = kindOf(r); // a coding agent answers it (D147): its name first
+  const kids = kidsWords(r); // coding agents at work below it (D147 §4.3.8)
+  const sub = [kind ? kind.name : '', kids ? `⧉ ${kids.label}` : '',
+    ...(withMatch && r.match ? [r.match.snippet] : [r.hosted ? '⚠ not private' : '', // a non-secure conversation (native/hosted.js)
+      shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : ''])].filter(Boolean).join(' · ');
   const sel = app.root === r.id;
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}
       badge=${g ? g[0] : nothing} tone=${g ? g[1] : r.unread ? 'accent' : nothing} ?selected=${sel}
@@ -120,10 +125,13 @@ export function newChatSheet() {
   const app = ctx.app;
   const done = () => { ui.newChat = null; ctx.paint(); };
   const set = (k) => (e) => { f[k] = e.value; };
+  const more = ctx.ext.newChat(f) || []; // the seams' sections (native/ext.js)
+  // a coding agent answering it (f.agent, native/harness-start.js) keeps its own instructions
+  const coding = !!(f.agent && f.agent !== 'agent' && app.harness.find(f.agent)?.available);
   const start = guard(async () => {
     const text = f.text.trim();
     if (!text) return;
-    await app.ask({ text, title: f.title.trim(), system: f.system.trim(), class: f.class });
+    await app.ask(Object.assign({ text, title: f.title.trim(), system: f.system.trim(), class: f.class }, ...more.map((x) => (x.body ? x.body() : {}))));
     ui.newChat = null;
   });
   return html`<sheet open title="New chat" @dismiss=${done}>
@@ -134,9 +142,10 @@ export function newChatSheet() {
         <field kind="multiline" placeholder="what should it do?" value=${f.text} @input=${set('text')}/>
       </section>
       ${classSectionTpl(f)}
+      ${more.map((x) => (x.tpl ? x.tpl() : nothing))}
       <section title="Optional">
         <field label="Title" placeholder="from the first message" value=${f.title} @input=${set('title')}/>
-        <field label="Instructions" kind="multiline" placeholder="extra system instructions" value=${f.system} @input=${set('system')}/>
+        ${coding ? nothing : html`<field label="Instructions" kind="multiline" placeholder="extra system instructions" value=${f.system} @input=${set('system')}/>`}
       </section>
     </screen>
   </sheet>`;

@@ -1,12 +1,13 @@
 // classes.go — agent classes (D116): which toolsets a conversation gets.
 //
 // A class names toolsets (files, repl, web, internal, sandbox, subagents,
-// schedule, threads, skills — the core tools are always there), which MCP
-// servers, sandbox managers and sandbox egress it may use, and optionally a
-// model and a system addendum. The tile's managers define them (PUT
-// /classes); three are built in — internal 🔒 (the old private lane), web 🌐
-// (the old web lane) and coding ▣ — and a deleted built-in comes back as its
-// default, since old conversations and APIs name it.
+// schedule, threads, skills, harness — the core tools are always there),
+// which MCP servers, sandbox managers, sandbox egress and coding agents
+// (harnesses) it may use, and optionally a model and a system addendum. The
+// tile's managers define them (PUT /classes); three are built in — internal
+// 🔒 (the old private lane), web 🌐 (the old web lane) and coding ▣ — and a
+// deleted built-in comes back as its default, since old conversations and
+// APIs name it.
 //
 // A conversation's class is fixed at its start (Config.Class, inherited by
 // subagents and by the schedules it makes) and read every step: toolSpecs
@@ -45,9 +46,13 @@ const (
 	tsSchedule  = "schedule"
 	tsThreads   = "threads"
 	tsSkills    = "skills"
+	// tsHarness: coding agents (Claude Code, Codex, …) in a sandbox — a
+	// conversation answered by one, or one the agent spawns. Needs sandbox
+	// and an egress other than none; harnesses narrows which.
+	tsHarness = "harness"
 )
 
-var classToolsets = []string{tsFiles, tsRepl, tsWeb, tsInternal, tsSandbox, tsSubagents, tsSchedule, tsThreads, tsSkills}
+var classToolsets = []string{tsFiles, tsRepl, tsWeb, tsInternal, tsSandbox, tsSubagents, tsSchedule, tsThreads, tsSkills, tsHarness}
 
 // Sandbox egress values (docs/sandbox-manager.md).
 var sandboxEgressKinds = []string{"none", "internet", "open"}
@@ -108,10 +113,11 @@ type agentClass struct {
 	Name          string   `json:"name"`
 	Description   string   `json:"description,omitempty"`
 	Icon          string   `json:"icon,omitempty"`
-	Toolsets      []string `json:"toolsets"`                // files, repl, web, internal, sandbox, subagents, schedule, threads, skills
+	Toolsets      []string `json:"toolsets"`                // files, repl, web, internal, sandbox, subagents, schedule, threads, skills, harness
 	MCP           classSet `json:"mcp"`                     // "all" or a list of MCP server names (only meaningful with internal)
 	Managers      classSet `json:"managers"`                // "all" or a list of sandbox-manager providers (tile paths)
 	SandboxEgress []string `json:"sandboxEgress,omitempty"` // egress values a sandbox may have: none, internet, open
+	Harnesses     classSet `json:"harnesses"`               // "all" or a list of coding-agent ids (only meaningful with harness)
 	Model         string   `json:"model,omitempty"`
 	System        string   `json:"system,omitempty"`
 	Who           string   `json:"who,omitempty"` // "everyone" (default) | "managers"
@@ -130,6 +136,13 @@ func (c agentClass) allowsManager(provider string) bool {
 // allowsEgress: may a conversation of this class bind a sandbox with egress?
 func (c agentClass) allowsEgress(egress string) bool {
 	return c.has(tsSandbox) && hasStr(c.SandboxEgress, egress)
+}
+
+// allowsHarness: may a conversation of this class be answered by, or
+// spawn, the coding agent id? (Its sandbox's egress is checked apart:
+// allowsEgress, other than none.)
+func (c agentClass) allowsHarness(id string) bool {
+	return c.has(tsHarness) && c.has(tsSandbox) && c.Harnesses.allows(id)
 }
 
 // allowsMCP: may a conversation of this class use the MCP server?
@@ -185,6 +198,7 @@ func (c agentClass) clampTo(lane string) agentClass {
 		c.Toolsets = without(c.Toolsets, tsWeb)
 		if c.has(tsSandbox) {
 			c.SandboxEgress = []string{"none"}
+			c.Toolsets = without(c.Toolsets, tsHarness) // a coding agent needs egress
 		}
 	}
 	return c
@@ -214,9 +228,10 @@ func builtinClasses() []agentClass {
 			Toolsets:    []string{tsFiles, tsRepl, tsWeb, tsSubagents, tsSchedule, tsThreads, tsSkills}},
 		{ID: classCoding, Name: "Coding", Icon: "▣",
 			Description:   "Works in a coding sandbox, with the web — no internal systems.",
-			Toolsets:      []string{tsSandbox, tsWeb, tsFiles, tsSubagents, tsSkills},
+			Toolsets:      []string{tsSandbox, tsWeb, tsFiles, tsSubagents, tsSkills, tsHarness},
 			Managers:      classSet{All: true},
-			SandboxEgress: []string{"none", "internet"}},
+			SandboxEgress: []string{"none", "internet"},
+			Harnesses:     classSet{All: true}},
 	}
 }
 
@@ -234,10 +249,52 @@ func laneClass(toolset string) string {
 
 // --- the stored set ----------------------------------------------------------------
 
-// classSettings is settings k='classes'.
+// classSettings is the classes as saved (settings k='classes' stores them
+// as storedClasses).
 type classSettings struct {
 	Classes []agentClass `json:"classes"`
 	Default string       `json:"default,omitempty"` // a new conversation's class when none is named
+}
+
+// storedClasses is settings k='classes'. A class keeps the harness toolset
+// out of its toolsets there, in harness: a build from before coding agents
+// (v0.3.64 and older), rolled back to, refuses a toolset it doesn't know —
+// and its editor resends every stored class, so every class save would
+// fail. That build ignores harness; a class it saves again has no coding
+// agents. Toolsets that hold harness (an earlier build of this program
+// stored them so) are read as they are.
+type storedClasses struct {
+	Classes []storedClass `json:"classes"`
+	Default string        `json:"default,omitempty"`
+}
+
+type storedClass struct {
+	agentClass
+	Harness bool `json:"harness,omitempty"` // the harness toolset
+}
+
+func (s classSettings) stored() storedClasses {
+	out := storedClasses{Classes: make([]storedClass, 0, len(s.Classes)), Default: s.Default}
+	for _, c := range s.Classes {
+		sc := storedClass{agentClass: c, Harness: c.has(tsHarness)}
+		if sc.Harness {
+			sc.Toolsets = without(c.Toolsets, tsHarness)
+		}
+		out.Classes = append(out.Classes, sc)
+	}
+	return out
+}
+
+func (s storedClasses) settings() classSettings {
+	out := classSettings{Classes: make([]agentClass, 0, len(s.Classes)), Default: s.Default}
+	for _, sc := range s.Classes {
+		c := sc.agentClass
+		if sc.Harness && !c.has(tsHarness) {
+			c.Toolsets = append(append([]string(nil), c.Toolsets...), tsHarness)
+		}
+		out.Classes = append(out.Classes, c)
+	}
+	return out
 }
 
 // classState is the classes in force: the built-ins first, in their order
@@ -318,11 +375,11 @@ func currentClasses() *classState {
 
 // loadClasses (re)reads the stored classes into the cache.
 func loadClasses(d *DB) *classState {
-	var s classSettings
+	var s storedClasses
 	if raw := d.getSetting("classes"); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &s)
 	}
-	st := newClassState(s)
+	st := newClassState(s.settings())
 	classStore.Store(st)
 	return st
 }
@@ -414,7 +471,7 @@ func classView(c agentClass) map[string]any {
 	return map[string]any{
 		"id": c.ID, "name": c.Name, "description": c.Description, "icon": c.Icon, "toolsets": c.Toolsets,
 		"mcp": c.MCP, "managers": c.Managers, "sandboxEgress": orList(c.SandboxEgress), "model": c.Model,
-		"system": c.System, "who": orStr(c.Who, "everyone"), "builtin": isBuiltinClass(c.ID),
+		"system": c.System, "who": orStr(c.Who, "everyone"), "builtin": isBuiltinClass(c.ID), "harnesses": c.Harnesses,
 		"lane": c.lane(), "egress": c.egress(), "mixed": c.mixed(),
 	}
 }
@@ -474,6 +531,24 @@ func (c *agentClass) normalize() string {
 	if !c.Managers.set && c.has(tsSandbox) {
 		c.Managers.All = true
 	}
+	if !c.Harnesses.set && c.has(tsHarness) {
+		c.Harnesses.All = true // as mcp and managers: the toolset named, the set not
+	}
+	if c.has(tsHarness) && (!c.has(tsSandbox) || !hasEgressBeyondNone(c.SandboxEgress)) {
+		return fmt.Sprintf("class %s: the harness toolset needs sandbox and an egress other than none — a coding agent must reach its provider", c.ID)
+	}
+	var hs []string
+	for _, n := range c.Harnesses.Names {
+		if n = strings.TrimSpace(n); !harnessIDRe.MatchString(n) {
+			return fmt.Sprintf("class %s: %q isn't a coding agent id (GET /harnesses lists them)", c.ID, n)
+		}
+		if !hasStr(hs, n) {
+			hs = append(hs, n)
+		}
+	}
+	if c.Harnesses.Names != nil {
+		c.Harnesses.Names = orList(hs)
+	}
 	for _, s := range [][]string{c.MCP.Names, c.Managers.Names} {
 		for _, n := range s {
 			if n = strings.TrimSpace(n); n == "" || len(n) > 200 || strings.ContainsAny(n, " \t\n") {
@@ -502,6 +577,29 @@ func (c *agentClass) normalize() string {
 }
 
 // --- routes ---------------------------------------------------------------------------
+
+// keepHarnesses: a class that had the harness toolset, saved without
+// harnesses, keeps the ones it has — an editor that doesn't know the field
+// never widens a narrowed list (one gaining the toolset without naming any
+// gets "all": normalize, as mcp and managers do).
+func keepHarnesses(cur *classState, c *agentClass) {
+	if c.Harnesses.set {
+		return
+	}
+	if was, ok := cur.find(strings.TrimSpace(c.ID)); ok && was.has(tsHarness) && (was.Harnesses.All || was.Harnesses.Names != nil) {
+		c.Harnesses = was.Harnesses
+		c.Harnesses.set = true
+	}
+}
+
+func hasEgressBeyondNone(eg []string) bool {
+	for _, e := range eg {
+		if e != "none" {
+			return true
+		}
+	}
+	return false
+}
 
 // handleGetClasses lists the classes the caller may start conversations in
 // (a manager sees them all) and the one a new conversation of theirs gets.
@@ -549,8 +647,10 @@ func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 	}
 	seen := map[string]bool{}
 	var mixed []string
+	cur, chans := loadClasses(agent.db), agent.db.listChannels()
 	for i := range body.Classes {
 		c := &body.Classes[i]
+		keepHarnesses(cur, c)
 		if msg := c.normalize(); msg != "" {
 			xbin.WriteError(w, 400, msg)
 			return
@@ -565,7 +665,10 @@ func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	next := newClassState(classSettings{Classes: body.Classes})
-	cur, chans := loadClasses(agent.db), agent.db.listChannels()
+	if msg := unknownHarnesses(r.Context(), cur, body.Classes); msg != "" {
+		xbin.WriteError(w, 400, msg)
+		return
+	}
 	msg := webClassGuard(cur, next, chans)
 	if msg == "" {
 		msg = classUseGuard(cur, next, chans, agent.db.listTriggers(``))
@@ -589,7 +692,7 @@ func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	raw, _ := json.Marshal(classSettings{Classes: body.Classes, Default: body.Default})
+	raw, _ := json.Marshal(classSettings{Classes: body.Classes, Default: body.Default}.stored())
 	if err := agent.db.putSetting("classes", string(raw)); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

@@ -61,8 +61,11 @@ to the tile (write or terminal). With read access a person may look: hello,
 the list, a sandbox, a running sandbox's files and trees, its execs and
 their output, its snapshots. Every change is `403 not-allowed` before it is
 routed: create, PATCH, DELETE, start and stop, run, execs and their stdin,
-signals and resizes, terminals (both `tty` routes), file writes, moves and
-removes, `PUT …/tar`, and taking, restoring or deleting snapshots. A read
+signals and resizes, terminals (both `tty` routes), stdio sockets (one
+writes its exec's stdin) and every other WebSocket upgrade (a port's
+too — the ports route refuses this page's readers altogether), file
+writes, moves and removes, `PUT …/tar`, and taking, restoring or deleting
+snapshots. A read
 never starts a stopped sandbox for them: that is `403 not-allowed` too, and
 `409 state` while one starts. Calls from every other consumer are as the
 contract says, whatever the person's level on this tile: the contract
@@ -102,15 +105,29 @@ trusts its consumers.
   home from the account database (OpenSSH's `~/.ssh`) agree with `USER`
   and `HOME`. A name the image gives another uid stays the image's.
 - **Inside.** Every command runs as the layout's user (uid/gid) with `HOME`,
-  `USER`, `IN_SANDBOX=1`, `SANDBOX_ID` and `SANDBOX_NAME`; `cmd` runs in the
-  layout's shell. On a substrate that runs everything as root (the runtime's
-  `users: root`), the user is root at `/root`.
+  `USER`, `IN_SANDBOX=1`, `IS_SANDBOX=1` (the spelling coding agents check —
+  Claude Code; part of the sandbox's defaults, so one made before it has it
+  from its next rename), `SANDBOX_ID` and `SANDBOX_NAME`; `cmd` runs in the
+  layout's shell. A terminal's command also gets `TERM`, `COLORTERM` and
+  `LANG` (the runtime's, docs/protocol.md §Tile sandboxes). On a substrate
+  that runs everything as root (the runtime's `users: root`), the user is
+  root at `/root`.
 - **`caps`** are the substrate's (`exec`, `files`, `tar`, `tty`,
-  `snapshots`, `clone`, and `ports` where xbind serves it); `archive`
-  isn't offered yet (its routes answer 501). Hello's also carry
+  `snapshots`, `clone`, and `ports` and `stdio` where xbind serves them);
+  `archive` isn't offered yet (its routes answer 501). Hello's also carry
   `partitions`, the manager's own (a sandbox's `caps` never do).
+- **stdio** (docs/sandbox-manager.md §stdio): `POST …/execs {split: true}`
+  keeps a non-tty exec's stderr apart (`…/output?stream=stderr`, the
+  exec's `errTotal`), and `GET …/execs/{eid}/stdio?since=&errSince=` is a
+  relay of the runtime's stdio WebSocket, checked as an exec is — the
+  consumer, the person rules — its frames as the runtime sends them (the
+  exec ids are the runtime's). Offered while the runtime's `caps` carry
+  `stdio` and the backend serves it (`StdioBox`); otherwise `split` and
+  `stream` are ignored, as by any manager without it, and the route
+  answers 501.
 - **Ports** (D135): `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` is
-  checked as an exec is — the consumer, the person rules — then forwarded
+  checked as an exec is — the consumer, the person rules; this page's
+  readers get `403 not-allowed`, whatever the method — then forwarded
   to the runtime's ports route (the SDK's `PortRoute`), the consumer's
   escaped path and query unchanged. A stopped sandbox is 409 `state`,
   never started for it. Offered while the runtime's `caps` carry `ports`
@@ -133,8 +150,32 @@ An image is the substrate's base plus an optional **setup script**:
 ```jsonc
 {"id": "node", "title": "Node 22 + pnpm", "tools": ["git", "node", "pnpm"],
  "setup": "apt-get update && apt-get install -y nodejs npm && npm i -g pnpm",
- "buildEgress": "internet"}
+ "buildEgress": "internet",
+ "harnesses": [{"id": "claude"}, {"id": "codex", "login": "codex login --device-auth"}]}
 ```
+
+`tools` and `harnesses` are what hello says of the image — the operators'
+word, nothing checks it. **`harnesses`** are its coding agents that speak
+ACP, `[{id, title?, argv?, login?}]` (docs/sandbox-manager.md §hello: ids
+of the grammar above, once each; `argv` the adapter's command; `login` a
+one-line shell command that signs it in at a terminal). A new manager's
+`base` lists the four xbin's base rootfs installs:
+
+| id | title | argv | login |
+|---|---|---|---|
+| `claude` | Claude Code | `claude-agent-acp` | `CLAUDE_CODE_REMOTE=1 claude /login` |
+| `codex` | Codex | `codex-acp` | `codex login --device-auth` |
+| `gemini` | Gemini CLI | `gemini --acp` | `NO_BROWSER=true gemini` |
+| `opencode` | OpenCode | `opencode acp` | `opencode auth login` |
+
+— signing in without a browser in the sandbox (a URL to open and a code to
+paste back, a device code), whose login callback on the sandbox's
+`localhost` a person's browser couldn't reach (Claude Code signs in that
+way only under `CLAUDE_CODE_REMOTE=1`, as its ACP adapter runs; a manager
+made before 2026-09-30 advertised `claude /login`). A saved config keeps
+the harnesses it was saved with, logins included: one saved before them lists none (a consumer
+then probes for the agents it knows), until an operator adds them. The
+page's image editor keeps an image's harnesses; `PUT /ops/config` sets them.
 
 The first sandbox of an image builds it: a template sandbox of its own is
 made and prepared, the script runs in it **as root** in the workdir (with
@@ -186,7 +227,7 @@ it carries (each whole) and answers the state:
 | `backend` | `"xbin"` | a registered backend; changing it needs no sandboxes or built images left |
 | `backendConfig` | `{}` | the backend's own settings |
 | `mode` | `vm` (a manager made before 2026-09-28: `auto`) | `auto` (or `""`): a VM where the substrate offers VMs now, else a namespace (else another backend's first mode); `vm` or `namespace`: only that — while the substrate lacks it no sandbox is made (`503`, its reason; hello's `notes` say so), never another mode. A sandbox's `isolation` says the mode it got. Another backend may name its own (`container`, `cloud-vm`) |
-| `images` | `base` (the substrate's base, no script) | above; one is the default |
+| `images` | `base` (the substrate's base, no script; its tools and the four coding agents) | above; one is the default |
 | `sizes` | `small` 2 GiB/2/20 GiB, `medium`, `large` | `{id, title, memMiB, vcpus, diskGiB, default}`; sizes over the substrate's per-sandbox caps aren't offered |
 | `quotas` | none | above |
 | `layout` | `/work`, `/home/dev`, `dev` 1000:1000, `/bin/bash` | `{workdir, home, user, uid, gid, shell}` |
@@ -305,7 +346,8 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
 substrate's offer, and sandboxes by name: list, create — clones with
 `from` —, get, patch, delete, start, stop) and a `Box` per sandbox (run,
 execs and their output by offset, stdin, signals, resizes, the terminal
-relay, files, trees, snapshots). The shapes are the Go SDK's
+relay, files, trees, snapshots — and, optionally, the stdio socket relay:
+`StdioBox`). The shapes are the Go SDK's
 (`sdk/sandbox*.go`). Refusals are `*xbin.SandboxError` with the contract's
 refusal enum; any other error answers `503 unavailable`. Adding one — a
 cloud's API and ssh, say — is `AGENTS.md`.
@@ -318,7 +360,7 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
 - **create**: `mode` (above — never chosen by the runtime), the size's
   `memMiB`/`vcpus`/`diskGiB`, `net.egress` `none` or `class:internet` /
   `class:open`, `defaults` (the layout: cwd, uid/gid, shell, `HOME`, `USER`,
-  `IN_SANDBOX`, `SANDBOX_ID`, `SANDBOX_NAME`), the operators' `mounts`,
+  `IN_SANDBOX`, `IS_SANDBOX`, `SANDBOX_ID`, `SANDBOX_NAME`), the operators' `mounts`,
   `idleStopMin` (`autoStopMin`), `for`/`forUser` (the consumer and the
   person, as claims — `for` the consumer tile, whichever partition of it),
   `labels` `{coding-sandbox/id}`, plus `coding-sandbox/partition` for a
@@ -330,7 +372,9 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
 - **commands**: `uid`/`gid` the layout's (the first start's prepare runs as
   root), `forUser` the person, exec `clientId`s prefixed per consumer;
 - **terminals**: relayed byte for byte (`RelayTTY` / `RelayNewTTY`) with
-  `forUser` = the person and the session frame's ids = the contract's; a
+  `forUser` = the person — verified, or the one a consumer's backend names
+  (`Sbx-User`), so xbind's `noTerminal` applies to a terminal a consumer
+  relays too — and the session frame's ids = the contract's; a
   refusal before the upgrade comes back with the runtime's name for the
   sandbox replaced by its id. The consumer's headers never travel;
 - **ids**: exec and snapshot ids are the runtime's, as they are. One its
@@ -383,7 +427,7 @@ notes have the commands):
    `sandboxes` slot is bound to it (`bx bind apps/csc sandboxes=apps/cs`).
    Binding another consumer doesn't restart the manager: calls in flight
    (relayed terminals, long polls) carry on.
-2. Hello: `caps` are the runtime's (`exec files tar tty snapshots
+2. Hello: `caps` are the runtime's (`exec files tar tty stdio snapshots
    clone ports`) and the manager's `partitions`, `egress` `none
    internet`, no `notes` but the missing ones.
 3. The conformance suite through xbind's proxy, every section but
@@ -393,9 +437,10 @@ notes have the commands):
    session (xbind sets `X-XBin-User`); an asserted one is `Sbx-User`. On a
    `--no-auth` xbind there are no verified people: the checks that act as
    them (`people/visibility`, `people/owners`, `partitions/shares`,
-   `tty/refusals`) go in `Target.Skip`, saying so. `user-partitions`
-   needs a partitioned consumer's calls, which xbind makes (and strips
-   from anyone else): it runs in-process (`_backend/contract_test.go`).
+   `tty/refusals`, `stdio/refusals`) go in `Target.Skip`, saying so.
+   `user-partitions` needs a partitioned consumer's calls, which xbind
+   makes (and strips from anyone else): it runs in-process
+   (`_backend/contract_test.go`).
 4. `mode`: `auto` gives `vm` with KVM (the sandbox's `isolation` `vm`),
    `namespace` without; `vm` on a host without VMs refuses the create with
    the runtime's reason.

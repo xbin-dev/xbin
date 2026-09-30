@@ -30,7 +30,7 @@ var helloChecks = []check{
 			}
 		}
 		for _, c := range h.Caps {
-			if !slices.Contains([]string{"exec", "files", "tar", "tty", "snapshots", "clone", "archive", "ports", "partitions"}, c) {
+			if !slices.Contains([]string{"exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports", "partitions"}, c) {
 				t.Errorf("caps: unknown %q", c)
 			}
 		}
@@ -44,6 +44,7 @@ var helloChecks = []check{
 			if im.Default {
 				defaults++
 			}
+			checkHarnesses(t, im.ID, im.Harnesses)
 		}
 		if defaults != 1 {
 			t.Errorf("images %+v: want one default", h.Images)
@@ -59,6 +60,27 @@ var helloChecks = []check{
 		}
 		a.Refused("GET", "/no-such-route", nil, 404, "not-found") // errors are JSON everywhere
 	}},
+}
+
+// harnessID is an image's harness id's grammar.
+var harnessID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`)
+
+// checkHarnesses: an image's harnesses (optional) each have an id of the
+// grammar, unique in the image, and an argv, when given, of non-empty words.
+func checkHarnesses(t *testing.T, image string, hs []Harness) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, x := range hs {
+		switch {
+		case !harnessID.MatchString(x.ID):
+			t.Errorf("image %s: harness id %q isn't [A-Za-z0-9][A-Za-z0-9._-]{0,31}", image, x.ID)
+		case seen[x.ID]:
+			t.Errorf("image %s: harness %s twice", image, x.ID)
+		case slices.Contains(x.Argv, ""):
+			t.Errorf("image %s: harness %s has an empty word in argv %q", image, x.ID, x.Argv)
+		}
+		seen[x.ID] = true
+	}
 }
 
 // --- sandboxes ------------------------------------------------------------------

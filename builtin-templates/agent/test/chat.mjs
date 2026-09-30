@@ -79,6 +79,7 @@ ok('a tool card is headed by the model\'s summary', heads.includes('Look up open
 ok('…or by a reading of its arguments', heads.includes('Read notes.md'), heads.join(' | '));
 ok('a running call shows it', !!(await page.$('.tcard.running .spin')));
 ok('a subagent is a card in the session, open while it works', !!(await page.$('.acard.running.on')));
+await page.waitForSelector('.acard .acb .tcard .hl', { timeout: 5000 }).catch(() => {}); // its view is read once the card is open
 const nested = await page.$$eval('.acard .acb .tcard .hl', (els) => els.map((e) => e.textContent));
 ok('…with its own tool calls inside', nested.includes('Fetch the price list'), nested.join(' | '));
 ok('…and its task on the card, not as a message', (await page.textContent('.acard .task')).includes('research vendor prices'));
@@ -201,6 +202,32 @@ await page.click('.step.live .steplnk');
 await page.waitForSelector('#livefr', { state: 'attached' });
 ok('the 📡 line shows it live again', (await page.textContent('#prev-path')).includes('web:8000/'));
 await page.click('#prev-close');
+
+// A subagent whose view can't be read (the backend restarting): its card reads
+// it once — not at every paint — and says why, with Retry.
+{
+  const c2 = await browser.newContext();
+  await serveTile(c2, { realMarked: true });
+  await c2.addInitScript(STUB, seed);
+  const p = await c2.newPage();
+  p.on('pageerror', (e) => errors.push(e.message));
+  await p.goto(`${ORIGIN}/`);
+  await p.waitForSelector('#runs .run');
+  await p.evaluate(() => { window.__down = true; window.__route('GET', /\/runs\/2\/view/, () => (window.__down ? window.__json({ error: 'bad gateway' }, 500) : null)); });
+  const reads = () => p.evaluate(() => window.__calls.filter((c) => c.url.includes('/runs/2/view')).length);
+  await p.click('#runs .run');
+  await p.waitForSelector('.acard.on');
+  await p.waitForTimeout(2000);
+  const n = await reads();
+  ok(`a subagent whose view read fails is read once in 2 s, not at every paint (${n})`, n >= 1 && n <= 2);
+  const why = await p.$eval('.acard .readfail .err', (e) => e.textContent).catch(() => '(none)');
+  ok('…its open card says why, with Retry', why === "Couldn't read its steps: bad gateway" && !!(await p.$('.acard .readfail [data-act="retry"]')), why);
+  await p.evaluate(() => { window.__down = false; });
+  await p.click('.acard .readfail [data-act="retry"]');
+  await p.waitForSelector('.acard .acb .tcard .hl');
+  ok('…Retry reads it: its own tools, and nothing to say', (await reads()) === n + 1 && !(await p.$('.acard .readfail')));
+  await c2.close();
+}
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();

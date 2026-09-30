@@ -13,7 +13,7 @@ export const IMPLEMENTS = {
 
   // Conversations
   'conv.new': 'native/convs.js — the drawer\'s New chat row',
-  'conv.newOptions': 'native/convs.js — newChatSheet (the class: native/classes.js classSectionTpl)',
+  'conv.newOptions': 'native/convs.js — newChatSheet (the class: native/classes.js classSectionTpl; who answers and its sandbox: native/harness-start.js newChat)',
   'conv.search': 'native/convs.js — the drawer screen\'s search → ConvList.search',
   'conv.search.snippets': 'native/convs.js — rowTpl subtitle (r.match.snippet)',
   'conv.search.join': 'native/convs.js — search → app.join',
@@ -21,7 +21,8 @@ export const IMPLEMENTS = {
   'conv.pinned': 'native/convs.js — the Pinned section',
   'conv.unread': 'native/convs.js — the accent dot; model/app.js reads the one you look at',
   'conv.shared': 'native/convs.js — the chips in the subtitle (rowShared)',
-  'conv.status': 'native/convs.js — the row badge (rowGlyph)',
+  'conv.status': 'native/convs.js — the row badge (rowGlyph: a run below waiting too), ⧉ N coding agents in its subtitle (model/harness-child.js kidsWords)',
+  'conv.kind': 'native/convs.js — the row\'s subtitle starts with its name (model/harness-start.js kindOf)',
   'conv.more': 'native/convs.js — the list\'s more',
   'conv.live': 'model/conv-list.js — apply(ev)',
   'conv.rename': 'native/convs.js — renameSheet (row action; the chat menu\'s Rename…)',
@@ -48,6 +49,9 @@ export const IMPLEMENTS = {
   'chat.agent.open': 'native/chat.js — openChild (pushed over its parents)',
   'chat.agent.approval': 'native/chat.js — approvalTpl in the card',
   'chat.agent.answer': 'native/chat.js — agentTpl answer',
+  'chat.harnessChild': 'native/harness-child.js — cardTpl through ext.block: a toolcard (family agent) with its chips, status, plan, last 3 blocks (read when drawn open: loadTail) and answer; ↗ opens its chat',
+  'chat.harnessChild.ask': 'native/harness-child.js — parkTpl: native/harness-ask.js permissionTpl / questionTpl with the child\'s run in the card (open while it waits); a sign-in as a notice — Sign in is in its own chat (↗)',
+  'chat.harnessChild.steer': 'native/harness-child.js — ↗ to its own chat: its composer messages it directly (the parent is told: the notice), Stop interrupts; its ⋯ menu: Cancel task (confirmed) — a toolcard holds no field or button',
   'chat.step': 'native/chat.js — stepTpl',
   'chat.step.finish': 'native/chat.js — stepTpl: the ✓ step, then the result as markdown',
   'chat.step.reopen': 'native/chat.js — stepTpl: a render or live line is a toolcard whose open shows it (a step has no tap)',
@@ -70,10 +74,11 @@ export const IMPLEMENTS = {
 
   // Composer
   'composer.text': 'native/chat.js — composer',
-  'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer)',
+  'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer); native/harness-ask.js — composer, a coding agent\'s (model/harness-ask.js steerWords)',
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
   'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; ＋ New and Manage… push the Sandboxes screens)',
+  'composer.agent': 'native/harness-start.js — the Who answers picker at the top of the home page (homeSetupTpl — a phone\'s home bar holds the class, model and sandbox pickers; an unavailable one is marked; picking it says why); native/classes.js and native/home.js hide the Class and Model pickers',
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
   'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
@@ -91,7 +96,10 @@ export const IMPLEMENTS = {
   'top.class': 'native/chat.js — the subtitle (rules.topBar cls: its class, and ⚠ when it can move internal data out)',
   'top.model': 'native/chat.js — ✦ in the subtitle',
   'top.task': 'native/chat.js — runMenu Task (rules.topBar task) → native/tools.js taskTpl: every request, read-only (actions.asks)',
+  'top.task.delegated': 'native/harness-board.js — the Task screen\'s Delegated section through ext.task: a row per coding agent below the run (app.board.delegated), a tap to its chat',
+  'top.board': 'native/harness-board.js — a toolbar button while any needs you (not at home — Needs you is on the page — nor in a coding agent\'s own chat, whose bar is full) and ⋯ → Coding agents (N), at home the main menu\'s (app.board.chip)',
   'top.sandbox': 'native/chat.js — ▣ in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
+  'top.harness': 'native/harness-start.js — first in the subtitle (the subtitle seam; model/harness-start.js topChip): a badge beside Mode and Model pushed More off a phone\'s bar',
   'top.status': 'native/chat.js — the subtitle',
   'top.viewOnly': 'native/chat.js — the subtitle',
   'top.retry': 'native/chat.js — runMenu and the composer\'s Retry chip',
@@ -111,6 +119,7 @@ export const IMPLEMENTS = {
   'tools.files.attachments': 'native/tools.js — fileTpl (image, Share / export)',
   'tools.skills': 'native/tools.js — skillsTpl, skillTpl',
   'tools.tree': 'native/tools.js — treeTpl',
+  'tools.board': 'native/harness-board.js — the hboard screen: sections Needs you, Running, Done of rows (swipe: Stop, Message → the hmsg screen, Cancel task), a parked row holding its approval or question (native/harness-child.js parkTpl) (app.board.rows)',
   'tools.tree.cost': 'native/tools.js — treeTpl',
   'tools.tree.stop': 'native/tools.js — treeTpl Stop, confirmed',
   'tools.render': 'native/tools.js — renderTpl (native/render-doc.js: the web\'s CSP)',
@@ -125,6 +134,8 @@ export const IMPLEMENTS = {
   'tools.sandboxes': 'native/sandboxes.js — listTpl: a row per sandbox, its actions (sandboxRows) behind swipe and ⋯, archive and delete confirmed',
   'tools.sandboxes.create': 'native/sandboxes.js — newTpl (createForm → app.sbx.create)',
   'tools.sandboxes.shareTerminal': 'native/sandboxes.js — a row\'s Share with a terminal tile… (swipe or ⋯) pushes shareTpl: the path field, For, Share in the toolbar, Stop sharing behind a shared row\'s swipe (confirmed)',
+  'tools.sandboxes.terminal': 'native/sandboxes.js — a row\'s Terminal and the ▣ screen\'s Open terminal → native/terminal.js termTpl: <terminal src> on the tile\'s relay (model/sandboxes.js relaySrc; app.sbx.tty = RELAY in native.js)',
+  'tools.terminal': 'native/terminal.js — ⋯ → Terminal in a coding agent\'s conversation: termTpl on its run\'s relay (model/terminals.js runTerminalSrc)',
 
   // Sharing
   'share.visibility': 'native/share.js',
@@ -168,7 +179,8 @@ export const IMPLEMENTS = {
   'manage.config': 'native/settings.js — configTpl',
   'manage.features': 'native/settings.js — featuresTpl',
   'manage.mcp': 'native/settings.js — mcpTpl',
-  'manage.classes': 'native/classes.js — classesTpl, classFormTpl (native/settings.js — the Classes row)',
+  'manage.classes': 'native/classes.js — classesTpl, classFormTpl (native/settings.js — the Classes row; the coding agents: harnessNames)',
+  'manage.harnesses': 'native/harness-catalog.js — the Coding agents screen (native/settings.js — its row; model/harness-manage.js catalogRows)',
   'manage.halt': 'native/home.js — mainMenu (home and the drawer); native/settings.js — the brake (confirmed)',
 
   // States
@@ -189,4 +201,26 @@ export const IMPLEMENTS = {
 
   // Needs you, beyond the tile
   'needs.push': '_backend/needs_push.go — a question, an approval or a failed automation run is pushed to who may act on it (POST /api/xbin/notify, link #c=<run>); native.js — the app opens the link: app.follow',
+
+  // Coding agents (D147)
+  'harness.start': 'native/harness-start.js — homeSetupTpl in native/home.js (model/harness-start.js startOf, setupOf; keepSandbox, wired by model/app.js)',
+  // Coding agents — the transcript
+  'harness.tool': 'native/harness-cards.js — cardTpl: a toolcard (ctx.ext.block) with its chips',
+  'harness.tool.output': 'native/harness-cards.js — execTpl (code); all of it: the hcall screen (toolcard ↗)',
+  'harness.tool.diff': 'native/harness-cards.js — diffTpl: the diff primitive (files, patch); every patch: the hcall screen',
+  'harness.subagent': 'native/harness-cards.js — bodyTpl: a nested transcript in the Task\'s toolcard',
+  'harness.plan': 'native/harness-start.js — 📋 N/M in the subtitle; native/harness-cards.js progressScreen: the plan primitive (⋯ → Progress)',
+  'harness.usage': 'native/harness-start.js — the context in use in the subtitle; native/harness-cards.js progressScreen (the cost too)',
+  'harness.files': 'native/harness-cards.js — progressScreen',
+  // Coding agents — asking and controls
+  'harness.permission': 'native/harness-ask.js — approvalTpl through ext.end: approval with the harness\'s options, the rule as its note, feedback; a diff preview; a bypass option confirmed by a second approval',
+  'harness.planApproval': 'native/harness-ask.js — approvalTpl: the plan as markdown, the approval with feedback',
+  'harness.question': 'native/harness-ask.js — questionTpl: question with the schema (model/harness-ask.js nativeSchema: a multiple choice as a yes/no per choice); url mode: the page as a markdown link, then Submit',
+  'harness.mode': 'native/harness-ask.js — controlsTpl: the Mode menu in the toolbar (a bypass mode confirmed, the owner\'s only)',
+  'harness.options': 'native/harness-ask.js — controlsTpl: the model option as the toolbar\'s Model picker, the others in the Mode menu (a phone\'s bar holds only so much); model/rules.js modelPicker hides the built-in Model picker',
+  'harness.slash': 'native/harness-ask.js — composer slash',
+  'harness.steer': 'native/harness-ask.js — composer: Send now (interrupts), the steered chip; native/chat.js — the queued chips\' label',
+  'harness.autonomy': 'native/harness-ask.js — ⋯ → Coding agent settings (the main menu: home\'s and the drawer\'s) → settingsScreen; the Mode menu (your setting for new ones)',
+  // Coding agents — terminals and sign-in (D147 §8 U5)
+  'harness.login': 'native/terminal.js — the notice and device link (ext.end, a login park only), Sign in in the composer and ⋯, signInTpl: a login terminal (termTpl, Retry in its toolbar), a secure field, the device page and code, the confirm toggle, whom to ask, Retry',
 };

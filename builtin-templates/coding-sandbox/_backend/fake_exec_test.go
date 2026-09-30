@@ -3,7 +3,8 @@ package main
 // fake_exec_test.go — the fake backend's commands (TEST ONLY; see
 // fake_backend_test.go): host processes in the sandbox's directory, each in
 // a process group of its own; a run's output shaped head and tail; an
-// exec's one combined stream kept in a ring read by offset.
+// exec's one combined stream (a split one's stdout, its stderr in a second
+// ring) kept in a ring read by offset. Its stdio socket is fake_stdio_test.go's.
 
 import (
 	"context"
@@ -28,18 +29,21 @@ import (
 
 // fkExec is a background command.
 type fkExec struct {
-	info    xbin.ExecInfo
-	seq     int
-	ring    *fkRing
-	cmd     *exec.Cmd
-	pid     int // the process group, once started (f.mu); 0 before
-	stdin   io.WriteCloser
-	eof     bool          // stdin was closed (f.mu)
-	done    chan struct{} // closed once the exec has ended (or never started)
-	killed  bool
-	State   string        // mirrors info.State (f.mu)
-	pty     *os.File      // a tty exec's terminal (master), once started (f.mu)
-	ptyDone chan struct{} // closed when its output has all reached the ring
+	info      xbin.ExecInfo
+	seq       int
+	ring      *fkRing
+	errRing   *fkRing // a split exec's stderr (nil: one stream)
+	cmd       *exec.Cmd
+	pid       int // the process group, once started (f.mu); 0 before
+	stdin     io.WriteCloser
+	wantStdin bool          // started with stdin: true (not a tty)
+	stdio     *fkStdio      // the stdio socket attached last: it holds stdin (f.mu)
+	eof       bool          // stdin was closed (f.mu)
+	done      chan struct{} // closed once the exec has ended (or never started)
+	killed    bool
+	State     string        // mirrors info.State (f.mu)
+	pty       *os.File      // a tty exec's terminal (master), once started (f.mu)
+	ptyDone   chan struct{} // closed when its output has all reached the ring
 }
 
 // --- paths -----------------------------------------------------------------------------
@@ -390,6 +394,9 @@ func (e *fkExec) view() xbin.ExecInfo {
 	v := e.info
 	v.State = e.State
 	v.Total = e.ring.totalNow()
+	if e.errRing != nil {
+		v.ErrTotal = e.errRing.totalNow()
+	}
 	return v
 }
 
@@ -439,6 +446,10 @@ func (s *fkSandbox) launch(q xbin.ExecRequest) (*fkExec, error) {
 	if q.TTY && !s.f.hasCap("tty") {
 		return nil, fkErr(http.StatusNotImplemented, "unsupported", "no terminals here")
 	}
+	if q.Split && q.TTY {
+		return nil, fkErr(http.StatusBadRequest, "invalid", "split is a non-tty exec's: a terminal is one stream")
+	}
+	q.Split = q.Split && s.f.hasCap("stdio") // a field it doesn't know, without stdio
 	b, err := s.use("exec")
 	if err != nil {
 		return nil, err
@@ -462,14 +473,19 @@ func (s *fkSandbox) launch(q xbin.ExecRequest) (*fkExec, error) {
 		return nil, err
 	}
 	b.eseq++
-	e := &fkExec{seq: b.eseq, ring: newFkRing(s.f.ringSize()), cmd: cmd, done: make(chan struct{}), State: "running"}
+	e := &fkExec{seq: b.eseq, ring: newFkRing(s.f.ringSize()), cmd: cmd, done: make(chan struct{}), State: "running",
+		wantStdin: q.Stdin && !q.TTY}
 	e.info = xbin.ExecInfo{ID: fmt.Sprintf("e%d", b.eseq), Label: q.Label, Cmd: q.Cmd, Argv: q.Argv, Cwd: cmd.Dir, TTY: q.TTY,
-		State: "running", Started: fkNow(), ClientID: q.ClientID, ForUser: q.ForUser, UID: q.UID}
+		State: "running", Started: fkNow(), ClientID: q.ClientID, ForUser: q.ForUser, UID: q.UID, Split: q.Split}
 	b.execs[e.info.ID] = e
 	if q.ClientID != "" {
 		b.eidem[q.ClientID] = fkIdem{id: e.info.ID, hash: h}
 	}
 	cmd.Stdout, cmd.Stderr = e.ring, e.ring
+	if q.Split {
+		e.errRing = newFkRing(s.f.ringSize())
+		cmd.Stderr = e.errRing
+	}
 	s.f.mu.Unlock()
 	var in io.WriteCloser
 	var master, slave *os.File
@@ -538,6 +554,9 @@ func (s *fkSandbox) forgetExec(b *fkBox, e *fkExec) {
 	e.State, e.info.Ended = "exited", fkNow()
 	s.f.mu.Unlock()
 	e.ring.close()
+	if e.errRing != nil {
+		e.errRing.close()
+	}
 	close(e.done)
 }
 
@@ -569,6 +588,9 @@ func (s *fkSandbox) reap(e *fkExec) {
 	}
 	s.f.mu.Unlock()
 	e.ring.close()
+	if e.errRing != nil {
+		e.errRing.close()
+	}
 	close(e.done)
 }
 
@@ -633,18 +655,28 @@ func (s *fkSandbox) Output(ctx context.Context, id string, q xbin.OutputQuery) (
 	if enc != "text" && enc != "base64" {
 		return nil, fkErr(http.StatusBadRequest, "invalid", "encoding is text or base64")
 	}
+	if q.Stream != "" && q.Stream != "stdout" && q.Stream != "stderr" {
+		return nil, fkErr(http.StatusBadRequest, "invalid", "stream is stdout or stderr")
+	}
 	_, e, err := s.exec("output", id)
 	if err != nil {
 		return nil, err
 	}
 	s.f.mu.Unlock()
+	ring := e.ring
+	if q.Stream == "stderr" {
+		if e.errRing == nil {
+			return nil, fkErr(http.StatusBadRequest, "invalid", "exec %s wasn't started with split: its stderr is in its one stream", id)
+		}
+		ring = e.errRing
+	}
 	limit := int(q.Max)
 	if limit <= 0 {
 		limit = 64 << 10
 	}
 	limit = min(limit, 1<<20)
 	wait := time.Duration(max(0, min(q.WaitMs, 30000))) * time.Millisecond
-	start, end, total, ringStart, data := e.ring.read(ctx, max(q.Since, 0), limit, wait)
+	start, end, total, ringStart, data := ring.read(ctx, max(q.Since, 0), limit, wait)
 	s.f.mu.Lock()
 	st, code, sig := e.State, e.info.ExitCode, e.info.Signal
 	s.f.mu.Unlock()

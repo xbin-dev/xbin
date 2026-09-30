@@ -30,7 +30,7 @@ func (e *Engine) repairTranscript(runID int64) int {
 		return 0
 	}
 	run, err := e.db.getRun(runID)
-	if err != nil {
+	if err != nil || run.Engine == engineHarness { // its calls settle as the coding agent says (harness_map.go)
 		return 0
 	}
 	// Placeholders that are legitimately unsettled: calls parked for approval,

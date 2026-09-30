@@ -1,7 +1,7 @@
 // model/fold.js — a run as the chat shows it: a list of blocks. (It was
 // chat-fold.js, which re-exports it.)
 //
-// Pure (no imports but tool-heads.js, no DOM): node-tested in
+// Pure (no imports but the heads and harness.js, no DOM): node-tested in
 // hack/agent-template-chat.test.mjs. The input is a run's view as the tile
 // holds it (GET /runs/{id}/view, kept current by the stream), the output is
 // what the views draw (chat-cards.js on the web):
@@ -12,6 +12,13 @@
 // subagent call is an `agent` block carrying the child's own blocks — so a
 // subagent's thinking and tools render inside its parent's session.
 //
+// A coding harness's call (`acp:<kind>`, D147 §4.3.5) is a
+// tool block that also carries its tool row's `acp`; the blocks of a
+// harness-internal subagent (a Claude Task: `acp.parent`, on its calls and
+// on its text's assistant rows as `parent`) go inside that call's block as
+// `kids` when the call is held here — an orphan stays flat. An `agent`
+// block whose child a harness drives carries the child's `harness` summary.
+//
 // With a FoldCache, fold() rebuilds only the blocks whose inputs changed —
 // the view holds each message, step and link as an object that an update
 // REPLACES (session.js upserts), so "changed" is identity — and hands back
@@ -20,9 +27,12 @@
 // re-deriving a thousand headlines, and a view (the native bridge) can skip
 // what is identical. The output is exactly what fold() without a cache makes.
 import { headline, family, isSpawn, parseArgs, resultState, subline, outcome } from './tool-heads.js';
+import { acpState } from './harness-heads.js';
+import { activityLine } from './harness.js';
 
-// Engine-written user messages that are not the owner speaking.
-const NOTICE = /^\[(subagent results|results of the runs|message from your parent)/;
+// Engine-written user messages that are not the owner speaking — a person's
+// message to a harness child, told its parent (§4.3.13), among them.
+const NOTICE = /^\[(subagent results|results of the runs|message from your parent|direct message to #)/;
 // Prompts an automation delivered into a conversation (messages.meta origin).
 const ORIGIN_LABEL = { schedule: 'Scheduled', watch: 'Watcher check', learn: 'Learn a skill', trigger: 'Triggered' };
 // Journal steps worth a line in the chat (the rest is in the transcript).
@@ -151,7 +161,11 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
 
   // Steps interleave with messages by time; at the same second a message
   // comes first (the step is usually about it) — except the run's first
-  // message, which a creation note ("started by schedule …") precedes.
+  // message, which a creation note ("started by schedule …") precedes. A
+  // coding agent's conversation has none (automations never start one,
+  // D147 §4.2.3): its first prompt's user row is written as it is
+  // delivered, and a note that second (a sign-in park's) is about it.
+  const creationNote = !(v.run && v.run.engine === 'harness');
   const steps = (v.steps || []).filter((s) => SHOWN_STEPS.has(s.kind) && !(s.kind === 'ask' && detail(s).kind === 'approval'));
   let si = 0;
   const flushSteps = (upto, inclusive) => {
@@ -169,7 +183,7 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
   for (const m of msgs) {
     const opening = first && m.role === 'user' && !m.compacted;
     if (opening) first = false;
-    flushSteps(m.created, opening);
+    flushSteps(m.created, opening && creationNote);
     if (m.role === 'system' || m.role === 'tool' || m.compacted) continue;
     if (m.role === 'user') {
       if (!skippedTask) { skippedTask = true; continue; }
@@ -186,20 +200,24 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
       }));
       continue;
     }
-    // assistant
-    if (m.reasoning) out.push(memo('r' + m.id, [m], () => ({ k: 'think', id: 'r' + m.id, text: m.reasoning, ms: m.reasoningMs || 0, live: false })));
-    if (m.content) out.push(memo('m' + m.id, [m], () => ({ k: 'assistant', id: 'm' + m.id, text: m.content, model: m.model, usage: m.usage })));
+    // assistant (a harness-internal subagent's text: under its call)
+    const under = m.acp && m.acp.parent ? { parent: m.acp.parent } : null;
+    if (m.reasoning) out.push(memo('r' + m.id, [m], () => ({ k: 'think', id: 'r' + m.id, text: m.reasoning, ms: m.reasoningMs || 0, live: false, ...under })));
+    if (m.content) out.push(memo('m' + m.id, [m], () => ({ k: 'assistant', id: 'm' + m.id, text: m.content, model: m.model, usage: m.usage, ...under })));
     for (const c of m.toolCalls || []) {
       const name = c.function?.name || '';
       const raw = c.function?.arguments || '';
       const res = results.get(c.id);
       const base = () => {
         const content = res ? res.content : '';
+        const acp = res && res.acp ? res.acp : null;
+        const parent = (acp && acp.parent) || (under && under.parent) || '';
         return {
           id: 'c' + c.id, callId: c.id, name, args: raw, headline: headline(name, raw), fam: family(name),
-          state: resultState(content), result: content, resultId: res ? res.id : 0, created: m.created,
+          state: acp ? acpState(acp, resultState(content)) : resultState(content), result: content, resultId: res ? res.id : 0, created: m.created,
           // a sandbox call (D115): its command under a summary, and what it came to
-          sub: subline(name, raw), outcome: outcome(name, content),
+          sub: subline(name, raw), outcome: outcome(name, content, acp),
+          ...(acp ? { acp } : {}), ...(parent ? { parent } : {}),
         };
       };
       if (isSpawn(name)) {
@@ -210,7 +228,7 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
         const blocks = cv ? fold(cv, childView, depth + 1, cache ? cache.kid(found.childId) : null) : null;
         out.push(memo('c' + c.id, [m, res, found ? found.childId : 0, found ? found.link : null, blocks], () => ({
           ...base(), k: 'agent', childId: found ? found.childId : 0, link: found ? found.link : null,
-          task: parseArgs(raw).task || '', child,
+          task: parseArgs(raw).task || '', child, ...(child && child.engine === 'harness' ? { harness: child.harness || {} } : {}),
           state: agentState(found?.link, child),
           // The child's answer (the call's own result may be a receipt, a
           // progress digest, or the answer with a header).
@@ -225,30 +243,61 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
     }
   }
   flushSteps(null);
+  const flat = nest(out, memo);
 
   // The call in flight.
   const d = v.draft;
   if (d) {
-    if (d.thinking) out.push({ k: 'think', id: 'draft-think', text: d.thinking, ms: d.thinkEnd && d.thinkStart ? d.thinkEnd - d.thinkStart : 0, live: !d.thinkEnd, started: d.thinkStart });
-    if (d.text) out.push({ k: 'draft', id: 'draft-text', text: d.text });
+    if (d.thinking) flat.push({ k: 'think', id: 'draft-think', text: d.thinking, ms: d.thinkEnd && d.thinkStart ? d.thinkEnd - d.thinkStart : 0, live: !d.thinkEnd, started: d.thinkStart });
+    if (d.text) flat.push({ k: 'draft', id: 'draft-text', text: d.text });
     for (const t of Object.values(d.tools || {}).sort((a, b) => a.index - b.index)) {
-      out.push({ k: 'tool', id: 'draft-tool-' + t.index, callId: t.id, name: t.name || '', args: t.args || '',
+      flat.push({ k: 'tool', id: 'draft-tool-' + t.index, callId: t.id, name: t.name || '', args: t.args || '',
         headline: headline(t.name, t.args), fam: family(t.name), state: 'writing', result: '', sub: subline(t.name, t.args), outcome: null });
     }
   }
-  if (!cache) return out;
+  if (!cache) return flat;
   // forget what is gone; the same blocks in the same order are the same list
   for (const id of cache.blocks.keys()) if (!seen.has(id)) cache.blocks.delete(id);
   for (const id of cache.kids.keys()) if (!kids.has(id)) cache.kids.delete(id);
-  if (cache.out && cache.out.length === out.length && cache.out.every((b, i) => b === out[i])) return cache.out;
-  cache.out = out;
-  return out;
+  if (cache.out && cache.out.length === flat.length && cache.out.every((b, i) => b === flat[i])) return cache.out;
+  cache.out = flat;
+  return flat;
+}
+
+// nest puts the blocks of a harness-internal subagent (b.parent: the call it
+// runs under) inside that call's block, as its kids — a new block (memoized
+// on the call's block and its kids) with the call's id. A block whose parent
+// isn't held here (paged out) stays where it is.
+function nest(out, memo) {
+  if (!out.some((b) => b.parent)) return out;
+  const calls = new Map();
+  for (const b of out) if (b.k === 'tool' && b.callId) calls.set(b.callId, b);
+  const kids = new Map(); // a call's block → the blocks under it, in order
+  const top = [];
+  for (const b of out) {
+    const p = b.parent && b.parent !== b.callId ? calls.get(b.parent) : null;
+    if (p) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(b); } else top.push(b);
+  }
+  const placed = new Set();
+  const withKids = (b) => {
+    placed.add(b);
+    const ks = (kids.get(b) || []).filter((k) => !placed.has(k));
+    if (!ks.length) return b;
+    const inner = ks.map(withKids);
+    return memo('n' + b.id, [b, ...inner], () => ({ ...b, kids: inner }));
+  };
+  const flat = top.map(withKids);
+  // a parent loop (never written by the backend) leaves its blocks flat, not lost
+  for (const b of out) if (!placed.has(b)) flat.push(b);
+  return flat;
 }
 
 // activity is the one line under the chat that says what the run is doing.
 export function activity(v, blocks) {
   const r = v && v.run;
   if (!r) return '';
+  const h = activityLine(r); // a coding harness's run says what its adapter does
+  if (h != null) return h;
   const d = v.draft;
   switch (r.status) {
     case 'running': {

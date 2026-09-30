@@ -61,7 +61,7 @@ async function codingSandbox(browser) {
     check(put.status === 200 && put.body.backend.name === 'fake' && !put.body.backend.error, `switched to the fake backend (${put.status} ${JSON.stringify(put.body.backend || put.body)})`);
     st = put.body;
   }
-  check((st.offer?.caps || []).join(' ') === 'exec files tar tty snapshots clone', `the fake's offer (${(st.offer?.caps || []).join(' ')})`);
+  check((st.offer?.caps || []).join(' ') === 'exec files tar tty snapshots clone stdio', `the fake's offer (with A4's stdio) (${(st.offer?.caps || []).join(' ')})`);
 
   // the agent binds it beside apps/fakesbx, and makes a sandbox there
   let r = await admin('POST', '/bindings', { component: 'apps/agent', slot: 'sandboxes', providers: ['apps/fakesbx', SELF] });

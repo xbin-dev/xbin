@@ -19,7 +19,8 @@ const box = (id, extra = {}) => ({
 export const CONFIG = {
   mode: 'auto',
   images: [
-    { id: 'base', title: 'Ubuntu with git, Go, Node and Python', default: true, tools: ['git', 'go', 'node', 'python3'] },
+    { id: 'base', title: 'Ubuntu with git, Go, Node and Python', default: true, tools: ['git', 'go', 'node', 'python3'],
+      harnesses: [{ id: 'claude', title: 'Claude Code', argv: ['claude-agent-acp'], login: 'claude /login' }, { id: 'codex', title: 'Codex' }] },
     { id: 'node', title: 'Node 22 + pnpm', tools: ['git', 'node', 'pnpm'], setup: 'apt-get update && apt-get install -y nodejs npm\nnpm i -g pnpm', buildEgress: 'internet' },
     { id: 'rust', title: 'Rust', tools: ['cargo'], setup: 'curl https://sh.rustup.rs | sh -s -- -y' },
   ],

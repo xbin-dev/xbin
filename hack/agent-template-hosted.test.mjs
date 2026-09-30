@@ -92,7 +92,8 @@ test('a hosted conversation\'s top bar and composer offer nothing its global ins
   assert.equal(rules.topBar(hv).learn, false);
   // the sandbox picker and badge: its run's sandboxes are its host's partition's; binding one there 409s
   let open = plain;
-  const app = { emit() {}, on() {}, me: { user: 'bob' }, classes: { classes: [coding] }, classId: 'coding', session: { current: () => open, views: new Map() } };
+  const app = { emit() {}, on() {}, me: { user: 'bob' }, classes: { classes: [coding] }, classId: 'coding', newClassId: () => 'coding',
+    session: { current: () => open, views: new Map() } };
   const sbx = createSandboxStore(app);
   assert.equal(sbx.picker().shown, true);
   assert.ok(sbx.badge(), 'a plain conversation\'s bound sandbox has its badge');

@@ -26,7 +26,7 @@ type Command struct {
 	Hint        string `json:"hint,omitempty"` // what to type after the name
 }
 
-func (c *Client) onCommands(raw json.RawMessage) {
+func (c *Client) onCommands(w *Wire, raw json.RawMessage) {
 	var u struct {
 		AvailableCommands []availableCommand `json:"availableCommands"`
 	}
@@ -47,7 +47,7 @@ func (c *Client) onCommands(raw json.RawMessage) {
 	c.mu.Lock()
 	c.commands = cmds
 	c.mu.Unlock()
-	c.emit(c.partialStatus(map[string]any{"commands": cmds}))
+	c.emitW(w, c.partialStatus(map[string]any{"commands": cmds}))
 }
 
 // withCommands adds the latest list to an idle status.

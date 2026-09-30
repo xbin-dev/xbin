@@ -164,6 +164,207 @@ checks itself with the contract's conformance suite:
 section of the contract against it as subtests. How to aim it, and its
 knobs: [sandbox-manager.md](sandbox-manager.md) §Building a manager.
 
+### Driving a coding agent — `github.com/xbin-dev/xbin/sdk/acp`
+
+An **ACP client** (the [Agent Client Protocol](https://agentclientprotocol.com),
+version 1) on the standard library alone — the one xbind's Agent tab runs.
+It drives a coding agent's ACP adapter over the adapter's stdio and turns
+what the agent does into one typed stream of events. Where the adapter runs
+is yours: a `Spawner` starts it (locally, in a sandbox, through a manager's
+exec) and hands back its stdin/stdout.
+
+```go
+import "github.com/xbin-dev/xbin/sdk/acp"
+
+p, _ := acp.Lookup("claude")        // the catalog: claude, codex, gemini, opencode
+perms := acp.NewPermissions()
+c := acp.New()                        // or acp.NewWith(acp.ClientOptions{…})
+err := c.Start(ctx, acp.Config{Provider: p, Argv: p.Argv, Cwd: "/work",
+	Spawn: func(ctx context.Context, cfg acp.Config) (*acp.Process, error) {
+		… // start cfg.Argv with cfg.Env; return its Stdin, Stdout (Stderr, Kill optional)
+	},
+	Perms: perms, Log: func(line string) { … }})
+go func() {
+	for e := range c.Events() { … } // closed when the agent is gone
+}()
+err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a turn runs
+```
+
+- **Events** (`acp.Event{Type, Data}`, JSON payloads): `message.delta`,
+  `thought.delta`, `plan`, `tool.call` / `tool.update` (with the adapters'
+  extensions lifted into `name`, `label`, `parent`, `output`, `exitCode`,
+  …), `permission.request` / `permission.resolved`, `elicitation.request` /
+  `elicitation.resolved`, `turn.end`, and `status` (`starting`, `idle`,
+  `running`, `waiting_permission`, `cancelling`, `error`, `exited`, with the
+  modes, config options, slash commands, usage, the agent's title, and
+  `login{needed, provider, command}` while it is signed out). The shapes are
+  xbind's session events: [protocol.md](protocol.md) §Agent session events.
+- **Answering.** A `permission.request` names a `pid`:
+  `res, err := perms.Resolve(pid, optionID, decision, by)` then
+  `c.RespondPermission(res)` (first answer wins; `allow_always` records a
+  session rule; a plan approval — kind `switch_mode` — never does). A
+  question: `c.RespondElicitation(eid, "accept"|"decline"|"cancel",
+  content, by)`; `c.PendingElicitations()` lists the open ones. `c.Cancel()`
+  interrupts the turn and answers everything pending as cancelled.
+- **Settings.** `c.SetOption(ctx, id, value)` (a config option the agent
+  advertised — model, effort — or `"mode"`; `ctx` bounds the agent's
+  answer); `Config.Mode` / `Options` request them at start (a mode an
+  agent speaks only as its config option of category `mode` — opencode —
+  goes as `session/set_mode`, and that option then says it;
+  `Config.SkipModeOptions` keeps `Options` from ever setting that option:
+  the mode is `Mode`'s alone); `Config.ResumeID` reopens an earlier
+  session (`session/load`) when the agent advertised `loadSession`
+  (`c.Session()` reports its id and whether it can).
+- **Providers.** `acp.Providers()` / `acp.Lookup(id)`: the argv, modes
+  (explicit ones — bypass, full access — are never a default), env and
+  session `_meta` each adapter wants, `LoginCmd` (a shell command that
+  signs the CLI in from a terminal where it runs; the adapter reads the
+  login from its `$HOME`), `Bins` (the executables to look for),
+  `AutoMode` (the auto-edit mode, `""` for none), `ApproveMode` (the one
+  that asks before acting) and `PlanMode` (plans without changing
+  anything) — `""` where the adapter has none. `p.Safe(mode)` is
+  default-deny: true only for a mode the catalog knows never takes the
+  agent past its own asks (a non-explicit one of `Modes`, or one of
+  `SafeModes` — opencode's `build`, `plan`, which it speaks as a config
+  option); an explicit mode, one a newer adapter adds, any mode of a
+  provider the catalog lacks is not. `p.OptionModes` maps a permission
+  option that switches the mode without naming it to that mode (claude's
+  plan approval: `exit-plan-bypass` → `bypassPermissions`). `acp.Fake(argv)` is the
+  scripted test agent (`hack/fakeacp`) as a provider, id `fake`; it is
+  never in the catalog.
+- **Prompts with files.** `acp.PrepareAttachments` checks and normalises
+  them (limits: `acp.Max*`). Each file is first dropped where the agent
+  runs — `ClientOptions.Drop` returns the path — then an image goes inline
+  (when the agent takes images), small text is embedded, the rest is a
+  link. Without a `Drop`, a prompt with files is refused
+  (`acp.ErrUnsupportedContent`).
+
+`acp.NewWith(acp.ClientOptions{…})` sets the seams; each zero value is the
+default:
+
+| field | what it does (default) |
+|---|---|
+| `Caps` | the `clientCapabilities` advertised (`acp.DefaultCaps()`: xbind's — text files and terminals, which its in-sandbox host serves, the adapters' tool-call extensions, form questions). The `Client` itself serves no `fs/*` or `terminal/*` request (it answers method-not-found); without a proxy in between that does, advertise them `false`. |
+| `Drop` | hands a prompt's file to where the agent runs, returns its path (none: files refused) |
+| `AuthHint` | the text of an error the agent answered "auth required" (-32000) to (the agent's message, then `the agent isn't signed in — run: <LoginCmd>`); the error still unwraps to the agent's `*acp.Error` |
+| `OnExt` | sees a notification the client does not handle itself — an extension — and says whether it handled it |
+| `InlineBudget` | bytes of images one prompt sends inline (`acp.MaxInlineImagesBytes`; negative: none) |
+| `IDPrefix` | request ids become strings `"<prefix>-N"` (numbers `1, 2, …`) — give each process that drives the same agent its own prefix |
+| `Attach` | take over a session another process started, from its `SessionState` (below) — no handshake |
+| `AwaitLogin` | an agent that refuses to open a session signed out (-32000) stays up: `Start` still returns the error (status `error` with `login`), and `Authenticate` signs in and opens the session (off: `Start` closes it) |
+
+**Steering, signing in, device codes.**
+
+- `c.Steer(ctx, acp.Prompt{…})` gives the running turn a message through
+  the adapters' `_session/steering` (claude-agent-acp, codex-acp: they
+  advertise it as `initialize`'s `_meta.steering.supported`), sent with
+  `idleBehavior: "promptRequired"`. It returns the outcome:
+  `acp.SteerInjected` (taken into the turn; a user `message.delta` with
+  `steered: true` records it), `acp.SteerPromptRequired` (no turn runs —
+  send it with `Prompt`; answered at once without asking the agent when the
+  client has no turn running), or `acp.SteerStartedNewTurn` (the agent
+  started a turn of its own with it — codex-acp does when the turn had just
+  ended; no `turn.end` reports that turn). `acp.ErrSteeringUnsupported`
+  when the agent did not advertise it.
+- `c.AuthMethods()` is how the agent signs in (`AuthMethod` carries `Args`
+  and the adapter's `Meta`: `"api-key"`, `"terminal-auth"`, …);
+  `c.Authenticate(ctx, methodID, meta)` signs it in (`meta` is the method's
+  input, e.g. codex's `{"api-key": {"apiKey": "…"}}`) and clears the
+  signed-out state.
+- **URL questions.** Advertise `Caps.Elicitation.URL` (`&struct{}{}`) and
+  an agent may ask the person to open a URL — codex's device-code sign-in
+  during `Authenticate`: an `elicitation.request` with `mode: "url"`,
+  `url`, `message` (the code) and `elicitationId`. Answer it with
+  `RespondElicitation(eid, "accept", nil, by)` (no content) once the person
+  has it; the agent's `elicitation/complete` then arrives as an
+  `elicitation.resolved` with `action: "complete"`, `by: "agent"`. Without
+  the capability such a request is declined.
+
+**Surviving your own restart** (the agent keeps running — in a sandbox, a
+long-lived exec — while the process driving it hands off to its
+successor):
+
+- Every event the agent's output caused carries `Event.Wire` (never
+  serialized): `Off`, the output offset after the frame that caused it
+  (where a reader resumes to get what follows; counted from `Process.Off`,
+  where your spawner's reader starts), `RPCID` (the agent's request id for a
+  permission or a question; the prompt's id on its echo and `turn.end`), and
+  `Replay` (a `session/load` replaying earlier turns). An event the client
+  caused itself has `Off` 0. The events come in the output's order — a
+  prompt's `turn.end` before anything the agent sent after answering it —
+  so the offsets you commit never go back.
+- `c.State()` is a JSON-serializable `acp.SessionState` (session id,
+  capabilities, modes, options, commands, auth methods, per-call tool
+  status, the turn and the in-flight prompt's request id, the open
+  questions). Store it with the offset of the event you handled, the
+  pending permissions (`perms.List()`, each with its `RPCID()`) and
+  `perms.Rules()`.
+- The successor: `perms.Restore(p, rpcID)` and `perms.SetRules(rules)`,
+  then `acp.NewWith(acp.ClientOptions{IDPrefix: <a new one>, Attach:
+  &state})` and `Start` with a spawner that reattaches to the running agent
+  and reads from the stored offset (`Process.Off`). No handshake is sent;
+  the in-flight prompt's answer still ends its turn (`Conn.Expect`), and a
+  permission or question read again is not filed twice (`Request` is
+  idempotent by request id). The state may be newer than the offset —
+  everything replays idempotently except a prompt that ended meanwhile: if
+  your own record says a prompt is still in flight, set `PromptRPC` and
+  `Turn` from it before attaching.
+- `c.Abandon(id, why)` ends a call the client waits on (a request id, e.g.
+  `State().PromptRPC`) as if the agent had answered it with an error —
+  for a transport that dropped the request and can't tell whether the
+  agent got it, so it isn't sent twice; a prompt's turn ends (`turn.end`,
+  `stopReason: "error"`, `why` in its error). False when nothing waits on
+  it (the agent answered).
+
+The codec is exported too — `acp.NewConn(r, w)` / `acp.NewConnWith(r, w,
+acp.ConnOptions{IDPrefix, Offset})` (`Call`, `CallCtx`, `Notify`, `Reply`,
+`Serve`, `Expect` to adopt a call an earlier process sent, `Offset`),
+`acp.NewDecoder` / `NewDecoderAt` (`Offset()`: the bytes consumed through
+the last line read, bad lines included; a reader that lost bytes returns
+`*acp.Gap{Lost}` from `Read` and the decoder counts them, drops the broken
+line and reports `acp.ErrGap`), `acp.Encode` and the protocol types — for a
+proxy between a client and an agent, or a scripted agent in tests.
+
+### Testing an ACP client — `github.com/xbin-dev/xbin/sdk/acp/acptest`
+
+A **scripted ACP agent** to test your client against without a real
+adapter, a model or a network — the one xbind's own tests and the `fake`
+provider (`XBIN_AGENT_FAKE`) run. It answers the handshake the way
+claude-agent-acp and codex-acp do and plays a script chosen by words in the
+prompt: `echo` by default, `perm` and `perm-edit` (a permission request),
+`plan…` (a plan approval), `ask…` (a form question), `subagent…`, `think…`,
+`todo` (plan updates), `cards` (one tool call of every kind), `run: <cmd>`
+(a `terminal/*` round trip), `slow`, `stall` (nothing until
+`session/cancel`), `fail` (signed out), `crash`, and more — the package
+doc lists every script and what it sends.
+
+```go
+import "github.com/xbin-dev/xbin/sdk/acp/acptest"
+
+// in-process: your client writes to inW and reads outR
+inR, inW := io.Pipe()
+outR, outW := io.Pipe()
+go acptest.Serve(inR, outW, acptest.Options{Steer: true})
+
+// or as a program: the test binary serves as the agent
+func TestMain(m *testing.M) {
+	acptest.MainIfAdapter() // when started as the agent, serves stdio and exits
+	os.Exit(m.Run())
+}
+argv := acptest.Command("--require-login") // [the test binary, "acptest", flags…]
+```
+
+| flag (`Options`) | what it adds |
+|---|---|
+| `--steer` (`Steer`) | `_session/steering`: `injected` into a running turn (its next chunk says `steered: ‹text›`), `promptRequired` when idle and asked for, else `startedNewTurn` |
+| `--auto-mode` (`AutoMode`) | a mode `auto` between `ask` and `yolo` that skips an edit's permission request |
+| `--require-login` (`RequireLogin`) | signed in only while `$HOME/.fakeacp/credentials` exists; auth methods `fake-login` (terminal, `<agent> login` asks for the code `fake-code`), `fake-api-key` (`_meta["api-key"].apiKey`; `bad` is refused) and `fake-device` (a device code through URL elicitation, then `elicitation/complete`) |
+| `--persist` (`Persist`) | sessions kept in `$HOME/.fakeacp/sessions`; `session/load` replays exactly what a session sent |
+| `--device-ms=N` (`DeviceDelay`) | how long after the URL is accepted the device sign-in completes (1 s) |
+
+`Serve` returns when its reader ends (or `*acptest.ExitError` for
+`crash`); `Options.Getenv` gives it a `HOME` of your test's own.
+
 ### Resources, vault, bus
 
 ```go
@@ -424,7 +625,7 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   manager's routes pass its own request through to a typed route:
   `sb.Forward(w, r, xbin.ExecOutput(eid), q)`. The routes are
   `xbin.ExecRoute(eid)` (GET, DELETE), `ExecOutput`, `ExecStdin`,
-  `ExecSignal`, `ExecResize`, `ExecTTY`, `FilesRoute(xbin.FilesStat |
+  `ExecSignal`, `ExecResize`, `ExecTTY`, `ExecStdio`, `FilesRoute(xbin.FilesStat |
   FilesContent | FilesList | FilesMkdir | FilesRemove | FilesMove)` and
   `TarRoute()`; there is no free-form one. Each builder checks its id
   against the grammar and escapes it itself, so a consumer's id (one with a
@@ -460,16 +661,121 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   (the login shell unless `Cmd`). The upgrade is tunnelled byte for byte,
   so your backend needs no WebSocket code and the consumer speaks the
   `/ws/term` wire end to end. `SessionID` and `SandboxID` put your own ids
-  in the session frame; `ForUser` is the verified person, refused by xbind
-  when they have no terminal access. A manager that drives a terminal
+  in the session frame; `ForUser` is the person — verified, or asserted by
+  a consumer's backend (`Sbx-User`) — refused by xbind when they have no
+  terminal access. A manager that drives a terminal
   itself (an SSH bridge) dials it with `sb.DialTTY(ctx, eid,
   xbin.TTYOptions{…})`, which returns an `sdk/ws` connection speaking the
   same wire.
+- **Stdio sockets** (the contract's `stdio`; `SandboxRuntime.Caps` carries
+  `"stdio"` on an xbind that has them). `xbin.ExecRequest{Split: true}`
+  keeps a non-tty exec's stderr apart — `sb.Output(ctx, eid,
+  xbin.OutputQuery{Stream: "stderr"})` reads it, `ExecInfo.ErrTotal`
+  counts it — and `sb.RelayStdio(w, r, eid, since, errSince)` relays a
+  consumer's stdio WebSocket to the exec's (a byte tunnel, like
+  `RelayTTY`: the exec ids in its frames are the runtime's).
+  `sb.DialStdio(ctx, eid, since, errSince)` is the socket itself: binary
+  frames are stdout from `since` and your stdin, JSON frames decode as
+  `xbin.StdioFrame` (`hello`, `gap`, `stderr`, `exit`, `pong`, `error`;
+  you send `eof` and `ping`). The socket attached last holds stdin: the
+  one before it is closed with `xbin.StdioReplaced` (4001). An older xbind
+  ignores `Split` and `Stream`.
 - **Compatibility.** Request structs omit empty fields and answers decode
   leniently, so a newer SDK works against an older xbind.
 - **Never hand your token to a sandbox.** A sandbox has no xbin identity:
   `XBIN_*` variables are refused in its environment, and it has no route to
   xbind.
+
+### A manager's terminals, for consumer tiles — `xbin.RelayManagerTTY`
+
+A **consumer** of the sandbox-manager contract (a tile bound to managers,
+[sandbox-manager.md](sandbox-manager.md) §Wiring) opens terminals in their
+sandboxes from its backend — through xbind, with its instance credential,
+naming the person it acts for (`Sbx-User`: asserted, not verified) — and
+either relays one to its own page or app, or drives it itself:
+
+```go
+// your page's (or the app's) terminal WebSocket, relayed
+mux.HandleFunc("GET /sandboxes/{ref}/terminal", func(w http.ResponseWriter, r *http.Request) {
+	person := xbin.Caller(r).User
+	sb, ok := mayUse(person, r.PathValue("ref")) // your checks, FIRST: the manager can't
+	if !ok {
+		http.Error(w, "not yours", http.StatusForbidden)
+		return
+	}
+	xbin.RelayManagerTTY(w, r, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{User: person, Cmd: "CLAUDE_CODE_REMOTE=1 claude /login"})
+})
+
+// or a terminal the backend drives: a *ws.Conn on /ws/term's wire
+c, err := xbin.DialManagerTTY(ctx, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{User: person, Rows: 24, Cols: 80})
+```
+
+- **The endpoint** is the manager's `url` from `XBIN_IFACE_<SLOT>` (or
+  `_URL`), like `http://xbin/api/apps/coding-sandbox`.
+  `ManagerTTYOptions{ExecID}` attaches to a tty exec (one you started with
+  `POST …/execs {"tty": true}`, or a terminal's session id); without it
+  `Cmd` (the login shell when empty), `Cwd`, `Rows` and `Cols` start one.
+  `User` is the person (`""`: the consumer itself); `Client` is nil for
+  `xbin.Client()`.
+- **Typed routes only.** `xbin.ManagerTTYURL` builds the contract's route
+  and nothing else: a sandbox id outside the contract's grammar, an exec id
+  that isn't one path segment, an attach given `Cmd`/`Cwd`/`Rows`/`Cols`,
+  or a `User` with a control character is refused (`*xbin.SandboxError`,
+  `invalid`) before anything is dialled. The manager's refusals come back
+  as `*xbin.SandboxError` too.
+- **The relay** answers a request that isn't a WebSocket handshake `400
+  invalid`, and the manager's refusal (or xbind's) as it came, both before
+  anything is upgraded. Then every message passes unchanged both ways —
+  keystrokes and output, resize, ping and pong, the session and exit
+  frames — so `<bx-terminal src>` and the app's `terminal` work against
+  your route. Nothing of the person's request reaches the manager (it
+  dials anew: no header, cookie or query of theirs). When either end
+  closes, the other is closed the same way — a lost manager with 1011,
+  which a terminal takes as a drop and reconnects. A message over 4 MiB
+  either way ends it (1009). Leaving doesn't end the command: the
+  contract's terminals outlive their clients (its exit, or `DELETE
+  …/execs/{id}`, ends it).
+- **What happened.** `RelayManagerTTY` returns a `ManagerTTYRelay`:
+  `Session` (the terminal's exec id, from the session frame; `""` when it
+  never got that far) and `Exited` (the exit frame passed — the command has
+  ended). `ManagerTTYOptions.OnSession`, when set, is called with the exec
+  id as the session frame passes, before your client has it. A relay that
+  started a terminal for a client that can't come back to it (the app's
+  `terminal` closes its socket when its screen goes and knows no session
+  id) can end it when the answer says it didn't exit — the agent template
+  does, unless a client attached to it again meanwhile
+  (`builtin-templates/agent/API.md` §Coding agents).
+- **Your checks are the only ones about the person.** The manager treats
+  them as asserted: it keeps the partitions (your sandboxes and those
+  shared with you) but not who among your people may use one — apply its
+  rules ([sandbox-manager.md](sandbox-manager.md) §Partitions, sharing and
+  people: owner, members, `team`, a share's `users`) yourself, and whether
+  they may have a terminal at all, before the relay. A manager on xbind's runtime still refuses a person with
+  `noTerminal`.
+
+**A program's stdio** (where the manager's `hello.caps` has `stdio`,
+[sandbox-manager.md](sandbox-manager.md) §stdio): start it as a non-tty
+exec with `{"stdin": true, "split": true}` (`POST …/execs` through your
+binding, `Sbx-User` your person), then drive it over one socket:
+
+```go
+c, err := xbin.DialManagerStdio(ctx, sb.ManagerURL, sb.ID, execID,
+	xbin.ManagerStdioOptions{Since: readOff, ErrSince: errOff, User: person})
+for {
+	typ, msg, err := c.ReadMessage()
+	if err != nil { break } // a close 4001 (xbin.StdioReplaced): another attach took over
+	if typ == ws.BinaryMessage { stdout.Write(msg); readOff += int64(len(msg)); continue }
+	var f xbin.StdioFrame
+	_ = json.Unmarshal(msg, &f) // hello, gap (bytes the ring dropped), stderr (f.Data from f.Off), exit, pong, error
+}
+// elsewhere: c.WriteMessage(ws.BinaryMessage, line) is stdin; {"op":"eof"} closes it
+```
+
+The offsets are the exec's `…/output` offsets, so a consumer that
+restarts resumes where it read to, and attaching again replaces the socket
+before. `xbin.ManagerStdioURL` builds the route (typed parts only, as
+`ManagerTTYURL`). Without `stdio` the exec's `…/output` and `…/stdin`
+routes do the same by polling.
 
 ## node backend (no SDK needed)
 

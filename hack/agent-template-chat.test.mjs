@@ -111,6 +111,14 @@ test('a creation note precedes the first message; later steps follow the message
       { id: 2, kind: 'finish', detail: '{"result":"ok"}', created: 105 }],
   };
   assert.deepEqual(fold(v).map((x) => x.k + (x.kind ? ':' + x.kind : '')), ['step:note', 'user', 'assistant', 'step:finish']);
+  // a coding agent's conversation has no creation note: a note in its first
+  // prompt's second (a sign-in park's) follows the prompt
+  const h = {
+    run: { id: 2, engine: 'harness' },
+    messages: [m(0, 'system', 'sys', { created: 100 }), m(1, 'user', 'hello', { created: 100 })],
+    steps: [{ id: 3, kind: 'note', detail: '{"text":"Claude Code isn\'t signed in — sign in, then Retry"}', created: 100 }],
+  };
+  assert.deepEqual(fold(h).map((x) => x.k + (x.kind ? ':' + x.kind : '')), ['user', 'step:note']);
 });
 
 test('who sent a message rides on the block; an automation\'s prompt is a notice', () => {

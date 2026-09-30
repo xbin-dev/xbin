@@ -4047,7 +4047,9 @@ Deviations and refinements made while implementing; all deliberate:
     - A `gateway` role for asserted users: the contract already covers a
       backend acting for a person.
     - Terminals relayed through the backend for the browser: the person
-      would become asserted.
+      would become asserted. *Superseded by the amendment of 2026-09-29
+      below: terminals are part of the sandbox interface for consumer
+      backends too.*
     - Resolving the sandbox during authentication: a wrong name would read
       as a bad key.
     - The `tty` route for commands without a pty: see above.
@@ -4088,7 +4090,8 @@ Deviations and refinements made while implementing; all deliberate:
     - **The native view opens no terminal** (a D96 difference, like the
       agent's): the app's `terminal` dials only the tile's own routes, and
       relaying the manager's `tty` through the backend would make the
-      person asserted. It lists, ends and manages keys, and offers "Open in
+      person asserted (a reason the amendment of 2026-09-29 retires; the view
+      is unchanged for now). It lists, ends and manages keys, and offers "Open in
       the browser" — `xbin.native.open` when the tile holds
       `cap:open-links`, else the link copied — rather than declaring the
       grant, which every import would then have to approve. Parity for a
@@ -4195,6 +4198,57 @@ Deviations and refinements made while implementing; all deliberate:
       alone (unreadable for admins); stopping VM sandboxes on low disk (their
       disks are bounded); an implicit snapshot for a clone of a running
       sandbox.
+  - **Amendment (2026-09-29): terminals are part of the sandbox interface
+    for consumer backends.** The owner's decision in the AgTT × coding
+    harnesses programme: a consumer's backend — AgTT, sandbox-terminal,
+    any tile, against any manager, a cloud one included — opens PTYs in a
+    manager's sandboxes and relays them to its own pages and app views, the
+    person asserted. docs/sandbox-manager.md §Terminals; docs/sdk.md §A
+    manager's terminals.
+    - **Chosen.**
+      - **The contract says so.** The `tty` routes and tty execs serve a
+        consumer's backend as well as its pages: it dials through xbind with
+        its instance credential and names its person in `Sbx-User`, asserted
+        as on every backend call. The manager keeps the partitions and
+        leaves the person rules to the consumer, and passes that person on
+        where its substrate asks (`forUser`, so xbind's `noTerminal` still
+        refuses them). The SSH bridge already worked this way; now every
+        consumer may, for any client of its own.
+      - **The consumer that relays checks first**: may the person use the
+        sandbox (the contract's person rules, applied by the consumer), may
+        they have a terminal. The manager can't, and the relay carries
+        whatever they type.
+      - **One relay, in the SDK.** `xbin.RelayManagerTTY(w, r, endpoint,
+        sandboxID, opts)` dials the manager (`xbin.DialManagerTTY`, which
+        a backend that drives a terminal uses alone), then upgrades the
+        person's request and copies every message both ways unchanged — the
+        `/ws/term` wire end to end, so `<bx-terminal>` and the app's
+        `terminal` work against a consumer's route. It dials anew rather
+        than tunnelling the person's handshake, so none of their headers
+        can reach the manager. A request that isn't a handshake, and a
+        refusal, are answered before anything starts or upgrades (a failed
+        upgrade after the dial would leave a shell running); a close either
+        way closes the other the same way, a lost manager as 1011 so a
+        terminal reconnects. Routes are built from typed parts
+        (`xbin.ManagerTTYURL`): the contract's sandbox id grammar, an exec
+        id confined to one escaped segment (the contract fixes no exec id
+        grammar, so none is imposed), no free-form path.
+      - **Conformance.** `sdk/sandboxcontract` gains `tty/backend`: an
+        asserted person who is neither owner nor member gets a terminal
+        (the command's output, a resize, the exit code), attaches to a tty
+        exec the backend started, opens one on a sandbox shared with its
+        consumer, and another consumer is `not-found`. The reference manager
+        and coding-sandbox pass it unchanged.
+      - **The cloud mapping** is `ssh -t` into a holder on the instance
+        (`dtach`, `tmux`) that keeps the command and its pty past the
+        connection, window-change on resize: a contract terminal outlives
+        its client.
+    - **Not chosen:** tunnelling the person's upgrade byte for byte (as a
+      manager's `Forward` does to the runtime) — their handshake's headers
+      would reach the manager unless scrubbed one by one, and the relay
+      couldn't see how either end closed; a new role or header for relayed terminals (the
+      asserted person already says it); an exec id grammar in protocol 1
+      (not additive).
 
 - **D122 — The builtin sandbox manager is the `coding-sandbox` template: a
   contract layer over a pluggable Backend whose shapes are the SDK's
@@ -6577,6 +6631,147 @@ Deviations and refinements made while implementing; all deliberate:
     doesn't parse (a conflicted merge abandoned with a replace would have
     opened a switch request); refusing the registry's non-exact-case keys
     (a manifest change in F1's area; matching them is additive).
+
+- **D147 — Coding agents in the agent template: AgTT drives Claude Code,
+  Codex, Gemini CLI and opencode over ACP inside a coding sandbox — as a
+  conversation or as a child the agent spawns and steers — and terminals
+  join the sandbox-manager contract (2026-09-30).** plans/agtt-harness.md
+  (the spec; its §10 is what was built differently — the code and §10 are
+  the final behaviour); builtin-templates/agent/API.md §Coding agents;
+  docs/sandbox-manager.md (§hello `images[].harnesses`, §Terminals,
+  §stdio); docs/sdk.md (§Driving a coding agent, §Testing an ACP client,
+  §A manager's terminals); docs/protocol.md §Tile sandboxes. Two systems
+  didn't meet: xbind's ACP client (the Agent tab, D74/D75/D77) drove the
+  coding CLIs through their adapters, while coding sandboxes (D115,
+  D120–D122) had one consumer, the agent template (AgTT), whose engine is
+  its own LLM loop. The owner wanted AgTT an ACP client (web and native),
+  the harnesses in the base images, a choice at a conversation's start,
+  harness agents the agent spawns and steers, and a terminal.
+  - **The owner's decisions (2026-09-29).** Terminals are part of the
+    sandbox interface: consumer backends open PTYs through the manager and
+    relay them to their pages and native views with the person
+    **asserted** — every manager implements it, future cloud managers too
+    (`ssh -t`); this supersedes D121's "not chosen: relaying terminals
+    through the backend". Autonomy is each person's, per harness: **Auto**
+    (the provider's auto-edit mode) or **Always approve**, for their
+    conversations and the children spawned for them, and every harness
+    permission request becomes an AgTT approval (cards, Needs, push, the
+    child card, the board). Bypass modes are owner-only, never chosen by a
+    model. Harnesses get **no MCP** for now (`session/new {mcpServers:
+    []}`). The AgTT agent can spawn coding agents with tasks and steer them.
+  - **Chosen, and why.**
+    - **One chat model.** A harness run (`runs.engine = 'harness'`, fixed
+      at creation; the engine forks at `pass()`, and such a run never
+      reaches an LLM wire) writes AgTT's own rows: one assistant row per
+      call (`acp:<kind>`) and one tool row whose `Meta.harness` the view
+      lifts to `acp`. fold.js, chat-cards and native chat.js draw it, not
+      xbind's `/vendor/agent-cards.js` — the native view can't import
+      that, and Needs, push, links and digests, being engine-agnostic,
+      work unchanged.
+    - **Transport: a baseline every manager has, `stdio` when offered.**
+      The exec routes: stdin chunked to `stdinMax` (503 retried), output
+      long-polled by offset in base64, stderr to a log file through a `sh
+      -c` wrapper. The additive `stdio` capability — one WebSocket per
+      non-tty exec, stderr split, the newest attacher holding stdin, a
+      ping's pong acknowledging stdin — is built in tilesbx, the SDK,
+      coding-sandbox and fakesandbox, and the pipe prefers it: any manager
+      runs a coding agent, and one that offers more saves the polling.
+    - **Nothing of xbind's in the sandbox** (another tile's, with no xbin
+      identity). No `bx __agent-host`: the client advertises `fs` and
+      `terminal` off, and on the `_meta` flags `terminal_output(_delta)`
+      (D77's terminal output still flows), `subagent-transcript` and
+      `terminal-auth`, and form and URL questions — a URL one honoured
+      only during an AgTT-started `authenticate`.
+    - **One delegation verb**: `harness` on `subagent_spawn` (a subagent's
+      link, digest and delivery) plus `harness_mode` (`approve` | `plan`:
+      it only narrows the owner's setting); `maxHarness` 3 at work per
+      tree; refused near the sandbox's exec cap; the parent model never
+      answers a child's permission — its message waits for the person — and
+      a person's message to a child reaches the parent as a notice.
+    - **Governance** by class: the toolset `harness` (needs `sandbox` and
+      an egress other than `none`: a coding agent must reach its provider)
+      and the field `harnesses` (`"all"` | ids); the built-in `coding`
+      class has both.
+    - **Credentials stay in the sandbox HOME**, shared with its users,
+      clones and snapshots: signing in on a shared sandbox takes a warning
+      and a confirm (`authenticate` enforces `confirm: true`; a terminal
+      sign-in can only warn). `authenticate` covers an API key — relayed
+      once, never an inbox row, a journal line or a column — and a device
+      code, which is the requester's alone (in memory; everyone else sees
+      `login.device: {by}`, since whoever enters a code first signs the
+      shared harness in as themselves).
+    - **The handoff consistency model.** A save or restart of the agent
+      never stops a coding agent: one consumer per session applies events
+      in order; durable events commit their rows, `read_off`, the snapshot
+      and the unflushed draft in **one fenced transaction** (the epoch),
+      chunks and output deltas stay in memory and replay from `read_off`.
+      Prompts and steers are **at most once**: a prompt is `sending` until
+      its frame is on stdin, and a successor fails a `sending` one ("send
+      it again"); a request cut off by a stdio drop is abandoned
+      (`Client.Abandon`); a steer is marked before it goes, and one whose
+      answer was lost is written with a note, never sent again. Answers
+      are **recorded, then re-sent by rpc id** (never the pid: a
+      successor's pids start over) until the adapter has them; questions
+      are restored only as the record knows them.
+    - **Bypass modes are default-deny.** A mode is anyone's only when the
+      SDK catalog knows it never takes the agent past its own asks
+      (`acp.Provider.Safe`) or the adapter opened its first session in it
+      unasked; every other is owner-only wherever a mode is chosen — PATCH,
+      `POST /ask`, a stored option of category `mode`, and a permission
+      option that switches to one, claude-agent-acp's `exit-plan-bypass`
+      and kin included (`OptionModes`; on a mode switch, any
+      `allow_always` whose mode can't be placed). The review found the
+      catalog-only rule let a participant into bypass through an unknown
+      harness, a newer mode or a plan approval.
+    - **Rollback safeguards** (to v0.3.64 or older): two triggers keep a
+      harness run's `turn_steps` at `maxTurnSteps`' ceiling, so an older
+      `turn()` ends any turn it starts there before a model call; the
+      `harness` toolset is stored apart from `toolsets` (an older editor
+      refused every class save); notices to a parent live in
+      `harness_notes`, not the inbox (an older `hasWork` would wake the
+      tile every minute for a notice an idle parent keeps by design).
+    - Also: coding-sandbox's defaults gain `IS_SANDBOX=1` (Claude Code's
+      spelling); tty execs default `TERM`, `COLORTERM`, `LANG`; an idle
+      adapter is reclaimed after `harnessIdleMin` (15) by a one-shot timer.
+  - **Not chosen** (spec §9): questions answered through `POST
+    /runs/{id}/answer` (the text answer to `ask_user`) — a park gives
+    approve's 409 semantics; the mode through `PATCH /runs/{id}` — it is an
+    RPC that can fail (502) or need the owning process (503); a sign-in as
+    status `error` — it is a wait (`waiting_input`, kind `login`), so a
+    child's link stays open; `acp` split between the two rows; a separate
+    per-sandbox harness route (folded into `?probe=`); a class switch
+    forbidding bypass (owner-only already); an app change for native
+    terminals (the owner chose the relay); children always in the default
+    mode; the setting in xbind's prefs (per principal — the engine must
+    read the owner's at spawn); deferring `stdio`; policing asserted
+    persons in the manager (that changes a contract every manager in the
+    wild implements — AgTT checks the caller's own `sandboxAccess(caller).Use`
+    before it relays). Not in v1: MCP, llm-gw for harness traffic, a
+    per-person vault key, per-turn "files changed", live text of a
+    harness-internal subagent.
+  - **Consequences and limits.** The sandbox's co-users can read a private
+    conversation's harness traffic (every consumer sees every exec of a
+    sandbox it may use); the UI and API.md say so. An idle adapter is held
+    — and holds off the sandbox's idle stop — until the reclaim. codex and
+    gemini refuse `session/new` signed out (`AwaitLogin` keeps them up to
+    sign in), so their live mode lists are unseen: a mode the catalog
+    lacks is owner-only until it lists it. The live check (`test/isolated`
+    `TestHarnessLive`) drives the real adapters only with
+    `XBIN_HARNESS_LIVE=1`: they reach outside services. A successor's
+    attach while the manager doesn't answer is retried without a cap (2 s
+    doubling to 1 min, holding the backend up); an interrupt queued just
+    before that attach is lost if it fails. A device code lives in the
+    process that started it: after a handoff the requester starts over. A
+    rollback to v0.3.64 leaves queued `hprompt`/`hanswer` rows waking that
+    build every minute (the clean-up SQL is in API.md) and a class save
+    there drops every class's coding agents. The native view has one
+    terminal at a time and no buttons on child cards (the app's `toolcard`).
+    Conformance: no manager whose run passed fails on the upgrade —
+    `caps/missing` takes a pre-`stdio` manager's `not-found`, and
+    `tty/backend` (a consumer backend's terminal for an asserted person)
+    only warns (skips, saying why) this release; **the next release makes
+    it fail** (docs/changes/2026-09-30-manager-terminals-for-backends.md;
+    `Target.Strict` holds the reference managers to it now).
 
 - **D148 — Partitioned tiles, F5: people's partitions' vaults,
   registrations and records (2026-09-30).** Implements the vault,

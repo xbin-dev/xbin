@@ -98,6 +98,9 @@ type Run struct {
 	SessionKey string `json:"sessionKey"` // "sched:3", "watch:1", "chan:…" — "" for plain chats
 	TitleSrc   string `json:"titleSrc"`   // clip | auto | user | origin ("" legacy: never auto-titled)
 	ActivityMs int64  `json:"activityMs"` // last meaningful activity (unix ms), roots only
+	// Engine: "" (the agent's own loop) or "harness" (a coding agent over
+	// ACP, harness_store.go). Set at creation, never changed.
+	Engine string `json:"engine"`
 	// CompactNote: the next model call carries the one-time "context was
 	// compacted" note (D133); cleared when that call's answer is recorded.
 	CompactNote bool `json:"-"`
@@ -235,6 +238,7 @@ type runStamp struct {
 	Origin                      string
 	OriginID                    int64
 	SessionKey, TitleSrc        string
+	Engine                      string // "" | "harness": the run's own, never its parent's
 }
 
 func (d *DB) createRunStamped(title, config string, parentID int64, status string, st runStamp) (int64, error) {
@@ -249,7 +253,7 @@ func (d *DB) createRunStamped(title, config string, parentID int64, status strin
 			// A subagent carries its root's stamp (for display; access is
 			// decided on the root).
 			st = runStamp{Owner: p.Owner, Visibility: p.Visibility, TeamRole: p.TeamRole,
-				Origin: p.Origin, OriginID: p.OriginID, TitleSrc: "origin"}
+				Origin: p.Origin, OriginID: p.OriginID, TitleSrc: "origin", Engine: st.Engine}
 		}
 	}
 	if st.Visibility == "" {
@@ -265,10 +269,10 @@ func (d *DB) createRunStamped(title, config string, parentID int64, status strin
 	var id int64
 	err := d.q.QueryRow(
 		`INSERT INTO runs (title, status, config, parent_id, root_id, depth, detached, created, updated,
-		   owner, visibility, team_role, origin, origin_id, session_key, title_src, activity_ms)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+		   owner, visibility, team_role, origin, origin_id, session_key, title_src, activity_ms, engine)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 		title, status, config, parentID, rootID, depth, b2i(parentID != 0), t, t,
-		st.Owner, st.Visibility, st.TeamRole, st.Origin, st.OriginID, st.SessionKey, st.TitleSrc, activity).Scan(&id)
+		st.Owner, st.Visibility, st.TeamRole, st.Origin, st.OriginID, st.SessionKey, st.TitleSrc, activity, st.Engine).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -280,7 +284,7 @@ func (d *DB) createRunStamped(title, config string, parentID int64, status strin
 	return id, nil
 }
 
-const runCols = `id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated, root_id, depth, detached, outcome, settled_at, cancel_req, llm_calls, prompt_tokens, completion_tokens, turn_steps, turn_started, owner, visibility, team_role, origin, origin_id, session_key, title_src, activity_ms, compact_note`
+const runCols = `id, title, kind, status, wake_at, parent_id, summary, result, pending, last_prompt_tokens, created, updated, root_id, depth, detached, outcome, settled_at, cancel_req, llm_calls, prompt_tokens, completion_tokens, turn_steps, turn_started, owner, visibility, team_role, origin, origin_id, session_key, title_src, activity_ms, compact_note, engine`
 
 func scanRun(scan func(dest ...any) error) (*Run, error) {
 	r := &Run{}
@@ -288,7 +292,7 @@ func scanRun(scan func(dest ...any) error) (*Run, error) {
 	if err := scan(&r.ID, &r.Title, &r.Kind, &r.Status, &r.WakeAt, &r.ParentID, &r.Summary, &r.Result, &r.Pending,
 		&r.LastPromptTokens, &r.Created, &r.Updated, &r.RootID, &r.Depth, &detached, &r.Outcome, &r.SettledAt,
 		&r.CancelReq, &r.LLMCalls, &r.PromptTokens, &r.CompletionTokens, &r.TurnSteps, &r.TurnStarted,
-		&r.Owner, &r.Visibility, &r.TeamRole, &r.Origin, &r.OriginID, &r.SessionKey, &r.TitleSrc, &r.ActivityMs, &note); err != nil {
+		&r.Owner, &r.Visibility, &r.TeamRole, &r.Origin, &r.OriginID, &r.SessionKey, &r.TitleSrc, &r.ActivityMs, &note, &r.Engine); err != nil {
 		return nil, err
 	}
 	r.Detached, r.CompactNote = detached != 0, note != 0
@@ -449,6 +453,8 @@ func (d *DB) deleteOneRun(id int64) error {
 			`DELETE FROM links WHERE parent_id=?1 OR child_id=?1`,
 			`DELETE FROM sandbox_jobs WHERE root_id=?`,
 			`DELETE FROM sandbox_creates WHERE root_id=?`,
+			`DELETE FROM harness_sessions WHERE run_id=?`,
+			`DELETE FROM harness_notes WHERE run_id=?`,
 			`DELETE FROM runs WHERE id=?`,
 		} {
 			if _, err := t.q.Exec(q, id); err != nil {

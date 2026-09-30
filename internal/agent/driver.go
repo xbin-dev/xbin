@@ -3,17 +3,18 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
+
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
-// Errors a driver returns that the API maps to a status.
+// Errors a driver returns that the API maps to a status (the ACP client's,
+// sdk/acp).
 var (
-	ErrBusy              = errors.New("a turn is running — cancel it or wait for turn.end")
-	ErrEnded             = errors.New("the agent session has ended")
-	ErrResumeUnsupported = errors.New("this agent cannot reopen an earlier session (no loadSession capability) — start a new one")
-	ErrNoElicitation     = errors.New("no such pending question")
-	ErrCancelled         = errors.New("the prompt was cancelled before its turn started")
+	ErrBusy              = acp.ErrBusy
+	ErrEnded             = acp.ErrEnded
+	ErrResumeUnsupported = acp.ErrResumeUnsupported
+	ErrNoElicitation     = acp.ErrNoElicitation
+	ErrCancelled         = acp.ErrCancelled
 )
 
 // Driver speaks one agent protocol on behalf of a session. Start spawns
@@ -21,8 +22,9 @@ var (
 // user's text and attachments (attachments.go); Events is the typed stream (closed when the agent is gone);
 // RespondPermission answers a request the driver surfaced as a
 // permission.request event; Cancel interrupts the running turn; Close ends
-// the agent. One implementation today (internal/agent/acp); a second is a
-// second package implementing this and a Provider.driver naming it.
+// the agent. One implementation today (sdk/acp's Client, configured for
+// xbind by internal/agent/acp); a second is a second package implementing
+// this and a Provider.Driver naming it.
 type Driver interface {
 	Start(ctx context.Context, cfg Config) error
 	Prompt(ctx context.Context, p Prompt) error
@@ -48,42 +50,19 @@ type Driver interface {
 	Session() (id string, loadable bool)
 }
 
-// Elicitation is a question the agent is waiting on: an
-// elicitation.request's payload, until it is answered.
-type Elicitation struct {
-	EID        string          `json:"eid"`
-	ToolCallID string          `json:"toolCallId,omitempty"`
-	Message    string          `json:"message"`
-	Schema     json.RawMessage `json:"schema"`
-}
-
-// Config is what a session hands its driver.
-type Config struct {
-	Provider Provider
-	Mode     string            // requested mode ("" = the provider's default)
-	Options  map[string]string // requested config options at start (model, effort, …), applied after session/new
-	ResumeID string            // the agent's own earlier session id to reopen (session/load) instead of starting fresh
-	Cwd      string            // the agent's working directory (as the agent sees it)
-	Env      []string          // the agent process env (sandbox env + provider keys)
-	Argv     []string          // the agent command (Provider.Argv unless overridden)
-	Spawn    Spawner           // how the process is started
-	Perms    *Permissions      // the session's pending requests (the driver files into it)
-	Version  string            // clientInfo.version
-	Log      func(string)      // a line for the session's text log (stderr, notes)
-	Meta     map[string]string // free-form, for a driver's own knobs
-}
-
-// Process is a spawned agent (or host) as the driver sees it: its stdio
-// and a way to end it.
-type Process struct {
-	Stdin  io.WriteCloser
-	Stdout io.Reader
-	Stderr io.Reader // may be nil (already routed by the spawner)
-	Wait   func() error
-	Kill   func()
-}
-
-// Spawner starts the agent process for a Config. The term package's spawner
-// launches the sandbox with `bx __agent-host` as the entry and hands the
-// host {argv, env}; tests spawn a fake agent directly.
-type Spawner func(ctx context.Context, cfg Config) (*Process, error)
+// The session model's types are the ACP client's (sdk/acp): one
+// definition, shared with every tile that runs the same client.
+type (
+	// Elicitation is a question the agent is waiting on: an
+	// elicitation.request's payload, until it is answered.
+	Elicitation = acp.Elicitation
+	// Config is what a session hands its driver.
+	Config = acp.Config
+	// Process is a spawned agent (or host) as the driver sees it: its stdio
+	// and a way to end it.
+	Process = acp.Process
+	// Spawner starts the agent process for a Config. The term package's
+	// spawner launches the sandbox with `bx __agent-host` as the entry and
+	// hands the host {argv, env}; tests spawn a fake agent directly.
+	Spawner = acp.Spawner
+)

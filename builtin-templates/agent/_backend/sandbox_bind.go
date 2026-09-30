@@ -35,10 +35,15 @@ type SandboxBinding struct {
 	// Tools are what its manager says the image has beyond a POSIX shell
 	// (hello's images[].tools) when it was bound — the # Sandbox prompt
 	// names them (D134). nil in a binding stored before.
-	Tools  []string `json:"tools,omitempty"`
-	Egress string   `json:"egress,omitempty"` // none | internet | open, when bound
-	By     string   `json:"by,omitempty"`     // who bound it: a user id, "el:<component>", "" = the tile itself
-	At     int64    `json:"at,omitempty"`     // when (unix ms)
+	Tools []string `json:"tools,omitempty"`
+	// Harnesses are the coding agents its manager says the image has
+	// (hello's images[].harnesses) when it was bound. nil in a binding
+	// stored before, and when the manager says nothing — unknown: a probe
+	// decides (GET /harnesses?probe=<ref>).
+	Harnesses []string `json:"harnesses,omitempty"`
+	Egress    string   `json:"egress,omitempty"` // none | internet | open, when bound
+	By        string   `json:"by,omitempty"`     // who bound it: a user id, "el:<component>", "" = the tile itself
+	At        int64    `json:"at,omitempty"`     // when (unix ms)
 
 	held bool // (not stored) it holds internal data: binding it sets the conversation's HeldInternal
 }
@@ -298,12 +303,14 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 		markAttached(ctx, cfg, pick.Ref) // what it holds could reach any of them from here
 	}
 	return SandboxBinding{Ref: pick.Ref, Cwd: cwd, Name: box.Name, Manager: hello.title(provider),
-		Image: box.Image.ID, Tools: hello.imageTools(box.Image.ID), Egress: egress, By: w.tag(), At: nowMs(), held: box.marked()}, nil
+		Image: box.Image.ID, Tools: hello.imageTools(box.Image.ID), Harnesses: hello.imageHarnesses(box.Image.ID),
+		Egress: egress, By: w.tag(), At: nowMs(), held: box.marked()}, nil
 }
 
 // storeBinding applies a change to root's stored config inside t. A sandbox
 // the change takes off the conversation stops the jobs it still runs there
-// (stopDetachedJobs) — every detach path comes through here.
+// (stopDetachedJobs) and the coding agents working in it
+// (stopDetachedHarnesses) — every detach path comes through here.
 func storeBinding(t *DB, root int64, change func(*Config) error) error {
 	cfg, err := t.runConfig(root)
 	if err != nil {
@@ -319,6 +326,7 @@ func storeBinding(t *DB, root int64, change func(*Config) error) error {
 		return err
 	}
 	t.stopDetachedJobs(root, before, cfg)
+	t.stopDetachedHarnesses(root, before, cfg)
 	return nil
 }
 

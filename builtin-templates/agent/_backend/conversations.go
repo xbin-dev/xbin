@@ -193,10 +193,11 @@ func handleConversations(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, x.ID)
 	}
 	states := agent.db.userStates(c.user, ids)
+	trees := agent.db.treeWaits(ids)
 	conv := func(list []*Run) []map[string]any {
 		out := []map[string]any{}
 		for _, x := range list {
-			out = append(out, agent.convItem(x, c, states[x.ID]))
+			out = append(out, withTreeWait(agent.convItem(x, c, states[x.ID]), trees[x.ID]))
 		}
 		return out
 	}
@@ -273,13 +274,14 @@ func searchConversations(w http.ResponseWriter, c who, q string) {
 		ids = append(ids, h.root)
 	}
 	states := agent.db.userStates(c.user, ids)
+	trees := agent.db.treeWaits(ids)
 	items := []map[string]any{}
 	for _, h := range hits {
 		run, err := agent.db.getRun(h.root)
 		if err != nil {
 			continue
 		}
-		it := agent.convItem(run, c, states[h.root])
+		it := withTreeWait(agent.convItem(run, c, states[h.root]), trees[h.root])
 		if h.snippet != "" {
 			it["match"] = map[string]any{"msgId": h.msgID, "snippet": h.snippet}
 		}
@@ -320,6 +322,16 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		xbin.WriteError(w, 400, "bad body")
 		return
+	}
+	if run.Engine == engineHarness || isHarnessRun(root) { // D147 §4.2.11
+		switch {
+		case body.Model != nil:
+			xbin.WriteError(w, 400, `a coding agent's model is an option: PATCH /runs/{id}/harness {option: {id: "model", …}}`)
+			return
+		case len(body.Sandbox) > 0 || body.Detach != nil:
+			xbin.WriteError(w, 400, "a coding agent's sandbox is fixed for the conversation")
+			return
+		}
 	}
 	if body.Class != nil {
 		if cfg, err := agent.db.runConfig(root); err == nil && *body.Class != classOf(cfg).ID {
@@ -429,7 +441,7 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 	}
 	run, _ = agent.db.getRun(root)
 	st := agent.db.userStates(c.user, []int64{root})[root]
-	xbin.WriteJSON(w, 200, agent.convItem(run, c, st))
+	xbin.WriteJSON(w, 200, withTreeWait(agent.convItem(run, c, st), agent.db.treeWaits([]int64{root})[root]))
 }
 
 // aclChanged re-reads a conversation's ACL and applies it to live streams.
@@ -472,9 +484,10 @@ func handleNeeds(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, x.ID)
 	}
 	states := agent.db.userStates(c.user, ids)
+	trees := agent.db.treeWaits(ids)
 	items := []map[string]any{}
 	for _, x := range runs {
-		it := agent.convItem(x, c, states[x.ID])
+		it := withTreeWait(agent.convItem(x, c, states[x.ID]), trees[x.ID])
 		lv := lvNone
 		if a, err := agent.aclOf(x.ID); err == nil {
 			lv = a.level(c)
@@ -489,15 +502,73 @@ func handleNeeds(w http.ResponseWriter, r *http.Request) {
 			// a grant is the owner's to answer (grants.go)
 		case waiting && lv >= lvParticipant: // only those who may answer are needed
 			reason := "question"
-			if ps.Kind == "approval" {
+			switch ps.Kind {
+			case "approval":
 				reason = "approval"
+			case "login": // a coding agent waits for a sign-in (D147 §4.3.9)
+				reason = "login"
 			}
-			items = append(items, map[string]any{"run": it, "reason": reason, "subRun": subID})
+			item := map[string]any{"run": it, "reason": reason, "subRun": subID}
+			if sub, err := agent.db.getRun(subID); err == nil {
+				if h := harnessSummaryOf(sub); h != nil { // which coding agent waits
+					item["harness"] = harnessNodeView(h)
+				}
+			}
+			items = append(items, item)
 		case !waiting && lv >= lvOwner && it["unread"] == true:
 			items = append(items, map[string]any{"run": it, "reason": "failed", "subRun": 0})
 		}
 	}
 	xbin.WriteJSON(w, 200, map[string]any{"items": items})
+}
+
+// treeWait is §4.3.8 for one conversation: whether it or a run below it
+// waits for a person, and — below the root — its live coding agents and
+// its runs that wait.
+type treeWait struct {
+	waiting              bool
+	harness, kidsWaiting int
+}
+
+// treeWaits is treeWait for a page of conversations, in one query.
+func (d *DB) treeWaits(roots []int64) map[int64]treeWait {
+	out := map[int64]treeWait{}
+	if len(roots) == 0 {
+		return out
+	}
+	args := make([]any, 0, len(roots))
+	for _, id := range roots {
+		args = append(args, id)
+	}
+	rows, err := d.q.Query(`SELECT root_id,
+		  SUM(CASE WHEN status='waiting_input' THEN 1 ELSE 0 END),
+		  SUM(CASE WHEN parent_id<>0 AND status='waiting_input' THEN 1 ELSE 0 END),
+		  SUM(CASE WHEN parent_id<>0 AND engine='harness' AND status IN ('running','queued','blocked','awaiting','sleeping','waiting_input') THEN 1 ELSE 0 END)
+		FROM runs WHERE root_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(roots)), ",")+`) GROUP BY root_id`, args...)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var root int64
+		var all, kids, harness int
+		if rows.Scan(&root, &all, &kids, &harness) == nil {
+			out[root] = treeWait{waiting: all > 0, harness: harness, kidsWaiting: kids}
+		}
+	}
+	return out
+}
+
+// withTreeWait adds a conversation row's `waiting` and `kids` (present only
+// when they say something).
+func withTreeWait(it map[string]any, tw treeWait) map[string]any {
+	if tw.waiting {
+		it["waiting"] = true
+	}
+	if tw.harness > 0 || tw.kidsWaiting > 0 {
+		it["kids"] = map[string]int{"harness": tw.harness, "waiting": tw.kidsWaiting}
+	}
+	return it
 }
 
 type badRequest string

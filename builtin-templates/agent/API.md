@@ -55,10 +55,15 @@ a subagent is exactly as visible as the conversation it works for.
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
-| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval, and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|failed, subRun}]}` |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|login\|failed, subRun, harness?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
 
 Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
-`archivedAt`, `readMs` and `unread` (activity after you last looked). Your
+`archivedAt`, `readMs` and `unread` (activity after you last looked) — and
+(D147 §4.3.8; list, search, `/needs` and `PATCH /runs/{id}` rows)
+`waiting: true` when it or a run below it waits for a person
+(`waiting_input`), and `kids: {harness, waiting}` — its coding agents at
+work below the root, and its runs below the root that wait — when either
+isn't 0 (one query per page). Your
 own message marks the conversation read for you. The stream sends `ustate`
 (`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
 `revoked` (`{id}`) when you can no longer see a conversation.
@@ -73,6 +78,8 @@ sealed to their devices, and only when the workspace has push set up):
 | a run (or a subagent) starts waiting on an `ask_user` question | its owner and participant members | kind `question` (the app sees `tile.question`), the question as the body |
 | a run (or a subagent) parks a tool call for approval | its owner and participant members | kind `approval`, the tools it wants to run |
 | a run asks its owner for a grant (D111) | its owner alone | kind `approval`, what it asks to read |
+| a coding agent parks a permission request or a question (D147 §4.3.9) | its owner and participant members | kind `approval` ("‹name› wants to run ‹title› — approve or deny.") or `question` (its message) |
+| a coding agent waits for a sign-in | its owner and participant members | kind `login` ("‹name› needs you to sign in to it.") |
 | an automation's run (schedule, watcher, channel, trigger) fails | its owner | kind `failed`, the error |
 
 The title is the conversation's; tapping it opens `#c=<run>` (the subagent's
@@ -599,7 +606,7 @@ background tab doesn't keep a partition running.
 | `PUT /runs/{id}/memory` | `{key, value}` | set a memory block (one of the agent's notes) |
 | `DELETE /runs/{id}/memory?key=` | — | delete a memory block |
 | `POST /runs/{id}/cancel` | `{scope?, reason?}` | durable cancel; `scope` defaults to `subtree` |
-| `GET /runs/{id}/tree` | — | the whole workflow this run belongs to: nodes (each with its `link` and `phase`), statuses, blockers, cost. Metadata only |
+| `GET /runs/{id}/tree` | — | the whole workflow this run belongs to: nodes (each with its `link` and `phase`, `engine`, and a coding agent's compact `harness` — §Coding agents), statuses, blockers, cost. Metadata only |
 | `GET /halt` · `PUT /halt` | `{on}` | the global brake: cancels live runs and blocks new spawns |
 | `GET /runs/{id}/files` | — | the run's session files: `[{path, bytes, version, updated, mime?, binary?}]`, no content |
 | `GET /runs/{id}/file?path=` | — | one file with its content — a binary-stored text file up to 2 MiB too (a report over the text cap that `render_html` shows), still `binary: true` |
@@ -802,6 +809,7 @@ their parent's, and **a schedule the agent creates gets the creating run's**.
 | `schedule` | `schedule`, `unschedule` |
 | `threads` | `schedules_list`, `schedule_inspect`, `threads_list`, `thread_inspect` |
 | `skills` | `skills_list`, `skill_view`, `skill_manage` |
+| `harness` | coding agents — Claude Code, Codex, Gemini CLI, OpenCode — in a sandbox (§Coding agents); needs `sandbox` and an egress other than `none` (a coding agent must reach its provider); `harnesses` narrows which |
 
 The core tools — `memory_set`/`memory_get`/`memory_delete`, `note`, `recall`,
 `message_get`, `finish`, `yield`, `ask_user`, `state_changed`,
@@ -810,8 +818,13 @@ The Features menu can still switch an optional toolset off, and a run's
 `deny` list still hides tools.
 
 A class is `{id, name, description?, icon?, toolsets, mcp, managers,
-sandboxEgress?, model?, system?, who?}`: `mcp` and `managers` are `"all"` or a
-list (MCP server names; sandbox-manager tile paths); `sandboxEgress` is the
+sandboxEgress?, harnesses?, model?, system?, who?}`: `mcp` and `managers` are
+`"all"` or a list (MCP server names; sandbox-manager tile paths);
+`harnesses` is `"all"` or a list of coding-agent ids (`GET /harnesses`;
+`[]` in a class without the `harness` toolset, `"all"` when a class with it
+names none, and a save that leaves it out keeps what a class that had the
+toolset has);
+`sandboxEgress` is the
 egress a bound sandbox may have (`none`, `internet`, `open`; `["none"]` when a
 sandbox class names none); `model` is the class's model when the person picked
 none; `system` is added to the agent's prompt when the conversation has no
@@ -823,7 +836,8 @@ the tile's managers may start conversations or automations in it). Built in:
 - **`web`** 🌐 — files, repl, web, subagents, schedule, threads, skills.
   **No `xbin_call`, no MCP tools.** The old web lane.
 - **`coding`** ▣ — sandbox (any manager; egress `none` or `internet`), web,
-  files, subagents, skills. No internal reach.
+  files, subagents, skills, harness (every coding agent). No internal
+  reach.
 
 A run must never hold private data AND an egress channel: content injected into
 its context could otherwise steer it into sending that data out in a URL or a
@@ -853,7 +867,7 @@ class is refused (400).
 | Method & path | Body | Purpose |
 |---|---|---|
 | `GET /classes` | — | `{classes: [class…], default}` — the classes the caller may start conversations in (a manager sees every one): the built-ins first, then the others as saved, each with `builtin`, `stored` (it is in the saved set — a built-in that is not is its default), `lane` (`private`\|`web`), `egress` and `mixed`; `default` is the class a new conversation of theirs gets when it names none |
-| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. **400** as well for deleting a class a trigger or a channel policy (`privateClass`, `webClass`) names, and for making mixed a class a public-data trigger runs in (data from outside must not steer a class that can move internal data out; `confirmMixed` doesn't change that — a legacy webhook trigger's is the built-in `internal`); the error names the trigger or channel. Schedules and conversations don't hold a deletion up: theirs fall back to their lane's built-in. Answers as `GET /classes` does |
+| `PUT /classes` | `{classes: [class…], default?, confirmMixed?}` | managers: replace the classes. A built-in left out comes back as its default (old conversations and APIs name it). **409** `{error, mixed: [id…]}` when a class mixes internal reach with egress and `confirmMixed` isn't set; **400** for a bad id (`a–z 0–9 -`, a letter first, ≤ 32), an unknown toolset or egress, a repeated id, an unknown `default`, or a `who` other than `everyone`/`managers`; **400** too for `harness` without `sandbox` or without an egress other than `none` (`the harness toolset needs sandbox and an egress other than none — a coding agent must reach its provider`), and for a `harnesses` id no one knows — not the SDK catalog's, not `fake`, not advertised by a bound sandbox manager, and not already in the class (`class <id>: no coding agent "<x>"`); **400** too for an edit that would take a class a channel runs strangers in — a channel policy's `webClass`, and the built-in `web` for every channel that names none — out of the web lane (losing its egress or gaining internal reach), or delete it (a built-in left out is fine: its default is web-lane); the error names the channel. **400** as well for deleting a class a trigger or a channel policy (`privateClass`, `webClass`) names, and for making mixed a class a public-data trigger runs in (data from outside must not steer a class that can move internal data out; `confirmMixed` doesn't change that — a legacy webhook trigger's is the built-in `internal`); the error names the trigger or channel. Schedules and conversations don't hold a deletion up: theirs fall back to their lane's built-in. Answers as `GET /classes` does |
 
 **In the tile.** The composer's class picker (at home, where a new chat
 starts) shows the classes you may use — icon and name, each one's
@@ -926,9 +940,16 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   // spawns per turn, concurrent MODEL CALLS process-wide, and how long a
   // foreground subagent is waited for before it moves to the background
   "maxDepth": 3, "maxSpawn": 32, "maxSpawnPerTurn": 8, "maxActiveRuns": 4,
-  "subagentTimeout": 900
+  "subagentTimeout": 900,
+  // coding agents (§Coding agents): an idle one is stopped after
+  // harnessIdleMin minutes (absent = 15, 0 = never), and at most maxHarness
+  // run at once per conversation tree (0 = 3)
+  "harnessIdleMin": 15, "maxHarness": 3
 }
 ```
+
+A conversation's own `engine` and `harness` (§Coding agents) are never
+defaults: `PUT /config` drops them, as it drops `sandbox` and `attached`.
 
 - `GET /features` → `{keys, features}` — the toggleable capabilities and their
   current state (the tile's Features menu). Toggle by `PUT /config` with a
@@ -1215,9 +1236,10 @@ instant (a `yield` wake, a subagent deadline) and are one-shot.
   request to itself open (`GET /engine/hold`); it is closed the moment work runs
   out.
 - **Resume job.** A process that exits with work pending (xbind stopping, a
-  disable) leaves a one-shot `resume` cron job (in the `beat` resource) that
-  starts the backend again; the next owner deletes it, and the pre-D81
-  `heartbeat` job, at takeover. `POST /tick` is the idempotent recovery scan it
+  disable; a coding agent's adapter running counts, idle too) leaves a
+  one-shot `resume` cron job (in the `beat` resource) that starts the
+  backend again; the next owner deletes it, and the pre-D81 `heartbeat`
+  job, at takeover. `POST /tick` is the idempotent recovery scan it
   calls.
 - **Model calls are gated, not runs.** `maxActiveRuns` bounds concurrent model
   calls. A top-level run's call goes first, and subagents may hold at most
@@ -1271,11 +1293,11 @@ Tools (all need `subagents` on and depth below `maxDepth`):
 
 | tool | what it does |
 |---|---|
-| `subagent_spawn {task, label?, wait?, timeout_s?, after?, system?}` | start a subagent. `wait:true` (default) waits for its answer — several in one step run in parallel, and their answers land in call order in one step. Past `timeout_s` (default `subagentTimeout`) the wait ends with a progress digest and the subagent **moves to the background**; its answer arrives later. `wait:false` starts it in the background at once. `after:[ids]` starts it once those runs settled, with their results in its first message |
+| `subagent_spawn {task, label?, wait?, timeout_s?, after?, system?, harness?, harness_mode?}` | start a subagent. `wait:true` (default) waits for its answer — several in one step run in parallel, and their answers land in call order in one step. Past `timeout_s` (default `subagentTimeout`) the wait ends with a progress digest and the subagent **moves to the background**; its answer arrives later. `wait:false` starts it in the background at once. `after:[ids]` starts it once those runs settled, with their results in its first message. `harness` starts a **coding agent** instead (§Coding agents, "The agent's coding agents") |
 | `subagent_wait {ids, mode?, timeout_s?}` | wait for background subagents: `all` or `any`; answers for the settled, digests for the rest |
 | `subagent_status {ids?}` | phase, elapsed time, model calls, its latest tool summaries, pending approval, queued messages |
 | `subagent_result {id, offset?, limit?}` | page through a long answer |
-| `subagent_message {id, text, wait?}` | steer a working subagent, or give a finished one a follow-up |
+| `subagent_message {id, text, wait?}` | steer a working subagent, or give a finished one a follow-up (a coding agent's: sent as is, into its running turn, after it, or as its next prompt) |
 | `subagent_cancel {ids, reason?}` | stop subagents and everything below them |
 
 The pre-D81 names (`spawn_subagent`, `workflow_spawn`, `workflow_status`,
@@ -1301,8 +1323,8 @@ The rules that keep a tree from hanging:
   the chat resumes.
 
 Limits, all in `Config`: `maxDepth` 3, `maxSpawn` 32 per tree (lifetime, so
-spawn→finish→spawn cannot loop forever), `maxSpawnPerTurn` 8, enforced when the
-spawn runs. Subagents get neither `ask_user` nor `schedule` (a cron-agent
+spawn→finish→spawn cannot loop forever), `maxSpawnPerTurn` 8, `maxHarness` 3
+coding agents at work per tree, enforced when the spawn runs. Subagents get neither `ask_user` nor `schedule` (a cron-agent
 outlives the tree that made it).
 
 Every `subagent_*` id resolves through the caller's **own subtree**. That
@@ -1986,7 +2008,11 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   its manager is unbound or unavailable, its manager no longer has it). Its
   popover sets the working directory (absolute; empty is the sandbox's
   workdir), makes another attached sandbox the active one, detaches the
-  active one (`{detach}`) and opens Manage.
+  active one (`{detach}`) and opens Manage. A coding agent's conversation
+  keeps the sandbox and directory it started in (the backend refuses a
+  change): its popover shows the working directory read-only, with no
+  switch or Detach, and a binding that no longer resolves says to start a
+  new chat with the coding agent in another sandbox.
 - **The Sandboxes dialog** (`#sbxdlg`): every sandbox you may see, yours
   first — state, manager, image, size, egress (and the one it takes at its
   next start, when a change waits for it), owner, private/team, when it
@@ -2031,8 +2057,13 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   a conversation holds for someone else), running or able to start (an
   archived one says to thaw it). ⤢ makes it larger; when the shell exits it
   says so and offers **New shell**; **✕** ends the shell (`DELETE
-  …/execs/{id}` at the manager, from the page). One terminal at a time;
-  one left by a page that closed runs on until its manager ends it.
+  …/execs/{id}` at the manager, from the page). Each terminal is a tab of
+  one dock (`terminals.js`): **＋** opens another shell in the same sandbox,
+  a tab's ✕ ends that one, **▾** hides the dock with its shells still
+  running (a top-bar pill, "2 terminals" — a button: click, Enter or
+  Space — brings it back, the shown shell taking the keys), and the tabs
+  stay open while you switch conversations. One left by a page that closed
+  runs on until its manager ends it.
 - **Keeping current.** After a change the conversation's binding is read
   again (`GET /runs/{id}/view?limit=1` → `config`); a `run` event that
   carries `sandbox` (and `attached`, a count) updates it at once, and a
@@ -2055,14 +2086,19 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   sheet first). The ▣ badge is in the conversation's subtitle, a notice in the
   transcript says why a binding no longer resolves, and ⋯ → Sandbox pushes
   the popover's screen (working directory, the attached ones, Detach,
-  Manage sandboxes…). The Sandboxes screen puts each row's actions behind
+  Manage sandboxes… — a coding agent's: its working directory read-only
+  and Manage only). The Sandboxes screen puts each row's actions behind
   its swipe and ⋯ (Archive and Delete confirmed), New sandbox pushes
   the create form, and Share with a terminal tile… pushes its form (Stop
   sharing behind a share's swipe, confirmed). A ▣ tool card is a `terminal` icon; what the call came to
   is a chip (`exit 1 · 14s · job 3` in red), its command the card's first
-  line. It opens no terminal: the app's `terminal` dials only the tile's own
-  routes, and a manager's `tty` is another tile's (a D96 difference,
-  `model/features.js`).
+  line. A row's **Terminal** and the Sandbox screen's **Open terminal**
+  push a Terminal screen: the app's `terminal` dials only the tile's own
+  routes, so it goes through the agent's relay (`GET
+  /sandboxes/{ref}/terminal?cwd=`, D147 §4.2.8), which checks that you
+  may use the sandbox and dials its manager's `tty` as you. One at a time
+  (the app's terminal closes its socket when its screen goes — and the
+  relay then ends the shell it started, §Coding agents "Terminal relays").
 
 **Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
 cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
@@ -2070,6 +2106,640 @@ attached sandboxes (a ref or a unique name; any other is refused), which
 becomes the subagent's active one; `cwd` is its working directory there
 (absolute, or relative to that sandbox's). The subagent keeps the attached
 list, and the root's binding is unchanged.
+
+## Coding agents (harnesses)
+
+A conversation — or a subagent the agent spawns — can be answered by a
+**coding agent** (a *harness*: Claude Code, Codex, Gemini CLI, OpenCode, or
+another the sandbox manager names) run over ACP inside a coding sandbox,
+instead of the agent's own loop: the catalog, each person's setting, the
+class gates, and the engine that starts a coding agent in its sandbox and
+turns what it does into the conversation (below, "Driving one"). Its own
+routes — the mode and options, answering its questions, signing it in —
+are "Its own routes", its terminals and log "Terminal relays and the log";
+the UI that uses them follows each. The design, and what was not chosen,
+is D147.
+
+- **Runs.** A run's `engine` is `""` (the agent's own loop) or `"harness"`
+  — set when it is made, never changed; `GET /runs/{id}`'s `run`, run
+  events, the view's `run`, conversation rows and a link's `child` carry it.
+  A harness run's config holds `engine` and `harness: {provider, mode?,
+  options?, ref, cwd?, by?}` (the coding agent, the sandbox it works in —
+  fixed for the conversation — and who started it).
+- **Sandbox bindings** carry `harnesses`: the coding agents the manager says
+  the sandbox's image has (`hello.images[].harnesses`) when it was bound —
+  absent in one bound before, or from a manager that says nothing (unknown,
+  not none: a probe decides).
+- **Classes.** The `harness` toolset and the `harnesses` field (§Agent
+  classes); the built-in `coding` has both (`"all"`). A coding-agent
+  conversation or spawn needs a class that has the toolset, allows the
+  coding agent, and allows a sandbox with an egress other than `none`.
+
+| Method & path | Who | Body / query | Answer |
+|---|---|---|---|
+| `GET /harnesses` | anyone who can use the tile | `?probe=<ref>` | `{harnesses: [entry…], probe?}` — below. Managers' hellos come from their cache; answers in ≤ 10 s |
+| `GET /prefs/harness-mode` | a person | — | `{modes: {"<id>": "auto"\|"approve"}}` — the caller's own settings (set ones only) |
+| `PUT /prefs/harness-mode/{id}` | a person | `{mode: "auto"\|"approve"}` | `{provider, mode}`. **400** `mode is "auto" or "approve"`; **400** `no coding agent "<id>"`; **400** `<name> has no auto mode — it asks as its own settings say` (`auto` for one whose `autoMode` is empty); **403** `the setting is a person's own` for anyone else — an element, the scheduler, the tile itself, an admin viewing as someone |
+
+**The catalog.** One entry per coding agent any bound sandbox manager
+advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
+`opencode`), which are always listed:
+
+```jsonc
+{"id": "claude", "name": "Claude Code",
+ "available": false, "reason": "no-egress",
+ "why": "needs internet access — Coding sandboxes offers none (bind its internet class)",
+ "classes": ["coding"],                       // the caller's classes that allow it, their default first
+ "images": [{"provider": "apps/coding-sandbox", "manager": "Coding sandboxes", "image": "base",
+             "advertised": true, "egress": ["internet"]}],
+ "modes": [{"id": "default", "name": "Ask before acting"}, {"id": "bypassPermissions", "name": "Bypass permissions", "explicit": true}],
+ "defaultMode": "default", "autoMode": "acceptEdits", "approveMode": "default", "planMode": "plan",
+ "setting": "approve",                        // the caller's own (below)
+ "login": {"command": "CLAUDE_CODE_REMOTE=1 claude /login"},
+ "options": [ /* the config options its last session reported, any conversation — absent before one */ ],
+ "sandboxes": {"apps/coding-sandbox|sb-7f3a": {"installed": true, "signedIn": false, "at": 1790000100000}}}
+```
+
+- `images`: every (manager, image) that advertises it (`advertised:
+  true`), and every image of a manager whose hello predates
+  `images[].harnesses` (none of its images says — `advertised: false`: its
+  sandboxes are built on a rootfs that has the four, and a probe decides),
+  each with the manager's egress other than `none`. An advertised entry
+  that isn't one of the four (and isn't `fake`, the test fixture) needs its
+  own `argv`, or it is ignored.
+- `available`, `reason`, `why` — the first that holds: `no-image` (no bound
+  manager's image has it; `manager-error` instead, `why` its error, when a
+  manager that didn't answer might), `no-class` (no class you may use
+  allows coding agents — or this one), `no-egress` (no manager offering it
+  offers an egress other than `none` that such a class allows).
+- `modes`, `defaultMode`, `autoMode` (empty: it has none), `approveMode`,
+  `planMode`: the SDK catalog's (`sdk/acp`); the name and login command are
+  the catalog's, else the manager's advertisement. A manager's own `argv`
+  for one of the four is what runs, and what a probe looks for.
+- `sandboxes`: what the agent last learned about it per sandbox — by a probe
+  (`installed`) or a session (`signedIn`); a field absent is unknown, a
+  sandbox absent never asked. Only sandboxes the caller may see.
+- **`?probe=<ref>`** also asks that sandbox now which of the coding agents'
+  commands it has (`command -v`, one run of at most 8 s through the
+  contract's `/run`): the ones its image advertises, or the four when its
+  manager says nothing. Only a running sandbox the caller may use — a stopped
+  one isn't started — and at most once in 10 minutes per sandbox. The answer
+  says what it did: `probe: {ref, ran, cached?, error?}` (`error`: why it
+  didn't ask — `no such sandbox`, `the sandbox is stopped — a probe doesn't
+  start it`, …); what it learned is in each entry's `sandboxes[ref]`. A bad
+  reference is **400**.
+
+**Auto / Always approve** is each person's own setting per coding agent,
+kept by the agent (not in xbind's prefs — the agent reads the conversation
+owner's when it spawns a coding agent for them): `auto` is the agent's
+auto-edit mode (`autoMode`: claude `acceptEdits`, codex `agent`, gemini
+`autoEdit`), `approve` — also what unset means — its ask-first mode
+(`approveMode`). It applies when a coding-agent conversation or child is
+created; one that exists keeps its mode. Explicit modes (bypass, full
+access) are never a setting.
+
+**Driving one (the API).** `POST /ask` and `POST /runs` take `harness:
+{provider, mode?, options?}` with a `sandbox: {ref, cwd?}` (`POST /runs`
+gains `sandbox` as `/ask` has it, bound as you): the run is made with
+`engine: "harness"` and its first message queued as the coding agent's
+first prompt. `class` is optional (yours when it allows the coding agent,
+else the first class you may use that does). `mode` is a mode of the
+coding agent's (`GET /harnesses` `modes`) — absent, your Auto / Always
+approve — and an explicit one only from a person (every mode the catalog
+doesn't know to be safe: below, "The mode and options"); `options` are its
+config options (`{"model": "…"}`) and never carry the mode (one the running
+coding agent reports as its mode option is skipped and dropped, with a
+note). The sandbox is fixed for the conversation. **400** `harness.provider: no coding agent "x" (GET
+/harnesses lists them)`, `class: the <class> class doesn't allow <name>`,
+`harness.mode: one of …`, `harness.options: the mode is harness.mode`,
+`system: a coding agent keeps its own instructions — system is for the
+built-in agent`, `model: a coding agent's model is harness.options.model`,
+`a coding agent needs a sandbox: sandbox {ref, cwd?} whose image has
+<name>`; **403** `no class you may use allows <name>`, `only a person can
+start <name> in <mode>`; **409** `<sandbox>'s image doesn't have <name>`,
+`<name> must reach its provider — <sandbox>'s egress is none`, `<sandbox>
+doesn't have <name> (<command> not found)` (a running sandbox is probed);
+the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
+`title` work as for any ask.
+
+- **Messages.** `POST /runs/{id}/message` (and `/answer`) on a harness run
+  queue a prompt (inbox kind `hprompt`; `queued`, `DELETE
+  /runs/{id}/inbox/{iid}` and `/interrupt`'s `returned` include them like
+  messages). It goes to the coding agent when no turn runs and nothing
+  waits for you. During a turn, a coding agent that takes messages
+  mid-turn (`harness.steering`: claude, codex) gets it at its next step —
+  its user row is written then and the turn goes on; one that doesn't gets
+  it as the next prompt once the turn ends. A steer is never sent twice:
+  one whose answer is lost (a save or restart of the agent as it went, the
+  connection to the sandbox dropping, no answer within 30 s) may have
+  joined the turn — its user row is written with a note that the coding
+  agent may not have received it (send it again if it doesn't act on
+  it). A person's message sent while a permission or a question waits
+  answers that first — the permission rejected (reject once, else always,
+  else the cancelled outcome), the question declined — then is steered or
+  waits (the parent agent's message waits for the person instead: "The
+  agent's coding agents"); while the coding agent waits for a sign-in it
+  waits with it. `interrupt: true` stops the running turn first and goes
+  next (ignored on the agent's own runs). Messages from schedules,
+  triggers, watchers or `/learn` never drive a coding agent: they are
+  consumed with a note.
+- **A turn.** The message becomes the user row as it is sent; what the
+  coding agent writes streams as the run's draft (`text`/`thinking` events,
+  the view's `drafts`) and lands as assistant rows (thinking in
+  `reasoning`). **Each call it makes is one assistant row and one tool
+  row:** `toolCalls: [{id: "h<gen>:<id>", function: {name: "acp:<kind>",
+  arguments}}]` (an agent that uses an id again for a new call once the
+  earlier one ended gets `h<gen>:<id>#<n>` for its n-th — the earlier
+  call's rows stay as they were; `kind`: `read`, `edit`, `delete`, `move`, `search`,
+  `execute`, `think`, `fetch`, `switch_mode`, `other`; `arguments`: the
+  call's input plus `summary`), the tool row `(running…)` until the call
+  ends, then its result (an edit's `edited <path> (+a −d)`, a command's
+  last 8 KiB and `[exit N]`, `error: …`, `(cancelled)`). The tool row
+  carries **`acp`**: `{kind, title, label?, tool?, status, parent?,
+  subagent, planReview, locations?, files?, exitCode?, output?,
+  outputTruncated?, diffs?: [{path, status, add, del, patch, truncated}]}`
+  (a patch is a unified diff with 3 lines of context, ≤ 64 KiB a file); a
+  command's output streams into it as message upserts at most every 250
+  ms. Text of the coding agent's own subagents (claude's Task) is an
+  assistant row with `acp: {parent}`. The turn ends `idle` (a stop reason
+  other than the end of the answer is said in a note), or `error` with why;
+  a subagent's link settles with its last text. The task ledger records
+  each prompt as it is sent.
+- **Its summary.** A harness run's summary (run events, the view's `run`,
+  conversation rows, a link's `child`) carries **`harness`**: `{provider,
+  name, state (stopped | starting | ready | working | login | lost |
+  failed), error, mode: {current, available}, options, commands, usage?,
+  plan?, activity?: {kind: idle | thinking | writing | tool | waiting,
+  title?, at}, counts: {tools, files, add, del}, pending?: {park, kind,
+  title}, login?, sandbox: {ref, name, cwd, shared}, steering, title,
+  gen}`; `mode` is the coding agent's session modes, else its config
+  option of category `mode` (opencode speaks its build/plan agents only
+  that way), else the catalog's; `explicit` on one of `mode.available`
+  marks it the conversation owner's (below). The stream's **`harness`**
+  event (`data`: the whole object, coalesced per run) says when it changes
+  between run events. The conversation's title follows the coding agent's own while it
+  is the first message clipped. An agent-loop run has no `harness`.
+- **Waiting for you.** A permission request parks the run (`waiting_input`,
+  the call's row `(awaiting your approval)`): `pendingState: {kind:
+  "approval", park, toolCalls, harness: {callId, options: [{optionId,
+  name, kind, explicit?}], tool: {title, kind, name?, label?, command?,
+  rawInput?, content?}, rule?, defaultToNo?, description?, planApproval?,
+  plan?}}`. `POST /runs/{id}/approve {approve?, park?, option?,
+  feedback?}` answers it: `option` (an `optionId`) picks the coding
+  agent's own answer — an `allow_always` one is remembered for the
+  conversation (the same kind and title isn't asked again, even by a
+  restarted coding agent; a mode switch's never is). Without it `approve:
+  true` picks allow once, else another allow that doesn't raise the mode
+  (**400** `option: name one — every allow here raises <name> to an
+  explicit mode` when every allow does), `approve: false` rejects (once,
+  else always, else the cancelled outcome). An option marked `explicit`
+  (an allow that switches the session to a mode that is the owner's —
+  "The mode and options" below — by the mode it names, Claude Code's
+  `exit-plan-bypass` included; on a mode switch such as a plan approval,
+  also any `allow_always` whose mode isn't known) is the conversation owner's:
+  **403** `only <owner> can allow <option>`. `feedback` (a plan approval's
+  "keep planning") goes with a rejection only (**400** `feedback goes with
+  a rejection`): the rejection is answered, then `feedback` is your next
+  message. **400** `option: one of …`; on the agent's own approval **400**
+  `option is for a coding agent's permission request`; `grant` is ignored
+  on a coding agent's. A question (a form) parks `pendingState: {kind:
+  "question", park, harness: {eid, callId?, message, schema}}`, answered
+  by `POST /runs/{id}/harness/answer {park, action, content?}` (an
+  `hanswer` inbox row `{park, action: accept | decline | cancel,
+  content}`). One that comes while another waits is queued behind it and
+  becomes the park once that one is answered.
+- **Signing in.** A coding agent that says it is signed out — or refuses a
+  message so — parks the run on `pendingState: {kind: "login", park,
+  harness: {login}}` (`waiting_input`; `harness.state` `login`,
+  `harness.login: {command, methods: [{id, name, kind: terminal | api-key
+  | device-code}], device?: {by}}`) and keeps the message that failed. **Retry**
+  (`/resume`) ends the signed-out coding agent, starts a fresh one — it
+  reads what a terminal sign-in left in the sandbox's home — and sends the
+  message again (signed out still, it parks again). Signing in through the
+  coding agent (an API key, a device code) is `POST /runs/{id}/harness/
+  authenticate`: the key goes to the coding agent once and is never
+  stored; a device code's page and code are yours alone — the answer, and
+  your `GET /runs/{id}/harness` — while everyone sees who is signing in
+  (`harness.login.device: {by}`); it stays up until you finish, then the
+  run goes on by itself — across a save or restart of the agent too: the
+  next process takes the coding agent's word that the sign-in is done and
+  starts it afresh, as Retry does; a code no process waits on any more is
+  taken away. A page the
+  coding agent asks to have opened at any other time is declined.
+- **Stops and restarts.** `/interrupt` stops the turn: a permission or
+  question waiting settles `(interrupted)` and the coding agent ends its
+  turn (`idle`) — one that doesn't within 15 s is stopped. `/cancel` and
+  deleting the conversation stop the coding agent too (a subagent's link
+  settles `canceled`); `/cancel` on a conversation that rests with its
+  coding agent idle (`ready`) stops the coding agent (`stopped`, a note;
+  `cancelled` lists the run) and leaves the status as it was — there was no
+  turn to cancel; the next message starts it again. `/resume` starts a
+  fresh one when none runs and sends again a message that couldn't reach
+  it. `/compact` sends `/compact`
+  to a coding agent that offers it (`harness.commands`). A coding agent
+  idle between turns keeps running for the tile's `harnessIdleMin`
+  (default 15 minutes; 0: until stopped) and is then stopped
+  (`harness.state` `stopped`) — never while a turn runs or something waits
+  for you; the next message starts it again, reopening its session when it
+  can. One that exited or was cut off (its sandbox stopped, xbind
+  restarted, its output lost mid-turn) ends its turn with why, a request
+  waiting settles `(interrupted)`, and the next message starts a new one
+  (reopening its earlier session when it can). The conversation's use of
+  the sandbox is checked again before each message, answer and steer, and
+  at most once a minute while the coding agent works: when it may no
+  longer use the sandbox — or the sandbox is detached from the
+  conversation — the coding agent is stopped (`failed`, with why) and a
+  turn in flight ends with it. A message that may not have reached it (the agent saved
+  mid-send, the connection to the sandbox dropped as it went) fails —
+  "send it again" — and is never sent twice. A save or restart of the
+  agent never stops one: the next process takes it over where the last one
+  left it, mid-turn, parked on its sign-in or in a turn of its own too
+  (trying again — 2 s, doubling to a minute — while its sandbox manager
+  doesn't answer; stopping it, `failed` with why, and ending its turn when
+  the conversation may no longer use the sandbox; an answer you gave that
+  was still on its way is sent again, a question it had just asked is
+  asked again) — and a process that exits with one running, idle too,
+  and none to follow leaves the resume job (§The engine, "Resume job"),
+  whose next process takes it over and stops it once it has been idle for
+  `harnessIdleMin`. **Rolling back** to an agent from before coding agents
+  (v0.3.64 or older): its model loop never answers a coding agent's
+  conversation — every turn it would start there ends at once at its step
+  cap ("stopped after 500 steps in one turn (maxTurnSteps)"; the
+  conversation's `turnSteps` is kept at that ceiling) — but it leaves the
+  messages queued for the coding agent waiting, reads calls in flight as
+  interrupted, answers an approval there with an error result, and the
+  coding agent itself runs on unwatched in the sandbox until the sandbox
+  stops or a newer agent takes it over again. What waits there for the
+  coding agent — a message queued for it, an answer to its question — is
+  work to that agent that it never does: its resume job wakes the tile
+  every minute until the conversation is deleted (or, for the workspace
+  owner, `DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND
+  delivered_at=0` in the agent's `db` resource). Its class editor still
+  saves (the stored classes keep the `harness` toolset apart from
+  `toolsets`, where that agent would refuse it), but any class save there
+  rewrites every stored class (its editor sends them all), so each one
+  loses its coding agents: tick them again after upgrading (Reset brings
+  the built-in Coding class back as it ships).
+
+**Its own routes** (D147 §4.2.4–§4.2.6). On a run the agent's own
+loop answers they are **409** `not a coding-agent conversation`.
+
+| Method & path | Who | Body | Answer |
+|---|---|---|---|
+| `GET /runs/{id}/harness` | a viewer | — | `{harness, session: {gen, execId, acpSessionId, loadable, steering, startedAt, lastActive}, rules: [{kind, title}]}` — its summary, the adapter process (`startedAt`: its current generation's start, ms) and what "allow always" answers remember in this conversation; to the person who started a device-code sign-in that waits, its `harness.login.device` is `{url, message, by}` (everyone else's, and every other view's, only `{by}`) |
+| `PATCH /runs/{id}/harness` | a participant; an explicit mode: the owner | `{mode?, option?: {id, value}}` | `{harness}` |
+| `POST /runs/{id}/harness/answer` | a participant | `{park?, action: accept\|decline\|cancel, content?}` | `{ok: "true"}` |
+| `POST /runs/{id}/harness/authenticate` | a participant who may use its sandbox | `{method, apiKey?, confirm?}` | **200** `{ok: "true", state: "ready"}` · **202** `{ok: "true", device: {url, message}}` |
+
+- **The mode and options.** `PATCH` switches the coding agent's mode (one
+  of `harness.mode.available`) and/or one of its config options (one of
+  `harness.options` — before its first session, one it last reported, as
+  `GET /harnesses` lists them — and `value` one of that option's values).
+  On a running coding agent it asks the agent now (`session/set_mode`, or
+  its config option of category `mode` when it speaks one;
+  `session/set_config_option`); either way the choice is kept in the
+  conversation's `config.harness` (`mode`, `options`) for its next start —
+  a stopped one's summary shows it as current. The change reaches the
+  stream as a `harness` event. A mode the coding agent took with an option
+  it refused is kept, and the answer is the option's refusal. **Bypass
+  modes are default-deny**: a mode is anyone's (who may talk in the
+  conversation) only when the SDK catalog knows it never takes the coding
+  agent past its own asks (`acp.Provider.Safe`: claude's `default`,
+  `acceptEdits`, `plan`, `auto`; codex's `read-only`, `agent`; gemini's
+  `default`, `autoEdit`, `plan`; opencode's `build`, `plan`), or it is the
+  mode the coding agent opened its first session in by itself; every other
+  — bypass and full access, a mode a newer version of it adds, any other
+  mode of one the catalog doesn't know — is `explicit` in `mode.available`
+  and the conversation owner's, a person's (to switch to here, to start in
+  with `POST /ask`, or to allow as a permission's option).
+  **400** `mode or option: name one`, `mode: one of …`, `option: one of …`,
+  `value: one of …`; **403** `only ‹owner› can switch ‹name› to ‹mode›`;
+  **502** `{error}`: the coding agent refused, in its words; **504**
+  `‹name› didn't answer` (30 s); **503** with `Retry-After: 1` while another
+  process of the agent holds the session (a redeploy's handoff) — try again.
+- **Answering its question.** `answer` answers the question the run is
+  parked on (`pendingState.kind == "question"`): `accept` with `content`,
+  the form's values (an object; its keys the schema's properties),
+  `decline` or `cancel`. `park` names the question it answers (the one
+  pending now when absent). It is queued (an `hanswer` inbox row) and
+  delivered at once. **400** `no pending question`, `action is accept,
+  decline or cancel`, `content: an object with the form's fields`; **409**
+  `that question is no longer pending — the agent is asking something else
+  now`.
+- **Signing it in.** `authenticate` signs a coding agent that waits for a
+  sign-in (`harness.state` `login`) in through the agent itself: `method`
+  one of `harness.login.methods` of kind `api-key` (`apiKey` needed — it
+  goes to the coding agent once, in the one call, and is never stored,
+  logged or echoed; within 30 s the answer is 200 and the message that
+  waited goes) or `device-code` (the page and code within 30 s: 202; the
+  run goes on by itself once you finish). The page and code are yours
+  alone — never stored, and in no summary but your own `GET
+  /runs/{id}/harness` (anyone else who saw them could enter the code
+  first, signing the coding agent in as themselves); everyone sees
+  `harness.login.device: {by}`, and asking again for the device code of
+  the sign-in you started answers it again (202). Only
+  a person who may use the sandbox **themself** — asked of its manager now
+  (the manager doesn't police the person this agent names) — and, on a
+  sandbox others may use too (team visibility, members or shares: they act
+  as you with the coding agent there, its credentials living in the
+  sandbox's HOME), with `confirm: true`. **400** `method: one of …`,
+  `apiKey: needed for ‹method›`, `apiKey: only for an API-key method`;
+  **403** `only someone who may use ‹sandbox› can sign it in` (also an
+  element, the scheduler, an admin viewing as someone); **409** `‹name› is
+  signed in`, `a sign-in to ‹name› is already under way`, and `{error:
+  "anyone who may use ‹sandbox› acts as you with ‹name› there — confirm to
+  sign in", confirm: true}`; **502** `{error}` in the coding agent's words;
+  **504** `‹name› didn't start its sign-in`; **503** as `PATCH`.
+- **Its summary everywhere.** `POST /ask` and `POST /runs` answer a coding
+  agent's new run with its `harness` too. `/tree` nodes carry `engine`
+  and, for a coding agent, `harness` without `options`, `commands`,
+  `mode.available` and `login.methods` (the board's row); `/needs` items
+  carry the same for the run that waits. A coding agent a sandbox manager
+  advertises that the SDK catalog doesn't know is `name`d as the manager
+  titles it (from its first start). The push for a coding agent's park
+  says it in its words: "‹name› wants to run ‹title› — approve or deny.",
+  its question, or "‹name› needs you to sign in to it." (kind `login`).
+- **The agent's own routes on a coding agent's run** (D147 §4.2.11):
+  `PUT`/`DELETE /runs/{id}/memory` **409** `a coding agent has no memory`;
+  `POST /runs/{id}/learn` **409** `a coding agent can't learn a skill`;
+  `POST /runs/{id}/compact` **409** `‹name› has no /compact` unless it
+  advertises it (`harness.commands`; then it is sent); `PATCH /runs/{id}`
+  **400** with `model` (`a coding agent's model is an option: PATCH
+  /runs/{id}/harness {option: {id: "model", …}}`) and with `sandbox` or
+  `detach` (`a coding agent's sandbox is fixed for the conversation`).
+  Schedules and triggers run the agent's own loop: a `harness` in their
+  bodies is **400** `schedules run the built-in agent` (`triggers …`), and
+  a coding agent's conversation as their `targetRun` is **400**
+  `targetRun: a coding agent's conversation takes messages from people —
+  schedules run the built-in agent`.
+
+**Starting one (the UI).** "Who answers" sits in the home composer (web
+`#apick`; the native view: at the top of the home page — a phone's home bar
+already holds the class, model and sandbox pickers) and in the new-chat
+dialog (`#n-agent`):
+the agent itself, or a coding agent of the catalog with its monogram (CC,
+CX, GM, OC) — one that isn't available is listed with its `why`. Your pick
+is your default for new chats (xbind's `prefs/agent`: `"agent"` or a coding
+agent's id). Picking a coding agent hides the class picker — the class
+resolves as `POST /ask` resolves it: yours when it allows the coding agent,
+else the first in `classes` — and the model picker (its model is an
+option); the sandbox picker keeps the sandboxes it fits (their (manager,
+image) is in `images`, their egress isn't `none`, a probe didn't find it
+missing, and the class may use them) and starts with the one you last used with it (xbind's
+`prefs/harness-sandbox`: `{"<id>": "<ref>"}`), else the best that fits. A
+running sandbox it wasn't looked for in is probed. When none fits, a setup
+card offers the create form filled in for it (a manager and image that have
+it, `internet`, `<id>-dev`); when `sandboxes[ref].signedIn` is `false`, it
+says the first message asks you to sign in there (and, on a sandbox shared
+with others, that they act as you). The ask carries `harness: {provider,
+options?}`, the resolved `class` and the `sandbox` — never a `mode`: the
+backend applies your Auto / Always approve. A coding agent's conversation
+carries its monogram in the list (the app: its name before the subtitle),
+and its top bar (the app: the start of its subtitle) says which coding
+agent, its state and — its sandbox being shared — that the sandbox's users
+can read what it does. The top bar leaves out Memory and Learn skill (the
+built-in agent's; the engine turns memory and skills off for a coding
+agent) and offers Compact only when the coding agent advertises `/compact`
+(`POST /runs/{id}/compact` sends it); Retry (`POST /runs/{id}/resume`)
+shows when it was cut off (`lost`) or couldn't start (`failed`). In a
+narrow tile the composer puts its pickers (and `#hctl`) on a line above the
+message box, which keeps its width (`index.html` `.cpicks`, `.cinput`).
+
+**For managers (the UI)** (`harness-catalog.js`, `native/harness-catalog.js`;
+the words `model/harness-manage.js`). ⚙ Classes has the Coding agents toolset and,
+with it, which coding agents the class allows (all of them, or a checklist
+of the catalog's — `harnesses`); the form warns while the toolset lacks a
+sandbox or an egress other than `none`, and a refused save says the
+backend's words. ⚙ Coding agents (the app: Settings → Coding agents) lists
+the catalog — whether each can be started and why not, the managers and
+images that have it, the sandboxes it was found or signed in on, the classes
+that allow it, its modes and sign-in command — and checks a running sandbox
+now (`?probe=`).
+
+**Terminals and sign-in in the UI.** A coding agent that needs you to sign
+in parks its run on `pendingState.kind == "login"` (status `waiting_input`);
+the conversation then shows a sign-in card with the agent's own methods:
+a **login terminal** (web: a tab of the terminal dock running the agent's
+sign-in command through the manager's `tty?cwd=&cmd=`, as you; the app:
+the run's terminal relay, `…/harness/terminal?login=1`), then **Signed
+in? Retry** (`POST /runs/{id}/resume`: the agent starts afresh and reads
+the new credentials); an **API key** (a password field, sent once to
+`POST /runs/{id}/harness/authenticate` — never stored, never shown again);
+a **device code** (the page to open and the code to enter, shown only to
+you — someone else who asks while your sign-in waits is told it is under
+way; the run goes on by itself once you are done). The card says that the credentials land in
+the sandbox's home — anyone who may use it acts as you with that agent
+there, and its clones and snapshots keep them — and on a sandbox others
+may use it asks for a confirm first (`confirm: true`). Someone who may not
+use the sandbox is told whom to ask (its binder — or, when you bound it,
+its owner); a sandbox missing from `GET /sandboxes` (which lists every
+sandbox bound to a conversation you see) — even once read again fresh
+(`?fresh=1`, once per sandbox: one just made may be missing from the
+cached list) — is gone, or its manager is
+unbound or down, and the card says so in place of the methods — start a
+new chat in another sandbox, or Retry once its manager is back; someone the conversation is shared
+with to read sees what it waits for and no actions (nor the app's ⋯ →
+Sign in… or Terminal). While it waits, the composer says to sign in first
+and the activity line has no spinner. A coding agent's conversation also
+has **>_ Terminal** (web: the top bar; the app: ⋯ → Terminal) — a shell
+in its sandbox at its working directory. Only a harness run parked on
+`login` gets the card (`signin.js`, `native/terminal.js`); other parks are
+their own cards' — and a park of a kind no module draws falls back to the
+built-in approval or question card.
+
+**Terminal relays and the log** (D147 §4.2.7, §4.2.8). The native
+view's terminals and a coding agent's stderr, for a person who may use the
+sandbox **themself** — checked here first, fresh from the manager (by the
+rules of §Coding sandboxes: owner, members, `team`, a share), because the
+manager doesn't police the person this agent names: both relays dial the
+manager's `tty` route as this tile with `Sbx-User: <you>` (asserted) and
+relay `/ws/term`'s wire byte for byte (`xbin.RelayManagerTTY`); the runtime
+still refuses a person with `noTerminal` (D88). The web doesn't use them —
+its terminals dial the manager directly, as you (verified).
+
+| Method & path | Who | Query | Answer |
+|---|---|---|---|
+| `GET /runs/{id}/harness/terminal` | a participant who may use its sandbox | `login=1`, `rows`, `cols`, `exec` | WebSocket: a terminal in the coding agent's sandbox at its cwd — its sign-in command with `login=1` (`harness.login.command`: the adapter's own when it offered one, else the catalog's, else the manager's advertisement), else the login shell |
+| `GET /sandboxes/{ref}/terminal` | a person who may use the sandbox | `cwd`, `cmd`, `rows`, `cols`, `exec` | WebSocket: `cmd` as the contract's `tty` route runs it (the login shell unless given) |
+| `GET /runs/{id}/harness/log` | a viewer who may use its sandbox | `max` (bytes, ≤ 65536: the default; more is the cap) | `text/plain`: the tail of the coding agent's stderr, its current generation |
+
+- **`exec=<id>`** (a terminal's session id, from its session frame)
+  attaches again to that tty exec instead of starting one; the other
+  parameters are then ignored — send a resize. `GET /sandboxes/{ref}` is
+  still the sandbox: only a path ending in `/terminal` is the relay (a
+  sandbox id never holds `/`).
+- **Refusals come before the upgrade, as JSON:** **400** `a terminal is a
+  WebSocket upgrade`, `rows: a number of character cells`; **403** `only a
+  person can open a terminal` (an element, the scheduler, the tile itself,
+  an admin viewing as someone); **403** `you may not use ‹sandbox› — ask
+  ‹who›` (who bound it into the conversation, else its owner, else this
+  agent's managers); **404** a run you can't see (`no such run`), a
+  sandbox you neither see nor have bound (`no such sandbox`), or the
+  manager's `not-found` (a sandbox or exec gone); **409** `not a
+  coding-agent conversation` (the run relay on a built-in run), `‹name› has
+  no sign-in command to run in a terminal`; the manager's other refusals
+  pass through as `{error, refusal, state?}` (`unsupported` 501 without
+  `tty`, `state` 409 on an archived sandbox).
+- **What a relay started, it ends.** A terminal a relay started (no
+  `exec=`) — a shell or a sign-in — is ended (`DELETE …/execs/{id}` at the
+  manager, as you) 5 s after its client goes, unless its command exited, or
+  a client attached to it again through a relay (`exec=<id>`) before then:
+  that client keeps it, and it runs until it exits or someone ends it. The
+  app's terminal can neither end a shell nor come back to one, so what it
+  leaves would otherwise run on for nobody. The rule is the process's that
+  relayed it: across a redeploy, a terminal whose relay ran in the old
+  process runs on.
+- **The log** is read as you: a split exec's own stderr (a manager offering
+  `stdio`), else the file the wrapper writes in the sandbox's HOME
+  (`~/.cache/xbin-harness/<run>-<gen>.log`, read with `tail -c` through the
+  contract's `run` — which starts a stopped sandbox). **403** `only a
+  person who may use ‹sandbox› can read its log`; **404** `no log yet`
+  (never started, or no file); **409** on a built-in run; **400** `max: a
+  number of bytes, at most 65536`.
+
+**The agent's coding agents (the tools)** (D147 §4.4, §4.3.13).
+`subagent_spawn` takes **`harness`** — an enum of the coding agents the
+class allows (`harnesses`) that the spawn's sandbox (the active one, or the
+attached one `sandbox` names) offers (its binding's `harnesses`; the SDK
+catalog's four when its manager says nothing) with an egress other than
+`none` — and **`harness_mode`** (`approve` | `plan`). Both are offered only
+when the class holds the `harness` toolset and at least one coding agent
+qualifies. Its description says the limit first: a coding agent sees only
+the sandbox and the task, not the conversation; each is a full CLI costing
+hundreds of MB in the sandbox; parallel ones want a distinct `cwd` or a git
+worktree each. The child is a harness run (`engine: "harness"`, its
+config's `harness: {provider, mode, ref, cwd}`) of its parent's class in
+that sandbox; the task is its first prompt (an `hprompt` row: the user row
+and the task ledger's entry, source `parent`, are written as it is
+delivered). Its mode is the **root conversation owner's** Auto / Always
+approve for that coding agent (`/prefs/harness-mode`; a conversation owned
+by no person: Always approve), which `harness_mode` only narrows —
+`approve` asks before every edit and command, `plan` only plans (the
+provider's plan mode, else its approve mode); the model never picks an
+explicit (bypass) mode. The link, the placeholder, the digest and the
+delivery are a subagent's: the child's turn end settles the link —
+answered with that turn's last text (`(no answer)` when the turn wrote
+none — never an earlier turn's), incomplete, error with the error, or
+canceled; `subagent_cancel` on a coding agent that rests idle stops it, and
+so does what cancels a run's subtree — nothing below a turn outlives it:
+its parent's turn ending (a subagent parent's every turn, a top-level
+one's `finish`), the owner interrupting the parent, a channel's stop (a
+note says why; the next message starts it again, reopening its session).
+Refused, as the call's result: `system` with `harness` (`system: a coding
+agent keeps its own instructions — leave system out with harness`), `after` with `harness`, `harness_mode` other than `approve` or
+`plan` or without `harness`, a coding agent the class doesn't allow or the
+sandbox doesn't offer (`harness: <sandbox> doesn't offer <name> (it offers
+…)`), a sandbox without egress or known not to have it, one the
+conversation may no longer use, **`3 coding agents already run in this
+conversation (the limit) — wait for one or cancel one`** (`maxHarness`,
+tile config, default 3: harness runs below the root with a turn running or
+parked on a person), and — so a coding agent's own commands have room —
+**`<sandbox> runs N commands (its limit is M) — a coding agent needs
+room`** when the sandbox's running execs would exceed its manager's
+`limits.execsRunning` − 4. `subagent_message` to a coding agent queues an
+`hprompt` sent as is (no `[message from your parent run …]` wrapper) and
+answers `steered into #N's running turn` (it steers), `queued until #N's
+current turn ends` (it doesn't), `sent as #N's next prompt` (idle; a new
+link, so its answer comes back), or — while it waits for a person —
+`queued: #N is waiting for a person to approve: <title> — it gets your
+message once they have`: the parent's message never answers a child's
+permission or question (a person's reply would reject it; the agent's
+waits). `subagent_status`/`_wait`/`_result`/`_cancel` work as for any
+subagent; a coding agent's digest line is `#N <label> — <phase> for <time>,
+harness <provider> · N tool calls · $0.40` (the cost when the coding agent
+reports one), with `waiting for a person to approve: <title>` / `to
+answer: <question>` / `to sign in` below it, and in detail `doing:
+<activity>`, its last calls (by their summaries) and its latest text. The
+parent model is never offered a child's permission: a park goes to people
+(Needs, push, the child card). **A person's direct message** (`POST
+/runs/{child}/message` or `/answer` by a person, not the parent agent) is
+told to the parent as a notice (an `hnote`, kept apart from the inbox) —
+`[direct message to #<child> (<name>) from <user>]\n<message>` — delivered
+as a user-role message at the parent's next step boundary, or before its
+next turn's first message, among what was queued for it then; it never
+starts a turn, isn't a request of the task ledger, and isn't work for
+`hasWork` — an older build never sees it, so a notice an idle parent keeps
+never wakes that build either.
+
+**The agent's coding agents (the UI).** A coding agent the agent started
+(`subagent_spawn` with `harness`, D147 §4.4) is drawn where the spawn
+call is as its own card instead of the subagent card (`harness-child.js`,
+`native/harness-child.js`): its monogram and name, the link's label, `#id`
+and state; what it does now (its `harness.activity`, a park, its answer's
+first line); where it works (`▣ sandbox:cwd`) and its counters (`counts`,
+`usage.cost`, the time since its link was made). The card reads no route
+for that — its summary is the link's `child` with the run and `harness`
+events since. A park — a permission, a plan approval, a question, a
+sign-in — is drawn on the card and answered on the **child's** run
+(`POST /runs/{child}/approve`, `…/harness/answer`, `…/harness/authenticate`;
+the app opens the card while it waits, and signs in from the child's own
+chat). Opened, the card shows the task, the plan and the child's last 3
+blocks — read once, as its newest page (`GET /runs/{child}/view?limit=8`),
+when the card is open and on screen, then kept current by the stream; a
+read that fails says why ("Couldn't read its latest steps: …") with
+**Retry** (the app: open the card again) and is tried again by itself only
+after a while (15 s, doubling to 2 min; 2 s once an event says the child
+moved; at once after a stream reset), never at every repaint — and
+its answer. **Stop** (`POST /runs/{child}/interrupt`), **Cancel** (confirmed;
+`POST /runs/{child}/cancel`) and **Message** (`POST /runs/{child}/message`;
+Enter queues or steers, ⌘/Ctrl+Enter or Send now adds `interrupt: true`)
+act on the child from its card (the app: from its own chat — its composer,
+Stop, ⋯ → Cancel task). A person's message to a coding agent the agent
+started is told to that agent (`[direct message to #<child> (<name>) from
+<who>]`, D147 §4.3.13), which its chat shows as a folded notice once it
+is delivered. A conversation row says `?` while it or a run below it waits
+(`waiting`) and `⧉ N` for the coding agents at work below it (`kids.harness`).
+
+**The Coding agents board (the UI).** Every coding agent in the open
+conversation's tree — at home, every one of yours that runs or needs you:
+your coding-agent conversations and those the agent started below your
+conversations — in one place (`harness-board.js`, `native/harness-board.js`;
+the rows are `app.board`'s, `model/harness-board.js`). The top bar's chip
+(the app: a toolbar button while one needs you, ⋯ → Coding agents in a
+conversation and in the main menu at home)
+says "⌨ 3 coding agents · 1 needs you" and opens it: on the web a dock at
+the right (over the chat in a narrow window), rows in the order they
+started — never re-sorted as they change — each a child card as above (its
+park answered in place, on its own run; Open ↗, Stop, Cancel, Message),
+with a "needs you" filter; in the app a screen with sections Needs you,
+Running and Done (a row's swipe: Stop, Message, Cancel task). The board
+reads `GET /runs/{root}/tree` (D147 §4.3.6's harness nodes) once something says a
+coding agent is there — the row's `kids`, a link held — and again only when
+the stream names a run or link the tree lacks; the rest is the links the
+tile holds and the run, link and `harness` events. At home, whose stream
+follows the run list only, it reads the trees of the rows with `kids.harness`
+(the first 12) and again when their root's row changes. A parked row whose
+summary has only the compact `harness.pending` reads the child's newest page
+(`?limit=8`) once (a failed read waits, as the card's), so its park can be answered there. The unfolded 📌 Task
+lists what it **Delegated** — each coding agent below the run, its state, its
+task (the spawn's) and a way to its chat (the app: a section of the Task
+screen). "Needs you" says `login` as "needs you to sign in to ‹name›" when
+the item names the coding agent (its own `harness`, or its conversation's).
+
+**Testing coding agents.** `hack/harness-smoke.sh` runs, in about a
+minute and with no sandbox, the ACP client and its scripted fake adapter
+(`sdk/acp`, `sdk/acp/acptest` — `hack/fakeacp`) and this template's engine,
+pipe, catalog and relays against fakesandbox with that adapter.
+`HARNESS_SMOKE_LIVE=1` adds the live check (`test/isolated`
+`TestHarnessLive`): an isolated xbind with owner auth, coding-sandbox on its
+runtime and this template bound to it, a sandbox with internet egress; the
+rootfs's Claude Code, Codex, Gemini CLI and opencode adapters each go
+through `initialize` and `session/new` to a sign-in park (or an answer —
+opencode has free models), and the fake adapter (copied into the sandbox,
+advertised by the image as `fake`) through a terminal sign-in on the run
+relay, a permission, the stdio pipe and a redeploy of this backend
+mid-turn, which the next process attaches to. It prints what each real
+adapter did (`adapter <id>: …`: its sign-in methods, its login command and
+what that shows in a terminal). `HARNESS_SMOKE_VM=1` repeats it with VM
+sandboxes; `HARNESS_LIVE_ONLY=claude,codex` narrows the adapters. The real
+adapters reach outside services (opencode's model answers; codex asks
+OpenAI for a device code), so `make integration` runs `TestHarnessLive`
+with the fake adapter only unless `XBIN_HARNESS_LIVE=1` (which the smoke's
+live step sets). It needs
+user namespaces, the base rootfs (`make rootfs`) and `bin/`'s helpers, and
+takes about a minute more. To try an adapter of your own, advertise it on a
+coding-sandbox image (`harnesses: [{id, title, argv, login}]`, §Coding
+agents "The catalog").
 
 ## The frontend: one model, thin views
 
@@ -2085,7 +2755,7 @@ the same model.
 | `model/` | What it holds |
 |---|---|
 | `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the class for new asks (`classes`, `classId`, `pickClass`; `toolset` is its lane), what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
-| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache); a long one held as a run of pages — `loadOlder()`, `keep(lo, hi, canDetach)` (let go of what lies far from the blocks drawn), `loadNewer()`, `latest()`, `follow(atBottom)` |
+| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache); a long one held as a run of pages — `loadOlder()`, `keep(lo, hi, canDetach)` (let go of what lies far from the blocks drawn), `loadNewer()`, `latest()`, `follow(atBottom)`; `failed` (`Failures`: a card's child whose read failed — `loadChild` and `loadTail` wait before reading it again; `ui.readError(id)` says why, `ui.act.retryRead(id)` is the card's Retry) |
 | `fold.js`, `tool-heads.js` | a run's view → chat blocks (with a `FoldCache`, only the blocks whose message, result, step, link or subagent changed are rebuilt; the rest come back as the same objects); a tool call's headline, family and state |
 | `conv-list.js`, `conv-groups.js` | the conversation list: paging, search, pins, read state, live updates; date groups |
 | `stream.js` | the live connection (`GET /stream`, resumable) |
@@ -2096,8 +2766,16 @@ the same model.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
-| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `harness.js`, `harness-heads.js`, `harness-store.js` | coding agents (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — §Coding agents): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
+| `harness-manage.js` | the Coding agents catalog as the managers' view says it (`catalogRows`, `modesWords`, `probeTargets`); the class editor's toolset and checklist are `classes.js`'s (`harnessNames`, `harnessWhy`) |
+| `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
+| `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
+| `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 | `homes.js`, `home-api.js`, `moves.js` | a partitioned instance's two homes (a person's own partition, the shared space): a conversation's home by its id, calls and streams sent there; a shared conversation that moved to your own space, followed (`movedTo`) |
+| `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once; `tailError`: why they couldn't be), and a row's coding agents at work below it (`kidsWords`) |
+| `harness-board.js` | the Coding agents board: `app.board` (`createBoard`, wired by `createApp`) — `rows(root)` (a conversation's tree, or at home yours at work: each row a child card and its section), `chip(root)`, `delegated(v)`, `take(ev)`; the words (`chipWords`, `filterWords`, `sectioned`, `emptyWords`, `delegatedWords`) |
+| `terminals.js` | the terminal dock's tabs (`termsOf(app)`: open, show, hide, close, a New shell in place — page-level, not a conversation's), a coding agent's run relay (`runTerminalSrc`), and the sign-in card (`signIn`): a login park's methods, the sandbox whose home the credentials land in, whether it is shared (a confirm), whom to ask, and whether that sandbox is gone or its manager down (`gone`, `goneText`) |
 
 `createApp({deltas, page})`: drafts arrive as deltas (`/stream?deltas=1`,
 "Deltas" above) and the open conversation is read in pages (`?limit=`,
@@ -2131,8 +2809,82 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
 | `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
 | `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the ▣ in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
+| `native/terminal.js` | the Terminal screen (the app's `terminal` on the tile's relays) and a coding agent's sign-in: the notice, Sign in in the composer and ⋯, the Sign in screen |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
+| `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
+| `native/harness-start.js` | starting with a coding agent: "Who answers" at the top of the home page, the home's setup notice, the new-chat sheet's section, and a coding agent's chip, plan and context at the start of the conversation's subtitle |
+| `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, and the Progress screen (`plan`; the plan's progress and the context in use start the subtitle: `native/harness-start.js`) |
+| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); ⋯ → Coding agent settings (the main menu: home's and the drawer's) → your setting per harness |
+| `native/harness-child.js` | a coding agent the agent started, as the spawn's `toolcard` in the parent's chat (its park inside it, answered on the child's run), and Cancel task in a harness child's own ⋯ |
+| `native/harness-catalog.js` | Settings → Coding agents (the managers' catalog: `model/harness-manage.js`) |
+| `native/harness-board.js` | the Coding agents board: its screen (sections Needs you, Running, Done; a row's swipe Stop, Message, Cancel task; a parked row's approval or question), the Message screen, the toolbar button and ⋯ item, the Task screen's Delegated section |
+
+**Seams.** A feature can land as a module of its own instead of edits to the
+views' hot files: it registers hooks on a view's seams when imported —
+`web-ext.js` (`ext.register({block, end, top, paint, newChat, task})`;
+`ctx.app`, `ctx.paint()` once agent.js starts) for the web, imported from
+`harness-web.js`; `native/ext.js` (`block`, `end`, `toolbar`, `subtitle`,
+`menu`, `main`, `composer`, `newChat`, `screen`, `task`; the native `ctx`
+as before) for the native view, imported from `native/harness-all.js`. A hook answers a template, or
+null when the block, run or screen isn't its: `block` replaces the built-in
+card of a transcript block, `end` adds to the end of the transcript (a
+coding harness's park is then its to draw), `top`/`toolbar`/`menu` add
+controls (`main`: the main ⋯ menu — home's and the drawer's), `subtitle`
+words for a conversation's subtitle, `composer` a placeholder, slash commands and buttons, `newChat`
+a field of the new-chat dialog and its part of the ask, `screen` a pushed
+native screen of its own kind, `task` a part of the unfolded pinned task
+(the native Task screen). Each file's header says the signatures; a
+hook that throws is logged and skipped. An instance can add modules of its
+own the same way. The coding harnesses' UI is built on them, tested
+against the STUB's harness routes and `test/harness-fixtures.mjs` — which
+may use only what the real backend produces: `_backend/testdata/
+harness_shapes.json` records every shape's key paths and JSON types
+(`TestHarnessShapes` makes the backend produce them and fails when it stops
+producing one; regenerate the file as its header says), and
+`hack/agent-template-harness-shapes.test.mjs` fails on a path a fixture or
+the STUB serves that the file lacks.
+
+**A coding agent's transcript** (`harness-cards.js` on the web,
+`native/harness-cards.js`; the words are `model/harness-heads.js` and
+`model/harness.js`). Each `acp:<kind>` call is a card of its kind, drawn
+from its tool row's `acp`: a command (the command, its output without
+colour codes — the last 20 000 characters, all of it on asking — and the
+exit code), an edit (a row per file, `+a −d`, unfolding to its patch; the
+web highlights patches with xbind's `/vendor/bx-code.js` when the page can
+import it, else draws them plain; native uses `diff`), read, search, fetch,
+delete, move, think, switch_mode and other; its chip says pending, running,
+needs approval, failed or cancelled, and a failed one opens by itself. A
+Claude Task's steps and text sit inside its card (the fold's `kids`); one
+whose Task is paged out shows flat, marked ↳. The top bar (native: a
+subtitle, and ⋯ → Progress) carries the context in use and the cost,
+what the conversation changed (`counts`), and the 📋 plan, pinned under the
+task (unfolding to its entries); all follow the `harness` stream event.
+
+**A coding agent asking and driven** (`harness-ask.js` and
+`harness-controls.js` on the web, `native/harness-ask.js`; the words
+`model/harness-ask.js`). Its park (`pendingState.harness`) is drawn at the
+end of the chat — the `end` seam, only for a permission or a question: the
+harness's own options as buttons, reject first when it defaults to no; an
+option with `explicit` (it raises the session to a bypass mode) only for the
+conversation's owner, a person, marked ⚠ and confirmed; the call's title,
+command and a diff preview; what `allow_always` would remember; an optional
+word sent with a rejection (`POST /runs/{id}/approve {park, option,
+feedback?}`). A plan approval shows the plan and a "keep planning" box (the
+feedback of its rejection). A question is a form from its schema (Submit:
+`POST /runs/{id}/harness/answer {park, action: "accept", content}`; Skip:
+`decline`); url mode shows the page, then Done. The web's `#hctl` (the last of
+the composer's pickers) switches the live mode and config options (`PATCH
+/runs/{id}/harness {mode}` / `{option: {id, value}}`; a bypass mode ⚠, the
+owner's only, confirmed) and holds your Auto / Always approve for the
+harness (`PUT /prefs/harness-mode/{id}`) — at home, for the harness that
+answers new chats; the built-in model picker hides in a harness
+conversation. Typing `/` offers its advertised commands. While a turn runs
+the placeholder says whether a message steers it or waits for it, the
+queued chips say so too, a message steered into the turn is said for a
+moment, and ⌘/Ctrl+Enter sends it with `interrupt: true` (`app.send(text,
+clear, {interrupt: true})`; the native composer's Send now). Native: the
+toolbar's Mode menu (the options but the model too) and Model picker, ⋯ → Coding agent settings (the main menu) for your setting.
 
 **Customising an instance.** A persona or domain changes `HOME` in
 `model/home.js`. The web files keep their names, and the modules that moved

@@ -15,5 +15,17 @@ export const HOME = {
   placeholder: 'ask anything…',
 };
 
-// REASON: why a conversation is in "Needs you" (GET /needs items[].reason).
-export const REASON = { question: 'has a question for you', approval: 'wants your approval', failed: 'failed' };
+// REASON: why a conversation is in "Needs you" (GET /needs items[].reason);
+// login: a coding agent in it waits for you to sign in (D147 §4.3.9).
+export const REASON = { question: 'has a question for you', approval: 'wants your approval', failed: 'failed', login: 'needs you to sign in' };
+
+// needWords: an item's reason in words — a sign-in names the coding agent
+// when the item says which (its own `harness`, or its conversation's when
+// that is the one waiting): "needs you to sign in to Codex".
+export function needWords(n) {
+  if (n.reason !== 'login') return REASON[n.reason] || n.reason;
+  const own = !n.subRun || n.subRun === (n.run && n.run.id);
+  const h = n.harness || (own && n.run && n.run.harness) || null;
+  const name = h && (h.name || h.provider);
+  return name ? `${REASON.login} to ${name}` : `a coding agent ${REASON.login}`;
+}

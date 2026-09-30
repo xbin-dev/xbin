@@ -829,6 +829,7 @@ PASSES.oldScaffold = require('./passes/oldscaffold').oldScaffold; // I1: the las
 PASSES.personPageAsked = require('./passes/personpageasked').personPageAsked; // I1: F11's asked consents, allowed on the page
 PASSES.agentMoves = require('./passes/agentmoves').agentMoves; // AF: an un-shared conversation moves home (HARNESS_AGENT_PARTITION=1)
 PASSES.agentHosted = require('./passes/agenthosted').agentHosted; // B2d: non-secure (hosted) chats, HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
+PASSES.agentHarness = require('./passes/agentharness').agentHarness; // D147: coding agents in the agent template (not under HARNESS_ISOLATE: its fake adapter is a host path)
 
 (async () => {
   const args = process.argv.slice(2);

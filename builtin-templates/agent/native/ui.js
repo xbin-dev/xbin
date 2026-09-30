@@ -5,6 +5,8 @@
 // helpers every native screen uses. No lit, no DOM: native.js draws with
 // /vendor/xb-native.js, and node tests run it against a stubbed backend.
 import { homeOf } from '../model/homes.js';
+import { ext } from './ext.js';
+import { ACP_NATIVE_ICON } from '../model/harness-heads.js';
 
 // The state that is the view's, not the model's.
 export const ui = {
@@ -21,8 +23,9 @@ export const ui = {
   err: '',          // the last failure, said at the top of the screen on top
 };
 
-// The model and the repaint, set once by native.js.
-export const ctx = { app: null, paint: () => {} };
+// The model and the repaint, set once by native.js; the seams feature
+// modules draw through (native/ext.js).
+export const ctx = { app: null, paint: () => {}, ext };
 
 // fail says why something did not work (the web's alert(); a notice here).
 let errT = null;
@@ -64,6 +67,7 @@ export const when = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: '
 export const FAMILY_ICON = {
   net: 'network', web: 'globe', file: 'file', code: 'code', mem: 'database', note: 'pencil', skill: 'star',
   time: 'clock', agent: 'branch', done: 'check', ask: 'question', mcp: 'gear', box: 'terminal', other: 'wrench',
+  ...ACP_NATIVE_ICON, // a coding harness's families (model/harness-heads.js)
 };
 
 // A tool card's state (model/fold.js) as the chat family says it, and the

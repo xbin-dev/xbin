@@ -21,6 +21,7 @@
 // pages (API.md); images come as sized thumbnails the app loads itself.
 import { html, render, repeat, native } from '/vendor/xb-native.js';
 import { createApp } from './model/app.js';
+import { RELAY } from './model/sandboxes.js';
 import { ui, ctx, fail, nextFrame } from './native/ui.js';
 import { chatScreens, chatDrawn } from './native/chat.js';
 import { homeScreen } from './native/home.js';
@@ -30,6 +31,7 @@ import { sandboxAskSheet } from './native/sandboxes.js';
 import { hostedWarnSheet } from './native/hosted.js';
 import { toolScreens, treeDirty, openRender, openLive } from './native/tools.js';
 import { autoScreens } from './native/auto.js';
+import './native/harness-all.js'; // the coding harnesses' modules (their hooks on ctx.ext, native/ext.js)
 
 const visible = () => (globalThis.document?.visibilityState ?? 'visible') === 'visible';
 
@@ -43,6 +45,7 @@ function route(h) {
 
 const app = createApp({ deltas: true, page: 50, route, visible, frame: nextFrame });
 ctx.app = app;
+app.sbx.tty = RELAY; // terminals through the tile's own relay (native/terminal.js: the app's terminal dials only the tile's routes)
 
 // --- painting ------------------------------------------------------------------
 

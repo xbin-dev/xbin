@@ -1,8 +1,9 @@
 // native/settings.js — the managers' settings, as pushed screens: the config
 // (a model per tier, the base system prompt, limits, behaviour), the feature
-// switches, the classes (classes.js), the skill library (tools.js) and the
-// MCP servers bound. The web's agent.js draws the same as the ⚙ panel's
-// tabs, over the same calls (model/actions.js).
+// switches, the classes (classes.js), the coding agents (harness-catalog.js,
+// a seam's screen), the skill library (tools.js) and the MCP servers bound.
+// The web's agent.js draws the same as the ⚙ panel's tabs, over the same
+// calls (model/actions.js).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import * as actions from '../model/actions.js';
 import { ui, ctx, push } from './ui.js';
@@ -27,6 +28,7 @@ function settingsTpl() {
       <row title="Features" icon="bolt" nav @tap=${() => push({ kind: 'features' })}/>
       <row title="Classes" subtitle="which tools a conversation gets" icon="shield" detail=${app.classes ? String(app.classes.classes.length) : nothing}
         nav @tap=${() => push({ kind: 'classes' })}/>
+      <row title="Coding agents" subtitle="which ones, where, and who may start them" icon="terminal" nav @tap=${() => push({ kind: 'harnesses' })}/>
       <row title="Skills" icon="star" nav @tap=${() => push({ kind: 'skills' })}/>
       <row title="MCP servers" icon="server" detail=${String(n)} nav @tap=${() => push({ kind: 'mcp' })}/>
     </section>

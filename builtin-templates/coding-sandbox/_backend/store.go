@@ -316,6 +316,22 @@ func (s *store) config() (Config, error) {
 	if err := json.Unmarshal([]byte(v), &c); err != nil {
 		return defaultConfig(), err
 	}
+	// A saved image has the harnesses it was saved with: none when saved
+	// without (before harnesses, too) — never the default image's, which
+	// decoding into the default's slice would leave in the first one.
+	var saved struct {
+		Images *[]struct {
+			Harnesses []Harness `json:"harnesses"`
+		} `json:"images"`
+	}
+	if json.Unmarshal([]byte(v), &saved) == nil && saved.Images != nil {
+		for i := range c.Images {
+			c.Images[i].Harnesses = nil
+			if i < len(*saved.Images) {
+				c.Images[i].Harnesses = (*saved.Images)[i].Harnesses
+			}
+		}
+	}
 	// A config saved without a mode was saved while "" meant auto (the
 	// default before "vm"): it keeps meaning that.
 	var keys map[string]json.RawMessage

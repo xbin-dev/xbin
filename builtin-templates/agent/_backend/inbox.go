@@ -55,6 +55,17 @@ type inboxBody struct {
 	Mark    int  `json:"mark,omitempty"`
 	Open    bool `json:"open,omitempty"`
 	Changed bool `json:"changed,omitempty"`
+	// Jump, on a coding agent's prompt (hprompt) sent with interrupt: it
+	// goes before the ones queued earlier (harness_pass.go).
+	Jump bool `json:"jump,omitempty"`
+	// Option is the harness permission option an approve row picks (an
+	// optionId of pendingState.harness.options; "" with approve false: the
+	// cancelled outcome). Action and Content are an hanswer row's answer to
+	// a coding agent's question: accept (with the form's values) | decline |
+	// cancel (D147 §4.2.5, §4.2.9).
+	Option  string          `json:"option,omitempty"`
+	Action  string          `json:"action,omitempty"`
+	Content json.RawMessage `json:"content,omitempty"`
 }
 
 type InboxRow struct {
@@ -127,7 +138,7 @@ func (d *DB) setInboxBody(id int64, b inboxBody) {
 
 // removeQueued takes back a message that has not been delivered yet.
 func (d *DB) removeQueued(runID, id int64) (removed, exists bool) {
-	res, err := d.q.Exec(`DELETE FROM inbox WHERE id=? AND run_id=? AND kind='user' AND delivered_at=0`, id, runID)
+	res, err := d.q.Exec(`DELETE FROM inbox WHERE id=? AND run_id=? AND kind IN ('user','hprompt') AND delivered_at=0`, id, runID)
 	if err == nil && rowsAffected(res) == 1 {
 		return true, true
 	}
@@ -140,7 +151,7 @@ func (d *DB) removeQueued(runID, id int64) (removed, exists bool) {
 // not yet delivered to the model.
 func (d *DB) queuedView(runID int64) []map[string]any {
 	out := []map[string]any{}
-	for _, r := range d.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind='user' ORDER BY id`, runID) {
+	for _, r := range d.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind IN ('user','hprompt') ORDER BY id`, runID) {
 		out = append(out, map[string]any{"id": r.ID, "text": r.Body.Text, "files": r.Body.Files,
 			"source": r.Body.Source, "sender": r.Body.Sender, "created": r.Created})
 	}
@@ -197,7 +208,7 @@ func (ag *Agent) queue(runID int64, kind string, body inboxBody, clientID string
 		if err != nil {
 			return err
 		}
-		if kind == inboxUser && ag.eng != nil {
+		if (kind == inboxUser || kind == inboxHPrompt) && ag.eng != nil {
 			if r, err := t.getRun(runID); err == nil {
 				ag.eng.emitInbox(t, rootOf(r), runID)
 			}
@@ -216,6 +227,9 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		Text     string   `json:"text"`
 		Files    []string `json:"files"` // session-file paths uploaded for this message
 		ClientID string   `json:"clientId"`
+		// Interrupt stops a coding agent's running turn first (the message
+		// is its next prompt); ignored on a built-in run (D147 §4.2.10).
+		Interrupt bool `json:"interrupt"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	body.Text = strings.TrimSpace(body.Text)
@@ -238,7 +252,21 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sender := callerOf(r).user
-	iid, _, err := agent.queue(id, inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}, body.ClientID)
+	kind, in := inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}
+	if run.Engine == engineHarness { // a coding agent's prompt (harness_pass.go)
+		kind, in.Jump = inboxHPrompt, body.Interrupt
+		if body.Interrupt {
+			agent.interruptHarness(run)
+		}
+	}
+	iid, dup, err := agent.queue(id, kind, in, body.ClientID)
+	if c := callerOf(r); err == nil && !dup && run.Engine == engineHarness && run.ParentID != 0 && c.kind == whoUser && c.viewedBy == "" {
+		// a person's word to a coding agent the agent started: its parent is
+		// told at its next step (D147 §4.3.13, harness_spawn.go)
+		if nerr := agent.db.Tx(func(t *DB) error { return agent.noteParentTx(t, run, c.user, body.Text, body.Files) }); nerr != nil {
+			logf("run #%d: telling its parent about a direct message: %v", id, nerr)
+		}
+	}
 	if err == nil {
 		agent.db.bumpActivity(id)
 		if run, err := agent.db.getRun(id); err == nil {
@@ -254,7 +282,10 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 
 // handleApprove is a verdict on a parked approval.
 //
-//	POST /runs/{id}/approve {approve, grant?: "once"|"hour", park?}
+//	POST /runs/{id}/approve {approve, grant?: "once"|"hour", park?, option?, feedback?}
+//
+// A coding agent's park (pendingState.harness) is answered with one of its
+// own options (harnessVerdict: option, feedback — D147 §4.2.9).
 //
 // A parked call that needs a grant (pendingState.grant, grants.go) is the
 // conversation owner's to allow — anyone who may steer it may still deny it;
@@ -265,9 +296,11 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 func handleApprove(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	var body struct {
-		Approve bool
-		Grant   string
-		Park    string
+		Approve  bool
+		Grant    string
+		Park     string
+		Option   string
+		Feedback string
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	run, err := agent.db.getRun(id)
@@ -285,6 +318,14 @@ func handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := callerOf(r)
+	if p.Harness != nil {
+		approveHarness(w, c, run, p, body.Approve, body.Option, body.Feedback)
+		return
+	}
+	if body.Option != "" {
+		xbin.WriteError(w, 400, "option is for a coding agent's permission request")
+		return
+	}
 	verdict := inboxBody{Approve: body.Approve, Sender: c.tag(), Park: p.Park}
 	if p.Grant != "" && body.Approve {
 		root := run
@@ -336,7 +377,7 @@ func handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	}
 	err = agent.db.Tx(func(t *DB) error {
 		for _, q := range t.undelivered(id) {
-			if q.Kind == inboxUser && q.Body.Source == "human" && mine(q.Body) {
+			if (q.Kind == inboxUser || q.Kind == inboxHPrompt) && q.Body.Source == "human" && mine(q.Body) {
 				if ok, _ := t.removeQueued(id, q.ID); ok {
 					returned = append(returned, map[string]any{"text": q.Body.Text, "files": q.Body.Files})
 				}
@@ -409,8 +450,17 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 // do it, so the response still means "done".
 func handleCompact(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	if _, err := agent.db.getRun(id); err != nil {
+	run, err := agent.db.getRun(id)
+	if err != nil {
 		xbin.WriteError(w, 404, "no such run")
+		return
+	}
+	if run.Engine == engineHarness && !harnessHasCommand(run, "compact") { // D147 §4.2.11
+		name := "the coding agent"
+		if h := harnessSummaryOf(run); h != nil {
+			name, _ = h["name"].(string)
+		}
+		xbin.WriteError(w, 409, name+" has no /compact")
 		return
 	}
 	iid, _, err := agent.queue(id, inboxCompact, inboxBody{}, "")
@@ -430,6 +480,9 @@ func handleLearn(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	if _, err := agent.db.getRun(id); err != nil {
 		xbin.WriteError(w, 404, "no such run")
+		return
+	}
+	if refuseOnHarness(w, id, "a coding agent can't learn a skill") { // D147 §4.2.11
 		return
 	}
 	if _, _, err := agent.queue(id, inboxUser, inboxBody{Text: learnPrompt, Source: "learn"}, ""); err != nil {
@@ -492,7 +545,7 @@ func (ag *Agent) cancelRuns(t *DB, id int64, subtree bool, reason string) []int6
 	var stopped []int64
 	for _, rid := range targets {
 		r, err := t.getRun(rid)
-		if err != nil || !active(r.Status) {
+		if err != nil || (!active(r.Status) && !t.harnessAdapterUp(r)) {
 			continue
 		}
 		if _, _, err := t.enqueue(rid, inboxCancel, inboxBody{Reason: msg}, ""); err == nil {

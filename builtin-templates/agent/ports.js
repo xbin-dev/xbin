@@ -32,7 +32,7 @@ export function makePorts(app, { openLive, repaint }) {
   };
   // tpl(b): the section for the badge b (model/sandboxes.js sandboxBadge); close closes the popover.
   function tpl(b, close) {
-    if (!b.canChange || app.sel == null) return nothing; // participants only, as the routes
+    if (!b.talk || app.sel == null) return nothing; // participants only, as the routes (a coding agent's fixed sandbox too)
     if (st.run !== app.sel) { st.run = app.sel; st.list = null; st.probe = null; }
     const open = (det) => { close?.(); openLive(det); };
     return html`<div class="field sbxports" id="sbx-ports"><label>Ports — live previews, and what a port answers now</label>

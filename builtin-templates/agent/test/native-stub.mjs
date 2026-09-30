@@ -4,6 +4,9 @@
 // native ones. The stub's own routes answer; this adds what only the native
 // view asks for (paged views, deltas on the stream are the stub's SSE as is)
 // and the seed's extra routes: seed.routes = [[method, regexp source, json, status?]].
+// Coding-harness conversations: seed = harnessSeed() (harness-fixtures.mjs),
+// the same seed the web tests use; native-ext-probe.mjs wraps this setup
+// with a module hooked into every native seam.
 //
 //   runNative({entry: 'native.js', data: {setup: '<this file>', seed}, steps: [{call: ['push', ev]}, …]})
 //

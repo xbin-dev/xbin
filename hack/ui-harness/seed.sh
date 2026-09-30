@@ -195,7 +195,8 @@ say "the builtin sandbox manager on its test backend: apps/coding-sandbox (the c
 # switches its config to it and binds it to the agent beside apps/fakesbx.
 api POST /templates/new '{"source":"coding-sandbox","path":"apps/coding-sandbox"}' | head -c 300; echo
 CS="$WS/apps/coding-sandbox"
-for f in backend exec files tty; do cp "$REPO/builtin-templates/coding-sandbox/_backend/fake_${f}_test.go" "$CS/_backend/fake_${f}.go"; done
+# (every fake_*_test.go: the fake grows a file per contract part — stdio came after tty)
+for f in "$REPO"/builtin-templates/coding-sandbox/_backend/fake_*_test.go; do b=${f##*/}; cp "$f" "$CS/_backend/${b%_test.go}.go"; done
 sed -i 's|"db": { "type": "sqlite" }|"db": { "type": "sqlite" }, "boxes": { "type": "filesystem" }|' "$CS/scope.json"
 # (a copy's xbin.json is plain JSON: the template block and comments go)
 python3 - "$CS/xbin.json" <<'PY'

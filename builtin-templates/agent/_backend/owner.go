@@ -90,10 +90,10 @@ type holder struct {
 	done   bool
 }
 
-// updateHoldLocked (e.mu held) wants the hold while any actor runs or any
-// timer is armed.
+// updateHoldLocked (e.mu held) wants the hold while any actor runs, any
+// timer is armed or any coding agent is driven (its idle reclaim is ours).
 func (e *Engine) updateHoldLocked() {
-	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0)
+	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0 || len(e.harness) > 0)
 	e.hold.set(want)
 }
 
