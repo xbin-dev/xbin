@@ -193,7 +193,7 @@ export const IMPLEMENTS = {
   'state.partition.hidden': 'model/stream.js — Live.visibility',
   'state.partition.mcp': 'native/settings.js — mcpTpl',
   'state.partition.hosted': 'native/hosted.js — the warning as a sheet the first time (hostedWarnSheet, native.js) and heading the transcript, the composer\'s lock and buttons (native/chat.js), the row\'s ⚠ (native/convs.js) — model/hosted.js',
-  'state.partition.harness': 'model/harness-homes.js — native/harness-start.js (agentPicker, sandboxOptions, setupOf), native/terminal.js (signIn away: the notice alone, no Sign in; runTerminalSrc at the run\'s home), native/harness-child.js, native/convs.js row menu (model/rules.js), model/harness-store.js call; a shared new chat is the web\'s (state.partition.newShared)',
+  'state.partition.harness': 'model/harness-homes.js — native/harness-start.js (agentPicker, sandboxOptions, setupOf), native/terminal.js (signIn away: the notice alone, no Sign in; runTerminalSrc at the run\'s home), native/harness-child.js, native/convs.js row menu and native/chat.js composer (model/rules.js: keepsHome, barredWhy), native/harness-ask.js controls (barredWhy), native/share.js (unshareWhy), model/harness-store.js call; a shared new chat is the web\'s (state.partition.newShared)',
 
   // Deep links
   'link.conv': 'native.js — app.follow(location.hash, xbin.native.state) (model/router.js)',
