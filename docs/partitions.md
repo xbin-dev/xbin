@@ -272,8 +272,14 @@ bus events. The two sides talk through:
 - **a user partition calling its own global instance.** A person's frame,
   terminal or partition backend may call the tile's global instance, and the
   call arrives there **as that person**: `X-XBin-User` is the person,
-  `X-XBin-User-Level` their level on the tile, `X-XBin-Role` clamped to it,
-  and `X-XBin-Partition: user:<id>` — never the tile calling itself. In Go,
+  `X-XBin-User-Level` their level on the tile, `X-XBin-Role` clamped to it
+  (`reader` for read, `writer` for write or terminal — never `admin`), and
+  `X-XBin-Partition: user:<id>` with its `X-XBin-Partition-Id` — never the
+  tile calling itself, even from the partition's backend. A person calling
+  the tile directly may do the same, as themselves. Other tiles, cron and
+  bus deliveries and path tickets can't (403), and a tile without a global
+  instance answers 404 ([protocol.md](protocol.md) §HTTP routes › Core has
+  every refusal). In Go,
   `xbin.Client().Get(xbin.GlobalURL("runs/42"))`; in a frame,
   `` xbin.fetch(`/api/${xbin.self}/runs/42`, {partition: 'global'}) ``. Both
   add `?xbin-partition=global`, and only in a user partition; elsewhere they
@@ -469,7 +475,7 @@ and restoring one on another machine needs the exported backup keys.
   `switch`/`keep`, the admin tile's Partitions section, the shell's marker
   and its Keep/Switch overlay;
 - sealed backups, backup keys and disaster recovery;
-- the wire reference in [protocol.md](protocol.md) for
-  `?xbin-partition=global` and the partitions API (the headers, the
-  `xbin-partition` meta, `XBIN_PARTITION`, which partition each credential
-  acts in and the API's partition classes are there).
+- the wire reference in [protocol.md](protocol.md) for the partitions API
+  (the headers, the `xbin-partition` meta, `XBIN_PARTITION`,
+  `?xbin-partition=global`, which partition each credential acts in and the
+  API's partition classes are there).

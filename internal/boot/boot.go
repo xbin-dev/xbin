@@ -565,6 +565,11 @@ func (st *State) stepProxy() error {
 	px.Route = func(p auth.Principal, c *registry.Component, q string) proxy.Decision {
 		return proxy.Decision(brk.Route(p, c, q))
 	}
+	// …and one that addresses a partitioned tile's global instance
+	// (?xbin-partition=global, plans/partitions/05 §6).
+	px.RouteGlobal = func(p auth.Principal, c *registry.Component, q string) proxy.Decision {
+		return proxy.Decision(brk.RouteGlobal(p, c, q))
+	}
 	px.Deployments = st.Deployments
 	st.wirePartitionProxy(px) // user partitions start through the runner's adapter (partitionroute.go)
 	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
