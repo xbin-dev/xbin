@@ -133,10 +133,17 @@ the manager's (never in a sandbox's `caps`):
   was a member of there is the new one's too.
 - **Isolation stops at the sandbox.** Every partition that sees a sandbox
   shares its files, execs and terminals: any of them can list the execs,
-  read their output, attach to a terminal, type into it or end it. A
-  consumer keeps a person's private work in sandboxes homed in that
-  person's partition, never in one its non-personal identity holds or
-  shares with several.
+  read their output, attach to a terminal, type into it or end it — and
+  attach to an exec's stdio socket (`stdio`), which takes the exec's stdin
+  from the socket attached before: a program driven that way, a coding
+  agent, then takes its input from that partition. The sandbox's `home`
+  is shared the same way, with what lands there: a coding agent's sign-in
+  (hello's `harnesses[].login`) leaves its credentials there, so whoever
+  runs that agent in the sandbox afterwards — from any partition that sees
+  it, or in a clone — runs it as the person who signed in, on their
+  account. A consumer keeps a person's private work, and their sign-ins,
+  in sandboxes homed in that person's partition, never in one its
+  non-personal identity holds or shares with several.
 - **Quotas** a manager keeps per consumer count a tile's sandboxes across
   all its partitions; per person, as ever (now verified on a partition's
   calls).
@@ -230,13 +237,21 @@ consumer runs one as a non-`tty` exec with `stdin: true`. Each is
   knows nor has an `argv` for).
 - `login` is a shell command that signs the agent in, for a person at a
   terminal (the `tty` route's `cmd`). Credentials land in the sandbox's
-  `home`, so everyone who may use the sandbox — and its clones — shares
-  them.
+  `home`, so everyone who may use the sandbox — every consumer and
+  partition that sees it (§Partitioned consumers), and its clones — shares
+  them, and runs the agent as the person who signed in. A partitioned
+  consumer offers a person the sign-in only in a sandbox homed in their
+  own partition, where the credentials stay theirs unless they share the
+  sandbox on.
 
 The list is the manager's word about the image, not a probe (an image's
 installs can fail): a consumer may check with `command -v <argv[0]>` through
 `run` before offering one. A missing or empty list says nothing about the
-image — a consumer may probe for the agents it knows.
+image — a consumer may probe for the agents it knows. `login` runs at a
+person's terminal when they sign in and `argv` at every run of the agent,
+beside their credentials, so whoever may set them — the manager's
+operators, whoever may change its code — is in the trust base of every
+person who uses the image's coding agents.
 
 ## The sandbox
 
@@ -670,8 +685,10 @@ manager of its own (its `API.md` has everything):
   the sandbox's definition; the admin's sandbox registry doesn't show
   labels); its quotas per consumer count every partition of the tile.
   Whoever may change the manager's code (its writers, admins) could reach
-  every sandbox it holds: they are in the trust base of every person whose
-  partition uses it.
+  every sandbox it holds, and its operators (the same writers) set the
+  images' `harnesses` commands a person's sign-in and coding agents run
+  (§hello): they are in the trust base of every person whose partition
+  uses it.
 - **Other substrates**: a copy adds a backend (a cloud's API and ssh) in one
   Go file; its `AGENTS.md` says how, and how to run the conformance suite
   against it.
