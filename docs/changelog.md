@@ -12,377 +12,317 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
-- **Agent template: coding agents checked end to end on a real xbind**
-  (the UI harness's `agentHarness` pass: `hack/ui-harness`, a scripted
-  coding agent in `apps/fakesbx`). A coding agent that uses a call id
-  again for a new call once the earlier one ended gets a card of its own
-  (stored as `h<gen>:<id>#<n>`) instead of rewriting the earlier call's
-  (`builtin-templates/agent/API.md` §Coding agents). The chat no longer
-  says a message was "steered into the running turn" when it was sent
-  between turns or started the conversation; a sign-in note follows the
-  message it is about; "Who answers" names the sandbox a coding agent is
-  signed in on (not its id); the terminal dock's header wraps on a narrow
-  window rather than cut off ✕. In the app, a Retry on the Sign in screen
-  (or its login terminal) goes back to the chat, and a question's
-  multiple-choice answers are named for their question. Additive.
-- **Agent template: a coding agent's bypass modes are the owner's by
-  default** (`builtin-templates/agent/API.md` §Coding agents, "The mode and
-  options"). Only a mode the SDK catalog knows never takes a coding agent
-  past its own asks (`acp.Provider.Safe`, new, with `SafeModes`: opencode's
-  `build`/`plan`), or the one it opened its first session in by itself, is
-  anyone's; every other — bypass and full access, a mode a newer adapter
-  adds, any other mode of one the catalog doesn't know — is `explicit` and
-  the conversation owner's: to switch to (`PATCH /runs/{id}/harness`), to
-  start in (`POST /ask` from a person), to allow as a permission's option
-  (by the mode it switches to — Claude Code's plan approval "Yes, and
-  bypass permissions" is `exit-plan-bypass`, which `acp.Provider.OptionModes`,
-  new, maps — and on a plan approval any "allow always" whose mode isn't
-  known). A stored option the coding agent reports as its mode is dropped with a
-  note (`acp.Config.SkipModeOptions`, new). Also: `/cancel` on a
-  conversation whose coding agent is idle stops it (the status stays); a
-  child's answer is its turn's own text (`(no answer)` when it wrote none);
-  a `PATCH` whose mode was taken and option refused keeps the mode;
-  sign-in errors name a coding agent as its manager does; opencode's mode
-  picker shows a mode restored at its start (`sdk/acp`: a `set_mode` at the
-  start also sets the agent's option of category `mode`); a backend that
-  exits with a coding agent running, idle too, leaves its resume job, so
-  the next one takes it over and stops it when idle. **Coding sandboxes**
-  (`builtin-templates/coding-sandbox/API.md` §Images): a new manager's
-  image advertises Claude Code's sign-in as `CLAUDE_CODE_REMOTE=1 claude
-  /login` (a sign-in without a browser redirect); a saved config keeps the
-  one it was saved with.
-- **Agent template: a coding agent's own routes, and where it shows**
-  (`builtin-templates/agent/API.md` §Coding agents, "Its own routes").
-  `GET|PATCH /runs/{id}/harness` (its summary, session and remembered
-  rules; its mode or a config option switched at the running coding agent
-  — **502** in its words, **503** during a handoff — and kept for its next
-  start; an explicit mode only for the conversation's owner), `POST
-  /runs/{id}/harness/answer` (its question) and `…/harness/authenticate`
-  (an API key or a device code, for a person who may use the sandbox, with
-  a confirm on a shared one; the key is never stored, and a device code's
-  page and code are the requester's alone — the answer, their `GET
-  /runs/{id}/harness`, asking again — while the summary's
-  `login.device` says only `{by}`). `/tree` nodes carry
-  `engine` and a coding agent's compact `harness`; conversation rows gain
-  `waiting` and `kids: {harness, waiting}`; `/needs` gains reason `login`
-  and the waiting coding agent's `harness`; `POST /ask`/`/runs` answer
-  with its `harness`. On a coding agent's run memory and `/learn` are
-  **409**, `/compact` **409** unless it offers `/compact`, `PATCH
-  /runs/{id}` `model`/`sandbox`/`detach` **400**; schedules and triggers
-  refuse a `harness` or a coding agent's conversation as `targetRun`
-  (**400**). Additive. `sdk/acp`'s `SetOption` is bounded by its context.
-- **Agent template: the agent starts and steers coding agents**
-  (`builtin-templates/agent/API.md` §Coding agents, "The agent's coding
-  agents (the tools)"). `subagent_spawn` gains `harness` (the coding agents
-  the class allows that the spawn's sandbox offers, reaching out) and
-  `harness_mode` (`approve` | `plan`: it only narrows the conversation
-  owner's own Auto / Always approve): the child is a harness run whose
-  first prompt is the task, and its turn's end answers the spawn like a
-  subagent's. At most `maxHarness` (3) run per conversation tree, and none
-  starts where the sandbox's running commands would come within 4 of its
-  manager's `limits.execsRunning`. `subagent_message` to one is sent as is
-  and says whether it was steered into the running turn, queued until it
-  ends, or sent as the next prompt; its digest reads `harness <provider> ·
-  N tool calls · $cost` and what person it waits for — the agent never
-  answers its permission requests (its message waits for the person). A
-  person's direct message to such a coding agent is told to the agent as a
-  notice (`[direct message to #N (<name>) from <user>]`, kept apart from
-  the inbox, so an older build rolled back to never counts it as work) at
-  its next step, without starting a turn. Additive.
-- **Agent template: a coding agent asks, steers, signs in and rests**
-  (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
-  `POST /runs/{id}/approve` gains `option` (one of the coding agent's own
-  answers; an "always" one is remembered for the conversation; one that
-  raises the session to a bypass mode is the owner's) and `feedback` (with
-  a rejection: your next message). A question parks the run as
-  `pendingState.kind "question"`; a message while something waits rejects
-  (declines) it first; during a turn a coding agent that steers takes the
-  message at its next step. A signed-out coding agent parks the run on
-  `pendingState.kind "login"` with the message kept — Retry (`/resume`)
-  starts a fresh one and sends it again, and signing in through it (an API
-  key, a device code) goes on by itself. An idle coding agent is stopped
-  after the tile's `harnessIdleMin`; one whose sandbox is detached, or may
-  no longer be used, is stopped; a message that may not have reached it
-  fails ("send it again") and is never sent twice; `/interrupt` settles
-  what waits `(interrupted)`. Additive. `sdk/acp` gains `Client.Abandon`
-  (`docs/sdk.md`): a call ends as if the agent had answered an error.
-- **Agent template: a coding agent answers the conversation**
-  (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
-  `POST /ask` and `POST /runs` with `harness: {provider, mode?, options?}`
-  and a `sandbox` start a conversation a coding agent answers — Claude
-  Code, Codex, Gemini CLI, opencode, run over ACP in the sandbox — its
-  messages sent as prompts, each of its tool calls an assistant row and a
-  tool row whose `acp` says what it did (a diff, a command's output), its
-  state in the summary's `harness` and the stream's `harness` event, a
-  permission it asks for a park `POST /runs/{id}/approve` answers. It
-  survives a save or restart of the agent mid-turn — parked on its sign-in
-  or in a turn of its own too, and taken over once its sandbox manager
-  answers when that restarts as well; one the conversation may no longer
-  use by then is stopped and its turn ends. An answer or a question on its
-  way at that moment isn't lost, a device-code sign-in under way still
-  completes, and a message steered into a turn is never sent twice (one
-  whose steer may not have arrived is said so, with a note; `sdk/acp`: a
-  url question accepted never drops out of `State()`). Additive: a run of
-  the agent's own loop answers exactly as before. Rolled back to an older
-  build of the agent (v0.3.64 or before), a coding agent's messages wait, and any
-  turn that build would start in its conversation — one left running or
-  parked, one a person messages — ends at once at its step cap ("stopped
-  after 500 steps in one turn"): a coding agent's run keeps `turnSteps` at
-  that ceiling, so no model call is made; the coding agent itself runs on
-  unwatched in its sandbox until the sandbox stops. A message queued for a
-  coding agent (or an answer to its question) at the rollback is work to
-  that build that it never does: its resume job wakes the tile every
-  minute until the conversation is deleted (the owner may instead run
-  `DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND
-  delivered_at=0` on the agent's database).
-- **Agent template: terminals relayed to the app, and a coding agent's
-  log** (`builtin-templates/agent/API.md` §Coding agents, "Terminal
-  relays and the log"). `GET /runs/{id}/harness/terminal?login=1&rows=&cols=&exec=`
-  (a shell in a coding agent's sandbox at its cwd, or its sign-in command)
-  and `GET /sandboxes/{ref}/terminal?cwd=&cmd=&rows=&cols=&exec=` (any
-  terminal in a sandbox you may use) relay the manager's `tty` to the
-  native view as you, after checking you may use the sandbox yourself;
-  refusals come before the upgrade, as JSON. A terminal a relay started is
-  ended 5 s after its client goes, unless it exited or a client attached to
-  it again (`exec=`). `GET /runs/{id}/harness/log?max=` is the tail of the
-  coding agent's stderr, for a person who may use its sandbox.
-- **`xbin.RelayManagerTTY` says what happened** ([sdk.md](sdk.md) §A
-  manager's terminals): it returns `ManagerTTYRelay` — the terminal's exec
-  id (its session frame's) and whether its command exited — and
-  `ManagerTTYOptions.OnSession` is called with the id as the session frame
-  passes, so a consumer can end a terminal it started for a client that
-  can't come back to it. A call that ignores the answer is unchanged.
-- **Agent template: start a conversation with a coding agent**
-  (`builtin-templates/agent/API.md` §Coding agents, "Starting one").
-  "Who answers" in the home composer and the new-chat dialog (web and
-  app): the agent itself or a coding agent — Claude Code, Codex, Gemini
-  CLI, opencode — with the reason one isn't available. A coding agent
-  resolves its class, starts in a sandbox it fits (the one you last used
-  with it, remembered in xbind's `prefs/harness-sandbox`; your pick in
-  `prefs/agent`), offers to create one when none fits, says when it isn't
-  signed in there, and sends `POST /ask {harness: {provider}, class,
-  sandbox}` — the mode is your Auto / Always approve. Its conversations
-  carry its monogram in the list and a chip in the top bar. Nothing
-  changes while no coding agent is available. For managers: ⚙ Classes
-  gains the Coding agents toolset and which of them a class allows (the
-  built-in `coding` class has it, so its form can now take it off too), and
-  ⚙ Coding agents (the app: Settings → Coding agents) lists the catalog —
-  what is available and why not, where, for which classes — and checks a
-  running sandbox now.
-- **`sdk/acp` can steer a running turn, sign an agent in, and hand a
-  live session to another process** ([sdk.md](sdk.md) §Driving a coding
-  agent). Additive; a client with the default options is unchanged (the
-  same frames, numeric ids). `Client.Steer` (the adapters'
-  `_session/steering`: `injected` | `promptRequired` | `startedNewTurn`,
-  `ErrSteeringUnsupported`); `Client.AuthMethods` / `Authenticate`
-  (`AuthMethod` gains `Args` and `Meta`) and `ClientOptions.AwaitLogin`
-  (an agent that refuses the session signed out stays up to be signed in);
-  URL questions with `Caps.Elicitation.URL` (a device-code sign-in:
-  `elicitation.request` `mode: "url"`, `elicitation/complete` →
-  `elicitation.resolved` `action: "complete"`). Taking a session over:
-  `Event.Wire` is filled (the output offset, the request id, the replay
-  flag — never serialized), `Client.State()` → `SessionState` →
-  `ClientOptions.Attach` (no handshake; the in-flight prompt still ends its
-  turn), `ClientOptions.IDPrefix` (string request ids), `Process.Off`,
-  `Permissions.Restore` / `Rules` / `SetRules` (and `Request` is idempotent
-  by request id). Codec: `NewConnWith(r, w, ConnOptions{IDPrefix, Offset})`,
-  `Conn.Expect`, `Conn.Offset`, `NewDecoderAt`, `Decoder.Offset`, and
-  `acp.Gap` / `ErrGap` for a reader that lost bytes. The reserved
-  `IDPrefix` and `Attach` are no longer refused by `Start`.
-
-- **A scripted ACP agent for testing ACP clients: `sdk/acp/acptest`**
-  ([sdk.md](sdk.md) §Testing an ACP client). Additive: the engine of
-  xbind's test agent `hack/fakeacp` (now `func main() { acptest.Main() }`)
-  is an SDK package — `Serve(r, w, Options)` in-process, `Main` as a
-  program, `MainIfAdapter`/`Command` for a test binary that serves as the
-  agent, `Login` for its terminal sign-in. Every existing script plays
-  byte-identically (golden transcripts); new are the flags `--steer`
-  (`_session/steering`), `--auto-mode`, `--require-login` (terminal,
-  API-key and device-code sign-in; the `login` subcommand), `--persist`
-  (`session/load` replays what a session sent) and `--device-ms=N`, and
-  the scripts `perm-edit`, `todo`, `stall`, `cards` and `steer…`.
-  `XBIN_AGENT_FAKE` users see no change unless they pass the flags.
-- **Agent template: the coding-agent catalog, each person's Auto / Always
-  approve setting, and class gates for coding agents**
-  (`builtin-templates/agent/API.md` §Coding agents, §Agent classes).
-  Additive, and nothing changes for existing conversations. `GET
-  /harnesses[?probe=<ref>]` lists the coding agents (Claude Code, Codex,
-  Gemini CLI, OpenCode, and any a bound sandbox manager advertises in
-  `hello.images[].harnesses`) with why one can't be started (`no-image`,
-  `manager-error`, `no-class`, `no-egress`), its modes, login command, your
-  setting, and what the agent learned per sandbox; `?probe=` asks a running
-  sandbox you may use which of their commands it has (never starting a
-  stopped one; once in 10 minutes). `GET /prefs/harness-mode` and `PUT
-  /prefs/harness-mode/{id} {mode: "auto"|"approve"}` are a person's own
-  (elements and the scheduler get 403). Classes gain the `harness` toolset
-  (needs `sandbox` and an egress other than `none`) and the field
-  `harnesses` (`"all"` or ids); the built-in `coding` class has both —
-  a stored edit of it keeps what it was saved with, and a save that leaves
-  `harnesses` out keeps the class's. The stored classes keep the
-  `harness` toolset apart from `toolsets`, so an older agent rolled back
-  to (v0.3.64 or before) still saves classes; any class save there
-  rewrites every stored class, which loses its coding agents (tick them
-  again after upgrading; Reset brings back the built-in Coding class). Runs, run events, conversation rows
-  and a link's `child` carry `engine` (`""` until coding-agent
-  conversations land), a sandbox binding carries its image's `harnesses`,
-  and `GET`/`PUT /config` gain `harnessIdleMin` and `maxHarness`. The
-  database gains `runs.engine` and the `harness_*` tables; an older binary
-  ignores them. The SDK's `sdk/acp` catalog gains `ApproveMode`, `PlanMode`
-  and `acp.Fake(argv)` (the test agent as a provider); its JSON is
-  unchanged.
-- **Agent template: seams for feature modules.** A feature can now land as
-  a module of its own that hooks into the views instead of editing
-  `agent.js`, `chat-cards.js` or `native/chat.js`: `web-ext.js`
-  (`ext.register({block, end, top, paint, newChat})`, with `ctx.app`) and
-  `native/ext.js` (`block`, `end`, `toolbar`, `menu`, `composer`,
-  `newChat`, `screen`), imported from `harness-web.js` and
-  `native/harness-all.js` (`builtin-templates/agent/API.md` §The frontend).
-  Nothing changes on screen; an instance's own modules can use them too.
-  They carry the coding-harness UI now being built, whose model modules
-  (`model/harness*.js`, `app.harness`) and test fixtures land with them.
-- **Agent template: a coding agent's transcript.** In a coding-agent
-  conversation each call is a card of its ACP kind — a command with its
-  output and exit code, an edit with a row per file unfolding to its patch
-  (highlighted by `/vendor/bx-code.js` where the page can import it), read,
-  search, fetch, delete, move, think, other — with a status chip; a Claude
-  Task's steps nest inside its card. The top bar gains the context in use
-  and the cost, what the conversation changed, and a 📋 plan pin under the
-  task; the native view draws the same with `toolcard`, `diff`, `plan` and
-  a nested `transcript` (a toolbar badge, ⋯ → Progress). New modules
-  `harness-cards.js` and `native/harness-cards.js`
-  (`builtin-templates/agent/API.md` §The frontend); nothing changes for the
-  built-in agent's conversations. The cards draw once the harness engine
-  sends coding-agent calls.
-- **Agent template: a coding agent asks, and you drive it**
-  (`builtin-templates/agent/API.md` §The frontend, "A coding agent asking
-  and driven"). The first coding-harness UI, web and native, on the seams:
-  a permission card with the harness's own options (reject first when it
-  defaults to no; an option that raises it to a bypass mode only for the
-  conversation's owner, marked ⚠ and confirmed), the call and a diff
-  preview, what "always" remembers and an optional word with a rejection;
-  a plan approval with the plan and a "keep planning" box; a question as a
-  form (url mode: the page, then Done); the composer's `#hctl` — the live
-  mode and config options, and each person's Auto / Always approve per
-  harness; a slash-command menu; steering words while a turn runs, and
-  ⌘/Ctrl+Enter (native: Send now) to interrupt it. Nothing changes for the
-  built-in agent's conversations. For an instance's own modules:
-  `app.send(text, clear, {interrupt})` and `Session.send(text, files,
-  {interrupt})` send `interrupt: true` (ignored by a built-in run), and
-  `queueTpl(queued, remove, words?)` takes the chips' `{label, title}`.
-
-- **Agent template: terminals in tabs, terminals in the app, and a coding
-  agent's sign-in** (`builtin-templates/agent/API.md` §Coding sandboxes →
-  In the UI, §Coding agents → Terminals and sign-in). On the web a sandbox's
-  terminals are tabs of one dock: ＋ another shell, ✕ ends one, ▾ hides the
-  dock with its shells running (a top-bar pill — a button, Enter and Space
-  too — brings it back), and they
-  stay open across conversations. The native view now opens terminals too —
-  a Sandboxes row's Terminal, the Sandbox screen's Open terminal — through
-  the agent's relay (`GET /sandboxes/{ref}/terminal`), one at a time. A
-  coding agent waiting for a sign-in gets a card with its methods: a login
-  terminal running its sign-in command, then "Signed in? Retry"; an API key
-  sent once and kept nowhere; a device code's page and code — with a
-  warning that credentials land in the sandbox's shared home and a confirm
-  on a sandbox others may use. A sandbox that is gone, or whose manager is
-  unbound or down, is said as such in place of the methods (a new chat in
-  another sandbox; Retry once the manager is back) — not "ask whoever
-  bound it", which was you. The relays and `authenticate` are the
-  coding-agent routes (arriving with the harness engine); the card appears
-  only for a run parked on `login`.
-- **Agent template: the coding-agent UI, put together**
-  (`builtin-templates/agent/API.md` §Coding agents, §The frontend). A
-  coding agent's top bar leaves out Memory and Learn skill, offers Compact
-  only when the agent advertises `/compact`, and Retry when it was cut off
-  or couldn't start; its ▣ shows the working directory read-only, with no
-  switch or Detach (its sandbox is fixed: the backend refuses them), and a
-  broken binding says to start a new chat; while it waits for a sign-in the composer and the
-  activity line say so (no spinner), and someone it is shared with to read
-  sees the sign-in card's words but no actions (the app: no Sign in… or
-  Terminal either). A park of a kind no module draws falls back to the
-  built-in card. In a narrow tile the web composer puts its pickers on a
-  line above the message box (`index.html`: `.cpicks` and `.cinput`
-  groups; `#hctl` follows `#ssel`), so Send stays on screen. The app keeps
-  More on a phone's bar: a coding agent's state, plan and context start
-  the conversation's subtitle instead of a toolbar badge, "Who answers"
-  sits at the top of the home page, and Coding agents (your setting) is in
-  ⋯ — the native seams gain `subtitle` and `main` (the main ⋯ menu). Also:
-  a waiting conversation's `?` in the web list is a glyph again, not a
-  card, and the xb reference renderer turns only an open card's own
-  chevron. Nothing changes for the built-in agent's conversations beyond
-  the list's glyph and the narrow composer.
-
-- **Agent template: the agent's coding agents, as cards in its chat**
-  (`builtin-templates/agent/API.md` §Coding agents, "The agent's coding
-  agents"). A coding agent the agent started is drawn where the spawn is as
-  its own card, web and app: its monogram and name, the task, its state and
-  what it does now, where it works and its counters (tool calls, files
-  +a −d, cost, time), its plan, its last 3 blocks — read once, as its
-  newest page, when the card is open and on screen, then kept current; a
-  read that fails says why, with Retry (the app: open the card again), and
-  waits before trying again rather than at every repaint (the built-in
-  subagent card's read too) — and its answer. Its permission, plan approval, question or sign-in is
-  drawn on the card and answered on the child's own run; Stop, Cancel
-  (confirmed) and Message act on the child from the card (the app: from
-  its own chat — ⋯ → Cancel task); a person's message to it is told to the
-  agent that started it, whose chat shows the notice. A conversation row
-  shows `?` while a run below it waits and `⧉ N` for its coding agents at
-  work. New modules `harness-child.js`, `native/harness-child.js`,
-  `model/harness-child.js`; for an instance's own modules,
-  `Session.fetchView(id, {paged, limit})` reads a page of any size and
-  `Session.failed` (`ui.readError(id)`, `ui.act.retryRead(id)`) holds a
-  child whose read failed.
-
-- **Agent template: the Coding agents board** (`builtin-templates/agent/API.md`
-  §Coding agents, "The Coding agents board"). Every coding agent in the
-  open conversation's tree — at home every one of yours that runs or needs
-  you — in one place, web and app: a top-bar chip "⌨ 3 coding agents · 1
-  needs you" (the app: a toolbar button while one needs you, and ⋯ →
-  Coding agents) opens a dock at the right (the app: a screen with
-  sections Needs you, Running, Done) with a row per coding agent in the
-  order they started — rows never move as they change — each its child
-  card: what it does now, its permission, question or sign-in answered in
-  place on its own run, Stop, Message, Cancel. The web has a "needs you"
-  filter. The unfolded 📌 Task lists what it **Delegated** (each coding
-  agent below it, its state and task; the app: a section of the Task
-  screen), and "Needs you" says a coding agent waiting for a sign-in
-  ("needs you to sign in to Codex"). It reads `GET /runs/{root}/tree` only
-  once a coding agent is known to be there, and again only for a run the
-  tree lacks. New modules `harness-board.js`, `native/harness-board.js`,
-  `model/harness-board.js` (`app.board`); for an instance's own modules, a
-  `task` seam on both views (a part of the unfolded pinned task).
-
-- **Sandbox managers can offer a program's streams on one socket: the
-  optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
-  §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).
-  Additive: `POST …/execs {split: true}` keeps a non-tty exec's stderr
-  apart (`…/output?stream=stderr`, the exec's `split` and `errTotal`), and
-  `GET …/execs/{eid}/stdio?since=&errSince=` is a WebSocket — `hello`
-  first, stdout as binary frames from `since` (a `gap` frame where the ring
-  dropped bytes), stderr as `stderr` frames, `exit` then a normal close;
-  stdin back as binary frames, `eof`, `ping` — where the socket attached
-  last holds stdin (the one before is closed with 4001), and a ping's
-  `pong` says the command has taken every stdin frame sent before it (a
-  client resends what no pong acknowledged after a drop). A manager
-  advertises it in `hello.caps` and `sandbox.caps`; one without it ignores
-  `split` and answers the route `unsupported` (older ones `not-found`), and
-  consumers keep using `…/output` and `…/stdin`. xbind's tile-sandbox
-  runtime serves it (`runtime.caps` gains `stdio`, the route is
-  `GET /sandboxes/<name>/execs/<id>/stdio`); the Go SDK adds
-  `ExecRequest.Split`, `OutputQuery.Stream`, `ExecInfo.Split`/`ErrTotal`,
-  `xbin.ExecStdio`, `Sandbox.RelayStdio`/`DialStdio`, `xbin.StdioFrame`,
-  and for consumers `xbin.DialManagerStdio`/`ManagerStdioURL`. The
-  `coding-sandbox` template offers it on an xbind that has it (a backend
-  added to a copy serves it by implementing the optional `StdioBox`; one
-  that doesn't keeps building and isn't offered it), `hack/fakesandbox`
-  always; attaching is a change (it takes the exec's stdin), so the
-  template's own page refuses the socket — as it does a terminal, and
-  every WebSocket upgrade — to a person with only read access to the
-  tile. The conformance suite gains a `stdio` section (skipped for a
-  manager without the capability) and knows `stdio` among hello's caps;
-  `caps/missing` wants a manager without it to ignore `split` and refuse
-  the stdio route — `501 unsupported`, or `404 not-found` as a manager
-  from before it answers a route it doesn't know, so one that passed
-  before still passes. Nothing to change for consumers or pages.
+- **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
+  OpenCode answer a conversation, or work for the agent, in a coding
+  sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A
+  conversation can be answered by a coding agent run over ACP in one of
+  its sandboxes instead of by the agent's own loop, on the web and in the
+  app. Nothing changes in a conversation the agent's own loop answers.
+  - **Starting one** ("Starting one"). "Who answers" in the home composer
+    and the new-chat dialog (the app: the top of the home page and the
+    new-chat sheet): the agent itself or a coding agent, with why one isn't
+    available. Picking one resolves the class, keeps the sandboxes it fits
+    (the one you last used with it first), offers a prefilled create form
+    when none does, and says when it isn't signed in there. Its mode is
+    your **Auto / Always approve** for that coding agent — a setting of
+    your own (the composer's `#hctl`; the app: the Mode menu, or ⋯ →
+    Coding agent settings). The conversation keeps its sandbox and working
+    directory (its ▣ shows them read-only, with no switch or Detach) and
+    carries the coding agent's monogram and a top-bar chip.
+  - **The transcript** (§The frontend). Each call is a card of its ACP
+    kind — a command with its output and exit code, an edit with a row per
+    file unfolding to its patch, read, search, fetch, the rest — and a
+    Claude Task's steps nest inside its card. The top bar (the app: the
+    subtitle, ⋯ → Progress) carries the context in use, the cost, what
+    changed and a 📋 plan pin; it leaves out Memory and Learn skill, offers
+    Compact only when the coding agent has `/compact`, and Retry when it
+    was cut off or couldn't start.
+  - **Asking and steering.** Its permission requests are the agent's
+    approvals — cards with its own options (reject first when it defaults
+    to no; one that raises it to a bypass mode ⚠, the owner's, confirmed),
+    a plan approval with "keep planning", a question as a form — in the
+    chat, Needs and push. A message during a turn steers a coding agent
+    that takes it (Claude Code, Codex) or waits for the turn's end;
+    ⌘/Ctrl+Enter (the app: Send now) interrupts; `/` offers its commands;
+    `#hctl` switches its mode and options live.
+  - **Terminals and sign-in** (§Coding sandboxes → In the UI). On the web
+    a sandbox's terminals are tabs of one dock (＋ another shell, ▾ hides
+    them running, a top-bar pill brings them back); the app opens
+    terminals too, through the agent's relay, one at a time. A coding
+    agent that isn't signed in parks on a sign-in card: a login terminal
+    then "Signed in? Retry", an API key sent once and kept nowhere, or a
+    device code — shown only to the person who asked for it — with a
+    warning that the credentials land in the sandbox's home, which everyone
+    who may use it shares (a confirm on a shared sandbox). A card whose
+    sandbox is gone, or whose manager is down, says so. The conversation
+    also has **>_ Terminal** at the coding agent's working directory.
+  - **The agent's coding agents** ("The agent's coding agents", "The
+    Coding agents board"). In a class with the new **Coding agents**
+    toolset (the built-in `coding` class has it) the agent starts coding
+    agents with a task, steers and cancels them. Each is drawn as its own
+    card where it was started — what it does, its counters, its plan and
+    last steps, its park answered in place, Stop, Message, Cancel — and
+    every one in the tree is on the **Coding agents board** (a top-bar
+    chip; at home, every one of yours at work; the app: a screen). The
+    agent never answers their permission requests: people do. A person's
+    message to one is told to the agent as a notice. A conversation row
+    shows `?` while a run below it waits and `⧉ N` for its coding agents
+    at work; Needs says when one waits for a sign-in.
+  - **For managers.** ⚙ Classes has the Coding agents toolset and which of
+    them a class allows; ⚙ Coding agents (the app: Settings → Coding
+    agents) lists the catalog — what can be started, where, for which
+    classes, and why not — and checks a running sandbox now.
+- **Agent template: the coding-agent API** (`builtin-templates/agent/API.md`
+  §Coding agents, §Agent classes, §The frontend). Additive:
+  - **Catalog and settings.** `GET /harnesses[?probe=<ref>]`: each coding
+    agent a bound manager advertises (`hello.images[].harnesses`) and the
+    SDK catalog's four, with why one can't start (`no-image`,
+    `manager-error`, `no-class`, `no-egress`), its modes, its login
+    command, your setting and what was learned per sandbox (`?probe=` asks
+    a running sandbox you may use, never starting a stopped one). `GET
+    /prefs/harness-mode`, `PUT /prefs/harness-mode/{id} {mode:
+    "auto"|"approve"}` — a person's own. Classes gain the toolset
+    `harness` (it needs `sandbox` and an egress other than `none`) and
+    `harnesses` (`"all"` | ids; a save that leaves it out keeps the
+    class's); `GET`/`PUT /config` gain `harnessIdleMin` (15) and
+    `maxHarness` (3); a sandbox binding carries its image's `harnesses`.
+  - **Starting and driving one.** `POST /ask` and `POST /runs` take
+    `harness: {provider, mode?, options?}` with `sandbox: {ref, cwd?}`,
+    fixed for the conversation. Runs, run events, conversation rows and a
+    link's `child` carry `engine` (`""` | `"harness"`) and a coding agent's
+    summary `harness` (its state, modes, options, commands, usage, plan,
+    activity, counts, park, sign-in, sandbox), which the stream's
+    `harness` event updates. Each call is an assistant row (`acp:<kind>`)
+    and a tool row whose `acp` says what it did (per-file diffs as unified
+    patches, a command's output; a call id used again gets `#<n>`).
+    Messages are queued prompts (`queued`, inbox deletes and
+    `/interrupt`'s `returned` include them) — steered into the running
+    turn or sent after it; `interrupt: true` stops the turn first. A
+    permission parks `pendingState.kind "approval"` with the coding
+    agent's own `options`, answered by `POST /runs/{id}/approve` with
+    `option` (and `feedback` with a rejection); a question parks
+    `"question"` (`POST /runs/{id}/harness/answer`); a sign-in parks
+    `"login"` (Retry: `/resume`).
+  - **Its own routes.** `GET|PATCH /runs/{id}/harness` (its summary,
+    session and remembered rules; a mode or option switched at the running
+    coding agent — **502** in its words, **504** unanswered, **503**
+    during a handoff — and kept for its next start). `POST
+    …/harness/authenticate` (an API key or a device code, for a person who
+    may use the sandbox, `confirm: true` on a shared one): the key is never
+    stored; a device code's page and code are the requester's alone — the
+    **202**, their own `GET /runs/{id}/harness`, the same request again —
+    while everyone else sees `login.device: {by}`. `GET …/harness/log`
+    (its stderr's tail). The app's terminal relays `GET
+    /runs/{id}/harness/terminal` and `GET /sandboxes/{ref}/terminal` (the
+    manager's `tty` as you, after checking you may use the sandbox; a
+    terminal a relay started ends 5 s after its client goes, unless it
+    exited or a client attached to it again).
+  - **Rows, trees, needs, push.** Conversation rows gain `waiting` and
+    `kids: {harness, waiting}`; `/tree` nodes `engine` and a compact
+    `harness`; `/needs` the reason `login` and the waiting coding agent's
+    `harness`; push the kind `login`.
+  - **Bypass modes are the owner's, by default.** A mode is anyone's (who
+    may talk in the conversation) only when the SDK catalog knows it never
+    takes the coding agent past its own asks, or the coding agent opened
+    its first session in it by itself; every other — bypass and full
+    access, a mode a newer adapter adds, any mode of one the catalog
+    doesn't know — is `explicit` and the conversation owner's, a person's:
+    to switch to, to start in, or to allow as a permission's option
+    (Claude Code's plan approval "Yes, and bypass permissions" included).
+    A stored option the coding agent reports as its mode is dropped with a
+    note; a model never picks a mode.
+  - **Stopping and handing over.** `/interrupt` settles what waits
+    `(interrupted)`; `/cancel` and deleting the conversation stop the
+    coding agent — `/cancel` on one that rests idle stops it too and leaves
+    the status. An idle one is stopped after `harnessIdleMin`, one whose
+    sandbox is detached or may no longer be used at once. A save or
+    restart of the agent never stops one: the next process takes it over,
+    mid-turn too; a message that may not have reached it fails ("send it
+    again") and is never sent twice.
+  - **Refused on a coding agent's run:** memory and `/learn` (**409**),
+    `/compact` unless it has it (**409**), `PATCH /runs/{id}` `model`,
+    `sandbox` and `detach` (**400**); schedules and triggers refuse a
+    `harness`, and a coding agent's conversation as `targetRun` (**400**).
+  - **The agent's tools.** `subagent_spawn` gains `harness` and
+    `harness_mode` (`approve` | `plan`: it only narrows the owner's
+    setting): at most `maxHarness` at work per tree, none where the
+    sandbox's running commands would come within 4 of its limit; the
+    child's turn end answers the spawn with that turn's text (`(no
+    answer)`). `subagent_message` to one is sent as is; an idle one stops
+    when its subtree is cancelled (its parent's turn ending, among others).
+  - **For an instance's own modules** (§The frontend). Seams, so a feature
+    lands as a module instead of edits to `agent.js`, `chat-cards.js` or
+    `native/chat.js`: `web-ext.js` (`ext.register({block, end, top, paint,
+    newChat, task})`) and `native/ext.js` (`block`, `end`, `toolbar`,
+    `subtitle`, `menu`, `main`, `composer`, `newChat`, `screen`, `task`).
+    `app.send(text, clear, {interrupt})` and `Session.send(text, files,
+    {interrupt})`, `Session.fetchView(id, {paged, limit})`,
+    `Session.failed` (`ui.readError(id)`, `ui.act.retryRead(id)`: a failed
+    read waits before it is tried again), `queueTpl(queued, remove,
+    words?)`; `index.html`'s composer groups its pickers (`.cpicks`,
+    `#hctl` after `#ssel`) apart from the message row (`.cinput`).
+  - **Tests.** `hack/harness-smoke.sh` (the client, its scripted agent and
+    this engine against `hack/fakesandbox`, in about a minute);
+    `HARNESS_SMOKE_LIVE=1` adds the live check through coding-sandbox:
+    `test/isolated` `TestHarnessLive` drives the real adapters only with
+    `XBIN_HARNESS_LIVE=1`, since they reach outside services (`make
+    integration` runs it with the scripted agent alone). The UI harness's
+    `agentHarness` pass (`hack/ui-harness`) drives it all in both views.
+- **Agent template: what to know about coding agents before relying on
+  them** (`builtin-templates/agent/API.md` §Coding agents). The sandbox's
+  other users can read what a coding agent does in a private conversation
+  (every consumer of a sandbox sees its commands), and its credentials live
+  in the sandbox's home — shared with them, and copied into its clones and
+  snapshots. An idle coding agent keeps running, and its sandbox awake,
+  for `harnessIdleMin`. A device-code sign-in lives in the process that
+  started it: after a redeploy mid-sign-in, the requester starts it again.
+  The database gains `runs.engine` and the `harness_*` tables; an older
+  build ignores them. **Rolling back** to an agent from before coding
+  agents (v0.3.64 or older): its loop never answers a coding agent's
+  conversation — a turn it would start there ends at once at its step cap
+  ("stopped after 500 steps in one turn"), before any model call — and the
+  coding agent runs on unwatched in its sandbox until the sandbox stops. A
+  message or answer queued for a coding agent at the rollback is work
+  that build never does: its resume job wakes the tile every minute until
+  the conversation is deleted (or the owner runs `DELETE FROM inbox WHERE
+  kind IN ('hprompt','hanswer') AND delivered_at=0` on the agent's
+  database). Its class editor still saves (the `harness` toolset is stored
+  apart from `toolsets`), but a save there rewrites every class without
+  its coding agents: tick them again after upgrading (Reset brings back
+  the built-in Coding class).
+- **SDK: drive a coding agent from a tile backend (`sdk/acp`), test a
+  client against a scripted agent (`sdk/acp/acptest`), and relay a
+  manager's terminals and program streams** ([sdk.md](sdk.md) §Driving a
+  coding agent, §Testing an ACP client, §A manager's terminals). Additive,
+  and still zero-dependency:
+  - **`github.com/xbin-dev/xbin/sdk/acp`** is the ACP client xbind's Agent
+    tab runs: a `Spawner` starts the adapter wherever you run it, and the
+    client turns what it does into typed events — deltas, tool calls,
+    plans, permission requests and questions held until answered, status
+    with the sign-in. `acp.Providers()` / `Lookup` is the catalog (Claude
+    Code, Codex, Gemini CLI, OpenCode): argv, modes, `LoginCmd`, `Bins`,
+    `AutoMode`, `ApproveMode`, `PlanMode`, `Safe(mode)` — default-deny:
+    true only for a mode it knows never goes past the agent's own asks
+    (`SafeModes` too) — and `OptionModes` (a permission option that
+    switches the mode without naming it); `acp.Fake(argv)` is the test
+    agent. `acp.NewWith(acp.ClientOptions{…})` sets the seams (`Caps`,
+    `Drop`, `AuthHint`, `OnExt`, `InlineBudget`, `IDPrefix`, `Attach`,
+    `AwaitLogin`); `Client.Steer` (`_session/steering`), `AuthMethods` /
+    `Authenticate`, URL questions (a device code), `SetOption` bounded by
+    its context, `Config.SkipModeOptions`. Handing a live session to
+    another process: `Event.Wire` (the output offset, the request id, the
+    replay flag — never serialized), `State()` → `SessionState` →
+    `ClientOptions.Attach`, `Process.Off`, `Permissions.Restore` / `Rules`
+    / `SetRules`, `Client.Abandon`; the codec (`NewConnWith`,
+    `Conn.Expect`, `NewDecoderAt`, `Decoder.Offset`, `acp.Gap` /
+    `ErrGap`). A client with the default options sends the same frames as
+    xbind always has.
+  - **`sdk/acp/acptest`** is the engine of xbind's test agent
+    `hack/fakeacp` (now `func main() { acptest.Main() }`): `Serve(r, w,
+    Options)` in-process, `Main`, `MainIfAdapter` / `Command` for a test
+    binary that serves as the agent, `Login` for its terminal sign-in.
+    Every existing script plays byte-identically; new are the flags
+    `--steer`, `--auto-mode`, `--require-login` (terminal, API-key and
+    device-code sign-in), `--persist`, `--device-ms=N` and the scripts
+    `perm-edit`, `todo`, `stall`, `cards`, `steer…`. `XBIN_AGENT_FAKE`
+    users see no change without the flags.
+  - **A manager's consumer** relays a page's or the app's terminal to a
+    manager's `tty` as its person with `xbin.RelayManagerTTY(w, r,
+    endpoint, sandboxID, xbin.ManagerTTYOptions{User, ExecID | Cmd, Cwd,
+    Rows, Cols, OnSession})`, which returns `ManagerTTYRelay{Session,
+    Exited}`; `xbin.DialManagerTTY` is a terminal the backend drives,
+    `xbin.DialManagerStdio` a program's streams (`stdio`), and
+    `xbin.ManagerTTYURL` / `ManagerStdioURL` build the typed routes only.
+  - **A manager on xbind's runtime**: `ExecRequest.Split`,
+    `OutputQuery.Stream`, `ExecInfo.Split` / `ErrTotal`, `xbin.ExecStdio`
+    (for `Forward`), `Sandbox.RelayStdio` / `DialStdio`, `xbin.StdioFrame`,
+    `xbin.StdioReplaced`.
+- **Sandbox managers: coding agents in hello, terminals for consumer
+  backends, and a program's streams on one socket (`stdio`)**
+  ([sandbox-manager.md](sandbox-manager.md) §hello, §Terminals, §stdio).
+  Protocol 1, by addition:
+  - **`hello.images[].harnesses: [{id, title?, argv?, login?}]`** — the
+    ACP coding agents an image has: `claude`, `codex`, `gemini` and
+    `opencode` are the ids consumers know; `argv` is the command that
+    speaks ACP on stdio, `login` a shell command that signs it in at a
+    terminal. The manager's word, not a probe; a missing list says
+    nothing.
+  - **Terminals for consumer backends.** A consumer's backend dials the
+    `tty` routes (and attaches to tty execs it started) with its instance
+    credential, naming its person in `Sbx-User` — asserted, as on every
+    backend call — to drive a terminal or relay it to its own page or app;
+    the consumer checks that person first, the manager keeps its
+    partitions. Every manager serves this (a cloud one: `ssh -t`). A `tty`
+    command gets `TERM`, `COLORTERM` and `LANG` unless its env names them.
+  - **`stdio`** (optional; `hello.caps`, `sandbox.caps`). `POST …/execs
+    {split: true}` keeps a non-tty exec's stderr apart
+    (`…/output?stream=stderr`, the exec's `split` and `errTotal`); `GET
+    …/execs/{eid}/stdio?since=&errSince=` is a WebSocket — `hello`, stdout
+    as binary frames from `since` (a `gap` frame where the ring dropped
+    bytes), `stderr` frames, `exit` then a normal close; stdin back as
+    binary frames, `eof`, `ping` (its `pong` says every stdin frame before
+    it was taken). The socket attached last holds stdin (the one before is
+    closed with 4001), so attaching is a change, not a read. A manager
+    without it ignores `split` and refuses the route — `unsupported`, or
+    `not-found` from one that predates it — and consumers keep polling
+    `…/output` and `…/stdin`.
+  - **Conformance** (`sdk/sandboxcontract`): a `stdio` section (skipped
+    without the capability), `tty/backend` (the next entry), hello's
+    harness entries checked for shape (`Hello.Images[].Harnesses`), and
+    `caps/missing` wants a manager without `stdio` to ignore `split` and
+    refuse its route with `501 unsupported` or `404 not-found` — a manager
+    that passed before still passes. `hack/fakesandbox` serves all of it
+    and advertises the scripted agent as `fake` (`-fake-acp` /
+    `$FSB_HARNESS_FAKE` set its command and flags; its sign-in is `<that
+    command> login`).
+- **BREAKING (rare) — a sandbox manager of your own: the conformance suite
+  checks the terminals a consumer's backend opens** (D147,
+  [migration](changes/2026-09-30-manager-terminals-for-backends.md)).
+  `tty/backend` opens terminals as a consumer's backend does, for an
+  asserted person who is neither the sandbox's owner nor a member, and on
+  a sandbox shared with that consumer — what the contract always left to
+  the consumer. A manager that refuses them fails it (name it in
+  `Target.Skip`, saying why, until yours follows); `coding-sandbox` and
+  `hack/fakesandbox` pass unchanged. Nothing to change for consumers or
+  pages.
+- **coding-sandbox: coding agents in its images, `stdio`, and readers
+  refused every socket** (`builtin-templates/coding-sandbox/API.md`
+  §Images, [sandbox-manager.md](sandbox-manager.md) §stdio). A manager
+  whose config was never saved advertises Claude Code (`claude-agent-acp`),
+  Codex (`codex-acp`), Gemini CLI (`gemini --acp`) and OpenCode (`opencode
+  acp`) on its `base` image, each with a sign-in that needs no browser in
+  the sandbox (Claude Code's `CLAUDE_CODE_REMOTE=1 claude /login`), and
+  `tools` that name what the base rootfs really has (no `chromium`
+  command — Playwright's browser stays; `npm`, `pnpm`, `yarn`, `curl`,
+  `jq`, `gh`, `gopls`, `dlv` and the agents' CLIs added). Operators set
+  `harnesses` per image (`PUT /ops/config`; the page's image editor keeps
+  them); a saved config keeps its images as they were — none listed until
+  an operator adds them, and consumers probe. It offers `stdio` where
+  xbind serves it (a backend added to a copy serves it by implementing the
+  optional `StdioBox`; one that doesn't still builds and isn't offered
+  it). A new sandbox's defaults gain `IS_SANDBOX=1` beside `IN_SANDBOX=1`
+  — the spelling coding agents check (Claude Code refuses its bypass mode
+  as root without it); a renamed one gains it. **Security:** the tile's own
+  page now refuses every WebSocket upgrade to a person with only read
+  access, before routing — a stdio socket (attaching took an exec's stdin:
+  a reader could type into a coding agent) and any socket added later, as
+  it refused terminals. That includes a port preview's WebSocket, which
+  the ports route already refused such a reader (with all of the route).
+- **xbind: tile sandboxes serve `stdio`, and a terminal in one gets a
+  terminal's environment** ([protocol.md](protocol.md) §Tile sandboxes).
+  `runtime.caps` gains `stdio`: `split` on `POST
+  /sandboxes/<name>/execs`, `stream=stderr` on its output, and `GET
+  /sandboxes/<name>/execs/<id>/stdio?since=&errSince=` (a WebSocket, the
+  manager's); an older xbind leaves it out (the route is a 404) and
+  ignores `split` and `stream`. A `tty` exec — and the `tty` route —
+  gets `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`,
+  as xbind's own terminals do, unless `defaults.env` or the command's
+  `env` names them: full-screen programs and the coding agents' sign-in
+  screens expect them. **The Agent tab**: once a permission or question
+  is answered, its `running` status now goes before the adapter hears the
+  answer, so an adapter that ends its turn at once no longer leaves a
+  stale "running" after the turn (a race under load); its events are
+  otherwise unchanged.
 
 ## 2026-09-29
 
@@ -444,67 +384,6 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   predates ports is reported `restartNeeded` until it runs again
   ([sandbox-manager.md](sandbox-manager.md) §Ports).
 
-- **SDK: an ACP client — `github.com/xbin-dev/xbin/sdk/acp`**
-  ([sdk.md](sdk.md) §Driving a coding agent). The client xbind's Agent tab
-  runs is now part of the SDK, still zero-dependency: a tile backend can
-  drive Claude Code, Codex, Gemini CLI or OpenCode through their ACP
-  adapters wherever it starts them (a `Spawner` returns the process's
-  stdio) and get the same typed events — deltas, tool calls, plans,
-  permission requests and questions held until answered, status with the
-  sign-in command. `acp.Providers()` is the adapter catalog, with each
-  one's login command, executables and auto-edit mode; `ClientOptions`
-  choose the capabilities advertised, where a prompt's files go, the
-  sign-in wording and extension notifications. The Agent tab, `bx agent`
-  and the session API are unchanged: what xbind sends an adapter and serves
-  a client is byte for byte what it was. Nothing to change.
-- **Consumer backends open and relay terminals in a manager's sandboxes**
-  ([sandbox-manager.md](sandbox-manager.md) §Terminals, [sdk.md](sdk.md)
-  §A manager's terminals). The contract now says what the SSH bridge
-  already did: a consumer's backend dials the `tty` routes (and attaches to
-  tty execs it started) through xbind with its instance credential, naming
-  its person in `Sbx-User` — asserted, like every backend call — to drive a
-  terminal or to relay it to its own page or app view; the consumer checks
-  that person first. The Go SDK adds `xbin.RelayManagerTTY(w, r, endpoint,
-  sandboxID, opts)` — dial, upgrade, every message relayed unchanged both
-  ways, each end closed the way the other ended — and
-  `xbin.DialManagerTTY` / `xbin.ManagerTTYURL` (typed routes only). The
-  conformance suite gains `tty/backend`: a manager that refuses an
-  asserted person's terminal on a private or shared sandbox fails it (the
-  contract always left those people to the consumer — name it in
-  `Target.Skip`, saying why, until yours follows); `hack/fakesandbox` and
-  `coding-sandbox` pass unchanged. Nothing to change for pages.
-- **Sandbox managers can say which coding agents an image has**
-  ([sandbox-manager.md](sandbox-manager.md) §hello). Additive:
-  `hello.images[].harnesses: [{id, title?, argv?, login?}]` lists the ACP
-  coding agents installed in an image — `claude`, `codex`, `gemini` and
-  `opencode` are the ids consumers know; `argv` is the command that speaks
-  ACP on stdio, `login` a shell command that signs it in at a terminal. It
-  is the manager's word, not a probe; a missing list says nothing. The
-  conformance suite (`sdk/sandboxcontract`) checks the entries' shape, and
-  its `Hello` carries them (`Harness`). The `coding-sandbox` template's
-  default image lists all four (Claude Code `claude-agent-acp`, Codex
-  `codex-acp`, Gemini CLI `gemini --acp`, OpenCode `opencode acp`, each with
-  a sign-in that needs no browser in the sandbox) and its `tools` now name
-  what the base rootfs really has (no `chromium` command — Playwright's
-  browser stays; `npm`, `pnpm`, `yarn`, `curl`, `jq`, `gh`, `gopls`, `dlv`
-  and the agents' CLIs added). Operators set `harnesses` per image in
-  `PUT /ops/config` (the page's image editor keeps them); a config saved
-  before this keeps its images as they were — no harnesses listed — until
-  an operator adds them. `hack/fakesandbox` advertises one, `fake` (the
-  scripted `fakeacp`; `-fake-acp` / `$FSB_HARNESS_FAKE` sets its command
-  and flags, e.g. `bin/fakeacp --steer --require-login`, and its sign-in
-  is `<that command> login`).
-- **A terminal in a sandbox has a terminal's environment.** A tile
-  sandbox's `tty` exec (and its `tty` route) now gets
-  `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`, as
-  xbind's own terminals do, unless `defaults.env` or the command's `env`
-  names them ([protocol.md](protocol.md) §Tile sandboxes) — full-screen
-  programs and coding agents' sign-in screens expect them.
-  The sandbox-manager contract says the same of any manager's `tty`. The
-  `coding-sandbox` template also sets `IS_SANDBOX=1` beside `IN_SANDBOX=1`
-  in a new sandbox's defaults (a renamed one gains it): the spelling coding
-  agents check — Claude Code refuses its bypass mode as root without it.
-  Nothing to change.
 - **The shell's sidebar is quieter.** A tile's row starts with an app icon
   (a small window, drawn — not an emoji; highlighted while the tile is
   open) instead of its runtime's coloured dot, and no longer names the
