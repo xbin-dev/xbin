@@ -11,7 +11,9 @@
  *                             (docs/partitions.md): the partition the viewer
  *                             reaches, "user:<id>" (their own) or "global"
  *   xbin.iface(slot)       — a bound http interface: { url, service } — or, for a
- *                             multi:true slot, { service, multi, endpoints: [...] }.
+ *                             multi:true slot, { service, multi, endpoints: [...] }
+ *                             (in a person's partition an endpoint of their own
+ *                             personal bind carries personal: true).
  *                             Call a typed, swappable dependency instead of a
  *                             hard-coded path, e.g. xbin.iface('llm').url
  *   xbin.fetch(url, opts)  — fetch with frame-token attribution attached;
