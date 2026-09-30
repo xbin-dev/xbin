@@ -1552,7 +1552,11 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   its manager is unbound or unavailable, its manager no longer has it). Its
   popover sets the working directory (absolute; empty is the sandbox's
   workdir), makes another attached sandbox the active one, detaches the
-  active one (`{detach}`) and opens Manage.
+  active one (`{detach}`) and opens Manage. A coding agent's conversation
+  keeps the sandbox and directory it started in (the backend refuses a
+  change): its popover shows the working directory read-only, with no
+  switch or Detach, and a binding that no longer resolves says to start a
+  new chat with the coding agent in another sandbox.
 - **The Sandboxes dialog** (`#sbxdlg`): every sandbox you may see, yours
   first — state, manager, image, size, egress (and the one it takes at its
   next start, when a change waits for it), owner, private/team, when it
@@ -1600,7 +1604,8 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   …/execs/{id}` at the manager, from the page). Each terminal is a tab of
   one dock (`terminals.js`): **＋** opens another shell in the same sandbox,
   a tab's ✕ ends that one, **▾** hides the dock with its shells still
-  running (a top-bar pill, "2 terminals", brings it back), and the tabs
+  running (a top-bar pill, "2 terminals" — a button: click, Enter or
+  Space — brings it back, the shown shell taking the keys), and the tabs
   stay open while you switch conversations. One left by a page that closed
   runs on until its manager ends it.
 - **Keeping current.** After a change the conversation's binding is read
@@ -1625,7 +1630,8 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   sheet first). The ▣ badge is in the conversation's subtitle, a notice in the
   transcript says why a binding no longer resolves, and ⋯ → Sandbox pushes
   the popover's screen (working directory, the attached ones, Detach,
-  Manage sandboxes…). The Sandboxes screen puts each row's actions behind
+  Manage sandboxes… — a coding agent's: its working directory read-only
+  and Manage only). The Sandboxes screen puts each row's actions behind
   its swipe and ⋯ (Archive and Delete confirmed), New sandbox pushes
   the create form, and Share with a terminal tile… pushes its form (Stop
   sharing behind a share's swipe, confirmed). A ▣ tool card is a `terminal` icon; what the call came to
@@ -2034,7 +2040,11 @@ by itself once you are done). The card says that the credentials land in
 the sandbox's home — anyone who may use it acts as you with that agent
 there, and its clones and snapshots keep them — and on a sandbox others
 may use it asks for a confirm first (`confirm: true`). Someone who may not
-use the sandbox is told whom to ask; someone the conversation is shared
+use the sandbox is told whom to ask (its binder — or, when you bound it,
+its owner); a sandbox missing from `GET /sandboxes` (which lists every
+sandbox bound to a conversation you see) is gone, or its manager is
+unbound or down, and the card says so in place of the methods — start a
+new chat in another sandbox, or Retry once its manager is back; someone the conversation is shared
 with to read sees what it waits for and no actions (nor the app's ⋯ →
 Sign in… or Terminal). While it waits, the composer says to sign in first
 and the activity line has no spinner. A coding agent's conversation also
@@ -2166,7 +2176,11 @@ sign-in — is drawn on the card and answered on the **child's** run
 the app opens the card while it waits, and signs in from the child's own
 chat). Opened, the card shows the task, the plan and the child's last 3
 blocks — read once, as its newest page (`GET /runs/{child}/view?limit=8`),
-when the card is open and on screen, then kept current by the stream — and
+when the card is open and on screen, then kept current by the stream; a
+read that fails says why ("Couldn't read its latest steps: …") with
+**Retry** (the app: open the card again) and is tried again by itself only
+after a while (15 s, doubling to 2 min; 2 s once an event says the child
+moved; at once after a stream reset), never at every repaint — and
 its answer. **Stop** (`POST /runs/{child}/interrupt`), **Cancel** (confirmed;
 `POST /runs/{child}/cancel`) and **Message** (`POST /runs/{child}/message`;
 Enter queues or steers, ⌘/Ctrl+Enter or Send now adds `interrupt: true`)
@@ -2197,7 +2211,7 @@ tile holds and the run, link and `harness` events. At home, whose stream
 follows the run list only, it reads the trees of the rows with `kids.harness`
 (the first 12) and again when their root's row changes. A parked row whose
 summary has only the compact `harness.pending` reads the child's newest page
-(`?limit=8`) once, so its park can be answered there. The unfolded 📌 Task
+(`?limit=8`) once (a failed read waits, as the card's), so its park can be answered there. The unfolded 📌 Task
 lists what it **Delegated** — each coding agent below the run, its state, its
 task (the spawn's) and a way to its chat (the app: a section of the Task
 screen). "Needs you" says `login` as "needs you to sign in to ‹name›" when
@@ -2242,7 +2256,7 @@ the same model.
 | `model/` | What it holds |
 |---|---|
 | `app.js` | `createApp()`: the model in one object — where you are (`sel`, `page`), who you are (`me`), the class for new asks (`classes`, `classId`, `pickClass`; `toolset` is its lane), what needs you, the halt switch, the composer's attachments and sending — wired to the one live stream; views subscribe with `app.on(event, fn)` |
-| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache); a long one held as a run of pages — `loadOlder()`, `keep(lo, hi, canDetach)` (let go of what lies far from the blocks drawn), `loadNewer()`, `latest()`, `follow(atBottom)` |
+| `session.js` | the open conversation: its views, the model calls in flight, `shown()` (what the chat draws), `blocks(id)` (a held run folded through its cache); a long one held as a run of pages — `loadOlder()`, `keep(lo, hi, canDetach)` (let go of what lies far from the blocks drawn), `loadNewer()`, `latest()`, `follow(atBottom)`; `failed` (`Failures`: a card's child whose read failed — `loadChild` and `loadTail` wait before reading it again; `ui.readError(id)` says why, `ui.act.retryRead(id)` is the card's Retry) |
 | `fold.js`, `tool-heads.js` | a run's view → chat blocks (with a `FoldCache`, only the blocks whose message, result, step, link or subagent changed are rebuilt; the rest come back as the same objects); a tool call's headline, family and state |
 | `conv-list.js`, `conv-groups.js` | the conversation list: paging, search, pins, read state, live updates; date groups |
 | `stream.js` | the live connection (`GET /stream`, resumable) |
@@ -2259,9 +2273,9 @@ the same model.
 | `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
-| `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once), and a row's coding agents at work below it (`kidsWords`) |
+| `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once; `tailError`: why they couldn't be), and a row's coding agents at work below it (`kidsWords`) |
 | `harness-board.js` | the Coding agents board: `app.board` (`createBoard`, wired by `createApp`) — `rows(root)` (a conversation's tree, or at home yours at work: each row a child card and its section), `chip(root)`, `delegated(v)`, `take(ev)`; the words (`chipWords`, `filterWords`, `sectioned`, `emptyWords`, `delegatedWords`) |
-| `terminals.js` | the terminal dock's tabs (`termsOf(app)`: open, show, hide, close, a New shell in place — page-level, not a conversation's), a coding agent's run relay (`runTerminalSrc`), and the sign-in card (`signIn`): a login park's methods, the sandbox whose home the credentials land in, whether it is shared (a confirm), whom to ask |
+| `terminals.js` | the terminal dock's tabs (`termsOf(app)`: open, show, hide, close, a New shell in place — page-level, not a conversation's), a coding agent's run relay (`runTerminalSrc`), and the sign-in card (`signIn`): a login park's methods, the sandbox whose home the credentials land in, whether it is shared (a confirm), whom to ask, and whether that sandbox is gone or its manager down (`gone`, `goneText`) |
 
 `createApp({deltas, page})`: drafts arrive as deltas (`/stream?deltas=1`,
 "Deltas" above) and the open conversation is read in pages (`?limit=`,
