@@ -427,6 +427,10 @@ func (b *Broker) restorePartition(t partitionBackupTarget, raw []byte) (partitio
 	if err != nil {
 		return done, statusErr{http.StatusConflict, "the archive can't be restored: " + err.Error() + "; nothing was restored"}
 	}
+	// the tile's backup lock: no backup archives the partition half
+	// restored, and no erase of its key runs meanwhile (the sweep's order:
+	// the backup lock, then the namespace's hold)
+	defer b.holdBackups(t.c.Path)()
 	if err := b.notePartition(pt, false); err != nil { // whose it is: the person's current record
 		return done, err
 	}
