@@ -111,6 +111,10 @@ test('the words of Stop, Cancel and Message', () => {
   assert.equal(w.placeholder, 'Message Claude Code directly — the agent is told');
   assert.equal(w.sent(false), 'Sent to Claude Code — #25\'s agent is told.');
   assert.equal(w.sent(true), 'Sent to Claude Code, its turn interrupted — #25\'s agent is told.');
+  // a coding agent's own conversation (the home board's row): no agent to tell
+  const root = { ...c, id: 22, parent: 0 };
+  assert.equal(K.cancelWords(root), 'Cancel Claude Code\'s task (#22)? It stops for good.');
+  assert.deepEqual([K.messageWords(root).placeholder, K.messageWords(root).sent(true)], ['Message Claude Code', 'Sent to Claude Code, its turn interrupted.']);
 });
 
 test('tailOf and loadTail: the last 3 blocks, read once, with a small page', async () => {

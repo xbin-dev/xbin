@@ -176,12 +176,14 @@ export function loadTail(session, id, n = TAIL_READ) {
 
 // stopWords / cancelWords: what Stop and Cancel say (Cancel asks first).
 export const stopWords = (c) => `Stop ${c.name}'s turn — the task stays open; message it to go on`;
-export const cancelWords = (c) => `Cancel ${c.name}'s task (#${c.id})? It stops for good, and the agent that started it is told it was canceled.`;
+// A coding agent's own conversation (no parent: a row of the home board) has
+// no agent to tell.
+export const cancelWords = (c) => `Cancel ${c.name}'s task (#${c.id})? It stops for good${c.parent ? ', and the agent that started it is told it was canceled' : ''}.`;
 // messageWords: the Message box's placeholder and what it says once sent.
 export const messageWords = (c) => ({
-  placeholder: `Message ${c.name} directly — the agent is told`,
+  placeholder: c.parent ? `Message ${c.name} directly — the agent is told` : `Message ${c.name}`,
   hint: `Enter sends it (${c.state.key === 'working' ? 'it steers or waits for the running turn' : 'its next prompt'}); ⌘/Ctrl+Enter interrupts its turn first`,
-  sent: (interrupt) => `Sent to ${c.name}${interrupt ? ', its turn interrupted' : ''} — ${c.parent ? `#${c.parent}'s` : 'the'} agent is told.`,
+  sent: (interrupt) => `Sent to ${c.name}${interrupt ? ', its turn interrupted' : ''}${c.parent ? ` — #${c.parent}'s agent is told` : ''}.`,
 });
 
 // kidsWords: a conversation row's coding agents at work below it (§4.3.8

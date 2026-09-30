@@ -13,7 +13,8 @@
 //            'hmsg' {id, name}: Message — a multiline field, Send (queues or
 //            steers) and Send now (interrupts its turn first); the agent that
 //            started it is told
-//   toolbar  a button while any needs you — at home while any runs or needs you
+//   toolbar  a button while any needs you (not in a coding agent's own chat) —
+//            at home while any runs or needs you
 //   menu     Coding agents (N) in a conversation's ⋯
 //   task     the Task screen's Delegated section: each coding agent below the
 //            run, its state and task, a tap to its chat
@@ -27,7 +28,7 @@ import { parkTpl } from './harness-child.js';
 import { sectioned, emptyWords, delegatedWords } from '../model/harness-board.js';
 import { loadTail, cancelWords, messageWords } from '../model/harness-child.js';
 import { ownerOf } from '../model/harness-ask.js';
-import { HARNESSES } from '../model/harness.js';
+import { HARNESSES, isHarness } from '../model/harness.js';
 
 const TONE = { ok: 'ok', bad: 'danger', warn: 'warn', run: 'accent' };
 const rootOf = (v) => (v ? v.run.rootId || v.run.id : null);
@@ -38,6 +39,9 @@ ext.register({
   toolbar(v) {
     const app = ctx.app;
     if (!v && (app.sel != null || app.page)) return null;
+    // not in a coding agent's own chat: its bar already holds its badge, Mode
+    // and Model (a phone's bar drops the ⋯ past that) — there ⋯ → Coding agents
+    if (v && isHarness(v.run)) return null;
     const root = rootOf(v);
     const c = app.board.chip(root);
     // in a conversation only while one waits for you: a phone's bar has little room
@@ -108,7 +112,7 @@ function rowTpl(s, r, home) {
       ${c.can.stop ? html`<button icon="stop" @tap=${act(s, () => app.harness.stop(c.id), `Stopped ${c.name}'s turn (#${c.id}).`)}>Stop</button>` : nothing}
       ${c.can.message ? html`<button icon="chat" @tap=${() => push({ kind: 'hmsg', id: c.id, name: c.name, parent: c.parent, key: c.state.key, text: '' })}>Message</button>` : nothing}
       ${c.can.cancel ? html`<button icon="xmark" role="destructive" confirm=${{ title: cancelWords(c), label: 'Cancel task', destructive: true }}
-        @tap=${act(s, () => app.harness.cancel(c.id), `Canceled #${c.id} — the agent is told.`)}>Cancel task</button>` : nothing}
+        @tap=${act(s, () => app.harness.cancel(c.id), `Canceled #${c.id}${c.parent ? ' — the agent is told' : ''}.`)}>Cancel task</button>` : nothing}
     </actions>` : nothing}
     ${park}
   </row>`;
@@ -134,7 +138,7 @@ function messageScreen(s) {
     ctx.paint();
   };
   const when = s.key === 'working' ? 'it steers or waits for the running turn' : 'it is its next prompt';
-  return html`<screen title=${`Message ${s.name}`} subtitle=${`#${s.id} — the agent that started it is told`} style="form">
+  return html`<screen title=${`Message ${s.name}`} subtitle=${s.parent ? `#${s.id} — the agent that started it is told` : `#${s.id}`} style="form">
     <toolbar>
       <button icon="send" role="primary" ?busy=${!!s.busy} @tap=${send(false)}>Send</button>
       <button icon="bolt" ?disabled=${!!s.busy} @tap=${send(true)}>Send now</button>

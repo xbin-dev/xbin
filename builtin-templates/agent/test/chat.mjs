@@ -79,6 +79,7 @@ ok('a tool card is headed by the model\'s summary', heads.includes('Look up open
 ok('…or by a reading of its arguments', heads.includes('Read notes.md'), heads.join(' | '));
 ok('a running call shows it', !!(await page.$('.tcard.running .spin')));
 ok('a subagent is a card in the session, open while it works', !!(await page.$('.acard.running.on')));
+await page.waitForSelector('.acard .acb .tcard .hl', { timeout: 5000 }).catch(() => {}); // its view is read once the card is open
 const nested = await page.$$eval('.acard .acb .tcard .hl', (els) => els.map((e) => e.textContent));
 ok('…with its own tool calls inside', nested.includes('Fetch the price list'), nested.join(' | '));
 ok('…and its task on the card, not as a message', (await page.textContent('.acard .task')).includes('research vendor prices'));

@@ -97,7 +97,7 @@ export const IMPLEMENTS = {
   'top.model': 'native/chat.js — ✦ in the subtitle',
   'top.task': 'native/chat.js — runMenu Task (rules.topBar task) → native/tools.js taskTpl: every request, read-only (actions.asks)',
   'top.task.delegated': 'native/harness-board.js — the Task screen\'s Delegated section through ext.task: a row per coding agent below the run (app.board.delegated), a tap to its chat',
-  'top.board': 'native/harness-board.js — a toolbar button while any needs you (at home while any runs or needs you) and ⋯ → Coding agents (N) (app.board.chip)',
+  'top.board': 'native/harness-board.js — a toolbar button while any needs you (not in a coding agent\'s own chat, whose bar is full; at home while any runs or needs you) and ⋯ → Coding agents (N) (app.board.chip)',
   'top.sandbox': 'native/chat.js — ▣ in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
   'top.harness': 'native/harness-start.js — a badge in the toolbar (model/harness-start.js topChip)',
   'top.status': 'native/chat.js — the subtitle',

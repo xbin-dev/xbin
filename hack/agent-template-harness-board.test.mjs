@@ -243,6 +243,13 @@ test('native: the toolbar button and ⋯ item open the board — its sections, r
     'answered: it moves to Running, in the order they started');
 });
 
+test('native: a coding agent\'s own chat has no toolbar button (its bar is full) — ⋯ → Coding agents', async () => {
+  const r = await runSeed([{ snapshot: 'chat' }], 'c=26');
+  const chat = r.snapshots.chat.root;
+  assert.equal(find(chat, { t: 'button', p: { label: '2 coding agents need you' } }), null);
+  assert.ok(find(chat, btn('Coding agents (2 waiting)')), 'the ⋯ item');
+});
+
 test('native: Message (Send, Send now) and Cancel task from a row', async () => {
   const r = await runSeed([
     { tap: btn('Coding agents (2 waiting)') }, { wait: 50 },

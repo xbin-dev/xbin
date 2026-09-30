@@ -38,7 +38,7 @@ ext.register({
     const r = v && v.run;
     if (!isChildRun(r) || !ctx.app.rules.access(v).talk) return null;
     if (!['running', 'awaiting', 'sleeping', 'queued', 'blocked', 'waiting_input'].includes(r.status)) return null;
-    const c = { name: (r.harness && r.harness.name) || 'the coding agent', id: r.id };
+    const c = { name: (r.harness && r.harness.name) || 'the coding agent', id: r.id, parent: r.parentId };
     return html`<button icon="xmark" role="destructive" confirm=${{ title: cancelWords(c), label: 'Cancel task', destructive: true }}
       @tap=${guard(() => ctx.app.harness.cancel(r.id))}>Cancel task</button>`;
   },

@@ -118,7 +118,7 @@ const stop = (c) => act(c, 'stop', async (x) => {
 const cancel = (c) => (confirm(cancelWords(c)) ? act(c, 'cancel', async (x) => {
   await ctx.app.harness.cancel(c.id);
   x.msg = false;
-  x.note = `Canceled — the agent is told.`;
+  x.note = `Canceled${c.parent ? ' — the agent is told' : ''}.`;
 }) : null);
 
 const send = (c, interrupt) => act(c, 'send', async (x) => {
