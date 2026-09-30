@@ -361,8 +361,8 @@ func (b *Broker) ErasePartitionBackups(tile, dep, pkey, reason, by string) (int,
 // holds: the tile's own (its records' archives) and, for a tile in another
 // tile's scope, the scope root's (the namespace's) — and records each erase
 // in that tile's history. Every erase of a person's partition's keys goes
-// through it — a sweep, a reset, a purge (F7b's dropOnePartition: owners
-// slices.Compact([]string{scope, tile})) — so each is in the history. It
+// through it — a sweep, a reset, a purge (dropOnePartition, partitiondrop.go:
+// owners the tile alone, per deployment) — so each is in the history. It
 // answers how many keys it erased and what the archivers did.
 func (b *Broker) erasePartitionBackupsHeld(owners []string, dep, pkey, reason, by string) (int, string, error) {
 	n, gcs, errs := 0, []string{}, []error{}
@@ -377,22 +377,6 @@ func (b *Broker) erasePartitionBackupsHeld(owners []string, dep, pkey, reason, b
 		errs = append(errs, err)
 	}
 	return n, strings.Join(gcs, "; "), errors.Join(errs...)
-}
-
-// dropSweptPartition is the records' sweep of one orphan past the
-// retention (PD-26): its registrations, record and vault go, then its
-// part: key — both under the tile's backup lock, so no backup archives the
-// partition in between. (F7b's dropOnePartition replaces it: the whole
-// partition, erased through erasePartitionBackupsHeld.)
-func (b *Broker) dropSweptPartition(t partTarget, event string) error {
-	defer b.holdBackups(t.tile)()
-	if err := b.dropPartition(t); err != nil {
-		return err
-	}
-	if _, _, err := b.erasePartitionBackupsHeld([]string{t.tile}, t.dep, t.pkey, "partition swept: "+event, ""); err != nil {
-		slog.Warn("partition sweep: backup key erase", "tile", t.tile, "partition", t.pkey, "err", err)
-	}
-	return nil
 }
 
 // ---- the tile's history ----

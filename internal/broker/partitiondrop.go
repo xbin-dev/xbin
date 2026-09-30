@@ -211,17 +211,17 @@ func (b *Broker) dropOnePartition(tile, dep, pkey, reason, by string) (dropSumma
 
 // erasePartitionKeysHeld erases partition pkey's part: key of each of deps
 // of tile, in tile's own key store — the caller holds tile's backup lock
-// and has deleted what the keys sealed — and answers how many went. (At the
-// merge with F17b this is erasePartitionBackupsHeld([]string{tile}, d, …)
-// per dep, which also records each erase in the tile's history.)
+// and has deleted what the keys sealed — and answers how many went. Each
+// erase goes through erasePartitionBackupsHeld (backup_partition.go), so it
+// is in the tile's history; the owner is the tile alone, never its scope
+// root (whose part: key seals the root's namespaces, not this tile's).
 func (b *Broker) erasePartitionKeysHeld(tile string, deps []string, pkey, reason, by string) int {
 	n := 0
 	for _, d := range deps {
-		subject := partitionBackupSubject(tile, d, pkey)
-		erased, _, err := b.eraseBackupSubjectsHeld(tile, func(s string) bool { return s == subject }, reason, by)
-		n += len(erased)
+		erased, _, err := b.erasePartitionBackupsHeld([]string{tile}, d, pkey, reason, by)
+		n += erased
 		if err != nil {
-			slog.Warn("partitions: a partition's backup key erase", "tile", tile, "subject", subject, "err", err)
+			slog.Warn("partitions: a partition's backup key erase", "tile", tile, "subject", partitionBackupSubject(tile, d, pkey), "err", err)
 		}
 	}
 	return n
