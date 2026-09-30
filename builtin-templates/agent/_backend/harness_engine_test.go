@@ -371,6 +371,55 @@ func TestHarnessHandoffMidTurn(t *testing.T) {
 	})
 }
 
+// A steer flushes the text before it from the pass, not the consumer; a
+// handoff before the turn's next durable event reads on from an offset
+// that step stored — the flushed text isn't read (and written) again.
+func TestHarnessHandoffAfterSteer(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false, "--steer")
+	run := askHarness(t, mux, box, "steer")
+	hwait(t, "ticking", func() bool { return strings.Contains(draftText(ag.eng, run.ID), "tick 1") })
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/message", run.ID), map[string]any{"text": "use tabs"}); w.Code != 200 {
+		t.Fatalf("message: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the steer's user row", func() bool { return strings.Contains(transcript(ag.db, run.ID), "U:use tabs") })
+	ag.eng.BeginShutdown()
+	successor(t, ag)
+	hwait(t, "the turn", turnOver(ag, run.ID))
+	text := fullText(ag.db, run.ID)
+	for _, tick := range []string{"tick 0 ", "tick 1 ", "tick 9 "} {
+		if strings.Count(text, tick) != 1 {
+			t.Fatalf("%q ×%d: %s", tick, strings.Count(text, tick), transcript(ag.db, run.ID))
+		}
+	}
+}
+
+// Parks survive a handoff: the successor answers the permission the
+// predecessor parked on (restored from pendingState.harness), and a
+// question (from the stored snapshot).
+func TestHarnessParkHandoff(t *testing.T) {
+	transports(t, func(t *testing.T, stdio bool) {
+		ag, mux, box := harnessFixture(t, stdio)
+		run := askHarness(t, mux, box, "perm")
+		p := parkOf(t, ag, run.ID, "approval")
+		q := askHarness(t, mux, box, "ask")
+		qp := parkOf(t, ag, q.ID, "question")
+		ag.eng.BeginShutdown()
+		b := successor(t, ag)
+		hwait(t, "the attaches", func() bool { return b.harnessOf(run.ID) != nil && b.harnessOf(q.ID) != nil })
+		if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", run.ID), map[string]any{"approve": true, "park": p.Park}); w.Code != 200 {
+			t.Fatalf("approve: %d %s", w.Code, w.Body)
+		}
+		if _, _, err := ag.queue(q.ID, inboxHAnswer, inboxBody{Park: qp.Park, Action: "accept", Sender: "alice",
+			Content: json.RawMessage(`{"question_0":"Postgres"}`)}, ""); err != nil {
+			t.Fatal(err)
+		}
+		hwait(t, "the permission's turn", func() bool { return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "listed") })
+		hwait(t, "the question's turn", func() bool {
+			return turnOver(ag, q.ID)() && strings.Contains(fullText(ag.db, q.ID), `answers: {"question_0":"Postgres"}`)
+		})
+	})
+}
+
 // A handoff while a turn stalls: the successor attaches and an interrupt
 // ends the turn (session/cancel → interrupted), once.
 func TestHarnessHandoffInterrupt(t *testing.T) {

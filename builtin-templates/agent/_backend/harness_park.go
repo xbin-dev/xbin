@@ -107,8 +107,10 @@ func (s *hsess) onQuestion(ev acp.Event) {
 // is parked, queues it.
 func (s *hsess) parkOrQueue(ev acp.Event, kind string, p *hPark, c *hcall) {
 	s.disarmIdle()
-	s.flushDraft()
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
+		if err := s.flushAllTx(t); err != nil { // the text before it, in the same step
+			return err
+		}
 		run, err := t.getRun(s.run)
 		if err != nil {
 			return err

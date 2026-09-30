@@ -58,8 +58,13 @@ type hsess struct {
 	pipe   *harnessPipe
 	perms  *acp.Permissions
 	done   chan struct{} // the consumer ended
+	// applyMu is held while the consumer applies an event, and by a
+	// durable step from anywhere else (commit with no event): such a step
+	// stores the draft as of `applied`, never with an event half applied.
+	applyMu sync.Mutex
 
 	mu      sync.Mutex
+	applied int64   // the offset of the last event the consumer applied
 	halted  bool    // let go (a handoff, a stop): nothing more is applied or written
 	draft   hsDraft // text and thinking read, not yet flushed to a row
 	calls   map[string]*hcall
@@ -703,8 +708,15 @@ func (s *hsess) consume() {
 		if s.isHalted() {
 			continue // drained, not applied: the successor reads it again
 		}
+		s.applyMu.Lock()
 		s.touchDetached()
 		s.apply(ev)
+		if ev.Wire != nil && ev.Wire.Off > 0 {
+			s.mu.Lock()
+			s.applied = max(s.applied, ev.Wire.Off)
+			s.mu.Unlock()
+		}
+		s.applyMu.Unlock()
 		if ev.Type != acp.EvMessageDelta && ev.Type != acp.EvThoughtDelta {
 			s.recheckSoon()
 		}
@@ -776,11 +788,19 @@ func (s *hsess) ended() {
 // --- durable commits ------------------------------------------------------------------
 
 // commit is one durable step of the session: fn's writes, the offset read
-// through ev (its frame; nil or 0: the one before stays), the stderr
+// through ev (its frame; nil, or an event of no frame: the last event
+// applied — what the draft and the tool rows stored are as of), the stderr
 // offset, the snapshot, the unflushed draft and the in-memory tool rows —
 // in one fenced transaction. Nothing is written once the session was let go
-// or a newer generation owns the row.
+// or a newer generation owns the row. ev is the consumer's (it applies it);
+// with none, the step is from elsewhere (the pass, a sign-in) and waits for
+// the event being applied — so a successor that reads on from the offset
+// stored never gets again what this step flushed (a steer's draft).
 func (s *hsess) commit(ev *acp.Event, fn func(t *DB, hs *harnessSession) error) error {
+	if ev == nil {
+		s.applyMu.Lock()
+		defer s.applyMu.Unlock()
+	}
 	var snap []byte
 	if s.c != nil {
 		snap, _ = json.Marshal(s.c.State())
@@ -811,6 +831,10 @@ func (s *hsess) commit(ev *acp.Event, fn func(t *DB, hs *harnessSession) error) 
 		}
 		if ev != nil && ev.Wire != nil && ev.Wire.Off > 0 {
 			hs.ReadOff = ev.Wire.Off
+		} else {
+			s.mu.Lock()
+			hs.ReadOff = max(hs.ReadOff, s.applied)
+			s.mu.Unlock()
 		}
 		if s.pipe != nil {
 			hs.ErrOff = max(hs.ErrOff, s.pipe.ErrOff())
