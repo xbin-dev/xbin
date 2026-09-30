@@ -78,6 +78,8 @@ func partitionCmd(args []string) error {
 		return errors.New("usage:\n" + partitionUsage + partitionConsentUsage)
 	}
 	switch args[0] {
+	case "mail": // partitionmail.go
+		return partitionMail(args[1:])
 	case "switch", "keep":
 		return partitionDecide(args[0], args[1:])
 	case "consent": // partitionconsent.go
