@@ -72,9 +72,12 @@ func (st *State) registerSandboxAPI(srv *server.Server) {
 // sandboxRow is a registry entry as the admin sees it.
 type sandboxRow struct {
 	sbx.Entry
-	Owner     string        `json:"owner,omitempty"`  // the tile's owner (users store)
-	Name      string        `json:"name,omitempty"`   // a session's tab name
-	Status    string        `json:"status,omitempty"` // an agent session's
+	Owner  string `json:"owner,omitempty"`  // the tile's owner (users store)
+	Name   string `json:"name,omitempty"`   // a session's tab name
+	Status string `json:"status,omitempty"` // an agent session's
+	// Personal: a person's terminal or agent session on a partitioned tile
+	// (listed without its name, PD-09); the admin console labels it.
+	Personal  bool          `json:"personal,omitempty"`
 	UptimeSec int64         `json:"uptimeSec"`
 	Stats     *sandboxStats `json:"stats,omitempty"`
 }
@@ -160,7 +163,7 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 			if info, ok := st.Term.Info(e.ID); ok {
 				row.Name, row.Status = info.Name, info.Status
 				if info.Personal() {
-					row.Name = "" // a person's session on a partitioned tile: no name in the admin's view (PD-09)
+					row.Name, row.Personal = "", true // a person's session on a partitioned tile: no name in the admin's view (PD-09)
 				}
 			}
 			if p, ok := bySandbox[e.ID]; ok {

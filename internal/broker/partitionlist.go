@@ -24,7 +24,9 @@ package broker
 //     mail counts are metadata: 04 §3).
 //
 // A tile's credentials (its frames, backend, terminals) get the tile-level
-// fields and features only: tile code never reads people's metadata.
+// fields and features only: tile code never reads people's metadata. The
+// admin tile's frame under a person's login (AdminFrameDriver) is the
+// exception: the admin console reads an admin's view (partitionadmin.go).
 
 import (
 	"cmp"
@@ -364,6 +366,7 @@ func (b *Broker) apiPartitionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	if admin {
 		out["orphans"] = b.partitionOrphans(tile)
+		b.partitionAdminExtras(tile, out) // history, lastWipe, globalMail (partitionadmin.go)
 	}
 	if person != "" {
 		out["notices"] = b.noticesOf(person, tile)
@@ -437,6 +440,7 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any, untrac
 	if p.Component == "" && p.Impersonator == "" {
 		person = p.UserID
 	}
+	tileCode := p.Component != "" && !b.adminConsoleView(p) // the admin tile driven by its person reads as an admin (partitionadmin.go)
 	tiles := []map[string]any{}
 	for _, c := range b.Reg.Components() {
 		if !c.PartitionShown() || !admin && !p.CanReadTile(c.Path) {
@@ -447,7 +451,7 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any, untrac
 		if c.PartitionErr != "" {
 			row["error"] = c.PartitionErr
 		}
-		if p.Component != "" {
+		if tileCode {
 			tiles = append(tiles, row)
 			continue
 		}
@@ -490,7 +494,7 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any, untrac
 		tiles = append(tiles, row)
 	}
 	out["tiles"] = tiles
-	if admin && p.Component == "" {
+	if admin && !tileCode {
 		out["isolated"] = partitionIsolated()
 		out["orphans"] = b.partitionOrphans("")
 		out["now"] = time.Now().UTC()

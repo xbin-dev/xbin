@@ -877,7 +877,10 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    (vm|namespace|host),accel? (kvm|emulate),
                                    memMiB?,vcpus?,pid,gen?,started,leaf?,
                                    disk?,net?,restricted?,owner?,name?,
-                                   status?,uptimeSec,stats?:{cpu,mem,pids,
+                                   status?,personal? (a person's terminal
+                                   or agent session on a partitioned tile,
+                                   listed without its name),uptimeSec,
+                                   stats?:{cpu,mem,pids,
                                    scope}}], disks:[{kind (terminal|tile|
                                    person-terminal),
                                    key,sandbox?,sandboxUid?,path,tile?,
@@ -3110,10 +3113,24 @@ GET    /partitions                 anyone; what it answers depends on who
                                    binds (personal binds whose requester
                                    is the tile: the person's own, every
                                    live one for admins); orphans (admins);
-                                   notices (the person's). A tile's own
+                                   notices (the person's); for admins also
+                                   history (the tile's mode history, newest
+                                   first, at most 50: [{op (auto | request
+                                   | switch | keep | withdrawn |
+                                   backup-erase | partition-restore), from,
+                                   to, by?, at, wiped?, reason?,
+                                   partition?}]), lastWipe? {from, to, at}
+                                   (the last switch that deleted data) and
+                                   globalMail? {pending, bytes, expired,
+                                   undeliverable?} (the global instance's
+                                   inbox: counts only, once it held an
+                                   item). A tile's own
                                    credentials (its frames, backend,
                                    terminals) get the tile-level fields and
-                                   features only. Without tile: tiles:
+                                   features only — except the admin tile's
+                                   frame under a person's login (the admin
+                                   console), which reads as an admin, with
+                                   and without tile. Without tile: tiles:
                                    [{tile, state, spec, request, error?,
                                    mine?: {partition, state, running,
                                    bytes}, totals? (admins), trust?

@@ -609,6 +609,7 @@ func TestPartitionsSmoke(t *testing.T) {
 		if len(admin.Partitions) < 2 || tile.Partitions != nil || tile.State != "partitioned" {
 			t.Errorf("carol's listing %+v, the tile's own %+v", admin, tile)
 		}
+		psConsole(t, d, e) // F12: the admin console's view (partitions_smoke_console_test.go)
 		// bob stops his own (alice's boot is the caps case's witness: untouched)
 		before := e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, "bob"))
 		d.Must(t, "POST", "/api/xbin/partitions/stop", map[string]string{"tile": psTile, "partition": "user:bob"}, 200, e.as("bob")...)
