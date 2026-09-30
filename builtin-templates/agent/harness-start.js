@@ -118,9 +118,11 @@ ext.register({
     }
   },
   // newChat: who answers this one (#n-agent) and, for a coding agent, the
-  // sandbox it starts in (#n-sandbox). In a person's partition a chat
-  // shared with others (#n-share, homes-ui.js) is the built-in agent's:
-  // "Who answers" is fixed to it, saying why (model/harness-homes.js).
+  // sandbox it starts in (#n-sandbox) — one of your own partition's list,
+  // whatever conversation is open (HS.newChatList). In a person's partition
+  // a chat shared with others (#n-share, homes-ui.js) is the built-in
+  // agent's: "Who answers" is fixed to it, saying why, and a pick the
+  // shared space can't see stays behind (model/harness-homes.js).
   newChat: (redraw) => {
     const app = ctx.app;
     if (!app) return null;
@@ -132,7 +134,8 @@ ext.register({
     }
     redrawNew = redraw;
     app.harness.ensure();
-    app.sbx.ensure();
+    app.sbx.ensure('', '');
+    const list = () => HS.newChatList(app);
     const f = { agent: app.harness.picked() ? app.harness.pick : AGENT, ref: '' };
     const shared = () => sharedNewChat($('n-share')?.value); // why the built-in agent answers ('' = anyone may)
     const agent = () => (shared() ? AGENT : f.agent);
@@ -141,9 +144,9 @@ ext.register({
       for (const id of ['n-class', 'n-system']) { const el = $(id)?.closest('.field'); if (el) el.style.display = on ? 'none' : ''; }
     };
     const refOf = (h) => {
-      const opts = HS.sandboxOptions(h, app.sbx.list, HS.startClass(app, h));
+      const opts = HS.sandboxOptions(h, list(), HS.startClass(app, h));
       if (f.ref && opts.some((o) => o.value === f.ref && !o.disabled)) return f.ref;
-      const to = HS.preferredSandbox(h, app.sbx.list, app.harness.sandboxes[h.id], app.sbx.pick && app.sbx.pick.ref, HS.startClass(app, h));
+      const to = HS.preferredSandbox(h, list(), app.harness.sandboxes[h.id], app.sbx.pick && app.sbx.pick.ref, HS.startClass(app, h));
       return (f.ref = to ? to.value : '');
     };
     return {
@@ -151,11 +154,11 @@ ext.register({
         const h = coding();
         const why = shared();
         const ref = h ? refOf(h) : '';
-        const p = HS.agentPicker(app.harness.catalog, f.agent, { classes: app.classes, classId: app.classId, list: app.sbx.list, manager: !!app.me.manager,
+        const p = HS.agentPicker(app.harness.catalog, f.agent, { classes: app.classes, classId: app.classId, list: list(), manager: !!app.me.manager,
           remembered: h && ref ? { ...app.harness.sandboxes, [h.id]: ref } : app.harness.sandboxes }); // its sign-in where it would start
         fields(!!h);
         if (!p.shown && !h) return nothing;
-        const opts = h ? HS.sandboxOptions(h, app.sbx.list, HS.startClass(app, h)) : [];
+        const opts = h ? HS.sandboxOptions(h, list(), HS.startClass(app, h)) : [];
         const cls = h ? p.rows.find((r) => r.value === h.id)?.detail : '';
         // shared with others: a select of its own (a fresh one again after, so the pick shows as it was)
         const pick = why ? html`<select id="n-agent" disabled title=${why}><option value=${AGENT} selected>${p.rows[0].name}</option></select>
@@ -174,7 +177,7 @@ ext.register({
       body() {
         const h = coding();
         if (h && f.ref) app.harness.rememberSandbox(h.id, f.ref);
-        return HS.newChatPick(app, agent(), h ? f.ref : '');
+        return HS.newChatPick(app, agent(), h ? f.ref : '', '', { shared: !!shared() });
       },
     };
   },

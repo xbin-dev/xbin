@@ -15,7 +15,7 @@ import { HOME } from './home.js';
 import { splitRef, classAllows, taintWhy, firewallEgress, STATES as SBX_STATES, ICON as SBX } from './sandboxes.js';
 import * as classes from './classes.js';
 import { AGENT } from './harness-store.js'; // "Who answers": the built-in agent (prefs/agent)
-import { harnessesHere, homedWhy, keepsHome, KEEPS_HOME } from './harness-homes.js'; // a partitioned agent's rules
+import { harnessesHere, homedWhy, keepsHome, KEEPS_HOME, sharedSees } from './harness-homes.js'; // a partitioned agent's rules
 import { twoHomes, publishes } from './homes.js';
 
 export { AGENT };
@@ -251,13 +251,26 @@ export function chooseAgent(app, id) {
   keepSandbox(app);
 }
 
+// newChatList: the sandboxes a new chat's coding agent picks from (the
+// new-chat dialog and sheet) — your own partition's, whatever conversation
+// is open: a coding agent's chat is always made there (model/harness-homes.js).
+// At home, and on a page with one home, that is the list as ever.
+export const newChatList = (app) => (app.sbx.listAt ? app.sbx.listAt('') : app.sbx.list);
+
 // newChatPick: the new-chat dialog's choice as its ask's part — {harness,
 // class, sandbox} for a coding agent (system and the built-in model don't
 // go: a coding agent keeps its own instructions, its model is an option),
-// else the built-in agent's (no harness, the model you picked).
-export function newChatPick(app, agent, ref, cwd = '') {
-  const h = agent && agent !== AGENT && harnessesHere() ? app.harness.find(agent) : null;
-  if (!h || !h.available) return { harness: undefined, ...(app.model ? { model: app.model } : {}) };
+// else the built-in agent's (no harness, the model you picked). shared: a
+// chat shared with others (model/harness-homes.js sharedNewChat) — the
+// built-in agent's, made at the global instance, which the next new chat's
+// sandbox pick goes to only when the shared space sees it too (sharedSees).
+export function newChatPick(app, agent, ref, cwd = '', { shared = false } = {}) {
+  const h = agent && agent !== AGENT && harnessesHere() && !shared ? app.harness.find(agent) : null;
+  if (!h || !h.available) {
+    const p = shared && app.sbx.pick;
+    const stays = p && !sharedSees(usable(newChatList(app)).find((s) => s.ref === p.ref));
+    return { harness: undefined, ...(app.model ? { model: app.model } : {}), ...(stays ? { sandbox: undefined } : {}) };
+  }
   const options = app.harness.options[h.id];
   return {
     harness: { provider: h.id, ...(options && Object.keys(options).length ? { options } : {}) },

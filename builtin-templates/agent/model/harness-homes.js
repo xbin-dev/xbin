@@ -17,7 +17,8 @@
 //     person's — unpartitioned as ever, and in a person's partition for a
 //     run homed there; elsewhere the card is read-only and says why;
 //   - the new-chat dialog (sharedNewChat): a chat shared with others is
-//     the built-in agent's;
+//     the built-in agent's, and takes along no sandbox the shared space
+//     can't see (sharedSees);
 //   - moving (keepsHome): a coding agent's conversation stays where it
 //     started.
 //
@@ -39,15 +40,16 @@ export const notOwn = (name) => `${name || 'it'} isn't a sandbox of your own spa
  * new coding agent's conversation started from this page, else why not. Only
  * a person's partition asks: there a conversation works only in a sandbox
  * homed in it (the backend's partitionBoxRefusal). The backend's own word on
- * a row wins when it sends one (`homed`, with `bindWhy`); else it is derived
- * as the backend checks it — not seen through a share (`shared`), and its
- * manager's owner names this partition (owner.partitionId and
- * owner.partition) and this tile (owner.via).
+ * a row wins when it sends one (`homed`, with `why`: sandbox_routes.go
+ * sandboxItem; a `bindWhy` is read too); else it is derived as the backend
+ * checks it — not seen through a share (`shared`), and its manager's owner
+ * names this partition (owner.partitionId and owner.partition) and this
+ * tile (owner.via).
  */
 export function homedWhy(s, state = partitionState(), x = globalThis.xbin) {
   if (state !== 'user' || !s) return '';
   const name = s.name || s.id || s.ref || '';
-  if (typeof s.homed === 'boolean') return s.homed ? '' : String(s.bindWhy || '') || notOwn(name);
+  if (typeof s.homed === 'boolean') return s.homed ? '' : String(s.why || s.bindWhy || '') || notOwn(name);
   const o = s.owner || {};
   const own = !s.shared && !!o.partitionId && !!o.partition && o.partition === (x && x.partition) && !!o.via && o.via === (x && x.self);
   return own ? '' : notOwn(name);
@@ -76,6 +78,16 @@ export const SHARED_BUILTIN = 'A chat shared with others is answered by the buil
  * mountNewShare: 'mine' or a shared choice) → why "Who answers" is fixed
  * to the built-in agent ('' = any may answer). */
 export const sharedNewChat = (vis, state = partitionState()) => (state === 'user' && vis && vis !== 'mine' ? SHARED_BUILTIN : '');
+
+/**
+ * sharedSees: may a chat shared with others — made at the global instance —
+ * carry sandbox row s of your partition's list (the next new chat's pick,
+ * which the ask would send)? Only one the shared space sees too: the
+ * team's, or one shared with the agent (`shared`). One homed in your
+ * partition, or one the list doesn't have, stays behind: the global
+ * instance can't see it, and would refuse the ask.
+ */
+export const sharedSees = (s) => !!(s && s.shared);
 
 /** keepsHome: a coding agent's conversation (a harness run at its root:
  * a row, a run, or a share dialog's {id, title, engine}) — it never moves
