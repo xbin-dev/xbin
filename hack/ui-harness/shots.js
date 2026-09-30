@@ -37,6 +37,7 @@ const { layoutSync } = require('./passes/layoutsync'), { deployBranches } = requ
 const { scrollbars } = require('./passes/scrollbars'), { agentLong } = require('./passes/agentlong'), { agentLongPerf } = require('./passes/agentlongperf'), { agentTemplateLong } = require('./passes/agenttemplatelong');
 const { agentTask } = require('./passes/agenttask'), { adminPolicies } = require('./passes/policies'), { templateCard } = require('./passes/templatecard'), { partitionSwitch } = require('./passes/partitionswitch');
 const { personalBinds } = require('./passes/personalbinds');
+const { adminMap } = require('./passes/adminmap'); // moved out of this file (its size budget)
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
 // terminal on an org tile.
@@ -777,39 +778,6 @@ async function netPickers(browser) {
   done();
 }
 
-// The access map tab (the first admin tab split into its own element): the
-// structure + matrix render from /access-matrix, a cell click opens the
-// derivation panel, the owner-transfer editor previews before it commits.
-async function adminMap(browser) {
-  const { check, done } = checker('admin-map');
-  const { ctx, page } = await login(browser, 'admin', 'admin');
-  await gotoTab(page, 'map', 'effective access');
-  await waitSel(page, '.mcell.has, .maprow', { timeout: 15000 });
-  const cells = await page.locator('.mcell.has').count();
-  check(cells > 0, `matrix renders ${cells} access cells`);
-  check((await page.locator('.snode.org').count()) >= 3, 'structure lists the seeded orgs');
-  await page.locator('.mcell.has').first().click();
-  await waitSel(page, 'text=effective (highest wins)');
-  check(true, 'a cell click opens the derivation panel');
-  await shot(page, 'admin-map');
-  // transfer: pick a different owner → preview → the commit button appears → cancel
-  const row = page.locator('tr', { has: page.locator('td.mtile', { hasText: 'apps/pinned' }) }).first();
-  await row.locator('button', { hasText: 'transfer' }).click();
-  await waitSel(page, 'button:has-text("preview")');
-  const sel = page.locator('select', { has: page.locator('option[value=""]') }).last();
-  await sel.selectOption('');
-  await page.locator('button', { hasText: 'preview' }).click();
-  await waitSel(page, 'button.go:has-text("transfer")');
-  check(true, 'preview yields the transfer button (no commit made)');
-  await shot(page, 'admin-map-transfer');
-  await page.locator('button', { hasText: 'cancel' }).last().click();
-  await waitSel(page, 'button:has-text("preview")', { state: 'detached' });
-  const owner = (await ctx.request.get(`${URL}/api/xbin/owner?tile=apps/pinned`).then((r) => r.json())).owner;
-  check(owner === 'org:devs', `cancel left apps/pinned with its owner (${owner})`);
-  await closeCtx(ctx, page);
-  done();
-}
-
 // Every admin tab opens by hash, renders a body and reports no error — the
 // smoke gate for splitting the console into tab elements: a tab whose module
 // fails to load, or whose data props the router forgot to pass, shows up
@@ -854,6 +822,8 @@ const PASSES = {
   netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, personalBinds,
 };
 PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
+PASSES.adminPartitions = require('./passes/adminpartitions').adminPartitions; // F12, on its own line
+PASSES.partitionLogs = require('./passes/partitionlogs').partitionLogs; // F12, on its own line
 
 (async () => {
   const args = process.argv.slice(2);
