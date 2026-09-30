@@ -231,7 +231,7 @@ func (ag *Agent) handDM(t *DB, ch *Channel, m *adapterMsg, key, addr string, pee
 	}
 	v.SessionKey = key
 	state := "working"
-	if !t.partitionRan(peer.XbinUser, ch.ID, key, addr) { // handoff_people.go: nothing answers until it runs once (the chat is told)
+	if !t.partitionRan(peer.XbinUser) { // handoff_people.go: it waits in their inbox, unread, until they open the agent
 		state = "idle"
 	}
 	*after = append(*after, func() {
