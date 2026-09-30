@@ -497,17 +497,22 @@ func TestPartitionsSmoke(t *testing.T) {
 	})
 
 	t.Run("logs", func(t *testing.T) {
-		// 03 §A.4, 06 §5: a person's instance logs to its partition's own
-		// file; GET /logs of the tile serves global's log — to an admin and
-		// the root token — and a person's frame can't read it (until F7b
-		// converts the route); nobody's answer holds a person's data
+		// 03 §A.4, 06 §5 (F7b): a person's instance logs to its partition's
+		// own file; GET /logs of the tile answers each person — their session
+		// and their frames, at any level — their own partition's log; the
+		// global instance's is the root token's, and an admin's with
+		// ?xbin-partition=global; an admin reads a person's only while that
+		// person shares it; nobody's answer holds another's data
 		own := filepath.Join(d.WS, ".xbin", "partition", util.TileKey(psTile), "main", ids["alice"], "backend.log")
 		if b, err := os.ReadFile(own); err != nil || !strings.Contains(string(b), "alice-secret") {
 			t.Errorf("alice's partition log doesn't hold what her instance logged (%s): %v %s", own, err, cut(string(b), 300))
 		}
 		logs := "/api/xbin/logs?component=" + psTile + "&tail=5000"
-		for name, hdrs := range map[string][]xbindtest.Header{"the owner token": nil, "carol's session": e.as("carol")} {
-			r := d.Call(t, "GET", logs, nil, hdrs...)
+		for name, v := range map[string]struct {
+			url  string
+			hdrs []xbindtest.Header
+		}{"the owner token": {logs, nil}, "carol's session, ?xbin-partition=global": {logs + "&xbin-partition=global", e.as("carol")}} {
+			r := d.Call(t, "GET", v.url, nil, v.hdrs...)
 			for _, f := range psForbid("global", false) {
 				if strings.Contains(string(r.Body), f) {
 					t.Errorf("BUG: %s's log of %s holds a person's data (%q): %s", name, psTile, f, cut(r.String(), 600))
@@ -517,12 +522,102 @@ func TestPartitionsSmoke(t *testing.T) {
 				t.Errorf("%s's log of %s isn't global's: %d %s", name, psTile, r.Status, cut(r.String(), 600))
 			}
 		}
-		psExpect(t, "bob's session, the log of "+psTile, d.Call(t, "GET", logs, nil, e.as("bob")...), psForbid("bob", false),
-			psWant{403, "backend logs need admin", false})
-		for _, p := range []string{"alice", "bob", "carol"} {
-			psExpect(t, p+"'s frame, the log of "+psTile, d.Call(t, "GET", logs, nil, e.fr(t, psTile, p)), psForbid(p, false),
-				psWant{403, "this route isn't available to a partition's credentials yet (per-partition backend logs)", false})
+		for _, p := range []string{"alice", "bob"} {
+			for name, hdrs := range map[string][]xbindtest.Header{p + "'s session": e.as(p), p + "'s frame": {e.fr(t, psTile, p)}} {
+				r := d.Call(t, "GET", logs, nil, hdrs...)
+				for _, f := range psForbid(p, false) {
+					if strings.Contains(string(r.Body), f) {
+						t.Errorf("BUG: %s, the log of %s holds %q: %s", name, psTile, f, cut(r.String(), 600))
+					}
+				}
+				if r.Status != 200 || !strings.Contains(string(r.Body), p+"-secret") || r.Header.Get("X-XBin-Partition") != "user:"+p {
+					t.Errorf("%s isn't %s's own partition log: %d %q %s", name, p, r.Status, r.Header.Get("X-XBin-Partition"), cut(r.String(), 300))
+				}
+			}
 		}
+		psExpect(t, "alice's frame, ?xbin-partition=global", d.Call(t, "GET", logs+"&xbin-partition=global", nil, e.fr(t, psTile, "alice")),
+			psForbid("alice", false), psWant{403, "reads its own log", false})
+		psExpect(t, "?partition=", d.Call(t, "GET", logs+"&partition=user:alice", nil, e.as("carol")...), psForbid("", false),
+			psWant{400, "take no ?partition=", false})
+		// carol, an admin, reads alice's log only while alice shares it
+		shared := logs + "&user=alice"
+		psExpect(t, "carol, alice's unshared log", d.Call(t, "GET", shared, nil, e.as("carol")...), psForbid("", false),
+			psWant{403, "doesn't share", false})
+		d.Must(t, "POST", "/api/xbin/partitions/share-log", map[string]any{"tile": psTile, "days": 1}, 200, e.as("alice")...)
+		if r := d.Call(t, "GET", shared, nil, e.as("carol")...); r.Status != 200 || !strings.Contains(string(r.Body), "alice-secret") {
+			t.Errorf("carol, alice's shared log: %d %s", r.Status, cut(r.String(), 300))
+		}
+		psExpect(t, "bob, alice's shared log", d.Call(t, "GET", shared, nil, e.as("bob")...), psForbid("bob", false),
+			psWant{403, "reads it only while they share it", false})
+		// carol follows it; alice stops sharing: the follow ends by itself (F7b fix)
+		followed := make(chan string, 1)
+		go func() {
+			req, _ := http.NewRequest("GET", d.URL+shared+"&follow=1", nil)
+			for _, h := range e.as("carol") {
+				req.Header.Set(h.K, h.V)
+			}
+			resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+			if err != nil {
+				followed <- "error: " + err.Error()
+				return
+			}
+			b, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			followed <- string(b)
+		}()
+		time.Sleep(time.Second)
+		d.Must(t, "DELETE", "/api/xbin/partitions/share-log", map[string]any{"tile": psTile}, 200, e.as("alice")...)
+		select {
+		case body := <-followed:
+			if !strings.Contains(body, "alice-secret") || !strings.Contains(body, "stream closed") {
+				t.Errorf("carol's follow of alice's shared log: %s", cut(body, 400))
+			}
+		case <-time.After(20 * time.Second):
+			t.Error("BUG: carol's follow of alice's log kept streaming after alice stopped sharing")
+		}
+		psExpect(t, "carol, after alice stopped sharing", d.Call(t, "GET", shared, nil, e.as("carol")...), psForbid("", false),
+			psWant{403, "doesn't share", false})
+		// tile-status: a person's partition's own credential reads its own
+		var st struct {
+			Partition string
+			Backend   *struct{ State string }
+		}
+		d.Must(t, "GET", "/api/xbin/tile-status?component="+psTile, nil, 200, e.fr(t, psTile, "alice")).Decode(t, &st)
+		if st.Partition != "user:alice" || st.Backend == nil {
+			t.Errorf("alice's frame's tile-status: %+v", st)
+		}
+	})
+
+	t.Run("ops", func(t *testing.T) {
+		// 06 §6 (F7b): GET /partitions per audience — a person their own row,
+		// an admin every person's metadata, tile code the tile's fields — and
+		// a person's stop of their own instance
+		var mine, admin, tile struct {
+			Features   []string
+			State      string
+			Partitions []struct {
+				User    string
+				Running bool
+			}
+		}
+		d.Must(t, "GET", "/api/xbin/partitions?tile="+psTile, nil, 200, e.as("alice")...).Decode(t, &mine)
+		d.Must(t, "GET", "/api/xbin/partitions?tile="+psTile, nil, 200, e.as("carol")...).Decode(t, &admin)
+		d.Must(t, "GET", "/api/xbin/partitions?tile="+psTile, nil, 200, e.fr(t, psTile, "alice")).Decode(t, &tile)
+		if len(mine.Partitions) != 1 || mine.Partitions[0].User != "alice" || !slices.Contains(mine.Features, "partitions/1") {
+			t.Errorf("alice's listing: %+v", mine)
+		}
+		if len(admin.Partitions) < 2 || tile.Partitions != nil || tile.State != "partitioned" {
+			t.Errorf("carol's listing %+v, the tile's own %+v", admin, tile)
+		}
+		// bob stops his own (alice's boot is the caps case's witness: untouched)
+		before := e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, "bob"))
+		d.Must(t, "POST", "/api/xbin/partitions/stop", map[string]string{"tile": psTile, "partition": "user:bob"}, 200, e.as("bob")...)
+		psExpect(t, "alice stops bob's", d.Call(t, "POST", "/api/xbin/partitions/stop", map[string]string{"tile": psTile, "partition": "user:bob"}, e.as("alice")...),
+			nil, psWant{403, "tile manager's or an admin's", false})
+		if after := e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, "bob")); after.Boot == before.Boot || after.Env != "user:bob" {
+			t.Errorf("bob's instance after his stop: %+v (boot before %s)", after, before.Boot)
+		}
+		psExpect(t, "bob after his stop", d.Call(t, "GET", "/api/"+psTile+"/kv/kv/secret", nil, e.fr(t, psTile, "bob")), psForbid("bob", true), psOK("bob-secret"))
 	})
 
 	t.Run("view-as", func(t *testing.T) {
@@ -706,6 +801,21 @@ func TestPartitionsSmoke(t *testing.T) {
 			}
 		}
 		psExpect(t, "old dave's instance token once dave is made again", d.Call(t, "GET", kv, nil, oldTok), nil, psWant{401, "", false})
+	})
+
+	t.Run("reset", func(t *testing.T) {
+		// 06 §6 (F7b): a person's reset deletes their partition's data —
+		// only theirs — after the typed confirmation; it starts empty again
+		kv := "/api/" + psTile + "/kv/kv/secret"
+		e.put(t, kv, "erin-secret", e.fr(t, psTile, "erin"))
+		body := map[string]string{"tile": psTile, "partition": "user:erin"}
+		psExpect(t, "erin's reset without the confirmation", d.Call(t, "POST", "/api/xbin/partitions/reset", body, e.as("erin")...),
+			nil, psWant{409, psTile + " user:erin", false})
+		psExpect(t, "bob resets erin's", d.Call(t, "POST", "/api/xbin/partitions/reset",
+			map[string]string{"tile": psTile, "partition": "user:erin", "confirm": psTile + " user:erin"}, e.as("bob")...), nil, psWant{403, "an admin's act", false})
+		d.Must(t, "POST", "/api/xbin/partitions/reset", map[string]string{"tile": psTile, "partition": "user:erin", "confirm": psTile + " user:erin"}, 200, e.as("erin")...)
+		psExpect(t, "erin after her reset", d.Call(t, "GET", kv, nil, e.fr(t, psTile, "erin")), []string{"erin-"}, psWant{404, `"not found"`, false})
+		psExpect(t, "bob after erin's reset", d.Call(t, "GET", kv, nil, e.fr(t, psTile, "bob")), psForbid("bob", true), psOK("bob-secret"))
 	})
 
 	t.Run("mode-keep", func(t *testing.T) {

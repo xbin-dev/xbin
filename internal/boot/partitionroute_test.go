@@ -194,6 +194,12 @@ func TestPartitionWiring(t *testing.T) {
 		if code, body := do("GET", "/api/xbin"+unconverted[0], frame); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
 			t.Errorf("alice's frame on %s (not per partition yet): %d %s", unconverted[0], code, body)
 		}
+	} else {
+		t.Log("every route is converted: the refusal of an unconverted one is internal/server's synthetic probe (TestPartitionGate)")
+	}
+	// tile-status from her partition's frame is her partition's (F7b)
+	if code, body := do("GET", "/api/xbin/tile-status?component=apps/pa", frame); code != 200 || !strings.Contains(body, `"partition":"user:alice"`) {
+		t.Errorf("alice's frame on tile-status: %d %s", code, body)
 	}
 	// her partition's own registrations (F5): none yet, not global's
 	if code, body := do("GET", "/api/xbin/bus/subscriptions", frame); code != 200 || strings.TrimSpace(body) != `{"subscriptions":[]}` {
@@ -223,6 +229,26 @@ func TestPartitionWiring(t *testing.T) {
 	}
 	if u, _ := d.st.Users.Get("alice"); !users.UIDOK(u.UID) {
 		t.Errorf("alice's first partition minted no uid: %q", u.UID)
+	}
+
+	// F7b's side is wired: the runner's rows and stops, the credential gate —
+	// a link minted held (no hold names it here) waits through the booted
+	// redemption, never redeems
+	if !d.st.Broker.PartitionOpsWired() || !d.st.Broker.CredentialGateInstalled() {
+		t.Errorf("the partition operations aren't wired: ops %v, credential gate %v", d.st.Broker.PartitionOpsWired(), d.st.Broker.CredentialGateInstalled())
+	}
+	tok, err := d.st.Users.CreateHeldInvite("alice", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(d.url+"/api/xbin/invite/redeem", "application/json", strings.NewReader(`{"invite":"`+tok+`","password":"newpassword1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 409 || !strings.Contains(string(held), "waiting for alice") {
+		t.Errorf("a held link's redemption: %d %s", resp.StatusCode, held)
 	}
 
 	u, _ := d.st.Users.Get("alice")

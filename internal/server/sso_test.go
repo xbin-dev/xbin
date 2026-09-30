@@ -327,6 +327,29 @@ func TestSSOLoginRefusals(t *testing.T) {
 	}
 }
 
+// A provider change its person hasn't confirmed (the partitions gate,
+// plans/partitions/06 §9) → the held error, no session; without it the
+// same sign-in goes through.
+func TestSSOLoginHeld(t *testing.T) {
+	f := newFakeIdP(t)
+	h, _, st := ssoTestServer(t, f, nil)
+	if _, err := st.Upsert(users.User{ID: "boss", Email: "boss@corp.com"}, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	f.email = "boss@corp.com"
+	st.SetSSOGate(func(u users.User) error { return &users.SSOHeldError{Person: u.ID} })
+	if w := ssoRoundTrip(t, h, f, nil); !strings.Contains(w.Header().Get("Location"), "sso_err=held") {
+		t.Fatalf("held: %d → %q", w.Code, w.Header().Get("Location"))
+	}
+	if ssoErrText("held") == "" {
+		t.Error("the held code has no login-page text")
+	}
+	st.SetSSOGate(nil)
+	if w := ssoRoundTrip(t, h, f, nil); w.Header().Get("Location") != "/" {
+		t.Fatalf("released: %d → %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
 // The GitHub OAuth2 path: no ID token — identity comes from the API's
 // verified primary email.
 func TestSSOGitHub(t *testing.T) {

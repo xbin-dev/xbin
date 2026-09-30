@@ -1,6 +1,7 @@
 package deployments
 
 import (
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -259,5 +260,34 @@ func TestNoAuthProtectionMarkedUnenforced(t *testing.T) {
 	protectOf(t)(f.do(dev, OpProtect, &ProtectRequest{Tile: opSite, On: ptr(false)}))
 	if pa := protectOf(t)(f.do(ownerP, OpProtect, &ProtectRequest{Tile: opSite, On: ptr(true)})); len(pa.Warnings) != 0 {
 		t.Errorf("the owner token was told %q", pa.Warnings)
+	}
+}
+
+// covers plans/partitions 06§4 PD-23 — while the broker says a primary must
+// stay protected (a partitioned tile set to run reviewed code only), its
+// unprotect answers 409 with the broker's reason and changes nothing; once
+// the broker lets it go, it unprotects.
+func TestUnprotectRefusedWhileRequired(t *testing.T) {
+	f := newGovFx(t, false)
+	protectOf(t)(f.do(ownerP, OpProtect, &ProtectRequest{Tile: opSite, On: ptr(true)}))
+	why := "apps/site runs on people's partition data of apps/site, set to run reviewed code only"
+	f.p.ProtectRequired = func(tile string) string {
+		if tile == opSite {
+			return why
+		}
+		return ""
+	}
+	_, err := f.do(ownerP, OpProtect, &ProtectRequest{Tile: opSite, On: ptr(false)})
+	var e *Error
+	if !errors.As(err, &e) || e.Status != http.StatusConflict || !strings.Contains(e.Msg, "reviewed code only") {
+		t.Fatalf("unprotect while required = %v", err)
+	}
+	if !f.rec(opSite).ProtectedPrimary {
+		t.Fatal("a refused unprotect unprotected")
+	}
+	f.p.ProtectRequired = func(string) string { return "" }
+	protectOf(t)(f.do(ownerP, OpProtect, &ProtectRequest{Tile: opSite, On: ptr(false)}))
+	if f.rec(opSite).ProtectedPrimary {
+		t.Error("the unprotect didn't take once allowed")
 	}
 }

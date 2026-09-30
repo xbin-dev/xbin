@@ -56,7 +56,7 @@ func (b *Broker) ShouldRunPartition(tile, dep, part, uid string) bool {
 	if spec, on := c.Partitioned(); !on || !spec.User {
 		return false
 	}
-	return b.isPrimary(tile, dep) && b.personLive(id, tile) == nil
+	return b.isPrimary(tile, dep) && b.personLive(id, tile) == nil && !b.partitionDropping(tile, util.PartitionKey(id, uid)) // a reset (partitionops.go)
 }
 
 // PublishPartitionState publishes a runner event of user partition part of

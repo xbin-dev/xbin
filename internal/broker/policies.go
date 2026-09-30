@@ -322,6 +322,7 @@ func (b *Broker) registerPolicies(srv *server.Server) {
 	srv.RegisterAPI("PUT /workspace-policies", b.apiPoliciesPut)
 	b.registerPartitionMode(srv)     // POST /partitions/mode: keep or switch (partitionswitch.go)
 	b.registerPartitionConsents(srv) // consents, the ledger, the edges (partitionconsent.go)
+	b.registerPartitionOps(srv)      // the listing, stop/reset/purge, log shares, credential confirmations (partitionops.go)
 }
 
 // canReadPolicies: admins (the admin tile through xbin:admin included), and

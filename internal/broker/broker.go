@@ -332,7 +332,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerPartitionLimits(srv)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
-		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID}
+		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID, PartitionLog: b.PartitionLog}
 	b.obs.Register(srv)
 	srv.InstallPolicy(brokerPolicy{b})
 }

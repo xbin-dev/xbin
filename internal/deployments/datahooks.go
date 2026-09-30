@@ -71,4 +71,10 @@ type DataHooks struct {
 	// primary of code asking for another mode warns that the tile will
 	// pause (partition.go). nil: it is taken to hold data.
 	PartitionHolds func(tile string) bool
+
+	// ProtectRequired answers, before tile's primary is unprotected, why it
+	// must stay protected ("" — it needn't): a partitioned tile set to run
+	// reviewed code only, which tile is or is bound into
+	// (plans/partitions/06 §4). nil: never.
+	ProtectRequired func(tile string) string
 }

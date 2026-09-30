@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -61,6 +62,9 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := auth.PrincipalOf(r)
+	if o.partitionLogs(w, r, p, comp) { // a partitioned tile's people's logs (partitionlogs.go)
+		return
+	}
 	if !o.canReadLogs(p, comp) {
 		server.WriteJSON(w, http.StatusForbidden, map[string]string{
 			"error": "backend logs need admin, the tile itself, or terminal-level access on it", "docs": "/docs/auth.md",
@@ -79,11 +83,30 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 		tail = min(t, logTailMax)
 	}
 
-	open := o.logOpener(comp, dep)
+	echo := map[string]string{}
+	if named != "" || dep != o.primary(comp) { // the echo; absent means the primary's
+		echo[deploymentHeader] = dep
+	}
+	o.streamLog(w, r, o.logOpener(comp, dep), follow, tail, echo, nil)
+}
+
+// logRecheck is how often a follow asks still whether its reader may still
+// read the log (var: tests shrink it).
+var logRecheck = 2 * time.Second
+
+// streamLog serves the log open opens: its last tail bytes and, with
+// follow, what is appended, until the client goes away — or, when still is
+// set, until still says the reader may no longer read it (asked every
+// logRecheck: a share that ended or was revoked ends the stream). echo's
+// headers go on an answer that serves it (not on a 404).
+func (o *Plane) streamLog(w http.ResponseWriter, r *http.Request, open func() (*os.File, error), follow bool, tail int64, echo map[string]string, still func() bool) {
 	f, err := open()
 	if err != nil && !follow {
 		server.WriteError(w, http.StatusNotFound, "no logs yet — the backend hasn't started")
 		return
+	}
+	for k, v := range echo {
+		w.Header().Set(k, v)
 	}
 	defer func() {
 		if f != nil {
@@ -96,9 +119,6 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 	// no sniffing: URLSession otherwise holds back a text/plain stream's
 	// first 512 bytes, so a short log never shows while it is followed
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if named != "" || dep != o.primary(comp) { // the echo; absent means the primary's
-		w.Header().Set(deploymentHeader, dep)
-	}
 	fl, _ := w.(http.Flusher)
 	flush := func() {
 		if fl != nil {
@@ -135,11 +155,20 @@ func (o *Plane) apiLogs(w http.ResponseWriter, r *http.Request) {
 	tick := time.NewTicker(logPoll)
 	defer tick.Stop()
 	ctx := r.Context()
+	checked := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		}
+		if still != nil && time.Since(checked) >= logRecheck {
+			if !still() {
+				fmt.Fprintf(w, "\x1b[90m[you may no longer read this log (a share ended, or access changed) — stream closed]\x1b[0m\n")
+				flush()
+				return
+			}
+			checked = time.Now()
 		}
 		if f == nil {
 			nf, err := open()

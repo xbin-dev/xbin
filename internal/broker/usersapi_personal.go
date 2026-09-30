@@ -1,6 +1,8 @@
 package broker
 
 import (
+	"strings"
+
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -100,4 +102,13 @@ type userListRow struct {
 	InvitePending bool            `json:"invitePending,omitempty"`
 	Personal      *users.Personal `json:"personal,omitempty"`
 	DeviceCount   int             `json:"deviceCount,omitempty"` // enrolled app devices (devicesapi.go)
+}
+
+// firstNonEmpty is a, unless it is blank, then b (the users API's display
+// names).
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
 }

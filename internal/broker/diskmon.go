@@ -377,7 +377,8 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 			out = append(out, a)
 		}
 	}
-	out = append(out, b.partitionAlerts(p, admin)...) // switch requests: admins and the tile's readers (partitionswitch.go)
+	out = append(out, b.partitionAlerts(p, admin)...)      // switch requests: admins and the tile's readers (partitionswitch.go)
+	out = append(out, b.partitionTrustAlerts(p, admin)...) // who can change a partitioned tile's code (partitiontrust.go)
 	if admin {
 		if a, bad := b.policiesAlert(); bad { // an unreadable data/workspace-policies.json (PD-55)
 			out = append(out, a)

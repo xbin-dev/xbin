@@ -151,6 +151,9 @@ func (s *Server) redeemInvite(w http.ResponseWriter, ip, tok, password string) {
 	case errors.Is(err, users.ErrInvalidInvite): // spent by someone else meanwhile
 		s.inviteRefused(w, ip)
 		return
+	case errors.Is(err, users.ErrInviteHeld): // waiting for its person (plans/partitions/06 §9): kept unspent
+		WriteError(w, http.StatusConflict, err.Error(), "/docs/partitions.md")
+		return
 	case err != nil:
 		WriteError(w, http.StatusInternalServerError, "could not set the password: "+err.Error(), "/docs/auth.md")
 		return

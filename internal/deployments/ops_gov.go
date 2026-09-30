@@ -436,6 +436,8 @@ func runProtect(ctx context.Context, p *Plane, g Grant, r *ProtectRequest) (any,
 		return nil, err
 	case o.rec.ProtectedPrimary == on:
 		return reply(p.answer(ctx, r.DryRun, nil, Impact{}, true))
+	case !on && p.ProtectRequired != nil && p.ProtectRequired(o.tile) != "": // reviewed code only (plans/partitions/06 §4)
+		return nil, &Error{Status: http.StatusConflict, Kind: KindPolicy, Msg: p.ProtectRequired(o.tile)}
 	case !on || cur != nil: // x stays where it is
 		if on && prefix != "" && !strings.HasPrefix(*cur, prefix) {
 			return nil, expectMismatch(r.Expect, p.shortOf(ctx, o.tile, *cur))

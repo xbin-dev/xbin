@@ -979,6 +979,9 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 			}
 		}
 	}
+	if err := b.reviewedOnlyBindRefusal(comp, binding); err != nil {
+		return err // 409: the tile runs reviewed code only (partitionreviewed.go)
+	}
 	// Organisation network sets are the ceiling on an org-owned tile's net
 	// reach (D54) — for workspace admins too (they widen the set instead).
 	if netKind(def.Kind) && b.Users != nil {

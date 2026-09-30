@@ -75,7 +75,38 @@ type partAdmission struct {
 	reserved map[string]string      // partStateKey → its tile: a cold start admitted, not yet live
 	bg       int                    // background cold starts in flight
 	mail     map[string][]time.Time // tile → its mail-started cold starts in the last minute
+	hits     map[string]CapHit      // tile → the last time its starts met the caps (PartitionCapHits)
 	memTotal atomic.Int64           // bytes; 0 = read /proc/meminfo (tests set it)
+}
+
+// CapHit is the last time a tile's people's partitions met the running caps
+// (03 §A.5) — bx doctor's "caps hit recently" (06 §7).
+type CapHit struct {
+	At    time.Time
+	Kind  string // the last one: evicted (another person's idle instance stopped), refused (busy), deferred (a background start waits)
+	Count int    // since xbind started
+}
+
+// noteCapHit records one (a.mu held).
+func (a *partAdmission) noteCapHit(tile, kind string, now time.Time) {
+	if a.hits == nil {
+		a.hits = map[string]CapHit{}
+	}
+	h := a.hits[tile]
+	a.hits[tile] = CapHit{At: now, Kind: kind, Count: h.Count + 1}
+}
+
+// PartitionCapHits are the tiles whose people's partitions met the caps
+// since xbind started, each's last time.
+func (r *Runner) PartitionCapHits() map[string]CapHit {
+	a := &r.parts.adm
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make(map[string]CapHit, len(a.hits))
+	for t, h := range a.hits {
+		out[t] = h
+	}
+	return out
 }
 
 // busyError is ErrPartitionBusy for tile: its text is the 503's, exactly.
@@ -206,10 +237,13 @@ func (r *Runner) admitPartition(tile, key string, class StartClass) (func(), err
 		}
 		if victim == nil {
 			if class != StartInteractive {
+				a.noteCapHit(tile, "deferred", now)
 				return nil, fmt.Errorf("%w: people's partitions are at their cap (%d of %s, %d in the workspace)", ErrPartitionDeferred, tileN, tile, wsN)
 			}
+			a.noteCapHit(tile, "refused", now)
 			return nil, sbx.Refuse(busyError{tile})
 		}
+		a.noteCapHit(tile, "evicted", now)
 		slog.Info("partition evicted", "component", victim.comp, "for", tile, "class", class)
 		r.stopPart(victim, false)
 	}

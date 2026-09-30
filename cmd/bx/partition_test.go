@@ -74,7 +74,7 @@ func TestBxPartition(t *testing.T) {
 	got = nil
 	for _, args := range [][]string{
 		{},
-		{"stop", "apps/docs"},
+		{"frobnicate", "apps/docs"}, // an unknown subcommand (stop is F7b's: TestBxPartitionOps)
 		{"keep"},
 		{"keep", "apps/docs", "--yes"},
 		{"switch", "apps/docs", "--force"},

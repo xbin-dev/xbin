@@ -425,7 +425,7 @@ func (b *Broker) StopBackendSafe(comp string) {
 // nothing removed — then removes it in a confined run (removeTree, WP-9b). A
 // layer that removal leaves behind is replaced whole by the restore.
 func (b *Broker) offload(comp string, full bool) error {
-	if err := b.sandboxOffloadCheck(comp); err != nil {
+	if err := cmpErr(b.partitionOffloadCheck(comp), b.sandboxOffloadCheck(comp)); err != nil { // partitioned tiles (partitionops.go)
 		return err // nothing archived, nothing stopped (tilesbx_hooks.go)
 	}
 	b.StopBackendSafe(comp)
