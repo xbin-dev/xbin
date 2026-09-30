@@ -189,6 +189,8 @@ test('the badge: name · cwd, the attached ones, and why a binding no longer res
   // a coding agent's conversation keeps its sandbox (the backend refuses a change): nothing to change, a new chat instead
   const f = S.sandboxBadge(v, list([sb('web')]), undefined, { fixed: 'Codex' });
   assert.deepEqual([f.canChange, f.fixed, f.advice], [false, true, 'start a new chat with Codex in another sandbox']);
+  assert.deepEqual([f.talk, b.talk, S.sandboxBadge({ ...v, access: 'viewer' }, list([sb('api')]), undefined, { fixed: 'Codex' }).talk], [true, true, false],
+    'a participant still talks there (the ▣ popover\'s Ports, D135) — a viewer does not');
   assert.match(f.broken, /^gone/);
   assert.match(S.sandboxBadge(v, list([sb('api')]), undefined, { fixed: 'Codex' }).title, /— fixed for this conversation$/);
 });

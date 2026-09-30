@@ -196,6 +196,7 @@ ok('a coding agent\'s ▣ (opened from the keyboard): its working directory, rea
   && !(await page.$('#sbx-cwd')) && !(await page.$('#sbx-cwd-set')));
 ok('…no switch or Detach', !(await page.$('#sbx-detach')) && !(await page.$('#sbxpop .sbxatt')));
 ok('…Open terminal and Manage stay', !!(await page.$('#sbx-term')) && !!(await page.$('#sbx-manage')));
+ok('…and its Ports (D135): a participant still probes the sandbox\'s ports', !!(await page.$('#sbx-ports #ports-probe')));
 await page.click('.mback');
 await until(() => !document.getElementById('sbxpop'));
 
