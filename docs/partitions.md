@@ -909,10 +909,11 @@ text).
 partition's instance (a tile manager or an admin may stop anyone's); its
 data stays and the next request starts it. `bx partition reset <tile>`
 deletes your partition's data on the tile — its data, vault,
-registrations, ledger, log, mail, terminal layers and agent-session history, in
-every deployment it has any — after you type `<tile> user:<you>`, and
-erases the tile's backup keys of it, so its archives can't be read any
-more; an admin may reset anyone's, and that person is told. A partitioned
+registrations, ledger, log, mail, terminal layers and agent-session
+history, in every deployment it has any — after you type
+`<tile> user:<you>`, and erases the tile's backup keys of it, so its
+archives can't be read any more; an admin may reset anyone's, and that
+person is told. A partitioned
 tile inside another tile's scope uses none of the scope's resources, so
 its reset never touches the scope root's data or keys. A tile you can't
 read answers as a missing one, and naming someone else's partition is
