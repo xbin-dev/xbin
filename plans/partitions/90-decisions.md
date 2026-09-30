@@ -650,6 +650,21 @@ questions they raised.
   D-F17b), audited, recorded in history, pushed to the person.
 - **I9 — "reviewed code only":** refuses unprotecting a primary and binding
   an unprotected provider in; other gaps are trust warnings (F7b as built).
+- **I10 — un-sharing a shared agent chat:** allowed; under the hood the
+  conversation moves to the person's own partition (copy there, then delete
+  at global — safely, so it exists in exactly one home at every moment) —
+  no private conversation stays in the shared space (B2b follow-up).
+- **I11 — big files through a channel handoff:** staged (08 §5): files over
+  the mail budget wait in global's storage and the partition fetches them
+  over F5, deleted on ack (B2c follow-up).
+- **I12 — no first-DM notice:** a DM for a person whose partition never ran
+  waits in its inbox like an unread message; notifications, if added, wake
+  whatever backends need to know — an inbox-level thing (the doorbell), not
+  a reply to the sender. The notice B2c built goes (wave 5).
+- **I13 — the shell gets a "Your partitions" user-menu entry** (shown when
+  the workspace has a partitioned tile) to `/xbin/partitions`.
+- **I14 — the logs switcher lives in the shell's logs panel only;** no new
+  admin read path for the admin console (F12 as built).
 - **Built as recommended (no ruling needed unless the owner objects):**
   credentials held under `credentialResetConfirm` stay held when the policy
   is turned off; an unreadable notices file lets an SSO sign-in through
@@ -662,6 +677,16 @@ questions they raised.
   until B2b and B2c land (the agent's sharing answers 409 in a partition
   until then); an existing agent instance's merge of the template's
   `template` block resolves automatically (W3b).
+- **Wave 4, built as recommended:** the chip's fourth word `no partition`
+  (view-as; the workspace token on a tile without a global instance) and
+  its place after the window's path; llm-gw's per-caller rows for
+  partitioned callers only (byte-identical elsewhere), no token budget yet;
+  no admin flag toward tiles yet; private push triggers fail closed against
+  a team catch-all on the same source; the switch and wipe pushes open the
+  partitions page; the trust panel lists used edges only; `?next=` carries
+  only `/xbin/partitions`; T1's merge driver is configured in every builtin
+  template instance (untracked `.git` config) and renamed instances' other
+  files keep git's line merge.
 
 The questions as they were raised:
 
