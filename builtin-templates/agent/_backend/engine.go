@@ -86,6 +86,7 @@ type Engine struct {
 	epochKey string                               // "" = "engine_epoch"
 	scope    func(id int64) bool                  // nil = every run
 	wake     func()                               // nil = ag.leaveWakeUp(db)
+	keep     *Agent                               // whose way back the hold and takeover keep (resume_keep.go): ag; a host engine's, the partition's
 	decorate func(r *Run, summary map[string]any) // nil = a run's summary as it is (publishRun)
 
 	// Test seams.
@@ -111,6 +112,7 @@ func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
 		delivery: map[int64][]chan struct{}{}, drafts: map[int64]*draft{}, harness: map[int64]*hsess{},
 		titling: map[int64]bool{},
 		now:     time.Now,
+		keep:    ag,
 	}
 	e.gate = newLLMGate(gateLimit(parseConfig(db.getSetting("config"))))
 	e.hub = newEventHub(e.gen)
@@ -156,7 +158,10 @@ func (e *Engine) takeOver() {
 	e.owned, e.epoch = true, epoch
 	e.mu.Unlock()
 	if e.ag != nil {
-		go e.ag.clearWakeJobs()
+		go func() {
+			e.ag.clearWakeJobs()
+			e.keep.wakeKeepReady() // a person's partition keeps them from now on (resume_keep.go)
+		}()
 	}
 	e.recover()
 	outboxKick() // replies the previous owner wrote after our streams connected

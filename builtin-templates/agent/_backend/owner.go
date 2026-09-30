@@ -96,6 +96,9 @@ type holder struct {
 func (e *Engine) updateHoldLocked() {
 	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0 || e.harnessHoldsLocked())
 	e.hold.set(want)
+	if !want && !e.closing {
+		e.keep.keepWakeUpSoon() // a person's partition: its way back, while it can (resume_keep.go)
+	}
 }
 
 func (h *holder) set(want bool) {

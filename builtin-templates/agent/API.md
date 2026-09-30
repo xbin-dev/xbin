@@ -541,8 +541,12 @@ What a partitioned instance does differently:
   agent), a `wake` job at the minute its earliest timed wait ends (a
   sleeping run's wake, a subagent deadline, a coding agent's idle stop:
   below), and nothing for runs waiting on a person — who opens the tile
-  anyway — nor while the halt is on. The global instance follows the
-  unpartitioned rule.
+  anyway — nor while the halt is on. xbind stops a person's partition with
+  its token revoked first, so the partition can't leave them as it exits:
+  it registers them while it idles instead — each time nothing holds it up
+  any more — and deletes one no longer wanted (a job that fires while it
+  still runs is a pass it would make anyway). The global instance follows
+  the unpartitioned rule.
 - **Sandboxes.** A partition calls its sandbox managers as itself: a
   manager whose `hello.caps` carry `partitions` homes the sandboxes it
   makes there ([/docs/sandbox-manager.md](/docs/sandbox-manager.md)). One

@@ -42,6 +42,9 @@ type Agent struct {
 	acl aclCache
 	// needs pushes "Needs you" to people's phones (needs_push.go); nil: off.
 	needs *needsPusher
+	// wakeKeep: a person's partition's way back, kept while it idles
+	// (resume_keep.go).
+	wakeKeep wakeKeeper
 }
 
 var agent *Agent

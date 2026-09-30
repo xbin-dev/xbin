@@ -82,6 +82,7 @@ func ensureHostEngine() *Engine {
 	e.epochKey = "engine_epoch." + hostKey()
 	e.scope = func(id int64) bool { return hostDrives(tr, id) }
 	e.wake = func() { hostedWakeUp(hostAg, tr) }
+	e.keep = agent     // the partition's way back is its main agent's to keep (resume_keep.go)
 	e.gate = main.gate // one model-call gate per partition (PD-36)
 	e.hold.open = main.hold.open
 	e.hub.tap = hostedFwd.add
