@@ -810,19 +810,14 @@ func cmdGrant(args []string) error {
 		return fmt.Errorf("usage: bx grant [--revoke] <caller> <target>:<role>")
 	}
 	body := map[string]string{"from": rest[0], "target": rest[1][:i], "role": rest[1][i+1:]}
-	method, warning := "POST", ""
+	method := "POST"
 	if revoke {
 		method = "DELETE"
-	} else {
-		warning = grantWarning(body["from"], body["target"], body["role"]) // partitionconsent.go
 	}
 	if err := apiJSON(method, "/api/xbin/grants", body, nil); err != nil {
 		return err
 	}
 	fmt.Println("ok")
-	if warning != "" {
-		fmt.Println("⚠ " + warning)
-	}
 	return nil
 }
 

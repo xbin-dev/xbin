@@ -146,9 +146,10 @@ bx code pr show|fetch|comment|close <n> [<component>] [flags]
                                        review · fetch the series · discuss ·
                                        close (--merged|--rejected|--withdrawn)
 bx api <component>                     roles + API.md — how to integrate with it
-bx grants                              grant table + pending requests
-bx grant <caller> <target>:<role>      approve/add a grant (a partitioned tile
-                                       on another's people's data: warns whose)
+bx grants                              grant table + pending requests (a
+                                       partitioned tile's on another's people's
+                                       data: whose data it would reach)
+bx grant <caller> <target>:<role>      approve/add a grant
 bx grant --revoke <caller> <target>:<role>
 bx iface                               interface requests, providers, bindings
 bx bind <comp> <slot>=<p> | <slot>+=<p[#i]> | <slot>-=<p[#i]>

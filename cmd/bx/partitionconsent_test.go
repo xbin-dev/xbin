@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,8 @@ import (
 // covers PD-13 06§7 — bx partition consent <from> <to> [--revoke] sends the
 // edge to POST/DELETE /partitions/consents, consent ls and ledger read
 // theirs; the route's refusal is the error; an xbind without the routes
-// exits 6. bx grants reads pending rows whatever else they carry (approvers
-// is a list) and shows the approval warning; bx grant prints it after
-// approving.
+// exits 6. bx grants reads rows whatever else they carry (approvedAt is a
+// number, approvers a list) and shows the approval warning.
 func TestBxPartitionConsent(t *testing.T) {
 	var got []string
 	old := false
@@ -78,14 +78,31 @@ func TestBxPartitionConsent(t *testing.T) {
 	old = false
 
 	// bx grants decodes rows that carry approvedAt (a number) and approvers
-	// (a list); bx grant warns
-	if err := cmdGrants(); err != nil {
-		t.Errorf("bx grants with approvedAt and approvers: %v", err)
+	// (a list), and prints the warning
+	out := captureStdoutF10(t, func() {
+		if err := cmdGrants(); err != nil {
+			t.Errorf("bx grants with approvedAt and approvers: %v", err)
+		}
+	})
+	if !strings.Contains(out, "⚠ apps/q's code — and everyone who can change it — will be able to read and write the apps/pg data of every person who can read apps/pg") ||
+		!strings.Contains(out, "apps/x") {
+		t.Errorf("bx grants printed %q", out)
 	}
-	if w := grantWarning("apps/q", "apps/pg", "reader"); !strings.Contains(w, "every person who can read apps/pg") {
-		t.Errorf("bx grant's warning: %q", w)
+}
+
+// captureStdoutF10 runs fn with os.Stdout redirected, returning what it wrote.
+func captureStdoutF10(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if w := grantWarning("apps/q", "apps/pg", "writer"); w != "" {
-		t.Errorf("another role's warning: %q", w)
-	}
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan string)
+	go func() { b, _ := io.ReadAll(r); done <- string(b) }()
+	fn()
+	os.Stdout = old
+	_ = w.Close()
+	return <-done
 }

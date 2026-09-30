@@ -8,7 +8,7 @@ package main
 // acts and reads (PersonOnly): from bx with a login or the root token's
 // person, never from a tile's terminal. Against an xbind without them both
 // exit 6. bx doctor lists the edges between partitioned tiles for review
-// (admins), and bx grant says whose data an approval opens.
+// (admins); bx grants shows a pending request's approval warning (main.go).
 
 import (
 	"encoding/json"
@@ -234,23 +234,4 @@ func doctorPartitionEdges(ok func(string, ...any)) {
 		fmt.Printf("  · %s → %s: %s's code reaches the %s data of %s; used by %d person(s) in %d days\n",
 			e.From, e.To, e.From, e.To, who, e.People, out.Days)
 	}
-}
-
-// grantWarning is the approval warning GET /grants gives a pending request
-// of from on target (a partitioned tile on another's people's data), or "".
-func grantWarning(from, target, role string) string {
-	var out struct {
-		Pending []struct {
-			From, Target, Role, Warning string
-		} `json:"pending"`
-	}
-	if apiJSON("GET", "/api/xbin/grants", nil, &out) != nil {
-		return ""
-	}
-	for _, p := range out.Pending {
-		if p.From == from && p.Target == target && p.Role == role {
-			return p.Warning
-		}
-	}
-	return ""
 }
