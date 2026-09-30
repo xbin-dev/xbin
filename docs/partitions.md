@@ -419,7 +419,10 @@ own storage keeping a copy, and a person's partition hands something back.
   (sealed under another vault key, or damaged) is dropped at the next read
   and counted as undeliverable, and never holds up the items behind it.
 - **At least once.** An item stays until it is acknowledged or expires, so a
-  handler may see it again: dedupe by `id`.
+  handler may see it again: dedupe by `id`. A send retried after an error
+  is another item, with another `id` — the first may exist too: a sender
+  that retries puts its own key in `data` (the id of the event it passes
+  on, say) and the addressee dedupes by that as well.
 - **The doorbell.** With `"partitionMail": "/mailbox"`, xbind POSTs
   `{"partition": "<addressee>", "pending": <n>}` to that path on the
   addressee's instance, as `xbin/mail` (role `writer`), while its inbox

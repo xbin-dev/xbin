@@ -77,7 +77,8 @@ func Mail(to, topic string, data any) (string, error) {
 }
 
 // MailContext is Mail that gives up when ctx ends; its error then wraps
-// ctx's (errors.Is(err, context.DeadlineExceeded)).
+// ctx's (errors.Is(err, context.DeadlineExceeded)). Before sending again
+// after an error, see MailWithContext.
 func MailContext(ctx context.Context, to, topic string, data any) (string, error) {
 	return MailWithContext(ctx, to, topic, data, MailOptions{})
 }
@@ -87,9 +88,13 @@ func MailWith(to, topic string, data any, o MailOptions) (string, error) {
 	return MailWithContext(context.Background(), to, topic, data, o)
 }
 
-// MailWithContext is MailWith that gives up when ctx ends. An item xbind
-// stored just before may still arrive although the call answers an error:
-// its addressee dedupes by id, as for every item.
+// MailWithContext is MailWith that gives up when ctx ends. The item may
+// then exist or not — xbind may have stored it just before — and the caller
+// never learns its id. Sending again makes a second item with a new id,
+// which the addressee's dedupe by ID doesn't catch: a sender that retries
+// puts its own key in data (the id of the event it passes on, say) for the
+// addressee to dedupe by, or doesn't retry. The same holds for any send
+// that fails without xbind's answer.
 func MailWithContext(ctx context.Context, to, topic string, data any, o MailOptions) (string, error) {
 	body := map[string]any{"to": to, "topic": topic, "data": data}
 	if o.TTL > 0 {

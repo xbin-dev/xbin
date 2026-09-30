@@ -295,9 +295,15 @@ pg, err := xbin.InboxPageContext(ctx, after, 100)
 err = xbin.AckContext(ctx, ids...)
 ```
 
-Nothing is lost when one gives up: an item stays until it is acknowledged,
-and one acknowledged or sent just before the deadline may still take
-effect (dedupe by `ID`, as always).
+A read that gives up loses nothing: an item stays until it is
+acknowledged. An ack that gives up may have taken effect; acknowledging
+again is nothing to do. A **send** that gives up — or fails without
+xbind's answer — may or may not have made its item, and the sender never
+learns the id: sending again makes a second item with a new `ID`, which
+dedupe by `ID` doesn't catch (that catches the same item delivered again).
+A sender that retries puts its own key in `data` — the id of the event it
+passes on, say — and the addressee dedupes by that key too; otherwise,
+don't retry.
 
 ### Notifying a person on their phone
 
