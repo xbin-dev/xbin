@@ -97,7 +97,11 @@ export class BxAdminBackup extends WithRouter(LitElement) {
   async _backupNow(comp) {
     this._busy = comp;
     try {
-      await api('/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp }) });
+      const r = await api('/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ component: comp }) });
+      // a partitioned tile: each person's partition gets an archive of its own (docs/partitions.md §Backups)
+      const p = r?.partitions;
+      if (p?.failed?.length || p?.skipped) this._fail(`${comp}: ${[...(p.failed || []).map((f) => `a person's partition wasn't archived — ${f}`), p.skipped].filter(Boolean).join('; ')}`);
+      else if (p?.archived) this._emit('bx-admin-notice', `${comp} backed up, with ${p.archived} ${p.archived === 1 ? "person's partition" : "people's partitions"} in archives of their own`);
       this._verOpen = new Set(this._verOpen).add(comp);
       await this._loadVersions(comp);
     } catch (e) { this._fail(e); }

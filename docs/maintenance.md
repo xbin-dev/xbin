@@ -542,7 +542,23 @@ partitioned tile: an admin refused a personal bind of someone else's tile,
 the person's own bind, their document's `xbin-interfaces` meta (the global
 row, then theirs with `personal: true`) against the admin's (the global row
 alone), and the binding → wiring view's `global` and `personal · <user> →
-<provider>` labels, whose ✕ removes the bind.
+<provider>` labels, whose ✕ removes the bind. The runtime → partitions tab
+is `tabs/partitions.js` (the list, a `PLAIN_TABS` entry), its tile view
+`tabs/partition-tile.js`, and their words and request bodies
+`tabs/partitions-view.js` — lit-free, tested in
+`hack/admin-partitions.test.mjs`; the `adminPartitions` pass
+(`hack/ui-harness/passes/adminpartitions.js`) drives it: people's rows
+(each person gets a partition by opening a terminal), a personal bind
+removed, the limits, reviewed code only refused with its reason, a reset
+behind the typed text, a restore with no backup, Keep and Switch… on two
+pending tiles, the orphans' purge, an xbind without partitions (the route
+stubbed 404) and the admin scaffold from before the tab (read from git)
+over the same tiles. The logs panel's partition switcher is
+`web/logs-partition.js` (tested in `hack/logs-partition.test.mjs`) inside
+`web/bx-logs.js`; the `partitionLogs` pass
+(`hack/ui-harness/passes/partitionlogs.js`) writes each partition's log
+into the workspace and checks what the admin and a person may pick, and
+that an unpartitioned tile's panel is unchanged.
 
 ## The shell (`workspace-template/shell`)
 

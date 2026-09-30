@@ -30,8 +30,14 @@ The router (`admin.js`, `GROUPS`) and one element per tab under `tabs/`
   deployments and the last deploy; protect / unprotect the primary,
   reassign it behind the terminal window's loud confirmation, deliveries
   and alwaysOn per non-primary deployment, and ⇈ to the tile's Deployments
-  panel for everything else — see *Tile managers' acts* below), *backup*,
-  *cron*.
+  panel for everything else — see *Tile managers' acts* below),
+  *partitions* (tiles that keep each person's data apart: their mode and
+  any request, people's metadata rows — never what a partition holds —,
+  Keep / Switch…, reviewed code only, limits, stop / reset / restore of a
+  person's partition, personal-bind records, orphans and their purge, the
+  mode history; docs/partitions.md §Operating people's partitions), *backup*,
+  *cron*. The sandboxes tab labels a person's partition instance, their
+  sessions (without names) and their terminal disks.
 - **user management** — users, sign-in (SSO, tokens), browser sessions,
   organisations (and the workspace policy ceiling and defaults),
   permission sets, network sets, the access map.
@@ -58,7 +64,15 @@ All under `/api/xbin`, gated by owner-or-`xbin:admin` unless
 `/vault-status`, `/vault-seal`, `/vault-unseal`, `/vault-rekey`,
 `/grants`, `/bindings`, `/ingress`, `/branding`, `/native-runtime`,
 `/workspace-policies`, `/partitions/edges`, `/deployments`, `/deployments/protect`, `/deployments/primary`,
-`/deployments/deliveries`, `/deployments/always-on`.
+`/deployments/deliveries`, `/deployments/always-on`, `/partitions`,
+`/partitions/mode`, `/partitions/reviewed`, `/partitions/limits`,
+`/partitions/stop`, `/partitions/reset`, `/partitions/purge`,
+`/partitions/binds`, `/partitions/backups`, `/partitions/restore`.
+
+The partitions tab's acts are the person's who opened the console, like
+the deployments tab's below: a mode decision needs a manager of the tile,
+a reset of someone else's partition, a restore, the purge and reviewed code
+only an admin.
 
 ## Tile managers' acts (the deployments tab)
 

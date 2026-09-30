@@ -11,6 +11,7 @@ import './tabs/deployments.js';
 import './tabs/branding.js';
 import './tabs/nativeapp.js';
 import './tabs/policies.js';
+import './tabs/partitions.js';
 
 export const PLAIN_TABS = {
   sandboxes: () => html`<bx-admin-sandboxes></bx-admin-sandboxes>`,
@@ -18,4 +19,5 @@ export const PLAIN_TABS = {
   branding: () => html`<bx-admin-branding></bx-admin-branding>`,
   nativeapp: () => html`<bx-admin-nativeapp></bx-admin-nativeapp>`,
   policies: () => html`<bx-admin-policies></bx-admin-policies>`,
+  partitions: () => html`<bx-admin-partitions></bx-admin-partitions>`,
 };
