@@ -314,8 +314,7 @@ func (e *Engine) harnessLive(ctx context.Context, run *Run) (*hsess, error) {
 		if hs == nil || hs.ExecID == "" || !hsRunning(hs.State) {
 			return nil, nil
 		}
-		var st acp.SessionState
-		if json.Unmarshal([]byte(hs.Snapshot), &st) != nil || st.SessionID == "" {
+		if _, ok := attachable(hs); !ok {
 			return nil, errHandoff // it is being started, elsewhere: try again
 		}
 	}

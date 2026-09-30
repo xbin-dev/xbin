@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
 )
@@ -153,7 +154,7 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 		hs, _ = e.db.harnessSession(run.ID)
 	}
 	parked := run.Status == statusWaiting
-	turn := (hs != nil && hs.PromptState != "") || (s != nil && s.isDetached())
+	turn := (hs != nil && hs.PromptState != "") || (s != nil && s.isDetached()) || detachedLeft(run, hs, s)
 	switch {
 	case len(h.wake) > 0:
 		e.harnessWake(ctx, run, hs, h.wake)
@@ -191,6 +192,13 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 	}
 }
 
+// detachedLeft: a predecessor's adapter runs a turn of its own (codex's
+// detached turn: detachedStored) that no session here follows yet —
+// resumeHarness attaches it, and follows it.
+func detachedLeft(run *Run, hs *harnessSession, s *hsess) bool {
+	return s == nil && detachedStored(run, hs) && hs.ExecID != "" && hsRunning(hs.State)
+}
+
 // consumeWithNote consumes rows with a journal note.
 func (e *Engine) consumeWithNote(run *Run, rows []*InboxRow, text string) {
 	_ = e.fenced(func(t *DB) error {
@@ -206,18 +214,33 @@ func (e *Engine) consumeWithNote(run *Run, rows []*InboxRow, text string) {
 }
 
 // resumeHarness takes over a live adapter a predecessor drove (recover()
-// pokes its run): attached when its session was open, else — it was still
-// opening one — ended, for the next prompt to start a new generation.
+// pokes its run): attached when its session was open (or it waits on its
+// sign-in without one: attachable), else — it was still opening one —
+// ended, for the next prompt to start a new generation. An attach its
+// manager didn't answer (it restarts too) is tried again by a one-shot
+// timer, backing off (hAttachRetry): until it takes, the exec turns out
+// gone (the pipe ends Lost, the turn with it) or the rights are refused
+// (stopHarnessNow).
 func (e *Engine) resumeHarness(ctx context.Context, run *Run, hs *harnessSession) {
-	var st acp.SessionState
-	if json.Unmarshal([]byte(hs.Snapshot), &st) == nil && st.SessionID != "" {
-		if _, err := e.ensureHarnessAt(ctx, run, true); err != nil && ctx.Err() == nil {
+	if _, ok := attachable(hs); ok {
+		_, err := e.ensureHarnessAt(ctx, run, true)
+		switch {
+		case err == nil, ctx.Err() != nil, errors.Is(err, errHandoff), errors.Is(err, errFenced):
+		case isHarnessFail(err): // stopped (ensureHarnessAt): nothing to try again
+			e.resetAttachRetry(run.ID)
 			logf("run #%d: taking over its coding agent: %v", run.ID, err)
+		default:
+			d := e.retryAttach(run.ID)
+			logf("run #%d: taking over its coding agent: %v — trying again in %s", run.ID, err, d)
 		}
 		return
 	}
 	cfg, err := e.db.runConfig(run.ID)
 	if err != nil || cfg.Harness == nil {
+		return
+	}
+	if hs.State == hsLogin { // a sign-in park with no session to take over: left, as a Retry leaves it
+		e.leaveLogin(ctx, run, hs)
 		return
 	}
 	e.dropExec(ctx, run, cfg, hs)
@@ -229,6 +252,33 @@ func (e *Engine) resumeHarness(ctx context.Context, run *Run, hs *harnessSession
 		cur.State = hsStopped
 		return t.putHarnessSession(cur)
 	})
+}
+
+// hAttachRetry is a takeover's first wait before it tries an unanswered
+// attach again, doubling to hAttachRetryMax (vars: tests).
+var hAttachRetry, hAttachRetryMax = 2 * time.Second, time.Minute
+
+// retryAttach arms run's timer for the next attach (the pass reaches
+// resumeHarness again) and says when.
+func (e *Engine) retryAttach(run int64) time.Duration {
+	e.mu.Lock()
+	if e.hretry == nil {
+		e.hretry = map[int64]int{}
+	}
+	n := e.hretry[run]
+	e.hretry[run] = n + 1
+	e.mu.Unlock()
+	d := min(hAttachRetry<<min(n, 10), hAttachRetryMax)
+	e.armTimer(run, e.unix()+int64((d+time.Second-1)/time.Second))
+	return d
+}
+
+// resetAttachRetry: run's adapter is taken over (or stopped) — a later
+// unanswered attach waits hAttachRetry again.
+func (e *Engine) resetAttachRetry(run int64) {
+	e.mu.Lock()
+	delete(e.hretry, run)
+	e.mu.Unlock()
 }
 
 // --- prompts ----------------------------------------------------------------------------
@@ -444,10 +494,10 @@ func (e *Engine) harnessCancel(ctx context.Context, run *Run, h hInbox) {
 		_ = s.c.Cancel()
 		s.stop()
 		stopped = true
-	} else if hs, _ := e.db.harnessSession(run.ID); hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
+	} else if hs, _ := e.db.harnessSession(run.ID); hs != nil && hs.ExecID != "" && hsExecMayRun(hs.State) {
 		if cfg, err := e.db.runConfig(run.ID); err == nil && cfg.Harness != nil {
 			e.dropExec(ctx, run, cfg, hs)
-			stopped = true
+			stopped = hsRunning(hs.State)
 		}
 	}
 	s := &hsess{e: e, run: run.ID, root: rootOf(run)}
@@ -645,6 +695,7 @@ func (e *Engine) endHarness(ctx context.Context, rid int64) {
 	mu := e.harnessLock(rid)
 	mu.Lock()
 	defer mu.Unlock()
+	e.resetAttachRetry(rid)
 	run, err := e.db.getRun(rid)
 	if err != nil {
 		return
@@ -652,7 +703,7 @@ func (e *Engine) endHarness(ctx context.Context, rid int64) {
 	hs, _ := e.db.harnessSession(rid)
 	if s := e.harnessOf(rid); s != nil {
 		s.stop()
-	} else if hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
+	} else if hs != nil && hs.ExecID != "" && hsExecMayRun(hs.State) {
 		if cfg, err := e.db.runConfig(rid); err == nil && cfg.Harness != nil {
 			e.dropExec(ctx, run, cfg, hs)
 		}

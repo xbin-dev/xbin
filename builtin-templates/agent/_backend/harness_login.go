@@ -181,7 +181,7 @@ func (s *hsess) heldForLogin(t *DB) *heldPrompt {
 func (e *Engine) leaveLogin(ctx context.Context, run *Run, hs *harnessSession) {
 	if s := e.harnessOf(run.ID); s != nil {
 		s.stop()
-	} else if hs.ExecID != "" && hsRunning(hs.State) {
+	} else if hs.ExecID != "" && hsExecMayRun(hs.State) {
 		if cfg, err := e.db.runConfig(run.ID); err == nil && cfg.Harness != nil {
 			e.dropExec(ctx, run, cfg, hs)
 		}

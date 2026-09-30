@@ -123,6 +123,15 @@ func (e *Engine) userRowTx(t *DB, run *Run, row *InboxRow) (*Message, error) {
 
 // --- the detached turn ------------------------------------------------------------------
 
+// detachedStored: the stored run is in a detached turn — running with no
+// prompt of AgTT's in flight once a turn has begun (turn_seq: a new run is
+// running before its first prompt goes, and that isn't one). Only this
+// process's memory follows one (s.detached): a successor that attaches
+// the adapter follows it again (attachHarness).
+func detachedStored(run *Run, hs *harnessSession) bool {
+	return hs != nil && run.Status == statusRunning && hs.PromptState == "" && hs.TurnSeq > 0
+}
+
 // followDetached: the adapter runs a turn of its own (startedNewTurn).
 func (s *hsess) followDetached() {
 	s.mu.Lock()
@@ -218,6 +227,11 @@ func (e *Engine) harnessInterrupt(ctx context.Context, run *Run, rows []*InboxRo
 	e.consumeRows(rows)
 	hs, _ := e.db.harnessSession(run.ID)
 	s := e.harnessOf(run.ID)
+	if detachedLeft(run, hs, s) { // a predecessor's detached turn: taken over (and followed) first
+		if s, _ = e.ensureHarnessAt(ctx, run, true); s == nil {
+			return
+		}
+	}
 	detached := s != nil && s.isDetached()
 	parked := run.Status == statusWaiting && parsePending(run.Pending).Kind != "login"
 	if hs == nil || (hs.PromptState == "" && !parked && !detached) {

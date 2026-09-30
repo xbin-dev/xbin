@@ -49,6 +49,15 @@ func hsRunning(state string) bool {
 	return state == hsLive || state == hsStarting || state == hsLogin
 }
 
+// hsExecMayRun: the stored exec may still run — an adapter's state; failed
+// (a stop whose kill may not have got through: the manager didn't answer)
+// or lost (cut off by a manager that stopped answering), which a cancel, a
+// delete or a stop tries to end again. Not stopped: its end was seen, or
+// AgTT's own kill was sent.
+func hsExecMayRun(state string) bool {
+	return hsRunning(state) || state == hsFailed || state == hsLost
+}
+
 // --- idle reclaim ------------------------------------------------------------------------
 
 func (e *Engine) harnessIdleFor() time.Duration {
@@ -196,9 +205,9 @@ func (e *Engine) stopHarnessNow(ctx context.Context, run *Run, why string) {
 			_ = s.c.Cancel()
 		}
 		s.stop()
-	} else if hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
+	} else if hs != nil && hs.ExecID != "" && hsExecMayRun(hs.State) {
 		if cfg, err := e.db.runConfig(run.ID); err == nil && cfg.Harness != nil {
-			e.dropExec(ctx, run, cfg, hs)
+			e.dropExec(ctx, run, cfg, hs) // rights-free: a refusal is why it stops
 		}
 	}
 	ls := &hsess{e: e, run: run.ID, root: rootOf(run)}

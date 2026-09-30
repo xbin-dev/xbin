@@ -1878,8 +1878,12 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   mid-send, the connection to the sandbox dropped as it went) fails —
   "send it again" — and is never sent twice. A save or restart of the
   agent never stops one: the next process takes it over where the last one
-  left it, mid-turn too — and a process that exits with one running, idle
-  too, and none to follow leaves the resume job (§The engine, "Resume job"),
+  left it, mid-turn, parked on its sign-in or in a turn of its own too
+  (trying again — 2 s, doubling to a minute — while its sandbox manager
+  doesn't answer; stopping it, `failed` with why, and ending its turn when
+  the conversation may no longer use the sandbox) — and a process that
+  exits with one running, idle too, and none to follow leaves the resume
+  job (§The engine, "Resume job"),
   whose next process takes it over and stops it once it has been idle for
   `harnessIdleMin`. **Rolling back** to an agent from before coding agents
   (v0.3.64 or older): its model loop never answers a coding agent's

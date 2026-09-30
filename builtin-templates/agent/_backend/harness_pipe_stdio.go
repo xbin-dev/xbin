@@ -27,10 +27,18 @@ func (p *harnessPipe) stepSocket() {
 	}
 	typ, data, err := c.ReadMessage()
 	if err != nil {
+		replaced := ws.IsClose(err, xbin.StdioReplaced)
+		if replaced && p.t.Guard != nil && p.t.Guard() == nil {
+			// this process still owns the session, so whoever attached
+			// isn't its successor (that one bumps the epoch first): taken
+			// back like a drop — connect checks the Guard again
+			logf("harness exec %s: another client attached to its stdio socket — attaching again", p.execID)
+			replaced = false
+		}
 		switch {
 		case p.ctx.Err() != nil:
 			p.end(errPipeDetached)
-		case ws.IsClose(err, xbin.StdioReplaced):
+		case replaced: // the successor's (or, with no Guard, anyone's): let go
 			p.end(errPipeReplaced)
 		default: // a drop: attach again (after a while, when it keeps dropping)
 			p.dropSock(c)

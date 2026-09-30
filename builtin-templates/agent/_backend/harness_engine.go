@@ -268,13 +268,15 @@ func (e *Engine) ensureHarnessAt(ctx context.Context, run *Run, attachOnly bool)
 		return nil, nil
 	}
 	if hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
-		var st acp.SessionState
-		if json.Unmarshal([]byte(hs.Snapshot), &st) == nil && st.SessionID != "" {
+		if st, ok := attachable(hs); ok {
 			s, err := e.attachHarness(ctx, run, cfg, hs, st)
 			if err == nil || !isHarnessFail(err) {
 				return s, err
 			}
-			return nil, e.failHarness(run, err)
+			// the conversation may no longer drive it: stopped as a
+			// refusal mid-turn is (§3.3) — never left to work on unread
+			e.stopHarnessNow(ctx, run, err.Error())
+			return nil, err
 		}
 		// the predecessor was still opening the session (initialize,
 		// session/new or a session/load replay): start over
@@ -305,6 +307,18 @@ func (e *Engine) harnessLock(run int64) *sync.Mutex {
 func isHarnessFail(err error) bool {
 	var f *harnessFail
 	return errors.As(err, &f)
+}
+
+// attachable is the stored snapshot of a running adapter a successor
+// takes over: one with its session open, or one parked on its sign-in
+// that refused a session signed out (codex: AwaitLogin — authenticate
+// opens the session through it). false: it was still opening one.
+func attachable(hs *harnessSession) (acp.SessionState, bool) {
+	var st acp.SessionState
+	if json.Unmarshal([]byte(hs.Snapshot), &st) != nil {
+		return st, false
+	}
+	return st, st.SessionID != "" || (hs.State == hsLogin && st.AuthNeeded)
 }
 
 // failHarness stores the session failed with err's words.
@@ -594,13 +608,33 @@ func sandboxShared(b *sbxSandbox) bool {
 	return b.Visibility == "team" || len(b.Members) > 0 || b.Shared || (sh != "" && sh != "null" && sh != "[]" && sh != "{}")
 }
 
-// dropExec ends an adapter a predecessor left half-started (best effort).
+// dropExec ends the adapter hs names that this process doesn't drive (a
+// predecessor's, half-started or refused; best effort, in the background:
+// Kill). It needs no rights: a refusal is exactly when an adapter must
+// stop — its manager is called for the person who bound the sandbox (who
+// started it; the harness's starter once the binding is gone) over the
+// exec's routes.
 func (e *Engine) dropExec(ctx context.Context, run *Run, cfg Config, hs *harnessSession) {
-	u, _, err := e.harnessUse(ctx, run, cfg)
-	if err != nil {
+	if hs == nil || hs.ExecID == "" {
 		return
 	}
-	attachHarnessPipe(ctx, harnessTarget(u), hs.ExecID, hs.ReadOff, hs.ErrOff).Kill()
+	ref, by := hs.Ref, ""
+	if cfg.Harness != nil {
+		ref, by = orStr(ref, cfg.Harness.Ref), cfg.Harness.By
+	}
+	if b, ok := cfg.sandboxBinding(ref); ok && b.By != "" {
+		by = b.By
+	}
+	provider, id, ok := splitSandboxRef(ref)
+	if !ok {
+		return
+	}
+	conn, err := sbxDial(provider, sbxUserOf(binderWho(by)))
+	if err != nil {
+		logf("run #%d: stopping its coding agent (exec %s): %v", run.ID, hs.ExecID, err)
+		return
+	}
+	attachHarnessPipe(ctx, hpTarget{Conn: conn, ID: id}, hs.ExecID, hs.ReadOff, hs.ErrOff).Kill()
 }
 
 // --- attach: taking over a running adapter ---------------------------------------
@@ -682,11 +716,18 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 		s.stop()
 		return nil, err
 	}
+	e.resetAttachRetry(run.ID)
 	if !s.draft.empty() {
 		s.showDraft()
 	}
 	s.publishSummary()
-	if hs.PromptState == "" && run.Status != statusWaiting && run.Status != statusRunning && hs.State == hsLive {
+	switch {
+	case detachedStored(run, hs):
+		// codex's detached turn (harness_steer.go), which only the
+		// predecessor's memory followed: followed again, it ends once the
+		// adapter is quiet, or interrupted
+		s.followDetached()
+	case hs.PromptState == "" && run.Status != statusWaiting && run.Status != statusRunning && hs.State == hsLive:
 		s.armIdle()
 	}
 	return s, nil

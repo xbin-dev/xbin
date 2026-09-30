@@ -111,7 +111,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tool row whose `acp` says what it did (a diff, a command's output), its
   state in the summary's `harness` and the stream's `harness` event, a
   permission it asks for a park `POST /runs/{id}/approve` answers. It
-  survives a save or restart of the agent mid-turn. Additive: a run of the
+  survives a save or restart of the agent mid-turn — parked on its sign-in
+  or in a turn of its own too, and taken over once its sandbox manager
+  answers when that restarts as well; one the conversation may no longer
+  use by then is stopped and its turn ends. Additive: a run of the
   agent's own loop answers exactly as before. Rolled back to an older build
   of the agent (v0.3.64 or before), a coding agent's messages wait, and any
   turn that build would start in its conversation — one left running or
