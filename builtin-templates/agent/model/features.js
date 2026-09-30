@@ -203,6 +203,7 @@ export const FEATURES = {
   'state.partition.global': 'at a partitioned instance\'s global instance (the owner token), a note to sign in as a person for private conversations',
   'state.partition.sandboxes': 'in a person\'s partition, a notice naming a bound sandbox manager that can\'t keep people apart, and how to update it',
   'state.partition.hidden': 'in a partitioned instance the live stream closes while the page is hidden and resumes from its cursor when it shows (model/stream.js)',
+  'state.partition.mcp': 'in a partitioned instance the settings\' MCP list shows the config\'s static servers, marking one with headers as working in shared (global) conversations only — bind it as a tile or a personal bind for your own (model/partition.js staticMcp)',
 
   // Deep links
   'link.conv': 'an address opens a conversation (#c=<id>)',

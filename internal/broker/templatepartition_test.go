@@ -203,10 +203,11 @@ func TestTemplatesNewPartition(t *testing.T) {
 
 // covers PD-52 — the template-merge fixture (01 §Tests): a builder's `git
 // merge template/main` never introduces or changes a top-level "partition".
-// The default lives in the stripped template block, so an upstream change to
-// it touches lines the instance dropped: the merge conflicts, or leaves the
-// instance's own value; a resolution towards upstream brings back the
-// template block, never a top-level key.
+// The default lives in the template block, which instances never carry and
+// the served repo never changes (templaterepo_block.go): an upstream change
+// to it is no change to merge — the merge is clean, keeps the instance's own
+// value and brings no block, and upstream's fix elsewhere (the title) comes
+// in. Should a merge still conflict, neither side carries a top-level key.
 func TestTemplateMergeNeverAddsPartition(t *testing.T) {
 	b := testBroker(t)
 	root := b.Reg.Root
@@ -234,10 +235,10 @@ func TestTemplateMergeNeverAddsPartition(t *testing.T) {
 		changeLine bool   // v2 also changes a top-level line
 		clean      bool   // the merge is clean (upstream's fix is elsewhere)
 	}{
-		{"default changes", `["user", "global"]`, `["user"]`, builtins.InstanceOpts{Partition: true}, `["user","global"]`, true, false},
-		{"opted out, default changes", `["user", "global"]`, `["user"]`, builtins.InstanceOpts{}, "", true, false},
-		{"a default appears", "", `["user", "global"]`, builtins.InstanceOpts{Partition: true}, "", false, false},
-		{"the default goes", `["user"]`, "", builtins.InstanceOpts{Partition: true}, `["user"]`, false, false},
+		{"default changes", `["user", "global"]`, `["user"]`, builtins.InstanceOpts{Partition: true}, `["user","global"]`, true, true},
+		{"opted out, default changes", `["user", "global"]`, `["user"]`, builtins.InstanceOpts{}, "", true, true},
+		{"a default appears", "", `["user", "global"]`, builtins.InstanceOpts{Partition: true}, "", false, true},
+		{"the default goes", `["user"]`, "", builtins.InstanceOpts{Partition: true}, `["user"]`, false, true},
 		{"a fix elsewhere", `["user"]`, `["user"]`, builtins.InstanceOpts{Partition: true}, `["user"]`, false, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -275,6 +276,13 @@ func TestTemplateMergeNeverAddsPartition(t *testing.T) {
 			if merr == nil {
 				if got := instancePartitionOf(t, root, tile); got != c.want {
 					t.Fatalf("a clean merge changed the instance's partition to %q (want %q)", got, c.want)
+				}
+				doc, _ := os.ReadFile(filepath.Join(inst, "xbin.json"))
+				if _, has, err := jsonc.TopLevel(doc, "template"); err != nil || has {
+					t.Fatalf("the merge brought the template block in (%v):\n%s", err, doc)
+				}
+				if title, _, _ := jsonc.TopLevel(doc, "title"); c.changeLine != strings.Contains(string(title), "v2") {
+					t.Fatalf("upstream's own change to the title merged: %v (title %s)", !c.changeLine, title)
 				}
 				return
 			}

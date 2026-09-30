@@ -167,10 +167,14 @@ What a partitioned instance does differently:
   so it holds the config only as a conversation's viewers see it: a
   **static MCP server with `headers`** (they can carry tokens) is left out
   of it altogether — people's conversations don't get that server; the
-  global instance still uses it. Bind such a server as a tile (the `mcp`
-  slot, or a person's own personal bind) to use it in people's
-  conversations. A manager reading or changing the settings from their own
-  partition (`GET`/`PUT /config` — the whole config, headers and all, as
+  global instance still uses it: **it works in shared (global)
+  conversations only**. To use it in people's own conversations, bind it as
+  a tile (a global bind of the `mcp` slot) or as a personal bind (`bx bind
+  --personal`, that person's conversations only). The settings' **MCP**
+  list (web and native) shows a partitioned instance's static servers from
+  the config and says so beside each one with `headers`; an unpartitioned
+  instance's list is unchanged. A manager reading or changing the settings
+  from their own partition (`GET`/`PUT /config` — the whole config, headers and all, as
   ever — `PUT /classes`, `PUT /halt`, `PUT /skills` or `DELETE
   /skills/{name}` of a shared skill) is forwarded to the global instance,
   attributed to them — it checks they may, exactly as here — and conf is
@@ -245,11 +249,21 @@ What a partitioned instance does differently:
   in conversations you own, and in your model picker — never in anyone
   else's.
 - **Partition mail.** xbind rings `POST /mailbox` (`partitionMail`) as
-  `xbin/mail` when items wait in the instance's drop box; it and every start
-  pull the inbox, hand each item to its topic's handler once (by id) and
-  ack it. No topic has a handler yet: an item waits in xbind until one does.
-  Only xbind's `xbin/mail`, the owner token and the tile itself may ring
-  it. `GET /health` → `{ok, mode, team?}` answers whoever may call this
+  `xbin/mail` when items wait in the instance's drop box
+  ([/docs/partitions.md](/docs/partitions.md) §Partition mail); it and every
+  start pull the inbox through the SDK (`xbin.InboxPage`, reading on while
+  xbind says `more` — a page cut at ~8 MiB is short but not the end), hand
+  each item to its topic's handler once (its id is recorded with the
+  handler's effect, so a redelivery is only acknowledged) and acknowledge
+  each page in one `xbin.Ack`; a read or an acknowledgement that fails stops
+  the pull (the doorbell rings again). An item a handler fails on stays for
+  the next pull. An item whose topic this version has no handler for stays
+  for 30 minutes after it was sent — a newer version mid-deploy may read it
+  — and is then acknowledged unhandled (logged), rather than start the
+  partition at every doorbell step until it expires. No topic has a handler
+  yet: add yours to `mailHandlers` (`_backend/mailbox.go`). The doorbell
+  answers `{handled, left, dropped}`. Only xbind's `xbin/mail`, the owner
+  token and the tile itself may ring it. `GET /health` → `{ok, mode, team?}` answers whoever may call this
   API — the tile's own frames, terminals and backend, and the owner token
   (the admin role) — and, at the global instance, a person's own partition
   (the wake-up); another tile gets 403.

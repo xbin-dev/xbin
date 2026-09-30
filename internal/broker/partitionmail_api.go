@@ -17,10 +17,15 @@ package broker
 //     primary) owns the global inbox, and mails any person who is live on the
 //     tile — "404 no such person here" otherwise, which says nothing more —
 //     or "global";
+//   - the tile's other principals acting as global — the owner token's
+//     frames, the tile's root terminals and agent sessions, on the primary —
+//     read and ack the global inbox too (04 §3 "the addressee's principals";
+//     the owner's answer of 2026-09-30), and send nothing: sending as global
+//     is its backend's alone (04 §3's sender table);
 //   - everyone else — people outside the tile's own credentials (admins
-//     included), the root token, frames and terminals that act in no
-//     person's partition (the owner token's), other tiles and every
-//     delivery principal — 403. Admins see counts only (GET /partitions).
+//     included), the root token, view-as, other tiles, a deployment beyond
+//     the primary and every delivery principal — 403. Admins see counts only
+//     (GET /partitions).
 //
 // xbind stamps from: "global" or "user:<id>", never taken from the body.
 
@@ -47,20 +52,44 @@ func (b *Broker) registerPartitionMail(srv *server.Server) {
 }
 
 // errMailOutsider refuses a principal that is neither a person's partition
-// of a partitioned tile nor its global instance's backend.
+// of a partitioned tile nor its global instance.
 var errMailOutsider = statusErr{http.StatusForbidden, "partition mail is sent and read only by a partitioned tile's " +
-	"global instance (its backend) and by its people's partitions (their backends, frames, terminals and agent sessions)"}
+	"global instance (its backend; the tile's frames, terminals and agent sessions acting as global read its inbox) " +
+	"and by its people's partitions (their backends, frames, terminals and agent sessions)"}
+
+// errMailGlobalSender refuses a send by a principal that may read the global
+// inbox but isn't the global instance's backend.
+var errMailGlobalSender = statusErr{http.StatusForbidden, "only the global instance's backend sends partition mail as global: " +
+	"the tile's frames, terminals and agent sessions acting as global read and acknowledge its inbox, and mail nothing"}
 
 // mailSelf is the inbox p owns and mails from, or why it has none.
 func (b *Broker) mailSelf(p auth.Principal) (mailBox, error) {
+	box, backend, err := b.mailBoxOf(p)
+	if err == nil && box.part == util.PartitionGlobal && !backend {
+		return mailBox{}, errMailGlobalSender
+	}
+	return box, err
+}
+
+// mailReader is the inbox p reads and acknowledges: mailSelf's, and the
+// global inbox for the tile's frames, terminals and agent sessions acting as
+// global too (the owner token's frames, root terminals).
+func (b *Broker) mailReader(p auth.Principal) (mailBox, error) {
+	box, _, err := b.mailBoxOf(p)
+	return box, err
+}
+
+// mailBoxOf is the inbox p reads, and for the global inbox whether p is the
+// global instance's backend (the one principal that mails from it).
+func (b *Broker) mailBoxOf(p auth.Principal) (box mailBox, backend bool, err error) {
 	tile := b.publisherTile(p)
 	if tile == "" || p.Impersonator != "" {
-		return mailBox{}, errMailOutsider
+		return mailBox{}, false, errMailOutsider
 	}
 	if _, partitioned, err := b.tilePartitioning(tile); err != nil {
-		return mailBox{}, statusErr{http.StatusForbidden, err.Error()}
+		return mailBox{}, false, statusErr{http.StatusForbidden, err.Error()}
 	} else if !partitioned {
-		return mailBox{}, statusErr{http.StatusForbidden, tile + " keeps no person's data apart: partition mail runs " +
+		return mailBox{}, false, statusErr{http.StatusForbidden, tile + " keeps no person's data apart: partition mail runs " +
 			"between a partitioned tile's global instance and its people's partitions"}
 	}
 	if p.Partition.IsUser() { // the partition gate stamped it
@@ -68,27 +97,32 @@ func (b *Broker) mailSelf(p auth.Principal) (mailBox, error) {
 		own.Component = tile
 		t, err := b.partTargetOf(own, tile)
 		if err != nil {
-			return mailBox{}, statusErr{http.StatusForbidden, err.Error()}
+			return mailBox{}, false, statusErr{http.StatusForbidden, err.Error()}
 		}
-		return mailBox{tile: tile, dep: t.dep, bucket: t.pkey, part: t.part, user: t.user, uid: t.uid}, nil
+		return mailBox{tile: tile, dep: t.dep, bucket: t.pkey, part: t.part, user: t.user, uid: t.uid}, false, nil
 	}
-	if p.Via != "instance" || p.Component != tile {
-		return mailBox{}, errMailOutsider
+	// the global inbox: its backend, and the tile's frames, terminals and
+	// agent sessions whose partition is global (no person behind them)
+	backend = p.Via == "instance" && p.Component == tile
+	if !backend && p.Via != "frame" && p.Via != "terminal" {
+		return mailBox{}, false, errMailOutsider
 	}
-	part, err := b.addressedPartition(p, tile)
+	own := p
+	own.Component = tile // an xbin.window sub-path's credential acts as its tile's
+	part, err := b.addressedPartition(own, tile)
 	if err != nil {
-		return mailBox{}, statusErr{http.StatusForbidden, err.Error()}
+		return mailBox{}, false, statusErr{http.StatusForbidden, err.Error()}
 	}
-	dep, err := b.addressed(p, tile)
+	dep, err := b.addressed(own, tile)
 	switch {
 	case err != nil:
-		return mailBox{}, statusErr{http.StatusForbidden, err.Error()}
+		return mailBox{}, false, statusErr{http.StatusForbidden, err.Error()}
 	case part != util.PartitionGlobal:
-		return mailBox{}, errMailOutsider
+		return mailBox{}, false, errMailOutsider
 	case !b.isPrimary(tile, dep):
-		return mailBox{}, statusErr{http.StatusForbidden, tile + ": partition mail is the primary's; a deployment beyond it has none"}
+		return mailBox{}, false, statusErr{http.StatusForbidden, tile + ": partition mail is the primary's; a deployment beyond it has none"}
 	}
-	return mailBox{tile: tile, dep: dep, bucket: mailGlobalBox, part: util.PartitionGlobal}, nil
+	return mailBox{tile: tile, dep: dep, bucket: mailGlobalBox, part: util.PartitionGlobal}, backend, nil
 }
 
 // mailTo is the inbox from's mail to to reaches.
@@ -211,7 +245,7 @@ func (b *Broker) apiMailSend(w http.ResponseWriter, r *http.Request) {
 
 // apiMailList — GET /partitions/mail[?after=<id>&limit=<n>].
 func (b *Broker) apiMailList(w http.ResponseWriter, r *http.Request) {
-	box, err := b.mailSelf(auth.PrincipalOf(r))
+	box, err := b.mailReader(auth.PrincipalOf(r))
 	if err != nil {
 		writeMailErr(w, err)
 		return
@@ -243,7 +277,7 @@ func (b *Broker) apiMailAck(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, err.Error(), mailDocs)
 		return
 	}
-	box, err := b.mailSelf(auth.PrincipalOf(r))
+	box, err := b.mailReader(auth.PrincipalOf(r))
 	if err != nil {
 		writeMailErr(w, err)
 		return

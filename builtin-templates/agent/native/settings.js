@@ -7,6 +7,7 @@ import { html, repeat, nothing } from '/vendor/xb-native.js';
 import * as actions from '../model/actions.js';
 import { ui, ctx, push } from './ui.js';
 import { classScreens } from './classes.js';
+import { partitionState, staticMcp, mcpNote } from '../model/partition.js';
 
 function load(s, fn) {
   if (s.loaded) return;
@@ -110,16 +111,25 @@ function featuresTpl(s) {
   </screen>`;
 }
 
-// mcp: the bound MCP providers (the multi:true `mcp` http slot), read-only.
-function mcpTpl() {
+// mcp: the bound MCP providers (the multi:true `mcp` http slot), read-only;
+// in a partitioned instance also the config's static servers, the ones with
+// headers marked as working in shared (global) conversations only
+// (model/partition.js staticMcp). Unpartitioned: no call, no section.
+function mcpTpl(s = {}) {
   const mcp = globalThis.xbin?.iface?.('mcp');
   const eps = (mcp && mcp.endpoints) || [];
+  const state = partitionState();
+  if (state !== 'legacy') load(s, async () => { s.static = staticMcp(await actions.getConfig().catch(() => null), state); });
+  const st = s.static || [];
   return html`<screen title="MCP servers" style="list">
     <section footer=${eps.length ? 'Their tools are offered to the model as mcp:<server>:<tool>.'
       : 'No MCP servers bound. Bind MCP-providing components to this component\'s mcp slot (its Interfaces tab); their tools then become available to the agent.'}>
       ${eps.length ? repeat(eps, (e, i) => i, (e) => html`<row title=${e.provider || e.instance || e.service || ''} subtitle=${e.url || ''} mono="subtitle" icon="server"/>`)
         : html`<empty icon="server" title="none bound"/>`}
     </section>
+    ${st.length ? html`<section title="Static servers (config)" footer=${mcpNote(st) || nothing}>
+      ${repeat(st, (x, i) => i, (x) => html`<row title=${x.name} subtitle=${x.url} mono="subtitle" icon="server" detail=${x.globalOnly ? 'shared only' : nothing}/>`)}
+    </section>` : nothing}
   </screen>`;
 }
 

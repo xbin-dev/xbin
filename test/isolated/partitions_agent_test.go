@@ -23,6 +23,12 @@ package isolated
 //     mounted: its mount table (read from /proc on the host) shows her
 //     partition's volumes and the shared `team`, nothing of global's own
 //     data and nothing of bob's.
+//   - Partition mail through the agent's /mailbox (W3b): with a builder's
+//     two topics compiled in (paMailTopics), alice's frame mails global a
+//     ping, the global instance mails her partition a note, and her
+//     partition handles it once; both inboxes end acked. The owner token's
+//     frame reads (and acks) global's inbox but sends nothing; a topic the
+//     code doesn't know waits there while it is young.
 //   - Sandboxes: two copies of hack/fakesandbox are bound — one offering the
 //     `partitions` capability, one from before it. alice's partition uses
 //     only the first (the old one is refused with refusal "partitions",
@@ -96,6 +102,32 @@ func paSandboxTile(t *testing.T, d *xbindtest.Daemon, tile string, partitions bo
   "expose": {"roles": {"consumer": "Use this tile's sandboxes"}}}` + "\n"})
 }
 
+// paMailTopics is what a builder adds to the instance's mailbox
+// (_backend/mailbox.go's mailHandlers): at the global instance a person's
+// e2e/ping is answered by mailing them an e2e/note; in a person's partition
+// an e2e/note becomes a conversation of theirs titled with the item's id and
+// data — so each handled item shows, once, in their list.
+const paMailTopics = `package main
+
+import (
+	"context"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
+)
+
+func init() {
+	mailHandlers["e2e/ping"] = func(_ context.Context, _ *DB, it mailItem) error {
+		_, err := xbin.Mail(it.From, "e2e/note", it.Data)
+		return err
+	}
+	mailHandlers["e2e/note"] = func(_ context.Context, t *DB, it mailItem) error {
+		_, err := t.createRunStamped("mail "+it.ID+" "+string(it.Data), "{}", 0, statusIdle,
+			runStamp{Owner: runUser, Visibility: visPrivate, TitleSrc: "user"})
+		return err
+	}
+}
+`
+
 // paRun is GET /runs/{id} as far as the test reads it.
 type paRun struct {
 	Run struct {
@@ -134,6 +166,10 @@ func TestPartitionsAgent(t *testing.T) {
 	ok("POST", "/api/xbin/templates/new", map[string]string{"source": "agent", "path": paAgent}).Decode(t, &inst)
 	if strings.Join(inst.Partition, ",") != "user,global" || inst.PartitionSkipped != "" {
 		t.Fatalf("instantiating the agent: partition %v, skipped %q", inst.Partition, inst.PartitionSkipped)
+	}
+	// the builder's mail topics, before anything builds it (the mailbox case)
+	if err := d.WriteFiles(paAgent, map[string]string{"_backend/zz_e2e_mail.go": paMailTopics}); err != nil {
+		t.Fatal(err)
 	}
 	// …and an opted-out one: unpartitioned, like every instance made before
 	inst.Partition, inst.PartitionSkipped = nil, ""
@@ -371,6 +407,72 @@ func TestPartitionsAgent(t *testing.T) {
 			}
 		} else {
 			t.Logf("alice's db file from the host: %v (the mount table above is the check)", err)
+		}
+	})
+
+	t.Run("mailbox", func(t *testing.T) {
+		// Partition mail through the agent's own /mailbox (W3b): alice's
+		// frame mails global an e2e/ping; xbind rings the global instance,
+		// whose handler mails her partition an e2e/note; her doorbell rings
+		// and her handler makes one conversation of it — once, whatever
+		// rings or starts come after — and both inboxes end empty (acked).
+		const mailAPI = "/api/xbin/partitions/mail"
+		nonce := fmt.Sprintf("ping-%d", time.Now().UnixNano())
+		d.Must(t, "POST", mailAPI, map[string]any{"to": "global", "topic": "e2e/ping", "data": nonce}, 200, e.fr(t, paAgent, "alice"))
+		notes := func() []string {
+			_, body := convs(paAgent, "alice", "mine")
+			var list struct{ Pinned, Items []struct{ Title string } }
+			_ = json.Unmarshal([]byte(body), &list)
+			var hits []string
+			for _, it := range append(list.Pinned, list.Items...) {
+				if strings.HasPrefix(it.Title, "mail ") && strings.Contains(it.Title, nonce) {
+					hits = append(hits, it.Title)
+				}
+			}
+			return hits
+		}
+		xbindtest.Eventually(t, 4*time.Minute, "global's note reaches alice's partition", func() (bool, string) {
+			n := notes()
+			return len(n) > 0, fmt.Sprint(n)
+		})
+		inbox := func(hdr xbindtest.Header) []struct{ ID, From, Topic string } {
+			var pg struct {
+				Items []struct{ ID, From, Topic string }
+			}
+			d.Must(t, "GET", mailAPI, nil, 200, hdr).Decode(t, &pg)
+			return pg.Items
+		}
+		// the owner token's frame acts as global: it reads the global
+		// instance's inbox (the owner's answer of 2026-09-30), sends nothing
+		owner := e.fr(t, paAgent, "")
+		xbindtest.Eventually(t, time.Minute, "both inboxes are acked", func() (bool, string) {
+			a, g := inbox(e.fr(t, paAgent, "alice")), inbox(owner)
+			return len(a) == 0 && len(g) == 0, fmt.Sprintf("alice's %v, global's %v", a, g)
+		})
+		time.Sleep(3 * time.Second) // a late ring or start pulls again: nothing new
+		if n := notes(); len(n) != 1 {
+			t.Errorf("alice's partition handled global's note %d times: %q", len(n), n)
+		}
+		if r := d.Call(t, "POST", mailAPI, map[string]any{"to": "user:alice", "topic": "forged"}, owner); r.Status != 403 ||
+			!strings.Contains(string(r.Body), "only the global instance's backend") {
+			t.Errorf("the owner token's frame sends as global: %d %s", r.Status, r)
+		}
+		// a topic this version doesn't know stays in global's inbox (young:
+		// a newer version may read it) — where the owner's frame sees and
+		// acknowledges it
+		d.Must(t, "POST", mailAPI, map[string]any{"to": "global", "topic": "e2e/later", "data": nonce}, 200, e.fr(t, paAgent, "alice"))
+		var later []struct{ ID, From, Topic string }
+		xbindtest.Eventually(t, time.Minute, "the unknown topic waits in global's inbox", func() (bool, string) {
+			later = inbox(owner)
+			return len(later) == 1, fmt.Sprint(later)
+		})
+		time.Sleep(3 * time.Second) // the doorbell rang and global's mailbox left it
+		if later = inbox(owner); len(later) != 1 || later[0].From != "user:alice" || later[0].Topic != "e2e/later" {
+			t.Fatalf("global's inbox after its doorbell: %v", later)
+		}
+		d.Must(t, "POST", mailAPI+"/ack", map[string]any{"ids": []string{later[0].ID}}, 200, owner)
+		if g := inbox(owner); len(g) != 0 {
+			t.Errorf("global's inbox after the owner's frame acked: %v", g)
 		}
 	})
 

@@ -176,6 +176,13 @@ func TestMailRules(t *testing.T) {
 			}
 		}
 	}
+	// the tile's principals acting as global read its inbox, and send
+	// nothing: sending as global is its backend's alone (04 §3)
+	for _, p := range []auth.Principal{outsiders["global's frame"], outsiders["a root terminal"]} {
+		if code, body := mailSend(t, b, p, `{"to":"user:alice","topic":"forged"}`); code != 403 || !strings.Contains(body, "only the global instance's backend") {
+			t.Errorf("%s mails as global: %d %s", p.Via, code, body)
+		}
+	}
 	if got := mailTopics(t, b, aliceInst); fmt.Sprint(got) != "[global to-alice]" {
 		t.Errorf("alice's inbox after the outsiders: %q", got)
 	}
@@ -214,10 +221,12 @@ func TestMailInboxPrivacy(t *testing.T) {
 	for name, p := range map[string]auth.Principal{
 		"admin bob":             personP(t, w, "bob"),
 		"the root token":        {Owner: true},
-		"global's frame":        {Component: "apps/pg", Via: "frame"},
 		"view-as alice":         {Component: "apps/pg", UserID: "alice", Via: "frame", Impersonator: "bob"},
+		"view-as global":        {Component: "apps/pg", Via: "frame", Impersonator: "owner"},
 		"another tile":          instanceOf("apps/q", ""),
+		"another tile's frame":  frameOf("apps/q", ""),
 		"an unpartitioned tile": instanceOf("apps/x", ""),
+		"global's dev frame":    {Component: "apps/pg", Via: "frame", Deployment: "dev"},
 	} {
 		if code, _, body := mailRead(t, b, p, ""); code != 403 {
 			t.Errorf("%s reads mail: %d %s", name, code, body)
@@ -261,6 +270,59 @@ func TestMailInboxPrivacy(t *testing.T) {
 		t.Errorf("a malformed id: %d", code)
 	}
 
+}
+
+// covers 04§3 — TestMailGlobalInboxReaders (the owner's answer of
+// 2026-09-30): the global instance's inbox is read and acknowledged by its
+// backend and by the tile's principals acting as global — the owner token's
+// frames, root terminals and agent sessions — on the primary; a person's
+// frame, terminal or partition (an admin's included) reads only their own;
+// they send nothing as global (TestMailRules).
+func TestMailGlobalInboxReaders(t *testing.T) {
+	w := mailWS(t)
+	b := w.b
+	global := instanceOf("apps/pg", "")
+	mailSendOK(t, b, global, "global", "to-self", nil)
+	mailSendOK(t, b, partInst("apps/pg", "alice"), "global", "from-alice", "alice to global")
+	aliceID := mailSendOK(t, b, global, "user:alice", "dm", "for alice's eyes")
+	readers := map[string]auth.Principal{
+		"the owner token's frame": {Component: "apps/pg", Via: "frame", Gen: "o.gen"},
+		"a root terminal":         {Component: "apps/pg", Via: "terminal"},
+		"an agent session":        {Component: "apps/pg", Via: "terminal", Deployment: util.MainDeployment},
+	}
+	for name, p := range readers {
+		got := mailTopics(t, b, p)
+		if fmt.Sprint(got) != "[global to-self user:alice from-alice]" {
+			t.Errorf("%s reads global's inbox: %q", name, got)
+		}
+		if code, body := mailAckCall(t, b, p, aliceID); code != 200 { // not its inbox's: nothing to do
+			t.Errorf("%s acks alice's id: %d %s", name, code, body)
+		}
+	}
+	if got := mailTopics(t, b, partInst("apps/pg", "alice")); fmt.Sprint(got) != "[global dm]" {
+		t.Errorf("an ack from global's side took alice's item: %q", got)
+	}
+	// a person's credentials on the tile read their own inbox, never global's
+	for name, p := range map[string]auth.Principal{
+		"alice's frame":      mailFrame("apps/pg", "alice"),
+		"alice's terminal":   partTerm("apps/pg", "alice"),
+		"admin bob's frame":  mailFrame("apps/pg", "bob"),
+		"admin bob's shell":  partTerm("apps/pg", "bob"),
+		"bob's own instance": partInst("apps/pg", "bob"),
+	} {
+		code, _, body := mailRead(t, b, p, "")
+		if code != 200 || strings.Contains(body, "to-self") || strings.Contains(body, "from-alice") {
+			t.Errorf("%s reads: %d %s", name, code, body)
+		}
+	}
+	// the owner token's frame acknowledges: gone for the backend too
+	_, pg, _ := mailRead(t, b, global, "")
+	if code, body := mailAckCall(t, b, readers["the owner token's frame"], pg.Items[0].ID); code != 200 {
+		t.Fatalf("the owner token's frame acks: %d %s", code, body)
+	}
+	if got := mailTopics(t, b, global); fmt.Sprint(got) != "[user:alice from-alice]" {
+		t.Errorf("global's inbox after the frame's ack: %q", got)
+	}
 }
 
 // the limits: 1 MiB an item (413), an inbox's items and bytes (507 to the

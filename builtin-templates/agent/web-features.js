@@ -181,6 +181,7 @@ export const IMPLEMENTS = {
   'state.partition.global': 'partition-ui.js — the notice above the main pane',
   'state.partition.sandboxes': 'partition-ui.js — the notice above the main pane',
   'state.partition.hidden': 'model/stream.js — Live.visibility',
+  'state.partition.mcp': 'partition-ui.js — mountStaticMcp in agent.js tabMcp',
 
   // Deep links
   'link.conv': 'agent.js — followHash (model/router.js)',

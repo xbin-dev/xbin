@@ -101,7 +101,8 @@ bx partition keep <tile> [--json]     decide a tile's partition mode switch
 bx partition mail ls [--after <id>] [--limit n] [--json] | mail ack <id>...
                                        the partition mail inbox of the
                                        partition bx runs in (a person's
-                                       terminal on a partitioned tile)
+                                       terminal on a partitioned tile; its
+                                       root terminal reads global's)
 bx partition consent <from> <to> [--revoke] | consent ls [--json]
                                        let partitioned tile <from> use your data
                                        in <to> (while the workspace asks people
@@ -439,7 +440,8 @@ stderr, so `--json` keeps stdout to the JSON answer.
 **`bx partition mail ls|ack`** — partition mail
 ([partitions.md §Partition mail](/docs/partitions.md)) from where it is
 read: in your terminal on a partitioned tile, your partition's inbox (the
-terminal's credential is your partition's); with the global instance's
+terminal's credential is your partition's); in the tile's root terminal
+(or an agent session acting as global), or with the global instance's
 backend token, the global instance's. `ls` lists the waiting items, oldest
 first, one row each (`--limit`, default 100; when more wait it prints the
 `--after <id>` to read on with; `--json` prints the answer); `ack <id>…`

@@ -2419,7 +2419,13 @@ GET    /templates/{repo}/{rest...}  authenticated. Read-only dumb-HTTP git serve
                                    /templates/agent.git/info/refs. Each instance
                                    has it as its `template` remote, so a builder
                                    pulls upstream fixes: git fetch template &&
-                                   git merge template/main.
+                                   git merge template/main. Its xbin.json never
+                                   changes the "template" block (instances never
+                                   carry it): a repo xbind creates has none, one
+                                   an older xbind created keeps its own; a
+                                   change to the block is a snapshot whose
+                                   message says so (an empty commit when nothing
+                                   else changed; trailer Xbin-Template-Block).
 
 GET    /code/tree                  admin OR code[:<component>]. ?component=<path> → {component, files:
                                    [{path,size}]} — a component's files.
@@ -3243,9 +3249,10 @@ POST   /partitions/mail            a partitioned tile's global instance (its
                                    outside the tile's credentials (admins
                                    included), the root token, frames and
                                    terminals acting in no person's
-                                   partition, view-as, other tiles, a
-                                   non-primary deployment and every delivery
-                                   principal. {to, topic, data?, ttl?,
+                                   partition (they read global's inbox,
+                                   below, but send nothing), view-as, other
+                                   tiles, a non-primary deployment and every
+                                   delivery principal. {to, topic, data?, ttl?,
                                    source?} → {ok, id}. The global instance
                                    mails "user:<id>" — a person who exists,
                                    is enabled and can read the tile, else
@@ -3275,12 +3282,17 @@ POST   /partitions/mail            a partitioned tile's global instance (its
                                    sealed with the vault barrier; not backed
                                    up; not in the audit stream (data plane).
                                    Rings the addressee's doorbell (below)
-GET    /partitions/mail            the same callers as POST (403 and 409
-                                   alike), reading the caller's OWN inbox
-                                   only — its person's partition's, or the
-                                   global instance's; no parameter names
-                                   another, and admins see counts only (GET
-                                   /partitions). ?after=<id> ?limit=1-1000
+GET    /partitions/mail            the callers of POST (403 and 409
+                                   alike), and — the global instance's
+                                   inbox only — the tile's frames, terminals
+                                   and agent sessions acting as global (the
+                                   owner token's frames, root terminals; on
+                                   the primary; never view-as), reading the
+                                   caller's OWN inbox only — its person's
+                                   partition's, or the global instance's; no
+                                   parameter names another, and admins see
+                                   counts only (GET /partitions).
+                                   ?after=<id> ?limit=1-1000
                                    (100) → {items: [{id, from, topic, data,
                                    at, expires}], more}: oldest first. A
                                    page stops at limit or past ~8 MiB of

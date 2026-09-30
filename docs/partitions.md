@@ -230,8 +230,13 @@ Templates and updates never switch a mode:
   ([protocol.md](protocol.md)). Without `xbind --isolate` the default isn't
   written at all (the box is off, "needs --isolate"), since people's
   partitions need isolation. The block is stripped from instances, so `git
-  merge template/main` can't add `partition`: an upstream change to the
-  default touches lines the instance dropped and shows up as a conflict.
+  merge template/main` can't add `partition` — and a builtin template's
+  served repository (the instances' `template` remote) never changes the
+  block either: one xbind creates carries none, one an older xbind created
+  keeps the block it has. An upstream change to the default is therefore
+  no conflict: the merge leaves your `xbin.json` and its mode as they are,
+  and the snapshot's commit message says, for your information, that the
+  block changed and what new instances now start with.
 - **`bx builtin update`** (replace, merge or a proposal) keeps each
   `xbin.json`'s **installed** `partition` — present, absent or its list, in
   whatever case you wrote the key — and changes nothing else about it.
@@ -346,14 +351,20 @@ own storage keeping a copy, and a person's partition hands something back.
 |---|---|
 | the tile's global instance (its backend) | `user:<id>` — a person who can read the tile; anyone else answers 404 `no such person here`, which says nothing more — or `global` |
 | a person's partition (its backend, that person's frames, terminals and agent sessions) | `global` only: there is no person-to-person channel |
-| everyone else — people outside the tile's own credentials (admins included), the root token, frames and terminals that act for no person, view-as, other tiles | nothing (403) |
+| the tile's frames, terminals and agent sessions acting as global (the owner token's frames, root terminals) | nothing (403) — they read and acknowledge the global instance's inbox, below |
+| everyone else — people outside the tile's own credentials (admins included), the root token, view-as, other tiles | nothing (403) |
 
 - **`from` is xbind's.** Every item carries `from`, `global` or `user:<id>`,
   stamped from the sender's credential and never read from the request.
   Trust it; never trust a person named inside `data`.
 - **Only the addressee reads.** A partition reads and acknowledges its own
-  inbox, the global instance its own. No route reads another's, and admins
-  see counts only. Items are sealed with the vault, kept in xbind's own
+  inbox — its backend and its person's frames, terminals and agent
+  sessions — and the global instance its own: its backend, and the tile's
+  frames, terminals and agent sessions acting as global (the owner token's
+  frames, root terminals), on the primary deployment. No route reads
+  another's — view-as, another tile, a person's partition and a deployment
+  beyond the primary never reach the global instance's — and admins see
+  counts only. Items are sealed with the vault, kept in xbind's own
   data (never in a sandbox) and not backed up.
 - **Limits.** An item is at most 1 MiB (topic and data); an inbox holds at
   most 1000 items and 64 MiB — the sender gets 507 until the addressee
@@ -443,8 +454,10 @@ Two patterns keep a person in charge of what leaves their partition:
   writer of a `"shared": "read"` resource, stores it keyed by `from` and
   serves it from there. The partition's private data never leaves it.
 
-Anything a partition mails to global is readable by the global instance's
-code; nothing mailed reaches a frame or another partition directly.
+Anything a partition mails to global is readable by the global instance —
+its code, and the tile's frames, terminals and agent sessions acting as
+global (the owner token's); nothing mailed reaches another person's frame
+or partition directly.
 
 ## Bind types: global and personal
 
