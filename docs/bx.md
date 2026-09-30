@@ -98,6 +98,12 @@ bx partition switch <tile> [--dry-run] [--confirm <tile>] [--yes] [--json]
 bx partition keep <tile> [--json]     decide a tile's partition mode switch
                                        request (a tile manager): switch deletes
                                        all its data, keep deletes nothing
+bx partition consent <from> <to> [--revoke] | consent ls [--json]
+                                       let partitioned tile <from> use your data
+                                       in <to> (while the workspace asks people
+                                       first), or take it back
+bx partition ledger [<tile>] [--days n] [--json]
+                                       your partitions' egress ledger (counts)
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
 bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <user> [level]]
                                        per-tile access entries — exact entries
@@ -141,7 +147,8 @@ bx code pr show|fetch|comment|close <n> [<component>] [flags]
                                        close (--merged|--rejected|--withdrawn)
 bx api <component>                     roles + API.md — how to integrate with it
 bx grants                              grant table + pending requests
-bx grant <caller> <target>:<role>      approve/add a grant
+bx grant <caller> <target>:<role>      approve/add a grant (a partitioned tile
+                                       on another's people's data: warns whose)
 bx grant --revoke <caller> <target>:<role>
 bx iface                               interface requests, providers, bindings
 bx bind <comp> <slot>=<p> | <slot>+=<p[#i]> | <slot>-=<p[#i]>
@@ -319,6 +326,9 @@ holds `+` (which can't get deployments; no new name may hold one); go.work
 ownership; strict tile asset gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
 the strict modes refuse — from `GET /api/xbin/tile-assets`; under the
 default legacy mode these are what the coming enforcement will refuse);
+partitioned tiles holding a grant on another partitioned tile's people's
+data, with whose data their code reaches and how many people used each edge
+in 30 days (admin credentials; [partitions.md](/docs/partitions.md));
 host inotify budget; toolchains present for the runtimes in use.
 Run it first when something "doesn't reload".
 
@@ -365,6 +375,20 @@ meanwhile is refused rather than decided blind. They exit 6 against an
 xbind without partitioned tiles (one older than them: its rows carry no
 partition and it lacks the route). The typed confirmation's prompt goes to
 stderr, so `--json` keeps stdout to the JSON answer.
+
+**`bx partition consent|ledger`** — calls between partitioned tiles
+([partitions.md §Calls between partitioned tiles](/docs/partitions.md)).
+While the workspace policy `partition-consent` is on (`bx policies`), a
+partitioned tile reaches your data in another partitioned tile only once
+you allow it: `bx partition consent <from> <to>` does, `--revoke` takes it
+back (at once: `<from>`'s instance of you is stopped), and `consent ls`
+lists your consents and the edges you were asked about. Both are your own
+acts: bx with your login, never a tile's terminal. `bx partition ledger`
+prints your partitions' egress ledger — per day, how often each of your
+partitions called or reached another tile, never what it sent — for one
+tile or all (`--days`, default 30); with a tile, its managers also get its
+totals, and admins every person's totals. Both exit 6 against an xbind
+without them.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset
