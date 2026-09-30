@@ -20,7 +20,7 @@ found that nothing in agtt-harness knows the partition modes.
 its own, and master has no partitions, so none of the refactors below
 apply there.
 
-**B — after wave 5 is merged and wired on partitions:** a dedicated wave,
+**B — after wave 5 is merged and wired on partitions (done 2026-09-30, D167–D171):** a dedicated wave,
 **W6 "AgTT under partitions"**, before I2's rollout.
 - Wave 5 (B2d hosted chats, AF's moves, I1's suites) edits the same agent
   backend and frontend. Merging agtt into partitions while wave 5 runs
@@ -59,8 +59,10 @@ tree.
 The trial gives 23 conflicting files. Resolutions:
 
 - **Agent backend:**
-  - `routes.go`: keep `homeRoutes(mux)`, agtt's route appends,
-    `agentRole(guard(rt.need, partitionRoute(rt.pattern, rt.h)))` and
+  - `routes.go`: keep `homeRoutes(mux)`, `hostedRoutes(mux)`,
+    `moveRoutes(mux)`, `fetchRoutes(mux)`, agtt's route appends, the
+    route-table loop's handler **with B2d's `hostedRoute` wrapper**
+    (outermost), both there and in `homeRoutes` (W5-wire), and
     `mailboxRoutes(mux)`.
   - `ask.go`: keep both `Share` and `Harness`; the tail is `shareNew`, then
     `runAnswer`.
