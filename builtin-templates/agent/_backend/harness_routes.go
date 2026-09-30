@@ -451,7 +451,6 @@ func handleHarnessAuthenticate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := agent.eng.harnessAuthenticate(r.Context(), run, body.Method, body.APIKey)
-	body.APIKey = ""
 	var ae *hAuthErr
 	switch {
 	case errors.As(err, &ae):
