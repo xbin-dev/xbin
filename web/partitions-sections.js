@@ -7,7 +7,7 @@
 import { html, nothing } from '/vendor/lit-all.min.js';
 import {
   modeName, switchDeletes, deletesNothing, switchLabel, wipedText, decisions, whoDecides, plural,
-  resetConfirm, rowState, usageText, mailText, credentialText, edgesInto, ledgerTotals, ledgerKind, timeText,
+  resetConfirm, rowState, usageText, mailText, credentialText, credentialAsk, edgesInto, ledgerTotals, ledgerKind, timeText,
 } from '/vendor/partitions-kit.js';
 
 // the marker: the shell's half-split teal disc (PD-53, design A)
@@ -46,27 +46,35 @@ export function headerSection(host, m) {
 // ---- credentials an admin made for the person (held) ----
 
 export function credentialsSection(host, m) {
-  const held = m.credentials;
-  if (!held.length) return nothing;
+  const decided = host.credDecided(), gone = new Set(decided.map((d) => d.id));
+  const held = m.credentials.filter((h) => !gone.has(h.id));
+  if (!held.length && !decided.length) return nothing;
   return html`<section id="credentials">
     <h2>Credentials waiting for you <span class="n">${held.length}</span></h2>
-    <p class="lead small">Someone else made a way into your account. It works only once you allow it — or 24 hours after you
-      were told, if you don't answer. Not you, or not expected? Refuse it.</p>
+    ${decided.map((d) => html`<p class=${d.warn ? 'banner warn' : 'done'} role=${d.warn ? 'alert' : 'status'} data-cred-decided=${d.id}>${d.text}</p>`)}
+    ${held.length ? html`<p class="lead small">Someone else made a way into your account. It works only once you allow it — or 24 hours after you
+      were told, if you don't answer. Not you, or not expected? Refuse it.</p>` : nothing}
     ${held.map((h) => credentialCard(host, h))}
   </section>`;
 }
 
+// Refusing is one click (it costs at most a fresh link); allowing — the act
+// that could hand the account to whoever made it — asks first, naming who
+// made it and when.
 function credentialCard(host, h) {
   const key = `cred:${h.id}`, st = host.ui(key), busy = !!st.busy || host.readOnly();
   return html`<div class="card attn" data-cred=${h.id}>
     <p>${credentialText(h)}</p>
-    ${st.done ? nothing : st.sure ? html`<div class="acts">
-        <span class="warn small">Refuse it? A link stops working, a password or email is dropped.</span>
-        <button class="danger" data-act="refuse-yes" ?disabled=${busy} @click=${() => host.credential(h, false)}>${st.busy === 'refuse' ? 'Refusing…' : 'Refuse'}</button>
-        <button ?disabled=${busy} @click=${() => host.set(key, { sure: false })}>Cancel</button>
-      </div>` : html`<div class="acts">
-        <button class="primary" data-act="allow" ?disabled=${busy} @click=${() => host.credential(h, true)}>${st.busy === 'allow' ? 'Allowing…' : 'Allow'}</button>
-        <button class="danger" data-act="refuse" ?disabled=${busy} @click=${() => host.set(key, { sure: true, err: '' })}>Refuse…</button>
+    ${st.asking ? html`<div class="confirm" data-confirm="allow">
+        <p class="warn">${credentialAsk(h)}</p>
+        <div class="acts">
+          <button class="danger" data-act="allow-yes" ?disabled=${busy} @click=${() => host.credential(h, true)}>${st.busy === 'allow' ? 'Allowing…' : 'Allow'}</button>
+          <button class="primary" data-act="refuse" ?disabled=${busy} @click=${() => host.credential(h, false)}>${st.busy === 'refuse' ? 'Refusing…' : 'Refuse'}</button>
+          <button ?disabled=${busy} @click=${() => host.set(key, { asking: false, err: '' })}>Cancel</button>
+        </div></div>` : html`<div class="acts">
+        <button class="primary" data-act="refuse" ?disabled=${busy} @click=${() => host.credential(h, false)}
+          title="revokes it: a link stops working, a password or email is dropped">${st.busy === 'refuse' ? 'Refusing…' : 'Refuse'}</button>
+        <button data-act="allow" ?disabled=${busy} @click=${() => host.set(key, { asking: true, err: '' })}>Allow…</button>
       </div>`}
     ${said(st)}
   </div>`;
@@ -241,7 +249,7 @@ function trustPanel(m, t) {
       <dt>saves</dt><dd>${tr.liveReload ? html`<span class="warn">reach it live</span>` : 'don\'t reach it live'}${tr.protected ? ' · primary protected' : ''}${tr.reviewedOnly ? ' · reviewed code only' : ''}</dd>
       ${tr.lastCodeChange ? html`<dt>last code change</dt><dd>${codeChange(tr.lastCodeChange)}</dd>` : nothing}
       <dt>global binds</dt><dd>${provs.length ? html`every person's partition of ${t.tile} calls ${provs.map((p, i) => html`${i ? ', ' : ''}<code>${p.tile}</code>
-          <span class="muted">(${writers(p.writers)}${p.liveReload ? '; live' : ''}${p.protected ? '; protected' : ''})</span>`)} — their code sees your calls`
+          <span class="muted">(${writers(p.writers)}${p.liveReload ? '; live' : ''}${p.protected ? '; protected' : ''}${p.lastCodeChange ? `; changed ${codeChange(p.lastCodeChange)}` : ''})</span>`)} — their code sees your calls`
         : 'none: no tile outside the partitions is bound to it'}</dd>
       ${t.binds.length ? html`<dt>your personal binds</dt><dd>${t.binds.map((b, i) => html`${i ? ', ' : ''}<code>${b.slot}</code> → <code>${b.provider}</code>`)}</dd>` : nothing}
       <dt>used your data here</dt><dd>${into.length ? into.map((e, i) => html`${i ? ', ' : ''}<code>${e.from}</code> ${plural(e.count, 'time')}`) : 'no other tile, in the last 30 days'}</dd>

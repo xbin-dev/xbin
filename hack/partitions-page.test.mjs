@@ -12,7 +12,8 @@ import assert from 'node:assert/strict';
 import {
   call, errorText, loadPage, assemble, mayManage, modeName, switchDeletes, deletesNothing, switchLabel, DELETES_ALL,
   decisions, modeBody, whoDecides, wipedText, switchedText, bytesText, resetConfirm, rowState, usageText, mailText,
-  credentialText, credentialDone, credentialWhat, partitionedTiles, ledgerTotals, edgesInto, ledgerKind, durationText,
+  credentialText, credentialOutcome, credentialAsk, credentialNoun, credentialWhat, partitionedTiles, ledgerTotals, edgesInto, ledgerKind,
+  durationText, timeText, zoneName,
 } from '../web/partitions-kit.js';
 
 const ok = (body, status = 200) => ({ ok: status < 300, status, body });
@@ -59,7 +60,7 @@ test('loadPage: one round of reads, a detail per listed tile, the caller\'s own 
     'GET /api/xbin/partitions/binds': ok({ binds: [{ id: 'b1', user: 'dev1' }, { id: 'b2', user: 'dev2' }] }),
     'GET /api/xbin/partitions/ledger?days=30': ok({ days: 30, rows: [{ tile: 'apps/z', day: '2026-09-29', kind: 'edge', target: 'apps/notes', count: 3 }] }),
     'GET /api/xbin/partitions?tile=apps%2Fnotes': ok({ tile: 'apps/notes', partitions: [{ user: 'dev2', bytes: 9 }, { user: 'dev1', bytes: 5, running: true }],
-      trust: { writers: ['dev3'], providers: [] }, binds: [{ id: 'b1' }] }),
+      trust: { writers: ['dev3'], providers: [] }, binds: [{ id: 'b1', user: 'dev1', slot: 'mcp', provider: 'apps/mine' }, { id: 'b2', user: 'dev2', slot: 'mcp', provider: 'users/dev2/mcp' }] }),
     'GET /api/xbin/partitions?tile=apps%2Fsw': ok({ tile: 'apps/sw', partitions: [] }),
   });
   const m = await loadPage(f);
@@ -76,6 +77,7 @@ test('loadPage: one round of reads, a detail per listed tile, the caller\'s own 
   assert.deepEqual(sw.from, { user: true, global: false });
   assert.deepEqual(sw.to, { user: false, global: false });
   assert.deepEqual(m.binds.map((b) => b.id), ['b1'], 'only the caller\'s personal binds');
+  assert.deepEqual(notes.binds.map((b) => b.id), ['b1'], 'a tile\'s personal binds: the caller\'s only');
   assert.equal(m.credentials[0].id, 'h1');
   assert.equal(m.consents.policy, true);
   assert.deepEqual(m.errors, []);
@@ -93,6 +95,22 @@ test('assemble: an older xbind (404), the root token, view-as, a PersonOnly refu
   assert.equal(v.people, false);
   assert.ok(v.me.readOnly);
   assert.equal(mayManage(v.me, 'apps/x', 'user:dev1'), false, 'view-as decides nothing');
+});
+
+test('an admin\'s answers carry every person\'s rows and binds: the admin\'s page shows none of them as theirs', () => {
+  const detail = ok({ tile: 'apps/notes', partitions: [{ user: 'alice', partition: 'user:alice', bytes: 9 }],
+    trust: { writers: [], providers: [] }, binds: [{ id: 'b9', user: 'alice', requester: 'apps/notes', slot: 'mcp', provider: 'users/alice/mcp' }] });
+  const m = assemble({ who: ok({ kind: 'user', id: 'admin', admin: true }), comps: ok([{ path: 'apps/notes', owner: '' }]),
+    ov: ok({ tiles: [{ tile: 'apps/notes', state: 'partitioned', spec: { user: true } }] }),
+    consents: ok({}), binds: ok({ binds: [{ id: 'b9', user: 'alice' }] }), ledger: ok({}), details: [detail] });
+  const [notes] = m.tiles;
+  assert.deepEqual(notes.rows, [], 'alice\'s partition is not the admin\'s');
+  assert.deepEqual(notes.binds, [], 'nor is her personal bind');
+  assert.deepEqual(m.binds, []);
+  assert.equal(notes.manage, true);
+  const anon = assemble({ who: ok({}), ov: ok({ tiles: [{ tile: 'apps/notes', state: 'partitioned', spec: { user: true } }] }), comps: ok([]),
+    consents: ok({}), binds: ok({ binds: [{ id: 'b0' }] }), ledger: ok({}), details: [ok({ partitions: [{ bytes: 1 }], binds: [{ id: 'b0' }] })] });
+  assert.deepEqual([anon.binds, anon.tiles[0].rows, anon.tiles[0].binds], [[], [], []], 'no id: nothing is anyone\'s');
 });
 
 test('mayManage: an admin, the owner, an admin of the owning org — no one else', () => {
@@ -170,9 +188,22 @@ test('a held credential: what, who, when it takes effect; the decision\'s answer
   assert.equal(credentialWhat({ kind: 'email', email: 'a@b.c' }), 'The single sign-on email a@b.c bound to your account');
   assert.equal(credentialWhat({ kind: 'email' }), 'A single sign-on email bound to your account');
   assert.equal(credentialWhat({ kind: 'sso-provider', issuer: 'https://id.example' }), 'A new single sign-on provider (https://id.example) for your account');
-  assert.equal(credentialDone({ decision: 'allowed' }), 'Allowed: it works now.');
-  assert.equal(credentialDone({ decision: 'refused' }), 'Refused: it was revoked.');
-  assert.match(credentialDone({ decision: 'already-effective' }), /change your password/);
+  assert.equal(credentialNoun(h), 'the sign-in link');
+  assert.equal(credentialNoun({ kind: 'email', email: 'a@b.c' }), 'the single sign-on email a@b.c');
+  // allowing is what asks first: who made it, when, and what it lets them do
+  const ask = credentialAsk(h);
+  assert.match(ask, /^Allow the sign-in link admin made at 2026-09-30 \d\d:\d\d/);
+  assert.match(ask, /Whoever opens it signs in as you: allow it only if you asked for it\.$/);
+  assert.match(credentialAsk({ kind: 'password' }), /^Allow the new password an admin made\? Whoever knows it signs in as you/);
+  // the answers, kept on the page: a decision; xbind's own words when it was no longer waiting
+  assert.deepEqual(credentialOutcome(h, ok({ decision: 'allowed' })), { text: 'Allowed: a sign-in link for your account works now.', warn: false });
+  assert.deepEqual(credentialOutcome(h, ok({ decision: 'refused' })), { text: 'Refused: a sign-in link for your account was revoked.', warn: false });
+  const late = 'The sign-in link admin made for your account was no longer waiting when you answered: it was used, replaced or expired. If you didn\'t use it, change your password and sign out everywhere.';
+  assert.deepEqual(credentialOutcome(h, { ok: false, status: 409, body: { decision: 'already-effective', error: late } }), { text: late, warn: true });
+  const gone = credentialOutcome(h, { ok: false, status: 404, body: {} });
+  assert.ok(gone.warn && /change your password and sign out everywhere/.test(gone.text));
+  assert.equal(credentialOutcome(h, { ok: false, status: 0, body: { error: 'offline' } }), null, 'not decided: the card stays, with the error');
+  assert.equal(credentialOutcome(h, { ok: false, status: 403, body: { error: 'a person\'s own act' } }), null);
 });
 
 test('the ledger: totals per tile, kind and target; which tiles used your data in one', () => {
@@ -187,6 +218,14 @@ test('the ledger: totals per tile, kind and target; which tiles used your data i
   assert.deepEqual(ledgerTotals(rows, 'apps/x').map((r) => r.target), ['apps/llm']);
   assert.deepEqual(edgesInto(rows, 'apps/x'), [{ from: 'apps/z', count: 5 }, { from: 'apps/y', count: 1 }]);
   assert.equal(ledgerKind('edge'), 'used your data in');
+});
+
+test('times: local, with the zone named (xbind\'s notices say UTC)', () => {
+  assert.equal(timeText('2026-09-30T14:08:00Z', () => 'XYZ').slice(-4), ' XYZ');
+  assert.match(timeText('2026-09-30T14:08:00Z', () => ''), /^2026-09-30 \d\d:08$/);
+  assert.equal(timeText('nope'), '');
+  assert.equal(typeof zoneName(new Date()), 'string');
+  assert.match(timeText('2026-09-30T14:08:00Z'), /^2026-09-30 \d\d:08 \S+/, 'the browser\'s zone, named');
 });
 
 test('partitionedTiles: only tiles running people\'s partitions', () => {

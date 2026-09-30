@@ -17,7 +17,7 @@
 import { LitElement, html } from '/vendor/lit-all.min.js';
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
 import {
-  loadPage, call, errorText, modeBody, switchedText, resetConfirm, credentialDone, plural,
+  loadPage, call, errorText, modeBody, switchedText, resetConfirm, credentialOutcome, plural,
 } from '/vendor/partitions-kit.js';
 import { pageCss } from '/vendor/partitions-css.js';
 import { headerSection, credentialsSection, decisionsSection, partitionsSection } from '/vendor/partitions-sections.js';
@@ -32,6 +32,7 @@ export class BxPartitionsPage extends LitElement {
     _ui: { state: true },
     _loadErr: { state: true },
     _decided: { state: true },
+    _credDecided: { state: true },
   };
 
   static styles = pageCss;
@@ -42,6 +43,7 @@ export class BxPartitionsPage extends LitElement {
     this._ui = {};
     this._loadErr = '';
     this._decided = []; // this visit's switches: their tiles leave the decisions list
+    this._credDecided = []; // this visit's credential decisions: decided, a credential leaves the list
     this._framed = false;
     try { this._framed = window.top !== window.self; } catch { this._framed = true; }
     this._timer = 0;
@@ -94,6 +96,10 @@ export class BxPartitionsPage extends LitElement {
 
   // decided: the switches made on this page since it opened, newest first
   decided() { return this._decided; }
+
+  // credDecided: the credentials decided on this page since it opened
+  // (their answers stay — a warning above all — after the list drops them)
+  credDecided() { return this._credDecided; }
 
   // readOnly: view-as — the page shows, and offers no act
   readOnly() { return !!this._m?.me?.readOnly; }
@@ -217,7 +223,10 @@ export class BxPartitionsPage extends LitElement {
   credential(h, allow) {
     return this.act(`cred:${h.id}`, allow ? 'allow' : 'refuse', async () => {
       const res = await call(F, 'POST', '/partitions/credential-confirm', { id: h.id, allow });
-      return res.ok || res.status === 409 ? { done: credentialDone(res.body), sure: false } : { err: errorText(res) };
+      const out = credentialOutcome(h, res);
+      if (!out) return { err: errorText(res) };
+      this._credDecided = [{ id: h.id, ...out }, ...this._credDecided.filter((d) => d.id !== h.id)];
+      return { asking: false };
     });
   }
 

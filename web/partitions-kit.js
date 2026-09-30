@@ -80,7 +80,7 @@ export function assemble({ who, ov, comps, consents, binds, ledger, details = []
     tiles,
     consents: consents?.ok ? { policy: !!consents.body.policy?.partitionConsent, consents: arr(consents.body.consents), asked: arr(consents.body.asked) }
       : { error: errorText(consents), status: consents?.status ?? 0 },
-    binds: binds?.ok ? arr(binds.body.binds).filter((b) => b?.user === me.id) : [],
+    binds: binds?.ok ? arr(binds.body.binds).filter((b) => !!me.id && b?.user === me.id) : [],
     bindsError: binds?.ok ? '' : errorText(binds),
     ledger: ledger?.ok ? arr(ledger.body.rows) : [],
     errors,
@@ -92,14 +92,17 @@ export function assemble({ who, ov, comps, consents, binds, ledger, details = []
 function tileModel(t, d, c, me) {
   const request = t.request && typeof t.request === 'object' ? t.request : null;
   const from = spec(t.spec), to = request ? spec(request.spec) : null;
-  const own = arr(d.partitions).filter((r) => r?.user === me.id && me.id);
+  // the caller's own rows and binds only: an admin's answer carries every
+  // person's (06 §12.1 — this is a person's page, not the admin section)
+  const mineOnly = (r) => !!me.id && r?.user === me.id;
+  const own = arr(d.partitions).filter(mineOnly);
   const owner = typeof c?.owner === 'string' ? c.owner : '';
   const note = typeof c?.partition?.note === 'string' ? c.partition.note.trim() : '';
   return {
     tile: t.tile, state: t.state || '', from, to, request, declined: !!request?.declined, since: request?.since || '',
     error: t.error || d.error || '', owner, note,
     manage: mayManage(me, t.tile, owner),
-    mine: t.mine || null, rows: own, trust: d.trust || null, binds: arr(d.binds), notices: arr(d.notices),
+    mine: t.mine || null, rows: own, trust: d.trust || null, binds: arr(d.binds).filter(mineOnly), notices: arr(d.notices),
     consents: arr(d.consents), limits: d.limits || null, totals: d.totals || null, reviewedOnly: d.reviewedOnly || null,
   };
 }
@@ -271,14 +274,52 @@ export function credentialText(h, now = Date.now()) {
   return `${credentialWhat(h)}, ${by}${at}.${when}`;
 }
 
-export function credentialDone(body) {
-  switch (body?.decision) {
-    case 'allowed': return 'Allowed: it works now.';
-    case 'refused': return 'Refused: it was revoked.';
-    case 'already-effective': return 'It was already in use: change your password and sign out everywhere.';
-    default: return 'Done.';
+// credentialNoun(h) → the credential as the Allow question names it.
+export function credentialNoun(h) {
+  switch (h?.kind) {
+    case 'invite': return 'the sign-in link';
+    case 'password': return 'the new password';
+    case 'email': return h.email ? `the single sign-on email ${h.email}` : 'the single sign-on email';
+    case 'sso-provider': return `the new single sign-on provider${h.issuer ? ` (${h.issuer})` : ''}`;
+    default: return `the credential (${h?.kind || 'unknown'})`;
   }
 }
+
+// credentialAsk(h) → what Allow asks before it acts: allowing a credential
+// someone else made is the act that could hand the account over, so it is
+// the one confirmed (refusing costs at most a fresh one).
+export function credentialAsk(h) {
+  const by = h?.by || 'an admin', at = h?.at ? ` at ${timeText(h.at)}` : '';
+  const effect = h?.kind === 'invite' ? 'Whoever opens it signs in as you'
+    : h?.kind === 'password' ? 'Whoever knows it signs in as you'
+      : h?.kind === 'email' ? 'Whoever signs in with it at the single sign-on provider signs in as you'
+        : h?.kind === 'sso-provider' ? 'Your single sign-on moves to it' : 'It signs in as you';
+  return `Allow ${credentialNoun(h)} ${by} made${at}? ${effect}: allow it only if you asked for it.`;
+}
+
+// credentialOutcome(h, answer) → a decision's answer, kept on the page after
+// the credential leaves the list: {text, warn}. warn: the credential wasn't
+// waiting any more (409 already-effective: used, replaced or expired; 404:
+// it took effect unanswered) — xbind's own words, which say what to do.
+// null: nothing was decided (a refusal of the act, xbind unreachable) — the
+// card stays, with the error.
+export function credentialOutcome(h, res) {
+  const what = credentialWhat(h);
+  if (res?.ok) {
+    switch (res.body?.decision) {
+      case 'allowed': return { text: `Allowed: ${lower(what)} works now.`, warn: false };
+      case 'refused': return { text: `Refused: ${lower(what)} was revoked.`, warn: false };
+      default: return { text: `Done: ${lower(what)}.`, warn: false };
+    }
+  }
+  if (res?.status === 409 || res?.status === 404) {
+    return { text: res.body?.error ? String(res.body.error)
+      : `${what} was no longer waiting: if you didn't use it, change your password and sign out everywhere.`, warn: true };
+  }
+  return null;
+}
+
+const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);
 
 // ---- consents and the ledger ----
 
@@ -317,10 +358,23 @@ export function ledgerKind(kind) {
 
 // ---- time ----
 
-export function timeText(iso) {
+// timeText(iso) → a local time with its zone ("2026-09-30 16:08 CEST"):
+// xbind's own texts (notices) say UTC, so the page names its zone too.
+export function timeText(iso, zone = zoneName) {
   const t = Date.parse(iso || '');
   if (!Number.isFinite(t)) return '';
   const d = new Date(t);
   const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const z = zone(d);
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}${z ? ` ${z}` : ''}`;
+}
+
+// zoneName(date) → the browser's short zone name at date ("CEST", "UTC",
+// "GMT+2"), or '' where Intl can't say.
+export function zoneName(d) {
+  try {
+    return new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(d).find((x) => x.type === 'timeZoneName')?.value || '';
+  } catch {
+    return '';
+  }
 }
