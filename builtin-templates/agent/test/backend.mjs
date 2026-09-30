@@ -7,7 +7,8 @@
 // window.xbin whose fetch answers the routes the tile uses — the run list,
 // run views, messages, the queue, interrupts, approvals, the classes (D116:
 // the three built-ins, or seed.classes; PUT refuses a mixed class it was not
-// told to confirm), the coding sandboxes (D115: seed.sandboxes and
+// told to confirm, and the harness toolset without a sandbox that reaches
+// out), the coding sandboxes (D115: seed.sandboxes and
 // seed.sbxManagers — GET/POST/PATCH/DELETE /sandboxes, their lifecycle, and
 // PATCH /runs {sandbox, detach} into the view's config), the coding
 // harnesses (D-harness §4, until the backend serves them: the
@@ -164,6 +165,10 @@ export function STUB(seed) {
     ['GET', /\/classes$/, () => json(classesView())],
     ['PUT', /\/classes$/, (m, o) => {
       const b = JSON.parse(o.body);
+      // the harness toolset needs sandbox and an egress other than none (D-harness §4.3.11)
+      const lame = (b.classes || []).find((c) => (c.toolsets || []).includes('harness')
+        && (!(c.toolsets || []).includes('sandbox') || !(c.sandboxEgress || []).some((e) => e !== 'none')));
+      if (lame) return json({ error: `class ${lame.id}: the harness toolset needs sandbox and an egress other than none — a coding agent must reach its provider` }, 400);
       const mixed = (b.classes || []).filter((c) => reach(c).mixed).map((c) => c.id);
       if (mixed.length && !b.confirmMixed) return json({ error: 'these classes can move internal data out: ' + mixed.join(', '), mixed }, 409);
       window.__classes = { classes: b.classes || [], default: b.default || '' };
@@ -179,7 +184,7 @@ export function STUB(seed) {
     { id: 'web', name: 'Web', icon: '🌐', description: 'Searches and reads the web — no internal systems.',
       toolsets: ['files', 'repl', 'web', 'subagents', 'schedule', 'threads', 'skills'], mcp: [], managers: [], sandboxEgress: [] },
     { id: 'coding', name: 'Coding', icon: '▣', description: 'Works in a coding sandbox, with the web — no internal systems.',
-      toolsets: ['sandbox', 'web', 'files', 'subagents', 'skills'], mcp: [], managers: 'all', sandboxEgress: ['none', 'internet'] },
+      toolsets: ['sandbox', 'web', 'files', 'subagents', 'skills', 'harness'], mcp: [], managers: 'all', sandboxEgress: ['none', 'internet'], harnesses: 'all' },
   ];
   window.__classes = seed.classes || { classes: [], default: '' };
   const reach = (c) => {

@@ -8,6 +8,7 @@
 // without touching each other's lines).
 
 // U2 start a conversation
+import './harness-start.js';
 
 // U3 the transcript
 
@@ -20,3 +21,4 @@
 // U7 the Coding agents board
 
 // U8 managers
+import './harness-catalog.js';

@@ -1717,6 +1717,39 @@ auto-edit mode (`autoMode`: claude `acceptEdits`, codex `agent`, gemini
 created; one that exists keeps its mode. Explicit modes (bypass, full
 access) are never a setting.
 
+**Starting one (the UI).** "Who answers" sits in the home composer (web
+`#apick`, the native home toolbar) and in the new-chat dialog (`#n-agent`):
+the agent itself, or a coding agent of the catalog with its monogram (CC,
+CX, GM, OC) — one that isn't available is listed with its `why`. Your pick
+is your default for new chats (xbind's `prefs/agent`: `"agent"` or a coding
+agent's id). Picking a coding agent hides the class picker — the class
+resolves as `POST /ask` resolves it: yours when it allows the coding agent,
+else the first in `classes` — and the model picker (its model is an
+option); the sandbox picker keeps the sandboxes it fits (their (manager,
+image) is in `images`, their egress isn't `none`, a probe didn't find it
+missing, and the class may use them) and starts with the one you last used with it (xbind's
+`prefs/harness-sandbox`: `{"<id>": "<ref>"}`), else the best that fits. A
+running sandbox it wasn't looked for in is probed. When none fits, a setup
+card offers the create form filled in for it (a manager and image that have
+it, `internet`, `<id>-dev`); when `sandboxes[ref].signedIn` is `false`, it
+says the first message asks you to sign in there (and, on a sandbox shared
+with others, that they act as you). The ask carries `harness: {provider,
+options?}`, the resolved `class` and the `sandbox` — never a `mode`: the
+backend applies your Auto / Always approve. A coding agent's conversation
+carries its monogram in the list (the app: its name before the subtitle),
+and its top bar says which coding agent, its state and — its sandbox being
+shared — that the sandbox's users can read what it does.
+
+**For managers (the UI).** ⚙ Classes has the Coding agents toolset and,
+with it, which coding agents the class allows (all of them, or a checklist
+of the catalog's — `harnesses`); the form warns while the toolset lacks a
+sandbox or an egress other than `none`, and a refused save says the
+backend's words. ⚙ Coding agents (the app: Settings → Coding agents) lists
+the catalog — whether each can be started and why not, the managers and
+images that have it, the sandboxes it was found or signed in on, the classes
+that allow it, its modes and sign-in command — and checks a running sandbox
+now (`?probe=`).
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
@@ -1743,6 +1776,8 @@ the same model.
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
 | `harness.js`, `harness-heads.js`, `harness-store.js` | coding harnesses (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — being built; their routes are documented here when the backend serves them): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
+| `harness-manage.js` | the Coding agents catalog as the managers' view says it (`catalogRows`, `modesWords`, `probeTargets`); the class editor's toolset and checklist are `classes.js`'s (`harnessNames`, `harnessWhy`) |
+| `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 

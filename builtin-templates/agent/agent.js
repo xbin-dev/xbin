@@ -3,8 +3,8 @@
 // view of what needs you, the chat of the selected conversation, the render
 // pane for render_html output (sandboxed, see frameDoc), the workflow tree
 // (workflow.js), the Automations page (automations.js: schedules, watchers),
-// and a tabbed settings area (config / features / classes / memory / files /
-// skills / MCP).
+// and a tabbed settings area (config / features / classes / coding agents /
+// memory / files / skills / MCP).
 //
 // The state lives in model/ (shared with the native view): model/app.js wires
 // the Session (chat-view.js adds its lit template), the conversation list and
@@ -32,6 +32,7 @@ import './auto-channels.js'; // draws the Channels kind on that page
 import './auto-triggers.js'; // …and Triggers
 import { openShare } from './share.js';
 import { makeClassPicker, classOptionsTpl, tabClasses } from './classes.js';
+import { tabHarnesses } from './harness-catalog.js';
 import { makeSandboxUI } from './sandboxes.js';
 import { createApp } from './model/app.js';
 import { HOME } from './model/home.js';
@@ -85,6 +86,7 @@ const classPicker = makeClassPicker(app, $('cpick'));
 // The coding sandbox (D115): #ssel beside the model, the top bar's ▣, the Sandboxes dialog.
 const ports = makePorts(app, { openLive: (det) => openLive(det), repaint: () => paint() }); // the popover's Ports section
 const sbxUI = makeSandboxUI(app, { sel: $('ssel'), dlg: $('sbxdlg'), repaint: () => paint(), popExtra: ports.tpl });
+extCtx.sbxUI = sbxUI; // the seams' modules open its dialog (harness-start.js: Create, prefilled)
 let models = [];         // model references from GET /models ({data:[{ref, id, provider}]})
 let cfgCache = null;     // last GET /config
 let settingsOpen = false;
@@ -666,7 +668,7 @@ function closeSettings() { settingsOpen = false; $('settings').hidden = true; }
 const filesCtx = { app, $, rawBlob, closeSettings, openPreview, closePreview, refreshView, get preview() { return preview; } };
 async function renderTab() {
   const bd = $('sbd');
-  const fns = { config: tabConfig, features: tabFeatures, classes: (b) => tabClasses(b, app), memory: tabMemory, files: (b) => tabFiles(b, filesCtx), skills: tabSkills, mcp: tabMcp };
+  const fns = { config: tabConfig, features: tabFeatures, classes: (b) => tabClasses(b, app), harnesses: (b) => tabHarnesses(b, app), memory: tabMemory, files: (b) => tabFiles(b, filesCtx), skills: tabSkills, mcp: tabMcp };
   const fn = fns[activeTab] || tabConfig;
   bd.innerHTML = '<div class="empty">loading…</div>';
   try { await fn(bd); } catch (e) { bd.innerHTML = errBox(e); }

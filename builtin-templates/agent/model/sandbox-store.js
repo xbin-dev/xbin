@@ -15,6 +15,7 @@
 import * as actions from './actions.js';
 import * as S from './sandboxes.js';
 import * as classes from './classes.js';
+import { fitsWhy, createPrefill } from './harness-start.js';
 
 const cid = () => 's' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -74,7 +75,10 @@ export function createSandboxStore(app) {
     tty: null,
 
     // cls: the class the picker works for — the open conversation's, else the next new chat's.
-    cls() { const v = conv(); return v ? v.class || null : classes.find(app.classes, app.classId); },
+    cls() { const v = conv(); return v ? v.class || null : classes.find(app.classes, app.newClassId()); },
+    // coding: at home, the coding agent answering new chats (D-harness): the
+    // picker keeps sandboxes it fits, and New sandbox starts as one it fits
+    coding() { return conv() ? null : app.harness.picked(); },
 
     // load reads the list (fresh: past the backend's 15 s cache); one read at a time.
     load(fresh = false) {
@@ -90,7 +94,10 @@ export function createSandboxStore(app) {
 
     // What the views draw (model/sandboxes.js), for where you are. rows:
     // order — the refs as the view shows them (kept while its list is open).
-    picker() { return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.classId), pick: sbx.pick }); },
+    picker() {
+      const h = sbx.coding();
+      return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.newClassId()), pick: sbx.pick, fits: h ? fitsWhy(h) : null });
+    },
     badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
     // terminal: "Open terminal" for ref at cwd (model/sandboxes.js terminal):
@@ -113,11 +120,13 @@ export function createSandboxStore(app) {
     // (a team conversation's sandbox is a team one), or the next new chat's.
     form(f = {}) {
       const v = conv();
-      return S.createForm(sbx.list.managers, sbx.cls(), f, { team: !!(v && v.run.visibility === 'team') });
+      const h = sbx.coding();
+      const pre = h && !f.provider ? createPrefill(h, sbx.list, sbx.cls()) : null;
+      return S.createForm(sbx.list.managers, sbx.cls(), pre ? { ...pre, ...f } : f, { team: !!(v && v.run.visibility === 'team') });
     },
 
     // askPart: what a new ask in class id carries — the pick, while that class has the sandbox toolset.
-    askPart(id = app.classId) {
+    askPart(id = app.newClassId()) {
       const p = sbx.pick;
       return p && S.hasSandbox(classes.find(app.classes, id)) ? { sandbox: { ref: p.ref, ...(p.cwd ? { cwd: p.cwd } : {}) } } : {};
     },

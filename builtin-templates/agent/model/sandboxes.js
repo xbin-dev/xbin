@@ -183,8 +183,9 @@ const detailOf = (s) => [s.manager, STATES[s.state] || s.state, egressWords(s)].
 // (opts.pick {ref, cwd}; opts.cls the class for new chats). Shown only where
 // the class has the sandbox toolset. Rows grouped This conversation (what it
 // has attached) · Yours · Shared · Team; one you may not use, or the class
-// does not allow, is there but disabled with the reason. `none` leaves the
-// conversation without an active sandbox.
+// does not allow, is there but disabled with the reason — as is one
+// opts.fits(s) says why not (at home, a coding agent's: D-harness). `none`
+// leaves the conversation without an active sandbox.
 export function sandboxPicker(list, conv, me, opts = {}) {
   const cls = conv ? conv.class : opts.cls;
   const shown = hasSandbox(cls);
@@ -195,7 +196,7 @@ export function sandboxPicker(list, conv, me, opts = {}) {
   // else bound works on for everyone, but only they can make it active again
   const row = (s) => {
     const why = !s.canUse && s.ref !== value ? 'someone else bound it — you may not use it yourself'
-      : classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s), s.manager) || taintWhy(cls, s);
+      : classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s), s.manager) || taintWhy(cls, s) || (opts.fits ? opts.fits(s) : '');
     return { value: s.ref, name: nameOf(s), label: `${nameOf(s)} · ${STATES[s.state] || s.state || '?'}`, detail: detailOf(s),
       state: s.state || '', egress: s.egress || '', on: s.ref === value, disabled: !!why, why };
   };

@@ -10,6 +10,7 @@ import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { groupRows } from './model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
 import * as actions from './model/actions.js';
+import { kindOf } from './model/harness-start.js';
 
 /**
  * @param list  ConvList (conv-list.js)
@@ -47,6 +48,7 @@ function rowTpl(r, ui, withMatch) {
     : g === 'error' ? html`<span class="gl err" title="failed">!</span>`
     : g === 'spin' ? html`<span class="spin"></span>` : nothing;
   const shared = rowShared(r);
+  const kind = kindOf(r); // a coding agent answers it (D-harness): its monogram
   if (ui.renaming === r.id) {
     return html`<div class="run on" data-id=${r.id}>
       <input class="ren" .value=${r.title || ''} @keydown=${(e) => {
@@ -57,6 +59,7 @@ function rowTpl(r, ui, withMatch) {
   }
   return html`<div class="run ${r.id === ui.sel ? 'on' : ''} ${r.unread ? 'unread' : ''}" data-id=${r.id}
       @click=${() => ui.select(r.id)} @contextmenu=${(e) => { e.preventDefault(); ui.openMenu(r.id, e); }}>
+    ${kind ? html`<span class="kind" data-kind=${kind.provider} title=${kind.title}>${kind.mono}</span>` : nothing}
     <div class="t">${r.title || 'run ' + r.id}</div>
     ${glyph}
     <button class="rmenu" title="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}>⋯</button>

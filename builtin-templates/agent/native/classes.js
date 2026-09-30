@@ -14,14 +14,17 @@ import { ctx, push, ui } from './ui.js';
 export function classPickerTpl() {
   const app = ctx.app;
   const p = C.classPicker(null, app.classes, app.classId);
-  if (!p.shown) return nothing;
+  if (!p.shown || app.harness.picked()) return nothing; // a coding agent resolves its class (D-harness; model/app.js newClassId)
   return html`<picker label="Class" style="menu" value=${p.value}
     options=${p.rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} ⚠` : r.name, icon: r.nativeIcon }))}
     @change=${(e) => app.pickClass(e.value)}/>`;
 }
 
-// classSectionTpl: the new-chat sheet's class (f.class), with what it is for.
+// classSectionTpl: the new-chat sheet's class (f.class), with what it is for
+// — none while a coding agent answers it (f.agent, native/harness-start.js):
+// its class resolves.
 export function classSectionTpl(f) {
+  if (f.agent && f.agent !== 'agent' && ctx.app.harness.find(f.agent)?.available) return nothing;
   const rows = C.pickerRows(ctx.app.classes, f.class);
   const cur = rows.find((r) => r.on);
   const footer = [cur && cur.description, cur && cur.mixed ? `⚠ It ${C.MIXED}.` : '', 'Fixed for the conversation once it starts.'].filter(Boolean).join(' ');
@@ -63,6 +66,7 @@ const listed = (state) => { for (const x of ui.stack) if (x.kind === 'classes') 
 function classesTpl(s) {
   const app = ctx.app;
   load(s, async () => { app.setClasses(await actions.classes()); s.state = app.classes; });
+  app.harness.ensure(); // the coding agents' names (a class's checklist)
   const st = s.state;
   if (!st) return html`<screen title="Classes" style="list">${errTpl(s)}<section><progress label="loading…"/></section></screen>`;
   const save = (body) => act(s, async () => { s.state = await app.saveClasses(body); });
@@ -134,6 +138,12 @@ function classFormTpl(s) {
           @change=${(ev) => { f.egress = C.toggle(f.egress, e.id, ev.value); ctx.paint(); }}/>`)}
       </section>
       ${namesTpl('managers', 'managersMode', C.ifaceNames(globalThis.xbin?.iface?.('sandboxes')), 'Sandbox managers')}` : nothing}
+    ${has('harness') ? html`<section title="Coding agents it may start or spawn" footer=${C.harnessWhy(f) ? `⚠ ${C.harnessWhy(f)}: untick Coding agents, or turn on Coding sandbox and an egress other than none.` : 'Which coding agents a conversation of this class may start, and its agent spawn.'}>
+      <picker label="Coding agents" style="segmented" value=${f.harnessesMode === 'only' ? 'only' : 'all'}
+        options=${[{ value: 'all', label: 'all' }, { value: 'only', label: 'only these' }]} @change=${set('harnessesMode', true)}/>
+      ${f.harnessesMode === 'only' ? repeat(C.harnessNames(f.harnesses, app.harness.catalog), (n) => n.id, (n) => html`<toggle label=${n.name} value=${n.on}
+        @change=${() => { f.harnesses = C.toggleName(f.harnesses, n.id); ctx.paint(); }}/>`) : nothing}
+    </section>` : nothing}
     <section title="Model" footer="Used when the person picked no model for the conversation.">
       <picker label="Model" style="menu" value=${f.model} options=${models} @change=${set('model', true)}/>
     </section>
