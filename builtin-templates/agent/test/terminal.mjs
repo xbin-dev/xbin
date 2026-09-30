@@ -12,14 +12,10 @@
 // terminal wire (window.__tty).
 //
 //   node test/terminal.mjs        (needs playwright + a chromium build)
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
+import { FAKE_TTY, serveTerminal } from './fake-tty.mjs';
 
 const { ok, done } = checker();
-const here = dirname(fileURLToPath(import.meta.url));
-const web = process.env.BX_WEB || join(here, '..', '..', '..', 'web');
 const now = Math.floor(Date.now() / 1000);
 const MGR = 'apps/coding-sandbox';
 const coding = { id: 'coding', name: 'Coding', icon: '▣', toolsets: ['sandbox', 'web', 'files'], managers: 'all', sandboxEgress: ['none', 'internet'] };
@@ -48,74 +44,10 @@ const seed = {
   sbxManagers: [MANAGER, { ...MANAGER, provider: 'apps/plain', title: 'Plain', caps: ['exec', 'files'] }],
 };
 
-// FAKE_TTY runs in the page: the manager's terminal as a WebSocket the tile
-// gets from xbin.ws(path) — the session frame, a prompt, echo, `echo X`,
-// `exit`, resize and Escape recorded; window.__tty.drop() cuts the socket.
-function FAKE_TTY() {
-  const T = window.__tty = { dials: [], resizes: [], keys: '', sockets: [], execs: 0 };
-  const enc = new TextEncoder();
-  const dec = new TextDecoder();
-  class FakeWS {
-    constructor(path) {
-      this.url = path; this.readyState = 0; this.binaryType = 'blob'; this.line = '';
-      T.dials.push(path);
-      T.sockets.push(this);
-      const m = /\/sbx\/sandboxes\/([^/]+)\/(?:execs\/([^/]+)\/)?tty/.exec(path);
-      this.id = m && m[2] ? decodeURIComponent(m[2]) : 'e' + (++T.execs);
-      // a sandbox named refuse-*: the handshake is refused (the page sees a close, never an open)
-      if (m && m[1].startsWith('refuse')) { setTimeout(() => this.shut(1006), 20); return; }
-      setTimeout(() => {
-        this.readyState = 1;
-        this.onopen && this.onopen({});
-        this.text({ op: 'session', id: this.id, sandbox: m ? decodeURIComponent(m[1]) : '', echoAck: false });
-        this.bin(m && m[2] ? '\r\n(reattached)\r\n$ ' : 'sandbox$ ');
-      }, 20);
-    }
-    text(v) { this.onmessage && this.onmessage({ data: JSON.stringify(v) }); }
-    bin(s) { this.onmessage && this.onmessage({ data: enc.encode(s).buffer }); }
-    send(d) {
-      if (typeof d === 'string') { const c = JSON.parse(d); if (c.op === 'resize') T.resizes.push([c.cols, c.rows, this.id]); return; }
-      const s = dec.decode(d);
-      T.keys += s;
-      for (const ch of s) {
-        if (ch === '\r') {
-          const cmd = this.line; this.line = '';
-          this.bin('\r\n');
-          if (cmd === 'exit') { this.text({ op: 'exit', code: 0 }); this.shut(1000); return; }
-          const e = /^echo (.*)$/.exec(cmd);
-          this.bin((e ? e[1] + '\r\n' : '') + 'sandbox$ ');
-        } else if (ch >= ' ') { this.line += ch; this.bin(ch); }
-      }
-    }
-    shut(code) {
-      if (this.readyState === 3) return;
-      this.readyState = 3;
-      setTimeout(() => this.onclose && this.onclose({ code }), 0);
-    }
-    close() { this.shut(1005); }
-  }
-  T.drop = () => T.sockets.at(-1).shut(1006);
-  const install = () => {
-    if (!window.xbin || window.xbin.__tty) return;
-    window.xbin.__tty = true;
-    window.xbin.ws = (path) => new FakeWS(path);
-    window.xbin.iface = (slot) => (slot === 'sandboxes' ? { service: 'sandbox-manager', multi: true,
-      endpoints: [{ provider: 'apps/coding-sandbox', url: '/api/apps/coding-sandbox' }, { provider: 'apps/plain', url: '/api/apps/plain' }] } : null);
-  };
-  install();
-  document.addEventListener('DOMContentLoaded', install);
-}
-
 const browser = await launch();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 await serveTile(ctx);
-// the terminal element and its pieces, as xbind serves them at /vendor/
-const vendorFile = { 'bx-terminal.js': join(web, 'bx-terminal.js'), 'term-predict.js': join(web, 'term-predict.js'), 'term-src.js': join(web, 'term-src.js'),
-  'xterm.js': join(web, 'vendor', 'xterm.js'), 'addon-fit.js': join(web, 'vendor', 'addon-fit.js'), 'addon-web-links.js': join(web, 'vendor', 'addon-web-links.js'),
-  'xterm.css': join(web, 'vendor', 'xterm.css') };
-for (const [name, file] of Object.entries(vendorFile)) {
-  await ctx.route(`**/vendor/${name}`, (r) => r.fulfill({ contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript', body: readFileSync(file, 'utf8') }));
-}
+await serveTerminal(ctx);
 await ctx.addInitScript(STUB, seed);
 await ctx.addInitScript(FAKE_TTY);
 // DELETE of an exec at the manager: straight from the page (xbin.fetch)

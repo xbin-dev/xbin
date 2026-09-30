@@ -126,6 +126,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   {interrupt})` send `interrupt: true` (ignored by a built-in run), and
   `queueTpl(queued, remove, words?)` takes the chips' `{label, title}`.
 
+- **Agent template: terminals in tabs, terminals in the app, and a coding
+  agent's sign-in** (`builtin-templates/agent/API.md` §Coding sandboxes →
+  In the UI, §Coding agents → Terminals and sign-in). On the web a sandbox's
+  terminals are tabs of one dock: ＋ another shell, ✕ ends one, ▾ hides the
+  dock with its shells running (a top-bar pill brings it back), and they
+  stay open across conversations. The native view now opens terminals too —
+  a Sandboxes row's Terminal, the Sandbox screen's Open terminal — through
+  the agent's relay (`GET /sandboxes/{ref}/terminal`), one at a time. A
+  coding agent waiting for a sign-in gets a card with its methods: a login
+  terminal running its sign-in command, then "Signed in? Retry"; an API key
+  sent once and kept nowhere; a device code's page and code — with a
+  warning that credentials land in the sandbox's shared home and a confirm
+  on a sandbox others may use. The relays and `authenticate` are the
+  coding-agent routes (arriving with the harness engine); the card appears
+  only for a run parked on `login`.
+
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
   §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).

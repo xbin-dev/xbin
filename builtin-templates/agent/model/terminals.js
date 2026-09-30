@@ -1,0 +1,181 @@
+// model/terminals.js — terminals onto coding sandboxes and a coding agent's
+// sign-in, in words both views draw (D-harness §2.1, §4.2.6, §4.2.8, §4.3.4):
+//
+// - the terminal dock's tabs (termsOf(app): page-level — terminals belong to
+//   sandboxes, so they outlive the conversation they were opened from): a
+//   shell in a sandbox, or a login tab running a coding agent's sign-in
+//   command; each tab is what <bx-terminal src> dials (the web: the
+//   manager's tty route, as the person) — the native view opens one at a
+//   time through the tile's relay (runTerminalSrc, model/sandboxes.js
+//   relaySrc);
+// - the sign-in card (signIn): a harness run parked on `login` — its
+//   methods (a terminal login, an API key, a device code), the sandbox whose
+//   HOME the credentials land in, whether that sandbox is shared (a confirm
+//   first), and who to ask when the person may not use it.
+//
+// Pure (no DOM, no lit): node-tested in hack/agent-template-harness-term.test.mjs.
+import { ICON, bindingOf, sharesOf } from './sandboxes.js';
+import { harnessOf, nameOf } from './harness.js';
+
+// --- the dock ---------------------------------------------------------------------
+
+// A tab: {key, gen (a New shell in place bumps it: a fresh element), purpose
+// ('shell' | 'login'), ref, id, name, cwd, cmd, manager, src, base (the
+// manager's url — '' through the relay: nothing to end the shell with),
+// run (a login tab's harness run), harness (its name), session (the exec
+// the session frame named), ended ('' | why)}.
+const TAB = ['ref', 'id', 'name', 'cwd', 'cmd', 'manager', 'src', 'base', 'purpose', 'run', 'harness'];
+
+// createTerms: the dock — its tabs, the one shown, hidden (▾ Hide keeps the
+// shells running) and max. changed() is called after every change.
+export function createTerms(changed = () => {}) {
+  let seq = 0;
+  const T = {
+    tabs: [],
+    active: 0,      // the key of the tab shown
+    hidden: false,  // the dock is folded away; its shells run on
+    max: false,     // the dock fills the window
+    get current() { return T.tabs.find((t) => t.key === T.active) || null; },
+    get(key) { return T.tabs.find((t) => t.key === key) || null; },
+    // open adds a tab for spec (app.sbx.terminal()'s answer, plus purpose,
+    // run and harness for a login tab) and shows it; null when spec has no src.
+    open(spec) {
+      if (!spec || !spec.src) return null;
+      const t = { purpose: 'shell', cmd: '', run: 0, harness: '', base: '', manager: '', cwd: '' };
+      for (const k of TAB) if (spec[k] != null && spec[k] !== '') t[k] = spec[k];
+      Object.assign(t, { key: ++seq, gen: 1, session: '', ended: '' });
+      T.tabs.push(t);
+      T.active = t.key;
+      T.hidden = false;
+      changed();
+      return t;
+    },
+    select(key) {
+      if (!T.get(key)) return;
+      T.active = key;
+      T.hidden = false;
+      changed();
+    },
+    // close takes a tab away and answers it (the view ends its shell when it
+    // has a session that did not end); the neighbour is shown.
+    close(key) {
+      const i = T.tabs.findIndex((t) => t.key === key);
+      if (i < 0) return null;
+      const [t] = T.tabs.splice(i, 1);
+      if (T.active === key) T.active = (T.tabs[i] || T.tabs[i - 1] || {}).key || 0;
+      if (!T.tabs.length) { T.hidden = false; T.max = false; }
+      changed();
+      return t;
+    },
+    // session: the exec a tab's session frame named (what closing it ends).
+    session(key, id) { const t = T.get(key); if (t) t.session = id || ''; },
+    ended(key, why = 'ended') {
+      const t = T.get(key);
+      if (!t || t.ended) return;
+      t.ended = why;
+      changed();
+    },
+    // again: a New shell in the same tab (spec: a fresh terminal() — a login
+    // tab becomes a shell); a new element dials it.
+    again(key, spec) {
+      const t = T.get(key);
+      if (!t || !spec || !spec.src) return;
+      Object.assign(t, { src: spec.src, base: spec.base || '', cmd: spec.cmd || '', purpose: spec.purpose || 'shell', gen: t.gen + 1, session: '', ended: '' });
+      if (t.purpose !== 'login') { t.run = 0; t.harness = ''; }
+      changed();
+    },
+    hide() { if (T.tabs.length && !T.hidden) { T.hidden = true; changed(); } },
+    show() { if (T.hidden) { T.hidden = false; changed(); } },
+    toggleMax() { T.max = !T.max; changed(); },
+    // pill: the hidden dock in words ('' while shown or empty).
+    pill() { return T.hidden && T.tabs.length ? `${T.tabs.length} terminal${T.tabs.length === 1 ? '' : 's'}` : ''; },
+  };
+  return T;
+}
+
+// termsOf: the app's dock (one per page), made the first time a view asks.
+export function termsOf(app) {
+  if (!app.terms) app.terms = createTerms(() => app.emit && app.emit('terms'));
+  return app.terms;
+}
+
+// tabLabel: a tab's name in the strip — the sandbox, or what it signs in.
+export const tabLabel = (t) => (t.purpose === 'login' ? `Sign in · ${t.harness || 'coding agent'}` : `${ICON} ${t.name}`);
+
+// tabHead: the shown tab's header — {title, where, manager, hint}.
+export function tabHead(t) {
+  if (!t) return null;
+  const login = t.purpose === 'login';
+  return {
+    title: login ? `Sign in · ${t.harness || 'coding agent'} · ${ICON} ${t.name}` : `${ICON} ${t.name}`,
+    where: t.cwd || 'its workdir',
+    manager: t.manager || '',
+    // a sign-in prints a link: opening it needs the tile's open-links grant
+    hint: login ? 'a link in the terminal opens in a new tab — if it doesn\'t, copy it from the terminal' : '',
+    // a finished login: "Signed in? Retry ‹name›" (POST /resume) or a New shell
+    retry: login && t.run ? `Retry ${t.harness || 'the coding agent'}` : '',
+    done: login && t.ended ? 'Finished. Signed in?' : '',
+  };
+}
+
+// runTerminalSrc: a harness run's relay (tile-relative) — a shell at its cwd,
+// or (login) its sign-in command: GET /runs/{id}/harness/terminal[?login=1].
+export const runTerminalSrc = (runId, { login = false } = {}) => `runs/${runId}/harness/terminal${login ? '?login=1' : ''}`;
+
+// --- the sign-in card ---------------------------------------------------------------
+
+// A method's kind as the card draws it: terminal, api-key or device-code (§4.3.2).
+const KINDS = ['terminal', 'api-key', 'device-code'];
+
+// sharedOf: others may use sandbox row s (team visibility, members, shares).
+const sharedOf = (s) => !!(s && (s.visibility === 'team' || (Array.isArray(s.members) && s.members.length) || sharesOf(s).length || s.shared));
+
+// signIn: the sign-in card for view v — null unless its run is a harness run
+// parked on `login` (pendingState.kind "login", §4.3.4). opts: list (GET
+// /sandboxes, model/sandboxes.js listOf), entry (the harness's catalog
+// entry: its login command when the park has none). Answers
+//   {run, park, name, sandbox: {ref, name, cwd}, command,
+//    methods: [{id, name, kind}] (terminal · api-key · device-code),
+//    shared (a confirm first), canUse (true · false · null: not known yet),
+//    ask ('' | whom to ask), device ({url, message} while a device code waits),
+//    title, warn, confirmLabel}
+export function signIn(v, { list = null, entry = null } = {}) {
+  const r = v && v.run;
+  const ps = r && r.pendingState;
+  if (!r || r.status !== 'waiting_input' || !ps || ps.kind !== 'login' || !ps.harness) return null;
+  const h = harnessOf(v) || {};
+  const name = nameOf(h);
+  const login = { ...(h.login || {}), ...(ps.harness.login || {}) };
+  const bound = bindingOf(v) || {};
+  const hs = h.sandbox || {};
+  const ref = hs.ref || bound.ref || (v.config && v.config.harness && v.config.harness.ref) || '';
+  const row = ((list && list.sandboxes) || []).find((s) => s.ref === ref) || null;
+  const sname = hs.name || (row && row.name) || bound.name || ref.split('|').pop() || 'the sandbox';
+  const cwd = hs.cwd || (v.config && v.config.harness && v.config.harness.cwd) || bound.cwd || '';
+  const command = login.command || (entry && entry.login && entry.login.command) || '';
+  let methods = (login.methods || []).filter((m) => m && KINDS.includes(m.kind));
+  // no methods said: the login command in a terminal
+  if (!methods.length && command) methods = [{ id: '', name: `Sign in to ${name}`, kind: 'terminal' }];
+  const canUse = row ? !!row.canUse : list && list.loaded ? false : null;
+  const binder = bound.by || (row && row.owner && row.owner.user) || '';
+  const shared = !!hs.shared || sharedOf(row);
+  return {
+    run: r.id, park: ps.park || '', name, command, methods, shared, canUse,
+    sandbox: { ref, name: sname, cwd },
+    ask: canUse === false ? `Ask ${binder || 'whoever bound it'} to sign in — the sandbox is theirs.` : '',
+    device: login.device && login.device.url ? { url: login.device.url, message: login.device.message || '' } : null,
+    title: `${name} needs you to sign in (in ${ICON} ${sname}).`,
+    warn: `The credentials land in ${sname}'s home: anyone who may use it acts as you with ${name} there, and its clones and snapshots keep them.`,
+    confirmLabel: `${sname} is shared — sign in anyway`,
+  };
+}
+
+// methodLabel: a method's button.
+export function methodLabel(m) {
+  if (m.kind === 'terminal') return `${m.name} — in a terminal`;
+  if (m.kind === 'device-code') return m.name || 'Sign in with a device code';
+  return m.name || 'API key';
+}
+
+// isHttps: a device page the views may open (never anything but https:).
+export const isHttps = (u) => /^https:\/\/[^\s]+$/i.test(String(u || ''));

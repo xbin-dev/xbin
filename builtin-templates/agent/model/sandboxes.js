@@ -325,42 +325,59 @@ export function endpointOf(eps, provider) {
 // on it; an archived one is thawed first).
 const TTY_STATES = new Set(['running', 'stopped', 'starting']);
 
-// terminalSrc: the manager route that starts a terminal (the login shell) in
-// sandbox id at cwd ('' = its workdir) — what <bx-terminal src> dials.
-export function terminalSrc(ep, id, cwd = '') {
-  const c = String(cwd || '').trim();
-  return `${String(ep.url).replace(/\/+$/, '')}/sbx/sandboxes/${encodeURIComponent(id)}/tty${c ? '?cwd=' + encodeURIComponent(c) : ''}`;
+// ttyQuery: ?cwd=&cmd= — each only when given.
+const ttyQuery = (cwd, cmd) => {
+  const q = [['cwd', String(cwd || '').trim()], ['cmd', String(cmd || '').trim()]].filter(([, v]) => v);
+  return q.length ? '?' + q.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&') : '';
+};
+// terminalSrc: the manager route that starts a terminal in sandbox id at cwd
+// ('' = its workdir) running cmd ('' = the login shell) — what
+// <bx-terminal src> dials.
+export function terminalSrc(ep, id, cwd = '', cmd = '') {
+  return `${String(ep.url).replace(/\/+$/, '')}/sbx/sandboxes/${encodeURIComponent(id)}/tty${ttyQuery(cwd, cmd)}`;
 }
+// RELAY: what a view passes to terminal() as its endpoints when it reaches a
+// sandbox's terminal through this tile's own relay (D-harness §4.2.8) — the
+// native view: the app's terminal dials only the tile's own routes.
+export const RELAY = 'relay';
+// relaySrc: that relay for sandbox ref — GET /sandboxes/{ref}/terminal?cwd=&cmd=,
+// tile-relative (under /api/<self>/).
+export const relaySrc = (ref, cwd = '', cmd = '') =>
+  `sandboxes/${String(ref).split('/').map(encodeURIComponent).join('/')}/terminal${ttyQuery(cwd, cmd)}`;
 // execSrc: that manager's route for one exec of the sandbox (DELETE ends it).
 export const execSrc = (ep, id, eid) => `${String(ep.url).replace(/\/+$/, '')}/sbx/sandboxes/${encodeURIComponent(id)}/execs/${encodeURIComponent(eid)}`;
 
-// terminal: "Open terminal" for the sandbox ref at cwd — {shown, why, src,
-// base (the manager's url), id, name, cwd, manager, label}. eps: the page's
-// endpoints for its `sandboxes` slot; a view that draws no terminal passes
-// none (null: not shown). Shown where its manager's hello offers `tty` (and
-// the sandbox does not leave it out); offered ('' why) when the page is
-// bound to that manager, you may use the sandbox yourself — the page dials
-// the manager as you, so the manager applies its per-person rules, and
+// terminal: "Open terminal" for the sandbox ref at cwd, running cmd ('' =
+// the login shell) — {shown, why, src, base (the manager's url; '' through
+// the relay), relay, id, name, cwd, cmd, manager, label}. eps: the page's
+// endpoints for its `sandboxes` slot, or RELAY (the tile's own relay); a view
+// that draws no terminal passes none (null: not shown). Shown where its
+// manager's hello offers `tty` (and the sandbox does not leave it out);
+// offered ('' why) when the page is bound to that manager (or relays), you
+// may use the sandbox yourself — the page dials the manager as you, so the
+// manager applies its per-person rules (the relay checks the same), and
 // acting through a conversation doesn't reach it — and it runs or can start.
-export function terminal(list, ref, eps, cwd = '') {
+export function terminal(list, ref, eps, cwd = '', cmd = '') {
   const L = list || listOf(null);
   const { provider, id } = splitRef(ref);
   const s = find(L, ref);
   const m = L.managers.find((x) => x.provider === ((s && s.provider) || provider));
   const tty = !!m && (m.caps || []).includes('tty') && !(s && Array.isArray(s.caps) && !s.caps.includes('tty'));
   const name = nameOf(s) || id;
-  const out = { shown: !!eps && tty, why: '', src: '', base: '', ref, id: (s && s.id) || id, name, cwd: String(cwd || '').trim(),
-    manager: (s && s.manager) || (m && m.title) || provider, label: 'Open terminal' };
+  const relay = eps === RELAY;
+  const out = { shown: !!eps && tty, why: '', src: '', base: '', relay, ref, id: (s && s.id) || id, name, cwd: String(cwd || '').trim(),
+    cmd: String(cmd || '').trim(), manager: (s && s.manager) || (m && m.title) || provider, label: 'Open terminal' };
   if (!out.shown) return { ...out, why: !eps ? 'this view opens no terminals' : `its manager (${out.manager}) offers no terminals` };
-  const ep = endpointOf(eps, (s && s.provider) || provider);
+  const ep = relay ? null : endpointOf(eps, (s && s.provider) || provider);
   const why = !s ? 'gone — its manager no longer has it'
     : m.ok === false ? `its manager (${out.manager}) is unavailable`
-    : !ep ? 'this page is not bound to its manager — reload it'
+    : !ep && !relay ? 'this page is not bound to its manager — reload it'
     : !s.canUse ? 'you may not use it yourself'
     : !TTY_STATES.has(s.state || '') ? `it is ${STATES[s.state] || s.state || 'not ready'}${s.state === 'archived' ? ' — thaw it first' : ''}`
     : '';
   if (why) return { ...out, why };
-  return { ...out, src: terminalSrc(ep, out.id, out.cwd), base: ep.url };
+  if (relay) return { ...out, src: relaySrc(out.ref, out.cwd, out.cmd) };
+  return { ...out, src: terminalSrc(ep, out.id, out.cwd, out.cmd), base: ep.url };
 }
 
 // sandboxRows: the Sandboxes dialog — every sandbox you may see, yours

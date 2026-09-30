@@ -18,6 +18,7 @@ import './harness-ask.js';
 import './harness-controls.js';
 
 // U5 terminals and sign-in
+import './signin.js'; // the sign-in card (end, a login park only); the dock is terminals.js, which sandboxes.js imports
 
 // U6 child cards
 
