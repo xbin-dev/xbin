@@ -12,6 +12,7 @@ import { html, nothing, render } from '/vendor/lit-all.min.js';
 import * as actions from './model/actions.js';
 import { share as shareRules } from './model/rules.js';
 import { openPublish, publishes, copyTpl } from './homes-ui.js'; // a person's own conversation: a copy (two homes)
+import { hostTpl } from './hosted-ui.js'; // a shared one: use my private resources, add a copy of mine (non-secure)
 
 export { joinFrom } from './model/actions.js';
 
@@ -110,6 +111,7 @@ function tpl() {
           dialog().close();
         })}>Leave this conversation</button></div>` : nothing}`}
       ${copyTpl(st.runId, () => dialog().close(), st.onChange)}
+      ${hostTpl(st.runId, st.data, st.me, st.title, () => dialog().close(), st.onChange)}
       ${st.err ? html`<div class="err">${st.err}</div>` : nothing}
     </div>
     <div class="dlg-ft"><button class="btn" @click=${() => dialog().close()}>Done</button></div>

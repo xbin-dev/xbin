@@ -11,6 +11,7 @@ import { groupRows } from './model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
 import { sharing } from './model/partition.js'; // the Shared view (in a person's partition: the shared space's)
 import * as actions from './model/actions.js';
+import { hostedRowChip } from './hosted-ui.js'; // a non-secure conversation's ⚠ chip
 
 /**
  * @param list  ConvList (conv-list.js)
@@ -59,6 +60,7 @@ function rowTpl(r, ui, withMatch) {
   return html`<div class="run ${r.id === ui.sel ? 'on' : ''} ${r.unread ? 'unread' : ''}" data-id=${r.id}
       @click=${() => ui.select(r.id)} @contextmenu=${(e) => { e.preventDefault(); ui.openMenu(r.id, e); }}>
     <div class="t">${r.title || 'run ' + r.id}</div>
+    ${hostedRowChip(r)}
     ${glyph}
     <button class="rmenu" title="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}>⋯</button>
     ${shared ? html`<div class="chips" title=${shared.title}>${shared.chips.map((c) => html`<span class="chip ${c.kind}">${c.label}</span>`)}</div>` : nothing}

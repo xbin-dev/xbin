@@ -39,6 +39,7 @@ import { makePorts } from './ports.js';
 import { tabFiles, selectFile } from './settings-files.js';
 import { mountPartitionUI, mountStaticMcp } from './partition-ui.js';
 import { mountNewShare } from './homes-ui.js'; // a person's partition: who can see a new chat (two homes)
+import { hostedChipTpl, hostedPaint } from './hosted-ui.js'; // non-secure (hosted) conversations: the chip, the warning, the lock
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -181,6 +182,7 @@ function topTpl(v) {
   return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge clsbadge" title=${t.cls.title}>${t.cls.label}</span>
+    ${hostedChipTpl(v)}
     ${t.cls.warn ? html`<span class="badge clswarn" title=${t.cls.warnTitle}>${t.cls.warn}</span>` : nothing}
     ${sbxUI.badgeTpl(v)}
     ${t.model ? html`<span class="badge" title="the model this conversation was switched to (the composer's picker)">✦ ${t.model}</span>` : nothing}
@@ -256,6 +258,7 @@ function paint() {
   $('stop').hidden = !c.stop;
   $('msg').disabled = c.disabled;
   $('msg').placeholder = c.placeholder;
+  hostedPaint(v, app); // a hosted conversation's lock and warning (hosted-ui.js); nothing elsewhere
   if (v) syncPreview(v);
   if (wfOpen) treeDirty();
 }
