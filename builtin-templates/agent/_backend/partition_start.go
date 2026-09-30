@@ -6,8 +6,9 @@
 //   - Global: team is migrated (team.go) and the tile-wide settings are
 //     mirrored into conf (conf.go).
 //   - A person's partition: its db numbers conversations from 2^40
-//     (seedPartitionIDs, in openDB), settings are read from conf, and team is
-//     opened without migrating it.
+//     (seedPartitionIDs, in openDB), settings are read from conf (read once
+//     here, before the engine starts; until conf answers the brake is on —
+//     brake.go), and team is opened without migrating it.
 package main
 
 import (
@@ -43,8 +44,8 @@ func startMode(db *DB) {
 	limit := func() int { return parseConfig(db.getSetting("config")).maxActiveRuns() }
 	conf, team := xbin.Resource("conf"), xbin.Resource("team")
 	if conf == "" || team == "" {
-		logf("partitioned (%s) without the conf and team resources in xbin.json's uses: the settings read as defaults "+
-			"here and model calls have no tile-wide cap — update the agent from its template", partitionKey())
+		logf("partitioned (%s) without the conf and team resources in xbin.json's uses: update the agent from its template — "+
+			"meanwhile people's partitions do no model work (conf) and model calls have no tile-wide cap (team)", partitionKey())
 	}
 	switch runMode {
 	case modeGlobal:
@@ -65,6 +66,13 @@ func startMode(db *DB) {
 			kv = gatewayKV{res: conf}
 		}
 		confIn = newConfReader(kv, func() { wakeGlobal(context.Background()) })
+		confIn.parked = db.brakeParked
+		confIn.onHaltOff = func() { // brake.go: the runs parked on the brake move again
+			if agent != nil && agent.eng != nil {
+				agent.eng.recover()
+			}
+		}
+		confIn.refresh() // before the engine starts: its first passes know the settings
 		if team != "" {
 			go func() {
 				t, err := openShared(context.Background(), team)

@@ -132,6 +132,7 @@ func (e *Engine) pass(a *actor) {
 	// message clears it before it is queued (resumeIfHalted), so a prompt is
 	// never swallowed.
 	if e.halted() {
+		e.onBrake(run) // a person's partition reads it from conf (brake.go)
 		return
 	}
 
@@ -496,6 +497,9 @@ func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 		}
 		if e.controlQueued(run.ID) {
 			return // the next pass applies it
+		}
+		if e.brakeInTurn(run) {
+			return // a person's partition learns of a halt from conf, step by step (brake.go)
 		}
 		if run.TurnSteps >= cfg.maxTurnSteps() {
 			e.endTurn(ts, endCap, fmt.Sprintf("stopped after %d steps in one turn (maxTurnSteps) — send a message to continue", run.TurnSteps))
@@ -927,10 +931,14 @@ func (e *Engine) halted() bool { return e.db.getSetting("halt") == "1" }
 
 // resumeIfHalted clears the brake when a human explicitly asks for work: a
 // halt that silently swallows prompts is indistinguishable from a broken
-// agent.
-func (ag *Agent) resumeIfHalted(runID int64) {
-	if ag.db.getSetting("halt") != "1" || !ag.clearHalt() { // clearHalt: partition_routes.go
-		return
+// agent. false: it is on and couldn't be taken off (a person's partition:
+// the shared instance didn't take it — clearHalt, partition_routes.go).
+func (ag *Agent) resumeIfHalted(runID int64) bool {
+	if ag.db.getSetting("halt") != "1" {
+		return true
+	}
+	if !ag.clearHalt() {
+		return false
 	}
 	if runID != 0 {
 		ag.db.journal(runID, "note", map[string]string{"text": "halt cleared: you sent a message, which resumes the agent"})
@@ -938,4 +946,5 @@ func (ag *Agent) resumeIfHalted(runID int64) {
 	if ag.eng != nil {
 		go ag.eng.recover()
 	}
+	return true
 }

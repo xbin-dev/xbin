@@ -158,7 +158,9 @@ func handleMailbox(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusNotFound, "this agent isn't partitioned: it has no mailbox")
 		return
 	}
-	if from := xbin.Caller(r).From; from != "xbin/mail" && callerOf(r).kind != whoSystem {
+	// principal, not callerOf: a caller nobody could identify is refused here,
+	// never taken for the tile itself (callerOf's fallback)
+	if from := xbin.Caller(r).From; from != "xbin/mail" && principal(r).kind != whoSystem {
 		xbin.WriteError(w, http.StatusForbidden, "only xbind rings the mailbox")
 		return
 	}

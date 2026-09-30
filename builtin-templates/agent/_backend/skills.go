@@ -81,7 +81,7 @@ func scanSkill(scan func(dest ...any) error) (*Skill, error) {
 func (d *DB) getSkill(name string) (*Skill, error) {
 	s, err := scanSkill(d.q.QueryRow(`SELECT `+skillCols+` FROM skills WHERE name=?`, name).Scan)
 	if err != nil && confIn != nil {
-		return sharedSkill(name, err) // a person's partition: the shared ones are in conf
+		return sharedSkill(name, d.tx == nil, err) // a person's partition: the shared ones are in conf
 	}
 	return s, err
 }
@@ -93,7 +93,7 @@ func (d *DB) listSkills() ([]*Skill, error) {
 	if err != nil || confIn == nil {
 		return out, err
 	}
-	return withShared(out, confIn.sharedSkills()), nil
+	return withShared(out, confIn.sharedSkills(d.tx == nil)), nil
 }
 
 // localSkills is the skills in this db.
@@ -243,6 +243,10 @@ func handleSaveSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Lane != "" && s.Lane != "private" && s.Lane != "web" {
 		xbin.WriteError(w, 400, "lane is private, web or empty")
+		return
+	}
+	if raw, _ := json.Marshal(s); s.Owner == "" && confTooBig(raw) { // conf.go: a shared skill is mirrored into a kv value
+		xbin.WriteError(w, 400, "the skill is too big to share in a partitioned agent (900 KiB at most)")
 		return
 	}
 	if err := agent.db.upsertSkill(&s); err != nil {

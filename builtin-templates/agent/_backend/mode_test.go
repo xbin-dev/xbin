@@ -109,7 +109,7 @@ func TestLegacyModeUnchanged(t *testing.T) {
 	if partitionID() != "" || agentHome() != "" {
 		t.Errorf("legacy mode learned a partition id %q", partitionID())
 	}
-	if _, ok := confSetting("config"); ok {
+	if _, ok := confSetting("config", false); ok {
 		t.Error("legacy mode reads settings from conf")
 	}
 	if err := confRefuses("config"); err != nil {

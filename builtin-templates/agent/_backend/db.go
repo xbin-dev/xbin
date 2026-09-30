@@ -848,7 +848,7 @@ func (d *DB) memory(runID int64) (map[string]string, error) {
 // --- settings -----------------------------------------------------------
 
 func (d *DB) getSetting(k string) string {
-	if v, ok := confSetting(k); ok { // a person's partition reads the tile-wide ones from conf (conf.go)
+	if v, ok := confSetting(k, d.tx != nil); ok { // a person's partition reads the tile-wide ones from conf (conf.go)
 		return v
 	}
 	var v string

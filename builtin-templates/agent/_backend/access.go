@@ -118,11 +118,17 @@ func haltBlocks(w http.ResponseWriter, r *http.Request, runID int64) bool {
 	if agent.db.getSetting("halt") != "1" {
 		return false
 	}
+	if stop, handled := confBrakeBlocks(w); handled { // a partition that doesn't know conf yet (brake.go)
+		return stop
+	}
 	if !callerOf(r).manager() {
 		xbin.WriteError(w, http.StatusLocked, "the agent is paused by a manager")
 		return true
 	}
-	agent.resumeIfHalted(runID)
+	if !agent.resumeIfHalted(runID) {
+		xbin.WriteError(w, http.StatusServiceUnavailable, "the agent is paused, and taking the pause off at its shared instance failed — try again in a moment")
+		return true
+	}
 	return false
 }
 

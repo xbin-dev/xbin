@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,6 +66,7 @@ const (
 )
 
 var userRoutes = map[string]userRoute{
+	"GET /config":               userGlobal, // the whole config, as managers edit it: conf holds it as viewers see it
 	"PUT /config":               userGlobal,
 	"PUT /classes":              userGlobal,
 	"PUT /halt":                 userGlobal,
@@ -75,6 +77,14 @@ var userRoutes = map[string]userRoute{
 	"POST /join":                userNoShare,
 	"POST /channels/{id}/claim": userNoChannels,
 	"POST /triggers":            userNoChannels,
+}
+
+// sharesInPartition: a change that would share a conversation (or an
+// automation's runs) — a visibility other than private, a team role other
+// than a private conversation's — which a person's partition refuses (409
+// noShareWords) like the sharing routes.
+func sharesInPartition(vis, role *string) bool {
+	return userMode() && (vis != nil && *vis != visPrivate || role != nil && *role != roleViewer)
 }
 
 const (
@@ -100,16 +110,17 @@ func partitionRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
 	return h
 }
 
-// forwardSetting relays a manager's settings write to the global instance
-// and, once it took it, reads conf afresh (and applies the halt switch to
-// this partition's live runs at once, rather than at their next step).
+// forwardSetting relays a manager's settings read or write to the global
+// instance and, once it took a write, reads conf afresh (and applies the
+// halt switch to this partition's live runs at once, rather than at their
+// next step).
 func forwardSetting(w http.ResponseWriter, r *http.Request) {
 	body, ok := forwardBody(w, r)
 	if !ok {
 		return
 	}
 	res, ok := relay(w, r, body)
-	if !ok || res.Status/100 != 2 {
+	if !ok || res.Status/100 != 2 || r.Method == http.MethodGet {
 		return
 	}
 	if confIn != nil {
@@ -139,7 +150,7 @@ func (ag *Agent) clearHalt() bool {
 	defer cancel()
 	res, err := callGlobal(ctx, http.MethodPut, "/halt", []byte(`{"on":false}`), "application/json")
 	if err != nil || res.Status/100 != 2 {
-		logf("taking the halt off at the shared instance: %v (HTTP %d)", err, res.Status)
+		logf("taking the halt off at the shared instance: %v (HTTP %d %s)", err, res.Status, clip(string(res.Body), 200))
 		return false
 	}
 	if confIn != nil {
@@ -148,27 +159,49 @@ func (ag *Agent) clearHalt() bool {
 	return true
 }
 
-// forwardSkill: a skill of the person's own (in this partition's db) is
-// served here; any other — a shared one, or a new one a manager saves for
-// everyone — at the global instance.
+// forwardSkill: in a person's partition a skill is theirs (this partition's
+// db) or everyone's (the global instance's, mirrored into conf) — never
+// another person's:
+//
+//   - one of theirs is served here; saving it with owner "" publishes it —
+//     it is saved for everyone at the global instance, then leaves this db;
+//   - a new one saved with owner = the person stays here, theirs;
+//   - any other save or delete — a shared skill, a new one without an
+//     owner — goes to the global instance;
+//   - an owner naming anyone else is refused (400).
 func forwardSkill(w http.ResponseWriter, r *http.Request, local http.HandlerFunc) {
 	name := r.PathValue("name")
 	body, ok := forwardBody(w, r)
 	if !ok {
 		return
 	}
+	var b struct {
+		Name  string
+		Owner *string
+	}
+	_ = json.Unmarshal(body, &b)
 	if name == "" {
-		var b struct{ Name string }
-		_ = json.Unmarshal(body, &b)
 		name = strings.TrimSpace(b.Name)
 	}
-	if s, err := agent.db.localSkill(name); err == nil && s != nil {
+	s, err := agent.db.localSkill(name)
+	own := err == nil && s != nil
+	switch {
+	case b.Owner != nil && *b.Owner != "" && *b.Owner != runUser:
+		xbin.WriteError(w, http.StatusBadRequest, "in your own space a skill is yours or everyone's: owner is \"\" or "+strconv.Quote(runUser))
+	case own && r.Method == http.MethodPut && b.Owner != nil && *b.Owner == "":
+		if res, ok := relay(w, r, body); ok && res.Status/100 == 2 { // published: everyone's now, at global
+			_ = agent.db.deleteSkill(name)
+			if confIn != nil {
+				confIn.invalidate()
+			}
+		}
+	case own || (b.Owner != nil && *b.Owner == runUser):
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		local(w, r)
-		return
-	}
-	if res, ok := relay(w, r, body); ok && res.Status/100 == 2 && confIn != nil {
-		confIn.invalidate()
+	default:
+		if res, ok := relay(w, r, body); ok && res.Status/100 == 2 && confIn != nil {
+			confIn.invalidate()
+		}
 	}
 }
 

@@ -13,14 +13,24 @@
 //     conversations) keeps using it.
 //   - Isolation stops at the sandbox: a person's partition also sees the
 //     team's sandboxes (homed at the agent's global identity, or shared with
-//     it), marked `shared`. A conversation in a person's partition never
-//     works in one (partitionBoxRefusal) — its terminal can still be opened.
+//     it), marked `shared`. A conversation in a person's partition works
+//     only in a sandbox homed there — the manager's owner.partitionId is
+//     this partition's id (its owner.partition the partition key while the
+//     id isn't known yet), owner.via this tile, and not `shared` — checked
+//     when it is bound and again at every use; anything else, a manager that
+//     says nothing of the home included, is refused (partitionBoxRefusal).
+//     Its terminal can still be opened.
 //   - Every sandbox a partitioned agent makes is labelled xbin.agent/home
-//     (mode.go agentHome) beside xbin.agent/conversation: ids of different
-//     homes never collide.
+//     (mode.go agentHome) — whatever makes it: a conversation's tools, its
+//     dialog, POST /sandboxes with or without a conversation. Ids of
+//     different homes never collide.
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
+)
 
 // capPartitions is the manager capability a person's partition needs.
 const capPartitions = "partitions"
@@ -42,12 +52,39 @@ func oldManagerWords(provider string, h *sbxHello) string {
 		"or ask a workspace admin to", h.title(provider), capPartitions, provider)
 }
 
+// homedHere: box is homed in this person's partition, as its manager says.
+func homedHere(box *sbxSandbox) bool {
+	o := box.Owner
+	if box.Shared || o.PartitionID == "" || o.Via != xbin.Self() {
+		return false
+	}
+	if id := partitionID(); id != "" {
+		return o.PartitionID == id
+	}
+	return o.Partition == partitionKey()
+}
+
 // partitionBoxRefusal: in a person's partition, a sandbox that isn't homed
-// there (the manager marks it `shared`) is never bound to a conversation.
+// there is never bound to a conversation, nor used by one.
 func partitionBoxRefusal(box *sbxSandbox) string {
-	if !userMode() || box == nil || !box.Shared {
+	if !userMode() || box == nil || homedHere(box) {
 		return ""
 	}
-	return fmt.Sprintf("%s is a shared sandbox (the team's, or shared with this agent): a conversation in your own space "+
-		"works only in sandboxes of your own — create one, or open this one's terminal instead", box.Name)
+	return fmt.Sprintf("%s isn't a sandbox of your own space (the team's, shared with this agent, or one its manager doesn't say is yours): "+
+		"a conversation in your own space works only in sandboxes of your own — create one, or open this one's terminal instead", box.Name)
+}
+
+// withHomeLabel is labels with xbin.agent/home set in a partitioned agent (a
+// copy: the caller's map is left alone).
+func withHomeLabel(labels map[string]string) map[string]string {
+	home := agentHome()
+	if home == "" {
+		return labels
+	}
+	out := make(map[string]string, len(labels)+1)
+	for k, v := range labels {
+		out[k] = v
+	}
+	out["xbin.agent/home"] = home
+	return out
 }

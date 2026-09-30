@@ -87,9 +87,10 @@ func TestUserModeRoutes(t *testing.T) {
 	kv := newMemKV()
 	confIn = newConfReader(kv, nil)
 	ag, h := partAgent(t)
+	putConf(kv, "", `{}`)
 	g := stubGlobalCalls(t, func(method, path string, body []byte) (int, string) {
-		if path == "/config" {
-			_ = kv.Put(context.Background(), confSettingsKey, []byte(`{"config":`+strconvQuote(string(body))+`}`))
+		if path == "/config" && method == "PUT" {
+			putConf(kv, "", `{"config":`+strconvQuote(string(body))+`}`)
 		}
 		return 200, string(body)
 	})
@@ -114,6 +115,14 @@ func TestUserModeRoutes(t *testing.T) {
 	if len(g.got()) != 1 {
 		t.Fatal("a reader's write was forwarded")
 	}
+	// the whole config (headers and all) is read from global, never from
+	// conf, which holds it as viewers see it
+	if rec := do(as("GET", "/config", "", alicesFrame("write"))); rec.Code != 200 || len(g.got()) != 2 || g.got()[1] != "GET /config " {
+		t.Fatalf("GET /config: %d %v", rec.Code, g.got())
+	}
+	g.mu.Lock()
+	g.calls = g.calls[:1]
+	g.mu.Unlock()
 
 	// skills: alice's own here, a shared one at global
 	_ = ag.db.upsertSkill(&Skill{Name: "mine", Content: "a", Owner: "alice"})
@@ -132,6 +141,27 @@ func TestUserModeRoutes(t *testing.T) {
 	if _, err := ag.db.localSkill("team-howto"); err == nil {
 		t.Fatal("a shared skill was saved in the partition")
 	}
+	// never another person's skill, from here or at global
+	if rec := do(as("PUT", "/skills", `{"name":"bobs","content":"x","owner":"bob"}`, alicesFrame("write"))); rec.Code != 400 {
+		t.Fatalf("a skill for bob from alice's partition: %d %s", rec.Code, rec.Body)
+	}
+	// a new one of her own stays here; publishing one (owner "") moves it to global
+	if rec := do(as("PUT", "/skills", `{"name":"notes","content":"n","owner":"alice"}`, alicesFrame("write"))); rec.Code != 200 {
+		t.Fatalf("a new skill of her own: %d %s", rec.Code, rec.Body)
+	}
+	if s, _ := ag.db.localSkill("notes"); s == nil || s.Owner != "alice" {
+		t.Fatalf("her new skill here: %+v", s)
+	}
+	if rec := do(as("PUT", "/skills", `{"name":"mine","content":"b","owner":""}`, alicesFrame("write"))); rec.Code != 200 {
+		t.Fatalf("publishing her skill: %d %s", rec.Code, rec.Body)
+	}
+	if _, err := ag.db.localSkill("mine"); err == nil {
+		t.Fatal("a published skill stayed in the partition")
+	}
+	c = g.got()
+	if len(c) != 4 || !strings.HasPrefix(c[3], `PUT /skills {"name":"mine"`) {
+		t.Fatalf("publishing forwarded: %v", c)
+	}
 
 	// sharing and channels
 	run, _ := ag.db.createRun("x", "", 0)
@@ -139,12 +169,21 @@ func TestUserModeRoutes(t *testing.T) {
 	for _, r := range []*http.Request{
 		as("POST", "/runs/"+itoa(run)+"/members", `{"user":"bob"}`, alicesFrame("write")),
 		as("POST", "/runs/"+itoa(run)+"/links", `{}`, alicesFrame("write")),
+		as("PATCH", "/runs/"+itoa(run), `{"visibility":"team"}`, alicesFrame("write")),
+		as("PATCH", "/runs/"+itoa(run), `{"teamRole":"participant"}`, alicesFrame("write")),
+		as("POST", "/schedules", `{"name":"s","cron":"@every 1h","goal":"g","visibility":"team"}`, alicesFrame("write")),
 		as("POST", "/triggers", `{"name":"x"}`, alicesFrame("write")),
 		as("POST", "/channels/1/claim", `{}`, alicesFrame("write")),
 	} {
 		if rec := do(r); rec.Code != http.StatusConflict {
 			t.Errorf("%s %s: %d %s", r.Method, r.URL.Path, rec.Code, rec.Body)
 		}
+	}
+	if a, _ := ag.aclOf(run); a.visibility != visPrivate {
+		t.Fatalf("the conversation's visibility after the refusals: %q", a.visibility)
+	}
+	if rec := do(as("PATCH", "/runs/"+itoa(run), `{"visibility":"private","title":"mine"}`, alicesFrame("write"))); rec.Code != 200 {
+		t.Fatalf("keeping it private (and renaming it): %d %s", rec.Code, rec.Body)
 	}
 	if rec := do(as("GET", "/me", "", alicesFrame("read"))); !strings.Contains(rec.Body.String(), `"partition":"user:alice"`) {
 		t.Fatalf("GET /me: %s", rec.Body)
@@ -153,18 +192,25 @@ func TestUserModeRoutes(t *testing.T) {
 
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
 
+// putConf writes conf as the global instance's mirror would: the halt key
+// and the settings key.
+func putConf(kv kvStore, halt, settings string) {
+	_ = kv.Put(context.Background(), confHaltKey, []byte(`{"halt":`+strconvQuote(halt)+`}`))
+	_ = kv.Put(context.Background(), confSettingsKey, []byte(settings))
+}
+
 // TestUserModeHalt: the brake is read from conf; a reader is refused while
 // it is on, a manager's request takes it off at the global instance.
 func TestUserModeHalt(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	shorten(t, &confTTL, 0)
 	kv := newMemKV()
-	_ = kv.Put(context.Background(), confSettingsKey, []byte(`{"halt":"1"}`))
+	putConf(kv, "1", `{}`)
 	confIn = newConfReader(kv, nil)
 	_, h := partAgent(t)
 	g := stubGlobalCalls(t, func(method, path string, body []byte) (int, string) {
 		if path == "/halt" {
-			_ = kv.Put(context.Background(), confSettingsKey, []byte(`{"halt":""}`))
+			putConf(kv, "", `{}`)
 		}
 		return 200, `{"on":false}`
 	})
@@ -297,8 +343,36 @@ func TestPartitionSandboxes(t *testing.T) {
 	if why := partitionBoxRefusal(&sbxSandbox{Name: "team-box", Shared: true}); !strings.Contains(why, "team-box") {
 		t.Fatalf("a shared sandbox in a person's partition: %q", why)
 	}
-	if why := partitionBoxRefusal(&sbxSandbox{Name: "mine"}); why != "" {
-		t.Fatalf("her own sandbox: %q", why)
+	box := func(via, pid, part string, shared bool) *sbxSandbox {
+		b := &sbxSandbox{Name: "b", Shared: shared}
+		b.Owner.Via, b.Owner.PartitionID, b.Owner.Partition = via, pid, part
+		return b
+	}
+	const alicePID, bobPID = "u-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "u-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	for _, c := range []struct {
+		name string
+		box  *sbxSandbox
+		ok   bool
+	}{
+		{"her own", box("apps/agent", alicePID, "user:alice", false), true},
+		{"a manager that says nothing of the home", box("apps/agent", "", "", false), false},
+		{"homed in bob's partition", box("apps/agent", bobPID, "user:bob", false), false},
+		{"another consumer's", box("apps/other", alicePID, "user:alice", false), false},
+		{"her own, marked shared", box("apps/agent", alicePID, "user:alice", true), false},
+	} {
+		if why := partitionBoxRefusal(c.box); (why == "") != c.ok {
+			t.Errorf("%s: %q", c.name, why)
+		}
+	}
+	pidMu.Lock()
+	pidSeen = ""
+	pidMu.Unlock()
+	_ = ag.db.putSetting(settingPartitionID, "")
+	if why := partitionBoxRefusal(box("apps/agent", alicePID, "user:alice", false)); why != "" {
+		t.Fatalf("her own, before the partition knows its id: %q", why)
+	}
+	if why := partitionBoxRefusal(box("apps/agent", bobPID, "user:bob", false)); why == "" {
+		t.Fatal("bob's, before the partition knows its id")
 	}
 	setMode(t, modeLegacy, "")
 	if why := partitionBoxRefusal(&sbxSandbox{Name: "team-box", Shared: true}); why != "" {
@@ -382,10 +456,29 @@ func TestMailboxSkeleton(t *testing.T) {
 	if len(seen) != 2 || len(fm.items) != 1 || fm.items[0].ID != "002" {
 		t.Fatalf("a redelivery: handled %v, left %v", seen, fm.items)
 	}
+	for name, hdr := range map[string]map[string]string{
+		"another tile": {"X-XBin-From": "apps/other", "X-XBin-Role": "writer"},
+		"no headers":   {},
+		"a person":     alicesFrame("write"),
+	} {
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, as("POST", "/mailbox", `{}`, hdr))
+		if rec.Code != 403 {
+			t.Errorf("%s rang the doorbell: %d", name, rec.Code)
+		}
+	}
+	// at global, a person's partition's call without its person is nobody —
+	// never the tile itself, here as on every other route
+	setMode(t, modeGlobal, "")
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, as("POST", "/mailbox", `{}`, map[string]string{"X-XBin-From": "apps/other", "X-XBin-Role": "writer"}))
+	h.ServeHTTP(rec, as("POST", "/mailbox", `{}`, map[string]string{"X-XBin-From": "apps/agent", "X-XBin-Role": "admin", "X-XBin-Partition": "user:bob"}))
 	if rec.Code != 403 {
-		t.Fatalf("another tile rang the doorbell: %d", rec.Code)
+		t.Fatalf("a person's partition without its person rang global's doorbell: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, as("POST", "/mailbox", `{}`, map[string]string{"X-XBin-From": "apps/agent", "X-XBin-Role": "admin"}))
+	if rec.Code != 200 {
+		t.Fatalf("the tile itself rang the doorbell: %d %s", rec.Code, rec.Body)
 	}
 }
 

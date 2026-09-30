@@ -448,6 +448,10 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Sandbox, cfg.Attached, cfg.HeldInternal = nil, nil, false // a conversation's own, never a default
 	b, _ := json.Marshal(cfg)
+	if confTooBig(b) { // conf.go: a partitioned agent mirrors it into a kv value
+		xbin.WriteError(w, 400, "the config is too big for a partitioned agent's shared settings (900 KiB at most)")
+		return
+	}
 	if err := agent.db.putSetting("config", string(b)); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

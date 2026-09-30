@@ -151,8 +151,10 @@ What a partitioned instance does differently:
 
 - **Your conversations are yours.** Everything you start is in your
   partition's `db`; a conversation there can't be shared (`POST
-  /runs/{id}/members`, `/links` and `/join` answer 409, and the web view
-  shows no sharing). Its ids start at 2^40, so an id says where it lives —
+  /runs/{id}/members`, `/links` and `/join` answer 409, so do `PATCH
+  /runs/{id}` with a `visibility` other than `private` or a `teamRole`, and
+  a schedule with `visibility: "team"`; the web view shows no sharing). Its
+  ids start at 2^40, so an id says where it lives —
   below 2^40 is the global instance's `db` (and every id of an
   unpartitioned instance). Its lifecycle events stay on your partition's
   `events` bus; another tile subscribed to `res:<this tile>/events` hears
@@ -160,14 +162,37 @@ What a partitioned instance does differently:
 - **Settings are the tile's.** The config, classes, the halt switch and the
   shared skills live in the global instance's `db`. It mirrors them into
   `conf` (kv, `"shared": "read"`), which every partition reads at each use
-  (cached for a few seconds) and can't write. A manager changing them from
-  their own partition (`PUT /config`, `PUT /classes`, `PUT /halt`, `PUT
-  /skills` or `DELETE /skills/{name}` of a shared skill) is forwarded to
-  the global instance, attributed to them — it checks they may, exactly as
-  here — and conf is read again. Your own skills stay in your partition;
-  `GET /skills` lists them beside the shared ones. While the halt is on a
-  partition's runs stop at their next step; a manager's request for work
-  lifts it tile-wide, at the global instance.
+  (cached for a few seconds) and can't write. **Everyone who can open the
+  agent can read `conf`** (their frame reaches it through xbind's kv API),
+  so it holds the config only as a conversation's viewers see it: a
+  **static MCP server with `headers`** (they can carry tokens) is left out
+  of it altogether — people's conversations don't get that server; the
+  global instance still uses it. Bind such a server as a tile (the `mcp`
+  slot, or a person's own personal bind) to use it in people's
+  conversations. A manager reading or changing the settings from their own
+  partition (`GET`/`PUT /config` — the whole config, headers and all, as
+  ever — `PUT /classes`, `PUT /halt`, `PUT /skills` or `DELETE
+  /skills/{name}` of a shared skill) is forwarded to the global instance,
+  attributed to them — it checks they may, exactly as here — and conf is
+  read again. A config or shared skill over 900 KiB is refused (400): it
+  couldn't be mirrored. Your own skills stay in your partition; `GET
+  /skills` lists them beside the shared ones. In your partition a skill is
+  yours or everyone's: a new one saved with `owner` = you stays there,
+  saving one of yours with `owner: ""` publishes it (it moves to the global
+  instance), and an `owner` naming anyone else is refused (400).
+- **The halt switch in a partition.** A halt set anywhere (the owner token
+  at the global instance, a manager in their partition) stops every
+  partition's runs within a step of when the partition reads it —
+  cancelled, as `PUT /halt` cancels them unpartitioned (in the manager's
+  own partition at once); a manager's request for work lifts it tile-wide,
+  at the global instance, and when that fails answers 503 instead of
+  queueing behind the brake. A partition that hasn't read `conf` yet (the
+  global instance never ran, a kv error at start) treats the halt as on
+  without cancelling anything: requests for work are queued, runs wait, and
+  it looks at `conf` again (with backoff, only while runs wait) until it
+  can — then they go on by themselves. An instance whose `uses` lacks
+  `conf` (a customized copy) can't read it at all: people's requests for
+  work answer 503 saying so — update it from its template.
 - **Channels and event triggers** belong to the global instance: `POST
   /channels/{id}/claim` and `POST /triggers` answer 409 in a partition.
   Schedules work in your partition (its own cron jobs).
@@ -185,15 +210,22 @@ What a partitioned instance does differently:
   being upgraded". Anything in it is readable by every partition's code.
 - **Model calls have a tile-wide cap**: `maxActiveRuns` (default 4) lock
   files `llm.slot.<i>` beside `team`'s file — a flock semaphore every
-  partition shares; a dead process frees its slot. Each partition's own gate
-  allows at most 2 of its calls at once; the global instance keeps
-  `maxActiveRuns`.
+  partition shares; a dead process frees its slot. As within one instance,
+  a subagent's call never takes the last slot, so a new chat waits for at
+  most one call to finish however wide everyone's fan-outs are. Each
+  partition's own gate allows at most 2 of its calls at once; the global
+  instance keeps `maxActiveRuns`. The locks need one kernel: xbind never
+  runs a partitioned tile's backend in a VM (`vm` and `partition` don't
+  mix). A `team` directory that can't hold the lock files costs only the
+  cap (calls and titles go ahead).
 - **Resume.** A partition that stops with work leaves the `resume` job only
   for work that moves without its person (a running or queued run, an
-  undelivered input, a subagent's settled result), a `wake` job at the
-  minute its earliest sleeping run wakes, and nothing for runs waiting on a
-  person — who opens the tile anyway. The global instance follows the
-  unpartitioned rule.
+  undelivered input, a subagent's settled result its parent will take up, a
+  run sleeping until a sandbox job ends), a `wake` job at the minute its
+  earliest timed wait ends (a sleeping run's wake, a subagent deadline), and
+  nothing for runs waiting on a person — who opens the tile anyway — nor
+  while the halt is on. The global instance follows the unpartitioned
+  rule.
 - **Sandboxes.** A partition calls its sandbox managers as itself: a
   manager whose `hello.caps` carry `partitions` homes the sandboxes it
   makes there ([/docs/sandbox-manager.md](/docs/sandbox-manager.md)). One
@@ -201,9 +233,13 @@ What a partitioned instance does differently:
   refusal `partitions` (409), naming it and how to update it, in the tools,
   the catalog and the Sandboxes dialog; the global instance keeps using it.
   A partition also sees the team's sandboxes (`shared`); its conversations
-  never work in one (403), though you can open its terminal. Every sandbox a
-  partitioned instance makes carries the label `xbin.agent/home` — the
-  partition's id, or `global` — beside `xbin.agent/conversation`.
+  work only in a sandbox the manager says is homed in the partition
+  (`owner.partitionId` its id, `owner.via` this tile, not `shared`) —
+  checked when it is bound and at every use; any other is refused (403),
+  though you can open its terminal. Every sandbox a partitioned instance
+  makes — for a conversation or not — carries the label `xbin.agent/home`
+  (the partition's id, or `global`), beside `xbin.agent/conversation` when
+  it is made for one.
 - **Your own providers.** A model gateway or MCP server you bound into your
   partition yourself (a personal bind: `bx bind --personal`) is offered only
   in conversations you own, and in your model picker — never in anyone
@@ -212,7 +248,11 @@ What a partitioned instance does differently:
   `xbin/mail` when items wait in the instance's drop box; it and every start
   pull the inbox, hand each item to its topic's handler once (by id) and
   ack it. No topic has a handler yet: an item waits in xbind until one does.
-  `GET /health` → `{ok, mode, team?}` answers any caller.
+  Only xbind's `xbin/mail`, the owner token and the tile itself may ring
+  it. `GET /health` → `{ok, mode, team?}` answers whoever may call this
+  API — the tile's own frames, terminals and backend, and the owner token
+  (the admin role) — and, at the global instance, a person's own partition
+  (the wake-up); another tile gets 403.
 
 The web view follows `xbin.partition`: unset, today's; in your partition
 ("user:…") your conversations with the sharing controls gone, and — when a

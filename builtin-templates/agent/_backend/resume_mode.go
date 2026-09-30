@@ -5,13 +5,21 @@
 //     needs no human (running, queued, blocked, awaiting, sleeping, an
 //     undelivered inbox row) leaves the `resume` job, @every 1m.
 //   - A person's partition: every running partition counts against the
-//     workspace's caps, so it asks to be started only for work that can move
-//     without the person — runs that are running or queued, an undelivered
-//     inbox row, a settled subagent whose parent hasn't taken its result —
-//     with `resume`; for sleeping runs, one `wake` job at the minute the
-//     earliest one wakes (a 5-field cron, UTC); and nothing for runs awaiting
-//     a person, who opens the tile anyway. The next owner deletes both at
-//     takeover.
+//     workspace's caps, so it asks to be started only for work that moves
+//     without the person, and only as often as that work can move:
+//   - `resume` for work a pass would take up now — runs running or
+//     queued, an undelivered inbox row, a settled subagent whose parent
+//     takes its result (a foreground link to an awaiting parent; a
+//     background one to a root that isn't failed — pass() leaves the rest
+//     for a person's next message), and a run sleeping on a sandbox job
+//     (the job's end is only seen by looking, as legacy's resume does);
+//   - else one `wake` job at the minute the earliest timed wait ends — a
+//     sleeping run's wake, an awaiting run's subagent deadline — as a
+//     5-field cron (UTC);
+//   - nothing for runs waiting on a person (who opens the tile anyway),
+//     and nothing at all while a manager's halt is on (brake.go: its runs
+//     were cancelled; a parked one moves at the next start).
+//     The next owner deletes both jobs at takeover.
 package main
 
 import (
@@ -29,6 +37,9 @@ func (ag *Agent) leaveWakeUp(d *DB) {
 		}
 		return
 	}
+	if brakeIdle() {
+		return
+	}
 	switch at := d.userWake(time.Now()); {
 	case at.runnable:
 		ag.registerResumeJob()
@@ -44,19 +55,25 @@ type userWakeAt struct {
 	wake     int64
 }
 
-// userWake looks at d's pending work: runnable work, else the earliest wake
-// of a sleeping run (one due within the minute counts as runnable).
+// userWake looks at d's pending work: runnable work, else the earliest timed
+// wait (one due within the minute counts as runnable).
 func (d *DB) userWake(now time.Time) userWakeAt {
 	var n int
+	// a settled link is work only where pass() takes it: a foreground one
+	// at an awaiting (or running) parent; a background one at a root that is
+	// running, sleeping or resting without an error
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued'))
 		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)
-		+ (SELECT count(*) FROM links WHERE state<>'running' AND delivered=0)`).Scan(&n)
-	if n > 0 {
+		+ (SELECT count(*) FROM links l JOIN runs p ON p.id = l.parent_id
+			WHERE l.state<>'running' AND l.delivered=0 AND (
+				(l.mode='fg' AND p.status IN ('running','queued','awaiting'))
+				OR (l.mode='bg' AND p.parent_id=0 AND p.status IN ('running','queued','sleeping','idle','done','canceled'))))`).Scan(&n)
+	if n > 0 || d.sleepsOnJobs() {
 		return userWakeAt{runnable: true}
 	}
 	var wake int64
-	_ = d.q.QueryRow(`SELECT COALESCE(min(wake_at), 0) FROM runs WHERE status='sleeping' AND wake_at > 0`).Scan(&wake)
+	_ = d.q.QueryRow(`SELECT COALESCE(min(wake_at), 0) FROM runs WHERE status IN ('sleeping','awaiting') AND wake_at > 0`).Scan(&wake)
 	if wake == 0 {
 		return userWakeAt{}
 	}
@@ -64,6 +81,24 @@ func (d *DB) userWake(now time.Time) userWakeAt {
 		return userWakeAt{runnable: true}
 	}
 	return userWakeAt{wake: wake}
+}
+
+// sleepsOnJobs: a run sleeps on a sandbox job (yield with jobs running, or
+// until_job — sandbox_wait.go), which ends when the job does, not at its
+// wake time.
+func (d *DB) sleepsOnJobs() bool {
+	rows, err := d.q.Query(`SELECT pending FROM runs WHERE status='sleeping' AND pending<>''`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if rows.Scan(&p) == nil && parsePending(p).Kind == "sleep" {
+			return true
+		}
+	}
+	return false
 }
 
 // wakeSchedule is the 5-field cron (UTC) firing at the first minute at or

@@ -121,7 +121,8 @@ func TestConfMirror(t *testing.T) {
 	setMode(t, modeGlobal, "")
 	g := newTestDB(t)
 	confOut = newConfMirror(kv, g)
-	if err := g.putSetting("config", `{"model":"fake/one"}`); err != nil {
+	if err := g.putSetting("config", `{"model":"fake/one","mcp":[{"name":"open","url":"https://mcp.example/a"},`+
+		`{"name":"tokened","url":"https://mcp.example/b","headers":{"Authorization":"Bearer SECRET-TOKEN"}}]}`); err != nil {
 		t.Fatal(err)
 	}
 	if err := g.putSetting("halt", "1"); err != nil {
@@ -135,13 +136,26 @@ func TestConfMirror(t *testing.T) {
 	}
 	_ = g.putSetting("conv_epoch_ms", "5") // not a tile-wide one
 	var snap confSnap
+	var halt confHalt
 	raw, ok, _ := kv.Get(context.Background(), confSettingsKey)
-	if !ok || json.Unmarshal(raw, &snap) != nil || snap.Config != `{"model":"fake/one"}` || snap.Halt != "1" || snap.Skills == "" {
+	if !ok || json.Unmarshal(raw, &snap) != nil || parseConfig(snap.Config).Model != "fake/one" || snap.Skills == "" {
 		t.Fatalf("conf settings: %s", raw)
 	}
+	// conf is readable by everyone who opens the agent: never a header, and
+	// a static MCP server with headers isn't in it at all
+	if strings.Contains(string(raw), "SECRET-TOKEN") || strings.Contains(string(raw), "headers") || strings.Contains(string(raw), "tokened") ||
+		!strings.Contains(string(raw), "mcp.example/a") {
+		t.Fatalf("conf's config carries what managers keep: %s", raw)
+	}
+	if hraw, ok, _ := kv.Get(context.Background(), confHaltKey); !ok || json.Unmarshal(hraw, &halt) != nil || halt.Halt != "1" {
+		t.Fatalf("conf halt: %s", hraw)
+	}
 	keys, _ := kv.List(context.Background(), "")
-	if strings.Join(keys, ",") != "settings,skill:deploy" {
+	if strings.Join(keys, ",") != "halt,settings,skill:deploy" {
 		t.Fatalf("conf keys %v (only the shared skill, never bob's)", keys)
+	}
+	if !strings.Contains(g.getSetting("config"), "SECRET-TOKEN") {
+		t.Fatal("global's own config lost the headers")
 	}
 
 	// a person's partition
@@ -150,8 +164,8 @@ func TestConfMirror(t *testing.T) {
 	confOut = nil
 	confIn = newConfReader(kv, nil)
 	p := newTestDB(t)
-	if v := p.getSetting("config"); v != `{"model":"fake/one"}` {
-		t.Fatalf("the partition reads config %q", v)
+	if v := parseConfig(p.getSetting("config")); v.Model != "fake/one" || len(v.MCP) != 1 || v.MCP[0].Name != "open" {
+		t.Fatalf("the partition reads config %+v", v)
 	}
 	if parseConfig(p.getSetting("config")).Model != "fake/one" {
 		t.Fatal("parsed config")
@@ -191,6 +205,7 @@ func TestConfMirror(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	shorten(t, &confTTL, 0)
 	confIn = newConfReader(kv, nil)
+	confIn.refresh()
 	if e.halted() {
 		t.Fatal("the halt stayed on in the partition")
 	}
@@ -202,8 +217,8 @@ func TestConfMirror(t *testing.T) {
 	}
 }
 
-// TestConfReaderCaches: settings are read at most once per confTTL, and a
-// conf that has nothing wakes the global instance.
+// TestConfReaderCaches: settings are read at most once per confTTL (both
+// keys), and a conf that has nothing wakes the global instance.
 func TestConfReaderCaches(t *testing.T) {
 	kv := newMemKV()
 	woke := make(chan struct{}, 4)
@@ -211,7 +226,7 @@ func TestConfReaderCaches(t *testing.T) {
 	for range 5 {
 		c.setting("config")
 	}
-	if kv.gets != 1 {
+	if kv.gets != 2 {
 		t.Fatalf("%d reads within the TTL", kv.gets)
 	}
 	select {
@@ -221,7 +236,7 @@ func TestConfReaderCaches(t *testing.T) {
 	}
 	c.invalidate()
 	c.setting("config")
-	if kv.gets != 2 {
+	if kv.gets != 4 {
 		t.Fatalf("invalidate didn't read again (%d)", kv.gets)
 	}
 }
@@ -285,7 +300,7 @@ func TestLLMSlotsCap(t *testing.T) {
 	limit := 2
 	a := newLLMSlots(dir, func() int { return limit })
 	b := newLLMSlots(dir, func() int { return limit })
-	r1, err := a.acquire(context.Background())
+	r1, err := a.acquire(context.Background(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +313,7 @@ func TestLLMSlotsCap(t *testing.T) {
 	}
 	got := make(chan func(), 1)
 	go func() {
-		rel, _ := b.acquire(context.Background())
+		rel, _ := b.acquire(context.Background(), true)
 		got <- rel
 	}()
 	select {
@@ -345,11 +360,50 @@ func TestLLMSlotsCap(t *testing.T) {
 	_ = cmd.Wait()
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel2()
-	rel, err := a.acquire(ctx2)
+	rel, err := a.acquire(ctx2, true)
 	if err != nil {
 		t.Fatalf("a dead process's slot wasn't freed: %v", err)
 	}
 	rel()
+}
+
+// TestLLMSlotsTopFirst: however many subagent calls the partitions run,
+// they leave the last slot to a top-level call (the gate's kidCap, tile-wide).
+func TestLLMSlotsTopFirst(t *testing.T) {
+	dir := t.TempDir()
+	limit := 4
+	parts := []*llmSlots{newLLMSlots(dir, func() int { return limit }), newLLMSlots(dir, func() int { return limit })}
+	var held []func()
+	for i := range 3 {
+		rel, err := parts[i%2].take(false)
+		if rel == nil || err != nil {
+			t.Fatalf("subagent call %d: %v", i, err)
+		}
+		held = append(held, rel)
+	}
+	if rel, _ := parts[1].take(false); rel != nil {
+		t.Fatal("a fourth subagent call took the slot kept for a new chat")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := parts[0].acquire(ctx, false); err == nil {
+		t.Fatal("a waiting subagent call got the kept slot")
+	}
+	t0 := time.Now()
+	rel, err := parts[1].acquire(context.Background(), true)
+	if err != nil || time.Since(t0) > 50*time.Millisecond {
+		t.Fatalf("a top-level call waited behind the fan-outs: %v after %v", err, time.Since(t0))
+	}
+	rel()
+	for _, r := range held {
+		r()
+	}
+	limit = 1 // one slot: shared by both classes, as the gate does
+	if rel, _ := parts[0].take(false); rel == nil {
+		t.Fatal("with one slot a subagent call can't run at all")
+	} else {
+		rel()
+	}
 }
 
 // TestHelperHoldLLMSlot is TestLLMSlotsCap's other process.
@@ -397,6 +451,11 @@ func TestAcquireLLMWithSlots(t *testing.T) {
 		t.Fatalf("an unusable slot directory failed the call: %v", err)
 	}
 	rel()
+	if tr := e.tryBackgroundLLM(); tr == nil {
+		t.Fatal("an unusable slot directory stopped a title's call (the cap fails open)")
+	} else {
+		tr()
+	}
 	ro := t.TempDir() // a directory the lock files can't be made in: never wait for them
 	if err := os.Chmod(ro, 0o500); err != nil {
 		t.Fatal(err)
@@ -447,6 +506,55 @@ func TestUserModeWake(t *testing.T) {
 		}
 	}
 	set(statusIdle, 0)
+	// a sleeping run waiting on a sandbox job (its end is seen only by
+	// looking) and an awaiting run's subagent deadline
+	_, _ = d.q.Exec(`UPDATE runs SET status='sleeping', wake_at=?, pending='{"kind":"sleep","job":3}' WHERE id=?`, now.Unix()+3600, id)
+	if !d.userWake(now).runnable {
+		t.Error("a run sleeping on a sandbox job isn't runnable work")
+	}
+	_, _ = d.q.Exec(`UPDATE runs SET status='awaiting', wake_at=?, pending='' WHERE id=?`, now.Unix()+7200, id)
+	if got := d.userWake(now); got.runnable || got.wake != now.Unix()+7200 {
+		t.Errorf("an awaiting run's deadline: %+v", got)
+	}
+	set(statusIdle, 0)
+
+	// settled subagent links: work only where the parent's pass takes them
+	link := func(parent, child int64, mode string) int64 {
+		res, _ := d.q.Exec(`INSERT INTO links (parent_id, child_id, mode, state, delivered, created, settled) VALUES (?, ?, ?, 'done', 0, 0, 1)`,
+			parent, child, mode)
+		lid, _ := res.LastInsertId()
+		return lid
+	}
+	sub, _ := d.createRun("sub", "", id)
+	kid, _ := d.createRun("kid", "", sub)
+	for _, c := range []struct {
+		name            string
+		root, sub, mode string
+		parentIsSub     bool
+		runnable        bool
+	}{
+		{"a background result for a resting root", statusIdle, statusDone, "bg", false, true},
+		{"a background result for a finished root", statusDone, statusDone, "bg", false, true},
+		{"a background result for a failed root", statusError, statusDone, "bg", false, false},
+		{"a background result for a finished subagent", statusIdle, statusDone, "bg", true, false},
+		{"a foreground result for an awaiting subagent", statusIdle, statusAwait, "fg", true, true},
+		{"a foreground result for a failed subagent", statusIdle, statusError, "fg", true, false},
+	} {
+		_, _ = d.q.Exec(`DELETE FROM links`)
+		_, _ = d.q.Exec(`UPDATE runs SET status=?, wake_at=0 WHERE id=?`, c.root, id)
+		_, _ = d.q.Exec(`UPDATE runs SET status=?, wake_at=0 WHERE id=?`, c.sub, sub)
+		_, _ = d.q.Exec(`UPDATE runs SET status='done', wake_at=0 WHERE id=?`, kid)
+		if c.parentIsSub {
+			link(sub, kid, c.mode)
+		} else {
+			link(id, sub, c.mode)
+		}
+		if got := d.userWake(now); got.runnable != c.runnable || got.wake != 0 {
+			t.Errorf("%s: %+v, want runnable=%v", c.name, got, c.runnable)
+		}
+	}
+	_, _ = d.q.Exec(`DELETE FROM links`)
+	_, _ = d.q.Exec(`UPDATE runs SET status='idle' WHERE id IN (?, ?, ?)`, id, sub, kid)
 	_, _ = d.q.Exec(`INSERT INTO inbox (run_id, kind, body, created) VALUES (?, 'message', '{}', 0)`, id)
 	if !d.userWake(now).runnable {
 		t.Error("an undelivered inbox row isn't runnable work")
@@ -521,6 +629,18 @@ func TestLeaveWakeUpByMode(t *testing.T) {
 	if j := take(); len(j) != 0 {
 		t.Fatalf("a partition waiting for its person registered %v", j)
 	}
+	// a manager's halt: nothing moves until it is lifted — and a parked run
+	// moves at the partition's next start
+	_, _ = d.q.Exec(`UPDATE runs SET status='running', wake_at=0 WHERE id=?`, id)
+	kv := newMemKV()
+	putConf(kv, "1", `{}`)
+	confIn = newConfReader(kv, nil)
+	confIn.refresh()
+	ag.leaveWakeUp(d)
+	if j := take(); len(j) != 0 {
+		t.Fatalf("a partition under a halt registered %v", j)
+	}
+	confIn = nil
 	ag.clearWakeJobs()
 	mu.Lock()
 	got := strings.Join(deletes, ",")

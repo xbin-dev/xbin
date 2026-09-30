@@ -331,6 +331,10 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only the conversation's owner can rename or share it")
 		return
 	}
+	if sharesInPartition(body.Visibility, body.TeamRole) { // partition_routes.go
+		xbin.WriteError(w, http.StatusConflict, noShareWords)
+		return
+	}
 	if body.Model != nil && (lv < lvParticipant || !validPick(*body.Model)) {
 		if lv < lvParticipant {
 			xbin.WriteError(w, 403, "only someone who may talk in it can pick its model")

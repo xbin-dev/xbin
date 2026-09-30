@@ -31,10 +31,14 @@ type gwResp struct {
 	Body   []byte
 }
 
-// gwDo sends one request through the gateway.
+// gwDo sends one request through the gateway, bounded by ctx's deadline —
+// gwTimeout when it has none.
 func gwDo(ctx context.Context, method, u string, body []byte, ctype string) (gwResp, error) {
-	ctx, cancel := context.WithTimeout(ctx, gwTimeout)
-	defer cancel()
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, gwTimeout)
+		defer cancel()
+	}
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
