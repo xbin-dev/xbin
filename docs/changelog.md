@@ -344,7 +344,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `coding-sandbox` template offers it on an xbind that has it (a backend
   added to a copy serves it by implementing the optional `StdioBox`; one
   that doesn't keeps building and isn't offered it), `hack/fakesandbox`
-  always. The conformance suite gains a `stdio` section (skipped for a
+  always; attaching is a change (it takes the exec's stdin), so the
+  template's own page refuses the socket — as it does a terminal, and
+  every WebSocket upgrade — to a person with only read access to the
+  tile. The conformance suite gains a `stdio` section (skipped for a
   manager without the capability) and knows `stdio` among hello's caps;
   `caps/missing` now wants a manager without it to ignore `split` and
   answer the stdio route `501 unsupported` — a manager of your own whose
