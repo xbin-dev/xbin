@@ -19,8 +19,11 @@
 //   4. a credential confirmation, with credentialResetConfirm on: an admin
 //      mints dev1 a sign-in link; the page shows it held, with the notice;
 //      dev1 allows it;
-//   5. dev1's own partition of apps/pp-notes (a vault key of theirs): its
-//      row, the trust panel, a log share on and off.
+//      another link is refused;
+//   5. dev1's own partition of apps/pp-notes (a terminal of theirs made
+//      it): its row, the trust panel, a log share on and off, "restore
+//      from a backup" (none kept here), and a reset after the typed
+//      confirmation.
 // The policies go back off, the manifests to what a rerun starts from.
 const path = require('path');
 const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, closeTile, sleep, shot, shotEl, checker } = require('../lib');
@@ -211,6 +214,16 @@ async function personPage(browser) {
     await until(async () => /Allowed: it works now\./.test(await p.locator(`${PAGE} section#credentials`).innerText().catch(() => '')) ||
       !((await (await dev1('GET', '/partitions')).json()).credentials ?? []).length, 'allowed');
     check(!((await (await dev1('GET', '/partitions')).json()).credentials ?? []).length, 'allowed: nothing waits any more');
+    // another link: refused this time (the page asks once more first)
+    const inv2 = await (await api(A.ctx, 'POST', '/users/dev1/invite', {})).json().catch(() => ({}));
+    check(inv2.held === true, 'a second sign-in link is held too');
+    const refuse = p.locator(`${PAGE} section#credentials [data-cred] button[data-act="refuse"]`);
+    await refuse.first().waitFor({ timeout: 10000 });
+    await refuse.first().click();
+    await p.locator(`${PAGE} section#credentials button[data-act="refuse-yes"]`).click();
+    await until(async () => !((await (await dev1('GET', '/partitions')).json()).credentials ?? []).length, 'refused');
+    const redeem = await B.ctx.request.fetch(`${URL}/api/xbin/invite/check`, { method: 'POST', data: { invite: inv2.invite } });
+    check(redeem.status() !== 200, `refused: the link no longer signs anyone in (POST /invite/check: ${redeem.status()})`);
 
     // ---- 5. dev1's own partition of apps/pp-notes ----
     const card = p.locator(`${PAGE} section#partitions [data-tile="${NOTES}"]`);
@@ -223,7 +236,23 @@ async function personPage(browser) {
     check(true, 'dev1 shares their partition\'s log and stops');
     if (!(await card.locator('details.trust').evaluate((d) => d.open))) await card.locator('details.trust summary').click();
     check(/its code/.test(await card.innerText()) && /global binds/.test(await card.innerText()), 'the trust panel: who changes the code, the global binds');
+    // restore: this workspace keeps no backups, and the page says so
+    await card.locator('button[data-act="backups"]').click();
+    const rb = card.locator('[data-confirm="restore"]');
+    await rb.waitFor({ timeout: 10000 });
+    check(/No archiver keeps this workspace's backups|holds no backup of your partition|Version/.test(await rb.innerText()),
+      `"restore from a backup" answers: ${(await rb.innerText()).split('\n')[0]}`);
     await shot(p, 'person-page-after');
+    // reset: the typed confirmation, then the partition goes
+    await card.locator('button[data-act="reset"]').click();
+    const rs = card.locator('[data-confirm="reset"]');
+    await rs.locator('input[name=confirm]').fill(NOTES);
+    await rs.locator('button[data-act="reset-go"]').click();
+    check(/Type apps\/pp-notes user:dev1 exactly/.test(await rs.innerText()), 'a reset needs "<tile> user:<you>" typed');
+    await rs.locator('input[name=confirm]').fill(`${NOTES} user:dev1`);
+    await rs.locator('button[data-act="reset-go"]').click();
+    await until(async () => /no partition here yet/.test(await card.innerText()), 'dev1\'s partition reset');
+    check(!((await (await dev1('GET', `/partitions?tile=${NOTES}`)).json()).partitions ?? []).length, 'reset: dev1 holds no partition of it now');
 
     // the admin's page: their own view, a switch still offered on the declined tile
     await A.page.goto(`${URL}/xbin/partitions`);
