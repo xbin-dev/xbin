@@ -154,6 +154,39 @@ func (b *Broker) partitionLogDir(tile, dep, pkey string) (string, error) {
 	return filepath.Join(b.Reg.Root, ".xbin", "partition", util.TileKey(tile), dep, pkey), nil
 }
 
+// partitionDrops counts the holds on partitions being deleted (workspace
+// root, tile, pkey): no instance of one starts meanwhile
+// (ShouldRunPartition asks).
+var (
+	partitionDropsMu sync.Mutex
+	partitionDrops   = map[string]int{}
+)
+
+func (b *Broker) dropKey(tile, pkey string) string { return b.Reg.Root + "\x00" + tile + "\x00" + pkey }
+
+// holdPartitionDrop keeps partition pkey of tile from starting until
+// release: a reset holds it from before its stop until its data is gone.
+func (b *Broker) holdPartitionDrop(tile, pkey string) (release func()) {
+	k := b.dropKey(tile, pkey)
+	partitionDropsMu.Lock()
+	partitionDrops[k]++
+	partitionDropsMu.Unlock()
+	return func() {
+		partitionDropsMu.Lock()
+		defer partitionDropsMu.Unlock()
+		if partitionDrops[k]--; partitionDrops[k] <= 0 {
+			delete(partitionDrops, k)
+		}
+	}
+}
+
+// partitionDropping reports a partition held by holdPartitionDrop.
+func (b *Broker) partitionDropping(tile, pkey string) bool {
+	partitionDropsMu.Lock()
+	defer partitionDropsMu.Unlock()
+	return partitionDrops[b.dropKey(tile, pkey)] > 0
+}
+
 // dropSummary is what deleting one partition removed.
 type dropSummary struct {
 	Namespaces int   `json:"namespaces"`
@@ -410,6 +443,7 @@ func (b *Broker) apiPartitionReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dep := cmp.Or(b.primaryOf(tile), util.MainDeployment)
+	defer b.holdPartitionDrop(tile, pkey)() // nothing starts it between the stop and the drop
 	b.stopPartitionInstance(tile, dep, part)
 	by := deciderName(person)
 	sum, err := b.dropOnePartition(tile, dep, pkey, "partition reset: "+tile+" "+part, by)

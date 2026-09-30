@@ -184,6 +184,15 @@ func TestPartitionStopResetPurge(t *testing.T) {
 	}
 
 	pkey := f.pkeyOf("alice")
+	uid := b.storedPartitionUID("alice")
+	release := b.holdPartitionDrop("apps/pg", pkey) // a reset's hold: nothing starts alice's partition meanwhile
+	if b.ShouldRunPartition("apps/pg", util.MainDeployment, "user:alice", uid) {
+		t.Error("alice's partition may start while a reset holds it")
+	}
+	release()
+	if !b.ShouldRunPartition("apps/pg", util.MainDeployment, "user:alice", uid) {
+		t.Error("alice's partition may not start once the reset's hold is released")
+	}
 	id := partNS("apps/pg", util.MainDeployment, pkey)
 	if err := b.notePartitionNS(id, nsPartition{User: "alice", UID: b.storedPartitionUID("alice")}); err != nil {
 		t.Fatal(err)
@@ -229,11 +238,11 @@ func TestPartitionStopResetPurge(t *testing.T) {
 	// purge: a live partition is refused; zed deleted → orphaned → purged
 	mustCode(t, call(t, b.apiPartitionPurge, bob, "POST", "/", `{"tile":"apps/pg","partition":"user:bob"}`, nil), 409, "purging a live partition")
 	zedDir, _ := b.partitionRecordDir("apps/pg", util.MainDeployment, f.pkeyOf("zed"))
-	uid := b.storedPartitionUID("zed")
+	zuid := b.storedPartitionUID("zed")
 	if _, err := b.Users.Delete("zed"); err != nil {
 		t.Fatal(err)
 	}
-	b.PartitionPersonDeleted("zed", uid)
+	b.PartitionPersonDeleted("zed", zuid)
 	if !slices.Contains(f.stopOf, "zed") || !slices.Contains(f.revoked, "zed") {
 		t.Errorf("zed's instances weren't stopped and revoked: %q %q", f.stopOf, f.revoked)
 	}
