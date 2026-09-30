@@ -634,6 +634,16 @@ c, err := xbin.DialManagerTTY(ctx, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{
   either way ends it (1009). Leaving doesn't end the command: the
   contract's terminals outlive their clients (its exit, or `DELETE
   …/execs/{id}`, ends it).
+- **What happened.** `RelayManagerTTY` returns a `ManagerTTYRelay`:
+  `Session` (the terminal's exec id, from the session frame; `""` when it
+  never got that far) and `Exited` (the exit frame passed — the command has
+  ended). `ManagerTTYOptions.OnSession`, when set, is called with the exec
+  id as the session frame passes, before your client has it. A relay that
+  started a terminal for a client that can't come back to it (the app's
+  `terminal` closes its socket when its screen goes and knows no session
+  id) can end it when the answer says it didn't exit — the agent template
+  does, unless a client attached to it again meanwhile
+  (`builtin-templates/agent/API.md` §Coding agents).
 - **Your checks are the only ones about the person.** The manager treats
   them as asserted: it keeps the partitions (your sandboxes and those
   shared with you) but not who among your people may use one — apply its

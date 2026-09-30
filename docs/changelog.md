@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **`xbin.RelayManagerTTY` says what happened** ([sdk.md](sdk.md) §A
+  manager's terminals): it returns `ManagerTTYRelay` — the terminal's exec
+  id (its session frame's) and whether its command exited — and
+  `ManagerTTYOptions.OnSession` is called with the id as the session frame
+  passes, so a consumer can end a terminal it started for a client that
+  can't come back to it. A call that ignores the answer is unchanged.
 - **Agent template: start a conversation with a coding agent**
   (`builtin-templates/agent/API.md` §Coding agents, "Starting one").
   "Who answers" in the home composer and the new-chat dialog (web and
