@@ -1,6 +1,6 @@
 // model/ext.js — seams: named hooks a view calls at fixed points of its
 // drawing, which feature modules fill without editing the view's hot files
-// (D-harness §8 U1). A view makes one registry (web-ext.js for
+// (D147 §8 U1). A view makes one registry (web-ext.js for
 // the web, native/ext.js for the native view); a feature module registers
 // its hooks when it is imported (harness-web.js, native/harness-all.js list
 // them):

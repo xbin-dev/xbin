@@ -382,7 +382,7 @@ func runSummary(r *Run) map[string]any {
 		"originId": r.OriginID, "sessionKey": r.SessionKey, "titleSrc": r.TitleSrc, "activityMs": r.ActivityMs,
 		"engine": r.Engine,
 	}
-	if h := harnessSummaryOf(r); h != nil { // a coding agent's run (D-harness §4.3.2)
+	if h := harnessSummaryOf(r); h != nil { // a coding agent's run (D147 §4.3.2)
 		v["harness"] = h
 	}
 	return v

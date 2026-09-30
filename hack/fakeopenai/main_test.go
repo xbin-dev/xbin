@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The coding-agent keywords (D-harness §7.2) win over the words they hold
+// The coding-agent keywords (D147 §7.2) win over the words they hold
 // ("steer", "fan out"), and follow the conversation: the spawn's answer
 // line, three background coding agents, the newest one steered.
 func TestHarnessKeywords(t *testing.T) {

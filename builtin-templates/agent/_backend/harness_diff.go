@@ -1,5 +1,5 @@
 // harness_diff.go — the diff of an ACP `diff` content (a coding agent's
-// edit: path, oldText, newText) for its tool row's acp.diffs (D-harness
+// edit: path, oldText, newText) for its tool row's acp.diffs (D147
 // §4.3.5): the files tools' unified diff (files_meta.go), exact line
 // counts, at most 64 KiB of patch per file, cut at a hunk boundary.
 package main

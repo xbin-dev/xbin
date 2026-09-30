@@ -20,7 +20,7 @@ export function topBar(v, row, me) {
   const r = v.run;
   const { talk, own } = access(v);
   const web = (v.config && v.config.toolset) === 'web';
-  // a coding agent's conversation (D-harness §2.1): memory and skills are the
+  // a coding agent's conversation (D147 §2.1): memory and skills are the
   // built-in agent's (the engine turns them off), and Compact is its own
   // /compact, offered only when it advertises one
   const harness = r.engine === 'harness';
@@ -185,7 +185,7 @@ export function halt(me, on, rows) {
 
 const SPINNING = new Set(['running', 'awaiting', 'sleeping', 'queued', 'blocked']);
 // rowGlyph: '?' waiting for you (the conversation, or a run below it: the
-// row's `waiting`, D-harness §4.3.8), '!' failed, a spinner while it works.
+// row's `waiting`, D147 §4.3.8), '!' failed, a spinner while it works.
 export const rowGlyph = (r) => r.status === 'waiting_input' || r.waiting ? 'ask' : r.status === 'error' ? 'error' : SPINNING.has(r.status) ? 'spin' : '';
 // rowShared: how a shared row is shared, as chips — from whom (someone else's),
 // with the team (to read or to write), with how many people — and whether it

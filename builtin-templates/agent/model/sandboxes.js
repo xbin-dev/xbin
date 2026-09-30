@@ -184,7 +184,7 @@ const detailOf = (s) => [s.manager, STATES[s.state] || s.state, egressWords(s)].
 // the class has the sandbox toolset. Rows grouped This conversation (what it
 // has attached) · Yours · Shared · Team; one you may not use, or the class
 // does not allow, is there but disabled with the reason — as is one
-// opts.fits(s) says why not (at home, a coding agent's: D-harness). `none`
+// opts.fits(s) says why not (at home, a coding agent's: D147). `none`
 // leaves the conversation without an active sandbox.
 export function sandboxPicker(list, conv, me, opts = {}) {
   const cls = conv ? conv.class : opts.cls;
@@ -257,7 +257,7 @@ export function sandboxPicker(list, conv, me, opts = {}) {
 // unbound or down, its class no longer allows it) with what to do (advice);
 // every attached one for the popover (switch, detach). null when it has none.
 // opts.fixed: the conversation keeps its sandbox — a coding agent's, named
-// (D-harness §2.2: the backend refuses a rebind, a detach and a new cwd) —
+// (D147 §2.2: the backend refuses a rebind, a detach and a new cwd) —
 // so nothing changes it here (canChange false) and a broken one's advice
 // is a new chat. talk: a participant, fixed or not (ports.js).
 export function sandboxBadge(conv, list, now = Date.now(), { fixed = '' } = {}) {
@@ -344,7 +344,7 @@ export function terminalSrc(ep, id, cwd = '', cmd = '') {
   return `${String(ep.url).replace(/\/+$/, '')}/sbx/sandboxes/${encodeURIComponent(id)}/tty${ttyQuery(cwd, cmd)}`;
 }
 // RELAY: what a view passes to terminal() as its endpoints when it reaches a
-// sandbox's terminal through this tile's own relay (D-harness §4.2.8) — the
+// sandbox's terminal through this tile's own relay (D147 §4.2.8) — the
 // native view: the app's terminal dials only the tile's own routes.
 export const RELAY = 'relay';
 // relaySrc: that relay for sandbox ref — GET /sandboxes/{ref}/terminal?cwd=&cmd=,

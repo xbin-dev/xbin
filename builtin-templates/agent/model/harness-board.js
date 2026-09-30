@@ -1,4 +1,4 @@
-// model/harness-board.js — the Coding agents board (D-harness §4.3.6,
+// model/harness-board.js — the Coding agents board (D147 §4.3.6,
 // §8 U7) for both views, as app.board: the coding agents (harness runs) in
 // the open conversation's tree — or, at home, every one of yours that runs
 // or needs you: your coding-agent conversations and the coding agents started

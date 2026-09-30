@@ -1,5 +1,5 @@
 // harness-start.js — starting a conversation with a coding agent on the web
-// (D-harness §2.2 "Conversation start", §4.2.3): "Who answers" in
+// (D147 §2.2 "Conversation start", §4.2.3): "Who answers" in
 // the home composer (#apick — the built-in agent or a coding agent of GET
 // /harnesses, each with its monogram; one that isn't available is there,
 // disabled, with the reason), the home's setup card (no sandbox fits: Create,

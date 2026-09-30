@@ -12,7 +12,7 @@
 // subagent call is an `agent` block carrying the child's own blocks — so a
 // subagent's thinking and tools render inside its parent's session.
 //
-// A coding harness's call (`acp:<kind>`, D-harness §4.3.5) is a
+// A coding harness's call (`acp:<kind>`, D147 §4.3.5) is a
 // tool block that also carries its tool row's `acp`; the blocks of a
 // harness-internal subagent (a Claude Task: `acp.parent`, on its calls and
 // on its text's assistant rows as `parent`) go inside that call's block as
@@ -163,7 +163,7 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
   // comes first (the step is usually about it) — except the run's first
   // message, which a creation note ("started by schedule …") precedes. A
   // coding agent's conversation has none (automations never start one,
-  // D-harness §4.2.3): its first prompt's user row is written as it is
+  // D147 §4.2.3): its first prompt's user row is written as it is
   // delivered, and a note that second (a sign-in park's) is about it.
   const creationNote = !(v.run && v.run.engine === 'harness');
   const steps = (v.steps || []).filter((s) => SHOWN_STEPS.has(s.kind) && !(s.kind === 'ask' && detail(s).kind === 'approval'));

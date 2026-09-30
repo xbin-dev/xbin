@@ -1,4 +1,4 @@
-// harness_spawn.go — the agent delegating to a coding agent (D-harness
+// harness_spawn.go — the agent delegating to a coding agent (D147
 // §4.4, §4.3.13). subagent_spawn's `harness` starts a harness child: the
 // task is its first prompt (an hprompt row, the task ledger's as it is
 // delivered), its mode the root owner's own setting (§4.3.12) narrowed by

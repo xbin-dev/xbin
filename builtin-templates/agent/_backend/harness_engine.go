@@ -1,4 +1,4 @@
-// harness_engine.go — the coding agents this process drives (D-harness §3.3):
+// harness_engine.go — the coding agents this process drives (D147 §3.3):
 // one adapter process per harness run in its sandbox (harness_pipe.go), an
 // acp.Client (sdk/acp) over it, and ONE consumer goroutine per session that
 // applies the client's events in order (harness_map.go). The pass (actor.go →

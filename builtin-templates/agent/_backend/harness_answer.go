@@ -1,5 +1,5 @@
 // harness_answer.go — answering a coding agent that waits for a person
-// (D-harness §3.5, §4.2.5, §4.2.9): a permission with one of its own
+// (D147 §3.5, §4.2.5, §4.2.9): a permission with one of its own
 // options (POST /runs/{id}/approve {option?, feedback?} → an approve row),
 // a question with the form's values (an hanswer row), and a message sent
 // while either is parked, which rejects (declines) it first — the built-in

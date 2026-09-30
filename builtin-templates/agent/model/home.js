@@ -16,7 +16,7 @@ export const HOME = {
 };
 
 // REASON: why a conversation is in "Needs you" (GET /needs items[].reason);
-// login: a coding agent in it waits for you to sign in (D-harness §4.3.9).
+// login: a coding agent in it waits for you to sign in (D147 §4.3.9).
 export const REASON = { question: 'has a question for you', approval: 'wants your approval', failed: 'failed', login: 'needs you to sign in' };
 
 // needWords: an item's reason in words — a sign-in names the coding agent

@@ -96,7 +96,7 @@ func deliverOK(c who, key string) string {
 }
 
 // trigHarnessTarget: a coding agent's conversation takes messages from
-// people (D-harness §4.2.3, §4.2.11).
+// people (D147 §4.2.3, §4.2.11).
 const trigHarnessTarget = "targetRun: a coding agent's conversation takes messages from people — triggers run the built-in agent"
 
 // handleNewTrigger: POST /triggers — the caller owns it.
@@ -108,7 +108,7 @@ func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "bad json")
 		return
 	}
-	if rawHasHarness(raw) { // D-harness §4.2.3
+	if rawHasHarness(raw) { // D147 §4.2.3
 		xbin.WriteError(w, 400, "triggers run the built-in agent")
 		return
 	}
@@ -164,7 +164,7 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "bad json")
 		return
 	}
-	if _, ok := patch["harness"]; ok { // D-harness §4.2.3
+	if _, ok := patch["harness"]; ok { // D147 §4.2.3
 		xbin.WriteError(w, 400, "triggers run the built-in agent")
 		return
 	}

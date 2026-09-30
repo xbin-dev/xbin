@@ -74,12 +74,12 @@ export function createSandboxStore(app) {
     // the page's endpoints for its `sandboxes` slot (xbin.iface) — set by a
     // view that opens terminals (the web's); S.RELAY: through the tile's own
     // relay (the native view: the app's terminal dials only the tile's own
-    // routes, D-harness §4.2.8); null: none offered
+    // routes, D147 §4.2.8); null: none offered
     tty: null,
 
     // cls: the class the picker works for — the open conversation's, else the next new chat's.
     cls() { const v = conv(); return v ? v.class || null : classes.find(app.classes, app.newClassId()); },
-    // coding: at home, the coding agent answering new chats (D-harness): the
+    // coding: at home, the coding agent answering new chats (D147): the
     // picker keeps sandboxes it fits, and New sandbox starts as one it fits
     coding() { return conv() ? null : app.harness.picked(); },
 
@@ -102,10 +102,10 @@ export function createSandboxStore(app) {
     picker() {
       const h = sbx.coding(), v = conv();
       const p = S.sandboxPicker(sbx.list, v, app.me, { cls: classes.find(app.classes, app.newClassId()), pick: sbx.pick, fits: h ? fitsWhy(h) : null });
-      // a coding agent's conversation keeps the sandbox it started in (D-harness §2.2): no picker
+      // a coding agent's conversation keeps the sandbox it started in (D147 §2.2): no picker
       return v && isHarness(v.run) ? { ...p, shown: false } : p;
     },
-    // a coding agent's conversation keeps its sandbox and cwd (D-harness §2.2): the badge offers no change
+    // a coding agent's conversation keeps its sandbox and cwd (D147 §2.2): the badge offers no change
     badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list, undefined, { fixed: v && isHarness(v.run) ? nameOf(harnessOf(v)) : '' }); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
     // terminal: "Open terminal" for ref at cwd, running cmd ('' = the login

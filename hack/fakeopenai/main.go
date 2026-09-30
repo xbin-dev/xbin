@@ -6,7 +6,7 @@
 // and the Responses API (reasoning summaries) for "gpt-5-fake".
 //
 // The script is chosen by words in the last user message (lower-cased) —
-// the coding-agent ones (D-harness §7.2) before every other:
+// the coding-agent ones (D147 §7.2) before every other:
 //
 //	harness spawn
 //	             subagent_spawn {task "perm", label "fake coder", harness
@@ -458,7 +458,7 @@ func script(conv []turn, system string) plan {
 // agent #12 …", "--- #12 fake coder (done) ---").
 var coderRe = regexp.MustCompile(`#(\d+)`)
 
-// harnessScript plays the coding-agent keywords (D-harness §7.2).
+// harnessScript plays the coding-agent keywords (D147 §7.2).
 func harnessScript(conv []turn, last turn, lastUser string) (plan, bool) {
 	switch {
 	case strings.Contains(lastUser, "harness spawn"):

@@ -1,4 +1,4 @@
-// harness_park.go — a coding agent waiting for a person (D-harness §3.4,
+// harness_park.go — a coding agent waiting for a person (D147 §3.4,
 // §4.3.4): a permission request or a form question parks the run
 // (waiting_input, the card data in pendingState.harness, the call's row
 // awaiting approval); one that comes while another is parked waits in

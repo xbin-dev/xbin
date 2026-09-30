@@ -1,5 +1,5 @@
 // native/harness-start.js — starting a conversation with a coding agent in
-// the native view (D-harness §2.2 "Conversation start", §4.2.3): "Who
+// the native view (D147 §2.2 "Conversation start", §4.2.3): "Who
 // answers" at the top of the home page (the built-in agent or a coding agent of GET
 // /harnesses — a picker can't disable an option, so one that isn't
 // available is marked and picking it says why), the home's setup notice (no

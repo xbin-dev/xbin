@@ -1,6 +1,6 @@
 // model/harness-child.js — a coding agent the agent started (subagent_spawn
-// with `harness`, D-harness §4.4) as its card in the parent's chat, and the
-// coding agents below a conversation on its list row (D-harness §4.3.8, §8
+// with `harness`, D147 §4.4) as its card in the parent's chat, and the
+// coding agents below a conversation on its list row (D147 §4.3.8, §8
 // U6), in words both views draw.
 //
 // The card is the parent's `agent` block (model/fold.js: the spawn call, its

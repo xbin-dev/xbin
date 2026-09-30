@@ -1,5 +1,5 @@
 // model/harness.js — a coding harness conversation (Claude Code, Codex,
-// Gemini CLI, opencode — D-harness §4) in words both views draw:
+// Gemini CLI, opencode — D147 §4) in words both views draw:
 // the summary a harness run carries (`run.harness`, §4.3.2 — also on run
 // events, the `harness` stream event, conversation rows, tree nodes and a
 // link's child), its park (`pendingState.harness`, §4.3.4), and the catalog

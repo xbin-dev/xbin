@@ -1,4 +1,4 @@
-// harness_log.go — a coding agent's stderr (D-harness §4.2.7): the tail
+// harness_log.go — a coding agent's stderr (D147 §4.2.7): the tail
 // GET /runs/{id}/harness/log serves, wherever the pipe (harness_pipe.go)
 // left it — a split exec's own stream, or the baseline wrapper's log file
 // in the sandbox's HOME.

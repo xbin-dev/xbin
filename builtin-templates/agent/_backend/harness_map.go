@@ -1,4 +1,4 @@
-// harness_map.go — a coding agent's events as AgTT rows (D-harness §3.4),
+// harness_map.go — a coding agent's events as AgTT rows (D147 §3.4),
 // applied in order by the session's consumer (harness_engine.go):
 //
 //   - text and thinking are the run's draft (the `text`/`thinking` draft

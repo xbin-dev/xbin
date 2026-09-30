@@ -1,4 +1,4 @@
-// harness_pipe.go — a coding agent's stdio in a sandbox (D-harness §3.6):
+// harness_pipe.go — a coding agent's stdio in a sandbox (D147 §3.6):
 // the acp.Process the harness engine drives an ACP adapter through, over
 // the sandbox-manager contract (docs/sandbox-manager.md) — the manager
 // called for the person the conversation acts for (Sbx-User, asserted), as

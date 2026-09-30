@@ -195,7 +195,7 @@ export const IMPLEMENTS = {
   // Needs you, beyond the tile
   'needs.push': '_backend/needs_push.go — a question, an approval or a failed automation run is pushed to who may act on it (POST /api/xbin/notify, link #c=<run>); native.js — the app opens the link: app.follow',
 
-  // Coding agents (D-harness)
+  // Coding agents (D147)
   'harness.start': 'native/harness-start.js — homeSetupTpl in native/home.js (model/harness-start.js startOf, setupOf; keepSandbox, wired by model/app.js)',
   // Coding agents — the transcript
   'harness.tool': 'native/harness-cards.js — cardTpl: a toolcard (ctx.ext.block) with its chips',
@@ -214,6 +214,6 @@ export const IMPLEMENTS = {
   'harness.slash': 'native/harness-ask.js — composer slash',
   'harness.steer': 'native/harness-ask.js — composer: Send now (interrupts), the steered chip; native/chat.js — the queued chips\' label',
   'harness.autonomy': 'native/harness-ask.js — ⋯ → Coding agent settings (the main menu: home\'s and the drawer\'s) → settingsScreen; the Mode menu (your setting for new ones)',
-  // Coding agents — terminals and sign-in (D-harness §8 U5)
+  // Coding agents — terminals and sign-in (D147 §8 U5)
   'harness.login': 'native/terminal.js — the notice and device link (ext.end, a login park only), Sign in in the composer and ⋯, signInTpl: a login terminal (termTpl, Retry in its toolbar), a secure field, the device page and code, the confirm toggle, whom to ask, Retry',
 };

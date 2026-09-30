@@ -11,7 +11,7 @@
 // out), the coding sandboxes (D115: seed.sandboxes and
 // seed.sbxManagers — GET/POST/PATCH/DELETE /sandboxes, their lifecycle, and
 // PATCH /runs {sandbox, detach} into the view's config), the coding
-// harnesses (D-harness §4, until the backend serves them: the
+// harnesses (D147 §4, until the backend serves them: the
 // catalog seed.harnesses, the per-person modes seed.harnessModes, a harness
 // ask or run, GET|PATCH /runs/{id}/harness, …/answer, …/authenticate, …/log,
 // approve {option, feedback}, conversation rows' waiting and kids, seed.trees,
@@ -166,7 +166,7 @@ export function STUB(seed) {
     ['GET', /\/classes$/, () => json(classesView())],
     ['PUT', /\/classes$/, (m, o) => {
       const b = JSON.parse(o.body);
-      // the harness toolset needs sandbox and an egress other than none (D-harness §4.3.11)
+      // the harness toolset needs sandbox and an egress other than none (D147 §4.3.11)
       const lame = (b.classes || []).find((c) => (c.toolsets || []).includes('harness')
         && (!(c.toolsets || []).includes('sandbox') || !(c.sandboxEgress || []).some((e) => e !== 'none')));
       if (lame) return json({ error: `class ${lame.id}: the harness toolset needs sandbox and an egress other than none — a coding agent must reach its provider` }, 400);
@@ -278,7 +278,7 @@ export function STUB(seed) {
       return json({ ok: true, detached: 0 });
     }],
   );
-  // --- coding harnesses (D-harness §4) ------------------------------------
+  // --- coding harnesses (D147 §4) ------------------------------------
   // window.__harness = {catalog, modes, logs}: GET /harnesses' entries
   // (§4.3.10, `setting` from modes), the caller's Auto / Always approve
   // (§4.3.12), each run's adapter stderr. A harness run is a run with

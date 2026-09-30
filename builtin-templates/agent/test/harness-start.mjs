@@ -1,5 +1,5 @@
 // harness-start.mjs — starting a conversation with a coding agent in the web
-// view (D-harness §8 U2) over the fixtures (test/harness-fixtures.mjs,
+// view (D147 §8 U2) over the fixtures (test/harness-fixtures.mjs,
 // STUB's §4 routes): "Who answers" (#apick) lists the built-in agent and each
 // coding agent with its monogram, the unavailable ones disabled with the
 // reason; picking one hides the class and model pickers, narrows the sandbox

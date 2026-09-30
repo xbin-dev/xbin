@@ -582,7 +582,7 @@ test('terminals: offered where the manager has tty and the page is bound to it; 
   assert.deepEqual([rows.arch, rows.bobs, rows.notty, rows.busy], [undefined, undefined, undefined, undefined]);
   assert.ok(!S.sandboxRows(L, {}, { conv: v }).some((r) => r.actions.some((a) => a.id === 'terminal')), 'no tty endpoints: never');
 
-  // a command (a coding agent's sign-in) and the tile's own relay (D-harness §4.2.8: the native view's)
+  // a command (a coding agent's sign-in) and the tile's own relay (D147 §4.2.8: the native view's)
   assert.equal(S.terminal(L, `${MGR}|run`, EPS, '/work/api', 'codex login').src,
     '/api/apps/coding-sandbox/sbx/sandboxes/run/tty?cwd=%2Fwork%2Fapi&cmd=codex%20login');
   assert.equal(S.terminalSrc({ url: '/api/m' }, 'b1', '', 'CLAUDE_CODE_REMOTE=1 claude /login'), '/api/m/sbx/sandboxes/b1/tty?cmd=CLAUDE_CODE_REMOTE%3D1%20claude%20%2Flogin');

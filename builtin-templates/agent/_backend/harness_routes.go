@@ -1,4 +1,4 @@
-// harness_routes.go — a coding agent's own routes (D-harness §4.2.4–§4.2.6;
+// harness_routes.go — a coding agent's own routes (D147 §4.2.4–§4.2.6;
 // API.md §Coding agents): its summary and session (GET), a mode or config
 // option change (PATCH — an RPC to the live adapter), an answer to its
 // parked question and a sign-in through the adapter — and how the routes
@@ -573,7 +573,7 @@ func harnessHasCommand(run *Run, name string) bool {
 }
 
 // rawHasHarness: a JSON body names `harness` (schedules and triggers run
-// the built-in agent: D-harness §4.2.3).
+// the built-in agent: D147 §4.2.3).
 func rawHasHarness(raw []byte) bool {
 	var m map[string]json.RawMessage
 	if json.Unmarshal(raw, &m) != nil {

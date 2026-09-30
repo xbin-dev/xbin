@@ -1,5 +1,5 @@
 // native/harness-ask.js — a coding harness asking and driven, in the native
-// view (D-harness §4.2.4, §4.2.5, §4.2.9, §4.2.10, §4.3.4, §4.3.12), the
+// view (D147 §4.2.4, §4.2.5, §4.2.9, §4.2.10, §4.3.4, §4.3.12), the
 // web's harness-ask.js and harness-controls.js in the chat family:
 //   end       its permission request as an `approval` with the harness's own
 //             options (reject first when it defaults to no; an option that

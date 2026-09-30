@@ -1,5 +1,5 @@
 // harness-controls.js — driving a coding harness from the web's composer
-// (D-harness §4.2.4, §4.2.10, §4.3.12):
+// (D147 §4.2.4, §4.2.10, §4.3.12):
 //   #hctl    one button beside the attach clip, "Accept edits · Opus · High ▾":
 //            its popover switches the live mode (the adapter's modes; a
 //            bypass mode is marked ⚠, the owner's only, and confirmed) and

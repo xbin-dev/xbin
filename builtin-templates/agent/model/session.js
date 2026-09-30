@@ -354,7 +354,7 @@ export class Session {
         break;
       }
       case 'harness': {
-        // a coding harness's whole summary (D-harness §4.3.3): it
+        // a coding harness's whole summary (D147 §4.3.3): it
         // replaces run.harness wherever the run is held — a child's card too
         if (this.runs.has(ev.run)) this.runs.set(ev.run, { ...this.runs.get(ev.run), harness: d });
         if (v) v.run = { ...v.run, harness: d };

@@ -1,4 +1,4 @@
-// harness-ask.js — a coding harness asking, on the web (D-harness §4.2.5,
+// harness-ask.js — a coding harness asking, on the web (D147 §4.2.5,
 // §4.2.9, §4.3.4): the card at the end of the chat for its permission
 // request (the harness's own options as buttons, reject first when it
 // defaults to no; an option that raises it to a bypass mode only for the

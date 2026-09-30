@@ -1,4 +1,4 @@
-// harness-catalog.js — the ⚙ Coding agents tab on the web (D-harness
+// harness-catalog.js — the ⚙ Coding agents tab on the web (D147
 // §4.3.10), for the tile's managers: each coding agent GET /harnesses
 // lists — whether it could be started and why not, the sandbox managers and
 // images that have it, the sandboxes it was found or signed in on, the

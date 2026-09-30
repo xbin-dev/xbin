@@ -1,4 +1,4 @@
-// harness-cards.js — a coding harness's transcript on the web (D-harness
+// harness-cards.js — a coding harness's transcript on the web (D147
 // §3.4, §4.3.2–§4.3.5, §8 U3), hooked on the web's seams (web-ext.js):
 //
 //   block  one card per ACP tool family — execute (the command, its output's

@@ -1,5 +1,5 @@
 // hack/agent-template-harness-start.test.mjs — starting a conversation with a
-// coding agent in the agent template (D-harness §8 U2): "Who
+// coding agent in the agent template (D147 §8 U2): "Who
 // answers" (model/harness-start.js agentPicker), the sandbox a coding agent
 // starts in (the ones it fits, the one last used with it, the create form
 // filled in for it), the setup card, a row's kind and the top bar's chip —

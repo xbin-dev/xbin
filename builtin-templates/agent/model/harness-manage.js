@@ -1,5 +1,5 @@
 // model/harness-manage.js — the Coding agents catalog for the tile's
-// managers (D-harness §4.3.10): each coding agent GET /harnesses
+// managers (D147 §4.3.10): each coding agent GET /harnesses
 // lists — whether it could be started and why not, the sandbox managers and
 // images that have it, the sandboxes it was found or signed in on, the
 // classes that allow it, its modes and sign-in command — and the running

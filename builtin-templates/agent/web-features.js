@@ -195,7 +195,7 @@ export const IMPLEMENTS = {
   'link.auto': 'agent.js — followHash (model/router.js)',
   'link.join': 'agent.js — followHash (model/router.js)',
 
-  // Coding agents (D-harness)
+  // Coding agents (D147)
   'harness.start': 'harness-start.js — the setup card #hsetup (model/harness-start.js startOf, setupOf; keepSandbox, wired by model/app.js)',
   // Coding agents — the transcript
   'harness.tool': 'harness-cards.js — cardTpl (ext.block; model/harness-heads.js acpChip)',
@@ -214,6 +214,6 @@ export const IMPLEMENTS = {
   'harness.slash': 'harness-controls.js — #slash (model/harness-ask.js slashMatches)',
   'harness.steer': 'harness-controls.js — ⌘/Ctrl+Enter, #hsteer (steerTrack); agent.js — queueTpl words (steerWords), #stop',
   'harness.autonomy': 'harness-controls.js — #hctl: settingTpl, at home for the harness that answers new chats (app.harness.setSetting)',
-  // Coding agents — terminals and sign-in (D-harness §8 U5)
+  // Coding agents — terminals and sign-in (D147 §8 U5)
   'harness.login': 'signin.js — #hlogin (ext.end, a login park only): [data-kind] methods, a login tab in the dock (terminals.js #sbxterm-retry), the password form, #hl-device, #hl-confirm, #hl-ask, #hl-retry (model/terminals.js signIn)',
 };

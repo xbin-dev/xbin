@@ -1,5 +1,5 @@
 // model/harness-start.js — starting a conversation with a coding agent
-// (D-harness §2.2 "Conversation start", §4.2.3, §4.3.8, §4.3.12) as both
+// (D147 §2.2 "Conversation start", §4.2.3, §4.3.8, §4.3.12) as both
 // views draw it: who answers new chats — the built-in agent or a coding
 // agent of the catalog (GET /harnesses) — with the class a harness resolves
 // to (a class you may use that allows it) and the sandbox it starts in (one

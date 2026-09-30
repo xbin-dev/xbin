@@ -1,4 +1,4 @@
-// signin.js — a coding agent's sign-in on the web (D-harness §4.2.6,
+// signin.js — a coding agent's sign-in on the web (D147 §4.2.6,
 // §4.3.4, §8 U5): the card at the end of a harness conversation parked on
 // `login` (only then — the `end` seam's rule: a park this module doesn't
 // draw is left to its own module or the built-in card). It offers the

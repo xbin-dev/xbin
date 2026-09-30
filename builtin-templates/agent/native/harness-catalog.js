@@ -1,5 +1,5 @@
 // native/harness-catalog.js — Settings → Coding agents in the native view
-// (D-harness §4.3.10), for the tile's managers: each coding agent GET
+// (D147 §4.3.10), for the tile's managers: each coding agent GET
 // /harnesses lists — whether it could be started and why not, the sandbox
 // managers and images that have it, the sandboxes it was found or signed in
 // on, the classes that allow it, its modes and sign-in command — and

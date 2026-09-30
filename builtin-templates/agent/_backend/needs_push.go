@@ -45,7 +45,7 @@ const (
 	needQuestion = "question"
 	needApproval = "approval"
 	needFailed   = "failed"
-	needLogin    = "login" // a coding agent waits for a sign-in (D-harness §4.3.9)
+	needLogin    = "login" // a coding agent waits for a sign-in (D147 §4.3.9)
 )
 
 type needsPusher struct {

@@ -1,4 +1,4 @@
-{"note": "D-harness §4 shapes the real backend produces (TestHarnessShapes); the UI's STUB fixtures must use only these — regenerate with HARNESS_SHAPES_OUT (see harness_shapes_test.go)",
+{"note": "D147 §4 shapes the real backend produces (TestHarnessShapes); the UI's STUB fixtures must use only these — regenerate with HARNESS_SHAPES_OUT (see harness_shapes_test.go)",
  "shapes": {
   "askAnswer": {
    "activityMs": ["number"],

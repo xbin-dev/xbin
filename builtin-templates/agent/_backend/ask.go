@@ -58,7 +58,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		// without it the legacy Toolset names a built-in, else the
 		// caller's default.
 		Class string
-		// Harness: a coding agent answers the conversation (D-harness
+		// Harness: a coding agent answers the conversation (D147
 		// §4.2.3) — in the body's sandbox, which it needs.
 		Harness *harnessReq `json:"harness"`
 	}

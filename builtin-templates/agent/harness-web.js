@@ -1,5 +1,5 @@
 // harness-web.js — the web's feature modules for coding harnesses
-// (D-harness §8 U2–U8). agent.js imports this file once; each
+// (D147 §8 U2–U8). agent.js imports this file once; each
 // module registers its hooks on the web's seams (web-ext.js) when imported,
 // so a feature lands as a new file plus one import line here — agent.js,
 // chat-cards.js and the other hot files stay as they are.

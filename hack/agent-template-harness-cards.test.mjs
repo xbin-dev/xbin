@@ -1,5 +1,5 @@
 // hack/agent-template-harness-cards.test.mjs — a coding harness's
-// transcript (D-harness §8 U3): the words the cards are drawn from
+// transcript (D147 §8 U3): the words the cards are drawn from
 // (model/harness-heads.js, model/harness.js) and the native view's cards
 // (native/harness-cards.js) over the harness fixtures — a toolcard per ACP
 // family with its chips, a command's output and exit code, an edit's `diff`,

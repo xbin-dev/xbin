@@ -1,5 +1,5 @@
 // harness-fixtures.mjs — coding-harness conversations in exactly the
-// shapes of D-harness §4, as a seed for backend.mjs's STUB (the
+// shapes of D147 §4, as a seed for backend.mjs's STUB (the
 // web tests: ctx.addInitScript(STUB, harnessSeed())) and for the native
 // view's tests (native-stub.mjs: data.seed) — plain data, a fresh copy per
 // call. What it holds:
@@ -280,7 +280,7 @@ function treeNode(r, depth) {
 }
 
 // kidsSeed: harnessSeed() with 25's three coding agents in the states a
-// child card draws (D-harness §8 U6): 26 working through its plan (its own
+// child card draws (D147 §8 U6): 26 working through its plan (its own
 // transcript: five blocks, the last a command still running), 27 Codex
 // parked on a permission (a command, park Xq3kid), 28 Claude Code signed out
 // (a login park, Xq3kidlogin; its link still open) — the links started 20 min

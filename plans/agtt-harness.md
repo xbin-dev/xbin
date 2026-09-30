@@ -1,12 +1,13 @@
 # AgTT × coding harnesses (ACP) — the spec and the unified API
 
-> Status: **live** (D-harness — numbered at merge). The spec of the program
-> on branch `agtt-harness` (from master 7b54e7fb = v0.3.64 + plans). Nothing
-> here is built yet; every work package builds to §4–§7 and records what it
-> changed under §10. Decisions of this program are "D-harness" until the
-> integrator gives them a number at merge (after checking DECISIONS.md and
-> the parallel partitions and dev-lifecycle efforts); the regressions fix
-> (WP-R) records dated amendments under D133, D135 and D136 instead.
+> Status: **live (D147)** — plans/DECISIONS.md D147 records the decisions,
+> the choices and what was not chosen. The spec of the program on branch
+> `agtt-harness` (from master 7b54e7fb = v0.3.64 + plans): every work
+> package built to §4–§7 and recorded under §10 what it built differently —
+> the final behaviour is the code and §10 where the earlier sections
+> disagree. The program's decisions are D147; "D147 §x.y" in code, tests and
+> docs names a section of this file. The regressions fix (WP-R) recorded
+> dated amendments under D133, D135 and D136 instead.
 
 **Contents.** §1 Context · §2 The owner's decisions · §3 Architecture ·
 §4 **The unified API** (routes, shapes, events, prefs) · §5 Sandbox-manager
@@ -128,7 +129,8 @@ What the plan rests on (verified in the code and in the adapters in
   `COLORTERM=truecolor` and `LANG=C.UTF-8`.
 - **An idle harness is reclaimed** after 15 min (tile config
   `harnessIdleMin`), with a one-shot timer — no tickers.
-- **D-numbers:** none for WP-R; "D-harness" here, numbered at merge.
+- **D-numbers:** none for WP-R; D147 for the rest (numbered at the docs
+  pass: master was at D136, the partitions branch holds D137–D146).
 
 ### 2.3 Not in v1
 
@@ -523,7 +525,7 @@ terminals (the file lives in a HOME the sandbox's users can write). 403
 Both are WebSocket upgrades that speak `/ws/term`'s wire end to end (the
 contract's §Terminals: the session frame first, binary frames both ways,
 `resize`/`ping`/`pong`/`exit`). The backend dials the manager's `tty`
-route as the tile with `Sbx-User: <caller>` (**asserted**, D-harness,
+route as the tile with `Sbx-User: <caller>` (**asserted**, D147,
 superseding D121's "not chosen") through `xbin.RelayManagerTTY` (§5.2) and
 relays byte for byte. The runtime refuses a person with `noTerminal` (D88)
 at every attach (`forUser`). Refusals come before the upgrade, as JSON.
@@ -1236,7 +1238,7 @@ merges between waves.
 | **U8** managers | 4 | class-form checklist for coding agents; a Coding agents catalog tab | U1; STUB, then A6 |
 | **U6** child cards | 5 | `harness-child.js`: identity, task, status line, counters, inline approval/question/sign-in, last 3 blocks, Open/Stop/Cancel/Message; direct steering + notice | U3, U4, A10 |
 | **U7** Coding agents board | 5 | web right dock (stable order, "needs you" filter), native screen, top chip, Delegated in the pinned task, Needs reason `login` | U6 |
-| **A11** smoke and docs | 5 | `hack/harness-smoke.sh` (fsb + acptest always; real adapters through coding-sandbox optionally — `initialize` + `session/new` or login = pass); the D-harness entry; docs (sandbox-manager, sdk, protocol, changelog, API.md) | A1–A10 |
+| **A11** smoke and docs | 5 | `hack/harness-smoke.sh` (fsb + acptest always; real adapters through coding-sandbox optionally — `initialize` + `session/new` or login = pass); the D147 entry; docs (sandbox-manager, sdk, protocol, changelog, API.md) | A1–A10 |
 | **U9** harness pass and shots | 5 | `passes/agentharness.js` (§7.3 + §7.2); shots: picker, conversation with cards, permission, plan approval, question, parent with 3 children + board, login terminal then Retry, native | A11, U2–U7 |
 | review + gate | 6 | adversarial review (security/ACL, restart/handoff, compat/contract, UI/parity) + fixes; `make check` on Go 1.26, tile-check with `-race` for every tile, `make integration`; live coding-sandbox with the real adapters | all |
 

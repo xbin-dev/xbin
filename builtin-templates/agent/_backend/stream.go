@@ -60,7 +60,7 @@ func messageView(m *Message) map[string]any {
 			if meta.Origin != "" {
 				v["origin"], v["originId"], v["label"] = meta.Origin, meta.OriginID, meta.Label
 			}
-			if a := meta.Harness.acpView(m.Role); a != nil { // a coding agent's call (D-harness §4.3.5)
+			if a := meta.Harness.acpView(m.Role); a != nil { // a coding agent's call (D147 §4.3.5)
 				v["acp"] = a
 			}
 		}

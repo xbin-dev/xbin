@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hack/harness-smoke.sh — do the agent template's coding agents work?
-# (D-harness; builtin-templates/agent/API.md §Coding agents "Testing coding
+# (D147; builtin-templates/agent/API.md §Coding agents "Testing coding
 # agents").
 #
 # Always (about a minute, no sandbox, no network after the first run): the

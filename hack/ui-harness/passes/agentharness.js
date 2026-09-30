@@ -1,5 +1,5 @@
 // hack/ui-harness/passes/agentharness.js — coding agents in the agent
-// template (D-harness, plans/agtt-harness.md §7.2, §7.3, §8 U9), end to end
+// template (D147, plans/agtt-harness.md §7.2, §7.3, §8 U9), end to end
 // on a real xbind: the seeded apps/agent with its `sandboxes` slot bound to
 // apps/fakesbx (seed.sh), whose image advertises the scripted ACP agent
 // "fake" (run.sh: FSB_HARNESS_FAKE = bin/fakeacp --steer --auto-mode

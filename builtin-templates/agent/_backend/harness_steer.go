@@ -1,4 +1,4 @@
-// harness_steer.go — a message while a coding agent's turn runs (D-harness
+// harness_steer.go — a message while a coding agent's turn runs (D147
 // §3.5): an adapter that steers (initialize's _meta.steering, harness
 // .steering) takes it into the running turn (_session/steering with
 // idleBehavior promptRequired); one that doesn't gets it as the next prompt

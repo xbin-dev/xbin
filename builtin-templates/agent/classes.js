@@ -30,7 +30,7 @@ export function makeClassPicker(app, host) {
   function paint(view) {
     v = view;
     const p = C.classPicker(v, app.classes, app.classId);
-    // a coding agent answering new chats resolves the class itself (D-harness; model/app.js newClassId)
+    // a coding agent answering new chats resolves the class itself (D147; model/app.js newClassId)
     const shown = p.shown && !app.harness.picked();
     if (!shown) open = false;
     host.hidden = !shown;

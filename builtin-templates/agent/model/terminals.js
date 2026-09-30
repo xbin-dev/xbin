@@ -1,5 +1,5 @@
 // model/terminals.js — terminals onto coding sandboxes and a coding agent's
-// sign-in, in words both views draw (D-harness §2.1, §4.2.6, §4.2.8, §4.3.4):
+// sign-in, in words both views draw (D147 §2.1, §4.2.6, §4.2.8, §4.3.4):
 //
 // - the terminal dock's tabs (termsOf(app): page-level — terminals belong to
 //   sandboxes, so they outlive the conversation they were opened from): a

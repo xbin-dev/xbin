@@ -101,7 +101,7 @@ start() {
   # XBIN_SDK_PATH lets Go backends (llm-gw, the agent template) build
   # against this checkout's sdk/. FSB_HARNESS_FAKE is the coding agent
   # "fake" apps/fakesbx (hack/fakesandbox as a tile) advertises on its image
-  # (D-harness §7.3): the scripted ACP agent with steering, an auto mode,
+  # (D147 §7.3): the scripted ACP agent with steering, an auto mode,
   # sign-in and persisted sessions — the agentHarness pass. A host path
   # works here: without --isolate fakesbx runs on the host, every sandbox
   # command is a host process, and a variable without the XBIN_ prefix

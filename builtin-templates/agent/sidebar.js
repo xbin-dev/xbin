@@ -49,8 +49,8 @@ function rowTpl(r, ui, withMatch) {
     : g === 'error' ? html`<span class="gl err" title="failed">!</span>`
     : g === 'spin' ? html`<span class="spin"></span>` : nothing;
   const shared = rowShared(r);
-  const kind = kindOf(r); // a coding agent answers it (D-harness): its monogram
-  const kids = kidsWords(r); // coding agents at work below it (D-harness §4.3.8)
+  const kind = kindOf(r); // a coding agent answers it (D147): its monogram
+  const kids = kidsWords(r); // coding agents at work below it (D147 §4.3.8)
   if (ui.renaming === r.id) {
     return html`<div class="run on" data-id=${r.id}>
       <input class="ren" .value=${r.title || ''} @keydown=${(e) => {

@@ -1,4 +1,4 @@
-// harness-board.mjs — the Coding agents board on the web (D-harness §8 U7:
+// harness-board.mjs — the Coding agents board on the web (D147 §8 U7:
 // harness-board.js) over kidsSeed() (test/harness-fixtures.mjs) and the
 // STUB's §4 routes: #25's three coding agents — 26 working, 27 parked on a
 // permission, 28 signed out. The top bar's chip and its counts; the dock (a

@@ -1,4 +1,4 @@
-// harness-board.js — the Coding agents board on the web (D-harness §4.3.6,
+// harness-board.js — the Coding agents board on the web (D147 §4.3.6,
 // §8 U7): the coding agents in the open conversation's tree — at home, every
 // one of yours that runs or needs you — in one place.
 //

@@ -2,7 +2,7 @@
 
 package isolated
 
-// harness_test.go — the agent template's coding agents live (D-harness,
+// harness_test.go — the agent template's coding agents live (D147,
 // WP-A11): coding-sandbox on xbind's runtime (setupCS), the agent template
 // instantiated beside it with its `sandboxes` slot bound to the manager, a
 // sandbox with the manager's internet egress (a coding agent must reach its
@@ -182,7 +182,7 @@ type hcEntry struct {
 	}
 }
 
-// hSummary is a harness run's `harness` (D-harness §4.3.2).
+// hSummary is a harness run's `harness` (D147 §4.3.2).
 type hSummary struct {
 	Provider, Name, State, Error, Title string
 	Gen                                 int
@@ -278,7 +278,7 @@ func (e *csEnv) waitView(t *testing.T, person string, id int64, what string, tim
 }
 
 // harnessExec is the manager's exec of run id's adapter, generation gen
-// (clientId harness:<run>:<gen>, D-harness §3.6): nil when there is none.
+// (clientId harness:<run>:<gen>, D147 §3.6): nil when there is none.
 func harnessExec(t *testing.T, c sandboxcontract.Caller, box string, id int64, gen int) *sandboxcontract.Exec {
 	t.Helper()
 	var execs struct{ Execs []sandboxcontract.Exec }
@@ -639,7 +639,7 @@ func testHarnessFake(t *testing.T, e *csEnv, box agSandbox, stdio bool, slow tim
 			}
 			readSession(t, conn)
 			// a tty exec's defaults (the runtime's TERM, COLORTERM, LANG;
-			// coding-sandbox's IS_SANDBOX, D-harness §5.1)
+			// coding-sandbox's IS_SANDBOX, D147 §5.1)
 			send(t, conn, `echo "relayed-$((6*7)):$PWD:$TERM:$COLORTERM:$LANG:$IS_SANDBOX"`+"\r")
 			readUntil(t, conn, "relayed-42:/work:xterm-256color:truecolor:C.UTF-8:1", 30*time.Second*slow)
 			send(t, conn, "exit\r")

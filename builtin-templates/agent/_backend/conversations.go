@@ -323,7 +323,7 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "bad body")
 		return
 	}
-	if run.Engine == engineHarness || isHarnessRun(root) { // D-harness §4.2.11
+	if run.Engine == engineHarness || isHarnessRun(root) { // D147 §4.2.11
 		switch {
 		case body.Model != nil:
 			xbin.WriteError(w, 400, `a coding agent's model is an option: PATCH /runs/{id}/harness {option: {id: "model", …}}`)
@@ -497,7 +497,7 @@ func handleNeeds(w http.ResponseWriter, r *http.Request) {
 			switch ps.Kind {
 			case "approval":
 				reason = "approval"
-			case "login": // a coding agent waits for a sign-in (D-harness §4.3.9)
+			case "login": // a coding agent waits for a sign-in (D147 §4.3.9)
 				reason = "login"
 			}
 			item := map[string]any{"run": it, "reason": reason, "subRun": subID}

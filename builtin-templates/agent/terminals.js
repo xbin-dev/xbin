@@ -1,4 +1,4 @@
-// terminals.js — the terminal dock on the web (D-harness §2.1, §8 U5): one
+// terminals.js — the terminal dock on the web (D147 §2.1, §8 U5): one
 // pane docked under the top bar, holding a tab per terminal — a shell in a
 // coding sandbox (the ▣ popover's Open terminal, a Sandboxes row's
 // Terminal, ＋ another one here, the top bar's >_ Terminal in a coding

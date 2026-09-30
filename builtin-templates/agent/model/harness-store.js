@@ -1,5 +1,5 @@
 // model/harness-store.js — coding harnesses' state and calls for both views
-// (D-harness §4), as app.harness: the catalog (GET /harnesses,
+// (D147 §4), as app.harness: the catalog (GET /harnesses,
 // read when a view first needs it), the person's preferences (§4.3.12) —
 // "Who answers" (prefs/agent) and the sandbox last used per harness
 // (prefs/harness-sandbox), both xbind prefs like prefs/class; Auto / Always

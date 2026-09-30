@@ -1,5 +1,5 @@
 // native/harness-board.js — the Coding agents board in the native view
-// (D-harness §4.3.6, §8 U7), the web's harness-board.js with the app's
+// (D147 §4.3.6, §8 U7), the web's harness-board.js with the app's
 // primitives:
 //
 //   screen   'hboard' {root}: the coding agents in the open conversation's

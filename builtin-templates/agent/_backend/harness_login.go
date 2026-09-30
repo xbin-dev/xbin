@@ -1,4 +1,4 @@
-// harness_login.go — a coding agent that isn't signed in (D-harness §3.4,
+// harness_login.go — a coding agent that isn't signed in (D147 §3.4,
 // §4.2.6, §4.3.4; spec §9 item 4): an adapter that says so
 // (_auth/status_update {kind: none}), refuses a prompt with -32000, or
 // refuses to open a session at all (codex: ClientOptions.AwaitLogin) puts
@@ -290,7 +290,7 @@ func (e *Engine) deviceFor(runID int64, user string) *hDevice {
 }
 
 // harnessAuthenticate signs run's coding agent in through the adapter
-// (D-harness §4.2.6) — the engine side of POST /runs/{id}/harness/
+// (D147 §4.2.6) — the engine side of POST /runs/{id}/harness/
 // authenticate, whose route checks the caller first (participant, sandbox
 // Use, confirm on a shared sandbox). It runs in the process driving the
 // session (an adapter is started when none is live: its initialize, and

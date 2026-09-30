@@ -369,7 +369,7 @@ func handleListSchedules(w http.ResponseWriter, r *http.Request) {
 }
 
 // schedHarnessTarget: a coding agent's conversation takes messages from
-// people (D-harness §4.2.3, §4.2.11).
+// people (D147 §4.2.3, §4.2.11).
 const schedHarnessTarget = "targetRun: a coding agent's conversation takes messages from people — schedules run the built-in agent"
 
 func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
@@ -379,7 +379,7 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "need JSON body: {name, cron, goal, watcher?, system?}")
 		return
 	}
-	if rawHasHarness(raw) { // D-harness §4.2.3
+	if rawHasHarness(raw) { // D147 §4.2.3
 		xbin.WriteError(w, 400, "schedules run the built-in agent")
 		return
 	}
@@ -456,7 +456,7 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "bad body")
 		return
 	}
-	if rawHasHarness(raw) { // D-harness §4.2.3
+	if rawHasHarness(raw) { // D147 §4.2.3
 		xbin.WriteError(w, 400, "schedules run the built-in agent")
 		return
 	}

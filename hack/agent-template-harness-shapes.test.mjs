@@ -1,4 +1,4 @@
-// hack/agent-template-harness-shapes.test.mjs — the STUB-drift guard (D-harness
+// hack/agent-template-harness-shapes.test.mjs — the STUB-drift guard (D147
 // §4): every key path (and its JSON type) the UI's fake backend serves from
 // its coding-agent fixtures — test/harness-fixtures.mjs's seeds, and what
 // test/backend.mjs's STUB answers and pushes over them — must be one the
@@ -135,7 +135,7 @@ test('the harness fixtures serve only shapes the real backend produces', async (
     'convRow', 'needsItem', 'catalog', 'harnessGet', 'harnessEvent', 'runEvent', 'authenticate', 'patch', 'askAnswer']) {
     assert.ok(merged[name], `the fixtures serve no ${name}`);
   }
-  assert.deepEqual(drift(merged), [], 'fixture paths the backend never produces (fix the side that is wrong vs D-harness §4; a new backend path: regenerate the dump)');
+  assert.deepEqual(drift(merged), [], 'fixture paths the backend never produces (fix the side that is wrong vs D147 §4; a new backend path: regenerate the dump)');
 });
 
 test('the guard catches a drift', () => {

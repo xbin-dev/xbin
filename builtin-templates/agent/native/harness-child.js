@@ -1,5 +1,5 @@
 // native/harness-child.js — a coding agent the agent started, as its card in
-// the parent's chat in the native view (D-harness §4.3.7, §4.3.13, §8 U6),
+// the parent's chat in the native view (D147 §4.3.7, §4.3.13, §8 U6),
 // the web's harness-child.js with the chat family:
 //
 //   block  the spawn's `toolcard` (family agent): its monogram, #id and state

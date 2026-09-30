@@ -1,5 +1,5 @@
 // native/harness-cards.js — a coding harness's transcript in the native
-// view (D-harness §3.4, §4.3.2–§4.3.5, §8 U3), the web's harness-cards.js
+// view (D147 §3.4, §4.3.2–§4.3.5, §8 U3), the web's harness-cards.js
 // with the chat family, hooked on the native seams (native/ext.js):
 //
 //   block    a `toolcard` per ACP call: its chips (steps, what it came to,

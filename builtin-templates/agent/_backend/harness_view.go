@@ -1,4 +1,4 @@
-// harness_view.go — how a coding agent's run looks to the tile (D-harness
+// harness_view.go — how a coding agent's run looks to the tile (D147
 // §4.3): the `harness` summary on runSummary and the `harness` stream event
 // (§4.3.2/§4.3.3), the park's card data in pendingState.harness (§4.3.4),
 // and the `acp` a tool row's Meta.harness is lifted to by messageView
@@ -324,7 +324,7 @@ func harnessNodeView(sum map[string]any) map[string]any {
 }
 
 // harnessModeOpen: mode is one anyone who may talk in the conversation may
-// switch its coding agent to (D-harness §4.3.12, default-deny) — the
+// switch its coding agent to (D147 §4.3.12, default-deny) — the
 // catalog knows it never takes the agent past its own asks (acp
 // Provider.Safe), or it is the mode the adapter opened its first session in
 // by itself (start: a harness the catalog lacks knows no other). Every other

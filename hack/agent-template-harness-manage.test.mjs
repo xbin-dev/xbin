@@ -1,5 +1,5 @@
 // hack/agent-template-harness-manage.test.mjs — coding agents for the agent
-// template's managers (D-harness §8 U8): the class editor's Coding
+// template's managers (D147 §8 U8): the class editor's Coding
 // agents toolset and `harnesses` field (model/classes.js: a form and back,
 // the checklist, what the toolset needs), the catalog as the managers' view
 // says it (model/harness-manage.js), and the native view's class form and

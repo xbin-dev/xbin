@@ -1,5 +1,5 @@
 // harness-term.mjs — terminals and a coding agent's sign-in on the web
-// (D-harness §8 U5) over the harness fixtures (test/harness-fixtures.mjs,
+// (D147 §8 U5) over the harness fixtures (test/harness-fixtures.mjs,
 // the STUB's §4 routes) and a fake manager terminal (test/fake-tty.mjs —
 // the STUB can't upgrade a WebSocket): the sign-in card is drawn for a
 // login park only (the `end` seam's rule), with the shared-HOME warning and

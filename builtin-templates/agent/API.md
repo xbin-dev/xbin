@@ -55,11 +55,11 @@ a subagent is exactly as visible as the conversation it works for.
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
-| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D-harness §4.3.9) — and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|login\|failed, subRun, harness?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|login\|failed, subRun, harness?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
 
 Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
 `archivedAt`, `readMs` and `unread` (activity after you last looked) — and
-(D-harness §4.3.8; list, search, `/needs` and `PATCH /runs/{id}` rows)
+(D147 §4.3.8; list, search, `/needs` and `PATCH /runs/{id}` rows)
 `waiting: true` when it or a run below it waits for a person
 (`waiting_input`), and `kids: {harness, waiting}` — its coding agents at
 work below the root, and its runs below the root that wait — when either
@@ -78,7 +78,7 @@ sealed to their devices, and only when the workspace has push set up):
 | a run (or a subagent) starts waiting on an `ask_user` question | its owner and participant members | kind `question` (the app sees `tile.question`), the question as the body |
 | a run (or a subagent) parks a tool call for approval | its owner and participant members | kind `approval`, the tools it wants to run |
 | a run asks its owner for a grant (D111) | its owner alone | kind `approval`, what it asks to read |
-| a coding agent parks a permission request or a question (D-harness §4.3.9) | its owner and participant members | kind `approval` ("‹name› wants to run ‹title› — approve or deny.") or `question` (its message) |
+| a coding agent parks a permission request or a question (D147 §4.3.9) | its owner and participant members | kind `approval` ("‹name› wants to run ‹title› — approve or deny.") or `question` (its message) |
 | a coding agent waits for a sign-in | its owner and participant members | kind `login` ("‹name› needs you to sign in to it.") |
 | an automation's run (schedule, watcher, channel, trigger) fails | its owner | kind `failed`, the error |
 
@@ -1639,7 +1639,7 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   line. A row's **Terminal** and the Sandbox screen's **Open terminal**
   push a Terminal screen: the app's `terminal` dials only the tile's own
   routes, so it goes through the agent's relay (`GET
-  /sandboxes/{ref}/terminal?cwd=`, D-harness §4.2.8), which checks that you
+  /sandboxes/{ref}/terminal?cwd=`, D147 §4.2.8), which checks that you
   may use the sandbox and dials its manager's `tty` as you. One at a time
   (the app's terminal closes its socket when its screen goes — and the
   relay then ends the shell it started, §Coding agents "Terminal relays").
@@ -1921,7 +1921,7 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   loses its coding agents: tick them again after upgrading (Reset brings
   the built-in Coding class back as it ships).
 
-**Its own routes** (D-harness §4.2.4–§4.2.6). On a run the agent's own
+**Its own routes** (D147 §4.2.4–§4.2.6). On a run the agent's own
 loop answers they are **409** `not a coding-agent conversation`.
 
 | Method & path | Who | Body | Answer |
@@ -1999,7 +1999,7 @@ loop answers they are **409** `not a coding-agent conversation`.
   titles it (from its first start). The push for a coding agent's park
   says it in its words: "‹name› wants to run ‹title› — approve or deny.",
   its question, or "‹name› needs you to sign in to it." (kind `login`).
-- **The agent's own routes on a coding agent's run** (§4.2.11):
+- **The agent's own routes on a coding agent's run** (D147 §4.2.11):
   `PUT`/`DELETE /runs/{id}/memory` **409** `a coding agent has no memory`;
   `POST /runs/{id}/learn` **409** `a coding agent can't learn a skill`;
   `POST /runs/{id}/compact` **409** `‹name› has no /compact` unless it
@@ -2085,7 +2085,7 @@ in its sandbox at its working directory. Only a harness run parked on
 their own cards' — and a park of a kind no module draws falls back to the
 built-in approval or question card.
 
-**Terminal relays and the log** (D-harness §4.2.7, §4.2.8). The native
+**Terminal relays and the log** (D147 §4.2.7, §4.2.8). The native
 view's terminals and a coding agent's stderr, for a person who may use the
 sandbox **themself** — checked here first, fresh from the manager (by the
 rules of §Coding sandboxes: owner, members, `team`, a share), because the
@@ -2135,7 +2135,7 @@ its terminals dial the manager directly, as you (verified).
   (never started, or no file); **409** on a built-in run; **400** `max: a
   number of bytes, at most 65536`.
 
-**The agent's coding agents (the tools)** (D-harness §4.4, §4.3.13).
+**The agent's coding agents (the tools)** (D147 §4.4, §4.3.13).
 `subagent_spawn` takes **`harness`** — an enum of the coding agents the
 class allows (`harnesses`) that the spawn's sandbox (the active one, or the
 attached one `sandbox` names) offers (its binding's `harnesses`; the SDK
@@ -2196,7 +2196,7 @@ starts a turn, isn't a request of the task ledger, and isn't work for
 never wakes that build either.
 
 **The agent's coding agents (the UI).** A coding agent the agent started
-(`subagent_spawn` with `harness`, D-harness §4.4) is drawn where the spawn
+(`subagent_spawn` with `harness`, D147 §4.4) is drawn where the spawn
 call is as its own card instead of the subagent card (`harness-child.js`,
 `native/harness-child.js`): its monogram and name, the link's label, `#id`
 and state; what it does now (its `harness.activity`, a park, its answer's
@@ -2220,7 +2220,7 @@ Enter queues or steers, ⌘/Ctrl+Enter or Send now adds `interrupt: true`)
 act on the child from its card (the app: from its own chat — its composer,
 Stop, ⋯ → Cancel task). A person's message to a coding agent the agent
 started is told to that agent (`[direct message to #<child> (<name>) from
-<who>]`, D-harness §4.3.13), which its chat shows as a folded notice once it
+<who>]`, D147 §4.3.13), which its chat shows as a folded notice once it
 is delivered. A conversation row says `?` while it or a run below it waits
 (`waiting`) and `⧉ N` for the coding agents at work below it (`kids.harness`).
 
@@ -2237,7 +2237,7 @@ started — never re-sorted as they change — each a child card as above (its
 park answered in place, on its own run; Open ↗, Stop, Cancel, Message),
 with a "needs you" filter; in the app a screen with sections Needs you,
 Running and Done (a row's swipe: Stop, Message, Cancel task). The board
-reads `GET /runs/{root}/tree` (§4.3.6's harness nodes) once something says a
+reads `GET /runs/{root}/tree` (D147 §4.3.6's harness nodes) once something says a
 coding agent is there — the row's `kids`, a link held — and again only when
 the stream names a run or link the tree lacks; the rest is the links the
 tile holds and the run, link and `harness` events. At home, whose stream

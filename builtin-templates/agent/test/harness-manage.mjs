@@ -1,5 +1,5 @@
 // harness-manage.mjs — coding agents for the tile's managers in the web view
-// (D-harness §8 U8) over the fixtures (test/harness-fixtures.mjs,
+// (D147 §8 U8) over the fixtures (test/harness-fixtures.mjs,
 // STUB's §4 routes): ⚙ Classes — the Coding agents toolset (the built-in
 // coding class has it), which coding agents a class allows ("all" or a
 // checklist of the catalog's), and the backend's refusal said when the

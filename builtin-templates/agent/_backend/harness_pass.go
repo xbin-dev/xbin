@@ -1,4 +1,4 @@
-// harness_pass.go — a harness run's pass (D-harness §3.2, §3.3): what its
+// harness_pass.go — a harness run's pass (D147 §3.2, §3.3): what its
 // inbox asks of its coding agent, in priority order — cancel > stop >
 // interrupt > halt > answers (approve, hanswer: harness_answer.go) >
 // wake/retry > prompts > compact > the idle reclaim (harness_life.go). A
@@ -38,7 +38,7 @@ const (
 // hInbox is a harness run's pending rows by kind. A `user` row (an older
 // binary's message, a parent's) is a prompt too; the ones no person or
 // parent wrote (a schedule's, a watcher's, /learn) are stray: a coding
-// agent's conversation isn't driven by them (D-harness §3.3).
+// agent's conversation isn't driven by them (D147 §3.3).
 type hInbox struct {
 	prompt, answer, approve, wake, interrupt, cancel, compact, stop, stray []*InboxRow
 }
@@ -176,7 +176,7 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 	case len(h.prompt) > 0 && parked:
 		// a person's reply answers the park first; the parent agent's waits
 		// for them — the parent model never answers a child's permission
-		// (D-harness §4.4) — and the pass goes on below: a successor still
+		// (D147 §4.4) — and the pass goes on below: a successor still
 		// takes a predecessor's adapter over
 		if p := h.replyPrompt(); p != nil {
 			e.harnessReplyToPark(ctx, run, p)
@@ -306,7 +306,7 @@ type heldPrompt struct {
 }
 
 // promptText is what the adapter is sent for a message: its text and, for
-// its files, their names (the files stay the conversation's; D-harness
+// its files, their names (the files stay the conversation's; D147
 // §3.6's resource links come with the sign-in and files work).
 func promptText(text string, files []*ReplFile) string {
 	if text == "" && len(files) > 0 {

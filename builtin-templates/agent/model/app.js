@@ -97,7 +97,7 @@ export function createApp(opts = {}) {
     get toolset() { return classes.laneOf(classes.find(app.classes, app.classId)); },
     // newClassId: the class a new ask starts in — yours, or while a coding
     // agent answers new chats (app.harness), the class it resolves to: yours
-    // if it allows it, else the first you may use that does (D-harness §4.2.3).
+    // if it allows it, else the first you may use that does (D147 §4.2.3).
     newClassId() { const h = app.harness.picked(); return (h && resolveClass(h, app.classId)) || app.classId; },
 
     // uploadTarget is where an app that uploads a picked file itself puts it
@@ -268,7 +268,7 @@ export function createApp(opts = {}) {
     // at its next step. clear() empties the view's text box once the text is
     // on its way — a refused ask keeps it. Only the chips of where you are go
     // (Attachments.here). opts.interrupt: a coding harness's running turn is
-    // interrupted first (ignored elsewhere, D-harness §4.2.10).
+    // interrupted first (ignored elsewhere, D147 §4.2.10).
     async send(text, clear = () => {}, opts = {}) {
       if (app.sending) return;
       const t = String(text ?? '').trim();
@@ -404,7 +404,7 @@ export function createApp(opts = {}) {
   app.attach = new actions.Attachments({ change: () => emit('attach') });
   // the coding sandboxes (D115): the list, the new chat's pick, binding (model/sandbox-store.js)
   app.sbx = createSandboxStore(app);
-  // coding harnesses (D-harness): the catalog, your picks and settings, a harness run's calls
+  // coding harnesses (D147): the catalog, your picks and settings, a harness run's calls
   app.harness = createHarnessStore(app);
   wireStart(app); // …and the sandbox a new chat with one starts in (model/harness-start.js)
   // the Coding agents board: the coding agents in the open tree, or at home yours at work (model/harness-board.js)

@@ -1,5 +1,5 @@
 // terminal_relay.go — terminals relayed to a person's page or app
-// (D-harness §4.2.8; API.md §Coding agents): a coding agent's run terminal
+// (D147 §4.2.8; API.md §Coding agents): a coding agent's run terminal
 // (a shell in its sandbox at its cwd, or its sign-in command) and any
 // terminal in a sandbox the caller may use. Both dial the manager's `tty`
 // route as this tile with the person asserted (Sbx-User) and relay the

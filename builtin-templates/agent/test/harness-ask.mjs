@@ -1,4 +1,4 @@
-// harness-ask.mjs — a coding harness asking and driven, on the web (D-harness
+// harness-ask.mjs — a coding harness asking and driven, on the web (D147
 // §8 U4: harness-ask.js, harness-controls.js) over the fixtures
 // (test/harness-fixtures.mjs) and the STUB's §4 routes: a permission card
 // with the harness's own options (reject first when it defaults to no, the

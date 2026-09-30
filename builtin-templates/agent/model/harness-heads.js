@@ -1,5 +1,5 @@
 // model/harness-heads.js — a coding harness's tool call (`acp:<kind>`,
-// D-harness §4.3.5) in a few words, as tool-heads.js says a
+// D147 §4.3.5) in a few words, as tool-heads.js says a
 // built-in call: its family (the card's icon), a reading of its arguments
 // when it has no summary, the command under a summary, what it came to, and
 // its state. tool-heads.js hands every `acp:*` name here.

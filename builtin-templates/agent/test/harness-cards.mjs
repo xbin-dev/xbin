@@ -1,5 +1,5 @@
 // harness-cards.mjs — a coding harness's transcript on the web
-// (harness-cards.js, D-harness §8 U3) over the fixtures
+// (harness-cards.js, D147 §8 U3) over the fixtures
 // (test/harness-fixtures.mjs, STUB's §4 routes): a card per ACP family and
 // what each shows opened, an edit's per-file patches unfolding, a command's
 // output (ANSI stripped, its tail with "show all", the exit code), a call's

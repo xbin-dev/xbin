@@ -14,7 +14,7 @@ import { ctx, push, ui } from './ui.js';
 export function classPickerTpl() {
   const app = ctx.app;
   const p = C.classPicker(null, app.classes, app.classId);
-  if (!p.shown || app.harness.picked()) return nothing; // a coding agent resolves its class (D-harness; model/app.js newClassId)
+  if (!p.shown || app.harness.picked()) return nothing; // a coding agent resolves its class (D147; model/app.js newClassId)
   return html`<picker label="Class" style="menu" value=${p.value}
     options=${p.rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} ⚠` : r.name, icon: r.nativeIcon }))}
     @change=${(e) => app.pickClass(e.value)}/>`;

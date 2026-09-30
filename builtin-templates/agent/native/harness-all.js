@@ -1,5 +1,5 @@
 // native/harness-all.js — the native view's feature modules for coding
-// harnesses (D-harness §8 U2–U8). native.js imports this file
+// harnesses (D147 §8 U2–U8). native.js imports this file
 // once; each module registers its hooks on the native seams (native/ext.js)
 // when imported, so a feature lands as a new file plus one import line
 // here — native.js and native/chat.js stay as they are.

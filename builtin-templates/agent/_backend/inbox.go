@@ -62,7 +62,7 @@ type inboxBody struct {
 	// optionId of pendingState.harness.options; "" with approve false: the
 	// cancelled outcome). Action and Content are an hanswer row's answer to
 	// a coding agent's question: accept (with the form's values) | decline |
-	// cancel (D-harness §4.2.5, §4.2.9).
+	// cancel (D147 §4.2.5, §4.2.9).
 	Option  string          `json:"option,omitempty"`
 	Action  string          `json:"action,omitempty"`
 	Content json.RawMessage `json:"content,omitempty"`
@@ -228,7 +228,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		Files    []string `json:"files"` // session-file paths uploaded for this message
 		ClientID string   `json:"clientId"`
 		// Interrupt stops a coding agent's running turn first (the message
-		// is its next prompt); ignored on a built-in run (D-harness §4.2.10).
+		// is its next prompt); ignored on a built-in run (D147 §4.2.10).
 		Interrupt bool `json:"interrupt"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
@@ -262,7 +262,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	iid, dup, err := agent.queue(id, kind, in, body.ClientID)
 	if c := callerOf(r); err == nil && !dup && run.Engine == engineHarness && run.ParentID != 0 && c.kind == whoUser && c.viewedBy == "" {
 		// a person's word to a coding agent the agent started: its parent is
-		// told at its next step (D-harness §4.3.13, harness_spawn.go)
+		// told at its next step (D147 §4.3.13, harness_spawn.go)
 		if nerr := agent.db.Tx(func(t *DB) error { return agent.noteParentTx(t, run, c.user, body.Text, body.Files) }); nerr != nil {
 			logf("run #%d: telling its parent about a direct message: %v", id, nerr)
 		}
@@ -285,7 +285,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 //	POST /runs/{id}/approve {approve, grant?: "once"|"hour", park?, option?, feedback?}
 //
 // A coding agent's park (pendingState.harness) is answered with one of its
-// own options (harnessVerdict: option, feedback — D-harness §4.2.9).
+// own options (harnessVerdict: option, feedback — D147 §4.2.9).
 //
 // A parked call that needs a grant (pendingState.grant, grants.go) is the
 // conversation owner's to allow — anyone who may steer it may still deny it;
@@ -455,7 +455,7 @@ func handleCompact(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
-	if run.Engine == engineHarness && !harnessHasCommand(run, "compact") { // D-harness §4.2.11
+	if run.Engine == engineHarness && !harnessHasCommand(run, "compact") { // D147 §4.2.11
 		name := "the coding agent"
 		if h := harnessSummaryOf(run); h != nil {
 			name, _ = h["name"].(string)
@@ -482,7 +482,7 @@ func handleLearn(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
-	if refuseOnHarness(w, id, "a coding agent can't learn a skill") { // D-harness §4.2.11
+	if refuseOnHarness(w, id, "a coding agent can't learn a skill") { // D147 §4.2.11
 		return
 	}
 	if _, _, err := agent.queue(id, inboxUser, inboxBody{Text: learnPrompt, Source: "learn"}, ""); err != nil {

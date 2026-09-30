@@ -1,5 +1,5 @@
 // harness_life.go — how long a coding agent's adapter lives, and what
-// ends it (D-harness §3.3):
+// ends it (D147 §3.3):
 //
 //   - idle reclaim: a one-shot timer at last_active + harnessIdleMin (the
 //     tile's config), armed only while the session is live with no turn

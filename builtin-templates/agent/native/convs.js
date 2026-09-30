@@ -85,8 +85,8 @@ function rowTpl(r, withMatch) {
   const app = ctx.app;
   const g = GLYPH[rowGlyph(r)];
   const shared = rowShared(r);
-  const kind = kindOf(r); // a coding agent answers it (D-harness): its name first
-  const kids = kidsWords(r); // coding agents at work below it (D-harness §4.3.8)
+  const kind = kindOf(r); // a coding agent answers it (D147): its name first
+  const kids = kidsWords(r); // coding agents at work below it (D147 §4.3.8)
   const sub = [kind ? kind.name : '', kids ? `⧉ ${kids.label}` : '', withMatch && r.match ? r.match.snippet : shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : ''].filter(Boolean).join(' · ');
   const sel = app.root === r.id;
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}

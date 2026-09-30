@@ -46,7 +46,7 @@ type pendingState struct {
 	Job   int   `json:"job,omitempty"`
 	Since int64 `json:"since,omitempty"`
 	// Harness, on a harness run's park (approval, question, login): the
-	// card data (harness_view.go, D-harness §4.3.4).
+	// card data (harness_view.go, D147 §4.3.4).
 	Harness *hPark `json:"harness,omitempty"`
 }
 
@@ -808,7 +808,7 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 // deliverBoundary moves what is waiting into the transcript, in one
 // transaction: queued messages (in order, with their attachments), watcher
 // rounds, a person's word to a coding agent below (hnote: a notice, never a
-// request — D-harness §4.3.13; kept in harness_notes, harness_spawn.go),
+// request — D147 §4.3.13; kept in harness_notes, harness_spawn.go),
 // and one notice for every background subagent that finished. False means
 // the engine lost ownership.
 func (e *Engine) deliverBoundary(ts *turnState) bool {

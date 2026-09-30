@@ -1,5 +1,5 @@
 // native/terminal.js — terminals and a coding agent's sign-in in the native
-// view (D-harness §2.1, §4.2.6, §4.2.8, §8 U5). The app's terminal
+// view (D147 §2.1, §4.2.6, §4.2.8, §8 U5). The app's terminal
 // primitive dials only the tile's own routes, so every terminal here goes
 // through the tile's relays — the backend checks you may use the sandbox,
 // then dials its manager's tty as you:

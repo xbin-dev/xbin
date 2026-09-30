@@ -236,7 +236,7 @@ func (ag *Agent) deleteRunTree(id int64) error {
 	blobs := ag.db.runBlobs(ids)
 	jobs := ag.jobsLeftBy(ids)
 	if ag.eng != nil {
-		ag.eng.endHarnesses(context.Background(), id) // a coding agent's adapter goes first (D-harness §3.3)
+		ag.eng.endHarnesses(context.Background(), id) // a coding agent's adapter goes first (D147 §3.3)
 	}
 	if err := ag.db.deleteRun(id); err != nil {
 		return err

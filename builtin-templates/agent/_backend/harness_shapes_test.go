@@ -1,6 +1,6 @@
 package main
 
-// The STUB-drift guard's backend half (D-harness §4): the real backend
+// The STUB-drift guard's backend half (D147 §4): the real backend
 // produces every shape the UI's STUB serves from its fixtures
 // (test/backend.mjs, test/harness-fixtures.mjs) — a coding agent's summary
 // in each state, its parks' pendingState, its transcript rows and their
@@ -374,7 +374,7 @@ func TestHarnessShapes(t *testing.T) {
 
 	// the dump: paths and types, sorted
 	gen := shapeDump{Shapes: map[string]map[string][]string{},
-		Note: "D-harness §4 shapes the real backend produces (TestHarnessShapes); the UI's STUB fixtures must use only these — regenerate with HARNESS_SHAPES_OUT (see harness_shapes_test.go)"}
+		Note: "D147 §4 shapes the real backend produces (TestHarnessShapes); the UI's STUB fixtures must use only these — regenerate with HARNESS_SHAPES_OUT (see harness_shapes_test.go)"}
 	for name, set := range shapes {
 		gen.Shapes[name] = map[string][]string{}
 		for p, types := range set {

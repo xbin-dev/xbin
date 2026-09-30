@@ -1,5 +1,5 @@
 // harness-child.js — a coding agent the agent started, as its card in the
-// parent's chat on the web (D-harness §4.3.6–§4.3.8, §4.3.13, §8 U6): where
+// parent's chat on the web (D147 §4.3.6–§4.3.8, §4.3.13, §8 U6): where
 // the subagent_spawn call is, instead of the built-in subagent card, when the
 // child is a coding harness (the fold's agent block carries its `harness`).
 //

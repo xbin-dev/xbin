@@ -1,6 +1,6 @@
 // harness.mjs — coding-harness conversations in the web view over the
 // fixtures (test/harness-fixtures.mjs, STUB's §4 routes), as U1 left them
-// (D-harness §8 U1): the cards draw every `acp:*` call in the built-in's
+// (D147 §8 U1): the cards draw every `acp:*` call in the built-in's
 // frame (family, headline, outcome — harness-cards.js's since U3), a Task's
 // calls open inside it, a park no module answers falls back to the built-in card,
 // the direct-steering notice folds — and each web seam (web-ext.js) draws

@@ -1,4 +1,4 @@
-// harness_pipe_stdio.go — the pipe's stdio socket (D-harness §5.3), where
+// harness_pipe_stdio.go — the pipe's stdio socket (D147 §5.3), where
 // the manager and the sandbox offer it: stdout (binary), stderr offsets,
 // gaps and the exit read from one WebSocket, attached again from the
 // offsets read so far after a drop; a socket attached again gets the stdin

@@ -1,5 +1,5 @@
 // harness-child.mjs — coding agents the agent started, as their cards in the
-// parent's chat on the web (D-harness §8 U6: harness-child.js) over
+// parent's chat on the web (D147 §8 U6: harness-child.js) over
 // kidsSeed() (test/harness-fixtures.mjs) and the STUB's §4 routes: #25's
 // three children — 26 working through its plan, 27 parked on a permission,
 // 28 signed out. Each card's identity, status line, counters and plan; its

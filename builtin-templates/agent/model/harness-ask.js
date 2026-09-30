@@ -1,5 +1,5 @@
 // model/harness-ask.js — what a coding harness asks and how its controls read
-// (D-harness §4.2.4, §4.2.5, §4.2.9, §4.2.10, §4.3.4, §4.3.12), in words both
+// (D147 §4.2.4, §4.2.5, §4.2.9, §4.2.10, §4.3.4, §4.3.12), in words both
 // views draw:
 //   permission(ps)  a permission park as the harness's own options (reject
 //                   first when it defaults to no; an explicit one — it raises
