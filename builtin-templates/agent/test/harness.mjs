@@ -40,9 +40,9 @@ await page.click('[data-k="ch1:toolu_03"] .tch');
 await page.waitForSelector('[data-k="ch1:toolu_03"] [data-k="ch1:toolu_04"]');
 ok('…and open with it, its text too', !!(await page.$('[data-k="ch1:toolu_03"] .msg.assistant')));
 
-// a park with no module to draw it: the built-in card
-await go(22, '.ask.approve');
-ok('a harness park falls back to the built-in approval card', (await page.textContent('.ask.approve')).includes('acp:execute'));
+// a park: its module (harness-ask.js, U4) draws it — the built-in card is only the fallback while none answers
+await go(22, '.hask');
+ok('a harness park is its module\'s card, not the built-in one', !(await page.$('.ask.approve')) && (await page.textContent('.hask')).includes('go test ./...'));
 ok('its call waits for the verdict', (await page.textContent('[data-k="ch2:toolu_02"] .st')) === 'needs approval');
 ok('the activity line is the harness\'s', (await page.textContent('.activity')).includes('Waiting for your approval'));
 

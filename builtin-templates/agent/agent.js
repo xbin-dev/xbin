@@ -45,6 +45,7 @@ import { tabFiles, selectFile } from './settings-files.js';
 import { makeWorkflow } from './workflow.js';
 import { ext, ctx as extCtx } from './web-ext.js';
 import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
+import { steerWords } from './model/harness-ask.js'; // a coding harness's queued chips
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -255,7 +256,7 @@ function paint() {
   const shown = v ? '' : `${app.page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!(autos.form || autos.custom)}`;
   if (!v && shown !== shownPage) tl.scrollTop = 0;
   shownPage = shown;
-  render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message))), $('queue'));
+  render(queueTpl(v ? session.queued() : [], (iid) => session.removeQueued(iid).catch((e) => alert(e.message)), steerWords(v)), $('queue'));
   $('queue').hidden = !(v && session.queued().length);
   const c = rules.composer(v, HOME);
   classPicker.paint(v);

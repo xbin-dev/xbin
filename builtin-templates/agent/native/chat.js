@@ -15,6 +15,7 @@ import { argsShown } from '../model/tool-heads.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
+import { steerWords } from '../model/harness-ask.js'; // a coding harness's queued chips
 
 const CUT = 1200; // a long result is cut here; the card's ↗ opens all of it
 
@@ -431,6 +432,7 @@ export function composerTpl(v, t) {
     ...(a.state === 'up' ? { progress: 0 } : {}),
   }));
   const queued = v ? app.session.queued() : [];
+  const qw = steerWords(v, { native: true });
   return html`<composer value=${ui.draft} placeholder=${placeholder} ?busy=${c.busy} ?disabled=${c.disabled}
       attachments=${att} slash=${slash.length ? slash : nothing}
       upload=${talk ? app.uploadTarget() : nothing}
@@ -441,7 +443,7 @@ export function composerTpl(v, t) {
       @remove=${(e) => app.attach.remove(+e.id)}>
     ${t && t.retry ? html`<button icon="refresh" role="primary" @tap=${guard(() => app.actions.control(v.run.id, 'resume'))}>Retry</button>` : nothing}
     ${repeat(queued, (q) => q.id, (q) => html`<button icon="xmark"
-      @tap=${guard(() => app.session.removeQueued(q.id))}>${'queued: ' + clip(q.text || '(files)', 40)}</button>`)}
+      @tap=${guard(() => app.session.removeQueued(q.id))}>${(qw ? qw.label : 'queued') + ': ' + clip(q.text || '(files)', 40)}</button>`)}
     ${xs.map((x) => (x.tpl ? x.tpl() : nothing))}
   </composer>`;
 }

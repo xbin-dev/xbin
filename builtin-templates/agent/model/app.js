@@ -266,8 +266,9 @@ export function createApp(opts = {}) {
     // conversation it is a message — queued while the run works, delivered
     // at its next step. clear() empties the view's text box once the text is
     // on its way — a refused ask keeps it. Only the chips of where you are go
-    // (Attachments.here).
-    async send(text, clear = () => {}) {
+    // (Attachments.here). opts.interrupt: a coding harness's running turn is
+    // interrupted first (ignored elsewhere, D-harness §4.2.10).
+    async send(text, clear = () => {}, opts = {}) {
       if (app.sending) return;
       const t = String(text ?? '').trim();
       const att = app.attach;
@@ -322,7 +323,7 @@ export function createApp(opts = {}) {
           return;
         }
         const files = items.length ? await att.upload(base, app.sel, place) : undefined;
-        await app.session.send(t, files);
+        await app.session.send(t, files, opts);
         clear(); att.clear(place);
       } catch (e) {
         app.fail(e);

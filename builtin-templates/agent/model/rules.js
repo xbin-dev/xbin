@@ -261,7 +261,7 @@ export function modelPicker(v, homePick, catalog) {
   return {
     value, options,
     groups: provs.length > 1 ? provs.map((p) => ({ path: p, label: providerName(p) })) : [],
-    shown: data.length > 0 || !!value,
+    shown: (data.length > 0 || !!value) && !(v && v.run.engine === 'harness'), // a coding agent's model is its option (#hctl)
     disabled: !!v && !access(v).talk,
     title: v ? 'the model this conversation uses from its next turn' : 'the model for your next new chat',
   };

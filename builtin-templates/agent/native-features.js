@@ -71,7 +71,7 @@ export const IMPLEMENTS = {
 
   // Composer
   'composer.text': 'native/chat.js — composer',
-  'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer)',
+  'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer); native/harness-ask.js — composer, a coding agent\'s (model/harness-ask.js steerWords)',
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
   'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; ＋ New and Manage… push the Sandboxes screens)',
@@ -197,4 +197,13 @@ export const IMPLEMENTS = {
   'harness.plan': 'native/harness-cards.js — badgeTpl (the toolbar\'s 📋 N/M), progressScreen: the plan primitive (⋯ → Progress)',
   'harness.usage': 'native/harness-cards.js — badgeTpl (the toolbar), progressScreen',
   'harness.files': 'native/harness-cards.js — progressScreen',
+  // Coding agents — asking and controls
+  'harness.permission': 'native/harness-ask.js — approvalTpl through ext.end: approval with the harness\'s options, the rule as its note, feedback; a diff preview; a bypass option confirmed by a second approval',
+  'harness.planApproval': 'native/harness-ask.js — approvalTpl: the plan as markdown, the approval with feedback',
+  'harness.question': 'native/harness-ask.js — questionTpl: question with the schema (model/harness-ask.js nativeSchema: a multiple choice as a yes/no per choice); url mode: the page as a markdown link, then Submit',
+  'harness.mode': 'native/harness-ask.js — controlsTpl: the Mode menu in the toolbar (a bypass mode confirmed, the owner\'s only)',
+  'harness.options': 'native/harness-ask.js — controlsTpl: the model option as the toolbar\'s Model picker, the others in the Mode menu (a phone\'s bar holds only so much); model/rules.js modelPicker hides the built-in Model picker',
+  'harness.slash': 'native/harness-ask.js — composer slash',
+  'harness.steer': 'native/harness-ask.js — composer: Send now (interrupts), the steered chip; native/chat.js — the queued chips\' label',
+  'harness.autonomy': 'native/harness-ask.js — the home toolbar\'s Coding agents → settingsScreen; the Mode menu (your setting for new ones)',
 };

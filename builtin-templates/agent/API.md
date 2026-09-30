@@ -1778,6 +1778,7 @@ the same model.
 | `harness.js`, `harness-heads.js`, `harness-store.js` | coding harnesses (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — being built; their routes are documented here when the backend serves them): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
 | `harness-manage.js` | the Coding agents catalog as the managers' view says it (`catalogRows`, `modesWords`, `probeTargets`); the class editor's toolset and checklist are `classes.js`'s (`harnessNames`, `harnessWhy`) |
 | `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
+| `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 
@@ -1817,6 +1818,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
 | `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, the toolbar's plan/usage badge and the Progress screen (`plan`) |
+| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); at home, Coding agents → your setting per harness |
 
 **Seams.** A feature can land as a module of its own instead of edits to the
 views' hot files: it registers hooks on a view's seams when imported —
@@ -1850,6 +1852,31 @@ whose Task is paged out shows flat, marked ↳. The top bar (native: a
 toolbar badge, and ⋯ → Progress) carries the context in use and the cost,
 what the conversation changed (`counts`), and the 📋 plan, pinned under the
 task (unfolding to its entries); all follow the `harness` stream event.
+
+**A coding agent asking and driven** (`harness-ask.js` and
+`harness-controls.js` on the web, `native/harness-ask.js`; the words
+`model/harness-ask.js`). Its park (`pendingState.harness`) is drawn at the
+end of the chat — the `end` seam, only for a permission or a question: the
+harness's own options as buttons, reject first when it defaults to no; an
+option with `explicit` (it raises the session to a bypass mode) only for the
+conversation's owner, a person, marked ⚠ and confirmed; the call's title,
+command and a diff preview; what `allow_always` would remember; an optional
+word sent with a rejection (`POST /runs/{id}/approve {park, option,
+feedback?}`). A plan approval shows the plan and a "keep planning" box (the
+feedback of its rejection). A question is a form from its schema (Submit:
+`POST /runs/{id}/harness/answer {park, action: "accept", content}`; Skip:
+`decline`); url mode shows the page, then Done. The web's `#hctl` (beside
+the attach clip) switches the live mode and config options (`PATCH
+/runs/{id}/harness {mode}` / `{option: {id, value}}`; a bypass mode ⚠, the
+owner's only, confirmed) and holds your Auto / Always approve for the
+harness (`PUT /prefs/harness-mode/{id}`) — at home, for the harness that
+answers new chats; the built-in model picker hides in a harness
+conversation. Typing `/` offers its advertised commands. While a turn runs
+the placeholder says whether a message steers it or waits for it, the
+queued chips say so too, a message steered into the turn is said for a
+moment, and ⌘/Ctrl+Enter sends it with `interrupt: true` (`app.send(text,
+clear, {interrupt: true})`; the native composer's Send now). Native: the
+toolbar's Mode menu (the options but the model too) and Model picker, Coding agents at home.
 
 **Customising an instance.** A persona or domain changes `HOME` in
 `model/home.js`. The web files keep their names, and the modules that moved

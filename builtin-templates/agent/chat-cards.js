@@ -268,10 +268,12 @@ export function sessionTpl(s, ui, win) {
   `;
 }
 
-// queueTpl is the strip of queued messages above the composer.
-export function queueTpl(queued, remove) {
+// queueTpl is the strip of queued messages above the composer; words
+// ({label, title}) say what happens to them otherwise (a coding harness's:
+// model/harness-ask.js steerWords).
+export function queueTpl(queued, remove, words = null) {
   if (!queued || !queued.length) return nothing;
-  return html`${queued.map((q) => html`<span class="qchip" title="queued — delivered at the agent's next step">
-    <span class="ql">queued</span><span class="qt">${q.text || '(files)'}</span>
+  return html`${queued.map((q) => html`<span class="qchip" title=${(words && words.title) || "queued — delivered at the agent's next step"}>
+    <span class="ql">${(words && words.label) || 'queued'}</span><span class="qt">${q.text || '(files)'}</span>
     <button title="take it back" @click=${() => remove(q.id)}>✕</button></span>`)}`;
 }
