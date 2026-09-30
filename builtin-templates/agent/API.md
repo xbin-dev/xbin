@@ -1775,7 +1775,9 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   the view's `drafts`) and lands as assistant rows (thinking in
   `reasoning`). **Each call it makes is one assistant row and one tool
   row:** `toolCalls: [{id: "h<gen>:<id>", function: {name: "acp:<kind>",
-  arguments}}]` (`kind`: `read`, `edit`, `delete`, `move`, `search`,
+  arguments}}]` (an agent that uses an id again for a new call once the
+  earlier one ended gets `h<gen>:<id>#<n>` for its n-th — the earlier
+  call's rows stay as they were; `kind`: `read`, `edit`, `delete`, `move`, `search`,
   `execute`, `think`, `fetch`, `switch_mode`, `other`; `arguments`: the
   call's input plus `summary`), the tool row `(running…)` until the call
   ends, then its result (an edit's `edited <path> (+a −d)`, a command's

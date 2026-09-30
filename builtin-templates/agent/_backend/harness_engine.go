@@ -73,6 +73,9 @@ type hsess struct {
 	act     hActivity
 	lastSum string // the harness event last published
 
+	reuseMu sync.Mutex
+	reuse   map[string]int // an adapter's call id used again for a new call → its count (sid)
+
 	inflight  *heldPrompt       // the prompt of the turn in flight (a sign-in holds it)
 	detached  bool              // the adapter runs a turn of its own (harness_steer.go)
 	quiet     *time.Timer       // ends a detached turn once the adapter goes quiet
@@ -94,7 +97,8 @@ type hsess struct {
 func newHsess(e *Engine, run *Run, gen int, epoch int64, prov acp.Provider) *hsess {
 	return &hsess{e: e, run: run.ID, root: rootOf(run), parent: run.ParentID, gen: gen, epoch: epoch, prov: prov,
 		perms: acp.NewPermissions(), done: make(chan struct{}), calls: map[string]*hcall{}, dirty: map[string]bool{},
-		act: hActivity{Kind: "idle", At: nowMs()}, abandoned: map[string]string{}, checked: time.Now(), fresh: true}
+		act: hActivity{Kind: "idle", At: nowMs()}, abandoned: map[string]string{}, checked: time.Now(), fresh: true,
+		reuse: e.db.harnessReuse(run.ID, gen)}
 }
 
 // hsDraft is the unflushed draft: the run's own text and thinking, and a

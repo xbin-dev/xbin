@@ -411,3 +411,50 @@ func TestHarnessDetachedTurn(t *testing.T) {
 		t.Fatalf("the detached turn's answer: %s", transcript(ag.db, run.ID))
 	}
 }
+
+// An adapter that uses a call id again for a new call once the earlier one
+// ended (acptest's "perm" is t1 every turn) gets a card of its own: the
+// first call keeps its rows and its result, the new one is "h<gen>:t1#2" —
+// and a successor (a handoff) keeps counting from what is stored.
+func TestHarnessReusedCallID(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false)
+	run := askHarness(t, mux, box, "perm")
+	p := parkOf(t, ag, run.ID, "approval")
+	if p.Harness.CallID != "h1:t1" {
+		t.Fatalf("the first call's park: %q", p.Harness.CallID)
+	}
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", run.ID), map[string]any{"option": "once", "park": p.Park}); w.Code != 200 {
+		t.Fatalf("approve: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the first turn", func() bool { return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "listed") })
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/message", run.ID), map[string]any{"text": "perm again"}); w.Code != 200 {
+		t.Fatalf("message: %d %s", w.Code, w.Body)
+	}
+	p2 := parkOf(t, ag, run.ID, "approval")
+	if p2.Harness.CallID != "h1:t1#2" {
+		t.Fatalf("the second call's park: %q", p2.Harness.CallID)
+	}
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", run.ID), map[string]any{"option": "no", "park": p2.Park}); w.Code != 200 {
+		t.Fatalf("reject: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the second turn", func() bool { return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "denied") })
+	tools := map[string]map[string]any{}
+	for _, m := range msgsOf(viewOf(t, mux, run.ID)) {
+		if m["role"] == "tool" {
+			tools[m["toolCallId"].(string)] = m
+		}
+	}
+	first, second := tools["h1:t1"], tools["h1:t1#2"]
+	if first == nil || second == nil || len(tools) != 2 {
+		t.Fatalf("two tool rows, one per call: %v", tools)
+	}
+	if first["content"] != "a.txt b.txt" || first["acp"].(map[string]any)["status"] != "completed" {
+		t.Fatalf("the first call kept its result: %v", first)
+	}
+	if second["acp"].(map[string]any)["status"] != "failed" {
+		t.Fatalf("the second call is the rejected one: %v", second)
+	}
+	if got := ag.db.harnessReuse(run.ID, 1); got["t1"] != 2 || len(got) != 1 {
+		t.Fatalf("what a successor reads back: %v", got)
+	}
+}

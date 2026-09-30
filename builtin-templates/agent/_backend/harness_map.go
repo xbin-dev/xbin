@@ -21,6 +21,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,12 +68,58 @@ type hToolEv struct {
 	ExitCode    *int            `json:"exitCode"`
 }
 
-// sid is the stored id of an adapter's call id (a respawn may reuse ids).
+// sid is the stored id of an adapter's call id (a respawn may reuse ids):
+// "h<gen>:<id>", and "h<gen>:<id>#<n>" for the n-th call of an adapter that
+// used the id again for a new call once the earlier one had ended (ACP says
+// an id is unique in a session; a scripted agent reuses its ids from turn
+// to turn — see onTool).
 func (s *hsess) sid(id string) string {
 	if id == "" {
 		return ""
 	}
+	s.reuseMu.Lock()
+	n := s.reuse[id]
+	s.reuseMu.Unlock()
+	if n > 1 {
+		return fmt.Sprintf("h%d:%s#%d", s.gen, id, n)
+	}
 	return fmt.Sprintf("h%d:%s", s.gen, id)
+}
+
+// reused notes a new call under an id an ended call of this generation
+// had: from now on the id is its n-th call.
+func (s *hsess) reused(id string) {
+	s.reuseMu.Lock()
+	if s.reuse == nil {
+		s.reuse = map[string]int{}
+	}
+	s.reuse[id] = max(s.reuse[id], 1) + 1
+	s.reuseMu.Unlock()
+}
+
+// harnessReuse is what sid needs to know of a generation's reused ids after
+// a handoff: the highest n of each "h<gen>:<id>#<n>" stored in run.
+func (d *DB) harnessReuse(run int64, gen int) map[string]int {
+	out := map[string]int{}
+	pre := fmt.Sprintf("h%d:", gen)
+	rows, err := d.q.Query(`SELECT tool_call_id FROM messages WHERE run_id=? AND role='tool' AND tool_call_id LIKE ? ESCAPE '\'`,
+		run, strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(pre)+"%#%")
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) != nil {
+			continue
+		}
+		rest := strings.TrimPrefix(id, pre)
+		i := strings.LastIndexByte(rest, '#') // (an adapter's id may hold a # of its own)
+		if n, err := strconv.Atoi(rest[i+1:]); i > 0 && err == nil && n > out[rest[:i]] {
+			out[rest[:i]] = n
+		}
+	}
+	return out
 }
 
 // apply is one event, in the adapter's order.
@@ -340,6 +387,12 @@ func (s *hsess) onTool(ev acp.Event) {
 	var keys map[string]json.RawMessage
 	_ = json.Unmarshal(ev.Data, &keys)
 	c := s.call(d.ID)
+	if c != nil && ev.Type == acp.EvToolCall && terminal(c.meta.Status) {
+		// a new call under the id of one that ended: its own rows, not a
+		// rewrite of the earlier call's card
+		s.reused(d.ID)
+		c = nil
+	}
 	if c == nil {
 		s.newCall(ev, d)
 		return
