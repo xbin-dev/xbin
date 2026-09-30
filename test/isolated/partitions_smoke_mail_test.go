@@ -9,8 +9,9 @@ package isolated
 // person's partition alone; a person's partition mails global; a partition
 // can't mail another person, admins and the root token can't mail or read;
 // mail never starts a person's first instance, survives a restart of xbind,
-// and rings at the partition's first start. Records:
-// plans/partitions/records/F6.md.
+// and rings at the partition's first start; GET /partitions lists
+// partition-mail/1 and each inbox's counts, never a content. Records:
+// plans/partitions/records/F6.md, W3a-wire.md.
 //
 //	set -a; eval "$(sed -n 's/^export \([A-Z_]*\) := \(.*\)$/\1=\2/p' .dev.mk | grep -v ^PATH)"; set +a
 //	go test -tags=integration -count=1 -v -run '^TestPartitionsSmokeMail$' ./test/isolated/
@@ -22,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +201,38 @@ func TestPartitionsSmokeMail(t *testing.T) {
 		d.Must(t, "GET", "/api/xbin/partitions/mail", nil, 200, e.fr(t, pmTile, "alice")).Decode(t, &pg)
 		if len(pg.Items) != 0 {
 			t.Errorf("alice's inbox after her handler acked: %s", pg.Items)
+		}
+	})
+
+	t.Run("listing", func(t *testing.T) {
+		// W3a: GET /partitions says mail is served and carries each
+		// inbox's counts — alice's own row, and every row for an admin —
+		// never a content
+		type row struct {
+			User string `json:"user"`
+			Mail *struct {
+				Pending int   `json:"pending"`
+				Bytes   int64 `json:"bytes"`
+			} `json:"mail"`
+		}
+		type listing struct {
+			Features   []string `json:"features"`
+			Partitions []row    `json:"partitions"`
+		}
+		for name, hdrs := range map[string][]xbindtest.Header{"alice": e.as("alice"), "carol (admin)": e.as("carol")} {
+			r := d.Must(t, "GET", "/api/xbin/partitions?tile="+pmTile, nil, 200, hdrs...)
+			var out listing
+			r.Decode(t, &out)
+			if !slices.Contains(out.Features, "partition-mail/1") {
+				t.Errorf("%s: features %q without partition-mail/1", name, out.Features)
+			}
+			i := slices.IndexFunc(out.Partitions, func(p row) bool { return p.User == "alice" })
+			if i < 0 || out.Partitions[i].Mail == nil || out.Partitions[i].Mail.Pending != 0 {
+				t.Errorf("%s: alice's row's mail counts (her handler acked her item): %s", name, cut(string(r.Body), 600))
+			}
+			if s := string(r.Body); strings.Contains(s, "for-alice-7c1e") || strings.Contains(s, "alice-says-hi") {
+				t.Errorf("BUG: %s's listing carries mail content: %s", name, cut(s, 600))
+			}
 		}
 	})
 

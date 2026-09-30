@@ -3053,7 +3053,8 @@ GET    /partitions                 anyone; what it answers depends on who
                                    "consents/1", "personal-binds/1",
                                    "global-address/1", "partition-ops/1",
                                    "log-share/1", "credential-confirm/1",
-                                   …] (what this xbind serves; a 404 is an
+                                   "partition-mail/1", …] (what this xbind
+                                   serves; a 404 is an
                                    xbind without partitions), policies?:
                                    {partitionConsent,
                                    credentialResetConfirm} (people and

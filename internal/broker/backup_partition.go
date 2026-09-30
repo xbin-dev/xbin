@@ -345,12 +345,13 @@ func (b *Broker) writePartitionRecords(bw *backup.Writer, tile string, a archive
 // ---- erasing one person's partition's backups ----
 
 // ErasePartitionBackups crypto-erases person pkey's partition of deployment
-// dep of tile in every backup: its part: key (11 §3). It is the partitions
-// API's reset and purge's (F7b), once the partition's data is gone. It
-// takes tile's backup lock; a caller deleting the data should hold it
-// across the delete and the erase — holdBackups(tile), delete,
+// dep of tile in every backup: its part: key (11 §3), once the partition's
+// data is gone. It takes tile's backup lock; a caller deleting the data
+// holds it across the delete and the erase — holdBackups(tile), delete,
 // erasePartitionBackupsHeld, release — so no backup archives the partition
-// in between. It answers how many keys it erased and what the archiver did.
+// in between, as the partitions API's reset and purge and the records'
+// sweep do (dropOnePartition, partitiondrop.go). It answers how many keys
+// it erased and what the archiver did.
 func (b *Broker) ErasePartitionBackups(tile, dep, pkey, reason, by string) (int, string, error) {
 	defer b.holdBackups(tile)()
 	return b.erasePartitionBackupsHeld([]string{tile}, dep, pkey, reason, by)

@@ -17,7 +17,7 @@ func partitionOpsEndpoints() []ep {
 	}
 	return []ep{
 		{"GET", "/partitions", partModeTag, "Partitioned tiles and their people's partitions", "any caller; what it lists depends on who asks",
-			"features: what this xbind's partitions API serves (partitions/1, mode-switch/1, consents/1, personal-binds/1, global-address/1, partition-ops/1, log-share/1, credential-confirm/1, …) — a 404 means an xbind without partitions. " +
+			"features: what this xbind's partitions API serves (partitions/1, mode-switch/1, consents/1, personal-binds/1, global-address/1, partition-ops/1, log-share/1, credential-confirm/1, partition-mail/1, …) — a 404 means an xbind without partitions. " +
 				"policies (partitionConsent, credentialResetConfirm) for people and admins, never tile code. " +
 				"With tile (one the caller can read): state (partitioned|unpartitioned|pending|invalid), spec {user, global}, request {spec, since, declined} | null, limits {maxRunning, partitionBytes}, reviewedOnly {on, by?, at?, unprotected?}; " +
 				"partitions: the caller's own row (state active|dormant, running, instance {tile, deployment, partition, state, gen, uptimeSec, rssKb, restarts, error?, errorClass?}, lastStarted, bytes, registrations counts, logShare, ledger totals, mail? {pending, bytes, expired, undeliverable?}: their inbox's counts) — for admins every person's metadata row (never content, key names, log lines or mail: its counts only; instance.errorClass, never the error's text), with orphaned ones; bytes are measured at most once a minute; " +

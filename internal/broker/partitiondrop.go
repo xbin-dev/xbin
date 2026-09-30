@@ -27,9 +27,10 @@ import (
 // ---- drop hooks: the planes that keep a partition's data beside these ----
 
 // partitionDropHook is one plane's part of deleting one user partition
-// whole (a reset, a purge, the orphan sweep): a plane registered after this
-// pack (F6's mail) deletes its own store of (tile, dep, pkey) here — called
-// once for each deployment the partition has data in. The partition's
+// whole (a reset, a purge, the orphan sweep): a later plane deletes its own
+// store of (tile, dep, pkey) here — called once for each deployment the
+// partition has data in. (F6's mail needs none: DropPartition drops the
+// person's inbox.) The partition's
 // instance and terminals are stopped, its new sessions refused, and the
 // tile's backups held, when it runs. The backup keys are dropOnePartition's
 // to erase, after every hook succeeded.
