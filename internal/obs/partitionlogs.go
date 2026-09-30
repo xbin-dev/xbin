@@ -66,6 +66,13 @@ func (o *Plane) partitionLogs(w http.ResponseWriter, r *http.Request, p auth.Pri
 	sub := strings.TrimSuffix(strings.TrimPrefix(dir, ".xbin/partition/"), "/")
 	root := filepath.Join(o.Root, ".xbin", "partition")
 	open := func() (*os.File, error) { return fsutil.OpenIn(root, sub, file) } // never through a symlink
-	o.streamLog(w, r, open, r.URL.Query().Get("follow") == "1", tail, map[string]string{partitionHeader: string(part)})
+	// a follow keeps asking: the same log, still this reader's (a share that
+	// ends or is revoked, a person disabled, a reset, end the stream)
+	q := r.URL.Query()
+	still := func() bool {
+		again, againPart, on, _, err := o.PartitionLog(p, comp, q)
+		return on && err == nil && again == rel && againPart == part
+	}
+	o.streamLog(w, r, open, q.Get("follow") == "1", tail, map[string]string{partitionHeader: string(part)}, still)
 	return true
 }
