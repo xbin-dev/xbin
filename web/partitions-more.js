@@ -48,11 +48,12 @@ export function consentsSection(host, m) {
 }
 
 function askedCard(host, a, off) {
-  const key = `consent:${a.from}→${a.to}`, st = host.ui(key);
+  // its own UI key: the consent's row (consentTable) shows Take back, not this Allow's answer
+  const key = `asked:${a.from}→${a.to}`, st = host.ui(key);
   return html`<div class="card attn" data-asked="${a.from}→${a.to}">
     <p><code>${a.from}</code> asks for your <code>${a.to}</code> data <span class="muted small">(refused ${timeText(a.at)}; asked once a day at most)</span></p>
     ${st.done ? nothing : html`<div class="acts"><button class="primary" data-act="allow-asked" ?disabled=${off || !!st.busy}
-      @click=${() => host.consent(a.from, a.to, true)}>${st.busy ? 'Allowing…' : 'Allow'}</button>
+      @click=${() => host.consent(a.from, a.to, true, key)}>${st.busy ? 'Allowing…' : 'Allow'}</button>
       <span class="muted small">or ignore it: its calls stay refused</span></div>`}
     ${said(st)}
   </div>`;

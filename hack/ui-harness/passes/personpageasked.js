@@ -98,10 +98,10 @@ async function personPageAsked(browser) {
     check(r.text.includes('keys'), `the read goes through (${r.status} ${r.text})`);
 
     // ---- taken back: refused again, and the answered ask stays answered ----
-    // (the row shows the Allow's answer where Take back goes until the page
-    // reads its model again: the asked card and the row share a UI key)
-    await pg.reload();
+    // (the new row offers Take back at once — no reload: the asked card
+    // keeps its own UI key, W5-wire)
     await row.locator('button[data-act="revoke"]').waitFor({ timeout: 15000 });
+    check(!(await row.innerText()).includes('Allowed:'), 'the new row offers Take back, not the Allow\'s answer');
     await row.locator('button[data-act="revoke"]').click();
     await until(async () => (await row.count()) === 0, 'the consent taken back');
     r = await until(async () => { const x = await read(D.page); return x.status === 403 && x; }, `${A}'s read refused again`);
