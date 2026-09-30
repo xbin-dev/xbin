@@ -272,26 +272,36 @@ func harnessSummary(d *DB, r *Run) map[string]any {
 	return out
 }
 
-// harnessModes is the summary's mode: the session's modes (else the
-// catalog's), `explicit` from the catalog.
+// harnessModes is the summary's mode: the session's modes, else its config
+// option of category mode (an adapter that speaks its modes only as one —
+// opencode's build/plan agents: the mode picker covers it, §4.2.4), else
+// the catalog's; `explicit` from the catalog.
 func harnessModes(prov acp.Provider, st acp.SessionState, want string) map[string]any {
 	explicit := map[string]bool{}
 	for _, m := range prov.Modes {
 		explicit[m.ID] = m.Explicit
 	}
 	var avail []map[string]any
+	add := func(id, name, desc string) {
+		e := map[string]any{"id": id, "name": orStr(name, id)}
+		if desc != "" {
+			e["description"] = desc
+		}
+		if explicit[id] {
+			e["explicit"] = true
+		}
+		avail = append(avail, e)
+	}
 	cur := want
 	if st.Modes != nil && len(st.Modes.AvailableModes) > 0 {
 		cur = orStr(st.Modes.CurrentModeID, want)
 		for _, m := range st.Modes.AvailableModes {
-			e := map[string]any{"id": m.ID, "name": m.Name}
-			if m.Description != "" {
-				e["description"] = m.Description
-			}
-			if explicit[m.ID] {
-				e["explicit"] = true
-			}
-			avail = append(avail, e)
+			add(m.ID, m.Name, m.Description)
+		}
+	} else if o := modeOption(st.Options); o != nil {
+		cur = orStr(o.CurrentValue, want)
+		for _, v := range o.Options {
+			add(v.Value, v.Name, v.Description)
 		}
 	} else {
 		for _, m := range prov.Modes {
@@ -306,6 +316,16 @@ func harnessModes(prov acp.Provider, st acp.SessionState, want string) map[strin
 		avail = []map[string]any{}
 	}
 	return map[string]any{"current": orStr(cur, prov.DefaultMode), "available": avail}
+}
+
+// modeOption is the adapter's config option of category mode, if any.
+func modeOption(opts []acp.ConfigOption) *acp.ConfigOption {
+	for i := range opts {
+		if opts[i].Category == "mode" && len(opts[i].Options) > 0 {
+			return &opts[i]
+		}
+	}
+	return nil
 }
 
 // harnessOptionsView is the adapter's config options but a mode one (the

@@ -1790,10 +1790,12 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   plan?, activity?: {kind: idle | thinking | writing | tool | waiting,
   title?, at}, counts: {tools, files, add, del}, pending?: {park, kind,
   title}, login?, sandbox: {ref, name, cwd, shared}, steering, title,
-  gen}`; the stream's **`harness`** event (`data`: the whole object,
-  coalesced per run) says when it changes between run events. The
-  conversation's title follows the coding agent's own while it is the first
-  message clipped. An agent-loop run has no `harness`.
+  gen}`; `mode` is the coding agent's session modes, else its config
+  option of category `mode` (opencode speaks its build/plan agents only
+  that way), else the catalog's. The stream's **`harness`** event (`data`:
+  the whole object, coalesced per run) says when it changes between run
+  events. The conversation's title follows the coding agent's own while it
+  is the first message clipped. An agent-loop run has no `harness`.
 - **Waiting for you.** A permission request parks the run (`waiting_input`,
   the call's row `(awaiting your approval)`): `pendingState: {kind:
   "approval", park, toolCalls, harness: {callId, options: [{optionId,
