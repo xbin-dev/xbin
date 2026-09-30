@@ -84,7 +84,7 @@ func TestBrakeFailsClosed(t *testing.T) {
 func TestBrakeRequests(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	shorten(t, &confTTL, 0)
-	_, h := partAgent(t)
+	ag, h := partAgent(t)
 	do := func(level string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, as("POST", "/ask", `{"text":"hi"}`, alicesFrame(level)))
@@ -94,6 +94,12 @@ func TestBrakeRequests(t *testing.T) {
 	if rec := do("read"); rec.Code/100 != 2 {
 		t.Fatalf("a reader's ask before conf was read: %d %s", rec.Code, rec.Body)
 	}
+	// the queued run's pass reads confIn: let it park before the test swaps it
+	waitFor(t, "the queued run's pass to end", func() bool {
+		ag.eng.mu.Lock()
+		defer ag.eng.mu.Unlock()
+		return len(ag.eng.actors) == 0
+	})
 	confIn = newConfReader(emptyKV{}, nil) // not in uses
 	if rec := do("write"); rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "conf resource") {
 		t.Fatalf("an ask without conf: %d %s", rec.Code, rec.Body)
