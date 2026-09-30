@@ -151,15 +151,17 @@ one-line shell command that signs it in at a terminal). A new manager's
 
 | id | title | argv | login |
 |---|---|---|---|
-| `claude` | Claude Code | `claude-agent-acp` | `claude /login` |
+| `claude` | Claude Code | `claude-agent-acp` | `CLAUDE_CODE_REMOTE=1 claude /login` |
 | `codex` | Codex | `codex-acp` | `codex login --device-auth` |
 | `gemini` | Gemini CLI | `gemini --acp` | `NO_BROWSER=true gemini` |
 | `opencode` | OpenCode | `opencode acp` | `opencode auth login` |
 
 — signing in without a browser in the sandbox (a URL to open and a code to
 paste back, a device code), whose login callback on the sandbox's
-`localhost` a person's browser couldn't reach. A saved config keeps the
-harnesses it was saved with: one saved before them lists none (a consumer
+`localhost` a person's browser couldn't reach (Claude Code signs in that
+way only under `CLAUDE_CODE_REMOTE=1`, as its ACP adapter runs; a manager
+made before 2026-09-30 advertised `claude /login`). A saved config keeps
+the harnesses it was saved with, logins included: one saved before them lists none (a consumer
 then probes for the agents it knows), until an operator adds them. The
 page's image editor keeps an image's harnesses; `PUT /ops/config` sets them.
 
