@@ -68,6 +68,26 @@ func TestPartitionWireSeams(t *testing.T) {
 	if !partitionRunningSeam(b, "apps/pg", "main", pk) || partitionRunningSeam(b, "apps/pu", "main", pk) {
 		t.Error("partitionRunningSeam doesn't ask the runner")
 	}
+	// F10: the identity plane asks the consent records, and counts allowed
+	// edges in the egress ledger; both planes' wipes run last, after every
+	// data store's
+	if _, err := b.editConsents("alice", uid, func(d *consentDoc) bool { d.Edges[consentKey("apps/q", "apps/pg")] = consentEdge{}; return true }); err != nil {
+		t.Fatal(err)
+	}
+	if !partitionConsentHolds(b, "alice", "apps/q", "apps/pg") || partitionConsentHolds(b, "alice", "apps/q", "apps/pu") {
+		t.Error("partitionConsentHolds doesn't ask the consent records (consentOrAsk)")
+	}
+	partitionEdgeSeam(b, "alice", "apps/q", "apps/pg")
+	if docs := b.ledgerDocs(); len(docs) != 1 || docs[0].Tile != "apps/q" || docs[0].User != "alice" {
+		t.Errorf("partitionEdgeSeam counted nothing in the ledger (ledgerEdge): %+v", docs)
+	}
+	var names []string
+	for _, h := range wipeHooks {
+		names = append(names, h.name)
+	}
+	if n := len(names); n < 2 || names[n-2] != "consents" || names[n-1] != "ledgers" || slices.ContainsFunc(wipeHooks[:n-2], func(h wipeHook) bool { return h.meta }) {
+		t.Errorf("the wipe hooks' order %q: the metadata ones (consents, ledgers) go after every data store's", names)
+	}
 }
 
 // covers PD-44 PD-48 S13 01§2.5 — a switch of a partitioned tile that

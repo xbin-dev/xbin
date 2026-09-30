@@ -55,7 +55,7 @@ never from the URL, and never from a header the caller controls:
 |---|---|
 | a person: their session, and the tile's frames, terminals, agent sessions and path tickets they open | **their own** partition, if they can read the tile. A workspace admin too: an admin reaches their own partition, never someone else's |
 | a user partition's backend calling its own tile | its own partition |
-| `user:alice`'s partition of another partitioned tile, holding a grant on this one | `user:alice` of this tile, if alice can read it |
+| `user:alice`'s partition of another partitioned tile, holding a grant on this one | `user:alice` of this tile, if alice can read it — and, when the workspace asks people first, has allowed it ([below](#calls-between-partitioned-tiles)) |
 | any other tile, the root token, a public request through a published endpoint | the **global** instance; without one, 403 (503 for a public request) |
 | xbind's cron and bus deliveries | the partition that registered them |
 | an admin viewing the workspace as a person | no partition: view-as never opens a person's partition. It reaches the global instance only by an explicit call to it ([below](#the-global-instance-and-peoples-partitions)) |
@@ -340,6 +340,69 @@ at global — a user partition's call to it (`user:<id>`, with `X-XBin-From`
 the tile's own path; see above). A tile that isn't partitioned calling in
 sends neither header.
 
+## Calls between partitioned tiles
+
+When a partitioned tile Z holds a grant on another partitioned tile X — a
+call grant or binding, or a `uses` of one of X's per-partition resources —
+alice's partition of Z reaches **alice's** partition of X, never anyone
+else's. It needs three things, checked at every call and data reach:
+
+- the grant, approved as today;
+- alice's read access on X: Z can't create data for alice in a tile she
+  can't open;
+- only when the workspace policy **partitionConsent** is on (the admin
+  console's workspace → policies tab, or `bx policies set partition-consent
+  on`; off by default): alice's own consent for Z → X.
+
+A resource X declares shared (`"shared": true` or `"read"`) is one copy for
+everyone, no person's data: alice's partition of Z reaches it with the
+grant and her read access on X, never her consent, whatever the policy
+says. The approval warning, the prompts and the ledger below leave shared
+resources out too.
+
+**With the policy off** (the default) the grant and read access suffice:
+Z's code — and everyone who can change it — reads and writes the X data of
+every person who can read X. Approving such a grant says so where it is
+approved — the grants panel, the admin console's binding → grants view,
+the organisations tile's pending approvals and `bx grants`
+(`GET /api/xbin/grants`' pending rows carry the `warning`).
+
+**With the policy on**, a call without alice's consent is refused, `403
+alice hasn't let apps/z use their apps/x data`, and alice is asked — a push
+and a `partitions` event to her own sockets (never to X's code), at most
+once a day per edge, and only for an edge an admin approved, so tile code
+can't make people consent ahead of the grant. The push links to the
+partitions page, which isn't served yet (below): she allows it with `bx
+partition consent apps/z apps/x`, from her own sign-in (never tile code:
+`POST /api/xbin/partitions/consents` takes a person's own session, app or
+device only), and takes it back the same way (`--revoke`): the next call
+and data reach are refused, and Z's backend instance of her stops (it
+starts again on its next request, without her consent). A stream that a
+page, terminal or agent session of Z opened as her before the revocation
+lasts until it closes; so does one opened before an admin turned the
+policy on. Consents belong to the person as they are now: someone deleted
+and created again under the same id has none. They name tiles by path: a
+tile that is deleted or moved, or whose partition mode switches, takes
+every consent naming it, so a new tile at its path starts with none.
+Turning the policy off keeps every consent, unused; they apply again when
+it comes back. Before an admin turns it on, the Policies tab shows each
+edge between partitioned tiles and how many people used it in the last 30
+days (`GET /api/xbin/partitions/edges`). A consent record this xbind can't
+read (another schema, a hand edit) counts as no consent and is kept as it
+is: `/alerts` names it to admins, its person can't consent or revoke, and
+switching a tile it may name stops, until an admin fixes or removes it.
+
+**The egress ledger**, in both settings: xbind counts, per person's
+partition and per day, the calls and data reaches into another partitioned
+tile (`edge`) and the calls to tiles that aren't partitioned — or to a
+partitioned tile's deployment beyond its primary, named `<tile>+<name>`
+(`provider`) — counts only, never what was sent. A person reads their own
+(`bx partition ledger`, `GET /api/xbin/partitions/ledger`); a tile's
+writers and managers its totals per target, with every personal tile
+counted as `(a personal tile)`, never by its path; admins each person's
+totals. It keeps 90 days. Switching a tile's partition mode deletes its
+people's ledgers and every consent naming it.
+
 ## How people's partitions run
 
 Each person's partition is **its own backend process**, in its own sandbox:
@@ -518,8 +581,7 @@ and restoring one on another machine needs the exported backup keys.
 - partition mail, `partitionMail`, and the SDK's `Mail`/`Inbox`/`Ack`;
 - personal binds in `XBIN_IFACE_<SLOT>` / `xbin.iface()`, their routes and
   `bx bind --personal`;
-- the workspace policies (per-person consent for cross-tile partition calls;
-  credential resets that wait for the person) and the admin Policies tab;
+- the workspace policy for credential resets that wait for the person;
 - terminals, agent sessions, logs and status on partitioned tiles;
 - the partitions page (`/xbin/partitions`), `bx partition` beyond
   `switch`/`keep`, the admin tile's Partitions section, the shell's marker

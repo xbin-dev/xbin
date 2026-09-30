@@ -372,6 +372,16 @@ var routeClasses = map[string]RouteClass{
 	"GET /agent/history":                          Neutral,
 	"GET /agent/history/{id}/events":              Neutral,
 	"DELETE /agent/history/{id}":                  Neutral,
+
+	// ---- cross-tile partition edges (plans/partitions 05 §2, 06 §6.1): a
+	// person's own consents and ledger — people are bound to no deployment,
+	// and the handlers refuse every tile credential — and the admin's view
+	// of the edges ----
+	"GET /partitions/consents":    PrimaryOnly,
+	"POST /partitions/consents":   PrimaryOnly,
+	"DELETE /partitions/consents": PrimaryOnly,
+	"GET /partitions/ledger":      PrimaryOnly,
+	"GET /partitions/edges":       PrimaryOnly,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

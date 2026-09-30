@@ -1181,7 +1181,12 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    partition-invalid (warn, tile): the
                                    tile's partition request can't run (or
                                    its mode record can't be read), so its
-                                   primary doesn't — same audience
+                                   primary doesn't — same audience. Kind
+                                   partition-consents (warn, admins only):
+                                   person consent records in
+                                   data/partitions/consents this xbind
+                                   can't read (each named; POST /partitions/
+                                   consents)
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin,suspended?,via?,viaGroups?}]
@@ -2348,9 +2353,15 @@ GET    /grants                     admin — full table {grants, pending}.
                                    {grants: [{from,target,role,approvedBy?,
                                    approvedAt?,direction?}], pending:
                                    [{from,target,role,blocked?,approvable?,
-                                   direction?,approvers?}], scope:
+                                   direction?,approvers?,warning?}], scope:
                                    "org"|"mine"} — blocked names the policy
                                    row that makes a request unapprovable;
+                                   warning, on a partitioned tile's request
+                                   on another partitioned tile's people's
+                                   data, says whose data its code will reach
+                                   ("…of every person who can read <x>", or
+                                   "…who allows it" with partitionConsent
+                                   on; docs/partitions.md);
                                    approvers hints who could (["org:<id>",
                                    "workspace-admin"], plus
                                    "transfer:org:<id>" when transferring a
@@ -2711,6 +2722,81 @@ POST   /partitions/mode            a tile manager (the tile's user-owner, an
                                    tile every 15 minutes), and every mode
                                    change reloads the tile's frames (event
                                    reload).
+
+GET    /partitions/consents        a person's own session, app or device
+                                   (PersonOnly: tile code — frames,
+                                   instances, terminals, agent sessions —,
+                                   view-as and the root token 403). →
+                                   {policy: {partitionConsent}, consents:
+                                   [{from, to, at, via}], asked: [{from, to,
+                                   at}]}: the person's consents to
+                                   cross-tile partition edges (kept while
+                                   the policy is off; they apply again when
+                                   it returns) and the edges they were asked
+                                   about in the last day and haven't allowed
+                                   (docs/partitions.md §Calls between
+                                   partitioned tiles)
+POST   /partitions/consents        PersonOnly, as above. {from, to}: let
+                                   partitioned tile from use the person's
+                                   data in partitioned tile to. Only while
+                                   the workspace policy partitionConsent is
+                                   on (else 409); both tiles partitioned
+                                   (409), existing (404) and readable by the
+                                   person (403); a path holding "→" 400.
+                                   Kept in
+                                   data/partitions/consents/<uid>.json (a
+                                   person recreated under the same id
+                                   inherits none; a tile deleted, moved or
+                                   switching mode takes every consent
+                                   naming it). A record this xbind can't
+                                   read is kept as it is: 409 (/alerts kind
+                                   partition-consents). → the GET view;
+                                   audited; publishes `partitions` op
+                                   consent
+DELETE /partitions/consents        PersonOnly, as above; either setting.
+                                   {from, to} (body, or ?from=&to=): take a
+                                   consent back. With the policy on, the
+                                   next call and data reach are refused, and
+                                   from's backend instance of the person
+                                   stops (it starts again on the next
+                                   request; a proxied stream a page,
+                                   terminal or agent session of from opened
+                                   before lasts until it closes). → the GET
+                                   view plus revoked: whether there was a
+                                   consent to take back; audited; 409 as
+                                   for POST
+GET    /partitions/ledger          PersonOnly, as above. ?tile= ?days=1-90
+                                   (30). The egress ledger (counts per day,
+                                   never contents): kind edge — an allowed
+                                   call or data reach into the same person's
+                                   partition of another partitioned tile —,
+                                   provider — a call to a tile that isn't
+                                   partitioned (a global or a personal
+                                   bind), or to a partitioned tile's
+                                   deployment beyond its primary, target
+                                   <tile>+<name> —, bus and trigger (a
+                                   shared resource's reach isn't counted).
+                                   → {days, rows:
+                                   [{tile, day, kind, target, count}] (the
+                                   person's own), totals?: [{kind, target,
+                                   count, people}] (with tile: the tile's
+                                   writers, managers and admins; for all but
+                                   admins every personal tile's target is
+                                   "(a personal tile)"), people?:
+                                   [{user, tile, kind, target, count}]
+                                   (admins)}. Kept 90 days in
+                                   data/partitions/<tile-key>/<dep>/<pkey>/
+                                   ledger.json; both consent settings
+GET    /partitions/edges           admin. ?days=1-90 (30). → {days, policy:
+                                   {partitionConsent}, edges: [{from, to,
+                                   granted, people, calls, consented}]}: the
+                                   edges from a partitioned tile into
+                                   another's people's data — granted now, or
+                                   counted in people's ledgers in the window
+                                   — with how many people used and allowed
+                                   each: what turning partitionConsent on
+                                   starts asking about (the admin tile's
+                                   Policies tab shows it first)
 
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
@@ -3840,7 +3926,8 @@ title, body, link, collapseId}`; the relay forwards the envelope `{v:1, epk,
 n, ct}` inside a generic "New activity" alert and the app's extension shows
 the real text (the exact format and test vectors: native/spec/push.md in
 the repository). `link` is relative to the workspace: `c/<tile>/…` for a
-tile, `agent/<session>` for an agent session.
+tile, `agent/<session>` for an agent session, `xbin/<page>` for one of
+xbind's own pages.
 
 Sources: `POST /notify` (kind `tile` or `tile.<kind>`), and the agent
 sessions of the device's user — a `permission.request` (`agent.permission`)
@@ -3850,7 +3937,13 @@ partition notices: a tile's partition mode switch request to its managers
 (`tile.partition-switch`, collapse per tile, at most one per tile every
 15 minutes) and, after a switch, to each
 person whose partition was deleted (`tile.partition-deleted`), both linking
-`c/<tile>/`, spending the person's budget and ignoring tile mutes. Limits (token
+`c/<tile>/`, and — with the workspace policy partitionConsent on — to a
+person whose data in a partitioned tile another one's call was refused for
+want of their consent (`tile.partition-consent`, at most one a day per
+edge, collapse `partition-consent:<from>→<to>`, linking `xbin/partitions`:
+the partitions page, not served yet — an app that doesn't know the link
+opens the workspace), all spending the person's budget and ignoring tile
+mutes. Limits (token
 buckets): 120/hour per tile (burst 20) — a tile's frontend and terminals
 have a bucket per tile and person, apart from its backend's; 240/hour per
 user from all tiles together (burst 40); agent sessions have their own
@@ -5342,6 +5435,10 @@ required). JSON text frames:
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
 {"type":"native"}                                    // the native-runtime switch changed (D101): re-read whoami (native.runtime)
 {"type":"policies"}                                  // a workspace policy changed (PD-55): re-read GET /workspace-policies
+{"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets (never apps/x's frames,
+ "data":{"op":"consent-needed","from":"apps/z","to":"apps/x"}}     //   terminals or instance): apps/z's call into their apps/x data was refused (partitionConsent on; once a day)
+{"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets, likewise: their consent changed
+ "data":{"op":"consent","from":"apps/z","to":"apps/x","allowed":true}} //   (POST/DELETE /partitions/consents)
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}

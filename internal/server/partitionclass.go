@@ -474,6 +474,15 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /partitions/limits": PartitionNeutral,
 	"POST /partitions/mode":   GlobalOnlyRefused,
 
+	// ---- cross-tile partition edges (05 §2, 06 §6.1): a person's consents
+	// and egress ledger are their own acts and reads — never tile code's —
+	// and the edges between partitioned tiles are the admins' ----
+	"GET /partitions/consents":    PersonOnly,
+	"POST /partitions/consents":   PersonOnly,
+	"DELETE /partitions/consents": PersonOnly,
+	"GET /partitions/ledger":      PersonOnly,
+	"GET /partitions/edges":       GlobalOnlyRefused,
+
 	// ---- reads of workspace facts ----
 	"GET /whoami":               PartitionNeutral,
 	"GET /status":               PartitionNeutral,

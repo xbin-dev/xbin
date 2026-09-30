@@ -57,7 +57,7 @@ All under `/api/xbin`, gated by owner-or-`xbin:admin` unless
 `/permission-sets`, `/net-sets`, `/vaults`, `/vault/<c>/<k>`,
 `/vault-status`, `/vault-seal`, `/vault-unseal`, `/vault-rekey`,
 `/grants`, `/bindings`, `/ingress`, `/branding`, `/native-runtime`,
-`/workspace-policies`, `/deployments`, `/deployments/protect`, `/deployments/primary`,
+`/workspace-policies`, `/partitions/edges`, `/deployments`, `/deployments/protect`, `/deployments/primary`,
 `/deployments/deliveries`, `/deployments/always-on`.
 
 ## Tile managers' acts (the deployments tab)

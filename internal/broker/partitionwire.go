@@ -21,7 +21,11 @@ package broker
 //     partition namespaces under the store name "holds data" asks
 //     ("partition-namespaces");
 //   - a new tile at a removed partitioned tile's path never inherits its
-//     mode record or its people's data (pathLeftovers, F13b's open end).
+//     mode record or its people's data (pathLeftovers, F13b's open end);
+//   - the identity plane asks the consent plane (F10: partitionconsent.go)
+//     about a person's consent while partitionConsent is on, and counts
+//     allowed cross-tile edges in the egress ledger (partitionledger.go);
+//     both planes' records go last in a switch's wipe (metadata hooks).
 
 import (
 	"fmt"
@@ -45,6 +49,13 @@ func init() {
 	partitionRunningSeam = func(b *Broker, scope, dep, pkey string) bool { return b.partitionRunning(scope, pkey) }
 	partitionDiskCeilingSeam = func(b *Broker, tile string) int64 { return b.PartitionBytes(tile) }
 	registerWipeHook(wipeHook{name: "partition-namespaces", stop: stopPartitionInstances, wipe: wipePartitionNamespacesHook})
+	// cross-tile edges (F10): consents asked at every call and reach while
+	// partitionConsent is on, the egress ledger counting them, and both
+	// planes' metadata wiped last on a switch
+	partitionConsentHolds = (*Broker).consentOrAsk
+	partitionEdgeSeam = (*Broker).ledgerEdge
+	registerWipeHook(wipeHook{name: "consents", meta: true, wipe: wipeConsentsHook})
+	registerWipeHook(wipeHook{name: "ledgers", meta: true, wipe: wipeLedgersHook})
 }
 
 // partitionRunSlot is the runner's side of people's partitions as the

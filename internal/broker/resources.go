@@ -701,7 +701,11 @@ func (b *Broker) allowAt(p auth.Principal, ra reach, want string) error {
 			return fmt.Errorf("%s needs role %q on %s — declare it in \"uses\" and approve with bx grant", p.Component, want, ra.rt)
 		}
 	}
-	return b.readClamp(p, ra, want)
+	if err := b.readClamp(p, ra, want); err != nil {
+		return err
+	}
+	b.countPartitionReach(p, ra) // the egress ledger (partitionreach.go)
+	return nil
 }
 
 // readClamp refuses a write by a non-primary deployment's principal to data

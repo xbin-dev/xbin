@@ -34,6 +34,7 @@ func (st *State) wirePartitionRunner() {
 	run.PartitionCapsFor = brk.PartitionCaps
 	brk.SetPartitionCapDefaults(run.DefaultPartitionCaps)
 	brk.SetPartitionRunner(run.PartitionRunning, run.StopPartitions, st.Auth.RevokePartitionInstances)
+	brk.SetPartitionEdgeStop(run.StopPartition) // a revoked consent stops the caller's instance of the person
 	st.Reg.OnPartitionChange(func(c *registry.Component, old, new registry.PartitionMode) {
 		run.PartitionsChanged(c, runningSpec(old), runningSpec(new))
 	})
@@ -42,6 +43,7 @@ func (st *State) wirePartitionRunner() {
 			st.Auth.RevokePartitionInstances(c.Path) // 02 §2: none authenticates past the change
 		}
 	})
+	st.Reg.OnPartitionChange(brk.PartitionTileChanged) // a tile that went takes the consents naming it
 }
 
 // runningSpec is the partition spec a tile in mode m runs: its recorded mode

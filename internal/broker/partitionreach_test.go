@@ -78,6 +78,8 @@ func TestPartitionReachTable(t *testing.T) {
 				t.Errorf("%s %s: pkey %q readOnly %v, want %q %v", policy, c.name, ra.pkey, ra.readOnly, c.pkey, c.readOnly)
 			case ra.dep != util.MainDeployment:
 				t.Errorf("%s %s: deployment %q", policy, c.name, ra.dep)
+			default:
+				_ = b.allowAt(c.p, ra, "reader") // an authorized cross-scope reach is counted here
 			}
 		}
 	}
@@ -90,6 +92,14 @@ func TestPartitionReachTable(t *testing.T) {
 	}
 	check("off", off)
 	edgesAre("off", "user:alice apps/agent→apps/docs") // only the allowed cross-scope reach
+	// a reach the grant doesn't allow (apps/agent holds none on box) isn't
+	// counted: the ledger counts after authorization
+	if ra, _, err := b.reachRes(aliceAgent, "res:apps/docs/box"); err != nil || ra.pkey != pk("alice") {
+		t.Fatalf("alice's agent on box: %+v %v", ra, err)
+	} else if err := b.allowAt(aliceAgent, ra, "reader"); err == nil {
+		t.Fatal("apps/agent reached box without a grant")
+	}
+	edgesAre("off, not granted")
 
 	// The policy on: the cross-scope edge needs alice's consent; nothing else
 	// changes.

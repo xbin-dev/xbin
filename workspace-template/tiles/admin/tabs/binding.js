@@ -78,7 +78,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
           <td style="text-align:right">${g.blocked
             ? html`<span class="err-pill" title=${g.blocked}>⛔ blocked by policy</span>`
             : html`<button class="act go" @click=${() => this._grant(g.from, g.target, g.role)}>approve</button>`}</td>
-        </tr>`)}</table>` : nothing}
+        </tr>${g.warning ? html`<tr><td colspan="3" class="warn-line" data-grant-warning=${g.from + ' ' + g.target}>⚠ ${g.warning}</td></tr>` : nothing}`)}</table>` : nothing}
 
       <h4>active grants</h4>
       <table>${grants.length ? grants.map((g) => html`<tr>

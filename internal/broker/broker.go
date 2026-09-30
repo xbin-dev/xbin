@@ -181,6 +181,7 @@ func (b *Broker) Close() {
 	if b.kv != nil {
 		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
+	b.flushLedgers() // counts not yet saved (partitionledger.go)
 }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
@@ -558,6 +559,7 @@ type PendingGrant struct {
 	// entries and/or "workspace-admin" — so a pending request never renders
 	// as a dead end.
 	Approvers []string `json:"approvers,omitempty"`
+	Warning   string   `json:"warning,omitempty"` // a partitioned tile on another's people's data (partitionconsent.go)
 }
 
 // RefreshPending recomputes the pending set and publishes a `grants` event
@@ -604,6 +606,7 @@ func (b *Broker) Pending() []PendingGrant {
 			out = append(out, PendingGrant{
 				Grant:   registry.Grant{From: c.Path, Target: u.Target, Role: u.Role},
 				Blocked: b.ceilingBlockMsg(c.Path, u.Target),
+				Warning: b.partitionGrantWarning(c.Path, u.Target),
 			})
 		}
 	}

@@ -67,6 +67,8 @@ export class BxGrants extends LitElement {
     .ask { color: var(--bx-muted, #868f9a); font-size: 11.5px; white-space: nowrap; }
     .by { color: var(--bx-muted, #868f9a); font-size: 11px; white-space: nowrap; }
     .err { color: var(--bx-red, #ef5350); font-size: 12px; padding: 2px 0; }
+    /* a partitioned tile asking for another's people's data (docs/partitions.md) */
+    .warn { color: var(--bx-amber, #f2a71b); font-size: 11.5px; padding: 0 0 4px 12px; }
   `];
 
   constructor() {
@@ -157,7 +159,8 @@ export class BxGrants extends LitElement {
               : (scoped && !p.approvable)
                 ? html`<span class="ask" title="who can approve this request">ask: ${this._askWho(p) || 'a workspace admin'}</span>`
                 : html`<button @click=${() => this._approve(p)}>approve</button>`}
-          </div>`)}` : nothing}
+          </div>
+          ${p.warning ? html`<div class="warn" data-grant-warning>⚠ ${p.warning}</div>` : nothing}`)}` : nothing}
       ${this._showAll ? html`
         <h4 style="margin-top:.6rem">active grants</h4>
         ${this._grants.map((g) => html`
