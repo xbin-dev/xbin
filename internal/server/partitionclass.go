@@ -279,6 +279,7 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /sandboxes/{name}/execs/{id}/resize":       GlobalOnlyRefused,
 	"POST /sandboxes/{name}/execs/{id}/signal":       GlobalOnlyRefused,
 	"POST /sandboxes/{name}/execs/{id}/stdin":        GlobalOnlyRefused,
+	"GET /sandboxes/{name}/execs/{id}/stdio":         GlobalOnlyRefused,
 	"GET /sandboxes/{name}/files/content":            GlobalOnlyRefused,
 	"PUT /sandboxes/{name}/files/content":            GlobalOnlyRefused,
 	"GET /sandboxes/{name}/files/list":               GlobalOnlyRefused,
