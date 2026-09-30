@@ -677,6 +677,13 @@ questions they raised.
   until B2b and B2c land (the agent's sharing answers 409 in a partition
   until then); an existing agent instance's merge of the template's
   `template` block resolves automatically (W3b).
+- **I15 — coding agents (harnesses) in a partitioned agent (owner,
+  2026-09-30): only in a person's own conversations.** Shared chats, hosted
+  chats and the global instance's channels and triggers never start or
+  spawn a harness, and there's no harness sign-in at global. A harness
+  conversation can't be moved between homes: publish, copy and un-share
+  answer 409. This keeps "global holds no person's credentials", since a
+  sign-in lives in the sandbox's `$HOME`. Plan: 96-agtt-merge.md (W6).
 - **Wave 4, built as recommended:** the chip's fourth word `no partition`
   (view-as; the workspace token on a tile without a global instance) and
   its place after the window's path; llm-gw's per-caller rows for
