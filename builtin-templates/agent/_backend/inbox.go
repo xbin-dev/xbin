@@ -55,6 +55,9 @@ type inboxBody struct {
 	Mark    int  `json:"mark,omitempty"`
 	Open    bool `json:"open,omitempty"`
 	Changed bool `json:"changed,omitempty"`
+	// Jump, on a coding agent's prompt (hprompt) sent with interrupt: it
+	// goes before the ones queued earlier (harness_pass.go).
+	Jump bool `json:"jump,omitempty"`
 }
 
 type InboxRow struct {
@@ -127,7 +130,7 @@ func (d *DB) setInboxBody(id int64, b inboxBody) {
 
 // removeQueued takes back a message that has not been delivered yet.
 func (d *DB) removeQueued(runID, id int64) (removed, exists bool) {
-	res, err := d.q.Exec(`DELETE FROM inbox WHERE id=? AND run_id=? AND kind='user' AND delivered_at=0`, id, runID)
+	res, err := d.q.Exec(`DELETE FROM inbox WHERE id=? AND run_id=? AND kind IN ('user','hprompt') AND delivered_at=0`, id, runID)
 	if err == nil && rowsAffected(res) == 1 {
 		return true, true
 	}
@@ -140,7 +143,7 @@ func (d *DB) removeQueued(runID, id int64) (removed, exists bool) {
 // not yet delivered to the model.
 func (d *DB) queuedView(runID int64) []map[string]any {
 	out := []map[string]any{}
-	for _, r := range d.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind='user' ORDER BY id`, runID) {
+	for _, r := range d.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind IN ('user','hprompt') ORDER BY id`, runID) {
 		out = append(out, map[string]any{"id": r.ID, "text": r.Body.Text, "files": r.Body.Files,
 			"source": r.Body.Source, "sender": r.Body.Sender, "created": r.Created})
 	}
@@ -197,7 +200,7 @@ func (ag *Agent) queue(runID int64, kind string, body inboxBody, clientID string
 		if err != nil {
 			return err
 		}
-		if kind == inboxUser && ag.eng != nil {
+		if (kind == inboxUser || kind == inboxHPrompt) && ag.eng != nil {
 			if r, err := t.getRun(runID); err == nil {
 				ag.eng.emitInbox(t, rootOf(r), runID)
 			}
@@ -216,6 +219,9 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		Text     string   `json:"text"`
 		Files    []string `json:"files"` // session-file paths uploaded for this message
 		ClientID string   `json:"clientId"`
+		// Interrupt stops a coding agent's running turn first (the message
+		// is its next prompt); ignored on a built-in run (D-harness §4.2.10).
+		Interrupt bool `json:"interrupt"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	body.Text = strings.TrimSpace(body.Text)
@@ -238,7 +244,14 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sender := callerOf(r).user
-	iid, _, err := agent.queue(id, inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}, body.ClientID)
+	kind, in := inboxUser, inboxBody{Text: body.Text, Files: body.Files, Source: "human", Sender: sender}
+	if run.Engine == engineHarness { // a coding agent's prompt (harness_pass.go)
+		kind, in.Jump = inboxHPrompt, body.Interrupt
+		if body.Interrupt {
+			agent.interruptHarness(run)
+		}
+	}
+	iid, _, err := agent.queue(id, kind, in, body.ClientID)
 	if err == nil {
 		agent.db.bumpActivity(id)
 		if run, err := agent.db.getRun(id); err == nil {
@@ -336,7 +349,7 @@ func handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	}
 	err = agent.db.Tx(func(t *DB) error {
 		for _, q := range t.undelivered(id) {
-			if q.Kind == inboxUser && q.Body.Source == "human" && mine(q.Body) {
+			if (q.Kind == inboxUser || q.Kind == inboxHPrompt) && q.Body.Source == "human" && mine(q.Body) {
 				if ok, _ := t.removeQueued(id, q.ID); ok {
 					returned = append(returned, map[string]any{"text": q.Body.Text, "files": q.Body.Files})
 				}

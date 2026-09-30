@@ -45,6 +45,9 @@ type pendingState struct {
 	// for (0: any job the run started), and when it went to sleep (unix ms).
 	Job   int   `json:"job,omitempty"`
 	Since int64 `json:"since,omitempty"`
+	// Harness, on a harness run's park (approval, question, login): the
+	// card data (harness_view.go, D-harness §4.3.4).
+	Harness *hPark `json:"harness,omitempty"`
 }
 
 // waitEntry is one subagent_wait call the run is parked on.
@@ -115,7 +118,12 @@ func (e *Engine) pass(a *actor) {
 			return
 		}
 	}
-	in := sortInbox(e.db.undelivered(run.ID))
+	rows := e.db.undelivered(run.ID)
+	if run.Engine == engineHarness { // a coding agent answers it (harness_pass.go)
+		e.harnessPass(run, rows)
+		return
+	}
+	in := sortInbox(rows)
 
 	if len(in.cancel) > 0 {
 		e.stopRun(run, in, statusCanceled)
@@ -411,7 +419,7 @@ func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 		}
 	}
 	cfg, err := e.db.runConfig(run.ID)
-	if err != nil {
+	if err != nil || run.Engine == engineHarness { // a coding agent's run never reaches a model here
 		return
 	}
 	ts := &turnState{run: run, cfg: cfg, root: rootOf(run)}

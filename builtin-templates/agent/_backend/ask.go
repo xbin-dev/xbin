@@ -58,13 +58,22 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		// without it the legacy Toolset names a built-in, else the
 		// caller's default.
 		Class string
+		// Harness: a coding agent answers the conversation (D-harness
+		// §4.2.3) — in the body's sandbox, which it needs.
+		Harness *harnessReq `json:"harness"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if !validPick(body.Model) {
 		xbin.WriteError(w, 400, "model: a model id from GET /models (up to 200 characters)")
 		return
 	}
-	cls, err := requestedClass(callerOf(r), body.Class, body.Toolset)
+	var cls agentClass
+	var err error
+	if body.Harness != nil {
+		cls, err = harnessClass(r.Context(), callerOf(r), body.Harness, body.Class, body.System, body.Model)
+	} else {
+		cls, err = requestedClass(callerOf(r), body.Class, body.Toolset)
+	}
 	if err != nil {
 		writeClassErr(w, err)
 		return
@@ -76,7 +85,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if id := heldDraft(agent.db, callerOf(r), body.Draft); id != 0 || len(body.Files) > 0 {
-			releaseDraft(w, r, id, body.Draft, body.Text, cls, body.Title, body.System, body.Model, body.Files)
+			releaseDraft(w, r, id, body.Draft, body.Text, cls, body.Title, body.System, body.Model, body.Files, body.Harness)
 			return
 		}
 		// nothing was uploaded for it: an ordinary ask
@@ -92,6 +101,9 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		cfg.System = body.System
 	}
 	if !askSandbox(w, r, &cfg) {
+		return
+	}
+	if body.Harness != nil && !harnessApply(w, r, &cfg, body.Harness) {
 		return
 	}
 	// No journal note: a new conversation needs no caption (D83).
@@ -185,7 +197,7 @@ var errDraftGone = errors.New("those attachments are gone (the draft was sent or
 // releaseDraft turns the held run into the new ask: titled from the text (or
 // the files' names), the caller's tool mode and instructions, the first
 // message queued with its files, and driven. id 0: the draft is gone.
-func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text string, cls agentClass, title, system, model string, files []string) {
+func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text string, cls agentClass, title, system, model string, files []string, harness *harnessReq) {
 	if id == 0 {
 		xbin.WriteError(w, 409, errDraftGone.Error())
 		return
@@ -209,6 +221,9 @@ func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text st
 		cfg.System = system
 	}
 	if !askSandbox(w, r, &cfg) {
+		return
+	}
+	if harness != nil && !harnessApply(w, r, &cfg, harness) {
 		return
 	}
 	cfgJSON, _ := json.Marshal(cfg)
@@ -236,7 +251,14 @@ func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text st
 			_, _ = t.q.Exec(`UPDATE messages SET content=? WHERE run_id=? AND role='system'`, system, id)
 			_, _ = t.q.Exec(`UPDATE messages_fts SET content=? WHERE msg_id IN (SELECT id FROM messages WHERE run_id=? AND role='system')`, system, id)
 		}
-		if _, _, err := t.enqueue(id, inboxUser, inboxBody{Text: text, Files: files, Source: "human", Sender: c.user}, ""); err != nil {
+		kind := inboxUser
+		if cfg.Engine == engineHarness { // a coding agent's first prompt (harness_pass.go)
+			kind = inboxHPrompt
+			if _, err := t.q.Exec(`UPDATE runs SET engine=? WHERE id=?`, engineHarness, id); err != nil {
+				return err
+			}
+		}
+		if _, _, err := t.enqueue(id, kind, inboxBody{Text: text, Files: files, Source: "human", Sender: c.user}, ""); err != nil {
 			return err
 		}
 		if agent.eng != nil {

@@ -537,6 +537,9 @@ type msgMeta struct {
 	Origin   string `json:"origin,omitempty"`
 	OriginID int64  `json:"originId,omitempty"`
 	Label    string `json:"label,omitempty"`
+	// Harness, on a coding agent's rows: the call (a tool row) or the
+	// subagent call its text belongs to (an assistant row) — harness_view.go.
+	Harness *harnessMeta `json:"harness,omitempty"`
 }
 
 const llmRetries = 3

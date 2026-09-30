@@ -105,6 +105,9 @@ func (ag *Agent) startRunTx(t *DB, o runOpts) (int64, error) {
 	if o.Hold {
 		status = statusIdle
 	}
+	if o.Cfg.Engine == engineHarness {
+		o.Stamp.Engine = engineHarness
+	}
 	id, err := t.createRunStamped(o.Title, string(cfgJSON), 0, status, o.Stamp)
 	if err != nil {
 		return 0, err
@@ -115,7 +118,17 @@ func (ag *Agent) startRunTx(t *DB, o runOpts) (int64, error) {
 	if _, err := t.addMessage(&Message{RunID: id, Role: "system", Content: o.Cfg.System}); err != nil {
 		return 0, err
 	}
-	if !o.Hold {
+	if !o.Hold && o.Cfg.Engine == engineHarness {
+		// the first message is the coding agent's first prompt: its user row
+		// is written as it is delivered (harness_pass.go)
+		b := inboxBody{Text: o.Text, Source: orStr(o.Meta.Origin, "human"), Sender: o.Sender, OriginID: o.Meta.OriginID, Label: o.Meta.Label}
+		if _, _, err := t.enqueue(id, inboxHPrompt, b, ""); err != nil {
+			return 0, err
+		}
+		if ag.eng != nil {
+			ag.eng.emitInbox(t, id, id)
+		}
+	} else if !o.Hold {
 		m := &Message{RunID: id, Role: "user", Content: o.Text}
 		meta := o.Meta
 		meta.Sender = o.Sender
@@ -149,13 +162,22 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title, Goal, System, Toolset string
 		Class                        string // D116; else Toolset's built-in, else the caller's default
+		// Harness: a coding agent answers it (D-harness §4.2.3; its sandbox
+		// is the body's `sandbox`, bound by askSandbox as for POST /ask).
+		Harness *harnessReq `json:"harness"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Goal == "" {
 		xbin.WriteError(w, 400, "need {goal}")
 		return
 	}
-	cls, err := requestedClass(callerOf(r), body.Class, body.Toolset)
+	var cls agentClass
+	var err error
+	if body.Harness != nil {
+		cls, err = harnessClass(r.Context(), callerOf(r), body.Harness, body.Class, body.System, "")
+	} else {
+		cls, err = requestedClass(callerOf(r), body.Class, body.Toolset)
+	}
 	if err != nil {
 		writeClassErr(w, err)
 		return
@@ -164,6 +186,12 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 	cfg.setClass(cls, body.System != "")
 	if body.System != "" {
 		cfg.System = body.System
+	}
+	if !askSandbox(w, r, &cfg) {
+		return
+	}
+	if body.Harness != nil && !harnessApply(w, r, &cfg, body.Harness) {
+		return
 	}
 	w0 := callerOf(r)
 	st := w0.stamp("chat")
@@ -226,6 +254,9 @@ func handleDeleteRun(w http.ResponseWriter, r *http.Request) {
 		agent.cancelRuns(t, id, true, "run deleted")
 		return nil
 	})
+	if agent.eng != nil {
+		agent.eng.endHarnesses(r.Context(), id) // a coding agent's adapter goes with it
+	}
 	if err := agent.deleteRunTree(id); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

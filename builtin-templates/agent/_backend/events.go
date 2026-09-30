@@ -372,7 +372,7 @@ func (e *Engine) emitLink(t *DB, root, linkID int64) {
 
 // runSummary is the list/stream shape of a run (no transcript).
 func runSummary(r *Run) map[string]any {
-	return map[string]any{
+	v := map[string]any{
 		"id": r.ID, "title": r.Title, "kind": r.Kind, "status": r.Status, "parentId": r.ParentID,
 		"rootId": r.RootID, "depth": r.Depth, "wakeAt": r.WakeAt, "result": clip(r.Result, 400),
 		"pending": r.Pending != "", "llmCalls": r.LLMCalls, "promptTokens": r.PromptTokens,
@@ -382,6 +382,10 @@ func runSummary(r *Run) map[string]any {
 		"originId": r.OriginID, "sessionKey": r.SessionKey, "titleSrc": r.TitleSrc, "activityMs": r.ActivityMs,
 		"engine": r.Engine,
 	}
+	if h := harnessSummaryOf(r); h != nil { // a coding agent's run (D-harness §4.3.2)
+		v["harness"] = h
+	}
+	return v
 }
 
 // sandboxSummary is a run's active sandbox as run events carry it — {ref,

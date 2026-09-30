@@ -71,7 +71,8 @@ type Engine struct {
 	jobWatch map[int64]*jobWatch       // a sleeping run's watcher over its sandbox jobs (sandbox_wait.go)
 	delivery map[int64][]chan struct{} // inbox id → closed when consumed
 	drafts   map[int64]*draft
-	idleCh   chan struct{} // closed when the last actor exits during shutdown
+	harness  map[int64]*hsess // the coding agents this process drives (harness_engine.go)
+	idleCh   chan struct{}    // closed when the last actor exits during shutdown
 
 	legacyTimer *time.Timer
 	hold        holder
@@ -88,7 +89,7 @@ func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
 		gen:  generationID(),
 		base: base, cancelBase: cancel, closingCh: make(chan struct{}),
 		actors: map[int64]*actor{}, timers: map[int64]*time.Timer{}, jobWatch: map[int64]*jobWatch{},
-		delivery: map[int64][]chan struct{}{}, drafts: map[int64]*draft{},
+		delivery: map[int64][]chan struct{}{}, drafts: map[int64]*draft{}, harness: map[int64]*hsess{},
 		titling: map[int64]bool{},
 		now:     time.Now,
 	}
@@ -179,7 +180,8 @@ func (e *Engine) recover() {
 	ids := scanIDs(e.db.q.Query(`
 		SELECT id FROM runs WHERE status IN ('running','queued','blocked','awaiting','sleeping')
 		UNION SELECT DISTINCT run_id FROM inbox WHERE delivered_at=0
-		UNION SELECT DISTINCT parent_id FROM links WHERE state<>'running' AND delivered=0`))
+		UNION SELECT DISTINCT parent_id FROM links WHERE state<>'running' AND delivered=0
+		UNION ` + harnessRecoverSQL))
 	for _, id := range ids {
 		if !skip[id] {
 			e.Poke(id)
@@ -304,6 +306,7 @@ func (e *Engine) lostOwnership() {
 	e.owned = false
 	e.mu.Unlock()
 	logf("another engine took over this database — this one stops driving runs")
+	e.letHarnessesGo()
 	e.cancelBase(errFenced)
 }
 
@@ -400,6 +403,7 @@ func (e *Engine) BeginShutdown() {
 		e.idleCh = make(chan struct{})
 	}
 	e.mu.Unlock()
+	e.letHarnessesGo() // the successor attaches to them: never killed here
 	e.cancelBase(errHandoff)
 	e.hub.closeAll()
 	e.hold.stop()
@@ -433,7 +437,8 @@ func (d *DB) hasWork() bool {
 	var n int
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued','blocked','awaiting','sleeping'))
-		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)`).Scan(&n)
+		+ (SELECT count(*) FROM inbox WHERE delivered_at=0 AND kind<>'` + inboxHNote + `')
+		+ ` + harnessWorkSQL).Scan(&n)
 	return n > 0
 }
 
