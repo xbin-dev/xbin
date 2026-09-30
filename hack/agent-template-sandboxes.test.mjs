@@ -185,6 +185,12 @@ test('the badge: name · cwd, the attached ones, and why a binding no longer res
   assert.match(b.broken, /^not allowed: .*internet/);
   assert.match(S.sandboxBadge({ ...v, class: internal }, list([sb('api')])).broken, /no coding sandbox/);
   assert.equal(S.sandboxBadge({ ...v, access: 'viewer' }, list([sb('api')])).canChange, false);
+  assert.deepEqual([b.fixed, b.advice], [false, 'pick another, or detach it']);
+  // a coding agent's conversation keeps its sandbox (the backend refuses a change): nothing to change, a new chat instead
+  const f = S.sandboxBadge(v, list([sb('web')]), undefined, { fixed: 'Codex' });
+  assert.deepEqual([f.canChange, f.fixed, f.advice], [false, true, 'start a new chat with Codex in another sandbox']);
+  assert.match(f.broken, /^gone/);
+  assert.match(S.sandboxBadge(v, list([sb('api')]), undefined, { fixed: 'Codex' }).title, /— fixed for this conversation$/);
 });
 
 test('the dialog\'s rows: state, owner, the actions your rights allow', () => {
@@ -421,6 +427,11 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   // in a conversation: a pick binds it (PATCH its root), then its config is read again
   await app.select(5);
   assert.equal(app.sbx.badge().label, '▣ api · /work');
+  assert.deepEqual([app.sbx.badge().canChange, app.sbx.badge().fixed], [true, false]);
+  const cv = app.session.current();
+  const hb = app.sbx.badge({ ...cv, run: { ...cv.run, engine: 'harness', harness: { provider: 'claude', name: 'Claude Code' } } });
+  assert.deepEqual([hb.label, hb.canChange, hb.fixed, hb.advice], ['▣ api · /work', false, true, 'start a new chat with Claude Code in another sandbox'],
+    'a coding agent\'s conversation: its sandbox is fixed');
   assert.equal(app.sbx.picker().groups[0].id, 'here');
   await app.sbx.choose(`${MGR}|web`);
   const patch = calls.filter((c) => c.method === 'PATCH').pop();

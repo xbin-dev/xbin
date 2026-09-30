@@ -167,6 +167,17 @@ ok('>_ Terminal: a shell in its sandbox at its cwd', (await dials()).at(-1) === 
 await page.click('#sbxterm-close');
 await until(() => !document.getElementById('sbxterm-pane'));
 
+// --- a coding agent's ▣: its sandbox is fixed for the conversation (the backend refuses a change) -----------
+await go(21, '#sbxbadge');
+await page.click('#sbxbadge');
+await page.waitForSelector('#sbxpop');
+ok('a coding agent\'s ▣: its working directory, read-only', (await text('#sbx-cwd-fixed')) === '/work/api'
+  && !(await page.$('#sbx-cwd')) && !(await page.$('#sbx-cwd-set')));
+ok('…no switch or Detach', !(await page.$('#sbx-detach')) && !(await page.$('#sbxpop .sbxatt')));
+ok('…Open terminal and Manage stay', !!(await page.$('#sbx-term')) && !!(await page.$('#sbx-manage')));
+await page.click('.mback');
+await until(() => !document.getElementById('sbxpop'));
+
 // --- the card's own flows ------------------------------------------------------------------------------
 await go(24, '#hlogin');
 await page.check('#hl-confirm');

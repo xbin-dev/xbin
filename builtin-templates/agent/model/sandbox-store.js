@@ -16,7 +16,7 @@ import * as actions from './actions.js';
 import * as S from './sandboxes.js';
 import * as classes from './classes.js';
 import { fitsWhy, createPrefill } from './harness-start.js';
-import { isHarness } from './harness.js';
+import { isHarness, harnessOf, nameOf } from './harness.js';
 
 const cid = () => 's' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -102,7 +102,8 @@ export function createSandboxStore(app) {
       // a coding agent's conversation keeps the sandbox it started in (D-harness §2.2): no picker
       return v && isHarness(v.run) ? { ...p, shown: false } : p;
     },
-    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
+    // a coding agent's conversation keeps its sandbox and cwd (D-harness §2.2): the badge offers no change
+    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list, undefined, { fixed: v && isHarness(v.run) ? nameOf(harnessOf(v)) : '' }); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
     // terminal: "Open terminal" for ref at cwd, running cmd ('' = the login
     // shell) (model/sandboxes.js terminal): {shown, why, src, …} — src is
