@@ -8,12 +8,15 @@ import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, guard } from './ui.js';
 import { groupRows } from '../model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from '../model/rules.js';
+import { sharing } from '../model/partition.js';
 import { summaryCount } from '../model/auto.js';
 import { mainMenu } from './home.js';
 import { classSectionTpl } from './classes.js';
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
-const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }];
+// no Shared view in a person's own partition (model/partition.js)
+const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }]
+  .filter((s) => s.value !== 'shared' || sharing());
 const EMPTY_SHARED = 'nothing shared yet — share a conversation from its menu, and whatever others share with you shows here too';
 
 const close = () => { ui.drawer = false; ctx.paint(); };

@@ -5,6 +5,7 @@
 // show the same controls to the same person in the same state.
 import { busy } from './fold.js';
 import { badge } from './classes.js';
+import { sharing } from './partition.js';
 
 // access: what you may do in a conversation (its view's `access`: owner |
 // system | participant | viewer; absent from an older backend = everything).
@@ -46,6 +47,8 @@ export function topBar(v, row, me) {
     // sharing is per conversation: a subagent shares its root
     shareRun: { id: r.rootId || r.id, title: r.title },
     share: shareStatus(v, row),
+    // false in a person's own partition: nobody else can open it (model/partition.js)
+    sharing: sharing(),
     // what the owner let the agent read here, for now (D111)
     grants: grantChips(v, me),
     del: own,
@@ -221,7 +224,7 @@ export function rowMenu(r) {
   const items = [];
   if (own) items.push({ label: 'Rename', action: 'rename' });
   items.push({ label: r.pinnedAt ? 'Unpin' : 'Pin', action: 'pin' });
-  if (own) items.push({ label: 'Share…', action: 'share' });
+  if (own && sharing()) items.push({ label: 'Share…', action: 'share' });
   items.push({ label: r.archivedAt ? 'Unarchive' : 'Archive', action: 'archive' });
   if (own) items.push({ label: 'Delete', action: 'delete', cls: 'rm' });
   else if (r.mine) items.push({ label: 'Leave', action: 'leave', cls: 'rm' });

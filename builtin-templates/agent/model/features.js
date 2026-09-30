@@ -199,6 +199,10 @@ export const FEATURES = {
   // States
   'state.halted': 'halted: the switch says so',
   'state.errors': 'a failed action tells the person why',
+  'state.partition.share': 'in a person\'s own partition (a partitioned instance) a conversation can\'t be shared: no Share in its row menu or header, no Shared view (model/partition.js)',
+  'state.partition.global': 'at a partitioned instance\'s global instance (the owner token), a note to sign in as a person for private conversations',
+  'state.partition.sandboxes': 'in a person\'s partition, a notice naming a bound sandbox manager that can\'t keep people apart, and how to update it',
+  'state.partition.hidden': 'in a partitioned instance the live stream closes while the page is hidden and resumes from its cursor when it shows (model/stream.js)',
 
   // Deep links
   'link.conv': 'an address opens a conversation (#c=<id>)',

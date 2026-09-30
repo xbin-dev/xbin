@@ -124,7 +124,104 @@ conversation is shared. **Stop** returns only your own queued messages.
 This is privacy **between people who use the agent**, enforced by the tile's
 own code. Anyone who can change or read the tile itself can read every
 conversation: write or terminal access, the owner token, the LLM provider and
-llm-gw's logs. Give team members `read` on the tile.
+llm-gw's logs. Give team members `read` on the tile. A **partitioned**
+instance (below) keeps people apart structurally instead.
+
+## Partitioned instances
+
+A new instance of this template is **partitioned** (xbin.json's
+`"template": {"partition": ["user", "global"]}`, [/docs/partitions.md](/docs/partitions.md)):
+xbind runs one backend per person who uses it — their **partition**, with
+its own `db`, `files` and `events` — and one **global** instance for
+everything that doesn't act for a person. Opt out when you create it ("Keep
+each person's data apart" on the template card, `bx template new agent
+--no-partition`); without `xbind --isolate` it is unpartitioned anyway. An
+instance made before keeps its mode: unpartitioned, exactly as described in
+the rest of this page, until a manager switches it — which deletes every
+conversation, all memory and every schedule (`partitionNote`). The code is
+the same in all three modes; `xbin.Partition()` picks one at start:
+
+| `XBIN_PARTITION` | Mode | Serves |
+|---|---|---|
+| unset | **unpartitioned** | today's agent, unchanged |
+| `user:<id>` | a person's **partition** | that person's own conversations, memory, skills and schedules, and their sandboxes — nobody else's frame, terminal or tile reaches it, workspace admins included |
+| `global` | the **global instance** | what is no one person's: the tile-wide settings, chat channels and event triggers (adapters and webhooks reach it), other tiles' and the owner token's calls |
+
+What a partitioned instance does differently:
+
+- **Your conversations are yours.** Everything you start is in your
+  partition's `db`; a conversation there can't be shared (`POST
+  /runs/{id}/members`, `/links` and `/join` answer 409, and the web view
+  shows no sharing). Its ids start at 2^40, so an id says where it lives —
+  below 2^40 is the global instance's `db` (and every id of an
+  unpartitioned instance). Its lifecycle events stay on your partition's
+  `events` bus; another tile subscribed to `res:<this tile>/events` hears
+  the global instance's, as ever.
+- **Settings are the tile's.** The config, classes, the halt switch and the
+  shared skills live in the global instance's `db`. It mirrors them into
+  `conf` (kv, `"shared": "read"`), which every partition reads at each use
+  (cached for a few seconds) and can't write. A manager changing them from
+  their own partition (`PUT /config`, `PUT /classes`, `PUT /halt`, `PUT
+  /skills` or `DELETE /skills/{name}` of a shared skill) is forwarded to
+  the global instance, attributed to them — it checks they may, exactly as
+  here — and conf is read again. Your own skills stay in your partition;
+  `GET /skills` lists them beside the shared ones. While the halt is on a
+  partition's runs stop at their next step; a manager's request for work
+  lifts it tile-wide, at the global instance.
+- **Channels and event triggers** belong to the global instance: `POST
+  /channels/{id}/claim` and `POST /triggers` answer 409 in a partition.
+  Schedules work in your partition (its own cron jobs).
+- **The global instance** takes a person's calls from their partition — a
+  frame's `xbin.fetch(…, {partition: 'global'})`, or the partition's own
+  backend — as that person, with their access level (xbind clamps their
+  role to `reader`/`writer`; this tile checks the level as for any person).
+  Such a call is never the tile itself. `GET /me` adds `partition` (which
+  instance answered) on a partitioned instance.
+- **`team`** (sqlite, `"shared": true`) is the one database every
+  partition shares: only the global instance migrates it (under a
+  `<team>.migrate` flock); a partition opens it without migrating, and when
+  its schema is behind wakes the global instance (`GET /health`) and waits
+  up to 30 s — meanwhile what needs it answers 503 "the shared space is
+  being upgraded". Anything in it is readable by every partition's code.
+- **Model calls have a tile-wide cap**: `maxActiveRuns` (default 4) lock
+  files `llm.slot.<i>` beside `team`'s file — a flock semaphore every
+  partition shares; a dead process frees its slot. Each partition's own gate
+  allows at most 2 of its calls at once; the global instance keeps
+  `maxActiveRuns`.
+- **Resume.** A partition that stops with work leaves the `resume` job only
+  for work that moves without its person (a running or queued run, an
+  undelivered input, a subagent's settled result), a `wake` job at the
+  minute its earliest sleeping run wakes, and nothing for runs waiting on a
+  person — who opens the tile anyway. The global instance follows the
+  unpartitioned rule.
+- **Sandboxes.** A partition calls its sandbox managers as itself: a
+  manager whose `hello.caps` carry `partitions` homes the sandboxes it
+  makes there ([/docs/sandbox-manager.md](/docs/sandbox-manager.md)). One
+  without it isn't used in a partition at all — its hello is refused with
+  refusal `partitions` (409), naming it and how to update it, in the tools,
+  the catalog and the Sandboxes dialog; the global instance keeps using it.
+  A partition also sees the team's sandboxes (`shared`); its conversations
+  never work in one (403), though you can open its terminal. Every sandbox a
+  partitioned instance makes carries the label `xbin.agent/home` — the
+  partition's id, or `global` — beside `xbin.agent/conversation`.
+- **Your own providers.** A model gateway or MCP server you bound into your
+  partition yourself (a personal bind: `bx bind --personal`) is offered only
+  in conversations you own, and in your model picker — never in anyone
+  else's.
+- **Partition mail.** xbind rings `POST /mailbox` (`partitionMail`) as
+  `xbin/mail` when items wait in the instance's drop box; it and every start
+  pull the inbox, hand each item to its topic's handler once (by id) and
+  ack it. No topic has a handler yet: an item waits in xbind until one does.
+  `GET /health` → `{ok, mode, team?}` answers any caller.
+
+The web view follows `xbin.partition`: unset, today's; in your partition
+("user:…") your conversations with the sharing controls gone, and — when a
+bound sandbox manager can't keep people apart — one banner naming it and the
+update; at the global instance (the owner token, `--no-auth`) the list of
+the global instance's conversations with a note to sign in as a person for
+private ones. In a partitioned instance every live stream closes while the
+page is hidden and resumes from its cursor when it shows again, so a
+background tab doesn't keep a partition running.
 
 ## Runs
 
