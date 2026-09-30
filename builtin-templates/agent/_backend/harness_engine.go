@@ -431,8 +431,8 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		hs.Ref, hs.Cwd, hs.Provider, hs.Argv = h.Ref, cwd, prov.ID, prov.Argv
 		hs.ExecID, hs.ClientID = "", harnessClientID(run.ID, gen)
 		hs.ReadOff, hs.ErrOff, hs.Draft = 0, 0, ""
-		hs.Shared = sandboxShared(u.Box)
-		hs.LastActiveMs = nowMs()
+		hs.Shared, hs.Name = sandboxShared(u.Box), prov.Name
+		hs.LastActiveMs, hs.StartedMs = nowMs(), nowMs()
 		return t.putHarnessSession(hs)
 	})
 	if err != nil {

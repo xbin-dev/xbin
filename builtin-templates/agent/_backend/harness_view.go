@@ -205,6 +205,12 @@ func harnessSummary(d *DB, r *Run) map[string]any {
 	if h.Provider == fakeHarness || name == h.Provider {
 		name = harnessName(h.Provider)
 	}
+	if hs.Name != "" { // as its manager advertised it at the last spawn (a harness the catalog lacks)
+		name = hs.Name
+	}
+	if !hsRunning(hs.State) { // no adapter: what the next start sets (PATCH /runs/{id}/harness stores it)
+		st = withChoices(st, h)
+	}
 	state := map[string]string{hsNone: "stopped", hsStopped: "stopped", hsStarting: "starting", hsLogin: "login",
 		hsLost: "lost", hsFailed: "failed"}[hs.State]
 	if hs.State == hsLive {
@@ -267,6 +273,51 @@ func harnessSummary(d *DB, r *Run) map[string]any {
 				a = hActivity{Kind: "waiting", At: a.At}
 			}
 			out["activity"] = a
+		}
+	}
+	return out
+}
+
+// withChoices is st with the conversation's stored mode and config options
+// as the current ones — what an adapter started now would be set to.
+func withChoices(st acp.SessionState, h *HarnessConfig) acp.SessionState {
+	if st.Modes != nil && h.Mode != "" {
+		m := *st.Modes
+		m.CurrentModeID = h.Mode
+		st.Modes = &m
+	}
+	if len(h.Options) > 0 && len(st.Options) > 0 {
+		opts := append([]acp.ConfigOption(nil), st.Options...)
+		for i := range opts {
+			if v, ok := h.Options[opts[i].ID]; ok {
+				opts[i].CurrentValue = v
+			}
+		}
+		st.Options = opts
+	}
+	return st
+}
+
+// harnessNodeView is the summary as /tree nodes and /needs items carry it
+// (§4.3.6): without options, commands, mode.available and login.methods.
+func harnessNodeView(sum map[string]any) map[string]any {
+	if sum == nil {
+		return nil
+	}
+	out := make(map[string]any, len(sum))
+	for k, v := range sum {
+		out[k] = v
+	}
+	delete(out, "options")
+	delete(out, "commands")
+	if m, ok := sum["mode"].(map[string]any); ok {
+		out["mode"] = map[string]any{"current": m["current"]}
+	}
+	if raw, ok := sum["login"].(json.RawMessage); ok {
+		var l map[string]any
+		if json.Unmarshal(raw, &l) == nil {
+			delete(l, "methods")
+			out["login"] = l
 		}
 	}
 	return out

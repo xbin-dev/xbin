@@ -443,8 +443,17 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 // do it, so the response still means "done".
 func handleCompact(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
-	if _, err := agent.db.getRun(id); err != nil {
+	run, err := agent.db.getRun(id)
+	if err != nil {
 		xbin.WriteError(w, 404, "no such run")
+		return
+	}
+	if run.Engine == engineHarness && !harnessHasCommand(run, "compact") { // D-harness §4.2.11
+		name := "the coding agent"
+		if h := harnessSummaryOf(run); h != nil {
+			name, _ = h["name"].(string)
+		}
+		xbin.WriteError(w, 409, name+" has no /compact")
 		return
 	}
 	iid, _, err := agent.queue(id, inboxCompact, inboxBody{}, "")
@@ -464,6 +473,9 @@ func handleLearn(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	if _, err := agent.db.getRun(id); err != nil {
 		xbin.WriteError(w, 404, "no such run")
+		return
+	}
+	if refuseOnHarness(w, id, "a coding agent can't learn a skill") { // D-harness §4.2.11
 		return
 	}
 	if _, _, err := agent.queue(id, inboxUser, inboxBody{Text: learnPrompt, Source: "learn"}, ""); err != nil {

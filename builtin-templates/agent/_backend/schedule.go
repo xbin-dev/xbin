@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -367,10 +368,19 @@ func handleListSchedules(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, 200, out)
 }
 
+// schedHarnessTarget: a coding agent's conversation takes messages from
+// people (D-harness §4.2.3, §4.2.11).
+const schedHarnessTarget = "targetRun: a coding agent's conversation takes messages from people — schedules run the built-in agent"
+
 func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 	var s Schedule
-	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
+	raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err := json.Unmarshal(raw, &s); err != nil {
 		xbin.WriteError(w, 400, "need JSON body: {name, cron, goal, watcher?, system?}")
+		return
+	}
+	if rawHasHarness(raw) { // D-harness §4.2.3
+		xbin.WriteError(w, 400, "schedules run the built-in agent")
 		return
 	}
 	s.Cron, s.Goal = strings.TrimSpace(s.Cron), strings.TrimSpace(s.Goal)
@@ -396,6 +406,10 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 		// reporting into a conversation needs the right to talk there
 		if _, lv, err := agent.runAccess(w0, s.TargetRun); err != nil || lv < lvParticipant {
 			xbin.WriteError(w, 400, "targetRun: a conversation you can write to")
+			return
+		}
+		if isHarnessRun(s.TargetRun) {
+			xbin.WriteError(w, 400, schedHarnessTarget)
 			return
 		}
 	default:
@@ -437,8 +451,13 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	// Decode onto the current record so omitted fields keep their value —
 	// except the ones no request may set (who owns it, what it fired).
 	keep := *cur
-	if err := json.NewDecoder(r.Body).Decode(cur); err != nil {
+	raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err := json.Unmarshal(raw, cur); err != nil {
 		xbin.WriteError(w, 400, "bad body")
+		return
+	}
+	if rawHasHarness(raw) { // D-harness §4.2.3
+		xbin.WriteError(w, 400, "schedules run the built-in agent")
 		return
 	}
 	cur.ID, cur.Owner, cur.CreatedByRun, cur.LastRunID, cur.LastStatus, cur.RunID, cur.Created, cur.LastRun =
@@ -457,6 +476,10 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	case cur.Mode == modeConversation:
 		if _, tl, err := agent.runAccess(c, cur.TargetRun); err != nil || tl < lvParticipant {
 			xbin.WriteError(w, 400, "targetRun: a conversation you can write to")
+			return
+		}
+		if isHarnessRun(cur.TargetRun) {
+			xbin.WriteError(w, 400, schedHarnessTarget)
 			return
 		}
 	default:

@@ -317,6 +317,10 @@ func handleRunTree(w http.ResponseWriter, r *http.Request) {
 			"result": clip(n.Result, 160), "lastStep": last[n.ID],
 			"llmCalls": n.LLMCalls, "promptTokens": n.PromptTokens, "completionTokens": n.CompletionTokens,
 		}
+		node["engine"] = n.Engine // a coding agent's: its compact summary (D-harness §4.3.6)
+		if h := harnessSummaryOf(n); h != nil {
+			node["harness"] = harnessNodeView(h)
+		}
 		if l != nil {
 			node["link"] = map[string]any{"id": l.ID, "mode": l.Mode, "state": l.State, "outcome": l.Outcome,
 				"toolCallId": l.ToolCallID, "deadline": l.Deadline, "delivered": l.Delivered}
@@ -440,6 +444,9 @@ func handleHaltPut(w http.ResponseWriter, r *http.Request) {
 
 func handleMemoryPut(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
+	if refuseOnHarness(w, id, "a coding agent has no memory") { // D-harness §4.2.11
+		return
+	}
 	var body struct{ Key, Value string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Key == "" {
@@ -454,6 +461,9 @@ func handleMemoryPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
+	if refuseOnHarness(w, pathID(r), "a coding agent has no memory") { // D-harness §4.2.11
+		return
+	}
 	if err := agent.db.memoryDelete(pathID(r), r.URL.Query().Get("key")); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return

@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -94,12 +95,21 @@ func deliverOK(c who, key string) string {
 	return ""
 }
 
+// trigHarnessTarget: a coding agent's conversation takes messages from
+// people (D-harness §4.2.3, §4.2.11).
+const trigHarnessTarget = "targetRun: a coding agent's conversation takes messages from people — triggers run the built-in agent"
+
 // handleNewTrigger: POST /triggers — the caller owns it.
 func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	var tr Trigger
-	if err := json.NewDecoder(r.Body).Decode(&tr); err != nil {
+	raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err := json.Unmarshal(raw, &tr); err != nil {
 		xbin.WriteError(w, 400, "bad json")
+		return
+	}
+	if rawHasHarness(raw) { // D-harness §4.2.3
+		xbin.WriteError(w, 400, "triggers run the built-in agent")
 		return
 	}
 	tr.ID, tr.Owner, tr.Enabled, tr.Status = 0, c.tag(), true, ""
@@ -120,6 +130,10 @@ func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 	if tr.Mode == "conversation" && !agent.targetOK(tr.Owner, tr.TargetRun) {
 		xbin.WriteError(w, 400, "that conversation isn't one you can post in")
+		return
+	}
+	if tr.Mode == "conversation" && isHarnessRun(tr.TargetRun) {
+		xbin.WriteError(w, 400, trigHarnessTarget)
 		return
 	}
 	if err := agent.db.saveTrigger(&tr); err != nil {
@@ -148,6 +162,10 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		xbin.WriteError(w, 400, "bad json")
+		return
+	}
+	if _, ok := patch["harness"]; ok { // D-harness §4.2.3
+		xbin.WriteError(w, 400, "triggers run the built-in agent")
 		return
 	}
 	if lv < lvOwner {
@@ -189,6 +207,10 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 			xbin.WriteError(w, 400, msg)
 			return
 		}
+	}
+	if next.Mode == "conversation" && next.TargetRun != tr.TargetRun && isHarnessRun(next.TargetRun) {
+		xbin.WriteError(w, 400, trigHarnessTarget)
+		return
 	}
 	if err := agent.db.saveTrigger(&next); err != nil {
 		xbin.WriteError(w, 500, err.Error())
