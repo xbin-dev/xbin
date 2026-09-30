@@ -39,7 +39,7 @@ await ctx.addInitScript(([MINE, HOSTED, PAUSED, MOVED]) => {
     row(2, 'with bob', { owner: 'alice', access: 'owner', members: 1 }),
     row(HOSTED, 'bob hosts this', { owner: 'bob', members: 1, hosted: hostedBy('bob', 'active') }),
     row(PAUSED, 'alice hosts this', { owner: 'alice', access: 'owner', members: 2,
-      hosted: hostedBy('alice', 'paused', { reason: 'confirm', pending: { carol: 'viewer' }, pendingKey, dropsAt: 2e9 }) }),
+      hosted: hostedBy('alice', 'paused', { reason: 'confirm', pending: ['carol'], pendingKey, dropsAt: 2e9 }) }),
   ];
   window.__homeRows = { '': own, global: shared };
   window.__route('GET', /\/conversations\?(.*)$/, (m, o) => j({ pinned: [], items: window.__homeRows[o.partition || ''], next: '' }));

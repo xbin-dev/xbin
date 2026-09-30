@@ -66,10 +66,10 @@ export function lockOf(v, me, started) {
   if (!h) return null;
   const root = v.run.rootId || v.run.id;
   const isHost = !!me && me === h.host;
-  const pending = Object.keys(h.pending || {});
+  const pending = Array.isArray(h.pending) ? h.pending : []; // who is new
   if (h.state === 'paused') {
     return { locked: true, kind: 'paused', isHost, pending, root,
-      why: `Paused: waiting for ${h.host} to confirm who is in it now${pending.length ? ` (${pending.join(', ')} and the rest)` : ''}` };
+      why: `Paused: waiting for ${h.host} to confirm who is in it now${pending.length ? ` (new: ${pending.join(', ')})` : ''}` };
   }
   if (h.state === 'dropped' || h.state === 'gone') {
     return { locked: true, kind: 'ended', isHost, pending, root,

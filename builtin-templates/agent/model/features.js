@@ -208,6 +208,9 @@ export const FEATURES = {
   'state.partition.sandboxes': 'in a person\'s partition, a notice naming a bound sandbox manager that can\'t keep people apart, and how to update it',
   'state.partition.hidden': 'in a partitioned instance the live stream closes while the page is hidden and resumes from its cursor when it shows (model/stream.js)',
   'state.partition.mcp': 'in a partitioned instance the settings\' MCP list shows the config\'s static servers, marking one with headers as working in shared (global) conversations only — bind it as a tile or a personal bind for your own (model/partition.js staticMcp)',
+  'state.partition.hosted': 'in a person\'s partition, a non-secure (hosted) conversation: a ⚠ not private chip (header, row); the warning — whose private resources it uses, who can read it — every time it is opened into a page session, and the composer locked until it is started; locked for everyone while a wider audience waits for its host, who confirms or declines; once hosting ended, continue it without the host (model/hosted.js)',
+  'state.partition.host': 'in a person\'s partition, a shared conversation\'s share dialog lets it use their private resources (the warning first; POST /hosting), and its host takes them back',
+  'state.partition.copyIn': 'in a person\'s partition, a shared conversation\'s share dialog adds copies of their own session files (POST /copyin), saying who can read the copies; the originals stay private',
 
   // Deep links
   'link.conv': 'an address opens a conversation (#c=<id>)',
@@ -235,6 +238,8 @@ export const DIFFERENCES = {
     'state.partition.publish': 'the native view shows a person\'s shared conversations and shares them, but publishing a copy of one of their own is the web\'s for now: the app\'s share sheet has no form for its choices yet',
     'state.partition.copy': 'as state.partition.publish: the app\'s share sheet shares a shared conversation; a private copy of one is made on the web for now',
     'state.partition.newShared': 'the app\'s new chat sheet makes a chat in the person\'s own space; a shared one is started on the web for now (or shared by a copy there)',
+    'state.partition.host': 'as state.partition.publish: letting a shared conversation use one\'s private resources needs the warning\'s form, which the app\'s share sheet hasn\'t yet — it is done on the web; a hosted one is shown, warned about and locked in the app (state.partition.hosted)',
+    'state.partition.copyIn': 'as state.partition.publish: the app\'s share sheet has no picker of one\'s own files yet — copies are added on the web',
     'tools.sandboxes.terminal':'the app\'s terminal primitive dials only the tile\'s own routes (TileTerminal refuses any other address), and a manager\'s tty is another tile\'s; relaying it through the agent\'s backend would make the person the manager checks an asserted one instead of the verified one. Until the app takes a bound interface\'s URL, terminals are on the web',
   },
 };

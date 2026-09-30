@@ -186,6 +186,9 @@ export const IMPLEMENTS = {
   'state.partition.sandboxes': 'partition-ui.js — the notice above the main pane',
   'state.partition.hidden': 'model/stream.js — Live.visibility',
   'state.partition.mcp': 'partition-ui.js — mountStaticMcp in agent.js tabMcp',
+  'state.partition.hosted': 'hosted-ui.js — hostedChipTpl (agent.js top bar), hostedRowChip (sidebar.js), hostedPaint (agent.js paint) — model/hosted.js',
+  'state.partition.host': 'hosted-ui.js — hostTpl in share.js',
+  'state.partition.copyIn': 'hosted-ui.js — hostTpl in share.js (Add a copy of my files…)',
 
   // Deep links
   'link.conv': 'agent.js — followHash (model/router.js)',

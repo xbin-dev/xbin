@@ -45,7 +45,7 @@ test('the composer\'s lock', () => {
   assert.equal(lockOf(active, 'bob', new Set()).kind, 'start'); // opened without sending
   assert.equal(lockOf(active, 'bob', new Set()).locked, true);
   assert.equal(lockOf(active, 'bob', new Set([2 ** 39 + 1])).locked, false); // started in this page session
-  const paused = view({ host: 'alice', state: 'paused', pending: { carol: 'viewer' } });
+  const paused = view({ host: 'alice', state: 'paused', pending: ['carol'] });
   const p = lockOf(paused, 'bob', new Set([2 ** 39 + 1]));
   assert.equal(p.kind, 'paused');
   assert.equal(p.locked, true);
