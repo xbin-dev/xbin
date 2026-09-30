@@ -355,6 +355,9 @@ func (b *Broker) sweepMail() {
 	for _, s := range stores {
 		ring = append(ring, b.sweepMailStore(s, now)...)
 	}
+	if len(ring) > 0 {
+		slog.Info("partition mail: the sweep rings the inboxes holding items", "inboxes", len(ring))
+	}
 	ms := b.mail()
 	for _, k := range ring {
 		ms.bellMu.Lock()

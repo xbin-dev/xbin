@@ -48,11 +48,12 @@ const pmRoutes = `	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *h
 		var bell xbin.MailBell
 		_ = json.NewDecoder(r.Body).Decode(&bell)
 		c := xbin.Caller(r)
-		items, err := xbin.Inbox("", 100)
+		pg, err := xbin.InboxPage("", 100)
 		if err != nil {
 			fail(w, err)
 			return
 		}
+		items := pg.Items
 		kv := xbin.KV(xbin.Resource("kv"))
 		var seen []map[string]any
 		if prev, err := kv.Get("mailbox"); err == nil {
@@ -69,11 +70,13 @@ const pmRoutes = `	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *h
 			fail(w, err)
 			return
 		}
+		ids := make([]string, 0, len(items))
 		for _, it := range items {
-			if err := xbin.Ack(it.ID); err != nil {
-				fail(w, err)
-				return
-			}
+			ids = append(ids, it.ID)
+		}
+		if err := xbin.Ack(ids...); err != nil {
+			fail(w, err)
+			return
 		}
 		reply(w, 200, map[string]int{"read": len(items)})
 	})
@@ -203,19 +206,29 @@ func TestPartitionsSmokeMail(t *testing.T) {
 		// dave never used the tile: mail waits and starts nothing (S1,
 		// S20), survives a restart of xbind, and rings at his first start
 		d.Must(t, "POST", api+"/send?to=user:dave&topic=dm", "for-dave-41b9", 200)
-		time.Sleep(5 * time.Second)
-		if r := d.Must(t, "GET", "/api/xbin/sandboxes", nil, 200); strings.Contains(string(r.Body), `"user:dave"`) {
-			t.Errorf("BUG: mail started dave's never-run partition: %s", cut(string(r.Body), 400))
+		noDave := func(what string, d0 time.Duration) {
+			for end := time.Now().Add(d0); time.Now().Before(end); time.Sleep(500 * time.Millisecond) {
+				if r := d.Must(t, "GET", "/api/xbin/sandboxes", nil, 200); strings.Contains(string(r.Body), `"user:dave"`) {
+					t.Errorf("BUG: %s started dave's never-run partition: %s", what, cut(string(r.Body), 400))
+					return
+				}
+			}
 		}
+		noDave("mail", 5*time.Second)
+		// boot's sweep rings every inbox holding items, bootDelay (5 s)
+		// after the delivery path is up: wait for its line, then watch
+		const sweepLine = "partition mail: the sweep rings the inboxes holding items"
+		sweeps := func() int { return strings.Count(d.LogTail(1<<20), sweepLine) }
+		before := sweeps()
 		d.Restart(t)
 		e.frames = map[string]xbindtest.Header{}
 		for id := range psPeople {
 			e.sess[id] = d.Login(t, id, psPassword(id))
 		}
-		time.Sleep(3 * time.Second)
-		if r := d.Must(t, "GET", "/api/xbin/sandboxes", nil, 200); strings.Contains(string(r.Body), `"user:dave"`) {
-			t.Errorf("BUG: boot started dave's never-run partition: %s", cut(string(r.Body), 400))
-		}
+		xbindtest.Eventually(t, time.Minute, "boot's mail sweep", func() (bool, string) {
+			return sweeps() > before, d.LogTail(20)
+		})
+		noDave("boot's doorbell", 8*time.Second)
 		if w := e.who(t, api+"/who", e.fr(t, pmTile, "dave")); w.Partition != "user:dave" {
 			t.Fatalf("dave's partition answers as %q", w.Partition)
 		}
