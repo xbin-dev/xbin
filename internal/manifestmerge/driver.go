@@ -17,30 +17,26 @@ const Attribute = "/xbin.json merge=" + DriverName
 // DriverTitle is the driver's merge.<name>.name: what git calls it.
 const DriverTitle = "xbin.json merged by keys (bx template merge-manifest; /docs/overview/03-components.md)"
 
+// DriverPrefix starts every command Driver writes: a driver command that
+// doesn't is the builder's own, which xbind leaves alone.
+const DriverPrefix = "bx template merge-manifest "
+
 // Driver is the driver's command (merge.<name>.driver) for an instance at
-// path to made from a template whose own path is from: bx merges — git's
-// line merge first, by keys only where that conflicts — and when bx is
-// missing, too old, or can't merge, git merge-file leaves git's own
-// conflict markers, so a merge is never worse than without the driver.
+// path to made from a template whose own path is from (the same path for an
+// instance at the template's): bx merges — git's line merge first, by keys
+// only where that conflicts and only when the other side is the template —
+// and when bx is missing, too old, or can't merge, git merge-file leaves
+// git's own conflict markers, so a merge is never worse than without the
+// driver. The rename is always named, quoted for the shell git runs the
+// command with, so bx can tell a manifest that doesn't name its own path.
 func Driver(from, to string) string {
-	rename := ""
-	if from != to && pathWord(from) && pathWord(to) {
-		rename = " --rename " + from + "=" + to
-	}
-	return "bx template merge-manifest --marker-size %L" + rename + " %O %A %B" +
+	return DriverPrefix + "--marker-size %L --rename " + shellWord(from+"="+to) + " %O %A %B" +
 		" || git merge-file --marker-size=%L -L ours -L base -L theirs %A %O %B"
 }
 
-// pathWord reports whether p is a component path safe to put on a shell
-// command line unquoted.
-func pathWord(p string) bool {
-	if p == "" {
-		return false
-	}
-	for _, c := range p {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("/._-", c)) {
-			return false
-		}
-	}
-	return true
+// shellWord is s as one sh word — single-quoted, each ' in it closed,
+// escaped and reopened — with every % doubled: git expands %-placeholders
+// in a driver's command before the shell sees it, and %% is a %.
+func shellWord(s string) string {
+	return strings.ReplaceAll("'"+strings.ReplaceAll(s, "'", `'\''`)+"'", "%", "%%")
 }

@@ -17,7 +17,9 @@
 // The rules (Merge):
 //   - top-level "template" and "partition" (any case) are never taken from
 //     upstream: an instance never carries the template block, and its
-//     partition mode changes only by a deliberate edit (docs/partitions.md);
+//     partition mode changes only by a deliberate edit (docs/partitions.md).
+//     Upstream changing one is a conflict — unless it is a block ours
+//     doesn't carry (the base had it and ours dropped it, as instances do);
 //   - an object merges member by member, an array element by element — an
 //     element is known by its "target" when it is an object with one (a
 //     `uses` entry), else by its whole value — and a value both sides
@@ -27,7 +29,15 @@
 //     ours is — re-indented from upstream's text (its comments with it), or
 //     in the two-space form when ours is in that form (a new key then goes
 //     where json.MarshalIndent would put it), so an unedited instance merges
-//     to exactly what instantiation would have written.
+//     to exactly what instantiation would have written;
+//   - what a merge by keys can't carry is a conflict, never dropped:
+//     upstream's change to the comments of a manifest that carries comments
+//     (comments.go), and upstream's new references to the template's own
+//     path when ours doesn't name the path they'd be renamed to (Options).
+//
+// Merge doesn't know which side is the template: its caller (bx template
+// merge-manifest) asks it only when "theirs" is — a merge of the
+// template's own versions, never a builder's branch, a rebase or a stash.
 package manifestmerge
 
 import (
@@ -44,9 +54,13 @@ import (
 // Options is how the instance was made from the template.
 type Options struct {
 	// From and To are instantiation's own-path rewrite (the template's
-	// default path, e.g. apps/agent, and the instance's): the base's and
-	// upstream's text get it too, when ours carries To, before they are
-	// compared with ours.
+	// default path, e.g. apps/agent, and the instance's — the same for an
+	// instance at the template's path): the base's and upstream's text get
+	// it too, when ours names To, before they are compared with ours. When
+	// ours doesn't name To (a copy of an instance whose driver still names
+	// the source's path) and upstream adds references to From, the merge is
+	// a conflict: they would land naming another tile. Both empty: no
+	// rename is known, none is checked.
 	From, To string
 }
 
@@ -57,11 +71,19 @@ type Result struct {
 }
 
 // ConflictError is a merge where both sides changed the same values
-// differently (Paths), or a change that can't be written by keys.
-type ConflictError struct{ Paths []string }
+// differently (Paths), or where upstream's change can't be written by keys
+// (Notes: a kept key, comments, the template's own path).
+type ConflictError struct {
+	Paths []string
+	Notes []string
+}
 
 func (e *ConflictError) Error() string {
-	return "both sides changed " + strings.Join(e.Paths, ", ")
+	var parts []string
+	if len(e.Paths) > 0 {
+		parts = append(parts, "both sides changed "+strings.Join(e.Paths, ", "))
+	}
+	return strings.Join(append(parts, e.Notes...), "; ")
 }
 
 // kept are the top-level keys whose upstream change a merge never takes.
@@ -71,9 +93,18 @@ var kept = []string{"template", "partition"}
 // comment). A *ConflictError says what both sides changed; any other error
 // is a document that doesn't parse.
 func Merge(base, ours, theirs []byte, o Options) (Result, error) {
-	if o.From != "" && o.To != "" && o.From != o.To && bytes.Contains(ours, []byte(o.To)) {
-		base = bytes.ReplaceAll(base, []byte(o.From), []byte(o.To))
-		theirs = bytes.ReplaceAll(theirs, []byte(o.From), []byte(o.To))
+	if o.From != "" && o.To != "" {
+		switch {
+		case namesPath(ours, o.To):
+			if o.From != o.To {
+				base = bytes.ReplaceAll(base, []byte(o.From), []byte(o.To))
+				theirs = bytes.ReplaceAll(theirs, []byte(o.From), []byte(o.To))
+			}
+		case addsPath(base, theirs, o.From):
+			return Result{}, &ConflictError{Notes: []string{fmt.Sprintf(
+				"upstream adds references to the template's own path %s, to be renamed to %s — a path this manifest doesn't name (a copy of another instance? xbind names the copy's own path in its driver at start)",
+				o.From, o.To)}}
+		}
 	}
 	var docs [3]*doc
 	for i, side := range []struct {
@@ -88,16 +119,19 @@ func Merge(base, ours, theirs []byte, o Options) (Result, error) {
 	}
 	m := &merger{b: docs[0], o: docs[1], t: docs[2], norm: normalized(ours)}
 	text, changed := m.merge("", docs[0].root, docs[1].root, docs[2].root, true)
-	if len(m.conflicts) > 0 {
-		return Result{}, &ConflictError{Paths: m.conflicts}
+	if len(m.conflicts) > 0 || len(m.notes) > 0 {
+		return Result{}, &ConflictError{Paths: m.conflicts, Notes: m.notes}
 	}
-	if !changed {
-		return Result{Out: ours, Took: m.took}, nil
+	out := ours
+	if changed {
+		root := docs[1].root
+		out = append(append(append([]byte(nil), ours[:root.start]...), text...), ours[root.end:]...)
+		if !json.Valid(jsonc.Strip(out)) {
+			return Result{}, errors.New("manifestmerge: the merged manifest doesn't parse")
+		}
 	}
-	root := docs[1].root
-	out := append(append(append([]byte(nil), ours[:root.start]...), text...), ours[root.end:]...)
-	if !json.Valid(jsonc.Strip(out)) {
-		return Result{}, errors.New("manifestmerge: the merged manifest doesn't parse")
+	if !m.commentsCarried(out) {
+		return Result{}, &ConflictError{Notes: []string{"upstream changed comments, which a merge by keys doesn't carry"}}
 	}
 	return Result{Out: out, Took: m.took}, nil
 }
@@ -107,6 +141,7 @@ type merger struct {
 	norm      bool // ours is in the two-space form
 	took      []string
 	conflicts []string
+	notes     []string // upstream's changes that can't be taken (ConflictError.Notes)
 }
 
 // plan is what becomes of one of ours' entries.
@@ -136,9 +171,6 @@ func (m *merger) merge(path string, b, o, t *node, root bool) (string, bool) {
 	var inserts []int // theirs' items to add
 	changed := false
 	for _, id := range union {
-		if root && isKept(id) {
-			continue
-		}
 		bi, bok := bIdx[id]
 		ti, tok := tIdx[id]
 		oi, ook := oIdx[id]
@@ -147,6 +179,13 @@ func (m *merger) merge(path string, b, o, t *node, root bool) (string, bool) {
 			continue
 		}
 		p := label(path, id)
+		if root && isKept(id) {
+			// upstream's change to a block ours doesn't carry is nothing to ours
+			if !(strings.EqualFold(id, "k:"+kept[0]) && bok && !ook) {
+				m.notes = append(m.notes, "upstream changes "+p+", which a merge never takes from upstream (only your own edit changes it)")
+			}
+			continue
+		}
 		if co == cb {
 			m.took = append(m.took, p)
 			changed = true
