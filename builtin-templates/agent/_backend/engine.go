@@ -71,8 +71,9 @@ type Engine struct {
 	jobWatch map[int64]*jobWatch       // a sleeping run's watcher over its sandbox jobs (sandbox_wait.go)
 	delivery map[int64][]chan struct{} // inbox id → closed when consumed
 	drafts   map[int64]*draft
-	harness  map[int64]*hsess // the coding agents this process drives (harness_engine.go)
-	idleCh   chan struct{}    // closed when the last actor exits during shutdown
+	harness  map[int64]*hsess      // the coding agents this process drives (harness_engine.go)
+	hlocks   map[int64]*sync.Mutex // a harness run's start lock (ensureHarness)
+	idleCh   chan struct{}         // closed when the last actor exits during shutdown
 
 	legacyTimer *time.Timer
 	hold        holder

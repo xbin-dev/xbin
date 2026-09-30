@@ -26,8 +26,8 @@ func (s *hsess) onPermission(ev acp.Event) {
 		} `json:"rule"`
 		Meta map[string]any `json:"meta"`
 	}
-	if json.Unmarshal(ev.Data, &d) != nil || d.PID == "" {
-		return
+	if json.Unmarshal(ev.Data, &d) != nil || d.PID == "" || !s.pendingPID(d.PID) {
+		return // a rule answered it, or a cancel did: its resolution follows
 	}
 	tc := d.ToolCall
 	c := s.call(tc.ID)
@@ -77,8 +77,8 @@ func (s *hsess) onPermission(ev acp.Event) {
 	s.parkOrQueue(ev, "approval", park, c)
 }
 
-// onQuestion parks the run on a form question; a url one (a device-code
-// sign-in) is honoured only during a sign-in AgTT started (part (b)) and
+// onQuestion parks the run on a form question; a url one is honoured only
+// during a sign-in AgTT started (its device code: harness_login.go) and
 // declined otherwise.
 func (s *hsess) onQuestion(ev acp.Event) {
 	var q acp.Elicitation
@@ -86,6 +86,10 @@ func (s *hsess) onQuestion(ev acp.Event) {
 		return
 	}
 	if q.Mode == "url" {
+		if a := s.auth(); a != nil { // a device code, during a sign-in AgTT started
+			s.onDevice(ev, q, a)
+			return
+		}
 		go func() { _ = s.c.RespondElicitation(q.EID, "decline", nil, "agtt") }()
 		return
 	}
@@ -102,6 +106,7 @@ func (s *hsess) onQuestion(ev acp.Event) {
 // parkOrQueue makes p the run's park (waiting_input) — or, while another
 // is parked, queues it.
 func (s *hsess) parkOrQueue(ev acp.Event, kind string, p *hPark, c *hcall) {
+	s.disarmIdle()
 	s.flushDraft()
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
 		run, err := t.getRun(s.run)
@@ -171,6 +176,7 @@ func (s *hsess) onResolved(ev acp.Event, key string) {
 			}
 		}
 	}
+	rests, cleared := false, false
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
 		var q []hQueued
 		_ = json.Unmarshal([]byte(hs.Queue), &q)
@@ -214,17 +220,34 @@ func (s *hsess) onResolved(ev acp.Event, key string) {
 			return s.parkTx(t, run, next.Kind, next.Perm, c)
 		}
 		status := statusRunning
-		if hs.PromptState == "" {
-			status = statusIdle
+		if hs.PromptState == "" && !s.isDetached() {
+			status, rests = statusIdle, true
 		}
 		if err := t.setStatus(run.ID, status, 0, run.Result, ""); err != nil {
 			return err
 		}
 		s.e.emitRun(t, run.ID)
+		cleared = true
 		return nil
 	})
 	s.toolActivity()
 	s.publishSummary()
+	if cleared { // a message that waited on the park is steered (or waits) now
+		s.e.Poke(s.run)
+	}
+	if rests {
+		s.armIdle()
+	}
+}
+
+// pendingPID: the permission request is still waiting for an answer here.
+func (s *hsess) pendingPID(pid string) bool {
+	for _, p := range s.perms.List() {
+		if p.PID == pid {
+			return true
+		}
+	}
+	return false
 }
 
 // settleParkTx answers the park and the queue with text in the transcript

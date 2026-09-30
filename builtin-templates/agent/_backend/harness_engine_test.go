@@ -18,8 +18,16 @@ import (
 // the adapter: TestMain) and alice's sandbox there, reaching out.
 func harnessFixture(t *testing.T, stdio bool, flags ...string) (*Agent, *http.ServeMux, *sbxSandbox) {
 	t.Helper()
+	ag, mux, box, _ := harnessFixtureWith(t, nil, stdio, flags...)
+	return ag, mux, box
+}
+
+// harnessFixtureWith is harnessFixture with the manager's handler wrapped
+// (bindSbxWith), and the manager.
+func harnessFixtureWith(t *testing.T, wrap func(http.Handler) http.Handler, stdio bool, flags ...string) (*Agent, *http.ServeMux, *sbxSandbox, *sbxTestManager) {
+	t.Helper()
 	ag, mux := accessFixture(t)
-	m := bindSbx(t, "apps/cs")["apps/cs"]
+	m := bindSbxWith(t, wrap, "apps/cs")["apps/cs"]
 	if !stdio {
 		m.Caps = []string{"exec", "files", "tar"}
 	}
@@ -28,7 +36,7 @@ func harnessFixture(t *testing.T, stdio bool, flags ...string) (*Agent, *http.Se
 	box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Egress: "internet"})
 	forgetHarnessProbes()
 	t.Cleanup(func() { settleHarnesses(ag.eng) }) // before the manager goes (cleanups run last first)
-	return ag, mux, box
+	return ag, mux, box, m
 }
 
 // settleHarnesses stops e (no pass runs after it), lets its adapters go
@@ -70,6 +78,22 @@ func draftText(e *Engine, run int64) string {
 // ends its adapters, then shuts down, when the test does.
 func successor(t *testing.T, ag *Agent) *Engine {
 	a := ag.eng
+	// the predecessor's consumers stop applying once it let its adapters go:
+	// wait for them before newEngine rewrites ag.eng (which they read)
+	a.mu.Lock()
+	var old []*hsess
+	for _, s := range a.harness {
+		old = append(old, s)
+	}
+	a.mu.Unlock()
+	for _, s := range old {
+		if s.isHalted() {
+			select {
+			case <-s.done:
+			case <-time.After(15 * time.Second):
+			}
+		}
+	}
 	b := newEngine(ag.db, ag, a.llm, "")
 	t.Cleanup(func() {
 		settleHarnesses(b)

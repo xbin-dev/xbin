@@ -67,6 +67,29 @@ type hsess struct {
 	timer   *time.Timer     // the ≤ 250 ms upsert of dirty tool rows
 	act     hActivity
 	lastSum string // the harness event last published
+
+	inflight  *heldPrompt       // the prompt of the turn in flight (a sign-in holds it)
+	detached  bool              // the adapter runs a turn of its own (harness_steer.go)
+	quiet     *time.Timer       // ends a detached turn once the adapter goes quiet
+	quietDue  bool              // … it went quiet: the pass ends it
+	idleT     *time.Timer       // the idle reclaim (harness_life.go)
+	reclaim   bool              // the idle reclaim is due: the pass stops the adapter
+	graceT    *time.Timer       // stops an adapter that doesn't end its turn after session/cancel
+	checked   time.Time         // the sandbox's use was last re-checked
+	fresh     bool              // just started (or attached): that checked it
+	checking  bool              // a re-check is on its way
+	authing   *hAuth            // a sign-in AgTT started (harness_login.go)
+	abandoned map[string]string // request ids the pipe gave up on → why
+	endWhy    string            // what ended() says when the end is AgTT's doing
+	endLost   bool              // … and the session is lost, not stopped
+}
+
+// newHsess is a session of run at generation gen, started (or attached)
+// under epoch.
+func newHsess(e *Engine, run *Run, gen int, epoch int64, prov acp.Provider) *hsess {
+	return &hsess{e: e, run: run.ID, root: rootOf(run), parent: run.ParentID, gen: gen, epoch: epoch, prov: prov,
+		perms: acp.NewPermissions(), done: make(chan struct{}), calls: map[string]*hcall{}, dirty: map[string]bool{},
+		act: hActivity{Kind: "idle", At: nowMs()}, abandoned: map[string]string{}, checked: time.Now(), fresh: true}
 }
 
 // hsDraft is the unflushed draft: the run's own text and thinking, and a
@@ -151,10 +174,13 @@ func (e *Engine) letHarnessesGo() {
 func (s *hsess) halt() {
 	s.mu.Lock()
 	s.halted = true
-	if s.timer != nil {
-		s.timer.Stop()
-		s.timer = nil
+	for _, t := range []**time.Timer{&s.timer, &s.quiet, &s.idleT, &s.graceT} {
+		if *t != nil {
+			(*t).Stop()
+			*t = nil
+		}
 	}
+	s.reclaim = false
 	s.mu.Unlock()
 }
 
@@ -200,6 +226,15 @@ func (f *harnessFail) Error() string { return f.msg }
 // failure — the session is stored failed; anything else, like a handoff,
 // leaves it as it was).
 func (e *Engine) ensureHarness(ctx context.Context, run *Run) (*hsess, error) {
+	return e.ensureHarnessAt(ctx, run, false)
+}
+
+// ensureHarnessAt is ensureHarness; attachOnly takes over a running adapter
+// and starts none (nil, nil: none runs).
+func (e *Engine) ensureHarnessAt(ctx context.Context, run *Run, attachOnly bool) (*hsess, error) {
+	mu := e.harnessLock(run.ID) // the pass, a sign-in's route, a delete: one at a time
+	mu.Lock()
+	defer mu.Unlock()
 	if s := e.harnessOf(run.ID); s != nil && !s.isHalted() {
 		select {
 		case <-s.done:
@@ -219,7 +254,10 @@ func (e *Engine) ensureHarness(ctx context.Context, run *Run) (*hsess, error) {
 	if err != nil {
 		return nil, err
 	}
-	if hs != nil && hs.ExecID != "" && (hs.State == hsLive || hs.State == hsStarting) {
+	if attachOnly && (hs == nil || hs.ExecID == "" || !hsRunning(hs.State)) {
+		return nil, nil
+	}
+	if hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
 		var st acp.SessionState
 		if json.Unmarshal([]byte(hs.Snapshot), &st) == nil && st.SessionID != "" {
 			s, err := e.attachHarness(ctx, run, cfg, hs, st)
@@ -237,6 +275,21 @@ func (e *Engine) ensureHarness(ctx context.Context, run *Run) (*hsess, error) {
 		return nil, e.failHarness(run, err)
 	}
 	return s, err
+}
+
+// harnessLock is run's start lock (ensureHarness).
+func (e *Engine) harnessLock(run int64) *sync.Mutex {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.hlocks == nil {
+		e.hlocks = map[int64]*sync.Mutex{}
+	}
+	mu := e.hlocks[run]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		e.hlocks[run] = mu
+	}
+	return mu
 }
 
 func isHarnessFail(err error) bool {
@@ -343,6 +396,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	if hs == nil {
 		hs = &harnessSession{RunID: run.ID, RootID: rootOf(run)}
 	}
+	wasLogin := hs.State == hsLogin // started to sign in: it stays parked on it
 	gen := hs.Gen + 1
 	cwd := orStr(h.Cwd, u.Cwd)
 	resume := ""
@@ -352,9 +406,11 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	e.mu.Lock()
 	epoch := e.epoch
 	e.mu.Unlock()
-	s := &hsess{e: e, run: run.ID, root: rootOf(run), parent: run.ParentID, gen: gen, epoch: epoch, prov: prov,
-		perms: acp.NewPermissions(), done: make(chan struct{}), calls: map[string]*hcall{}, dirty: map[string]bool{},
-		act: hActivity{Kind: "idle", At: nowMs()}}
+	s := newHsess(e, run, gen, epoch, prov)
+	var rules []acp.Rule // what "allow always" answers remember in this conversation
+	if json.Unmarshal([]byte(hs.Rules), &rules) == nil {
+		s.perms.SetRules(rules)
+	}
 	err = e.fenced(func(t *DB) error {
 		cur, err := t.harnessSession(run.ID)
 		if err != nil {
@@ -378,7 +434,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		return nil, err
 	}
 	tg := harnessTarget(u)
-	tg.Guard = s.guard
+	tg.Guard, tg.Dropped = s.guard, s.dropped
 	pipe, err := startHarnessPipe(ctx, tg, hpSpawn{Run: run.ID, Root: rootOf(run), Gen: gen, Provider: prov.ID,
 		Argv: prov.Argv, Cwd: cwd, Env: prov.Env})
 	if err != nil {
@@ -423,26 +479,39 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 			hs, _ := e.db.harnessSession(run.ID)
 			return e.spawnHarness(ctx, run, cfg, hs)
 		}
-		s.stop() // signed out: signing in through the session (login) is D-harness §3.4's
-		if isAuthErr(err) {
-			signed := false
-			_ = e.db.noteHarnessSeen(h.Ref, prov.ID, nil, &signed)
-			return nil, &harnessFail{fmt.Sprintf("%s isn't signed in in %s — sign in with: %s", prov.Name, name, prov.LoginCmd)}
+		if sid, _ := s.c.Session(); isAuthErr(err) && sid == "" && s.c.State().AuthNeeded {
+			// it refused a session signed out (codex): it stays up for a
+			// sign-in through it (harness_login.go)
+			if cerr := s.commit(nil, func(t *DB, hs *harnessSession) error {
+				hs.Steering = s.c.State().Steering
+				return s.loginTx(t, hs, nil)
+			}); cerr != nil {
+				s.stop()
+				return nil, cerr
+			}
+			return s, errHarnessLogin
 		}
+		s.stop()
 		return nil, &harnessFail{fmt.Sprintf("%s didn't start in %s: %v", prov.Name, name, err)}
 	}
 	sid, loadable := s.c.Session()
 	st := s.c.State()
 	err = s.commit(nil, func(t *DB, hs *harnessSession) error {
 		hs.State, hs.ACPSession, hs.Loadable, hs.Steering = hsLive, sid, loadable, st.Steering
+		if wasLogin || st.AuthNeeded {
+			return s.loginTx(t, hs, nil)
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	signed := true
-	_ = e.db.noteHarnessSeen(h.Ref, prov.ID, &signed, &signed)
+	if !wasLogin && !st.AuthNeeded {
+		signed := true
+		_ = e.db.noteHarnessSeen(h.Ref, prov.ID, &signed, &signed)
+	}
 	s.publishSummary()
+	s.armIdle()
 	return s, nil
 }
 
@@ -495,9 +564,7 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 	attachSeq.n++
 	seq := attachSeq.n
 	attachSeq.Unlock()
-	s := &hsess{e: e, run: run.ID, root: rootOf(run), parent: run.ParentID, gen: hs.Gen, epoch: epoch, prov: prov,
-		perms: acp.NewPermissions(), done: make(chan struct{}), calls: map[string]*hcall{}, dirty: map[string]bool{},
-		act: hActivity{Kind: "idle", At: nowMs()}}
+	s := newHsess(e, run, hs.Gen, epoch, prov)
 	switch hs.PromptState {
 	case "sent":
 		st.PromptRPC, st.Turn = json.RawMessage(hs.PromptRPC), uint64(hs.Turn)
@@ -536,7 +603,7 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 		_ = json.Unmarshal([]byte(hs.Draft), &s.draft)
 	}
 	tg := harnessTarget(u)
-	tg.Guard = s.guard
+	tg.Guard, tg.Dropped = s.guard, s.dropped
 	s.pipe = attachHarnessPipe(ctx, tg, hs.ExecID, hs.ReadOff, hs.ErrOff)
 	if !e.adopt(s) {
 		s.pipe.Detach()
@@ -555,6 +622,9 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 		s.showDraft()
 	}
 	s.publishSummary()
+	if hs.PromptState == "" && run.Status != statusWaiting && run.Status != statusRunning && hs.State == hsLive {
+		s.armIdle()
+	}
 	return s, nil
 }
 
@@ -589,6 +659,7 @@ func harnessPendings(p pendingState, queue string) []harnessPending {
 func (s *hsess) process() *acp.Process {
 	p := s.pipe.Process()
 	p.Stdin = &hsStdin{WriteCloser: p.Stdin, s: s}
+	p.Stdout = &hsStdout{Reader: p.Stdout, s: s}
 	return p
 }
 
@@ -632,7 +703,11 @@ func (s *hsess) consume() {
 		if s.isHalted() {
 			continue // drained, not applied: the successor reads it again
 		}
+		s.touchDetached()
 		s.apply(ev)
+		if ev.Type != acp.EvMessageDelta && ev.Type != acp.EvThoughtDelta {
+			s.recheckSoon()
+		}
 	}
 	s.ended()
 }
@@ -658,7 +733,10 @@ func (s *hsess) ended() {
 	if s.isHalted() || errors.Is(perr, errPipeDetached) || errors.Is(perr, errPipeReplaced) {
 		return // let go: another process (or a stop) owns what follows
 	}
-	lost := s.pipe.Lost() || perr != nil // a manager that stopped answering: cut off too
+	s.mu.Lock()
+	endWhy, endLost := s.endWhy, s.endLost
+	s.mu.Unlock()
+	lost := s.pipe.Lost() || perr != nil || endLost // a manager that stopped answering: cut off too
 	why := fmt.Sprintf("%s stopped", s.prov.Name)
 	switch ex := s.pipe.Exit(); {
 	case perr != nil:
@@ -670,10 +748,14 @@ func (s *hsess) ended() {
 	case ex.Signal != "":
 		why = fmt.Sprintf("%s was killed (%s)", s.prov.Name, ex.Signal)
 	}
+	msg := why + " during the turn — send a message to go on"
+	if endWhy != "" {
+		why, msg = endWhy, endWhy
+	}
 	s.flushDraft()
 	_ = s.commit(nil, func(t *DB, hs *harnessSession) error {
 		inFlight := hs.PromptState != ""
-		hs.State, hs.PromptState, hs.PromptRPC = hsStopped, "", ""
+		hs.State, hs.PromptState, hs.PromptRPC, hs.Queue, hs.Login = hsStopped, "", "", "", ""
 		if lost {
 			hs.State, hs.Error = hsLost, why
 		}
@@ -683,8 +765,9 @@ func (s *hsess) ended() {
 		}
 		s.settleParkTx(t, run, "(interrupted)")
 		if inFlight || run.Status == statusRunning || run.Status == statusWaiting {
-			return s.e.endHarnessTurnTx(t, s.run, "error", why+" during the turn — send a message to go on")
+			return s.e.endHarnessTurnTx(t, s.run, "error", msg)
 		}
+		s.e.emitRun(t, s.run)
 		return nil
 	})
 	s.publishSummary()
@@ -886,7 +969,7 @@ func (s *hsess) activityNow() hActivity {
 // live (joined against runs, so the row of a run an older binary deleted is
 // ignored).
 const harnessRecoverSQL = `SELECT h.run_id FROM harness_sessions h JOIN runs r ON r.id=h.run_id
-	WHERE h.state IN ('starting','live') AND r.engine='harness'`
+	WHERE h.state IN ('starting','live','login') AND r.engine='harness'`
 
 // harnessHasWork: a prompt is on its way or running (hasWork).
 const harnessWorkSQL = `(SELECT count(*) FROM harness_sessions h JOIN runs r ON r.id=h.run_id

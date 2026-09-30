@@ -58,6 +58,14 @@ type inboxBody struct {
 	// Jump, on a coding agent's prompt (hprompt) sent with interrupt: it
 	// goes before the ones queued earlier (harness_pass.go).
 	Jump bool `json:"jump,omitempty"`
+	// Option is the harness permission option an approve row picks (an
+	// optionId of pendingState.harness.options; "" with approve false: the
+	// cancelled outcome). Action and Content are an hanswer row's answer to
+	// a coding agent's question: accept (with the form's values) | decline |
+	// cancel (D-harness §4.2.5, §4.2.9).
+	Option  string          `json:"option,omitempty"`
+	Action  string          `json:"action,omitempty"`
+	Content json.RawMessage `json:"content,omitempty"`
 }
 
 type InboxRow struct {
@@ -267,7 +275,10 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 
 // handleApprove is a verdict on a parked approval.
 //
-//	POST /runs/{id}/approve {approve, grant?: "once"|"hour", park?}
+//	POST /runs/{id}/approve {approve, grant?: "once"|"hour", park?, option?, feedback?}
+//
+// A coding agent's park (pendingState.harness) is answered with one of its
+// own options (harnessVerdict: option, feedback — D-harness §4.2.9).
 //
 // A parked call that needs a grant (pendingState.grant, grants.go) is the
 // conversation owner's to allow — anyone who may steer it may still deny it;
@@ -278,9 +289,11 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 func handleApprove(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	var body struct {
-		Approve bool
-		Grant   string
-		Park    string
+		Approve  bool
+		Grant    string
+		Park     string
+		Option   string
+		Feedback string
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	run, err := agent.db.getRun(id)
@@ -298,6 +311,14 @@ func handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := callerOf(r)
+	if p.Harness != nil {
+		approveHarness(w, c, run, p, body.Approve, body.Option, body.Feedback)
+		return
+	}
+	if body.Option != "" {
+		xbin.WriteError(w, 400, "option is for a coding agent's permission request")
+		return
+	}
 	verdict := inboxBody{Approve: body.Approve, Sender: c.tag(), Park: p.Park}
 	if p.Grant != "" && body.Approve {
 		root := run

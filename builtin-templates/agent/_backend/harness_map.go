@@ -460,9 +460,9 @@ func (s *hsess) newCall(ev acp.Event, d hToolEv) {
 	s.toolActivity()
 }
 
-// flushSubsTx writes nothing yet: a subagent's text is flushed with its
-// own next call (newCall takes it) or its end (onTool) — kept as a seam
-// for part (b)'s steering, which flushes everything first.
+// flushSubsTx writes nothing: a subagent's text is flushed with its own
+// next call (newCall takes it) or its end (onTool); a steer flushes
+// everything first (flushDraft).
 func (s *hsess) flushSubsTx(*DB) error { return nil }
 
 // countTx adds an ended call's edits to the counts (once).
@@ -725,11 +725,23 @@ func (s *hsess) onStatus(ev acp.Event) {
 		Title   string          `json:"title"`
 		Usage   json.RawMessage `json:"usage"`
 		Options json.RawMessage `json:"options"`
+		Login   *struct {
+			Needed bool `json:"needed"`
+		} `json:"login"`
 	}
 	if json.Unmarshal(ev.Data, &d) != nil || d.Status == acp.StatusExited {
 		return // the end is ended()'s
 	}
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
+		if d.Login != nil && d.Login.Needed && hs.State == hsLive && hs.PromptState == "" && s.auth() == nil {
+			// signed out (_auth/status_update) with no turn: park on the
+			// sign-in now (mid-turn, the prompt's failure does)
+			if run, err := t.getRun(s.run); err == nil && run.Status != statusRunning && run.Status != statusWaiting {
+				if err := s.loginTx(t, hs, nil); err != nil {
+					return err
+				}
+			}
+		}
 		if len(d.Usage) > 0 && string(d.Usage) != "null" {
 			hs.Usage = string(d.Usage)
 		}
@@ -752,7 +764,9 @@ func (s *hsess) onStatus(ev acp.Event) {
 	s.publishSummary()
 }
 
-// onTurnEnd is the prompt's answer: the draft flushed, the turn over.
+// onTurnEnd is the prompt's answer: the draft flushed, the turn over — or,
+// refused signed out, the run parked on its sign-in with the prompt held;
+// while the adapter runs a turn of its own (detached), that goes on.
 func (s *hsess) onTurnEnd(ev acp.Event) {
 	var d struct {
 		StopReason string `json:"stopReason"`
@@ -762,6 +776,14 @@ func (s *hsess) onTurnEnd(ev acp.Event) {
 	if json.Unmarshal(ev.Data, &d) != nil {
 		return
 	}
+	if ev.Wire != nil {
+		if why := s.takeAbandoned(ev.Wire.RPCID); why != "" {
+			d.Error = why // the pipe gave up on it: said in people's words
+		}
+	}
+	signedOut := d.StopReason == "error" && s.c != nil && s.c.State().AuthNeeded
+	detached := s.isDetached()
+	rests := false
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
 		if err := s.flushAllTx(t); err != nil {
 			return err
@@ -770,6 +792,7 @@ func (s *hsess) onTurnEnd(ev acp.Event) {
 		if inFlight && hs.PromptRPC != "" && ev.Wire != nil && len(ev.Wire.RPCID) > 0 && idKey(hs.PromptRPC) != idKey(string(ev.Wire.RPCID)) {
 			return nil // another prompt's (it can't be: one at a time) — ignored
 		}
+		held := s.heldForLogin(t)
 		hs.PromptState, hs.PromptRPC = "", ""
 		if d.Turn > 0 {
 			hs.Turn = int64(d.Turn)
@@ -781,10 +804,21 @@ func (s *hsess) onTurnEnd(ev acp.Event) {
 		if !inFlight && run.Status != statusRunning {
 			return nil // not a turn of ours (a steered one's end) — nothing to end
 		}
+		switch {
+		case signedOut:
+			return s.loginTx(t, hs, held)
+		case detached:
+			return nil // the adapter's own turn goes on (harness_steer.go)
+		}
+		rests = true
 		return s.e.endHarnessTurnTx(t, s.run, d.StopReason, d.Error)
 	})
+	s.setInflight(nil)
 	s.activity("idle", "")
 	s.publishSummary()
+	if rests {
+		s.armIdle()
+	}
 }
 
 // idKey compares request ids whatever their JSON spelling.

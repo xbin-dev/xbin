@@ -306,7 +306,8 @@ func prepareBinding(ctx context.Context, w who, cfg Config, pick sandboxPick) (S
 
 // storeBinding applies a change to root's stored config inside t. A sandbox
 // the change takes off the conversation stops the jobs it still runs there
-// (stopDetachedJobs) — every detach path comes through here.
+// (stopDetachedJobs) and the coding agents working in it
+// (stopDetachedHarnesses) — every detach path comes through here.
 func storeBinding(t *DB, root int64, change func(*Config) error) error {
 	cfg, err := t.runConfig(root)
 	if err != nil {
@@ -322,6 +323,7 @@ func storeBinding(t *DB, root int64, change func(*Config) error) error {
 		return err
 	}
 	t.stopDetachedJobs(root, before, cfg)
+	t.stopDetachedHarnesses(root, before, cfg)
 	return nil
 }
 

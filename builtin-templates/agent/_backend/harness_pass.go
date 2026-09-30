@@ -1,10 +1,13 @@
 // harness_pass.go — a harness run's pass (D-harness §3.2, §3.3): what its
-// inbox asks of its coding agent, in priority order — cancel > interrupt >
-// halt > answers (approve, hanswer) > wake/retry > prompts > compact. A
+// inbox asks of its coding agent, in priority order — cancel > stop >
+// interrupt > halt > answers (approve, hanswer: harness_answer.go) >
+// wake/retry > prompts > compact > the idle reclaim (harness_life.go). A
 // prompt (an hprompt row) is delivered when no turn runs and nothing is
 // parked: the user row (+ the task ledger) is written as it goes, and the
-// turn is the adapter's until its turn.end (harness_map.go). The pass never
-// waits for a turn: the actor exits and the turn's end pokes the run again.
+// turn is the adapter's until its turn.end (harness_map.go); one sent while
+// a park waits rejects it first, one during a turn is steered or waits
+// (harness_steer.go). The pass never waits for a turn: the actor exits and
+// the turn's end pokes the run again.
 //
 // Also the ways in: POST /ask and POST /runs with `harness` (§4.2.3) — the
 // run is created with engine "harness" and its first message as an hprompt —
@@ -31,9 +34,12 @@ const (
 	inboxHNote   = "hnote"   // a notice for a parent about its harness child (never starts a turn)
 )
 
-// hInbox is a harness run's pending rows by kind.
+// hInbox is a harness run's pending rows by kind. A `user` row (an older
+// binary's message, a parent's) is a prompt too; the ones no person or
+// parent wrote (a schedule's, a watcher's, /learn) are stray: a coding
+// agent's conversation isn't driven by them (D-harness §3.3).
 type hInbox struct {
-	prompt, answer, approve, wake, interrupt, cancel, compact []*InboxRow
+	prompt, answer, approve, wake, interrupt, cancel, compact, stop, stray []*InboxRow
 }
 
 func sortHarnessInbox(rows []*InboxRow) hInbox {
@@ -42,6 +48,15 @@ func sortHarnessInbox(rows []*InboxRow) hInbox {
 		switch r.Kind {
 		case inboxHPrompt:
 			h.prompt = append(h.prompt, r)
+		case inboxUser:
+			switch r.Body.Source {
+			case "", "human", "parent":
+				h.prompt = append(h.prompt, r)
+			default:
+				h.stray = append(h.stray, r)
+			}
+		case inboxWatch:
+			h.stray = append(h.stray, r)
 		case inboxHAnswer:
 			h.answer = append(h.answer, r)
 		case inboxApprove:
@@ -54,6 +69,8 @@ func sortHarnessInbox(rows []*InboxRow) hInbox {
 			h.cancel = append(h.cancel, r)
 		case inboxCompact:
 			h.compact = append(h.compact, r)
+		case inboxHStop:
+			h.stop = append(h.stop, r)
 		}
 	}
 	return h
@@ -73,7 +90,10 @@ func (h hInbox) nextPrompt() *InboxRow {
 	return nil
 }
 
-// harnessPass is pass() for a harness run.
+// harnessPass is pass() for a harness run: cancel > stop > interrupt >
+// halt > answers (approve, hanswer) > wake > prompts (a message while a
+// park waits rejects it first; one during a turn is steered, else waits)
+// > compact > the idle reclaim.
 func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 	ctx := e.base
 	h := sortHarnessInbox(rows)
@@ -81,14 +101,29 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 		e.harnessCancel(ctx, run, h)
 		return
 	}
+	if len(h.stop) > 0 {
+		e.harnessStop(ctx, run, h.stop)
+	}
 	if len(h.interrupt) > 0 {
 		e.harnessInterrupt(ctx, run, h.interrupt)
 	}
 	if e.halted() {
 		return
 	}
-	if len(h.approve) > 0 {
-		e.harnessApprove(ctx, run, h.approve)
+	if len(h.stray) > 0 {
+		e.consumeWithNote(run, h.stray, "a coding agent's conversation takes messages from people — "+
+			orStr(h.stray[0].Body.Source, h.stray[0].Kind)+" doesn't drive it")
+	}
+	if len(h.approve) > 0 || len(h.answer) > 0 {
+		if r, err := e.db.getRun(run.ID); err == nil {
+			run = r
+		}
+		if len(h.approve) > 0 {
+			e.harnessApprove(ctx, run, h.approve)
+		}
+		if len(h.answer) > 0 {
+			e.harnessAnswer(ctx, run, h.answer)
+		}
 	}
 	hs, err := e.db.harnessSession(run.ID)
 	if err != nil {
@@ -97,19 +132,39 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 	if run, err = e.db.getRun(run.ID); err != nil {
 		return
 	}
-	busy := run.Status == statusWaiting || (hs != nil && hs.PromptState != "")
+	s := e.harnessOf(run.ID)
+	if s != nil && s.detachedQuiet() { // codex's own turn went quiet: over (harness_steer.go)
+		s.endDetached("end_turn")
+		if run, err = e.db.getRun(run.ID); err != nil {
+			return
+		}
+		hs, _ = e.db.harnessSession(run.ID)
+	}
+	parked := run.Status == statusWaiting
+	turn := (hs != nil && hs.PromptState != "") || (s != nil && s.isDetached())
 	switch {
 	case len(h.wake) > 0:
 		e.harnessWake(ctx, run, hs, h.wake)
 		return
-	case !busy && len(h.prompt) > 0:
+	case len(h.prompt) > 0 && parked:
+		e.harnessReplyToPark(ctx, run, h.nextPrompt())
+		return
+	case len(h.prompt) > 0 && turn && s != nil:
+		e.harnessSteer(ctx, run, h.nextPrompt())
+		return
+	case len(h.prompt) > 0 && !turn:
 		e.harnessPrompt(ctx, run, h.nextPrompt())
 		return
+	} // a turn a predecessor left running: attached below, its end pokes the run
+	if len(h.compact) > 0 && !parked && !turn {
+		e.harnessCompact(ctx, run, hs, h.compact)
+		return
 	}
-	if len(h.compact) > 0 { // D-harness §4.2.11 sends /compact; until then, said and consumed
-		e.consumeWithNote(run, h.compact, "a coding agent compacts its own context")
+	if s != nil && s.reclaimDue() {
+		e.harnessReclaim(run, s, parked || turn)
+		return
 	}
-	if e.harnessOf(run.ID) == nil && hs != nil && hs.ExecID != "" && (hs.State == hsLive || hs.State == hsStarting) {
+	if s == nil && hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
 		e.resumeHarness(ctx, run, hs) // a predecessor's adapter: keep reading it
 	}
 }
@@ -134,7 +189,7 @@ func (e *Engine) consumeWithNote(run *Run, rows []*InboxRow, text string) {
 func (e *Engine) resumeHarness(ctx context.Context, run *Run, hs *harnessSession) {
 	var st acp.SessionState
 	if json.Unmarshal([]byte(hs.Snapshot), &st) == nil && st.SessionID != "" {
-		if _, err := e.ensureHarness(ctx, run); err != nil && ctx.Err() == nil {
+		if _, err := e.ensureHarnessAt(ctx, run, true); err != nil && ctx.Err() == nil {
 			logf("run #%d: taking over its coding agent: %v", run.ID, err)
 		}
 		return
@@ -174,48 +229,40 @@ func promptText(text string, files []*ReplFile) string {
 	return text + attachmentNote(files)
 }
 
-// harnessPrompt delivers row: the session ensured, the user row written
-// with the prompt marked on its way, then session/prompt. A session that
-// can't be had fails the turn with why, the prompt kept for /resume.
+// harnessPrompt delivers row: the session ensured (and the sandbox's use
+// re-checked), the user row written with the prompt marked on its way,
+// then session/prompt. A session that can't be had fails the turn with
+// why, the prompt kept for /resume; an adapter that isn't signed in parks
+// the run on its sign-in with the prompt held (§4.3.4 login).
 func (e *Engine) harnessPrompt(ctx context.Context, run *Run, row *InboxRow) {
 	s, serr := e.ensureHarness(ctx, run)
 	if ctx.Err() != nil || errors.Is(serr, errHandoff) || errors.Is(serr, errFenced) {
 		return
 	}
+	if serr == nil {
+		serr = e.harnessRights(ctx, run, s)
+	}
 	var m *Message
 	ok := false
 	ferr := e.fenced(func(t *DB) error {
-		files, _ := e.ag.checkAttachmentsTx(t, run.ID, row.Body.Files)
-		m = &Message{RunID: run.ID, Role: "user", Content: promptText(row.Body.Text, files)}
-		if b := row.Body; b.Sender != "" || (b.Source != "" && b.Source != "human") {
-			meta := msgMeta{Sender: b.Sender, OriginID: b.OriginID, Label: b.Label}
-			if b.Source != "human" {
-				meta.Origin = b.Source
-			}
-			m.Meta, _ = json.Marshal(meta)
-		}
-		if _, err := t.addMessage(m); err != nil {
+		var err error
+		if m, err = e.userRowTx(t, run, row); err != nil {
 			return err
 		}
-		if !t.consume(row.ID, m.ID) {
-			return fmt.Errorf("inbox row %d consumed twice", row.ID)
-		}
-		src, who := askSource(row.Body)
-		if err := t.recordAsk(m, src, who); err != nil {
-			return err
-		}
-		if err := e.ag.linkMessageFilesTx(t, run.ID, m.ID, files); err != nil {
-			return err
-		}
-		e.emitMessage(t, rootOf(run), m)
-		e.emitInbox(t, rootOf(run), run.ID)
 		hs, _ := t.harnessSession(run.ID)
 		if hs == nil {
 			hs = &harnessSession{RunID: run.ID, RootID: rootOf(run)}
 		}
+		held := &heldPrompt{Text: m.Content, Sender: row.Body.Sender}
+		if errors.Is(serr, errHarnessLogin) { // signed out: the sign-in first, the prompt held
+			if err := s.loginTx(t, hs, held); err != nil {
+				return err
+			}
+			return t.putHarnessSession(hs)
+		}
 		if serr != nil { // no session: the turn fails, the prompt is kept for a retry
-			held, _ := json.Marshal(heldPrompt{Text: m.Content, Sender: row.Body.Sender})
-			hs.Held = string(held)
+			b, _ := json.Marshal(held)
+			hs.Held = string(b)
 			if err := t.putHarnessSession(hs); err != nil {
 				return err
 			}
@@ -238,6 +285,9 @@ func (e *Engine) harnessPrompt(ctx context.Context, run *Run, row *InboxRow) {
 	})
 	e.delivered(row.ID)
 	if ferr != nil || !ok {
+		if errors.Is(serr, errHarnessLogin) && s != nil {
+			s.publishSummary()
+		}
 		return
 	}
 	e.sendPrompt(ctx, s, run, m.Content)
@@ -246,6 +296,8 @@ func (e *Engine) harnessPrompt(ctx context.Context, run *Run, row *InboxRow) {
 // sendPrompt starts the turn at the adapter; a prompt that can't go ends
 // it with why.
 func (e *Engine) sendPrompt(ctx context.Context, s *hsess, run *Run, text string) {
+	s.disarmIdle()
+	s.setInflight(&heldPrompt{Text: text})
 	s.activity("thinking", "")
 	err := s.c.Prompt(ctx, acp.Prompt{Text: text})
 	if err == nil || ctx.Err() != nil || s.isHalted() {
@@ -262,16 +314,17 @@ func (e *Engine) sendPrompt(ctx context.Context, s *hsess, run *Run, text string
 }
 
 // harnessWake is /resume: a fresh adapter when none is live (it reads its
-// sign-in again) and the held prompt sent again — without another user row.
+// sign-in again — one parked on its sign-in is ended first) and the held
+// prompt sent again, without another user row.
 func (e *Engine) harnessWake(ctx context.Context, run *Run, hs *harnessSession, rows []*InboxRow) {
-	_ = e.fenced(func(t *DB) error {
-		for _, r := range rows {
-			t.consume(r.ID, 0)
+	e.consumeRows(rows)
+	if hs != nil && (hs.State == hsLogin || parsePending(run.Pending).Kind == "login") {
+		e.leaveLogin(ctx, run, hs)
+		var err error
+		if run, err = e.db.getRun(run.ID); err != nil {
+			return
 		}
-		return nil
-	})
-	for _, r := range rows {
-		e.delivered(r.ID)
+		hs, _ = e.db.harnessSession(run.ID)
 	}
 	if run.Status == statusWaiting || (hs != nil && hs.PromptState != "") {
 		return // a turn or a park is in force: nothing to resume
@@ -280,6 +333,9 @@ func (e *Engine) harnessWake(ctx context.Context, run *Run, hs *harnessSession, 
 	if ctx.Err() != nil || errors.Is(serr, errHandoff) || errors.Is(serr, errFenced) {
 		return
 	}
+	if serr == nil {
+		serr = e.harnessRights(ctx, run, s)
+	}
 	var held heldPrompt
 	if hs != nil && hs.Held != "" {
 		_ = json.Unmarshal([]byte(hs.Held), &held)
@@ -287,6 +343,12 @@ func (e *Engine) harnessWake(ctx context.Context, run *Run, hs *harnessSession, 
 	sent := false
 	_ = e.fenced(func(t *DB) error {
 		cur, _ := t.harnessSession(run.ID)
+		if errors.Is(serr, errHarnessLogin) && cur != nil {
+			if err := s.loginTx(t, cur, nil); err != nil {
+				return err
+			}
+			return t.putHarnessSession(cur)
+		}
 		if serr != nil {
 			if run.Status != statusError {
 				return e.endHarnessTurnTx(t, run.ID, "error", serr.Error())
@@ -314,37 +376,15 @@ func (e *Engine) harnessWake(ctx context.Context, run *Run, hs *harnessSession, 
 		sent = true
 		return nil
 	})
+	if errors.Is(serr, errHarnessLogin) && s != nil {
+		s.publishSummary()
+	}
 	if sent {
 		e.sendPrompt(ctx, s, run, held.Text)
 	}
 }
 
 // --- stops -----------------------------------------------------------------------------
-
-// harnessInterrupt is session/cancel for the turn in flight: the adapter
-// ends it (turn.end cancelled → idle, interrupted).
-func (e *Engine) harnessInterrupt(ctx context.Context, run *Run, rows []*InboxRow) {
-	_ = e.fenced(func(t *DB) error {
-		for _, r := range rows {
-			t.consume(r.ID, 0)
-		}
-		return nil
-	})
-	hs, _ := e.db.harnessSession(run.ID)
-	if hs == nil || (hs.PromptState == "" && run.Status != statusWaiting) {
-		return
-	}
-	s := e.harnessOf(run.ID)
-	if s == nil {
-		var err error
-		if s, err = e.ensureHarness(ctx, run); err != nil {
-			return
-		}
-	}
-	if err := s.c.Cancel(); err != nil {
-		logf("run #%d: session/cancel: %v", run.ID, err)
-	}
-}
 
 // harnessCancel is the durable stop: session/cancel, the adapter ended,
 // the run canceled (a child's link settles canceled).
@@ -356,7 +396,7 @@ func (e *Engine) harnessCancel(ctx context.Context, run *Run, h hInbox) {
 	if s := e.harnessOf(run.ID); s != nil {
 		_ = s.c.Cancel()
 		s.stop()
-	} else if hs, _ := e.db.harnessSession(run.ID); hs != nil && hs.ExecID != "" && (hs.State == hsLive || hs.State == hsStarting) {
+	} else if hs, _ := e.db.harnessSession(run.ID); hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
 		if cfg, err := e.db.runConfig(run.ID); err == nil && cfg.Harness != nil {
 			e.dropExec(ctx, run, cfg, hs)
 		}
@@ -367,8 +407,8 @@ func (e *Engine) harnessCancel(ctx context.Context, run *Run, h hInbox) {
 			t.consume(r.ID, 0)
 		}
 		if hs, _ := t.harnessSession(run.ID); hs != nil {
-			hs.PromptState, hs.PromptRPC, hs.Queue = "", "", ""
-			if hs.State == hsLive || hs.State == hsStarting {
+			hs.PromptState, hs.PromptRPC, hs.Queue, hs.Login = "", "", "", ""
+			if hsRunning(hs.State) {
 				hs.State = hsStopped
 			}
 			if err := t.putHarnessSession(hs); err != nil {
@@ -389,69 +429,6 @@ func (e *Engine) harnessCancel(ctx context.Context, run *Run, h hInbox) {
 		e.emitRun(t, run.ID)
 		return nil
 	})
-}
-
-// harnessApprove answers the parked permission with the verdict that names
-// it: approve picks the first allow (allow_once first), deny the first
-// reject (else the cancelled outcome). The rest of the approve rules —
-// explicit options, feedback, a message instead of an answer — are
-// D-harness §4.2.9's.
-func (e *Engine) harnessApprove(ctx context.Context, run *Run, rows []*InboxRow) {
-	p := parsePending(run.Pending)
-	var v *InboxRow
-	if run.Status == statusWaiting && p.Kind == "approval" && p.Harness != nil {
-		for i := len(rows) - 1; i >= 0 && v == nil; i-- {
-			if rows[i].Body.Park == p.Park {
-				v = rows[i]
-			}
-		}
-	}
-	_ = e.fenced(func(t *DB) error {
-		for _, r := range rows {
-			t.consume(r.ID, 0)
-		}
-		return nil
-	})
-	if v == nil {
-		return
-	}
-	s, err := e.ensureHarness(ctx, run)
-	if err != nil {
-		return
-	}
-	res := &acp.Resolution{PID: p.Harness.PID, By: "user:" + v.Body.Sender, RPCID: json.RawMessage(p.Harness.RPCID)}
-	opt := pickOption(p.Harness.Options, v.Body.Approve)
-	if opt == "" {
-		res.Cancel = true
-	} else {
-		res.OptionID = opt
-	}
-	if r, err := s.perms.Resolve(p.Harness.PID, opt, "", res.By); err == nil {
-		res = r
-	} else if opt != "" {
-		logf("run #%d: the parked permission %s: %v", run.ID, p.Harness.PID, err)
-	}
-	if err := s.c.RespondPermission(res); err != nil {
-		logf("run #%d: answering the permission: %v", run.ID, err)
-	}
-}
-
-// pickOption is the option approve (or deny) chooses: allow_once, else any
-// allow — never one that raises the session to an explicit mode; a denial
-// is reject_once, else reject_always; "" = none (the cancelled outcome).
-func pickOption(opts []hOption, approve bool) string {
-	kinds := []string{acp.RejectOnce, acp.RejectAlways}
-	if approve {
-		kinds = []string{acp.AllowOnce, acp.AllowAlways}
-	}
-	for _, k := range kinds {
-		for _, o := range opts {
-			if o.Kind == k && !o.Explicit {
-				return o.OptionID
-			}
-		}
-	}
-	return ""
 }
 
 // --- the ways in -----------------------------------------------------------------------
@@ -596,20 +573,31 @@ func (e *Engine) endHarnesses(ctx context.Context, id int64) {
 		ids = append(ids, kids...)
 	}
 	for _, rid := range ids {
-		if s := e.harnessOf(rid); s != nil {
-			s.stop()
-			continue
-		}
-		run, err := e.db.getRun(rid)
-		if err != nil || run.Engine != engineHarness {
-			continue
-		}
-		hs, _ := e.db.harnessSession(rid)
-		if hs == nil || hs.ExecID == "" || (hs.State != hsLive && hs.State != hsStarting) {
-			continue
-		}
+		e.endHarness(ctx, rid)
+	}
+}
+
+// endHarness stops run rid's coding agent and stores it stopped, under its
+// start lock: no pass takes it over again meanwhile.
+func (e *Engine) endHarness(ctx context.Context, rid int64) {
+	mu := e.harnessLock(rid)
+	mu.Lock()
+	defer mu.Unlock()
+	run, err := e.db.getRun(rid)
+	if err != nil || run.Engine != engineHarness {
+		return
+	}
+	hs, _ := e.db.harnessSession(rid)
+	if s := e.harnessOf(rid); s != nil {
+		s.stop()
+	} else if hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
 		if cfg, err := e.db.runConfig(rid); err == nil && cfg.Harness != nil {
 			e.dropExec(ctx, run, cfg, hs)
 		}
 	}
+	_ = e.fenced(func(t *DB) error {
+		_, err := t.q.Exec(`UPDATE harness_sessions SET state=?, prompt_state='', prompt_rpc='', updated_ms=? WHERE run_id=? AND state IN ('starting','live','login')`,
+			hsStopped, nowMs(), rid)
+		return err
+	})
 }
