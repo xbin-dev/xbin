@@ -3,7 +3,7 @@
 // (model/harness-heads.js, model/harness.js) and the native view's cards
 // (native/harness-cards.js) over the harness fixtures — a toolcard per ACP
 // family with its chips, a command's output and exit code, an edit's `diff`,
-// a Claude Task's steps in a nested transcript, the toolbar's badge, the
+// a Claude Task's steps in a nested transcript, the subtitle's plan and context, the
 // Progress screen (`plan`), one call in full, and the `harness` stream event.
 // The web's cards are test/harness-cards.mjs (a browser). Run by `make js-test`.
 import { test } from 'node:test';
@@ -134,7 +134,7 @@ test('native: a toolcard per ACP call — the command and output, an edit\'s dif
   assert.equal(all(t, { t: 'plan' }).length, 0, 'the plan is not at the end: the end seam is a park\'s');
 });
 
-test('native: the toolbar badge, Progress (the plan) and the harness event', async () => {
+test('native: the subtitle\'s plan and context, Progress (the plan) and the harness event', async () => {
   const seed = harnessSeed();
   const h = seed.runs.find((x) => x.id === 21).harness;
   const next = { ...h, usage: { used: 190000, size: 200000 },
@@ -144,9 +144,9 @@ test('native: the toolbar badge, Progress (the plan) and the harness event', asy
     { tap: { t: 'button', has: 'Progress (3/3)' } }, { snapshot: 'progress' },
     { call: ['push', { type: 'harness', run: 21, root: 21, data: next }] }, { wait: 50 }, { snapshot: 'after' },
   ], 'c=21');
-  const badges = all(r.snapshots.chat.root, { t: 'toolbar' })[0].c.filter((c) => c.t === 'badge');
-  assert.equal(badges.length, 1, 'the conversation\'s one badge');
-  assert.match(badges[0].p.text, / · 📋 3\/3 · ctx 26%$/, 'short: the cost is on Progress (a phone\'s bar keeps its title and ⋯)');
+  assert.equal(all(r.snapshots.chat.root, { t: 'toolbar' })[0].c.filter((c) => c.t === 'badge').length, 0, 'no toolbar badge: a phone\'s bar keeps its ⋯');
+  const chat = all(r.snapshots.chat.root, { t: 'screen' })[0];
+  assert.match(chat.p.subtitle, /^CC ready 👥 · 📋 3\/3 · ctx 26% · /, 'first in the subtitle; the cost is on Progress');
   const scr = all(r.snapshots.progress.root, { t: 'screen', has: 'Progress' }).pop();
   assert.equal(scr.p.subtitle, 'Claude Code · 3/3');
   assert.deepEqual(all(scr, { t: 'plan' })[0].p.entries.map((e) => e.status), ['completed', 'completed', 'completed']);

@@ -198,7 +198,7 @@ test('steering: the composer\'s words by state; the chip\'s label', () => {
   assert.equal(s.label, 'steering');
   assert.match(A.steerWords(v('waiting_input', { pendingState: { kind: 'approval' } })).placeholder, /rejects the request/);
   assert.match(A.steerWords(v('waiting_input', { pendingState: { kind: 'question' } })).placeholder, /skips the question/);
-  assert.equal(A.steerWords(v('waiting_input', { pendingState: { kind: 'login' } })), null, 'sign-in is the login module\'s');
+  assert.equal(A.steerWords(v('waiting_input', { pendingState: { kind: 'login' } })).placeholder, 'sign in to Codex first — then message it…', 'a sign-in: not "answer the question"');
   assert.equal(A.steerWords(v('idle')).placeholder, 'message Codex…');
 });
 

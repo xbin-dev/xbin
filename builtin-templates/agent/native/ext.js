@@ -15,7 +15,11 @@
 //                    hooks: while any answers, the built-in approval and
 //                    question are not drawn for it
 //   toolbar(v)       items in the toolbar (v the open view; null at home)
+//   subtitle(v)      words for the conversation's subtitle (a string; after its
+//                    chain, before its status) — a phone's bar holds few items
 //   menu(v, t)       items in the conversation's ⋯ menu (t = rules.topBar(v))
+//   main(before)     items in the main ⋯ menu (home's toolbar, the drawer's);
+//                    before() runs first when one is tapped (the drawer closes)
 //   composer(v, t)   {placeholder?, slash?: [{name, hint, description}],
 //                    tpl?()} — the last placeholder given wins, the slash
 //                    commands add up, tpl() draws buttons into the composer
@@ -27,4 +31,4 @@
 //                    native/tools.js doesn't know — push({kind: 'mine', …})
 import { makeExt } from '../model/ext.js';
 
-export const ext = makeExt({ block: 'first', end: 'all', toolbar: 'all', menu: 'all', composer: 'all', newChat: 'all', screen: 'first' });
+export const ext = makeExt({ block: 'first', end: 'all', toolbar: 'all', subtitle: 'all', menu: 'all', main: 'all', composer: 'all', newChat: 'all', screen: 'first' });

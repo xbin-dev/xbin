@@ -45,7 +45,7 @@
     .run.unread .t { font-weight: 650; }
     .run .gl { font-size: 10.5px; color: var(--bx-muted); flex: none; }
     .run .gl.err { color: var(--bx-red); }
-    .run .gl.ask { color: var(--bx-yellow, #d9a441); font-weight: 700; }
+    .run .gl.ask { color: var(--bx-yellow, #d9a441); font-weight: 700; background: none; border: 0; padding: 0; margin: 0; } /* not the .ask card */
     .run .rmenu { visibility: hidden; flex: none; border: 0; background: none; color: var(--bx-muted); cursor: pointer; padding: 0 3px; font-size: 13px; line-height: 1; }
     .run:hover .rmenu, .run.on .rmenu { visibility: visible; }
     .run .snip { flex-basis: 100%; font-size: 11px; color: var(--bx-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -218,8 +218,15 @@
     .top .taskpin .asks { max-height: 40vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
     .top .taskpin .askhead { color: var(--bx-muted); font-size: 11px; }
     .top .taskpin .asktext { white-space: pre-wrap; overflow-wrap: anywhere; }
-    .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; gap: 6px; align-items: flex-end; }
-    .composer textarea { flex: 1; resize: none; min-height: 30px; max-height: 40vh; line-height: 1.4; padding: 5px 8px; }
+    .composer { flex: none; border-top: 1px solid var(--bx-border); padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
+    /* the pickers, then the message row; when both don't fit one line (a narrow tile, many pickers)
+       the message row takes a line of its own, so the box keeps its width and Send stays on screen */
+    .composer .cpicks, .composer .cinput { display: flex; gap: 6px; align-items: flex-end; min-width: 0; }
+    .composer .cpicks { flex: 0 1 auto; flex-wrap: wrap; }
+    .composer .cpicks:not(:has(> :not([hidden]))) { display: none; }
+    .composer .cinput { flex: 1 1 17em; }
+    .composer textarea { flex: 1; min-width: 0; resize: none; min-height: 30px; max-height: 40vh; line-height: 1.4; padding: 5px 8px; }
+    .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* one row: a long one ends in … */
     .composer .btn { height: 30px; }
     /* Attachments waiting to be sent: a row above the composer, never inside
        it, so the composer's own geometry (test/layout.mjs) is unchanged. */
@@ -616,15 +623,19 @@
       <div class="queue" id="queue" hidden></div>
       <div class="attach" id="attach" hidden></div>
       <div class="composer">
-        <span class="clspick apick" id="apick" hidden></span>
-        <span class="clspick" id="cpick" hidden></span>
-        <select class="msel" id="msel" title="the model" hidden></select>
-        <select class="msel ssel" id="ssel" title="the coding sandbox" hidden></select>
-        <button class="btn ghost" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files">📎</button>
-        <input type="file" id="clipin" multiple hidden>
-        <textarea id="msg" rows="1" placeholder="ask anything…" autocomplete="off"></textarea>
-        <button class="btn rm" id="stop" title="Stop the agent — messages still queued come back here" hidden>Stop</button>
-        <button class="btn" id="send">Send</button>
+        <span class="cpicks" id="cpicks">
+          <span class="clspick apick" id="apick" hidden></span>
+          <span class="clspick" id="cpick" hidden></span>
+          <select class="msel" id="msel" title="the model" hidden></select>
+          <select class="msel ssel" id="ssel" title="the coding sandbox" hidden></select>
+        </span>
+        <span class="cinput">
+          <button class="btn ghost" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files">📎</button>
+          <input type="file" id="clipin" multiple hidden>
+          <textarea id="msg" rows="1" placeholder="ask anything…" autocomplete="off"></textarea>
+          <button class="btn rm" id="stop" title="Stop the agent — messages still queued come back here" hidden>Stop</button>
+          <button class="btn" id="send">Send</button>
+        </span>
       </div>
 
       <!-- Tabbed settings, overlaying the run view. -->

@@ -16,6 +16,7 @@ import { html, nothing, repeat, unsafeHTML, classMap, directive, Directive, noCh
 import { md, mdInto } from './chat-md.js';
 import { ICON, argsShown } from './model/tool-heads.js';
 import { grantAsk, compactionWords } from './model/rules.js';
+import { activityStill } from './model/harness.js';
 
 // mdOf(b, slot, text): the HTML of a block's markdown, parsed once per block
 // object (a changed message is a new block: parsed again).
@@ -262,7 +263,8 @@ export function sessionTpl(s, ui, win) {
     ${atEnd && parked && ps.kind !== 'approval' && r.result
       ? html`<div class="ask"><b>The agent is asking:</b><div class="md">${unsafeHTML(mdAsk(r.result))}</div>
           <div class="muted small">answer below to continue</div></div>` : nothing}
-    ${atEnd && s.activity ? html`<div class="activity"><span class="spin"></span> ${s.activity}</div>` : nothing}
+    ${atEnd && s.activity ? (activityStill(r) ? html`<div class="activity still">${s.activity}</div>`
+      : html`<div class="activity"><span class="spin"></span> ${s.activity}</div>`) : nothing}
     ${s.conn === 'reconnecting' ? html`<div class="activity warn">live updates lost — reconnecting…</div>` : nothing}
     ${win && win.pill ? html`<div class="jumpw"><button class="jump" @click=${() => win.latest()}>${win.pill}</button></div>` : nothing}
   `;

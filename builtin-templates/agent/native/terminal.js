@@ -25,6 +25,7 @@ import { html, nothing } from '/vendor/xb-native.js';
 import { ICON } from '../model/sandboxes.js';
 import { isHarness, harnessOf, findHarness } from '../model/harness.js';
 import { signIn, methodLabel, runTerminalSrc, isHttps } from '../model/terminals.js';
+import { access } from '../model/rules.js';
 import { ext } from './ext.js';
 import { ctx, fail, push, ui } from './ui.js';
 
@@ -68,17 +69,18 @@ ext.register({
     const x = harnessOfView(v);
     if (!x || !x.c) return null;
     const c = x.c;
-    return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${c.title} ${c.ask || 'Tap Sign in below.'}`}/>
+    return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${c.title} ${c.view || c.ask || 'Tap Sign in below.'}`}/>
       ${c.device && isHttps(c.device.url) ? html`<markdown source=${`Open [${c.device.url}](${c.device.url}) — ${c.device.message}`}
         @link=${(e) => openLink(e.href)}/>` : nothing}`;
   },
   composer(v) {
     const x = harnessOfView(v);
-    if (!x || !x.c || x.c.ask) return null;
+    if (!x || !x.c || x.c.ask || !x.c.talk) return null;
     return { tpl: () => html`<button icon="key" role="primary" @tap=${() => push({ kind: 'signin', run: v.run.id })}>Sign in</button>` };
   },
   menu(v) {
-    const x = harnessOfView(v);
+    // a view-only reader gets neither (the run's relay is a participant's, §4.2.8)
+    const x = access(v).talk ? harnessOfView(v) : null;
     const term = !!(x && x.tt && x.tt.shown && !x.tt.why);
     if (!x || !(x.c || term)) return null;
     return html`${x.c ? html`<button icon="key" @tap=${() => push({ kind: 'signin', run: v.run.id })}>Sign in…</button>` : nothing}
@@ -118,9 +120,10 @@ function signInTpl(s) {
   const v = app.session.current();
   const x = v && v.run.id === s.run ? harnessOfView(v) : null;
   const c = x && x.c;
-  if (!c) {
+  if (!c || !c.talk) {
     return html`<screen title="Sign in" style="form"><section>
-      <empty icon="check" title="Nothing to sign in" text="The coding agent isn't waiting for a sign-in."/>
+      ${c ? html`<empty icon="eye" title=${c.title} text=${c.view}/>`
+        : html`<empty icon="check" title="Nothing to sign in" text="The coding agent isn't waiting for a sign-in."/>`}
     </section></screen>`;
   }
   const needConfirm = (c.shared || s.needConfirm) && !s.confirm;

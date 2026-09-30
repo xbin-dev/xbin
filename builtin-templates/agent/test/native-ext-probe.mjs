@@ -16,6 +16,8 @@ export default async function setup(arg) {
     end: (v) => (v.run.engine === 'harness' ? html`<notice tone="info" text=${'probe end: ' + v.run.harness.state}/>` : null),
     toolbar: (v) => html`<button icon="star" @tap=${() => {}}>${v ? 'probe toolbar' : 'probe home toolbar'}</button>`,
     menu: (v) => html`<button icon="star" @tap=${() => {}}>${'probe menu #' + v.run.id}</button>`,
+    subtitle: (v) => (v.run.engine === 'harness' ? 'probe subtitle' : null),
+    main: () => html`<button icon="star" @tap=${() => {}}>probe main</button>`,
     composer: (v) => ({ placeholder: v ? 'probe placeholder' : '', slash: [{ name: 'probe', description: 'a probe command' }] }),
     newChat: (f) => ({ tpl: () => html`<section title="probe section"><field label="Probe" value=${f.probe || ''}/></section>`, body: () => ({ probe: 'yes' }) }),
     screen: (s) => (s.kind === 'probe' ? html`<screen title="probe screen"/>` : null),

@@ -4,9 +4,9 @@
 // starts in (the ones it fits, the one last used with it, the create form
 // filled in for it), the setup card, a row's kind and the top bar's chip —
 // and the native view over the fixtures (test/harness-fixtures.mjs): the
-// home toolbar's picker, the class and model pickers it hides, the ask it
+// home page's picker, the class and model pickers it hides, the ask it
 // sends, the new-chat sheet's section, the setup notice, a conversation's
-// badge and the drawer's rows. Run by `make js-test`.
+// subtitle and the drawer's rows. Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
@@ -159,7 +159,7 @@ const find = (tree, m) => all(tree.root || tree, m)[0] || null;
 const asks = (r) => r.calls.filter((c) => c.method === 'POST' && /\/ask$/.test(c.url)).map((c) => JSON.parse(c.body));
 const WHO = { t: 'picker', p: { label: 'Who answers' } };
 
-test('native: "Who answers" in the home toolbar; picking a coding agent hides the class and model, narrows the sandbox; the ask', async () => {
+test('native: "Who answers" at the top of the home page; picking a coding agent hides the class and model, narrows the sandbox; the ask', async () => {
   const r = await run([
     { wait: 50 }, { snapshot: 'home' },
     { event: [WHO, 'change', { value: 'gemini' }] }, { snapshot: 'refused' },
@@ -167,8 +167,10 @@ test('native: "Who answers" in the home toolbar; picking a coding agent hides th
     { event: [{ t: 'composer' }, 'send', { value: 'fix the flaky test' }] }, { wait: 50 }, { snapshot: 'chat' },
   ]);
   const home = r.snapshots.home;
-  const who = find(home, { t: 'picker', p: { label: 'Who answers' }, in: { t: 'toolbar' } });
-  assert.ok(who, 'in the home toolbar');
+  const who = find(home, WHO);
+  assert.ok(who && !find(home, { ...WHO, in: { t: 'toolbar' } }), 'on the home page, not in its toolbar (a phone\'s bar keeps its ⋯)');
+  assert.deepEqual(find(home, { t: 'toolbar' }).c.map((x) => x.t), ['button', 'picker', 'menu'], 'the bar: Conversations, Class, More');
+  assert.ok(find(home, { t: 'button', p: { label: 'Coding agents' }, in: { t: 'menu', p: { label: 'More' } } }), 'Coding agents (your setting) in ⋯');
   assert.equal(who.p.value, 'agent');
   assert.deepEqual(who.p.options.map((o) => o.label), ['Agent (built in)', 'CC · Claude Code', 'CX · Codex', 'GM · Gemini CLI — unavailable', 'OC · opencode — unavailable']);
   assert.ok(find(home, { t: 'picker', p: { label: 'Class' } }), 'the class picker, while the built-in agent answers');
@@ -182,9 +184,8 @@ test('native: "Who answers" in the home toolbar; picking a coding agent hides th
   assert.equal(find(c, { t: 'composer' }).p.placeholder, 'ask Claude Code — it works in api-dev…');
   const [ask] = asks(r);
   assert.deepEqual([ask.harness, ask.class, ask.sandbox, 'model' in ask], [{ provider: 'claude' }, 'coding', { ref: API_DEV }, false], JSON.stringify(ask));
-  const badge = find(r.snapshots.chat, { t: 'badge', in: { t: 'toolbar' } });
-  assert.equal(badge.p.text, 'CC starting 👥', 'short, so More stays on the bar');
-  assert.equal(badge.p.tone, 'accent');
+  assert.equal(find(r.snapshots.chat, { t: 'badge', in: { t: 'toolbar' } }), null, 'no toolbar badge, so More stays on the bar');
+  assert.match(find(r.snapshots.chat, { t: 'screen' }).p.subtitle, /^CC starting 👥 · /, 'what answers: first in the subtitle');
   assert.ok(r.calls.some((c) => c.method === 'PUT' && /prefs\/agent$/.test(c.url) && c.body === '"claude"'), 'remembered (prefs/agent)');
   assert.ok(r.calls.some((c) => c.method === 'PUT' && /prefs\/harness-sandbox$/.test(c.url)), '…and its sandbox (prefs/harness-sandbox)');
 });
@@ -217,7 +218,7 @@ test('native: the new-chat sheet — who answers, a coding agent\'s sandbox, no 
   assert.deepEqual([ask.harness, ask.class, ask.sandbox, ask.text], [{ provider: 'codex' }, 'coding', { ref: API_DEV }, 'port the CLI'], JSON.stringify(ask));
 });
 
-test('native: no sandbox fits — the setup notice, Create filled in; a harness conversation\'s badge', async () => {
+test('native: no sandbox fits — the setup notice, Create filled in; a harness conversation\'s subtitle', async () => {
   const noDev = (s) => { s.sandboxes = s.sandboxes.filter((x) => x.ref !== API_DEV); return s; };
   const r = await run([
     { wait: 50 },
@@ -231,5 +232,5 @@ test('native: no sandbox fits — the setup notice, Create filled in; a harness 
   assert.match(form, /"value":"claude-dev"/, 'the create form, its name filled in');
   assert.match(form, /"value":"internet"/, '…internet');
   const c = await run([{ wait: 50 }, { snapshot: 'chat' }], { hash: 'c=24' });
-  assert.equal(find(c.snapshots.chat, { t: 'badge', in: { t: 'toolbar' } }).p.text, 'CX sign-in 👥');
+  assert.match(find(c.snapshots.chat, { t: 'screen' }).p.subtitle, /^CX sign-in 👥 · waiting_input · /);
 });

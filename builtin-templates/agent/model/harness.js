@@ -95,6 +95,16 @@ export function activityLine(r) {
   return `Waiting for ${name}…`;
 }
 
+// activityStill: the activity line waits on a person, or on nothing that runs
+// (a sign-in, a cut-off or failed start) — it is drawn without a spinner.
+export function activityStill(r) {
+  const h = harnessOf(r);
+  if (!h) return false;
+  if (h.state === 'login' || h.state === 'lost' || h.state === 'failed') return true;
+  const p = pendingOf(r);
+  return !!(p && p.kind === 'login');
+}
+
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
 // countsWords: "12 tool calls · 3 files +40 −7" ('' before any call).

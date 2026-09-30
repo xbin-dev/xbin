@@ -1,11 +1,11 @@
 // native/harness-start.js — starting a conversation with a coding agent in
 // the native view (D-harness §2.2 "Conversation start", §4.2.3): "Who
-// answers" in the home toolbar (the built-in agent or a coding agent of GET
+// answers" at the top of the home page (the built-in agent or a coding agent of GET
 // /harnesses — a picker can't disable an option, so one that isn't
 // available is marked and picking it says why), the home's setup notice (no
 // sandbox fits: Create, prefilled; not signed in there: say so), the
 // new-chat sheet's section (who answers, and a coding agent's sandbox), and
-// the open conversation's badge in its toolbar. Picking a coding agent
+// the open conversation's words in its subtitle. Picking a coding agent
 // hides the class and model pickers (the class resolves: model/app.js
 // newClassId); the Sandbox picker keeps what it fits (model/sandbox-store.js).
 // What they say is model/harness-start.js; the web draws the same from
@@ -19,58 +19,52 @@ import * as HS from '../model/harness-start.js';
 import { AGENT } from '../model/harness-start.js';
 import { harnessOf, planOf, usageBadge } from '../model/harness.js';
 
-const TONE = { run: 'accent', ok: 'ok', warn: 'warn', bad: 'danger' };
-
 // options: a picker's rows — one that isn't available says so (it can't be disabled).
 const options = (rows) => rows.map((r) => ({ value: r.value, icon: r.disabled ? 'lock' : r.icon,
   label: `${r.value === AGENT ? r.name : `${r.mono} · ${r.name}`}${r.disabled ? ' — unavailable' : ''}` }));
 
-// homeSetupTpl: at home, what a new chat with the coding agent picked needs first.
+// homeSetupTpl: at home, who answers the next new chat — a picker at the top
+// of the page, not in its toolbar: a phone's home bar already holds the
+// class, model and sandbox pickers and More — then what a new chat with the
+// coding agent picked needs first.
 export function homeSetupTpl() {
   const app = ctx.app;
-  if (!app || app.sel != null) return nothing;
-  const c = HS.startOf(app).setup;
-  if (!c) return nothing;
+  if (!app || app.sel != null || app.page) return nothing;
+  app.harness.ensure();
+  const st = HS.startOf(app);
+  const p = st.picker;
+  const change = (e) => {
+    const r = p.rows.find((x) => x.value === e.value);
+    if (r && r.disabled) return fail(`${r.name}: ${r.why}`);
+    HS.chooseAgent(app, e.value);
+    ctx.paint();
+  };
+  const who = p.shown ? html`<section footer=${p.title}><picker label="Who answers" style="menu" value=${p.value} options=${options(p.rows)} @change=${change}/></section>` : nothing;
+  const c = st.setup;
+  if (!c) return who;
   if (c.kind === 'create') {
-    return html`<section title=${c.title} footer=${c.create ? 'It becomes your next chat\'s sandbox.' : c.why}>
+    return html`${who}<section title=${c.title} footer=${c.create ? 'It becomes your next chat\'s sandbox.' : c.why}>
       <notice tone="info" text=${c.text}/>
       ${c.create ? html`<button role="primary" icon="plus" @tap=${() => { push({ kind: 'sandboxes' }); push({ kind: 'sandboxNew', f: { ...c.create.form }, bind: true }); }}>${c.create.label}</button>` : nothing}
     </section>`;
   }
-  return html`<section title=${c.title}>
+  return html`${who}<section title=${c.title}>
     <notice tone="warn" text=${c.text}/>
     ${c.use ? html`<button icon="box" @tap=${guard(() => app.sbx.choose(c.use.ref))}>${c.use.label}</button>` : nothing}
   </section>`;
 }
 
 ext.register({
-  // toolbar: at home "Who answers"; in a conversation a coding agent answers, its badge
-  toolbar: (v) => {
-    const app = ctx.app;
-    if (!v) {
-      if (app.sel != null || app.page) return null;
-      app.harness.ensure();
-      const p = HS.startOf(app).picker;
-      if (!p.shown) return null;
-      const change = (e) => {
-        const r = p.rows.find((x) => x.value === e.value);
-        if (r && r.disabled) return fail(`${r.name}: ${r.why}`);
-        HS.chooseAgent(app, e.value);
-        ctx.paint();
-      };
-      return html`<picker label="Who answers" style="menu" value=${p.value} options=${options(p.rows)} @change=${change}/>`;
-    }
-    // the conversation's one badge — monogram, state, 👥 for a shared
-    // sandbox, then the plan's progress and the context in use (the cost is
-    // on ⋯ → Progress): a phone's bar also holds Mode, Model and More, which
-    // a second badge pushes off it; the drawer's row names the agent, the
-    // transcript says why
+  // subtitle: in a conversation a coding agent answers — monogram, state, 👥
+  // for a shared sandbox, the plan's progress and the context in use (the
+  // cost is on ⋯ → Progress). Not a toolbar badge: a phone's bar holds
+  // Conversations, New chat, Mode, Model and More, and a badge beside them
+  // pushed More off it.
+  subtitle: (v) => {
     const t = HS.topChip(v);
     if (!t) return null;
     const h = harnessOf(v), p = planOf(h), u = usageBadge(h.usage);
-    const text = [`${t.mono} ${t.state === 'login' ? 'sign-in' : t.word}${t.shared ? ' 👥' : ''}`, p ? `📋 ${p.done}/${p.total}` : '', u ? u.head : ''].filter(Boolean).join(' · ');
-    const tone = u && (u.tone === 'bad' || u.tone === 'warn') && t.tone !== 'bad' ? (u.tone === 'bad' ? 'danger' : 'warn') : TONE[t.tone] || 'muted';
-    return html`<badge text=${text} tone=${tone}/>`;
+    return [`${t.mono} ${t.state === 'login' ? 'sign-in' : t.word}${t.shared ? ' 👥' : ''}`, p ? `📋 ${p.done}/${p.total}` : '', u ? u.head : ''].filter(Boolean).join(' · ');
   },
   // composer: at home, who answers (and where) in its placeholder
   composer: (v) => {

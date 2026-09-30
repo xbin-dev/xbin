@@ -2,7 +2,7 @@
 // fixtures (test/harness-fixtures.mjs, STUB's §4 routes), as U1 left them
 // (D-harness §8 U1): the cards draw every `acp:*` call in the built-in's
 // frame (family, headline, outcome — harness-cards.js's since U3), a Task's
-// calls open inside it, a park falls back to the built-in approval card,
+// calls open inside it, a park no module answers falls back to the built-in card,
 // the direct-steering notice folds — and each web seam (web-ext.js) draws
 // where it says once a module hooks it: block, end (taking a harness park
 // over), top, paint, newChat.
@@ -39,16 +39,34 @@ ok('a Task\'s calls are inside it, not beside it', !(await page.$('#timeline [da
 await page.click('[data-k="ch1:toolu_03"] .tch');
 await page.waitForSelector('[data-k="ch1:toolu_03"] [data-k="ch1:toolu_04"]');
 ok('…and open with it, its text too', !!(await page.$('[data-k="ch1:toolu_03"] .msg.assistant')));
+// the top bar: Memory, Learn skill and Compact are the built-in agent's (Compact: a coding agent's own /compact only)
+const topBtns = () => page.$$eval('#top button', (els) => els.map((e) => e.textContent.trim()));
+ok('a coding agent\'s top bar: no Memory or Learn skill; Compact, as Claude Code has /compact', !(await topBtns()).some((t) => /^(Memory|Learn skill)/.test(t))
+  && (await topBtns()).includes('Compact'), (await topBtns()).join(' | '));
 
 // a park: its module (harness-ask.js, U4) draws it — the built-in card is only the fallback while none answers
 await go(22, '.hask');
 ok('a harness park is its module\'s card, not the built-in one', !(await page.$('.ask.approve')) && (await page.textContent('.hask')).includes('go test ./...'));
 ok('its call waits for the verdict', (await page.textContent('[data-k="ch2:toolu_02"] .st')) === 'needs approval');
 ok('the activity line is the harness\'s', (await page.textContent('.activity')).includes('Waiting for your approval'));
+// a park of a kind no module answers (one a later backend may add): the built-in card, the fallback
+const repark = (ps, result) => page.evaluate(([ps, result]) => {
+  const r = window.__views[22].run;
+  Object.assign(r, { pendingState: ps, result });
+  window.__push({ type: 'run', run: 22, root: 22, data: { id: 22, status: 'waiting_input', pendingState: ps, result, harness: r.harness } });
+}, [ps, result]);
+const ps22 = await page.evaluate(() => window.__views[22].run.pendingState);
+await repark({ kind: 'review', park: 'Xq3review', harness: { message: 'Review the retry policy?' } }, 'Review the retry policy?');
+await page.waitForFunction(() => !document.querySelector('.hask'));
+ok('a park no module answers falls back to the built-in question card', (await page.textContent('#timeline .ask')).includes('The agent is asking')
+  && (await page.textContent('#timeline .ask')).includes('Review the retry policy?') && !(await page.$('#hlogin')));
+await repark(ps22, undefined);
+await page.waitForSelector('.hask');
 
 // the direct-steering notice and three coding agents under the built-in one
 await go(25, '.acard');
 ok('three child cards', (await page.$$('.acard')).length === 3);
+ok('…the built-in agent\'s top bar keeps Compact, Learn skill and Memory', await topBtns().then((ts) => ['Compact', 'Learn skill', 'Memory'].every((b) => ts.some((t) => t.startsWith(b)))), (await topBtns()).join(' | '));
 ok('a person\'s message to a child is told as a notice', (await page.textContent('.notice .nh')).includes('direct message to #26 (Claude Code) from admin'));
 
 // --- the seams: a module hooks each one -------------------------------------------------
