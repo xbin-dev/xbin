@@ -1601,7 +1601,8 @@ be bound at once; rebinding restarts the backend; unbound, there are no
 sandboxes. The agent says `hello` to each (protocol 1; cached five minutes)
 and ignores — listing it with the reason — one that speaks another protocol
 or lacks the `exec` and `files` capabilities. A manager shows this agent the
-sandboxes it created and those shared with it (its **partition**).
+sandboxes it created and those shared with it (what it sees as this
+consumer; a partition sees its own, §Partitioned instances).
 
 **References.** A sandbox is named `<provider>[#inst]|<id>` — the manager
 tile as its binding names it and the manager's id — always qualified, so a
@@ -1610,7 +1611,11 @@ bound. In a URL path it may be sent as is or percent-encoded.
 
 **People (D83).** Every call the agent makes to a manager names the person
 it acts for in `Sbx-User` (asserted: the manager records it as the owner of
-what it creates); the agent enforces who may do what:
+what it creates — except in a person's partition, whose person is the
+partition's and verified: the manager applies its person rules to them
+itself and refuses any other `Sbx-User`, 403,
+[/docs/sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned
+consumers); the agent enforces who may do what:
 
 - **use** (bind it, work in it, start it): its owner, a member, or anyone
   when it is `team`. A sandbox with no owner (created by a component or the
@@ -2439,7 +2444,8 @@ loop answers they are **409** `not a coding-agent conversation`.
   `harness.login.device: {by}`, and asking again for the device code of
   the sign-in you started answers it again (202). Only
   a person who may use the sandbox **themself** — asked of its manager now
-  (the manager doesn't police the person this agent names) — and, on a
+  (the manager doesn't police the person this agent names, except in a
+  person's partition, where it verifies them) — and, on a
   sandbox others may use too (team visibility, members or shares: they act
   as you with the coding agent there, its credentials living in the
   sandbox's HOME), with `confirm: true`. **400** `method: one of …`,
@@ -2551,8 +2557,10 @@ built-in approval or question card.
 view's terminals and a coding agent's stderr, for a person who may use the
 sandbox **themself** — checked here first, fresh from the manager (by the
 rules of §Coding sandboxes: owner, members, `team`, a share), because the
-manager doesn't police the person this agent names: both relays dial the
-manager's `tty` route as this tile with `Sbx-User: <you>` (asserted) and
+manager doesn't police the person this agent names (in a person's
+partition it does: the partition's person, verified, any other `Sbx-User`
+refused): both relays dial the manager's `tty` route as this tile with
+`Sbx-User: <you>` (asserted; in your partition, verified) and
 relay `/ws/term`'s wire byte for byte (`xbin.RelayManagerTTY`); the runtime
 still refuses a person with `noTerminal` (D88). The web doesn't use them —
 its terminals dial the manager directly, as you (verified).

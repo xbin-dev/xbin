@@ -52,7 +52,9 @@ below is under `<url>/sbx/`.
 - **A person, asserted**, is `Sbx-User: <user id>`: a consumer's backend
   (whose calls carry no person) names the person it acts for. The manager
   records it as asserted (`owner.asserted`), shows it, and does not verify
-  it; a verified `X-XBin-User` always wins over it.
+  it; a verified `X-XBin-User` always wins over it. (A partitioned
+  consumer's user partition is the exception: its person is the
+  partition's, verified — §Partitioned consumers.)
 - **A partition**, on a call from a **partitioned** consumer — a tile xbind
   runs as one instance per person (a *user partition*), plus maybe one
   shared *global* instance: `X-XBin-Partition` is `user:<user id>` or
@@ -78,7 +80,8 @@ body (a sandboxed page can't set custom request headers).
   owner, a member, or the sandbox must be `team` — and on a shared
   consumer, the share's `users` must include them. On a **backend** call
   the consumer is trusted to enforce its own rules for the person it acts
-  for; the manager only records the assertion.
+  for; the manager only records the assertion (a user partition's backend
+  call is its verified person's: §Partitioned consumers).
 - Changing `visibility`, `members` or `shares` takes the home consumer's
   backend, the owner (verified, through the home consumer), or the
   manager's operators. Only the home consumer deletes a sandbox.
@@ -94,7 +97,9 @@ the manager's (never in a sandbox's `caps`):
   consumer's non-personal identity** — an unpartitioned consumer and a
   partitioned one's `global` instance alike (`""` ≡ `global`). So every
   sandbox a consumer made before it was partitioned stays its global
-  instance's.
+  instance's. A partition id alone names no consumer: one person's
+  partitions of two consumers may carry the same id, so a manager keys on
+  both.
 - **Home.** A sandbox made in a user partition is homed there: `owner:
   {user, via, partitionId, partition, asserted}` (`partition` is the
   `user:<id>`, for display; both fields are absent otherwise). The
@@ -102,7 +107,8 @@ the manager's (never in a sandbox's `caps`):
   consumer don't see it (`not-found`) unless it is shared with them.
   `clientId`s are per consumer and partition.
 - **The person** of a user partition's call is the partition's, and
-  verified: the person rules apply as on a page's call, and an `Sbx-User`
+  verified — its backend's calls and sockets (`tty`, `stdio`) as much as
+  its page's: the person rules apply as on a page's call, and an `Sbx-User`
   or `X-XBin-User` naming anyone else is `403 not-allowed`. So is a call
   whose partition headers don't agree (a user partition without its id, a
   kind the manager doesn't know): it is never taken for the consumer's
@@ -129,10 +135,18 @@ the manager's (never in a sandbox's `caps`):
   was a member of there is the new one's too.
 - **Isolation stops at the sandbox.** Every partition that sees a sandbox
   shares its files, execs and terminals: any of them can list the execs,
-  read their output, attach to a terminal, type into it or end it. A
-  consumer keeps a person's private work in sandboxes homed in that
-  person's partition, never in one its non-personal identity holds or
-  shares with several.
+  read their output, attach to a terminal, type into it or end it — and
+  attach to an exec's stdio socket (`stdio`), which takes the exec's stdin
+  from the socket attached before: a program driven that way, a coding
+  agent, then takes its input from that partition. The sandbox's home
+  directory (`home`, `$HOME`) is shared the same way, with what lands
+  there: a coding agent's sign-in (hello's `harnesses[].login`) leaves its
+  credentials there, so whoever runs that agent in the sandbox afterwards
+  — from any partition that sees it, or in a clone — runs it as the person
+  who signed in, on their account. A consumer should keep a person's
+  private work, and their sign-ins, in sandboxes homed in that person's
+  partition, never in one its non-personal identity holds or shares with
+  several.
 - **Quotas** a manager keeps per consumer count a tile's sandboxes across
   all its partitions; per person, as ever (now verified on a partition's
   calls).
@@ -226,13 +240,22 @@ consumer runs one as a non-`tty` exec with `stdin: true`. Each is
   knows nor has an `argv` for).
 - `login` is a shell command that signs the agent in, for a person at a
   terminal (the `tty` route's `cmd`). Credentials land in the sandbox's
-  `home`, so everyone who may use the sandbox — and its clones — shares
-  them.
+  `home`, so everyone who may use the sandbox — every consumer and
+  partition that sees it (§Partitioned consumers), and its clones — shares
+  them, and runs the agent as the person who signed in. A partitioned
+  consumer should offer a person the sign-in only in a sandbox homed in
+  their own partition, where the credentials stay theirs unless they share
+  the sandbox on. That is the consumer's to keep: to the manager a sign-in
+  is a terminal like any other.
 
 The list is the manager's word about the image, not a probe (an image's
 installs can fail): a consumer may check with `command -v <argv[0]>` through
 `run` before offering one. A missing or empty list says nothing about the
-image — a consumer may probe for the agents it knows.
+image — a consumer may probe for the agents it knows. `login` runs at a
+person's terminal when they sign in and `argv` at every run of the agent,
+beside their credentials, so whoever may set them — the manager's
+operators, whoever may change its code — is in the trust base of every
+person who uses the image's coding agents.
 
 ## The sandbox
 
@@ -417,6 +440,12 @@ manager doesn't know: it ignores it, and the exec answers `split` false).
 - **Who dials it**: a consumer's backend, through xbind with its instance
   credential and its person in `Sbx-User`, as any backend call (in Go,
   `xbin.DialManagerStdio`, docs/sdk.md), or a page with its frame token.
+  Who may is as on every route: a sandbox the consumer doesn't see is
+  `not-found`; the person rules are the manager's on a verified call and
+  the consumer's for an asserted person — except from a partitioned
+  consumer's user partition, whose person is the partition's and verified:
+  the manager applies the person rules itself, and an `Sbx-User` naming
+  anyone else is `403 not-allowed` (§Partitioned consumers).
   Attaching is a **change**, not a read — the socket writes the exec's
   stdin and takes it from whoever held it — so a manager that lets some
   people only look (the reference manager's own page, for people with
@@ -463,19 +492,25 @@ true}`), serve a consumer's pages and its backend alike:
   (an SSH bridge, a sign-in it runs) or to relay one to its own page or app.
   It names the person it acts for in `Sbx-User`, as on any backend call:
   **asserted**, recorded, not verified (§Who is asking). The manager
-  answers it as any backend call — the partitions hold, the person rules are
-  the consumer's — and a manager that asks its substrate about the person
-  (xbind's `noTerminal`, through `forUser`) asks about that one.
+  answers it as any backend call — consumers stay apart (the consumer's own
+  sandboxes and those shared with it), the person rules are the
+  consumer's — and a manager that asks its substrate about the person
+  (xbind's `noTerminal`, through `forUser`) asks about that one. **From a
+  partitioned consumer's user partition** the person is the partition's,
+  and verified (§Partitioned consumers): the manager applies the person
+  rules itself, as on a page's call, and an `Sbx-User` naming anyone else
+  is `403 not-allowed`.
 - **A consumer that relays a terminal to a person checks that person first**
-  — may they use this sandbox, by the rules of §Partitions, sharing and
+  — may they use this sandbox, by the rules of §Consumers, sharing and
   people as it applies them, and may they have a terminal at all: the
-  manager can't, and the relay carries whatever they type. It relays every
-  message both ways unchanged (the session and exit frames, resizes and
-  pings included), dials anew for each client — no header, cookie or query
-  of the person's request passes — and closes each end the way the other
-  ended. In Go, `xbin.RelayManagerTTY` does exactly this, and
-  `xbin.DialManagerTTY` dials for a backend that drives the terminal itself
-  (docs/sdk.md).
+  manager can't (from a user partition it applies the first itself; the
+  second stays the consumer's), and the relay carries whatever they type.
+  It relays every message both ways unchanged (the session and exit
+  frames, resizes and pings included), dials anew for each client — no
+  header, cookie or query of the person's request passes — and closes each
+  end the way the other ended. In Go, `xbin.RelayManagerTTY` does exactly
+  this, and `xbin.DialManagerTTY` dials for a backend that drives the
+  terminal itself (docs/sdk.md).
 
 The xbin app's `terminal` primitive dials only a tile's own routes, so an
 app view reaches a manager's terminal through its tile's relay.
@@ -654,8 +689,10 @@ manager of its own (its `API.md` has everything):
   the sandbox's definition; the admin's sandbox registry doesn't show
   labels); its quotas per consumer count every partition of the tile.
   Whoever may change the manager's code (its writers, admins) could reach
-  every sandbox it holds: they are in the trust base of every person whose
-  partition uses it.
+  every sandbox it holds, and its operators (the same writers) set the
+  images' `harnesses` commands a person's sign-in and coding agents run
+  (§hello): they are in the trust base of every person whose partition
+  uses it.
 - **Other substrates**: a copy adds a backend (a cloud's API and ssh) in one
   Go file; its `AGENTS.md` says how, and how to run the conformance suite
   against it.
@@ -759,7 +796,12 @@ does for a route it doesn't know. The `partitions` section is about
 consumers — one consumer's sandboxes apart from another's (§Consumers,
 sharing and people); the `user-partitions` section is about a partitioned
 consumer's people (§Partitioned consumers) and runs when hello's caps
-carry `partitions` (a capability with no routes of its own). The rest of
+carry `partitions` (a capability with no routes of its own) — its
+`sockets` check dials the `tty` and `stdio` routes, where hello offers
+them, as another partition, the same person's partition of another
+consumer (the same partition id), the consumer's global instance, a
+person they assert, and the partition naming someone else — and names a
+partition's exec under a sandbox the caller does see. The rest of
 `Target`:
 
 - `Client` — the HTTP client for every call and terminal (TLS, a proxy).

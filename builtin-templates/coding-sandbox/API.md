@@ -120,17 +120,17 @@ trusts its consumers.
   keeps a non-tty exec's stderr apart (`…/output?stream=stderr`, the
   exec's `errTotal`), and `GET …/execs/{eid}/stdio?since=&errSince=` is a
   relay of the runtime's stdio WebSocket, checked as an exec is — the
-  consumer, the person rules — its frames as the runtime sends them (the
-  exec ids are the runtime's). Offered while the runtime's `caps` carry
-  `stdio` and the backend serves it (`StdioBox`); otherwise `split` and
-  `stream` are ignored, as by any manager without it, and the route
-  answers 501.
+  consumer (a user partition is its own), the person rules — its frames as
+  the runtime sends them (the exec ids are the runtime's). Offered while
+  the runtime's `caps` carry `stdio` and the backend serves it
+  (`StdioBox`); otherwise `split` and `stream` are ignored, as by any
+  manager without it, and the route answers 501.
 - **Ports** (D135): `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` is
-  checked as an exec is — the consumer, the person rules; this page's
-  readers get `403 not-allowed`, whatever the method — then forwarded
-  to the runtime's ports route (the SDK's `PortRoute`), the consumer's
-  escaped path and query unchanged. A stopped sandbox is 409 `state`,
-  never started for it. Offered while the runtime's `caps` carry `ports`
+  checked as an exec is — the consumer (a user partition is its own), the
+  person rules; this page's readers get `403 not-allowed`, whatever the
+  method — then forwarded to the runtime's ports route (the SDK's
+  `PortRoute`), the consumer's escaped path and query unchanged. A
+  stopped sandbox is 409 `state`, never started for it. Offered while the runtime's `caps` carry `ports`
   (an xbind from before D135 doesn't: the route answers 501). A sandbox
   whose in-box agent predates ports (it started under an older xbind, or
   from a VM image from before them) makes the runtime answer 501
@@ -176,6 +176,11 @@ made before 2026-09-30 advertised `claude /login`). A saved config keeps
 the harnesses it was saved with, logins included: one saved before them lists none (a consumer
 then probes for the agents it knows), until an operator adds them. The
 page's image editor keeps an image's harnesses; `PUT /ops/config` sets them.
+A sign-in's credentials stay in the sandbox's home, for everyone the
+sandbox serves and its clones (docs/sandbox-manager.md §hello,
+§Partitioned consumers), and `argv` and `login` run beside them: the
+operators who set them are in the trust base of every person who uses
+these agents.
 
 The first sandbox of an image builds it: a template sandbox of its own is
 made and prepared, the script runs in it **as root** in the workdir (with
@@ -439,8 +444,12 @@ notes have the commands):
    them (`people/visibility`, `people/owners`, `partitions/shares`,
    `tty/refusals`, `stdio/refusals`) go in `Target.Skip`, saying so.
    `user-partitions` needs a partitioned consumer's calls, which xbind
-   makes (and strips from anyone else): it runs in-process
-   (`_backend/contract_test.go`).
+   makes (and strips from anyone else): its consumers are partitioned
+   tiles, and a person's partition is their page of one. Its checks that
+   need a caller xbind never makes, or the suite's own partition ids
+   (`apart`, `shares`, `person`, `recreated`), are skipped, saying so, and
+   run in-process (`_backend/contract_test.go`); `global`, `global-home`
+   and `sockets` run through xbind.
 4. `mode`: `auto` gives `vm` with KVM (the sandbox's `isolation` `vm`),
    `namespace` without; `vm` on a host without VMs refuses the create with
    the runtime's reason.
