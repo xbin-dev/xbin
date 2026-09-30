@@ -28,7 +28,9 @@ import (
 // one copy of a shared resource, one per partition of any other — records
 // bus events and pushes, keeps each addressee's inbox, answers access, and
 // passes a user partition's call carrying xbin-partition=global to the
-// global instance as that partition's person, as xbind does.
+// global instance as that partition's person, as xbind does. A person in
+// gone has lost the tile (removed from it, disabled or deleted): access says
+// none, and xbind refuses their calls and mail to them.
 type standIn struct {
 	global   http.Handler // the global instance's routes
 	globalAt string       // … served here, for streams
@@ -38,7 +40,8 @@ type standIn struct {
 	pushes   []string          // "<user>|<title>|<body>|<link>"
 	inbox    map[string][]xbin.MailItem
 	seq      int
-	forwards []string // what reached global through a partition
+	forwards []string        // what reached global through a partition
+	gone     map[string]bool // people who lost the tile
 }
 
 var sharedRes = map[string]bool{"res:apps/rooms/board": true, "res:apps/rooms/live": true}
@@ -58,7 +61,7 @@ func startStandIn(t *testing.T) *standIn {
 	} {
 		t.Setenv(k, v)
 	}
-	x := &standIn{kv: map[string][]byte{}, inbox: map[string][]xbin.MailItem{}}
+	x := &standIn{kv: map[string][]byte{}, inbox: map[string][]xbin.MailItem{}, gone: map[string]bool{}}
 	sock := filepath.Join(t.TempDir(), "gw.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
@@ -147,8 +150,8 @@ func (x *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "/api/xbin/access/"):
 		u := strings.TrimPrefix(p, "/api/xbin/access/")
 		lvl, ok := people[u]
-		if !ok {
-			lvl = "none"
+		if !ok || x.gone[u] {
+			lvl, ok = "none", false
 		}
 		xbin.WriteJSON(w, 200, map[string]any{"user": u, "level": lvl, "active": ok})
 	case p == "/api/xbin/partitions/mail" && r.Method == "POST":
@@ -161,7 +164,7 @@ func (x *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "a person's partition mails global only", 403)
 			return
 		}
-		if u, ok := strings.CutPrefix(in.To, "user:"); ok && people[u] == "" || !ok && in.To != "global" {
+		if u, ok := strings.CutPrefix(in.To, "user:"); ok && (people[u] == "" || x.gone[u]) || !ok && in.To != "global" {
 			http.Error(w, `{"error":"no such person here: `+in.To+`"}`, 404)
 			return
 		}
@@ -192,6 +195,10 @@ func (x *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		user, ok := strings.CutPrefix(caller, "user:")
 		if !ok {
 			http.Error(w, "only a user partition addresses global", 400)
+			return
+		}
+		if x.gone[user] {
+			http.Error(w, "no access", 403)
 			return
 		}
 		q := r.URL.Query()
@@ -229,9 +236,60 @@ func call(h http.Handler, method, path, user, body string) (int, string) {
 	if user != "" {
 		stamp(req, user)
 	}
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	rec := serve(h, req)
 	return rec.Code, strings.TrimSpace(rec.Body.String())
+}
+
+// serve runs req against h within 2 s: a follow let in where it should be
+// refused streams until then and answers 200 — failing the test, not
+// hanging it.
+func serve(h http.Handler, req *http.Request) *httptest.ResponseRecorder {
+	ctx, cancel := context.WithTimeout(req.Context(), 2*time.Second)
+	defer cancel()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req.WithContext(ctx))
+	return rec
+}
+
+// followRoom has user's page follow room at the global instance (served at
+// x.globalAt, as the stream is): each line it gets arrives on the channel,
+// which closes when the stream ends.
+func followRoom(t *testing.T, x *standIn, room, user string) <-chan string {
+	t.Helper()
+	ctx, stop := context.WithCancel(context.Background())
+	t.Cleanup(stop)
+	req, _ := http.NewRequestWithContext(ctx, "GET", x.globalAt+"/rooms/"+room+"/follow", nil)
+	stamp(req, user)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("%s follows room %s: %v %v", user, room, resp, err)
+	}
+	lines := make(chan string, 16)
+	go func() {
+		defer resp.Body.Close()
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+		close(lines)
+	}()
+	return lines
+}
+
+// next is the next line a follower gets, or "(ended)" when its stream ends
+// — failing when neither comes within 5 s.
+func next(t *testing.T, lines <-chan string, who string) string {
+	t.Helper()
+	select {
+	case l, ok := <-lines:
+		if !ok {
+			return "(ended)"
+		}
+		return l
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s's page got nothing", who)
+		return ""
+	}
 }
 
 // The realtime example's three patterns, run: a status on the shared board
@@ -239,6 +297,9 @@ func call(h http.Handler, method, path, user, body string) (int, string) {
 // partition's post to another member's page and refuses everyone else; a
 // mention mailed to a person's partition is kept there once and pushed.
 func TestRealtimeExample(t *testing.T) {
+	fresh := accessFresh
+	accessFresh = 0 // every post asks xbind about each follower
+	t.Cleanup(func() { accessFresh = fresh })
 	x := startStandIn(t)
 	ctx := context.Background()
 
@@ -274,42 +335,37 @@ func TestRealtimeExample(t *testing.T) {
 	if code, _ := call(x.global, "POST", "/rooms/7/members", "carol", `{"user":"carol"}`); code != 403 {
 		t.Errorf("carol let herself in: %d", code)
 	}
+	// bob is a member: each case below is his call with ONE thing changed, so
+	// each clause of person() is what refuses it (carol's is the membership)
 	for name, mod := range map[string]func(*http.Request){
 		"carol, not a member": func(r *http.Request) { stamp(r, "carol") },
-		"another tile":        func(r *http.Request) { r.Header.Set("X-XBin-From", "apps/other"); r.Header.Set("X-XBin-User", "bob") },
+		"another tile, for bob": func(r *http.Request) {
+			stamp(r, "bob")
+			r.Header.Set("X-XBin-From", "apps/other")
+		},
+		"bob, in the global instance": func(r *http.Request) { stamp(r, "bob"); r.Header.Set("X-XBin-Partition", "global") },
+		"bob, in carol's partition":   func(r *http.Request) { stamp(r, "bob"); r.Header.Set("X-XBin-Partition", "user:carol") },
+		"bob, with no partition":      func(r *http.Request) { stamp(r, "bob"); r.Header.Del("X-XBin-Partition") },
+		"view-as bob":                 func(r *http.Request) { stamp(r, "bob"); r.Header.Set("X-XBin-Viewed-By", "admin") },
 		"the root token": func(r *http.Request) {
 			r.Header.Set("X-XBin-From", "owner")
 			r.Header.Set("X-XBin-Partition", "global")
 		},
-		"view-as bob": func(r *http.Request) { stamp(r, "bob"); r.Header.Set("X-XBin-Viewed-By", "admin") },
 	} {
 		req := httptest.NewRequest("GET", "/rooms/7/follow", nil)
 		mod(req)
-		rec := httptest.NewRecorder()
-		x.global.ServeHTTP(rec, req)
-		if rec.Code != 403 {
+		if rec := serve(x.global, req); rec.Code != 403 {
 			t.Errorf("%s follows room 7: %d", name, rec.Code)
 		}
 	}
 
-	// bob's page follows room 7 at global
-	fctx, stop := context.WithCancel(ctx)
-	defer stop()
-	req, _ := http.NewRequestWithContext(fctx, "GET", x.globalAt+"/rooms/7/follow", nil)
+	// bob's page follows room 7 at global (the person() gate passes him)
+	req := httptest.NewRequest("GET", "/rooms/7/follow", nil)
 	stamp(req, "bob")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		t.Fatalf("bob follows room 7: %v %v", resp, err)
+	if who := person(req); who != "bob" {
+		t.Fatalf("bob's own call acts for %q", who)
 	}
-	defer resp.Body.Close()
-	lines := make(chan string, 4)
-	go func() {
-		sc := bufio.NewScanner(resp.Body)
-		for sc.Scan() {
-			lines <- sc.Text()
-		}
-		close(lines)
-	}()
+	bobs := followRoom(t, x, "7", "bob")
 
 	// alice's partition posts, through global, as alice
 	as("user:alice")
@@ -319,13 +375,8 @@ func TestRealtimeExample(t *testing.T) {
 	if got := strings.Join(x.forwards, "\n"); got != "POST /api/apps/rooms/rooms/7/posts?xbin-partition=global" {
 		t.Errorf("reached global as: %s", got)
 	}
-	select {
-	case l := <-lines:
-		if l != `{"room":"7","from":"alice","text":"the deploy is green, @bob"}` {
-			t.Errorf("bob's page got %s", l)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("bob's page got nothing")
+	if l := next(t, bobs, "bob"); l != `{"room":"7","from":"alice","text":"the deploy is green, @bob"}` {
+		t.Errorf("bob's page got %s", l)
 	}
 	as("user:carol")
 	if err := say(ctx, "7", "let me in"); err == nil || !strings.Contains(err.Error(), "403") {
@@ -363,5 +414,49 @@ func TestRealtimeExample(t *testing.T) {
 	as("user:alice")
 	if code, body := call(alice, "GET", "/mentions", "alice", ""); code != 200 || body != `[]` {
 		t.Errorf("alice's mentions: %d %s", code, body)
+	}
+
+	// ---- 2, again: who stops getting a room's posts ----
+	// bob brings carol in, and her page follows too
+	as("global")
+	if code, body := call(x.global, "POST", "/rooms/7/members", "bob", `{"user":"carol"}`); code != 204 {
+		t.Fatalf("bob adds carol: %d %s", code, body)
+	}
+	carols := followRoom(t, x, "7", "carol")
+	// bob loses the tile (removed from it, disabled, deleted) while his page
+	// follows: the next post drops him — his stream ends without it — and
+	// still reaches carol
+	x.mu.Lock()
+	x.gone["bob"] = true
+	x.mu.Unlock()
+	as("user:alice")
+	if err := say(ctx, "7", "bob is off the tile"); err != nil {
+		t.Fatalf("alice's partition posts: %v", err)
+	}
+	if l := next(t, carols, "carol"); l != `{"room":"7","from":"alice","text":"bob is off the tile"}` {
+		t.Errorf("carol's page got %s", l)
+	}
+	if l := next(t, bobs, "bob"); l != "(ended)" {
+		t.Errorf("bob's page, after he lost the tile, got %s", l)
+	}
+	as("global")
+	if code, _ := call(x.global, "GET", "/rooms/7/follow", "bob", ""); code != 403 {
+		t.Errorf("bob, dropped, follows room 7 again: %d", code)
+	}
+	// carol leaves: her stream ends, and a member's post no longer reaches her
+	if code, _ := call(x.global, "DELETE", "/rooms/7/members/carol", "bob", ""); code != 403 {
+		t.Errorf("bob, dropped, takes carol out: %d", code)
+	}
+	if code, body := call(x.global, "DELETE", "/rooms/7/members/carol", "carol", ""); code != 204 {
+		t.Fatalf("carol leaves room 7: %d %s", code, body)
+	}
+	if l := next(t, carols, "carol"); l != "(ended)" {
+		t.Errorf("carol's page, after she left, got %s", l)
+	}
+	if code, _ := call(x.global, "POST", "/rooms/7/posts", "carol", `{"text":"still here?"}`); code != 403 {
+		t.Errorf("carol posts to a room she left: %d", code)
+	}
+	if code, _ := call(x.global, "POST", "/rooms/7/posts", "alice", `{"text":"just me"}`); code != 204 {
+		t.Errorf("alice, the last member, posts: %d", code)
 	}
 }

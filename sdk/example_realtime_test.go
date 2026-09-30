@@ -48,6 +48,7 @@ func roomsRoutes() *http.ServeMux {
 	if xbin.PartitionUser() == "" {           // 2: the global instance is the hub
 		h := newRooms()
 		mux.HandleFunc("POST /rooms/{room}/members", h.invite)
+		mux.HandleFunc("DELETE /rooms/{room}/members/{user}", h.remove)
 		mux.HandleFunc("GET /rooms/{room}/follow", h.follow)
 		mux.HandleFunc("POST /rooms/{room}/posts", h.post)
 	}
@@ -65,7 +66,8 @@ type status struct {
 // setStatus is POST /status in a person's partition: their line on the
 // board every reader of the tile sees. The board is a "shared": true kv, one
 // copy every partition writes; the event goes out on a shared bus, so it
-// reaches every reader's page.
+// reaches every reader's page. It writes only its own person's row, but the
+// key proves nothing: anything acting in any partition may write any row.
 func setStatus(w http.ResponseWriter, r *http.Request) {
 	me := xbin.PartitionUser()
 	if me == "" { // the global instance: nobody's line
@@ -117,17 +119,27 @@ type roomPost struct {
 }
 
 // rooms is the global instance's hub: who is in each room — global's own
-// record (in memory here; a real tile keeps it in global's data) — and the
-// pages following each room.
+// record (in memory here; a real tile keeps it in global's data) — the
+// pages following each room, and when each follower was last found able to
+// read the tile.
 type rooms struct {
 	mu      sync.Mutex
 	members map[string]map[string]bool        // room → person → a member
 	follows map[string]map[chan []byte]string // room → a page's stream → its person
+	readers map[string]time.Time              // person → last found able to read the tile
 }
 
 func newRooms() *rooms {
-	return &rooms{members: map[string]map[string]bool{}, follows: map[string]map[chan []byte]string{}}
+	return &rooms{
+		members: map[string]map[string]bool{},
+		follows: map[string]map[chan []byte]string{},
+		readers: map[string]time.Time{},
+	}
 }
+
+// accessFresh is how long the hub trusts that a follower may still read the
+// tile before it asks xbind again.
+var accessFresh = 10 * time.Second
 
 // person is who a call to the global instance acts for: a person's page,
 // terminal or partition calling it through their own partition
@@ -176,8 +188,38 @@ func (h *rooms) invite(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// remove is DELETE /rooms/{room}/members/{user} at global: a member takes
+// someone out of the room — themselves, to leave — and that person's pages
+// following it stop at once. (Any member may, as any member may invite: the
+// example's rule; a real tile picks its own.) Members stay until then, or
+// until a post finds they can no longer read the tile.
+func (h *rooms) remove(w http.ResponseWriter, r *http.Request) {
+	room, who := r.PathValue("room"), person(r)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.members[room][who] {
+		xbin.WriteError(w, http.StatusForbidden, "not a member of "+room)
+		return
+	}
+	h.drop(room, r.PathValue("user"))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// drop takes someone out of a room: out of its members, and each of their
+// streams following it ends. Call it with h.mu held.
+func (h *rooms) drop(room, someone string) {
+	delete(h.members[room], someone)
+	for ch, p := range h.follows[room] {
+		if p == someone {
+			close(ch) // their follow returns: the page's stream ends
+			delete(h.follows[room], ch)
+		}
+	}
+}
+
 // follow is GET /rooms/{room}/follow at global: a member's page follows the
-// room here and gets each post as a line of JSON until either side closes.
+// room here and gets each post as a line of JSON until either side closes
+// or the member is taken out of the room (drop).
 func (h *rooms) follow(w http.ResponseWriter, r *http.Request) {
 	room, who := r.PathValue("room"), person(r)
 	ch := make(chan []byte, 64)
@@ -200,7 +242,10 @@ func (h *rooms) follow(w http.ResponseWriter, r *http.Request) {
 	_ = rc.Flush()
 	for {
 		select {
-		case line := <-ch:
+		case line, ok := <-ch:
+			if !ok { // dropped from the room
+				return
+			}
 			if _, err := w.Write(line); err != nil {
 				return
 			}
@@ -214,7 +259,8 @@ func (h *rooms) follow(w http.ResponseWriter, r *http.Request) {
 // post is POST /rooms/{room}/posts at global, from a member's partition
 // (xbin.GlobalURL) or page ({partition: 'global'}): the hub stamps who
 // posted — from the call, never the body — passes the post to every member
-// following the room, and mails each member it mentions (pattern 3).
+// following the room who may still read the tile, and mails each member it
+// mentions (pattern 3).
 func (h *rooms) post(w http.ResponseWriter, r *http.Request) {
 	room, who := r.PathValue("room"), person(r)
 	var in struct {
@@ -228,15 +274,25 @@ func (h *rooms) post(w http.ResponseWriter, r *http.Request) {
 	p := roomPost{Room: room, From: who, Text: in.Text}
 	line, _ := json.Marshal(p)
 	line = append(line, '\n')
-	mentioned := map[string]bool{}
 	h.mu.Lock()
-	if !h.members[room][who] {
+	if !h.members[room][who] { // the poster's membership, at every post
 		h.mu.Unlock()
 		xbin.WriteError(w, http.StatusForbidden, "not a member of "+room)
 		return
 	}
+	following := map[string]bool{}
+	for _, member := range h.follows[room] {
+		following[member] = true
+	}
+	h.mu.Unlock()
+	can, gone := h.stillReaders(r.Context(), following) // each follower's access, from xbind
+	mentioned := map[string]bool{}
+	h.mu.Lock()
+	for member := range gone { // removed from the tile, disabled or deleted
+		h.drop(room, member)
+	}
 	for ch, member := range h.follows[room] {
-		if h.members[room][member] { // still a member: checked at every post
+		if can[member] {
 			select {
 			case ch <- line:
 			default: // a page that can't keep up misses a post; it never stalls the room
@@ -255,6 +311,38 @@ func (h *rooms) post(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// stillReaders sorts people into those who may still read the tile (can)
+// and those who can't any more (gone). xbind doesn't end a stream it already
+// let through when its person loses the tile, so the hub asks
+// (xbin.AccessOf) — at most every accessFresh for each person. Someone xbind
+// didn't answer about is in neither: this post skips them, the next asks
+// again.
+func (h *rooms) stillReaders(ctx context.Context, people map[string]bool) (can, gone map[string]bool) {
+	can, gone = map[string]bool{}, map[string]bool{}
+	for someone := range people {
+		h.mu.Lock()
+		fresh := time.Since(h.readers[someone]) < accessFresh
+		h.mu.Unlock()
+		if fresh {
+			can[someone] = true
+			continue
+		}
+		a, err := xbin.AccessOf(ctx, someone)
+		switch {
+		case err != nil:
+			log.Printf("access of %s: %v", someone, err)
+		case a.CanRead():
+			can[someone] = true
+			h.mu.Lock()
+			h.readers[someone] = time.Now()
+			h.mu.Unlock()
+		default:
+			gone[someone] = true
+		}
+	}
+	return can, gone
 }
 
 // say is how a person's partition posts to a room from its own work — a long

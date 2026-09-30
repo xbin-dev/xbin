@@ -514,7 +514,7 @@ its own job, and each is built from what a partitioned tile already has:
 | You need | Use | It reaches |
 |---|---|---|
 | **tile-wide live state** — a status board, a shared list | a [shared resource](#shared-resources) and a shared bus announcing each change | every reader of the tile: their pages follow the bus |
-| **member-scoped live state** — a room, a document some people share, a shared conversation | the [global instance](#the-global-instance-and-peoples-partitions) as hub: it keeps who is in, pages follow its stream, partitions post to it | the people the global instance lets in, judged at every post |
+| **member-scoped live state** — a room, a document some people share, a shared conversation | the [global instance](#the-global-instance-and-peoples-partitions) as hub: it keeps who is in, pages follow its stream, partitions post to it | the members the global instance keeps — only members post, and a post drops a follower who can no longer read the tile |
 | **a partition that must be woken** — a mention, a hand-off, a job for one person | [partition mail](#partition-mail) | one person's partition, durably, whether or not a page of theirs is open |
 
 The worked example is one tile, `apps/rooms`, which uses all three:
@@ -608,8 +608,10 @@ shared resource reaches too many (every reader) and a partition too few
 - a member's partition **posts** to it from its own work with
   `xbin.GlobalURL(…)` — which arrives as its person too — and so can their
   page;
-- the global instance judges membership at every post, and **stamps who
-  posted from the call**, never from the body.
+- the global instance checks the poster's membership at every post, and
+  **stamps who posted from the call**, never from the body;
+- it relays each post to the followers who may still read the tile, and
+  drops one who can't.
 
 The hub lets in only calls a person makes through their own partition —
 their page, terminal or partition backend. On those `X-XBin-From` is the
@@ -628,8 +630,13 @@ func person(r *http.Request) string {
 }
 ```
 
-The global instance relays a post to every member following the room, and
-mails each member it mentions (3):
+The global instance relays a post to every member following the room who
+may still read the tile, and mails each member it mentions (3). A person
+can lose the tile while a page of theirs follows — removed from it,
+disabled, deleted — and xbind doesn't end a stream it has already let
+through, so the hub asks: `stillReaders` puts each follower to
+`xbin.AccessOf` (trusting a yes for 10 seconds), and the post drops those
+who can no longer read the tile:
 
 ```go
 func (h *rooms) post(w http.ResponseWriter, r *http.Request) {
@@ -638,15 +645,25 @@ func (h *rooms) post(w http.ResponseWriter, r *http.Request) {
 	p := roomPost{Room: room, From: who, Text: in.Text}
 	line, _ := json.Marshal(p)
 	line = append(line, '\n')
-	mentioned := map[string]bool{}
 	h.mu.Lock()
-	if !h.members[room][who] {
+	if !h.members[room][who] { // the poster's membership, at every post
 		h.mu.Unlock()
 		xbin.WriteError(w, http.StatusForbidden, "not a member of "+room)
 		return
 	}
+	following := map[string]bool{}
+	for _, member := range h.follows[room] {
+		following[member] = true
+	}
+	h.mu.Unlock()
+	can, gone := h.stillReaders(r.Context(), following) // each follower's access, from xbind
+	mentioned := map[string]bool{}
+	h.mu.Lock()
+	for member := range gone { // removed from the tile, disabled or deleted
+		h.drop(room, member)
+	}
 	for ch, member := range h.follows[room] {
-		if h.members[room][member] { // still a member: checked at every post
+		if can[member] {
 			select {
 			case ch <- line:
 			default: // a page that can't keep up misses a post; it never stalls the room
@@ -654,6 +671,25 @@ func (h *rooms) post(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// … the members it mentions, mailed below
+```
+
+Members stay until they are taken out — by a member (`DELETE
+/rooms/{room}/members/{user}`; themselves, to leave), or by a post that
+finds they follow the room but can no longer read the tile. (A member who
+can't read the tile and follows nothing reaches nothing either: xbind
+refuses their calls, and their mail.) Either way their streams end at
+once:
+
+```go
+func (h *rooms) drop(room, someone string) {
+	delete(h.members[room], someone)
+	for ch, p := range h.follows[room] {
+		if p == someone {
+			close(ch) // their follow returns: the page's stream ends
+			delete(h.follows[room], ch)
+		}
+	}
+}
 ```
 
 A person's partition posts through the global instance:
@@ -677,7 +713,7 @@ async function follow(room, show) {
   let buf = '';
   for (;;) {
     const { value, done } = await reader.read();
-    if (done) return; // the stream ended (the global instance restarted, say): follow again
+    if (done) return; // the stream ended (global restarted, or you're out of the room): follow again
     buf += value;
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
