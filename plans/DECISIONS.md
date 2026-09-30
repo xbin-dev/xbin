@@ -7813,3 +7813,615 @@ Deviations and refinements made while implementing; all deliberate:
     mid-deploy may be the sender); pausing unpartitioned pages' streams
     (xbind counts them as activity there today); filtering personal
     sandbox managers (hosted conversations may use the host's).
+
+- **D159 — Partitioned tiles, B2b: the agent's shared conversations at
+  the global instance, two homes on the page (2026-09-30).** Implements
+  PD-31 and the agent's side of 90 §I4 (global is the realtime hub) of
+  plans/partitions/90-decisions.md; the design is
+  plans/partitions/08-agent-template.md §3. The template's API.md
+  "Partitioned instances"; docs/partitions.md §The mode.
+  - **Chosen.**
+    - **Shared conversations are the global instance's**: made there with
+      `POST /ask {…, share}` (the team to read or write, and/or people),
+      reached by people's pages with F9's `{partition: 'global'}`; global
+      reads such a call as the person (B2a's `principal`/`agentRole`), so
+      D83 applies unchanged — no new ACL code.
+    - **The shared space keeps shared conversations**: a person's attributed
+      `POST /ask` at global without `share` (or with a draft) is 409/400,
+      and their `POST /runs` and `PUT /ask/upload` (a new chat's draft) are
+      409 — a buggy or old page can't start a private chat of a person's in
+      global's db (B2a's open question). A person may still un-share one
+      there later (an owner question). The owner token (the global-viewer
+      state) asks as ever.
+    - **Two homes by id** (`model/homes.js`): below 2^40 the global
+      instance's, from 2^40 the person's partition; every call about a
+      conversation — path `/runs/<id>…` — and the stream following it go to
+      its home (`model/home-api.js` wraps the kit's `selfApi`/`xbin.fetch`);
+      only a person's partition has two homes, so unpartitioned and
+      global-instance pages send exactly what they did.
+    - **Streams**: the page's own stream always; the global instance's
+      follows a shared conversation while it is open, and the run list only
+      while the list shows shared rows (or the Shared view) — else it is
+      closed, so a page with nothing shared never keeps the global instance
+      busy; such a page reads the shared space's first page again when it
+      shows or gains focus (at most every 15 s), and lists what was shared
+      with the person since. Both pause while hidden (B2a). Live for every
+      member (90 §I4) holds by construction: each member's page follows
+      global's stream.
+    - **The merged list**: Mine reads both homes and cuts at a horizon (the
+      newest of the last rows, as read, of homes that have more pages),
+      holding rows below it until the next page, so paging never shows a
+      row above one a later page could still bring; live events reach held
+      rows too, and each conversation is listed once; Shared is global's;
+      search and "needs you" read both.
+    - **Copies between homes**: `POST /runs/{id}/publish {share, files?,
+      keep?}` in a person's partition exports the conversation (the root's
+      transcript as the model reads it — tool calls and results, folded and
+      masked ones marked, the summary, the task ledger on the messages it
+      pins; session files only with `files`, ≤ 16 MiB together) and sends
+      it to global's `POST /import` through `callGlobal` (attributed), then
+      deletes the original unless `keep`; `POST /copy {from}` fetches
+      global's `GET /runs/{id}/export` the same way and imports it
+      privately. A bundle over 48 MiB is 413. Subagents' transcripts,
+      memory, grants and sandboxes stay behind; the copy gets a note naming
+      where it came from. The four routes exist only in a partitioned
+      instance.
+    - **A bundle is its caller's word**: at `POST /import` a message keeps
+      its writer only when that is the caller; anyone else's comes as a
+      copy (`origin: "copy"`, `label` the id it named — the page shows
+      "copied · <id>", the model reads no `[id]` for it) and a ledger row
+      that isn't the caller's own request becomes a `copy` one. `POST
+      /copy` imports the global instance's own export, whose writers stand.
+    - **Sharing in a partition**: `POST /runs/{id}/members`, `/links`,
+      `PATCH` visibility and team schedules keep B2a's 409 (a conversation
+      there is its person's alone); `POST /join` is relayed to global (join
+      links are global's); `sharing()` is true in every layout — the web's
+      Share on one's own conversation opens "Share a copy", on a shared one
+      the share dialog at global.
+  - **Not chosen:** the frame carrying the transcript to global (08 §3's
+    wording) — the partition's backend makes the same attributed F5 call,
+    so the transcript never passes through the browser and the original is
+    deleted only after global took the copy; a second list API merging
+    homes server-side (the partition can't read global's ACL'd list as the
+    person without a round trip per page); an always-open global stream
+    (keeps global awake for pages with nothing shared); a membership
+    doorbell for newly shared conversations (a mail or ping per share — the
+    focus/visibility re-read covers the page a person is looking at);
+    trusting a bundle's writers at import (any person could put words in
+    another's name); refusing `share` on an unpartitioned `POST /ask` (it
+    is what sharing right after does).
+- **D160 — Partitioned tiles, B2c: a partitioned agent's channels,
+  triggers and usage go by partition mail (2026-09-30).** Implements PD-37,
+  PD-38 and the agent's part of PD-46 of plans/partitions/90-decisions.md;
+  the design is plans/partitions/08-agent-template.md §5, §7. The template's
+  API.md "Partitioned instances"; docs/partitions.md §The mode.
+  - **Chosen.**
+    - **A linked DM is a handoff** (`_backend/handoff.go`): at the global
+      instance, `channelMessage` — after admission, before commands — hands a
+      DM whose peer is linked (`channel_peers.xbin_user`) to the person's
+      partition: a `handoffs` row (id, channel, peer, session key, reply
+      address, person, trigger, source; state) and the item's payload (the
+      text, the channel's lane/class/deny/system text/reset, the staged
+      file ids) are written in the message's transaction and mailed after
+      the commit (`handoff_send.go`). **Per person, in order:** a failure
+      xbind may retry — 409, 507, 5xx, network, the blob store — holds back
+      only that person's handoffs (`next_try`: 1 s doubling to 5 min), so
+      one full inbox never stalls anyone else's; a refusal — 400, 403, 404,
+      413 — is final and tells the chat; one still queued after 7 days (a
+      mail item's default life) is given up the same way. The payload is
+      cleared once mailed or given up; the staged files of a queued DM
+      outlive the upload prune until then; records live 30 days. `/help`
+      and `/link` are answered at global (the chat account's); the other
+      commands go with the handoff. A global instance stopping with
+      handoffs queued leaves its `resume` job.
+    - **The first-DM notice (09 §3)** (`handoff_people.go`): a person's
+      partition mails `partition/hello` at its first start (once per db);
+      any mail from it says the same. Global keeps two flags per person
+      (`partition_people`: ran, told) — no times. A DM for someone whose
+      partition hasn't run is still mailed (it waits in their inbox), is
+      answered once with "open the agent once…", and the chat isn't shown
+      the agent working.
+    - **The person's partition** (`_backend/handoff_user.go`) takes
+      `handoff/dm` only from `global` (xbind's stamp): the session key is
+      global's, the run is the person's (private, origin `channel`), the
+      channel's lane/class/deny/system text as global decided them, the
+      files session files; its reply address is `{"handoff": <id>}`, so what
+      the run answers — a turn's end, a question, a notice, an announcing
+      trigger — is a row of the partition's own outbox, mailed to global
+      after the commit (`outbox/add` {handoff, key, kind, text, files}) and
+      settled `delivered` once xbind took it; while one waits, the
+      partition's `userWake` counts it as work (a stopping partition leaves
+      its `resume` job). A handoff mailed twice is taken once (its inbox
+      `client_id` `ho:<id>`).
+    - **Global posts a reply** (`outbox/add`) only when `from` (xbind's) is
+      `user:<the handoff's person>`, the handoff is a DM's and at most 30
+      days old, and its chat account is still linked to that person (not
+      blocked); the destination (channel, address, session) is global's own
+      record; the row's `origin` (`user:<id>/<key>`, unique; kept 30 days,
+      past the outbox's week) makes a retry post once; files are staged as
+      channel files (`staged:<id>` on the row, served by
+      `/adapter/files/{oid}/{i}` only for that row's channel). At the
+      adapter's ack — delivered or failed — the row keeps only its dedupe
+      key: body and address `{}`, staged files gone; a failed one can't be
+      retried. The channel owner's outbox view lists such rows without
+      text, files or address.
+    - **A mail item's files are stored before its transaction**
+      (`mail_prepare.go`; the db has one connection): objects named after
+      the item (`handed/<item>/<i>`), kept if the handler used them,
+      deleted otherwise or when the transaction failed.
+    - **The trigger registry is today's `triggers` table at global**, plus a
+      `host` column (`user:<id>`) on the registry rows (name, source,
+      source_ref, match, owner, enabled, max_per_hour; no goal). A person's
+      partition registers (`POST /triggers/registry`, attributed to them;
+      upsert keyed by name, `prev` for a rename, their own rows only) before
+      it saves the trigger, when name/source/match/switch/cap change, and
+      removes the row before a delete (`DELETE /triggers/registry/{name}`);
+      a registry that doesn't answer refuses the change (502). Rules: a
+      private push trigger needs a `match`; one that is a prefix of — or
+      prefixed by — any other owner's on the same source (team ones
+      included) is 409. **At global a person's call from their partition
+      can't keep a private automation** — `POST /triggers`, `POST
+      /schedules`, an edit beyond a switch of a private one: 409 — so the
+      rules can't be passed by saving a private push trigger there. A push
+      matching a registry row is recorded at global (`trigger_events`: the
+      dedupe and the hourly cap, kept a day; the switch, the halt) and
+      handed over (`handoff/event`, mailed with `source` = the pushing tile
+      → `LedgerTrigger`); the partition fires its own trigger by name with
+      the event (its dedupe, class and data rules). Global keeps no last-run
+      time of a registry row and answers its events and test with 409. A
+      manager at global may only switch a registry row or delete it (any
+      other edit 409); global never subscribes a hosted bus row (the
+      partition subscribes its own). **Oversight from a manager's own
+      partition:** a partition numbers its triggers from 2^40 (like its
+      runs), so its Automations list the global instance's rows of other
+      people (`access: "oversee"`, from one short-lived read of global's
+      `GET /automations` that the channels' items share; a write the
+      partition forwards there makes it stale) beside its own without an id
+      clash, and `PUT`/`DELETE /triggers/{id}` below 2^40 there is forwarded
+      to global.
+    - **Usage totals** (`_backend/usage.go`): a partition counts each model
+      call on the UTC day it was made (`usage_daily`, beside the run's own
+      counters) and its conversations on the day they started, and mails
+      `usage/day` {days: [{day, runs, llmCalls, promptTokens,
+      completionTokens}]} for the UTC days after the last one sent up to
+      yesterday (≤ 31), at start and at each UTC midnight while it runs;
+      global keeps them per person for 90 days (`usage_days`); `GET
+      /usage?days=` for managers (forwarded from a partition; 404
+      unpartitioned).
+    - **From a person's partition** the channels' routes (claim, edit,
+      peers, pairing, sessions, outbox, retry), `GET /triggers/unmatched`
+      and `GET /usage` are forwarded to global (`userGlobal`); its
+      Automations list the global instance's channels. A `team` trigger
+      answers 409 in a partition (`sharesInPartition`).
+    - **Unpartitioned nothing changes:** the tables and columns are made
+      only in a partitioned instance (`addHandoffSchema`, from `startMode`);
+      every hook is a no-op outside its mode; the new routes answer 404.
+  - **Not chosen:** mailing inside the message's transaction (the write
+    lock held for a network call; the SDK client has no deadline); one
+    backoff for the whole sender (one person's full inbox held everyone's);
+    sending the channel's whole policy to the partition (only what the run
+    needs); a separate registry table (names must stay unique with team
+    triggers); letting a person's partition subscribe for pushes (the
+    webhooks tile isn't partitioned: it reaches global only); logging each
+    handoff or event at global (an activity timeline managers would read,
+    PD-46); asking xbind whether a person's partition ever ran (no such
+    read for tile code: the partition says hello instead); staging large
+    files for an F5 fetch (see Deviations); a manager route listing
+    handoffs (the same).
+- **D161 — Partitioned tiles, F11: the partitions page,
+  `/xbin/partitions` (2026-09-30).** Implements PD-47's guaranteed person
+  surface (plans/partitions/06 §12.1; 90 §I). docs/partitions.md §Your
+  partitions page; docs/protocol.md (the core route).
+  - **Chosen.**
+    - **A static page under `web/`, served at its own core route** (`GET
+      /xbin/partitions`, `authed`: signed out, a browser goes to /login):
+      web/partitions.html byte for byte — no HTML transform, the same bytes
+      for every principal; everything it shows it reads from the partitions
+      API with the person's own session (a plain same-origin fetch, never
+      `xbin.fetch`), and xbind judges every act again, as for `bx`.
+    - **Top-level only.** `X-Frame-Options: DENY`, CSP `frame-ancestors
+      'none'` (a tile framing it could overlay a consent or a credential
+      Allow — clickjacking; in origins mode a tile origin is same-site),
+      COOP `same-origin` (as /docs/: an opener keeps no handle), and the
+      element renders a refusal, nothing of the person's, when `window.top
+      !== window`. `/vendor/` answers the page 404 (`topLevelPage`), so no
+      copy of it lacks those headers; its modules load from `/vendor/` as
+      every core element does.
+    - **No inline script, no import map.** CSP `default-src 'self';
+      script-src 'self'` (styles inline allowed); the modules import lit
+      from `/vendor/lit-all.min.js` directly (the web/xb renderers'
+      precedent) — a bare `lit` would need an inline import map.
+      TestPersonPageSelfContained holds it.
+    - **Split for size and tests:** web/partitions-kit.js (pure: the reads,
+      the model, xbind's words — registry.SwitchDeletes' texts, checked by
+      TestPersonPageSwitchWords — node-tested in
+      hack/partitions-page.test.mjs), partitions-page.js (the element and
+      its acts), partitions-sections.js / partitions-more.js (the
+      sections), partitions-css.js.
+    - **One round of reads per refresh:** whoami, `GET /partitions`, `GET
+      /components` (owners, a paused tile's `partitionNote`), consents,
+      binds, ledger (30 days), then `GET /partitions?tile=` per listed
+      tile. Only the caller's own rows are kept (an admin's answer carries
+      everyone's metadata rows: this is not the admin section). Refreshed
+      on the `partitions` and `policies` events and after each act.
+    - **Managers are recognised client-side** as the shell does (admin, the
+      owner, an admin of the owning org — whoami + the component row's
+      owner); view-as decides nothing. The server's `mayManageTile`
+      decides.
+    - **Switch decisions** follow F13a: pending first, then declined
+      requests (Switch… stays offered, Keep doesn't); Switch… runs the dry
+      run and shows `deletes`, the counts, `people`, the keep list, the
+      sandbox managers lacking `partitions` (a "switch anyway" box), then
+      needs the tile's path typed; a switch's answer stays on the page
+      after its tile leaves the list.
+    - **The trust panel's "used your data here"** is the person's own
+      ledger (edges from their partitions of other tiles into this one), 30
+      days; no new API field for granted-but-unused edges.
+    - **Only the person's own rows and binds, per tile too.** An admin's
+      `GET /partitions?tile=` carries every person's partition rows and
+      live personal binds (I1); the page keeps the caller's (`user ===
+      me.id`) for the overview's binds and each tile's alike.
+    - **Held credentials: Refuse is one click, Allow asks.** Allowing a
+      credential someone else made is the act that could hand the account
+      over (credentialResetConfirm exists for that), and refusing costs at
+      most a fresh link; so Refuse is the primary, one-click act, and
+      Allow… first asks — naming who made it and when, and what it lets
+      them do. Each answer stays on the page this visit after the
+      credential leaves the list (as a switch's); one that was no longer
+      waiting (409 `already-effective`, or 404: it took effect unanswered)
+      is a warning banner (`role=alert`) in xbind's words.
+    - **Times** show in the browser's zone with its name (`Intl`
+      `timeZoneName: 'short'`): xbind's notice texts beside them say UTC.
+    - **A deep link survives signing in.** `authed` sends a signed-out
+      browser on `/xbin/partitions` to `/login?next=/xbin/partitions`
+      (internal/server/loginnext.go, `loginNextPaths`; every other route
+      still goes to plain `/login`); `GET /login?next=` carries it in the
+      form (a hidden field) and the single sign-on link, `POST /login`
+      lands there, and `GET /login/sso?next=` carries it in the signed
+      state cookie to the callback. Only webticket.go's `safeNext` path is
+      followed (same-origin, printable, not a sign-in route); anything else
+      lands on `/`, as every sign-in did. Rejected: carrying `next` from
+      every authed route (the shell's `/` and `/c/` redirects stay as they
+      were).
+    - **Links to the page:** the consent refusal (`… (they allow it at
+      /xbin/partitions)`), the log-share refusal, the consent push's body,
+      and the `tile.partition-switch` / `tile.partition-deleted` pushes'
+      link (`xbin/partitions`, was `c/<tile>/`); the shell's paused card
+      gains "details…". The partition-switch alert's text is unchanged (the
+      F14 shell strips its bx hint by exact text), and the in-frame switch
+      page keeps naming the page as text (it runs sandboxed without popups
+      or top navigation, and the page refuses frames, so a link there could
+      only fail).
+    - `partitions-page/1` in `GET /partitions`' features.
+  - **Rejected.** A Go-embedded HTML constant (the docs viewer's pattern):
+    the page belongs in web/ with the other core modules. An inline import
+    map allowed by a CSP hash: a per-file hash to keep in step for no gain.
+    A server-side `manages` field on the overview rows: F7b's file, and the
+    shell already computes it the same way.
+- **D162 — The admin console's partitions view and the logs panel's
+  partition switcher (2026-09-30).** Implements plans/partitions 06 §12.3
+  (the admin tile's runtime → partitions) and the owner's answer I5 (a
+  partition switcher on the logs tab); PD-46, PD-54 as answered in I1, I6,
+  I8, I9. docs/partitions.md §Operating people's partitions,
+  docs/protocol.md (`GET /partitions`, `GET /sandboxes`,
+  `POST /partitions/limits`, `/partitions/binds`), docs/frontend-kit.md
+  (`<bx-logs partition>`), the admin tile's API.md, docs/maintenance.md
+  (the tabs and the harness passes).
+  - **Chosen.**
+    - **One tab, a list and a tile view.** `tabs/partitions.js` (the list,
+      a `PLAIN_TABS` entry — admin.js gains only its `GROUPS` line),
+      `tabs/partition-tile.js` (one tile's view, loaded when its row
+      opens), `tabs/partitions-view.js` (the words and request bodies,
+      lit-free and unit-tested). Every act is the existing route's, through
+      the admin tile's frame. Confirmations are inline (typed text in the
+      tab), so the console works outside the shell and in the harness; a
+      purge sends one `{tile, partition}` per row it listed, never the
+      empty body that purges every orphan there is when the click lands.
+    - **The console is the driving admin's, not the tile's grant's.** The
+      admin tile's frame under a person's login (AdminFrameDriver) reads
+      `GET /partitions` — the overview and one tile — as an admin only when
+      that person is one (`consoleAdminDriver`); driven by anyone else the
+      frame is tile code there (the tile-level fields). The routes that
+      judged the credential itself — `POST /partitions/limits` and
+      `GET`/`DELETE /partitions/binds` — judge that frame by its driver's
+      role (`partitionsAdmin`), as reset, purge, restore, reviewed-only and
+      the mode decision already judged the person. The admin tile's other
+      credentials (its backend, a frame its terminal minted) keep the
+      tile's `xbin:admin` grant, as before. The overview for the console
+      leaves out the driver's own rows, notices and credentials: it shows
+      the workspace, not the person.
+    - **Admins' extras on one tile** (partitionadmin.go): the mode history
+      (newest first, the last 50 of the record's 200), `lastWipe`, and the
+      global inbox's counts (W3a's optional `globalMail`, from the counts
+      the listing already read — one scan of the store) — metadata only:
+      who decided, when, the modes, wiped counts, a partition id admins
+      already see on the rows; never an item.
+    - **Managers see who shares with them.** sharedLog (06 §5) lets a tile
+      manager read a log its person shares, but a manager's listing had no
+      rows to offer it from: it now carries `logShares [{user, until}]` —
+      the person chose to show their log to admins and managers, so naming
+      them is theirs. Admins read it on every row.
+    - **The switcher lives in `<bx-logs>`**, so the terminal window's logs
+      panel and the Deployments panel's primary log both have it; its logic
+      is `web/logs-partition.js` (pure). It appears only once an answer
+      names a partition (`X-XBin-Partition`, which only a partitioned tile's
+      log sends) or a refused default on a tile the listing calls
+      partitioned: an unpartitioned tile makes no extra request and looks
+      as before. The entries: the default (what the credential reaches —
+      "yours", or "global" for the root token); `global` when the tile runs
+      a global instance and the viewer may read it (an admin's listing says
+      so; for anyone else a `tail=0` read of it answers — today's gate,
+      terminal access or an admin); and each person who shares their log
+      with the viewer (an admin's rows, a manager's `logShares`; never an
+      orphan's). A named choice is shown only when the answer echoes it
+      (the deployment echo rule). The listing is asked again when the panel
+      opens anew and, on a new stream, once it is 30 s old; another
+      component or deployment clears the choice.
+    - **The sandboxes view's labels** come from the rows: `partition` on a
+      person's backend (F3), and a new `personal` flag on a person's session
+      (F7a blanked the name; the admin couldn't tell a person's session from
+      a nameless one).
+  - **Not chosen:** a logs view inside the admin console — the admin tile
+    reads no backend log today (`canReadLogs` refuses element principals),
+    and giving it one is a new read path; an admin reads a shared log in the
+    shell's panel, as their own session (an owner question). A
+    workspace-wide `maxRunning` editor (the overview doesn't carry the
+    workspace cap; `bx partition limits` sets it). Restoring an earlier
+    holder's archive of an id (`partitionId` + `to`, 11 §4) from the
+    console: it stays `bx restore --partition-id … --to …` — the console
+    offers the person's current partition's versions only. Importing the
+    shell's `partition-mode.js` into the admin tile (another tile's module;
+    the admin scaffold and the shell update apart): the words are
+    re-stated, and the node test pins the switch words to the shell's. A
+    `logs` flag in the listing for the global log's gate (the `tail=0`
+    read asks the gate itself, and adds no field). A server-checked purge
+    list (one request per confirmed row needs no new body).
+- **D163 — Partitioned tiles, F14b: the partition chip on every
+  partitioned tile's window, and the shell's consent prompts
+  (2026-09-30).** Implements the owner's ruling I3 (a chip saying whose
+  partition a window shows, beside F14's marker, D153) and 06 §12.3's
+  "consent prompts (only with the policy on)" over F10's consents API and
+  events (D151, PD-13). Design: plans/partitions/06-terminals-ops.md §12.3,
+  05 §2, 90-decisions.md §I3; docs/partitions.md.
+  - **Chosen.**
+    - **One chip, four words, one function**
+      (`partition-mode.js partitionChip(view, {shown, who})`): nothing on a
+      tile whose recorded mode has no user partitions (the marker's rule:
+      it follows R, so a pending switch doesn't change it); view-as →
+      `no partition` (xbind never opens a person's partition to view-as,
+      on a deployment neither); a non-primary deployment → `shared` (F14's
+      `DEP_SHARED` words); a person → `yours`; the workspace token →
+      `global` with a global instance, else `no partition`; nothing while
+      `/whoami` isn't read (never a guess). bx-canvas gets `/whoami` as a
+      `.who` property.
+    - **Every window: the card and the pop-out.** A tile's pop-out window
+      (`xbin.window`, drawn by bx-shell) frames a sub-path of the tile —
+      its own page, in the same partition as its card — or `spec.src`,
+      another tile. `framedTile(src, components)` resolves the listed tile
+      (the longest path src is or lies under) and a `+name` deployment;
+      `shell-kit.js spawnTitle` draws that tile's marker, the title and
+      the chip (`chipTag`, shared with the card) in the pop-out's head.
+      bx-shell takes `partCss` for it — no line added there.
+    - **Where and how it looks:** after the path (the card) or the title
+      (a pop-out) — the marker keeps the runtime dot's place at the head's
+      start, and on a card the chip keeps the place F14's `shared` chip
+      had, after the `+name` tag; a quiet chip in the marker's hue
+      (`--bx-part-c`), a faint tint, no border, `cursor: default`, no hover
+      state; `no partition` muted grey. The `shared` chip keeps its
+      `.dshare` class and words, restyled into the family (owner question
+      2: I3 says "beside the marker").
+    - **The prompt lives in the shell's decision strip**
+      (`workspace-template/shell/bx-part-consent.js`, `<bx-part-consent>`
+      beside `<bx-grants>`/`<bx-bindings>`), not on the calling tile's
+      card: the refused call may come from a tile whose window isn't open
+      (a cron job, another tab), and the strip is where the shell already
+      asks for decisions. With nothing to answer the element is `hidden`
+      (no box, so the strip's flex gap doesn't move the canvas).
+    - **What it shows is xbind's list:** `GET /partitions/consents`'
+      `asked` (the edges asked about in the last day and not allowed
+      since), only while `policy.partitionConsent` is on, each once, and
+      only for tiles the shell still lists (an ask outlives a removed tile
+      for its day). It reads the list once a signed-in person (not
+      view-as, not the workspace token: `consentPerson`) sees a partitioned
+      tile (`consentWatch` — no extra request on a workspace without
+      partitioned tiles, nor a 403 for the token), then again on a
+      `partitions` event with op `consent-needed` or `consent` (asked, or
+      answered elsewhere), on `policies`, and after the events socket
+      reconnects — events only for a person, so view-as and the token
+      never call the API. The events come through the page's own
+      `/ws/events` socket (`/vendor/events-socket.js`, the person's cookie)
+      — the shell tile's `xbin.events` never receives PersonOnly events,
+      by F10's design.
+    - **Allow** is `POST /partitions/consents {from, to}` as the signed-in
+      person (a raw fetch; xbind refuses tile credentials — PersonOnly);
+      the panel says what it did and how to take it back (`bx partition
+      consent … --revoke` until a partitions page is served), for 15 s or
+      until closed; a refusal shows xbind's error on the ask, and the list
+      is read again (the policy turned off meanwhile: the ask goes with
+      it). **Allow is live only while nothing covers the ask:** while asks
+      show, a timer hit-tests each ask's box on a 24 px grid
+      (`coverPoints`; `elementFromPoint` on the shell's root must return
+      the panel's host) every 200 ms, and Allow stays disabled until
+      nothing has covered it — or put part of it out of view — for 600 ms,
+      a new panel included (an ask that appears under a click meant for
+      something else doesn't take it); the click checks again (the timer's
+      look may be 200 ms old). A tile's pop-out window is placed where the
+      tile says, above the strip: without this it could hide the question
+      and "Don't allow" and leave Allow in view, or close the instant the
+      pointer leaves it for Allow. Any window at least a grid step wide and
+      tall that overlaps an ask hits a point (a pop-out is at least
+      200×140).
+    - **Don't allow** stores nothing on xbind (F10 has no decline record,
+      and a refusal is already the state): the browser keeps the ask's
+      `at` in `localStorage`, **one key per person**
+      (`xbin-partition-consent-dismissed:<id>`, `consentStoreKey`), so that
+      ask stays hidden there for that person (other tabs follow the
+      `storage` event); a later ask — xbind asks again at most once a day —
+      shows again. Dismissals are pruned to the asks xbind still lists,
+      the person's own only: on a shared browser nobody's dismissals show,
+      hide or prune anybody else's.
+    - **An allow answers the ask (xbind).** F10's in-memory `asked` map
+      kept the day's ask, and `askedOf` hid it only while a consent held:
+      a consent taken back the same day brought back the old prompt,
+      though the tile hadn't asked since. Now `POST` marks that prompt
+      answered (`consentState.answered`, the prompt's time): `askedOf`
+      leaves it out, and it still keeps xbind quiet on the edge for the
+      rest of the day — someone who just took a consent back isn't asked
+      again the next second; the next day's refused call asks anew. It
+      fixes the shell and F11's page alike.
+    - **Words and calls are pure** (partition-mode.js: `consentWatch`,
+      `consentPerson`, `consentPrompts`, `keepDismissed`, `consentEventOp`,
+      `consentCall`, `consentStoreKey`, `coverPoints`, `framedTile`, the
+      texts), tested in node; `postMode` and `consentCall` share one
+      helper (`personCall`), `postMode`'s behaviour unchanged.
+  - **Not chosen:** only the owner's three words (a view-as window and the
+    workspace token on a tile without a global instance reach no
+    partition; `yours` or `global` would be false there, and no chip would
+    break "every window"); the chip right after the marker, before the path
+    (it would move the title and split the deployment window's `+name` /
+    `shared` pair); the prompt on the calling tile's card (not always on
+    screen) or as a toast (the strip persists until answered and survives a
+    reload through xbind's list); the prompt in the top layer (a popover
+    above every window: it would float over the tiles instead of sitting
+    in the strip with the other decisions, and still needs the appearance
+    delay); a server-side "declined" record (an API change in a scaffold
+    pack; F10 decided asks in memory, once a day); dropping the ask on
+    `POST` (a revocation would be re-asked the next time the tile tries,
+    at once); treating the `consent` event with `allowed: false` in the
+    shell (a shell closed at the revocation would still show the ask, and
+    F11's page too); reading the consents on every shell load (a request
+    per load on every workspace, and a 403 for the workspace token and
+    view-as); the shell tile's `xbin.events` (never receives PersonOnly
+    events); polling.
+- **D164 — Partitioned tiles, B3: llm-gw counts per person's partition;
+  the tiles around a partitioned agent stay unpartitioned (2026-09-30).**
+  Implements llm-gw's side of PD-36 and the notes of 09 §2-§5 of
+  plans/partitions (bridge, webhooks, sandbox-terminal, llm-gw). llm-gw's
+  API.md "Partitioned callers"; docs/agent-inbox.md §A partitioned agent;
+  docs/partitions.md §Providers.
+  - **Chosen.**
+    - **Per-caller rows only for partitioned callers.** A call counts per
+      caller when it carries `X-XBin-Partition` (xbind sets it on every
+      call from a partitioned tile's principals); the key is (`X-XBin-From`,
+      `X-XBin-Deployment`, `X-XBin-Partition-Id`) — partitions.md's
+      provider rule, so `""` and `global` are one row; the display name is
+      the last call's `X-XBin-Partition`. A call from a tile that isn't
+      partitioned carries neither header and counts per backend only: the
+      kv, `GET /stats`, `GET /config`, `/metrics` and the page are
+      byte-identical for a workspace without partitioned tiles.
+    - **Metadata only:** requests, tokens in/out, cost, last use; counted
+      in memory and persisted by one writer after the call (coalesced: a
+      burst is one write; no call waits on kv) in the state kv's `callers`
+      (at most 1000 rows, the least recently seen dropped past that). A kv
+      error other than not-found never starts the table over (the load is
+      retried; nothing is written until it succeeds; then the persisted
+      and the new counts add up). A call that brings a new partition id for
+      the same (tile, deployment, `user:<id>`) — the person was deleted and
+      recreated, or their partition reset — drops the old row: the new
+      person never sees it, and it isn't kept.
+    - **Who sees rows (PD-46):** a person their own partitions' rows (with
+      the last use and calls in flight); a manager of llm-gw (write or
+      terminal; a tile granted `admin` on it, with no person behind the
+      call) each calling tile's people's partitions together
+      (`callerTotals`: how many, requests, tokens, cost) and the global
+      instances' rows, never another person's row or partition id; the
+      owner token — and llm-gw's own principals with no person behind
+      them, i.e. its page opened with the owner token — every row, a
+      person's with its counters only (no last use, no live counts: polling
+      never draws anyone's activity over time, 08 §7); view-as nothing. A
+      signed-in workspace admin reads as a manager: xbind tells a tile a
+      person's level on it (admins: `terminal` everywhere), not whether
+      they are an admin; per person and day, admins read each person's
+      calls to llm-gw in xbind's egress ledger. `/metrics` stays per
+      backend.
+    - **The fairness limit** (`partitionLimit`, 0 = off, default off,
+      ≤ 64; changing it needs write access) caps one user partition's
+      calls in flight per caller key; excess calls wait in FIFO order for
+      at most 20 s (a caller that hangs up leaves the queue; a slot handed
+      to it as it left passes on), then are answered `429` with
+      `Retry-After: 2`. The bound sits under the agent's 90 s stream
+      watchdog, which is armed before the response headers — a call held
+      longer would be cancelled as a stalled stream and retried at the
+      back of the queue; the agent retries a 429 with a backoff. The global
+      instance and unpartitioned callers are never held. A raised limit
+      admits waiting calls at once. For the agent, whose own gates keep a
+      person's partition to 2 of its 4 tile-wide model slots, the limit
+      matters only below 2, and a held call keeps one of those slots idle
+      (documented): it is for partitioned callers without such caps.
+    - **Bridge, webhooks, sandbox-terminal: no code change.** They stay
+      unpartitioned and reach a partitioned agent's global instance; their
+      docs say what B2c's hand-offs mean for them (09 §2-§4) as B2c builds
+      them, that binding them is an ordinary global bind by today's
+      authority (PD-54, D33, D88), that a personal bind doesn't apply to
+      them, and who is in whose trust base.
+  - **Not chosen.** Per-caller rows for every caller (a per-tile usage
+    table in every workspace: useful, but not byte-identical — an owner
+    question); every row to every manager (PD-46 gives managers totals;
+    per-person rows are an admin's, and a tile can't tell an admin — the
+    owner token alone gets them); holding a call without bound, or an
+    immediate 429 (the first cancels the agent's calls as stalled streams,
+    the second fails its turns within seconds); per-partition series in
+    `/metrics`; a per-day token budget (the counters make it a small
+    follow-up if wanted).
+  - **Fixed on the way:** llm-gw's per-backend `bumpStats` encoded its
+    shared map outside its lock (a call adding a backend's first row could
+    race another's persist: a concurrent map read/write); it now marshals
+    under the lock.
+- **D165 — Template instances merge their manifest by keys: a merge
+  driver in each instance's repo, and instantiation that keeps the
+  template's JSONC (2026-09-30).** Removes the manifest conflict every
+  instance met in `git merge template/main` (D50's update path) on any
+  upstream manifest change — since D158, every existing agent instance's.
+  docs/overview/03-components.md §Templates, docs/bx.md, docs/protocol.md.
+  - **Why not the served repo.** An existing instance's merge base is the
+    snapshot it was seeded from (the template's JSONC) and its manifest a
+    re-marshalled rewrite of it; whatever the served repo carries, git's
+    line merge conflicts wherever upstream changes the manifest (checked:
+    serving the normalized form still leaves B2a's additions as
+    conflicts). Only a merge that isn't by lines can take them.
+  - **Chosen.** `internal/manifestmerge` merges by keys (objects by
+    member, arrays by element — `uses` by target), applies the instance's
+    own-path rename to base and upstream, and edits ours in place in ours'
+    form (an unedited old instance becomes exactly the new template
+    instantiated the old way). What it can't carry is a conflict, never
+    dropped: upstream changing top-level `template`/`partition` (a block
+    ours doesn't carry aside), comments a manifest with comments doesn't
+    take, references to the template's path where ours doesn't name its
+    own. `bx template merge-manifest` is the driver — git's line merge
+    first (kept when clean), by keys where it conflicts **and the other
+    side is the template** (base and theirs are versions of xbin.json in
+    `refs/remotes/template/*`'s history: git runs a driver for every merge
+    of the file — a builder's branch, a rebase with the sides swapped, a
+    stash — and exposes no MERGE_HEAD while it runs). xbind names it in
+    each builtin template instance's `.git/config` and
+    `.git/info/attributes` (untracked) at instantiation, on clone (the
+    copy's path) and, for existing instances, at start (off the boot path)
+    — confined (D78); the command falls back to `git merge-file` so a
+    missing or older bx leaves git's own conflict. New instances keep the
+    template's JSONC: the block goes with the comment lines right above
+    it, the instance's `partition` is the line after the brace, and the
+    served repo drops the same comment — an instance is the served
+    manifest plus one line (in a repo this xbind created).
+  - **An exception to plans/partitions/10 §A.1** ("no boot migration, no
+    new file written" for workspaces without a partitioned tile): the
+    start-up pass writes `.git/config` keys and `.git/info/attributes` in
+    every builtin template instance's repository, partitioned or not — the
+    only way existing instances' documented update command stops
+    conflicting. It changes no route answer, env, header or tracked file;
+    the builder can decline it (`xbin.manifestDriver = false`, their own
+    driver command, the line removed, their own merge attribute for
+    xbin.json) and xbind then writes nothing.
+  - **Unpartitioned existing instances** take B2a's `conf`/`team` uses,
+    `partitionMail` and `partitionNote` (inert unpartitioned; the
+    resources arrive with scope.json anyway) and never a `partition`: the
+    mode stays; switching later needs only the `partition` line.
+  - **Rejected.** Serving the instance's normalized form (still conflicts,
+    above); rewriting instance history or committing in the builder's repo
+    (the repo is the builder's; D2: xbind never auto-commits); a committed
+    `.gitattributes` (the first merge wouldn't read it, and it would ride
+    into the builder's tree); an xbind-side "update" endpoint doing the
+    merge (the documented command should just work, in the builder's
+    terminal and their agent's); telling merges apart by MERGE_HEAD /
+    REBASE_HEAD (not written while a driver runs); `core.attributesFile`
+    for a lower-precedence line (it would shadow the builder's global
+    attributes file).

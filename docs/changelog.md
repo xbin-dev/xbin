@@ -12,6 +12,264 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **The agent template: shared conversations in a partitioned agent** (the
+  template's API.md "Partitioned instances", [partitions.md](/docs/partitions.md)
+  §The mode). In a partitioned agent a shared conversation lives at the
+  agent's global instance — in its database, run by it, so it reaches no
+  one's own partition — and people's pages reach it through their own
+  global instance (`?xbin-partition=global`, attributed to them), where the
+  sharing rules apply to them exactly as in an unpartitioned agent:
+  sharing with the team or people, join links, each person's pins and read
+  state. A conversation's id says its home (a person's own from 2^40, the
+  shared space's below), so `#c=<id>` addresses, push links and the iOS
+  app's saved places keep working. Everyone in a shared conversation
+  follows its stream at the global instance, so all see a run as it
+  streams. The page's **Mine** lists your own conversations and the shared
+  ones you take part in, **Shared** the shared space's; the web's Share on
+  one of your own is **Share a copy…** (a copy goes to the shared space —
+  who can see it, its session files or not, the original kept or deleted),
+  a shared one's share dialog offers **Copy to my own space**, and **New
+  chat with options** asks who can see the new chat (only you, the team,
+  or people you name). A copy is the conversation the model reads — every
+  message and tool result, its task ledger — and names a message's writer
+  only when that is who made the copy: anyone else's message comes as
+  "copied · <id>", never as theirs. New routes, in a partitioned instance
+  only: `POST /runs/{id}/publish`, `POST /copy`, `GET /runs/{id}/export`,
+  `POST /import` (413 over 48 MiB); `POST /ask` takes `share` (in every
+  instance — unpartitioned it shares the new conversation at once); at the
+  global instance a person's `POST /ask` must carry it (409 otherwise) and
+  their `POST /runs` and `PUT /ask/upload` are refused; `POST /join` in a
+  person's partition is redeemed at the global instance. An unpartitioned
+  instance's page, and the global instance's own (the owner token), are
+  unchanged. Nothing to change.
+- **A partitioned agent's chat channels and event triggers reach people's
+  own partitions** (the agent template's API.md "Partitioned instances",
+  [partitions.md](/docs/partitions.md) §The mode). The messaging bridge and
+  the webhooks tile aren't partitioned, so they reach a partitioned agent's
+  global instance, which keeps the channels, the links of chat accounts to
+  people and a registry of triggers — and now hands what is one person's to
+  that person's partition by partition mail:
+  - **a DM from a chat account linked to you** is answered by your own
+    partition: the conversation is yours, private, in your list. The global
+    instance keeps a record of where it came from, holds the message only
+    until it is mailed (at most 7 days — one person's full inbox holds back
+    only their own), posts your partition's replies where its own record
+    says — only when xbind stamps the reply as yours and the chat account
+    is still linked to you — and forgets a reply's text once the bridge
+    acknowledged it (the channel's owner sees a reply wait or fail, never
+    what it says). Files up to 640 KiB a message travel with it (a larger
+    one is named in the text). Until your partition has run once (open the
+    agent once) your DMs wait for it, and the first one is answered with a
+    notice saying so;
+  - **your event triggers are yours**: made in your partition, they register
+    their name, source and topic prefix with the global instance (names are
+    unique tile-wide; managers see that one exists, whose and what it
+    listens to — never what it does or when it ran —, on their own page
+    too, and may switch it off or delete it). A trigger on pushes needs a
+    topic prefix, and one that overlaps anyone else's on the same tile is
+    refused, so nobody can quietly take everyone's webhooks; a private
+    trigger or schedule can't be made at the global instance from your
+    partition (409: make it in your own space). A matching push is recorded
+    at the global instance (the same event never runs twice) and handed to
+    your partition, which runs it; the push's source counts in your egress
+    ledger (`/xbin/partitions`);
+  - claiming and managing a channel from your own partition is forwarded to
+    the global instance (the 409s of the previous version are gone), and
+    your Automations page lists its channels;
+  - each partition mails the global instance its daily usage totals
+    (conversations started, model calls and tokens spent per day — never
+    content), and managers read them per person with `GET /usage`.
+  Unpartitioned agents — every existing instance that keeps its mode —
+  change nothing (three new routes answer 404 there). Nothing to change.
+- **The partitions page: `/xbin/partitions`**
+  ([partitions.md](/docs/partitions.md) §Your partitions page,
+  [protocol.md](/docs/protocol.md)). xbind now serves one page, with the
+  xbind binary (no `bx builtin update` needed), for everything partitioned
+  tiles ask of a person, from their own sign-in: credentials someone else
+  made for their account while `credentialResetConfirm` is on (**Refuse** in
+  one click, or **Allow…**, which first asks, naming who made it and when;
+  the answer stays on the page — a warning in xbind's words when the
+  credential was no longer waiting); for tile managers, each paused tile's
+  partition mode switch — **Keep the current mode**, or **Switch…** after a
+  count of what it deletes, the list of what it keeps and the tile's path
+  typed; their partitions of each tile (running or not, what it holds, their
+  inbox's counts, stop, a log share of 1–14 days, restore from a backup,
+  reset after typing `<tile> user:<you>`) with its trust panel — who can
+  change the code that runs on their data, live reload, protection, reviewed
+  code only, the global binds every person's partition calls (their writers
+  and last code changes), and which tiles used their data there; consents
+  (with `partitionConsent` on: the tiles that asked, their consents, allow
+  one more); personal binds (add, remove); notices; and their egress ledger;
+  times in the browser's zone, named. The page is static — the same bytes
+  for everyone, no HTML transform — and opens only top-level (it refuses to
+  be framed). Signed out, a link to it signs in and lands back on it:
+  `/login` takes `?next=<path>` (a same-origin path, not a sign-in route),
+  which the password form and the single sign-on start carry to where the
+  sign-in lands. `GET /api/xbin/partitions`' `features` gain
+  `partitions-page/1`. **Links to it:** the `partition-switch` alert
+  (`/alerts`, the shell's banner) names the page beside `bx partition
+  switch|keep`; a call refused for want of consent now says `403 <id> hasn't
+  let <caller> use their <tile> data (they allow it at /xbin/partitions)`
+  (the text before the parenthesis is unchanged); a log-share refusal names
+  the page beside `bx partition share-log`; the consent push names the page;
+  the pushes `tile.partition-switch` (to managers) and
+  `tile.partition-deleted` now link `xbin/partitions` instead of `c/<tile>/`
+  (the xbin app opens the workspace until it knows the link). With `bx
+  builtin update`, the shell's greyed card of a paused tile gains a
+  **details…** link to the page. Nothing to change.
+- **The admin console's partitions view, and the logs panel's partition
+  switcher** ([partitions.md](/docs/partitions.md) §Operating people's
+  partitions, [protocol.md](/docs/protocol.md) `GET /partitions`,
+  `GET /sandboxes`, `POST /partitions/limits`, `/partitions/binds`,
+  [frontend-kit.md](/docs/frontend-kit.md)). Nothing changes for a
+  workspace without a partitioned tile.
+  - The admin tile gains **runtime → partitions**: every tile that keeps
+    each person's data apart or asks to — its mode, a request waiting for a
+    manager, its people, what runs and what it holds, trust warnings, caps
+    hit, untracked files on demand (checked once per click) — and, opened,
+    a tile's own view: **Keep the current mode** / **Switch…** (the dry
+    run's counts, then the tile's path typed), **reviewed code only**, the
+    limits, each person's metadata row (state, instance, data,
+    registrations, inbox counts, log share) with **stop**, **reset…** (the
+    typed `<tile> user:<id>`) and **restore…** (a backup of that person's
+    partition), the personal binds (the record removed from here), its
+    orphans and its mode history; below the list, the workspace's orphaned
+    partitions and their purge (exactly the ones listed and confirmed). The
+    console reads and acts as the admin driving it: opened by someone who
+    isn't an admin it shows each tile's state and request only. The
+    sandboxes view labels each person's partition instance, their sessions
+    (without names) and their terminal disks; the Backup tab's "back up"
+    says when a person's partition wasn't archived. Existing workspaces get
+    it with `bx builtin update scaffold:tiles/admin`; an older admin tile
+    keeps working without the tab.
+  - A partitioned tile's **logs panel** (the tile's window → logs) shows
+    your own partition's log and offers, in its corner, the global
+    instance's log (when the tile runs one and you may read it: terminal
+    access or an admin) and — for an admin or a manager of the tile — each
+    person's log while they share it (`<bx-logs partition="global|user:<id>">`,
+    shown only when xbind's `X-XBin-Partition` names the partition asked
+    for). An unpartitioned tile's panel, and any panel on an older xbind,
+    are as before.
+  - `GET /api/xbin/partitions` answers admins also the tile's mode
+    `history` (newest first, at most 50), `lastWipe` and `globalMail` (the
+    global instance's inbox counts, never an item), and a tile manager who
+    isn't an admin `logShares` (who shares their log with them now). The
+    admin tile's frame driven by an admin's login reads the overview (no
+    `tile`) as an admin too, as it reads one tile; driven by anyone else it
+    reads the tile-level fields, and `POST /partitions/limits` and
+    `GET`/`DELETE /partitions/binds` judge that frame by its driver's role.
+    `GET /api/xbin/sandboxes` rows carry `personal: true` for a person's
+    terminal or agent session on a partitioned tile.
+- **Partitioned tiles: the shell says whose partition a window shows, and
+  asks you before another partitioned tile uses your data**
+  ([partitions.md](/docs/partitions.md) §Partitioned tiles, §Calls between
+  partitioned tiles). Every window of a partitioned tile — its card, and a
+  pop-out window that frames it (`xbin.window`: a sub-path of the tile, or
+  `spec.src`) — now says after its title, in a quiet chip in the marker's
+  colour with a tooltip, whose partition it shows: `yours` (your own
+  partition), `shared` (a window showing one of the tile's other deployments
+  — the chip that was already there, now in the marker's colour) or `global`
+  (the tile's global instance, which the workspace token and `--no-auth`
+  reach); a window that reaches no partition says `no partition` (an admin
+  viewing the workspace as someone, or the workspace token on a tile without
+  a global instance). A pop-out of a partitioned tile carries the marker
+  too. With the workspace policy `partitionConsent` on, when a partitioned
+  tile's call into your data in another partitioned tile is refused for want
+  of your consent, the shell asks you in its strip above the tiles, beside
+  the pending grant requests: "apps/z asks to use your data in apps/x", why,
+  **Allow** (the next call goes through; `POST
+  /api/xbin/partitions/consents` as you) and **Don't allow** (nothing is
+  stored: the calls stay refused, that browser stops showing you the ask,
+  and xbind asks again at most once a day when the tile tries again). Allow
+  works only while nothing covers the question (a tile's pop-out window over
+  it disables it) and not in the moment it appears. The ask shows in every
+  shell you have open or open that day until you answer it, goes when you
+  answer it anywhere (the shell, `bx partition consent`, or another tab) and
+  when the policy is turned off or either tile is removed, moved or switched
+  to or from unpartitioned; nobody else's shell — an admin's, the workspace
+  token's, view-as — ever shows it. Taking a consent back (`bx partition
+  consent … --revoke`) no longer brings back the ask you answered: `GET
+  /api/xbin/partitions/consents`' `asked` leaves out an ask an allow
+  answered, and xbind asks again, at most once a day, when the tile tries
+  again. The shell is scaffold: existing workspaces get the chip and the
+  prompts with `bx builtin update scaffold:shell`; an older shell shows
+  neither (people answer with `bx partition consent`, as before). Tiles that
+  never ask for `partition`, and workspaces with the policy off, look
+  exactly as before. Nothing to change.
+- **llm-gw counts usage per person's partition** (llm-gw's API.md
+  "Partitioned callers", [partitions.md](/docs/partitions.md) §Providers).
+  A call from a partitioned tile — every agent instance made from the
+  template now is, by default — is counted per caller: the calling tile,
+  its deployment and the person's partition (`X-XBin-Partition-Id`; the
+  tile's global instance is its own row), with requests, tokens and cost —
+  metadata only, never a prompt, answer or model. The tile's page shows
+  under **usage by partition** what each viewer may see: a person their own
+  partitions' rows; a manager of llm-gw (write or terminal access — which
+  is how a workspace admin signed in reads to a tile) each calling tile's
+  people's partitions together and its global instance, never one
+  person's row; the owner token every row, without when a person last
+  used it or their calls in flight. `GET /stats` gains `callers`,
+  `callerTotals` and `canManage` (only once a partitioned tile has called,
+  or a limit is set); `GET /metrics` stays per backend. An optional
+  **fairness limit** (`PUT /config {partitionLimit}`, 0 = off, the default;
+  up to 64; write access) caps how many calls one person's partition may
+  have in flight: more wait their turn, in order, for at most 20 s, then
+  are answered `429` with `Retry-After` (the agent retries it); the global
+  instance and tiles that aren't partitioned are never held. A tile that
+  isn't partitioned is counted exactly as before, and until a partitioned
+  tile calls nothing on the page or in the responses changes. Update the
+  tile (`bx builtin update tile:llm-gw`, v8) to get it.
+- **Builtin tiles around a partitioned agent: the docs**
+  ([agent-inbox.md](/docs/agent-inbox.md) §A partitioned agent,
+  [partitions.md](/docs/partitions.md) §Providers). Adapters (the agent
+  messaging bridge) and the webhooks tile aren't partitioned and always
+  reach a partitioned agent's global instance, over the same contract: the
+  global instance keeps channels, their rules and the links; a linked
+  person's DM (its files inline up to 640 KiB a message) and an event for
+  a person's private trigger are handed to that person's partition by
+  partition mail, and replies come back through the global instance, which
+  posts them where its own hand-off record says; a DM that arrives before
+  the person's partition ever ran waits in its inbox until they open the
+  agent; `runId`/`inboxId`/`sessionKey` in verdicts and outbox rows are
+  informational; a webhook's `202` means taken, not run; a private push
+  trigger needs a `match` (400) no one else's overlaps (409). The bridge
+  template's `AGENTS.md` and `API.md`, and the webhooks (v3) and
+  sandbox-terminal tiles' `API.md`, say the same to their builders and
+  people — including that binding them is an ordinary (global) bind, that
+  a personal bind applies to none of them (they aren't partitioned), and
+  who ends up in whose trust base. Nothing to change.
+- **Template instances take their template's manifest changes without a
+  conflict** ([03-components](/docs/overview/03-components.md)
+  §Templates, [bx.md](/docs/bx.md), [protocol.md](/docs/protocol.md)
+  `POST /templates/new`, `POST /clone`, `GET /templates/{repo}`). An
+  instance's `xbin.json` was re-marshalled when it was made (no comments,
+  keys sorted), so any change a newer xbind made to a template's manifest
+  conflicted in `git merge template/main` — every existing agent instance
+  on this version's. xbind now names a merge driver for the instance's
+  root `xbin.json` in each builtin template instance's own repository
+  (`merge.xbin-manifest` and `xbin.manifestDriver` in `.git/config`, a
+  line in `.git/info/attributes`; nothing tracked) — at start for existing
+  instances, when one is made or cloned. git runs it (`bx template
+  merge-manifest`) when both sides changed the manifest: git's line merge
+  first, kept when clean; where that conflicts and the other side is the
+  template (`git merge template/main`, a cherry-pick of a template commit
+  — not a branch of yours, a rebase or a stash), by keys — a value
+  upstream changed and you didn't is upstream's, one you changed is yours,
+  one both changed differently stays a conflict (git's markers, labelled
+  `ours`/`theirs`); `uses` entries are known by their `target`; upstream
+  changing `template` or `partition`, or comments your manifest carries,
+  is a conflict, never taken; a copy made at another path keeps its own
+  resource names. Without `bx` on `PATH` (terminals have it) the merge is
+  git's own. `git config xbin.manifestDriver false` and xbind leaves the
+  driver alone; so it does when you remove the attributes line, name a
+  driver command of your own, or give `xbin.json` a merge attribute of
+  your own. New instances keep the template's JSONC — its comments and key
+  order; only the `template` block goes, with the comment lines right
+  above it, and the instance's `partition` is the line after the opening
+  brace — so later changes merge line by line too (where the template
+  repo is one this xbind created). Nothing to change: `git fetch template
+  && git merge template/main` in an existing agent instance now merges
+  cleanly and keeps its mode.
 - **Partitioned tiles: partition mail — in development**
   ([partitions.md](/docs/partitions.md) §Partition mail,
   [protocol.md](/docs/protocol.md) `/partitions/mail` and §Partition mail
@@ -206,11 +464,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   template gains one more, unused, encrypted `team` volume and an empty
   `conf` kv). Existing instances take the new files with a template merge
   (`git merge template/main`); the template's `template` block never reaches
-  it (see the templates entry), but an instance's `xbin.json` — rewritten
-  when it was created — conflicts on this version's manifest changes: keep
-  your side (an unpartitioned instance needs none of them; to switch one to
-  partitioned later, add the `conf` and `team` lines to its `uses` and
-  `"partitionMail": "/mailbox"`).
+  it (see the templates entry), and its `xbin.json` merges by keys (see the
+  template-instances entry): it gains the `conf` and `team` uses,
+  `partitionMail` and `partitionNote` — unused unpartitioned — and keeps its
+  mode.
 - **Partitioned tiles: wave 3 once its parts met**
   ([protocol.md](/docs/protocol.md), [partitions.md](/docs/partitions.md)
   §Operating people's partitions). `GET /api/xbin/partitions` lists
@@ -337,49 +594,49 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   consent by policy, the egress ledger**
   ([partitions.md](/docs/partitions.md) §Calls between partitioned tiles,
   [protocol.md](/docs/protocol.md) `/partitions/consents`,
-  `/partitions/ledger`, `/partitions/edges`, `GET /grants`, `/alerts`,
-  §Push notifications, §/ws/events, [bx.md](/docs/bx.md) `bx partition
+  `/partitions/ledger`, `/partitions/edges`, `GET /grants`, `/alerts`, §Push
+  notifications, §/ws/events, [bx.md](/docs/bx.md) `bx partition
   consent|ledger`). A partitioned tile holding a grant on another
-  partitioned tile reaches a person's partition there only while that
-  person can read it; with the workspace policy `partitionConsent` on (off
-  by default), only once they allowed it too — a refused call answers `403
-  <id> hasn't let <from> use their <to> data` and asks them (a push, kind
+  partitioned tile reaches a person's partition there only while that person
+  can read it; with the workspace policy `partitionConsent` on (off by
+  default), only once they allowed it too — a refused call answers `403 <id>
+  hasn't let <from> use their <to> data` and asks them (a push, kind
   `tile.partition-consent`, and a `partitions` event, op `consent-needed`,
   to their own sockets only — never to the callee's code — at most once a
   day per edge, and only for an edge an admin approved). The push links to
-  the partitions page (`xbin/partitions`), which a later change serves;
-  until then the app opens the workspace and people allow an edge with `bx
-  partition consent`. A resource a tile declares shared is no person's
-  data: reaching it needs the grant and the person's read access, never
-  their consent. A person allows or takes back an edge with their own
-  sign-in — `POST` / `DELETE /api/xbin/partitions/consents {from, to}` or
-  `bx partition consent <from> <to> [--revoke]`, never tile code; a
+  the partitions page (`/xbin/partitions`, the partitions-page entry), where
+  people allow an edge — or with `bx partition consent`; the xbin app opens
+  the workspace until it knows the link. A resource a tile declares shared
+  is no person's data: reaching it needs the grant and the person's read
+  access, never their consent. A person allows or takes back an edge with
+  their own sign-in — `POST` / `DELETE /api/xbin/partitions/consents {from,
+  to}` or `bx partition consent <from> <to> [--revoke]`, never tile code; a
   revocation holds from the next call and stops the calling tile's backend
   instance of them (a stream one of its pages or terminals opened before
   lasts until it closes). Consents are kept while the policy is off and
-  apply again when it returns; a person deleted and recreated under the
-  same id has none; a tile deleted, moved or switching its partition mode
-  takes every consent naming it. A consent record xbind can't read is kept
-  as it is and shown on `/alerts` (kind `partition-consents`). In both
-  settings xbind counts, per person's partition and per day, the calls and
-  data reaches into another partitioned tile and the calls to tiles that
-  aren't partitioned (counts only, 90 days): `GET
-  /api/xbin/partitions/ledger` and `bx partition ledger` give a person
-  their own, a tile's managers its totals (personal tiles unnamed), admins
-  everyone's totals. Admins get `GET /api/xbin/partitions/edges` (the edges
-  between partitioned tiles with the people who used and allowed each),
-  which the admin console's Policies tab shows before turning consent on,
-  and `bx doctor` lists for review. Approving a partitioned tile's grant on
-  another's people's data says whose data its code will reach (`warning` on
-  `GET /grants`' pending rows: the grants panel, the admin console's
-  binding → grants view, the organisations tile's approvals, `bx grants`).
-  Switching a tile's partition mode deletes its people's ledgers and every
-  consent naming it. Also fixed: `bx grants` failed on any workspace with
-  an approved grant (its `approvedAt`) and on an org admin's view
-  (`approvers`). Existing workspaces get the Policies tab's preview and the
-  warnings in the consoles with `bx builtin update scaffold:tiles/admin`
-  and `scaffold:tiles/organisations` (the API works without them). Nothing
-  changes for a workspace without partitioned tiles. Nothing to change.
+  apply again when it returns; a person deleted and recreated under the same
+  id has none; a tile deleted, moved or switching its partition mode takes
+  every consent naming it. A consent record xbind can't read is kept as it
+  is and shown on `/alerts` (kind `partition-consents`). In both settings
+  xbind counts, per person's partition and per day, the calls and data
+  reaches into another partitioned tile and the calls to tiles that aren't
+  partitioned (counts only, 90 days): `GET /api/xbin/partitions/ledger` and
+  `bx partition ledger` give a person their own, a tile's managers its
+  totals (personal tiles unnamed), admins everyone's totals. Admins get `GET
+  /api/xbin/partitions/edges` (the edges between partitioned tiles with the
+  people who used and allowed each), which the admin console's Policies tab
+  shows before turning consent on, and `bx doctor` lists for review.
+  Approving a partitioned tile's grant on another's people's data says whose
+  data its code will reach (`warning` on `GET /grants`' pending rows: the
+  grants panel, the admin console's binding → grants view, the organisations
+  tile's approvals, `bx grants`). Switching a tile's partition mode deletes
+  its people's ledgers and every consent naming it. Also fixed: `bx grants`
+  failed on any workspace with an approved grant (its `approvedAt`) and on
+  an org admin's view (`approvers`). Existing workspaces get the Policies
+  tab's preview and the warnings in the consoles with `bx builtin update
+  scaffold:tiles/admin` and `scaffold:tiles/organisations` (the API works
+  without them). Nothing changes for a workspace without partitioned tiles.
+  Nothing to change.
 - **Partitioned tiles: global and personal binds — in development**
   ([partitions.md](/docs/partitions.md) §Bind types,
   [protocol.md](/docs/protocol.md) `/partitions/binds`, `GET`/`POST
