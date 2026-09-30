@@ -122,6 +122,8 @@ ok('#hctl says the mode and options', (await page.textContent('#hctl .hctlb')).i
 ok('the built-in model picker hides (the model is an option here)', await page.$eval('#msel', (e) => e.hidden));
 await page.click('#hctl .hctlb');
 await page.waitForSelector('#hctl-pop:not([hidden]) [data-mode="plan"]');
+ok('its selects show the current values', JSON.stringify(await page.$$eval('#hctl-pop select', (els) => els.map((e) => e.value))) === '["default","medium"]',
+  JSON.stringify(await page.$$eval('#hctl-pop select', (els) => els.map((e) => e.value))));
 await page.click('#hctl-pop [data-mode="plan"] input');
 await waitCall('PATCH', '/runs/21/harness$', 1);
 ok('a mode: PATCH {mode}', JSON.stringify((await last('PATCH', '/runs/21/harness$')).body) === '{"mode":"plan"}');
@@ -140,7 +142,8 @@ ok('…confirmed: PATCH {mode: bypassPermissions}', (await last('PATCH', '/runs/
 await page.selectOption('#hctl-pop select[data-opt="model"]', 'sonnet');
 await waitCall('PATCH', '/runs/21/harness$', 3);
 ok('an option: PATCH {option: {id, value}}', JSON.stringify((await last('PATCH', '/runs/21/harness$')).body) === '{"option":{"id":"model","value":"sonnet"}}');
-ok('your setting: Auto, as set', await page.$eval('#hctl-pop [data-setting="auto"]', (e) => e.classList.contains('on')));
+ok('your setting: Auto, as set (checked, whatever the theme draws a button like)', await page.$eval('#hctl-pop [data-setting="auto"]',
+  (e) => e.classList.contains('on') && e.textContent.trim().startsWith('✓') && e.getAttribute('aria-pressed') === 'true'));
 await page.click('#hctl-pop [data-setting="approve"]');
 await waitCall('PUT', '/prefs/harness-mode/claude$', 1);
 ok('Always approve: PUT /prefs/harness-mode/claude', (await last('PUT', '/prefs/harness-mode/claude$')).body.mode === 'approve');
@@ -176,6 +179,12 @@ await page.evaluate(() => {
 await page.waitForFunction(() => document.getElementById('msg').placeholder.startsWith('steer'));
 ok('while its turn runs: steer, and what interrupts', (await page.getAttribute('#msg', 'placeholder')).includes('⌘/Ctrl+Enter interrupts'));
 ok('Stop says it interrupts the harness', (await page.getAttribute('#stop', 'title')).includes('interrupts Claude Code'));
+await page.setViewportSize({ width: 700, height: 720 }); // the tile's narrowest column (480px beside the sidebar), Stop showing
+await page.waitForTimeout(100);
+const fit = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, msg: document.getElementById('msg').getBoundingClientRect().width,
+  send: document.getElementById('send').getBoundingClientRect().right }));
+ok('…the composer fits the narrowest column, its text box usable (#hctl gives way)', fit.sw <= 700 && fit.msg >= 60 && fit.send <= 700, JSON.stringify(fit));
+await page.setViewportSize({ width: 1280, height: 720 });
 await page.fill('#msg', 'stop and use tabs');
 await page.keyboard.press('Control+Enter');
 await waitCall('POST', '/runs/21/message$', 1);
@@ -209,6 +218,7 @@ await page.evaluate(async () => { const { ctx } = await import('/web-ext.js'); c
 await page.waitForSelector('#hctl:not([hidden]) .hctlb');
 ok('home, Codex answering: its setting', (await page.textContent('#hctl .hctlb')).includes('Codex: Always approve'), await page.textContent('#hctl .hctlb'));
 await page.click('#hctl .hctlb');
+ok('…a note without a conversation\'s mode above it', !(await page.textContent('#hctl-pop')).includes('switched above'));
 await page.click('#hctl-pop [data-setting="auto"]');
 await waitCall('PUT', '/prefs/harness-mode/codex$', 1);
 ok('Auto: PUT /prefs/harness-mode/codex', (await last('PUT', '/prefs/harness-mode/codex$')).body.mode === 'auto');

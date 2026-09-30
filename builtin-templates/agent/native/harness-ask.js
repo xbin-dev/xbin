@@ -10,9 +10,10 @@
 //             `question` from the schema (url mode: the page as a link, then
 //             Submit when done)
 //   toolbar   in a conversation: Mode (a menu: the adapter's modes, a bypass
-//             one confirmed and the owner's only, and your Auto / Always
-//             approve) and a picker per config option (Model, Effort…); at
-//             home: Coding agents → your setting per harness (a screen)
+//             one confirmed and the owner's only, the config options but the
+//             model — effort… — and your Auto / Always approve) and the
+//             Model picker; at home: Coding agents → your setting per
+//             harness (a screen)
 //   composer  the placeholder while a turn runs, the harness's slash
 //             commands, Send now (interrupts), a steered message said
 // The `end` seam answers only for a harness run parked on a permission or a
@@ -150,19 +151,26 @@ function controlsTpl(v, h) {
   const c = controls(h, entry, who(v));
   const id = v.run.id;
   const s = entry ? settingOf(entry, app.harness.setting(entry.id)) : null;
+  const set = (o, value) => (value !== o.value ? app.harness.setOptionOf(id, o.id, value) : null);
+  // the model stays a picker in the bar (as the built-in's does); the other
+  // options fold into the Mode menu — a phone's bar holds only so much
+  const model = c.talk ? c.options.find((o) => o.category === 'model') : null;
+  const rest = c.talk ? c.options.filter((o) => o !== model) : [];
   return html`<menu icon="gear" label=${'Mode: ' + (c.mode.name || '—')}>
       ${c.modes.filter((m) => m.allowed || m.current).map((m) => html`<button icon=${m.current ? 'check' : nothing}
         confirm=${m.explicit && !m.current ? { title: modeConfirm(c.name, m), label: 'Switch', destructive: true } : nothing}
         @tap=${guard(() => (m.current ? null : app.harness.setMode(id, m.id)))}>${(m.explicit ? '⚠ ' : '') + m.name}</button>`)}
+      ${rest.map((o) => html`<divider/>${o.choices.map((ch) => html`<button icon=${ch.value === o.value ? 'check' : nothing}
+        @tap=${guard(() => set(o, ch.value))}>${`${o.name}: ${ch.name}`}</button>`)}`)}
       ${s ? html`<divider/>${s.choices.filter((x) => !x.disabled).map((x) => html`<button icon=${s.value === x.value ? 'check' : nothing}
         @tap=${guard(() => (s.value === x.value ? null : app.harness.setSetting(s.provider, x.value)))}>${`${x.label} — your setting for new ones`}</button>`)}` : nothing}
     </menu>
-    ${c.talk ? c.options.map((o) => html`<picker label=${o.name} style="menu" value=${String(o.value)}
-      options=${o.choices.map((ch) => ({ value: String(ch.value), label: ch.name }))}
+    ${model ? html`<picker label=${model.name} style="menu" value=${String(model.value)}
+      options=${model.choices.map((ch) => ({ value: String(ch.value), label: ch.name }))}
       @change=${guard((e) => {
-        const ch = o.choices.find((x) => String(x.value) === String(e.value));
-        return ch && ch.value !== o.value ? app.harness.setOptionOf(id, o.id, ch.value) : null;
-      })}/>`) : nothing}`;
+        const ch = model.choices.find((x) => String(x.value) === String(e.value));
+        return ch ? set(model, ch.value) : null;
+      })}/>` : nothing}`;
 }
 
 function settingsScreen() {

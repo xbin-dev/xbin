@@ -32,6 +32,10 @@ test('permission: the harness\'s options in its order, the call, the rule', () =
   assert.equal(p.title, 'go test ./...');
   assert.equal(p.label, 'Run the tests');
   assert.equal(p.command, '', 'the command is the title: not said twice');
+  assert.equal(p.raw, '', '…nor a third time in the raw input');
+  const noCmd = structuredClone(ps22);
+  delete noCmd.harness.tool.command;
+  assert.match(A.permission(noCmd).raw, /"command": "go test/, 'no lifted command: the raw input says what it runs');
   assert.match(p.rule, /^‘Always allow’ lets Claude Code run later execute calls titled ‘go test \.\/\.\.\.’ without asking in this conversation$/);
   assert.equal(p.options.find((o) => o.id === 'allow_always').title, p.rule);
   assert.equal(p.reject, 'reject');
@@ -109,6 +113,10 @@ test('question: the form (enumNames, required, "Other"), its content, what is mi
   assert.equal(fs[0].other, 'q_other');
   assert.deepEqual(A.missingRequired(fs, A.formContent(fs, { q_other: 'c' })), [], 'answered by its Other box');
   assert.deepEqual(A.formContent(fs, { q: 'b', many: ['y'], sure: false, n: '4' }), { q: 'b', many: ['y'], sure: false, n: 4 });
+  assert.deepEqual(A.formContent(fs, { q: 'a' }), { q: 'a', n: 3 }, 'a field left as drawn answers its default');
+  assert.deepEqual(A.formContent(fs, { q: 'a', n: '' }), { q: 'a' }, 'a default cleared is no answer');
+  const dq = A.formFields({ type: 'object', required: ['pick'], properties: { pick: { type: 'string', enum: ['x', 'y'], default: 'y' } } });
+  assert.deepEqual(A.missingRequired(dq, A.formContent(dq, {})), [], 'a required choice drawn chosen by its default is answered');
   // the native question primitive's flat schema, and back
   const ns = A.nativeSchema(fs);
   assert.deepEqual(ns.properties.q.oneOf, [{ const: 'a', title: 'A' }, { const: 'b', title: 'B' }]);
@@ -116,7 +124,7 @@ test('question: the form (enumNames, required, "Other"), its content, what is mi
   assert.equal(ns.properties.q_other.title, 'Other');
   assert.equal(ns.properties.n.default, 3);
   assert.equal(ns.required, undefined, 'a choice with an Other box is not required natively (either answers it)');
-  assert.deepEqual(A.nativeContent(fs, { q: 'a', 'many.0': true, 'many.1': false, sure: true }), { q: 'a', many: ['x'], sure: true });
+  assert.deepEqual(A.nativeContent(fs, { q: 'a', 'many.0': true, 'many.1': false, sure: true }), { q: 'a', many: ['x'], sure: true, n: 3 });
   assert.deepEqual(A.nativeSchema(A.question(ps23).fields).required, ['library']);
 });
 
@@ -298,12 +306,13 @@ test('native: a question — the schema, Submit, Skip; url mode', async () => {
   assert.deepEqual(sent(u, 'POST', /\/harness\/answer$/), [{ park: 'U1', action: 'accept', content: {} }]);
 });
 
-test('native: the toolbar — Mode (bypass confirmed), your setting, a picker per option', async () => {
+test('native: the toolbar — Mode (bypass confirmed, the other options, your setting), the Model picker', async () => {
   const r = await runSeed([
     { snapshot: 'c' },
     { tap: { t: 'button', has: '"Plan"' } }, { wait: 50 },
     { tap: { t: 'button', has: 'Always approve — your setting' } }, { wait: 50 },
     { event: [{ t: 'picker', p: { label: 'Model' } }, 'change', { value: 'haiku' }] }, { wait: 50 },
+    { tap: { t: 'button', has: 'Reasoning effort: High' } }, { wait: 50 },
   ], 'c=21');
   const t = r.snapshots.c.root;
   const [menu] = all(t, { t: 'menu', has: 'Mode: Accept edits' });
@@ -311,10 +320,15 @@ test('native: the toolbar — Mode (bypass confirmed), your setting, a picker pe
   const bypass = all(menu, { t: 'button', has: 'Bypass permissions' })[0];
   assert.ok(JSON.stringify(bypass).includes('⚠') && bypass.p.confirm && bypass.p.confirm.destructive, 'marked and confirmed');
   assert.ok(all(menu, { t: 'button', has: 'check' }).length >= 2, 'the current mode and setting are checked');
-  assert.deepEqual(all(t, { t: 'picker' }).filter((p) => ['Model', 'Reasoning effort'].includes(p.p.label)).map((p) => p.p.value), ['default', 'medium']);
+  assert.deepEqual(all(t, { t: 'picker' }).filter((p) => ['Model', 'Reasoning effort'].includes(p.p.label)).map((p) => p.p.value), ['default'],
+    'the model a picker in the bar; the other options in the menu — a phone\'s bar holds only so much');
+  assert.deepEqual(all(menu, { t: 'button', has: 'Reasoning effort:' }).map((b) => [b.p.label, b.p.icon || '']),
+    [['Reasoning effort: Low', ''], ['Reasoning effort: Medium', 'check'], ['Reasoning effort: High', '']]);
+  const [bar] = all(t, { t: 'toolbar', has: '' }).filter((b) => all(b, { t: 'menu', has: 'Mode:' }).length);
+  assert.ok(bar.c.length <= 6, `the conversation's bar: ${bar.c.map((c) => c.t + ':' + (c.p.label || c.p.icon)).join(', ')}`);
   assert.equal(all(t, { t: 'picker', has: '"label":"Model"' }).filter((p) => JSON.stringify(p.p.options).includes('opus')).length, 0,
     'the built-in model picker hides (a coding agent\'s model is an option)');
-  assert.deepEqual(sent(r, 'PATCH', /\/runs\/21\/harness$/), [{ mode: 'plan' }, { option: { id: 'model', value: 'haiku' } }]);
+  assert.deepEqual(sent(r, 'PATCH', /\/runs\/21\/harness$/), [{ mode: 'plan' }, { option: { id: 'model', value: 'haiku' } }, { option: { id: 'effort', value: 'high' } }]);
   assert.deepEqual(sent(r, 'PUT', /\/prefs\/harness-mode\/claude$/), [{ mode: 'approve' }]);
 });
 

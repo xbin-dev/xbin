@@ -188,7 +188,7 @@ export const IMPLEMENTS = {
   'harness.planApproval': 'native/harness-ask.js — approvalTpl: the plan as markdown, the approval with feedback',
   'harness.question': 'native/harness-ask.js — questionTpl: question with the schema (model/harness-ask.js nativeSchema: a multiple choice as a yes/no per choice); url mode: the page as a markdown link, then Submit',
   'harness.mode': 'native/harness-ask.js — controlsTpl: the Mode menu in the toolbar (a bypass mode confirmed, the owner\'s only)',
-  'harness.options': 'native/harness-ask.js — controlsTpl: a picker per option in the toolbar; model/rules.js modelPicker hides the Model picker',
+  'harness.options': 'native/harness-ask.js — controlsTpl: the model option as the toolbar\'s Model picker, the others in the Mode menu (a phone\'s bar holds only so much); model/rules.js modelPicker hides the built-in Model picker',
   'harness.slash': 'native/harness-ask.js — composer slash',
   'harness.steer': 'native/harness-ask.js — composer: Send now (interrupts), the steered chip; native/chat.js — the queued chips\' label',
   'harness.autonomy': 'native/harness-ask.js — the home toolbar\'s Coding agents → settingsScreen; the Mode menu (your setting for new ones)',

@@ -1782,7 +1782,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
-| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (and your Auto / Always approve) and a picker per config option; the composer's slash commands, Send now (interrupts); at home, Coding agents → your setting per harness |
+| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); at home, Coding agents → your setting per harness |
 
 **Seams.** A feature can land as a module of its own instead of edits to the
 views' hot files: it registers hooks on a view's seams when imported —
@@ -1824,7 +1824,7 @@ the placeholder says whether a message steers it or waits for it, the
 queued chips say so too, a message steered into the turn is said for a
 moment, and ⌘/Ctrl+Enter sends it with `interrupt: true` (`app.send(text,
 clear, {interrupt: true})`; the native composer's Send now). Native: the
-toolbar's Mode menu and a picker per option, Coding agents at home.
+toolbar's Mode menu (the options but the model too) and Model picker, Coding agents at home.
 
 **Customising an instance.** A persona or domain changes `HOME` in
 `model/home.js`. The web files keep their names, and the modules that moved

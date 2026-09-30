@@ -100,10 +100,11 @@ function drawPop(v, h, home) {
     ${c.options.map((o) => html`<div class="hsec" title=${o.description || nothing}>${o.name}</div>
       <select class="hsel" data-opt=${o.id} ?disabled=${!c.talk || st.busy} .value=${live(String(o.value))}
         @change=${(e) => pickOption(runId, o, e.target.value)}>
-        ${o.choices.map((ch) => html`<option value=${String(ch.value)} title=${ch.description || nothing}>${ch.name}</option>`)}</select>`)}
+        ${o.choices.map((ch) => html`<option value=${String(ch.value)} ?selected=${String(ch.value) === String(o.value)}
+          title=${ch.description || nothing}>${ch.name}</option>`)}</select>`)}
     ${st.busy ? html`<div class="muted small">switching…</div>` : nothing}
     ${st.err ? html`<div class="err small">${st.err}</div>` : nothing}
-    ${settingTpl(app.harness.find(h.provider))}`, pop);
+    ${settingTpl(app.harness.find(h.provider), true)}`, pop);
 }
 
 // a call on the live session: the popover says it's on its way, then why it failed;
@@ -125,13 +126,14 @@ function pickOption(runId, o, value) {
 }
 
 // Auto / Always approve, the person's own for this harness
-function settingTpl(entry) {
+function settingTpl(entry, inConv = false) {
   if (!entry) return nothing;
   const s = settingOf(entry, ctx.app.harness.setting(entry.id));
   return html`<div class="hsec">Your setting for ${s.name}</div>
     <div class="hseg">${s.choices.map((c) => html`<button class="btn btnsm ${s.value === c.value ? 'on' : 'ghost'}" type="button" data-setting=${c.value}
-      title=${c.title} ?disabled=${c.disabled || st.busy} @click=${() => setSetting(s, c.value)}>${c.label}</button>`)}</div>
-    <div class="muted small">${s.note}</div>`;
+      aria-pressed=${s.value === c.value ? 'true' : 'false'} title=${c.title} ?disabled=${c.disabled || st.busy}
+      @click=${() => setSetting(s, c.value)}>${s.value === c.value ? '✓ ' : ''}${c.label}</button>`)}</div>
+    <div class="muted small">${s.note}${inConv ? ' This conversation\'s own mode is switched above.' : ''}</div>`;
 }
 function setSetting(s, mode) {
   if (mode === s.value) return;
@@ -216,12 +218,13 @@ function drawSteered(v, h) {
 
 const style = document.createElement('style');
 style.textContent = `
-  .hctl { align-self: flex-end; flex: none; }
+  .hctl { align-self: flex-end; flex: 0 1 auto; min-width: 2em; display: flex; }
   .hctl[hidden] { display: none; }
-  .hctl .hctlb { max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hctl .hctlb { min-width: 0; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hctl:not([hidden]) ~ textarea { min-width: 6em; }
   .hctlpop, .hslash, .hsteer { position: fixed; z-index: 30; }
   .hctlpop[hidden], .hslash[hidden], .hsteer[hidden] { display: none; }
-  .hctlpop { width: 340px; max-height: 70vh; overflow: auto; background: var(--bx-panel); border: 1px solid var(--bx-border);
+  .hctlpop { box-sizing: border-box; width: min(340px, calc(100vw - 16px)); max-height: 70vh; overflow: auto; background: var(--bx-panel); border: 1px solid var(--bx-border);
     border-radius: 6px; padding: 8px 10px; box-shadow: 0 4px 18px rgba(0,0,0,.18); font-size: 12.5px; }
   .hctlpop .hsec { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); margin: 8px 0 3px; }
   .hctlpop .hsec:first-child { margin-top: 0; }

@@ -58,7 +58,7 @@ export function permission(ps, { owner = false, talk = true, name = 'the coding 
     park: ps.park || '', plan, planText: plan ? String(hs.plan || '') : '',
     lead: plan ? `${name} has a plan` : `${name} asks to ${VERB[tool.kind] || VERB.other}`,
     title, label, command,
-    raw: !command && !plan ? rawOf(tool.rawInput) : '',
+    raw: !tool.command && !plan ? rawOf(tool.rawInput) : '', // a lifted command says it (in the title when they're one)
     preview: contentPreview(tool.content) || diffsPreview(acp && acp.diffs),
     description: String(hs.description || ''),
     defaultToNo: !!hs.defaultToNo,
@@ -174,11 +174,12 @@ export function formFields(schema) {
 }
 
 // formContent: an accept's content from the form's values (key → value; a
-// check field's value is a list): empty answers are left out.
+// check field's value is a list): empty answers are left out; a field left
+// as it was drawn answers its schema default (the form shows it chosen).
 export function formContent(fields, vals) {
   const out = {}, v = vals || {};
   for (const f of fields) {
-    const x = v[f.key];
+    const x = v[f.key] ?? f.dflt;
     if (f.kind === 'check') { if (Array.isArray(x) && x.length) out[f.key] = x; }
     else if (f.kind === 'bool') { if (typeof x === 'boolean') out[f.key] = x; }
     else if (f.kind === 'number') { if (x !== '' && x != null && !Number.isNaN(Number(x))) out[f.key] = Number(x); }
@@ -267,7 +268,7 @@ export function settingOf(entry, setting = 'approve') {
       { value: 'auto', label: 'Auto', disabled: !canAuto,
         title: canAuto ? `${name} edits files without asking (${mode(entry.autoMode)}); commands still ask` : `${name} has no auto mode — it asks as its own settings say` },
     ],
-    note: `How ${name} starts for you — your new conversations and the coding agents started for you. A conversation's own mode is switched above.`,
+    note: `How ${name} starts for you — your new conversations and the coding agents started for you.`,
   };
 }
 
