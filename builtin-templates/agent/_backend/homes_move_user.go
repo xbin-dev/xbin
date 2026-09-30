@@ -7,16 +7,22 @@
 // backoff while it can't go on:
 //
 //   - asked: leftovers of an attempt a crash cut short are deleted; the
-//     conversation is read (GET /moves/{id}/export; its files past the
-//     bundle's cap one by one, GET /runs/{id}/raw) and imported as the
-//     person's, private and hidden — origin "held", like an unsent draft,
-//     listed nowhere — then "arrived" (its new id);
-//   - arrived: POST /moves/{id}/done {to} — the global instance deletes its
-//     copy — then the conversation shows here ("done"). Given up at global
-//     meanwhile (409): the hidden copy goes ("dropped").
+//     conversation is read (GET /moves/{id}/export — its bundle, notes,
+//     schedules, the owner's pin, and a ticket; its files past the bundle's
+//     cap one by one, GET /runs/{id}/raw) and imported as the person's,
+//     private and hidden — origin "held", like an unsent draft, listed
+//     nowhere — then "arrived" (its new id, the ticket);
+//   - arrived: POST /moves/{id}/done {to, ticket} — the global instance
+//     deletes its copy — then the conversation shows here ("done"), its
+//     schedules made here, reporting into it. Changed at global since it was
+//     read (412): the copy goes, and it is read again ("asked"). Given up at
+//     global meanwhile (409): the copy goes ("dropped").
 //
-// A partition stopping with a move under way asks to be started again
-// (userWake, resume_mode.go), and takes it up at its next start.
+// What can't be imported here — too large, a bundle this home refuses, past
+// its file store's limits — is given up at global (POST /moves/{id}/abandon),
+// so the conversation isn't frozen there. A partition stopping with a move
+// under way asks to be started again (userWake, resume_mode.go), and takes
+// it up at its next start.
 package main
 
 import (
@@ -29,6 +35,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -53,8 +60,11 @@ func handleMoveMail(_ context.Context, t *DB, it mailItem) error {
 		logf("conv/move %s: malformed — dropped", it.ID)
 		return nil
 	}
-	if _, err := t.q.Exec(`INSERT INTO moves_in (from_id, created) VALUES (?, ?)
-		ON CONFLICT(from_id) DO UPDATE SET state='asked', to_id=0, tries=0, next_try=0, error='' WHERE state='dropped'`, m.Run, now()); err != nil {
+	if _, err := t.q.Exec(`INSERT INTO moves_in (from_id, created, key) VALUES (?, ?, ?)
+		ON CONFLICT(from_id) DO UPDATE SET key=excluded.key WHERE state<>'done'`, m.Run, now(), m.Key); err != nil {
+		return err
+	}
+	if _, err := t.q.Exec(`UPDATE moves_in SET state='asked', to_id=0, tries=0, next_try=0, error='', ticket='', extra='' WHERE from_id=? AND state='dropped'`, m.Run); err != nil {
 		return err
 	}
 	t.AfterCommit(kickMoves)
@@ -119,23 +129,26 @@ func kickMoves() {
 // the global instance didn't answer) — tried again with backoff.
 var errMoveLater = errors.New("later")
 
+// moveInRow is a moves_in row a pass takes up.
+type moveInRow struct {
+	from, to           int64
+	state, ticket, key string
+	extra              string
+	tries              int
+}
+
 // runMoves takes every due move as far as it goes; it answers when the next
 // waiting one is due (unix seconds; 0: none waits).
 func (ag *Agent) runMoves(ctx context.Context) int64 {
-	type row struct {
-		from, to int64
-		state    string
-		tries    int
-	}
-	var due []row
-	rows, err := ag.db.q.Query(`SELECT from_id, to_id, state, tries FROM moves_in WHERE state IN ('asked','arrived') AND next_try<=? ORDER BY created, from_id`, now())
+	var due []moveInRow
+	rows, err := ag.db.q.Query(`SELECT from_id, to_id, state, tries, ticket, extra, key FROM moves_in WHERE state IN ('asked','arrived') AND next_try<=? ORDER BY created, from_id`, now())
 	if err != nil {
 		logf("moves: %v", err)
 		return 0
 	}
 	for rows.Next() {
-		var r row
-		if rows.Scan(&r.from, &r.to, &r.state, &r.tries) == nil {
+		var r moveInRow
+		if rows.Scan(&r.from, &r.to, &r.state, &r.tries, &r.ticket, &r.extra, &r.key) == nil {
 			due = append(due, r)
 		}
 	}
@@ -143,10 +156,10 @@ func (ag *Agent) runMoves(ctx context.Context) int64 {
 	for _, r := range due {
 		var err error
 		if r.state == "asked" {
-			r.to, err = ag.moveIn(ctx, r.from)
+			err = ag.moveIn(ctx, &r)
 		}
 		if err == nil {
-			err = ag.moveConfirm(ctx, r.from, r.to)
+			err = ag.moveConfirm(ctx, &r)
 		}
 		if err != nil {
 			wait := min(int64(1)<<min(r.tries, 9), handoffMaxBackoff)
@@ -164,60 +177,135 @@ func (ag *Agent) runMoves(ctx context.Context) int64 {
 	return max(next, now()+1)
 }
 
+// moveExtra is what a move carries past the conversation's import, kept
+// with the move until it shows here.
+type moveExtra struct {
+	Schedules  []*Schedule `json:"schedules,omitempty"`
+	PinnedAt   int64       `json:"pinnedAt,omitempty"`
+	ArchivedAt int64       `json:"archivedAt,omitempty"`
+}
+
+// moveNote is the note on a moved conversation.
+func moveNote(x *moveExport) string {
+	note := "Moved here from the agent's shared space when it stopped being shared: only you can open it now."
+	switch n := len(x.Schedules); {
+	case n == 1:
+		note += " Its schedule reporting into it came along."
+	case n > 1:
+		note += fmt.Sprintf(" Its %d schedules reporting into it came along.", n)
+	}
+	if len(x.Behind) > 0 {
+		note += " Not moved with it: " + strings.Join(x.Behind, "; ") + "."
+	}
+	return note
+}
+
 // moveIn reads the moving conversation from the global instance and imports
-// it hidden; it answers the copy's id once the move is "arrived". A move
-// that can't be made — gone at global, too large to copy — is dropped (and,
-// when too large, given up at global) with no error.
-func (ag *Agent) moveIn(ctx context.Context, from int64) (int64, error) {
+// it hidden; the row is "arrived" (its copy's id, the export's ticket) once
+// it did. A move that can't be made — gone at global, too large or not
+// importable here — is dropped (and, when it can't be made here, given up at
+// global) with no error.
+func (ag *Agent) moveIn(ctx context.Context, r *moveInRow) error {
+	from := r.from
 	stale := scanIDs(ag.db.q.Query(`SELECT id FROM runs WHERE parent_id=0 AND origin=? AND session_key=?`, heldOrigin, moveKey(from)))
-	for _, id := range stale { // an attempt a crash cut short: never shown, made again
+	for _, id := range stale { // an attempt a crash cut short, or read again: never shown, made anew
 		if err := ag.deleteRunTree(id); err != nil {
-			return 0, err
+			return err
 		}
 		ag.acl.flush(id)
 	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	path := "/moves/" + strconv.FormatInt(from, 10)
-	res, err := exportAtGlobal(cctx, path+"/export")
+	res, err := exportAtGlobal(cctx, path+"/export?key="+url.QueryEscape(r.key))
 	var tl tooLargeToCopy
 	switch {
 	case errors.As(err, &tl) || err == nil && res.Status == http.StatusRequestEntityTooLarge:
-		why := "too large to copy into the person's own space"
-		body, _ := json.Marshal(map[string]string{"why": why})
-		if r, err := callGlobal(cctx, http.MethodPost, path+"/abandon", body, "application/json"); err != nil || r.Status/100 != 2 && r.Status != http.StatusNotFound {
-			return 0, fmt.Errorf("%w: giving the move up at the global instance: %v (HTTP %d)", errMoveLater, err, r.Status)
-		}
-		return 0, ag.dropMove(from, 0, why)
+		return ag.abandonMove(cctx, r, 0, "too large to copy into the person's own space")
 	case err != nil:
-		return 0, fmt.Errorf("%w: the global instance: %v", errMoveLater, err)
+		return fmt.Errorf("%w: the global instance: %v", errMoveLater, err)
 	case res.Status == http.StatusNotFound:
-		return 0, ag.dropMove(from, 0, "no move at the global instance (given up, or moved already): "+clip(string(res.Body), 200))
+		return ag.moveGoneAtGlobal(cctx, from, res)
 	case res.Status != http.StatusOK:
-		return 0, fmt.Errorf("%w: the global instance: HTTP %d %s", errMoveLater, res.Status, clip(string(res.Body), 200))
+		return fmt.Errorf("%w: the global instance: HTTP %d %s", errMoveLater, res.Status, clip(string(res.Body), 200))
 	}
-	var b convBundle
-	if err := json.Unmarshal(res.Body, &b); err != nil {
-		return 0, fmt.Errorf("%w: the export: %v", errMoveLater, err)
+	var x moveExport
+	if err := json.Unmarshal(res.Body, &x); err != nil {
+		return fmt.Errorf("%w: the export: %v", errMoveLater, err)
 	}
 	c := who{kind: whoUser, user: runUser}
-	cls, err := importClass(c, &b)
+	fail := func(what string, to int64, err error) error {
+		if permanentImport(err) {
+			return ag.abandonMove(cctx, r, to, what+": "+err.Error())
+		}
+		return fmt.Errorf("%w: %s: %v", errMoveLater, what, err)
+	}
+	cls, err := importClass(c, &x.convBundle)
 	if err != nil {
-		return 0, fmt.Errorf("%w: its class: %v", errMoveLater, err)
+		return fail("its class", 0, err)
 	}
 	st := c.stamp("chat")
 	st.Origin, st.SessionKey = heldOrigin, moveKey(from) // hidden until the global instance let it go
-	run, err := ag.importConv(ctx, &b, c, st, cls, nil, "Moved here from the agent's shared space when it stopped being shared: only you can open it now.", false)
+	run, err := ag.importConv(ctx, &x.convBundle, c, st, cls, nil, moveNote(&x), false)
 	if err != nil {
-		return 0, fmt.Errorf("%w: importing it: %v", errMoveLater, err)
+		return fail("importing it", 0, err)
 	}
-	if err := ag.moveLeftFiles(ctx, from, run.ID, &b); err != nil {
-		return 0, fmt.Errorf("%w: its files: %v", errMoveLater, err)
+	if err := ag.moveLeftFiles(ctx, from, run.ID, &x.convBundle); err != nil {
+		return fail("its files", run.ID, err)
 	}
-	if _, err := ag.db.q.Exec(`UPDATE moves_in SET state='arrived', to_id=?, tries=0, next_try=0, error='' WHERE from_id=? AND state='asked'`, run.ID, from); err != nil {
-		return 0, err
+	for k, v := range x.Memory {
+		if err := ag.db.memorySet(run.ID, k, v); err != nil {
+			return fail("its notes", run.ID, err)
+		}
 	}
-	return run.ID, nil
+	extra, _ := json.Marshal(moveExtra{Schedules: x.Schedules, PinnedAt: x.PinnedAt, ArchivedAt: x.ArchivedAt})
+	if _, err := ag.db.q.Exec(`UPDATE moves_in SET state='arrived', to_id=?, ticket=?, extra=?, tries=0, next_try=0, error='' WHERE from_id=? AND state='asked'`,
+		run.ID, x.Ticket, string(extra), from); err != nil {
+		return err
+	}
+	r.to, r.ticket, r.extra = run.ID, x.Ticket, string(extra)
+	return nil
+}
+
+// permanentImport: an import error that trying again won't cure — the
+// bundle itself (badRequest), a class the person may not use, a file too
+// large, a conversation past this home's file-store limits
+// (files_store.go's words).
+func permanentImport(err error) bool {
+	var br badRequest
+	var ce *errClass
+	if errors.As(err, &br) || errors.As(err, &ce) || errors.Is(err, errTooLarge) {
+		return true
+	}
+	s := err.Error()
+	return strings.Contains(s, "too many files") || strings.Contains(s, "store full") || strings.Contains(s, "file too large")
+}
+
+// abandonMove gives a move up at the global instance (the conversation stays
+// there, private, writable again), then drops it here with its copy, if any.
+func (ag *Agent) abandonMove(ctx context.Context, m *moveInRow, to int64, why string) error {
+	body, _ := json.Marshal(map[string]string{"why": why, "key": m.key})
+	r, err := callGlobal(ctx, http.MethodPost, "/moves/"+strconv.FormatInt(m.from, 10)+"/abandon", body, "application/json")
+	if err != nil || r.Status/100 != 2 && r.Status != http.StatusNotFound {
+		return fmt.Errorf("%w: giving the move up at the global instance (%s): %v (HTTP %d)", errMoveLater, why, err, r.Status)
+	}
+	return ag.dropMove(m.from, to, why)
+}
+
+// moveGoneAtGlobal: the export answered 404 — the move's own "no such move"
+// (given up, moved already, the conversation gone), or a 404 that isn't its
+// (a route not there). GET /moves/{id} tells them apart: a move that stands
+// is tried again later; none is dropped here.
+func (ag *Agent) moveGoneAtGlobal(ctx context.Context, from int64, export gwResp) error {
+	g, err := exportAtGlobal(ctx, "/moves/"+strconv.FormatInt(from, 10))
+	if err != nil || g.Status != http.StatusOK && g.Status != http.StatusNotFound {
+		return fmt.Errorf("%w: the export answered 404, and the move: %v (HTTP %d)", errMoveLater, err, g.Status)
+	}
+	var m convMove
+	if g.Status == http.StatusOK && json.Unmarshal(g.Body, &m) == nil && m.State == "asked" {
+		return fmt.Errorf("%w: the export answered 404 while the move stands: %s", errMoveLater, clip(string(export.Body), 200))
+	}
+	return ag.dropMove(from, 0, "no move at the global instance (given up, or moved already): "+clip(string(export.Body), 200))
 }
 
 // moveLeftFiles copies the session files the bundle had no room for, one at
@@ -258,28 +346,46 @@ func (ag *Agent) moveLeftFiles(ctx context.Context, from, to int64, b *convBundl
 }
 
 // moveConfirm tells the global instance the copy is here (it deletes its
-// own), then shows the copy. A move given up there meanwhile drops the copy.
-func (ag *Agent) moveConfirm(ctx context.Context, from, to int64) error {
+// own), then shows the copy with what came with it. Changed at global since
+// it was read: the move is read again; given up there meanwhile: the copy
+// goes.
+func (ag *Agent) moveConfirm(ctx context.Context, r *moveInRow) error {
+	from, to := r.from, r.to
 	if to == 0 {
 		return nil // dropped by moveIn
 	}
-	body, _ := json.Marshal(map[string]int64{"to": to})
+	body, _ := json.Marshal(map[string]any{"to": to, "ticket": r.ticket, "key": r.key})
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	res, err := callGlobal(cctx, http.MethodPost, "/moves/"+strconv.FormatInt(from, 10)+"/done", body, "application/json")
 	switch {
 	case err != nil:
 		return fmt.Errorf("%w: the global instance: %v", errMoveLater, err)
+	case res.Status == http.StatusPreconditionFailed: // it changed there, or works again: read it anew (moveIn deletes this copy)
+		_, _ = ag.db.q.Exec(`UPDATE moves_in SET state='asked', to_id=0, ticket='', extra='' WHERE from_id=? AND state='arrived'`, from)
+		return fmt.Errorf("%w: %s", errMoveLater, clip(string(res.Body), 200))
 	case res.Status == http.StatusConflict:
 		return ag.dropMove(from, to, "given up at the global instance: "+clip(string(res.Body), 200))
 	case res.Status/100 != 2:
 		return fmt.Errorf("%w: the global instance: HTTP %d %s", errMoveLater, res.Status, clip(string(res.Body), 200))
 	}
-	return ag.db.Tx(func(t *DB) error {
-		if _, err := t.q.Exec(`UPDATE runs SET origin='chat', session_key='' WHERE id=? AND origin=? AND session_key=?`, to, heldOrigin, moveKey(from)); err != nil {
+	var x moveExtra
+	_ = json.Unmarshal([]byte(r.extra), &x)
+	var made []*Schedule
+	err = ag.db.Tx(func(t *DB) error {
+		res, err := t.q.Exec(`UPDATE runs SET origin='chat', session_key='' WHERE id=? AND origin=? AND session_key=?`, to, heldOrigin, moveKey(from))
+		if err != nil {
 			return err
 		}
-		if _, err := t.q.Exec(`UPDATE moves_in SET state='done', tries=0, next_try=0, error='' WHERE from_id=?`, from); err != nil {
+		if rowsAffected(res) == 1 {
+			if made, err = t.adoptSchedules(x.Schedules, from, to); err != nil {
+				return err
+			}
+			if x.PinnedAt != 0 || x.ArchivedAt != 0 {
+				t.setUserState(to, runUser, func(s *userState) { s.PinnedAt, s.ArchivedAt = x.PinnedAt, x.ArchivedAt })
+			}
+		}
+		if _, err := t.q.Exec(`UPDATE moves_in SET state='done', tries=0, next_try=0, error='', extra='' WHERE from_id=?`, from); err != nil {
 			return err
 		}
 		if ag.eng != nil {
@@ -287,6 +393,41 @@ func (ag *Agent) moveConfirm(ctx context.Context, from, to int64) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, s := range made {
+		if err := ag.registerScheduleCron(s); err != nil { // reRegisterSchedules asserts it again at every start
+			logf("moved conversation %d: its schedule #%d: %v", to, s.ID, err)
+		}
+	}
+	return nil
+}
+
+// adoptSchedules makes here the schedules that moved with conversation from
+// (its owner's, reporting into it): the person's own, private, reporting
+// into to. Answers the enabled ones, whose cron jobs are set after the
+// commit.
+func (d *DB) adoptSchedules(list []*Schedule, from, to int64) ([]*Schedule, error) {
+	var made []*Schedule
+	for _, s := range list {
+		ns := &Schedule{Name: s.Name, Cron: s.Cron, Goal: s.Goal, System: s.System, Toolset: s.Toolset, Class: s.Class,
+			Owner: runUser, Visibility: visPrivate, Mode: modeConversation, TargetRun: to}
+		if s.CreatedByRun == from {
+			ns.CreatedByRun = to
+		}
+		id, err := d.createSchedule(ns)
+		if err != nil {
+			return nil, err
+		}
+		ns.ID, ns.Enabled = id, s.Enabled
+		if !s.Enabled {
+			_, _ = d.q.Exec(`UPDATE schedules SET enabled=0 WHERE id=?`, id)
+			continue
+		}
+		made = append(made, ns)
+	}
+	return made, nil
 }
 
 // dropMove ends a move that won't happen: its hidden copy (if any) goes.
@@ -298,6 +439,6 @@ func (ag *Agent) dropMove(from, to int64, why string) error {
 		}
 		ag.acl.flush(to)
 	}
-	_, err := ag.db.q.Exec(`UPDATE moves_in SET state='dropped', to_id=0, error=? WHERE from_id=?`, clip(why, 400), from)
+	_, err := ag.db.q.Exec(`UPDATE moves_in SET state='dropped', to_id=0, ticket='', extra='', error=? WHERE from_id=?`, clip(why, 400), from)
 	return err
 }
