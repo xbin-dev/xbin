@@ -95,3 +95,51 @@ func TestHarnessModesDefaultDeny(t *testing.T) {
 		t.Errorf("a session opened in an asked mode says nothing of the adapter's own: %q", hs.StartMode)
 	}
 }
+
+// A permission's option raises the session (explicit: the owner's) by the
+// mode it switches to — claude-agent-acp's plan approval names none in its
+// ids ("Yes, and bypass permissions" is exit-plan-bypass), so the catalog
+// maps them; an allow_always of a mode switch the catalog can't place
+// raises (default-deny), an allow_once or a reject never does.
+func TestHarnessOptionRaises(t *testing.T) {
+	claude, _ := acp.Lookup("claude")
+	house := harnessProvider("house-agent", &sbxHarness{ID: "house-agent", Title: "House agent", Argv: []string{"house", "acp"}})
+	st := acp.SessionState{Modes: &acp.SessionModes{CurrentModeID: "plan", AvailableModes: []acp.ModeEntry{{ID: "default"},
+		{ID: "acceptEdits"}, {ID: "plan"}, {ID: "auto"}, {ID: "bypassPermissions"}}}}
+	opt := func(id, kind string) acp.PermissionOption {
+		return acp.PermissionOption{OptionID: id, Name: id, Kind: kind}
+	}
+	for _, x := range []struct {
+		prov  acp.Provider
+		start string
+		o     acp.PermissionOption
+		kind  string
+		want  bool
+	}{
+		// claude 0.81's ExitPlanMode options
+		{claude, "", opt("exit-plan-bypass", acp.AllowAlways), acp.KindSwitchMode, true},
+		{claude, "", opt("exit-plan-clear-bypass", acp.AllowAlways), acp.KindSwitchMode, true},
+		{claude, "", opt("exit-plan-auto", acp.AllowAlways), acp.KindSwitchMode, false},
+		{claude, "", opt("exit-plan-clear-auto", acp.AllowAlways), acp.KindSwitchMode, false},
+		{claude, "", opt("exit-plan-accept-edits", acp.AllowAlways), acp.KindSwitchMode, false},
+		{claude, "", opt("exit-plan-default", acp.AllowOnce), acp.KindSwitchMode, false},
+		{claude, "", opt("reject", acp.RejectOnce), acp.KindSwitchMode, false},
+		// an option that is a mode id
+		{claude, "", opt("bypassPermissions", acp.AllowAlways), acp.KindSwitchMode, true},
+		{claude, "", opt("auto", acp.AllowAlways), acp.KindSwitchMode, false},
+		// a newer adapter's plan option the catalog can't place
+		{claude, "", opt("exit-plan-dont-ask", acp.AllowAlways), acp.KindSwitchMode, true},
+		// an ordinary call's options switch nothing
+		{claude, "", opt("allow-with-updates", acp.AllowAlways), "execute", false},
+		{claude, "", opt("allow-once", acp.AllowOnce), "edit", false},
+		// a harness the catalog lacks: only the mode it started in is open
+		{house, "default", opt("default", acp.AllowOnce), acp.KindSwitchMode, false},
+		{house, "default", opt("auto", acp.AllowAlways), acp.KindSwitchMode, true},
+		{house, "default", opt("implement_plan", acp.AllowOnce), acp.KindSwitchMode, false},
+		{house, "default", opt("exit-plan-clear-auto", acp.AllowAlways), acp.KindSwitchMode, true},
+	} {
+		if got := optionRaises(x.prov, st, x.start, x.o, x.kind); got != x.want {
+			t.Errorf("%s %s (%s, %s): raises %v, want %v", x.prov.ID, x.o.OptionID, x.o.Kind, x.kind, got, x.want)
+		}
+	}
+}

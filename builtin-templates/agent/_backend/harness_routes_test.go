@@ -584,7 +584,8 @@ func TestHarnessModeDefaultDeny(t *testing.T) {
 		t.Fatalf("bob back to the one it started in: %d %s", w.Code, w.Body)
 	}
 	// a plan approval's allow that switches it to a mode it didn't start in
-	// (auto: known safe only to the catalog's providers) raises it
+	// (auto: known safe only to the catalog's providers) raises it — and so
+	// does its allow_always that names no mode (default-deny)
 	m.Harnesses = append(m.Harnesses, fsbHarness{ID: "house-auto", Title: "House auto", Argv: acptest.Command("--auto-mode")})
 	forgetHellos()
 	w = callAs(t, mux, asAlice, "POST", "/ask", map[string]any{"text": "plan", "class": "coding",
@@ -597,7 +598,7 @@ func TestHarnessModeDefaultDeny(t *testing.T) {
 	for _, o := range parkOf(t, ag, planRun.ID, "approval").Harness.Options {
 		raised[o.OptionID] = o.Explicit
 	}
-	if len(raised) != 4 || !raised["auto"] || raised["exit-plan-default"] || raised["exit-plan-clear-auto"] || raised["reject"] {
+	if len(raised) != 4 || !raised["auto"] || raised["exit-plan-default"] || !raised["exit-plan-clear-auto"] || raised["reject"] {
 		t.Fatalf("the plan's options: %v", raised)
 	}
 

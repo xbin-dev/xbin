@@ -44,6 +44,12 @@ type Provider struct {
 	// agent past its own asks (Safe): the ones an adapter speaks only as a
 	// config option of category mode (opencode's build and plan agents).
 	SafeModes []string `json:"-"`
+	// OptionModes maps a permission option that switches the session's mode
+	// without naming it to the mode it switches to: a plan approval's
+	// options (claude-agent-acp's "Yes, and bypass permissions" is
+	// exit-plan-bypass). A consumer that keeps some modes to some people
+	// judges such an option by its mode (Safe).
+	OptionModes map[string]string `json:"-"`
 }
 
 // Mode is one of a provider's session modes.
@@ -63,7 +69,11 @@ var catalog = []Provider{
 		SessionMeta: map[string]any{"claudeCode": map[string]any{"options": map[string]any{
 			"thinking": map[string]any{"type": "adaptive", "display": "summarized"}}}},
 		LoginCmd: "CLAUDE_CODE_REMOTE=1 claude /login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits",
-		ApproveMode: "default", PlanMode: "plan"},
+		ApproveMode: "default", PlanMode: "plan",
+		// its ExitPlanMode approval's options (claude-agent-acp 0.81)
+		OptionModes: map[string]string{"exit-plan-default": "default", "exit-plan-accept-edits": "acceptEdits",
+			"exit-plan-clear-accept-edits": "acceptEdits", "exit-plan-auto": "auto", "exit-plan-clear-auto": "auto",
+			"exit-plan-bypass": "bypassPermissions", "exit-plan-clear-bypass": "bypassPermissions"}},
 	{ID: "codex", Name: "Codex", Driver: "acp", Argv: []string{"codex-acp"}, Login: "codex login",
 		Modes: []Mode{{ID: "read-only", Name: "Ask for approval"}, {ID: "agent", Name: "Approve for me"},
 			{ID: "agent-full-access", Name: "Full access", Explicit: true}},

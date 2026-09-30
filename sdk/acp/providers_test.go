@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -127,5 +128,20 @@ func TestProviderSafe(t *testing.T) {
 				t.Errorf("%s: %q is a setting's mode but not safe", p.ID, m)
 			}
 		}
+		// an option switches to one of the provider's own modes
+		for id, m := range p.OptionModes {
+			if !slices.ContainsFunc(p.Modes, func(x Mode) bool { return x.ID == m }) {
+				t.Errorf("%s: option %s switches to %q, not one of its modes", p.ID, id, m)
+			}
+		}
+	}
+	// claude's plan approval: "Yes, and bypass permissions" names no mode
+	for _, id := range []string{"exit-plan-bypass", "exit-plan-clear-bypass"} {
+		if m := c.OptionModes[id]; m == "" || c.Safe(m) {
+			t.Errorf("claude's %s: %q", id, m)
+		}
+	}
+	if b, _ := json.Marshal(c); strings.Contains(string(b), "exit-plan") {
+		t.Errorf("OptionModes is the runner's, never in the JSON: %s", b)
 	}
 }

@@ -20,8 +20,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   anyone's; every other — bypass and full access, a mode a newer adapter
   adds, any other mode of one the catalog doesn't know — is `explicit` and
   the conversation owner's: to switch to (`PATCH /runs/{id}/harness`), to
-  start in (`POST /ask` from a person), to allow as a permission's option.
-  A stored option the coding agent reports as its mode is dropped with a
+  start in (`POST /ask` from a person), to allow as a permission's option
+  (by the mode it switches to — Claude Code's plan approval "Yes, and
+  bypass permissions" is `exit-plan-bypass`, which `acp.Provider.OptionModes`,
+  new, maps — and on a plan approval any "allow always" whose mode isn't
+  known). A stored option the coding agent reports as its mode is dropped with a
   note (`acp.Config.SkipModeOptions`, new). Also: `/cancel` on a
   conversation whose coding agent is idle stops it (the status stays); a
   child's answer is its turn's own text (`(no answer)` when it wrote none);

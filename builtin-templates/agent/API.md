@@ -1822,7 +1822,9 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   explicit mode` when every allow does), `approve: false` rejects (once,
   else always, else the cancelled outcome). An option marked `explicit`
   (an allow that switches the session to a mode that is the owner's —
-  "The mode and options" below) is the conversation owner's:
+  "The mode and options" below — by the mode it names, Claude Code's
+  `exit-plan-bypass` included; on a mode switch such as a plan approval,
+  also any `allow_always` whose mode isn't known) is the conversation owner's:
   **403** `only <owner> can allow <option>`. `feedback` (a plan approval's
   "keep planning") goes with a rejection only (**400** `feedback goes with
   a rejection`): the rejection is answered, then `feedback` is your next

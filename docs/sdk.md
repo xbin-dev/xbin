@@ -216,7 +216,9 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   agent past its own asks (a non-explicit one of `Modes`, or one of
   `SafeModes` — opencode's `build`, `plan`, which it speaks as a config
   option); an explicit mode, one a newer adapter adds, any mode of a
-  provider the catalog lacks is not. `acp.Fake(argv)` is the
+  provider the catalog lacks is not. `p.OptionModes` maps a permission
+  option that switches the mode without naming it to that mode (claude's
+  plan approval: `exit-plan-bypass` → `bypassPermissions`). `acp.Fake(argv)` is the
   scripted test agent (`hack/fakeacp`) as a provider, id `fake`; it is
   never in the catalog.
 - **Prompts with files.** `acp.PrepareAttachments` checks and normalises
