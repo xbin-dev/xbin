@@ -65,10 +65,12 @@ function cardTpl(app, c) {
   };
   const term = (m) => {
     const tt = app.sbx.terminal(c.sandbox.ref, c.sandbox.cwd, c.command);
+    // while the sandboxes are still being read there is no "why not" yet (not "offers no terminals")
+    const why = app.sbx.list.loaded ? tt.why : '';
     return html`<button class="btn btnsm" data-method=${m.id} data-kind="terminal" ?disabled=${blocked || !tt.src}
-        title=${tt.why ? `No terminal: ${tt.why}` : `Runs ${c.command} in ${c.sandbox.name}, as you`}
+        title=${why ? `No terminal: ${why}` : `Runs ${c.command} in ${c.sandbox.name}, as you`}
         @click=${() => { termDock(app).open({ ...tt, purpose: 'login', run: c.run, harness: c.name }); x.msg = 'Finish signing in in the terminal, then Retry.'; redraw(); }}>${methodLabel(m)}</button>
-      ${tt.why && c.command ? html`<div class="hint" id="hl-noterm">No terminal here (${tt.why}): run <span class="mono">${c.command}</span> in a terminal on ${c.sandbox.name}, then Retry.</div>` : nothing}`;
+      ${why && c.command ? html`<div class="hint" id="hl-noterm">No terminal here (${why}): run <span class="mono">${c.command}</span> in a terminal on ${c.sandbox.name}, then Retry.</div>` : nothing}`;
   };
   // the key is read from the field as it is sent and the field emptied at once
   const sendKey = (m) => (e) => {

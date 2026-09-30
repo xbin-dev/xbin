@@ -138,7 +138,8 @@ function signInTpl(s) {
   };
   const retry = run('retry', async () => { await app.harness.retry(c.run); s.msg = 'Retrying…'; });
   const tt = app.sbx.terminal(c.sandbox.ref, c.sandbox.cwd);
-  const term = (m) => html`<section title=${m.name} footer=${tt.why ? `No terminal here (${tt.why}): run ${c.command} in a terminal on ${c.sandbox.name}, then Retry.`
+  const why = app.sbx.list.loaded ? tt.why : ''; // no "why not" while the sandboxes are still being read
+  const term = (m) => html`<section title=${m.name} footer=${why ? `No terminal here (${why}): run ${c.command} in a terminal on ${c.sandbox.name}, then Retry.`
       : `Runs ${c.command} in ${c.sandbox.name}, as you — then Retry.`}>
     <row title="Open a login terminal" icon="terminal" nav ?disabled=${blocked || !!tt.why}
       @tap=${blocked || tt.why ? nothing : () => push({ kind: 'term', src: runTerminalSrc(c.run, { login: true }), login: true, run: c.run, harness: c.name,

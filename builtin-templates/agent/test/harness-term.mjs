@@ -46,6 +46,10 @@ await ctx.addInitScript(() => {
   // run 30's backend knows its sandbox is shared although the view didn't say: confirm first
   window.__route('POST', /\/runs\/30\/harness\/authenticate$/, (m, o) => (JSON.parse(o.body).confirm ? window.__json({ ok: 'true', state: 'ready' })
     : window.__json({ error: 'anyone who may use solo acts as you with Codex there — confirm to sign in', confirm: true }, 409)));
+  // the first GET /sandboxes waits until the test lets it go (window.__sbxGo)
+  const gate = new Promise((go) => { window.__sbxGo = go; });
+  let held = false;
+  window.__route('GET', /\/sandboxes(\?fresh=1)?$/, async () => { if (!held) { held = true; await gate; } return window.__json(window.__sbx); });
 });
 const page = await ctx.newPage();
 const errors = [];
@@ -66,6 +70,9 @@ const SHELL_SRC = '/api/apps/coding-sandbox/sbx/sandboxes/sb-7f3a/tty?cwd=%2Fwor
 // --- the card: only for a login park ------------------------------------------------------------
 await page.goto(`${ORIGIN}/#c=24`);
 await page.waitForSelector('#hlogin');
+ok('while the sandboxes are still being read: the login terminal waits, no "no terminal" note', !(await page.$('#hl-noterm'))
+  && await page.$eval('#hlogin [data-kind="terminal"]', (b) => b.disabled && !/No terminal/.test(b.title)));
+await page.evaluate(() => window.__sbxGo());
 ok('a login park: the sign-in card, saying where', (await text('#hlogin b')) === 'Codex needs you to sign in (in ▣ api-dev).', await text('#hlogin b'));
 ok('…the shared home\'s warning', /credentials land in api-dev's home: anyone who may use it acts as you with Codex there/.test(await text('#hl-warn')), await text('#hl-warn'));
 ok('…its three methods', JSON.stringify(await page.$$eval('#hlogin [data-kind]', (els) => els.map((e) => [e.dataset.kind, e.dataset.method])))
@@ -129,6 +136,12 @@ await page.keyboard.press('Enter');
 await page.waitForSelector('#sbxterm-done');
 ok('the command ended: "Finished. Signed in?" and Retry Codex, or a New shell', (await text('#sbxterm-done')) === 'Finished. Signed in?'
   && (await text('#sbxterm-retry')) === 'Retry Codex' && !!(await page.$('#sbxterm-again')));
+const fit = await page.evaluate(() => {
+  const done = document.getElementById('sbxterm-done');
+  const pane = document.getElementById('sbxterm-pane').getBoundingClientRect();
+  return { whole: done.scrollWidth <= done.clientWidth, reach: document.getElementById('sbxterm-close').getBoundingClientRect().right <= pane.right };
+});
+ok('…the crowded header keeps "Finished. Signed in?" whole and ✕ in reach (the title gives way)', fit.whole && fit.reach, JSON.stringify(fit));
 await page.click('#sbxterm-retry');
 await until(() => !document.getElementById('sbxterm-pane'));
 ok('Retry posts /resume for its run; the tab closes', JSON.stringify((await calls('POST', /\/resume$/)).map((c) => c.url)) === '["/api/apps/agent/runs/24/resume"]');
