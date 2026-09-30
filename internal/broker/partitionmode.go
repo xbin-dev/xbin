@@ -10,7 +10,8 @@ package broker
 //	 "mode":     {"user": true, "global": true},       // R; absent = unpartitioned
 //	 "request":  {"spec": {…} | null, "since": "…"},   // an open request R → Q
 //	 "declined": {"spec": …, "by": "alice", "at": "…"}, // "keep the current mode" for exactly Q
-//	 "history":  [{"op": "auto|request|switch|keep|withdrawn", "from", "to", "by", "at", "wiped"}]}
+//	 "history":  [{"op": "auto|request|switch|keep|withdrawn", "from", "to", "by", "at", "wiped"},
+//	              {"op": "backup-erase|partition-restore", "by", "at", "reason", "partition", "wiped"}]}
 //
 // The state table (01 §2.1), settled at every rescan through the registry's
 // PartitionModes hook:
@@ -87,6 +88,10 @@ type modeHistory struct {
 	By    string                  `json:"by,omitempty"`
 	At    time.Time               `json:"at"`
 	Wiped map[string]int64        `json:"wiped,omitempty"`
+	// Reason and Partition: a backup op's (backup_partition.go) — why keys
+	// were erased or a partition restored, and which person's partition id.
+	Reason    string `json:"reason,omitempty"`
+	Partition string `json:"partition,omitempty"`
 }
 
 // recorded is R.

@@ -303,6 +303,9 @@ func (b *Broker) extractMember(comp, version, name string) ([]byte, int, error) 
 	if err != nil {
 		return nil, http.StatusConflict, err
 	}
+	if br.M.PartitionArchive() { // an archiver's swap: a person's partition is never read out (G2)
+		return nil, http.StatusConflict, fmt.Errorf("the archiver served a person's partition archive as %s's: refused", comp)
+	}
 	if strings.HasPrefix(name, backup.DataPrefix) && br.M.Data != nil {
 		dr, gone, err := b.openDataArchive(provider, comp, br.M)
 		switch {

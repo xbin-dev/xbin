@@ -43,7 +43,9 @@ type listedRestore struct {
 // lists, by replace, into the deployment of its name when comp has one
 // (08-data §11.4, §11.5 step 5): POST /restore's, or re-enabling an
 // offloaded tile's, both an admin's. Every claimant of each namespace stops.
-func (b *Broker) restoreListed(comp string, archives map[string]string) *listedRestore {
+// confirm is the main restore's: it names the tile's last partition mode
+// switch when the archives predate it (preSwitchRestore).
+func (b *Broker) restoreListed(comp string, archives map[string]string, confirm string) *listedRestore {
 	out := &listedRestore{Restored: []string{}, Skipped: []string{}}
 	for _, dep := range slices.Sorted(maps.Keys(archives)) {
 		var err error
@@ -53,7 +55,7 @@ func (b *Broker) restoreListed(comp string, archives map[string]string) *listedR
 		case !b.hasDeployment(comp, dep):
 			err = util.NoDeployment(comp, dep)
 		default:
-			_, _, _, err = b.restoreData(comp, dataRestore{from: dep, version: archives[dep], into: dep, confirmed: true,
+			_, _, _, err = b.restoreData(comp, dataRestore{from: dep, version: archives[dep], into: dep, confirmed: true, switchConfirm: confirm,
 				authorize: func(string) error { return nil }, stop: func(t, _ string) { b.StopBackendSafe(t) }})
 		}
 		if err != nil {
@@ -71,6 +73,7 @@ type dataRestore struct {
 	from, version, into string // whose archive, which version ("" = the latest), the target deployment
 	replace             bool   // main: empty each archived resource first; beyond main always
 	confirmed           bool   // confirm:"erase-data" was sent (or the act is POST /restore's)
+	switchConfirm       string // POST /restore's confirm: names a partition mode switch the archive predates
 	dryRun              bool
 	by                  string
 	authorize           func(tile string) error
@@ -173,6 +176,9 @@ func (b *Broker) restoreData(tile string, r dataRestore) (string, []string, []st
 	if err == nil {
 		err = archivedDataOK(br.M, tile, r.from)
 	}
+	if err == nil {
+		err = b.preSwitchRestore(tile, br.M, r.from, r.switchConfirm) // backup_partition_restore.go
+	}
 	if err != nil {
 		return "", nil, nil, nsErr(http.StatusConflict, deployments.KindState, "the archive can't be restored: "+err.Error()+"; nothing was restored")
 	}
@@ -220,6 +226,8 @@ func (b *Broker) restoreData(tile string, r dataRestore) (string, []string, []st
 // this xbind reads.
 func archivedDataOK(m backup.Manifest, tile, from string) error {
 	switch {
+	case m.PartitionArchive():
+		return errors.New("it is a person's partition archive, restored only into that person's partition (POST /partitions/restore)")
 	case m.Component != tile:
 		return fmt.Errorf("it belongs to %s, not %s", m.Component, tile)
 	case !m.ScopeRoot || m.Scope != tile:
@@ -268,6 +276,7 @@ func (b *Broker) nsHasData(id nsID, declared map[string]registry.Resource) bool 
 type nsRestorer struct {
 	b          *Broker
 	scope, dep string
+	pkey       string // a person's partition's namespace (backup_partition_restore.go); "" for today's
 	replace    bool
 	declared   map[string]registry.Resource
 	dirs       map[string]string    // a volume's mount, once readied
@@ -310,7 +319,7 @@ func (n *nsRestorer) run(br *backup.Reader) (string, error) {
 // key is the target's keys of an archived resource, or false (skipped) when
 // the target doesn't declare it with that type.
 func (n *nsRestorer) key(name, typ string) (resKeys, bool) {
-	k, err := n.b.resKeys(resTarget{Scope: n.scope, Name: name}, n.dep)
+	k, err := n.b.resKeysIn(resTarget{Scope: n.scope, Name: name}, n.dep, n.pkey)
 	if res, ok := n.declared[name]; !ok || res.Type != typ || err != nil || !registry.ValidResourceName(name) {
 		n.skipped[name] = true
 		return resKeys{}, false
@@ -332,7 +341,7 @@ func (n *nsRestorer) kv(rd io.Reader) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	db, err := n.b.scopeKV(n.scope, n.dep, true)
+	db, err := n.b.scopeKVIn(n.scope, n.dep, n.pkey, true)
 	if err != nil {
 		return err
 	}

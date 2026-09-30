@@ -362,6 +362,11 @@ const deploymentsLevel = ".deployments"
 // holds user partitions' namespaces (plans/partitions/03 §B.1).
 const partitionsLevel = ".partitions"
 
+// partitionArchivePrefix starts the archive key of a person's partition's
+// archives, .partitions.<TileKey>.<dep>.<pkey> (backup_partition.go): an
+// archiver key, not a namespace's, spelled here with the level it names.
+const partitionArchivePrefix = partitionsLevel + "."
+
 // pkeyOK reports whether pkey is a partition key as 02 §1 mints it: "u-"
 // and 32 lowercase hex digits (PD-43), one path segment that no deployment
 // name spells.

@@ -28,6 +28,20 @@
 // else — no source, no terminal layer, no registrations in its manifest —
 // under the same data/ layout, with Deployment naming it and schema 2, so an
 // older xbind refuses it instead of restoring it into main's keys.
+//
+// A partition archive (Kind "partition", schema 3, always sealed) holds one
+// person's partition of a tile (plans/partitions/11-backup-encryption.md
+// §2): its namespace's data under the same data/ layout — when the tile
+// roots its scope — and its own records under partition/, named by the
+// manifest's Partition:
+//
+//	partition/partition.json         the partition's record, verbatim
+//	partition/ns.json                its namespace's identity and history
+//	partition/vault.json             its vault file, its values still sealed by the vault
+//	partition/registrations/<file>   its registration files (cron, bus, …)
+//
+// It is restored only into that person's partition of the tile, never as a
+// tile or into a data namespace.
 package backup
 
 import (
@@ -89,6 +103,15 @@ const (
 	RegistrationsPrefix = "deployments/registrations/" // <deployment>/<file>: a deployment's registration files
 )
 
+// A partition archive's own members (Kind "partition").
+const (
+	PartitionPrefix = "partition/"
+	PartRecordName  = "partition/partition.json"
+	PartNSName      = "partition/ns.json"
+	PartVaultName   = "partition/vault.json"
+	PartRegsPrefix  = "partition/registrations/"
+)
+
 // Manifest is the self-describing header. Everything needed to place the tar's
 // files back without consulting local state lives here.
 type Manifest struct {
@@ -125,6 +148,19 @@ type Manifest struct {
 	// match, so no data archive of another backup of the tile is ever
 	// restored with this one. Absent otherwise.
 	BackupID string `json:"backupId,omitempty"`
+	// Partition, in a partition archive (Kind "partition"), names whose
+	// partition of Component it holds. Absent otherwise.
+	Partition *PartitionRef `json:"partition,omitempty"`
+}
+
+// PartitionRef is whose partition a partition archive holds: the partition
+// id (u-<32 hex>, the person's user id and uid hashed), the person, the uid
+// they had when it was written, and the deployment the partition ran in.
+type PartitionRef struct {
+	ID         string `json:"id"`
+	User       string `json:"user"`
+	UID        string `json:"uid"`
+	Deployment string `json:"deployment"`
 }
 
 // DataRef names a data archive: its archiver key and version, and the
@@ -159,6 +195,11 @@ func (m Manifest) DeploymentArchive() bool {
 // namespace's data, restored with its main archive or into main's
 // namespace, never as a tile.
 func (m Manifest) DataArchive() bool { return m.Kind == KindData }
+
+// PartitionArchive reports whether m is a partition archive's: one person's
+// partition, restored only into that person's partition, never as a tile or
+// into a data namespace.
+func (m Manifest) PartitionArchive() bool { return m.Kind == KindPartition || m.Partition != nil }
 
 func (m Manifest) Has(part string) bool {
 	for _, p := range m.Includes {

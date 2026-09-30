@@ -504,7 +504,7 @@ func endpoints() []ep {
 			jsonBody("backup", oapi{"component": str("apps/x")}, "component"), "{ok, version}"},
 		{"GET", "/backups", "Backup", "List a component's archived versions", "admin", "Passes the bound archiver's version list through: [{version, time, size}].", []oapi{queryParam("component", "the component", true)}, nil, "{versions:[{version,time,size}], archiver}"},
 		{"POST", "/restore", "Backup", "Restore a version or a single file", "admin", "Restore a whole version (stops + replaces the component's data/source from the archive; a manager tile's sandbox definitions come back by uid, stopped — sandboxesSkipped lists those left out) or, with `file`, stream one member back without touching live state (docs/overview/14-lifecycle.md).", nil,
-			jsonBody("restore", oapi{"component": str("apps/x"), "version": str("optional; default latest"), "file": str("optional; one path within the archive")}, "component"), "{ok, component, restored, sandboxesSkipped?} or the file bytes"},
+			jsonBody("restore", oapi{"component": str("apps/x"), "version": str("optional; default latest"), "file": str("optional; one path within the archive"), "confirm": str("an archive older than the tile's last partition mode switch that deleted data: the switch's date (YYYY-MM-DD), else 409 {error, switch: {at, from, to, confirm}}")}, "component"), "{ok, component, restored, sandboxesSkipped?} or the file bytes"},
 		{"GET", "/backup-schedule", "Backup", "List scheduled backups", "admin", "", nil, nil, "{schedules:[{component,schedule,retention}]}"},
 		{"POST", "/backup-schedule", "Backup", "Schedule (or reschedule) backups for a component", "admin", "Owner-scheduled backup on the cron engine (docs/overview/14-lifecycle.md). retention prunes to N newest versions after each run (0 = keep all).", nil,
 			jsonBody("schedule", oapi{"component": str("apps/x"), "schedule": str("0 3 * * * | @every 24h"), "retention": str("N (int)")}, "component", "schedule"), "ok"},
@@ -613,7 +613,7 @@ func endpoints() []ep {
 		{"PUT", "/cron/jobs", "Resources", "Register a cron job", "writer (resource grant)", "Registers a schedule that calls back into a component. `component` is owner-only; elements always schedule themselves. A tile credential schedules for its own deployment: from a non-primary deployment the job is its own, dormant while its deliveries are off, and the answer gains dormant:true.", []oapi{deploymentQuery("admin: schedule for that deployment (echoed); a tile credential naming another deployment: 403")},
 			jsonBody("job", oapi{"name": str(""), "resource": str("res:<scope>/<name>"), "schedule": str("@every 1m | 5-field cron"), "path": str("/tick"), "role": str("optional"), "component": str("owner-only")}, "name", "resource", "schedule", "path"), "ok"},
 		{"DELETE", "/cron/jobs/{name}", "Resources", "Delete a cron job", "authenticated", "Element: own jobs; admin: any (via ?component=).", []oapi{pathParam("name", "job name"), queryParam("component", "owner-only: whose job", false), deploymentQuery("admin: that deployment's")}, nil, "ok"},
-	}, append(append(append(append(sandboxEndpoints(), partitionEndpoints()...), partitionModeEndpoints()...), partitionConsentEndpoints()...), personalBindEndpoints()...)...)
+	}, append(append(append(append(append(sandboxEndpoints(), partitionEndpoints()...), partitionModeEndpoints()...), partitionConsentEndpoints()...), personalBindEndpoints()...), partitionBackupEndpoints()...)...)
 }
 
 // OpenAPI builds the OpenAPI 3.1 document.

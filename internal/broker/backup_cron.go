@@ -120,6 +120,7 @@ func (b *Broker) runScheduledBackup(s backupSchedule) {
 		for dep := range archives {
 			b.pruneKey(s.Component, archiveKey(s.Component, dep), s.Retention)
 		}
+		b.prunePartitionArchives(s.Component, s.Retention) // each person's partition's (backup_partition.go)
 	}
 }
 

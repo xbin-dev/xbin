@@ -475,7 +475,9 @@ func (b *Broker) sweepPartitionRecords(now time.Time) {
 		if err != nil || now.Sub(since) < partitionRetention {
 			return
 		}
-		if err := b.dropPartition(partTarget{tile: rec.Tile, dep: rec.Dep, pkey: d.pkey}); err != nil {
+		// with its part: backup key (backup_partition.go): a partition without
+		// a namespace has archives too
+		if err := b.dropSweptPartition(partTarget{tile: rec.Tile, dep: rec.Dep, pkey: d.pkey}, rec.Reason); err != nil {
 			slog.Warn("partition sweep", "tile", rec.Tile, "partition", d.pkey, "err", err)
 			return
 		}

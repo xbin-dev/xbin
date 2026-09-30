@@ -298,6 +298,8 @@ var routeClasses = map[string]RouteClass{
 	"POST /backup-keys/export":               PrimaryOnly,
 	"POST /backup-keys/import":               PrimaryOnly,
 	"POST /backup/erase":                     PrimaryOnly,
+	"GET /partitions/backups":                PrimaryOnly, // a person's partition's archives: the person or an admin (plans/partitions/11 §4)
+	"POST /partitions/restore":               PrimaryOnly, // … restored into their partition: a person's act, never tile code
 	"GET /vault-status":                      PrimaryOnly,
 	"POST /vault-unseal":                     PrimaryOnly,
 	"POST /vault-seal":                       PrimaryOnly,

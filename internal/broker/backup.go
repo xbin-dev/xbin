@@ -293,33 +293,45 @@ func (b *Broker) backupTile(comp string, every bool) (string, map[string]string,
 // stored the main archive all the same, and a retention run deletes it
 // when no kept main archive names it (pruneData).
 func (b *Broker) backupTileHeld(comp string, every bool) (string, map[string]string, error) {
+	v, archives, _, err := b.backupTileWith(comp, every)
+	return v, archives, err
+}
+
+// backupTileWith is backupTileHeld, also answering what became of the
+// tile's people's partitions: each is archived after the main archive,
+// under a key of its own (backup_partition.go).
+func (b *Broker) backupTileWith(comp string, every bool) (string, map[string]string, partitionBackups, error) {
+	var parts partitionBackups
 	c, ok := b.Reg.Component(comp)
 	if !ok {
-		return "", nil, fmt.Errorf("no such component %q", comp)
+		return "", nil, parts, fmt.Errorf("no such component %q", comp)
 	}
 	provider := b.archiveProvider(comp)
 	if provider == "" {
-		return "", nil, fmt.Errorf("no archiver bound — set one: bx bind %q %s=<archiver> (or bind '*' for a default)", comp, archiveSlot)
+		return "", nil, parts, fmt.Errorf("no archiver bound — set one: bx bind %q %s=<archiver> (or bind '*' for a default)", comp, archiveSlot)
 	}
 	split, err := b.sealing() // a sealed vault fails the backup before anything is written
 	if err != nil {
-		return "", nil, err
+		return "", nil, parts, err
 	}
 	archives, err := b.putDeploymentArchives(c, provider, every)
 	if err != nil {
-		return "", nil, err
+		return "", nil, parts, err
 	}
 	var sp *splitBackup
 	if split {
 		if sp, err = b.putDataArchive(c, provider); err != nil {
-			return "", nil, err
+			return "", nil, parts, err
 		}
 	}
 	v, err := b.putArchive(provider, backupKey(comp), mainSeal(comp), func(bw *backup.Writer) error { return b.writeBackup(bw, c, archives, sp) })
 	if err == nil && sp != nil && archiveVersion.MatchString(v) {
 		b.noteDataRef(provider, comp, v, dataRefOf(sp.data))
 	}
-	return v, archives, err
+	if err == nil {
+		parts = b.backupPartitions(c, provider, split)
+	}
+	return v, archives, parts, err
 }
 
 // restored is what a restore brought back: the archive's manifest, and the
@@ -342,6 +354,13 @@ func (b *Broker) doRestore(comp, version string) (restored, error) {
 // restoreTile is doRestore, then the deployment archives the main archive
 // lists, each into its deployment when that exists (listedRestore).
 func (b *Broker) restoreTile(comp, version string) (restored, *listedRestore, error) {
+	return b.restoreTileConfirmed(comp, version, "")
+}
+
+// restoreTileConfirmed is restoreTile of an archive that may predate the
+// tile's last partition mode switch, which confirm must then name
+// (preSwitchRestore, backup_partition_restore.go).
+func (b *Broker) restoreTileConfirmed(comp, version, confirm string) (restored, *listedRestore, error) {
 	provider := b.archiveProvider(comp)
 	if provider == "" {
 		return restored{}, nil, fmt.Errorf("no archiver bound for %q", comp)
@@ -358,6 +377,9 @@ func (b *Broker) restoreTile(comp, version string) (restored, *listedRestore, er
 	br, err := b.openArchive(body)
 	if err != nil {
 		return restored{}, nil, err
+	}
+	if err := b.preSwitchRestore(comp, br.M, util.MainDeployment, confirm); err != nil {
+		return restored{Manifest: br.M}, nil, err
 	}
 	var data *backup.Reader
 	var gone error
@@ -386,7 +408,7 @@ func (b *Broker) restoreTile(comp, version string) (restored, *listedRestore, er
 	if m.Deployments == nil || len(m.Deployments.Archives) == 0 {
 		return r, nil, nil
 	}
-	return r, b.restoreListed(comp, m.Deployments.Archives), nil
+	return r, b.restoreListed(comp, m.Deployments.Archives, confirm), nil
 }
 
 // restoreSandboxes merges a restored tile's sandbox definitions by uid
@@ -528,12 +550,18 @@ func (b *Broker) apiBackupNow(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {component}")
 		return
 	}
-	version, err := b.doBackup(body.Component)
+	release := b.holdBackups(body.Component)
+	version, _, parts, err := b.backupTileWith(body.Component, false)
+	release()
 	if err != nil {
 		server.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "version": version})
+	if !parts.any() {
+		server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "version": version}) // today's answer
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": "true", "version": version, "partitions": parts})
 }
 
 func (b *Broker) apiBackupList(w http.ResponseWriter, r *http.Request) {
@@ -559,9 +587,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	if !b.requireAdmin(w, r) {
 		return
 	}
-	var body struct{ Component, Version, File string }
+	var body struct{ Component, Version, File, Confirm string }
 	if err := server.DecodeJSON(r, &body); err != nil || body.Component == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {component, version?, file?}")
+		server.WriteError(w, http.StatusBadRequest, "need {component, version?, file?, confirm?}")
 		return
 	}
 	// Restore a single file: stream it back without touching live state.
@@ -580,7 +608,12 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(data)
 		return
 	}
-	m, listed, err := b.restoreTile(body.Component, body.Version)
+	m, listed, err := b.restoreTileConfirmed(body.Component, body.Version, body.Confirm)
+	var pre preSwitchError
+	if errors.As(err, &pre) { // it predates the tile's partition mode switch: confirm names it
+		server.WriteJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "docs": "/docs/partitions.md", "switch": pre.answer()})
+		return
+	}
 	if err != nil {
 		server.WriteError(w, http.StatusBadGateway, err.Error())
 		return
