@@ -8,19 +8,24 @@ package isolated
 //
 //   - llm-gw counts calls per person's partition of each partitioned caller
 //     (paLLMGWCounters, a case of TestPartitionsAgent, which already runs
-//     alice's and bob's partitions through it).
+//     alice's and bob's partitions through it), and shows each viewer what
+//     is theirs: the owner token every row, an admin (a manager of it) the
+//     totals and the global instance, a person their own.
 //   - TestPartitionsBridge: a copy of the agent-messaging-bridge template
 //     (its console plays the chat platform) and the webhooks tile (on the
 //     ingress listener) bound to a partitioned agent. Both reach its global
 //     instance, which keeps the channel, its rules and the links: the
-//     channel is claimed there, a group mention is answered there in a
-//     thread, alice links her chat account from the bridge's page (the link
-//     lands at global) and unlinks it, a team push trigger runs there once
-//     per delivery. The hand-offs to a person's partition — a linked DM
-//     answered from alice's partition (a notice first, while it never ran),
-//     her private push trigger (an empty or overlapping match refused) —
-//     are work pack B2c's: those cases skip, naming it, until the agent
-//     template has its handoff mail handlers (pbHasB2c).
+//     channel is claimed there (a person who doesn't manage the agent is
+//     refused, 403, from their own partition too), a group mention is
+//     answered there in a thread, alice links her chat account from the
+//     bridge's page (the link lands at global) and unlinks it (her chat
+//     account is a stranger again: a link code, no answer), a team push
+//     trigger runs there once per delivery.
+//
+// The hand-offs to a person's partition — a linked DM answered from it, a
+// private push trigger run in it — are work pack B2c's, and its e2e
+// (partitions_agent_channels_test.go, TestPartitionsAgentChannels) drives
+// them through the same bridge and webhooks tiles.
 //
 //	set -a; eval "$(sed -n 's/^export \([A-Z_]*\) := \(.*\)$/\1=\2/p' .dev.mk | grep -v ^PATH)"; set +a
 //	go test -tags=integration -count=1 -v -run '^TestPartitionsBridge$' ./test/isolated/
@@ -30,8 +35,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -43,21 +46,33 @@ import (
 // paLLMGWCounters checks llm-gw's usage by partition after
 // TestPartitionsAgent's people chatted (pkeys: person → partition id): a
 // row per person's partition of apps/agent and one for its global
-// instance, none for the unpartitioned instance (counted per backend only);
-// a person on llm-gw's page sees their own row only.
+// instance, none for the unpartitioned instance (counted per backend only).
+// Who sees what (PD-46): the owner token every row — a person's without its
+// last use — and so its page opened with the owner token; carol, an admin
+// signed in (a manager of llm-gw, as far as a tile can tell), the people's
+// partitions together and the global instance, never a person's row; alice
+// on its page her own row only.
 func paLLMGWCounters(t *testing.T, e *psEnv, pkeys map[string]string) {
 	t.Helper()
 	d := e.d
 	type row struct {
 		From, Deployment, Partition, PartitionID string
-		Reqs, TokIn, TokOut                      int64
+		Reqs, TokIn, TokOut, Last                int64
 	}
-	stats := func(hdrs ...xbindtest.Header) (rows []row, body string) {
+	type total struct {
+		From       string
+		Partitions int
+		Reqs       int64
+	}
+	stats := func(hdrs ...xbindtest.Header) (rows []row, totals []total, body string) {
 		t.Helper()
-		var out struct{ Callers []row }
+		var out struct {
+			Callers      []row
+			CallerTotals []total
+		}
 		r := d.Must(t, "GET", "/api/"+paGW+"/stats", nil, 200, hdrs...)
 		r.Decode(t, &out)
-		return out.Callers, string(r.Body)
+		return out.Callers, out.CallerTotals, string(r.Body)
 	}
 	find := func(rows []row, from, pid string) *row {
 		for i := range rows {
@@ -67,17 +82,21 @@ func paLLMGWCounters(t *testing.T, e *psEnv, pkeys map[string]string) {
 		}
 		return nil
 	}
-	rows, body := stats() // the owner token: every row
-	for _, c := range []struct{ who, pid, part string }{
-		{"alice", pkeys["alice"], "user:alice"},
-		{"bob", pkeys["bob"], "user:bob"},
-		{"the global instance", "", "global"},
-	} {
-		r := find(rows, paAgent, c.pid)
-		if r == nil || r.Partition != c.part || r.Reqs < 1 { // tokens: hack/fakeopenai reports no usage
-			t.Errorf("llm-gw's row for %s of %s (%s): %+v in %s", c.who, paAgent, c.pid, r, cut(body, 600))
+	every := func(who string, rows []row, body string) {
+		t.Helper()
+		for _, c := range []struct{ who, pid, part string }{
+			{"alice", pkeys["alice"], "user:alice"},
+			{"bob", pkeys["bob"], "user:bob"},
+			{"the global instance", "", "global"},
+		} {
+			r := find(rows, paAgent, c.pid)
+			if r == nil || r.Partition != c.part || r.Reqs < 1 || (r.Last == 0) != (c.pid != "") { // tokens: hack/fakeopenai reports no usage
+				t.Errorf("%s: llm-gw's row for %s of %s (%s): %+v in %s", who, c.who, paAgent, c.pid, r, cut(body, 600))
+			}
 		}
 	}
+	rows, _, body := stats() // the owner token
+	every("the owner token", rows, body)
 	for _, r := range rows {
 		if r.From == paPlain {
 			t.Errorf("BUG: the unpartitioned instance has a row of its own: %+v", r)
@@ -86,33 +105,33 @@ func paLLMGWCounters(t *testing.T, e *psEnv, pkeys map[string]string) {
 	if strings.Contains(body, "secret") {
 		t.Errorf("BUG: llm-gw's counters hold content: %s", cut(body, 600))
 	}
-	// alice (read on llm-gw) on its page: her own row only
-	mine, body := stats(e.fr(t, paGW, "alice"))
-	if len(mine) == 0 {
-		t.Errorf("alice on llm-gw's page sees no row of hers: %s", cut(body, 400))
+	rows, _, body = stats(e.fr(t, paGW, "")) // its page, opened with the owner token
+	every("the owner token's page", rows, body)
+	// carol, an admin signed in: llm-gw can't tell her from a manager — the
+	// totals and the global instance, no one's row
+	rows, totals, body := stats(e.fr(t, paGW, "carol"))
+	if find(rows, paAgent, "") == nil {
+		t.Errorf("carol on llm-gw's page: no row of the global instance in %s", cut(body, 600))
+	}
+	for _, r := range rows {
+		if r.Partition != "global" && r.Partition != "user:carol" {
+			t.Errorf("BUG: carol on llm-gw's page sees someone's row: %+v", r)
+		}
+	}
+	if len(totals) != 1 || totals[0].From != paAgent || totals[0].Partitions < 2 || totals[0].Reqs < 2 ||
+		strings.Contains(body, pkeys["alice"]) || strings.Contains(body, "user:alice") {
+		t.Errorf("carol's totals: %+v in %s, want alice's and bob's partitions together, naming no one", totals, cut(body, 600))
+	}
+	// alice (read on llm-gw) on its page: her own row only, with its last use
+	mine, totals, body := stats(e.fr(t, paGW, "alice"))
+	if len(mine) == 0 || len(totals) != 0 {
+		t.Errorf("alice on llm-gw's page: rows %+v, totals %+v in %s", mine, totals, cut(body, 400))
 	}
 	for _, r := range mine {
-		if r.Partition != "user:alice" {
+		if r.Partition != "user:alice" || r.Last == 0 {
 			t.Errorf("alice on llm-gw's page sees %+v", r)
 		}
 	}
-}
-
-// pbHasB2c: the agent template hands a linked DM and a private trigger's
-// event to the person's partition (work pack B2c's mailbox handlers,
-// plans/partitions 08 §5). Until it does, the cases that need it skip.
-func pbHasB2c(repo string) bool {
-	dir := filepath.Join(repo, "builtin-templates", "agent", "_backend")
-	ents, _ := os.ReadDir(dir)
-	for _, ent := range ents {
-		if !strings.HasSuffix(ent.Name(), ".go") || strings.HasSuffix(ent.Name(), "_test.go") {
-			continue
-		}
-		if b, err := os.ReadFile(filepath.Join(dir, ent.Name())); err == nil && bytes.Contains(b, []byte(`"handoff/dm"`)) {
-			return true
-		}
-	}
-	return false
 }
 
 const (
@@ -132,12 +151,6 @@ func TestPartitionsBridge(t *testing.T) {
 	e := psSetup(t)
 	d := e.d
 	fake := startFakeOpenAI(t, d)
-	b2c := pbHasB2c(d.A.Repo)
-	needB2c := func(t *testing.T) {
-		if !b2c {
-			t.Skip("needs work pack B2c — the agent's handoff/dm, handoff/event and outbox/add mail handlers (plans/partitions 08 §5); runs once pt/b2c is merged")
-		}
-	}
 	ok := func(method, path string, body any, hdrs ...xbindtest.Header) xbindtest.Resp {
 		t.Helper()
 		r := d.Call(t, method, path, body, hdrs...)
@@ -261,17 +274,19 @@ func TestPartitionsBridge(t *testing.T) {
 			}
 			return false, fmt.Sprint(r.Status, " ", cut(string(r.Body), 300))
 		})
-		// a person's partition holds no channel: it is the tile's (bob's —
-		// alice's partition must not run before the linked-dm case)
+		// bob reads the agent, managing nothing: his partition doesn't offer
+		// him the unclaimed channel, and claiming it from there is refused
+		// as a manager's act (403) — before it could reach the global
+		// instance, where it would be refused the same
 		var mine struct{ Items []item }
 		agent("bob", "GET", "/automations", nil).Decode(t, &mine)
 		for _, it := range mine.Items {
 			if it.Kind == "channel" {
-				t.Errorf("BUG: bob's partition lists the bridge's channel: %+v", it)
+				t.Errorf("BUG: bob's partition offers him the unclaimed channel: %+v", it)
 			}
 		}
-		if st := agent("bob", "POST", fmt.Sprintf("/channels/%d/claim", chID), map[string]any{}).Status; st != 409 && st != 403 && st != 404 {
-			t.Errorf("bob claiming the channel in his partition: %d, want it refused", st)
+		if r := agent("bob", "POST", fmt.Sprintf("/channels/%d/claim", chID), map[string]any{}); r.Status != 403 {
+			t.Errorf("bob claiming the channel from his partition: %d %s, want 403", r.Status, r)
 		}
 		ok("POST", "/api/"+paAgent+fmt.Sprintf("/channels/%d/claim", chID), map[string]any{
 			"policy": map[string]any{"dm": map[string]string{"policy": "linked"}, "groups": map[string]any{"allow": []string{"C1"}}},
@@ -337,56 +352,6 @@ func TestPartitionsBridge(t *testing.T) {
 		}
 	})
 
-	t.Run("linked-dm", func(t *testing.T) {
-		needB2c(t)
-		// alice's partition never ran (nothing above called the agent as
-		// her): her DM waits in her inbox, and the agent says so in the chat
-		// (mail never starts a partition)
-		from := len(transcript())
-		say(dm, "hello from the chat", nil)
-		waitOut("a notice for a partition that never ran", from, func(l pbLine) bool {
-			return l.Conversation.ID == "D1" && l.Kind == "notice"
-		})
-		if ls := transcript()[from:]; strings.Contains(fmt.Sprint(ls), "Hello from the fake model") {
-			t.Errorf("BUG: the DM was answered before alice's partition ran: %+v", ls)
-		}
-		// she opens the agent: her partition starts, takes the DM from its
-		// inbox and answers it from her own conversation; the reply goes out
-		// through the global instance's outbox
-		agent("alice", "GET", "/me", nil)
-		hit := waitOut("the DM answered from alice's partition", from, func(l pbLine) bool {
-			return l.Conversation.ID == "D1" && strings.Contains(l.Text, "Hello from the fake model")
-		})
-		t.Logf("the answer: %+v", hit)
-		var list struct {
-			Items []struct {
-				ID     int64
-				Origin string
-			}
-		}
-		agent("alice", "GET", "/conversations?scope=mine", nil).Decode(t, &list)
-		var dmRun int64
-		for _, it := range list.Items {
-			if it.Origin == "channel" {
-				dmRun = it.ID
-			}
-		}
-		if dmRun < pa2to40 {
-			t.Fatalf("alice's partition has no channel conversation of hers (ids ≥ 2^40): %+v", list.Items)
-		}
-		for _, p := range []string{"", "bob", "carol"} {
-			if st := agent(p, "GET", fmt.Sprintf("/runs/%d", dmRun), nil).Status; st != 404 {
-				t.Errorf("BUG: %q reads alice's DM conversation %d: %d", p, dmRun, st)
-			}
-		}
-		// the next DM goes straight to her running partition
-		from = len(transcript())
-		say(dm, "hello again", nil)
-		waitOut("the second DM answered", from, func(l pbLine) bool {
-			return l.Conversation.ID == "D1" && strings.Contains(l.Text, "Hello from the fake model")
-		})
-	})
-
 	t.Run("unlink", func(t *testing.T) {
 		ls := links("alice")
 		if len(ls) != 1 {
@@ -397,10 +362,13 @@ func TestPartitionsBridge(t *testing.T) {
 			t.Errorf("alice's links after unlinking: %+v", ls)
 		}
 		// unlinked, the account is a stranger again: the channel hears only
-		// linked people, so the model never answers it
+		// linked people, so its DM gets a new link code — and no answer
 		from := len(transcript())
 		say(dm, "hello", nil)
-		time.Sleep(10 * time.Second)
+		waitOut("a link code for the account unlinked", from, func(l pbLine) bool {
+			return l.Conversation.ID == "D1" && strings.Contains(l.Text, "only talk with people who linked") && linkCode.MatchString(l.Text)
+		})
+		time.Sleep(3 * time.Second)
 		for _, l := range transcript()[from:] {
 			if l.Dir == "out" && strings.Contains(l.Text, "Hello from the fake model") {
 				t.Errorf("BUG: an unlinked DM was answered: %+v", l)
@@ -467,46 +435,6 @@ func TestPartitionsBridge(t *testing.T) {
 		}
 	})
 
-	t.Run("webhook-private", func(t *testing.T) {
-		needB2c(t)
-		// alice's private push trigger: made in her partition, registered
-		// at the global instance (name, source, match), run in hers
-		mk := func(person, name, match string) xbindtest.Resp {
-			return agent(person, "POST", "/triggers", map[string]any{"name": name, "source": "push", "sourceRef": pbHooks,
-				"match": match, "goal": "quick check of {{topic}}", "toolset": "web", "dataClass": "public"})
-		}
-		if r := mk("alice", "alice-any", ""); r.Status/100 != 4 {
-			t.Errorf("a private push trigger with no match: %d %s, want refused", r.Status, r)
-		}
-		r := mk("alice", "alice-deploy", "alice-deploy")
-		if r.Status != 200 {
-			t.Fatalf("alice's private push trigger: %d %s", r.Status, r)
-		}
-		var tr struct{ ID int64 }
-		r.Decode(t, &tr)
-		for _, m := range []string{"alice-deploy/x", "alice"} {
-			if r := mk("bob", "bob-"+strings.ReplaceAll(m, "/", "-"), m); r.Status/100 != 4 {
-				t.Errorf("bob's private trigger overlapping alice's match (%q): %d %s, want refused", m, r.Status, r)
-			}
-		}
-		id, secret := makeHook(t, "alice-deploy")
-		var st int
-		xbindtest.Eventually(t, 2*time.Minute, "the hook taken", func() (bool, string) {
-			st = hook(t, id, secret, map[string]string{"ref": "alice"})
-			return st == 202, fmt.Sprint(st)
-		})
-		agent("alice", "GET", "/me", nil) // her partition runs (it has, since linked-dm)
-		xbindtest.Eventually(t, 2*time.Minute, "alice's private trigger ran in her partition", func() (bool, string) {
-			ev := events("alice", tr.ID)
-			return len(ev) == 1 && ev[0].Accepted, fmt.Sprintf("%+v", ev)
-		})
-		for _, p := range []string{"bob", ""} {
-			if ev := events(p, tr.ID); len(ev) != 0 {
-				t.Errorf("BUG: %q sees alice's private trigger's events: %+v", p, ev)
-			}
-		}
-	})
-
 	t.Run("llm-gw-counters", func(t *testing.T) {
 		// the group answer and the team trigger ran at the global instance
 		var out struct {
@@ -524,9 +452,6 @@ func TestPartitionsBridge(t *testing.T) {
 		}
 		if seen["global"] < 2 {
 			t.Errorf("llm-gw's row for the agent's global instance: %v, want the group answer and the trigger's run", seen)
-		}
-		if b2c && seen["user:alice"] < 2 {
-			t.Errorf("llm-gw's row for alice's partition (her two DMs): %v", seen)
 		}
 	})
 }
