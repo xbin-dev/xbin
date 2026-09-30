@@ -26,8 +26,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -76,6 +78,12 @@ type hpTarget struct {
 	// a drop, it ends reading with that error and lets the command go
 	// (Detach). nil: always.
 	Guard func() error
+	// Dropped hears of a JSON-RPC request the pipe gave up on rather than
+	// risk sending it twice (stdio: it went on a socket that dropped before
+	// a pong acknowledged it — the command may or may not have it). Only
+	// requests: a response or a notification goes again (at least once).
+	// Called on its own goroutine; nil: nobody hears.
+	Dropped func(id json.RawMessage, method string)
 }
 
 // harnessTarget is the target a sandbox use resolved (sandboxUse).
@@ -526,15 +534,39 @@ func (p *harnessPipe) write(b []byte) (int, error) {
 	if limit <= 0 {
 		limit = hpStdinMax
 	}
+	f := frameOf(b)
 	n := 0
 	for n < len(b) {
 		k := min(len(b)-n, limit)
-		if err := p.send(b[n:n+k], false, hpRetryFor); err != nil {
+		if err := p.send(b[n:n+k], false, hpRetryFor, f, n == 0); err != nil {
 			return n, err
 		}
 		n += k
 	}
 	return n, nil
+}
+
+// hpFrame is the frame a stdin unit is part of, when it is a JSON-RPC
+// request: its id and method (the acp.Conn writes one frame per Write).
+type hpFrame struct {
+	id      json.RawMessage
+	method  string
+	dropped bool // given up on (flush): its units still to go are not sent
+}
+
+// frameOf is b's hpFrame when b is a request (an id and a method), else nil.
+func frameOf(b []byte) *hpFrame {
+	if !bytes.Contains(b, []byte(`"method"`)) {
+		return nil
+	}
+	var m struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	if json.Unmarshal(b, &m) != nil || m.Method == "" || len(m.ID) == 0 || string(m.ID) == "null" {
+		return nil
+	}
+	return &hpFrame{id: m.ID, method: m.Method}
 }
 
 // closeStdin sends stdin's eof (once), trying for up to budget.
@@ -545,7 +577,7 @@ func (p *harnessPipe) closeStdin(budget time.Duration) error {
 		return nil
 	}
 	p.eof = true
-	err := p.send(nil, true, budget)
+	err := p.send(nil, true, budget, nil, true)
 	if r := sbxRefusal(err); r == "state" || r == "invalid" || gone(err) || err == errPipeEnded {
 		return nil // it ended, or its stdin was closed already
 	}
@@ -556,12 +588,16 @@ func (p *harnessPipe) closeStdin(budget time.Duration) error {
 // the outbox until a pong acknowledges it — a manager answers a ping only
 // once it has handed the command everything before it — and goes again on
 // each socket attached after the one it went on: a socket that dropped may
-// have swallowed it.
+// have swallowed it. Except a request's: one whose first chunk went on a
+// socket that dropped unacknowledged is given up on (flush) — the command
+// may have it, and a session/prompt must never reach the adapter twice.
 type hpUnit struct {
-	seq  int64
-	data []byte
-	eof  bool
-	on   *ws.Conn // the socket it went on last
+	seq   int64
+	data  []byte
+	eof   bool
+	on    *ws.Conn // the socket it went (or began to go) on last
+	frame *hpFrame // a request's (nil: a response, a notification, the eof)
+	first bool     // the frame's first chunk
 }
 
 // send delivers one chunk (or the eof) after every one before it: over the
@@ -570,9 +606,12 @@ type hpUnit struct {
 // runs out; over stdio a frame of the socket and a ping, the socket
 // attached again by the reader when it drops. A chunk send gave up on is
 // not sent later.
-func (p *harnessPipe) send(data []byte, eof bool, budget time.Duration) error {
+func (p *harnessPipe) send(data []byte, eof bool, budget time.Duration, f *hpFrame, first bool) error {
+	if f != nil && f.dropped {
+		return nil // the rest of a request given up on
+	}
 	p.wseq++
-	u := &hpUnit{seq: p.wseq, data: append([]byte(nil), data...), eof: eof}
+	u := &hpUnit{seq: p.wseq, data: append([]byte(nil), data...), eof: eof, frame: f, first: first}
 	p.outbox = append(p.outbox, u)
 	deadline := time.Now().Add(budget)
 	for try := 0; ; try++ {
@@ -609,6 +648,9 @@ func (p *harnessPipe) flush(c *ws.Conn) error {
 	for len(p.outbox) > 0 && p.outbox[0].on != nil && p.outbox[0].seq <= acked {
 		p.outbox = p.outbox[1:]
 	}
+	if c != nil {
+		p.dropUnsure(c)
+	}
 	for c == nil && len(p.outbox) > 0 { // a POST answered is delivered
 		u := p.outbox[0]
 		ctx, cancel := context.WithTimeout(p.ctx, sbxCallTimeout)
@@ -627,15 +669,46 @@ func (p *harnessPipe) flush(c *ws.Conn) error {
 		if u.eof {
 			typ, frame = ws.TextMessage, []byte(`{"op":"eof"}`)
 		}
+		u.on = c // a write that fails may still have put it on the wire
 		if err := c.WriteMessage(typ, frame); err != nil {
 			return err
 		}
 		if err := c.WriteMessage(ws.TextMessage, []byte(`{"op":"ping","t":`+strconv.FormatInt(u.seq, 10)+`}`)); err != nil {
 			return err
 		}
-		u.on = c
 	}
 	return nil
+}
+
+// dropUnsure gives up on each request whose first chunk went on a socket
+// other than c and no pong acknowledged (the ones before it are gone from
+// the outbox): the command may or may not have it, so it is never sent
+// again — at most once. A newline takes its place, ending whatever part
+// of it the command took; Dropped hears of it.
+func (p *harnessPipe) dropUnsure(c *ws.Conn) {
+	var gone []*hpFrame
+	out := make([]*hpUnit, 0, len(p.outbox))
+	for _, u := range p.outbox {
+		f := u.frame
+		switch {
+		case f == nil:
+		case f.dropped:
+			continue
+		case u.first && u.on != nil && u.on != c:
+			f.dropped = true
+			gone = append(gone, f)
+			out = append(out, &hpUnit{seq: u.seq, data: []byte("\n")})
+			continue
+		}
+		out = append(out, u)
+	}
+	p.outbox = out
+	for _, f := range gone {
+		logf("harness exec %s: %s %s may not have reached the command (its socket dropped) — not sent again", p.execID, f.method, f.id)
+		if p.t.Dropped != nil {
+			go p.t.Dropped(f.id, f.method)
+		}
+	}
 }
 
 // unqueue takes a unit send gave up on out of the outbox.
