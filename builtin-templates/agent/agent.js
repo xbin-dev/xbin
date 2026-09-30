@@ -38,6 +38,7 @@ import { mountLive, unmountLive } from './live-status.js';
 import { makePorts } from './ports.js';
 import { tabFiles, selectFile } from './settings-files.js';
 import { mountPartitionUI, mountStaticMcp } from './partition-ui.js';
+import { mountNewShare } from './homes-ui.js'; // a person's partition: who can see a new chat (two homes)
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -191,7 +192,7 @@ function topTpl(v) {
     <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
-    ${t.sharing ? html`<button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
+    ${t.sharing || t.publish ? html`<button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
       title=${t.share.title}>${t.share.icon} ${t.share.label}</button>` : nothing}
     ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
       ? html`<button class="linkbtn" title="stop it now" @click=${() => session.revokeGrant(g.run, g.cap).catch((e) => alert(e.message))}>revoke</button>` : nothing}</span>`)}
@@ -755,11 +756,13 @@ $('newopts').onclick = () => {
   $('n-class').value = app.classId;
   $('newdlg').showModal();
 };
+const newShare = mountNewShare(document.querySelector('#newdlg .dlg-bd')); // {} unless a person's partition
 $('n-create').onclick = async (e) => {
   const text = $('n-goal').value.trim();
-  if (!text) { e.preventDefault(); return; }
+  const share = text ? newShare() : {}; // null: people chosen, none named (the dialog says so and stays)
+  if (!text || !share) { e.preventDefault(); return; }
   try {
-    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value });
+    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value, ...share });
   } catch (err) { alert(err.message); }
 };
 let searchT = null;

@@ -400,7 +400,6 @@ async function reloadFocus(browser) {
   await sh(page, (t) => { t.setFloat('apps/crawler', { z: 200 }); t.setFloat('apps/focusy', { z: 100 }); });
   await focusTerm('apps/crawler');
   await settle(page);
-
   // Fix: the same focus-into-iframe DURING a reload must not front the float,
   // and the focus the reload stole goes back to the terminal.
   await fr(page, 'apps/focusy', (f, t) => {
@@ -824,6 +823,7 @@ PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on it
 PASSES.adminPartitions = require('./passes/adminpartitions').adminPartitions; // F12, on its own line
 PASSES.partitionLogs = require('./passes/partitionlogs').partitionLogs; // F12, on its own line
 PASSES.partitionConsent = require('./passes/partitionconsent').partitionConsent;
+PASSES.agentHomes = require('./passes/agenthomes').agentHomes; // B2b: a partitioned agent's two homes (HARNESS_AGENT_PARTITION=1)
 
 (async () => {
   const args = process.argv.slice(2);

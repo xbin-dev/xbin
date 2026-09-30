@@ -4,11 +4,14 @@
 //   - unpartitioned (no xbin.partition): today's page — no notice, the
 //     Shared view, Share in the row menu and the top bar, a stream that
 //     ignores the page's visibility, an MCP tab of bound servers only;
-//   - a person's partition ("user:alice"): no sharing anywhere, one banner
-//     naming a bound sandbox manager that can't keep people apart, a stream
-//     that closes while the page is hidden and comes back when shown, and
-//     the MCP tab's static servers, one with headers marked as working in
-//     shared (global) conversations only;
+//   - a person's partition ("user:alice"): the Shared view (the shared
+//     space's, B2b), and one of their own conversations (ids from 2^40)
+//     shared only by a copy — "Share a copy…" in its row menu and the top
+//     bar's pill; one banner naming a bound sandbox manager that can't keep
+//     people apart, a stream that closes while the page is hidden and comes
+//     back when shown, and the MCP tab's static servers, one with headers
+//     marked as working in shared (global) conversations only (test/homes.mjs
+//     drives the two homes);
 //   - the global instance ("global"): the note to sign in as a person.
 //
 //   node test/partition.mjs        (needs playwright + a chromium build)
@@ -25,11 +28,13 @@ const seed = {
 };
 
 const browser = await launch();
+const MINE = 2 ** 40 + 1; // a person's own conversation's id (their partition numbers from 2^40)
+const userSeed = { ...seed, runs: [{ id: MINE, title: 'my notes', status: 'idle', parentId: 0, rootId: MINE }] };
 
 async function open(partition) {
   const ctx = await browser.newContext();
   await serveTile(ctx);
-  await ctx.addInitScript(STUB, seed);
+  await ctx.addInitScript(STUB, String(partition).startsWith('user:') ? userSeed : seed);
   await ctx.addInitScript(() => { // the settings: one static MCP server with headers, one without
     const j = window.__json;
     window.__route('GET', /\/config$/, () => j({ models: {}, mcp: [
@@ -54,8 +59,8 @@ async function open(partition) {
 }
 
 const segs = (page) => page.$$eval('#views .seg', (els) => els.map((e) => e.textContent.trim()));
-const menu = async (page) => {
-  await page.click('#runs .run[data-id="1"]', { button: 'right' });
+const menu = async (page, id = 1) => {
+  await page.click(`#runs .run[data-id="${id}"]`, { button: 'right' });
   const items = await page.$$eval('.rowmenu .mi', (els) => els.map((e) => e.textContent.trim()));
   await page.click('.mback');
   return items;
@@ -102,11 +107,12 @@ const hide = (page, hidden) => page.evaluate((h) => {
   const text = await page.$eval('#partnote', (e) => e.textContent);
   ok('partition: one banner naming the old manager and the update', /apps\/old/.test(text) && /bx template updates/.test(text) && !/apps\/cs/.test(text), text);
   ok('partition: one banner', (await page.$$('#partnote .pn')).length === 1);
-  ok('partition: no Shared view', !(await segs(page)).includes('Shared'), (await segs(page)).join(','));
-  ok('partition: no Share in the row menu', !(await menu(page)).includes('Share…'));
-  await page.click('#runs .run[data-id="1"]');
-  await page.waitForSelector('#top .title');
-  ok('partition: no sharing pill in the top bar', !(await page.$('#top .sharepill')));
+  ok('partition: the Shared view (the shared space\'s)', (await segs(page)).includes('Shared'), (await segs(page)).join(','));
+  const items = await menu(page, MINE);
+  ok('partition: her own conversation is shared by a copy', items.includes('Share a copy…') && !items.includes('Share…'), items.join(','));
+  await page.click(`#runs .run[data-id="${MINE}"]`);
+  await page.waitForSelector('#top .sharepill');
+  ok('partition: the top bar\'s pill offers the copy', /share a copy/.test(await page.$eval('#top .sharepill', (e) => e.title)));
   await hide(page, true);
   await page.waitForFunction(() => window.__streams() === 0);
   ok('partition: a hidden page closes its stream', true);
@@ -115,8 +121,8 @@ const hide = (page, hidden) => page.evaluate((h) => {
   await hide(page, false);
   await page.waitForFunction(() => window.__streams() > 0);
   const since = await page.evaluate(() => window.__calls.filter((c) => /\/stream\?/.test(c.url)).pop().url);
-  ok('partition: shown again, it reconnects from its cursor', /since=/.test(since) && /run=1/.test(since), since);
-  await page.evaluate(() => window.__push({ type: 'run', run: 1, root: 1, data: { id: 1, title: 'my renamed notes', status: 'idle', parentId: 0, rootId: 1, origin: 'chat', mine: true, access: 'owner' } }));
+  ok('partition: shown again, it reconnects from its cursor', /since=/.test(since) && since.includes(`run=${MINE}`), since);
+  await page.evaluate((id) => window.__push({ type: 'run', run: id, root: id, data: { id, title: 'my renamed notes', status: 'idle', parentId: 0, rootId: id, origin: 'chat', mine: true, access: 'owner' } }), MINE);
   await page.waitForFunction(() => document.getElementById('runs').textContent.includes('my renamed notes'));
   ok('partition: the reconnected stream delivers', true);
   const rows = async () => { await mcpTab(page, true); return page.$$eval('#mcp-static tr', (trs) => trs.slice(1).map((tr) => tr.textContent.replace(/\s+/g, ' ').trim())); };

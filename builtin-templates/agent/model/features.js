@@ -199,7 +199,11 @@ export const FEATURES = {
   // States
   'state.halted': 'halted: the switch says so',
   'state.errors': 'a failed action tells the person why',
-  'state.partition.share': 'in a person\'s own partition (a partitioned instance) a conversation can\'t be shared: no Share in its row menu or header, no Shared view (model/partition.js)',
+  'state.partition.share': 'in a person\'s own partition (a partitioned instance) the Shared view and a shared conversation\'s Share are the shared space\'s (the global instance); one of their own conversations has no Share there — only a copy shares it (state.partition.publish)',
+  'state.partition.homes': 'in a person\'s partition a conversation has one of two homes, told by its id (from 2^40: their own; below: the shared space): the list merges both, an address (#c=) opens each at its home, and the stream follows it there (model/homes.js)',
+  'state.partition.publish': 'in a person\'s partition, Share a copy… of one of their own conversations: who can see the copy, its session files or not, the original kept or deleted; the copy opens (POST /runs/{id}/publish)',
+  'state.partition.copy': 'in a person\'s partition, a shared conversation\'s share dialog makes a private copy in their own space (POST /copy)',
+  'state.partition.newShared': 'in a person\'s partition, New chat with options asks who can see it: only you (your own space), or the team or people you name (made in the shared space)',
   'state.partition.global': 'at a partitioned instance\'s global instance (the owner token), a note to sign in as a person for private conversations',
   'state.partition.sandboxes': 'in a person\'s partition, a notice naming a bound sandbox manager that can\'t keep people apart, and how to update it',
   'state.partition.hidden': 'in a partitioned instance the live stream closes while the page is hidden and resumes from its cursor when it shows (model/stream.js)',
@@ -228,6 +232,9 @@ export const DIFFERENCES = {
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
     'chat.jumpLatest': 'the native view never lets the live end go: the app\'s transcript keeps a row still only at its bottom, so letting go below the reader would move what they read — until the renderer anchors a row across a trim (D130 E3/E4), and the app scrolls to the end itself',
     'tools.live.ports': 'the ▣ popover is the web\'s; on the app a live preview\'s screen has its own Check (tools.live.check), which probes what the Ports section would',
+    'state.partition.publish': 'the native view shows a person\'s shared conversations and shares them, but publishing a copy of one of their own is the web\'s for now: the app\'s share sheet has no form for its choices yet',
+    'state.partition.copy': 'as state.partition.publish: the app\'s share sheet shares a shared conversation; a private copy of one is made on the web for now',
+    'state.partition.newShared': 'the app\'s new chat sheet makes a chat in the person\'s own space; a shared one is started on the web for now (or shared by a copy there)',
     'tools.sandboxes.terminal':'the app\'s terminal primitive dials only the tile\'s own routes (TileTerminal refuses any other address), and a manager\'s tty is another tile\'s; relaying it through the agent\'s backend would make the person the manager checks an asserted one instead of the verified one. Until the app takes a bound interface\'s URL, terminals are on the web',
   },
 };

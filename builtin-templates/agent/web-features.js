@@ -177,7 +177,11 @@ export const IMPLEMENTS = {
   // States
   'state.halted': 'agent.js — syncHalt',
   'state.errors': 'agent.js — app.on(\'error\') and the controls\' alerts',
-  'state.partition.share': 'sidebar.js (row menu, views), agent.js top bar — model/partition.js sharing',
+  'state.partition.share': 'sidebar.js (row menu, views), agent.js top bar — model/partition.js sharing, model/rules.js',
+  'state.partition.homes': 'model/homes.js, model/home-api.js — model/conv-list.js, model/session.js',
+  'state.partition.publish': 'homes-ui.js — openPublish (share.js openShare, sidebar.js row menu)',
+  'state.partition.copy': 'homes-ui.js — copyTpl in share.js',
+  'state.partition.newShared': 'homes-ui.js — mountNewShare in agent.js',
   'state.partition.global': 'partition-ui.js — the notice above the main pane',
   'state.partition.sandboxes': 'partition-ui.js — the notice above the main pane',
   'state.partition.hidden': 'model/stream.js — Live.visibility',

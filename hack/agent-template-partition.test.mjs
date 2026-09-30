@@ -25,15 +25,26 @@ test('xbin.partition picks the layout; anything else is today\'s', () => {
   withPartition('user:bob', () => assert.equal(partitionState(), 'user'));
 });
 
-test('sharing is off only in a person\'s own partition; hidden pages pause only when partitioned', () => {
-  assert.deepEqual(['legacy', 'global', 'user'].map((s) => sharing(s)), [true, true, false]);
+test('sharing in every layout (B2b); a person\'s own conversation is shared by a copy; hidden pages pause only when partitioned', () => {
+  assert.deepEqual(['legacy', 'global', 'user'].map((s) => sharing(s)), [true, true, true]);
   assert.deepEqual(['legacy', 'global', 'user'].map((s) => pausesHidden(s)), [false, true, true]);
-  const row = { id: 1, access: 'owner', title: 't' };
-  withPartition(undefined, () => assert.ok(rowMenu(row).some((i) => i.action === 'share')));
-  withPartition('user:alice', () => assert.ok(!rowMenu(row).some((i) => i.action === 'share')));
-  const v = { run: { id: 1, title: 't', status: 'idle' }, access: 'owner', config: {} };
-  withPartition(undefined, () => assert.equal(topBar(v, null, {}).sharing, true));
-  withPartition('user:alice', () => assert.equal(topBar(v, null, {}).sharing, false));
+  const row = { id: 1, access: 'owner', title: 't' };                 // below 2^40: the shared space's
+  const mine = { id: 2 ** 40 + 3, access: 'owner', title: 'm' };      // a person's own
+  const share = (r, o) => rowMenu(r, o).filter((i) => i.action === 'share').map((i) => i.label);
+  withPartition(undefined, () => assert.deepEqual(share(row), ['Share…']));
+  withPartition('user:alice', () => {
+    assert.deepEqual(share(row), ['Share…'], 'a shared conversation: its share dialog, at global');
+    assert.deepEqual(share(mine), [], 'a person\'s own: nothing where the view can\'t publish (native)');
+    assert.deepEqual(share(mine, { publish: true }), ['Share a copy…'], '…a copy where it can (the web)');
+  });
+  const v = (id) => ({ run: { id, title: 't', status: 'idle' }, access: 'owner', config: {} });
+  withPartition(undefined, () => assert.deepEqual([topBar(v(1), null, {}).sharing, topBar(v(1), null, {}).publish], [true, false]));
+  withPartition('user:alice', () => {
+    assert.deepEqual([topBar(v(1), null, {}).sharing, topBar(v(1), null, {}).publish], [true, false]);
+    const t = topBar(v(2 ** 40 + 3), null, {});
+    assert.deepEqual([t.sharing, t.publish], [false, true]);
+    assert.match(t.share.title, /share a copy/);
+  });
 });
 
 test('notices: the global note; one banner for old sandbox managers in a person\'s partition', () => {

@@ -180,7 +180,9 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
           // what an automation delivered, not a person typing (D83)
           return { k: 'notice', id: 'm' + m.id, text: `[${ORIGIN_LABEL[m.origin]}${m.label ? ' · ' + m.label : ''}]\n${text}` };
         }
-        return { k: 'user', id: 'm' + m.id, text, files, msgId: m.id, sender: m.sender || '' };
+        // a copy brought it from elsewhere (API.md "Shared conversations"): who wrote it there, never a sender here
+        const sender = m.origin === 'copy' ? `copied${m.label ? ' · ' + m.label : ''}` : m.sender || '';
+        return { k: 'user', id: 'm' + m.id, text, files, msgId: m.id, sender };
       }));
       continue;
     }

@@ -74,7 +74,7 @@ var userRoutes = map[string]userRoute{
 	"DELETE /skills/{name}":     userSkill,
 	"POST /runs/{id}/members":   userNoShare,
 	"POST /runs/{id}/links":     userNoShare,
-	"POST /join":                userNoShare,
+	"POST /join":                userGlobal, // join links are the shared space's: redeemed there
 	"POST /channels/{id}/claim": userNoChannels,
 	"POST /triggers":            userNoChannels,
 }
@@ -94,6 +94,9 @@ const (
 
 // partitionRoute is h as a person's partition serves pattern.
 func partitionRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
+	if globalMode() {
+		return globalRoute(pattern, h) // homes.go: a person's conversations there are shared ones
+	}
 	if !userMode() {
 		return h
 	}

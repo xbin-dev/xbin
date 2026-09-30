@@ -11,6 +11,7 @@
 import { html, nothing, render } from '/vendor/lit-all.min.js';
 import * as actions from './model/actions.js';
 import { share as shareRules } from './model/rules.js';
+import { openPublish, publishes, copyTpl } from './homes-ui.js'; // a person's own conversation: a copy (two homes)
 
 export { joinFrom } from './model/actions.js';
 
@@ -36,6 +37,7 @@ export const linkFor = (token) => `${location.protocol}//${location.host}${locat
  * @param onChange  called after anything changed (the list repaints)
  */
 export async function openShare(run, me, onChange) {
+  if (publishes(run.id)) return openPublish(run, onChange);
   st = { runId: run.id, title: run.title, me, data: null, link: '', err: '', onChange };
   paint();
   dialog().showModal();
@@ -107,6 +109,7 @@ function tpl() {
           await actions.removeMember(st.runId, st.me.user);
           dialog().close();
         })}>Leave this conversation</button></div>` : nothing}`}
+      ${copyTpl(st.runId, () => dialog().close(), st.onChange)}
       ${st.err ? html`<div class="err">${st.err}</div>` : nothing}
     </div>
     <div class="dlg-ft"><button class="btn" @click=${() => dialog().close()}>Done</button></div>

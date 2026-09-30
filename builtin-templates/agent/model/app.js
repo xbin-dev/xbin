@@ -37,6 +37,7 @@ import * as router from './router.js';
 import { HOME } from './home.js';
 import * as classes from './classes.js';
 import { createSandboxStore } from './sandbox-store.js';
+import { homeOf } from './homes.js';
 
 /**
  * createApp builds the model.
@@ -93,9 +94,12 @@ export function createApp(opts = {}) {
 
     // uploadTarget is where an app that uploads a picked file itself puts it
     // ({method, path}, {name} its name): into the open run, or at home into
-    // the new ask's draft, which Send then sends (a held ask).
+    // the new ask's draft, which Send then sends (a held ask). A shared
+    // conversation in a person's partition is the global instance's
+    // (model/homes.js): its path asks xbind for it.
     uploadTarget() {
-      return { method: 'PUT', path: app.sel == null ? `${base}/ask/upload?draft=${app.draft}&name={name}` : `${base}/runs/${app.sel}/upload?name={name}` };
+      const at = homeOf(app.sel) === 'global' ? '&xbin-partition=global' : '';
+      return { method: 'PUT', path: app.sel == null ? `${base}/ask/upload?draft=${app.draft}&name={name}` : `${base}/runs/${app.sel}/upload?name={name}${at}` };
     },
 
     // --- start ------------------------------------------------------------
@@ -377,7 +381,8 @@ export function createApp(opts = {}) {
     const c = classes.find(app.classes, id);
     return c ? { class: c.id, toolset: classes.laneOf(c) } : {};
   };
-  app.convs = new ConvList({ change: () => emit('list'), epoch: () => app.me.epochMs || 0 });
+  app.convs = new ConvList({ change: () => { app.session.homes?.(); emit('list'); }, epoch: () => app.me.epochMs || 0 });
+  app.session.wantGlobalList = () => app.convs.wantsGlobal(); // model/homes.js: the shared space's stream, while the list shows its rows
   // The Automations page; its route() keeps the address of what is open there.
   app.autos = new A({
     change: () => emit('autos'),

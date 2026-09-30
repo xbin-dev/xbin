@@ -151,14 +151,63 @@ What a partitioned instance does differently:
 
 - **Your conversations are yours.** Everything you start is in your
   partition's `db`; a conversation there can't be shared (`POST
-  /runs/{id}/members`, `/links` and `/join` answer 409, so do `PATCH
-  /runs/{id}` with a `visibility` other than `private` or a `teamRole`, and
-  a schedule with `visibility: "team"`; the web view shows no sharing). Its
-  ids start at 2^40, so an id says where it lives —
+  /runs/{id}/members` and `/links` answer 409, so do `POST /ask` with a
+  `share`, `PATCH /runs/{id}` with a `visibility` other than `private` or a
+  `teamRole`, and a schedule with `visibility: "team"`) — share a copy
+  instead (below). Its ids start at 2^40, so an id says where it lives —
   below 2^40 is the global instance's `db` (and every id of an
   unpartitioned instance). Its lifecycle events stay on your partition's
   `events` bus; another tile subscribed to `res:<this tile>/events` hears
   the global instance's, as ever.
+- **Shared conversations live at the global instance** — in its `db`, run
+  by it (so they reach no one's partition: their tool calls land in other
+  tiles' global instances). The page reaches them with `xbin.fetch(…,
+  {partition: 'global'})` (`?xbin-partition=global`), attributed to you, and
+  the global instance applies the sharing rules above to you exactly as an
+  unpartitioned instance does: sharing, members, the team, join links, your
+  pins and read state. Everyone in one follows its stream there, so all see
+  a run as it streams.
+  - `POST /ask` **at the global instance** makes one: a person's must carry
+    `share` (409 otherwise — the shared space holds shared conversations;
+    `POST /runs` and a new ask's draft, `PUT /ask/upload`, from a person are
+    refused there alike: a shared chat with files is made `hold: true` and
+    uploaded into). A `POST /ask` with `share` in your partition answers
+    409.
+  - `POST /join` in your partition is redeemed at the global instance (join
+    links are its).
+  - `POST /runs/{id}/publish {share, files?, keep?}` in your partition
+    **shares a copy** of one of your conversations: its transcript (and,
+    with `files`, its session files) goes to the global instance as a new
+    conversation of yours shared as `share` says (required) → `{run: the
+    copy, deleted, left}`; the original is deleted unless `keep` (`left`:
+    files too large to carry — 16 MiB of session files together at most).
+    The copy is the conversation the model reads: every message with what
+    its tools returned (folded and stubbed ones as they were) and its task
+    ledger (the requests `# Your task` pins, compacted ones too).
+    Subagents' transcripts, memory, grants and sandboxes stay behind. A
+    conversation over 48 MiB as a whole answers 413 — leave its files out.
+  - `POST /copy {from, files?}` in your partition makes a **private copy**
+    of a shared conversation you can see (`from`: its id) → the new run.
+  - The copies travel as a bundle: `GET /runs/{id}/export[?files=1]` (a
+    viewer; either home) and `POST /import {conversation, share}` (the
+    global instance only; a person's must name `share`). An unpartitioned
+    instance has none of these four routes. A bundle is its caller's word:
+    at `POST /import` a message keeps its writer only when that is the
+    caller — anyone else's comes as a copy (`origin: "copy"`, `label`: the
+    id it named; the page says "copied · <id>", the model reads it as no
+    one's), and a request in the ledger that isn't the caller's becomes a
+    `copy` one. `POST /copy` reads the global instance's own export, whose
+    writers stand.
+  - The page (web and native) lists both homes in **Mine** — your own and
+    the shared ones you take part in — and the global instance's in
+    **Shared**; `#c=<id>` opens a conversation at its home. The web's Share
+    on one of your own is **Share a copy…**; a shared one's share dialog
+    offers **Copy to my own space**; **New chat with options** asks who can
+    see it (only you, the team, or people you name). While Mine lists
+    nothing shared, the page reads the shared space's list again when it
+    shows or gains focus, so a conversation shared with you since appears.
+    The global instance's own page (the owner token) is today's single list
+    of its conversations.
 - **Settings are the tile's.** The config, classes, the halt switch and the
   shared skills live in the global instance's `db`. It mirrors them into
   `conf` (kv, `"shared": "read"`), which every partition reads at each use
@@ -283,7 +332,7 @@ background tab doesn't keep a partition running.
 |---|---|---|
 | `GET /runs` | — | list runs (id, title, kind, status, timestamps; a quick ask also carries `last`, its latest answer, for the home view's cards). `?roots=1` lists top-level runs only — what the sidebar shows; subagents are reached through their parent |
 | `POST /runs` | `{goal, title?, system?, class?, toolset?}` | create a run and start driving it; `class` (or the legacy `toolset`): see **Agent classes** |
-| `POST /ask` | `{text, class?, toolset?, model?, hold?, draft?, files?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments; `class`: see **Agent classes**) |
+| `POST /ask` | `{text, class?, toolset?, model?, hold?, draft?, files?, share?}` | a quick ask: a run titled from `text`, `kind:"quick"`, driven immediately (`hold`, `draft`: see Attachments; `class`: see **Agent classes**; `share` — `{visibility: "team", teamRole}` and/or `{members: [{user, role}]}` — shares it at once, as the sharing routes below would right after; not with `draft`) |
 | `PUT /ask/upload?draft=&name=` | raw bytes, the file's own `Content-Type` | attach a file to a new ask before it exists (a native app's upload at home): into the run held for the draft key `{path, mime, bytes, binary, run}` — see Attachments |
 | `GET /runs/{id}` | — | run detail: `{run, messages, steps, memory, config, class, files, draft, messageFiles, slots, queued}` (`class`: the conversation's class, see **Agent classes**) (`draft` = live streaming text; `files` is session-file METADATA only; `messageFiles` = `{msgId: [path…]}`, the files each user message carried; `slots` = `{active, limit}` model calls in flight; `queued` = messages not yet delivered) |
 | `GET /runs/{id}/view` | — | the run as the chat draws it, plus a stream cursor — see **The live view**. `?limit=&before=` pages it, newest first — see **Paging the view** |

@@ -271,7 +271,7 @@ export function STUB(seed) {
     self: 'apps/agent',
     fetch: async (url, opt = {}) => {
       const method = opt.method || 'GET';
-      window.__calls.push({ method, url, body: typeof opt.body === 'string' ? opt.body : undefined });
+      window.__calls.push({ method, url, body: typeof opt.body === 'string' ? opt.body : undefined, home: opt.partition || '' });
       for (const r of routes) {
         const m = r.method === method && url.match(r.re);
         if (m) return r.fn(m, opt);

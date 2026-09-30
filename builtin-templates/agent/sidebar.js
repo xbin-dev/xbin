@@ -9,7 +9,7 @@
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { groupRows } from './model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
-import { sharing } from './model/partition.js'; // no Shared view in a person's own partition
+import { sharing } from './model/partition.js'; // the Shared view (in a person's partition: the shared space's)
 import * as actions from './model/actions.js';
 
 /**
@@ -74,7 +74,7 @@ function menuTpl(list, ui) {
   const item = (label, action, cls = '') => html`<div class="mi ${cls}" @click=${() => { ui.closeMenu(); ui.act(action, r); }}>${label}</div>`;
   return html`<div class="mback" @click=${() => ui.closeMenu()} @contextmenu=${(e) => { e.preventDefault(); ui.closeMenu(); }}></div>
     <div class="rowmenu" style="left:${m.x}px;top:${m.y}px">
-      ${rowMenu(r).map((i) => item(i.label, i.action, i.cls))}
+      ${rowMenu(r, { publish: true }).map((i) => item(i.label, i.action, i.cls))}
     </div>`;
 }
 

@@ -277,6 +277,12 @@ template's API.md ("Partitioned instances") says what runs where; update
 the sandbox managers an agent uses before you create or switch one (a
 manager whose `hello.caps` lack `partitions` isn't used in people's
 partitions, [sandbox-manager.md](sandbox-manager.md#partitioned-consumers)).
+A partitioned agent's **shared conversations** live at its global instance,
+and people's pages reach them through their own global instance
+(`?xbin-partition=global`, below): a conversation's id says its home (a
+person's from 2^40, the global instance's below), everyone in a shared one
+follows its stream there — so all see a run live — and a person shares one
+of their own by publishing a copy to the global instance.
 
 ## Shared resources
 
