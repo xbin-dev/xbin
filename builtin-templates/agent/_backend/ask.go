@@ -58,8 +58,14 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		// without it the legacy Toolset names a built-in, else the
 		// caller's default.
 		Class string
+		// Share shares it at once (homes.go): at a partitioned agent's
+		// global instance a person's new conversation must name someone.
+		Share *shareSpec
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	if !askShareOK(w, r, body.Share, body.Draft) {
+		return
+	}
 	if !validPick(body.Model) {
 		xbin.WriteError(w, 400, "model: a model id from GET /models (up to 200 characters)")
 		return
@@ -101,6 +107,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	w0 := callerOf(r)
 	st := w0.stamp("chat")
+	body.Share.stamp(&st)
 	title := strings.TrimSpace(body.Title)
 	if st.TitleSrc = "user"; title == "" {
 		title, st.TitleSrc = clip(body.Text, 60), "clip"
@@ -109,6 +116,9 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		Note: note, Stamp: st, Sender: w0.user})
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
+		return
+	}
+	if !shareNew(w, run, body.Share, w0) {
 		return
 	}
 	xbin.WriteJSON(w, 200, run)

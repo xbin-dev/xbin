@@ -132,6 +132,7 @@ func routeTable() []routeDef {
 // level (the tile itself and its owner); who the human behind a call is, and
 // what they may do with a run, is decided here.
 func routes(mux *http.ServeMux) {
+	homeRoutes(mux) // a partitioned agent's copies between homes (homes.go); none unpartitioned
 	for _, rt := range append(append(append(routeTable(), sandboxRoutes()...), liveRoutes()...), probeRoutes()...) {
 		// agentRole is RoleFunc("admin") unless partitioned (partition_routes.go)
 		mux.Handle(rt.pattern, agentRole(guard(rt.need, partitionRoute(rt.pattern, rt.h))))
