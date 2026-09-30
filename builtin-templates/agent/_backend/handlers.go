@@ -209,7 +209,7 @@ func handleNewRun(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	xbin.WriteJSON(w, 200, run)
+	xbin.WriteJSON(w, 200, runAnswer(run))
 }
 
 // handleGetRun is the pre-stream run detail, kept for existing tiles.

@@ -247,6 +247,23 @@ func handlePatchHarness(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"harness": harnessSummaryOf(run)})
 }
 
+// runAnswer is the Run JSON a new conversation's POST /ask or /runs
+// answers — with a coding agent's summary (§4.3.1: every place that serves
+// a harness run carries its `harness`).
+func runAnswer(run *Run) any {
+	h := harnessSummaryOf(run)
+	if h == nil {
+		return run
+	}
+	b, _ := json.Marshal(run)
+	var v map[string]any
+	if json.Unmarshal(b, &v) != nil {
+		return run
+	}
+	v["harness"] = h
+	return v
+}
+
 // rootRunOf is run's root conversation (run itself when it is one).
 func rootRunOf(run *Run) *Run {
 	if run.ParentID == 0 {

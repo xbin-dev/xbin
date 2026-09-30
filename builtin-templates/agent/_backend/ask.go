@@ -123,7 +123,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
-	xbin.WriteJSON(w, 200, run)
+	xbin.WriteJSON(w, 200, runAnswer(run))
 }
 
 // heldDraft is the caller's unreleased draft run for key (0: none).
@@ -284,7 +284,7 @@ func releaseDraft(w http.ResponseWriter, r *http.Request, id int64, key, text st
 		xbin.WriteError(w, 500, fmt.Sprintf("released run %d: %v", id, err))
 		return
 	}
-	xbin.WriteJSON(w, 200, run)
+	xbin.WriteJSON(w, 200, runAnswer(run))
 }
 
 // validPick: a model reference a person may pick — "" (the default) or an id

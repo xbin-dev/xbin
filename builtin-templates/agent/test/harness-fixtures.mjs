@@ -69,6 +69,8 @@ const EFFORT = { id: 'effort', name: 'Reasoning effort', category: 'thought_leve
   options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] };
 const COMMANDS = [{ name: 'review', description: 'Review the pending changes', hint: 'what to focus on' }, { name: 'compact', description: 'Compact the conversation' }];
 const SANDBOX = { ref: API_DEV, name: 'api-dev', cwd: '/work/api', shared: true };
+// the conversation's binding of it (config.sandbox): no `shared` — that is the summary's
+const BINDING = { ref: API_DEV, name: 'api-dev', cwd: '/work/api', manager: 'Coding sandboxes' };
 
 // summary: a harness run's `harness` (§4.3.2).
 function summary(provider, state, extra = {}) {
@@ -203,7 +205,7 @@ export function harnessSeed() {
     { id: 5, runId: 25, seq: 5, role: 'tool', toolCallId: 's3', name: 'subagent_spawn', content: 'started #28 (background)', created: now - 1189 },
     { id: 6, runId: 25, seq: 6, role: 'user', content: '[direct message to #26 (Claude Code) from admin]\nKeep the old routes as aliases.', created: now - 600 },
   ];
-  const childView = (c, task) => ({ access: 'owner', run: c, chain: [{ id: 25, title: 'Refactor the API' }], config: { sandbox: { ...SANDBOX, manager: 'Coding sandboxes' } },
+  const childView = (c, task) => ({ access: 'owner', run: c, chain: [{ id: 25, title: 'Refactor the API' }], config: { sandbox: BINDING },
     messages: [{ id: 1, runId: c.id, seq: 1, role: 'user', content: task, created: now - 1180, sender: '' }] });
 
   const runs = [
@@ -215,7 +217,7 @@ export function harnessSeed() {
       task: { count: 1, first: { id: 1, seq: 1, source: 'human', who: 'admin', text: msgs25[0].content, at: now - 1200, live: true } } },
     c26, c27, c28,
   ];
-  const cfg = (provider, mode) => ({ sandbox: { ...SANDBOX, manager: 'Coding sandboxes' }, engine: 'harness', harness: { provider, mode, ref: API_DEV, cwd: '/work/api', by: 'admin' } });
+  const cfg = (provider, mode) => ({ sandbox: BINDING, engine: 'harness', harness: { provider, mode, ref: API_DEV, cwd: '/work/api', by: 'admin' } });
   const views = {
     21: { access: 'owner', run: runs[0], messages: cards, config: cfg('claude', 'acceptEdits'), class: CODING,
       harnessSession: { gen: 1, execId: 'e-21', acpSessionId: 'sess-21', loadable: true, steering: true, startedAt: NOW - 900000, lastActive: NOW - 60000 },
@@ -246,29 +248,35 @@ export function harnessSeed() {
       { ref: `${SBX}|sb-2b8e`, provider: SBX, manager: 'Coding sandboxes', id: 'sb-2b8e', name: 'go-dev', state: 'stopped', egress: 'internet', visibility: 'private',
         image: { id: 'go' }, owner: { user: 'admin' }, mine: true, canUse: true, canManage: true, canEdit: true, workdir: '/work' },
     ],
+    // each item names the coding agent that waits (§4.3.9: the waiting run's compact summary)
     needs: [
-      { reason: 'login', run: { id: 24, title: 'Port the CLI', status: 'waiting_input', engine: 'harness', harness: h24 } },
-      { reason: 'approval', run: { id: 22, title: 'Add retries to the client', status: 'waiting_input', engine: 'harness', harness: h22 } },
-      { reason: 'question', run: { id: 23, title: 'Pick a JSON library', status: 'waiting_input', engine: 'harness', harness: h23 } },
-      { reason: 'approval', run: { id: 25, title: 'Refactor the API', status: 'awaiting' }, subRun: 27 },
+      { reason: 'login', run: { id: 24, title: 'Port the CLI', status: 'waiting_input', engine: 'harness', harness: h24 }, subRun: 24, harness: compact(h24) },
+      { reason: 'approval', run: { id: 22, title: 'Add retries to the client', status: 'waiting_input', engine: 'harness', harness: h22 }, subRun: 22, harness: compact(h22) },
+      { reason: 'question', run: { id: 23, title: 'Pick a JSON library', status: 'waiting_input', engine: 'harness', harness: h23 }, subRun: 23, harness: compact(h23) },
+      { reason: 'approval', run: { id: 25, title: 'Refactor the API', status: 'awaiting', engine: '' }, subRun: 27, harness: compact(h27) },
     ],
     trees: { 25: { root: 25, nodes: [node(runs[4], 0), node(c26, 1), node(c27, 1), node(c28, 1)], totals: {} } },
   });
 }
 
+// compact: a summary as /tree nodes and /needs items carry it (§4.3.6) —
+// without options, commands, mode.available and login.methods.
+function compact(harness) {
+  const h = { ...harness, mode: { current: harness.mode.current } };
+  delete h.options; delete h.commands;
+  if (h.login) { h.login = { ...h.login }; delete h.login.methods; }
+  return h;
+}
+
 // treeNode: a run as GET /runs/{id}/tree's node — its status a word (the
-// run's is rawStatus), its harness §4.3.2 without options, commands,
-// mode.available and login.methods (§4.3.6).
+// run's is rawStatus), its harness compact.
 const WORD = { running: 'running', queued: 'running', awaiting: 'blocked', blocked: 'blocked', waiting_input: 'blocked', sleeping: 'sleeping',
   error: 'error', canceled: 'cancelled', done: 'done' };
 function treeNode(r, depth) {
   const out = { id: r.id, parentId: r.parentId || 0, depth, created: r.created || r.id, title: r.title, status: WORD[r.status] || 'done', rawStatus: r.status,
     engine: r.engine || '' };
   if (r.engine !== 'harness') return out;
-  const h = { ...r.harness, mode: { current: r.harness.mode.current } };
-  delete h.options; delete h.commands;
-  if (h.login) h.login = { command: h.login.command };
-  return { ...out, harness: h };
+  return { ...out, harness: compact(r.harness) };
 }
 
 // kidsSeed: harnessSeed() with 25's three coding agents in the states a
@@ -332,7 +340,7 @@ const CODING = { id: 'coding', name: 'Coding', icon: '▣', description: 'Works 
 function CATALOG() {
   const img = (image) => ({ provider: SBX, manager: 'Coding sandboxes', image, advertised: true, egress: ['internet', 'open'] });
   return [
-    { id: 'claude', name: 'Claude Code', available: true, reason: '', why: '', classes: ['coding'], images: [img('base')], modes: MODES,
+    { id: 'claude', name: 'Claude Code', available: true, reason: '', why: '', classes: ['coding'], images: [img('base')], modes: MODES.map(({ description, ...m }) => m),
       defaultMode: 'default', autoMode: 'acceptEdits', approveMode: 'default', planMode: 'plan', login: { command: 'CLAUDE_CODE_REMOTE=1 claude /login' },
       options: [MODEL, EFFORT], sandboxes: { [API_DEV]: { installed: true, signedIn: true, at: NOW - 3600000 } } },
     { id: 'codex', name: 'Codex', available: true, reason: '', why: '', classes: ['coding'], images: [img('base')], modes: CODEX_MODES,

@@ -347,9 +347,10 @@ export function STUB(seed) {
       sandbox: { ref: s.ref, name: s.name, cwd: b.sandbox.cwd || s.workdir || '/work', shared: s.visibility === 'team' || (s.shares || []).length > 0 },
       steering: false, title: '', gen: 0 };
     const run = { id, title: b.title || String(text || '').slice(0, 60), status: b.hold ? 'idle' : 'running', parentId: 0, rootId: id,
-      engine: 'harness', harness, class: cls, pendingState: {} };
+      engine: 'harness', harness }; // the Run JSON + its summary (the class is the view's)
     window.__runs.push(run);
-    window.__views[id] = { access: 'owner', run, config: { sandbox: binding(s, b.sandbox.cwd), engine: 'harness', harness: { provider: h.id, mode, options: opts, ref: s.ref, cwd: b.sandbox.cwd || '' } },
+    window.__views[id] = { access: 'owner', run, class: classesView().classes.find((c) => c.id === cls) || { id: cls },
+      config: { sandbox: binding(s, b.sandbox.cwd), engine: 'harness', harness: { provider: h.id, mode, options: opts, ref: s.ref, cwd: b.sandbox.cwd || '' } },
       messages: b.hold || !text ? [] : [{ id: 1, runId: id, seq: 1, role: 'user', content: text, created: Math.floor(Date.now() / 1000) }] };
     window.__push({ type: 'run', run: id, root: id, data: run });
     return json(run);

@@ -321,8 +321,8 @@ test('STUB: a harness ask — refused as the backend refuses, else a harness run
   assert.equal(ok.data.engine, 'harness');
   assert.equal(ok.data.harness.mode.current, 'acceptEdits', 'the caller\'s setting (auto) mapped to the provider');
   assert.equal(ok.data.harness.sandbox.cwd, '/work/api');
-  assert.equal(ok.data.class, 'coding', 'the class resolved');
   const v = (await req('GET', `/runs/${ok.data.id}/view`)).data;
+  assert.equal(v.class.id, 'coding', 'the class resolved');
   assert.equal(v.messages[0].content, 'fix it');
   assert.deepEqual(v.config.harness.options, { model: 'sonnet' });
   assert.equal(pushed.at(-1).type, 'run');
