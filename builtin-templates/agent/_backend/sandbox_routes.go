@@ -32,7 +32,7 @@ func sandboxRoutes() []routeDef {
 //
 //	GET /sandboxes[?fresh=1]
 //	→ {sandboxes: [{ref, provider, manager, …the contract's sandbox…,
-//	    mine, canUse, canManage, canEdit, boundTo?}], managers: [{provider,
+//	    mine, canUse, canManage, canEdit, boundTo?, homed?, why?}], managers: [{provider,
 //	    title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}
 func handleSandboxes(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
@@ -61,6 +61,14 @@ func sandboxItem(e sbxCatalogEntry, a sbxAccess, boundTo []int64) map[string]any
 	v["mine"], v["canUse"], v["canManage"], v["canEdit"] = a.Mine, a.Use, a.Manage, a.Edit
 	if len(boundTo) > 0 {
 		v["boundTo"] = boundTo
+	}
+	if userMode() {
+		// a person's partition: whether a conversation here may work in it,
+		// and why not (sandbox_partition.go) — its terminal opens either way
+		v["homed"] = homedHere(e.Box)
+		if why := partitionBoxRefusal(e.Box); why != "" {
+			v["why"] = why
+		}
 	}
 	return v
 }

@@ -446,6 +446,9 @@ func probeHarnesses(ctx context.Context, c who, ref string, mgrs []hcManager) hc
 	case !a.seen():
 		pr.Error = "no such sandbox"
 		return pr
+	case partitionBoxRefusal(box) != "": // a person's partition: not a sandbox of its own
+		pr.Error = partitionBoxRefusal(box)
+		return pr
 	case !a.Use:
 		pr.Error = "you may not use this sandbox (" + box.Name + ")"
 		return pr
@@ -568,7 +571,9 @@ func handleHarnesses(w http.ResponseWriter, r *http.Request) {
 		cat := sandboxCatalog(ctx)
 		refs := map[string]bool{}
 		for _, e := range cat.Sandboxes {
-			if sandboxAccess(c, e.Box).seen() {
+			// a person's partition: only sandboxes homed here — no other one
+			// can have its coding agents (sandbox_partition.go)
+			if sandboxAccess(c, e.Box).seen() && partitionBoxRefusal(e.Box) == "" {
 				refs[e.Ref] = true
 			}
 		}
