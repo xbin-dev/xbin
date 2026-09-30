@@ -25,6 +25,7 @@
 //                    body() is merged into the POST /ask it sends
 //   screen(s)        a pushed screen (ui.stack entry s = {kind, …}) of a kind
 //                    native/tools.js doesn't know — push({kind: 'mine', …})
+//   task(s)          sections at the end of the Task screen (s = {kind: 'task', run})
 import { makeExt } from '../model/ext.js';
 
-export const ext = makeExt({ block: 'first', end: 'all', toolbar: 'all', menu: 'all', composer: 'all', newChat: 'all', screen: 'first' });
+export const ext = makeExt({ block: 'first', end: 'all', toolbar: 'all', menu: 'all', composer: 'all', newChat: 'all', screen: 'first', task: 'all' });

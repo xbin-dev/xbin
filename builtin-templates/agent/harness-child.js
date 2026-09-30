@@ -155,13 +155,16 @@ function bodyTpl(b, ui, depth, c) {
   </div>`;
 }
 
-function cardTpl(b, ui, depth) {
+// cardTpl: a child's card — in the parent's chat, and on the Coding agents
+// board (harness-board.js: opts.run, the row's summary; opts.view, whose
+// access answers — at home its conversation's row)
+function cardTpl(b, ui, depth, opts = {}) {
   const app = ctx.app;
   if (!app) return null;
-  const run = childRun(b, app.session.runs.get(b.childId));
+  const run = opts.run || childRun(b, app.session.runs.get(b.childId));
   const c = childCard(b, run);
   const open = ui.isOpen(b.id, false); // collapsed: the parent's chat stays light
-  const pv = app.session.current();
+  const pv = opts.view || app.session.current();
   const talk = access(pv).talk;
   const who = { owner: ownerOf(pv, app.me), talk, name: c.name, access: pv && pv.access };
   const x = box(c.id);
@@ -223,3 +226,6 @@ style.textContent = `
   .run .kids { flex: none; font: 10.5px var(--bx-mono, monospace); color: var(--bx-accent); }
 `;
 document.head.append(style);
+
+// the Coding agents board draws its rows as these cards (harness-board.js)
+export { cardTpl };

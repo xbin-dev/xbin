@@ -99,3 +99,6 @@ function cardTpl(b, depth) {
   memo.set(b, { held, open, tpl });
   return tpl;
 }
+
+// the Coding agents board draws a parked child's park with this (native/harness-board.js)
+export { parkTpl };

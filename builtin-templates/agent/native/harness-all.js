@@ -23,6 +23,7 @@ import './terminal.js'; // the Terminal and Sign in screens, the sign-in notice,
 import './harness-child.js'; // a coding agent the agent started, as its card in the parent's chat (block); Cancel in its own chat's menu
 
 // U7 the Coding agents board
+import './harness-board.js'; // the Coding agents screen (sections), its toolbar button and ⋯ item, Message, the Task screen's Delegated
 
 // U8 managers
 import './harness-catalog.js';

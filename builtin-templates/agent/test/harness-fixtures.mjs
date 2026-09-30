@@ -13,7 +13,8 @@
 //   24  "Port the CLI" — Codex waiting for a sign-in (login: terminal, api-key, device code)
 //   25  "Refactor the API" — the built-in agent with three Claude Code / Codex
 //       children: 26 working, 27 parked on a plan approval, 28 done — and a
-//       direct message to #26 told to it (the notice); seed.trees[25] its tree
+//       direct message to #26 told to it (the notice), its task pinned (D133);
+//       seed.trees[25] its tree (nodes as GET /runs/{id}/tree has them)
 //       — kidsSeed() has them as a child card draws them: 26 working through
 //       its plan, 27 parked on a permission, 28 signed out
 //
@@ -186,7 +187,7 @@ export function harnessSeed() {
     pending: { park: park27, kind: 'approval', title: 'Ready to code?' }, counts: { tools: 4, files: 0, add: 0, del: 0 },
     sandbox: { ...SANDBOX, cwd: '/work/migrations' } });
   const h28 = summary('claude', 'ready', { counts: { tools: 3, files: 1, add: 12, del: 0 }, usage: { used: 9000, size: 200000 }, sandbox: { ...SANDBOX, cwd: '/work/docs' } });
-  const child = (id, title, status, harness, extra = {}) => ({ id, title, status, parentId: 25, rootId: 25, engine: 'harness', harness, ...extra });
+  const child = (id, title, status, harness, extra = {}) => ({ id, title, status, parentId: 25, rootId: 25, engine: 'harness', harness, created: now - 1216 + id, ...extra });
   const c26 = child(26, 'Split the router', 'running', h26);
   const c27 = child(27, 'Plan the users migration', 'waiting_input', h27, { pendingState: ps27 });
   const c28 = child(28, 'Write the changelog', 'idle', h28, { result: 'Added the 2026-09-30 entry.' });
@@ -210,7 +211,8 @@ export function harnessSeed() {
     { id: 22, title: 'Add retries to the client', status: 'waiting_input', parentId: 0, rootId: 22, engine: 'harness', harness: h22, pendingState: ps22, activityMs: NOW - 30000 },
     { id: 23, title: 'Pick a JSON library', status: 'waiting_input', parentId: 0, rootId: 23, engine: 'harness', harness: h23, pendingState: ps23, result: q23, activityMs: NOW - 20000 },
     { id: 24, title: 'Port the CLI', status: 'waiting_input', parentId: 0, rootId: 24, engine: 'harness', harness: h24, pendingState: ps24, activityMs: NOW - 10000 },
-    { id: 25, title: 'Refactor the API', status: 'awaiting', parentId: 0, rootId: 25, engine: '', activityMs: NOW - 5000 },
+    { id: 25, title: 'Refactor the API', status: 'awaiting', parentId: 0, rootId: 25, engine: '', activityMs: NOW - 5000, created: now - 1200,
+      task: { count: 1, first: { id: 1, seq: 1, source: 'human', who: 'admin', text: msgs25[0].content, at: now - 1200, live: true } } },
     c26, c27, c28,
   ];
   const cfg = (provider, mode) => ({ sandbox: { ...SANDBOX, manager: 'Coding sandboxes' }, engine: 'harness', harness: { provider, mode, ref: API_DEV, cwd: '/work/api', by: 'admin' } });
@@ -254,10 +256,14 @@ export function harnessSeed() {
   });
 }
 
-// treeNode: a run as GET /runs/{id}/tree's node — §4.3.2 without options,
-// commands, mode.available and login.methods (§4.3.6).
+// treeNode: a run as GET /runs/{id}/tree's node — its status a word (the
+// run's is rawStatus), its harness §4.3.2 without options, commands,
+// mode.available and login.methods (§4.3.6).
+const WORD = { running: 'running', queued: 'running', awaiting: 'blocked', blocked: 'blocked', waiting_input: 'blocked', sleeping: 'sleeping',
+  error: 'error', canceled: 'cancelled', done: 'done' };
 function treeNode(r, depth) {
-  const out = { id: r.id, parentId: r.parentId || 0, depth, created: r.id, title: r.title, status: r.status, engine: r.engine || '' };
+  const out = { id: r.id, parentId: r.parentId || 0, depth, created: r.created || r.id, title: r.title, status: WORD[r.status] || 'done', rawStatus: r.status,
+    engine: r.engine || '' };
   if (r.engine !== 'harness') return out;
   const h = { ...r.harness, mode: { current: r.harness.mode.current } };
   delete h.options; delete h.commands;

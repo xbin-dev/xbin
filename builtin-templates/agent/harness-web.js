@@ -24,5 +24,6 @@ import './signin.js'; // the sign-in card (end, a login park only); the dock is 
 import './harness-child.js'; // a coding agent the agent started, as its card in the parent's chat (ext.block)
 
 // U7 the Coding agents board
+import './harness-board.js'; // the top chip, the right dock (#hboard) of every coding agent in the tree (at home: yours at work), the pinned task's Delegated
 
 // U8 managers (the Coding agents tab: agent.js imports harness-catalog.js)

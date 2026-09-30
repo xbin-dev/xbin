@@ -28,7 +28,7 @@ export const FEATURES = {
   // Home
   'home.greeting': 'the greeting and tagline (HOME, model/home.js)',
   'home.examples': 'example asks; picking one puts it into the composer',
-  'home.needs': '"Needs you" (GET /needs): questions, approvals and failed automations; picking one opens it',
+  'home.needs': '"Needs you" (GET /needs): questions, approvals, a coding agent waiting for you to sign in (named when the item says which, D-harness §4.3.9) and failed automations; picking one opens it',
   'home.mcpHint': 'a hint when no MCP server is bound yet',
 
   // Conversations
@@ -120,6 +120,8 @@ export const FEATURES = {
   'top.class': 'its class, fixed for its life (icon and name); a class that can move internal data out says so',
   'top.model': 'the model it was switched to, when one was picked',
   'top.task': 'its task, pinned (D133): the current request — the latest it was given — verbatim, and how many others there are — opening to every request it was given (GET /runs/{id}/asks), read-only',
+  'top.task.delegated': 'the unfolded task\'s Delegated section (D-harness §8 U7): each coding agent it started below it — its state, its task, a way to its chat — read-only',
+  'top.board': 'the Coding agents chip (D-harness §8 U7): "⌨ 3 coding agents · 1 needs you" in a conversation with coding agents below it — at home, yours that run or need you — opening the board',
   'top.sandbox': '▣ its sandbox and working directory, and why a binding no longer resolves (gone, its manager unbound or down, its class no longer allows it); opens the working directory, switching among the attached ones, Detach, Manage…',
   'top.harness': 'a coding agent\'s conversation: which one, its state, and — its sandbox being shared — that the people who may use it can read what it does',
   'top.status': 'its status',
@@ -141,6 +143,7 @@ export const FEATURES = {
   'tools.files.attachments': 'an attachment: image preview, download',
   'tools.skills': 'the skill library: list, edit, add, delete',
   'tools.tree': 'the workflow tree: nodes by parent, their state and what blocks them',
+  'tools.board': 'the Coding agents board (D-harness §8 U7): every coding agent in the conversation\'s tree (GET /runs/{root}/tree, kept current by the stream) — at home every one of yours that runs or needs you — in the order they started, never re-sorted as they change; each with its state, what it does now, where it works and its counters, its permission, question or sign-in answered in place (on its own run), Stop, Message (the agent is told) and Cancel task; only those that need you (the web: a filter; the app: sections Needs you, Running, Done)',
   'tools.tree.cost': 'cost per node and in total, the running/limit count',
   'tools.tree.stop': 'stop the whole workflow, confirmed',
   'tools.render': 'the render preview of an HTML file: sandboxed, no scripts, nothing external loads',

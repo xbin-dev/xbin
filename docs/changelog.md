@@ -159,6 +159,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `model/harness-child.js`; for an instance's own modules,
   `Session.fetchView(id, {paged, limit})` reads a page of any size.
 
+- **Agent template: the Coding agents board** (`builtin-templates/agent/API.md`
+  §Coding agents, "The Coding agents board"). Every coding agent in the
+  open conversation's tree — at home every one of yours that runs or needs
+  you — in one place, web and app: a top-bar chip "⌨ 3 coding agents · 1
+  needs you" (the app: a toolbar button while one needs you, and ⋯ →
+  Coding agents) opens a dock at the right (the app: a screen with
+  sections Needs you, Running, Done) with a row per coding agent in the
+  order they started — rows never move as they change — each its child
+  card: what it does now, its permission, question or sign-in answered in
+  place on its own run, Stop, Message, Cancel. The web has a "needs you"
+  filter. The unfolded 📌 Task lists what it **Delegated** (each coding
+  agent below it, its state and task; the app: a section of the Task
+  screen), and "Needs you" says a coding agent waiting for a sign-in
+  ("needs you to sign in to Codex"). It reads `GET /runs/{root}/tree` only
+  once a coding agent is known to be there, and again only for a run the
+  tree lacks. New modules `harness-board.js`, `native/harness-board.js`,
+  `model/harness-board.js` (`app.board`); for an instance's own modules, a
+  `task` seam on both views (a part of the unfolded pinned task).
+
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
   §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).

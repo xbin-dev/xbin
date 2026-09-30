@@ -229,7 +229,7 @@ function taskTpl(v) {
     ${open ? html`<div class="asks">${taskAsks.err ? html`<span class="err">${taskAsks.err}</span>`
       : !taskAsks.list ? html`<span class="muted">loading…</span>`
       : taskAsks.list.map((a) => html`<div class="taskreq"><div class="askhead">#${a.seq} · ${rules.askFrom(a)} · ${new Date(a.at * 1000).toLocaleString()}${a.live ? '' : ' · compacted (the agent sees it pinned)'}</div>
-        <div class="asktext">${a.text}</div></div>`)}</div>`
+        <div class="asktext">${a.text}</div></div>`)}${ext.task(v) || nothing}</div>`
     : html`<span class="taskline" title=${p.text}>${p.line}</span>`}
   </div>`;
 }
