@@ -5741,9 +5741,11 @@ Deviations and refinements made while implementing; all deliberate:
   go.mod at build time; the root go.work is for shells and gopls only
   (2026-09-30).** internal/deps/{buildwork.go, modfile.go},
   internal/runner/{gowork.go, build.go, buildcheckpoint.go}. (The numbers
-  between D136 and this one, D147 aside, are reserved by the unmerged
-  partitions branch.) The owner: "go.work seems generally always felt sketchy to me, especially
-  if all builds can influence some shared build env." D78 had given every
+  between D136 and this one, D147 aside, and the five after it are the
+  unmerged partitions branch's, which left this one to this fix.) The
+  owner: "go.work seems
+  generally always felt sketchy to me, especially if all builds can
+  influence some shared build env." D78 had given every
   confined build its own GOCACHE and GOMODCACHE, but the module graph was
   still shared: every build ran with the root go.work (99fa52da: a copy of
   it), which `use`s every Go component, and in workspace mode the go
@@ -5771,42 +5773,91 @@ Deviations and refinements made while implementing; all deliberate:
     Built from what the registry lists at build time, the race is gone by
     construction. The root go.work (GoWork, D40's GoWorkFor) is unchanged.
   - **Reach.** From the tile's module: its go.mod's `require` lines, its
-    `replace` lines (a directory that is a workspace module's; a module
-    path), and the imports of its Go files (go/parser, ImportsOnly), then
-    on through every module used. Imports matter because workspace mode
-    lets a module import another used module *without* a require line
-    (verified: builds with the shared go.work, fails with only the tile's
-    module) — a tile doing that must keep building. The scan reads every
-    .go file but tests in every directory a package can build from (`_*`
-    and testdata too: a template's entry is `./_backend`), not `.*`,
-    vendor/, node_modules/ or nested modules; build tags aren't evaluated
-    (a superset only adds modules the tile's own code names). Files are
-    read beneath an os.Root at the module (fsutil.OpenRootIn), O_NONBLOCK
-    and regular only, 20000 files and 1 MiB each at most.
-  - **Squatting: a reference is served only when it can mean nothing but
-    the workspace.** A per-tile closure alone would keep a variant of the
-    hole: tile A declares `module golang.org/x/crypto` and every tile that
-    requires x/crypto reaches A. So a workspace module serves a reference
-    when its path has no dot in its first element (no proxy serves
-    `calendar`; builtins and `bx new` scaffolds are dotless), the
-    reference requires it at a placeholder version (v0.0.0, or the zero
-    pseudo-version `go mod tidy` writes for a replaced module), a replace
-    names its directory, the referring tile's manifest names its tile in
-    `deps` (the documented way to "build against" another component),
-    only admins write it (a hand-managed use outside every tile), or it is
-    an import its go.mod doesn't require — unless some go.mod of the
-    workspace requires that path at a published version, which says it is
-    a real module a tile builds with (so a tile that imported a published
-    module without requiring it, relying on another tile's requirement,
-    can't be handed a squatter's code for it). The SDK's path (xbind's,
-    whether an SDK is configured or not), a path the go.work replaces at
-    every version, the tile's own path, and standard-library imports
-    (checked against the host toolchain's GOROOT: a tile declaring `module
-    net` never reaches a build that imports net/http) never match. An
-    import belongs to the longest module path any go.mod read declares,
-    requires or replaces, and a workspace module serves it only when that
-    is its own — a tile declaring `module github.com/xbin-dev/xbin` would
-    otherwise catch every SDK import as an unrequired one.
+    `replace` lines, and the imports of its Go files (go/parser,
+    ImportsOnly), then on through every module used — every used go.mod's
+    lines before any import, so an import is looked up only once the lines
+    known by then have claimed their paths. Imports matter because
+    workspace mode lets a module import another used module *without* a
+    require line (verified: builds with the shared go.work, fails with only
+    the tile's module) — a tile doing that must keep building. The scan
+    reads every .go file but tests in every directory a package can build
+    from (`_*` and testdata too: a template's entry is `./_backend`), not
+    `.*`, vendor/, node_modules/ or nested modules; build tags aren't
+    evaluated (a superset only adds modules the tile's own code names).
+    Files are read beneath an os.Root at the module (fsutil.OpenRootIn),
+    O_NONBLOCK and regular only, 20000 files and 1 MiB each at most.
+  - **A reference chooses a workspace module only by the referring
+    module's own lines — never a namesake.** A per-tile closure alone
+    would keep a variant of the hole: tile A declares `module
+    golang.org/x/crypto` and every tile that requires x/crypto reaches A;
+    and a first cut that credited an import to the longest module path any
+    go.mod declared was still open (review, reproduced with the go
+    command): A declaring `golang.org/x/sys/unix` (with a replace hiding
+    x/sys's own package), `github.com/xbin-dev/xbin/sdk/sandboxcontract`
+    (every agent tile imports an SDK sub-package) or `calendar/store` got
+    its code compiled into a tile importing that package, and lines in
+    unrelated go.mods changed what served another tile's imports. The
+    rules, read only from the referring module's go.mod and manifest and
+    the modules the build already uses:
+    - a `require` whose go.mod also replaces that path (at every version,
+      or the required one) is the replace's alone: a directory is served
+      only by the workspace module at that directory (never by path — the
+      `require example.com/lib v0.0.0` + `replace => ./lib` pattern), a
+      module path as a require of it would be;
+    - a `require` of path p is served by a workspace module declaring p
+      when p is dotless (no proxy serves `calendar`; builtins and `bx new`
+      scaffolds are dotless), the version is a placeholder (v0.0.0, or the
+      zero pseudo-version `go mod tidy` writes for a replaced module), the
+      referring tile's manifest names the module's tile in `deps` (the
+      documented way to "build against" another component — it lets that
+      tile's module stand in for the path it declares, even at a published
+      version, and brings its replaces: a choice of that code, documented as
+      such), or only admins write it (a hand-managed use outside every
+      tile). A dotted path at a published version resolves as a normal
+      module even when a tile declares it;
+    - an import is looked up among the workspace's modules only when no
+      path a used go.mod requires or replaces, the SDK's or the go.work's
+      replaces covers it (x/sys/unix under a required x/sys, sdk/ws under
+      the SDK), it isn't a standard-library package (the host GOROOT), and
+      no used module holds its package. Then the one workspace module that
+      holds the package serves it, as the go command finds one (dirInModule:
+      the directory beneath the module, no go.mod on the way — a nested
+      module's — and a .go file in it): a dotless module, one nested in
+      the tile's own module directory (a child component, in the tile's
+      own tree), or one of a deps-named tile or an admin's. When several
+      could, none does — the go command would say "ambiguous import", and
+      taking either lets a namesake stand in; a deps-named one among them
+      wins. A module whose
+      path lies strictly under the tile's own serves only from inside the
+      own module's directory (a nested component, never a namesake of the
+      tile's own sub-package elsewhere);
+    - never used: a module declaring the tile's own path, the SDK's or one
+      beneath it (configured or not), or one the go.work replaces at every
+      version. A last check drops a module served only by path or import
+      whose path lies strictly under a dotted path a used go.mod requires
+      at a published version, or (import only) under one a used go.mod
+      requires or replaces, and resolves again without it.
+
+    **Dotted imports without a require are no longer served by path.**
+    A tile importing another tile's `example.com/lib` with no go.mod line
+    built with the shared go.work; now it needs deps (or a require with a
+    replace) — unless that module is nested in the tile's own module
+    directory (TestConfinedBuildOfCheckpointAtCanonicalPath's
+    `example.com/sub`; its sibling `example.com/y` now comes through
+    deps). The alternatives: serve a unique dotted provider (a tile
+    whose go.mod lacks a require for a *published* module it imports —
+    exactly the tiles this change breaks — would silently compile a
+    namesake's code instead of failing), or serve it unless some go.mod of
+    the workspace requires that path published (the first cut: then an
+    unrelated tile's go.mod line takes another tile's module away, the
+    influence D166 removes). Dotless paths keep working either way: nothing
+    outside the workspace could serve them, so a namesake can only make an
+    import ambiguous (which failed under the shared go.work too).
+    **`require M v0.0.0` without a replace is fragile regardless:** the go
+    command looks M@v0.0.0 up (and fails) once a build loads the whole
+    module graph — any import from a module outside the workspace
+    (verified; the shared go.work had the same). Hints and docs advise
+    deps, or the require with a `replace` to the module's directory.
   - **A used module brings its replace lines.** In workspace mode they
     apply to the whole build; the tile chose to build with that module's
     code, which is in its binary anyway, so its replaces give its authors
@@ -5832,22 +5883,51 @@ Deviations and refinements made while implementing; all deliberate:
     already added needs the network again; directories no build wrote for
     7 days are removed. A tile with no module builds with GOWORK=off
     ("go.mod file not found"), never the root file.
+  - **A tile holding no module of its own** (apps/suite/admin: xbin.json
+    and backend/ inside apps/suite's module) builds in the component module
+    it sits in — the nearest go.mod above it, when that is another
+    component's module or a hand-managed use, as the go command found it
+    under the root go.work — read where that component's code is, its
+    references that component's (review: the first cut gave it GOWORK=off,
+    and it lost the SDK). A nearest go.mod no go.work used never built
+    ("not one of the workspace modules") and still gets GOWORK=off.
+  - **The go line** is the highest of 1.24 (the root file's), a
+    hand-managed root's and the used modules' go lines, in the go command's
+    order (1.24 < 1.24rc1 < 1.24.0): a go.work older than a module it uses
+    is refused ("module . listed in go.work file requires go >= 1.24.0"),
+    and `go mod init` writes `go 1.24.0`. (The root go.work's own `go
+    1.24` is unchanged: shells and gopls, as before.)
+  - **The hint names module paths and versions, never a tile.** A failed
+    build whose output says "no required module provides package P" or
+    "package P is not in std" gains `xbind:` lines: several workspace
+    modules could provide P (their module paths — prefixes of the tile's
+    own import), P is in a workspace module the build doesn't use, or a
+    workspace go.mod requires its module at a published version (the
+    highest). The build's output is readable by the tile's readers; naming
+    the tile that requires or owns a module would leak unreadable tiles'
+    names and dependency sets past D40.
+  - **The root go.work is written atomically** (fsutil.WriteFileAtomic):
+    every build now reads it (ReadRootWork, for a hand-managed one's
+    lines), and a torn regeneration would read as hand-managed — F6's race
+    in another form.
   - **Compatibility — the breaking part.** A build that relied on another
     tile's go.mod fails now: an import of a package only another tile
     requires ("no required module provides package"), an API newer than
-    the tile's own requirement, another tile's replace, a published-path
-    tile module imported without deps. That is the hole itself (compat.md
-    rule 11: a security hole closes in the release that finds it, with a
-    migration note — docs/changes/2026-09-30-go-build-workspace.md). The
-    build's output gains an `xbind:` line naming the require to add (the
-    highest version another tile requires, or `v0.0.0` / deps for another
-    tile's module). Every builtin tile and template, and the examples,
-    build with only their own module and the SDK (checked). A protected
-    primary's build.json now records `workspace: "tile"`; one recorded
-    before D166 compares as "inputs moved", so a restart after `.xbin/`
-    loss holds it for a manager's redeploy rather than silently rebuilding
-    it with a different module graph (07-runtime §3.4's rule). Checkpoint
-    builds record the modules they used, not every workspace module.
+    the tile's own requirement, another tile's replace. So does a dotted
+    tile module imported without a go.mod line or deps, and a dotless
+    import two workspace modules could provide (it failed as "ambiguous
+    import" before, and now fails with a hint). A dotted tile module
+    required at a published version now builds from the published module
+    (from the proxy) unless deps names the tile. That is the hole itself
+    (compat.md rule 11: a security hole closes in the release that finds
+    it, with a migration note — docs/changes/2026-09-30-go-build-workspace.md).
+    Every builtin tile and template, and the examples, build with only
+    their own module and the SDK (checked). A protected primary's
+    build.json now records `workspace: "tile"`; one recorded before D166
+    compares as "inputs moved", so a restart after `.xbin/` loss holds it
+    for a manager's redeploy rather than silently rebuilding it with a
+    different module graph (07-runtime §3.4's rule). Checkpoint builds
+    record the modules they used, not every workspace module.
   - **Not chosen:** keeping the shared graph but dropping replaces (MVS
     still lets any tile move another's versions, and a squatted path
     still wins); a synthetic module carrying other tiles' requirements for
@@ -5858,4 +5938,6 @@ Deviations and refinements made while implementing; all deliberate:
     `go mod graph` to compute the reach (running go on tile data needs a
     sandbox per step, and it would load the shared graph it exists to
     avoid); requiring `deps` for every cross-tile import (breaks tiles
-    that import a dotless module today).
+    that import a dotless module today); crediting an import to the longest
+    module path any go.mod names, or telling published paths from what
+    other go.mods require (the first cut; review above).

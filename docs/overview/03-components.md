@@ -270,12 +270,14 @@ byte.
   uses, so every tile's `go.mod` — a newer requirement, a `replace` —
   changed what every other tile compiled, and a new tile's first build
   could race the root file's regeneration. A build gets a `go.work`
-  rendered from the tile's own `go.mod` at build time: the tile's module,
-  the SDK, and only the other tiles' modules it reaches through
-  references that can mean nothing but the workspace (dotless module
-  paths, `v0.0.0` requirements, imports without a `require`, `deps`) —
-  [elements.md](../elements.md) §Cross-component code access has the
-  rules. A hand-managed root `go.work` keeps its `go`, `toolchain`,
+  rendered from the tile's own `go.mod` at build time: the tile's module
+  (or, for a tile with none, the component module it sits in), the SDK,
+  and only the other tiles' modules the tile's own `go.mod`, manifest and
+  code choose (dotless module paths, `v0.0.0` requirements, a `replace`
+  with a tile's directory, a dotless import one module alone holds,
+  `deps`) — never a module that merely declares a path the tile uses
+  ([elements.md](../elements.md) §Cross-component code access has the
+  rules). A hand-managed root `go.work` keeps its `go`, `toolchain`,
   `godebug` and `replace` lines for every build.
 - **The SDK is zero-dependency** by rule — components inherit its module
   graph, so the SDK must never pull anything in.
