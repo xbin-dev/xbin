@@ -16,10 +16,10 @@ import { runApi as api, homeApi, homeFetch } from './home-api.js';
 
 // refusing: the kit's selfApi() with the refusal kept — e.status, and a
 // sandbox manager's e.refusal (API.md "Coding sandboxes") beside e.message.
-async function refusing(path, opts) {
+async function refusing(path, opts, home = homeOf(runOfPath(path))) {
   const x = globalThis.xbin;
   const f = sandboxed() && x && x.fetch ? x.fetch : fetch;
-  const r = await f(`/api/${x?.self ?? ''}${path}`, at(homeOf(runOfPath(path)), opts));
+  const r = await f(`/api/${x?.self ?? ''}${path}`, at(home, opts));
   const text = await r.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
@@ -215,22 +215,24 @@ export async function setFeature(key, on) {
 // A sandbox reference (<provider>[#inst]|<id>) in a route's path: its
 // slashes as they are, the rest percent-encoded (# and | never go raw).
 export const sbxPath = (ref) => '/sandboxes/' + String(ref).split('/').map(encodeURIComponent).join('/');
+// The sandbox calls take `home` (model/homes.js; '' = this page's own
+// backend): a shared conversation's sandboxes are the global instance's.
 // sandboxes: {sandboxes, managers} — what you may see across the bound managers.
-export const sandboxes = (fresh) => api('/sandboxes' + (fresh ? '?fresh=1' : ''));
+export const sandboxes = (fresh, home = '') => homeApi(home, '/sandboxes' + (fresh ? '?fresh=1' : ''));
 // createSandbox: {name, provider?, image?, size?, egress?, visibility?,
 // conversation?, bind?, cwd?, clientId?} → the sandbox (+ binding).
-export const createSandbox = (body) => api('/sandboxes', jbody(body, 'POST'));
+export const createSandbox = (body, home = '') => homeApi(home, '/sandboxes', jbody(body, 'POST'));
 // getSandbox: one sandbox, fresh from its manager. patchSandbox: {name?,
 // visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?,
 // version?} — with version, a change made since it was read is refused
 // (e.status 412, e.refusal 'precondition') rather than overwritten.
-export const getSandbox = (ref) => refusing(sbxPath(ref));
-export const patchSandbox = (ref, body) => refusing(sbxPath(ref), jbody(body, 'PATCH'));
-export const deleteSandbox = (ref) => api(sbxPath(ref), { method: 'DELETE' });
+export const getSandbox = (ref, home = '') => refusing(sbxPath(ref), undefined, home);
+export const patchSandbox = (ref, body, home = '') => refusing(sbxPath(ref), jbody(body, 'PATCH'), home);
+export const deleteSandbox = (ref, home = '') => homeApi(home, sbxPath(ref), { method: 'DELETE' });
 // sandboxAction: start | stop | archive | thaw, waiting up to `wait` s for it
 // to settle; `conversation`: acting as a participant of one it is bound to.
-export const sandboxAction = (ref, action, { wait = 20, conversation } = {}) =>
-  api(`${sbxPath(ref)}/${action}?wait=${wait}${conversation != null ? `&conversation=${conversation}` : ''}`, jbody({}, 'POST'));
+export const sandboxAction = (ref, action, { wait = 20, conversation, home = '' } = {}) =>
+  homeApi(home, `${sbxPath(ref)}/${action}?wait=${wait}${conversation != null ? `&conversation=${conversation}` : ''}`, jbody({}, 'POST'));
 // setRunSandbox: a conversation's binding — {sandbox: {ref, cwd?} | null, detach?: <ref>}.
 export const setRunSandbox = (id, body) => api(`/runs/${id}`, jbody(body, 'PATCH'));
 // endManagerExec: DELETE a sandbox manager's exec route (url: …/sbx/sandboxes/

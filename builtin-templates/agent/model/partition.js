@@ -73,11 +73,12 @@ export function oldManagers(managers) {
  * sandbox picker is ever opened.
  */
 export function appNotices(app, state = partitionState()) {
-  if (state === 'user' && app.sbx && !app.sbx.list.loaded) {
+  const own = app.sbx && (app.sbx.listAt ? app.sbx.listAt('') : app.sbx.list); // your partition's, wherever you are (model/sandbox-store.js)
+  if (state === 'user' && own && !own.loaded) {
     const slot = globalThis.xbin?.iface ? globalThis.xbin.iface('sandboxes') : null;
-    if (slot && (slot.endpoints || []).length) app.sbx.ensure();
+    if (slot && (slot.endpoints || []).length) app.sbx.ensure('');
   }
-  return notices(state, app.sbx && app.sbx.list);
+  return notices(state, own);
 }
 
 /**
