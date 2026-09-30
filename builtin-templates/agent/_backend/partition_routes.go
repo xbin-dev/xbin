@@ -64,6 +64,7 @@ const (
 	userGlobal                   // the tile's, not the person's: forwarded to the global instance
 	userSkill                    // a skill: the person's own here, a shared one forwarded
 	userNoShare                  // sharing: 409, the conversation is its person's alone here
+	userBoth                     // an automation global keeps: here and there, merged (automations_global.go)
 )
 
 var userRoutes = map[string]userRoute{
@@ -96,6 +97,10 @@ var userRoutes = map[string]userRoute{
 	// (trigger_registry.go); a registry row's id below 2^40 is forwarded
 	// by its handlers (forwardGlobalTrigger)
 	"POST /triggers": userLocal,
+	// a channel's (a registry row's) runs are in both homes: its own DMs
+	// here, its threads at global (automations_global.go)
+	"GET /automations/{kind}/{aid}/runs":  userBoth,
+	"POST /automations/{kind}/{aid}/read": userBoth,
 }
 
 // sharesInPartition: a change that would share a conversation (or an
@@ -123,6 +128,8 @@ func partitionRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) { forwardSkill(w, r, h) }
 	case userNoShare:
 		return func(w http.ResponseWriter, _ *http.Request) { xbin.WriteError(w, http.StatusConflict, noShareWords) }
+	case userBoth:
+		return withGlobalRuns(h)
 	}
 	return h
 }

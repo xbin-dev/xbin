@@ -141,6 +141,9 @@ func allAutomations(w who) []AutomationItem {
 	for _, k := range automationKinds {
 		for _, it := range k.List(w) {
 			c := counts[k.Origin+":"+strconv.FormatInt(it.ID, 10)]
+			if globalItem(k.Kind, it.ID) { // automations_global.go: the global instance's runs of it, as it counted them
+				c[0], c[1] = c[0]+it.Runs, c[1]+it.Unread
+			}
 			it.Runs, it.Unread = c[0], c[1]
 			out = append(out, it)
 		}
@@ -191,6 +194,9 @@ func automationFor(w http.ResponseWriter, r *http.Request) (*AutomationItem, aut
 		for _, it := range k.List(c) {
 			if it.ID == id {
 				cnt := counts[k.Origin+":"+strconv.FormatInt(id, 10)]
+				if globalItem(k.Kind, it.ID) { // automations_global.go
+					cnt[0], cnt[1] = cnt[0]+it.Runs, cnt[1]+it.Unread
+				}
 				it.Runs, it.Unread = cnt[0], cnt[1]
 				return &it, k, true
 			}
