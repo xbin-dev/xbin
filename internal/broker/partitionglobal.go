@@ -5,8 +5,9 @@ package broker
 // PD-16 decided, S3). A self-call never leaves its partition, except this
 // one way: a call carrying ?xbin-partition=global — which the proxy
 // consumes on partitioned targets only — from the tile's own frames,
-// terminals, agent sessions or user-partition backends (or a person who can
-// read the tile) reaches the tile's global instance, as the partition's
+// terminals, agent sessions or user-partition backends (or an admin calling
+// in person: Route's rule 4 grants a person nothing on /api/<tile>/ by
+// themselves) reaches the tile's global instance, as the partition's
 // PERSON:
 //
 //   - the call is attributed (Decision.Attribute, which the proxy's
@@ -17,8 +18,13 @@ package broker
 //     user partition's instance token included). X-XBin-From stays the
 //     tile, and X-XBin-Partition names user:<id> with its id, so global
 //     can tell a person's partition from the tile itself;
-//   - a person calling directly keeps their own identity and role (they
-//     are the person already); only the instance they reach changes;
+//   - a person calling directly — an admin, the only person Route lets
+//     call a tile's API by themselves (rule 3) — keeps their own identity
+//     and role (they are the person already; the clamp is about the tile's
+//     code acting for someone); only the instance they reach changes;
+//   - a view-as credential (Impersonator set) is read-only: X-XBin-Role is
+//     reader whatever the viewed person's level, since a WebSocket upgrade
+//     is a GET and the read-only gate refuses only other methods;
 //   - a principal already in global (the global instance, the owner
 //     token's frames and terminals, the root token) and a non-primary
 //     deployment's (whose one instance is global, PD-17) reach it as
@@ -93,6 +99,12 @@ func (b *Broker) RouteGlobal(p auth.Principal, target *registry.Component, quali
 		d.Role = attributedRole(level)
 		d.Attribute = &auth.Attribution{UserID: person, Level: level, Role: d.Role}
 	}
+	if p.ReadOnly() { // view-as: read-only at global, its sockets included
+		d.Role = "reader"
+		if d.Attribute != nil {
+			d.Attribute.Role = d.Role
+		}
+	}
 	return d
 }
 
@@ -100,7 +112,8 @@ func (b *Broker) RouteGlobal(p auth.Principal, target *registry.Component, quali
 // whose partition of tile p acts in — checked live (PD-20): a user
 // partition's instance token's registered person; the person behind the
 // tile's frame, terminal or agent session (view-as included: the viewed
-// person, and the call stays read-only); a person calling directly. ""
+// person, and the call stays read-only — RouteGlobal's reader); a person
+// calling directly (an admin: rule 4 refuses everyone else first). ""
 // with no error: no person (the global instance, the owner token's
 // credentials, the root token, nobody signed in).
 func (b *Broker) globalAddressPerson(p auth.Principal, own bool, tile string, spec registry.PartitionSpec) (string, error) {

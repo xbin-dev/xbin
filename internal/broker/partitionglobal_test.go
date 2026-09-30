@@ -17,8 +17,10 @@ import (
 // reach its global instance attributed to their person — X-XBin-User, the
 // person's live level and a role clamped to it (reader for read, writer for
 // write or terminal), never the self-call's admin — with X-XBin-Partition
-// naming user:<id> and its id; a view-as frame too (the viewed person); a
-// person calling directly keeps their own role; the global instance, the
+// naming user:<id> and its id; a view-as frame too (the viewed person,
+// always reader); an admin calling directly keeps their own role, while a
+// reader or writer in person is refused as without the parameter (rule 4
+// grants people nothing by themselves); the global instance, the
 // owner token's credentials and the root token reach global as without the
 // parameter; a non-primary deployment stays in its one instance. Refused:
 // other tiles, cron/bus/mail deliveries, a person who can't read the tile
@@ -92,8 +94,19 @@ func TestRouteGlobal(t *testing.T) {
 	check("an admin's frame: terminal level, never admin", frameOf("apps/pg", "bob"), "apps/pg", "",
 		want{dep: main, role: "writer", caller: "user:bob", attr: "bob/terminal/writer", id: true})
 	check("view-as alice's frame", auth.Principal{Component: "apps/pg", UserID: "alice", Via: "frame", Impersonator: "bob"}, "apps/pg", "", alice)
-	// a person calling directly: their own role, the partition names them
+	// view-as is read-only at global whatever the viewed person's level (a
+	// WebSocket upgrade is a GET, which the read-only gate lets through)
+	check("view-as a writer's frame: reader", auth.Principal{Component: "apps/pg", UserID: "wendy", Via: "frame", Impersonator: "bob"}, "apps/pg", "",
+		want{dep: main, role: "reader", caller: "user:wendy", attr: "wendy/write/reader", id: true})
+	check("view-as a writer's terminal: reader", auth.Principal{Component: "apps/pg", UserID: "wendy", Via: "terminal", Impersonator: "owner"}, "apps/pg", "",
+		want{dep: main, role: "reader", caller: "user:wendy", attr: "wendy/write/reader", id: true})
+	// a person calling directly: only an admin passes Route's rules (rule 3),
+	// keeping their own role, the partition naming them; a view-as of one is
+	// read-only there too
 	check("bob in person", personP(t, w, "bob"), "apps/pg", "", want{dep: main, role: "admin", caller: "user:bob", id: true})
+	bobViewed := personP(t, w, "bob")
+	bobViewed.Impersonator = "owner"
+	check("a view-as session of bob", bobViewed, "apps/pg", "", want{dep: main, role: "reader", caller: "user:bob", id: true})
 	// already in global: as without the parameter
 	check("the global instance", instanceOf("apps/pg", ""), "apps/pg", "", want{dep: main, role: "admin", caller: "global"})
 	check("the owner token's frame", frameOf("apps/pg", ""), "apps/pg", "", want{dep: main, role: "admin", caller: "global"})
@@ -128,6 +141,11 @@ func TestRouteGlobal(t *testing.T) {
 		check(describe(p), p, "apps/pg", "", want{deny: "delivery acts in the partition it was registered for: ?xbin-partition=global is for apps/pg's own"})
 	}
 	check("nobody signed in", auth.Principal{}, "apps/pg", "", want{deny: "not granted"})
+	// a reader in person: rule 4 grants people nothing on /api/<tile>/ by
+	// themselves, with or without the parameter (their frame is the way in)
+	check("alice in person, a reader", personP(t, w, "alice"), "apps/pg", "", want{deny: "user:alice is not granted access to apps/pg"})
+	check("wendy in person, a writer", personP(t, w, "wendy"), "apps/pg", "", want{deny: "user:wendy is not granted access to apps/pg"})
+	check("alice in person, no global", personP(t, w, "alice"), "apps/pu", "", want{deny: "user:alice is not granted access to apps/pu"})
 	check("a qualifier naming another deployment", frameOf("apps/pg", "alice"), "apps/pg", "dev", want{deny: "can only call itself"})
 	if len(counted) != 0 {
 		t.Errorf("F5 isn't a cross-tile edge, yet the ledger counted %v", counted)

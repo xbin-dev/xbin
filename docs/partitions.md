@@ -275,8 +275,10 @@ bus events. The two sides talk through:
   `X-XBin-User-Level` their level on the tile, `X-XBin-Role` clamped to it
   (`reader` for read, `writer` for write or terminal — never `admin`), and
   `X-XBin-Partition: user:<id>` with its `X-XBin-Partition-Id` — never the
-  tile calling itself, even from the partition's backend. A person calling
-  the tile directly may do the same, as themselves. Other tiles, cron and
+  tile calling itself, even from the partition's backend. A view-as frame
+  gets there read-only: `reader`, whatever the viewed person's level. An
+  admin calling the tile directly may use it too, keeping their own role
+  (other people come in through the tile's frame). Other tiles, cron and
   bus deliveries and path tickets can't (403), and a tile without a global
   instance answers 404 ([protocol.md](protocol.md) §HTTP routes › Core has
   every refusal). In Go,
