@@ -1221,6 +1221,9 @@ func TestBxOldXbind(t *testing.T) {
 			h.ServeHTTP(w, r)
 		})
 	}
+	// the handlers append from the servers' goroutines: read and reset under mu
+	sent := func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), seen...) }
+	reset := func() { mu.Lock(); defer mu.Unlock(); seen = nil }
 	notFound := httptest.NewServer(record(http.NewServeMux()))
 	defer notFound.Close()
 	m := http.NewServeMux()
@@ -1233,13 +1236,13 @@ func TestBxOldXbind(t *testing.T) {
 			{"live-reload", "resume", "apps/x"}, {"live-reload", "attach", "--to", "main"},
 			{"deploy", "--to", "main", "--yes"}, {"rollback", "apps/x", "--to", "main", "--json"},
 		} {
-			seen = nil
+			reset()
 			got := dlRun(t, url, false, "", args...)
 			if got.code != exitNoDeployments || got.err != "bx: "+oldXbindMsg+"\n" || got.out != "" {
 				t.Errorf("bx %s: exit %d, stderr %q, stdout %q", strings.Join(args, " "), got.code, got.err, got.out)
 			}
-			if len(seen) != 1 || seen[0] != "GET /api/xbin/deployments" {
-				t.Errorf("bx %s sent %q", strings.Join(args, " "), seen)
+			if s := sent(); len(s) != 1 || s[0] != "GET /api/xbin/deployments" {
+				t.Errorf("bx %s sent %q", strings.Join(args, " "), s)
 			}
 		}
 	}
@@ -1261,23 +1264,23 @@ func TestBxOldXbind(t *testing.T) {
 			{"deployment", "log"}, {"deployment", "log", "--json"}, {"deployment", "diff"}, {"deployment", "diff", "--stat", "--json"},
 			{"promote", "dev", "main", "--yes"},
 		} {
-			seen = nil
+			reset()
 			got := dlRun(t, url, false, "", args...)
 			if got.code != exitNoDeployments || got.err != "bx: "+oldXbindMsg+"\n" || got.out != "" {
 				t.Errorf("bx %s: exit %d, stderr %q, stdout %q", strings.Join(args, " "), got.code, got.err, got.out)
 			}
-			if len(seen) != 1 || !strings.HasPrefix(seen[0], "GET /api/xbin/deployments") {
-				t.Errorf("bx %s sent %q", strings.Join(args, " "), seen)
+			if s := sent(); len(s) != 1 || !strings.HasPrefix(s[0], "GET /api/xbin/deployments") {
+				t.Errorf("bx %s sent %q", strings.Join(args, " "), s)
 			}
 		}
 		for _, args := range [][]string{
 			{"status", "--deployment", "dev"}, {"logs", "apps/x", "--deployment=dev"},
 			{"agent", "run", "--deployment", "dev", "hi"}, {"agent", "run", "--tile", "apps/x+dev", "hi"},
 		} {
-			seen = nil
+			reset()
 			out, stderr, code := dlExec(t, t.TempDir(), []string{"XBIN_URL=" + url, "XBIN_TOKEN=dl-token", "XBIN_COMPONENT=apps/x"}, args...)
-			if code != exitNoDeployments || stderr != "bx: "+oldXbindMsg+"\n" || out != "" || len(seen) != 1 || seen[0] != "GET /api/xbin/deployments" {
-				t.Errorf("bx %s: exit %d, stderr %q, stdout %q, sent %q", strings.Join(args, " "), code, stderr, out, seen)
+			if s := sent(); code != exitNoDeployments || stderr != "bx: "+oldXbindMsg+"\n" || out != "" || len(s) != 1 || s[0] != "GET /api/xbin/deployments" {
+				t.Errorf("bx %s: exit %d, stderr %q, stdout %q, sent %q", strings.Join(args, " "), code, stderr, out, s)
 			}
 		}
 	}
