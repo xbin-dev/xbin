@@ -16,8 +16,7 @@ const {
 const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
 const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions'), { vmToggle } = require('./passes/vmtoggle');
-const { viewAs } = require('./passes/viewas');
-const { windows } = require('./passes/windows');
+const { viewAs } = require('./passes/viewas'), { windows } = require('./passes/windows');
 const { agentTab } = require('./passes/agenttab');
 const { ingressMulti } = require('./passes/ingressmulti');
 const { menuOpen } = require('./passes/menuopen');
@@ -854,6 +853,7 @@ const PASSES = {
   netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, personalBinds,
 };
 PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
+PASSES.channelsPartitioned = require('./passes/channelspartitioned').channelsPartitioned; // B2c: HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
 
 (async () => {
   const args = process.argv.slice(2);
