@@ -120,6 +120,48 @@ async function tilePages(browser) {
     await page.close();
   }
 
+  // ---- llm-gw: usage by partition (B3) ----
+  // The harness runs no partitioned caller, so the rows are seeded into
+  // llm-gw's kv and its backend restarted to read them; the page shows them
+  // to its manager (admin) with the fairness limit's form, which saves.
+  {
+    const now = Date.now();
+    const rows = [
+      { from: 'apps/agent', partition: 'global', reqs: 12, tokIn: 48210, tokOut: 3120, cost: 0.41, last: now - 90e3 },
+      { from: 'apps/agent', partition: 'user:dev1', partitionId: 'u-0123456789abcdef0123456789abcdef', reqs: 7, tokIn: 20488, tokOut: 1811, cost: 0, last: now - 3 * 3600e3 },
+    ];
+    const kv = (method, data) => ctx.request.fetch(`${URL}/api/xbin/kv/res:apps/llm-gw/state/callers`, { method, data });
+    const restart = async () => {
+      const b = (await (await api('GET', '/tile-status?component=apps/llm-gw')).json().catch(() => ({}))).backend || {};
+      if (b.pid) { try { process.kill(b.pid, 'SIGKILL'); } catch { /* gone already */ } }
+      await sleep(500);
+    };
+    const put = await kv('PUT', JSON.stringify(rows));
+    check(put.ok(), `llm-gw: seed its callers (${put.status()})`);
+    await restart();
+    const { page, errors } = await openPage('apps/llm-gw');
+    const seen = await until(page, () => {
+      const t = document.querySelector('bx-llm-gw')?.shadowRoot?.querySelector('table[data-callers]')?.textContent || '';
+      return t.includes('dev1') && t.includes('global instance') ? t.replace(/\s+/g, ' ') : null;
+    }, null, 60000).then((h) => h.jsonValue()).catch(() => '');
+    check(seen.includes("dev1's partition") && seen.includes('48,210') && seen.includes('20,488'), `llm-gw: usage by partition lists the global instance and dev1's partition (${seen.slice(0, 200)})`);
+    await shot(page, 'tile-llmgw-partitions');
+    const input = page.locator('bx-llm-gw form:has(input[name="limit"]) input[name="limit"]');
+    await input.fill('2');
+    await page.locator('bx-llm-gw form:has(input[name="limit"]) button').click();
+    let limit = 0;
+    for (let i = 0; i < 40 && limit !== 2; i++) {
+      await sleep(250);
+      limit = await page.evaluate(async () => (await (await xbin.fetch('/api/apps/llm-gw/config')).json()).partitionLimit || 0).catch(() => 0);
+    }
+    check(limit === 2, `llm-gw: the fairness limit saves from the page (${limit})`);
+    await page.evaluate(() => xbin.fetch('/api/apps/llm-gw/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partitionLimit: 0 }) }));
+    check(errors.length === 0, `llm-gw: no page errors (${errors.join(' | ')})`);
+    await page.close();
+    await kv('DELETE');
+    await restart(); // back to no rows: the page as in a workspace without partitioned tiles
+  }
+
   await ctx.close();
   done();
 }
