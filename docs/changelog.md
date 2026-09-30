@@ -12,6 +12,227 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **Partitioned tiles: partition mail — in development**
+  ([partitions.md](/docs/partitions.md) §Partition mail,
+  [protocol.md](/docs/protocol.md) `/partitions/mail` and §Partition mail
+  doorbell, [sdk.md](/docs/sdk.md), [bx.md](/docs/bx.md) `bx partition
+  mail`, [elements.md](/docs/elements.md) `partitionMail`). A partitioned
+  tile that declares `"global"` gets an xbind-kept inbox per addressee: its
+  global instance's backend mails one person (`POST
+  /api/xbin/partitions/mail {to: "user:<id>", topic, data, ttl?}` — a person
+  who can read the tile, else 404 `no such person here`) or itself, and a
+  person's partition (its backend, their frames, terminals and agent
+  sessions) mails `global` only. `from` (`global` or `user:<id>`) is stamped
+  by xbind. Each inbox is read and acknowledged only by its addressee — a
+  person's partition by its backend and that person's frames, terminals and
+  agent sessions; the global instance's by its backend and by the tile's
+  frames, terminals and agent sessions acting as global (the owner token's
+  frames, root terminals), which send nothing — admins, the root token,
+  view-as and other tiles get 403. Items are sealed with the vault, kept in
+  `data/partitions/<tile-key>/<dep>/mail.db`, never backed up; an item is at
+  most 1 MiB, an inbox at most 1000 items and 64 MiB, and in the global
+  instance's inbox each sender at most 100 items and 8 MiB (507 to the
+  sender); an item expires after its ttl (7 days by default, 30 at most),
+  and one that can't be opened is dropped as undeliverable instead of
+  holding up the rest. While the vault is sealed a send and a read that
+  returns items answer 503; acks still work. With `"partitionMail":
+  "/mailbox"` xbind rings that path on the addressee's instance
+  (`X-XBin-From: xbin/mail`, body `{partition, pending}`) at once, at the
+  addressee's start unless a ring reached that start, and then after 1 min,
+  5 min, 30 min, 2 h and every 6 h until the items are acknowledged; it
+  starts a person's stopped partition only when that partition has run
+  before (never a first instance) and within the mail start limit. Mail
+  survives a restart of xbind, makes a tile hold data, and goes with a
+  switch between user partitions and unpartitioned, a person's reset or
+  deletion; removing `"global"` deletes the global instance's inbox only.
+  The Go SDK gains `xbin.Mail`, `MailWith` (`MailOptions{TTL, Source}`: a
+  private trigger's source counts in the person's egress ledger as
+  `trigger`), `InboxPage` (`MailPage{Items, More}`), `Inbox`, `Ack`,
+  `MailItem` and `MailBell`; on an older xbind they return an error naming
+  `partition-mail/1`. `bx partition mail ls|ack` reads and acknowledges the
+  inbox of the partition a terminal runs in (the tile's root terminal: the
+  global instance's). Nothing changes for a tile that isn't partitioned.
+- **Operating people's partitions** ([partitions.md](/docs/partitions.md)
+  §Operating people's partitions, [protocol.md](/docs/protocol.md),
+  [bx.md](/docs/bx.md)). Nothing changes for a workspace without a
+  partitioned tile.
+  - `GET /api/xbin/partitions[?tile=]`: `features` (what this xbind serves:
+    `partitions/1`, `mode-switch/1`, `consents/1`, `personal-binds/1`,
+    `global-address/1`, `partition-ops/1`, `log-share/1`,
+    `credential-confirm/1`), and per audience — a person their own
+    partition's row (state, running, bytes, registrations, ledger totals,
+    log share) and the tile's trust panel (who can change its code, live
+    reload, protection, the last code change, reviewed code only); the
+    tile's writers and managers totals; admins every person's metadata row,
+    the personal binds and the orphans; tile code the tile-level fields only
+    (not the policies). Without a tile: the partitioned tiles (admins: with
+    `?untracked=1` each one's untracked files, caps hit in the last day), and
+    a person's held credentials and notices.
+  - `POST /api/xbin/partitions/stop|reset|purge`: stop a partition's
+    instance (the person's own; a manager's or admin's for anyone); delete
+    one partition — in every deployment it has data in — after a typed
+    confirmation, erasing the tile's own backup keys of it (the person's
+    own; an admin's for anyone, who is told); delete orphaned partitions now
+    (admins).
+  - `POST /api/xbin/partitions/reviewed {tile, on}` (admins): "reviewed code
+    only" — needs the primary and every bound non-partitioned provider
+    protected, keeps them protected while on (their unprotect and binding
+    an unprotected provider in answer 409).
+  - A person's partition's backend log is theirs: `GET /logs` answers each
+    person — their session, frames, terminals — their own partition's log
+    at any level, and admins or managers read it only while the person
+    shares it (`POST|DELETE /api/xbin/partitions/share-log`, ≤ 14 days; a
+    follow ends once the share does); the global instance's log with
+    `?xbin-partition=global` (`bx logs --global`, `--user <id>`). `GET
+    /tile-status` from a partition's credential answers that partition;
+    `GET /backends` nests people's running instances (metadata only).
+  - People's lifecycle: deleting a person stops their instances and
+    orphans their partitions (swept after 30 days, or purged), drops their
+    personal binds and consents, and moves a partition holder's home and
+    agent history to `data/orphans/`; disabling a person, or taking away
+    their read, stops their instances at once.
+  - Credential resets: a sign-in link, password or SSO email an admin
+    makes for someone who holds partitions is audited and the person told
+    (push and notice); with the workspace policy `credentialResetConfirm`
+    on it is held until they allow it (`POST
+    /api/xbin/partitions/credential-confirm`), refused, or 24 hours pass;
+    a held link's redemption answers 409 "waiting for <person> to confirm"
+    (it is stored held: an older xbind never redeems it); refusing a link
+    already used answers "already effective". A new SSO provider (`PATCH
+    /auth-settings`) is such a credential for every partition holder bound
+    by email; held, their SSO sign-ins wait (`sso_err=held`).
+  - `/alerts` kind `partition-trust` (live reload on while non-admins can
+    change a partitioned tile's code or a bound provider's); offloading a
+    partitioned tile answers 409; the `partitions` event gains ops `mode`
+    (the tile's readers) and `notice` (the person's own sockets).
+  - `bx partition ls|stop|reset|purge|limits|share-log|credential|reviewed`
+    (`purge` lists first, deletes with `--yes`), `bx logs --global|--user`,
+    `bx status` prints a partition terminal's partition, `bx doctor`'s
+    partition checks.
+- **Partitioned tiles: each person's partition is backed up on its own —
+  in development** ([partitions.md](/docs/partitions.md) §Backups,
+  [14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives,
+  [protocol.md](/docs/protocol.md) `POST /backup`, `POST /restore`,
+  `/partitions/backups`, `/partitions/restore`, [bx.md](/docs/bx.md)). In a
+  workspace with a vault barrier a backup of a partitioned tile writes, after
+  its main archive, one archive per person's partition —
+  `.partitions.<tile-key>.<deployment>.<partition id>`, schema 3, kind
+  `partition`, sealed under that partition's own `part:` backup key — with
+  the partition's data, its vault file (values still sealed by the vault),
+  its registrations and its record; the tile's main, data and deployment
+  archives hold none of it. `POST /backup` then answers `partitions:
+  {archived, failed?, skipped?}` (a partition that can't be archived
+  doesn't fail the backup; the plaintext-vault mode archives none), and a
+  schedule's retention keeps each partition's newest versions, and deletes
+  every version of a partition that is gone once its key is erased (at an
+  archiver without `POST /archive/erase` too). `bx backup` prints the
+  partitions and exits 1 when one isn't backed up (a warning when none can
+  be). New: `GET /api/xbin/partitions/backups` and `POST
+  /api/xbin/partitions/restore` (`bx backups|restore <tile> --partition`):
+  the person, in their own session, restores their own partition — its
+  data, vault and registrations — after typing `<tile> user:<id>`, and
+  names no partition id but their own; an admin may anyone's, and the
+  person is told (push kind `tile.partition-restored`). Only a sealed
+  archive under that partition's own key, of the same tile and user id,
+  restores, and only while the tile is partitioned (409); an archive of an
+  earlier holder of the id (deleted and recreated since) only by an admin
+  naming the id again (`to`); never into another id. A restore judges it
+  all again under the tile's backup lock, so a switch, reset or erase that
+  ran while it waited wins. A person's partition's backup key is erased
+  with its data — a mode switch, the sweep 30 days after the person's
+  deletion or the tile's removal (now also for a partition that holds only
+  records), `bx backup erase --data` — and each erase and each partition
+  restore is recorded in the tile's mode history (`backup-erase`,
+  `partition-restore`; at most 100 of its 200 entries, so they never push a
+  manager's act out). `POST /restore` takes `confirm` (`bx restore
+  --confirm <date>`): a backup older than the tile's last partition mode
+  switch that deleted data restores only with that switch's date (409
+  naming the switch otherwise), into the global instance's namespace; the
+  switch is remembered for good, and while the tile's mode record can't be
+  read every restore of it asks, with the backup's own date. `POST
+  /deployments/restore` refuses such a backup (409) and names `POST
+  /restore`. A partition archive is never restored as a tile, and no
+  single file of one is ever served. Nothing changes for a tile without
+  people's partitions: its backup answer and archives are as before.
+- **The agent template: new instances keep each person's conversations
+  apart** (the template's API.md "Partitioned instances",
+  [partitions.md](/docs/partitions.md) §The mode,
+  [sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned consumers).
+  The builtin agent template now asks for `"template": {"partition":
+  ["user", "global"]}`: a new instance (Tile Manager → New from template,
+  `bx template new agent`) runs one backend per person who uses it — their
+  own conversations, memory, skills, schedules and sandboxes, which nobody
+  else's frame, terminal or tile reaches, workspace admins included — and a
+  global instance for the tile-wide settings, chat channels, event triggers
+  and other tiles' calls. Untick **Keep each person's data apart** (or
+  `--no-partition`) for an unpartitioned instance; without `xbind --isolate`
+  it is unpartitioned anyway. **Existing instances keep their mode** and run
+  exactly as before; switching one deletes its conversations, memory and
+  schedules (its `partitionNote` says so). In a partitioned instance: a
+  person's conversation ids start at 2^40 (the global instance's, like an
+  unpartitioned instance's, at 1); the config, classes, halt switch and
+  shared skills are the global instance's, mirrored into a new `conf`
+  resource that everyone who can open the agent can read — so it carries the
+  config as viewers see it, and **a static MCP server with `headers` is not
+  used in people's conversations** (bind it as a tile or a personal bind
+  instead; the settings' MCP list says which); a manager reading or changing
+  the settings from their own partition is forwarded to the global instance;
+  a config or shared skill over 900 KiB is refused there; a halt stops every
+  partition's runs within a step, and a partition that can't read `conf` yet
+  waits (runs parked, work queued) rather than run without the managers'
+  settings; a conversation or schedule in a person's partition can't be
+  shared, and channels and triggers are set up at the global instance (409
+  in a partition); model calls have a tile-wide cap (`maxActiveRuns`,
+  default 4) across every partition — a subagent's call never takes the last
+  slot — as lock files beside the new shared `team` resource, and each
+  partition's own gate allows 2; a partition that stops with work asks to be
+  started again only for work that moves without its person; a sandbox
+  manager whose `hello.caps` lack `partitions` isn't used in people's
+  partitions (refusal `partitions`, 409, and one banner on the page naming
+  it and the update — update the sandbox managers before creating or
+  switching an agent), and a person's conversation works only in a sandbox
+  its manager says is homed in their partition; every sandbox the agent
+  makes is labelled `xbin.agent/home`; a person's own providers (personal
+  binds) are offered in their own conversations only; the page's live
+  streams close while it is hidden. New in every instance: `GET /health`,
+  `POST /mailbox` — the partition-mail doorbell (`partitionMail`): it and
+  every start read the instance's inbox from xbind (page by page), hand each
+  item to its topic's handler once, and acknowledge it; an item of a topic
+  the code doesn't handle is acknowledged unhandled 30 minutes after it was
+  sent; it answers `{handled, left, dropped}` (an unpartitioned instance
+  answers 404), `partition` in `GET /me` on a partitioned instance, and the
+  `conf` and `team` resources in scope.json (never opened unpartitioned —
+  though xbind provisions them, so an existing instance that merges the
+  template gains one more, unused, encrypted `team` volume and an empty
+  `conf` kv). Existing instances take the new files with a template merge
+  (`git merge template/main`); the template's `template` block never reaches
+  it (see the templates entry), but an instance's `xbin.json` — rewritten
+  when it was created — conflicts on this version's manifest changes: keep
+  your side (an unpartitioned instance needs none of them; to switch one to
+  partitioned later, add the `conf` and `team` lines to its `uses` and
+  `"partitionMail": "/mailbox"`).
+- **Partitioned tiles: wave 3 once its parts met**
+  ([protocol.md](/docs/protocol.md), [partitions.md](/docs/partitions.md)
+  §Operating people's partitions). `GET /api/xbin/partitions` lists
+  `partition-mail/1` in `features`, and its rows carry the inbox's counts —
+  `mail: {pending, bytes, expired, undeliverable?}` — on the person's own
+  row and, for admins, on every person's row; never content. A reset
+  deletes the partition's mail too, and `bx partition` prints `mail`'s
+  usage. The erase of a person's partition's backup key by `POST
+  /partitions/reset`, `POST /partitions/purge` and the records' sweep is
+  recorded in the tile's mode history (`backup-erase`). Nothing changes for
+  a workspace without a partitioned tile.
+- **A builtin template's `template` block never reaches a template merge**
+  ([partitions.md](/docs/partitions.md) §The mode,
+  [protocol.md](/docs/protocol.md) `GET /templates/{repo}`). The repository
+  xbind serves as each instance's `template` remote no longer changes the
+  template's `template` block (instances never carry it): one created by
+  this xbind has none, one an older xbind created keeps its own. A change
+  to the block — like the agent template's new default for new instances —
+  is no longer a conflict in `git merge template/main`; the snapshot's
+  commit message says what changed and what new instances now start with
+  (an empty snapshot when nothing else changed, so the Tile Manager's
+  Updates lists the instance once). Nothing to change.
 - **Partitioned tiles: each person's vault, cron jobs, bus subscriptions
   and notifications** ([partitions.md](/docs/partitions.md) §Vault and
   registrations, [resources.md](/docs/resources.md) §bus, §cron,
