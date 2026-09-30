@@ -130,6 +130,17 @@ async function agentHomes(browser) {
   await until(D.page, () => [...document.querySelectorAll('#timeline .msg')].some((e) => e.textContent.includes('Paragraph 10')), null, 20000).catch(() => {});
   check(await D.page.evaluate(() => [...document.querySelectorAll('#timeline .msg')].some((e) => e.textContent.includes('Paragraph 10'))), 'the copy carries the shared transcript');
 
+  // a copy names its writers only for who made it: dev1 shares their copy
+  // back — the admin's message in it is "copied · admin", dev1's is dev1's
+  const back = await call(D.page, `/runs/${own}/publish`, { method: 'POST', body: { share: { visibility: 'team', teamRole: 'viewer' }, keep: true } });
+  const backId = back.body?.run?.id || 0;
+  await A.page.evaluate((id) => { location.hash = 'c=' + id; }, backId);
+  const whos = await until(A.page, () => { const w = [...document.querySelectorAll('#timeline .msg.user .who')].map((e) => e.textContent.trim()); return w.length >= 2 && w; }, null, 20000)
+    .then((h) => h.jsonValue(), () => []);
+  check(back.status === 200 && whos.includes('copied · admin') && whos.includes('dev1') && !whos.includes('admin'),
+    `a copy dev1 shares back: the admin's message reads "copied · admin", dev1's dev1 (${back.status}, ${JSON.stringify(whos)})`);
+  await shot(A.page, 'agent-homes-copied');
+
   // the global-viewer state: the owner token's page is the global instance's
   // (an acceptance item: no owner token, or a page not opening as global, fails)
   let token = '';
