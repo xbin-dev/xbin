@@ -270,8 +270,9 @@ What a partitioned instance does differently:
   resources.** A shared conversation runs at the global instance, which
   reaches no one's partition. A participant may let it use **theirs** —
   their sandboxes, their data in other partitioned tiles, their vault:
-  everything their partition reaches — which makes it **non-secure** and
-  **hosted** by them:
+  everything their partition reaches (though never a sandbox where a
+  coding agent of theirs signed in or worked: §Partitioned instances) —
+  which makes it **non-secure** and **hosted** by them:
   - `POST /hosting {conversation, seen}` in your partition (after the
     warning; `seen`, required: the audience you were shown, `{owner,
     visibility, teamRole, members: {user: role}}`) → the global instance
@@ -404,16 +405,20 @@ What a partitioned instance does differently:
   own partition at once); a manager's request for work lifts it tile-wide,
   at the global instance, and when that fails answers 503 instead of
   queueing behind the brake. A coding agent's turn looks at each thing it
-  does (a message chunk, a tool call…) and is cancelled at the first after
-  the partition reads the halt — the coding agent stopped, as `PUT /halt`
-  stops one unpartitioned. A partition that hasn't read `conf` yet (the
-  global instance never ran, a kv error at start) treats the halt as on
-  without cancelling anything: requests for work are queued, runs wait — a
-  message to a coding agent waits too, and none is started — and it looks
-  at `conf` again (with backoff, only while runs wait) until it can — then
-  they go on by themselves. An instance whose `uses` lacks
-  `conf` (a customized copy) can't read it at all: people's requests for
-  work answer 503 saying so — update it from its template.
+  does (a message chunk, a tool call…), and the partition looks for it
+  every few seconds while one works — so a turn is cancelled at its next
+  step after the partition reads the halt, or within a few seconds of it
+  when it says nothing (a long command): the coding agent stopped, as `PUT
+  /halt` stops one unpartitioned. An idle coding agent is still stopped at
+  its idle time under the halt (that moves no work). A partition that
+  hasn't read `conf` yet (the global instance never ran, a kv error at
+  start) treats the halt as on without cancelling anything: requests for
+  work are queued, runs wait — a message to a coding agent waits too, and
+  none is started — and it looks at `conf` again (with backoff, only while
+  runs wait) until it can — then they go on by themselves. An instance
+  whose `uses` lacks `conf` (a customized copy) can't read it at all:
+  people's requests for work answer 503 saying so — update it from its
+  template.
 - **Chat channels are the global instance's** — the messaging bridge
   isn't partitioned, so it reaches the global instance, where the channels,
   their people, links (`POST /adapter/link`) and rules live. From your own
@@ -559,8 +564,7 @@ What a partitioned instance does differently:
   makes — for a conversation or not — carries the label `xbin.agent/home`
   (the partition's id, or `global`), beside `xbin.agent/conversation` when
   it is made for one.
-- **Coding agents only in your own conversations**
-  ([/docs/partitions.md](/docs/partitions.md); §Coding agents). A coding
+- **Coding agents only in your own conversations.** A coding
   agent signs in inside its sandbox (`$HOME`), so it works only where its
   sign-in stays yours: a conversation of your own partition, in a sandbox
   homed there, or a subagent one of them spawns.
@@ -574,21 +578,33 @@ What a partitioned instance does differently:
     reaches one.
   - **A non-secure (hosted) conversation has none**: its runs'
     `subagent_spawn` offers none (and refuses one), and a conversation a
-    coding agent answers can't be hosted (`POST /hosted`: 409).
+    coding agent answers can't be hosted (`POST /hosted`: 409). Nor does it
+    work in a sandbox of its host's where a coding agent of theirs signed
+    in or worked (its sandbox tools refuse it, saying why): its members
+    could have the agent read that sign-in. The agent knows only the
+    sign-ins it saw (a coding agent's session, a probe); anything signed in
+    by hand in a sandbox's terminal goes with that sandbox.
   - **It doesn't move between homes**: a conversation a coding agent
     answers — or one in which a coding agent it spawned still works (a
     turn, a question, its adapter up) — can't be published (`POST
     /runs/{id}/publish`), exported for a copy (`GET /runs/{id}/export`,
-    so `POST /copy`), hosted or moved — 409, saying why — and un-sharing
-    one at the global instance answers 409 rather than moving it. Once the
-    coding agent it spawned has stopped (`/cancel` on it, or its idle
-    stop), the conversation copies as any other — without its subagents'
-    transcripts, as ever.
+    so `POST /copy`), hosted or moved — 409 `{error, runs?}`, saying why
+    (`runs`: the coding agents' runs it waits on — at work, or finished but
+    still running until their idle stop, whose time the words give) — and
+    un-sharing one at the global instance answers 409 rather than moving it
+    (keep it shared, or delete it); a member may still leave it, and it
+    then stays at the global instance with its owner. Once the coding agent
+    it spawned has stopped (`/cancel` on it, or its idle stop), the
+    conversation copies as any other — without its subagents' transcripts,
+    as ever.
   - **An idle one doesn't keep your partition running**: only a coding
-    agent at work (a turn, not a question waiting for you) holds it up. A
-    partition that stops with one idle leaves a `wake` job at the minute
-    it would be stopped (its last activity plus `harnessIdleMin`; none
-    when that is 0), and the partition then started stops it at once.
+    agent at work holds it up — a turn, or a sign-in you started through
+    the agent while it waits for the coding agent's answer (a device code:
+    at most 15 minutes) — never one idle, one waiting for your answer, or
+    one waiting for you to sign in. A partition that stops with one idle
+    leaves a `wake` job at the minute it would be stopped (its last
+    activity plus `harnessIdleMin`; none when that is 0) — also while the
+    halt is on — and the partition then started stops it at once.
   - Its sessions count in your usage totals (`harnessSessions`, above).
 - **Your own providers.** A model gateway or MCP server you bound into your
   partition yourself (a personal bind: `bx bind --personal`) is offered only
