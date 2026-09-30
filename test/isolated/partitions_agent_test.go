@@ -23,6 +23,11 @@ package isolated
 //     the global instance, reached through ?xbin-partition=global; two
 //     people's streams of one shared run both get its deltas live; publish
 //     a copy, copy back, a join link redeemed from a partition.
+//   - Hosted chats (B2d; partitions_agent_hosted_test.go): alice's
+//     partition hosts a shared conversation (moved into team), bob writes in
+//     it at global and his stream there gets alice's run's deltas live; a
+//     new member pauses it until she confirms; a copy of her own file lands
+//     in a shared conversation while the original stays hers.
 //   - alice's partition never has the global instance's db (or files)
 //     mounted: its mount table (read from /proc on the host) shows her
 //     partition's volumes and the shared `team`, nothing of global's own
@@ -369,6 +374,7 @@ func TestPartitionsAgent(t *testing.T) {
 	})
 
 	t.Run("shared-chats", func(t *testing.T) { paSharedChats(t, e) }) // partitions_agent_shared_test.go (B2b)
+	t.Run("hosted-chats", func(t *testing.T) { paHostedChats(t, e) }) // partitions_agent_hosted_test.go (B2d)
 
 	t.Run("global-db-not-mounted", func(t *testing.T) {
 		// 08 §2: no person's partition mounts global's db. From the host:
