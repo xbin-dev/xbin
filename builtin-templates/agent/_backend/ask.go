@@ -154,8 +154,8 @@ func handleAskUpload(w http.ResponseWriter, r *http.Request) {
 		if id = heldDraft(t, c, key); id != 0 {
 			return nil
 		}
-		stale = scanIDs(t.q.Query(`SELECT id FROM runs WHERE origin=? AND owner=? AND parent_id=0 AND created<?`,
-			heldOrigin, c.tag(), time.Now().Add(-heldTTL).Unix()))
+		stale = scanIDs(t.q.Query(`SELECT id FROM runs WHERE origin=? AND owner=? AND parent_id=0 AND created<? AND session_key LIKE 'held:%'`,
+			heldOrigin, c.tag(), time.Now().Add(-heldTTL).Unix())) // a draft's; a moving conversation is held too (homes_move_user.go)
 		st := c.stamp("chat")
 		st.Origin, st.SessionKey, st.TitleSrc = heldOrigin, "held:"+key, "clip"
 		var err error

@@ -388,12 +388,16 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 			if (vis != visPrivate && vis != visTeam) || (role != roleViewer && role != roleParticipant) {
 				return errBadRequest("visibility is private|team, teamRole viewer|participant")
 			}
+			was := t.sharedAtGlobal(root) // homes_move.go
 			// An unowned (legacy) run made private becomes the claimer's.
 			if _, err := t.q.Exec(`UPDATE runs SET owner=CASE WHEN owner='' AND ?<>'' THEN ? ELSE owner END,
 				visibility=?, team_role=? WHERE root_id=? OR id=?`, c.tag(), c.tag(), vis, role, root, root); err != nil {
 				return err
 			}
 			changedACL = true
+			if err := t.moveIfUnshared(root, was); err != nil { // homes_move.go: a partitioned agent's global instance keeps shared ones only
+				return err
+			}
 		}
 		if body.Model != nil {
 			cfg, err := t.runConfig(root)

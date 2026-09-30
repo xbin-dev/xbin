@@ -362,8 +362,8 @@ stream per adapter, the same verdicts. What changes is where the work runs:
 |---|---|
 | `hello`, claiming a channel, its rules | the global instance: channels and their routing tables are the tile's, kept in its data. Managers claim and configure them there — from their own partition too, which forwards the channels' routes to it as them |
 | a message in a group or channel | a shared conversation at the global instance, as without partitions |
-| a DM from a chat account **linked** to a person | handed to **that person's partition**: the global instance records the hand-off (routing facts; the message itself only until it is mailed) and sends the message to the person's partition by partition mail ([/docs/partitions.md](/docs/partitions.md) §Partition mail); the DM runs there as their own private conversation. Its files go with it, inline, up to 640 KiB a message; a larger file is named in the text instead. The chat commands `/help` and `/link` are answered by the global instance, the others by the person's partition |
-| that person's reply | mailed by their partition back to the global instance, which takes where to post it from **its own** hand-off record — never from the reply — and appends it to the outbox as usual |
+| a DM from a chat account **linked** to a person | handed to **that person's partition**: the global instance records the hand-off (routing facts; the message itself only until it is mailed) and sends the message to the person's partition by partition mail ([/docs/partitions.md](/docs/partitions.md) §Partition mail); the DM runs there as their own private conversation. Its files go with it — inline up to 640 KiB a message; a larger one waits in the global instance's storage until the person's partition has fetched it (deleted there then). The chat commands `/help` and `/link` are answered by the global instance, the others by the person's partition |
+| that person's reply | mailed by their partition back to the global instance (a file too large for the mail staged there first), which takes where to post it from **its own** hand-off record — never from the reply — and appends it to the outbox as usual |
 | a DM from an account nobody linked | the global instance, as without partitions (pairing, link codes) |
 | `POST /adapter/link` and unlinking, from the adapter's page | the global instance, as the signed-in person (`X-XBin-User`): links are the tile's routing, kept in its data |
 | `POST /adapter/event` for a team trigger | the global instance runs it |
@@ -382,10 +382,10 @@ For the adapter this means:
   stream says `working`; the reply comes through the outbox whenever the
   person's partition has it. A person's partition starts when they use the
   agent: a DM that arrives before their partition ever ran waits in its
-  inbox (partition mail never starts one) until they open the agent. The
-  first such DM is answered at once with a `notice` saying so (open the
-  agent once; the message waits up to 7 days), and the `status` says
-  `idle` instead of `working`. If xbind refuses the hand-off for good — the
+  inbox (partition mail never starts one) until they open the agent — up to
+  7 days, like an unread message: nothing answers the chat for it
+  meanwhile, and the `status` says `idle` instead of `working`. If xbind
+  refuses the hand-off for good — the
   person can no longer use the agent — the chat gets a `notice` saying so. Treat
   `runId`, `inboxId` and `sessionKey` in a verdict or an `out` row as
   informational, as the bridge template does.

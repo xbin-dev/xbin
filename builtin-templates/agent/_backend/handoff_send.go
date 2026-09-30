@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 )
@@ -153,6 +152,7 @@ func (ag *Agent) mailHandoffPage(ctx context.Context) (more bool) {
 // expireHandoffs gives up the handoffs that waited longer than
 // handoffQueueTTL.
 func (ag *Agent) expireHandoffs() {
+	ag.expireHeldFiles() // handoff_fetch.go: what nobody fetched
 	var list []queuedHandoff
 	rows, err := ag.db.q.Query(`SELECT id, kind, person, payload, address, channel_id FROM handoffs WHERE state='queued' AND created<?`,
 		now()-handoffQueueTTL)
@@ -181,6 +181,7 @@ func (ag *Agent) failHandoff(q queuedHandoff, why, notice string) {
 	if q.kind == "dm" {
 		_ = json.Unmarshal([]byte(q.payload), &h)
 	}
+	ag.moveMailRefused(q) // homes_move.go: a move whose mail never goes is given up
 	_ = ag.db.Tx(func(t *DB) error {
 		_, err := t.q.Exec(`UPDATE handoffs SET state='failed', payload='', error=? WHERE id=? AND state='queued'`, clip(why, 400), q.id)
 		if q.kind == "dm" && q.address != "" {
@@ -205,19 +206,26 @@ func (d *DB) handoffsWait() bool {
 
 // stagedHeld is what the upload prune (channel_files.go) leaves at a
 // partitioned agent's global instance: the staged files a queued handoff
-// will carry, and a person's reply's files (ids "r…"), which go at its ack.
+// will carry, those held for a person's partition to fetch, and a person's
+// reply's files (ids "r…"), which go at its ack.
 // "" anywhere else.
 func stagedHeld() string {
 	if !globalMode() {
 		return ""
 	}
 	return ` AND id NOT LIKE 'r%' AND id NOT IN (SELECT j.value FROM handoffs h,
-		json_each(CASE WHEN json_valid(h.payload) THEN h.payload ELSE '{}' END, '$.staged') j WHERE h.state='queued')`
+		json_each(CASE WHEN json_valid(h.payload) THEN h.payload ELSE '{}' END, '$.staged') j WHERE h.state='queued')
+		AND id NOT IN (SELECT file_id FROM handoff_files)` // held for a fetch (handoff_fetch.go)
 }
 
 // handoffMail is the item a queued handoff mails: a DM's staged files are
-// read and carried inline (what doesn't fit is named in the text).
+// read and carried inline; what doesn't fit is held here and named in its
+// `fetch`, for the person's partition to fetch (handoff_fetch.go). The
+// staged files it answers are deleted once it is mailed.
 func (ag *Agent) handoffMail(ctx context.Context, kind, payload string) (topic string, data any, staged []string, err error) {
+	if kind == moveKind { // homes_move.go: a conversation leaving the shared space
+		return topicMove, json.RawMessage(payload), nil, nil
+	}
 	if kind == "event" {
 		var e eventHandoff
 		if err := json.Unmarshal([]byte(payload), &e); err != nil {
@@ -231,12 +239,18 @@ func (ag *Agent) handoffMail(ctx context.Context, kind, payload string) (topic s
 	}
 	staged, h.Staged = h.Staged, nil
 	budget := mailFileBudget - len(h.Text) - len(h.System)
-	var left []string
 	for _, id := range staged {
 		var name, mime, content, blob string
-		if err := ag.db.q.QueryRow(`SELECT name, mime, content, blob FROM channel_files WHERE id=? AND channel_id=?`, id, h.Channel).
-			Scan(&name, &mime, &content, &blob); err != nil {
+		var size int
+		if err := ag.db.q.QueryRow(`SELECT name, mime, size, content, blob FROM channel_files WHERE id=? AND channel_id=?`, id, h.Channel).
+			Scan(&name, &mime, &size, &content, &blob); err != nil {
 			continue // gone (its message came too late): the message still goes
+		}
+		if size > budget { // held here for the person's partition to fetch (handoff_fetch.go)
+			if err := ag.holdForFetch(&h, id, name, mime, size); err != nil {
+				return "", nil, nil, err
+			}
+			continue
 		}
 		b := []byte(content)
 		if blob != "" {
@@ -244,17 +258,10 @@ func (ag *Agent) handoffMail(ctx context.Context, kind, payload string) (topic s
 				return "", nil, nil, err // the blob store: later
 			}
 		}
-		if len(b) > budget {
-			left = append(left, fmt.Sprintf("%s (%s)", name, humanBytes(len(b))))
-			continue
-		}
 		budget -= len(b)
 		h.Files = append(h.Files, hoFile{Name: name, Mime: mime, Data: b})
 	}
-	if len(left) > 0 {
-		h.Text += "\n\n[not passed on — too large for a private handoff: " + strings.Join(left, ", ") + "]"
-	}
-	return topicDM, h, staged, nil
+	return topicDM, h, unheld(staged, h.Fetch), nil
 }
 
 // dropStaged deletes a DM's staged files once they were mailed (or given

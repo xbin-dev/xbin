@@ -52,6 +52,9 @@ func handleDMHandoff(ctx context.Context, t *DB, it mailItem) error {
 		logf("handoff/dm %s: malformed — dropped", it.ID)
 		return nil
 	}
+	if err := takeFetched(ctx, &h); err != nil { // handoff_fetch.go: files too large for the mail
+		return err
+	}
 	return agent.takeDM(ctx, t, &h)
 }
 
@@ -273,10 +276,12 @@ func (ag *Agent) mailOutbox(ctx context.Context) bool {
 				ag.settleOut(o.ID, "failed", "no chat to answer: the conversation's messages didn't come through a channel handoff")
 				continue
 			}
-			item := outboxAddItem{Handoff: a.Handoff, Key: prefix + "-" + strconv.FormatInt(o.ID, 10), Kind: o.Kind, Text: o.Body.Text,
-				Files: ag.inlineReplyFiles(ctx, o)}
+			item := outboxAddItem{Handoff: a.Handoff, Key: prefix + "-" + strconv.FormatInt(o.ID, 10), Kind: o.Kind, Text: o.Body.Text}
 			cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			_, err := sendMail(cctx, "global", topicOutbox, item, "")
+			var err error
+			if item.Files, item.Staged, err = ag.replyFiles(cctx, o, a.Handoff, item.Key); err == nil {
+				_, err = sendMail(cctx, "global", topicOutbox, item, "")
+			}
 			cancel()
 			switch {
 			case err == nil:
@@ -308,12 +313,15 @@ func (ag *Agent) settleOut(id int64, state, why string) {
 	_, _ = ag.db.q.Exec(`UPDATE outbox SET state=?, error=?, acked_at=? WHERE id=? AND state='pending'`, state, clip(why, 500), now(), id)
 }
 
-// inlineReplyFiles reads a reply's files (session files of its run) to carry
-// them in the mail; what doesn't fit is left out, and said in the log.
-func (ag *Agent) inlineReplyFiles(ctx context.Context, o *OutRow) []hoFile {
+// replyFiles reads a reply's files (session files of its run) to carry them
+// in the mail; one that doesn't fit is staged at the global instance first
+// (handoff_fetch.go) and named in `staged`. A staging failure is the
+// reply's: tried again later.
+func (ag *Agent) replyFiles(ctx context.Context, o *OutRow, handoff, key string) ([]hoFile, []string, error) {
 	budget := mailFileBudget - len(o.Body.Text)
 	var out []hoFile
-	for _, of := range o.Body.Files {
+	var staged []string
+	for i, of := range o.Body.Files {
 		f, err := ag.db.replFile(o.RunID, of.Path)
 		if err != nil {
 			continue
@@ -326,13 +334,21 @@ func (ag *Agent) inlineReplyFiles(ctx context.Context, o *OutRow) []hoFile {
 			}
 		}
 		if len(data) > budget {
-			logf("outbox row %d: %s (%s) is too large to mail — sent without it", o.ID, of.Path, humanBytes(len(data)))
+			id, err := stageReply(ctx, handoff, replyFileKey(key, i), hoFile{Name: of.Name, Mime: of.Mime, Data: data})
+			if errors.Is(err, errStageRefused) {
+				logf("outbox row %d: %s (%s): %v — sent without it", o.ID, of.Path, humanBytes(len(data)), err)
+				continue
+			}
+			if err != nil {
+				return nil, nil, err
+			}
+			staged = append(staged, id)
 			continue
 		}
 		budget -= len(data)
 		out = append(out, hoFile{Name: of.Name, Mime: of.Mime, Data: data})
 	}
-	return out
+	return out, staged, nil
 }
 
 // globalChannelItems are the channels as the global instance lists them to
@@ -406,6 +422,7 @@ func (ag *Agent) startPartitionMail() {
 		kickHandoffs()
 	case userMode():
 		kickOutboxMail()
+		kickMoves() // homes_move_user.go: a move a stop cut short
 		ag.usageAtStart()
 		ag.sayHello(context.Background()) // handoff_people.go
 	}

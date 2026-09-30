@@ -120,7 +120,7 @@ func TestLinkedDMHandoff(t *testing.T) {
 	ch := helloAs(t, gMux, "apps/slack", "T1")
 	claim(t, gMux, ch, map[string]any{"dm": map[string]any{"policy": "linked"}})
 	_, _ = gAg.db.q.Exec(`INSERT INTO channel_peers (channel_id, peer_id, name, state, created, xbin_user, linked_at) VALUES (?, 'ho-uma', 'Uma', 'allowed', ?, 'alice', ?)`, ch, now(), now())
-	gAg.db.markRan("alice") // her partition has run (TestFirstDMNotice: before it has)
+	gAg.db.markRan("alice") // her partition has run (TestNoFirstDMNotice: before it has)
 	_, _ = gAg.db.q.Exec(`INSERT INTO channel_files (id, channel_id, name, mime, size, content, blob, created) VALUES ('fx1', ?, 'notes.txt', 'text/plain', 8, 'line one', '', ?)`, ch, now())
 
 	m := chMsg(ch, "dm", "D1", "ho-uma", "hello private")

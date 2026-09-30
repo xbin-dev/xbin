@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS usage_daily (
   prompt_tokens INTEGER NOT NULL DEFAULT 0, completion_tokens INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS partition_people (
   person TEXT PRIMARY KEY, seen INTEGER NOT NULL DEFAULT 0, noticed INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS handoff_files (
+  file_id TEXT PRIMARY KEY, handoff TEXT NOT NULL, person TEXT NOT NULL DEFAULT '', dir TEXT NOT NULL DEFAULT 'in', created INTEGER NOT NULL);
 `
 
 // addHandoffSchema makes the tables above and the columns a partitioned
@@ -98,8 +100,8 @@ const (
 	topicUsage    = "usage/day"     // a person → global: their daily usage totals
 	handoffMaxAge = 30 * 86400      // a handoff record's life: replies to older ones are refused
 	// mailFileBudget is how many bytes of files one mail item carries (base64
-	// adds a third; the item limit is 1 MiB). What doesn't fit is named in
-	// the text instead.
+	// adds a third; the item limit is 1 MiB). What doesn't fit is staged at
+	// the global instance and fetched from there (handoff_fetch.go).
 	mailFileBudget = 640 << 10
 )
 
@@ -132,6 +134,7 @@ type dmHandoff struct {
 	Trusted  bool     `json:"trusted,omitempty"`
 	Files    []hoFile `json:"files,omitempty"`
 	Staged   []string `json:"staged,omitempty"` // global only: staged channel files, inlined when mailed
+	Fetch    []hoHeld `json:"fetch,omitempty"`  // files too large for the mail: fetched from global (handoff_fetch.go)
 }
 
 // eventHandoff is a handoff/event item: one event for a private trigger.
@@ -155,6 +158,7 @@ type outboxAddItem struct {
 	Kind    string   `json:"kind"`
 	Text    string   `json:"text"`
 	Files   []hoFile `json:"files,omitempty"`
+	Staged  []string `json:"staged,omitempty"` // files too large for the mail, staged at global first (handoff_fetch.go)
 }
 
 func newHandoffID() string {
@@ -231,7 +235,7 @@ func (ag *Agent) handDM(t *DB, ch *Channel, m *adapterMsg, key, addr string, pee
 	}
 	v.SessionKey = key
 	state := "working"
-	if !t.partitionRan(peer.XbinUser, ch.ID, key, addr) { // handoff_people.go: nothing answers until it runs once (the chat is told)
+	if !t.partitionRan(peer.XbinUser) { // handoff_people.go: it waits in their inbox, unread, until they open the agent
 		state = "idle"
 	}
 	*after = append(*after, func() {
@@ -330,6 +334,7 @@ func handleOutboxAdd(ctx context.Context, t *DB, it mailItem) error {
 		}
 		files = append(files, of)
 	}
+	files = append(files, takeStagedReplies(t, in.Handoff, person, in.Staged)...) // handoff_fetch.go
 	body, _ := json.Marshal(outBody{Text: in.Text, Format: "markdown", Files: files})
 	if _, err := t.q.Exec(`INSERT INTO outbox (channel_id, session_key, run_id, kind, address, body, created, origin) VALUES (?, ?, 0, ?, ?, ?, ?, ?)`,
 		chID, session, in.Kind, addr, string(body), now(), origin); err != nil {

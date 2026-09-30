@@ -21,7 +21,7 @@ const nextFrame = (f) => (typeof requestAnimationFrame === 'function' ? requestA
 export class Session {
   /**
    * @param {string} base  this backend's prefix (/api/<self>)
-   * @param {object} on    {change(), runs(), gone(id), event(ev), reset(), frame?(fn)} — the
+   * @param {object} on    {change(), runs(), gone(id, movedTo?, row?), event(ev), reset(), frame?(fn)} — the
    *                       page repaints on change; the conversation list takes every event
    * @param {object} opts  {deltas, page}: stream drafts as deltas (API.md "Deltas"), and
    *                       read the open conversation's view in pages of `page` messages
@@ -343,9 +343,10 @@ export class Session {
     switch (ev.type) {
       case 'run':
         if (d.deleted) {
+          const was = this.runs.get(ev.run);
           this.runs.delete(ev.run);
           this.views.delete(ev.run);
-          if (this.sel === ev.run) this.on.gone?.(ev.run);
+          if (this.sel === ev.run) this.on.gone?.(ev.run, d.movedTo, was); // movedTo: it moved to its owner's own space (model/moves.js)
           this.on.runs?.();
           break;
         }

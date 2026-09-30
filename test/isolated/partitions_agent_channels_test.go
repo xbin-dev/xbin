@@ -17,6 +17,9 @@ package isolated
 //     bridge posts it into the chat. The conversation is in alice's
 //     partition, not in the global instance's list; no first-DM notice
 //     (her partition said hello when it started).
+//   - A DM file too large for the handoff's mail (partitions_agent_files_test.go)
+//     reaches alice's DM conversation whole: global keeps it until her
+//     partition fetched it.
 //   - An outbox/add naming alice's handoff mailed by bob's frame is refused
 //     (nothing posted); the same from alice's own frame is posted.
 //   - alice's private webhook trigger: registered at global with a prefix
@@ -112,7 +115,7 @@ func TestPartitionsAgentChannels(t *testing.T) {
 	if strings.Join(inst.Partition, ",") != "user,global" {
 		t.Fatalf("the new agent: partition %v", inst.Partition)
 	}
-	if err := d.WriteFiles(paAgent, map[string]string{"_backend/zz_e2e_handoffs.go": pcHandoffProbe}); err != nil {
+	if err := d.WriteFiles(paAgent, map[string]string{"_backend/zz_e2e_handoffs.go": pcHandoffProbe, "_backend/zz_e2e_held.go": pcHeldProbe}); err != nil {
 		t.Fatal(err)
 	}
 	ok("POST", "/api/xbin/templates/new", map[string]string{"source": "agent-messaging-bridge", "path": pcBridge})
@@ -271,6 +274,10 @@ func TestPartitionsAgentChannels(t *testing.T) {
 			t.Errorf("BUG: bob reads alice's DM: %d", r.Status)
 		}
 	})
+
+	// AF (90 §I11): a file too large for the handoff's mail waits at global
+	// and alice's partition fetches it
+	t.Run("big-file", func(t *testing.T) { pcBigFile(t, e, ok, ag) })
 
 	t.Run("forged-outbox", func(t *testing.T) {
 		const mailAPI = "/api/xbin/partitions/mail"

@@ -87,6 +87,9 @@ func (ag *Agent) deliverInboundTx(t *DB, in inbound) (runID int64, created bool,
 			}
 			runID, created = id, true
 		}
+		if !created && t.movingRun(runID) { // homes_move.go: a conversation moving out takes nothing more
+			return errConvMoving
+		}
 		if in.Mode == "session" {
 			_, _ = t.q.Exec(`UPDATE sessions SET last_in=?, address=CASE WHEN ?<>'' THEN ? ELSE address END WHERE key=?`,
 				now(), in.Addr, in.Addr, in.Key)

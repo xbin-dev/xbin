@@ -183,11 +183,11 @@ func TestHandoffPerPersonBackoff(t *testing.T) {
 	}
 }
 
-// TestFirstDMNotice: a DM from a chat account linked to someone whose
-// partition has never run gets a notice — once — since nothing answers it
-// until they open the agent; a partition says hello when it first starts,
-// and then no notice is sent.
-func TestFirstDMNotice(t *testing.T) {
+// TestNoFirstDMNotice (90 §I12): a DM from a chat account linked to someone
+// whose partition has never run waits in their inbox like an unread message
+// — mailed, and nothing answers the chat for it; a partition says hello
+// when it first starts (the chat's typing status follows it).
+func TestNoFirstDMNotice(t *testing.T) {
 	setMode(t, modeGlobal, "")
 	gAg, gMux := chanFixture(t)
 	_ = gAg.db.addHandoffSchema()
@@ -195,19 +195,14 @@ func TestFirstDMNotice(t *testing.T) {
 	ch := helloAs(t, gMux, "apps/slack", "T1")
 	claim(t, gMux, ch, map[string]any{"dm": map[string]any{"policy": "linked"}})
 	_, _ = gAg.db.q.Exec(`INSERT INTO channel_peers (channel_id, peer_id, name, state, created, xbin_user, linked_at) VALUES (?, 'ho-dave', 'Dave', 'allowed', ?, 'dave', ?)`, ch, now(), now())
-	notices := func() int {
-		n := 0
-		for _, o := range outOfKind(gAg, ch, "notice") {
-			if strings.Contains(o.Body.Text, "open the agent once") {
-				n++
-			}
-		}
-		return n
-	}
+	notices := func() int { return len(outOfKind(gAg, ch, "notice")) }
 	chPost(t, gMux, chMsg(ch, "dm", "Dd", "ho-dave", "first"))
 	chPost(t, gMux, chMsg(ch, "dm", "Dd", "ho-dave", "second"))
-	if mail.wait(t, 2); notices() != 1 {
-		t.Fatalf("the first-DM notice: %d", notices())
+	if sent := mail.wait(t, 2); notices() != 0 || sent[0].to != "user:dave" || sent[1].to != "user:dave" {
+		t.Fatalf("DMs for a partition that never ran: %d notices, mailed %+v", notices(), sent)
+	}
+	if gAg.db.partitionRan("dave") {
+		t.Fatal("dave's partition ran, says global, before it said so")
 	}
 	useMail(t, &fakeMail{items: []mailItem{
 		{ID: "001", From: "global", Topic: topicHello, Data: json.RawMessage(`{}`)}, // only a person's partition
@@ -226,10 +221,9 @@ func TestFirstDMNotice(t *testing.T) {
 	if ghosts != 0 {
 		t.Fatalf("%d other rows", ghosts)
 	}
-	_, _ = gAg.db.q.Exec(`UPDATE partition_people SET noticed=0`) // were he told again, it would show
 	chPost(t, gMux, chMsg(ch, "dm", "Dd", "ho-dave", "third"))
-	if mail.wait(t, 3); notices() != 1 {
-		t.Fatalf("a notice once dave's partition ran: %d", notices())
+	if mail.wait(t, 3); notices() != 0 || !gAg.db.partitionRan("dave") {
+		t.Fatalf("once dave's partition ran: %d notices", notices())
 	}
 	waitMailIdle(t)
 

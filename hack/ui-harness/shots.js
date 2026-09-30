@@ -827,6 +827,7 @@ PASSES.channelsPartitioned = require('./passes/channelspartitioned').channelsPar
 PASSES.partitionsEntry = require('./passes/partitionsentry').partitionsEntry; // SH: the settings menu's "your partitions" (I13)
 PASSES.oldScaffold = require('./passes/oldscaffold').oldScaffold; // I1: the last release's shell and admin console meet partitioned and pending tiles
 PASSES.personPageAsked = require('./passes/personpageasked').personPageAsked; // I1: F11's asked consents, allowed on the page
+PASSES.agentMoves = require('./passes/agentmoves').agentMoves; // AF: an un-shared conversation moves home (HARNESS_AGENT_PARTITION=1)
 
 (async () => {
   const args = process.argv.slice(2);

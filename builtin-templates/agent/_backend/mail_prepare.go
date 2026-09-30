@@ -7,8 +7,9 @@
 // whose transaction failed, pulled again, writes the same objects rather
 // than new ones; what the handler didn't keep, and everything of a
 // transaction that failed, is deleted after it. Only the two topics that
-// carry files are prepared: handoff/dm in a person's partition and
-// outbox/add at the global instance.
+// carry files are prepared: handoff/dm in a person's partition — whose
+// files too large for the mail are fetched from the global instance here
+// too (handoff_fetch.go) — and outbox/add at the global instance.
 package main
 
 import (
@@ -25,9 +26,11 @@ import (
 // files only), which of them the handler kept, and a store failure (the
 // handler returns it: the item stays for the next pull).
 type preparedFiles struct {
-	blobs map[int]string
-	kept  map[int]bool
-	err   error
+	blobs      map[int]string
+	kept       map[int]bool
+	err        error
+	fetched    fetchedFiles // a DM's files fetched from global (handoff_fetch.go)
+	ackHandoff string       // …whose handoff global may drop them for, once committed
 }
 
 type preparedKey struct{}
@@ -37,9 +40,9 @@ type preparedKey struct{}
 // transaction committed (or didn't).
 func prepareMail(ctx context.Context, it mailItem) (context.Context, func(committed bool)) {
 	var files []hoFile
+	var h dmHandoff
 	switch {
 	case it.Topic == topicDM && userMode() && it.From == "global":
-		var h dmHandoff
 		if json.Unmarshal(it.Data, &h) == nil {
 			files = h.Files
 		}
@@ -49,7 +52,7 @@ func prepareMail(ctx context.Context, it mailItem) (context.Context, func(commit
 			files = o.Files
 		}
 	}
-	if len(files) == 0 || agent == nil {
+	if len(files) == 0 && len(h.Fetch) == 0 || agent == nil {
 		return ctx, func(bool) {}
 	}
 	p := &preparedFiles{blobs: map[int]string{}, kept: map[int]bool{}}
@@ -66,7 +69,13 @@ func prepareMail(ctx context.Context, it mailItem) (context.Context, func(commit
 		}
 		p.blobs[i] = path
 	}
+	if p.err == nil && len(h.Fetch) > 0 {
+		fetchHeld(ctx, p, h.Handoff, h.Fetch, len(files), hex.EncodeToString(sum[:12])) // handoff_fetch.go
+	}
 	return context.WithValue(ctx, preparedKey{}, p), func(committed bool) {
+		if committed && p.ackHandoff != "" {
+			ackFetched(p.ackHandoff)
+		}
 		var drop []string
 		for i, path := range p.blobs {
 			if !committed || !p.kept[i] {

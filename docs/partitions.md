@@ -297,7 +297,11 @@ and people's pages reach them there from their own partition
 person's from 2^40, the global instance's below), everyone in a shared one
 follows its stream there — so all see a run live, the global instance being
 the hub ([§Realtime](#realtime-between-partitions)) — and a person shares one
-of their own by publishing a copy to the global instance.
+of their own by publishing a copy to the global instance. A person's chat
+that stops being shared (made private with nobody else in it) moves to its
+owner's partition once nothing in it is under way — never listed in two
+homes, its owner's page following it; an automation's thread (a channel's,
+a schedule's) stays where it is.
 
 A partitioned agent's chat channels and event triggers show how a tile that
 isn't partitioned — the messaging bridge, the webhooks tile — serves people
@@ -306,7 +310,9 @@ privately: it reaches the agent's global instance, which keeps the routing
 linked to a person, or an event for their private trigger, to that
 person's partition by [partition mail](#partition-mail); the partition runs
 it and mails its reply back, and the global instance posts it where its own
-record says — only for the person the handoff was for. A private trigger on
+record says — only for the person the handoff was for. A file too large for
+the mail waits in the global instance's storage until the other side has
+fetched it through the person's own-global calls. A private trigger on
 pushes needs a topic prefix that no one else's overlaps, and is made in its
 person's own partition (the global instance refuses a person's private
 automation). The template's API.md ("Partitioned instances") has the
