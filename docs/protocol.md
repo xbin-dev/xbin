@@ -3159,9 +3159,11 @@ GET    /partitions                 anyone; what it answers depends on who
                                    protected, lastCodeChange?}], warnings}
                                    (its people);
                                    consents (the person's, policy on);
-                                   binds (personal binds whose requester
-                                   is the tile: the person's own, every
-                                   live one for admins); orphans (admins);
+                                   binds (GET /partitions/binds' rows whose
+                                   requester is the tile, in its order: the
+                                   person's own, every live one for admins;
+                                   removed with DELETE /partitions/binds);
+                                   orphans (admins);
                                    notices (the person's); for admins also
                                    history (the tile's mode history, newest
                                    first, at most 50: [{op (auto | request

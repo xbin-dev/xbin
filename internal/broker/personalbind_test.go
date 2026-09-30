@@ -419,6 +419,19 @@ func TestPersonalBindLifecycle(t *testing.T) {
 		if rec.Code != c.code || len(out.Binds) != c.rows {
 			t.Errorf("%s lists: %d %s", c.name, rec.Code, rec.Body.String())
 		}
+		// one contract: GET /partitions?tile='s binds (the admin console,
+		// the person's page per tile) are these rows, requester the tile
+		if c.code == 200 {
+			admin := b.IsAdmin(c.p)
+			tileRows, _ := json.Marshal(b.tileBindRows("apps/agent", c.p.UserID, admin))
+			listed, _ := json.Marshal(out.Binds)
+			if len(out.Binds) == 0 {
+				listed = []byte("null")
+			}
+			if string(tileRows) != string(listed) {
+				t.Errorf("%s: the tile's binds %s, GET /partitions/binds %s", c.name, tileRows, listed)
+			}
+		}
 	}
 	if held, err := holdsPersonalBinds(b, ask); !held || err != nil {
 		t.Errorf("a bind: holds %v %v", held, err)

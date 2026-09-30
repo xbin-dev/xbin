@@ -389,8 +389,9 @@ func (b *Broker) partitionCapDefaults() (perTile, workspace int) {
 	return f()
 }
 
-// tileBindRows are the personal binds whose requester is tile: the
-// person's own, or every live one for an admin.
+// tileBindRows are the personal binds whose requester is tile — GET
+// /partitions/binds' rows, in its order: the person's own, or every live
+// one for an admin.
 func (b *Broker) tileBindRows(tile, person string, admin bool) []personalBindRow {
 	var rows []personalBindRow
 	_ = b.eachPersonalBinds(func(f *personalBindsFile) {
@@ -403,6 +404,7 @@ func (b *Broker) tileBindRows(tile, person string, admin bool) []personalBindRow
 			}
 		}
 	})
+	sortBindRows(rows)
 	return rows
 }
 

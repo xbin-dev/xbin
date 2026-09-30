@@ -145,10 +145,17 @@ func (b *Broker) apiPersonalBindsList(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusForbidden, "personal binds are listed to their person and to admins", "/docs/partitions.md")
 		return
 	}
+	sortBindRows(rows)
+	server.WriteJSON(w, http.StatusOK, map[string]any{"binds": rows})
+}
+
+// sortBindRows is the one order of personal-bind rows, here and in GET
+// /partitions?tile='s binds (tileBindRows): by person, requester, slot,
+// provider — the person's page and the admin console read the same rows.
+func sortBindRows(rows []personalBindRow) {
 	slices.SortFunc(rows, func(x, y personalBindRow) int {
 		return cmp.Or(cmp.Compare(x.User, y.User), cmp.Compare(x.Requester, y.Requester), cmp.Compare(x.Slot, y.Slot), cmp.Compare(x.Provider, y.Provider))
 	})
-	server.WriteJSON(w, http.StatusOK, map[string]any{"binds": rows})
 }
 
 type personalBindBody struct {
