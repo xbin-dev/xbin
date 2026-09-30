@@ -16,6 +16,8 @@
  * own partition, or the global instance for the root token), 'global', or
  * 'user:<id>'.
  */
+// A shared log's end reads as on the partitions page: the viewer's zone, named.
+import { timeText } from './partitions-kit.js';
 
 // logsQuery(choice) → the query GET /logs gains for a choice ('' for none).
 export function logsQuery(choice) {
@@ -34,11 +36,6 @@ export const echoOK = (choice, header) => !choice || header === choice;
 // answered: "yours" (the viewer's own partition), or "global" when the
 // credential reaches no person's partition (the root token).
 export const defaultLabel = (header) => (header === 'global' ? 'global' : 'yours');
-
-const day = (t) => {
-  const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-};
 
 // globalProbe(listing, defaultHeader) → whether the view must ask xbind
 // (GET /logs …&xbin-partition=global&tail=0: 403 is no) before offering the
@@ -83,7 +80,7 @@ export function logChoices(listing, defaultHeader = '', { globalOK = true } = {}
   const out = [{ value: '', label: own, title: own === 'yours' ? 'your own partition\'s log' : 'the global instance\'s log' }];
   if (spec?.global && own !== 'global' && globalOK) out.push({ value: 'global', label: 'global', title: 'the global instance\'s log (one instance for what isn\'t a person\'s)' });
   for (const [user, untilT] of sharedLogs(listing, defaultHeader)) {
-    const until = day(untilT);
+    const until = timeText(untilT);
     out.push({ value: `user:${user}`, label: `${user}'s log (shared with you)`, title: `${user} shares their partition's log${until ? ` until ${until}` : ''}` });
   }
   return out;
