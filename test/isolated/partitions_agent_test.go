@@ -327,41 +327,50 @@ func TestPartitionsAgent(t *testing.T) {
 	})
 
 	t.Run("global-db-not-mounted", func(t *testing.T) {
-		// 08 §2: no person's partition mounts global's db — read alice's
-		// backend's mount table from the host
-		pid := paBackendPID(t, paAgent, "user:alice")
-		if pid == "" {
-			t.Skip("alice's partition backend isn't visible in /proc here (environ unreadable)")
-		}
-		b, err := os.ReadFile("/proc/" + pid + "/mountinfo")
-		if err != nil {
-			t.Skipf("alice's backend's mount table: %v", err)
-		}
-		scope := "apps~agent"
+		// 08 §2: no person's partition mounts global's db. From the host:
+		// the mount table of alice's backend — found by its mounts, not its
+		// environment (mountinfo is world-readable, environ isn't under a
+		// multi-uid user namespace) — classifies every mount of the tile's
+		// data: hers, the shared team, and nothing else. This is an
+		// acceptance check: it fails, never skips, when it can't look.
+		const scope = "apps~agent"
+		canonDB := filepath.Join(d.WS, ".xbin", "resenc", scope, "db")
+		var pid string
+		var mounts []paMount
+		xbindtest.Eventually(t, 2*time.Minute, "alice's partition backend's mount table", func() (bool, string) {
+			ag(paAgent, "alice", "GET", "/me", nil) // running, whatever the idle stop did meanwhile
+			pid, mounts = paPartitionMounts(canonDB, pkeys["alice"])
+			return pid != "", "no process has alice's volume at " + canonDB
+		})
 		var mine, shared []string
-		for _, line := range strings.Split(string(b), "\n") {
-			if !strings.Contains(line, "resources-enc") || !strings.Contains(line, scope) {
-				continue
+		for _, m := range mounts {
+			where := m.root + " " + m.point + " " + m.source
+			if !strings.Contains(where, d.WS+"/data") && !strings.Contains(where, d.WS+"/.xbin/res") {
+				continue // not the workspace's data (the rootfs, the tile's source, /proc…)
 			}
 			switch {
-			case strings.Contains(line, pkeys["alice"]):
-				mine = append(mine, line)
-			case strings.Contains(line, pkeys["bob"]) || strings.Contains(line, pkeys["carol"]):
-				t.Errorf("BUG: alice's partition mounts another person's volume: %s", line)
-			case strings.Contains(line, ".partitions"):
-				t.Errorf("BUG: alice's partition mounts a partition volume that isn't hers: %s", line)
-			case strings.Contains(line, "/team"):
-				shared = append(shared, line)
+			case strings.Contains(where, "/.partitions/"+scope+"/") && strings.Contains(where, "/"+pkeys["alice"]+"/"):
+				mine = append(mine, m.line)
+			case strings.Contains(where, "/.partitions/"):
+				t.Errorf("BUG: alice's partition mounts a partition volume that isn't hers: %s", m.line)
+			case strings.HasSuffix(m.point, "/"+scope+"/team") && strings.Contains(m.source, "/"+scope+"/team"):
+				shared = append(shared, m.line)
 			default:
-				t.Errorf("BUG: alice's partition mounts the global instance's own data: %s", line)
+				t.Errorf("BUG: alice's partition mounts data that isn't hers or the shared team (global's own?): %s", m.line)
 			}
 		}
-		t.Logf("alice's volumes: %q; shared: %q", mine, shared)
-		if len(mine) == 0 {
-			t.Errorf("alice's mount table shows none of her volumes (%s): %s", pkeys["alice"], cut(string(b), 3000))
+		t.Logf("alice's backend %s — her volumes: %q; shared: %q", pid, mine, shared)
+		if len(mine) == 0 || len(shared) == 0 {
+			t.Errorf("alice's mount table lacks her db volume (%d) or the shared team (%d)", len(mine), len(shared))
 		}
-		if len(shared) == 0 {
-			t.Errorf("alice's mount table lacks the shared team volume: %s", cut(string(b), 3000))
+		// …and, where the host may look inside her namespace (a single-uid
+		// user namespace), the file at the canonical path is her db
+		if b, err := os.ReadFile("/proc/" + pid + "/root" + canonDB + "/db.sqlite"); err == nil {
+			if !strings.Contains(string(b), "alice-secret") || strings.Contains(string(b), "global-secret") || strings.Contains(string(b), "bob-secret") {
+				t.Errorf("BUG: the db alice's backend sees at %s isn't hers alone", canonDB)
+			}
+		} else {
+			t.Logf("alice's db file from the host: %v (the mount table above is the check)", err)
 		}
 	})
 
@@ -411,6 +420,37 @@ func TestPartitionsAgent(t *testing.T) {
 		if st := ag(paAgent, "alice", "POST", "/sandboxes", map[string]any{"provider": paOld, "name": "old-box"}).Status; st != 409 {
 			t.Errorf("alice making a sandbox at the old manager: %d, want 409", st)
 		}
+		// her conversation works in her own sandbox (the manager's owner
+		// says it is homed in her partition), never in the team's
+		var coding struct{ ID int64 }
+		if r := ag(paAgent, "alice", "POST", "/ask", map[string]string{"text": "hello in code", "class": "coding"}); r.Status/100 != 2 {
+			t.Fatalf("alice starts a coding conversation: %d %s", r.Status, r)
+		} else {
+			r.Decode(t, &coding)
+		}
+		answer(paAgent, "alice", coding.ID, "Hello from the fake model.")
+		conv := fmt.Sprintf("/runs/%d", coding.ID)
+		if r := ag(paAgent, "alice", "PATCH", conv, map[string]any{"sandbox": map[string]string{"ref": made.Ref}}); r.Status != 200 {
+			t.Errorf("alice binds her own sandbox: %d %s", r.Status, r)
+		}
+		var team box
+		if r := ag(paAgent, "", "POST", "/sandboxes", map[string]any{"provider": paNew, "name": "team-box", "visibility": "team"}); r.Status != 201 {
+			t.Fatalf("the global instance makes a team sandbox: %d %s", r.Status, r)
+		} else {
+			r.Decode(t, &team)
+		}
+		if team.Labels["xbin.agent/home"] != "global" {
+			t.Errorf("the global instance's sandbox (no conversation) labels: %v", team.Labels)
+		}
+		if r := ag(paAgent, "alice", "PATCH", conv, map[string]any{"sandbox": map[string]string{"ref": team.Ref}}); r.Status != 403 {
+			t.Errorf("BUG: alice binds the team's sandbox into her private conversation: %d %s", r.Status, r)
+		}
+		var loose box
+		if r := ag(paAgent, "alice", "POST", "/sandboxes", map[string]any{"provider": paNew, "name": "loose-box"}); r.Status != 201 {
+			t.Errorf("alice makes a sandbox without a conversation: %d %s", r.Status, r)
+		} else if r.Decode(t, &loose); loose.Labels["xbin.agent/home"] != pkeys["alice"] {
+			t.Errorf("her sandbox made without a conversation: labels %v", loose.Labels)
+		}
 		names := func(bs []box) (out []string) {
 			for _, b := range bs {
 				out = append(out, b.Name)
@@ -458,23 +498,41 @@ func TestPartitionsAgent(t *testing.T) {
 	})
 }
 
-// paBackendPID is the host pid of tile's backend running as partition
-// ("" when none is found: /proc/<pid>/environ may be unreadable).
-func paBackendPID(t *testing.T, tile, partition string) string {
-	t.Helper()
+// paMount is one line of a mount table.
+type paMount struct{ line, root, point, source string }
+
+// paPartitionMounts finds a process whose mount namespace has the person's
+// partition volume (pkey) mounted at canonDB — the partition's backend (or
+// a helper inside its sandbox: one namespace) — and returns its pid and
+// mount table. The host's namespace has the global instance's volume there,
+// never a partition's.
+func paPartitionMounts(canonDB, pkey string) (string, []paMount) {
 	ents, _ := os.ReadDir("/proc")
 	for _, ent := range ents {
 		if _, err := strconv.Atoi(ent.Name()); err != nil {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join("/proc", ent.Name(), "environ"))
+		b, err := os.ReadFile(filepath.Join("/proc", ent.Name(), "mountinfo"))
 		if err != nil {
 			continue
 		}
-		env := strings.Split(string(b), "\x00")
-		if slices.Contains(env, "XBIN_COMPONENT="+tile) && slices.Contains(env, "XBIN_PARTITION="+partition) {
-			return ent.Name()
+		var ms []paMount
+		hit := false
+		for _, line := range strings.Split(string(b), "\n") {
+			f := strings.Fields(line)
+			sep := slices.Index(f, "-")
+			if len(f) < 5 || sep < 0 || sep+2 >= len(f) {
+				continue
+			}
+			m := paMount{line: line, root: f[3], point: f[4], source: f[sep+2]}
+			ms = append(ms, m)
+			if m.point == canonDB && strings.Contains(m.source, "/"+pkey+"/") {
+				hit = true
+			}
+		}
+		if hit {
+			return ent.Name(), ms
 		}
 	}
-	return ""
+	return "", nil
 }
