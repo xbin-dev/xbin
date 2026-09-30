@@ -31,8 +31,19 @@ const partitionConsentUsage = `  bx partition consent <from> <to> [--revoke]
                                         your partitions' egress ledger: counts, never contents
 `
 
+// errNoEdgeRoute: an xbind without the consent or ledger routes — older
+// than them, whether it has partitioned tiles or not. It is errNoPartitions
+// for cmdPartition (exit 6), in its own words.
+type errNoEdgeRoute struct{ route string }
+
+func (e errNoEdgeRoute) Error() string {
+	return "this xbind has no " + e.route + " (it predates partition consents and the egress ledger); upgrade xbind"
+}
+
+func (e errNoEdgeRoute) Is(target error) bool { return target == errNoPartitions }
+
 // partitionAPI calls a partitions route; an xbind without it (Go's mux 404
-// or 405, no error body) answers errNoPartitions.
+// or 405, no error body) answers errNoEdgeRoute.
 func partitionAPI(method, path string, body any) (map[string]any, error) {
 	resp, err := api(method, path, body)
 	if err != nil {
@@ -44,7 +55,8 @@ func partitionAPI(method, path string, body any) (map[string]any, error) {
 	_ = json.Unmarshal(b, &out)
 	switch {
 	case (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed) && out["error"] == nil:
-		return nil, errNoPartitions
+		route, _, _ := strings.Cut(path, "?")
+		return nil, errNoEdgeRoute{route: method + " " + route}
 	case resp.StatusCode >= 400:
 		msg := fmt.Sprint(out["error"])
 		if out["error"] == nil {
@@ -98,9 +110,12 @@ func partitionConsent(args []string) error {
 	if asJSON {
 		return asJSONOut(out)
 	}
-	if revoke {
-		fmt.Printf("%s can no longer use your data in %s; its instance of you was stopped.\n", rest[0], rest[1])
-	} else {
+	switch revoked, known := out["revoked"].(bool); {
+	case revoke && known && !revoked:
+		fmt.Printf("You hadn't let %s use your data in %s: nothing to take back.\n", rest[0], rest[1])
+	case revoke:
+		fmt.Printf("%s can no longer use your data in %s; if it was running for you, it was stopped.\n", rest[0], rest[1])
+	default:
 		fmt.Printf("%s may now use your data in %s (bx partition consent %s %s --revoke takes it back).\n", rest[0], rest[1], rest[0], rest[1])
 	}
 	return nil
@@ -196,8 +211,10 @@ func partitionLedger(args []string) error {
 // doctorPartitionEdges lists the edges between partitioned tiles for review
 // (06 §7, AR-19): with partitionConsent off each is open to the calling
 // tile's code for every person who can read the callee. Admin credentials
-// only; silently skipped otherwise, and against an older xbind.
-func doctorPartitionEdges(ok func(string, ...any)) {
+// only; silent otherwise, against an older xbind, and when no partitioned
+// tile holds a grant on another's people's data (a workspace without
+// partitioned tiles prints what it always did).
+func doctorPartitionEdges() {
 	var out struct {
 		Days   int `json:"days"`
 		Policy struct {
@@ -211,16 +228,6 @@ func doctorPartitionEdges(ok func(string, ...any)) {
 		} `json:"edges"`
 	}
 	if apiJSON("GET", "/api/xbin/partitions/edges", nil, &out) != nil {
-		return
-	}
-	granted := 0
-	for _, e := range out.Edges {
-		if e.Granted {
-			granted++
-		}
-	}
-	if granted == 0 {
-		ok("no partitioned tile holds a grant on another's people's data")
 		return
 	}
 	for _, e := range out.Edges {

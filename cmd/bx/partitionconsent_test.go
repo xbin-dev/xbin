@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -18,7 +19,7 @@ import (
 // number, approvers a list) and shows the approval warning.
 func TestBxPartitionConsent(t *testing.T) {
 	var got []string
-	old := false
+	old, revoked := false, true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		got = append(got, r.Method+" "+r.URL.RequestURI()+" "+strings.TrimSpace(string(b)))
@@ -28,6 +29,8 @@ func TestBxPartitionConsent(t *testing.T) {
 		case r.URL.Path == "/api/xbin/partitions/consents" && strings.Contains(string(b), `"to":"apps/x"`):
 			w.WriteHeader(http.StatusConflict)
 			_, _ = io.WriteString(w, `{"error":"apps/x doesn't keep each person's data apart: there is nothing to allow"}`)
+		case r.URL.Path == "/api/xbin/partitions/consents" && r.Method == "DELETE":
+			_, _ = io.WriteString(w, `{"policy":{"partitionConsent":true},"consents":[],"asked":[],"revoked":`+strconv.FormatBool(revoked)+`}`)
 		case r.URL.Path == "/api/xbin/partitions/consents":
 			_, _ = io.WriteString(w, `{"policy":{"partitionConsent":true},"consents":[{"from":"apps/q","to":"apps/pg","at":"2026-09-30T12:00:00Z","via":"session"}],"asked":[]}`)
 		case r.URL.Path == "/api/xbin/partitions/ledger":
@@ -72,14 +75,31 @@ func TestBxPartitionConsent(t *testing.T) {
 		}
 	}
 	old = true
-	if err := partitionCmd([]string{"consent", "ls"}); !errors.Is(err, errNoPartitions) {
+	if err := partitionCmd([]string{"consent", "ls"}); !errors.Is(err, errNoPartitions) ||
+		!strings.Contains(err.Error(), "no GET /api/xbin/partitions/consents") || strings.Contains(err.Error(), "no partitioned tiles") {
 		t.Errorf("against an older xbind: %v", err)
 	}
 	old = false
 
+	// revoking says whether there was a consent to take back (the answer's
+	// revoked), never that something was stopped when nothing was
+	revoked = false
+	out := captureStdoutF10(t, func() {
+		if err := partitionCmd([]string{"consent", "apps/q", "apps/pg", "--revoke"}); err != nil {
+			t.Error(err)
+		}
+	})
+	if !strings.Contains(out, "nothing to take back") || strings.Contains(out, "stopped") {
+		t.Errorf("revoking what wasn't given printed %q", out)
+	}
+	revoked = true
+	if out := captureStdoutF10(t, func() { _ = partitionCmd([]string{"consent", "apps/q", "apps/pg", "--revoke"}) }); !strings.Contains(out, "can no longer use your data") {
+		t.Errorf("revoking printed %q", out)
+	}
+
 	// bx grants decodes rows that carry approvedAt (a number) and approvers
 	// (a list), and prints the warning
-	out := captureStdoutF10(t, func() {
+	out = captureStdoutF10(t, func() {
 		if err := cmdGrants(); err != nil {
 			t.Errorf("bx grants with approvedAt and approvers: %v", err)
 		}
