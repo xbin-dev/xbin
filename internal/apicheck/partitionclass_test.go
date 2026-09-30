@@ -288,7 +288,7 @@ func partitionRefusals(t *testing.T, inv map[string]string) {
 			code, body := call(c, pattern)
 			want, wantCode := `"ran":"`+pattern+`"`, http.StatusOK
 			switch {
-			case class == server.PersonOnly: // every credential here is a tile's, or names no person (the owner)
+			case class == server.PersonOnly: // a person's own credential only: none of these is one
 				want, wantCode = "this is a person's own act", http.StatusForbidden
 			case !c.user:
 			case class == server.PartitionScoped && unconverted[pattern] != "":
