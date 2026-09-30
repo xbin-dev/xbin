@@ -2908,7 +2908,9 @@ GET    /partitions/ledger          PersonOnly, as above. ?tile= ?days=1-90
                                    (30). The egress ledger (counts per day,
                                    never contents): kind edge — an allowed
                                    call or data reach into the same person's
-                                   partition of another partitioned tile —,
+                                   partition of another partitioned tile, a
+                                   bus subscription there once when made
+                                   and once per delivery —,
                                    provider — a call to a tile that isn't
                                    partitioned (a global or a personal
                                    bind), or to a partitioned tile's
@@ -4049,7 +4051,7 @@ another tile published for the person only while the partition runs
 partitioned scope's bus it is registered, and each event delivered, only
 while the partition reaches that scope as a call of it would: its person can
 read the scope's tile and, with the `partitionConsent` policy on, consented
-(403 at registration; a delivery refused meanwhile counts as
+— a shared bus needs the read access alone (403 at registration; a delivery refused meanwhile counts as
 `dormantEvents`, its reason in `lastError`). A failed tick or delivery logs
 its status, never the partition's answer.
 

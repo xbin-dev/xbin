@@ -459,7 +459,8 @@ switching a tile it may name stops, until an admin fixes or removes it.
 
 **The egress ledger**, in both settings: xbind counts, per person's
 partition and per day, the calls and data reaches into another partitioned
-tile (`edge`) and the calls to tiles that aren't partitioned — or to a
+tile (`edge`; a bus subscription there counts once when made and once per
+event delivered) and the calls to tiles that aren't partitioned — or to a
 partitioned tile's deployment beyond its primary, named `<tile>+<name>`
 (`provider`) — counts only, never what was sent. A person reads their own
 (`bx partition ledger`, `GET /api/xbin/partitions/ledger`); a tile's
@@ -550,7 +551,9 @@ partition from its own store:
   tile's bus follows the rule of calling it: the person must be able to read
   that tile and, with the workspace's `partitionConsent` policy on, have
   consented — otherwise 403, and a subscription made before gets nothing
-  (listed `"dormant": true`) until they can again.
+  (listed `"dormant": true`) until they can again. A bus that tile declares
+  shared is no person's data: it needs the person's read access, never
+  their consent.
 - **Interface instances and ingress hosts** registered from a person's
   partition answer 200 with `"dormant": true`, are kept for that partition,
   and never route: `provider#instance` bindings and the public surface are

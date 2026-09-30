@@ -208,7 +208,8 @@ PUT /api/xbin/bus/subscriptions
   published for the person, only while it runs (counted as `dormantDrops`
   otherwise) — never the global instance's. Another partitioned tile's bus
   needs the person to be able to read that tile (and, with the
-  `partitionConsent` policy on, their consent): 403 otherwise.
+  `partitionConsent` policy on, their consent, unless the bus is shared):
+  403 otherwise.
 
 Document your topics in your `API.md` — they're part of your contract.
 

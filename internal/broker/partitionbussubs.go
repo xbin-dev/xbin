@@ -15,7 +15,10 @@ package broker
 // bus is a reach of that scope by the partition: it is registered, and
 // each event queued and delivered, only while the partition reaches the
 // same person's partition there (partSubReach — its person can read the
-// scope and, with partitionConsent on, consented).
+// scope and, with partitionConsent on, consented; a shared bus is no
+// person's data and needs their read access alone, never consent). Such a
+// reach of another partitioned tile's people's bus is counted in the
+// partition's egress ledger, once at registration and once per delivery.
 
 import (
 	"cmp"
@@ -109,7 +112,8 @@ func (b *Broker) partSubList(w http.ResponseWriter, t partTarget) {
 	}
 	b.bus.mu.Unlock()
 	for i := range rows {
-		rows[i].Dormant = rows[i].Dormant || b.partSubReach(t.tile, t.dep, t.part, rows[i].Resource, false) != nil
+		_, err := b.partSubReach(t.tile, t.dep, t.part, rows[i].Resource)
+		rows[i].Dormant = rows[i].Dormant || err != nil
 	}
 	sort.Slice(rows, func(i, k int) bool { return rows[i].Name < rows[k].Name })
 	server.WriteJSON(w, http.StatusOK, map[string]any{"subscriptions": rows})
@@ -123,7 +127,8 @@ func (b *Broker) putPartSub(w http.ResponseWriter, r *http.Request, t partTarget
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
-	if err := b.partSubReach(t.tile, t.dep, t.part, s.Resource, true); err != nil {
+	edge, err := b.partSubReach(t.tile, t.dep, t.part, s.Resource)
+	if err != nil {
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/partitions.md")
 		return
 	}
@@ -137,6 +142,7 @@ func (b *Broker) putPartSub(w http.ResponseWriter, r *http.Request, t partTarget
 		writeRegErr(w, err)
 		return
 	}
+	b.partSubCount(t.tile, t.part, edge)
 	writeRegOK(w, r, !b.partRegFires(t))
 }
 
@@ -160,29 +166,32 @@ func (b *Broker) deletePartSub(w http.ResponseWriter, r *http.Request, t partTar
 // (deployment dep, its primary) subscribing to bus resource (05 §1-§2,
 // PD-13): on a partitioned scope's bus the partition must reach the same
 // person's partition there, as a call or a data reach by it would —
-// addressedPartition's answer for its instance: on its own scope its own
+// reachPartition's answer for its instance: on its own scope its own
 // partition (its person live on the tile); on another tile's scope, when
 // its person can read that scope's root and, while the workspace policy
-// partitionConsent is on, consented (partitionConsentHolds). Asked at
-// registration, at every publish and at every delivery, never cached, so
-// a consent withdrawn or a read lost stops the deliveries at once. count:
-// the reach is counted in the partition's egress ledger (a registration, a
-// delivery), as the data plane counts one. nil for a bus of a scope no tile
-// partitions (today's rule: the tile's grant alone).
-func (b *Broker) partSubReach(tile, dep string, part util.Partition, resource string, count bool) error {
+// partitionConsent is on, consented (partitionConsentHolds). A shared bus
+// ("shared": true | "read") is no person's data (F10's rule): another
+// tile's partition reaches it on its person's read access alone, never
+// their consent, in both policy settings. Asked at registration, at every
+// publish and at every delivery, never cached, so a consent withdrawn or a
+// read lost stops the deliveries at once. edge is the scope when the reach
+// goes into another partitioned tile's people's data — what the partition's
+// egress ledger counts (partSubCount) — "" otherwise. No error for a bus of
+// a scope no tile partitions (today's rule: the tile's grant alone).
+func (b *Broker) partSubReach(tile, dep string, part util.Partition, resource string) (edge string, err error) {
 	rt, ok := b.resScope(resource)
 	if !ok || rt.Scope == "" {
-		return nil
+		return "", nil
 	}
 	root, isTile := b.Reg.Component(rt.Scope)
 	switch {
 	case !isTile:
-		return nil
+		return "", nil
 	case root.PartitionRecordUnknown():
-		return fmt.Errorf("%s's partition mode can't be read: its bus reaches no person's partition until an admin repairs it", rt.Scope)
+		return "", fmt.Errorf("%s's partition mode can't be read: its bus reaches no person's partition until an admin repairs it", rt.Scope)
 	}
 	if _, partitioned := b.Reg.PartitionedScope(rt.Scope); !partitioned {
-		return nil
+		return "", nil
 	}
 	c, found := b.Reg.Component(tile)
 	own := found && c.Scope == rt.Scope
@@ -190,23 +199,31 @@ func (b *Broker) partSubReach(tile, dep string, part util.Partition, resource st
 	if owner == util.MainDeployment {
 		owner = "" // an instance token of main names none (the name rule)
 	}
+	set, _ := b.declaredIn(rt.Scope, b.scopePrimary(rt.Scope))
+	res, declared := set[rt.Name]
+	shared := declared && sharedRes(res) // undeclared: per person, the stricter rule
 	p := auth.Principal{Component: tile, Via: "instance", Deployment: owner, Partition: part}
-	reached := b.partitionOf
-	if count {
-		// the bus as a partitioned scope's own (F5's rule); a "shared" bus's
-		// reach (F10's shared flag) is the W2 integration's to settle
-		reached = func(p auth.Principal, scope string, own bool) (string, error) {
-			return b.reachPartition(p, scope, own, false)
-		}
-	}
-	got, err := reached(p, rt.Scope, own)
+	got, err := b.reachPartition(p, rt.Scope, own, shared)
 	switch {
 	case err != nil:
-		return err
+		return "", err
 	case got != string(part):
-		return fmt.Errorf("%s: %s reaches %q of %s, not its own person's partition", tile, part, got, rt.Scope)
+		return "", fmt.Errorf("%s: %s reaches %q of %s, not its own person's partition", tile, part, got, rt.Scope)
+	case own || shared:
+		return "", nil
 	}
-	return nil
+	return rt.Scope, nil
+}
+
+// partSubCount counts one reach of another partitioned tile's people's
+// data by part's subscription in the partition's egress ledger (06 §6.1),
+// through the one ledger seam as the data plane's reaches are
+// (countPartitionReach): a registration like a bind, each delivery like a
+// call. Never under the bus's lock.
+func (b *Broker) partSubCount(tile string, part util.Partition, edge string) {
+	if user, ok := part.User(); ok && edge != "" {
+		partitionEdgeSeam(b, user, tile, edge)
+	}
 }
 
 // publishToParts queues one event for people's partitions' subscriptions:
@@ -232,7 +249,12 @@ func (bs *busSubs) publishToParts(resource, topic, stamp, from string, where bus
 			continue
 		}
 		t := partTarget{tile: st.sub.Component, dep: cmp.Or(st.owner, util.MainDeployment), pkey: st.pkey, part: st.part}
-		if !bs.b.partRegFires(t) || bs.b.partSubReach(t.tile, t.dep, t.part, resource, false) != nil {
+		fires := bs.b.partRegFires(t)
+		if fires {
+			_, err := bs.b.partSubReach(t.tile, t.dep, t.part, resource)
+			fires = err == nil
+		}
+		if !fires {
 			st.stats.DormantEvents++
 			continue
 		}
@@ -268,9 +290,11 @@ func (bs *busSubs) deliverPart(dispatch BusDispatch, st busSubSnap, d busDeliver
 	if err := b.busOwnerMayRead(sub.Component, st.owner, sub.Resource); err != nil {
 		return "failed", err.Error()
 	}
-	if err := b.partSubReach(sub.Component, dep, st.part, sub.Resource, true); err != nil {
+	edge, err := b.partSubReach(sub.Component, dep, st.part, sub.Resource)
+	if err != nil {
 		return "refused", err.Error()
 	}
+	b.partSubCount(sub.Component, st.part, edge)
 	body, err := json.Marshal(d)
 	if err != nil {
 		return "failed", err.Error()
