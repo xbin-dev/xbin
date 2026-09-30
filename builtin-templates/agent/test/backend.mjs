@@ -14,8 +14,9 @@
 // harnesses (D-harness §4, until the backend serves them: the
 // catalog seed.harnesses, the per-person modes seed.harnessModes, a harness
 // ask or run, GET|PATCH /runs/{id}/harness, …/answer, …/authenticate, …/log,
-// approve {option, feedback}, conversation rows' waiting and kids, seed.trees
-// — test/harness-fixtures.mjs has a seed of each) — and a live stream
+// approve {option, feedback}, conversation rows' waiting and kids, seed.trees,
+// a person's message to a harness child (its parent's notice), a harness run's
+// cancel — test/harness-fixtures.mjs has a seed of each) — and a live stream
 // the test drives with window.__push(event) (the same SSE the real backend
 // writes). Tests add or override routes with window.__route(method, regexp,
 // fn) from their own init script, and read what the tile sent from
@@ -148,7 +149,7 @@ export function STUB(seed) {
         o.signal && o.signal.addEventListener('abort', () => { streams.delete(c); try { c.close(); } catch { /* closed */ } });
       },
     }), { headers: { 'Content-Type': 'text/event-stream' } })],
-    ['POST', /\/runs\/(\d+)\/message$/, () => json({ ok: 'true', inboxId: 1, queued: false })],
+    ['POST', /\/runs\/(\d+)\/message$/, (m, o) => harnessMessage(+m[1], o) || json({ ok: 'true', inboxId: 1, queued: false })],
     ['POST', /\/runs\/(\d+)\/interrupt$/, () => json({ ok: 'true', returned: [] })],
     // as _backend/inbox.go: a verdict naming an ask that is no longer pending is refused
     ['POST', /\/runs\/(\d+)\/approve$/, (m, o) => {
@@ -369,7 +370,37 @@ export function STUB(seed) {
     unpark(id);
     return json({ ok: 'true' });
   };
+  // harnessMessage: a person's message to a harness CHILD (§4.2.10): its
+  // parent is told (§4.3.13) — the stub delivers that notice at once, as the
+  // parent's user row (the backend: an hnote, at its next step); null: not one
+  let noteId = 9000;
+  const harnessMessage = (id, o) => {
+    const r = hrun(id);
+    if (!r || !r.parentId || !person()) return null;
+    const b = JSON.parse((o && o.body) || '{}');
+    const who = (seed.me || {}).user || 'admin';
+    const pv = window.__views[r.parentId] || (window.__views[r.parentId] = {});
+    const msgs = pv.messages || (pv.messages = []);
+    const msg = { id: ++noteId, runId: r.parentId, seq: Math.max(0, ...msgs.map((x) => x.seq || 0)) + 1, role: 'user', created: Math.floor(Date.now() / 1000),
+      content: `[direct message to #${id} (${r.harness.name || hname(r.harness.provider)}) from ${who}]\n${b.text || ''}` };
+    msgs.push(msg);
+    setTimeout(() => window.__push({ type: 'message', run: r.parentId, root: r.rootId || r.parentId, data: msg }), 0);
+    return json({ ok: 'true', inboxId: noteId, queued: LIVE.includes(r.status) });
+  };
+  // cancelRun: a harness run canceled for good (its adapter stopped); the link to it settles canceled
+  const cancelRun = (id) => {
+    const r = hrun(id);
+    setRun(id, { status: 'canceled', pendingState: {}, harness: { ...r.harness, state: 'stopped', pending: undefined, activity: undefined } });
+    for (const v of Object.values(window.__views)) {
+      const l = (v.links || []).find((x) => x.childId === id);
+      if (!l) continue;
+      Object.assign(l, { state: 'canceled', outcome: 'canceled', child: { ...l.child, status: 'canceled' } });
+      window.__push({ type: 'link', run: l.parentId, root: r.rootId || l.parentId, data: l });
+    }
+    return json({ ok: 'true' });
+  };
   base.push(
+    ['POST', /\/runs\/(\d+)\/cancel$/, (m) => (hrun(+m[1]) ? cancelRun(+m[1]) : json({}))], // a built-in run's: as before
     ['GET', /\/harnesses(?:\?probe=([^&]+))?$/, (m) => json({ harnesses: H.catalog.map((h) => {
       const out = { ...h, setting: H.modes[h.id] || 'approve' };
       const s = m[1] && box(decodeURIComponent(m[1]));

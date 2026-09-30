@@ -41,6 +41,7 @@ import { createSandboxStore } from './sandbox-store.js';
 import { createHarnessStore } from './harness-store.js';
 import { resolveClass } from './harness.js';
 import { wireStart } from './harness-start.js';
+import { createBoard } from './harness-board.js';
 
 /**
  * createApp builds the model.
@@ -344,6 +345,7 @@ export function createApp(opts = {}) {
     event(ev) {
       app.convs.apply(ev);
       if (ev.type === 'run') app.sbx.fromEvent(ev);
+      app.board.take(ev); // the Coding agents board (model/harness-board.js)
       if (ev.type === 'revoked' && ev.run === app.root) {
         app.home();
         globalThis.xbin?.notify?.('info', 'That conversation is no longer shared with you.');
@@ -367,7 +369,7 @@ export function createApp(opts = {}) {
     runs: () => emit('runs'),
     gone: () => app.home(),
     event: (ev) => app.event(ev),
-    reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); },
+    reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); app.board.reset(); },
     frame: opts.frame,
   }, { deltas: opts.deltas, page: opts.page });
   // picked: a new ask's model — only when you picked one (none = the agent's
@@ -405,6 +407,8 @@ export function createApp(opts = {}) {
   // coding harnesses (D-harness): the catalog, your picks and settings, a harness run's calls
   app.harness = createHarnessStore(app);
   wireStart(app); // …and the sandbox a new chat with one starts in (model/harness-start.js)
+  // the Coding agents board: the coding agents in the open tree, or at home yours at work (model/harness-board.js)
+  app.board = createBoard(app);
   app.session.ui.act.select = (id) => app.select(id);
   app.session.ui.me = () => app.me.user;
   app.session.ui.who = () => app.me;

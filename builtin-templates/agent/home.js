@@ -1,8 +1,9 @@
 // home.js — the home view (no conversation open): the greeting and example
 // asks an instance customises (HOME, model/home.js), and what is waiting for
-// you (GET /needs): a question, an approval, an automation that failed.
+// you (GET /needs): a question, an approval, a coding agent's sign-in, an
+// automation that failed.
 import { html, nothing } from '/vendor/lit-all.min.js';
-import { REASON } from './model/home.js';
+import { needWords } from './model/home.js';
 
 /**
  * @param HOME   the words (model/home.js)
@@ -16,8 +17,8 @@ export function homeTpl(HOME, needs, ui) {
     <div class="exs">${HOME.examples.map((e) => html`<span class="ex" @click=${() => ui.pick(e)}>${e}</span>`)}</div>
     ${needs && needs.length ? html`<h5>Needs you</h5>${needs.map((n) => html`
       <div class="qa need" data-r=${n.run.id} @click=${() => ui.select(n.subRun || n.run.id)}>
-        <div class="q">${n.reason === 'failed' ? '⚠' : '❓'} ${n.run.title || 'run ' + n.run.id}
-          <span class="when">${REASON[n.reason] || n.reason}</span></div>
+        <div class="q">${n.reason === 'failed' ? '⚠' : n.reason === 'login' ? '🔑' : '❓'} ${n.run.title || 'run ' + n.run.id}
+          <span class="when">${needWords(n)}</span></div>
       </div>`)}` : nothing}
   </div>`;
 }

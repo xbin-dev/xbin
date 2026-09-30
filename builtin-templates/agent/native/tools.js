@@ -67,6 +67,7 @@ function taskTpl(s) {
       <section title=${head(a, i)} footer=${new Date(a.at * 1000).toLocaleString() + (a.live ? '' : ' · compacted — the agent sees it pinned')}>
         <text selectable>${a.text}</text>
       </section>`) : html`<section><empty title="no requests recorded"/></section>`}
+    ${ctx.ext.task(s) || nothing}
   </screen>`;
 }
 

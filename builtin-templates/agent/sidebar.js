@@ -11,6 +11,7 @@ import { groupRows } from './model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
 import * as actions from './model/actions.js';
 import { kindOf } from './model/harness-start.js';
+import { kidsWords } from './model/harness-child.js';
 
 /**
  * @param list  ConvList (conv-list.js)
@@ -49,6 +50,7 @@ function rowTpl(r, ui, withMatch) {
     : g === 'spin' ? html`<span class="spin"></span>` : nothing;
   const shared = rowShared(r);
   const kind = kindOf(r); // a coding agent answers it (D-harness): its monogram
+  const kids = kidsWords(r); // coding agents at work below it (D-harness §4.3.8)
   if (ui.renaming === r.id) {
     return html`<div class="run on" data-id=${r.id}>
       <input class="ren" .value=${r.title || ''} @keydown=${(e) => {
@@ -61,6 +63,7 @@ function rowTpl(r, ui, withMatch) {
       @click=${() => ui.select(r.id)} @contextmenu=${(e) => { e.preventDefault(); ui.openMenu(r.id, e); }}>
     ${kind ? html`<span class="kind" data-kind=${kind.provider} title=${kind.title}>${kind.mono}</span>` : nothing}
     <div class="t">${r.title || 'run ' + r.id}</div>
+    ${kids ? html`<span class="kids" title=${kids.title}>${kids.text}</span>` : nothing}
     ${glyph}
     <button class="rmenu" title="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}>⋯</button>
     ${shared ? html`<div class="chips" title=${shared.title}>${shared.chips.map((c) => html`<span class="chip ${c.kind}">${c.label}</span>`)}</div>` : nothing}

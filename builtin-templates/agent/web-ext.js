@@ -24,7 +24,8 @@
 //   newChat(redraw)      when the new-chat dialog opens: {tpl(), body()} —
 //                        tpl() is drawn into its fields (again on redraw()),
 //                        body() is merged into the POST /ask it sends
+//   task(v)              in the unfolded pinned task, after its requests
 import { makeExt } from './model/ext.js';
 
-export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'each', newChat: 'all' });
+export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'each', newChat: 'all', task: 'all' });
 export const ctx = { app: null, paint: () => {} };

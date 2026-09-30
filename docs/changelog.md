@@ -207,6 +207,42 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   chevron. Nothing changes for the built-in agent's conversations beyond
   the list's glyph and the narrow composer.
 
+- **Agent template: the agent's coding agents, as cards in its chat**
+  (`builtin-templates/agent/API.md` §Coding agents, "The agent's coding
+  agents"). A coding agent the agent started is drawn where the spawn is as
+  its own card, web and app: its monogram and name, the task, its state and
+  what it does now, where it works and its counters (tool calls, files
+  +a −d, cost, time), its plan, its last 3 blocks — read once, as its
+  newest page, when the card is open and on screen, then kept current —
+  and its answer. Its permission, plan approval, question or sign-in is
+  drawn on the card and answered on the child's own run; Stop, Cancel
+  (confirmed) and Message act on the child from the card (the app: from
+  its own chat — ⋯ → Cancel task); a person's message to it is told to the
+  agent that started it, whose chat shows the notice. A conversation row
+  shows `?` while a run below it waits and `⧉ N` for its coding agents at
+  work. New modules `harness-child.js`, `native/harness-child.js`,
+  `model/harness-child.js`; for an instance's own modules,
+  `Session.fetchView(id, {paged, limit})` reads a page of any size.
+
+- **Agent template: the Coding agents board** (`builtin-templates/agent/API.md`
+  §Coding agents, "The Coding agents board"). Every coding agent in the
+  open conversation's tree — at home every one of yours that runs or needs
+  you — in one place, web and app: a top-bar chip "⌨ 3 coding agents · 1
+  needs you" (the app: a toolbar button while one needs you, and ⋯ →
+  Coding agents) opens a dock at the right (the app: a screen with
+  sections Needs you, Running, Done) with a row per coding agent in the
+  order they started — rows never move as they change — each its child
+  card: what it does now, its permission, question or sign-in answered in
+  place on its own run, Stop, Message, Cancel. The web has a "needs you"
+  filter. The unfolded 📌 Task lists what it **Delegated** (each coding
+  agent below it, its state and task; the app: a section of the Task
+  screen), and "Needs you" says a coding agent waiting for a sign-in
+  ("needs you to sign in to Codex"). It reads `GET /runs/{root}/tree` only
+  once a coding agent is known to be there, and again only for a run the
+  tree lacks. New modules `harness-board.js`, `native/harness-board.js`,
+  `model/harness-board.js` (`app.board`); for an instance's own modules, a
+  `task` seam on both views (a part of the unfolded pinned task).
+
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
   §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).
