@@ -121,12 +121,12 @@ async function oldScaffold(browser) {
     S = await login(browser, 'admin', 'admin');
     S.page.on('pageerror', (e) => errors.push(`shell: ${e.message}`));
     await openShell(S.page);
-    const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('partition-mode.js'));
+    const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('bx-part-consent'));
     if (src) { // --dev-overlay serves the repo's scaffold over the workspace's
       skip(`the shell served is the source tree's (--dev-overlay): run the harness with HARNESS_NO_OVERLAY=1 for ${OLD}'s`);
       return;
     }
-    check(!src, `the shell served is ${OLD}'s (its bx-shell.js imports no partition-mode.js)`);
+    check(!src, `the shell served is ${OLD}'s (its bx-shell.js imports no bx-part-consent.js)`);
     await usePersonalScreen(S.page);
     const alerts = S.page.locator('bx-shell .alerts .alert');
     await until(async () => (await alerts.allInnerTexts()).some((x) => x.includes(PEND)), 'the /alerts banner names the pending tile', 20000);
