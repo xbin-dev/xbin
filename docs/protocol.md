@@ -2405,6 +2405,13 @@ POST   /templates/new               same authority as /create on the
                                    template && git merge template/main` applies
                                    upstream template fixes cleanly (shared
                                    ancestry; the builder picks what to adopt).
+                                   The instance's xbin.json is the template's
+                                   JSONC without the block (and the comment
+                                   lines above it), its partition the line
+                                   after "{"; its repo names the merge driver
+                                   for it (merge.xbin-manifest, bx template
+                                   merge-manifest: xbin.json merges by keys;
+                                   docs/overview/03-components.md §Templates).
 GET    /templates/updates           authenticated. → {instances:[{path,
                                    template, head, legacy}]} — instances whose
                                    builtin template gained snapshots they
@@ -2421,7 +2428,8 @@ GET    /templates/{repo}/{rest...}  authenticated. Read-only dumb-HTTP git serve
                                    pulls upstream fixes: git fetch template &&
                                    git merge template/main. Its xbin.json never
                                    changes the "template" block (instances never
-                                   carry it): a repo xbind creates has none, one
+                                   carry it): a repo xbind creates has none (nor
+                                   the comment lines above it), one
                                    an older xbind created keeps its own; a
                                    change to the block is a snapshot whose
                                    message says so (an empty commit when nothing

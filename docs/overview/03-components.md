@@ -298,6 +298,32 @@ carrying the block. Instances get a read-only `template` git remote pointing
 at the blueprint's repo, so upstream fixes can be pulled deliberately
 (D50).
 
+The instance's `xbin.json` is the template's own, comments and key order
+kept: only the `template` block goes, with the comment lines right above
+it (they are about the template), and the instance's `partition`, when one
+is written, is the line after the opening brace. It is the served repo's
+manifest plus that line, so a later `git fetch template && git merge
+template/main` meets upstream's manifest changes line for line.
+
+**The manifest merges by keys.** xbind names a merge driver for the
+instance's root `xbin.json` in every builtin template instance's own
+repository — `merge.xbin-manifest` in `.git/config` and `/xbin.json
+merge=xbin-manifest` in `.git/info/attributes`, nothing tracked — when the
+instance is made and, for instances older xbinds made, at start. git runs
+it (`bx template merge-manifest`) whenever both sides changed the manifest:
+git's own line merge first, kept when clean; where that conflicts, by keys —
+a value upstream changed and you didn't is upstream's, one you changed and
+upstream didn't is yours, one both changed differently stays a conflict
+(git's markers, labelled `ours`/`theirs`). Objects merge member by member
+and arrays element by element (a `uses` entry is known by its `target`);
+the top-level `template` and `partition` are never taken from upstream, and
+an instance made at another path keeps its own resource names. Instances
+older xbinds made carry a re-marshalled manifest (no comments, keys
+sorted), so every upstream manifest change used to conflict there: they now
+merge by keys and keep their form — an unedited one ends up exactly as the
+new template instantiated that way. The driver needs `bx` on `PATH`, as
+terminals have it; without it the merge is git's own.
+
 ## Creating components
 
 `bx new <path>` and `POST /api/xbin/create` share one scaffolding engine: a
