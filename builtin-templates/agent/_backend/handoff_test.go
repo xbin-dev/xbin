@@ -585,6 +585,29 @@ func TestChannelsUnpartitionedUnchanged(t *testing.T) {
 	}
 }
 
+// TestRepliesWaitWakePartition: a reply xbind hasn't taken yet is work that
+// moves without the person — a stopping partition asks to start again.
+func TestRepliesWaitWakePartition(t *testing.T) {
+	setMode(t, modeUser, "alice")
+	ag := newTestAgent(t, newTestDB(t))
+	useGlobalAgent(t, ag)
+	mail := stubMail(t)
+	mail.mu.Lock()
+	mail.fail = fmt.Errorf("partition mail: HTTP 507: the inbox is full")
+	mail.mu.Unlock()
+	if ag.db.userWake(time.Now()).runnable {
+		t.Fatal("an idle partition is runnable")
+	}
+	_ = ag.db.Tx(func(t2 *DB) error {
+		t2.outboxAdd(1, "chan:1:dm:u", 0, "answer", handoffAddr("h1"), "hi")
+		return nil
+	})
+	waitMailIdle(t)
+	if !ag.db.userWake(time.Now()).runnable {
+		t.Fatal("a reply waiting to be mailed isn't work that wakes the partition")
+	}
+}
+
 // TestTriggerOversightInPartition: a manager's own partition lists the
 // other people's registry rows the global instance keeps (and only those),
 // and switching one off there is forwarded to the global instance; its own

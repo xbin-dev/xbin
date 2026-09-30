@@ -147,7 +147,11 @@ async function channelsPartitioned(browser) {
   await dev.page.waitForSelector('.autos-page', { timeout: 30000 });
   await sleep(1000);
   await shot(dev.page, 'channelsp-dev1-automations');
+  const overseen = ((await agent('/automations')).body?.items || []).find((i) => i.kind === 'trigger' && i.owner === 'dev1');
+  check(!!overseen && overseen.access === 'oversee' && !overseen.config,
+    `admin (a manager) sees dev1's trigger from their own partition — that it exists, not what it does (${overseen && overseen.access})`);
   await page.goto(`${URL}/c/apps/agent/#auto`);
+  await page.reload();
   await page.waitForSelector('.autos-page', { timeout: 30000 });
   await sleep(1000);
   await shot(page, 'channelsp-admin-oversight');

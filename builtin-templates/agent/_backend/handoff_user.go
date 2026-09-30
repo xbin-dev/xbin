@@ -307,6 +307,15 @@ func (ag *Agent) mailOutbox(ctx context.Context) bool {
 	}
 }
 
+// repliesWait: replies wait to be mailed (the partition stopped before
+// xbind took them, or it refused for now) — work that moves without the
+// person, so a stopping partition asks to be started again (userWake).
+func (d *DB) repliesWait() bool {
+	var n int
+	_ = d.q.QueryRow(`SELECT count(*) FROM outbox WHERE state='pending'`).Scan(&n)
+	return n > 0
+}
+
 func (ag *Agent) settleOut(id int64, state, why string) {
 	_, _ = ag.db.q.Exec(`UPDATE outbox SET state=?, error=?, acked_at=? WHERE id=? AND state='pending'`, state, clip(why, 500), now(), id)
 }

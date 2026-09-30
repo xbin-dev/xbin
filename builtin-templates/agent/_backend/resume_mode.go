@@ -69,7 +69,7 @@ func (d *DB) userWake(now time.Time) userWakeAt {
 			WHERE l.state<>'running' AND l.delivered=0 AND (
 				(l.mode='fg' AND p.status IN ('running','queued','awaiting'))
 				OR (l.mode='bg' AND p.parent_id=0 AND p.status IN ('running','queued','sleeping','idle','done','canceled'))))`).Scan(&n)
-	if n > 0 || d.sleepsOnJobs() {
+	if n > 0 || d.sleepsOnJobs() || d.repliesWait() { // repliesWait: handoff_user.go
 		return userWakeAt{runnable: true}
 	}
 	var wake int64
