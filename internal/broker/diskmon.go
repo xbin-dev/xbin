@@ -383,6 +383,7 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 			out = append(out, a)
 		}
 		out = append(out, b.backupKeyAlerts()...) // keys no export holds yet: admins only (backupkeys_status.go)
+		out = append(out, b.consentAlerts()...)   // consent files this xbind can't read (partitionconsent.go)
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})
 }

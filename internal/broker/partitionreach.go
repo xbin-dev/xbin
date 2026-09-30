@@ -95,7 +95,7 @@ func (b *Broker) partitionReach(p auth.Principal, ra *reach) error {
 	if st, _, _ := root.PartitionState(); st.Held() {
 		return refusePartition(http.StatusConflict, "%s is paused (its partition mode is %s): its data isn't reachable until a manager decides", scope, st)
 	}
-	part, err := b.reachPartition(p, scope, ra.own)
+	part, err := b.reachPartition(p, scope, ra.own, sharedRes(ra.res))
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,27 @@ func (b *Broker) partitionReach(p auth.Principal, ra *reach) error {
 // (partitionOf). A cross-scope reach by another tile's user partition is
 // counted in its egress ledger once it is authorized (countPartitionReach,
 // from allowAt), never here: the grant isn't checked yet.
-func (b *Broker) reachPartition(p auth.Principal, scope string, own bool) (string, error) {
+//
+// A shared resource ("shared": true | "read") is one copy for everyone, at
+// today's keys: no person's data. Another tile's user partition reaches it
+// on the grant and the person's read access on the scope, never their
+// consent — which is about a person's own data (05 §2) — so the policy
+// partitionConsent never changes a shared reach, and the prompts, the
+// approval warning, the edges and the ledger leave shared resources out
+// alike (partitionconsent.go, partitionledger.go).
+func (b *Broker) reachPartition(p auth.Principal, scope string, own, shared bool) (string, error) {
+	if shared && !own && p.Component != "" && p.Component != scope && !isDelivery(p) {
+		cp, err := b.callerPartition(p)
+		if err != nil {
+			return "", err
+		}
+		if id, ok := cp.User(); ok {
+			if err := b.personLive(id, scope); err != nil {
+				return "", err
+			}
+			return string(cp), nil
+		}
+	}
 	return b.partitionOf(p, scope, own)
 }
 

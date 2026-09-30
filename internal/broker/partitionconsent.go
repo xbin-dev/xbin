@@ -18,22 +18,30 @@ package broker
 //     never tile code, view-as or the root token), and only while the policy
 //     is on; revoking works in both settings. Turning the policy off keeps
 //     the records, unused; they apply again when it returns;
-//   - addressedPartition asks partitionConsentHolds (filled here) at every
-//     call and reach, so a revocation holds from the next call. No volume of
-//     another scope is ever bound into a partition (EnvFor hands no
-//     cross-scope file resource), so nothing a running instance holds needs
-//     dropping — but its open streams into X do: a revocation stops Z's
-//     instance of A (it starts again on the next request);
+//   - addressedPartition asks partitionConsentHolds (consentOrAsk,
+//     partitionwire.go) at every call and reach, so a revocation holds from
+//     the next call. No volume of another scope is ever bound into a
+//     partition (EnvFor hands no cross-scope file resource); a revocation
+//     also stops Z's instance of A (it starts again on the next request),
+//     and the streams that instance held with it. Streams Z's frames,
+//     terminals or agent sessions opened as A through the proxy aren't
+//     tracked: they last until they end (an open end, records/F10.md);
 //   - a refused edge prompts A — a `partitions` event, op consent-needed, to
-//     A's sockets and a push linking to /xbin/partitions — at most once a
-//     day per edge, and only when Z holds a grant on X (tile code with no
-//     grant can't make people consent ahead of an admin's approval).
+//     A's own sockets and a push linking to /xbin/partitions — at most once
+//     a day per edge, and only when Z holds a grant on X (tile code with no
+//     grant can't make people consent ahead of an admin's approval);
+//   - a shared resource of X is no person's data: no consent (reachPartition);
+//   - a consent names tiles by path: a tile that goes (deleted, moved) or
+//     switches mode takes every consent naming it (PartitionTileChanged,
+//     the "consents" wipe hook), so a new tile at the path starts with none.
 //
 // The approval warning (S1) is shown in both settings, beside a pending
 // grant of a partitioned tile on another partitioned tile's data (GET
-// /grants' pending rows, bx grants, bx grant, the grants element).
+// /grants' pending rows: the grants element, the admin console's grants
+// view, the organisations tile, bx grants).
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -67,15 +75,14 @@ const (
 	consentPage = "xbin/partitions"
 )
 
-func init() {
-	partitionConsentHolds = func(b *Broker, userID, from, to string) bool {
-		if b.consentHolds(userID, from, to) {
-			return true
-		}
-		b.consentNeeded(userID, from, to)
-		return false
+// consentOrAsk is partitionConsentHolds (partitionwire.go): userID's
+// consent to from → to, and, without one, a prompt (consentNeeded).
+func (b *Broker) consentOrAsk(userID, from, to string) bool {
+	if b.consentHolds(userID, from, to) {
+		return true
 	}
-	registerWipeHook(wipeHook{name: "consents", wipe: wipeConsentsHook})
+	b.consentNeeded(userID, from, to)
+	return false
 }
 
 // consentDoc is one person's consent file.
@@ -92,9 +99,23 @@ type consentEdge struct {
 	Via string    `json:"via,omitempty"`
 }
 
-// consentKey is an edge's key in the file: "<from>→<to>" (no tile path
-// holds the arrow).
-func consentKey(from, to string) string { return from + "→" + to }
+// consentArrow joins an edge's key in the file: "<from>→<to>".
+const consentArrow = "→"
+
+// consentKey is an edge's key in the file. No consent names a tile whose
+// path holds the arrow (POST refuses one; consentHolds never matches one),
+// so every key splits at its one arrow.
+func consentKey(from, to string) string { return from + consentArrow + to }
+
+// consentEdgeOf splits a key: ok false for one with no arrow or more.
+func consentEdgeOf(key string) (from, to string, ok bool) {
+	from, to, ok = strings.Cut(key, consentArrow)
+	return from, to, ok && from != "" && to != "" && !strings.Contains(to, consentArrow)
+}
+
+// errConsentsUnreadable: a person's consent file this xbind can't read —
+// counted as no consent, never written over; /alerts shows it to admins.
+var errConsentsUnreadable = errors.New("this xbind can't read the consent record")
 
 // consentState is one broker's consent plane: the files read (by uid, with
 // the stamp they were read at), the prompts sent, and the runner's stop
@@ -133,6 +154,15 @@ func (b *Broker) SetPartitionEdgeStop(stop func(tile, dep, part string)) {
 	cs.mu.Unlock()
 }
 
+// PartitionEdgeStopWired reports whether the runner's stop is installed:
+// without it a revocation stops nothing (boot's guard, TestPartitionConsentWiring).
+func (b *Broker) PartitionEdgeStopWired() bool {
+	cs := b.consents()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	return cs.stop != nil
+}
+
 func (b *Broker) consentsBase() string {
 	return filepath.Join(b.Reg.Root, "data", partitionsDir, consentsDir)
 }
@@ -142,24 +172,24 @@ func (b *Broker) consentPath(uid string) string {
 }
 
 // readConsentDoc reads uid's file: nil without one. A file this xbind
-// can't read (it doesn't parse, another schema, another uid) is an error:
-// no consent, and never written over.
+// can't read (it doesn't parse, another schema, another uid) is an error
+// (errConsentsUnreadable): no consent, and never written over.
 func readConsentDoc(path, uid string) (*consentDoc, error) {
 	raw, err := os.ReadFile(path) // walk-ok: data/partitions is xbind's own; no sandbox sees it
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", errConsentsUnreadable, err)
 	}
 	var d consentDoc
 	switch {
 	case json.Unmarshal(raw, &d) != nil:
-		return nil, errors.New("it doesn't parse")
+		return nil, fmt.Errorf("%w: it doesn't parse", errConsentsUnreadable)
 	case d.Schema != consentSchema:
-		return nil, fmt.Errorf("schema %d, this xbind reads %d", d.Schema, consentSchema)
+		return nil, fmt.Errorf("%w: schema %d, this xbind reads %d", errConsentsUnreadable, d.Schema, consentSchema)
 	case d.UID != uid:
-		return nil, errors.New("it names another uid than its file")
+		return nil, fmt.Errorf("%w: it names another uid than its file", errConsentsUnreadable)
 	}
 	if d.Edges == nil {
 		d.Edges = map[string]consentEdge{}
@@ -197,7 +227,7 @@ func (b *Broker) consentDocOf(uid string) (*consentDoc, error) {
 // xbind can't read: no.
 func (b *Broker) consentHolds(userID, from, to string) bool {
 	uid := b.storedPartitionUID(userID)
-	if uid == "" {
+	if uid == "" || strings.Contains(from, consentArrow) || strings.Contains(to, consentArrow) {
 		return false
 	}
 	doc, err := b.consentDocOf(uid)
@@ -218,13 +248,13 @@ func (b *Broker) editConsents(userID, uid string, edit func(d *consentDoc) bool)
 	path := b.consentPath(uid)
 	doc, err := readConsentDoc(path, uid)
 	if err != nil {
-		return nil, fmt.Errorf("the consent record can't be read by this xbind (%v): it is kept as it is", err)
+		return nil, fmt.Errorf("%w — it is kept as it is until an admin fixes or removes data/partitions/consents/%s.json (/alerts names it)", err, uid)
 	}
 	if doc == nil {
 		doc = &consentDoc{Schema: consentSchema, User: userID, UID: uid, Edges: map[string]consentEdge{}}
 	}
 	if doc.User != userID {
-		return nil, errors.New("the consent record names another person: it is kept as it is")
+		return nil, fmt.Errorf("%w: it names another person — it is kept as it is until an admin fixes or removes data/partitions/consents/%s.json", errConsentsUnreadable, uid)
 	}
 	if !edit(doc) {
 		return doc, nil
@@ -272,14 +302,24 @@ func (b *Broker) consentNeeded(userID, from, to string) {
 	go b.promptConsent(userID, from, to)
 }
 
+// personEvent is the data of a `partitions` event for the person's own
+// sockets only — their session, app or device — never the principals of
+// the tile it names acting in their partition (partitionEventFor asks
+// PersonOnly): the callee's code never learns who tried to reach its
+// people's data, nor who allowed it.
+type personEvent map[string]any
+
+// PersonOnly marks the event for the person's own sockets.
+func (personEvent) PersonOnly() bool { return true }
+
 // promptConsent sends one consent-needed prompt.
 func (b *Broker) promptConsent(userID, from, to string) {
 	if b.Hub != nil {
 		b.Hub.Publish(events.Event{Type: "partitions", Component: to, Partition: string(util.UserPartition(userID)),
-			Data: map[string]any{"op": "consent-needed", "from": from, "to": to}})
+			Data: personEvent{"op": "consent-needed", "from": from, "to": to}})
 	}
 	b.pushPerson(userID, "tile.partition-consent", from+" asks for your "+to+" data",
-		fmt.Sprintf("%s wants to use your data in %s. Your workspace asks you first: allow or ignore it on the partitions page (bx partition consent %s %s).", from, to, from, to),
+		fmt.Sprintf("%s wants to use your data in %s. Your workspace asks you first: allow it with bx partition consent %s %s — or ignore it.", from, to, from, to),
 		consentPage, "partition-consent:"+consentKey(from, to))
 }
 
@@ -393,8 +433,9 @@ func (b *Broker) consentsView(userID string) map[string]any {
 	if uid := b.storedPartitionUID(userID); uid != "" {
 		if doc, err := b.consentDocOf(uid); err == nil && doc != nil && doc.User == userID {
 			for k, e := range doc.Edges {
-				from, to, _ := strings.Cut(k, "→")
-				rows = append(rows, map[string]any{"from": from, "to": to, "at": e.At.UTC(), "via": e.Via})
+				if from, to, ok := consentEdgeOf(k); ok {
+					rows = append(rows, map[string]any{"from": from, "to": to, "at": e.At.UTC(), "via": e.Via})
+				}
 			}
 		}
 	}
@@ -430,6 +471,16 @@ func consentBody(r *http.Request) (from, to string, ok bool) {
 	return from, to, from != "" && to != "" && from != to
 }
 
+// writeConsentsErr answers a consent file edit's failure: 409 for a file
+// this xbind can't read (an admin's to fix; /alerts names it), 500 else.
+func writeConsentsErr(w http.ResponseWriter, err error) {
+	code := http.StatusInternalServerError
+	if errors.Is(err, errConsentsUnreadable) {
+		code = http.StatusConflict
+	}
+	server.WriteError(w, code, err.Error(), consentsDocs)
+}
+
 // apiConsentsAdd — {from, to}: the person lets partitioned tile from use
 // their data in partitioned tile to. Only while the policy is on; both
 // tiles partitioned and readable by them.
@@ -439,8 +490,12 @@ func (b *Broker) apiConsentsAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	from, to, ok := consentBody(r)
-	if !ok {
+	switch {
+	case !ok:
 		server.WriteError(w, http.StatusBadRequest, "need {from, to}: two different tile paths", consentsDocs)
+		return
+	case strings.Contains(from+to, consentArrow):
+		server.WriteError(w, http.StatusBadRequest, "a tile whose path holds "+consentArrow+" can't be named in a consent: rename it", consentsDocs)
 		return
 	}
 	if !b.Policies().PartitionConsent {
@@ -475,7 +530,7 @@ func (b *Broker) apiConsentsAdd(w http.ResponseWriter, r *http.Request) {
 		d.Edges[consentKey(from, to)] = consentEdge{At: consentNow().UTC(), Via: p.Via}
 		return true
 	}); err != nil {
-		server.WriteError(w, http.StatusInternalServerError, err.Error(), consentsDocs)
+		writeConsentsErr(w, err)
 		return
 	}
 	slog.Info("audit", "who", p.From(), "method", "POST", "path", "/partitions/consents", "status", http.StatusOK, "from", from, "to", to)
@@ -485,8 +540,9 @@ func (b *Broker) apiConsentsAdd(w http.ResponseWriter, r *http.Request) {
 
 // apiConsentsRevoke — {from, to} (or ?from=&to=): the person takes a
 // consent back, in either setting. Its effect is at once: the next call
-// and reach are refused, and from's instance of the person stops (its open
-// streams into to with it).
+// and reach are refused, and from's instance of the person stops (the
+// streams it held into to with it). The answer is the GET view, with
+// revoked: whether there was a consent to take back.
 func (b *Broker) apiConsentsRevoke(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	if !personOwn(w, p) {
@@ -504,7 +560,7 @@ func (b *Broker) apiConsentsRevoke(w http.ResponseWriter, r *http.Request) {
 			delete(d.Edges, consentKey(from, to))
 			return removed
 		}); err != nil {
-			server.WriteError(w, http.StatusInternalServerError, err.Error(), consentsDocs)
+			writeConsentsErr(w, err)
 			return
 		}
 	}
@@ -513,7 +569,9 @@ func (b *Broker) apiConsentsRevoke(w http.ResponseWriter, r *http.Request) {
 		b.stopEdgeCaller(from, p.UserID)
 		b.publishConsents(p.UserID, from, to, false)
 	}
-	server.WriteJSON(w, http.StatusOK, b.consentsView(p.UserID))
+	view := b.consentsView(p.UserID)
+	view["revoked"] = removed
+	server.WriteJSON(w, http.StatusOK, view)
 }
 
 // stopEdgeCaller stops userID's instance of tile from, when it is
@@ -534,20 +592,48 @@ func (b *Broker) publishConsents(userID, from, to string, allowed bool) {
 		return
 	}
 	b.Hub.Publish(events.Event{Type: "partitions", Component: to, Partition: string(util.UserPartition(userID)),
-		Data: map[string]any{"op": "consent", "from": from, "to": to, "allowed": allowed}})
+		Data: personEvent{"op": "consent", "from": from, "to": to, "allowed": allowed}})
 }
 
-// ---- the switch's wipe ----
+// ---- the switch's wipe; a tile that goes ----
 
 // wipeConsentsHook is the "consents" store's part of a switch that deletes
 // everything (01 §2.6): every person's consent naming the tile, as caller
 // or callee, goes. Removing or adding global keeps them (they are about
-// people's partitions). A dry run counts nothing: consents are metadata,
-// not data the summary lists.
+// people's partitions). A dry run removes and counts nothing — consents
+// are metadata, not data the summary lists — but checks what the switch
+// would: a consent file this xbind can't read that may name the tile fails
+// both, so the confirmation says so before anything is deleted. A metadata
+// hook (partitionwire.go): it runs after every data store's.
 func wipeConsentsHook(b *Broker, t wipeTarget, _ *wipeSummary) error {
-	if t.Kind != wipeEverything || t.DryRun {
+	if t.Kind != wipeEverything {
 		return nil
 	}
+	return b.dropConsentsNaming(t.Tile, t.DryRun)
+}
+
+// PartitionTileChanged is the consents' partition-change hook (boot:
+// Registry.OnPartitionChange): a tile that went — deleted or moved away,
+// its mode now the zero one — takes every consent naming it, so a new tile
+// later at its path never inherits what people allowed the old one's code.
+// A switch to unpartitioned took them already (the wipe hook): nothing is
+// left to find then. Consent files are few and small; this runs in the
+// scan, which it never asks.
+func (b *Broker) PartitionTileChanged(c *registry.Component, _, new registry.PartitionMode) {
+	if c == nil || new != (registry.PartitionMode{}) {
+		return
+	}
+	if err := b.dropConsentsNaming(c.Path, false); err != nil {
+		slog.Warn("partitions: consents naming a tile that went can't all be removed", "tile", c.Path, "err", err)
+	}
+}
+
+// dropConsentsNaming removes every consent naming tile, as caller or
+// callee, from every person's file (dry: only checks that it could). A
+// file this xbind can't read is skipped when its bytes can't name tile —
+// an unrelated person's; /alerts shows it to admins — and fails the call
+// otherwise: a consent this xbind can't remove would outlive the tile.
+func (b *Broker) dropConsentsNaming(tile string, dry bool) error {
 	entries, err := os.ReadDir(b.consentsBase()) // walk-ok: data/partitions is xbind's own
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -561,17 +647,22 @@ func wipeConsentsHook(b *Broker, t wipeTarget, _ *wipeSummary) error {
 		if !ok || !users.UIDOK(uid) || !e.Type().IsRegular() {
 			continue
 		}
-		doc, err := readConsentDoc(b.consentPath(uid), uid)
-		if err != nil || doc == nil {
-			if err != nil {
-				errs = append(errs, fmt.Errorf("consents of %s: %w", uid, err))
+		path := b.consentPath(uid)
+		doc, err := readConsentDoc(path, uid)
+		switch {
+		case err != nil:
+			if raw, rerr := os.ReadFile(path); rerr == nil && !namesTile(raw, tile) { // walk-ok: data/partitions is xbind's own
+				continue
 			}
+			errs = append(errs, fmt.Errorf("%w (data/partitions/consents/%s.json), and it may name %s: an admin fixes or removes it, then try again", err, uid, tile))
+			continue
+		case doc == nil || dry:
 			continue
 		}
 		if _, err := b.editConsents(doc.User, uid, func(d *consentDoc) bool {
 			n := len(d.Edges)
 			for k := range d.Edges {
-				if from, to, _ := strings.Cut(k, "→"); from == t.Tile || to == t.Tile {
+				if from, to, _ := strings.Cut(k, consentArrow); from == tile || to == tile {
 					delete(d.Edges, k)
 				}
 			}
@@ -581,6 +672,54 @@ func wipeConsentsHook(b *Broker, t wipeTarget, _ *wipeSummary) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// namesTile reports whether raw — a consent file this xbind can't read —
+// may name tile: its path appears whole, not as part of a longer path.
+// Conservative: a byte beyond ASCII beside it (the arrow's are) counts as
+// a boundary.
+func namesTile(raw []byte, tile string) bool {
+	t := []byte(tile)
+	for i := 0; tile != "" && i < len(raw); {
+		j := bytes.Index(raw[i:], t)
+		if j < 0 {
+			return false
+		}
+		at, end := i+j, i+j+len(t)
+		if (at == 0 || !tilePathByte(raw[at-1])) && (end == len(raw) || !tilePathByte(raw[end])) {
+			return true
+		}
+		i = at + 1
+	}
+	return false
+}
+
+// tilePathByte: an ASCII byte a tile path may hold.
+func tilePathByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("/._-+@~", c) >= 0
+}
+
+// consentAlerts is the admins' /alerts line while a person's consent file
+// can't be read by this xbind: it counts as no consent, its person can't
+// consent or revoke (409), and a switch of a tile it may name stops.
+func (b *Broker) consentAlerts() []Alert {
+	entries, _ := os.ReadDir(b.consentsBase()) // walk-ok: data/partitions is xbind's own
+	var bad []string
+	for _, e := range entries {
+		uid, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || !users.UIDOK(uid) {
+			continue
+		}
+		if _, err := b.consentDocOf(uid); err != nil {
+			bad = append(bad, uid+".json ("+strings.TrimPrefix(err.Error(), errConsentsUnreadable.Error()+": ")+")")
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	return []Alert{{Level: "warn", Kind: "partition-consents", Message: fmt.Sprintf(
+		"%d consent record(s) in data/partitions/consents can't be read by this xbind: %s — each counts as no consent, its person can't consent or revoke, "+
+			"and switching a tile it may name stops; fix or remove the file by hand (docs/partitions.md)", len(bad), strings.Join(bad, ", "))}}
 }
 
 // dropPartitionConsents removes a deleted person's consent file (their uid

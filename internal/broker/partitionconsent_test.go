@@ -19,10 +19,10 @@ import (
 
 // edgeFx is the routing fixture (partRouteWS) with the edges the matrix
 // needs: apps/pg declares a per-partition kv (docs) and a shared one
-// (board); apps/q holds a grant on docs as well as its call grants;
-// apps/pg's global instance holds grants on apps/x and apps/pu; apps/x on
-// alice's personal tile. The prompts, pushes, stops and the clocks are
-// recorded.
+// (board); apps/q holds grants on docs and board as well as its call
+// grants; apps/rs, partitioned, holds only a grant on board; apps/pg's
+// global instance holds grants on apps/x and apps/pu; apps/x on alice's
+// personal tile. The prompts, pushes, stops and the clocks are recorded.
 type edgeFx struct {
 	*partWS
 	mu      sync.Mutex
@@ -38,12 +38,16 @@ func newEdgeFx(t *testing.T) *edgeFx {
 	w.write(map[string]string{
 		"apps/pg/scope.json": `{"resources":{"docs":{"type":"kv"},"board":{"type":"kv","shared":true}}}`,
 		"apps/q/xbin.json": `{"runtime":"go","partition":["user"],"uses":[{"target":"apps/pg","role":"reader"},{"target":"apps/pu","role":"reader"},` +
-			`{"target":"apps/x","role":"reader"},{"target":"res:apps/pg/docs","role":"writer"}]}`,
+			`{"target":"apps/x","role":"reader"},{"target":"res:apps/pg/docs","role":"writer"},{"target":"res:apps/pg/board","role":"writer"}]}`,
+		"apps/rs/xbin.json":       `{"runtime":"go","partition":["user"],"uses":[{"target":"res:apps/pg/board","role":"writer"}]}`,
+		"apps/rs/backend/main.go": "package main\n",
 	})
 	w.rescan()
 	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
 		ws.Grants = append(ws.Grants,
 			registry.Grant{From: "apps/q", Target: "res:apps/pg/docs", Role: "writer"},
+			registry.Grant{From: "apps/q", Target: "res:apps/pg/board", Role: "writer"},
+			registry.Grant{From: "apps/rs", Target: "res:apps/pg/board", Role: "writer"},
 			registry.Grant{From: "apps/pg", Target: "apps/x", Role: "reader"},
 			registry.Grant{From: "apps/pg", Target: "apps/pu", Role: "reader"},
 			registry.Grant{From: "apps/x", Target: "users/alice/mcp", Role: "reader"})
@@ -138,6 +142,13 @@ func TestPartitionEdgeMatrix(t *testing.T) {
 	b := f.b
 	qAlice, qCarol, qDave := instanceOf("apps/q", "user:alice"), frameOf("apps/q", "carol"), instanceOf("apps/q", "user:dave")
 	xInst, pgGlobal, root := instanceOf("apps/x", ""), instanceOf("apps/pg", ""), auth.Principal{Owner: true, Via: "bearer"}
+	rsAlice := instanceOf("apps/rs", "user:alice")
+	bobQ := personP(t, f.partWS, "bob") // an admin's frame of q may name a deployment
+	bobQ.Component, bobQ.Via = "apps/q", "frame"
+	pgComp, _ := b.Reg.Component("apps/pg")
+	if st, _, _ := f.state("apps/rs"); st != registry.PartitionPartitioned {
+		t.Fatalf("apps/rs: %v, want partitioned", st)
+	}
 	type cell struct {
 		name          string
 		p             auth.Principal
@@ -161,6 +172,11 @@ func TestPartitionEdgeMatrix(t *testing.T) {
 		{name: "q as carol → pg: she can't read it", p: qCarol, target: "apps/pg", deny: "carol can't read apps/pg"},
 		{name: "q as dave → pg: disabled", p: qDave, target: "apps/pg", deny: "disabled"},
 		{name: "q as alice → her personal tile: no grant", p: qAlice, target: "users/alice/mcp", deny: "apps/q is not granted access to users/alice/mcp"},
+		// the tile's own principal: its own partition, no edge
+		{name: "q as alice → q (a self-call)", p: qAlice, target: "apps/q", part: "user:alice", caller: "user:alice"},
+		// view-as: a tile's frame an admin views as alice acts in no partition
+		{name: "q's frame viewed as alice → pg", p: auth.Principal{Component: "apps/q", UserID: "alice", Via: "frame", Impersonator: "owner"},
+			target: "apps/pg", deny: "view-as can't open it"},
 		// the global instance of a partitioned tile
 		{name: "pg's global → x", p: pgGlobal, target: "apps/x", caller: "global"},
 		{name: "pg's global → pu: no global instance", p: pgGlobal, target: "apps/pu", deny: "it has no global instance"},
@@ -219,6 +235,22 @@ func TestPartitionEdgeMatrix(t *testing.T) {
 		if _, err := f.reach(qCarol, "res:apps/pg/docs"); err == nil || !strings.Contains(err.Error(), "carol can't read apps/pg") {
 			t.Errorf("%s, carol's q → pg's docs: %v", setting, err)
 		}
+		// a shared resource is no person's data: the grant and the person's
+		// read access, never a consent — in both settings, for a tile with a
+		// call grant (q) and one holding only the resource's (rs) alike
+		for _, p := range []auth.Principal{qAlice, rsAlice} {
+			if pk, err := f.reach(p, "res:apps/pg/board"); err != nil || pk != "" {
+				t.Errorf("%s, %s → pg's shared board: %q %v; want today's keys", setting, describe(p), pk, err)
+			}
+		}
+		if _, err := f.reach(qCarol, "res:apps/pg/board"); err == nil || !strings.Contains(err.Error(), "carol can't read apps/pg") {
+			t.Errorf("%s, carol's q → pg's shared board: %v", setting, err)
+		}
+		// a deployment beyond pg's primary: its one instance, global — no
+		// person's data, so no consent in either setting
+		if d := f.b.Route(bobQ, pgComp, "dev"); d.Deny != nil || d.Partition != util.PartitionGlobal || d.CallerPartition != "user:bob" {
+			t.Errorf("%s, bob's q frame → pg+dev: %+v", setting, d)
+		}
 	}
 
 	// the policy off (the default): the grant and read access suffice
@@ -228,6 +260,12 @@ func TestPartitionEdgeMatrix(t *testing.T) {
 	}
 	if got := f.ledger("apps/q", "carol"); len(got) != 0 {
 		t.Errorf("carol's refused edges were counted: %v", got)
+	}
+	if got := f.ledger("apps/rs", "alice"); len(got) != 0 {
+		t.Errorf("a shared resource's reach was counted as an edge: %v", got)
+	}
+	if got := f.ledger("apps/q", "bob"); got["provider apps/pg+dev"] != 1 || len(got) != 1 {
+		t.Errorf("bob's call to pg's deployment beyond its primary: %v, want one provider row naming apps/pg+dev", got)
 	}
 	if n := len(f.pushed()); n != 0 {
 		t.Errorf("the policy off prompted %d time(s)", n)
@@ -244,7 +282,7 @@ func TestPartitionEdgeMatrix(t *testing.T) {
 		}
 	}
 	ev := <-f.events
-	if data, _ := ev.Data.(map[string]any); ev.Partition != "user:alice" || data["op"] != "consent-needed" || data["from"] != "apps/q" {
+	if data, _ := ev.Data.(personEvent); ev.Partition != "user:alice" || data["op"] != "consent-needed" || data["from"] != "apps/q" || !data.PersonOnly() {
 		t.Errorf("the prompt's event: %+v", ev)
 	}
 	run("on, none, again", false)

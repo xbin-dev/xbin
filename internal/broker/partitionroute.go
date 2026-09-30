@@ -344,7 +344,7 @@ func (b *Broker) routePartition(p auth.Principal, target *registry.Component, d 
 	if crossTile {
 		d.CallerPartition = cp
 		if id, ok := cp.User(); ok {
-			partitionEdgeSeam(b, id, p.Component, t)
+			partitionEdgeSeam(b, id, p.Component, ledgerTarget(t, d)) // a deployment beyond the primary: <t>+<dep> (partitionledger.go)
 		}
 	}
 	id, err := b.partitionID(d.CallerPartition)

@@ -42,6 +42,7 @@ func (st *State) wirePartitionRunner() {
 			st.Auth.RevokePartitionInstances(c.Path) // 02 §2: none authenticates past the change
 		}
 	})
+	st.Reg.OnPartitionChange(brk.PartitionTileChanged) // a tile that went takes the consents naming it
 }
 
 // runningSpec is the partition spec a tile in mode m runs: its recorded mode

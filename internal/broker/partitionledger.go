@@ -44,6 +44,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -63,17 +64,34 @@ const (
 	ledgerDayFmt   = "2006-01-02"
 )
 
+// ledgerIdle: a saved ledger nobody counted in for this long leaves memory.
+const ledgerIdle = 10 * time.Minute
+
 var ledgerNow = time.Now // tests stand in
 
-func init() {
-	partitionEdgeSeam = func(b *Broker, userID, from, to string) {
-		kind := LedgerProvider
-		if _, partitioned, _ := b.tilePartitioning(to); partitioned {
-			kind = LedgerEdge
-		}
-		b.ledgerCount(from, userID, kind, to)
+// ledgerEdge is partitionEdgeSeam (partitionwire.go): one allowed
+// cross-tile edge by person userID's partition of tile from into to —
+// "edge" into another partitioned tile's people's data, "provider"
+// otherwise: a tile that isn't partitioned, or a deployment beyond a
+// partitioned tile's primary (ledgerTarget: <tile>+<dep>, whose one
+// instance holds no person's data, PD-17).
+func (b *Broker) ledgerEdge(userID, from, to string) {
+	kind := LedgerProvider
+	if _, partitioned, _ := b.tilePartitioning(to); partitioned {
+		kind = LedgerEdge
 	}
-	registerWipeHook(wipeHook{name: "ledgers", wipe: wipeLedgersHook})
+	b.ledgerCount(from, userID, kind, to)
+}
+
+// ledgerTarget is how the ledger names Route's target t of decision d: t,
+// or <t>+<dep> when the call reaches a partitioned tile's global instance
+// on a deployment beyond its primary (a person's cross-tile call reaches
+// global nowhere else).
+func ledgerTarget(t string, d Decision) string {
+	if d.Partition == util.PartitionGlobal && d.Deployment != "" {
+		return t + "+" + d.Deployment
+	}
+	return t
 }
 
 // ledgerDoc is one user partition's ledger file.
@@ -86,17 +104,36 @@ type ledgerDoc struct {
 	Days   map[string]map[string]map[string]int64 `json:"days"` // day → kind → target → count
 }
 
-// ledgerEntry is a ledger as this xbind counts it.
+// ledgerEntry is a ledger as this xbind counts it. Counting takes the
+// state's lock only for the counts; a write is a snapshot taken under it
+// and written outside it (writeLedgers), in the order handed out.
 type ledgerEntry struct {
-	doc    *ledgerDoc
-	dirty  bool
-	saved  time.Time
-	broken bool // the file on disk can't be read by this xbind: counted in memory, never written over
+	doc      *ledgerDoc
+	dirty    bool      // counts no write was handed yet
+	saved    time.Time // the last write handed out
+	used     time.Time // the last count
+	inflight int       // writes handed out, not done yet (never evicted meanwhile)
+	gen      uint64    // the last snapshot handed out
+	broken   bool      // the file on disk can't be read by this xbind: counted in memory, never written over
+
+	wmu     sync.Mutex // this ledger's writes, one at a time
+	written uint64     // under wmu: the snapshot on disk
+	dropped bool       // under wmu: a switch's wipe took the ledger: never written again
 }
 
 type ledgerState struct {
 	mu      sync.Mutex
 	entries map[string]*ledgerEntry // file path → entry
+	epoch   uint64                  // bumped by every wipe: a file read before one is read again
+	swept   time.Time               // the last idle sweep
+}
+
+// ledgerWrite is one snapshot to write, outside the state's lock.
+type ledgerWrite struct {
+	path string
+	e    *ledgerEntry
+	raw  []byte
+	gen  uint64
 }
 
 var ledgerStates sync.Map // *Broker → *ledgerState
@@ -141,7 +178,8 @@ func readLedgerDoc(path string) (*ledgerDoc, error) {
 // ledgerCount counts one kind of egress to target by person userID's
 // partition of tile (on its primary). Nothing is counted while tile's
 // mode switch runs (its ledgers are being deleted), nor for a person whose
-// partition id can't be told.
+// partition id can't be told. The state's lock covers the counts only: a
+// file is read and written outside it.
 func (b *Broker) ledgerCount(tile, userID, kind, target string) {
 	if tile == "" || target == "" || b.switchHold(tile) != "" {
 		return
@@ -158,21 +196,26 @@ func (b *Broker) ledgerCount(tile, userID, kind, target string) {
 	now := ledgerNow()
 	day := now.UTC().Format(ledgerDayFmt)
 	ls := b.ledgers()
+	var fresh *ledgerEntry
+	var epoch uint64
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
-	e := ls.entries[path]
-	if e == nil {
-		doc, err := readLedgerDoc(path)
-		e = &ledgerEntry{doc: doc, saved: now}
-		if err != nil {
-			slog.Warn("partitions: a ledger this xbind can't read is kept as it is; counting in memory", "tile", tile, "err", err)
-			e.broken, e.doc = true, nil
+	for {
+		if b.switchHold(tile) != "" {
+			ls.mu.Unlock()
+			return
 		}
-		if e.doc == nil || e.doc.User != userID || e.doc.UID != uid || e.doc.Tile != tile {
-			e.doc = &ledgerDoc{Schema: ledgerSchema, Tile: tile, Dep: dep, User: userID, UID: uid, Days: map[string]map[string]map[string]int64{}}
+		if e := ls.entries[path]; e != nil || fresh != nil && epoch == ls.epoch {
+			if e == nil {
+				ls.entries[path] = fresh
+			}
+			break
 		}
-		ls.entries[path] = e
+		epoch = ls.epoch
+		ls.mu.Unlock()
+		fresh = loadLedgerEntry(path, tile, dep, userID, uid, now)
+		ls.mu.Lock()
 	}
+	e := ls.entries[path]
 	kinds := e.doc.Days[day]
 	if kinds == nil {
 		kinds = map[string]map[string]int64{}
@@ -185,17 +228,37 @@ func (b *Broker) ledgerCount(tile, userID, kind, target string) {
 	}
 	_, had := targets[target]
 	targets[target]++
-	e.dirty = true
+	e.dirty, e.used = true, now
+	var writes []ledgerWrite
 	if !had || now.Sub(e.saved) >= ledgerSaveGap {
-		b.saveLedgerLocked(path, e, now)
+		writes = e.snapshotLocked(path, now, writes)
 	}
+	writes = ls.sweepLocked(now, writes)
+	ls.mu.Unlock()
+	b.writeLedgers(writes)
 }
 
-// saveLedgerLocked writes e (days beyond the retention dropped); the
-// state's lock is held.
-func (b *Broker) saveLedgerLocked(path string, e *ledgerEntry, now time.Time) {
+// loadLedgerEntry reads path's ledger for userID's partition of tile, or
+// starts one; a file this xbind can't read is counted over in memory and
+// never written.
+func loadLedgerEntry(path, tile, dep, userID, uid string, now time.Time) *ledgerEntry {
+	doc, err := readLedgerDoc(path)
+	e := &ledgerEntry{doc: doc, saved: now, used: now}
+	if err != nil {
+		slog.Warn("partitions: a ledger this xbind can't read is kept as it is; counting in memory", "tile", tile, "err", err)
+		e.broken, e.doc = true, nil
+	}
+	if e.doc == nil || e.doc.User != userID || e.doc.UID != uid || e.doc.Tile != tile {
+		e.doc = &ledgerDoc{Schema: ledgerSchema, Tile: tile, Dep: dep, User: userID, UID: uid, Days: map[string]map[string]map[string]int64{}}
+	}
+	return e
+}
+
+// snapshotLocked hands out a write of e (days beyond the retention
+// dropped); the state's lock is held.
+func (e *ledgerEntry) snapshotLocked(path string, now time.Time, writes []ledgerWrite) []ledgerWrite {
 	if e.broken {
-		return
+		return writes
 	}
 	cut := now.UTC().AddDate(0, 0, -ledgerKeepDays).Format(ledgerDayFmt)
 	for day := range e.doc.Days {
@@ -204,16 +267,64 @@ func (b *Broker) saveLedgerLocked(path string, e *ledgerEntry, now time.Time) {
 		}
 	}
 	raw, err := json.Marshal(e.doc)
-	if err == nil {
-		if err = os.MkdirAll(filepath.Dir(path), 0o700); err == nil {
-			err = fsutil.WriteFileAtomic(path, append(raw, '\n'), 0o600)
+	if err != nil {
+		return writes
+	}
+	e.gen++
+	e.dirty, e.saved = false, now
+	e.inflight++
+	return append(writes, ledgerWrite{path: path, e: e, raw: append(raw, '\n'), gen: e.gen})
+}
+
+// sweepLocked, at most once a minute: hands out the writes of ledgers with
+// counts not yet saved that nobody counted in for a minute, and lets go of
+// the saved ones idle for ledgerIdle (read again from their file when next
+// counted). The state's lock is held.
+func (ls *ledgerState) sweepLocked(now time.Time, writes []ledgerWrite) []ledgerWrite {
+	if now.Sub(ls.swept) < ledgerSaveGap {
+		return writes
+	}
+	ls.swept = now
+	for path, e := range ls.entries {
+		switch idle := now.Sub(e.used); {
+		case e.dirty && idle >= ledgerSaveGap:
+			writes = e.snapshotLocked(path, now, writes)
+		case !e.dirty && e.inflight == 0 && idle >= ledgerIdle:
+			delete(ls.entries, path)
 		}
 	}
-	if err != nil {
-		slog.Warn("partitions: the egress ledger can't be saved", "tile", e.doc.Tile, "err", err)
-		return
+	return writes
+}
+
+// writeLedgers writes the snapshots handed out, outside the state's lock:
+// each ledger's in order (an older snapshot never lands over a newer one),
+// none of one a switch's wipe took. A failed write leaves the counts to
+// the next save.
+func (b *Broker) writeLedgers(writes []ledgerWrite) {
+	for _, w := range writes {
+		e := w.e
+		var err error
+		e.wmu.Lock()
+		if !e.dropped && w.gen > e.written {
+			if err = os.MkdirAll(filepath.Dir(w.path), 0o700); err == nil {
+				err = fsutil.WriteFileAtomic(w.path, w.raw, 0o600)
+			}
+			if err == nil {
+				e.written = w.gen
+			}
+		}
+		e.wmu.Unlock()
+		ls := b.ledgers()
+		ls.mu.Lock()
+		e.inflight--
+		if err != nil {
+			e.dirty = true
+		}
+		ls.mu.Unlock()
+		if err != nil {
+			slog.Warn("partitions: the egress ledger can't be saved", "path", w.path, "err", err)
+		}
 	}
-	e.dirty, e.saved = false, now
 }
 
 // flushLedgers writes every ledger with counts not yet saved (Broker.Close).
@@ -223,31 +334,34 @@ func (b *Broker) flushLedgers() {
 		return
 	}
 	ls := v.(*ledgerState)
-	ls.mu.Lock()
-	defer ls.mu.Unlock()
 	now := ledgerNow()
+	var writes []ledgerWrite
+	ls.mu.Lock()
 	for path, e := range ls.entries {
 		if e.dirty {
-			b.saveLedgerLocked(path, e, now)
+			writes = e.snapshotLocked(path, now, writes)
 		}
 	}
+	ls.mu.Unlock()
+	b.writeLedgers(writes)
 }
 
 // ledgerDocs are every ledger: the counted ones as this xbind counts them,
-// the others as their files say. A file this xbind can't read is skipped.
+// the others as their files say, read outside the state's lock. A file
+// this xbind can't read is skipped.
 func (b *Broker) ledgerDocs() []ledgerDoc {
 	files, _ := filepath.Glob(filepath.Join(b.Reg.Root, "data", partitionsDir, "*", "*", "u-*", ledgerFileName)) // walk-ok: data/partitions is xbind's own
 	ls := b.ledgers()
-	ls.mu.Lock()
-	defer ls.mu.Unlock()
 	var out []ledgerDoc
-	seen := map[string]bool{}
+	counted := map[string]bool{}
+	ls.mu.Lock()
 	for path, e := range ls.entries {
-		seen[path] = true
+		counted[path] = true
 		out = append(out, cloneLedger(e.doc))
 	}
+	ls.mu.Unlock()
 	for _, path := range files {
-		if seen[path] {
+		if counted[path] {
 			continue
 		}
 		if d, err := readLedgerDoc(path); err == nil && d != nil {
@@ -332,6 +446,21 @@ func (b *Broker) apiPartitionLedger(w http.ResponseWriter, r *http.Request) {
 	type personKey struct{ user, tile, kind, target string }
 	people := map[personKey]*ledgerRow{}
 	seen := map[[2]string]map[string]bool{}
+	named := map[string]string{} // target → as the totals name it
+	totalName := func(target string) string {
+		if admin {
+			return target
+		}
+		if n, ok := named[target]; ok {
+			return n
+		}
+		n := target
+		if b.personalTarget(target) {
+			n = ledgerPersonalTile
+		}
+		named[target] = n
+		return n
+	}
 	for _, d := range b.ledgerDocs() {
 		if tile != "" && d.Tile != tile || !b.ledgerLive(d) {
 			continue
@@ -345,9 +474,9 @@ func (b *Broker) apiPartitionLedger(w http.ResponseWriter, r *http.Request) {
 					if d.User == p.UserID {
 						rows = append(rows, ledgerRow{Tile: d.Tile, Day: day, Kind: kind, Target: target, Count: n})
 					}
-					k := [2]string{kind, target}
+					k := [2]string{kind, totalName(target)}
 					if totals[k] == nil {
-						totals[k], seen[k] = &ledgerRow{Kind: kind, Target: target}, map[string]bool{}
+						totals[k], seen[k] = &ledgerRow{Kind: kind, Target: k[1]}, map[string]bool{}
 					}
 					totals[k].Count += n
 					seen[k][d.User] = true
@@ -382,6 +511,27 @@ func (b *Broker) apiPartitionLedger(w http.ResponseWriter, r *http.Request) {
 		out["people"] = list
 	}
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// ledgerPersonalTile names, in a tile's totals for its writers and
+// managers, every target that is someone's personal tile: its path names
+// the person, and a total of one would tell whose activity it counts
+// (PD-46: writers see aggregates, never a person's metadata).
+const ledgerPersonalTile = "(a personal tile)"
+
+// personalTarget reports whether a ledger target — a tile, <tile>+<dep>,
+// or a scope — is a person's personal tile: owned by a user, or under
+// users/.
+func (b *Broker) personalTarget(target string) bool {
+	tile, _, _ := strings.Cut(target, "+")
+	if strings.HasPrefix(tile, "users/") {
+		return true
+	}
+	if b.Users == nil {
+		return false
+	}
+	kind, _, _ := users.ParseOwner(b.Users.Owner(tile))
+	return kind == users.OwnerKindUser
 }
 
 func sortLedger(list []ledgerRow) {
@@ -426,7 +576,7 @@ func (b *Broker) partitionEdges(days int) []partitionEdge {
 		}
 	}
 	since := ledgerSince(days)
-	users := map[[2]string]map[string]bool{}
+	usedBy := map[[2]string]map[string]bool{}
 	for _, d := range b.ledgerDocs() {
 		if !b.ledgerLive(d) {
 			continue
@@ -439,14 +589,14 @@ func (b *Broker) partitionEdges(days int) []partitionEdge {
 				e := edge(d.Tile, target)
 				e.Calls += n
 				k := [2]string{d.Tile, target}
-				if users[k] == nil {
-					users[k] = map[string]bool{}
+				if usedBy[k] == nil {
+					usedBy[k] = map[string]bool{}
 				}
-				users[k][d.User] = true
+				usedBy[k][d.User] = true
 			}
 		}
 	}
-	for k, set := range users {
+	for k, set := range usedBy {
 		edges[k].People = len(set)
 	}
 	b.countConsents(edges)
@@ -473,7 +623,7 @@ func (b *Broker) countConsents(edges map[[2]string]*partitionEdge) {
 			continue
 		}
 		for k := range doc.Edges {
-			from, to, _ := strings.Cut(k, "→")
+			from, to, _ := consentEdgeOf(k)
 			if e := edges[[2]string{from, to}]; e != nil {
 				e.Consented++
 			}
@@ -500,19 +650,30 @@ func (b *Broker) apiPartitionEdges(w http.ResponseWriter, r *http.Request) {
 // wipeLedgersHook is the "ledgers" store's part of a switch that deletes
 // everything (01 §2.6): every person's ledger of the tile, counted or on
 // disk. Removing or adding global keeps them (they are people's
-// partitions'). A dry run counts nothing: ledgers are metadata.
+// partitions'). A dry run counts nothing: ledgers are metadata (a metadata
+// hook, partitionwire.go: it runs after every data store's). A write
+// handed out before is finished or never made (dropped) before the files
+// go, and a file read before is read again (epoch).
 func wipeLedgersHook(b *Broker, t wipeTarget, _ *wipeSummary) error {
 	if t.Kind != wipeEverything || t.DryRun {
 		return nil
 	}
 	dir := b.ledgerTileDir(t.Tile)
 	ls := b.ledgers()
+	var gone []*ledgerEntry
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
-	for path := range ls.entries {
+	ls.epoch++
+	for path, e := range ls.entries {
 		if strings.HasPrefix(path, dir+string(filepath.Separator)) {
 			delete(ls.entries, path)
+			gone = append(gone, e)
 		}
+	}
+	ls.mu.Unlock()
+	for _, e := range gone {
+		e.wmu.Lock()
+		e.dropped = true
+		e.wmu.Unlock()
 	}
 	files, err := filepath.Glob(filepath.Join(dir, "*", "u-*", ledgerFileName)) // walk-ok: data/partitions is xbind's own
 	if err != nil {

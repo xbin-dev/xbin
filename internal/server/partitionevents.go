@@ -22,17 +22,26 @@ import (
 // partitionEventFor reports whether e, a non-bus event of a user partition,
 // is p's to see. tile is p's credential tile (eventFilter's). Only people
 // (their own shell) and the event's tile's own principals ask; another
-// tile's frame never sees a partition's events, whoever drives it.
+// tile's frame never sees a partition's events, whoever drives it. An
+// event whose data is PersonOnly (a consent prompt or change) reaches the
+// person's own sockets only, never the tile's principals.
 func (s *Server) partitionEventFor(p auth.Principal, tile string, e events.Event) bool {
 	owner := s.owningTile(e.Component)
 	switch {
-	case p.ReadOnly(), p.Component != "" && tile != owner:
+	case p.ReadOnly(), p.Component != "" && tile != owner, p.Component != "" && personOnlyEvent(e):
 		return false
 	case p.Component != "":
 		p.Component = owner // an xbin.window sub-path acts as its tile (ownPartition)
 	}
 	part, err := s.addressedPartition(p, owner)
 	return err == nil && string(part) == e.Partition
+}
+
+// personOnlyEvent reports an event for the person's own sockets only: its
+// data says PersonOnly (the broker's consent events, partitionconsent.go).
+func personOnlyEvent(e events.Event) bool {
+	po, ok := e.Data.(interface{ PersonOnly() bool })
+	return ok && po.PersonOnly()
 }
 
 // termEventVisible is termEventFor, without the admin pass on a partitioned

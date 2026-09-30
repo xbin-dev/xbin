@@ -126,6 +126,11 @@ func (s *wipeSummary) addPerson(user string) {
 // wipeHook is one plane's part of a switch (01 §2.6).
 type wipeHook struct {
 	name string
+	// meta: the plane keeps metadata about the tile (consents, ledgers),
+	// not its data. Its hook runs after every data store's, whatever the
+	// order of registration, so a data store's failure — the switch stops,
+	// the mode unchanged — leaves it whole.
+	meta bool
 	// stop runs once the scope's namespaces are held and its backends
 	// stopped, before the backups are locked and anything is removed: a
 	// plane that runs something for the tile — the partition instances
@@ -141,11 +146,22 @@ type wipeHook struct {
 	wipe func(b *Broker, t wipeTarget, sum *wipeSummary) error
 }
 
-// wipeHooks are every store a switch wipes, in order.
+// wipeHooks are every store a switch wipes, in order: the data stores in
+// registration order, then the metadata ones (wipeHook.meta).
 var wipeHooks []wipeHook
 
-// registerWipeHook adds a store; call it from an init func only.
-func registerWipeHook(h wipeHook) { wipeHooks = append(wipeHooks, h) }
+// registerWipeHook adds a store; call it from an init func only. A data
+// store goes before every metadata one registered so far. The list is
+// copied, never changed in place (a test keeps the old one to restore).
+func registerWipeHook(h wipeHook) {
+	i := len(wipeHooks)
+	if !h.meta {
+		if m := slices.IndexFunc(wipeHooks, func(o wipeHook) bool { return o.meta }); m >= 0 {
+			i = m
+		}
+	}
+	wipeHooks = slices.Insert(slices.Clip(wipeHooks), i, h)
+}
 
 func init() {
 	registerWipeHook(wipeHook{name: "namespaces", wipe: wipeNamespaces})
