@@ -2,22 +2,35 @@
 
 package isolated
 
-// partitions_smoke_test.go — work pack S1 of the partitioned-tiles plan
-// (plans/partitions/95-work-packs.md; its records: plans/partitions/records/
-// S1.md): an end-to-end smoke of partitioned tiles as built through wave 1,
-// on a real `xbind --isolate` with owner auth on (people's partitions run
-// only under isolation, PD-19).
+// partitions_smoke_test.go — the partitions smoke: an end-to-end check of
+// partitioned tiles as built through wave 1, on a real `xbind --isolate`
+// with owner auth on (people's partitions run only under isolation, PD-19).
+// It was run as work pack "S1" of wave 2 — no pack of
+// plans/partitions/95-work-packs.md but an early slice of its I1
+// (Integration), and unrelated to isolation finding S1 of 90-decisions §G.
+// Its records: plans/partitions/records/S1.md.
+//
+// It runs on a dev box only: it needs user namespaces, a base rootfs and
+// gocryptfs, and CI builds no rootfs, so xbindtest.Require skips it there.
+// The daemon fix it found is covered in CI by internal/broker's
+// TestPartitionSwitchRemountsMain.
 //
 // A fixture tile, apps/pt, declares "partition": ["user", "global"]. Its Go
-// backend (psSource, over the SDK) echoes what xbind told it — XBIN_PARTITION,
-// xbin.Partition(), xbin.Caller(r), its instance token — and reads and writes
-// a per-partition kv resource ("kv"), a shared kv resource ("board",
-// "shared": true) and a per-partition filesystem resource ("files"). People
-// alice, bob and dave (users) and carol (a workspace admin) use it beside the
-// owner token. Each subtest names the guarantee it smokes (00 §3, 02/03's
-// tests, 01 §2.4-§2.6); features later packs build (F5 bus subscriptions,
-// cron, vault and notify; F7a terminals; F9 ?xbin-partition=global; F10
-// consent; F15 personal binds) are out of scope.
+// backend (psSource, over the SDK; partitions_smoke_fx_test.go) echoes what
+// xbind told it — XBIN_PARTITION, xbin.Partition(), xbin.Caller(r), its
+// instance token — reads and writes a per-partition kv resource ("kv"), a
+// shared kv resource ("board", "shared": true), a per-partition filesystem
+// resource ("files") and a read-shared one ("pub", "shared": "read"),
+// shows its mount table and relays calls through xbin.Client. apps/pt2
+// (["user"]) and apps/pcall (unpartitioned) are granted writer on it.
+// People alice, bob and dave (users) and carol and erin (workspace admins)
+// use them beside the owner token. Each person stores values named after
+// themselves ("alice-secret", key "alice-only"), and global after itself, so
+// a leak shows by name. Each subtest names the guarantee it smokes (00 §3,
+// 02/03's tests, 01 §2.4-§2.6); features later packs build (F5 bus
+// subscriptions, cron, vault and notify; F7a terminals; F7b per-partition
+// logs, tile status and the partitions event; F9 ?xbin-partition=global;
+// F10 consent; F15 personal binds) are out of scope.
 //
 //	set -a; eval "$(sed -n 's/^export \([A-Z_]*\) := \(.*\)$/\1=\2/p' .dev.mk | grep -v ^PATH)"; set +a
 //	go test -tags=integration -count=1 -v -run '^TestPartitionsSmoke$' ./test/isolated/
@@ -33,7 +46,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -41,481 +53,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/test/xbindtest"
-)
-
-const (
-	psTile   = "apps/pt"    // the partitioned fixture: ["user", "global"]
-	psCaller = "apps/pcall" // an unpartitioned tile granted on it
-	psPlain  = "apps/plain" // an unpartitioned tile that holds data, later asked to partition
-	psHost   = "pt.test"    // the fixture's published host: ingress reaches global
-	psNote   = "S1 smoke fixture: <b>notes</b> live in each person's partition"
-)
-
-// psSource is the probe backend every fixture tile runs. boot names the
-// process (a sandbox's pid is 1 in every instance).
-const psSource = `package main
-
-import (
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
-
-	xbin "github.com/xbin-dev/xbin/sdk"
-)
-
-var boot = func() string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}()
-
-func who(r *http.Request) map[string]any {
-	return map[string]any{
-		"env": os.Getenv("XBIN_PARTITION"), "partition": xbin.Partition(), "user": xbin.PartitionUser(),
-		"caller": xbin.Caller(r), "boot": boot, "token": os.Getenv("XBIN_TOKEN"),
-		"files": xbin.Resource("files"), "query": r.URL.RawQuery,
-	}
-}
-
-func reply(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func fail(w http.ResponseWriter, err error) {
-	if errors.Is(err, xbin.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
-		reply(w, 404, map[string]string{"error": "not found"})
-		return
-	}
-	reply(w, 502, map[string]string{"error": err.Error()})
-}
-
-// file is {name} in the filesystem resource {res}.
-func file(r *http.Request) (string, error) {
-	dir := xbin.Resource(r.PathValue("res"))
-	if dir == "" {
-		return "", errors.New("no such filesystem resource")
-	}
-	return filepath.Join(dir, filepath.Base(r.PathValue("name"))), nil
-}
-
-func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /who", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, who(r)) })
-	mux.HandleFunc("GET /pub/who", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, who(r)) })
-	mux.HandleFunc("GET /kv/{res}/{key}", func(w http.ResponseWriter, r *http.Request) {
-		b, err := xbin.KV(xbin.Resource(r.PathValue("res"))).Get(r.PathValue("key"))
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		reply(w, 200, map[string]string{"value": string(b)})
-	})
-	mux.HandleFunc("PUT /kv/{res}/{key}", func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		if err := xbin.KV(xbin.Resource(r.PathValue("res"))).Put(r.PathValue("key"), b); err != nil {
-			fail(w, err)
-			return
-		}
-		reply(w, 200, map[string]string{"ok": "stored"})
-	})
-	mux.HandleFunc("GET /keys/{res}", func(w http.ResponseWriter, r *http.Request) {
-		keys, err := xbin.KV(xbin.Resource(r.PathValue("res"))).List("")
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		reply(w, 200, map[string]any{"keys": keys})
-	})
-	mux.HandleFunc("GET /fs/{res}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		p, err := file(r)
-		var b []byte
-		if err == nil {
-			b, err = os.ReadFile(p)
-		}
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		reply(w, 200, map[string]string{"value": string(b)})
-	})
-	mux.HandleFunc("PUT /fs/{res}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		p, err := file(r)
-		if err == nil {
-			b, _ := io.ReadAll(r.Body)
-			err = os.WriteFile(p, b, 0o644)
-		}
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		reply(w, 200, map[string]string{"ok": "stored"})
-	})
-	// ls lists a filesystem resource (?res=) or any path in the sandbox (?path=)
-	mux.HandleFunc("GET /ls", func(w http.ResponseWriter, r *http.Request) {
-		dir := r.URL.Query().Get("path")
-		if res := r.URL.Query().Get("res"); res != "" {
-			dir = xbin.Resource(res)
-		}
-		ents, err := os.ReadDir(dir)
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		names := []string{}
-		for _, e := range ents {
-			names = append(names, e.Name())
-		}
-		reply(w, 200, map[string]any{"names": names})
-	})
-	mux.HandleFunc("GET /call", func(w http.ResponseWriter, r *http.Request) {
-		resp, err := xbin.Client().Get("http://xbin" + r.URL.Query().Get("path"))
-		if err != nil {
-			reply(w, 502, map[string]string{"error": err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		reply(w, 200, map[string]any{"status": resp.StatusCode, "body": string(b)})
-	})
-	xbin.Serve(mux)
-}
-`
-
-// psManifest is a probe tile's xbin.json: its own scope's resources at
-// writer, partition (raw JSON, "" = none), and a published http expose. The
-// partitioned fixture keeps its partitionNote when it asks to be
-// unpartitioned: the switch page shows the manifest's note, the new one's.
-func psManifest(tile, partition string) string {
-	m := `{"runtime": "go"`
-	if partition != "" {
-		m += `, "partition": ` + partition
-	}
-	if partition != "" || tile == psTile {
-		m += `, "partitionNote": "` + psNote + `"`
-	}
-	m += `, "uses": [`
-	for i, res := range []string{"kv", "board", "files", "pub"} {
-		if i > 0 {
-			m += ", "
-		}
-		m += `{"target": "res:` + tile + `/` + res + `", "role": "writer"}`
-	}
-	if tile == psCaller {
-		m += `, {"target": "` + psTile + `", "role": "writer"}`
-	}
-	m += `], "exposes": {"web": {"kind": "http", "paths": ["/pub/*"]}}`
-	m += `, "expose": {"roles": {"reader": "Read", "writer": "Write"}}}` + "\n"
-	return m
-}
-
-// psFiles is a probe tile: the backend, a go.mod of the tile's own module
-// path, its scope's resources, a page, and the manifest.
-func psFiles(tile, partition string) map[string]string {
-	return map[string]string{
-		"go.mod":          "module ps/" + strings.ReplaceAll(tile, "/", "_") + "\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n",
-		"backend/main.go": psSource,
-		"scope.json":      `{"resources": {"kv": {"type": "kv"}, "board": {"type": "kv", "shared": true}, "files": {"type": "filesystem"}, "pub": {"type": "filesystem", "shared": "read"}}}` + "\n",
-		"index.html":      "<!doctype html><title>probe</title><p>the probe's page</p>\n",
-		"xbin.json":       psManifest(tile, partition),
-	}
-}
-
-// psWrite writes a probe tile, its manifest last (so no scan sees a
-// partitioned manifest without its scope), and waits for it to register.
-func psWrite(t *testing.T, d *xbindtest.Daemon, tile, partition string) {
-	t.Helper()
-	files := psFiles(tile, partition)
-	manifest := files["xbin.json"]
-	delete(files, "xbin.json")
-	if err := d.WriteFiles(tile, files); err != nil {
-		t.Fatal(err)
-	}
-	d.WriteTile(t, tile, map[string]string{"xbin.json": manifest})
-}
-
-// psWho is what the probe's /who answers.
-type psWho struct {
-	Env       string `json:"env"`
-	Partition string `json:"partition"`
-	User      string `json:"user"`
-	Caller    struct {
-		From, Role, User, UserLevel, ViewedBy, Deployment, Partition, PartitionID string
-		Owner                                                                     bool
-	} `json:"caller"`
-	Boot  string `json:"boot"`
-	Token string `json:"token"`
-	Files string `json:"files"`
-	Query string `json:"query"`
-}
-
-// psEnv is the smoke's daemon and its people. A person reaches a tile's API
-// through the tile's frame, which their session mints (a user's session is
-// no API principal of a tile unless they are an admin); an admin's session
-// reaches it too.
-type psEnv struct {
-	d       *xbindtest.Daemon
-	sess    map[string]string           // person → their session (a bearer)
-	frames  map[string]xbindtest.Header // tile + "\x00" + person → a frame token of theirs
-	ingress string                      // the ingress listener's address
-}
-
-var psPeople = map[string]string{"alice": "user", "bob": "user", "dave": "user", "carol": "admin"}
-
-// psSetup boots an isolated xbind with owner auth, the vault and an ingress
-// listener, and makes and signs in the people.
-func psSetup(t *testing.T) *psEnv {
-	t.Helper()
-	a := xbindtest.Require(t)
-	ing := freeLoopback(t)
-	d := xbindtest.Start(t, a, xbindtest.Options{
-		Auth: true,
-		Env:  []string{"XBIN_VAULT_PASSPHRASE=xbindtest-vault"},
-		Args: []string{"--ingress-listen", ing},
-	})
-	e := &psEnv{d: d, sess: map[string]string{}, frames: map[string]xbindtest.Header{}, ingress: ing}
-	for id, role := range psPeople {
-		tiles := map[string]string{"apps/*": "read"}
-		if role == "admin" {
-			tiles = nil
-		}
-		d.AddUser(t, id, "pw-"+id+"-5c2e81", role, tiles)
-		e.sess[id] = d.Login(t, id, "pw-"+id+"-5c2e81")
-	}
-	return e
-}
-
-// as is the credential of person ("" = the owner token, xbindtest's default).
-func (e *psEnv) as(person string) []xbindtest.Header {
-	if person == "" {
-		return nil
-	}
-	return []xbindtest.Header{xbindtest.H("Authorization", "Bearer "+e.sess[person])}
-}
-
-// frame is a frame token of tile minted by person ("" = the owner).
-func (e *psEnv) frame(t *testing.T, tile, person string) xbindtest.Header {
-	t.Helper()
-	var out struct{ Token string }
-	e.d.Must(t, "GET", "/api/xbin/frame-token?component="+tile, nil, 200, e.as(person)...).Decode(t, &out)
-	if out.Token == "" {
-		t.Fatalf("no frame token of %s for %q", tile, person)
-	}
-	return xbindtest.FrameHeader(out.Token)
-}
-
-// fr is frame, minted once per tile and person.
-func (e *psEnv) fr(t *testing.T, tile, person string) xbindtest.Header {
-	t.Helper()
-	k := tile + "\x00" + person
-	h, ok := e.frames[k]
-	if !ok {
-		h = e.frame(t, tile, person)
-		e.frames[k] = h
-	}
-	return h
-}
-
-// forget drops person's frame tokens (fr mints new ones).
-func (e *psEnv) forget(person string) {
-	for k := range e.frames {
-		if strings.HasSuffix(k, "\x00"+person) {
-			delete(e.frames, k)
-		}
-	}
-}
-
-// who is the probe's /who at path through hdrs, waiting (a cold start
-// builds) until it answers 200; a refusal (401, 403, 404, 409) fails at once.
-func (e *psEnv) who(t *testing.T, path string, hdrs ...xbindtest.Header) psWho {
-	t.Helper()
-	var r xbindtest.Resp
-	xbindtest.Eventually(t, 4*time.Minute, "GET "+path+" answers", func() (bool, string) {
-		r = e.d.Call(t, "GET", path, nil, hdrs...)
-		switch {
-		case r.Status == 502 && strings.Contains(string(r.Body), "build failed"):
-			t.Fatalf("GET %s: the probe doesn't build: %s", path, r)
-		case r.Status == 401 || r.Status == 403 || r.Status == 404 || r.Status == 409:
-			t.Fatalf("GET %s: %d %s", path, r.Status, r)
-		}
-		return r.Status == 200, fmt.Sprint(r.Status, " ", r)
-	})
-	var w psWho
-	r.Decode(t, &w)
-	return w
-}
-
-// value is a probe route's stored value ("" and the status when it isn't 200).
-func (e *psEnv) value(t *testing.T, path string, hdrs ...xbindtest.Header) (string, int, string) {
-	t.Helper()
-	r := e.d.Call(t, "GET", path, nil, hdrs...)
-	var v struct{ Value string }
-	if r.Status == 200 {
-		r.Decode(t, &v)
-	}
-	return v.Value, r.Status, r.String()
-}
-
-// put stores body at a probe route, failing unless it answers 200.
-func (e *psEnv) put(t *testing.T, path, body string, hdrs ...xbindtest.Header) {
-	t.Helper()
-	e.d.Must(t, "PUT", path, body, 200, hdrs...)
-}
-
-// row is the tile's components row's partition entry (nil: none).
-type psRow struct {
-	State   string `json:"state"`
-	User    bool   `json:"user"`
-	Global  bool   `json:"global"`
-	Request *struct {
-		User, Global, Declined bool
-	} `json:"request"`
-}
-
-func (e *psEnv) row(t *testing.T, tile string) *psRow {
-	t.Helper()
-	var out struct {
-		Component struct {
-			Partition *psRow `json:"partition"`
-		}
-	}
-	e.d.Must(t, "GET", "/api/xbin/components/"+tile, nil, 200).Decode(t, &out)
-	return out.Component.Partition
-}
-
-// waitState waits for tile's row to be in state ("" = unpartitioned: no
-// partition entry, or one in state unpartitioned asking nothing).
-func (e *psEnv) waitState(t *testing.T, tile, state string) *psRow {
-	t.Helper()
-	var row *psRow
-	xbindtest.Eventually(t, 30*time.Second, tile+"'s partition state is "+state, func() (bool, string) {
-		row = e.row(t, tile)
-		switch {
-		case row == nil:
-			return state == "", "no partition entry"
-		case state == "": // unpartitioned: no entry, or one saying so
-			return row.State == "unpartitioned" && !row.User && !row.Global && row.Request == nil, fmt.Sprintf("%+v", *row)
-		}
-		return row.State == state, fmt.Sprintf("%+v", *row)
-	})
-	return row
-}
-
-// uid is person's uid in the users store ("" = none minted).
-func (e *psEnv) uid(t *testing.T, person string) string {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join(e.d.WS, "data", "users.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var users struct {
-		Users []struct{ ID, UID string }
-	}
-	if err := json.Unmarshal(b, &users); err != nil {
-		t.Fatalf("users.json: %v", err)
-	}
-	for _, u := range users.Users {
-		if u.ID == person {
-			return u.UID
-		}
-	}
-	return ""
-}
-
-// modeRecord is apps/pt's mode.json, decoded loosely.
-type psModeRecord struct {
-	Mode    *struct{ User, Global bool }
-	Request *struct{ Spec *struct{ User, Global bool } }
-	History []struct {
-		Op    string
-		Wiped map[string]int64
-	}
-}
-
-func (e *psEnv) modeRecord(t *testing.T, tile string) (psModeRecord, bool) {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join(e.d.WS, "data", "partitions", util.TileKey(tile), "mode.json"))
-	if os.IsNotExist(err) {
-		return psModeRecord{}, false
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m psModeRecord
-	if err := json.Unmarshal(b, &m); err != nil {
-		t.Fatalf("%s's mode.json: %v", tile, err)
-	}
-	return m, true
-}
-
-// partDir is person's partition namespace of scope on disk (ciphertext).
-func (e *psEnv) partDir(scope, pkey string) string {
-	return filepath.Join(e.d.WS, "data", "resources-enc", ".partitions", strings.ReplaceAll(scope, "/", "~"), "main", pkey)
-}
-
-var psPkey = regexp.MustCompile(`^u-[0-9a-f]{32}$`)
-
-// psRaw sends one request with exactly hdrs — no owner token added, no
-// redirect followed — and returns the status, body and headers.
-func psRaw(t *testing.T, method, url string, hdrs ...xbindtest.Header) (int, string, http.Header) {
-	t.Helper()
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, h := range hdrs {
-		req.Header.Set(h.K, h.V)
-	}
-	c := &http.Client{Timeout: time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	resp, err := c.Do(req)
-	if err != nil {
-		t.Fatalf("%s %s: %v", method, url, err)
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, string(b), resp.Header
-}
-
-// gocryptfs lists the gocryptfs processes serving the workspace's volumes
-// under dir (relative to the workspace: data/resources-enc/<…>), as
-// "<pid> <ciphertext dir>".
-func (e *psEnv) gocryptfs(dir string) []string {
-	var out []string
-	ents, _ := os.ReadDir("/proc")
-	for _, ent := range ents {
-		b, err := os.ReadFile(filepath.Join("/proc", ent.Name(), "cmdline"))
-		if err != nil {
-			continue
-		}
-		args := strings.Split(strings.TrimRight(string(b), "\x00"), "\x00")
-		if len(args) < 2 || filepath.Base(args[0]) != "gocryptfs" {
-			continue
-		}
-		for _, a := range args {
-			if strings.HasPrefix(a, filepath.Join(e.d.WS, dir)) {
-				out = append(out, ent.Name()+" "+strings.TrimPrefix(a, e.d.WS+"/"))
-				break
-			}
-		}
-	}
-	return out
-}
-
-// mode is POST /partitions/mode as person.
-func (e *psEnv) mode(t *testing.T, person string, body map[string]any) xbindtest.Resp {
-	t.Helper()
-	return e.d.Call(t, "POST", "/api/xbin/partitions/mode", body, e.as(person)...)
-}
-
-var (
-	psBoth = map[string]bool{"user": true, "global": true}
-	psUser = map[string]bool{"user": true, "global": false}
 )
 
 func TestPartitionsSmoke(t *testing.T) {
@@ -563,7 +100,9 @@ func TestPartitionsSmoke(t *testing.T) {
 	e.put(t, "/api/"+psPlain+"/kv/kv/secret", "plain-data")
 
 	psWrite(t, d, psTile, `["user", "global"]`)
+	psWrite(t, d, psPeer, `["user"]`)
 	d.Grant(t, psCaller, psTile, "writer")
+	d.Grant(t, psPeer, psTile, "writer")
 	// the published host, bound before any instance starts: a binding
 	// restarts every live instance of the tile, people's too, which would
 	// race the boot comparisons below
@@ -578,6 +117,9 @@ func TestPartitionsSmoke(t *testing.T) {
 		m, ok := e.modeRecord(t, psTile)
 		if !ok || m.Mode == nil || !m.Mode.User || !m.Mode.Global || len(m.History) == 0 || m.History[0].Op != "auto" {
 			t.Errorf("mode.json: %v %+v", ok, m)
+		}
+		if row := e.waitState(t, psPeer, "partitioned"); !row.User || row.Global || row.Request != nil {
+			t.Errorf("%s's recorded mode: %+v", psPeer, *row)
 		}
 	})
 
@@ -612,9 +154,8 @@ func TestPartitionsSmoke(t *testing.T) {
 		if w := e.who(t, "/api/"+psTile+"/who", e.as("carol")...); w.Env != "user:carol" || w.Boot != boots["carol"] {
 			t.Errorf("carol's (admin) session reaches %+v, her frame boot %s", w, boots["carol"])
 		}
-		if r := d.Call(t, "GET", "/api/"+psTile+"/who", nil, e.as("alice")...); r.Status != 403 {
-			t.Logf("alice's own session on the tile's API (a user's session isn't its principal): %d %s", r.Status, r)
-		}
+		psExpect(t, "alice's own session on the tile's API (a user's session isn't its principal)",
+			d.Call(t, "GET", "/api/"+psTile+"/who", nil, e.as("alice")...), nil, psWant{403, "user:alice is not granted access to " + psTile, false})
 		if ids["alice"] == ids["bob"] || boots["alice"] == boots["bob"] || tokens["alice"] == tokens["bob"] || tokens["alice"] == "" {
 			t.Errorf("alice and bob share an instance: ids %v boots %v", ids, boots)
 		}
@@ -622,41 +163,71 @@ func TestPartitionsSmoke(t *testing.T) {
 
 	t.Run("data-apart", func(t *testing.T) {
 		// 03 §B: each partition's kv and filesystem are its own; a shared
-		// resource is one copy
-		for _, p := range []string{"alice", "bob"} {
-			e.put(t, "/api/"+psTile+"/kv/kv/secret", p+"-secret", e.fr(t, psTile, p))
-			e.put(t, "/api/"+psTile+"/fs/files/note", p+"-note", e.fr(t, psTile, p))
+		// resource is one copy. Each person stores a key and a file named
+		// after them, so a listing served from another partition shows.
+		for _, p := range []string{"alice", "bob", "carol"} {
+			fr := e.fr(t, psTile, p)
+			e.put(t, "/api/"+psTile+"/kv/kv/secret", p+"-secret", fr)
+			e.put(t, "/api/"+psTile+"/kv/kv/"+p+"-only", p+"-only", fr)
+			e.put(t, "/api/"+psTile+"/fs/files/note", p+"-note", fr)
+			e.put(t, "/api/"+psTile+"/fs/files/"+p+"-only", p+"-only", fr)
 		}
+		e.put(t, "/api/"+psTile+"/kv/kv/global-only", "global-only") // the owner token: global's
+		e.put(t, "/api/"+psTile+"/fs/files/global-only", "global-only")
 		e.put(t, "/api/"+psTile+"/kv/board/shared", "from-alice", e.fr(t, psTile, "alice"))
-		for _, p := range []string{"alice", "bob"} {
-			if v, st, body := e.value(t, "/api/"+psTile+"/kv/kv/secret", e.fr(t, psTile, p)); v != p+"-secret" {
+		for _, p := range []string{"alice", "bob", "carol"} {
+			fr := e.fr(t, psTile, p)
+			if v, st, body := e.value(t, "/api/"+psTile+"/kv/kv/secret", fr); v != p+"-secret" {
 				t.Errorf("%s's kv: %d %s", p, st, body)
 			}
-			if v, st, body := e.value(t, "/api/"+psTile+"/fs/files/note", e.fr(t, psTile, p)); v != p+"-note" {
+			if v, st, body := e.value(t, "/api/"+psTile+"/fs/files/note", fr); v != p+"-note" {
 				t.Errorf("%s's file: %d %s", p, st, body)
 			}
-			if v, st, body := e.value(t, "/api/"+psTile+"/kv/board/shared", e.fr(t, psTile, p)); v != "from-alice" {
+			if v, st, body := e.value(t, "/api/"+psTile+"/kv/board/shared", fr); v != "from-alice" {
 				t.Errorf("the shared board for %s: %d %s", p, st, body)
+			}
+			if got, want := e.names(t, "/api/"+psTile+"/keys/kv", fr), []string{p + "-only", "secret"}; !slices.Equal(got, want) {
+				t.Errorf("%s's kv keys: %q, want %q", p, got, want)
+			}
+			if got, want := e.names(t, "/api/"+psTile+"/ls?res=files", fr), []string{p + "-only", "note"}; !slices.Equal(got, want) {
+				t.Errorf("%s's files: %q, want %q", p, got, want)
 			}
 			if _, err := os.Stat(e.partDir(psTile, ids[p])); err != nil {
 				t.Errorf("%s's partition namespace on disk: %v", p, err)
 			}
 		}
-		// inside alice's sandbox: her files at XBIN_RES_FILES, and nothing
-		// of bob's where the host keeps people's volumes (03 §Tests)
-		if r := d.Call(t, "GET", "/api/"+psTile+"/ls?res=files", nil, e.fr(t, psTile, "alice")); r.Status != 200 || !strings.Contains(string(r.Body), `"names":["note"]`) {
-			t.Errorf("alice's files resource: %d %s", r.Status, r)
+		if got, want := e.names(t, "/api/"+psTile+"/keys/kv"), []string{"global-only"}; !slices.Equal(got, want) {
+			t.Errorf("global's kv keys: %q, want %q", got, want)
 		}
-		for _, p := range []string{
-			filepath.Join(d.WS, "data", "resources-enc", ".partitions", "apps~pt", "main"),
-			filepath.Join(d.WS, ".xbin", "resenc", ".partitions", "apps~pt", "main"),
-			filepath.Join(d.WS, ".xbin", "resenc", ".partitions", "apps~pt", "main", ids["bob"]),
-		} {
-			r := d.Call(t, "GET", "/api/"+psTile+"/ls?path="+p, nil, e.fr(t, psTile, "alice"))
-			if strings.Contains(string(r.Body), ids["bob"]) || strings.Contains(string(r.Body), "note") {
-				t.Errorf("BUG: alice's sandbox sees bob's volume at %s: %d %s", p, r.Status, r)
+		if got, want := e.names(t, "/api/"+psTile+"/ls?res=files"), []string{"global-only"}; !slices.Equal(got, want) {
+			t.Errorf("global's files: %q, want %q", got, want)
+		}
+		// inside alice's sandbox (03 §Tests): her own partition's volume is
+		// mounted — gocryptfs names its ciphertext directory, the partition
+		// id in it — and no other partition's is
+		mi, st, body := e.value(t, "/api/"+psTile+"/mountinfo", e.fr(t, psTile, "alice"))
+		if st != 200 {
+			t.Fatalf("alice's mount table: %d %s", st, body)
+		}
+		var parts []string
+		for _, line := range strings.Split(mi, "\n") {
+			if strings.Contains(line, ".partitions/") {
+				parts = append(parts, line)
 			}
-			t.Logf("alice's sandbox, ls %s: %d %s", p, r.Status, cut(r.String(), 120))
+		}
+		t.Logf("alice's sandbox mounts of partition volumes: %q", parts)
+		if len(parts) == 0 || !strings.Contains(strings.Join(parts, "\n"), ids["alice"]) {
+			t.Errorf("alice's mount table shows no volume of her partition (%s), so it can't show bob's either: %s", ids["alice"], cut(mi, 2000))
+		}
+		for _, line := range parts {
+			if !strings.Contains(line, ids["alice"]) {
+				t.Errorf("BUG: alice's sandbox mounts another partition's volume: %s", line)
+			}
+		}
+		for _, p := range []string{"bob", "carol"} {
+			if strings.Contains(mi, ids[p]) {
+				t.Errorf("BUG: alice's sandbox mount table names %s's partition (%s)", p, ids[p])
+			}
 		}
 		// "shared": "read" — global writes, people's partitions only read
 		e.put(t, "/api/"+psTile+"/fs/pub/readme", "from-global")
@@ -665,11 +236,10 @@ func TestPartitionsSmoke(t *testing.T) {
 				t.Errorf("the read-shared filesystem for %s: %d %s", p, st, body)
 			}
 		}
-		if r := d.Call(t, "PUT", "/api/"+psTile+"/fs/pub/mine", "alice-pub", e.fr(t, psTile, "alice")); r.Status == 200 {
-			t.Errorf("alice wrote the read-shared filesystem: %d %s", r.Status, r)
-		} else {
-			t.Logf("alice's write to the read-shared filesystem: %d %s", r.Status, cut(r.String(), 160))
-		}
+		psExpect(t, "alice's write to the read-shared filesystem",
+			d.Call(t, "PUT", "/api/"+psTile+"/fs/pub/mine", "alice-pub", e.fr(t, psTile, "alice")), nil, psWant{502, "read-only file system", false})
+		psExpect(t, "global's read of what alice's write would have made",
+			d.Call(t, "GET", "/api/"+psTile+"/fs/pub/mine", nil), nil, psWant{404, `"not found"`, false})
 	})
 
 	t.Run("deployment", func(t *testing.T) {
@@ -685,48 +255,45 @@ func TestPartitionsSmoke(t *testing.T) {
 		dev := "/api/" + psTile + "+dev"
 		w := e.who(t, dev+"/who")
 		t.Logf("the owner token on dev: %+v", w)
-		if w.Caller.Partition == "user:alice" || w.Caller.PartitionID != "" || strings.HasPrefix(w.Env, "user:") {
-			t.Errorf("dev's instance is a person's: %+v", w)
+		if w.Env != "global" || w.Caller.Partition != "global" || w.Caller.PartitionID != "" {
+			t.Errorf("dev's instance isn't the one shared instance: %+v", w)
 		}
 		if v, st, body := e.value(t, dev+"/kv/kv/secret"); v != "global-before-dev" {
 			t.Errorf("dev's seeded kv: %d %s (want global's)", st, body)
 		}
-		for _, p := range []string{dev + "/fs/files/note", dev + "/ls?res=files", dev + "/keys/kv", dev + "/ls?path=" + filepath.Join(w.Files, "..")} {
-			r := d.Call(t, "GET", p, nil)
-			if strings.Contains(string(r.Body), "alice-") || strings.Contains(string(r.Body), "bob-") || strings.Contains(string(r.Body), `"note"`) {
-				t.Errorf("BUG: dev seeded a person's data, %s: %d %s", p, r.Status, r)
-			}
-			t.Logf("dev, %s: %d %s", p, r.Status, cut(r.String(), 160))
+		forbid := psForbid("global", false)
+		psExpect(t, "dev's files, a person's note", d.Call(t, "GET", dev+"/fs/files/note", nil), forbid, psWant{404, `"not found"`, false})
+		if got, want := e.names(t, dev+"/ls?res=files"), []string{"global-only"}; !slices.Equal(got, want) {
+			t.Errorf("dev's seeded files: %q, want global's %q", got, want)
+		}
+		if got, want := e.names(t, dev+"/keys/kv"), []string{"global-only", "secret"}; !slices.Equal(got, want) {
+			t.Errorf("dev's seeded kv keys: %q, want global's %q", got, want)
+		}
+		if got, want := e.names(t, dev+"/ls?path="+filepath.Join(w.Files, "..")), []string{"files", "pub"}; !slices.Equal(got, want) {
+			t.Errorf("dev's resource directory: %q, want %q", got, want)
 		}
 		// carol (admin, a tile writer) reaches dev's shared instance; bob (a
 		// reader) gets no frame of it
 		var ft struct{ Token string }
-		if r := d.Call(t, "GET", "/api/xbin/frame-token?component="+psTile+"&deployment=dev", nil, e.as("carol")...); r.Status == 200 {
-			r.Decode(t, &ft)
-			cw := e.who(t, dev+"/who", xbindtest.FrameHeader(ft.Token))
-			if strings.HasPrefix(cw.Env, "user:") || cw.Caller.PartitionID != "" || cw.Boot != w.Boot {
-				t.Errorf("carol's frame of dev reaches %+v, want dev's one instance (boot %s)", cw, w.Boot)
-			}
-			if v, st, body := e.value(t, dev+"/kv/kv/secret", xbindtest.FrameHeader(ft.Token)); v != "global-before-dev" {
-				t.Errorf("carol's frame of dev reads: %d %s", st, body)
-			}
-		} else {
-			t.Errorf("carol's frame token of dev: %d %s", r.Status, r)
+		d.Must(t, "GET", "/api/xbin/frame-token?component="+psTile+"&deployment=dev", nil, 200, e.as("carol")...).Decode(t, &ft)
+		cw := e.who(t, dev+"/who", xbindtest.FrameHeader(ft.Token))
+		if cw.Env != "global" || cw.Caller.PartitionID != "" || cw.Boot != w.Boot {
+			t.Errorf("carol's frame of dev reaches %+v, want dev's one instance (boot %s)", cw, w.Boot)
 		}
-		if r := d.Call(t, "GET", "/api/xbin/frame-token?component="+psTile+"&deployment=dev", nil, e.as("bob")...); r.Status == 200 {
-			t.Errorf("bob (a reader) got a frame token of dev: %s", r)
-		}
+		psExpect(t, "carol's frame of dev", d.Call(t, "GET", dev+"/kv/kv/secret", nil, xbindtest.FrameHeader(ft.Token)), forbid, psOK("global-before-dev"))
+		psExpect(t, "bob's (a reader) frame token of dev",
+			d.Call(t, "GET", "/api/xbin/frame-token?component="+psTile+"&deployment=dev", nil, e.as("bob")...), nil, psWant{403, "", false})
 		// alice's frame of the primary on dev's URL: never her partition there
-		r := d.Call(t, "GET", dev+"/kv/kv/secret", nil, e.fr(t, psTile, "alice"))
-		if strings.Contains(string(r.Body), "alice-") {
-			t.Errorf("BUG: alice's frame reads her partition through dev's URL: %d %s", r.Status, r)
-		}
-		t.Logf("alice's primary frame on dev's URL: %d %s", r.Status, cut(r.String(), 160))
+		psExpect(t, "alice's primary frame on dev's URL", d.Call(t, "GET", dev+"/kv/kv/secret", nil, e.fr(t, psTile, "alice")),
+			[]string{"alice-", "global-"}, psWant{403, "never reaches another deployment of its own tile", false})
 		e.put(t, "/api/"+psTile+"/kv/kv/secret", "global-secret") // global's, as before
 	})
 
 	t.Run("bob-never-sees-alice", func(t *testing.T) {
-		// G1: no route hands alice's partition data to bob
+		// G1: no route hands alice's partition data to bob. Every attempt
+		// has its exact answer: bob's own value where it reaches bob's
+		// partition (and never global's), global's where an unpartitioned
+		// tile calls, the refusal where it's refused.
 		bobFrame := e.fr(t, psTile, "bob")
 		callerFrame := e.fr(t, psCaller, "bob")
 		bobSess := e.as("bob")[0]
@@ -740,60 +307,102 @@ func TestPartitionsSmoke(t *testing.T) {
 			name string
 			path string
 			hdrs []xbindtest.Header
-			want string // "" = any answer but alice's data; else bob's own value, 200
+			own  bool     // it reaches bob's partition: global's data is as wrong as alice's
+			want []psWant // today's answer first; the others are F9's (?xbin-partition=, 05 §6)
 		}
+		ungranted := psWant{403, "user:bob is not granted access to " + psTile, false}
+		otherDep := psWant{403, "never reaches another deployment of its own tile", false}
 		kv, file, api := "/api/"+psTile+"/kv/kv/secret", "/api/"+psTile+"/fs/files/note", "/api/xbin/kv/res:"+psTile+"/kv/secret"
+		keys, ls, apiList := "/api/"+psTile+"/keys/kv", "/api/"+psTile+"/ls?res=files", "/api/xbin/kv/res:"+psTile+"/kv/?prefix="
 		atts := []attempt{
-			{"frame", kv, with(bobFrame), "bob-secret"},
-			{"frame, file", file, with(bobFrame), "bob-note"},
-			{"frame, ?xbin-partition=global", kv + "?xbin-partition=global", with(bobFrame), ""},
-			{"frame, ?xbin-partition=user:alice", file + "?xbin-partition=user:alice", with(bobFrame), ""},
-			{"frame, spoofed X-XBin-* headers", kv, with(bobFrame, spoofs...), "bob-secret"},
-			{"frame, spoofed headers, file", file, with(bobFrame, spoofs...), "bob-note"},
-			{"session", kv, with(bobSess), ""},
-			{"session, spoofed headers", kv, with(bobSess, spoofs...), ""},
-			{"the primary's deployment URL", "/api/" + psTile + "+main/kv/kv/secret", with(bobFrame), ""},
-			{"the primary's deployment URL, session", "/api/" + psTile + "+main/fs/files/note", with(bobSess), ""},
-			{"the primary's deployment URL, spoofed headers", "/api/" + psTile + "+main/fs/files/note", with(bobFrame, spoofs...), ""},
-			{"dev's URL, frame", "/api/" + psTile + "+dev/kv/kv/secret", with(bobFrame), ""},
-			{"dev's URL, frame, file", "/api/" + psTile + "+dev/fs/files/note", with(bobFrame), ""},
-			{"dev's URL, session", "/api/" + psTile + "+dev/fs/files/note", with(bobSess), ""},
-			{"kv API, frame", api, with(bobFrame), "bob-secret"},
-			{"kv API, frame, spoofed headers", api, with(bobFrame, spoofs...), "bob-secret"},
-			{"kv API list, frame", "/api/xbin/kv/res:" + psTile + "/kv/?prefix=", with(bobFrame), ""},
-			{"kv API, session", api, with(bobSess), ""},
-			{"kv API, bob's instance token", api, with(bobTok), "bob-secret"},
-			{"kv API, bob's instance token, spoofed headers", api, with(bobTok, spoofs...), "bob-secret"},
-			{"bob's instance token on the tile's API", kv, with(bobTok), ""},
-			{"an unpartitioned tile's frame of bob's", kv, with(callerFrame), ""},
-			{"the unpartitioned tile's backend, as bob's frame", "/api/" + psCaller + "/call?path=" + kv, with(callerFrame), ""},
+			{"frame", kv, with(bobFrame), true, []psWant{psOK("bob-secret")}},
+			{"frame, file", file, with(bobFrame), true, []psWant{psOK("bob-note")}},
+			{"frame, kv keys", keys, with(bobFrame), true, []psWant{psList("bob-only")}},
+			{"frame, files listing", ls, with(bobFrame), true, []psWant{psList("bob-only")}},
+			// F9 turns ?xbin-partition=global into an attributed call to
+			// global (bob's frame is the tile's own credential); until then
+			// the query reaches bob's own instance as a plain one
+			{"frame, ?xbin-partition=global", kv + "?xbin-partition=global", with(bobFrame), false, []psWant{psOK("bob-secret"), psOK("global-secret")}},
+			{"frame, ?xbin-partition=user:alice", file + "?xbin-partition=user:alice", with(bobFrame), true, append([]psWant{psOK("bob-note")}, psRefusedF9...)},
+			{"frame, spoofed X-XBin-* headers", kv, with(bobFrame, spoofs...), true, []psWant{psOK("bob-secret")}},
+			{"frame, spoofed headers, file", file, with(bobFrame, spoofs...), true, []psWant{psOK("bob-note")}},
+			{"frame, spoofed headers, kv keys", keys, with(bobFrame, spoofs...), true, []psWant{psList("bob-only")}},
+			{"session", kv, with(bobSess), true, []psWant{ungranted}},
+			{"session, spoofed headers", kv, with(bobSess, spoofs...), true, []psWant{ungranted}},
+			{"the primary's deployment URL", "/api/" + psTile + "+main/kv/kv/secret", with(bobFrame), true, []psWant{psOK("bob-secret")}},
+			{"the primary's deployment URL, kv keys", "/api/" + psTile + "+main/keys/kv", with(bobFrame), true, []psWant{psList("bob-only")}},
+			{"the primary's deployment URL, session", "/api/" + psTile + "+main/fs/files/note", with(bobSess), true, []psWant{ungranted}},
+			{"the primary's deployment URL, spoofed headers", "/api/" + psTile + "+main/fs/files/note", with(bobFrame, spoofs...), true, []psWant{psOK("bob-note")}},
+			{"dev's URL, frame", "/api/" + psTile + "+dev/kv/kv/secret", with(bobFrame), true, []psWant{otherDep}},
+			{"dev's URL, frame, file", "/api/" + psTile + "+dev/fs/files/note", with(bobFrame), true, []psWant{otherDep}},
+			{"dev's URL, session", "/api/" + psTile + "+dev/fs/files/note", with(bobSess), true, []psWant{{403, "deployment URLs need write access on " + psTile, false}}},
+			{"kv API, frame", api, with(bobFrame), true, []psWant{psOK("bob-secret")}},
+			{"kv API, frame, spoofed headers", api, with(bobFrame, spoofs...), true, []psWant{psOK("bob-secret")}},
+			{"kv API list, frame", apiList, with(bobFrame), true, []psWant{psList("bob-only")}},
+			{"kv API, session", api, with(bobSess), true, []psWant{{403, "unauthenticated", false}}},
+			{"kv API, bob's instance token", api, with(bobTok), true, []psWant{psOK("bob-secret")}},
+			{"kv API, bob's instance token, spoofed headers", api, with(bobTok, spoofs...), true, []psWant{psOK("bob-secret")}},
+			{"kv API list, bob's instance token", apiList, with(bobTok), true, []psWant{psList("bob-only")}},
+			{"bob's instance token on the tile's API", kv, with(bobTok), true, []psWant{psOK("bob-secret")}},
+			{"bob's instance token on the tile's API, kv keys", keys, with(bobTok), true, []psWant{psList("bob-only")}},
+			{"an unpartitioned tile's frame of bob's", kv, with(callerFrame), false, []psWant{psOK("global-secret")}},
+			{"an unpartitioned tile's frame of bob's, kv keys", keys, with(callerFrame), false, []psWant{psList("global-only")}},
+			{"the unpartitioned tile's backend, as bob's frame", "/api/" + psCaller + "/call?path=" + kv, with(callerFrame), false, []psWant{psOK("global-secret")}},
 		}
 		for _, a := range atts {
 			r := d.Call(t, "GET", a.path, nil, a.hdrs...)
-			if strings.Contains(string(r.Body), "alice-") {
-				t.Errorf("BUG: %s: bob reads alice's data: %d %s", a.name, r.Status, r)
-				continue
-			}
-			if a.want != "" {
-				got := string(r.Body)
-				var v struct{ Value string }
-				if json.Unmarshal(r.Body, &v) == nil && v.Value != "" {
-					got = v.Value
-				}
-				if r.Status != 200 || got != a.want {
-					t.Errorf("%s: %d %s, want bob's own %q", a.name, r.Status, r, a.want)
-				}
-			}
+			psExpect(t, a.name, r, psForbid("bob", a.own), a.want...)
 			t.Logf("%s: %d %s", a.name, r.Status, cut(r.String(), 160))
 		}
-		// his documents name his partition, the primary's deployment URL's too
+		// his documents name his partition, the primary's deployment URL's
+		// too; dev's is refused (he can't write the tile)
 		for _, p := range []string{"/c/" + psTile + "/", "/c/" + psTile + "+main/", "/c/" + psTile + "+dev/"} {
 			doc := d.Call(t, "GET", p, nil, bobSess)
 			if strings.Contains(string(doc.Body), "user:alice") {
 				t.Errorf("BUG: %s names alice's partition to bob", p)
 			}
-			t.Logf("%s for bob: %d, his meta: %v", p, doc.Status, strings.Contains(string(doc.Body), `content="user:bob"`))
+			mine := strings.Contains(string(doc.Body), `content="user:bob"`)
+			if strings.Contains(p, "+dev") && (doc.Status != 403 || mine) || !strings.Contains(p, "+dev") && (doc.Status != 200 || !mine) {
+				t.Errorf("%s for bob: %d, his meta: %v", p, doc.Status, mine)
+			}
 		}
+	})
+
+	t.Run("cross-tile", func(t *testing.T) {
+		// 02 §4 rule 4 (PD-13): a partitioned tile's call to another it is
+		// granted on reaches the same person's partition there, while that
+		// person can read the target; rule 2: a self-call never leaves its
+		// partition. The calls go out through the probe's xbin.Client, with
+		// each partition instance's own token.
+		call := func(tile, person, path string) xbindtest.Resp {
+			return d.Call(t, "GET", "/api/"+tile+"/call?path="+path, nil, e.fr(t, tile, person))
+		}
+		kv := "/api/" + psTile + "/kv/kv/secret"
+		for _, p := range []string{"alice", "bob"} {
+			if w := e.who(t, "/api/"+psPeer+"/who", e.fr(t, psPeer, p)); w.Env != "user:"+p {
+				t.Errorf("%s's frame of %s reaches %+v", p, psPeer, w)
+			}
+			psExpect(t, p+"'s "+psPeer+" → "+psTile, call(psPeer, p, kv), psForbid(p, true), psOK(p+"-secret"))
+			psExpect(t, p+"'s "+psPeer+" → "+psTile+", kv keys", call(psPeer, p, "/api/"+psTile+"/keys/kv"), psForbid(p, true), psList(p+"-only"))
+			if w, st := relayWho(t, call(psPeer, p, "/api/"+psTile+"/who")); st != 200 || w.Env != "user:"+p || w.Caller.From != psPeer ||
+				w.Caller.Partition != "user:"+p || w.Caller.PartitionID != ids[p] {
+				t.Errorf("%s's %s → %s reaches %d %+v, want their partition (%s)", p, psPeer, psTile, st, w, ids[p])
+			}
+			psExpect(t, p+"'s self-call", call(psTile, p, kv), psForbid(p, true), psOK(p+"-secret"))
+			if w, st := relayWho(t, call(psTile, p, "/api/"+psTile+"/who")); st != 200 || w.Env != "user:"+p || w.Caller.From != psTile ||
+				w.Caller.Partition != "user:"+p || w.Caller.PartitionID != ids[p] {
+				t.Errorf("%s's self-call reaches %d %+v, want their own partition (%s)", p, st, w, ids[p])
+			}
+		}
+		// bob loses read of apps/pt: his partition of apps/pt2 reaches none
+		// of his apps/pt data; alice's is as it was
+		d.Must(t, "PATCH", "/api/xbin/users/bob", map[string]any{"tiles": map[string]string{psPeer: "read", psCaller: "read", psPlain: "read"}}, 200)
+		psExpect(t, "bob's "+psPeer+" → "+psTile+" once he can't read it", call(psPeer, "bob", kv), psForbid("bob", true),
+			psWant{403, "bob can't read " + psTile, false})
+		psExpect(t, "alice's "+psPeer+" → "+psTile+" meanwhile", call(psPeer, "alice", kv), psForbid("alice", true), psOK("alice-secret"))
+		d.Must(t, "PATCH", "/api/xbin/users/bob", map[string]any{"tiles": map[string]string{"apps/*": "read"}}, 200)
+		e.forget("bob")
+		psExpect(t, "bob's "+psPeer+" → "+psTile+" once he reads it again", call(psPeer, "bob", kv), psForbid("bob", true), psOK("bob-secret"))
 	})
 
 	t.Run("global", func(t *testing.T) {
@@ -852,80 +461,123 @@ func TestPartitionsSmoke(t *testing.T) {
 
 	t.Run("admin", func(t *testing.T) {
 		// G2: an admin reaches their own partition, never a person's; the
-		// root token reaches global
-		for _, p := range []string{
-			"/api/" + psTile + "/kv/kv/secret",
-			"/api/" + psTile + "/kv/kv/secret?xbin-partition=user:alice",
-			"/api/" + psTile + "/fs/files/note",
-			"/api/" + psTile + "/ls?res=files",
-			"/api/" + psTile + "/keys/kv",
-			"/api/xbin/kv/res:" + psTile + "/kv/secret",
-			"/api/xbin/kv/res:" + psTile + "/kv/?prefix=",
-		} {
-			for _, hdrs := range [][]xbindtest.Header{e.as("carol"), {e.fr(t, psTile, "carol")}, nil} {
-				r := d.Call(t, "GET", p, nil, hdrs...)
-				if strings.Contains(string(r.Body), "alice-") || strings.Contains(string(r.Body), "bob-") {
-					t.Errorf("BUG: an admin credential reads a person's data at %s: %d %s", p, r.Status, r)
-				}
+		// root token reaches global. Each answer is exact: carol's own
+		// values, global's for the root token.
+		type route struct {
+			path         string
+			carol, owner []psWant
+		}
+		routes := []route{
+			{"/api/" + psTile + "/kv/kv/secret", []psWant{psOK("carol-secret")}, []psWant{psOK("global-secret")}},
+			{"/api/" + psTile + "/kv/kv/secret?xbin-partition=user:alice",
+				append([]psWant{psOK("carol-secret")}, psRefusedF9...), append([]psWant{psOK("global-secret")}, psRefusedF9...)},
+			{"/api/" + psTile + "/fs/files/note", []psWant{psOK("carol-note")}, []psWant{{404, `"not found"`, false}}},
+			{"/api/" + psTile + "/ls?res=files", []psWant{psList("carol-only")}, []psWant{psList("global-only")}},
+			{"/api/" + psTile + "/keys/kv", []psWant{psList("carol-only")}, []psWant{psList("global-only")}},
+			{"/api/xbin/kv/res:" + psTile + "/kv/secret", []psWant{psOK("carol-secret")}, []psWant{psOK("global-secret")}},
+			{"/api/xbin/kv/res:" + psTile + "/kv/?prefix=", []psWant{psList("carol-only")}, []psWant{psList("global-only")}},
+		}
+		for _, rt := range routes {
+			for name, hdrs := range map[string][]xbindtest.Header{"carol's session": e.as("carol"), "carol's frame": {e.fr(t, psTile, "carol")}} {
+				r := d.Call(t, "GET", rt.path, nil, hdrs...)
+				psExpect(t, name+", "+rt.path, r, psForbid("carol", true), rt.carol...)
 			}
+			r := d.Call(t, "GET", rt.path, nil)
+			psExpect(t, "the owner token, "+rt.path, r, psForbid("global", false), rt.owner...)
 		}
 		// admins see who runs (metadata), never what it holds
 		r := d.Must(t, "GET", "/api/xbin/sandboxes", nil, 200, e.as("carol")...)
-		if strings.Contains(string(r.Body), "alice-") {
-			t.Errorf("BUG: the sandbox list shows alice's data")
+		for _, f := range psForbid("carol", true) {
+			if strings.Contains(string(r.Body), f) {
+				t.Errorf("BUG: the sandbox list shows data (%q)", f)
+			}
 		}
 		t.Logf("the sandbox list names alice's partition: %v", strings.Contains(string(r.Body), `"user:alice"`))
 	})
 
-	t.Run("view-as", func(t *testing.T) {
-		// 02 §3, G2: an admin viewing the workspace as alice (D64) reaches
-		// no partition of hers — no frame token, no data
-		var tk struct{ URL string }
-		d.Must(t, "POST", "/api/xbin/impersonate", map[string]string{"user": "alice"}, 200, e.as("carol")...).Decode(t, &tk)
-		st, _, hdr := psRaw(t, "GET", d.URL+tk.URL, xbindtest.H("Authorization", "Bearer "+e.sess["carol"]))
-		var cookie string
-		for _, c := range (&http.Response{Header: hdr}).Cookies() {
-			if c.Value != "" {
-				cookie = c.Name + "=" + c.Value
+	t.Run("logs", func(t *testing.T) {
+		// 03 §A.4, 06 §5: a person's instance logs to its partition's own
+		// file; GET /logs of the tile serves global's log — to an admin and
+		// the root token — and a person's frame can't read it (until F7b
+		// converts the route); nobody's answer holds a person's data
+		own := filepath.Join(d.WS, ".xbin", "partition", util.TileKey(psTile), "main", ids["alice"], "backend.log")
+		if b, err := os.ReadFile(own); err != nil || !strings.Contains(string(b), "alice-secret") {
+			t.Errorf("alice's partition log doesn't hold what her instance logged (%s): %v %s", own, err, cut(string(b), 300))
+		}
+		logs := "/api/xbin/logs?component=" + psTile + "&tail=5000"
+		for name, hdrs := range map[string][]xbindtest.Header{"the owner token": nil, "carol's session": e.as("carol")} {
+			r := d.Call(t, "GET", logs, nil, hdrs...)
+			for _, f := range psForbid("global", false) {
+				if strings.Contains(string(r.Body), f) {
+					t.Errorf("BUG: %s's log of %s holds a person's data (%q): %s", name, psTile, f, cut(r.String(), 600))
+				}
+			}
+			if r.Status != 200 || !strings.Contains(string(r.Body), "stored kv kv/global-only = global-only") {
+				t.Errorf("%s's log of %s isn't global's: %d %s", name, psTile, r.Status, cut(r.String(), 600))
 			}
 		}
-		if st != http.StatusFound || cookie == "" {
-			t.Fatalf("redeeming the view-as link: %d, cookie %q", st, cookie)
+		psExpect(t, "bob's session, the log of "+psTile, d.Call(t, "GET", logs, nil, e.as("bob")...), psForbid("bob", false),
+			psWant{403, "backend logs need admin", false})
+		for _, p := range []string{"alice", "bob", "carol"} {
+			psExpect(t, p+"'s frame, the log of "+psTile, d.Call(t, "GET", logs, nil, e.fr(t, psTile, p)), psForbid(p, false),
+				psWant{403, "this route isn't available to a partition's credentials yet (per-partition backend logs)", false})
 		}
-		view := xbindtest.H("Cookie", cookie)
-		if st, body, _ := psRaw(t, "GET", d.URL+"/api/xbin/whoami", view); st != 200 || !strings.Contains(body, "impersonatedBy") {
-			t.Fatalf("the view-as session: %d %s", st, body)
-		}
+	})
+
+	t.Run("view-as", func(t *testing.T) {
+		// 02 §3/§10, G2, PD-08: an admin viewing the workspace as a person
+		// (D64) reaches no partition of theirs — no frame token, no data.
+		// alice is a user: her session is no API principal of the tile, so
+		// its routes refuse her at the grant; erin is an admin, whose
+		// session is one, so the partition gate itself refuses.
+		e.put(t, "/api/"+psTile+"/kv/kv/secret", "erin-secret", e.fr(t, psTile, "erin"))
+		e.put(t, "/api/"+psTile+"/fs/files/note", "erin-note", e.fr(t, psTile, "erin"))
 		paths := []string{
 			"/api/" + psTile + "/kv/kv/secret",
 			"/api/" + psTile + "/fs/files/note",
 			"/api/" + psTile + "/who",
 			"/api/xbin/kv/res:" + psTile + "/kv/secret",
-			"/c/" + psTile + "/",
 		}
-		for _, p := range paths {
-			st, body, _ := psRaw(t, "GET", d.URL+p, view)
-			if strings.Contains(body, "alice-") || strings.Contains(body, `content="user:alice"`) {
-				t.Errorf("BUG: view-as alice reads her partition at %s: %d %s", p, st, body)
-			}
-			if strings.HasPrefix(p, "/c/") && strings.Contains(body, `name="xbin-frame-token" content="`) &&
-				!strings.Contains(body, `name="xbin-frame-token" content=""`) {
-				t.Errorf("view-as alice's document of the partitioned tile carries a frame token")
-			}
-			t.Logf("view-as alice, %s: %d %s", p, st, cut(body, 160))
-		}
-		// the renewal route still mints one (02 §10 keeps renewal as is); it
-		// carries the impersonator, so it opens nothing of alice's either
-		st, body, _ := psRaw(t, "GET", d.URL+"/api/xbin/frame-token?component="+psTile, view)
-		t.Logf("view-as alice, GET /frame-token: %d %s", st, cut(body, 60))
-		var ft struct{ Token string }
-		if st == 200 && json.Unmarshal([]byte(body), &ft) == nil && ft.Token != "" {
-			for _, p := range paths[:4] {
-				r := d.Call(t, "GET", p, nil, xbindtest.FrameHeader(ft.Token))
-				if strings.Contains(string(r.Body), "alice-") || strings.Contains(string(r.Body), "user:alice") {
-					t.Errorf("BUG: view-as alice's renewed frame token reads her partition at %s: %d %s", p, r.Status, r)
+		for _, v := range []struct{ person, tileGate string }{
+			{"alice", "user:alice is not granted access to " + psTile},
+			{"erin", psTile + " keeps erin's data private: view-as can't open it"},
+		} {
+			view := e.viewAs(t, "carol", v.person)
+			pd08 := psTile + " keeps " + v.person + "'s data private: view-as can't open it"
+			for _, p := range paths {
+				st, body, _ := psRaw(t, "GET", d.URL+p, view)
+				want := v.tileGate
+				if strings.HasPrefix(p, "/api/xbin/") {
+					want = pd08
 				}
-				t.Logf("view-as alice's renewed frame token, %s: %d %s", p, r.Status, cut(r.String(), 160))
+				if strings.Contains(body, v.person+"-") {
+					t.Errorf("BUG: view-as %s reads their partition at %s: %d %s", v.person, p, st, body)
+				} else if st != 403 || !strings.Contains(body, want) {
+					t.Errorf("view-as %s, %s: %d %s, want 403 %q", v.person, p, st, cut(body, 300), want)
+				}
+			}
+			st, body, _ := psRaw(t, "GET", d.URL+"/c/"+psTile+"/", view)
+			if st != 200 || !strings.Contains(body, "the probe's page") {
+				t.Errorf("view-as %s's document of %s: %d %s", v.person, psTile, st, cut(body, 300))
+			}
+			if strings.Contains(body, `name="xbin-frame-token" content="`) && !strings.Contains(body, `name="xbin-frame-token" content=""`) {
+				t.Errorf("view-as %s's document of the partitioned tile carries a frame token", v.person)
+			}
+			if strings.Contains(body, `content="user:`+v.person+`"`) {
+				t.Errorf("view-as %s's document names their partition", v.person)
+			}
+			// the renewal route still mints one (02 §10 keeps renewal as
+			// is); it carries the impersonator, so the partition gate
+			// refuses it everywhere
+			st, body, _ = psRaw(t, "GET", d.URL+"/api/xbin/frame-token?component="+psTile, view)
+			var ft struct{ Token string }
+			if st != 200 || json.Unmarshal([]byte(body), &ft) != nil || ft.Token == "" {
+				t.Errorf("view-as %s, GET /frame-token: %d %s (the notes expect a token that opens nothing)", v.person, st, cut(body, 200))
+				continue
+			}
+			for _, p := range paths {
+				r := d.Call(t, "GET", p, nil, xbindtest.FrameHeader(ft.Token))
+				psExpect(t, "view-as "+v.person+"'s renewed frame token, "+p, r, []string{v.person + "-", "user:" + v.person + `"`}, psWant{403, pd08, false})
 			}
 		}
 	})
@@ -934,7 +586,7 @@ func TestPartitionsSmoke(t *testing.T) {
 		// 03 §A.5 (PD-18): past the tile's cap, with every partition in use,
 		// a new person's start is 503; nothing of another person's is stopped
 		running := 0
-		for _, p := range []string{"alice", "bob", "carol"} {
+		for _, p := range []string{"alice", "bob", "carol", "erin"} {
 			e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, p)) // in use: an interactive request now
 			running++
 		}
@@ -953,20 +605,30 @@ func TestPartitionsSmoke(t *testing.T) {
 	})
 
 	t.Run("token-revocation", func(t *testing.T) {
-		// 02 §2: a user partition's instance token authenticates only while
-		// its partition is covered (the person enabled, reading the tile)
+		// 02 §2, S13: a user partition's instance token authenticates only
+		// while its partition is covered (the person enabled, reading the
+		// tile) and only for the instance's own generation
 		kv := "/api/xbin/kv/res:" + psTile + "/kv/secret"
 		cur := e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, "alice"))
-		if cur.Token != tokens["alice"] {
-			// a restart since (the ingress binding, say) revoked the earlier
-			// generation's token: it must not authenticate any more
-			r := d.Call(t, "GET", kv, nil, xbindtest.H("Authorization", "Bearer "+tokens["alice"]))
-			t.Logf("alice's instance restarted since own-partition (boot %s → %s); its earlier token: %d", boots["alice"], cur.Boot, r.Status)
-			if r.Status != 401 {
-				t.Errorf("alice's earlier generation's token after a restart: %d %s (want 401)", r.Status, r)
-			}
-		}
 		tokens["alice"], boots["alice"] = cur.Token, cur.Boot
+		// a restart: new code restarts every instance of the tile, people's
+		// too, and the earlier generation's token stops authenticating
+		if err := d.WriteFiles(psTile, map[string]string{"backend/main.go": psSource + "\n// a new generation\n"}); err != nil {
+			t.Fatal(err)
+		}
+		var next psWho
+		xbindtest.Eventually(t, 4*time.Minute, "alice's instance restarts on the new code", func() (bool, string) {
+			r := d.Call(t, "GET", "/api/"+psTile+"/who", nil, e.fr(t, psTile, "alice"))
+			if r.Status != 200 || json.Unmarshal(r.Body, &next) != nil {
+				return false, fmt.Sprint(r.Status, " ", r)
+			}
+			return next.Boot != cur.Boot, "still boot " + next.Boot
+		})
+		if next.Env != "user:alice" || next.Token == "" || next.Token == cur.Token {
+			t.Errorf("alice's restarted instance: %+v (token before %s…)", next, cut(cur.Token, 8))
+		}
+		psExpect(t, "alice's earlier generation's token after the restart", d.Call(t, "GET", kv, nil, xbindtest.H("Authorization", "Bearer "+cur.Token)), nil, psWant{401, "", false})
+		tokens["alice"], boots["alice"] = next.Token, next.Boot
 		tok := xbindtest.H("Authorization", "Bearer "+tokens["alice"])
 		if r := d.Call(t, "GET", kv, nil, tok); r.Status != 200 || string(r.Body) != "alice-secret" {
 			t.Fatalf("alice's instance token before: %d %s", r.Status, r)
@@ -982,7 +644,7 @@ func TestPartitionsSmoke(t *testing.T) {
 		r := d.Call(t, "GET", kv, nil, tok)
 		t.Logf("alice's old instance token once she is enabled again: %d %s", r.Status, cut(r.String(), 120))
 		if d.Call(t, "GET", "/api/xbin/whoami", nil, e.as("alice")...).Status != 200 {
-			e.sess["alice"] = d.Login(t, "alice", "pw-alice-5c2e81")
+			e.sess["alice"] = d.Login(t, "alice", psPassword("alice"))
 		}
 		e.forget("alice")
 		w := e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, "alice"))
@@ -996,13 +658,53 @@ func TestPartitionsSmoke(t *testing.T) {
 		if r := d.Call(t, "GET", kv, nil, tok); r.Status != 200 {
 			t.Fatalf("alice's current instance token: %d %s", r.Status, r)
 		}
-		d.Must(t, "PATCH", "/api/xbin/users/alice", map[string]any{"tiles": map[string]string{"apps/pcall": "read", "apps/plain": "read"}}, 200)
+		d.Must(t, "PATCH", "/api/xbin/users/alice", map[string]any{"tiles": map[string]string{psCaller: "read", psPlain: "read"}}, 200)
 		if r := d.Call(t, "GET", kv, nil, tok); r.Status != 401 {
 			t.Errorf("alice's instance token once she can't read %s: %d %s (want 401)", psTile, r.Status, r)
 		}
 		d.Must(t, "PATCH", "/api/xbin/users/alice", map[string]any{"tiles": map[string]string{"apps/*": "read"}}, 200)
 		e.forget("alice")
 		tokens["alice"] = e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, "alice")).Token
+	})
+
+	t.Run("person-recreated", func(t *testing.T) {
+		// C2/S17, 03 §E: a person deleted and made again under the same id
+		// is a new person — a new uid, so a new partition id and a fresh,
+		// empty partition; the old instance's token never authenticates
+		// again. The one way a different person could inherit data.
+		fr := e.fr(t, psTile, "dave")
+		old := e.who(t, "/api/"+psTile+"/who", fr)
+		e.put(t, "/api/"+psTile+"/kv/kv/secret", "dave-secret", fr)
+		e.put(t, "/api/"+psTile+"/fs/files/note", "dave-note", fr)
+		oldUID := e.uid(t, "dave")
+		kv := "/api/xbin/kv/res:" + psTile + "/kv/secret"
+		oldTok := xbindtest.H("Authorization", "Bearer "+old.Token)
+		psExpect(t, "old dave's instance token", d.Call(t, "GET", kv, nil, oldTok), nil, psOK("dave-secret"))
+		d.Must(t, "DELETE", "/api/xbin/users/dave", nil, 200)
+		psExpect(t, "old dave's instance token once he is deleted", d.Call(t, "GET", kv, nil, oldTok), nil, psWant{401, "", false})
+		// made again: his old partition's records predate the new record,
+		// so nothing adopts their uid (adoptablePartitionUID, PD-43)
+		e.addPerson(t, "dave", "user")
+		e.forget("dave")
+		w := e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, "dave"))
+		newUID := e.uid(t, "dave")
+		if newUID == "" || newUID == oldUID {
+			t.Errorf("the new dave's uid %q, the old one's %q", newUID, oldUID)
+		}
+		if w.Env != "user:dave" || w.Caller.PartitionID == old.Caller.PartitionID || w.Caller.PartitionID != util.PartitionKey("dave", newUID) ||
+			w.Token == old.Token || w.Boot == old.Boot {
+			t.Errorf("the new dave reaches %+v, the old one's partition %s (boot %s)", w, old.Caller.PartitionID, old.Boot)
+		}
+		fr = e.fr(t, psTile, "dave")
+		for _, p := range []string{"/api/" + psTile + "/kv/kv/secret", "/api/" + psTile + "/fs/files/note"} {
+			psExpect(t, "the new dave, "+p, d.Call(t, "GET", p, nil, fr), []string{"dave-"}, psWant{404, `"not found"`, false})
+		}
+		for _, p := range []string{"/api/" + psTile + "/keys/kv", "/api/" + psTile + "/ls?res=files"} {
+			if got := e.names(t, p, fr); len(got) != 0 {
+				t.Errorf("BUG: the new dave's %s: %q, want nothing", p, got)
+			}
+		}
+		psExpect(t, "old dave's instance token once dave is made again", d.Call(t, "GET", kv, nil, oldTok), nil, psWant{401, "", false})
 	})
 
 	t.Run("mode-keep", func(t *testing.T) {
@@ -1103,6 +805,11 @@ func TestPartitionsSmoke(t *testing.T) {
 		}
 		before := volumes()
 		t.Logf("the tile's volumes before the switch: %v", before)
+		for _, v := range []string{"data/resources-enc/apps~pt/files", "data/resources-enc/apps~pt/pub", ids["alice"], ids["bob"]} {
+			if !slices.ContainsFunc(before, func(s string) bool { return strings.Contains(s, v) }) {
+				t.Fatalf("no gocryptfs serves %s before the switch (the check below would pass vacuously): %v", v, before)
+			}
+		}
 		r = e.mode(t, "carol", sw(map[string]any{"confirm": psTile}))
 		if r.Status != 200 {
 			t.Fatalf("the switch: %d %s", r.Status, r)
@@ -1156,15 +863,12 @@ func TestPartitionsSmoke(t *testing.T) {
 				}
 			}
 		}
-		if r := d.Call(t, "GET", "/api/"+psTile+"/ls?res=files", nil); !strings.Contains(string(r.Body), `"names":[]`) {
-			t.Errorf("the files after the switch: %d %s", r.Status, r)
+		if got := e.names(t, "/api/"+psTile+"/ls?res=files"); len(got) != 0 {
+			t.Errorf("the files after the switch: %q", got)
 		}
 		// every deployment's namespace goes too: dev's seeded copy of global's
-		r = d.Call(t, "GET", "/api/"+psTile+"+dev/kv/kv/secret", nil)
-		if strings.Contains(string(r.Body), "global-before-dev") {
-			t.Errorf("dev's data survived the switch: %d %s", r.Status, r)
-		}
-		t.Logf("dev's kv after the switch: %d %s", r.Status, cut(r.String(), 200))
+		psExpect(t, "dev's kv after the switch", d.Call(t, "GET", "/api/"+psTile+"+dev/kv/kv/secret", nil), []string{"global-"},
+			psWant{404, `"not found"`, false})
 	})
 
 	t.Run("mode-pending-unpartitioned", func(t *testing.T) {
