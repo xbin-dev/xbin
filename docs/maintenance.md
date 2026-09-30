@@ -536,7 +536,13 @@ counts the policies tab's two switches; the `adminPolicies` pass
 (`hack/ui-harness/passes/policies.js`) drives it: the confirmation before
 "ask each person" turns on (cancel, then Turn on), the credential-reset
 switch saving at once, a second console following the `policies` event,
-and a user's read-only access.
+and a user's read-only access. The `personalBinds` pass
+(`hack/ui-harness/passes/personalbinds.js`) checks bind types on a
+partitioned tile: an admin refused a personal bind of someone else's tile,
+the person's own bind, their document's `xbin-interfaces` meta (the global
+row, then theirs with `personal: true`) against the admin's (the global row
+alone), and the binding → wiring view's `global` and `personal · <user> →
+<provider>` labels, whose ✕ removes the bind.
 
 ## The shell (`workspace-template/shell`)
 
