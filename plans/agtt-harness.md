@@ -130,8 +130,12 @@ What the plan rests on (verified in the code and in the adapters in
 - **An idle harness is reclaimed** after 15 min (tile config
   `harnessIdleMin`), with a one-shot timer — no tickers.
 - **D-numbers:** none for WP-R; D147 for the rest (numbered at the docs
-  pass: master was at D136, and the partitions branch holds the ten after
-  it).
+  pass: master was at D136, and the partitions branch then held the ten
+  after it; its later ones start at D148). Under partitions (the owner's
+  ruling plans/partitions/90-decisions.md §I15: coding agents only in a
+  person's own conversations) the W6 wave's decision amends D147 for
+  partitioned instances — plans/partitions/96-agtt-merge.md and
+  plans/partitions/records/W6-wire.md.
 
 ### 2.3 Not in v1
 

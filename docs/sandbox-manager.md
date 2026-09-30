@@ -246,7 +246,11 @@ consumer runs one as a non-`tty` exec with `stdin: true`. Each is
   consumer should offer a person the sign-in only in a sandbox homed in
   their own partition, where the credentials stay theirs unless they share
   the sandbox on. That is the consumer's to keep: to the manager a sign-in
-  is a terminal like any other.
+  is a terminal like any other. The agent template keeps it: in a
+  partitioned agent a coding agent starts, and signs in, only in a person's
+  own conversations, in a sandbox homed in their partition — never at its
+  global instance nor in a shared or hosted conversation (its API.md,
+  "Partitioned instances").
 
 The list is the manager's word about the image, not a probe (an image's
 installs can fail): a consumer may check with `command -v <argv[0]>` through
