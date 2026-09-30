@@ -1751,8 +1751,17 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   queue a prompt (inbox kind `hprompt`; `queued`, `DELETE
   /runs/{id}/inbox/{iid}` and `/interrupt`'s `returned` include them like
   messages). It goes to the coding agent when no turn runs and nothing
-  waits for you; until then it waits. `interrupt: true` stops the running
-  turn first and goes next (ignored on the agent's own runs).
+  waits for you. During a turn, a coding agent that takes messages
+  mid-turn (`harness.steering`: claude, codex) gets it at its next step —
+  its user row is written then and the turn goes on; one that doesn't gets
+  it as the next prompt once the turn ends. Sent while a permission or a
+  question waits, it answers that first — the permission rejected (reject
+  once, else always, else the cancelled outcome), the question declined —
+  then is steered or waits; while the coding agent waits for a sign-in it
+  waits with it. `interrupt: true` stops the running turn first and goes
+  next (ignored on the agent's own runs). Messages from schedules,
+  triggers, watchers or `/learn` never drive a coding agent: they are
+  consumed with a note.
 - **A turn.** The message becomes the user row as it is sent; what the
   coding agent writes streams as the run's draft (`text`/`thinking` events,
   the view's `drafts`) and lands as assistant rows (thinking in
@@ -1789,18 +1798,64 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   "approval", park, toolCalls, harness: {callId, options: [{optionId,
   name, kind, explicit?}], tool: {title, kind, name?, label?, command?,
   rawInput?, content?}, rule?, defaultToNo?, description?, planApproval?,
-  plan?}}`; `POST /runs/{id}/approve {approve, park}` answers it (allow
-  once, else another allow that doesn't raise the mode; a denial rejects).
-  One that comes while another waits is queued behind it.
-- **Stops and restarts.** `/interrupt` stops the turn (the coding agent
-  ends it: `idle`); `/cancel` and deleting the conversation stop the coding
-  agent too. `/resume` starts a fresh one when none runs and sends again a
-  message that couldn't reach it. A coding agent idle between turns keeps
-  running in the sandbox (its session is reused by the next message); one
-  that exited or was cut off ends its turn with why, and the next message
-  starts a new one (reopening its earlier session when it can). A save or
-  restart of the agent never stops one: the next process takes it over
-  where the last one left it, mid-turn too.
+  plan?}}`. `POST /runs/{id}/approve {approve?, park?, option?,
+  feedback?}` answers it: `option` (an `optionId`) picks the coding
+  agent's own answer — an `allow_always` one is remembered for the
+  conversation (the same kind and title isn't asked again, even by a
+  restarted coding agent; a mode switch's never is). Without it `approve:
+  true` picks allow once, else another allow that doesn't raise the mode
+  (**400** `option: name one — every allow here raises <name> to an
+  explicit mode` when every allow does), `approve: false` rejects (once,
+  else always, else the cancelled outcome). An option marked `explicit`
+  (it raises the session to a bypass mode) is the conversation owner's:
+  **403** `only <owner> can allow <option>`. `feedback` (a plan approval's
+  "keep planning") goes with a rejection only (**400** `feedback goes with
+  a rejection`): the rejection is answered, then `feedback` is your next
+  message. **400** `option: one of …`; on the agent's own approval **400**
+  `option is for a coding agent's permission request`; `grant` is ignored
+  on a coding agent's. A question (a form) parks `pendingState: {kind:
+  "question", park, harness: {eid, callId?, message, schema}}`, answered
+  by `POST /runs/{id}/harness/answer {park, action, content?}` (an
+  `hanswer` inbox row `{park, action: accept | decline | cancel,
+  content}`). One that comes while another waits is queued behind it and
+  becomes the park once that one is answered.
+- **Signing in.** A coding agent that says it is signed out — or refuses a
+  message so — parks the run on `pendingState: {kind: "login", park,
+  harness: {login}}` (`waiting_input`; `harness.state` `login`,
+  `harness.login: {command, methods: [{id, name, kind: terminal | api-key
+  | device-code}], device?}`) and keeps the message that failed. **Retry**
+  (`/resume`) ends the signed-out coding agent, starts a fresh one — it
+  reads what a terminal sign-in left in the sandbox's home — and sends the
+  message again (signed out still, it parks again). Signing in through the
+  coding agent (an API key, a device code) is `POST /runs/{id}/harness/
+  authenticate`: the key goes to the coding agent once and is never
+  stored; a device code's page (`harness.login.device: {url, message}`)
+  stays up until you finish, then the run goes on by itself. A page the
+  coding agent asks to have opened at any other time is declined.
+- **Stops and restarts.** `/interrupt` stops the turn: a permission or
+  question waiting settles `(interrupted)` and the coding agent ends its
+  turn (`idle`) — one that doesn't within 15 s is stopped. `/cancel` and
+  deleting the conversation stop the coding agent too (a subagent's link
+  settles `canceled`). `/resume` starts a fresh one when none runs and
+  sends again a message that couldn't reach it. `/compact` sends `/compact`
+  to a coding agent that offers it (`harness.commands`). A coding agent
+  idle between turns keeps running for the tile's `harnessIdleMin`
+  (default 15 minutes; 0: until stopped) and is then stopped
+  (`harness.state` `stopped`) — never while a turn runs or something waits
+  for you; the next message starts it again, reopening its session when it
+  can. One that exited or was cut off (its sandbox stopped, xbind
+  restarted, its output lost mid-turn) ends its turn with why, a request
+  waiting settles `(interrupted)`, and the next message starts a new one
+  (reopening its earlier session when it can). The conversation's use of
+  the sandbox is checked again before each message, answer and steer, and
+  at most once a minute while the coding agent works: when it may no
+  longer use the sandbox — or the sandbox is detached from the
+  conversation — the coding agent is stopped (`failed`, with why) and a
+  turn in flight ends with it. A message that may not have reached it (the agent saved
+  mid-send, the connection to the sandbox dropped as it went) fails —
+  "send it again" — and is never sent twice. A save or restart of the
+  agent never stops one: the next process takes it over where the last one
+  left it, mid-turn too.
 
 **Starting one (the UI).** "Who answers" sits in the home composer (web
 `#apick`, the native home toolbar) and in the new-chat dialog (`#n-agent`):

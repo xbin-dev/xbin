@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **Agent template: a coding agent asks, steers, signs in and rests**
+  (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
+  `POST /runs/{id}/approve` gains `option` (one of the coding agent's own
+  answers; an "always" one is remembered for the conversation; one that
+  raises the session to a bypass mode is the owner's) and `feedback` (with
+  a rejection: your next message). A question parks the run as
+  `pendingState.kind "question"`; a message while something waits rejects
+  (declines) it first; during a turn a coding agent that steers takes the
+  message at its next step. A signed-out coding agent parks the run on
+  `pendingState.kind "login"` with the message kept — Retry (`/resume`)
+  starts a fresh one and sends it again, and signing in through it (an API
+  key, a device code) goes on by itself. An idle coding agent is stopped
+  after the tile's `harnessIdleMin`; one whose sandbox is detached, or may
+  no longer be used, is stopped; a message that may not have reached it
+  fails ("send it again") and is never sent twice; `/interrupt` settles
+  what waits `(interrupted)`. Additive. `sdk/acp` gains `Client.Abandon`
+  (`docs/sdk.md`): a call ends as if the agent had answered an error.
 - **Agent template: a coding agent answers the conversation**
   (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
   `POST /ask` and `POST /runs` with `harness: {provider, mode?, options?}`
