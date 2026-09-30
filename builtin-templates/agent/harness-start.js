@@ -157,11 +157,14 @@ ext.register({
         if (!p.shown && !h) return nothing;
         const opts = h ? HS.sandboxOptions(h, app.sbx.list, HS.startClass(app, h)) : [];
         const cls = h ? p.rows.find((r) => r.value === h.id)?.detail : '';
+        // shared with others: a select of its own (a fresh one again after, so the pick shows as it was)
+        const pick = why ? html`<select id="n-agent" disabled title=${why}><option value=${AGENT} selected>${p.rows[0].name}</option></select>
+            <div class="hint" id="n-agent-shared">${why}.</div>`
+          : html`<select id="n-agent" @change=${(e) => { f.agent = e.target.value; f.ref = ''; redraw(); }}>
+              ${p.rows.map((r) => html`<option value=${r.value} ?selected=${r.value === f.agent} ?disabled=${r.disabled}
+                title=${r.disabled ? r.why : r.detail}>${r.value === AGENT ? r.name : `${r.mono} · ${r.name}`}${r.disabled ? ` — ${r.why}` : ''}</option>`)}</select>`;
         return html`<div class="field"><label>Who answers — fixed once it starts</label>
-            <select id="n-agent" ?disabled=${!!why} title=${why || nothing} @change=${(e) => { f.agent = e.target.value; f.ref = ''; redraw(); }}>
-              ${p.rows.map((r) => html`<option value=${r.value} ?selected=${r.value === agent()} ?disabled=${r.disabled}
-                title=${r.disabled ? r.why : r.detail}>${r.value === AGENT ? r.name : `${r.mono} · ${r.name}`}${r.disabled ? ` — ${r.why}` : ''}</option>`)}</select>
-            ${why ? html`<div class="hint" id="n-agent-shared">${why}.</div>` : nothing}
+            ${pick}
             ${h ? html`<div class="hint" id="n-agent-hint">${cls ? cls[0].toUpperCase() + cls.slice(1) + '. ' : ''}A coding agent keeps its own instructions.</div>` : nothing}</div>
           ${h ? html`<div class="field"><label>Its sandbox — fixed for the conversation</label>
             <select id="n-sandbox" @change=${(e) => { f.ref = e.target.value; redraw(); }}>

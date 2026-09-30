@@ -192,6 +192,11 @@ await page.selectOption('#n-share', 'team-participant');
 await page.waitForSelector('#newdlg #n-agent-shared');
 ok('shared with others: "Who answers" is the built-in agent, saying why',
   await page.$eval('#n-agent', (e) => e.disabled && e.value === 'agent') && !(await page.$('#newdlg #n-sandbox')));
+await page.selectOption('#n-share', 'mine');
+await page.waitForSelector('#newdlg #n-sandbox');
+ok('…and back to only her: her pick again', await page.$eval('#n-agent', (e) => !e.disabled && e.value === 'claude') && !(await page.$('#newdlg #n-agent-shared')));
+await page.selectOption('#n-share', 'team-participant');
+await page.waitForSelector('#newdlg #n-agent-shared');
 await page.fill('#n-goal', 'for the team');
 await page.click('#n-create');
 await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.url)).length === 3);
