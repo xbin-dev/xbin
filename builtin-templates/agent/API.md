@@ -188,28 +188,54 @@ What a partitioned instance does differently:
     conversation over 48 MiB as a whole answers 413 — leave its files out.
   - `POST /copy {from, files?}` in your partition makes a **private copy**
     of a shared conversation you can see (`from`: its id) → the new run.
-  - **Un-sharing moves it to its owner's own space.** A person's
-    conversation at the global instance that stops being shared — made
+  - **Un-sharing moves it to its owner's own space.** A person's chat at
+    the global instance that an act leaves shared with nobody — made
     private (`PATCH /runs/{id} {visibility: "private"}`) with nobody else
     in it, or its last member removed or gone — moves to its owner's
-    partition: its join links are revoked and every change to it is
-    refused (409) while it moves (reads go on); its owner's partition,
-    told by partition mail (`conv/move`), reads it once no run of it is
-    working (`GET /moves/{id}/export`: the bundle with its session files;
-    files past the bundle's cap one by one), takes it in hidden, has the
-    global instance delete its copy (`POST /moves/{id}/done {to}`), then
-    lists it — a new id from 2^40, the whole transcript, its task ledger
-    and files. It is listed in one home at every moment, never two. The
-    global instance's `run` event deleting it carries `movedTo` (the new
-    id), and `GET /moves/{id}` (its owner only) answers `{run, state:
-    "asked" | "moved", to}` for 30 days, so a page open on it, a push link
-    or a saved place follows it (the page does). Every step is idempotent
-    and taken up again after a crash or a stop. A conversation too large
-    to copy (a 48 MiB bundle), or whose owner can no longer be mailed, or
-    whose move nobody took within 8 days, stays where it is — private, and
-    changeable again (`POST /moves/{id}/abandon` is the partition's way to
-    say so). Conversations that aren't a person's (the owner token's, an
-    element's) don't move.
+    partition. Only a chat moves (origin `chat`, `api` or none, with
+    something said in it): an automation's thread there — a channel's
+    group thread or DM, a schedule's, a trigger's — stays, and a `PATCH`
+    that changes nothing about who shares it (the same visibility again,
+    a `teamRole` on a private one) moves nothing. Its join links are
+    revoked and every change to it is refused (409) while it moves —
+    reads go on, and so do stopping it (`/cancel`, `/interrupt`),
+    deciding an approval it waits for (`/approve`), answering what it
+    asked (`/answer`, to a run waiting for one) and taking back a message
+    not delivered yet; an automation's delivery into it is refused too.
+    Its owner's partition, told by partition mail (`conv/move`), reads it
+    once nothing in it is under way — no run of it working, sleeping,
+    waiting for an answer, an approval or its subagents, no input waiting
+    to be taken, no sandbox command running (`GET /moves/{id}/export`: the
+    bundle with its session files, files past the bundle's cap one by one,
+    its notes (`memory`), its owner's schedules reporting into it, their
+    pin and archive, `behind` — what doesn't travel — and a `ticket`),
+    takes it in hidden, has the global instance delete its copy (`POST
+    /moves/{id}/done {to, ticket}`: 412 when it changed or works again
+    since that export — the partition reads it again), then lists it — a
+    new id from 2^40, its whole transcript, task ledger, files and notes,
+    its schedules (now the person's own, private, reporting into the new
+    id), their pin. What stays behind is said in the note it arrives
+    with: its subagents' own transcripts (what they found is in it), its
+    sandboxes (the shared space's), the capabilities granted to it. It is
+    never listed in two homes: at the global instance until `done`, in
+    the partition once it shows there (between the two, for as long as
+    the partition takes — after a crash until it starts again — it is
+    listed in neither, and opens by its new id). The global instance's
+    `run` event deleting it carries `movedTo` (the new id), and `GET
+    /moves/{id}` (its owner only) answers `{run, state: "asked" |
+    "leaving" | "moved", to}` for 30 days, so its owner's page open on
+    it, a push link or a saved place follows it (the page does; any other
+    page goes home). Only the owner's partition drives a move — export,
+    done and abandon answer 403 to their page or terminals, and anyone
+    else's partition learns nothing (404; done: `{state: "gone"}` for
+    every id). Every step is idempotent and taken up again after a crash
+    or a stop. A conversation too large to copy (a 48 MiB bundle) or that
+    the partition can't take (past its file store's limits, a class the
+    person may no longer use), or whose owner can no longer be mailed, or
+    whose move nobody took within 8 days, stays where it is — private,
+    and changeable again (`POST /moves/{id}/abandon` is the partition's
+    way to say so). Conversations that aren't a person's (the owner
+    token's, an element's) don't move.
   - The copies travel as a bundle: `GET /runs/{id}/export[?files=1]` (a
     viewer; either home) and `POST /import {conversation, share}` (the
     global instance only; a person's must name `share`). An unpartitioned
@@ -297,7 +323,9 @@ What a partitioned instance does differently:
   conversation (yours, private, in your list) and mails each reply back
   (`outbox/add`, naming the handoff, its files inline — one too large for
   the mail is staged at the global instance first, `PUT
-  /handoffs/{id}/reply-files?key=&name=&mime=`, and named in `staged`); the global instance
+  /handoffs/{id}/reply-files?key=&name=&mime=`, and named in `staged`;
+  up to 10 files a chat and 32 files / 64 MiB a person staged and not yet
+  sent — past those 413, and 507 until they are sent); the global instance
   posts it where **its own record** says the DM came from, and only when
   xbind stamps the mail as yours and the chat account is still linked to
   you — a reply naming someone else's handoff is refused (logged, never
@@ -1030,9 +1058,9 @@ Where each event goes (`mode`):
 | `GET /usage` | `?days=30` (1–90) | people's daily usage totals (managers; a partitioned agent's global instance, forwarded from a partition): `{days, since, people: [{user, days: [{day, runs, llmCalls, promptTokens, completionTokens}], total}]}`; 404 unpartitioned |
 | `GET /handoffs/{id}/files/{fid}` | — | a partitioned agent's global instance: a file of a DM handed to the caller (too large for its mail, named in its `fetch`) — the bytes; 404 for anyone but the handoff's person from their own partition, and once it was fetched |
 | `POST /handoffs/{id}/fetched` | — | …the caller's partition has the handoff's files: the global instance deletes what it held → `{deleted}` |
-| `PUT /handoffs/{id}/reply-files` | `?key=&name=&mime=`, body: the bytes (≤ 16 MiB) | …stages a file of the caller's reply too large for its mail (named then in `outbox/add`'s `staged`) → `{id}`; the same key stages once. The same callers |
-| `GET /moves/{id}` | — | a partitioned agent's global instance: where a conversation of the caller's that stopped being shared went → `{run, state: "asked" \| "moved", to}` (30 days); 404 for anyone else (Partitioned instances → Shared conversations) |
-| `GET /moves/{id}/export`, `POST /moves/{id}/done {to}`, `POST /moves/{id}/abandon {why}` | | …its owner's partition drives the move: reads it (409 while it works), says it has it (it is deleted here; idempotent; 409 when the move was given up meanwhile), or gives it up (it stays here) |
+| `PUT /handoffs/{id}/reply-files` | `?key=<outbox key>-<row>/<file>&name=&mime=`, body: the bytes (≤ 16 MiB) | …stages a file of the caller's reply too large for its mail (named then in `outbox/add`'s `staged`) → `{id}`; the same key stages once. The same callers. 400 for another key; 410 for a DM older than 30 days; 413 past 10 files staged for the chat; 507 past 32 files or 64 MiB the person staged and hasn't sent (later) |
+| `GET /moves/{id}` | — | a partitioned agent's global instance: where a conversation of the caller's that stopped being shared went → `{run, state: "asked" \| "leaving" \| "moved", to}` (30 days); 404 for anyone else (Partitioned instances → Shared conversations) |
+| `GET /moves/{id}/export`, `POST /moves/{id}/done {to, ticket}`, `POST /moves/{id}/abandon {why}` | | …its owner's partition — only it: 403 to their page or terminals — drives the move: reads it (`{…the bundle, ticket, memory, schedules, pinnedAt, archivedAt, behind}`; 409 while anything in it is under way), says it has it (with that export's ticket: it is deleted here; idempotent; 412 when it changed or works again since — read it again; 409 when the move was given up or the conversation left another way), or gives it up (it stays here). Anyone else's partition: 404, and done `{state: "gone"}` whatever the id |
 
 Triggers are kind `trigger` in `GET /automations` (reset starts a persistent
 one's thread afresh). An agent-made loop is refused: a trigger on this

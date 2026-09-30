@@ -284,9 +284,11 @@ and people's pages reach them through their own global instance
 (`?xbin-partition=global`, below): a conversation's id says its home (a
 person's from 2^40, the global instance's below), everyone in a shared one
 follows its stream there — so all see a run live — and a person shares one
-of their own by publishing a copy to the global instance. One that stops
-being shared (made private with nobody else in it) moves to its owner's
-partition — listed in one home at every moment, its page following it.
+of their own by publishing a copy to the global instance. A person's chat
+that stops being shared (made private with nobody else in it) moves to its
+owner's partition once nothing in it is under way — never listed in two
+homes, its owner's page following it; an automation's thread (a channel's,
+a schedule's) stays where it is.
 
 A partitioned agent's chat channels and event triggers show how a tile that
 isn't partitioned — the messaging bridge, the webhooks tile — serves people
