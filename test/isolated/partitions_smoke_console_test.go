@@ -68,4 +68,26 @@ func psConsole(t *testing.T, d *xbindtest.Daemon, e *psEnv) {
 			t.Errorf("BUG: a partitioned tile's own frame reads the admins' overview: %v", r)
 		}
 	}
+
+	// the same console driven by bob (no admin): the tile-level fields only,
+	// and no admin act — the tile's grant opens the console, the person decides
+	bobs := e.frame(t, console, "bob")
+	var nov map[string]any
+	d.Must(t, "GET", "/api/xbin/partitions", nil, 200, bobs).Decode(t, &nov)
+	tiles, _ := nov["tiles"].([]any)
+	for _, r := range tiles {
+		if row, _ := r.(map[string]any); row["totals"] != nil || row["mine"] != nil {
+			t.Errorf("BUG: the console driven by bob reads the admins' overview: %v", row)
+		}
+	}
+	if nov["orphans"] != nil || nov["isolated"] != nil {
+		t.Errorf("BUG: the console driven by bob reads the admins' fields: %v", nov)
+	}
+	var none map[string]any
+	d.Must(t, "GET", "/api/xbin/partitions?tile="+psTile, nil, 200, bobs).Decode(t, &none)
+	if none["partitions"] != nil || none["history"] != nil || none["orphans"] != nil {
+		t.Errorf("BUG: the console driven by bob reads people's rows of %s: %v", psTile, none)
+	}
+	d.Must(t, "POST", "/api/xbin/partitions/limits", map[string]any{"tile": psTile, "maxRunning": 3}, 403, bobs)
+	d.Must(t, "GET", "/api/xbin/partitions/binds", nil, 403, bobs)
 }
