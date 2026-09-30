@@ -298,17 +298,11 @@ func (c *Client) respondPermission(w *Wire, res *Resolution) error {
 	// logged before the agent hears it, so the resolution precedes whatever
 	// the agent does next in every client's stream
 	c.emitW(w, NewEvent(EvPermissionResolved, map[string]any{"pid": res.PID, "optionId": res.OptionID, "by": res.By}))
-	var err error
+	// running again before the agent hears it: said after the reply, it
+	// could land after a turn the answer let end (idle, then a stale running)
+	c.afterAnswer(w)
 	if res.By == "cancel" && res.OptionID == "" && !res.Cancel {
-		err = c.conn.Reply(res.RPCID, nil, &Error{Code: CodeRequestCancelled, Message: "request cancelled"})
-	} else {
-		err = c.conn.Reply(res.RPCID, out, nil)
+		return c.conn.Reply(res.RPCID, nil, &Error{Code: CodeRequestCancelled, Message: "request cancelled"})
 	}
-	c.mu.Lock()
-	busy, st := c.busy, c.status
-	c.mu.Unlock()
-	if busy && st != StatusCancelling && c.cfg.Perms.Count() == 0 && c.elicits.count() == 0 {
-		c.setStatusW(w, StatusRunning, "")
-	}
-	return err
+	return c.conn.Reply(res.RPCID, out, nil)
 }

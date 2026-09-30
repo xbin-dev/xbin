@@ -208,13 +208,13 @@ func (c *Client) RespondElicitation(eid, action string, content json.RawMessage,
 	w := &Wire{RPCID: pe.rpcID}
 	// logged before the agent hears it, like a permission's resolution
 	c.emitW(w, NewEvent(EvElicitResolved, res))
-	err := c.conn.Reply(pe.rpcID, out, nil)
-	c.afterAnswer(w)
-	return err
+	c.afterAnswer(w) // before the agent hears it (respondPermission)
+	return c.conn.Reply(pe.rpcID, out, nil)
 }
 
 // afterAnswer is the status once nothing waits for an answer any more: a
-// turn runs on.
+// turn runs on. Said before the reply goes, so it can't follow the end of a
+// turn the answer let finish.
 func (c *Client) afterAnswer(w *Wire) {
 	c.mu.Lock()
 	busy, st := c.busy, c.status
