@@ -12,9 +12,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { partitionView, markTitle, MARK_TITLE, modeName, switchDeletes, switchLabel, pendingText, requestKey,
   modeBody, postMode, errorText, bytesText, wipedText, switchSpec, switchResolve, DELETES_ALL,
-  pruneDecisions, whoDecides, noteText, staleRefusal, deletesNothing, keptText, switchedText, depShared, DEP_SHARED,
-  partitionChip, CHIP_YOURS, CHIP_GLOBAL, CHIP_NONE_ROOT, consentWatch, consentPrompts, keepDismissed, consentEventOp,
-  consentCall, consentKey, consentAsk, consentWhy, allowedText, declinedText, CONSENTS_API, PARTITIONS_PAGE } from '../workspace-template/shell/partition-mode.js';
+  pruneDecisions, whoDecides, noteText, staleRefusal, deletesNothing, keptText, switchedText, DEP_SHARED,
+  partitionChip, CHIP_YOURS, CHIP_GLOBAL, CHIP_NONE_ROOT, framedTile, consentPerson, consentWatch, consentPrompts, keepDismissed,
+  consentEventOp, consentCall, consentKey, consentAsk, consentWhy, allowedText, declinedText, consentStoreKey, coverPoints,
+  CONSENTS_API, PARTITIONS_PAGE } from '../workspace-template/shell/partition-mode.js';
 
 const row = (partition) => ({ path: 'apps/p', partition });
 
@@ -163,9 +164,6 @@ test('who decides, the tile\'s note, and a deployment\'s window', () => {
   assert.equal(noteText('apps/p', v), 'apps/p says: Your notes live here.');
   assert.equal(noteText('apps/p', partitionView(row({ state: 'pending', request: { user: true }, note: 7 }))), '');
   // a deployment of a partitioned tile is its writers' shared instance
-  assert.equal(depShared(partitionView(row({ state: 'partitioned', user: true }))), true);
-  assert.equal(depShared(partitionView(row({ state: 'partitioned', global: true }))), false);
-  assert.equal(depShared(null), false);
   assert.match(DEP_SHARED, /^Not partitioned: .*shares.*not each person's own partition$/);
 });
 
@@ -240,6 +238,25 @@ test('the partition chip says whose partition a window shows (I3)', () => {
   assert.match(CHIP_GLOBAL, /^The global instance: /);
 });
 
+test('a pop-out window is a window of the tile it frames', () => {
+  const comps = [{ path: 'apps/x', partition: { state: 'partitioned', user: true } }, { path: 'apps/x/y' }, { path: 'apps/xy' }, { path: 'apps/z' }];
+  const at = (src) => { const f = framedTile(src, comps); return [f.row?.path ?? null, f.shown]; };
+  assert.deepEqual(at('apps/x'), ['apps/x', '']); // spec.src: the tile itself
+  assert.deepEqual(at('apps/x/compose'), ['apps/x', '']); // a sub-path: the tile's own page
+  assert.deepEqual(at('apps/x/y'), ['apps/x/y', '']); // a listed tile under it: that one (the longest)
+  assert.deepEqual(at('apps/x/y/z'), ['apps/x/y', '']);
+  assert.deepEqual(at('apps/xy/a'), ['apps/xy', '']); // not a prefix on a segment boundary
+  assert.deepEqual(at('apps/x+dev'), ['apps/x', 'dev']); // a deployment
+  assert.deepEqual(at('apps/x+dev/compose'), ['apps/x', 'dev']);
+  assert.deepEqual(at('apps/q'), [null, '']);
+  assert.deepEqual(at(''), [null, '']);
+  assert.deepEqual(framedTile(undefined, null), { row: null, shown: '' });
+  // its chip is the card's: the person's own partition on a sub-path, shared on a deployment
+  const person = { kind: 'user', id: 'alice' };
+  const chip = (src) => { const f = framedTile(src, comps); return partitionChip(partitionView(f.row), { shown: f.shown, who: person })?.kind ?? null; };
+  assert.deepEqual(['apps/x/compose', 'apps/x+dev', 'apps/x/y', 'apps/q'].map(chip), ['yours', 'shared', null, null]);
+});
+
 test('the shell reads consents only for a person who sees a partitioned tile', () => {
   const comps = [{ path: 'apps/a' }, { path: 'apps/p', partition: { state: 'partitioned', user: true, global: false } }];
   assert.equal(consentWatch(comps, { kind: 'user', id: 'alice' }), true);
@@ -248,7 +265,31 @@ test('the shell reads consents only for a person who sees a partitioned tile', (
   assert.equal(consentWatch(comps, { kind: 'root', id: 'root' }), false); // the workspace token has no consents (PersonOnly)
   assert.equal(consentWatch(comps, { kind: 'user', id: 'alice', impersonatedBy: 'owner' }), false); // view-as
   assert.equal(consentWatch(comps, null), false);
-  assert.equal(consentWatch(null, { kind: 'user' }), false);
+  assert.equal(consentWatch(null, { kind: 'user', id: 'alice' }), false);
+  assert.equal(consentPerson({ kind: 'user', id: 'alice' }), true);
+  for (const who of [null, { kind: 'root', id: 'root' }, { kind: 'user', id: 'alice', impersonatedBy: 'owner' }, { kind: 'user' }, { kind: 'element', id: 'x' }]) {
+    assert.equal(consentPerson(who), false);
+  }
+});
+
+test('dismissals are kept per person in this browser', () => {
+  assert.equal(consentStoreKey({ kind: 'user', id: 'alice' }), 'xbin-partition-consent-dismissed:alice');
+  assert.notEqual(consentStoreKey({ kind: 'user', id: 'bob' }), consentStoreKey({ kind: 'user', id: 'alice' }));
+  for (const who of [null, { kind: 'root', id: 'root' }, { kind: 'user', id: 'alice', impersonatedBy: 'owner' }]) assert.equal(consentStoreKey(who), '');
+});
+
+test('an ask is hit-tested edge to edge before Allow counts', () => {
+  const pts = coverPoints({ left: 10, top: 20, right: 70, bottom: 40 }, 24);
+  const xs = [...new Set(pts.map((p) => p[0]))], ys = [...new Set(pts.map((p) => p[1]))];
+  assert.deepEqual(xs, [11, 35, 59, 69]);
+  assert.deepEqual(ys, [21, 39]);
+  assert.equal(pts.length, 8);
+  // any window at least a step wide and tall overlapping the ask hits a point
+  const hit = (w) => pts.some(([x, y]) => x >= w.left && x < w.right && y >= w.top && y < w.bottom);
+  for (const w of [{ left: 36, top: 0, right: 60, bottom: 30 }, { left: 0, top: 38, right: 12, bottom: 400 }, { left: 60, top: 22, right: 300, bottom: 46 }]) {
+    assert.equal(hit(w), true, JSON.stringify(w));
+  }
+  assert.deepEqual(coverPoints({ left: 0, top: 0, right: 1, bottom: 1 }), [[1, 1]]);
 });
 
 test('consent prompts: the asks, only with the policy on', () => {

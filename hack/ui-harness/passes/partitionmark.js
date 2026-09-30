@@ -6,15 +6,19 @@
 //      is): role img, the tooltip naming the global instance, cursor
 //      default, no hover state; its head's partition chip (owner ruling
 //      I3) says `yours`, quiet, in the marker's hue, with its tooltip; an
-//      unpartitioned tile keeps its dot and has no chip;
+//      unpartitioned tile keeps its dot and has no chip; a pop-out window
+//      (xbin.window) framing apps/ppart — a sub-path of its own, or
+//      spec.src from another tile — carries the marker and `yours` too, one
+//      of an unpartitioned tile neither;
 //   1b. a deployment of apps/ppart (01 §2.8: one instance its writers
 //      share): the window showing it has no marker — the runtime dot and
 //      the chip `shared` — while the row keeps its marker; back on the
 //      primary, the marker again and `yours`;
 //   1c. the workspace token (no person): apps/ppart's window shows its
-//      global instance — the chip `global`; apps/pswitch (no global
-//      instance) says `no partition`; so does apps/ppart's window for an
-//      admin viewing the workspace as dev1 (view-as opens no partition);
+//      global instance — the chip `global` (its pop-out too); apps/pswitch
+//      (no global instance) says `no partition`; so does apps/ppart's
+//      window for an admin viewing the workspace as dev1 (view-as opens no
+//      partition);
 //   2. apps/pkeep (org devs; holds a vault key; its code starts asking for
 //      user partitions, with a partitionNote): pending — its card greys out
 //      under the alert's words and the tile's note; preader (reads it,
@@ -59,6 +63,19 @@ function writeTile(tile, partition, note = '') {
 }
 
 const card = (tile) => `bx-canvas .card[data-path="${tile}"]`;
+const NOTES = 'apps/dev1-notes'; // the seed's: dev1's, unpartitioned
+// pop(page, tile, spec) → the head of the pop-out window tile's frame opens
+// (xbin.window(spec)); spec.title names it
+async function pop(page, tile, spec) {
+  await (await tileFrame(page, tile)).evaluate((sp) => { window.xbin.window(sp); }, spec);
+  const head = page.locator('bx-shell .spawn .shead').filter({ has: page.locator('.stitle', { hasText: new RegExp(`^${spec.title}$`) }) });
+  await head.waitFor({ timeout: 10000 });
+  return head;
+}
+const popFacts = (head) => head.evaluate((el) => ({ mark: !!el.querySelector('.pm[role=img]'), first: el.firstElementChild?.className || '',
+  chip: el.querySelector('.pchip')?.textContent.trim() || '', kind: el.querySelector('.pchip')?.dataset.chip || '',
+  title: el.querySelector('.pchip')?.title || '', color: el.querySelector('.pchip') ? getComputedStyle(el.querySelector('.pchip')).color : '',
+  prev: el.querySelector('.pchip')?.previousElementSibling?.className || '' }));
 const row = (tile) => `bx-side .item[data-path="${tile}"]`;
 // the marker's facts, wherever sel finds it
 const markFacts = (page, sel) => page.locator(sel).first().evaluate((el) => {
@@ -154,6 +171,21 @@ async function partitionMark(browser) {
     check(await B.page.locator(`${card(KEEP)} .head .pchip`).count() === 0, `an unpartitioned tile's window has no chip (${KEEP})`);
     await shotEl(B.page, row(PART), 'partition-mark-row');
     await shotEl(B.page, `${card(PART)} .head`, 'partition-mark-head');
+    // pop-out windows (xbin.window) are windows of the tile they frame
+    await openTile(B.page, NOTES);
+    const p1 = await pop(B.page, PART, { path: 'pop', title: 'pop-own', x: 700, y: 480, width: 320, height: 160 });
+    const f1 = await popFacts(p1);
+    check(f1.mark && f1.first === 'pm' && f1.chip === 'yours' && f1.kind === 'yours' && /^Your partition: /.test(f1.title) && f1.color === TEAL && f1.prev === 'stitle',
+      `a pop-out of ${PART}'s own sub-path: the marker first, then the title and the chip yours (${JSON.stringify(f1)})`);
+    await shotEl(B.page, 'bx-shell .spawn', 'partition-chip-popout');
+    const p2 = await pop(B.page, NOTES, { src: PART, title: 'pop-src', x: 740, y: 520, width: 320, height: 160 });
+    const f2 = await popFacts(p2);
+    check(f2.mark && f2.chip === 'yours', `a pop-out another tile (${NOTES}) opens on ${PART} (spec.src): the marker and yours (${JSON.stringify(f2)})`);
+    const p3 = await pop(B.page, NOTES, { path: 'pop', title: 'pop-plain', x: 780, y: 560, width: 320, height: 160 });
+    const f3 = await popFacts(p3);
+    check(!f3.mark && !f3.chip, `a pop-out of an unpartitioned tile: no marker, no chip (${JSON.stringify(f3)})`);
+    for (const h of [p3, p2, p1]) { await h.locator('button').click(); await h.waitFor({ state: 'detached', timeout: 5000 }); }
+    await closeTile(B.page, NOTES);
 
     // ---- 1b. a window on a deployment: its writers' shared instance, no marker ----
     const added = await deployOp('add', { tile: PART, deployment: DEP });
@@ -192,6 +224,10 @@ async function partitionMark(browser) {
     check(nc && nc.text === 'no partition' && /^No partition: the workspace token has none of its own/.test(nc.title) && nc.color !== TEAL,
       `on ${SWITCH}, which has no global instance, it says no partition, muted (${JSON.stringify(nc)})`);
     await shotEl(tp, `${card(PART)} .head`, 'partition-chip-global');
+    const tpop = await pop(tp, PART, { path: 'pop', title: 'pop-global', x: 700, y: 480, width: 320, height: 160 });
+    const tf = await popFacts(tpop);
+    check(tf.mark && tf.chip === 'global', `the workspace token's pop-out of ${PART}: global (${JSON.stringify(tf)})`);
+    await tpop.locator('button').click();
     await shotEl(tp, `${card(SWITCH)} .head`, 'partition-chip-none');
     for (const t of [PART, SWITCH]) await closeTile(tp, t);
     await closeCtx(T, tp);

@@ -60,12 +60,10 @@ export function pruneDecisions(part, rowOf) {
 
 // A window showing a non-primary deployment of a partitioned tile carries
 // no marker: a deployment never runs people's partitions — its one instance
-// is shared by the tile's writers (01 §2.8). Its head shows a "shared" chip
-// instead (depShared(view): the tile's recorded mode has user partitions),
-// with DEP_SHARED as the tooltip.
+// is shared by the tile's writers (01 §2.8). Its head's partition chip
+// (partitionChip below) says `shared`, with DEP_SHARED as the tooltip.
 export const DEP_SHARED = 'Not partitioned: a deployment runs one instance that every writer of the tile shares '
   + '(its global instance, when its code asks for partitions), not each person\'s own partition';
-export const depShared = (v) => !!v?.user;
 
 // The partition chip (owner ruling I3): every window of a tile whose
 // recorded mode has user partitions says in its head, after the path,
@@ -97,6 +95,24 @@ export function partitionChip(v, { shown = '', who = null } = {}) {
   if (who?.kind === 'user') return { kind: 'yours', text: 'yours', title: CHIP_YOURS };
   if (who?.kind !== 'root') return null;
   return v.global ? { kind: 'global', text: 'global', title: CHIP_GLOBAL } : { kind: 'none', text: 'no partition', title: CHIP_NONE_ROOT };
+}
+
+// framedTile(src, components) → {row, shown}: what a window framing src
+// (a tile's pop-out, xbin.window: a sub-path of the calling tile, or
+// spec.src) shows — the listed tile src is, or lies under (a sub-path is
+// its tile's own page, in the same partition as its card; the longest
+// listed path wins), and the deployment a `<tile>+<name>` src names ('' the
+// primary). row null for a src under no listed tile: no marker, no chip.
+export function framedTile(src, components) {
+  const s = typeof src === 'string' ? src : '';
+  let row = null;
+  for (const c of Array.isArray(components) ? components : []) {
+    const p = c?.path;
+    if (typeof p !== 'string' || !p || !s.startsWith(p) || (row && row.path.length >= p.length)) continue;
+    if (s.length === p.length || s[p.length] === '/' || s[p.length] === '+') row = c;
+  }
+  const rest = row ? s.slice(row.path.length) : '';
+  return { row, shown: rest.startsWith('+') ? rest.slice(1).split('/')[0] : '' };
 }
 
 // markTitle(view) → the marker's tooltip, '' when the tile has no user
@@ -297,6 +313,7 @@ export const CONSENTS_API = '/api/xbin/partitions/consents';
 // instead of the bx command.
 export const PARTITIONS_PAGE = '';
 export const CONSENT_HEAD = 'Partitioned tiles ask for your data';
+export const CONSENT_REGION = 'Partitioned tiles\' consent prompts';
 export const CONSENT_DENY_TITLE = 'Nothing is stored: its calls stay refused, and xbind asks again, at most once a day, when it tries again';
 
 export const consentKey = (e) => `${e?.from ?? ''}→${e?.to ?? ''}`;
@@ -309,13 +326,41 @@ export const allowedText = (from, to) => `Allowed: ${from} can use your ${to} da
 export const declinedText = (from, to) => `Not allowed: ${from}'s calls into your ${to} data stay refused. `
   + 'xbind asks again, at most once a day, when it tries again.';
 
+// consentPerson(who) → whether /whoami is a signed-in person — not view-as,
+// not the workspace token: the only viewer xbind has consents for
+// (PersonOnly), so the only one the shell ever asks about them.
+export const consentPerson = (who) => who?.kind === 'user' && !who.impersonatedBy && !!who.id;
+
 // consentWatch(components, who) → whether the shell reads the person's
-// consents at all: a signed-in person (not view-as, not the workspace
-// token) who sees a partitioned tile. A consent event makes it look anyway.
+// consents at all: a signed-in person who sees a partitioned tile. A
+// consent event makes it look anyway (for a person).
 export function consentWatch(components, who) {
-  if (who?.kind !== 'user' || who.impersonatedBy) return false;
+  if (!consentPerson(who)) return false;
   return (Array.isArray(components) ? components : []).some((c) => partitionView(c)?.user);
 }
+
+// consentStoreKey(who) → the localStorage key this browser keeps the
+// person's dismissed asks under: one per person, so on a shared browser
+// nobody's dismissals show, hide or prune anybody else's; '' for anyone
+// but a signed-in person (nothing kept).
+export const consentStoreKey = (who) => (consentPerson(who) ? `xbin-partition-consent-dismissed:${who.id}` : '');
+
+// coverPoints(rect, step) → the points an ask is hit-tested at before its
+// Allow counts (bx-part-consent: nothing may be drawn over any of them — a
+// tile's pop-out window could hide the question and leave Allow in view):
+// a grid every `step` px across rect, 1px inside, its far edges included.
+export function coverPoints(r, step = 24) {
+  const axis = (a, b) => {
+    const out = [];
+    for (let v = a + 1; v < b - 1; v += step) out.push(v);
+    out.push(Math.max(a + 1, b - 1));
+    return out;
+  };
+  const xs = axis(r.left, r.right), ys = axis(r.top, r.bottom);
+  return xs.flatMap((x) => ys.map((y) => [x, y]));
+}
+export const CONSENT_COVERED = 'This question was just shown, covered or partly out of view: '
+  + 'make sure you can read all of it, then answer again.';
 
 // consentPrompts(view, {dismissed, paths}) → the asks to show, from GET
 // /partitions/consents' answer: none unless the policy is on; each asked

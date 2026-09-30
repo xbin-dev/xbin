@@ -23,7 +23,7 @@ import '/vendor/bx-menu.js';
 import '/vendor/bx-dialog.js';
 import { clampBox, dragPointer, pathHas } from '/vendor/bx-kit.js';
 import { GRID, GAP, MIN_W, MIN_H, snap, RUNTIME_COLOR, LongPress, selectedText, prBadge,
-  followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge, partitionMark } from './shell-kit.js';
+  followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge, partitionMark, chipTag } from './shell-kit.js';
 import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo } from './zorder.js';
@@ -351,7 +351,7 @@ export class BxCanvas extends LitElement {
           ${mark ?? html`<span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>`}
           <span class="t">${o.path}</span>
           ${shown ? html`<span class="dtag" title=${`this window shows ${o.path}'s deployment ${shown} (/c/${o.path}+${shown}/), not the primary`}>+${shown}</span>` : nothing}
-          ${chip ? html`<span class=${chip.kind === 'shared' ? 'pchip dshare' : 'pchip'} data-chip=${chip.kind} title=${chip.title}>${chip.text}</span>` : nothing}
+          ${chipTag(chip)}
           ${prBadge(this.prs?.[o.path], () => this.frameOpen(o.path, 'prs'))}
           ${deployBadge(this._deployIcon(o, shown), (e) => this._deployMenu(e, o))}
           <span class="spacer"></span>

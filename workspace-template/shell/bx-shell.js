@@ -60,10 +60,10 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 
 // deepActive: the focused element through open shadow roots.
 import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
-import { shellCss, statusCss } from './shell-css.js';
+import { shellCss, statusCss, partCss } from './shell-css.js';
 import './bx-canvas.js';
 import './bx-side.js';
-import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus } from './shell-kit.js';
+import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus, spawnTitle } from './shell-kit.js';
 import { overlaps, spotNear } from './grid-layout.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
@@ -135,7 +135,7 @@ export class BxShell extends LitElement {
     _shareOrg: { state: true },   // settings menu: org chosen for "share screen to org"
   };
 
-  static styles = [shellCss, statusCss];
+  static styles = [shellCss, statusCss, partCss]; // partCss: a pop-out's marker and partition chip
 
   constructor() {
     super();
@@ -786,7 +786,7 @@ export class BxShell extends LitElement {
       <div class="spawn" style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
            @pointerdown=${() => this._spawnFront(w.id)}>
         <div class="shead" @pointerdown=${(e) => this._spawnDragStart(e, w.id)}>
-          <span class="stitle">${w.title}</span>
+          ${spawnTitle(w.title, w.src, this._components, this._who)}
           <span class="sfrom">${w.from}</span>
           <button title="close" @click=${() => this._closeSpawn(w.id)}>✕</button>
         </div>
