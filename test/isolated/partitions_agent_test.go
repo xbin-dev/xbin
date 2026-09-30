@@ -598,6 +598,8 @@ func TestPartitionsAgent(t *testing.T) {
 			t.Errorf("the unpartitioned instance's row: %+v", *row)
 		}
 	})
+
+	t.Run("llm-gw-counters", func(t *testing.T) { paLLMGWCounters(t, e, pkeys) }) // partitions_bridge_test.go (B3)
 }
 
 // paMount is one line of a mount table.
