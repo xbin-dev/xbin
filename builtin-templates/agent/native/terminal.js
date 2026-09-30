@@ -96,12 +96,14 @@ ext.register({
 // --- the screens -------------------------------------------------------------------
 
 // term: the app's terminal on one of the tile's relays; a login screen's
-// toolbar retries the coding agent (and leaves).
+// toolbar retries the coding agent (and leaves, with the Sign in screen it
+// was opened from: the chat shows how it went).
 function termTpl(s) {
   const retry = async () => {
     try { await ctx.app.harness.retry(s.run); } catch (e) { fail(e); return; }
     const i = ui.stack.indexOf(s);
-    if (i >= 0) ui.stack.splice(i);
+    const from = ui.stack.findIndex((x) => x.kind === 'signin' && x.run === s.run);
+    if (i >= 0) ui.stack.splice(from >= 0 && from < i ? from : i);
     ctx.paint();
   };
   return html`<screen title=${s.title} subtitle=${s.subtitle || nothing} style="scroll">
@@ -139,7 +141,12 @@ function signInTpl(s) {
     s.busy = '';
     ctx.paint();
   };
-  const retry = run('retry', async () => { await app.harness.retry(c.run); s.msg = 'Retrying…'; });
+  // Retry starts it afresh and, like the login terminal's, leaves: the chat shows how it went
+  const retry = run('retry', async () => {
+    await app.harness.retry(c.run);
+    const i = ui.stack.indexOf(s);
+    if (i >= 0) ui.stack.splice(i);
+  });
   const tt = app.sbx.terminal(c.sandbox.ref, c.sandbox.cwd);
   const why = app.sbx.list.loaded ? tt.why : ''; // no "why not" while the sandboxes are still being read
   const term = (m) => html`<section title=${m.name} footer=${why ? `No terminal here (${why}): run ${c.command} in a terminal on ${c.sandbox.name}, then Retry.`

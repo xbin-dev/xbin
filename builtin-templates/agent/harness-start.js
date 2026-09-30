@@ -57,7 +57,7 @@ function pickerTpl(app, p) {
     <span class="tx"><b>${r.name}</b>${r.detail ? html`<span class="ds ${r.disabled ? 'warn' : ''}">${r.detail}</span>` : nothing}</span>
     <span class="ck">${r.on ? '✓' : ''}</span></div>`;
   return html`<button class="btn ghost clsbtn" id="abtn" title=${p.title} aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'}
-      @click=${() => { open = !open; if (open) app.harness.load().catch(() => {}); ctx.paint(); }}>
+      @click=${() => { open = !open; if (open) { app.harness.load().catch(() => {}); app.sbx.ensure(); } ctx.paint(); }}>
       <span class="ic">${p.harness ? html`<span class="kind">${p.mono}</span>` : p.mono}</span><span class="nm">${p.label}</span><span class="car">▾</span></button>
     ${open ? html`<div class="mback" @click=${close}></div>
       <div class="clsmenu" role="menu" aria-label="Who answers new chats" style=${`width:${w}px;left:${left}px`}>

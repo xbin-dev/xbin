@@ -161,7 +161,11 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
 
   // Steps interleave with messages by time; at the same second a message
   // comes first (the step is usually about it) — except the run's first
-  // message, which a creation note ("started by schedule …") precedes.
+  // message, which a creation note ("started by schedule …") precedes. A
+  // coding agent's conversation has none (automations never start one,
+  // D-harness §4.2.3): its first prompt's user row is written as it is
+  // delivered, and a note that second (a sign-in park's) is about it.
+  const creationNote = !(v.run && v.run.engine === 'harness');
   const steps = (v.steps || []).filter((s) => SHOWN_STEPS.has(s.kind) && !(s.kind === 'ask' && detail(s).kind === 'approval'));
   let si = 0;
   const flushSteps = (upto, inclusive) => {
@@ -179,7 +183,7 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
   for (const m of msgs) {
     const opening = first && m.role === 'user' && !m.compacted;
     if (opening) first = false;
-    flushSteps(m.created, opening);
+    flushSteps(m.created, opening && creationNote);
     if (m.role === 'system' || m.role === 'tool' || m.compacted) continue;
     if (m.role === 'user') {
       if (!skippedTask) { skippedTask = true; continue; }

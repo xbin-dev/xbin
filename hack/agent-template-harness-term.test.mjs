@@ -184,6 +184,21 @@ test('native: a login park — the notice, Sign in in the composer and the menu;
   assert.deepEqual(find(term, { t: 'terminal' }).p, { src: 'runs/24/harness/terminal?login=1', title: 'Sign in · Codex' }, 'the run\'s relay, tile-relative');
   assert.deepEqual(posts(r, /\/runs\/24\/resume$/), [null], 'Retry: POST /resume');
   assert.equal(find(r.snapshots.retried, { t: 'terminal' }), null, '…and the login terminal goes');
+  assert.equal(all(r.snapshots.retried.root || r.snapshots.retried, { t: 'screen' }).filter((x) => /^Sign in/.test(x.p.title)).length, 0, '…with the Sign in screen it came from');
+});
+
+test('native: the Sign in screen\'s own Retry posts /resume and leaves', async () => {
+  const r = await run([
+    { wait: 50 },
+    { tap: { t: 'button', p: { label: 'Sign in' }, in: { t: 'composer' } } },
+    { snapshot: 'screen' },
+    { tap: { t: 'button', p: { label: 'Signed in? Retry' } } },
+    { wait: 20 },
+    { snapshot: 'retried' },
+  ], 'c=24');
+  assert.ok(find(r.snapshots.screen, { t: 'screen', p: { title: 'Sign in to Codex' } }), 'the Sign in screen');
+  assert.deepEqual(posts(r, /\/runs\/24\/resume$/), [null], 'Retry: POST /resume');
+  assert.equal(all(r.snapshots.retried.root || r.snapshots.retried, { t: 'screen' }).filter((x) => /^Sign in/.test(x.p.title)).length, 0, 'it leaves: the chat shows how it went');
 });
 
 test('native: an API key is sent once and is never a prop; a device code; the confirm the backend asks for', async () => {

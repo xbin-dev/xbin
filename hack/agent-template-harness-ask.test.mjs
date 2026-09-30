@@ -121,6 +121,12 @@ test('question: the form (enumNames, required, "Other"), its content, what is mi
   const ns = A.nativeSchema(fs);
   assert.deepEqual(ns.properties.q.oneOf, [{ const: 'a', title: 'A' }, { const: 'b', title: 'B' }]);
   assert.equal(ns.properties['many.1'].type, 'boolean', 'a multiple choice: a yes/no per choice');
+  assert.deepEqual([ns.properties['many.0'].title, ns.properties['many.1'].title], ['many: X', 'many: Y'], '…each named for its question');
+  const nx = A.nativeSchema(A.formFields({ type: 'object', properties: {
+    extras: { type: 'array', title: 'Extras', description: 'What else?', items: { anyOf: [{ const: 'm', title: 'Metrics' }, { const: 't', title: 'Tracing', description: 'spans' }] } } } }));
+  assert.deepEqual([nx.properties['extras.0'], nx.properties['extras.1']], [
+    { type: 'boolean', title: 'Extras: Metrics', description: 'What else?' },
+    { type: 'boolean', title: 'Extras: Tracing', description: 'spans' }], 'the first choice says what is asked (the question\'s title was lost)');
   assert.equal(ns.properties.q_other.title, 'Other');
   assert.equal(ns.properties.n.default, 3);
   assert.equal(ns.required, undefined, 'a choice with an Other box is not required natively (either answers it)');
@@ -204,7 +210,7 @@ test('steering: the composer\'s words by state; the chip\'s label', () => {
 
 test('steered: a queued message that left the queue and showed up while it steers', () => {
   const t = A.steerTrack(1000);
-  const run = (queued, steering = true) => ({ run: { id: 3, engine: 'harness', status: 'running', harness: { steering } }, queued });
+  const run = (queued, steering = true) => ({ run: { id: 3, engine: 'harness', status: 'running', harness: { steering, state: 'working' } }, queued });
   const u = (text) => ({ k: 'user', text });
   assert.deepEqual(t(run([{ id: 1, text: 'use tabs' }]), [u('use tabs')], 0), [], 'the same text earlier doesn\'t count');
   assert.deepEqual(t(run([]), [u('use tabs')], 10), [], 'gone from the queue, not yet in the transcript');
@@ -219,6 +225,36 @@ test('steered: a queued message that left the queue and showed up while it steer
   t3(run([{ id: 2, text: 'x' }], false), [], 0);
   assert.deepEqual(t3(run([], false), [u('x')], 5), []);
   assert.deepEqual(t3({ run: { id: 9 } }, [], 6), [], 'not a harness run');
+  // sent while no turn ran: the real backend lists it queued until it is the
+  // next prompt, whose turn then runs — that is no steer
+  const t4 = A.steerTrack();
+  const idle = (queued) => ({ run: { id: 3, engine: 'harness', status: 'idle', harness: { steering: true } }, queued });
+  t4(idle([{ id: 4, text: 'todo' }]), [], 0);
+  assert.deepEqual(t4(run([]), [u('todo')], 5), [], 'queued while idle, then its own turn: not steered');
+  // a park: the message answers it first — not "into its running turn"
+  const t5 = A.steerTrack();
+  const parked = (queued) => ({ run: { id: 3, engine: 'harness', status: 'waiting_input', harness: { steering: true } }, queued });
+  t5(parked([{ id: 5, text: 'no, use tabs' }]), [], 0);
+  assert.deepEqual(t5(run([]), [u('no, use tabs')], 5), []);
+  // a run whose summary doesn't say the agent is working (a run row without
+  // its harness yet): no steer
+  const t8 = A.steerTrack();
+  const bare = (queued) => ({ run: { id: 8, engine: 'harness', status: 'running', harness: { steering: true } }, queued });
+  t8(bare([{ id: 9, text: 'first' }]), [], 0);
+  assert.deepEqual(t8(run([]), [u('first')], 5), []);
+  // a new conversation's first message: running while the agent starts
+  const t6 = A.steerTrack();
+  const starting = (queued, state) => ({ run: { id: 6, engine: 'harness', status: 'running', harness: { steering: true, state } }, queued });
+  t6(starting([{ id: 7, text: 'hello' }], 'starting'), [], 0);
+  assert.deepEqual(t6(starting([], 'working'), [u('hello')], 5), [], 'the first prompt is no steer');
+  // …even once the session is up (the real summary says working before the prompt goes)
+  const t9 = A.steerTrack();
+  t9(starting([{ id: 7, text: 'hello' }], 'working'), [], 0);
+  assert.deepEqual(t9(starting([], 'working'), [u('hello')], 5), [], 'no earlier turn to steer');
+  // …while one queued during a working turn is
+  const t7 = A.steerTrack();
+  t7(starting([{ id: 8, text: 'use tabs' }], 'working'), [u('fix it')], 0);
+  assert.deepEqual(t7(starting([], 'working'), [u('fix it'), u('use tabs')], 5), [{ text: 'use tabs', until: 6005 }]);
 });
 
 // --- the native view over the fixtures ---------------------------------------------------------

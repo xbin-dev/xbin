@@ -203,7 +203,12 @@ export function nativeSchema(fields, description = '') {
   for (const f of fields) {
     const base = { title: f.title || f.key, ...(f.description ? { description: f.description } : {}) };
     if (f.kind === 'check') {
-      f.options.forEach((o, i) => { properties[`${f.key}.${i}`] = { type: 'boolean', title: o.title, ...(o.description ? { description: o.description } : {}) }; });
+      // a yes/no per choice, each named for the question it answers (the
+      // first also says it): a flat form has no field over the choices
+      f.options.forEach((o, i) => {
+        const d = [i === 0 ? f.description : '', o.description].filter(Boolean).join(' — ');
+        properties[`${f.key}.${i}`] = { type: 'boolean', title: `${base.title}: ${o.title}`, ...(d ? { description: d } : {}) };
+      });
     } else if (f.kind === 'radio') properties[f.key] = { ...base, type: 'string', oneOf: f.options.map((o) => ({ const: String(o.value), title: o.title })) };
     else if (f.kind === 'bool') properties[f.key] = { ...base, type: 'boolean' };
     else if (f.kind === 'number') properties[f.key] = { ...base, type: 'number' };
@@ -319,9 +324,15 @@ export function steerWords(v, { native = false } = {}) {
 
 // steerTrack: a tracker that notices, from the stream, a message of the
 // composer's steered into a running turn: a queued message of an adapter
-// that steers left the queue while the turn ran and then showed up in the
-// transcript. track(v, blocks, now) → the notes to show ([{text, until}]),
-// each for `ms`. A taken-back message never shows up, so never counts.
+// that steers, queued while a turn ran, left the queue while it still ran
+// and then showed up in the transcript. A message sent while no turn runs
+// is queued too (the real backend's view lists every waiting `hprompt`)
+// until it becomes the next prompt — that is no steer; nor is a new
+// conversation's first message (its run is running while the agent starts,
+// and the summary says `working` once the session is up, before the prompt
+// is sent: there is no earlier turn to steer). track(v, blocks, now) → the
+// notes to show ([{text, until}]), each for `ms`. A taken-back message never
+// shows up, so never counts.
 export function steerTrack(ms = 6000) {
   let run = null, seen = new Map(), gone = [], notes = [];
   const count = (blocks, text) => (blocks || []).reduce((n, b) => n + (b.k === 'user' && b.text === text ? 1 : 0), 0);
@@ -330,9 +341,11 @@ export function steerTrack(ms = 6000) {
     if (!isHarness(r)) { run = null; seen = new Map(); gone = []; notes = []; return []; }
     if (r.id !== run) { run = r.id; seen = new Map(); gone = []; notes = []; }
     const steering = !!(r.harness && r.harness.steering);
-    // each queued message with how often its text was in the transcript when it was queued
-    const q = new Map((v.queued || []).map((x) => [x.id, seen.get(x.id) || { text: x.text || '', had: count(blocks, x.text || '') }]));
-    for (const [id, x] of seen) if (!q.has(id) && x.text && steering) gone.push({ text: x.text, at: now, had: x.had });
+    const turn = busy(r.status) && !!(r.harness && r.harness.state === 'working') && (blocks || []).some((b) => b.k === 'user');
+    // each queued message with how often its text was in the transcript when
+    // it was queued, and whether a turn ran then
+    const q = new Map((v.queued || []).map((x) => [x.id, seen.get(x.id) || { text: x.text || '', had: count(blocks, x.text || ''), turn }]));
+    for (const [id, x] of seen) if (!q.has(id) && x.text && steering && x.turn && turn) gone.push({ text: x.text, at: now, had: x.had });
     seen = q;
     gone = gone.filter((g) => {
       if (count(blocks, g.text) > g.had) { notes.push({ text: g.text, until: now + ms }); return false; }
