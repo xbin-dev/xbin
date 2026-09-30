@@ -60,7 +60,7 @@ builds work offline. The full exported surface:
 | Calling out | `Client()` — an `*http.Client` through the gateway with this instance's identity; URLs use the literal pseudo-host `http://xbin` (`…/api/apps/calendar/events`). Deliberately **no overall timeout**: SSE/chunked streams run until either side closes (bound calls with a request context). `GatewayDial(ctx)` for raw protocols — e.g. WebSocket to another element with any WS library |
 | Resources | `Resource(name)` (reads `XBIN_RES_<NAME>`), `KV(res)` → `Get/GetJSON/Put/PutJSON/Delete/List` (+ `ErrNotFound`), `Publish(res, topic, data)` (bus) |
 | Secrets | `Secret(name)` — this component's own vault key |
-| Partitions | `Partition()`, `PartitionUser()` (`XBIN_PARTITION`), `RequirePartition()`, `GlobalURL(path)`, `CallerInfo.Partition` / `PartitionID` — partitioned tiles, in development ([/docs/partitions.md](/docs/partitions.md)) |
+| Partitions | `Partition()`, `PartitionUser()` (`XBIN_PARTITION`), `RequirePartition()`, `GlobalURL(path)`, `CallerInfo.Partition` / `PartitionID`, `Mail` / `MailWith` / `Inbox` / `Ack` (partition mail) — partitioned tiles, in development ([/docs/partitions.md](/docs/partitions.md)) |
 
 A 403 from `Client()` means a missing grant: declare the target in `uses`,
 get it approved. Streams to another backend die at *its* blue/green drain —
