@@ -668,8 +668,8 @@ skips, saying why — in the release that added it, 2026-09-30, and fails it
 from the next: docs/changes/2026-09-30-manager-terminals-for-backends.md).
 A section whose optional capability hello leaves
 out is skipped; its routes must answer `unsupported` (`caps/missing`) —
-`stdio`'s may also answer `not-found`, as a manager from before it does
-for a route it doesn't know. The rest of `Target`:
+`stdio`'s may also answer `404` (`not-found`, or its router's plain 404),
+as a manager from before it does for a route it doesn't know. The rest of `Target`:
 
 - `Client` — the HTTP client for every call and terminal (TLS, a proxy).
 - `Consumer`, `Verified`, `Asserted` — how to call as a consumer, a verified

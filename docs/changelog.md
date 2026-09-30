@@ -273,8 +273,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     without the capability), `tty/backend` (the next entry), hello's
     harness entries checked for shape (`Hello.Images[].Harnesses`), and
     `caps/missing` wants a manager without `stdio` to ignore `split` and
-    refuse its route with `501 unsupported` or `404 not-found` — a manager
-    that passed before still passes. `hack/fakesandbox` serves all of it
+    refuse its route with `501 unsupported` or any `404` (a JSON
+    `not-found` or its router's plain one) — a manager that passed before
+    still passes. `hack/fakesandbox` serves all of it
     and advertises the scripted agent as `fake` (`-fake-acp` /
     `$FSB_HARNESS_FAKE` set its command and flags; its sign-in is `<that
     command> login`).

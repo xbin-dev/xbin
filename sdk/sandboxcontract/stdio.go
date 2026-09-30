@@ -473,10 +473,21 @@ func noStdio(t *testing.T, a Caller) {
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
-	status, refusal := http.StatusNotImplemented, "unsupported"
 	if resp.StatusCode == http.StatusNotFound {
-		status, refusal = http.StatusNotFound, "not-found" // a manager from before stdio
+		// a manager from before stdio: a route it doesn't know, answered
+		// however its router answers one — a JSON refusal or a plain 404
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		c, dresp, err := a.Dial(ctx, path)
+		if err == nil {
+			c.Close()
+			t.Fatalf("GET %s as %s upgraded on a manager without stdio", path, a.who())
+		}
+		if dresp == nil || dresp.StatusCode != http.StatusNotFound {
+			t.Fatalf("GET %s (a WebSocket) on a manager without stdio: %v %v, want 404 as the plain GET answered", path, dresp, err)
+		}
+		return
 	}
-	a.refusal("GET "+path, resp, b, status, refusal)
-	dialRefused(t, a, path, status, refusal)
+	a.refusal("GET "+path, resp, b, http.StatusNotImplemented, "unsupported")
+	dialRefused(t, a, path, http.StatusNotImplemented, "unsupported")
 }

@@ -51,9 +51,10 @@ func TestContract(t *testing.T) {
 }
 
 // TestContractBeforeStdio: a manager from before the stdio capability — it
-// ignores split, and its stdio route is one it doesn't know (404
-// not-found) — still passes caps/missing, as it did before the suite knew
-// stdio: the suite takes not-found there as well as unsupported.
+// ignores split, and its stdio route is one it doesn't know (a plain 404,
+// as Go's ServeMux answers one) — still passes caps/missing, as it did
+// before the suite knew stdio: the suite takes any 404 there as well as
+// unsupported.
 func TestContractBeforeStdio(t *testing.T) {
 	t.Parallel()
 	var fresh func(*testing.T, sandboxcontract.Knobs) sandboxcontract.Target
@@ -63,7 +64,7 @@ func TestContractBeforeStdio(t *testing.T) {
 			Ring: k.OutputRing, FileMax: k.FileMax, Caps: k.Caps}
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, "/stdio") && !m.hasCap("stdio") {
-				fsbFail(w, http.StatusNotFound, "not-found", "no such route")
+				http.NotFound(w, r)
 				return
 			}
 			m.ServeHTTP(w, r)
