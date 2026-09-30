@@ -14,14 +14,23 @@
 // refuses: e.message says why, e.status the status, e.data the whole answer
 // (a sign-in to confirm carries {confirm: true}) — except permit and answer,
 // whose refusal the card says (Session.noteApprove), as an approval's is.
+//
+// A call about a run goes to its home (model/homes.js): in a person's
+// partition a shared conversation's run is the global instance's. In the
+// global instance's own page no coding agent answers new chats
+// (model/harness-homes.js harnessesHere: picked() is null there).
 import { catalogOf, findHarness } from './harness.js';
+import { at, homeOf, runOfPath } from './homes.js';
+import { harnessesHere } from './harness-homes.js';
 
 const cid = () => 'h' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-// call: the tile's API over xbin.fetch, keeping the refusal whole.
+// call: the tile's API over xbin.fetch, at the home of the run the path
+// names (/runs/<id>…), keeping the refusal whole.
 async function call(path, method = 'GET', body = undefined, text = false) {
   const x = globalThis.xbin;
-  const r = await x.fetch(`/api/${x.self}${path}`, body === undefined ? { method } : { method, body: JSON.stringify(body) });
+  const opts = body === undefined ? { method } : { method, body: JSON.stringify(body) };
+  const r = await x.fetch(`/api/${x.self}${path}`, at(homeOf(runOfPath(path)), opts));
   const raw = await r.text();
   if (text && r.ok) return raw;
   let data;
@@ -78,8 +87,9 @@ export function createHarnessStore(app) {
     ensure() { if (!loaded && !inflight) hs.load().catch(() => {}); },
 
     find(id) { return findHarness(hs.catalog, id); },
-    // picked: the harness for new chats, while the catalog offers it (else null: the built-in agent)
-    picked() { const h = hs.pick !== AGENT ? hs.find(hs.pick) : null; return h && h.available ? h : null; },
+    // picked: the harness for new chats, while the catalog offers it and
+    // this page may start one (else null: the built-in agent)
+    picked() { const h = hs.pick !== AGENT && harnessesHere() ? hs.find(hs.pick) : null; return h && h.available ? h : null; },
     // choose: who answers new chats — remembered (prefs/agent).
     choose(id) {
       hs.pick = id || AGENT;

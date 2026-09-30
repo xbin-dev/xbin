@@ -2547,6 +2547,38 @@ in its sandbox at its working directory. Only a harness run parked on
 their own cards' — and a park of a kind no module draws falls back to the
 built-in approval or question card.
 
+**In a partitioned instance (the UI)** (`model/harness-homes.js`; both
+views). A coding agent works only in a person's own conversations: its
+sign-in lives in its sandbox's HOME, and the shared space holds no one's
+credentials.
+- **The global instance's own page** (the owner token) starts none: "Who
+  answers" isn't shown there, and a new chat is the built-in agent's.
+- **In a person's partition** a coding agent starts only in a sandbox
+  homed there. The sandbox picker, the new-chat dialog's `#n-sandbox` and
+  the setup card count the team's sandboxes, and ones shared with them, as
+  not fitting ("… isn't a sandbox of your own space"). When none of their
+  own fits, the setup card offers Create, which makes one in their own
+  space. A row's `homed` (with `bindWhy`), when `GET /sandboxes` sends it,
+  decides. Otherwise the page derives it as the backend checks it: not
+  `shared`, and `owner.partitionId`, `owner.partition` (this page's
+  partition) and `owner.via` (this tile) all set.
+- **New chat with options:** "Who can see it" other than "Only you" fixes
+  "Who answers" to the built-in agent (`#n-agent` disabled, saying why).
+- **Sign-in** is offered only for a run homed in the person's own
+  partition. Anywhere else — a run at the global instance, seen from a
+  person's partition or from the global instance's own page — the card is
+  read-only and says why, and the app offers no Sign in.
+- **Calls follow the run's home.** A coding agent's calls (mode, options,
+  a permission, an answer, a message, Stop, Cancel, Retry, the log) go to
+  the run's home, as every call about a conversation does. So does the
+  app's run relay: `…/harness/terminal?xbin-partition=global` for a shared
+  conversation's run.
+- **A coding agent's conversation never moves between homes.** Its row
+  and top bar offer no Share a copy…, and its top-bar chip says it stays
+  in your own space. A shared one's dialog offers no Copy to my own space
+  and no "Use my private resources…"; adding a copy of your files is still
+  offered.
+
 **Terminal relays and the log** (D147 §4.2.7, §4.2.8). The native
 view's terminals and a coding agent's stderr, for a person who may use the
 sandbox **themself** — checked here first, fresh from the manager (by the
@@ -2589,6 +2621,13 @@ its terminals dial the manager directly, as you (verified).
   leaves would otherwise run on for nobody. The rule is the process's that
   relayed it: across a redeploy, a terminal whose relay ran in the old
   process runs on.
+- **A relay holds the partition it reaches.** Its socket is a held
+  connection, so the app's Terminal screen keeps running, for as long as
+  it is up, the person's partition — or, for a shared conversation's run
+  (`?xbin-partition=global`), the global instance
+  ([/docs/partitions.md](/docs/partitions.md) §How people's partitions
+  run). Going back from the screen closes it, and the partition may go
+  idle again.
 - **The log** is read as you: a split exec's own stderr (a manager offering
   `stdio`), else the file the wrapper writes in the sandbox's HOME
   (`~/.cache/xbin-harness/<run>-<gen>.log`, read with `tail -c` through the
@@ -2773,6 +2812,7 @@ the same model.
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 | `homes.js`, `home-api.js`, `moves.js` | a partitioned instance's two homes (a person's own partition, the shared space): a conversation's home by its id, calls and streams sent there; a shared conversation that moved to your own space, followed (`movedTo`) |
+| `harness-homes.js` | coding agents in a partitioned instance (§Coding agents, "In a partitioned instance (the UI)"): whether this page starts one (`harnessesHere`), whether a sandbox is your own space's (`homedWhy`), where a sign-in is offered (`signInAway`), a shared new chat's "Who answers" (`sharedNewChat`), and that a coding agent's conversation never moves (`keepsHome`) |
 | `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once; `tailError`: why they couldn't be), and a row's coding agents at work below it (`kidsWords`) |
 | `harness-board.js` | the Coding agents board: `app.board` (`createBoard`, wired by `createApp`) — `rows(root)` (a conversation's tree, or at home yours at work: each row a child card and its section), `chip(root)`, `delegated(v)`, `take(ev)`; the words (`chipWords`, `filterWords`, `sectioned`, `emptyWords`, `delegatedWords`) |
 | `terminals.js` | the terminal dock's tabs (`termsOf(app)`: open, show, hide, close, a New shell in place — page-level, not a conversation's), a coding agent's run relay (`runTerminalSrc`), and the sign-in card (`signIn`): a login park's methods, the sandbox whose home the credentials land in, whether it is shared (a confirm), whom to ask, and whether that sandbox is gone or its manager down (`gone`, `goneText`) |

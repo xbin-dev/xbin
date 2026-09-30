@@ -17,7 +17,14 @@
 //   open and the code to copy), the shared-HOME warning with a confirm on a
 //   sandbox others may use, and "Signed in? Retry" (POST /runs/{id}/resume);
 //   a sandbox that is gone (or whose manager is down) says so, with Retry
-//   only (and no Sign in in the composer, as for one you may not use).
+//   only (and no Sign in in the composer, as for one you may not use); a
+//   sign-in this page doesn't offer (a partitioned agent's shared
+//   conversation, or its global instance: signIn's away) is the notice
+//   alone, saying why.
+//
+// A terminal screen holds the partition its relay reaches (a person's own,
+// or the global instance for a shared conversation's run) running while it
+// is up: its socket is a held connection (/docs/partitions.md).
 //
 // What they say is model/terminals.js (the web draws the same: terminals.js,
 // signin.js). One terminal at a time: the app's terminal closes its socket
@@ -90,8 +97,9 @@ ext.register({
     // a view-only reader gets neither (the run's relay is a participant's, §4.2.8)
     const x = access(v).talk ? harnessOfView(v) : null;
     const term = !!(x && x.tt && x.tt.shown && !x.tt.why);
-    if (!x || !(x.c || term)) return null;
-    return html`${x.c ? html`<button icon="key" @tap=${() => push({ kind: 'signin', run: v.run.id })}>Sign in…</button>` : nothing}
+    const si = !!(x && x.c && x.c.talk); // a sign-in this page offers (not signIn's away: its notice says why)
+    if (!x || !(si || term)) return null;
+    return html`${si ? html`<button icon="key" @tap=${() => push({ kind: 'signin', run: v.run.id })}>Sign in…</button>` : nothing}
       ${term ? html`<button icon="terminal" @tap=${() => openRunTerminal(v, x)}>Terminal</button>` : nothing}`;
   },
   screen(s) {

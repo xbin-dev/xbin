@@ -209,9 +209,10 @@ async function startHosting() {
  * hostTpl: in a person's partition, a shared conversation's share dialog (d:
  * GET /runs/{id}/members) offers to let it use their private resources and
  * to add copies of their files; a hosted one's host may take them back.
- * Nothing elsewhere.
+ * Nothing elsewhere. host false: the copies alone — a coding agent's
+ * conversation is never hosted (model/harness-homes.js keepsHome).
  */
-export function hostTpl(runId, d, who, title, close, onChange) {
+export function hostTpl(runId, d, who, title, close, onChange, { host = true } = {}) {
   const id = Number(runId);
   if (!twoHomes() || !d || !(id > 0) || id >= PARTITION_BASE) return nothing;
   if (hostedId(id)) {
@@ -225,13 +226,13 @@ export function hostTpl(runId, d, who, title, close, onChange) {
       }}>Take them back</button></div></div>`;
   }
   return html`<div class="field"><label>Not private: your own resources</label>
-    <div class="prow"><span class="muted">Let the agent use your sandboxes, your data in other tiles and your vault in this conversation.
+    ${host ? html`<div class="prow"><span class="muted">Let the agent use your sandboxes, your data in other tiles and your vault in this conversation.
       It becomes non-secure — you are warned first.</span>
     <button class="btn ghost btnsm" id="host-use" @click=${() => {
       close();
       openWarning('host', null, { runId: id, acl: d, title, onDone: onChange });
-    }}>Use my private resources…</button></div>
-    <div class="prow"><span class="muted">Or add copies of your own session files; your originals stay private.</span>
+    }}>Use my private resources…</button></div>` : nothing}
+    <div class="prow"><span class="muted">${host ? 'Or add' : 'Add'} copies of your own session files; your originals stay private.</span>
     <button class="btn ghost btnsm" id="copy-mine" @click=${() => { close(); openCopyIn(id, d, onChange); }}>Add a copy of my files…</button></div></div>`;
 }
 

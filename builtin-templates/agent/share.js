@@ -13,11 +13,12 @@ import * as actions from './model/actions.js';
 import { share as shareRules } from './model/rules.js';
 import { openPublish, publishes, copyTpl } from './homes-ui.js'; // a person's own conversation: a copy (two homes)
 import { hostTpl } from './hosted-ui.js'; // a shared one: use my private resources, add a copy of mine (non-secure)
+import { keepsHome } from './model/harness-homes.js'; // a coding agent's conversation: no copy, never hosted
 
 export { joinFrom } from './model/actions.js';
 
 let dlg = null;
-let st = null; // {runId, title, me, data, link, err, onChange}
+let st = null; // {runId, title, keeps, me, data, link, err, onChange}
 
 function dialog() {
   if (!dlg) {
@@ -33,13 +34,14 @@ export const linkFor = (token) => `${location.protocol}//${location.host}${locat
 
 /**
  * openShare shows the dialog for a conversation.
- * @param run  {id, title}
+ * @param run  {id, title, engine?} (engine "harness" at its root: a coding
+ *             agent's conversation, which never moves — no copy, no hosting)
  * @param me   GET /me
  * @param onChange  called after anything changed (the list repaints)
  */
 export async function openShare(run, me, onChange) {
   if (publishes(run.id)) return openPublish(run, onChange);
-  st = { runId: run.id, title: run.title, me, data: null, link: '', err: '', onChange };
+  st = { runId: run.id, title: run.title, keeps: keepsHome(run), me, data: null, link: '', err: '', onChange };
   paint();
   dialog().showModal();
   await load();
@@ -110,8 +112,8 @@ function tpl() {
           await actions.removeMember(st.runId, st.me.user);
           dialog().close();
         })}>Leave this conversation</button></div>` : nothing}`}
-      ${copyTpl(st.runId, () => dialog().close(), st.onChange)}
-      ${hostTpl(st.runId, st.data, st.me, st.title, () => dialog().close(), st.onChange)}
+      ${st.keeps ? nothing : copyTpl(st.runId, () => dialog().close(), st.onChange)}
+      ${hostTpl(st.runId, st.data, st.me, st.title, () => dialog().close(), st.onChange, { host: !st.keeps })}
       ${st.err ? html`<div class="err">${st.err}</div>` : nothing}
     </div>
     <div class="dlg-ft"><button class="btn" @click=${() => dialog().close()}>Done</button></div>

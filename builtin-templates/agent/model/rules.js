@@ -8,6 +8,7 @@ import { badge } from './classes.js';
 import { sharing } from './partition.js';
 import { publishes } from './homes.js';
 import { hostingOf } from './hosted.js';
+import { keepsHome } from './harness-homes.js';
 
 // access: what you may do in a conversation (its view's `access`: owner |
 // system | participant | viewer; absent from an older backend = everything).
@@ -54,13 +55,16 @@ export function topBar(v, row, me) {
     model: modelName((v.config && v.config.pick) || ''),
     // its task, pinned (D133): pinnedTask below; null when it has none
     task: pinnedTask(v),
-    // sharing is per conversation: a subagent shares its root
-    shareRun: { id: r.rootId || r.id, title: r.title },
+    // sharing is per conversation: a subagent shares its root (a coding
+    // agent's conversation says so: its dialog offers no copy, no hosting)
+    shareRun: { id: r.rootId || r.id, title: r.title, ...(keepsHome(r) ? { engine: r.engine } : {}) },
     share: shareStatus(v, row),
     // Share — or, for a person's own conversation in their partition, which
-    // only a copy in the shared space can share, publish (model/homes.js)
+    // only a copy in the shared space can share, publish (model/homes.js);
+    // never for a coding agent's, which stays in their own space
+    // (model/harness-homes.js keepsHome)
     sharing: sharing() && !publishes(r.rootId || r.id),
-    publish: publishes(r.rootId || r.id),
+    publish: publishes(r.rootId || r.id) && !keepsHome(r),
     // what the owner let the agent read here, for now (D111)
     grants: grantChips(v, me),
     del: own,
@@ -234,14 +238,15 @@ export function shareStatus(v, row) {
 // rowMenu: a row's actions — its owner renames, shares and deletes; anyone
 // pins and archives for themselves; someone it was shared with may leave.
 // A person's own conversation in their partition is shared by a copy —
-// offered where the view can publish one (opts.publish: the web).
+// offered where the view can publish one (opts.publish: the web) — except
+// a coding agent's, which stays there (model/harness-homes.js keepsHome).
 export function rowMenu(r, opts = {}) {
   const own = r.access === 'owner' || r.access === 'system';
   const items = [];
   if (own) items.push({ label: 'Rename', action: 'rename' });
   items.push({ label: r.pinnedAt ? 'Unpin' : 'Pin', action: 'pin' });
   if (own && sharing() && !publishes(r.id)) items.push({ label: 'Share…', action: 'share' });
-  else if (own && opts.publish && publishes(r.id)) items.push({ label: 'Share a copy…', action: 'share' });
+  else if (own && opts.publish && publishes(r.id) && !keepsHome(r)) items.push({ label: 'Share a copy…', action: 'share' });
   items.push({ label: r.archivedAt ? 'Unarchive' : 'Archive', action: 'archive' });
   if (own) items.push({ label: 'Delete', action: 'delete', cls: 'rm' });
   else if (r.mine) items.push({ label: 'Leave', action: 'leave', cls: 'rm' });
