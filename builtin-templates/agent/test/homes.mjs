@@ -11,15 +11,24 @@
 //     "Copy to my own space"; on her own it is "Share a copy": the copy is
 //     published from her partition and opens;
 //   - New chat with options asks who can see it; a shared one is made at
-//     global.
+//     global;
+//   - coding agents (model/harness-homes.js) only in her own conversations:
+//     hers offers no Share a copy; a shared one's (the shared space's) calls
+//     go to global and its share dialog has no copy and no hosting; a new
+//     chat shared with others is the built-in agent's and takes no sandbox
+//     of hers along; New chat with options, opened from a shared
+//     conversation, offers her own sandboxes (each home has its own list)
+//     and sends hers.
 //
 //   node test/homes.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
+import { harnessSeed } from './harness-fixtures.mjs';
 
 const { ok, done } = checker();
 const MINE = 2 ** 40 + 1;
 const COPY = 2 ** 40 + 9;
-const seed = { runs: [] };
+const HSEED = harnessSeed();
+const seed = { runs: [], harnesses: HSEED.harnesses }; // the coding agents' catalog: "Who answers" in New chat with options
 
 const browser = await launch();
 const ctx = await browser.newContext();
@@ -55,6 +64,19 @@ await ctx.addInitScript(([MINE, COPY]) => {
   });
   window.__route('POST', /\/copy$/, () => { window.__homeRows[''].push(row(COPY, 'a private copy')); return j({ id: COPY, title: 'a private copy' }); });
   window.__route('POST', /\/ask$/, (m, o) => j({ id: o.partition ? 8 : 2 ** 40 + 8, title: 'new', status: 'running', rootId: o.partition ? 8 : 2 ** 40 + 8 }));
+  // the coding sandboxes, per home (GET /sandboxes): hers, homed in her partition, and the team's as her
+  // partition sees them (`shared`; the backend's `homed` and `why`) — the global instance sees the team's alone
+  const P = 'apps/coding-sandbox';
+  const box = (id, name, extra) => ({ ref: `${P}|${id}`, provider: P, manager: 'Coding sandboxes', id, name, state: 'running', egress: 'internet',
+    image: { id: 'base' }, canUse: true, owner: { user: 'admin', via: 'apps/agent' }, visibility: 'team', ...extra });
+  const why = 'api-dev isn\'t a sandbox of your own space (the backend\'s words)';
+  window.__homeBoxes = {
+    '': [box('sb-own', 'my-dev', { visibility: 'private', mine: true, homed: true, owner: { user: 'alice', via: 'apps/agent', partitionId: 'p-a', partition: 'user:alice' } }),
+      box('sb-7f3a', 'api-dev', { shared: true, homed: false, why })],
+    global: [box('sb-7f3a', 'api-dev', {})],
+  };
+  const MGR = { provider: P, title: 'Coding sandboxes', ok: true, caps: ['exec', 'files', 'partitions'], egress: ['internet'], images: [], sizes: [] };
+  window.__route('GET', /\/sandboxes(\?fresh=1)?$/, (m, o) => j({ sandboxes: window.__homeBoxes[o.partition || ''], managers: [MGR] }));
 }, [MINE, COPY]);
 const page = await ctx.newPage();
 const errors = [];
@@ -143,6 +165,111 @@ await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.ur
 const ask2 = (await calls(/\/ask$/))[1];
 ok('a chat shared with people is made at global, with them', ask2.home === 'global' &&
   JSON.stringify(JSON.parse(ask2.body).share) === '{"members":[{"user":"carol","role":"participant"},{"user":"dave","role":"participant"}]}', ask2.body);
+
+// coding agents (D147): only in her own conversations (model/harness-homes.js)
+const MINE_H = 2 ** 40 + 5; // her own coding agent's conversation
+const TEAM_H = 3;           // a coding agent's in the shared space, parked on a permission
+await page.evaluate(([MINE_H, TEAM_H, ps, h]) => {
+  const j = window.__json;
+  const row = (id, title, extra) => ({ id, title, status: 'idle', access: 'owner', mine: true, origin: 'chat', visibility: 'private',
+    activityMs: 5000 + (id % 1000), parentId: 0, rootId: id, engine: 'harness', ...extra });
+  window.__homeRows[''].push(row(MINE_H, 'my coding agent', { harness: { ...h, state: 'ready', pending: undefined } }));
+  window.__homeRows.global.push(row(TEAM_H, 'the team\'s coding agent', { visibility: 'team', teamRole: 'participant', owner: 'bob', access: 'participant',
+    mine: false, status: 'waiting_input', pendingState: ps, harness: h }));
+  window.__route('POST', /\/runs\/(\d+)\/approve$/, () => j({ ok: 'true' }));
+  // hers in the shared space (from before coding agents stayed in a person's own), shared with the team — then privately with carol
+  window.__homeRows.global.push(row(4, 'her shared coding agent', { visibility: 'team', teamRole: 'participant', owner: 'admin', harness: h }));
+  window.__acl4 = { owner: 'admin', visibility: 'team', teamRole: 'participant', members: [], links: [] }; // the stub's me
+  window.__route('GET', /\/runs\/4\/members$/, () => j(window.__acl4));
+}, [MINE_H, TEAM_H, HSEED.views[22].run.pendingState, HSEED.views[22].run.harness]);
+await page.click('#views .seg:has-text("Mine")');
+await page.waitForSelector(`#runs .run[data-id="${MINE_H}"]`);
+const hm = await menu(MINE_H);
+ok('her coding agent\'s conversation: no "Share a copy…" (it never moves)', !hm.includes('Share a copy…') && !hm.includes('Share…'), hm.join());
+// at home, Claude Code answers her new chats: its sandbox is one of her own (her partition's list)
+const OWN_REF = 'apps/coding-sandbox|sb-own', TEAM_REF = 'apps/coding-sandbox|sb-7f3a';
+await page.click('#home');
+await page.waitForSelector('#apick:not([hidden]) #abtn');
+await page.click('#abtn');
+await page.click('#apick .mi[data-agent="claude"]');
+await page.waitForFunction((ref) => document.getElementById('ssel')?.value === ref, OWN_REF);
+const hopts = await page.$$eval('#ssel option', (els) => els.map((e) => ({ v: e.value, off: e.disabled, t: e.title })));
+ok('at home: her own sandbox is the next chat\'s; the team\'s is disabled, in the backend\'s words (`homed`, `why`)',
+  hopts.some((o) => o.v === TEAM_REF && o.off && o.t.includes('the backend\'s words')), JSON.stringify(hopts));
+await page.evaluate((id) => { location.hash = 'c=' + id; }, MINE_H);
+await page.waitForSelector('#top #hchip');
+ok('…nor Share in its top bar; its chip says it stays in her own space', !(await page.$('#top .sharepill')) &&
+  /stays in your own space/.test(await page.getAttribute('#top #hchip', 'title')));
+await page.evaluate((id) => { location.hash = 'c=' + id; }, TEAM_H);
+await page.waitForSelector('.hask [data-opt="allow"]');
+await page.click('.hask [data-opt="allow"]');
+await page.waitForFunction((id) => window.__calls.some((c) => c.url.endsWith(`/runs/${id}/approve`)), TEAM_H);
+const ap = await calls(new RegExp(`/runs/${TEAM_H}/approve$`));
+ok('a shared coding agent\'s permission is answered at global', ap.length === 1 && ap[0].home === 'global' && JSON.parse(ap[0].body).option === 'allow',
+  JSON.stringify(ap));
+await page.click('#top .sharepill');
+await page.waitForSelector('#sharedlg #copy-mine');
+ok('its share dialog: no Copy to my own space, no "Use my private resources…" — a copy of her files still',
+  !(await page.$('#sharedlg #sh-copy')) && !(await page.$('#sharedlg #host-use')));
+await page.click('#sharedlg .dlg-ft .btn');
+// hers in the shared space: never left shared with no one — that would move it (the backend refuses: 409)
+await page.evaluate(() => { location.hash = 'c=4'; });
+await page.waitForSelector('#top .sharepill');
+await page.click('#top .sharepill');
+await page.waitForSelector('#sharedlg #sh-stays');
+const privOff = () => page.$eval('#sharedlg input[name="vis"]', (e) => e.disabled);
+const radios = () => page.$$eval('#sharedlg input[name="vis"]', (els) => els.map((e) => e.disabled));
+ok('her coding agent\'s in the shared space: "Only you…" with no one below is disabled, saying why — the team\'s choices aren\'t',
+  JSON.stringify(await radios()) === '[true,false,false]' && /would move to your own space/.test(await page.textContent('#sharedlg #sh-stays')), JSON.stringify(await radios()));
+await page.click('#sharedlg .dlg-ft .btn');
+await page.evaluate(() => { window.__acl4 = { ...window.__acl4, visibility: 'private', members: [{ user: 'carol', role: 'participant' }] }; });
+await page.click('#top .sharepill');
+await page.waitForSelector('#sharedlg .prow .btn.ghost');
+const rm = await page.$$eval('#sharedlg .prow button', (els) => els.filter((e) => e.textContent.trim() === 'Remove').map((e) => ({ off: e.disabled, t: e.title })));
+ok('…private with carol: "Only you…" is fine, but carol, the last one, can\'t be removed', !(await privOff()) && rm.length === 1 && rm[0].off && /stays shared/.test(rm[0].t),
+  JSON.stringify(rm));
+await page.click('#sharedlg .dlg-ft .btn');
+await page.click('#newopts');
+await page.waitForSelector('#newdlg[open] #n-agent');
+await page.selectOption('#n-share', 'mine');
+await page.selectOption('#n-agent', 'claude');
+await page.waitForSelector('#newdlg #n-sandbox');
+ok('a new chat of her own: a coding agent may answer', !(await page.$eval('#n-agent', (e) => e.disabled)));
+const nopts = await page.$$eval('#n-sandbox option', (els) => els.map((e) => ({ v: e.value, off: e.disabled, t: e.title })));
+ok('…opened from a shared conversation, its sandbox is one of her own (her partition\'s list, not the shared space\'s)',
+  (await page.$eval('#n-sandbox', (e) => e.value)) === OWN_REF && nopts.some((o) => o.v === OWN_REF && !o.off) &&
+  nopts.some((o) => o.v === TEAM_REF && o.off && o.t.includes('the backend\'s words')), JSON.stringify(nopts));
+await page.selectOption('#n-share', 'team-participant');
+await page.waitForSelector('#newdlg #n-agent-shared');
+ok('shared with others: "Who answers" is the built-in agent, saying why',
+  await page.$eval('#n-agent', (e) => e.disabled && e.value === 'agent') && !(await page.$('#newdlg #n-sandbox')));
+await page.selectOption('#n-share', 'mine');
+await page.waitForSelector('#newdlg #n-sandbox');
+ok('…and back to only her: her pick again', await page.$eval('#n-agent', (e) => !e.disabled && e.value === 'claude') && !(await page.$('#newdlg #n-agent-shared')));
+await page.selectOption('#n-share', 'team-participant');
+await page.waitForSelector('#newdlg #n-agent-shared');
+await page.selectOption('#n-class', 'coding'); // a class with the sandbox toolset: the next chat's pick (hers) would go along
+await page.fill('#n-goal', 'for the team');
+await page.click('#n-create');
+await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.url)).length === 3);
+const ask3 = (await calls(/\/ask$/))[2];
+ok('…made at global, the built-in agent\'s', ask3.home === 'global' && !('harness' in JSON.parse(ask3.body)) && !!JSON.parse(ask3.body).share, ask3.body);
+ok('…taking no sandbox of hers along (the shared space can\'t see it)', JSON.parse(ask3.body).class === 'coding' && !('sandbox' in JSON.parse(ask3.body)), ask3.body);
+// from the shared conversation again: a chat of her own with Claude Code, in her own sandbox
+await page.evaluate((id) => { location.hash = 'c=' + id; }, TEAM_H);
+await page.waitForSelector('.hask [data-opt="allow"]');
+await page.click('#newopts');
+await page.waitForSelector('#newdlg[open] #n-agent');
+await page.selectOption('#n-share', 'mine');
+await page.selectOption('#n-agent', 'claude');
+await page.waitForFunction((ref) => document.getElementById('n-sandbox')?.value === ref, OWN_REF);
+await page.fill('#n-goal', 'mine, with claude');
+await page.click('#n-create');
+await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.url)).length === 4);
+const ask4 = (await calls(/\/ask$/))[3];
+const b4 = JSON.parse(ask4.body);
+ok('…made in her partition, Claude Code in her own sandbox', ask4.home === '' && b4.harness && b4.harness.provider === 'claude' && b4.sandbox && b4.sandbox.ref === OWN_REF && !b4.share, ask4.body);
+
 ok('no page errors', !errors.length, errors.join(' | '));
 await browser.close();
 done('homes');

@@ -72,24 +72,27 @@ ext.register({
     const st = HS.startOf(ctx.app);
     return st.placeholder ? { placeholder: st.placeholder } : null;
   },
-  // newChat: who answers this one (f.agent) and a coding agent's sandbox (f.hsbx)
+  // newChat: who answers this one (f.agent) and a coding agent's sandbox
+  // (f.hsbx) — one of your own partition's list, whatever conversation is
+  // open (HS.newChatList: the sheet makes a chat in your own space)
   newChat: (f) => {
     const app = ctx.app;
     app.harness.ensure();
-    app.sbx.ensure();
+    app.sbx.ensure('', '');
+    const list = HS.newChatList(app);
     if (f.agent == null) f.agent = app.harness.picked() ? app.harness.pick : AGENT;
     const h = f.agent !== AGENT ? app.harness.find(f.agent) : null;
     const coding = h && h.available ? h : null;
     if (coding) {
-      const opts = HS.sandboxOptions(coding, app.sbx.list, HS.startClass(app, coding));
+      const opts = HS.sandboxOptions(coding, list, HS.startClass(app, coding));
       if (!opts.some((o) => o.value === f.hsbx && !o.disabled)) {
-        const to = HS.preferredSandbox(coding, app.sbx.list, app.harness.sandboxes[coding.id], app.sbx.pick && app.sbx.pick.ref, HS.startClass(app, coding));
+        const to = HS.preferredSandbox(coding, list, app.harness.sandboxes[coding.id], app.sbx.pick && app.sbx.pick.ref, HS.startClass(app, coding));
         f.hsbx = to ? to.value : '';
       }
     }
     return {
       tpl() {
-        const p = HS.agentPicker(app.harness.catalog, f.agent, { classes: app.classes, classId: app.classId, list: app.sbx.list, manager: !!app.me.manager,
+        const p = HS.agentPicker(app.harness.catalog, f.agent, { classes: app.classes, classId: app.classId, list, manager: !!app.me.manager,
           remembered: coding && f.hsbx ? { ...app.harness.sandboxes, [coding.id]: f.hsbx } : app.harness.sandboxes }); // its sign-in where it would start
         if (!p.shown && !coding) return nothing;
         const pick = (e) => {
@@ -100,7 +103,7 @@ ext.register({
           ctx.paint();
         };
         const row = coding && p.rows.find((r) => r.value === coding.id);
-        const opts = coding ? HS.sandboxOptions(coding, app.sbx.list, HS.startClass(app, coding)) : [];
+        const opts = coding ? HS.sandboxOptions(coding, list, HS.startClass(app, coding)) : [];
         const sbx = (e) => {
           const o = opts.find((x) => x.value === e.value);
           if (o && o.disabled) return fail(`${o.name}: ${o.why}`);

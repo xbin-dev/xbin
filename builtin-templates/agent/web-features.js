@@ -201,6 +201,7 @@ export const IMPLEMENTS = {
   'state.partition.hosted': 'hosted-ui.js — hostedChipTpl (agent.js top bar), hostedRowChip (sidebar.js), hostedPaint (agent.js paint) — model/hosted.js',
   'state.partition.host': 'hosted-ui.js — hostTpl in share.js',
   'state.partition.copyIn': 'hosted-ui.js — hostTpl in share.js (Add a copy of my files…)',
+  'state.partition.harness': 'model/harness-homes.js — harness-start.js (#apick, #n-agent-shared, #n-sandbox, #hsetup: model/harness-start.js, model/harness.js sandboxFits), signin.js #hl-view (model/terminals.js signIn away), share.js (no copyTpl, hostTpl without host; #sh-stays: unshareWhy), sidebar.js row menu and agent.js top bar and composer (model/rules.js: keepsHome, barredWhy), harness-controls.js (barredWhy), model/harness-store.js call',
 
   // Deep links
   'link.conv': 'agent.js — followHash (model/router.js)',

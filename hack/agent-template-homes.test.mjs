@@ -250,3 +250,218 @@ test('an unpartitioned page (and the global instance\'s own) never asks for a pa
     app.session.live.close();
   }
 });
+
+// --- coding agents (D147) in a partitioned agent: only in a person's own conversations -----------
+// (model/harness-homes.js; API.md "Coding agents" → "In a partitioned instance (the UI)")
+
+const HH = await import(new URL('harness-homes.js', MODEL).href);
+const HS = await import(new URL('harness-start.js', MODEL).href);
+const T = await import(new URL('terminals.js', MODEL).href);
+const R = await import(new URL('rules.js', MODEL).href);
+const S = await import(new URL('sandboxes.js', MODEL).href);
+const { catalogOf } = await import(new URL('harness.js', MODEL).href);
+const { steerWords } = await import(new URL('harness-ask.js', MODEL).href);
+const { createHarnessStore } = await import(new URL('harness-store.js', MODEL).href);
+const HC = await import(new URL('harness-child.js', MODEL).href);
+const AGENT_ID = HS.AGENT;
+const { harnessSeed, SBX, API_DEV } = await import(new URL('../test/harness-fixtures.mjs', MODEL).href);
+
+const as = (partition) => { globalThis.xbin = { self: 'apps/agent', fetch: fake, notify: () => {}, ...(partition ? { partition } : {}) }; };
+// alice's own sandbox (homed in her partition) and the team's (the agent's global identity: shared, as her partition sees it)
+const OWN = { ref: `${SBX}|sb-own`, provider: SBX, manager: 'Coding sandboxes', id: 'sb-own', name: 'my-dev', state: 'running', egress: 'internet',
+  visibility: 'private', image: { id: 'base' }, owner: { user: 'alice', via: 'apps/agent', partitionId: 'p-alice', partition: 'user:alice' }, mine: true, canUse: true };
+const TEAM = { ref: API_DEV, provider: SBX, manager: 'Coding sandboxes', id: 'sb-7f3a', name: 'api-dev', state: 'running', egress: 'internet',
+  visibility: 'team', shared: true, image: { id: 'base' }, owner: { user: 'admin', via: 'apps/agent' }, mine: false, canUse: true };
+const MGR = { provider: SBX, title: 'Coding sandboxes', ok: true };
+const cat = () => catalogOf({ harnesses: harnessSeed().harnesses });
+const storeApp = () => ({ emit() {}, session: { views: new Map(), runs: new Map(), clearApproveNote() {}, noteApprove() {} } });
+
+test('coding agents in a partitioned agent, the rules: where one starts, its sandbox, its sign-in, a shared new chat, moving', () => {
+  as('user:alice');
+  assert.deepEqual(['legacy', 'user', 'global'].map((s) => HH.harnessesHere(s)), [true, true, false], 'never at the global instance\'s own page');
+  assert.equal(HH.homedWhy(OWN), '', 'her own sandbox');
+  assert.equal(HH.homedWhy(TEAM), HH.notOwn('api-dev'), 'the team\'s: seen through a share');
+  assert.match(HH.homedWhy(TEAM), /isn't a sandbox of your own space/);
+  assert.ok(HH.homedWhy({ ...OWN, owner: { ...OWN.owner, partition: 'user:bob' } }), 'someone else\'s partition');
+  assert.ok(HH.homedWhy({ ...OWN, owner: { ...OWN.owner, via: 'apps/other' } }), 'another tile\'s');
+  assert.ok(HH.homedWhy({ ...OWN, owner: { user: 'alice' } }), 'a manager that says nothing of its home');
+  assert.equal(HH.homedWhy({ ...TEAM, homed: true }), '', 'the backend\'s word on a row wins');
+  assert.equal(HH.homedWhy({ ...OWN, homed: false, why: 'my-dev isn\'t a sandbox of your own space (the backend)' }), 'my-dev isn\'t a sandbox of your own space (the backend)',
+    'the backend\'s own words (sandbox_routes.go sandboxItem: homed, why)');
+  assert.equal(HH.homedWhy({ ...OWN, homed: false, bindWhy: 'not here' }), 'not here', 'bindWhy read too');
+  assert.equal(HH.homedWhy({ ...OWN, homed: false }), HH.notOwn('my-dev'));
+  assert.equal(HH.homedWhy({ ...TEAM, homed: false, why: 'the team\'s' }, 'legacy'), '', 'one home: the field isn\'t asked');
+  assert.deepEqual(['legacy', 'global'].map((s) => HH.homedWhy(TEAM, s)), ['', ''], 'one home: any sandbox');
+  assert.deepEqual([HH.signInAway(5, 'user'), HH.signInAway(B + 5, 'user'), HH.signInAway(5, 'global'), HH.signInAway(5, 'legacy')],
+    [HH.SIGNIN_SHARED, '', HH.SIGNIN_GLOBAL, ''], 'a sign-in only where the credentials stay the person\'s');
+  assert.deepEqual([HH.sharedNewChat('team-participant', 'user'), HH.sharedNewChat('people', 'user'), HH.sharedNewChat('mine', 'user'),
+    HH.sharedNewChat(undefined, 'user'), HH.sharedNewChat('team-viewer', 'legacy')], [HH.SHARED_BUILTIN, HH.SHARED_BUILTIN, '', '', '']);
+  assert.deepEqual([{ engine: 'harness', parentId: 0 }, { engine: 'harness', parentId: 25 }, { engine: '' }, null].map(HH.keepsHome), [true, false, false, false],
+    'a coding agent\'s conversation (a child is its root\'s: the built-in agent\'s)');
+  assert.deepEqual([OWN, TEAM, null, { ...OWN, shared: false }].map(HH.sharedSees), [false, true, false, false], 'a shared chat takes along only what the shared space sees');
+  const hr = (id) => ({ id, engine: 'harness' });
+  assert.deepEqual([HH.barredWhy(hr(5), 'user'), HH.barredWhy(hr(B + 5), 'user'), HH.barredWhy(hr(5), 'global'), HH.barredWhy(hr(5), 'legacy'),
+    HH.barredWhy({ id: 5, engine: '' }, 'user'), HH.barredWhy(null, 'user')], [HH.BARRED, '', HH.BARRED, '', '', ''],
+  'a coding agent\'s run in the shared space isn\'t driven; the built-in agent\'s is, and one of her own');
+  assert.deepEqual([HH.unshareWhy({ id: 5, engine: 'harness', parentId: 0 }, 'user'), HH.unshareWhy({ id: B + 5, engine: 'harness', parentId: 0 }, 'user'),
+    HH.unshareWhy({ id: 5, engine: '' }, 'user'), HH.unshareWhy({ id: 5, engine: 'harness', parentId: 0 }, 'global'), HH.unshareWhy({ id: 5, engine: 'harness', parentId: 0 }, 'legacy')],
+  [HH.STAYS_SHARED, '', '', '', ''], 'a coding agent\'s conversation in the shared space is never left shared with no one (it would move)');
+});
+
+test('a person\'s partition: a coding agent\'s calls and the app\'s run terminal go to its home', async () => {
+  as('user:alice');
+  calls.length = 0;
+  const hs = createHarnessStore(storeApp());
+  await hs.steer(5, 'hi');
+  await hs.steer(5, 'now', { interrupt: true });
+  await hs.permit(5, { option: 'allow', park: 'p1' });
+  await hs.answer(5, 'decline', null, 'p1');
+  await hs.authenticate(5, 'key', { apiKey: 'sk-1' });
+  await hs.log(5);
+  await hs.stop(5);
+  await hs.cancel(5);
+  await hs.retry(5);
+  await hs.setMode(5, 'plan');
+  await hs.setOptionOf(5, 'model', 'haiku');
+  await hs.get(5);
+  const shared = calls.filter((c) => c.url.includes('/runs/5/'));
+  assert.equal(shared.length, 12);
+  assert.deepEqual([...new Set(shared.map((c) => c.home))], ['global'], 'a shared conversation\'s run: every call at global');
+  calls.length = 0;
+  await hs.steer(B + 3, 'mine');
+  await hs.permit(B + 3, { approve: true, park: 'p2' });
+  await hs.load();
+  assert.deepEqual([...new Set(calls.map((c) => c.home))], [''], 'her own run, the catalog and her settings: her partition');
+  assert.ok(calls.some((c) => c.url.endsWith('/harnesses')) && calls.some((c) => c.url.endsWith('/prefs/harness-mode')));
+  assert.equal(T.runTerminalSrc(5), 'runs/5/harness/terminal?xbin-partition=global');
+  assert.equal(T.runTerminalSrc(5, { login: true }), 'runs/5/harness/terminal?login=1&xbin-partition=global');
+  assert.equal(T.runTerminalSrc(B + 3), `runs/${B + 3}/harness/terminal`);
+  assert.equal(T.runTerminalSrc(B + 3, { login: true }), `runs/${B + 3}/harness/terminal?login=1`);
+});
+
+test('a person\'s partition: the sandbox a coding agent starts in is her own; its sign-in only in her own conversations; no copy, no move', () => {
+  as('user:alice');
+  const claude = cat().harnesses.find((h) => h.id === 'claude');
+  const list = S.listOf({ sandboxes: [TEAM, OWN], managers: [MGR] });
+  const opts = HS.sandboxOptions(claude, list);
+  assert.deepEqual(opts.map((o) => [o.name, o.disabled]), [['my-dev', false], ['api-dev', true]], 'the team\'s is disabled…');
+  assert.equal(opts[1].why, HH.notOwn('api-dev'), '…saying why');
+  assert.equal(HS.fitsWhy(claude)(TEAM), HH.notOwn('api-dev'), 'the composer\'s ▣ picker says the same');
+  assert.equal(HS.preferredSandbox(claude, list, API_DEV, API_DEV).value, OWN.ref, 'a remembered team sandbox is passed over');
+  const p = HS.agentPicker(cat(), 'claude', { list, remembered: { claude: API_DEV } });
+  assert.ok(p.shown && p.harness && p.rows.length === 5, 'her partition: coding agents answer');
+  assert.ok(!p.rows.find((r) => r.value === 'claude').detail.includes('api-dev'), 'no "signed in on" a sandbox she can\'t start it in');
+  const onlyTeam = S.listOf({ sandboxes: [TEAM], managers: [MGR] });
+  const card = HS.setupOf(claude, onlyTeam, API_DEV, null);
+  assert.equal(card.kind, 'create', 'none of her own: the setup card offers Create');
+  assert.equal(card.title, 'Claude Code needs a coding sandbox of your own');
+  assert.match(card.text, /The team's sandboxes, and ones shared with you, are for shared chats/);
+  assert.equal(card.create.label, 'Create claude-dev');
+  assert.doesNotMatch(HS.setupOf(claude, S.listOf({ sandboxes: [], managers: [MGR] }), '', null).text, /team's/, 'no team sandbox: not said');
+  as('');
+  assert.equal(HS.setupOf(claude, onlyTeam, API_DEV, null), null, 'unpartitioned: the team\'s fits, as ever');
+  as('user:alice');
+
+  // sign-in: #24 (below 2^40) is a shared conversation's run, at the global instance
+  const seed = harnessSeed();
+  const lst = S.listOf({ sandboxes: seed.sandboxes, managers: [MGR] });
+  const away = T.signIn(seed.views[24], { list: lst, me: 'admin' });
+  assert.deepEqual([away.talk, away.away, away.view], [false, HH.SIGNIN_SHARED, HH.SIGNIN_SHARED], 'a read-only card, saying why');
+  assert.match(away.title, /is waiting for a sign-in/);
+  const own = structuredClone(seed.views[24]);
+  Object.assign(own.run, { id: B + 24, rootId: B + 24 });
+  const c = T.signIn(own, { list: lst, me: 'admin' });
+  assert.deepEqual([c.talk, c.away, c.view, c.methods.length], [true, '', '', 3], 'her own: the sign-in, as ever');
+  assert.equal(steerWords(seed.views[24]).placeholder, HH.BARRED_WORDS, 'the composer doesn\'t ask for one: a shared one isn\'t driven');
+  assert.equal(steerWords(own).placeholder, 'sign in to Codex first — then message it…');
+
+  // a coding agent's conversation stays in her own space
+  const hrow = { id: B + 21, title: 'fix it', access: 'owner', mine: true, engine: 'harness', harness: { provider: 'claude' }, parentId: 0 };
+  const labels = (r) => R.rowMenu(r, { publish: true }).map((i) => i.label);
+  assert.ok(!labels(hrow).includes('Share a copy…') && !labels(hrow).includes('Share…'), labels(hrow).join());
+  assert.ok(labels({ ...hrow, engine: '' }).includes('Share a copy…'), 'the built-in agent\'s: a copy, as ever');
+  const hv = { run: { ...hrow, rootId: B + 21, status: 'idle', harness: seed.views[21].run.harness }, access: 'owner', config: {}, files: [], memory: {}, links: [] };
+  const t = R.topBar(hv, null, { user: 'alice' });
+  assert.deepEqual([t.sharing, t.publish, t.shareRun], [false, false, { id: B + 21, title: 'fix it', engine: 'harness' }], 'no Share a copy in its top bar');
+  assert.match(HS.topChip(hv).title, /stays in your own space/);
+  const kid = { ...hv, run: { ...hv.run, id: B + 26, rootId: B + 25, parentId: B + 25 } };
+  assert.deepEqual([R.topBar(kid, null, { user: 'alice' }).publish, R.topBar(kid, null, { user: 'alice' }).shareRun.engine], [true, undefined],
+    'a coding agent the agent started: its root (the agent\'s) is shared by a copy');
+  assert.doesNotMatch(HS.topChip({ ...hv, run: { ...hv.run, id: 21, rootId: 21 } }).title, /own space/, 'a shared one isn\'t in her own space');
+});
+
+test('a person\'s partition: a new chat picks from her own list; a shared one takes no sandbox of hers; a shared coding agent is read, not driven', () => {
+  as('user:alice');
+  const claude = cat().harnesses.find((h) => h.id === 'claude');
+  // the list where she is (a shared conversation open: the global instance's) and her own
+  const lists = { '': S.listOf({ sandboxes: [OWN, TEAM], managers: [MGR] }), global: S.listOf({ sandboxes: [{ ...TEAM, shared: false, owner: { user: 'admin', via: 'apps/agent' } }], managers: [MGR] }) };
+  const sbx = { list: lists.global, listAt: (h) => lists[h], pick: null };
+  const hs = createHarnessStore(storeApp());
+  hs.catalog = cat();
+  const app = { harness: hs, sbx, classId: 'coding', model: 'm1' };
+  assert.equal(HS.newChatList(app), lists[''], 'her own partition\'s list, whatever is open');
+  assert.equal(HS.newChatList({ sbx: { list: lists.global } }), lists.global, 'a store without homes: its list');
+  assert.equal(HS.preferredSandbox(claude, HS.newChatList(app), '', '').value, OWN.ref, 'her own sandbox is offered');
+  assert.equal(HS.preferredSandbox(claude, sbx.list, '', ''), null, 'the list where she is would offer none');
+  // a chat shared with others: the built-in agent's, and her own sandbox stays behind
+  sbx.pick = { ref: OWN.ref, cwd: '', name: 'my-dev' };
+  const sh = HS.newChatPick(app, 'claude', OWN.ref, '', { shared: true });
+  assert.ok('sandbox' in sh && sh.sandbox === undefined && sh.harness === undefined && sh.model === 'm1', JSON.stringify(sh));
+  assert.equal(JSON.stringify({ sandbox: { ref: OWN.ref }, ...sh }), '{"model":"m1"}', '…overriding the pick the ask would send');
+  sbx.pick = { ref: TEAM.ref, cwd: '', name: 'api-dev' };
+  assert.ok(!('sandbox' in HS.newChatPick(app, AGENT_ID, '', '', { shared: true })), 'the team\'s goes along: the shared space binds it');
+  sbx.pick = { ref: `${SBX}|sb-gone`, cwd: '', name: 'gone' };
+  assert.ok('sandbox' in HS.newChatPick(app, AGENT_ID, '', '', { shared: true }), 'one the list doesn\'t have stays behind');
+  sbx.pick = { ref: OWN.ref, cwd: '', name: 'my-dev' };
+  assert.ok(!('sandbox' in HS.newChatPick(app, AGENT_ID, '')), 'a chat of her own: the pick goes, as ever');
+  assert.equal(HS.newChatPick(app, 'claude', OWN.ref).sandbox.ref, OWN.ref, '…and a coding agent\'s is its own');
+
+  // a coding agent's run in the shared space (from before the rule): read, stopped — never driven
+  const seed = harnessSeed();
+  const lost = structuredClone(seed.views[21]);
+  Object.assign(lost.run, { status: 'error', harness: { ...lost.run.harness, state: 'lost' } });
+  const t = R.topBar(lost, null, { user: 'alice' });
+  assert.equal(t.retry, false, 'no Retry');
+  const c = R.composer(lost, { placeholder: 'ask' });
+  assert.deepEqual([c.disabled, c.placeholder], [true, HH.BARRED_WORDS], 'the composer is off, saying why');
+  assert.equal(steerWords(lost).placeholder, HH.BARRED_WORDS);
+  const mine = structuredClone(lost);
+  Object.assign(mine.run, { id: B + 21, rootId: B + 21 });
+  assert.deepEqual([R.topBar(mine, null, { user: 'alice' }).retry, R.composer(mine, { placeholder: 'ask' }).disabled], [true, false], 'her own: Retry, the composer');
+  const busyRun = structuredClone(seed.views[21]);
+  busyRun.run.status = 'running';
+  assert.deepEqual([R.composer(busyRun, {}).stop, R.composer(busyRun, {}).disabled], [true, true], 'a shared one still running: Stop stays');
+  const built = { ...structuredClone(lost), run: { ...lost.run, engine: '', harness: undefined } };
+  assert.deepEqual([R.topBar(built, null, { user: 'alice' }).retry, R.composer(built, {}).disabled], [true, false], 'the built-in agent\'s in the shared space: as ever');
+  const kid = (id) => HC.childCard({ childId: id, link: { state: 'running' } }, { id, harness: { provider: 'claude', state: 'working' }, status: 'running' });
+  assert.deepEqual([kid(26).can.message, kid(26).can.stop, kid(26).can.cancel, kid(B + 26).can.message], [false, true, true, true],
+    'a coding agent the agent started in the shared space: no message; Stop and Cancel stay');
+  as('');
+  assert.deepEqual([R.topBar(lost, null, { user: 'alice' }).retry, R.composer(lost, {}).disabled, kid(26).can.message], [true, false, true], 'unpartitioned: as ever');
+});
+
+test('the global instance\'s own page: no coding agent answers or signs in; an unpartitioned page as ever', async () => {
+  as('global');
+  const p = HS.agentPicker(cat(), 'claude', {});
+  assert.deepEqual([p.shown, p.value, p.harness, p.rows.length], [false, HS.AGENT, null, 1], 'only the built-in agent, and nothing shown');
+  const hs = createHarnessStore(storeApp());
+  hs.catalog = cat();
+  hs.pick = 'claude';
+  assert.deepEqual([hs.picked(), hs.askPart()], [null, {}], 'a remembered pick doesn\'t start one');
+  const app = { harness: hs, classId: 'coding', model: 'm1' };
+  assert.deepEqual(HS.newChatPick(app, 'claude', API_DEV), { harness: undefined, model: 'm1' }, 'the new-chat dialog\'s: the built-in agent');
+  const seed = harnessSeed();
+  const c = T.signIn(seed.views[24], { me: 'admin' });
+  assert.deepEqual([c.talk, c.away], [false, HH.SIGNIN_GLOBAL], 'no sign-in at the global instance');
+  assert.equal(T.runTerminalSrc(24), 'runs/24/harness/terminal', 'one home: the path as ever');
+  assert.deepEqual([R.composer(seed.views[21], {}).disabled, steerWords(seed.views[21]).placeholder], [true, HH.BARRED_WORDS], 'its coding agents\' runs are read, not driven');
+  calls.length = 0;
+  await hs.steer(24, 'x');
+  assert.deepEqual(calls.map((x) => x.home), [''], 'its own runs at its own backend');
+  as('');
+  assert.equal(hs.picked().id, 'claude', 'unpartitioned: the pick answers');
+  assert.equal(HS.agentPicker(cat(), 'claude', {}).shown, true);
+  assert.equal(T.signIn(seed.views[24], { me: 'admin' }).talk, true);
+  const hrow = { id: 21, access: 'owner', engine: 'harness', parentId: 0 };
+  assert.ok(R.rowMenu(hrow, { publish: true }).some((i) => i.label === 'Share…'), 'unpartitioned: a coding agent\'s conversation is shared as on master');
+});

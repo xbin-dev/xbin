@@ -7,6 +7,7 @@
 import { html, repeat, nothing, native } from '/vendor/xb-native.js';
 import { ui, ctx, when } from './ui.js';
 import { share as shareRules } from '../model/rules.js';
+import { unshareWhy } from '../model/harness-homes.js';
 
 const VIS = [
   { value: 'private', label: 'Only you and the people below' },
@@ -44,19 +45,27 @@ export function shareSheet() {
   const d = st.data;
   const { own, vis, leave } = shareRules(d, app.me);
   const done = () => { ui.share = null; ctx.paint(); };
+  // a coding agent's conversation in the shared space is never left shared with no one — it would
+  // move (model/harness-homes.js unshareWhy); a picker can't disable an option: picking it says why
+  const stays = unshareWhy(st.run);
+  const privWhy = stays && d && !d.members.length ? stays : '';
+  const lastWhy = stays && d && vis === 'private' && d.members.length === 1 ? stays : '';
+  const refuse = (why) => { st.err = why; ctx.paint(); };
+  const setVis = (e) => (e.value === 'private' && privWhy ? refuse(privWhy) : act(st, () => A.setVisibility(st.run.id, e.value)));
+  const visOpts = privWhy ? VIS.map((o) => (o.value === 'private' ? { ...o, label: `${o.label} — stays shared` } : o)) : VIS;
   return html`<sheet open title=${`Share “${st.run.title || 'conversation'}”`} @dismiss=${done}>
     <screen title="Share" subtitle=${st.run.title || nothing} style="form">
       ${st.err ? html`<section><notice tone="danger" text=${st.err}/></section>` : nothing}
       ${!d ? html`<section><progress label="loading…"/></section>` : html`
-      <section title="Who can see it">${own
-        ? html`<picker style="inline" value=${vis} options=${VIS} @change=${(e) => act(st, () => A.setVisibility(st.run.id, e.value))}/>`
+      <section title="Who can see it" footer=${own && stays ? stays : nothing}>${own
+        ? html`<picker style="inline" value=${vis} options=${visOpts} @change=${setVis}/>`
         : repeat(VIS, (o) => o.value, (o) => html`<row title=${o.label} ?selected=${vis === o.value}/>`)}</section>
       <section title="People">
         ${d.owner ? html`<row title=${d.owner} mono="title" detail="owner"/>` : nothing}
         ${repeat(d.members, (m) => m.user, (m) => html`<row title=${m.user} mono="title" detail=${roleWord(m.role)}>
           ${own ? html`<actions>
             <button @tap=${() => act(st, () => A.setMember(st.run.id, m.user, m.role === 'participant' ? 'viewer' : 'participant'))}>${m.role === 'participant' ? 'Make reader' : 'Make writer'}</button>
-            <button role="destructive" @tap=${() => act(st, () => A.removeMember(st.run.id, m.user))}>Remove</button>
+            <button role="destructive" @tap=${() => (lastWhy ? refuse(lastWhy) : act(st, () => A.removeMember(st.run.id, m.user)))}>Remove</button>
           </actions>` : nothing}</row>`)}
         ${own ? html`<field label="Add someone" placeholder="user id (their login name)" value=${st.user} @input=${(e) => { st.user = e.value; }}/>
           <picker label="Role" style="menu" value=${st.role} options=${ROLES} @change=${(e) => { st.role = e.value; ctx.paint(); }}/>

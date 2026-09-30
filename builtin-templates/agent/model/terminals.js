@@ -13,12 +13,15 @@
 //   HOME the credentials land in, whether that sandbox is shared (a confirm
 //   first), who to ask when the person may not use it, and — when the
 //   sandbox is gone or its manager down — that there is nothing to sign in
-//   to there.
+//   to there; read-only, saying why, where the credentials wouldn't stay
+//   the person's (a partitioned agent: model/harness-homes.js).
 //
 // Pure (no DOM, no lit): node-tested in hack/agent-template-harness-term.test.mjs.
 import { ICON, bindingOf, sharesOf, brokenWhy, splitRef } from './sandboxes.js';
 import { harnessOf, nameOf } from './harness.js';
 import { access } from './rules.js';
+import { homeOf } from './homes.js';
+import { signInAway } from './harness-homes.js';
 
 // --- the dock ---------------------------------------------------------------------
 
@@ -123,7 +126,15 @@ export function tabHead(t) {
 
 // runTerminalSrc: a harness run's relay (tile-relative) — a shell at its cwd,
 // or (login) its sign-in command: GET /runs/{id}/harness/terminal[?login=1].
-export const runTerminalSrc = (runId, { login = false } = {}) => `runs/${runId}/harness/terminal${login ? '?login=1' : ''}`;
+// A run at the global instance while this page is a person's partition (a
+// shared conversation's, model/homes.js) is relayed there: the app's
+// terminal dials a path, so the path asks xbind for it
+// (?xbin-partition=global), as model/app.js uploadTarget does. While its
+// screen is up the relay's socket keeps the partition it reaches running.
+export function runTerminalSrc(runId, { login = false } = {}) {
+  const q = [login ? 'login=1' : '', homeOf(runId) === 'global' ? 'xbin-partition=global' : ''].filter(Boolean).join('&');
+  return `runs/${runId}/harness/terminal${q ? '?' + q : ''}`;
+}
 
 // --- the sign-in card ---------------------------------------------------------------
 
@@ -149,7 +160,11 @@ const sharedOf = (s) => !!(s && (s.visibility === 'team' || (Array.isArray(s.mem
 //    see), goneText (the card's words for it, in place of the methods),
 //    device ({url, message} while a device code waits),
 //    title, warn, confirmLabel,
-//    talk (false: a view-only reader — the card says so and offers nothing), view}
+//    talk (false: a view-only reader, or a sign-in this page doesn't offer
+//    — the card says why in view and offers nothing), view,
+//    away ('' | why this page offers no sign-in: model/harness-homes.js
+//    signInAway — the global instance's page, or a shared conversation's
+//    run in a person's partition, where the credentials wouldn't stay theirs)}
 export function signIn(v, { list = null, entry = null, me = null } = {}) {
   const r = v && v.run;
   const ps = r && r.pendingState;
@@ -178,7 +193,8 @@ export function signIn(v, { list = null, entry = null, me = null } = {}) {
   const binder = bound.by || owner;
   const newChat = `start a new chat with ${name} in another sandbox`;
   const shared = !!hs.shared || sharedOf(row);
-  const { talk } = access(v);
+  const away = signInAway(r.id);
+  const talk = access(v).talk && !away;
   return {
     run: r.id, park: ps.park || '', name, command, methods, shared, canUse,
     sandbox: { ref, name: sname, cwd },
@@ -189,7 +205,7 @@ export function signIn(v, { list = null, entry = null, me = null } = {}) {
     goneText: gone ? `${ICON} ${sname}: ${gone}. ${name} can't sign in there — ${mgr && mgr.ok === false ? 'Retry once it is back, or ' : ''}${newChat}.` : '',
     device: login.device && login.device.url ? { url: login.device.url, message: login.device.message || '' } : null,
     title: talk ? `${name} needs you to sign in (in ${ICON} ${sname}).` : `${name} is waiting for a sign-in (in ${ICON} ${sname}).`,
-    talk, view: talk ? '' : 'You may only read this conversation: someone who may write in it signs it in.',
+    talk, away, view: away || (talk ? '' : 'You may only read this conversation: someone who may write in it signs it in.'),
     warn: `The credentials land in ${sname}'s home: anyone who may use it acts as you with ${name} there, and its clones and snapshots keep them.`,
     confirmLabel: `${sname} is shared — sign in anyway`,
   };

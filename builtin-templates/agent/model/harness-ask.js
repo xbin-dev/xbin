@@ -16,6 +16,7 @@
 // Pure (no DOM): node-tested in hack/agent-template-harness-ask.test.mjs.
 import { isHarness, nameOf, modeOf } from './harness.js';
 import { busy } from './fold.js';
+import { barredWhy, BARRED_WORDS } from './harness-homes.js';
 
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 export const isAllow = (o) => /^allow/.test((o && o.kind) || '');
@@ -309,6 +310,8 @@ export function steerWords(v, { native = false } = {}) {
   const h = r.harness || {};
   const name = nameOf(h);
   const cut = native ? 'Send now interrupts' : '⌘/Ctrl+Enter interrupts';
+  // one in the shared space never runs again (model/harness-homes.js barredWhy): the composer is off, saying why
+  if (barredWhy(r)) return { busy: false, steering: false, placeholder: BARRED_WORDS, label: `queued for ${name}`, title: BARRED_WORDS };
   if (busy(r.status)) {
     return h.steering
       ? { busy: true, steering: true, placeholder: `steer ${name} — sent into its running turn (${cut})`, label: 'steering', title: `being sent into ${name}'s running turn` }
