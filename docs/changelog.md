@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **Agent template: a coding agent answers the conversation**
+  (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
+  `POST /ask` and `POST /runs` with `harness: {provider, mode?, options?}`
+  and a `sandbox` start a conversation a coding agent answers — Claude
+  Code, Codex, Gemini CLI, opencode, run over ACP in the sandbox — its
+  messages sent as prompts, each of its tool calls an assistant row and a
+  tool row whose `acp` says what it did (a diff, a command's output), its
+  state in the summary's `harness` and the stream's `harness` event, a
+  permission it asks for a park `POST /runs/{id}/approve` answers. It
+  survives a save or restart of the agent mid-turn. Additive: a run of the
+  agent's own loop answers exactly as before; an older build of the agent
+  leaves a coding agent's messages waiting.
 - **Agent template: start a conversation with a coding agent**
   (`builtin-templates/agent/API.md` §Coding agents, "Starting one").
   "Who answers" in the home composer and the new-chat dialog (web and

@@ -1641,10 +1641,11 @@ list, and the root's binding is unchanged.
 A conversation — or a subagent the agent spawns — can be answered by a
 **coding agent** (a *harness*: Claude Code, Codex, Gemini CLI, OpenCode, or
 another the sandbox manager names) run over ACP inside a coding sandbox,
-instead of the agent's own loop. What exists so far is the catalog, each
-person's setting, the class gates and the storage; the routes that start
-and drive a coding-agent conversation come with the harness engine — until
-then every run's `engine` is `""`.
+instead of the agent's own loop: the catalog, each person's setting, the
+class gates, and the engine that starts a coding agent in its sandbox and
+turns what it does into the conversation (below, "Driving one"). Its own
+routes — the mode picker, answering its questions, signing it in, its log
+and terminals — are listed with the UI that uses them.
 
 - **Runs.** A run's `engine` is `""` (the agent's own loop) or `"harness"`
   — set when it is made, never changed; `GET /runs/{id}`'s `run`, run
@@ -1723,6 +1724,83 @@ auto-edit mode (`autoMode`: claude `acceptEdits`, codex `agent`, gemini
 (`approveMode`). It applies when a coding-agent conversation or child is
 created; one that exists keeps its mode. Explicit modes (bypass, full
 access) are never a setting.
+
+**Driving one (the API).** `POST /ask` and `POST /runs` take `harness:
+{provider, mode?, options?}` with a `sandbox: {ref, cwd?}` (`POST /runs`
+gains `sandbox` as `/ask` has it, bound as you): the run is made with
+`engine: "harness"` and its first message queued as the coding agent's
+first prompt. `class` is optional (yours when it allows the coding agent,
+else the first class you may use that does). `mode` is a mode of the
+coding agent's (`GET /harnesses` `modes`) — absent, your Auto / Always
+approve — and an explicit one only from a person; `options` are its config
+options (`{"model": "…"}`) and never carry the mode. The sandbox is fixed
+for the conversation. **400** `harness.provider: no coding agent "x" (GET
+/harnesses lists them)`, `class: the <class> class doesn't allow <name>`,
+`harness.mode: one of …`, `harness.options: the mode is harness.mode`,
+`system: a coding agent keeps its own instructions — system is for the
+built-in agent`, `model: a coding agent's model is harness.options.model`,
+`a coding agent needs a sandbox: sandbox {ref, cwd?} whose image has
+<name>`; **403** `no class you may use allows <name>`, `only a person can
+start <name> in <mode>`; **409** `<sandbox>'s image doesn't have <name>`,
+`<name> must reach its provider — <sandbox>'s egress is none`, `<sandbox>
+doesn't have <name> (<command> not found)` (a running sandbox is probed);
+the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
+`title` work as for any ask.
+
+- **Messages.** `POST /runs/{id}/message` (and `/answer`) on a harness run
+  queue a prompt (inbox kind `hprompt`; `queued`, `DELETE
+  /runs/{id}/inbox/{iid}` and `/interrupt`'s `returned` include them like
+  messages). It goes to the coding agent when no turn runs and nothing
+  waits for you; until then it waits. `interrupt: true` stops the running
+  turn first and goes next (ignored on the agent's own runs).
+- **A turn.** The message becomes the user row as it is sent; what the
+  coding agent writes streams as the run's draft (`text`/`thinking` events,
+  the view's `drafts`) and lands as assistant rows (thinking in
+  `reasoning`). **Each call it makes is one assistant row and one tool
+  row:** `toolCalls: [{id: "h<gen>:<id>", function: {name: "acp:<kind>",
+  arguments}}]` (`kind`: `read`, `edit`, `delete`, `move`, `search`,
+  `execute`, `think`, `fetch`, `switch_mode`, `other`; `arguments`: the
+  call's input plus `summary`), the tool row `(running…)` until the call
+  ends, then its result (an edit's `edited <path> (+a −d)`, a command's
+  last 8 KiB and `[exit N]`, `error: …`, `(cancelled)`). The tool row
+  carries **`acp`**: `{kind, title, label?, tool?, status, parent?,
+  subagent, planReview, locations?, files?, exitCode?, output?,
+  outputTruncated?, diffs?: [{path, status, add, del, patch, truncated}]}`
+  (a patch is a unified diff with 3 lines of context, ≤ 64 KiB a file); a
+  command's output streams into it as message upserts at most every 250
+  ms. Text of the coding agent's own subagents (claude's Task) is an
+  assistant row with `acp: {parent}`. The turn ends `idle` (a stop reason
+  other than the end of the answer is said in a note), or `error` with why;
+  a subagent's link settles with its last text. The task ledger records
+  each prompt as it is sent.
+- **Its summary.** A harness run's summary (run events, the view's `run`,
+  conversation rows, a link's `child`) carries **`harness`**: `{provider,
+  name, state (stopped | starting | ready | working | login | lost |
+  failed), error, mode: {current, available}, options, commands, usage?,
+  plan?, activity?: {kind: idle | thinking | writing | tool | waiting,
+  title?, at}, counts: {tools, files, add, del}, pending?: {park, kind,
+  title}, login?, sandbox: {ref, name, cwd, shared}, steering, title,
+  gen}`; the stream's **`harness`** event (`data`: the whole object,
+  coalesced per run) says when it changes between run events. The
+  conversation's title follows the coding agent's own while it is the first
+  message clipped. An agent-loop run has no `harness`.
+- **Waiting for you.** A permission request parks the run (`waiting_input`,
+  the call's row `(awaiting your approval)`): `pendingState: {kind:
+  "approval", park, toolCalls, harness: {callId, options: [{optionId,
+  name, kind, explicit?}], tool: {title, kind, name?, label?, command?,
+  rawInput?, content?}, rule?, defaultToNo?, description?, planApproval?,
+  plan?}}`; `POST /runs/{id}/approve {approve, park}` answers it (allow
+  once, else another allow that doesn't raise the mode; a denial rejects).
+  One that comes while another waits is queued behind it.
+- **Stops and restarts.** `/interrupt` stops the turn (the coding agent
+  ends it: `idle`); `/cancel` and deleting the conversation stop the coding
+  agent too. `/resume` starts a fresh one when none runs and sends again a
+  message that couldn't reach it. A coding agent idle between turns keeps
+  running in the sandbox (its session is reused by the next message); one
+  that exited or was cut off ends its turn with why, and the next message
+  starts a new one (reopening its earlier session when it can). A save or
+  restart of the agent never stops one: the next process takes it over
+  where the last one left it, mid-turn too.
 
 **Starting one (the UI).** "Who answers" sits in the home composer (web
 `#apick`, the native home toolbar) and in the new-chat dialog (`#n-agent`):
