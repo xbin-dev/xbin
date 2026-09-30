@@ -102,11 +102,12 @@ func (m *Manager) sandboxEnv(rel string, relayNet bool, homeDir, termTok string)
 
 // sessionEnv is a sandboxed session's env: sandboxEnv, with the session's
 // XBIN_DEPLOYMENT right after XBIN_COMPONENT when its target isn't the
-// primary at session start (11-contract §5); otherwise exactly sandboxEnv.
+// primary at session start (11-contract §5), then XBIN_PARTITION on a
+// partitioned tile (partition.go); otherwise exactly sandboxEnv.
 func (m *Manager) sessionEnv(rel string, relayNet bool, homeDir, termTok string, o openOpts) []string {
 	env := m.sandboxEnv(rel, relayNet, homeDir, termTok)
-	dep := o.deploymentEnv()
-	if dep == nil {
+	dep := append(o.deploymentEnv(), o.partitionEnv()...)
+	if len(dep) == 0 {
 		return env
 	}
 	at := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, "XBIN_COMPONENT=") }) + 1

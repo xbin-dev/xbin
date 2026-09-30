@@ -39,7 +39,16 @@ type SessionInfo struct {
 	Status     string  `json:"status,omitempty"`    // starting | idle | running | waiting_permission | error | exited
 	Pending    int     `json:"pending,omitempty"`   // unanswered permission requests
 	Questions  int     `json:"questions,omitempty"` // unanswered questions (elicitation.request)
+	// Partition is what the session acts in on a partitioned tile:
+	// "user:<id>" or "global" (partition.go); absent on every other tile.
+	Partition string `json:"partition,omitempty"`
+	personal  bool   // a person's session on a partitioned tile (Personal)
 }
+
+// Personal reports a person's session on a partitioned tile — in their
+// partition, or in global when it targets a non-primary deployment: its
+// name stays out of every listing but its person's own (PD-09).
+func (si SessionInfo) Personal() bool { return si.personal }
 
 func (s *Session) info() SessionInfo {
 	s.mu.Lock()
@@ -54,6 +63,7 @@ func (s *Session) info() SessionInfo {
 		Created:    s.born.UTC().Format(time.RFC3339),
 		LastActive: s.hub.LastActive().UTC().Format(time.RFC3339),
 		Clients:    s.hub.Clients(), EnvHeld: s.envKey != "",
+		Partition: s.part.part, personal: s.part.personal(),
 	}
 	if st := s.agent; st != nil {
 		st.mu.Lock()
@@ -128,12 +138,20 @@ func (m *Manager) Owner(id string) string {
 // mayReattach is the reattach gate: the creator or an admin, and — for a
 // non-admin — still terminal-level on the tile (a revoked level closes the
 // door to sessions already open there; the session itself lives on until
-// killed or reaped). "" = allowed, else the refusal.
-func (s *Session) mayReattach(p auth.Principal) string {
-	if p.IsAdmin() {
+// killed or reaped). On a partitioned tile (partitioned) an admin has no
+// pass into another person's session, nor view-as into any (PD-09). "" =
+// allowed, else the refusal.
+func (s *Session) mayReattach(p auth.Principal, partitioned bool) string {
+	if partitioned && p.ReadOnly() {
+		return viewAsRefusal(s.Cwd)
+	}
+	if p.IsAdmin() && (!partitioned || s.homeKey == HomeKey(p)) {
 		return ""
 	}
 	if s.homeKey != HomeKey(p) {
+		if partitioned && p.IsAdmin() {
+			return notYours(s.Cwd)
+		}
 		return "session belongs to another user"
 	}
 	if !p.CanTerminalTile(s.Cwd) {

@@ -51,6 +51,10 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 	if c, err := m.pickTarget(p, &probe, s.Cwd, deployment); err != nil {
 		return SessionInfo{}, false, c, err
 	}
+	if c, err := m.pickPartition(p, &probe, s.Cwd); err != nil { // a refusal leaves the session running too
+		return SessionInfo{}, false, c, err
+	}
+	m.partOpened(&probe) // only a probe: the open below counts again
 
 	s.kill()
 	select { // history saved, the tile's layer released, the row gone
@@ -59,10 +63,12 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 		return SessionInfo{}, false, 500, errors.New("the agent session did not end in time — try again")
 	}
 	// what to resume: this session's own transcript — or, when it took no
-	// prompt (never saved), the past session it had itself reopened
+	// prompt (never saved), the past session it had itself reopened — from
+	// the store the new session saves to (resumeHere: a partition's history
+	// continues in the partition, a person's own outside it)
 	resume := ""
 	for _, cand := range []string{id, reopened} {
-		if meta, err := m.HistoryMeta(HomeKey(p), cand); cand != "" && err == nil && meta.Loadable && meta.ACPSessionID != "" {
+		if meta, fromPart, err := m.historyMetaFrom(HistoryOf(p), cand); cand != "" && err == nil && meta.Loadable && meta.ACPSessionID != "" && fromPart == probe.part.personal() {
 			resume = cand
 			break
 		}

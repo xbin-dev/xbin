@@ -177,15 +177,8 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 // partitions until the pack that converts it removes the row
 // (plans/partitions/95).
 var partitionUnconverted = map[string]string{
-	"GET /logs":                                   "per-partition backend logs",
-	"GET /tile-status":                            "per-partition tile status",
-	"POST /term/sessions":                         "per-person terminal layers",
-	"POST /term/sessions/{id}/restart":            "per-person terminal layers",
-	"POST /term/sessions/{id}/prompt":             "per-person terminal layers",
-	"POST /term/sessions/{id}/cancel":             "per-person terminal layers",
-	"POST /term/sessions/{id}/permissions/{pid}":  "per-person terminal layers",
-	"POST /term/sessions/{id}/elicitations/{eid}": "per-person terminal layers",
-	"POST /term/sessions/{id}/options":            "per-person terminal layers",
+	"GET /logs":        "per-partition backend logs",
+	"GET /tile-status": "per-partition tile status",
 }
 
 // partitionPersonKeyed names the PartitionScoped routes whose handler keys

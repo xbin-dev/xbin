@@ -148,4 +148,15 @@ func TestListDisks(t *testing.T) {
 		d[1].ApparentBytes != 2<<30 || d[1].AllocatedBytes >= 1<<20 {
 		t.Fatalf("tile sandbox disk: %+v", d[1])
 	}
+	// a person's layer on a partitioned tile (PD-22): keyed by the tile's
+	// TileKey alone, never the person; a symlinked layer isn't followed
+	pp, err := EnsureDiskAt(filepath.Join(root, ".xbin", "term-part", "00ff", "u-ana"), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Symlink(filepath.Join(root, ".xbin", "term-part", "00ff", "u-ana"), filepath.Join(root, ".xbin", "term-part", "00ff", "u-link"))
+	d = ListDisks(root)
+	if len(d) != 3 || d[1].Kind != DiskPersonTerminal || d[1].Key != "00ff" || d[1].Path != pp || d[1].Sandbox != "" {
+		t.Fatalf("a person's terminal disk: %+v", d)
+	}
 }

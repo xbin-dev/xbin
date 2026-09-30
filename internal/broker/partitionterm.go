@@ -1,0 +1,230 @@
+package broker
+
+// partitionterm.go — terminals and agent sessions on partitioned tiles, the
+// broker's side (plans/partitions/06 §1-§3; PD-09, PD-10, PD-22). The
+// terminal manager (internal/term/partition.go) asks, through hooks boot
+// installs:
+//
+//   - TermPartition: a new session's partition — the opener's person's
+//     (addressedPartition, 02 §3), global for the owner token when the tile
+//     declares it (API off without it, PD-10), global for a session
+//     targeting a non-primary deployment (PD-17) — and the person's
+//     partition id, which keys their layer and history. Sessions on a tile
+//     whose mode switch runs are refused;
+//   - TermTilePartitioned: whether the tile holding a path keeps each
+//     person's data apart now (the admin gates, PD-09);
+//   - PersonPartitionKey: a person's partition id from their stored uid,
+//     never minted (the history routes).
+//
+// A mode switch stops the tile's sessions and deletes its people's layers
+// and partition history (the wipe hook "person-terminals", 01 §2.6),
+// through the terminal manager boot installs (SetPartitionTerminals).
+
+import (
+	"fmt"
+	"sync"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/term"
+	"github.com/xbin-dev/xbin/internal/util"
+)
+
+func init() {
+	registerWipeHook(wipeHook{name: "person-terminals", stop: stopPersonTerminals, wipe: wipePersonTerminals})
+}
+
+// TermPartition answers the terminal manager's question about a session p
+// opens on the tile holding path, targeting deployment dep ("" follows the
+// primary) (term.SessionPartitionFunc). A tile that isn't partitioned
+// answers only its Tile (which a switch's stop matches sessions by), so
+// its sessions are today's. An error refuses the session: a mode switch of
+// the tile runs (term.ErrPartitionSwitching), or a person reaches no
+// partition of it (addressedPartition's reason).
+func (b *Broker) TermPartition(p auth.Principal, path, dep string) (term.Partition, error) {
+	c, _, ok := b.Reg.Resolve(path)
+	if !ok {
+		return term.Partition{}, nil
+	}
+	tile := c.Path
+	if why := b.switchHold(tile); why != "" {
+		return term.Partition{}, fmt.Errorf("%w: %s %s — open the session once it is done", term.ErrPartitionSwitching, tile, why)
+	}
+	_, partitioned, err := b.tilePartitioning(tile)
+	switch {
+	case err != nil && p.UserID != "":
+		return term.Partition{}, err // the record can't be read: no person's layer can be keyed (fail closed)
+	case err != nil:
+		return term.Partition{Partitioned: true, Tile: tile, NoAPI: err.Error()}, nil
+	case !partitioned:
+		return term.Partition{Tile: tile}, nil
+	}
+	out := term.Partition{Partitioned: true, Tile: tile}
+	if p.UserID != "" {
+		// the person's partition id keys their layer and history, whichever
+		// deployment the session targets; PartitionIdent checks they are
+		// live on the tile and mints their uid at their first partition
+		pkey, uid, err := b.PartitionIdent(tile, string(util.UserPartition(p.UserID)))
+		if err != nil {
+			return term.Partition{}, err
+		}
+		out.Key = pkey
+		termPartitionRecord(b, tile, p.UserID, uid)
+	}
+	if dep != "" && !b.isPrimary(tile, dep) {
+		out.Part = string(util.PartitionGlobal) // a non-primary deployment's one instance (PD-17)
+		return out, nil
+	}
+	if p.Component != "" && p.Component != tile {
+		p.Component = tile // a terminal on a sub-path acts as its tile, as the server's gate reads it
+	}
+	part, err := b.addressedPartition(p, tile)
+	switch {
+	case err != nil && p.UserID == "": // no person, and no global instance to reach (PD-10)
+		out.NoAPI = err.Error()
+	case err != nil:
+		return term.Partition{}, err
+	default:
+		out.Part = string(part)
+	}
+	return out, nil
+}
+
+// termPartitionRecord is the seam for F5's identity records (PD-43,
+// partitionrecords.go): a person's session opening on partitioned tile
+// under incarnation uid writes or touches their partition record there
+// (user, uid, created). Their terminal layer and agent history are
+// partition artifacts keyed by H(id, uid) alone; without a record carrying
+// the triple, a users store that lost the uid couldn't re-adopt it, nor a
+// record-driven sweep find them. Unfilled it records nothing: the layer and
+// history are found by their partition id (WipePartitionKey, F7b's sweep of
+// a deleted person's current id) as before.
+var termPartitionRecord = func(b *Broker, tile, user, uid string) {}
+
+// TermTilePartitioned reports whether the tile holding path keeps each
+// person's data apart — its recorded mode has user partitions, paused or
+// not, or can't be read (fail closed) — and which tile that is.
+func (b *Broker) TermTilePartitioned(path string) (string, bool) {
+	c, _, ok := b.Reg.Resolve(path)
+	if !ok {
+		return "", false
+	}
+	_, r, _ := c.PartitionState()
+	return c.Path, r.User || c.PartitionRecordUnknown()
+}
+
+// PersonPartitionKey is person userID's partition id from their stored uid:
+// "" while they have none, or are gone. Never mints.
+func (b *Broker) PersonPartitionKey(userID string) string {
+	if uid := b.storedPartitionUID(userID); uid != "" {
+		return util.PartitionKey(userID, uid)
+	}
+	return ""
+}
+
+// PartitionTerminals is the terminal manager's side of a mode switch, and
+// of one partition's end (*term.Manager).
+type PartitionTerminals interface {
+	StopTileSessions(tile string) error
+	WipePartitionTile(tile string, dryRun bool) (term.PartitionTileWipe, error)
+	HoldPartition(tile, pkey string) (release func())
+	StopPartitionSessions(tile, pkey string) error
+	WipePartitionKey(tile, pkey string, dryRun bool) (term.PartitionTileWipe, error)
+}
+
+// partitionTerms holds each broker's PartitionTerminals (a broker without
+// one — no terminals — has nothing of theirs to stop or wipe).
+var partitionTerms sync.Map // *Broker → PartitionTerminals
+
+// SetPartitionTerminals installs the terminal manager a switch stops and
+// wipes through.
+func (b *Broker) SetPartitionTerminals(t PartitionTerminals) {
+	if t == nil {
+		partitionTerms.Delete(b)
+		return
+	}
+	partitionTerms.Store(b, t)
+}
+
+func (b *Broker) partitionTerminals() PartitionTerminals {
+	if v, ok := partitionTerms.Load(b); ok {
+		return v.(PartitionTerminals)
+	}
+	return nil
+}
+
+// stopPersonTerminals is a switch's stop step for terminals (01 §2.5): when
+// it deletes everything, every session on the tile ends — a person's holds
+// the layer about to go, and every other one was opened for the mode that
+// is ending — and the switch waits for their teardown (an agent session's
+// history is saved then). New sessions are refused while the switch runs
+// (TermPartition). A session that won't end fails the wipe step.
+func stopPersonTerminals(b *Broker, t wipeTarget) {
+	if tm := b.partitionTerminals(); tm != nil && t.Kind == wipeEverything {
+		_ = tm.StopTileSessions(t.Tile) // wipePersonTerminals asks again, and fails the switch on it
+	}
+}
+
+// wipePersonTerminals deletes the tile's person layers and partition
+// agent-session history when a switch deletes everything (01 §2.6, PD-22);
+// a dry run counts. Each person whose layer or history goes is told, as for
+// their partition's data. The tile's own layer and people's own history
+// stay (the keep list).
+func wipePersonTerminals(b *Broker, t wipeTarget, sum *wipeSummary) error {
+	tm := b.partitionTerminals()
+	if tm == nil || t.Kind != wipeEverything {
+		return nil
+	}
+	if !t.DryRun {
+		if err := tm.StopTileSessions(t.Tile); err != nil {
+			return err
+		}
+	}
+	got, err := tm.WipePartitionTile(t.Tile, t.DryRun)
+	for _, user := range b.peopleOfPartitionKeys(got.Keys) {
+		sum.addPerson(user)
+	}
+	return err
+}
+
+// wipePersonTerminalsOf ends the sessions of partition id pkey on tile
+// ("" every tile) and deletes its person layers and partition agent
+// history there — a dry run only counts. For one partition's end, which F7b
+// owns: a person's reset of their partition, an admin's purge of an
+// orphaned one, a deleted person's sweep (plans/partitions/06 §2, §6, §9).
+// The partition is held from before the stop until the wipe is done: its
+// person's new sessions answer 409 meanwhile, and none open in between (a
+// caller that stops and wipes in separate phases holds it across both,
+// PartitionTerminals.HoldPartition). A broker without terminals has none:
+// the zero wipe.
+func (b *Broker) wipePersonTerminalsOf(tile, pkey string, dry bool) (term.PartitionTileWipe, error) {
+	tm := b.partitionTerminals()
+	if tm == nil {
+		return term.PartitionTileWipe{}, nil
+	}
+	if !dry {
+		defer tm.HoldPartition(tile, pkey)()
+		if err := tm.StopPartitionSessions(tile, pkey); err != nil {
+			return term.PartitionTileWipe{}, err
+		}
+	}
+	return tm.WipePartitionKey(tile, pkey, dry)
+}
+
+// peopleOfPartitionKeys names the people whose current partition id is one
+// of keys (a deleted person's, or an older incarnation's, names no one).
+func (b *Broker) peopleOfPartitionKeys(keys []string) []string {
+	if len(keys) == 0 || b.Users == nil {
+		return nil
+	}
+	want := map[string]bool{}
+	for _, k := range keys {
+		want[k] = true
+	}
+	var out []string
+	for _, pub := range b.Users.List() { // the listing leaves the uid out: ask each record
+		if uid := b.storedPartitionUID(pub.ID); uid != "" && want[util.PartitionKey(pub.ID, uid)] {
+			out = append(out, pub.ID)
+		}
+	}
+	return out
+}

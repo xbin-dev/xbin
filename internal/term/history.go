@@ -12,6 +12,14 @@ package term
 // History stays per tile, whichever deployment a session targeted: it is a
 // conversation about the tile's one work tree. Each entry names its
 // session's target deployment, when it had one, in `deployment`.
+//
+// On a partitioned tile a person's session is their partition's, and so is
+// its history (PD-22): data/agent-history/.partitions/<pkey>/<TileKey>/,
+// keyed by the person's partition id — a person deleted and recreated
+// under the same id never reads the old one's — and deleted with the
+// partition (a mode switch: WipePartitionTile). The routes below merge it
+// with the person's own (partitionHistoryRoot) — never for an admin viewing
+// as them (HistoryScope.ViewAs).
 
 import (
 	"encoding/json"
@@ -24,9 +32,28 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/util"
 )
+
+// HistoryScope is whose past agent sessions a history call reads: Home's
+// own (their home key, HomeKey) and, unless ViewAs, their partition history
+// (partitionHistoryRoot). ViewAs is an admin viewing as the person (a
+// read-only principal): view-as never opens a partition (PD-08), nor its
+// history (PD-09).
+type HistoryScope struct {
+	Home   string
+	ViewAs bool
+}
+
+// HistoryOf is p's history scope.
+func HistoryOf(p auth.Principal) HistoryScope {
+	return HistoryScope{Home: HomeKey(p), ViewAs: p.ReadOnly()}
+}
+
+// OwnHistory is home's scope as the person themselves.
+func OwnHistory(home string) HistoryScope { return HistoryScope{Home: home} }
 
 const historyKeep = 20 // past sessions kept per (user × tile)
 
@@ -59,6 +86,28 @@ func (m *Manager) historyDir(homeKey, cwd string) string {
 	return filepath.Join(m.historyRoot(homeKey), util.CompKey(cwd))
 }
 
+// partitionHistoryRoot is h's partition history root: their partition
+// id's; "" while they have none, for view-as, or with no hook installed.
+// h.Home is the person's id (validated ids are their own home keys).
+func (m *Manager) partitionHistoryRoot(h HistoryScope) string {
+	if m.PersonPartitionKey == nil || h.Home == ownerHomeKey || h.ViewAs {
+		return ""
+	}
+	if key := m.PersonPartitionKey(h.Home); key != "" {
+		return filepath.Join(m.Root, "data", "agent-history", partHistoryDir, key)
+	}
+	return ""
+}
+
+// sessionHistoryDir is where s's transcript goes: its partition's on a
+// partitioned tile, else its person's own per tile.
+func (m *Manager) sessionHistoryDir(s *Session) string {
+	if s.part.key != "" {
+		return filepath.Join(m.Root, "data", "agent-history", partHistoryDir, s.part.key, util.TileKey(s.part.tile))
+	}
+	return m.historyDir(s.homeKey, s.Cwd)
+}
+
 // saveHistory persists a session's transcript and meta. Called when the
 // session ends (agentPump) and on shutdown (FlushAgents).
 func (m *Manager) saveHistory(s *Session) {
@@ -82,7 +131,7 @@ func (m *Manager) saveHistory(s *Session) {
 		Turns: turns, Preview: firstPrompt(evs), ACPSessionID: acpID, Loadable: loadable && acpID != "",
 		Deployment: s.target.Deployment,
 	}, Events: evs}
-	dir := m.historyDir(s.homeKey, s.Cwd)
+	dir := m.sessionHistoryDir(s)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		slog.Warn("agent history: mkdir", "id", s.ID, "err", err)
 		return
@@ -93,7 +142,7 @@ func (m *Manager) saveHistory(s *Session) {
 		return
 	}
 	if resumed != "" && resumed != s.ID { // this session continued that one: one entry, not two
-		_ = m.DeleteHistory(s.homeKey, resumed)
+		_ = m.DeleteHistory(OwnHistory(s.homeKey), resumed)
 	}
 	m.pruneHistory(dir)
 }
@@ -172,27 +221,43 @@ func historyMetaFrom(r io.Reader) (HistoryMeta, bool) {
 // ListHistory is a user's past sessions, newest first — all tiles, or one
 // when cwd != "" — minus the tiles they may no longer open a terminal on
 // (`may` as in ListFor; nil = no filter). Never nil.
-func (m *Manager) ListHistory(homeKey, cwd string, may func(rel string) bool) []HistoryMeta {
+func (m *Manager) ListHistory(h HistoryScope, cwd string, may func(rel string) bool) []HistoryMeta {
 	out := []HistoryMeta{}
-	var dirs []string
+	type dir struct{ path, cwd string } // cwd: only entries of that cwd (a partition dir holds its tile's sub-paths too)
+	var dirs []dir
+	part := m.partitionHistoryRoot(h)
 	if cwd != "" {
-		dirs = []string{m.historyDir(homeKey, cwd)}
+		dirs = []dir{{path: m.historyDir(h.Home, cwd)}}
+		if part != "" {
+			tile := cwd
+			if m.TilePartitioned != nil {
+				if t, on := m.TilePartitioned(cwd); on {
+					tile = t
+				}
+			}
+			dirs = append(dirs, dir{filepath.Join(part, util.TileKey(tile)), cwd})
+		}
 	} else {
-		ents, _ := os.ReadDir(m.historyRoot(homeKey))
-		for _, e := range ents {
-			if e.IsDir() {
-				dirs = append(dirs, filepath.Join(m.historyRoot(homeKey), e.Name()))
+		for _, root := range []string{m.historyRoot(h.Home), part} {
+			if root == "" {
+				continue
+			}
+			ents, _ := os.ReadDir(root)
+			for _, e := range ents {
+				if e.IsDir() {
+					dirs = append(dirs, dir{path: filepath.Join(root, e.Name())})
+				}
 			}
 		}
 	}
-	for _, dir := range dirs {
-		ents, _ := os.ReadDir(dir)
+	for _, d := range dirs {
+		ents, _ := os.ReadDir(d.path)
 		for _, e := range ents {
 			if !strings.HasSuffix(e.Name(), ".json") {
 				continue
 			}
-			meta, ok := readHistoryMeta(filepath.Join(dir, e.Name()))
-			if !ok || (may != nil && !may(meta.Cwd)) {
+			meta, ok := readHistoryMeta(filepath.Join(d.path, e.Name()))
+			if !ok || (may != nil && !may(meta.Cwd)) || (d.cwd != "" && meta.Cwd != d.cwd) {
 				continue
 			}
 			out = append(out, meta)
@@ -202,34 +267,47 @@ func (m *Manager) ListHistory(homeKey, cwd string, may func(rel string) bool) []
 	return out
 }
 
-// historyPath finds a past session's file by id across the user's tiles.
-func (m *Manager) historyPath(homeKey, id string) (string, error) {
+// historyPath finds a past session's file by id across the user's tiles:
+// their own history, then their partition history (partitionHistoryRoot) —
+// fromPart says it is the latter.
+func (m *Manager) historyPath(h HistoryScope, id string) (path string, fromPart bool, err error) {
 	if id == "" || strings.ContainsAny(id, "/\\.") { // ids are hex tokens
-		return "", ErrNoSession
+		return "", false, ErrNoSession
 	}
-	matches, _ := filepath.Glob(filepath.Join(m.historyRoot(homeKey), "*", id+".json"))
-	if len(matches) == 0 {
-		return "", ErrNoSession
+	for i, root := range []string{m.historyRoot(h.Home), m.partitionHistoryRoot(h)} {
+		if root == "" {
+			continue
+		}
+		if matches, _ := filepath.Glob(filepath.Join(root, "*", id+".json")); len(matches) > 0 {
+			return matches[0], i == 1, nil
+		}
 	}
-	return matches[0], nil
+	return "", false, ErrNoSession
 }
 
 // HistoryMeta is one past session's meta alone (the file's head).
-func (m *Manager) HistoryMeta(homeKey, id string) (HistoryMeta, error) {
-	path, err := m.historyPath(homeKey, id)
+func (m *Manager) HistoryMeta(h HistoryScope, id string) (HistoryMeta, error) {
+	meta, _, err := m.historyMetaFrom(h, id)
+	return meta, err
+}
+
+// historyMetaFrom is HistoryMeta, and whether the entry is partition
+// history (historyPath).
+func (m *Manager) historyMetaFrom(h HistoryScope, id string) (HistoryMeta, bool, error) {
+	path, fromPart, err := m.historyPath(h, id)
 	if err != nil {
-		return HistoryMeta{}, err
+		return HistoryMeta{}, false, err
 	}
 	meta, ok := readHistoryMeta(path)
 	if !ok {
-		return HistoryMeta{}, ErrNoSession
+		return HistoryMeta{}, false, ErrNoSession
 	}
-	return meta, nil
+	return meta, fromPart, nil
 }
 
 // ReadHistory is one past session: its meta and full transcript.
-func (m *Manager) ReadHistory(homeKey, id string) (HistoryMeta, []agent.Event, error) {
-	path, err := m.historyPath(homeKey, id)
+func (m *Manager) ReadHistory(h HistoryScope, id string) (HistoryMeta, []agent.Event, error) {
+	path, _, err := m.historyPath(h, id)
 	if err != nil {
 		return HistoryMeta{}, nil, err
 	}
@@ -248,8 +326,8 @@ func (m *Manager) ReadHistory(homeKey, id string) (HistoryMeta, []agent.Event, e
 }
 
 // DeleteHistory removes a past session.
-func (m *Manager) DeleteHistory(homeKey, id string) error {
-	path, err := m.historyPath(homeKey, id)
+func (m *Manager) DeleteHistory(h HistoryScope, id string) error {
+	path, _, err := m.historyPath(h, id)
 	if err != nil {
 		return err
 	}

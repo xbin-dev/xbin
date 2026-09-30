@@ -69,6 +69,7 @@ type Session struct {
 	pgid    bool          // the process leads its own group (the non-isolated agent host): kill the group
 	vm      bool          // a VM sandbox (vm.go)
 	target  sessionTarget // the target deployment, fixed at start (target.go)
+	part    sessionPart   // its partition on a partitioned tile, fixed at start (partition.go)
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
@@ -165,11 +166,23 @@ type Manager struct {
 	// TileDeployments answers what a session's target choice needs to know
 	// of a tile (D127p, target.go); nil: the zero state for every tile.
 	TileDeployments TileDeploymentsFunc
+	// SessionPartition answers a new session's partition on its tile
+	// (partition.go; the broker's TermPartition, installed by boot).
+	// TilePartitioned reports whether the tile holding a path keeps each
+	// person's data apart now, and which tile that is: the admin gates ask
+	// it (PD-09). PersonPartitionKey is a person's partition id from their
+	// stored uid ("" while they have none; never minted): whose partition
+	// history the history routes merge in. nil: no tile is partitioned, and
+	// every session is today's.
+	SessionPartition   SessionPartitionFunc
+	TilePartitioned    func(path string) (tile string, partitioned bool)
+	PersonPartitionKey func(userID string) string
 
 	mu       sync.Mutex
 	sessions map[string]*Session
 	envHeld  map[string]bool        // component key → a live session holds its persistent layer
 	rmTree   func(dir string) error // tests: stands in for removeLayer's confined removal
+	parts    partState              // partition holds and opens in flight (partitionhold.go)
 }
 
 func NewManager(root string, env func() []string) *Manager {
@@ -210,8 +223,9 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 		// A session mounts its creator's $HOME — another user may not attach
 		// to it (admins may, for debugging; they own the workspace anyway),
 		// and a creator whose terminal level on the tile was revoked since may
-		// not either (sessions.go).
-		if why := s.mayReattach(p); why != "" {
+		// not either (sessions.go); nor, on a partitioned tile, an admin
+		// (PD-09, partition.go).
+		if why := s.mayReattach(p, m.partitioned(s)); why != "" {
 			http.Error(w, why, http.StatusForbidden)
 			return
 		}
@@ -240,7 +254,12 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), code)
 			return
 		}
+		if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
+			http.Error(w, err.Error(), code)
+			return
+		}
 		s, err = m.create(o)
+		m.partOpened(&o) // registered or failed: a stop sees it now (partitionhold.go)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -274,6 +293,9 @@ func (m *Manager) List() []map[string]any {
 		if d := m.echoOf(s); d != "" { // the session's target (target.go)
 			row["deployment"] = d
 		}
+		if s.part.personal() { // a person's session on a partitioned tile: no name in an admin's listing (PD-09)
+			row["partition"], row["name"] = s.part.part, ""
+		}
 		out = append(out, row)
 	}
 	return out
@@ -301,6 +323,7 @@ type openOpts struct {
 	vm         bool              // a VM sandbox (vm.go)
 	launch     *sbxLaunch        // what the setup learnt (sbx.go; set by create/createAgent)
 	target     sessionTarget     // the target deployment (pickTarget, target.go)
+	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -366,7 +389,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
-	cmd, cleanup, postStart, envKey, _, err := m.shellCmd(dir, rel, homeDir, token, o)
+	cmd, cleanup, postStart, envKey, _, err := m.shellCmd(o.startDir(dir, homeDir), rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
 		m.sbxFail(o, rel, err)
@@ -399,7 +422,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, pty: f, kind: KindShell, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
-		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
+		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
 		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
 	m.mu.Lock()
@@ -429,7 +452,8 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 // session (a non-admin's, a coding agent's) xbind's own privileges (D78).
 // Returns a cleanup for sandbox state, an optional postStart hook (run after
 // the PTY starts) that wires the egress relay, and the persistent env-layer
-// key this session holds ("" = none).
+// key this session holds ("" = none). dir is where the session starts: the
+// tile directory, or $HOME on a partitioned tile (openOpts.startDir).
 // homeDir is the session user's $HOME (homes/<user>); token the per-session
 // terminal token (the shell's tile-scoped XBIN_TOKEN — "" = none). The last
 // result is the entry's env (an agent session builds the agent's from it).
@@ -471,6 +495,7 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 	}
 	cmd.Env = append(cmd.Env, "TERM=xterm-256color", "COLORTERM=truecolor", "XBIN_COMPONENT="+rel)
 	cmd.Env = append(cmd.Env, o.deploymentEnv()...) // XBIN_DEPLOYMENT, next to it (target.go)
+	cmd.Env = append(cmd.Env, o.partitionEnv()...)  // XBIN_PARTITION on a partitioned tile (partition.go)
 	if os.Getenv("LANG") == "" {
 		cmd.Env = append(cmd.Env, "LANG=C.UTF-8")
 	}
@@ -593,9 +618,10 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 
 	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.
 	// A VM terminal keeps its changes on a disk image in the same layer (vm.go).
-	envKey, vmDisk := termKey(rel), ""
+	// On a partitioned tile a person's layer is their own (partition.go).
+	envKey, vmDisk := o.layerKey(rel), ""
 	if m.acquireEnv(envKey) {
-		layer := filepath.Join(m.Root, ".xbin", "term", envKey)
+		layer := m.layerDir(envKey)
 		ver := m.ensureLayerBase(layer)        // stamp on first use (new→current, legacy→v0)
 		base, ok := resolveBase(m.Rootfs, ver) // pin the upper to the base it was built on
 		up, work := filepath.Join(layer, "upper"), filepath.Join(layer, "work")
