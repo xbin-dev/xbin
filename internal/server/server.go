@@ -160,6 +160,7 @@ func (s *Server) Handler() http.Handler {
 	// theme.css as bare subresources, which carry no credentials by design.
 	handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
 	handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
+	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage))) // the partitions page, top-level only (personpage.go)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 

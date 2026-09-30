@@ -664,7 +664,7 @@ func htmlEscape(s string) string {
 // stable root.
 func (s *Server) handleVendor(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/vendor/")
-	if name == "" || strings.Contains(name, "..") {
+	if name == "" || strings.Contains(name, "..") || topLevelPage(name) {
 		http.NotFound(w, r)
 		return
 	}
