@@ -470,8 +470,7 @@ func TestHostedContinueClaim(t *testing.T) {
 
 // TestHostedUnshareAndDelete: the last member leaving a hosted conversation
 // un-shares it — it leaves team for the global instance (a tombstone
-// answers where) and its host is rung; deleting one rings the host too; a
-// conversation moving to its owner's partition can't be hosted.
+// answers where) and its host is rung; deleting one rings the host too.
 func TestHostedUnshareAndDelete(t *testing.T) {
 	ag, h := globalAgent(t)
 	tdb := withTeam(t)
@@ -503,16 +502,7 @@ func TestHostedUnshareAndDelete(t *testing.T) {
 	if sent[1].to != "user:bob" || !strings.Contains(string(sent[1].data), fmt.Sprint(del)) {
 		t.Fatalf("BUG: deleting didn't ring the host: %+v", sent[1])
 	}
-
-	// the AF pack's move home (conv_moves 'asked'): not hostable meanwhile
-	var run Run
-	serveJSON(t, h, as("POST", "/ask", `{"text":"x","share":{"members":[{"user":"bob","role":"participant"}]}}`, f5("alice", "read")), 200, &run)
-	waitStatus(t, ag.db, run.ID, statusIdle)
-	if _, err := ag.db.q.Exec(`CREATE TABLE IF NOT EXISTS conv_moves (root INTEGER PRIMARY KEY, owner TEXT, state TEXT, to_id INTEGER, created INTEGER, done INTEGER)`); err != nil {
-		t.Fatal(err)
-	}
-	_, _ = ag.db.q.Exec(`INSERT INTO conv_moves (root, owner, state, created) VALUES (?, 'alice', 'asked', ?)`, run.ID, now())
-	serveJSON(t, h, as("POST", "/hosted", fmt.Sprintf(`{"conversation":%d}`, run.ID), f5("alice", "read")), 409, nil)
+	// with AF's moves: hosted_moves_test.go (on home from global; not hostable while moving)
 }
 
 // TestHostedApprovalsAndResume: a parked call in a hosted conversation runs

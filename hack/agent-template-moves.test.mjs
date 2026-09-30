@@ -98,6 +98,21 @@ test('the page follows a moved conversation: its old address, and the event that
   app.session.liveG?.close();
 });
 
+test('a hosted conversation back at the shared instance (un-shared, or continued): its owner follows it there', async () => {
+  const { followsMove } = await import(new URL('moves.js', MODEL).href);
+  const T = 2 ** 39;
+  const mine = { owner: 'alice' };
+  // un-shared: team → the global instance (a plain id below 2^39) — followed; from there, on to her own space — followed again
+  assert.equal(followsMove(T + 3, 42, mine, 'alice', 'user'), true);
+  assert.equal(followsMove(42, B + 42, mine, 'alice', 'user'), true);
+  // someone else's, or the owner token's page: home
+  assert.equal(followsMove(T + 3, 42, { owner: 'bob' }, 'alice', 'user'), false);
+  assert.equal(followsMove(T + 3, 42, mine, 'alice', 'global'), false);
+  // a plain shared conversation deleted "to" another shared id isn't a move; nor is a hosted id "moved" into team again
+  assert.equal(followsMove(41, 42, mine, 'alice', 'user'), false);
+  assert.equal(followsMove(T + 3, T + 4, mine, 'alice', 'user'), false);
+});
+
 test('the sandbox list is read where you are, each home\'s apart; the banner reads your own', async () => {
   const app = createApp({ frame: (f) => f() });
   calls.length = 0;

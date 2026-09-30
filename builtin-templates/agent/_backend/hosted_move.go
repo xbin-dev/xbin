@@ -335,8 +335,7 @@ func handleHostedMove(w http.ResponseWriter, r *http.Request) {
 	case !resting(run.Status) || len(agent.db.undelivered(id)) > 0:
 		xbin.WriteError(w, 409, "the agent is working in it: wait until it finishes (or stop it), then try again")
 		return
-	case convMovingHome(id):
-		xbin.WriteError(w, 409, "it is moving to its owner's own space (it is no longer shared): it can't be hosted")
+	case movingRefused(w, id): // homes_move.go: on its way to its owner's own space (90 §I10) — not taken into team
 		return
 	}
 	moved, left, err := moveIntoTeam(r.Context(), tv, run, c)
@@ -496,15 +495,6 @@ func settleHostedMoves(tv *Agent) {
 	_, _ = tv.db.q.Exec(`DELETE FROM team_hosts WHERE state='continued' AND since<?`, time.Now().Add(-continuedKept).Unix())
 }
 
-// convMovingHome: conversation id is on its way to its owner's own
-// partition (un-shared: the AF pack's conv_moves, 90 §I10) — nothing when
-// that table doesn't exist.
-func convMovingHome(id int64) bool {
-	var state string
-	err := agent.db.q.QueryRow(`SELECT state FROM conv_moves WHERE root=?`, id).Scan(&state)
-	return err == nil && state == "asked"
-}
-
 // --- the global instance: continuing without the host ----------------------------------
 
 // handleHostedContinue: POST /hosted/{id}/continue — a participant takes a
@@ -638,8 +628,12 @@ func unshareHosted(tv *Agent, root int64, c who) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	// AF (90 §I10), at merge: the un-shared conversation moves on to its owner's own partition —
-	//   _ = agent.db.Tx(func(t *DB) error { return t.moveIfUnshared(back.ID) })
+	// …and on to its owner's own partition, as any un-shared chat there
+	// (homes_move.go; it was shared — hosted — until this act). One that
+	// isn't a person's chat stays at the global instance, private.
+	if err := agent.db.Tx(func(t *DB) error { return t.moveIfUnshared(back.ID, true) }); err != nil {
+		logf("hosted conversation #%d: back at the global instance as #%d; its move to its owner's own space wasn't asked: %v", root, back.ID, err)
+	}
 	return back, nil
 }
 

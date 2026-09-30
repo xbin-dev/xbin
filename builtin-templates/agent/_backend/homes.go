@@ -213,7 +213,8 @@ func homeRoutes(mux *http.ServeMux) {
 		{"POST /runs/{id}/publish", needOwner, handlePublish},
 		{"POST /copy", needStart, handleCopy},
 	} {
-		mux.Handle(rt.pattern, agentRole(guard(rt.need, rt.h)))
+		// hostedRoute: a hosted conversation's export is team's (hosted_serve.go), its publish 409
+		mux.Handle(rt.pattern, agentRole(hostedRoute(rt.pattern, rt.need, guard(rt.need, rt.h))))
 	}
 }
 

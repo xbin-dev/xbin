@@ -312,10 +312,11 @@ global instance, which rings the host's partition by partition mail when
 they write and fans the host's live run out to their streams (the global
 instance as the hub for member-scoped live state). Every member is warned
 each time they open it, a wider audience pauses it until the host confirms,
-and it has no join links. The non-hosting alternative is **"Add a copy of
-my …"**: a person's partition sends copies of their own files into a shared
-conversation, whose originals stay private. The template's API.md
-("Non-secure conversations") has the rules.
+and it has no join links; un-sharing it ends hosting, and a person's chat
+then moves to its owner's partition as above. The non-hosting alternative
+is **"Add a copy of my …"**: a person's partition sends copies of their own
+files into a shared conversation, whose originals stay private. The
+template's API.md ("Non-secure conversations") has the rules.
 
 A partitioned agent's chat channels and event triggers show how a tile that
 isn't partitioned — the messaging bridge, the webhooks tile — serves people

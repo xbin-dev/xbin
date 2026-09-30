@@ -145,6 +145,9 @@ func handleCopyInAt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	root := rootOf(run)
+	if movingRefused(w, root) { // homes_move.go: on its way to its owner's own space, it takes no more changes
+		return
+	}
 	var body struct {
 		Files []bundleFile `json:"files"`
 	}

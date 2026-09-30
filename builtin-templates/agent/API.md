@@ -289,7 +289,8 @@ What a partitioned instance does differently:
     resources, pending, pendingKey, dropsAt}`, also on its run summaries in
     the stream and the lists), the stream, messages, answers, stop and
     interrupt, Retry (`resume`), members, pins, read state, files (text; a
-    binary one's bytes are the host's). Their inputs go into `team`; the
+    binary one's bytes are the host's), its export (the transcript without
+    files: **Copy to my own space**). Their inputs go into `team`; the
     global instance rings the host's partition (partition mail
     `hosted/input`), whose engine takes them up — never the global
     instance's. While it runs, the host's partition posts its run to its
@@ -328,7 +329,11 @@ What a partitioned instance does differently:
     member removed or gone, made private with nobody in it) it leaves `team`
     for the global instance as its owner's plain conversation (the answer's
     `movedTo`, or PATCH's item with `movedFrom`; its `run` event with
-    `deleted` names `movedTo`), and its host's partition stops.
+    `deleted` names `movedTo`), and its host's partition stops. From there
+    a person's chat moves on to its owner's own space like any un-shared
+    one (above: `conv/move`, 409 to changes meanwhile); its owner's page
+    follows it both steps. A conversation moving out can't be hosted
+    (`POST /hosted`) nor copied into (`POST /runs/{id}/copyin`): 409.
   - A hosted run has no schedule, automation-thread or skill tools
     (`schedule`, `unschedule`, `schedules_list`, `schedule_inspect`,
     `threads_list`, `thread_inspect`, `skills_*`): they would keep state

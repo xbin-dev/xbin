@@ -8,15 +8,20 @@
 import { homeOf, twoHomes, PARTITION_BASE } from './homes.js';
 import { homeApi } from './home-api.js';
 import { partitionState } from './partition.js';
+import { hostedId, TEAM_BASE } from './hosted.js';
 
 /** followsMove(id, to, row, me): does the page follow open conversation id,
  * deleted with `movedTo: to`, to where it went? Only a person's own page
  * does — their partition's — and only for their own conversation (row: the
  * summary it had, `owner` me), moved from the shared space into their own
- * space. Anyone else's page (the owner token's at the global instance) goes
- * home, as for any conversation deleted. */
+ * space, or a hosted one of theirs back at the shared instance (un-shared —
+ * from where it moves on into their own space, followed again — or
+ * continued without its host). Anyone else's page (the owner token's at the
+ * global instance) goes home, as for any conversation deleted. */
 export function followsMove(id, to, row, me, state = partitionState()) {
-  return !!to && Number(to) >= PARTITION_BASE && twoHomes(state) && homeOf(id, state) === 'global' && !!me && row?.owner === me;
+  const n = Number(to);
+  const where = n >= PARTITION_BASE || (hostedId(id) && n > 0 && n < TEAM_BASE);
+  return !!to && where && twoHomes(state) && homeOf(id, state) === 'global' && !!me && row?.owner === me;
 }
 
 /** movedTo(id): the id conversation id has in your own space since it moved there, or null. */
