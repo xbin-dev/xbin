@@ -554,6 +554,15 @@ db, _ := sql.Open("sqlite", xbin.Resource("db")+"?_pragma=journal_mode(WAL)") //
     // rw, so a fresh db (and its -wal/-shm) persists. Never invent a path.
 secret, _ := xbin.Secret("api-key")    // own vault only
 _ = xbin.Publish(xbin.Resource("bus"), "changed", payload)
+
+// partitioned tiles — one instance per person (in development: /docs/partitions.md)
+xbin.RequirePartition()          // first in main: exit unless xbind runs this as a partition
+xbin.Partition()                 // "user:<id>" | "global" | "" (not partitioned)
+xbin.PartitionUser()             // the <id> of a user partition, "" otherwise
+xbin.GlobalURL("rooms/7/posts")  // this tile's global instance, called as this partition's person
+id, _ := xbin.MailContext(ctx, "user:alice", "handoff/dm", data) // partition mail: global → a person, a person → global
+pg, _ := xbin.InboxPageContext(ctx, after, 100)                   // this instance's inbox (read on while pg.More)
+_ = xbin.AckContext(ctx, ids...)                                  // handled: gone (delivery is at least once — dedupe by ID)
 ```
 
 node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
