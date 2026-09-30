@@ -176,9 +176,10 @@ integration:
 		-skip '^(TestLiveExecs|TestLiveFiles)$$/^(minimal|rootfs|namespace)$$' ./internal/tilesbx/
 	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
 	# whole on a reset and an offload-full (WP-9b), and its mount points are
-	# never followed through it (WP-2b): only these tests of this unit-heavy
-	# package (the broker's run whole above); skip without .rootfs/userns
-	go test -tags=integration -count=1 -v -run '^(TestConfined|TestTermMountPoints)' ./internal/term/
+	# never followed through it (WP-2b), and people's layers on a partitioned
+	# tile stay apart (PD-22): only these tests of this unit-heavy package (the
+	# broker's run whole above); skip without .rootfs/userns
+	go test -tags=integration -count=1 -v -run '^(TestConfined|TestTermMountPoints|TestPartitionLayer)' ./internal/term/
 	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then again
 	# under QEMU's emulation (skips without its assets)
 	go test -tags=integration -count=1 -v ./internal/vm/
