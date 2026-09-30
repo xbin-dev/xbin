@@ -282,6 +282,23 @@ pending}`, `From: xbin/mail`) to that path while the inbox holds items;
 without it, poll `InboxPage`. On an xbind without partition mail they
 return an error naming `partition-mail/1`.
 
+Each call has a `…Context` variant that gives up when its context ends —
+`MailContext`, `MailWithContext`, `InboxPageContext`, `InboxContext`,
+`AckContext` — with an error wrapping the context's. The plain calls wait
+for xbind however long it takes; a doorbell handler, which xbind rings again
+later anyway, bounds its reads:
+
+```go
+ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+defer cancel()
+pg, err := xbin.InboxPageContext(ctx, after, 100)
+err = xbin.AckContext(ctx, ids...)
+```
+
+Nothing is lost when one gives up: an item stays until it is acknowledged,
+and one acknowledged or sent just before the deadline may still take
+effect (dedupe by `ID`, as always).
+
 ### Notifying a person on their phone
 
 `xbin.NotifyUser` sends a push notification to a person's xbin app devices —
