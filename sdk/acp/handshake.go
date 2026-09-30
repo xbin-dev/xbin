@@ -80,12 +80,21 @@ func (c *Client) openSession(ctx context.Context) error {
 	c.modes = sess.Modes
 	c.options = sess.ConfigOptions
 	c.mu.Unlock()
-	if want := c.cfg.Mode; want != "" && (sess.Modes == nil || sess.Modes.CurrentModeID != want) {
+	if want := c.cfg.Mode; want != "" && (sess.Modes == nil || sess.Modes.CurrentModeID != want) && !modeOptionIs(sess.ConfigOptions, want) {
 		if err := c.conn.Call(MSessionSetMode, SetModeParams{SessionID: sess.SessionID, ModeID: want}, nil); err != nil {
 			c.logf("set_mode %s: %v", want, err)
-		} else if sess.Modes != nil {
+		} else {
 			c.mu.Lock()
-			c.modes.CurrentModeID = want
+			if c.modes != nil {
+				c.modes.CurrentModeID = want
+			}
+			// an agent that speaks its modes as a config option of category
+			// mode (opencode) takes set_mode too: its option says so now
+			for i := range c.options {
+				if c.options[i].Category == "mode" && optionOffers(c.options[i], want) {
+					c.options[i].CurrentValue = want
+				}
+			}
 			c.mu.Unlock()
 		}
 	}
@@ -97,6 +106,9 @@ func (c *Client) openSession(ctx context.Context) error {
 				c.logf("option %s: the agent does not offer it", id)
 			}
 			continue
+		} else if cur.Category == "mode" && c.cfg.SkipModeOptions {
+			c.logf("option %s: it is the agent's mode — not set as an option", id)
+			continue
 		}
 		if err := c.setOption(ctx, id, c.cfg.Options[id]); err != nil {
 			c.logf("set option %s=%s: %v", id, c.cfg.Options[id], err)
@@ -104,6 +116,27 @@ func (c *Client) openSession(ctx context.Context) error {
 	}
 	c.setStatus(StatusIdle, "")
 	return nil
+}
+
+// modeOptionIs: the session has no modes of its own, and its config option
+// of category mode is already at mode.
+func modeOptionIs(opts []ConfigOption, mode string) bool {
+	for _, o := range opts {
+		if o.Category == "mode" && optionOffers(o, mode) {
+			return o.CurrentValue == mode
+		}
+	}
+	return false
+}
+
+// optionOffers: value is one of o's values.
+func optionOffers(o ConfigOption, value string) bool {
+	for _, v := range o.Options {
+		if v.Value == value {
+			return true
+		}
+	}
+	return false
 }
 
 // option finds one of the agent's config options by id.

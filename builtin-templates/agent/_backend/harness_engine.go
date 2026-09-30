@@ -90,6 +90,7 @@ type hsess struct {
 	abandoned map[string]string // request ids the pipe gave up on → why
 	endWhy    string            // what ended() says when the end is AgTT's doing
 	endLost   bool              // … and the session is lost, not stopped
+	newSess   bool              // spawned to open a new session (not session/load): its first mode is the adapter's own
 }
 
 // newHsess is a session of run at generation gen, started (or attached)
@@ -364,6 +365,17 @@ func harnessIn(u *sbxUse, id string) (acp.Provider, bool) {
 	return acp.Provider{ID: id, Name: id}, false
 }
 
+// harnessRunName is run's coding agent's name for people: as its manager
+// advertised it at the last spawn (harness_sessions.name — the one name a
+// harness the sdk catalog lacks has), else harnessName.
+func (d *DB) harnessRunName(runID int64, provider string) string {
+	var n string
+	if d.q.QueryRow(`SELECT name FROM harness_sessions WHERE run_id=?`, runID).Scan(&n) == nil && n != "" {
+		return n
+	}
+	return harnessName(provider)
+}
+
 // harnessName is a provider's name for people ("Claude Code").
 func harnessName(id string) string {
 	if p, ok := acp.Lookup(id); ok {
@@ -416,6 +428,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	epoch := e.epoch
 	e.mu.Unlock()
 	s := newHsess(e, run, gen, epoch, prov)
+	s.newSess = resume == ""
 	var rules []acp.Rule // what "allow always" answers remember in this conversation
 	if json.Unmarshal([]byte(hs.Rules), &rules) == nil {
 		s.perms.SetRules(rules)
@@ -466,8 +479,8 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 			opts[k] = v
 		}
 	}
-	acfg := acp.Config{Provider: prov, Mode: h.Mode, Options: opts, ResumeID: resume, Cwd: cwd, Argv: prov.Argv,
-		Perms: s.perms, Log: s.log, Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return s.process(), nil }}
+	acfg := acp.Config{Provider: prov, Mode: h.Mode, Options: opts, SkipModeOptions: true, ResumeID: resume, Cwd: cwd,
+		Argv: prov.Argv, Perms: s.perms, Log: s.log, Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return s.process(), nil }}
 	if err := s.c.Start(ctx, acfg); err != nil {
 		if ctx.Err() != nil || s.isHalted() {
 			return nil, errHandoff
@@ -507,6 +520,12 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	st := s.c.State()
 	err = s.commit(nil, func(t *DB, hs *harnessSession) error {
 		hs.State, hs.ACPSession, hs.Loadable, hs.Steering = hsLive, sid, loadable, st.Steering
+		if resume == "" {
+			noteStartMode(hs, h.Mode, st)
+		}
+		if err := s.dropModeOptionsTx(t, run, st); err != nil {
+			return err
+		}
 		if wasLogin || st.AuthNeeded {
 			return s.loginTx(t, hs, nil)
 		}
@@ -522,6 +541,42 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	s.publishSummary()
 	s.armIdle()
 	return s, nil
+}
+
+// noteStartMode records the mode a fresh session opened in when none was
+// asked of it (the adapter's own — harnessModeOpen), once.
+func noteStartMode(hs *harnessSession, asked string, st acp.SessionState) {
+	if hs.StartMode == "" && asked == "" {
+		hs.StartMode = currentMode(st)
+	}
+}
+
+// dropModeOptionsTx: a stored config option the live adapter reports as its
+// option of category mode was not set (SkipModeOptions — the mode is
+// Harness.Mode's, and its owner-only rule, §4.2.3): it leaves the
+// conversation's options, with a note.
+func (s *hsess) dropModeOptionsTx(t *DB, run *Run, st acp.SessionState) error {
+	cfg, err := t.runConfig(run.ID)
+	if err != nil || cfg.Harness == nil {
+		return err
+	}
+	var dropped []string
+	for _, o := range st.Options {
+		if _, ok := cfg.Harness.Options[o.ID]; ok && o.Category == "mode" {
+			delete(cfg.Harness.Options, o.ID)
+			dropped = append(dropped, o.ID)
+		}
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+	raw, _ := json.Marshal(cfg)
+	if _, err := t.q.Exec(`UPDATE runs SET config=? WHERE id=?`, string(raw), run.ID); err != nil {
+		return err
+	}
+	s.e.emitStep(t, s.root, t.journal(run.ID, "note", map[string]string{"text": fmt.Sprintf(
+		"%s's option %s is its mode — not set as an option (the mode picker switches it)", s.prov.Name, strings.Join(dropped, ", "))}))
+	return nil
 }
 
 func isAuthErr(err error) bool {
@@ -934,7 +989,7 @@ func (e *Engine) endHarnessTurnTx(t *DB, runID int64, why, msg string) error {
 	if run.ParentID == 0 {
 		t.bumpActivity(run.ID)
 	} else {
-		res := t.lastAssistant(run.ID)
+		res := t.harnessTurnText(run.ID)
 		if status == statusError {
 			res = msg
 		}
@@ -946,6 +1001,21 @@ func (e *Engine) endHarnessTurnTx(t *DB, runID int64, why, msg string) error {
 	}
 	t.AfterCommit(func() { e.Poke(run.ID) }) // what is queued goes next
 	return nil
+}
+
+// harnessTurnText is the answer of run's current (or last) turn: its newest
+// text after the turn's first row (harness_sessions.turn_seq) — "(no
+// answer)" when the turn wrote none, never an earlier turn's.
+func (d *DB) harnessTurnText(runID int64) string {
+	var from int64
+	_ = d.q.QueryRow(`SELECT turn_seq FROM harness_sessions WHERE run_id=?`, runID).Scan(&from)
+	var c string
+	_ = d.q.QueryRow(`SELECT content FROM messages WHERE run_id=? AND role='assistant' AND content!='' AND seq>?
+		ORDER BY seq DESC LIMIT 1`, runID, from).Scan(&c)
+	if c == "" {
+		return "(no answer)"
+	}
+	return c
 }
 
 // --- summaries and the harness event ---------------------------------------------------
@@ -999,6 +1069,11 @@ func (s *hsess) activityNow() hActivity {
 const harnessRecoverSQL = `SELECT h.run_id FROM harness_sessions h JOIN runs r ON r.id=h.run_id
 	WHERE h.state IN ('starting','live','login') AND r.engine='harness'`
 
-// harnessHasWork: a prompt is on its way or running (hasWork).
+// harnessHasWork: a prompt is on its way or running, or an adapter runs at
+// all (hasWork) — an idle one too: a process that exits with no successor
+// leaves the resume job, and the next one attaches it and re-arms its idle
+// reclaim (a blue/green successor clears the job as it takes over). A
+// process can't tell a handoff from a last exit, so it never stops one
+// itself (BeginShutdown).
 const harnessWorkSQL = `(SELECT count(*) FROM harness_sessions h JOIN runs r ON r.id=h.run_id
-	WHERE h.prompt_state<>'' AND r.engine='harness')`
+	WHERE r.engine='harness' AND (h.prompt_state<>'' OR (h.exec_id<>'' AND h.state IN ('starting','live','login'))))`

@@ -941,3 +941,63 @@ func TestSessionLoadResume(t *testing.T) {
 		t.Fatalf("resume on a non-loadable agent: %v", err)
 	}
 }
+
+// An agent that speaks its modes only as a config option of category mode
+// (opencode) takes the requested mode through session/set_mode at the
+// start, and its option then says so (the client's state, a consumer's
+// snapshot); a mode it is already in isn't asked for again.
+func TestStartModeOption(t *testing.T) {
+	p := newPeer(t)
+	p.modeOpt = true
+	c, _, err := p.start(ClientOptions{}, NewPermissions(), 0, Config{Mode: "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	opts := c.State().Options
+	if len(opts) != 1 || opts[0].CurrentValue != "plan" {
+		t.Fatalf("the mode option after set_mode: %+v", opts)
+	}
+	n := 0
+	for _, m := range p.seen() {
+		if m.Method == MSessionSetMode {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("set_mode sent %d times", n)
+	}
+	c2, _, err := p.start(ClientOptions{}, NewPermissions(), 0, Config{Mode: "build"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c2.Close()
+	for _, m := range p.seen() {
+		if m.Method == MSessionSetMode {
+			n--
+		}
+	}
+	if n != 0 {
+		t.Fatal("set_mode sent for the mode the agent is already in")
+	}
+}
+
+// SkipModeOptions: a requested option the agent reports as its option of
+// category mode is left alone — the mode is Config.Mode's.
+func TestStartSkipModeOptions(t *testing.T) {
+	p := newPeer(t)
+	p.modeOpt = true
+	c, _, err := p.start(ClientOptions{}, NewPermissions(), 0, Config{Options: map[string]string{"agent": "plan"}, SkipModeOptions: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if opts := c.State().Options; len(opts) != 1 || opts[0].CurrentValue != "build" {
+		t.Fatalf("the mode option was set: %+v", opts)
+	}
+	for _, m := range p.seen() {
+		if m.Method == MSessionSetConfig {
+			t.Fatal("set_config_option sent for the mode option")
+		}
+	}
+}

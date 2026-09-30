@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -96,5 +97,51 @@ func TestProviderSettingModes(t *testing.T) {
 	}
 	if b, _ := json.Marshal(f); strings.Contains(string(b), "approve") || strings.Contains(string(b), "plan\"") {
 		t.Fatalf("the setting modes are the runner's, never in the JSON: %s", b)
+	}
+}
+
+// Safe is default-deny: only a mode the catalog lists as not explicit (or
+// among SafeModes) — never an explicit one, one the catalog doesn't know,
+// or any mode of a provider it lacks.
+func TestProviderSafe(t *testing.T) {
+	c, _ := Lookup("claude")
+	o, _ := Lookup("opencode")
+	f := Fake([]string{"/bin/fakeacp"})
+	for _, x := range []struct {
+		p    Provider
+		mode string
+		want bool
+	}{
+		{c, "default", true}, {c, "acceptEdits", true}, {c, "plan", true}, {c, "auto", true},
+		{c, "bypassPermissions", false}, {c, "dontAsk", false}, {c, "", false},
+		{o, "build", true}, {o, "plan", true}, {o, "yolo", false},
+		{f, "ask", true}, {f, "auto", true}, {f, "yolo", false},
+		{Provider{ID: "house-agent"}, "ask", false},
+	} {
+		if got := x.p.Safe(x.mode); got != x.want {
+			t.Errorf("%s %q: safe %v, want %v", x.p.ID, x.mode, got, x.want)
+		}
+	}
+	for _, p := range append(Providers(), f) {
+		for _, m := range []string{p.AutoMode, p.ApproveMode, p.PlanMode, p.DefaultMode} {
+			if m != "" && !p.Safe(m) {
+				t.Errorf("%s: %q is a setting's mode but not safe", p.ID, m)
+			}
+		}
+		// an option switches to one of the provider's own modes
+		for id, m := range p.OptionModes {
+			if !slices.ContainsFunc(p.Modes, func(x Mode) bool { return x.ID == m }) {
+				t.Errorf("%s: option %s switches to %q, not one of its modes", p.ID, id, m)
+			}
+		}
+	}
+	// claude's plan approval: "Yes, and bypass permissions" names no mode
+	for _, id := range []string{"exit-plan-bypass", "exit-plan-clear-bypass"} {
+		if m := c.OptionModes[id]; m == "" || c.Safe(m) {
+			t.Errorf("claude's %s: %q", id, m)
+		}
+	}
+	if b, _ := json.Marshal(c); strings.Contains(string(b), "exit-plan") {
+		t.Errorf("OptionModes is the runner's, never in the JSON: %s", b)
 	}
 }

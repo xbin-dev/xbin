@@ -40,6 +40,16 @@ type Provider struct {
 	// settings say.
 	ApproveMode string `json:"-"`
 	PlanMode    string `json:"-"`
+	// SafeModes are modes outside Modes this catalog knows never take the
+	// agent past its own asks (Safe): the ones an adapter speaks only as a
+	// config option of category mode (opencode's build and plan agents).
+	SafeModes []string `json:"-"`
+	// OptionModes maps a permission option that switches the session's mode
+	// without naming it to the mode it switches to: a plan approval's
+	// options (claude-agent-acp's "Yes, and bypass permissions" is
+	// exit-plan-bypass). A consumer that keeps some modes to some people
+	// judges such an option by its mode (Safe).
+	OptionModes map[string]string `json:"-"`
 }
 
 // Mode is one of a provider's session modes.
@@ -59,7 +69,11 @@ var catalog = []Provider{
 		SessionMeta: map[string]any{"claudeCode": map[string]any{"options": map[string]any{
 			"thinking": map[string]any{"type": "adaptive", "display": "summarized"}}}},
 		LoginCmd: "CLAUDE_CODE_REMOTE=1 claude /login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits",
-		ApproveMode: "default", PlanMode: "plan"},
+		ApproveMode: "default", PlanMode: "plan",
+		// its ExitPlanMode approval's options (claude-agent-acp 0.81)
+		OptionModes: map[string]string{"exit-plan-default": "default", "exit-plan-accept-edits": "acceptEdits",
+			"exit-plan-clear-accept-edits": "acceptEdits", "exit-plan-auto": "auto", "exit-plan-clear-auto": "auto",
+			"exit-plan-bypass": "bypassPermissions", "exit-plan-clear-bypass": "bypassPermissions"}},
 	{ID: "codex", Name: "Codex", Driver: "acp", Argv: []string{"codex-acp"}, Login: "codex login",
 		Modes: []Mode{{ID: "read-only", Name: "Ask for approval"}, {ID: "agent", Name: "Approve for me"},
 			{ID: "agent-full-access", Name: "Full access", Explicit: true}},
@@ -72,7 +86,11 @@ var catalog = []Provider{
 		LoginCmd: "NO_BROWSER=true gemini", Bins: []string{"gemini"}, AutoMode: "autoEdit",
 		ApproveMode: "default", PlanMode: "plan"},
 	{ID: "opencode", Name: "OpenCode", Driver: "acp", Argv: []string{"opencode", "acp"}, Login: "opencode auth login",
-		LoginCmd: "opencode auth login", Bins: []string{"opencode"}},
+		LoginCmd: "opencode auth login", Bins: []string{"opencode"},
+		// its build and plan agents, as its config option of category mode
+		// (opencode 1.18): build asks as its own settings say, plan changes
+		// nothing
+		SafeModes: []string{"build", "plan"}},
 }
 
 // Providers is the catalog of adapters this package knows, in display
@@ -104,6 +122,29 @@ func Lookup(id string) (Provider, bool) {
 		}
 	}
 	return Provider{}, false
+}
+
+// Safe reports whether mode is one this catalog knows never takes the agent
+// past its own asks: a non-Explicit entry of Modes, or one of SafeModes.
+// Anything else is not — an Explicit mode, a mode a newer adapter reports
+// that the catalog doesn't list, any mode of a provider the catalog lacks
+// (a zero Provider): a consumer that keeps bypass modes to some people
+// treats every such mode as one (default-deny).
+func (p Provider) Safe(mode string) bool {
+	if mode == "" {
+		return false
+	}
+	for _, m := range p.Modes {
+		if m.ID == mode {
+			return !m.Explicit
+		}
+	}
+	for _, m := range p.SafeModes {
+		if m == mode {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveMode validates a requested mode against the table: "" → the

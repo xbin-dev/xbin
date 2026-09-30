@@ -197,10 +197,13 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   interrupts the turn and answers everything pending as cancelled.
 - **Settings.** `c.SetOption(ctx, id, value)` (a config option the agent
   advertised — model, effort — or `"mode"`; `ctx` bounds the agent's
-  answer); `Config.Mode` / `Options`
-  request them at start; `Config.ResumeID` reopens an earlier session
-  (`session/load`) when the agent advertised `loadSession` (`c.Session()`
-  reports its id and whether it can).
+  answer); `Config.Mode` / `Options` request them at start (a mode an
+  agent speaks only as its config option of category `mode` — opencode —
+  goes as `session/set_mode`, and that option then says it;
+  `Config.SkipModeOptions` keeps `Options` from ever setting that option:
+  the mode is `Mode`'s alone); `Config.ResumeID` reopens an earlier
+  session (`session/load`) when the agent advertised `loadSession`
+  (`c.Session()` reports its id and whether it can).
 - **Providers.** `acp.Providers()` / `acp.Lookup(id)`: the argv, modes
   (explicit ones — bypass, full access — are never a default), env and
   session `_meta` each adapter wants, `LoginCmd` (a shell command that
@@ -208,7 +211,14 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   login from its `$HOME`), `Bins` (the executables to look for),
   `AutoMode` (the auto-edit mode, `""` for none), `ApproveMode` (the one
   that asks before acting) and `PlanMode` (plans without changing
-  anything) — `""` where the adapter has none. `acp.Fake(argv)` is the
+  anything) — `""` where the adapter has none. `p.Safe(mode)` is
+  default-deny: true only for a mode the catalog knows never takes the
+  agent past its own asks (a non-explicit one of `Modes`, or one of
+  `SafeModes` — opencode's `build`, `plan`, which it speaks as a config
+  option); an explicit mode, one a newer adapter adds, any mode of a
+  provider the catalog lacks is not. `p.OptionModes` maps a permission
+  option that switches the mode without naming it to that mode (claude's
+  plan approval: `exit-plan-bypass` → `bypassPermissions`). `acp.Fake(argv)` is the
   scripted test agent (`hack/fakeacp`) as a provider, id `fake`; it is
   never in the catalog.
 - **Prompts with files.** `acp.PrepareAttachments` checks and normalises

@@ -99,6 +99,7 @@ type peer struct {
 	steering  bool            // advertise _session/steering
 	steerNext string          // the next steer's outcome ("": injected in a turn, else promptRequired)
 	signedOut bool            // session/new answers -32000 until authenticate
+	modeOpt   bool            // its modes only as a config option of category mode (opencode), set_mode taken
 	methods   []AuthMethod
 	elicited  chan map[string]any // the client's answers to url elicitations
 	gate      chan struct{}       // device-fast completes once this closes (the client has the request)
@@ -160,10 +161,14 @@ func (p *peer) onRequest(m *Message) (any, *Error) {
 		return res, nil
 	case MSessionNew:
 		p.mu.Lock()
-		out := p.signedOut
+		out, modeOpt := p.signedOut, p.modeOpt
 		p.mu.Unlock()
 		if out {
 			return nil, &Error{Code: CodeAuthRequired, Message: "Authentication required"}
+		}
+		if modeOpt {
+			return SessionNewResult{SessionID: "s-1", ConfigOptions: []ConfigOption{{ID: "agent", Name: "Agent", Category: "mode",
+				Type: "select", CurrentValue: "build", Options: []ConfigValue{{Value: "build", Name: "Build"}, {Value: "plan", Name: "Plan"}}}}}, nil
 		}
 		return SessionNewResult{SessionID: "s-1", Modes: &SessionModes{CurrentModeID: "ask", AvailableModes: []ModeEntry{{ID: "ask", Name: "Ask"}}}}, nil
 	case MSessionLoad:
@@ -200,6 +205,8 @@ func (p *peer) onRequest(m *Message) (any, *Error) {
 			p.chunk("steered: " + sp.Prompt[0].Text)
 		}
 		return SteerResult{Outcome: out}, nil
+	case MSessionSetMode:
+		return map[string]any{}, nil
 	case MAuthenticate:
 		var ap AuthenticateParams
 		_ = json.Unmarshal(m.Params, &ap)

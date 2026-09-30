@@ -187,6 +187,14 @@ func plural(n int) string {
 // (approve, plan) when given, else the root conversation owner's own
 // setting (§4.3.12) — never an explicit mode, and never wider than theirs.
 func (e *Engine) harnessChildMode(root int64, prov acp.Provider, want string) string {
+	m := e.harnessChildModeOf(root, prov, want)
+	if !prov.Safe(m) {
+		return "" // (never: the catalog's settings are safe) the adapter's own
+	}
+	return m
+}
+
+func (e *Engine) harnessChildModeOf(root int64, prov acp.Provider, want string) string {
 	switch want {
 	case hsmPlan:
 		return orStr(prov.PlanMode, prov.ApproveMode)
@@ -214,7 +222,7 @@ func (d *DB) runningHarnesses(root int64) int {
 func (h *harnessSpawn) apply(child *Config, parent Config) {
 	b := h.b
 	child.Sandbox = &b
-	child.System = parent.System
+	child.System = strings.TrimSuffix(parent.System, subagentContract) // a subagent parent's carries it
 	child.Engine = engineHarness
 	child.Harness = &HarnessConfig{Provider: h.prov.ID, Mode: h.mode, Ref: b.Ref, Cwd: b.Cwd}
 }
@@ -338,7 +346,7 @@ func (ag *Agent) noteParentTx(t *DB, child *Run, who, text string, files []strin
 	if text == "" && len(files) > 0 {
 		text = "(files: " + strings.Join(files, ", ") + ")"
 	}
-	note := fmt.Sprintf("[direct message to #%d (%s) from %s]\n%s", child.ID, harnessName(cfg.Harness.Provider), who, text)
+	note := fmt.Sprintf("[direct message to #%d (%s) from %s]\n%s", child.ID, t.harnessRunName(child.ID, cfg.Harness.Provider), who, text)
 	_, _, err = t.enqueue(child.ParentID, inboxHNote, inboxBody{Text: note, Source: "harness", From: child.ID, Sender: who}, "")
 	return err
 }

@@ -298,3 +298,55 @@ func jsonOf(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+// A binary from before coding agents, rolled back to, ends at once any turn
+// it starts on a coding agent's run: its turn() checks turn_steps against
+// maxTurnSteps (whose ceiling is harnessTurnCap) before anything else, and
+// the triggers keep a harness run's turn_steps there — from its creation,
+// through a draft becoming one, through such a binary's own turn start
+// (v0.3.64's startTurn zeroes turn_steps with its status) and its
+// recover()'s running runs. A built-in run is untouched.
+func TestHarnessTurnCap(t *testing.T) {
+	db, err := openDB(seedOldDB(t, oldHarnessRows))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.sql.Close()
+	steps := func(id int64) int {
+		var n int
+		if err := db.sql.QueryRow(`SELECT turn_steps FROM runs WHERE id=?`, id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	h, err := db.createRunStamped("coding", `{"engine":"harness"}`, 0, statusRunning, runStamp{Owner: "alice", Engine: engineHarness})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steps(h) != harnessTurnCap {
+		t.Fatalf("a new coding agent's run: turn_steps %d", steps(h))
+	}
+	// v0.3.64's startTurn, verbatim
+	oldStart := `UPDATE runs SET status=?, wake_at=0, pending='', turn_steps=0, turn_started=?,
+			settled_at=0, outcome='', cancel_req=0, updated=? WHERE id=?`
+	for _, id := range []int64{h, 1} {
+		if _, err := db.sql.Exec(oldStart, statusRunning, 1, 1, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []Config{{}, {MaxTurnSteps: 100000}, {MaxIters: 100000}} {
+		if steps(h) < c.maxTurnSteps() {
+			t.Fatalf("an older binary's turn start: turn_steps %d, its cap %d", steps(h), c.maxTurnSteps())
+		}
+	}
+	if steps(1) != 0 {
+		t.Fatalf("a built-in run: turn_steps %d", steps(1))
+	}
+	// a draft that becomes a coding agent's (releaseDraft stamps engine)
+	if _, err := db.sql.Exec(`UPDATE runs SET engine=? WHERE id=3`, engineHarness); err != nil || steps(3) != harnessTurnCap {
+		t.Fatalf("a draft made a coding agent's: %d %v", steps(3), err)
+	}
+	if _, err := db.sql.Exec(`UPDATE runs SET turn_steps=turn_steps+1 WHERE id=?`, h); err != nil || steps(h) != harnessTurnCap+1 {
+		t.Fatalf("an update above the cap stays: %d %v", steps(h), err)
+	}
+}

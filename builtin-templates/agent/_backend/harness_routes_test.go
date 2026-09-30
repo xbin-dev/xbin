@@ -101,6 +101,17 @@ func TestHarnessRoutePatch(t *testing.T) {
 		!strings.Contains(w.Body.String(), "unknown option or value") {
 		t.Fatalf("a refused value: %d %s", w.Code, w.Body)
 	}
+	// a mode it takes with an option it refuses: the refusal, and the mode
+	// stored (the next start keeps it)
+	if w := callAs(t, mux, asAlice, "PATCH", path, map[string]any{"mode": "ask", "option": map[string]string{"id": "model", "value": "fake-bogus"}}); w.Code != 502 {
+		t.Fatalf("mode and a refused value: %d %s", w.Code, w.Body)
+	}
+	if cfg, _ := ag.db.runConfig(run.ID); cfg.Harness.Mode != "ask" || cfg.Harness.Options["model"] != "fake-fast" {
+		t.Fatalf("stored after a half-refused PATCH: %+v", cfg.Harness)
+	}
+	if st := ag.eng.harnessOf(run.ID).c.State(); st.Modes.CurrentModeID != "ask" {
+		t.Fatalf("the adapter's mode: %+v", st.Modes)
+	}
 	// another process holding the session: 503, try again
 	ag.eng.mu.Lock()
 	ag.eng.closing = true
@@ -523,6 +534,78 @@ func TestHarnessAdvertisedName(t *testing.T) {
 	h := bodyJSON(t, callAs(t, mux, asAlice, "GET", fmt.Sprintf("/runs/%d/harness", run.ID), nil).Body.Bytes())["harness"].(map[string]any)
 	if h["provider"] != "house-agent" || h["name"] != "House agent" {
 		t.Fatalf("the summary: %v", h)
+	}
+}
+
+// Bypass modes are default-deny (§4.3.12): a harness the sdk catalog lacks
+// has no known-safe mode, so every mode but the one its adapter opened its
+// first session in by itself is the root owner's — to PATCH, and to name at
+// POST /ask for anyone but a person (the owner-to-be); the summary marks
+// them explicit. Its sign-in errors use the manager's name for it.
+func TestHarnessModeDefaultDeny(t *testing.T) {
+	ag, mux, box, m := harnessFixtureWith(t, nil, false)
+	argv := acptest.Command()
+	m.Harnesses = append(m.Harnesses, fsbHarness{ID: "house-agent", Title: "House agent", Argv: argv, Login: argv[0] + " acptest login"})
+	forgetHellos()
+	ref := sandboxRef("apps/cs", box.ID)
+	viewAs := caller{from: "apps/agent", user: "alice", level: "read", viewedBy: "admin"}
+	if w := callAs(t, mux, viewAs, "POST", "/ask", map[string]any{"text": "x", "class": "coding",
+		"harness": map[string]any{"provider": "house-agent", "mode": "ask"}, "sandbox": map[string]any{"ref": ref}}); w.Code != 403 ||
+		!strings.Contains(w.Body.String(), "only a person can start House agent in ask") {
+		t.Fatalf("a mode the catalog doesn't know, not from a person: %d %s", w.Code, w.Body)
+	}
+	w := callAs(t, mux, asAlice, "POST", "/ask", map[string]any{"text": "echo hi", "class": "coding",
+		"harness": map[string]any{"provider": "house-agent"}, "sandbox": map[string]any{"ref": ref}})
+	var run Run
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &run) != nil {
+		t.Fatalf("ask: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the answer", func() bool {
+		return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "echo: echo hi")
+	})
+	if hs, _ := ag.db.harnessSession(run.ID); hs.StartMode != "ask" {
+		t.Fatalf("the start mode: %q", hs.StartMode)
+	}
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/members", run.ID), map[string]string{"user": "bob", "role": "participant"}); w.Code != 200 {
+		t.Fatalf("members: %d %s", w.Code, w.Body)
+	}
+	h := bodyJSON(t, callAs(t, mux, asBob, "GET", fmt.Sprintf("/runs/%d/harness", run.ID), nil).Body.Bytes())["harness"].(map[string]any)
+	if b, _ := json.Marshal(h["mode"]); string(b) != `{"available":[{"id":"ask","name":"Ask"},{"explicit":true,"id":"yolo","name":"Yolo"}],"current":"ask"}` {
+		t.Fatalf("the modes: %s", b)
+	}
+	path := fmt.Sprintf("/runs/%d/harness", run.ID)
+	if w := callAs(t, mux, asBob, "PATCH", path, map[string]any{"mode": "yolo"}); w.Code != 403 || !strings.Contains(w.Body.String(), "only alice can switch House agent to Yolo") {
+		t.Fatalf("bob to yolo: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, mux, asAlice, "PATCH", path, map[string]any{"mode": "yolo"}); w.Code != 200 {
+		t.Fatalf("alice to yolo: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, mux, asBob, "PATCH", path, map[string]any{"mode": "ask"}); w.Code != 200 {
+		t.Fatalf("bob back to the one it started in: %d %s", w.Code, w.Body)
+	}
+	// a plan approval's allow that switches it to a mode it didn't start in
+	// (auto: known safe only to the catalog's providers) raises it — and so
+	// does its allow_always that names no mode (default-deny)
+	m.Harnesses = append(m.Harnesses, fsbHarness{ID: "house-auto", Title: "House auto", Argv: acptest.Command("--auto-mode")})
+	forgetHellos()
+	w = callAs(t, mux, asAlice, "POST", "/ask", map[string]any{"text": "plan", "class": "coding",
+		"harness": map[string]any{"provider": "house-auto"}, "sandbox": map[string]any{"ref": ref}})
+	var planRun Run
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &planRun) != nil {
+		t.Fatalf("ask: %d %s", w.Code, w.Body)
+	}
+	raised := map[string]bool{}
+	for _, o := range parkOf(t, ag, planRun.ID, "approval").Harness.Options {
+		raised[o.OptionID] = o.Explicit
+	}
+	if len(raised) != 4 || !raised["auto"] || raised["exit-plan-default"] || !raised["exit-plan-clear-auto"] || raised["reject"] {
+		t.Fatalf("the plan's options: %v", raised)
+	}
+
+	// its sign-in's errors name it as its manager does
+	ag.eng.endHarness(ag.eng.base, run.ID)
+	if _, err := ag.eng.harnessAuthenticate(ag.eng.base, &run, "x", ""); err == nil || !strings.Contains(err.Error(), "House agent is signed in") {
+		t.Fatalf("authenticate: %v", err)
 	}
 }
 

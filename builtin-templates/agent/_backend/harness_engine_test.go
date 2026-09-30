@@ -633,3 +633,90 @@ func TestHarnessDelete(t *testing.T) {
 		t.Fatal("still driven")
 	}
 }
+
+// Cancel on a coding agent's conversation that rests (its adapter idle, no
+// turn) stops the adapter through its pass — state stopped, a note, the
+// run's status as it was (no turn to cancel) — and the next message starts
+// a new one.
+func TestHarnessCancelIdle(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false)
+	run := askHarness(t, mux, box, "echo one")
+	hwait(t, "the turn", turnOver(ag, run.ID))
+	s := ag.eng.harnessOf(run.ID)
+	w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/cancel", run.ID), map[string]any{})
+	if w.Code != 200 || !strings.Contains(w.Body.String(), fmt.Sprintf(`"cancelled":[%d]`, run.ID)) {
+		t.Fatalf("cancel: %d %s", w.Code, w.Body)
+	}
+	select {
+	case <-s.pipe.Done():
+	case <-time.After(20 * time.Second):
+		t.Fatal("the idle adapter outlived its cancel")
+	}
+	hwait(t, "stopped", func() bool {
+		hs, _ := ag.db.harnessSession(run.ID)
+		return ag.eng.harnessOf(run.ID) == nil && hs.State == hsStopped
+	})
+	if r, _ := ag.db.getRun(run.ID); r.Status != statusIdle {
+		t.Fatalf("the run's status: %s", r.Status)
+	}
+	if h := harnessSummaryOf(mustRun(t, ag, run.ID)); h["state"] != "stopped" {
+		t.Fatalf("the summary: %v", h["state"])
+	}
+	var notes int
+	_ = ag.db.q.QueryRow(`SELECT count(*) FROM steps WHERE run_id=? AND kind='note' AND detail LIKE '%stopped (cancelled)%'`, run.ID).Scan(&notes)
+	if notes != 1 {
+		t.Fatalf("the note: %d", notes)
+	}
+	// nothing to cancel now
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/cancel", run.ID), map[string]any{}); !strings.Contains(w.Body.String(), `"cancelled":[]`) {
+		t.Fatalf("a second cancel: %s", w.Body)
+	}
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/message", run.ID), map[string]any{"text": "echo two"}); w.Code != 200 {
+		t.Fatalf("message: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "a new adapter's answer", func() bool {
+		hs, _ := ag.db.harnessSession(run.ID)
+		return turnOver(ag, run.ID)() && hs.Gen == 2 && strings.Contains(fullText(ag.db, run.ID), "echo: echo two")
+	})
+}
+
+// A turn's answer is its own text: what follows the turn's first row
+// (harness_sessions.turn_seq, the prompt's user row) — "(no answer)" when
+// the turn wrote none, never an earlier turn's (a child's link settles
+// with it).
+func TestHarnessTurnText(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false)
+	run := askHarness(t, mux, box, "echo one")
+	hwait(t, "the turn", turnOver(ag, run.ID))
+	hs, _ := ag.db.harnessSession(run.ID)
+	msgs, _ := ag.db.messages(run.ID, false)
+	var userSeq int64 = -1
+	for _, m := range msgs {
+		if m.Role == "user" && m.Content == "echo one" {
+			userSeq = int64(m.Seq)
+		}
+	}
+	if userSeq < 0 || hs.TurnSeq != userSeq {
+		t.Fatalf("turn_seq %d, the prompt's row %d", hs.TurnSeq, userSeq)
+	}
+	if got := ag.db.harnessTurnText(run.ID); got != "echo: echo one" {
+		t.Fatalf("the turn's text: %q", got)
+	}
+	// a later turn that wrote nothing yet: not the earlier one's
+	u := &Message{RunID: run.ID, Role: "user", Content: "echo two"}
+	if _, err := ag.db.addMessage(u); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.db.q.Exec(`UPDATE harness_sessions SET turn_seq=? WHERE run_id=?`, u.Seq, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := ag.db.harnessTurnText(run.ID); got != "(no answer)" {
+		t.Fatalf("a turn with no text: %q", got)
+	}
+	if _, err := ag.db.addMessage(&Message{RunID: run.ID, Role: "assistant", Content: "two it is"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ag.db.harnessTurnText(run.ID); got != "two it is" {
+		t.Fatalf("the later turn's text: %q", got)
+	}
+}

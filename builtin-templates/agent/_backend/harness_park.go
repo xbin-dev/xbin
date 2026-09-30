@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
 )
@@ -37,13 +38,13 @@ func (s *hsess) onPermission(ev acp.Event) {
 			Name: tc.Name, RawInput: tc.RawInput, Content: tc.Content})
 		c = s.call(tc.ID)
 	}
-	explicit := map[string]bool{}
-	for _, m := range s.prov.Modes {
-		explicit[m.ID] = m.Explicit
-	}
 	park := &hPark{CallID: s.sid(tc.ID), PID: d.PID, RPCID: string(ev.Wire.RPCID)}
+	kind := tc.Kind
+	if kind == "" && c != nil {
+		kind = c.meta.Kind
+	}
 	for _, o := range d.Options {
-		park.Options = append(park.Options, hOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind, Explicit: explicit[o.OptionID]})
+		park.Options = append(park.Options, hOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind, Explicit: s.raises(o, kind)})
 	}
 	tool := &hParkTool{Title: tc.Title, Kind: orStr(tc.Kind, "other"), Name: tc.Name, RawInput: tc.RawInput}
 	if len(tc.Content) <= hContentMax {
@@ -289,4 +290,41 @@ func (d *DB) placeholderRows(run int64) []int64 {
 		}
 	}
 	return out
+}
+
+// raises: permission option o of a call of kind switches the session to a
+// mode harnessModeOpen doesn't open — the root owner's only (§4.2.9);
+// optionRaises says which.
+func (s *hsess) raises(o acp.PermissionOption, kind string) bool {
+	var st acp.SessionState
+	if s.c != nil {
+		st = s.c.State()
+	}
+	var start string
+	_ = s.e.db.q.QueryRow(`SELECT start_mode FROM harness_sessions WHERE run_id=?`, s.run).Scan(&start)
+	return optionRaises(s.prov, st, start, o, kind)
+}
+
+// optionRaises: only an allow can raise. Its mode is the one it names — its
+// id when that is one of the agent's modes, else the catalog's OptionModes
+// (claude's plan approval: exit-plan-bypass is bypassPermissions) — and it
+// raises when harnessModeOpen doesn't open that mode. An allow_always of a
+// mode switch (switch_mode: a plan approval) that names no mode the catalog
+// knows raises too (default-deny: that is how an adapter offers "yes, and
+// switch to ‹mode›"); any other option that names no mode raises nothing
+// (an allow_once of a plan approval keeps the mode it had before planning).
+func optionRaises(prov acp.Provider, st acp.SessionState, start string, o acp.PermissionOption, kind string) bool {
+	if !strings.HasPrefix(o.Kind, "allow") {
+		return false
+	}
+	mode := ""
+	if harnessModeIDs(prov, st)[o.OptionID] {
+		mode = o.OptionID
+	} else if m := prov.OptionModes[o.OptionID]; m != "" {
+		mode = m
+	}
+	if mode == "" {
+		return kind == acp.KindSwitchMode && o.Kind == acp.AllowAlways
+	}
+	return !harnessModeOpen(prov, start, mode)
 }

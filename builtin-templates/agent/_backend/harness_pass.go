@@ -275,6 +275,7 @@ func (e *Engine) harnessPrompt(ctx context.Context, run *Run, row *InboxRow) {
 		if hs == nil {
 			hs = &harnessSession{RunID: run.ID, RootID: rootOf(run)}
 		}
+		hs.TurnSeq = int64(m.Seq) // the turn's answer is what comes after it
 		held := &heldPrompt{Text: m.Content, Sender: row.Body.Sender}
 		if errors.Is(serr, errHarnessLogin) { // signed out: the sign-in first, the prompt held
 			if err := s.loginTx(t, hs, held); err != nil {
@@ -408,19 +409,45 @@ func (e *Engine) harnessWake(ctx context.Context, run *Run, hs *harnessSession, 
 
 // --- stops -----------------------------------------------------------------------------
 
+// harnessProviderOf is run id's coding agent's id ("" for a built-in run).
+func harnessProviderOf(d *DB, id int64) string {
+	if cfg, err := d.runConfig(id); err == nil && cfg.Harness != nil {
+		return cfg.Harness.Provider
+	}
+	return ""
+}
+
+// harnessAdapterUp: r is a coding agent's run whose adapter runs (or is
+// starting, or waits for a sign-in) — a cancel has it to stop even while
+// the conversation rests (§4.2.11).
+func (d *DB) harnessAdapterUp(r *Run) bool {
+	if r.Engine != engineHarness {
+		return false
+	}
+	var n int
+	_ = d.q.QueryRow(`SELECT count(*) FROM harness_sessions WHERE run_id=? AND exec_id<>'' AND state IN ('starting','live','login')`, r.ID).Scan(&n)
+	return n > 0
+}
+
 // harnessCancel is the durable stop: session/cancel, the adapter ended,
-// the run canceled (a child's link settles canceled).
+// the run canceled (a child's link settles canceled). A run that rests (no
+// turn, no park: an idle adapter) keeps its status — there is no turn to
+// cancel — and only its adapter stops (state stopped, as the idle reclaim
+// leaves it; the next message starts a new one).
 func (e *Engine) harnessCancel(ctx context.Context, run *Run, h hInbox) {
 	reason := "cancelled"
 	if h.cancel[0].Body.Reason != "" {
 		reason = h.cancel[0].Body.Reason
 	}
+	stopped := false
 	if s := e.harnessOf(run.ID); s != nil {
 		_ = s.c.Cancel()
 		s.stop()
+		stopped = true
 	} else if hs, _ := e.db.harnessSession(run.ID); hs != nil && hs.ExecID != "" && hsRunning(hs.State) {
 		if cfg, err := e.db.runConfig(run.ID); err == nil && cfg.Harness != nil {
 			e.dropExec(ctx, run, cfg, hs)
+			stopped = true
 		}
 	}
 	s := &hsess{e: e, run: run.ID, root: rootOf(run)}
@@ -438,6 +465,11 @@ func (e *Engine) harnessCancel(ctx context.Context, run *Run, h hInbox) {
 			}
 		}
 		if !active(run.Status) {
+			if stopped {
+				e.emitStep(t, rootOf(run), t.journal(run.ID, "note", map[string]string{"text": fmt.Sprintf(
+					"%s stopped (%s) — the next message starts it again", t.harnessRunName(run.ID, harnessProviderOf(t, run.ID)), reason)}))
+				e.emitRun(t, run.ID)
+			}
 			return nil
 		}
 		s.settleParkTx(t, run, "("+reason+")")
@@ -466,8 +498,9 @@ type harnessReq struct {
 // class: the one named (it must allow the harness), else the caller's
 // default when it does, else the first class they may use that does. It
 // also resolves req.Mode — the caller's own setting (§4.3.12) mapped to the
-// provider's mode, or a mode they named (an explicit one only from a
-// person).
+// provider's mode, or a mode they named: one the catalog doesn't know to be
+// safe (an explicit one, one it doesn't list, any of a harness it lacks)
+// only from a person — the conversation's owner-to-be (default-deny).
 func harnessClass(ctx context.Context, c who, req *harnessReq, class, system, model string) (agentClass, error) {
 	st := currentClasses()
 	req.Provider = strings.TrimSpace(req.Provider)
@@ -493,8 +526,12 @@ func harnessClass(ctx context.Context, c who, req *harnessReq, class, system, mo
 		switch {
 		case m == nil && len(prov.Modes) > 0:
 			return agentClass{}, &errClass{400, "harness.mode: one of " + strings.Join(ids, ", ")}
-		case m != nil && m.Explicit && (c.kind != whoUser || c.viewedBy != ""): // a person (not an admin viewing as one)
-			return agentClass{}, &errClass{403, fmt.Sprintf("only a person can start %s in %s", name, m.Name)}
+		case !prov.Safe(req.Mode) && (c.kind != whoUser || c.viewedBy != ""): // a person (not an admin viewing as one)
+			mname := req.Mode
+			if m != nil {
+				mname = m.Name
+			}
+			return agentClass{}, &errClass{403, fmt.Sprintf("only a person can start %s in %s", name, mname)}
 		}
 	} else {
 		req.Mode = prov.ApproveMode

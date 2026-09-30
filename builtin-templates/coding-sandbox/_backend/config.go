@@ -77,9 +77,12 @@ type Harness struct {
 // baseHarnesses are the coding agents xbin's base rootfs installs
 // (docker/rootfs.Dockerfile; /etc/xbin-rootfs-tools lists what did), each
 // through its ACP adapter as xbind's Agent tab runs it, and a sign-in that
-// needs no browser in the sandbox: a code to paste, a device code.
+// needs no browser in the sandbox: a code to paste, a device code. Claude
+// Code's needs CLAUDE_CODE_REMOTE=1 for that (the sign-in its ACP adapter
+// runs under; without it the CLI signs in through a localhost redirect a
+// sandbox can't take). A saved config keeps the logins it was saved with.
 var baseHarnesses = []Harness{
-	{ID: "claude", Title: "Claude Code", Argv: []string{"claude-agent-acp"}, Login: "claude /login"},
+	{ID: "claude", Title: "Claude Code", Argv: []string{"claude-agent-acp"}, Login: "CLAUDE_CODE_REMOTE=1 claude /login"},
 	{ID: "codex", Title: "Codex", Argv: []string{"codex-acp"}, Login: "codex login --device-auth"},
 	{ID: "gemini", Title: "Gemini CLI", Argv: []string{"gemini", "--acp"}, Login: "NO_BROWSER=true gemini"},
 	{ID: "opencode", Title: "OpenCode", Argv: []string{"opencode", "acp"}, Login: "opencode auth login"},

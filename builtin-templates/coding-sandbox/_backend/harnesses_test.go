@@ -45,7 +45,7 @@ func TestHarnesses(t *testing.T) {
 		}
 	}
 	want := map[string]string{
-		"claude":   "claude-agent-acp | claude /login",
+		"claude":   "claude-agent-acp | CLAUDE_CODE_REMOTE=1 claude /login",
 		"codex":    "codex-acp | codex login --device-auth",
 		"gemini":   "gemini --acp | NO_BROWSER=true gemini",
 		"opencode": "opencode acp | opencode auth login",
@@ -152,6 +152,16 @@ func TestHarnessesSavedConfig(t *testing.T) {
 	}
 	if d := defaultConfig().Images[0].Harnesses; strings.Join(d[0].Argv, " ") != "claude-agent-acp" || strings.Join(d[1].Argv, " ") != "codex-acp" {
 		t.Fatalf("a saved config changed the default image's harnesses: %+v", d)
+	}
+	// Claude Code's sign-in: a new (unsaved) config's under
+	// CLAUDE_CODE_REMOTE=1; one saved with the login before it keeps that
+	if c := open(t, ""); c.Images[0].Harnesses[0].Login != "CLAUDE_CODE_REMOTE=1 claude /login" {
+		t.Fatalf("the default claude login: %q", c.Images[0].Harnesses[0].Login)
+	}
+	withThem.Images[0].Harnesses = []Harness{{ID: "claude", Title: "Claude Code", Argv: []string{"claude-agent-acp"}, Login: "claude /login"}}
+	b, _ = json.Marshal(withThem)
+	if c := open(t, string(b)); c.Images[0].Harnesses[0].Login != "claude /login" {
+		t.Fatalf("a saved login changed: %+v", c.Images[0].Harnesses)
 	}
 }
 
