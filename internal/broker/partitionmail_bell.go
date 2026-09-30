@@ -120,13 +120,13 @@ func (b *Broker) rungMail(k mailBellKey, bl *mailBell) {
 	}
 	bl.ringing = false
 	switch {
-	case pending == 0:
-		delete(ms.bells, k)
-	case bl.again:
+	case bl.again: // a new item or a start during the ring (after its last count, maybe): ring again, counting anew
 		bl.again = false
 		ms.bellMu.Unlock()
 		b.ringMail(k, true)
 		return
+	case pending == 0:
+		delete(ms.bells, k)
 	default:
 		backoff := knobs().backoff
 		d := backoff[min(bl.attempt, len(backoff)-1)]
