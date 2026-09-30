@@ -256,6 +256,9 @@ func (e *csEnv) target() sandboxcontract.Target {
 	// credential (the partitioned-tiles plan's I1). The checks that need a
 	// caller xbind never makes are skipped, said so (csPartitionSkips).
 	skip := csPartitionSkips(e.people)
+	if why := e.partitionsSkip(); why != "" { // a remote xbind before partitions, or without --isolate
+		skip["user-partitions"] = why
+	}
 	if !e.people { // the checks that act as verified people
 		why := "no verified people: this xbind runs --no-auth"
 		for _, k := range []string{"people/visibility", "people/owners", "partitions/shares", "tty/refusals"} {

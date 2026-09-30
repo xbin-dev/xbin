@@ -17,6 +17,9 @@ package isolated
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +74,34 @@ func csPartitionSkips(people bool) map[string]string {
 		skip["user-partitions"] = "no verified people: this xbind runs --no-auth, and user partitions are people's"
 	}
 	return skip
+}
+
+// partitionsSkip says why the user-partitions section can't run through
+// this xbind, "" when it can: it asks GET /partitions once (the owner's),
+// so a remote target (XBIN_E2E_URL) on a release before partitions (404),
+// or one without --isolate — where people's pages of a partitioned
+// consumer are refused — skips the section, said so, instead of failing.
+func (e *csEnv) partitionsSkip() string {
+	req, _ := http.NewRequest("GET", e.d.URL+"/api/xbin/partitions", nil)
+	if tok := e.d.Token(); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "GET /api/xbin/partitions: " + err.Error()
+	}
+	defer resp.Body.Close()
+	var out struct{ Isolated *bool }
+	b, _ := io.ReadAll(resp.Body)
+	switch {
+	case resp.StatusCode == 404:
+		return "this xbind predates partitioned tiles (GET /api/xbin/partitions: 404)"
+	case resp.StatusCode != 200 || json.Unmarshal(b, &out) != nil || out.Isolated == nil:
+		return fmt.Sprintf("GET /api/xbin/partitions: %d %.200s", resp.StatusCode, b)
+	case !*out.Isolated:
+		return "this xbind runs without --isolate: people's partitions (their pages of a partitioned consumer) are refused"
+	}
+	return ""
 }
 
 // testCSPartitionIDs: a partitioned consumer's people each reach the
