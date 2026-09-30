@@ -330,7 +330,10 @@ manager doesn't know: it ignores it, and the exec answers `split` false).
   `limits.stdinMax`); `{"op":"eof"}` closes stdin; `{"op":"ping","t":…}`.
   A stdin frame is taken when the command reads it: the socket's own flow
   control holds the client meanwhile (no 30 s / `unavailable` as on
-  `POST …/stdin`). Unknown ops are ignored both ways.
+  `POST …/stdin`). The client's frames are handled in order, so a ping's
+  pong says the command has taken every stdin frame sent before it — a
+  client that must not lose input across a drop resends, on its next
+  socket, what no pong acknowledged. Unknown ops are ignored both ways.
 - **The socket attached last holds stdin**: attaching closes the one
   before it with code **4001** (`replaced`) — a consumer handing a program
   to another process (a restart, a new replica) just attaches. Frames of a

@@ -89,7 +89,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   first, stdout as binary frames from `since` (a `gap` frame where the ring
   dropped bytes), stderr as `stderr` frames, `exit` then a normal close;
   stdin back as binary frames, `eof`, `ping` — where the socket attached
-  last holds stdin (the one before is closed with 4001). A manager
+  last holds stdin (the one before is closed with 4001), and a ping's
+  `pong` says the command has taken every stdin frame sent before it (a
+  client resends what no pong acknowledged after a drop). A manager
   advertises it in `hello.caps` and `sandbox.caps`; one without it ignores
   `split` and answers the route `unsupported` (older ones `not-found`), and
   consumers keep using `…/output` and `…/stdin`. xbind's tile-sandbox
