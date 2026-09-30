@@ -63,7 +63,8 @@ func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 		return
 	}
 	_ = e.fenced(func(t *DB) error {
-		if _, err := e.userRowTx(t, run, row); err != nil {
+		m, err := e.userRowTx(t, run, row)
+		if err != nil {
 			return err
 		}
 		if out != acp.SteerStartedNewTurn {
@@ -71,6 +72,10 @@ func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 		}
 		cur, err := t.getRun(run.ID)
 		if err != nil || cur.Status == statusRunning || cur.Status == statusWaiting {
+			return err
+		}
+		// the adapter's own turn begins at this message: its answer is what follows
+		if _, err := t.q.Exec(`UPDATE harness_sessions SET turn_seq=? WHERE run_id=?`, m.Seq, run.ID); err != nil {
 			return err
 		}
 		if _, err := t.q.Exec(`UPDATE runs SET status=?, pending='', turn_started=?, settled_at=0, outcome='', updated=? WHERE id=?`,

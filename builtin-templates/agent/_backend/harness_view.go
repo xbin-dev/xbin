@@ -227,7 +227,7 @@ func harnessSummary(d *DB, r *Run) map[string]any {
 		errText = hs.Error
 	}
 	out := map[string]any{"provider": h.Provider, "name": name, "state": state, "error": errText,
-		"mode": harnessModes(prov, st, h.Mode), "options": harnessOptionsView(st.Options),
+		"mode": harnessModes(prov, st, h.Mode, hs.StartMode), "options": harnessOptionsView(st.Options),
 		"commands": orCommands(st.Commands), "steering": st.Steering || hs.Steering, "title": hs.Title, "gen": hs.Gen}
 	var c hCounts
 	_ = json.Unmarshal([]byte(hs.Counts), &c)
@@ -323,22 +323,66 @@ func harnessNodeView(sum map[string]any) map[string]any {
 	return out
 }
 
+// harnessModeOpen: mode is one anyone who may talk in the conversation may
+// switch its coding agent to (D-harness §4.3.12, default-deny) — the
+// catalog knows it never takes the agent past its own asks (acp
+// Provider.Safe), or it is the mode the adapter opened its first session in
+// by itself (start: a harness the catalog lacks knows no other). Every other
+// mode — an explicit one, one a newer adapter added, any other mode of a
+// harness the catalog lacks — is the root conversation owner's
+// (`explicit`).
+func harnessModeOpen(prov acp.Provider, start, mode string) bool {
+	return prov.Safe(mode) || (mode != "" && mode == start)
+}
+
+// harnessModeIDs are the ids that name one of the agent's modes: the
+// catalog's and the session's (its modes, else its option of category mode).
+func harnessModeIDs(prov acp.Provider, st acp.SessionState) map[string]bool {
+	ids := map[string]bool{}
+	for _, m := range prov.Modes {
+		ids[m.ID] = true
+	}
+	for _, m := range prov.SafeModes {
+		ids[m] = true
+	}
+	if st.Modes != nil {
+		for _, m := range st.Modes.AvailableModes {
+			ids[m.ID] = true
+		}
+	}
+	if o := modeOption(st.Options); o != nil {
+		for _, v := range o.Options {
+			ids[v.Value] = true
+		}
+	}
+	return ids
+}
+
+// currentMode is the session's mode now: its own, else its option of
+// category mode's value.
+func currentMode(st acp.SessionState) string {
+	if st.Modes != nil && st.Modes.CurrentModeID != "" {
+		return st.Modes.CurrentModeID
+	}
+	if o := modeOption(st.Options); o != nil {
+		return o.CurrentValue
+	}
+	return ""
+}
+
 // harnessModes is the summary's mode: the session's modes, else its config
 // option of category mode (an adapter that speaks its modes only as one —
 // opencode's build/plan agents: the mode picker covers it, §4.2.4), else
-// the catalog's; `explicit` from the catalog.
-func harnessModes(prov acp.Provider, st acp.SessionState, want string) map[string]any {
-	explicit := map[string]bool{}
-	for _, m := range prov.Modes {
-		explicit[m.ID] = m.Explicit
-	}
+// the catalog's; `explicit` (owner-only) is every mode harnessModeOpen
+// doesn't open — start is the mode the adapter started in by itself.
+func harnessModes(prov acp.Provider, st acp.SessionState, want, start string) map[string]any {
 	var avail []map[string]any
 	add := func(id, name, desc string) {
 		e := map[string]any{"id": id, "name": orStr(name, id)}
 		if desc != "" {
 			e["description"] = desc
 		}
-		if explicit[id] {
+		if !harnessModeOpen(prov, start, id) {
 			e["explicit"] = true
 		}
 		avail = append(avail, e)
@@ -356,11 +400,7 @@ func harnessModes(prov acp.Provider, st acp.SessionState, want string) map[strin
 		}
 	} else {
 		for _, m := range prov.Modes {
-			e := map[string]any{"id": m.ID, "name": m.Name}
-			if m.Explicit {
-				e["explicit"] = true
-			}
-			avail = append(avail, e)
+			add(m.ID, m.Name, "")
 		}
 	}
 	if avail == nil {

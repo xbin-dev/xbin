@@ -23,7 +23,7 @@ func TestHarnessModesFromOption(t *testing.T) {
 	js := func(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 	st := acp.SessionState{Options: []acp.ConfigOption{model, modeOpt}}
-	got := js(harnessModes(opencode, st, ""))
+	got := js(harnessModes(opencode, st, "", ""))
 	want := `{"available":[{"id":"build","name":"Build"},{"description":"read-only","id":"plan","name":"Plan"}],"current":"build"}`
 	if got != want {
 		t.Errorf("opencode's modes from its mode option:\n got %s\nwant %s", got, want)
@@ -35,17 +35,63 @@ func TestHarnessModesFromOption(t *testing.T) {
 	// session modes win over the option; explicit from the catalog
 	st = acp.SessionState{Modes: &acp.SessionModes{CurrentModeID: "default", AvailableModes: []acp.ModeEntry{{ID: "default", Name: "Default"},
 		{ID: "bypassPermissions", Name: "Bypass"}}}, Options: []acp.ConfigOption{modeOpt}}
-	got = js(harnessModes(claude, st, ""))
+	got = js(harnessModes(claude, st, "", ""))
 	want = `{"available":[{"id":"default","name":"Default"},{"explicit":true,"id":"bypassPermissions","name":"Bypass"}],"current":"default"}`
 	if got != want {
 		t.Errorf("claude's session modes:\n got %s\nwant %s", got, want)
 	}
 
 	// before a session: the catalog's (none for opencode)
-	if got := js(harnessModes(opencode, acp.SessionState{}, "")); got != `{"available":[],"current":""}` {
+	if got := js(harnessModes(opencode, acp.SessionState{}, "", "")); got != `{"available":[],"current":""}` {
 		t.Errorf("opencode before a session: %s", got)
 	}
-	if m := harnessModes(claude, acp.SessionState{}, "acceptEdits"); m["current"] != "acceptEdits" || len(m["available"].([]map[string]any)) != len(claude.Modes) {
+	if m := harnessModes(claude, acp.SessionState{}, "acceptEdits", ""); m["current"] != "acceptEdits" || len(m["available"].([]map[string]any)) != len(claude.Modes) {
 		t.Errorf("claude before a session: %v", m)
+	}
+}
+
+// Default-deny (§4.3.12): `explicit` (owner-only) is every mode the catalog
+// doesn't know to be safe — a mode a newer adapter reports, every mode of a
+// harness the catalog lacks but the one it opened its first session in by
+// itself — and a permission option raises the session only when it is an
+// allow naming such a mode.
+func TestHarnessModesDefaultDeny(t *testing.T) {
+	claude, _ := acp.Lookup("claude")
+	house := harnessProvider("house-agent", &sbxHarness{ID: "house-agent", Title: "House agent", Argv: []string{"house", "acp"}})
+	js := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	newer := acp.SessionState{Modes: &acp.SessionModes{CurrentModeID: "default", AvailableModes: []acp.ModeEntry{{ID: "default", Name: "Default"},
+		{ID: "acceptEdits", Name: "Accept"}, {ID: "dontAsk", Name: "Don't ask"}, {ID: "bypassPermissions", Name: "Bypass"}}}}
+	want := `{"available":[{"id":"default","name":"Default"},{"id":"acceptEdits","name":"Accept"},{"explicit":true,"id":"dontAsk","name":"Don't ask"},{"explicit":true,"id":"bypassPermissions","name":"Bypass"}],"current":"default"}`
+	if got := js(harnessModes(claude, newer, "", "")); got != want {
+		t.Errorf("a mode the catalog doesn't list:\n got %s\nwant %s", got, want)
+	}
+	st := acp.SessionState{Modes: &acp.SessionModes{CurrentModeID: "ask", AvailableModes: []acp.ModeEntry{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo"}}}}
+	want = `{"available":[{"id":"ask","name":"Ask"},{"explicit":true,"id":"yolo","name":"Yolo"}],"current":"ask"}`
+	if got := js(harnessModes(house, st, "", "ask")); got != want {
+		t.Errorf("a harness the catalog lacks:\n got %s\nwant %s", got, want)
+	}
+	want = `{"available":[{"explicit":true,"id":"ask","name":"Ask"},{"explicit":true,"id":"yolo","name":"Yolo"}],"current":"ask"}`
+	if got := js(harnessModes(house, st, "", "")); got != want {
+		t.Errorf("…whose first mode isn't known:\n got %s\nwant %s", got, want)
+	}
+	opencode, _ := acp.Lookup("opencode")
+	oc := acp.SessionState{Options: []acp.ConfigOption{{ID: "agent", Category: "mode", CurrentValue: "build",
+		Options: []acp.ConfigValue{{Value: "build"}, {Value: "plan"}, {Value: "yolo-agent"}}}}}
+	want = `{"available":[{"id":"build","name":"build"},{"id":"plan","name":"plan"},{"explicit":true,"id":"yolo-agent","name":"yolo-agent"}],"current":"build"}`
+	if got := js(harnessModes(opencode, oc, "", "")); got != want {
+		t.Errorf("opencode's agents:\n got %s\nwant %s", got, want)
+	}
+	if currentMode(oc) != "build" || currentMode(st) != "ask" || currentMode(acp.SessionState{}) != "" {
+		t.Error("currentMode")
+	}
+	var hs harnessSession
+	noteStartMode(&hs, "", st)
+	noteStartMode(&hs, "", oc)
+	if hs.StartMode != "ask" {
+		t.Errorf("the start mode is the first: %q", hs.StartMode)
+	}
+	hs = harnessSession{}
+	if noteStartMode(&hs, "yolo", st); hs.StartMode != "" {
+		t.Errorf("a session opened in an asked mode says nothing of the adapter's own: %q", hs.StartMode)
 	}
 }

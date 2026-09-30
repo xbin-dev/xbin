@@ -321,6 +321,7 @@ func TestHarnessDirectNote(t *testing.T) {
 	if len(notes) != 1 || notes[0].Body.Text != fmt.Sprintf("[direct message to #%d (Fake agent (tests)) from alice]\nagain", kid) || notes[0].DeliveredAt != 0 {
 		t.Fatalf("the parent's note: %+v", notes)
 	}
+	ag.eng.endHarness(ag.eng.base, kid) // an idle adapter is work of its own (hasWork): not the note's
 	if st := statusOf(ag.db, parent.ID); st != statusIdle || len(turnsOf(f, parent.ID)) != before || ag.db.hasWork() {
 		t.Fatalf("the note started something: %s, %d turns, hasWork %v", st, len(turnsOf(f, parent.ID)), ag.db.hasWork())
 	}
@@ -530,5 +531,19 @@ func TestHarnessSpawnOldBinding(t *testing.T) {
 	if _, err := ag.eng.harnessSpawnOf(t.Context(), ts, map[string]any{"harness": "claude"}, nil); err == nil ||
 		err.Error() != box.Name+"'s image doesn't have Claude Code" {
 		t.Fatalf("claude: %v", err)
+	}
+}
+
+// A harness child's system row is its class's prompt: a subagent parent's
+// carries the subagent contract, which the child doesn't keep.
+func TestHarnessSpawnSystem(t *testing.T) {
+	prov, _ := acp.Lookup("claude")
+	h := &harnessSpawn{prov: prov, b: SandboxBinding{Ref: "apps/cs|sb-1"}, mode: "default"}
+	for _, sys := range []string{"You code.", "You code." + subagentContract} {
+		var child Config
+		h.apply(&child, Config{System: sys})
+		if child.System != "You code." || child.Engine != engineHarness || child.Harness.Mode != "default" {
+			t.Fatalf("%q: %+v", sys, child)
+		}
 	}
 }

@@ -188,37 +188,49 @@ func handlePatchHarness(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	// what the adapter took is stored even when the rest is refused: a
+	// mode it switched to and an option it refused stores the mode (the next
+	// start keeps it) and answers the refusal
+	setMode, setOpt := body.Mode != nil, body.Option != nil
+	var rpcErr error
 	if s != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), hRPCFor)
 		if body.Mode != nil {
-			err = s.setMode(ctx, *body.Mode)
+			if rpcErr = s.setMode(ctx, *body.Mode); rpcErr != nil {
+				setMode, setOpt = false, false
+			}
 		}
-		if err == nil && body.Option != nil {
-			err = s.c.SetOption(ctx, body.Option.ID, body.Option.Value)
+		if rpcErr == nil && body.Option != nil {
+			if rpcErr = s.c.SetOption(ctx, body.Option.ID, body.Option.Value); rpcErr != nil {
+				setOpt = false
+			}
 		}
 		cancel()
+	}
+	refused := func() {
 		var re *acp.Error
 		switch {
-		case errors.As(err, &re):
+		case errors.As(rpcErr, &re):
 			xbin.WriteError(w, http.StatusBadGateway, re.Message)
-			return
-		case errors.Is(err, context.DeadlineExceeded):
+		case errors.Is(rpcErr, context.DeadlineExceeded):
 			xbin.WriteError(w, http.StatusGatewayTimeout, name+" didn't answer")
-			return
-		case err != nil:
-			xbin.WriteError(w, http.StatusBadGateway, err.Error())
-			return
+		default:
+			xbin.WriteError(w, http.StatusBadGateway, rpcErr.Error())
 		}
+	}
+	if !setMode && !setOpt {
+		refused()
+		return
 	}
 	store := func(t *DB) error {
 		cfg, err := t.runConfig(id)
 		if err != nil || cfg.Harness == nil {
 			return err
 		}
-		if body.Mode != nil {
+		if setMode {
 			cfg.Harness.Mode = *body.Mode
 		}
-		if o := body.Option; o != nil {
+		if o := body.Option; o != nil && setOpt {
 			if cfg.Harness.Options == nil {
 				cfg.Harness.Options = map[string]string{}
 			}
@@ -243,6 +255,10 @@ func handlePatchHarness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e.publishHarness(run.ID)
+	if rpcErr != nil {
+		refused()
+		return
+	}
 	run, _ = agent.db.getRun(id)
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"harness": harnessSummaryOf(run)})
 }

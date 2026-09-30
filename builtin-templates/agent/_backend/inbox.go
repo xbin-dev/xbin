@@ -545,7 +545,7 @@ func (ag *Agent) cancelRuns(t *DB, id int64, subtree bool, reason string) []int6
 	var stopped []int64
 	for _, rid := range targets {
 		r, err := t.getRun(rid)
-		if err != nil || !active(r.Status) {
+		if err != nil || (!active(r.Status) && !t.harnessAdapterUp(r)) {
 			continue
 		}
 		if _, _, err := t.enqueue(rid, inboxCancel, inboxBody{Reason: msg}, ""); err == nil {

@@ -275,7 +275,7 @@ func (e *Engine) harnessAuthenticate(ctx context.Context, run *Run, method, apiK
 	if err != nil || cfg.Harness == nil {
 		return nil, &hAuthErr{409, "not a coding-agent conversation"}
 	}
-	name := harnessName(cfg.Harness.Provider)
+	name := e.db.harnessRunName(run.ID, cfg.Harness.Provider)
 	if hs, _ := e.db.harnessSession(run.ID); hs == nil || hs.State != hsLogin {
 		return nil, &hAuthErr{409, name + " is signed in"}
 	}
@@ -432,6 +432,9 @@ func (e *Engine) signedIn(s *hsess) {
 		hs.State, hs.Login, hs.Error = hsLive, "", ""
 		if sid != "" {
 			hs.ACPSession, hs.Loadable = sid, loadable
+			if cfg, err := t.runConfig(s.run); err == nil && cfg.Harness != nil && s.newSess {
+				noteStartMode(hs, cfg.Harness.Mode, s.c.State()) // the session the sign-in opened
+			}
 		}
 		signed := true
 		_ = t.noteHarnessSeen(hs.Ref, s.prov.ID, &signed, &signed)

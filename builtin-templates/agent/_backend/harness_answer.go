@@ -49,7 +49,7 @@ func approveHarness(w http.ResponseWriter, c who, run *Run, p pendingState, appr
 func harnessVerdict(c who, run *Run, p pendingState, approve bool, option, feedback string) (inboxBody, *errClass) {
 	name := "the coding agent"
 	if cfg, err := agent.db.runConfig(run.ID); err == nil && cfg.Harness != nil {
-		name = harnessName(cfg.Harness.Provider)
+		name = agent.db.harnessRunName(run.ID, cfg.Harness.Provider)
 	}
 	opts := p.Harness.Options
 	var ids []string

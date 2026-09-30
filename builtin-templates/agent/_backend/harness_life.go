@@ -358,7 +358,7 @@ func (e *Engine) harnessCompact(ctx context.Context, run *Run, hs *harnessSessio
 	cfg, _ := e.db.runConfig(run.ID)
 	name := "the coding agent"
 	if cfg.Harness != nil {
-		name = harnessName(cfg.Harness.Provider)
+		name = e.db.harnessRunName(run.ID, cfg.Harness.Provider)
 	}
 	if !has {
 		e.consumeWithNote(run, rows, name+" has no /compact")

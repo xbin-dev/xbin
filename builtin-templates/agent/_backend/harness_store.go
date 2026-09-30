@@ -13,6 +13,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -52,7 +54,9 @@ CREATE TABLE IF NOT EXISTS harness_sessions (
   shared INTEGER NOT NULL DEFAULT 0,
   draft TEXT NOT NULL DEFAULT '',
   name TEXT NOT NULL DEFAULT '',
-  started_ms INTEGER NOT NULL DEFAULT 0
+  started_ms INTEGER NOT NULL DEFAULT 0,
+  start_mode TEXT NOT NULL DEFAULT '',
+  turn_seq INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_harness_sessions_root ON harness_sessions(root_id);
 CREATE INDEX IF NOT EXISTS idx_harness_sessions_state ON harness_sessions(state);
@@ -94,8 +98,33 @@ func (d *DB) addHarnessSchema() error {
 	// advertises it, when the current generation started
 	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN name TEXT NOT NULL DEFAULT ''`)
 	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN started_ms INTEGER NOT NULL DEFAULT 0`)
-	return nil
+	// the fixes after the live check: the mode the adapter opened its first
+	// session in by itself, where the current turn's rows begin
+	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN start_mode TEXT NOT NULL DEFAULT ''`)
+	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN turn_seq INTEGER NOT NULL DEFAULT 0`)
+	_, err := d.q.Exec(harnessTurnCapSQL)
+	return err
 }
+
+// harnessTurnCap is what runs.turn_steps says of a coding agent's run: the
+// most model calls a turn may take (maxTurnSteps' ceiling). This binary
+// never reads it for one (the harness engine takes no model steps); it is
+// for a binary from before coding agents, rolled back to: its pass would
+// drive a harness run it finds running, parked and answered, or messaged
+// with the built-in model loop over the acp:* transcript — and its turn()
+// ends a turn at the step cap before anything else (no model call, no
+// compaction). The triggers keep a harness run at the cap through any
+// update, that binary's own turn start (turn_steps=0) included.
+const harnessTurnCap = 500
+
+var harnessTurnCapSQL = strings.ReplaceAll(`
+CREATE TRIGGER IF NOT EXISTS harness_turn_cap_ins AFTER INSERT ON runs
+  WHEN NEW.engine = 'harness' AND NEW.turn_steps < CAP
+  BEGIN UPDATE runs SET turn_steps = CAP WHERE id = NEW.id; END;
+CREATE TRIGGER IF NOT EXISTS harness_turn_cap_upd AFTER UPDATE OF status, engine, turn_steps ON runs
+  WHEN NEW.engine = 'harness' AND NEW.turn_steps < CAP
+  BEGIN UPDATE runs SET turn_steps = CAP WHERE id = NEW.id; END;
+`, "CAP", strconv.Itoa(harnessTurnCap))
 
 // --- the run's config ---------------------------------------------------------------
 
@@ -151,7 +180,11 @@ const (
 // row as of ReadOff (harness_engine.go). Name is the harness's name for
 // people as the sandbox's manager advertised it at the last spawn (a harness
 // the sdk catalog doesn't know has only its manager's title); StartedMs,
-// when the current generation was spawned.
+// when the current generation was spawned. StartMode is the mode the
+// adapter opened its first session in with no mode asked of it (a harness
+// the catalog doesn't know: the one mode anyone may switch it back to —
+// harnessModeOpen); TurnSeq, the seq of the current (or last) turn's first
+// row — its answer is the text after it (endHarnessTurnTx).
 type harnessSession struct {
 	RunID, RootID      int64
 	Ref, Cwd, Provider string
@@ -178,11 +211,13 @@ type harnessSession struct {
 	Draft              string
 	Name               string
 	StartedMs          int64
+	StartMode          string
+	TurnSeq            int64
 }
 
 const harnessSessionCols = `run_id, root_id, ref, cwd, provider, argv, exec_id, client_id, gen, state, acp_session, loadable,
   steering, read_off, err_off, prompt_rpc, prompt_state, turn, snapshot, rules, plan, usage, counts, login, queue, held,
-  error, last_active_ms, created_ms, updated_ms, title, shared, draft, name, started_ms`
+  error, last_active_ms, created_ms, updated_ms, title, shared, draft, name, started_ms, start_mode, turn_seq`
 
 // harnessSession is run's session row (nil: it has none).
 func (d *DB) harnessSession(run int64) (*harnessSession, error) {
@@ -193,7 +228,7 @@ func (d *DB) harnessSession(run int64) (*harnessSession, error) {
 		&s.RunID, &s.RootID, &s.Ref, &s.Cwd, &s.Provider, &argv, &s.ExecID, &s.ClientID, &s.Gen, &s.State, &s.ACPSession,
 		&loadable, &steering, &s.ReadOff, &s.ErrOff, &s.PromptRPC, &s.PromptState, &s.Turn, &s.Snapshot, &s.Rules,
 		&s.Plan, &s.Usage, &s.Counts, &s.Login, &s.Queue, &s.Held, &s.Error, &s.LastActiveMs, &s.CreatedMs, &s.UpdatedMs,
-		&s.Title, &shared, &s.Draft, &s.Name, &s.StartedMs)
+		&s.Title, &shared, &s.Draft, &s.Name, &s.StartedMs, &s.StartMode, &s.TurnSeq)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -224,7 +259,7 @@ func (d *DB) putHarnessSession(s *harnessSession) error {
 		argv = string(b)
 	}
 	_, err := d.q.Exec(`INSERT INTO harness_sessions (`+harnessSessionCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(run_id) DO UPDATE SET root_id=excluded.root_id, ref=excluded.ref, cwd=excluded.cwd,
 		  provider=excluded.provider, argv=excluded.argv, exec_id=excluded.exec_id, client_id=excluded.client_id,
 		  gen=excluded.gen, state=excluded.state, acp_session=excluded.acp_session, loadable=excluded.loadable,
@@ -234,11 +269,11 @@ func (d *DB) putHarnessSession(s *harnessSession) error {
 		  counts=excluded.counts, login=excluded.login, queue=excluded.queue, held=excluded.held,
 		  error=excluded.error, last_active_ms=excluded.last_active_ms, updated_ms=excluded.updated_ms,
 		  title=excluded.title, shared=excluded.shared, draft=excluded.draft, name=excluded.name,
-		  started_ms=excluded.started_ms`,
+		  started_ms=excluded.started_ms, start_mode=excluded.start_mode, turn_seq=excluded.turn_seq`,
 		s.RunID, s.RootID, s.Ref, s.Cwd, s.Provider, argv, s.ExecID, s.ClientID, s.Gen, s.State, s.ACPSession,
 		b2i(s.Loadable), b2i(s.Steering), s.ReadOff, s.ErrOff, s.PromptRPC, s.PromptState, s.Turn, s.Snapshot, s.Rules,
 		s.Plan, s.Usage, s.Counts, s.Login, s.Queue, s.Held, s.Error, s.LastActiveMs, s.CreatedMs, s.UpdatedMs,
-		s.Title, b2i(s.Shared), s.Draft, s.Name, s.StartedMs)
+		s.Title, b2i(s.Shared), s.Draft, s.Name, s.StartedMs, s.StartMode, s.TurnSeq)
 	return err
 }
 

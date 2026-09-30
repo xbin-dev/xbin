@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
 )
@@ -37,13 +38,9 @@ func (s *hsess) onPermission(ev acp.Event) {
 			Name: tc.Name, RawInput: tc.RawInput, Content: tc.Content})
 		c = s.call(tc.ID)
 	}
-	explicit := map[string]bool{}
-	for _, m := range s.prov.Modes {
-		explicit[m.ID] = m.Explicit
-	}
 	park := &hPark{CallID: s.sid(tc.ID), PID: d.PID, RPCID: string(ev.Wire.RPCID)}
 	for _, o := range d.Options {
-		park.Options = append(park.Options, hOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind, Explicit: explicit[o.OptionID]})
+		park.Options = append(park.Options, hOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind, Explicit: s.raises(o)})
 	}
 	tool := &hParkTool{Title: tc.Title, Kind: orStr(tc.Kind, "other"), Name: tc.Name, RawInput: tc.RawInput}
 	if len(tc.Content) <= hContentMax {
@@ -289,4 +286,17 @@ func (d *DB) placeholderRows(run int64) []int64 {
 		}
 	}
 	return out
+}
+
+// raises: permission option o switches the session to a mode harnessModeOpen
+// doesn't open (a plan approval's "yes, and bypass permissions") — the root
+// owner's only (§4.2.9). Only an allow can; an option that names no mode
+// raises nothing.
+func (s *hsess) raises(o acp.PermissionOption) bool {
+	if !strings.HasPrefix(o.Kind, "allow") || s.c == nil || !harnessModeIDs(s.prov, s.c.State())[o.OptionID] {
+		return false
+	}
+	var start string
+	_ = s.e.db.q.QueryRow(`SELECT start_mode FROM harness_sessions WHERE run_id=?`, s.run).Scan(&start)
+	return !harnessModeOpen(s.prov, start, o.OptionID)
 }
