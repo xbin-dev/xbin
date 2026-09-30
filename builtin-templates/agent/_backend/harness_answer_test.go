@@ -302,6 +302,24 @@ func TestHarnessSteer(t *testing.T) {
 	})
 }
 
+// A message sent with interrupt is the next prompt, never steered into the
+// turn being cancelled — here the turn outlives the interrupt (as a real
+// adapter's may while it winds down) and the message still waits for it.
+func TestHarnessInterruptMessageNotSteered(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false, "--steer")
+	run := askHarness(t, mux, box, "steer")
+	hwait(t, "ticking", func() bool { return strings.Contains(draftText(ag.eng, run.ID), "tick 1") })
+	if _, _, err := ag.queue(run.ID, inboxHPrompt, inboxBody{Text: "echo after", Source: "human", Sender: "alice", Jump: true}, ""); err != nil {
+		t.Fatal(err)
+	}
+	hwait(t, "the next prompt", func() bool {
+		return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "echo: echo after")
+	})
+	if text := fullText(ag.db, run.ID); strings.Contains(text, "steered: echo after") || !strings.Contains(text, "steers: none") {
+		t.Fatalf("steered into the interrupted turn: %s", transcript(ag.db, run.ID))
+	}
+}
+
 // An interrupt while a permission waits: the park settles "(interrupted)",
 // session/cancel ends the turn (interrupted), the run rests.
 func TestHarnessInterruptParked(t *testing.T) {

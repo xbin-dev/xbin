@@ -150,7 +150,11 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 		e.harnessReplyToPark(ctx, run, h.nextPrompt())
 		return
 	case len(h.prompt) > 0 && turn && s != nil:
-		e.harnessSteer(ctx, run, h.nextPrompt())
+		// a turn being interrupted isn't steered: the message sent with the
+		// interrupt (and any other) is the next prompt, at its end (§3.5)
+		if p := h.nextPrompt(); !p.Body.Jump && len(h.interrupt) == 0 {
+			e.harnessSteer(ctx, run, p)
+		}
 		return
 	case len(h.prompt) > 0 && !turn:
 		e.harnessPrompt(ctx, run, h.nextPrompt())
@@ -471,7 +475,7 @@ func harnessClass(ctx context.Context, c who, req *harnessReq, class, system, mo
 		switch {
 		case m == nil && len(prov.Modes) > 0:
 			return agentClass{}, &errClass{400, "harness.mode: one of " + strings.Join(ids, ", ")}
-		case m != nil && m.Explicit && c.kind != whoUser:
+		case m != nil && m.Explicit && (c.kind != whoUser || c.viewedBy != ""): // a person (not an admin viewing as one)
 			return agentClass{}, &errClass{403, fmt.Sprintf("only a person can start %s in %s", name, m.Name)}
 		}
 	} else {
@@ -580,11 +584,14 @@ func (e *Engine) endHarnesses(ctx context.Context, id int64) {
 // endHarness stops run rid's coding agent and stores it stopped, under its
 // start lock: no pass takes it over again meanwhile.
 func (e *Engine) endHarness(ctx context.Context, rid int64) {
+	if run, err := e.db.getRun(rid); err != nil || run.Engine != engineHarness {
+		return // a run's engine never changes: no start lock for a built-in run's delete
+	}
 	mu := e.harnessLock(rid)
 	mu.Lock()
 	defer mu.Unlock()
 	run, err := e.db.getRun(rid)
-	if err != nil || run.Engine != engineHarness {
+	if err != nil {
 		return
 	}
 	hs, _ := e.db.harnessSession(rid)

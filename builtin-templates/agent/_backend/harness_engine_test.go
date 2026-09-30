@@ -524,6 +524,12 @@ func TestHarnessAskRefusals(t *testing.T) {
 			t.Fatalf("%v: %d %s", c.body, w.Code, w.Body)
 		}
 	}
+	// an explicit mode is a person's own: not an admin's viewing as one (D64)
+	viewAs := caller{from: "apps/agent", user: "alice", level: "read", viewedBy: "admin"}
+	if w := callAs(t, mux, viewAs, "POST", "/ask", map[string]any{"text": "x", "harness": map[string]any{"provider": "fake", "mode": "yolo"},
+		"sandbox": map[string]any{"ref": ref}}); w.Code != 403 || !strings.Contains(w.Body.String(), "only a person can start") {
+		t.Fatalf("an explicit mode viewed as alice: %d %s", w.Code, w.Body)
+	}
 	w := callAs(t, mux, asAlice, "POST", "/runs", map[string]any{"goal": "echo hi", "harness": map[string]any{"provider": "fake", "mode": "yolo"},
 		"sandbox": map[string]any{"ref": ref}})
 	var run Run
