@@ -5,12 +5,14 @@
  * Talks to its own backend (/config, /stats, /v1/models) via xbin.fetch; tokens
  * go through the backend into its vault — a tile's frontend can't reach the
  * vault API (D30). Model ids are namespaced "<backend>/<model>" when more than
- * one backend is configured.
+ * one backend is configured. Usage by partition (calls from partitioned tiles)
+ * is callers.js's.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 
 import { selfApi as api } from '/vendor/bx-kit.js';
+import { callersView } from './callers.js';
 
 const AUTO_REFRESH_MS = 60_000;
 
@@ -22,6 +24,8 @@ export class BxLlmGw extends LitElement {
   static properties = {
     _backends: { state: true },  // [{name, baseURL, hasToken}]
     _stats: { state: true },     // name -> {reqs, tokIn, tokOut, active, cost}
+    _callers: { state: true },   // GET /stats' callers: partitioned tiles' calls per partition
+    _limit: { state: true },     // the fairness limit (0 = off)
     _aliases: { state: true },
     _preferred: { state: true }, // use-type -> model id
     _useTypes: { state: true },  // ordered list of use-types
@@ -85,6 +89,8 @@ export class BxLlmGw extends LitElement {
     super();
     this._backends = [];
     this._stats = {};
+    this._callers = [];
+    this._limit = 0;
     this._aliases = {};
     this._preferred = {};
     this._useTypes = [];
@@ -119,6 +125,7 @@ export class BxLlmGw extends LitElement {
       this._aliases = cfg.aliases ?? {};
       this._preferred = cfg.preferred ?? {};
       this._useTypes = cfg.useTypes ?? [];
+      this._limit = cfg.partitionLimit ?? 0;
       this._err = '';
     } catch (e) { this._err = String(e.message ?? e); }
     this._loadStats();
@@ -126,8 +133,11 @@ export class BxLlmGw extends LitElement {
   }
 
   async _loadStats() {
-    try { this._stats = (await api('/stats')).backends ?? {}; }
-    catch { /* backend restarting; next tick */ }
+    try {
+      const s = await api('/stats');
+      this._stats = s.backends ?? {};
+      this._callers = s.callers ?? [];
+    } catch { /* backend restarting; next tick */ }
   }
 
   async _loadModels() {
@@ -183,6 +193,15 @@ export class BxLlmGw extends LitElement {
         body: JSON.stringify({ use, model }),
       });
       this._preferred = d.preferred ?? {};
+    } catch (e) { this._err = String(e.message ?? e); }
+  }
+
+  async _saveLimit(partitionLimit) {
+    try {
+      const d = await api('/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partitionLimit }) });
+      this._limit = d.partitionLimit ?? 0;
+      this._err = '';
     } catch (e) { this._err = String(e.message ?? e); }
   }
 
@@ -270,6 +289,8 @@ export class BxLlmGw extends LitElement {
             With several backends, model ids are namespaced
             <span class="mono">&lt;backend&gt;/&lt;model&gt;</span> — requests route by that prefix.
           </div>` : nothing}
+
+        ${callersView(this._callers, this._limit, (n) => this._saveLimit(n))}
 
         <h4>preferred models</h4>
         <div class="muted" style="font-size:11px; margin-bottom:5px">
