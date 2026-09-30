@@ -9,8 +9,8 @@ package broker
 //     the identity plane (F2: partitionroute.go) which partition a
 //     principal acts in (addressedPartition — the one decision for calls and
 //     data), a person's stored uid, and the one minting path
-//     (mintPartitionUID), which adopts the uid F4's namespace records carry
-//     (adoptablePartitionUID);
+//     (mintPartitionUID), which adopts the uid the namespaces' ns.json and
+//     the partitions' partition.json carry (adoptablePartitionUID);
 //   - a partitioned scope's own bus stamps and reads events.Event.Partition;
 //   - the runner's side (F3), which boot installs per broker
 //     (SetPartitionRunner): which people's instances may bind their volumes
@@ -37,7 +37,7 @@ func init() {
 	partitionUIDSeam = (*Broker).storedPartitionUID
 	partitionMintUIDSeam = (*Broker).mintPartitionUID
 	partitionAdoptUID = func(b *Broker, userID string, created time.Time) (string, bool) {
-		uid := b.adoptablePartitionUID(userID, created.Unix())
+		uid := b.adoptablePartitionUID(userID, created.Unix()) // ns.json and partition.json
 		return uid, uid != ""
 	}
 	stampBusPartition = func(ev *events.Event, part string) { ev.Partition = part }
@@ -141,6 +141,15 @@ func (b *Broker) partitionLeftovers(path string, under func(string) bool) []stri
 	})
 	for scope, n := range people {
 		out = append(out, fmt.Sprintf("%s's people's partition data (%d namespace(s))", scope, n))
+	}
+	parts := map[string]int{}
+	_ = b.eachPartitionRecord("", func(_ partitionDirOf, rec partitionRecord) {
+		if gone(rec.Tile) {
+			parts[rec.Tile]++
+		}
+	})
+	for tile, n := range parts {
+		out = append(out, fmt.Sprintf("%s's people's partition vaults and records (%d partition(s))", tile, n))
 	}
 	return out
 }

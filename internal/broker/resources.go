@@ -536,7 +536,7 @@ func (b *Broker) apiBusPublish(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusForbidden, err.Error(), "/docs/auth.md")
 		return
 	}
-	if !b.nsAvailableID(w, ra.nsID()) || b.publishPartitioned(w, ra, msg.Topic, msg.Data) { // a partitioned scope's own bus: stamped (partitionbus.go)
+	if !b.nsAvailableID(w, ra.nsID()) || b.publishPartitioned(w, p, ra, msg.Topic, msg.Data) { // a partitioned scope's own bus: stamped (partitionbus.go)
 		return
 	}
 	// The event is in the namespace the publisher reaches: its own scope's

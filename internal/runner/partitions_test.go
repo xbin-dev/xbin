@@ -549,6 +549,35 @@ func TestAlwaysOnGlobalOnly(t *testing.T) {
 	})
 }
 
+// covers PD-24 03§E — the crash watch tells PartitionExit of an exit of a
+// person's partition that nothing asked for (its pkey, and whether the
+// breaker holds it), so its record keeps it across a restart of xbind; the
+// global instance's exit tells nothing.
+func TestPartitionExitHook(t *testing.T) {
+	w := newPartWorld(t, userGlobal, registry.Manifest{})
+	got := make(chan string, 8)
+	w.r.PartitionExit = func(tile, dep, part, pkey string, crashLoop bool) {
+		got <- fmt.Sprintf("%s %s %s %s %v", tile, dep, part, pkey, crashLoop)
+	}
+	w.ensure("user:alice")
+	w.ensure("global")
+	w.f.crash("apps/x user:alice", "main")
+	select {
+	case e := <-got:
+		if want := "apps/x main user:alice " + fakePkey("user:alice") + " false"; e != want {
+			t.Errorf("the exit: %q, want %q", e, want)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a partition's exit wasn't told")
+	}
+	w.f.crash("apps/x", "main")
+	select {
+	case e := <-got:
+		t.Errorf("the global instance's exit was told: %q", e)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 // takeLogPeek is the fake's log so far, left in place.
 func (f *fakeEngine) takeLogPeek() []string {
 	f.mu.Lock()

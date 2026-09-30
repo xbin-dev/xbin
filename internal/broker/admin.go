@@ -44,13 +44,17 @@ func (b *Broker) apiVaults(w http.ResponseWriter, r *http.Request) {
 	type entry struct {
 		Component string   `json:"component"`
 		Keys      []string `json:"keys"`
+		// Partitions: how many people's partitions of a partitioned tile
+		// keep a vault of their own — a count, never their keys (S19).
+		Partitions int `json:"partitions,omitempty"`
 	}
 	// Any component may have a vault; the file is named by CompKey. Walk the
 	// registry so we report by component path, not opaque key.
 	out := []entry{}
 	for _, c := range b.Reg.Components() {
 		m, err := b.vaultRead(c.Path)
-		if err != nil || len(m) == 0 {
+		parts := b.partitionVaults(c.Path) // partitionvault.go
+		if (err != nil || len(m) == 0) && parts == 0 {
 			continue
 		}
 		keys := make([]string, 0, len(m))
@@ -58,7 +62,7 @@ func (b *Broker) apiVaults(w http.ResponseWriter, r *http.Request) {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		out = append(out, entry{Component: c.Path, Keys: keys})
+		out = append(out, entry{Component: c.Path, Keys: keys, Partitions: parts})
 	}
 	server.WriteJSON(w, http.StatusOK, out)
 }

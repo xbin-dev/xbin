@@ -769,7 +769,7 @@ func (b *Broker) dropDormantAt(path string) int {
 			}
 		}
 	}
-	return n
+	return n + b.dropPartitionRegistrationsAt(path) // people's partitions' (partitionregs.go)
 }
 
 // deploymentDirs lists the deployment directories data/deployments keeps

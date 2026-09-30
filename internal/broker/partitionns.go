@@ -312,6 +312,7 @@ func (b *Broker) PartitionUserDeleted(userID, uid string) {
 		}
 		b.orphanPartitionNS(id, orphanUserDeleted, stamp)
 	})
+	b.orphanPartitionRecords(userID, uid) // their partitions' records, registrations and vaults (partitionrecords.go)
 }
 
 // orphanPartitionNS records event on id's ns.json, once.
@@ -393,6 +394,7 @@ func (b *Broker) sweepPartitionNamespaces(now time.Time) {
 	if err != nil {
 		slog.Warn("partition namespace sweep", "err", err)
 	}
+	b.sweepPartitionRecords(now) // their records, registrations and vaults (partitionrecords.go)
 }
 
 func (b *Broker) sweepPartitionOne(id nsID, now time.Time) error {
@@ -480,32 +482,35 @@ func partitionBackupSubject(tile, dep, pkey string) string {
 }
 
 // adoptablePartitionUID is the uid person userID's live partition records
-// carry, for a users-store record without one whose Created (Unix seconds)
-// is created (PD-43); "" for none. Only records made after the second the
-// record was created count — older ones were a previous holder's, and one
-// made in that very second can't be told from theirs — and only when they
-// agree. Its signature is F2's partitionAdoptUID seam's
-// (`partitionAdoptUID = (*Broker).adoptablePartitionUID`): the identity
-// plane adopts it rather than mint a new uid.
+// carry — the namespaces' ns.json and the partitions' partition.json
+// (partitionrecords.go) alike — for a users-store record without one whose
+// Created (Unix seconds) is created (PD-43); "" for none. Only records made
+// after the second the record was created count — older ones were a
+// previous holder's, and one made in that very second can't be told from
+// theirs — and only when they agree. Its signature is F2's
+// partitionAdoptUID seam's (partitionwire.go): the identity plane adopts it
+// rather than mint a new uid.
 func (b *Broker) adoptablePartitionUID(userID string, created int64) string {
 	after := time.Unix(created, 0).Add(time.Second)
 	uid, conflict := "", false
-	_ = b.eachPartitionNamespace("", func(id nsID) {
-		m, ok, err := b.readNS(id)
-		if err != nil || !ok || m.Partition == nil || m.Partition.User != userID || m.Partition.Orphan != "" {
-			return
-		}
-		at, err := time.Parse(time.RFC3339Nano, m.Partition.Created)
-		if err != nil || at.Before(after) || m.Partition.UID == "" {
+	note := func(user, recUID, at string, orphan bool) {
+		t, err := time.Parse(time.RFC3339Nano, at)
+		if user != userID || orphan || recUID == "" || err != nil || t.Before(after) {
 			return
 		}
 		switch {
 		case uid == "":
-			uid = m.Partition.UID
-		case uid != m.Partition.UID:
+			uid = recUID
+		case uid != recUID:
 			conflict = true
 		}
+	}
+	_ = b.eachPartitionNamespace("", func(id nsID) {
+		if m, ok, err := b.readNS(id); err == nil && ok && m.Partition != nil {
+			note(m.Partition.User, m.Partition.UID, m.Partition.Created, m.Partition.Orphan != "")
+		}
 	})
+	b.eachRecordIdentity(note)
 	if conflict {
 		slog.Warn("partition data: records of one person carry different uids; none is adopted", "user", userID)
 		return ""

@@ -35,10 +35,12 @@ var (
 	// busEventPartition is e's stamp, "" for none: `e.Partition`.
 	busEventPartition func(e events.Event) string
 	// publishPartitionPushSeam delivers a person's partition's bus event to
-	// that partition's own push subscriptions (03 §D, 04 §2; F5 stores
-	// them). Until then a person's event reaches frames and sockets only:
-	// today's push subscriptions are all the global instance's.
-	publishPartitionPushSeam = func(b *Broker, ra reach, topic string, data any) {}
+	// that partition's own push subscriptions (03 §D, 04 §2); from is the
+	// tile whose credential published it (only its own subscriptions may
+	// start the partition): partitionbussubs.go fills it. Unfilled, a
+	// person's event reaches frames and sockets only: today's push
+	// subscriptions are all the global instance's.
+	publishPartitionPushSeam = func(b *Broker, ra reach, from, topic string, data any) {}
 )
 
 // sharedRes reports whether res is a shared resource of its scope ("shared":
@@ -50,10 +52,11 @@ func sharedRes(res registry.Resource) bool {
 // publishPartitioned publishes on ra's bus when it is a partitioned scope's
 // own (not shared), stamped with the partition the publisher reached
 // (ra.part): the global instance's event also reaches today's push
-// subscriptions, a person's only their partition's (publishPartitionPushSeam).
-// It answers false, having written nothing, for any other bus — an
-// unpartitioned scope's or a shared one, published as today by the caller.
-func (b *Broker) publishPartitioned(w http.ResponseWriter, ra reach, topic string, data any) bool {
+// subscriptions, a person's only their partition's (publishPartitionPushSeam),
+// p being the publisher. It answers false, having written nothing, for any
+// other bus — an unpartitioned scope's or a shared one, published as today
+// by the caller.
+func (b *Broker) publishPartitioned(w http.ResponseWriter, p auth.Principal, ra reach, topic string, data any) bool {
 	if ra.part == "" || sharedRes(ra.res) {
 		return false
 	}
@@ -71,12 +74,25 @@ func (b *Broker) publishPartitioned(w http.ResponseWriter, ra reach, topic strin
 	b.Hub.Publish(ev)
 	b.countBusEvent(counter)
 	if ra.pkey == "" {
-		b.bus.publishIn(id, ra.dep, topic, data) // global's: today's subscriptions are all global's
+		b.bus.publishStamped(id, ra.dep, topic, data, partGlobalKey, "") // global's: today's subscriptions are all global's
 	} else {
-		publishPartitionPushSeam(b, ra, topic, data)
+		publishPartitionPushSeam(b, ra, b.publisherTile(p), topic, data)
 	}
 	server.WriteOK(w)
 	return true
+}
+
+// publisherTile is the tile p's credential belongs to — the tile itself,
+// or the tile of an xbin.window sub-path — "" for a person's own
+// credential, the root token and a delivery.
+func (b *Broker) publisherTile(p auth.Principal) string {
+	if p.Component == "" || isDelivery(p) {
+		return ""
+	}
+	if c, _, ok := b.Reg.Resolve(p.Component); ok {
+		return c.Path
+	}
+	return p.Component
 }
 
 // busPartitionReaches is busFilter's partition rule for bus rt (res) as p

@@ -137,9 +137,19 @@ func TestPartitionGate(t *testing.T) {
 	w.s.RegisterAPI("GET /zz-probe-scoped", func(rw http.ResponseWriter, r *http.Request) { WriteOK(rw) })
 	partitionClasses["GET /zz-probe-scoped"] = PartitionScoped
 	t.Cleanup(func() { delete(partitionClasses, "GET /zz-probe-scoped") })
+	// an unconverted row of its own: the real ones go as their packs land
+	w.s.RegisterAPI("GET /zz-probe-unconverted", func(rw http.ResponseWriter, r *http.Request) { WriteOK(rw) })
+	partitionClasses["GET /zz-probe-unconverted"] = PartitionScoped
+	partitionUnconverted["GET /zz-probe-unconverted"] = "a probe"
+	t.Cleanup(func() {
+		delete(partitionClasses, "GET /zz-probe-unconverted")
+		delete(partitionUnconverted, "GET /zz-probe-unconverted")
+	})
 	// the real rows of routes the data plane converted (kv, blob, the bus
-	// publish), one still unconverted, and a mode decision
-	for _, pat := range []string{"PUT /kv/{rest...}", "GET /blob/{rest...}", "POST /bus/publish", "PUT /bus/subscriptions", "POST /partitions/mode"} {
+	// publish), the registrations (F5: a subscription, a dormant interface
+	// instance) and a mode decision
+	for _, pat := range []string{"PUT /kv/{rest...}", "GET /blob/{rest...}", "POST /bus/publish", "PUT /bus/subscriptions",
+		"PUT /iface-instances", "POST /partitions/mode"} {
 		w.s.RegisterAPI(pat, func(rw http.ResponseWriter, r *http.Request) { WriteOK(rw) })
 	}
 	w.s.Handler() // mounts the mux
@@ -197,15 +207,18 @@ func TestPartitionGate(t *testing.T) {
 		}
 	}
 	// a user partition's kv, blob and bus publish reach their handlers, which
-	// act on the caller's partition (the data plane); what isn't converted
+	// act on the caller's partition (the data plane), and so do its
+	// registrations — a dormant one (an interface instance) too, stamped,
+	// which its handler stores apart and never routes; what isn't converted
 	// yet is refused; a mode decision is never a partition's
 	for _, p := range []auth.Principal{{Component: "apps/a", UserID: "ana", Via: "frame"}, {Component: "apps/a", Via: "instance", Partition: "user:ana"}} {
-		for _, c := range [][2]string{{"PUT", "/kv/res:apps/a/db/k"}, {"GET", "/blob/res:apps/a/box/f"}, {"POST", "/bus/publish"}} {
+		for _, c := range [][2]string{{"PUT", "/kv/res:apps/a/db/k"}, {"GET", "/blob/res:apps/a/box/f"}, {"POST", "/bus/publish"},
+			{"PUT", "/bus/subscriptions"}, {"PUT", "/iface-instances"}} {
 			if code, body, part := gate(c[0], c[1], p); code != 200 || part != "user:ana" {
 				t.Errorf("%s via %s: %s %s: %d %s, partition %q", p.Component, p.Via, c[0], c[1], code, body, part)
 			}
 		}
-		if code, body, _ := gate("PUT", "/bus/subscriptions", p); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
+		if code, body, _ := gate("GET", "/zz-probe-unconverted", p); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
 			t.Errorf("%s via %s: an unconverted route: %d %s", p.Component, p.Via, code, body)
 		}
 		if code, body, _ := gate("POST", "/partitions/mode", p); code != 403 || !strings.Contains(body, "the global instance's alone") {

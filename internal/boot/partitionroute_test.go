@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/sbx"
+	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -179,7 +181,22 @@ func TestPartitionWiring(t *testing.T) {
 		t.Errorf("alice's document: %d %s", code, body)
 	}
 	frame := map[string]string{auth.FrameTokenHeader: d.st.Auth.MintFrameToken("apps/pa", "alice", time.Hour)}
-	if code, body := do("GET", "/api/xbin/bus/subscriptions", frame); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
+	// a route still unconverted, whichever that is now (the packs that
+	// convert them remove their rows): refused to her partition
+	var unconverted []string
+	for pat := range server.PartitionUnconverted() {
+		if m, path, ok := strings.Cut(pat, " "); ok && m == "GET" && !strings.Contains(path, "{") {
+			unconverted = append(unconverted, path)
+		}
+	}
+	slices.Sort(unconverted)
+	if len(unconverted) > 0 {
+		if code, body := do("GET", "/api/xbin"+unconverted[0], frame); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
+			t.Errorf("alice's frame on %s (not per partition yet): %d %s", unconverted[0], code, body)
+		}
+	}
+	// her partition's own registrations (F5): none yet, not global's
+	if code, body := do("GET", "/api/xbin/bus/subscriptions", frame); code != 200 || strings.TrimSpace(body) != `{"subscriptions":[]}` {
 		t.Errorf("alice's frame on bus subscriptions: %d %s", code, body)
 	}
 	// kv acts on her partition (the data plane): past the gate, to the handler
@@ -199,7 +216,7 @@ func TestPartitionWiring(t *testing.T) {
 	// the runner's people's-partitions hooks this plane fills are installed
 	// once the runner has them (records/F2.md)
 	rv := reflect.ValueOf(d.st.Run).Elem()
-	for _, hook := range []string{"PartitionIdent", "ShouldRunPartition", "RegisterPartitionInstance", "PartitionEvent"} {
+	for _, hook := range []string{"PartitionIdent", "ShouldRunPartition", "RegisterPartitionInstance", "PartitionEvent", "PartitionExit"} {
 		if f := rv.FieldByName(hook); f.IsValid() && f.Kind() == reflect.Func && f.IsNil() {
 			t.Errorf("the runner's %s hook isn't installed (plans/partitions/records/F2.md, Seams)", hook)
 		}

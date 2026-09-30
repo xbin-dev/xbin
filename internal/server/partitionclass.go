@@ -162,7 +162,10 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 		p.Partition = part
 		return r2.WithContext(auth.WithPrincipal(r2.Context(), p)), nil
 	case GlobalOnlyDormant:
-		return r2, refusal(http.StatusForbidden, "this route isn't available to a partition's credentials yet (dormant registrations)")
+		// stored for the partition and answered with success, but never
+		// routed (PD-21): the handler sees the partition and keeps it apart
+		p.Partition = part
+		return r2.WithContext(auth.WithPrincipal(r2.Context(), p)), nil
 	case GlobalOnlyRefused:
 		return r2, refusal(http.StatusForbidden, "this route is the global instance's alone: a person's partition ("+string(part)+") can't use it")
 	}
@@ -174,16 +177,6 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 // partitions until the pack that converts it removes the row
 // (plans/partitions/95).
 var partitionUnconverted = map[string]string{
-	"GET /bus/subscriptions":                      "per-partition registrations",
-	"PUT /bus/subscriptions":                      "per-partition registrations",
-	"DELETE /bus/subscriptions/{name}":            "per-partition registrations",
-	"GET /cron/jobs":                              "per-partition registrations",
-	"PUT /cron/jobs":                              "per-partition registrations",
-	"DELETE /cron/jobs/{name}":                    "per-partition registrations",
-	"GET /vault/{rest...}":                        "per-partition vaults",
-	"PUT /vault/{rest...}":                        "per-partition vaults",
-	"DELETE /vault/{rest...}":                     "per-partition vaults",
-	"POST /notify":                                "a partition's clamped notifications",
 	"GET /logs":                                   "per-partition backend logs",
 	"GET /tile-status":                            "per-partition tile status",
 	"POST /term/sessions":                         "per-person terminal layers",

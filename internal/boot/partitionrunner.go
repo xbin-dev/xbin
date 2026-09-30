@@ -30,6 +30,7 @@ func (st *State) wirePartitionRunner() {
 	run.PartitionEnv = brk.PartitionEnv // XBIN_PARTITION is the runner's own
 	run.RegisterPartitionInstance = st.registerPartitionInstance
 	run.PartitionEvent = brk.PublishPartitionState
+	run.PartitionExit = brk.NotePartitionExit // partition.json's crash metadata (F5)
 	run.PartitionCapsFor = brk.PartitionCaps
 	brk.SetPartitionCapDefaults(run.DefaultPartitionCaps)
 	brk.SetPartitionRunner(run.PartitionRunning, run.StopPartitions, st.Auth.RevokePartitionInstances)

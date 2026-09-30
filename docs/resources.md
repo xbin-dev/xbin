@@ -201,6 +201,14 @@ PUT /api/xbin/bus/subscriptions
   and receives nothing. A subscription on the tile's own bus receives only
   events published in its deployment's data; one on another scope's bus
   receives that scope's primary's, under the edge policy.
+- In a partitioned tile ([partitions.md](/docs/partitions.md)) each
+  person's partition subscribes for itself (at most 16): it receives its
+  own partition's events on its scope's bus — which start it only when its
+  own tile published them — and a shared bus's, or one another tile
+  published for the person, only while it runs (counted as `dormantDrops`
+  otherwise) — never the global instance's. Another partitioned tile's bus
+  needs the person to be able to read that tile (and, with the
+  `partitionConsent` policy on, their consent): 403 otherwise.
 
 Document your topics in your `API.md` — they're part of your contract.
 
@@ -227,7 +235,11 @@ component log); there are no retries — make handlers idempotent and let the
 next tick catch up. In a tile deployment that isn't the primary a job ticks
 that deployment (§Tile deployments below); while a tile manager has its
 deliveries off it is dormant — registered (`"dormant": true`), never
-ticking.
+ticking. In a partitioned tile ([partitions.md](/docs/partitions.md)) each
+person's partition schedules its own jobs — at most 16, none more often than
+once a minute — which tick that partition while its person can use the
+tile; a tick whose start is deferred (too many people's instances starting)
+is tried again before the next one is due.
 
 ## filesystem — a persistent read-write directory
 
