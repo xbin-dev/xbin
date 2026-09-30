@@ -2309,7 +2309,10 @@ POST   /clone                      same authority as /create (the
                                    → {path, from, rewritten, pendingGrants}.
                                    Forks a component: copies it (git history
                                    included), rewrites old-path references
-                                   across its files, registers it fresh.
+                                   across its files, registers it fresh; a
+                                   template instance's copy gets its
+                                   manifest's merge driver for its own path
+                                   (docs/overview/03-components.md §Templates).
                                    Secrets/resource data are NOT copied;
                                    unresolvable uses reject the clone.
 GET    /builtins                   any. optional tile catalog
@@ -2408,9 +2411,13 @@ POST   /templates/new               same authority as /create on the
                                    The instance's xbin.json is the template's
                                    JSONC without the block (and the comment
                                    lines above it), its partition the line
-                                   after "{"; its repo names the merge driver
-                                   for it (merge.xbin-manifest, bx template
-                                   merge-manifest: xbin.json merges by keys;
+                                   after "{" — in a workspace whose template
+                                   repo this xbind created, the served one
+                                   plus that line. Its repo names the merge
+                                   driver for it (merge.xbin-manifest, bx
+                                   template merge-manifest: where the line
+                                   merge of the template's change conflicts,
+                                   xbin.json merges by keys;
                                    docs/overview/03-components.md §Templates).
 GET    /templates/updates           authenticated. → {instances:[{path,
                                    template, head, legacy}]} — instances whose

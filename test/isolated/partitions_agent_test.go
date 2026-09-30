@@ -195,7 +195,8 @@ func TestPartitionsAgent(t *testing.T) {
 			t.Errorf("the new instance's mode record: %v %+v", has, m)
 		}
 		b, _ := os.ReadFile(filepath.Join(d.WS, paAgent, "xbin.json"))
-		if _, block, _ := jsonc.TopLevel(b, "template"); !strings.Contains(string(b), `"partition"`) || block { // the template's comments stay (T1)
+		_, part, _ := jsonc.TopLevel(b, "partition")
+		if _, block, _ := jsonc.TopLevel(b, "template"); !part || block { // read as keys: the template's comments stay (T1)
 			t.Errorf("the new instance's manifest carries its own partition and no template block: %s", cut(string(b), 400))
 		}
 		e.waitState(t, paPlain, "")

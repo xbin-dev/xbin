@@ -86,7 +86,12 @@ func TestPartitionsTemplateMerge(t *testing.T) {
 	t.Parallel()
 	a := xbindtest.Require(t)
 	if out, err := exec.Command("git", "-C", a.Repo, "cat-file", "-e", tmPreB2a+"^{commit}").CombinedOutput(); err != nil {
-		t.Skipf("needs this repository's history (%s): %v %s", tmPreB2a, err, out)
+		// a shallow checkout: in CI that is a gap, not a pass
+		msg := fmt.Sprintf("needs this repository's history (%s; a full clone — actions/checkout's fetch-depth: 0): %v %s", tmPreB2a, err, out)
+		if os.Getenv("CI") != "" {
+			t.Fatal(msg)
+		}
+		t.Skip(msg)
 	}
 	old := t.TempDir()
 	if out, err := exec.Command("sh", "-c", `git -C "$1" archive --format=tar "$2" builtin-templates/agent | tar -x -C "$3"`,
@@ -157,10 +162,14 @@ func TestPartitionsTemplateMerge(t *testing.T) {
 	}
 	for _, tile := range []string{"apps/agent", "apps/my-agent"} {
 		dir := filepath.Join(d.WS, filepath.FromSlash(tile))
-		drv := strings.TrimSpace(tmGitMust(t, dir, "config", "merge.xbin-manifest.driver"))
-		if !strings.HasPrefix(drv, "bx template merge-manifest") || strings.Contains(drv, "--rename") != (tile != "apps/agent") {
-			t.Errorf("%s's driver: %q", tile, drv)
-		}
+		// named off the boot path: soon after the start (the marker is the script's last write)
+		xbindtest.Eventually(t, time.Minute, tile+"'s merge driver", func() (bool, string) {
+			drv, _ := tmGitIn(t, dir, "", "config", "merge.xbin-manifest.driver")
+			marker, _ := tmGitIn(t, dir, "", "config", "xbin.manifestDriver")
+			drv = strings.TrimSpace(drv)
+			return strings.TrimSpace(marker) == "true" && strings.HasPrefix(drv, "bx template merge-manifest") &&
+				strings.Contains(drv, " --rename 'apps/agent="+tile+"' "), drv
+		})
 		if got := strings.TrimSpace(tmGitMust(t, dir, "check-attr", "merge", "xbin.json")); got != "xbin.json: merge: xbin-manifest" {
 			t.Errorf("%s: %q", tile, got)
 		}
@@ -172,14 +181,16 @@ func TestPartitionsTemplateMerge(t *testing.T) {
 		return r.Status == 200 && strings.Contains(string(r.Body), `"system"`), fmt.Sprint(r.Status, " ", cut(string(r.Body), 200))
 	})
 
-	// the builder merges the template: clean, by keys
+	// the builder merges the template, as documented (the remote's http://xbin
+	// is this xbind here): clean, by keys
 	path := a.Bin + string(os.PathListSeparator) + os.Getenv("PATH")
+	here := "url." + d.URL + "/.insteadOf=http://xbin/"
 	for _, tile := range []string{"apps/agent", "apps/my-agent"} {
 		dir := filepath.Join(d.WS, filepath.FromSlash(tile))
-		if out, err := tmGitIn(t, dir, path, "fetch", "-q", d.URL+"/api/xbin/templates/agent.git", "main"); err != nil {
+		if out, err := tmGitIn(t, dir, path, "-c", here, "fetch", "-q", "template"); err != nil {
 			t.Fatalf("%s: fetch the template: %v\n%s", tile, err, out)
 		}
-		out, err := tmGitIn(t, dir, path, "merge", "--no-edit", "FETCH_HEAD")
+		out, err := tmGitIn(t, dir, path, "merge", "--no-edit", "template/main")
 		if err != nil {
 			t.Fatalf("%s: the merge conflicts (%v):\n%s\n%s", tile, err, out, tmGitMust(t, dir, "diff"))
 		}
@@ -225,11 +236,11 @@ func TestPartitionsTemplateMerge(t *testing.T) {
 		t.Errorf("the new instance's manifest:\n%s", cut(string(man), 1200))
 	}
 	e.waitState(t, "apps/agent-new", "partitioned")
-	if drv := tmGitMust(t, dir, "config", "merge.xbin-manifest.driver"); !strings.Contains(drv, "--rename apps/agent=apps/agent-new") {
+	if drv := tmGitMust(t, dir, "config", "merge.xbin-manifest.driver"); !strings.Contains(drv, "--rename 'apps/agent=apps/agent-new'") {
 		t.Errorf("the new instance's driver: %q", drv)
 	}
-	tmGitMust(t, dir, "fetch", "-q", d.URL+"/api/xbin/templates/agent.git", "main")
-	if out := tmGitMust(t, dir, "merge", "--no-edit", "FETCH_HEAD"); !strings.Contains(out, "Already up to date") {
+	tmGitMust(t, dir, "-c", here, "fetch", "-q", "template")
+	if out := tmGitMust(t, dir, "merge", "--no-edit", "template/main"); !strings.Contains(out, "Already up to date") {
 		t.Errorf("the new instance merging its template: %s", out)
 	}
 }

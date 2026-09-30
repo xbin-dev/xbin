@@ -27,7 +27,8 @@ bx template merge-manifest [--marker-size N] [--rename FROM=TO] BASE OURS THEIRS
                                        git's merge driver for a template instance's
                                        xbin.json, which xbind names in the
                                        instance's repo — git runs it, you don't:
-                                       merges by keys where the line merge conflicts
+                                       where the line merge of the template's
+                                       change conflicts, merges by keys
                                        (docs/overview/03-components.md §Templates)
 bx builtin updates | update <id> [--replace|--merge|--pr]
                                        offer/apply newer embedded scaffold + tiles;

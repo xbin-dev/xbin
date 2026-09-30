@@ -232,7 +232,8 @@ Templates and updates never switch a mode:
   partitions need isolation. The block is stripped from instances (the
   instance's own `partition` is the line after the opening brace), and the
   merge driver xbind names in each instance's repository never takes a
-  `partition` change from upstream
+  `partition` change from upstream — it is a conflict for you to resolve
+  — nor merges a branch of yours, a rebase or a stash by keys
   ([03-components](overview/03-components.md#templates-blueprint-components)),
   so `git merge template/main` can't add or change it — and a builtin template's
   served repository (the instances' `template` remote) never changes the
