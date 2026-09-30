@@ -22,13 +22,15 @@
  *                (the global instance's log) or 'user:<id>' (a log its person
  *                shares with an admin or a manager). The same echo rule: the
  *                answer must name the partition asked for (X-XBin-Partition).
+ *                Another component or deployment clears it.
  *
  * The partition switcher: once an answer names a
  * partition — only a partitioned tile's does — the view asks GET
  * /partitions?tile= what else the viewer may read (the global instance's
- * log, and for an admin each person who shares theirs) and offers it in the
- * corner (logs-partition.js). An unpartitioned tile, and an older xbind,
- * never name one: the view there is as it always was.
+ * log when theirs to read, and for an admin or a tile manager each person
+ * who shares theirs) and offers it in the corner (logs-partition.js). An
+ * unpartitioned tile, and an older xbind, never name one: the view there is
+ * as it always was.
  *
  * Shares the terminal theme/font-size prefs (bx-term-theme / bx-term-fontsize
  * in localStorage, and the live `bx-term-pref` event) so it looks like the
@@ -37,7 +39,9 @@
  */
 
 import { scrollCssText } from '/vendor/bx-scroll.js';
-import { logsQuery, echoOK, logChoices, badgeText } from '/vendor/logs-partition.js';
+import { logsQuery, echoOK, logChoices, badgeText, globalProbe } from '/vendor/logs-partition.js';
+
+const LISTING_TTL = 30000; // how long the switcher trusts its listing on a new stream
 
 // Same loader as bx-terminal: the tag is shared by id, so wait for ITS load
 // rather than resolving because it already exists (the terminal and this
@@ -81,8 +85,10 @@ function termBg() {
 export class BxLogs extends HTMLElement {
   #term; #fit; #ro; #ac; #host; #closed = false; #onPref; #gen = 0;
   // the partition switcher: the default's answer (X-XBin-Partition), the
-  // listing it was built from (per component) and its entries
-  #defaultPart = ''; #listing = null; #listingFor = ''; #choices = [];
+  // listing it was built from (per component, and when), whether the global
+  // instance's log is the viewer's to read, and its entries
+  #defaultPart = ''; #listing = null; #listingFor = ''; #listingAt = 0; #globalOK = true; #choices = [];
+  #clearing = false; // the partition attribute is being cleared (another log)
 
   static get observedAttributes() { return ['component', 'deployment', 'partition']; }
 
@@ -122,11 +128,15 @@ export class BxLogs extends HTMLElement {
     this.#ro?.disconnect();
     this.#term?.dispose();
     if (this.#onPref) window.removeEventListener('bx-term-pref', this.#onPref);
+    this.#listingFor = ''; // opened again: what the switcher offers is asked again
   }
 
   attributeChangedCallback(name, oldV, newV) {
-    if (oldV === newV || !this.#term || (name === 'component' && oldV === null)) return;
-    if (name !== 'partition') { this.#defaultPart = ''; this.#choices = []; } // another log: learn it again
+    if (oldV === newV || this.#clearing || !this.#term || (name === 'component' && oldV === null)) return;
+    if (name !== 'partition') { // another log: learn it again, from its own default
+      this.#defaultPart = ''; this.#choices = [];
+      if (this.hasAttribute('partition')) { this.#clearing = true; this.removeAttribute('partition'); this.#clearing = false; }
+    }
     this.#term.clear();
     this.#stream();
   }
@@ -238,20 +248,32 @@ export class BxLogs extends HTMLElement {
   // the default was refused (a person's partition that hasn't started yet
   // answers 404 without the header, and the global instance's log may still
   // be theirs to pick).
+  // The listing is asked again when the panel opens anew and, on a new
+  // stream (a pick), once it is older than LISTING_TTL: a share that starts
+  // or ends shows then. The global instance's log keeps today's gate
+  // (terminal access or an admin), which a person's listing doesn't say: a
+  // tail=0 read of it answers (403: not offered).
   async #learn(comp, part, r) {
     const header = r.headers.get('X-XBin-Partition') || '';
     if (!part && header) this.#defaultPart = header;
     if (!header && !this.#choices.length && r.ok) return;
-    if (this.#listingFor !== comp) {
+    if (this.#listingFor !== comp || Date.now() - this.#listingAt > LISTING_TTL) {
       this.#listingFor = comp;
+      this.#listingAt = Date.now();
       this.#listing = null;
+      this.#globalOK = true;
       try {
         const lr = await fetch(`/api/xbin/partitions?tile=${encodeURIComponent(comp)}`);
         this.#listing = lr.ok ? await lr.json() : null;
+        if (globalProbe(this.#listing, this.#defaultPart)) {
+          const pr = await fetch(`/api/xbin/logs?component=${encodeURIComponent(comp)}&xbin-partition=global&tail=0`);
+          this.#globalOK = pr.status !== 401 && pr.status !== 403; // 404: no log yet, still theirs to pick
+          pr.body?.cancel().catch(() => {});
+        }
       } catch { this.#listing = null; }
     }
     if (this.getAttribute('component') !== comp) return; // another log meanwhile
-    this.#choices = logChoices(this.#listing, this.#defaultPart);
+    this.#choices = logChoices(this.#listing, this.#defaultPart, { globalOK: this.#globalOK });
     this.#drawChoices();
   }
 

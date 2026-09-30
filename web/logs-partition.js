@@ -40,25 +40,51 @@ const day = (t) => {
   return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
 };
 
-// logChoices(listing, defaultHeader) → the switcher's entries
+// globalProbe(listing, defaultHeader) → whether the view must ask xbind
+// (GET /logs …&xbin-partition=global&tail=0: 403 is no) before offering the
+// global instance's log: that log keeps today's gate — terminal access to
+// the tile, or an admin — which the listing doesn't say for a person; an
+// admin's listing (it carries orphans) needs no asking, nor a tile without
+// a global instance or a viewer whose default already is it.
+export const globalProbe = (listing, defaultHeader = '') =>
+  !!listing?.spec?.global && defaultHeader !== 'global' && !Array.isArray(listing?.orphans);
+
+// sharedLogs(listing, defaultHeader) → the people whose log the viewer may
+// read because they share it now: an admin's rows carrying logShare
+// (never an orphaned one: it has no person to share it), or a manager's
+// logShares; the viewer's own left out.
+function sharedLogs(listing, defaultHeader) {
+  const out = new Map();
+  for (const r of Array.isArray(listing?.partitions) ? listing.partitions : []) {
+    if (!r || typeof r.user !== 'string' || !r.logShare?.until || r.state === 'orphaned' || `user:${r.user}` === defaultHeader) continue;
+    out.set(r.user, r.logShare.until);
+  }
+  for (const s of Array.isArray(listing?.logShares) ? listing.logShares : []) {
+    if (!s || typeof s.user !== 'string' || !s.until || `user:${s.user}` === defaultHeader || out.has(s.user)) continue;
+    out.set(s.user, s.until);
+  }
+  return [...out];
+}
+
+// logChoices(listing, defaultHeader, {globalOK}) → the switcher's entries
 // [{value, label, title}], or [] where there is nothing to switch: the tile
 // isn't partitioned (the listing says so, or there is none — a 404 from an
 // older xbind). listing is GET /api/xbin/partitions?tile=<t> as the viewer
 // reads it; defaultHeader what the default answered (X-XBin-Partition, ''
-// before or without an answer). Entries: the default; the global instance's
-// log when the tile runs one (and the default isn't it); and, for an admin,
-// each person who shares their log now (the admins' rows carry logShare).
-export function logChoices(listing, defaultHeader = '') {
+// before or without an answer); globalOK the global probe's answer (true
+// when there was nothing to ask). Entries: the default; the global
+// instance's log when the tile runs one, the viewer may read it and the
+// default isn't it; and each person who shares their log with the viewer
+// now (an admin's rows, a manager's logShares).
+export function logChoices(listing, defaultHeader = '', { globalOK = true } = {}) {
   const spec = listing && typeof listing === 'object' ? listing.spec : null;
   if (!spec?.user && !defaultHeader) return [];
   const own = defaultLabel(defaultHeader);
   const out = [{ value: '', label: own, title: own === 'yours' ? 'your own partition\'s log' : 'the global instance\'s log' }];
-  if (spec?.global && own !== 'global') out.push({ value: 'global', label: 'global', title: 'the global instance\'s log (one instance for what isn\'t a person\'s)' });
-  const rows = Array.isArray(listing?.partitions) ? listing.partitions : [];
-  for (const r of rows) {
-    if (!r || typeof r.user !== 'string' || !r.logShare?.until || r.partition === defaultHeader) continue;
-    const until = day(r.logShare.until);
-    out.push({ value: `user:${r.user}`, label: `${r.user}'s (shared)`, title: `${r.user} shares their partition's log${until ? ` until ${until}` : ''}` });
+  if (spec?.global && own !== 'global' && globalOK) out.push({ value: 'global', label: 'global', title: 'the global instance\'s log (one instance for what isn\'t a person\'s)' });
+  for (const [user, untilT] of sharedLogs(listing, defaultHeader)) {
+    const until = day(untilT);
+    out.push({ value: `user:${user}`, label: `${user}'s log (shared with you)`, title: `${user} shares their partition's log${until ? ` until ${until}` : ''}` });
   }
   return out;
 }

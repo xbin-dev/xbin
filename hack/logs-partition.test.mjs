@@ -1,12 +1,13 @@
 // hack/logs-partition.test.mjs — unit tests for the log view's partition
 // switcher (web/logs-partition.js, owner answer I5), run by `make js-test`:
 // the query each choice adds to GET /logs, the echo rule, the switcher's
-// entries from GET /partitions?tile= and what the default answered, and the
-// corner badge. An unpartitioned tile, and an older xbind (no listing, no
+// entries from GET /partitions?tile= and what the default answered (the
+// global instance's only for who may read it, shares for admins and
+// managers, never an orphan's), and the corner badge. An unpartitioned tile, and an older xbind (no listing, no
 // header), get no entries and the badge they always had.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { logsQuery, echoOK, defaultLabel, logChoices, badgeText } from '../web/logs-partition.js';
+import { logsQuery, echoOK, defaultLabel, logChoices, badgeText, globalProbe } from '../web/logs-partition.js';
 
 test('each choice asks GET /logs for its log; the default asks for nothing', () => {
   assert.equal(logsQuery(''), '');
@@ -61,7 +62,7 @@ test('an admin: each person who shares their log now, besides their own and glob
   ] };
   const c = logChoices(listing, 'user:root2');
   assert.deepEqual(c.map((x) => x.value), ['', 'global', 'user:alice']);
-  assert.equal(c[2].label, "alice's (shared)");
+  assert.equal(c[2].label, "alice's log (shared with you)");
   assert.match(c[2].title, /until 2026-10-07/);
   // the root token reaches global by default: no second global entry
   const root = logChoices(listing, 'global');
@@ -70,4 +71,30 @@ test('an admin: each person who shares their log now, besides their own and glob
   assert.equal(root[0].label, 'global');
   assert.equal(badgeText(logChoices({ spec: { user: true, global: true }, partitions: [] }, 'global')), 'read-only logs · global',
     'the root token on a tile nobody shares with: global alone, named');
+  // an orphan's share (its person deleted, the record not swept yet): never offered
+  const orphan = { ...listing, orphans: [], partitions: [...listing.partitions, { user: 'porphan', partition: 'user:porphan', state: 'orphaned', logShare: { until: '2026-10-07T00:00:00Z' } }] };
+  assert.deepEqual(logChoices(orphan, 'user:root2').map((x) => x.value), ['', 'global', 'user:alice']);
+});
+
+test('the global instance\'s log is offered only to who may read it', () => {
+  const person = { state: 'partitioned', spec: { user: true, global: true }, partitions: [] };
+  assert.ok(globalProbe(person, 'user:wendy'), "a person's listing doesn't say: the view asks xbind");
+  assert.ok(globalProbe(person, ''), 'a refused default too');
+  assert.ok(!globalProbe({ ...person, orphans: [] }, 'user:admin'), "an admin's listing (orphans): an admin reads it");
+  assert.ok(!globalProbe(person, 'global'), 'the root token: it is the default');
+  assert.ok(!globalProbe({ ...person, spec: { user: true, global: false } }, 'user:wendy'), 'no global instance: nothing to ask');
+  assert.ok(!globalProbe(null, ''));
+  assert.deepEqual(logChoices(person, 'user:wendy', { globalOK: false }).map((x) => x.value), [''], 'refused (403): not offered');
+  assert.deepEqual(logChoices(person, 'user:wendy', { globalOK: true }).map((x) => x.value), ['', 'global']);
+});
+
+test('a tile manager: the people who share their log with them (logShares)', () => {
+  const listing = { state: 'partitioned', spec: { user: true, global: false }, partitions: [{ user: 'mona', partition: 'user:mona' }],
+    logShares: [{ user: 'alice', until: '2026-10-07T12:00:00Z' }, { user: 'mona', until: '2026-10-03T00:00:00Z' }, { user: 'x' }, null] };
+  const c = logChoices(listing, 'user:mona');
+  assert.deepEqual(c.map((x) => x.value), ['', 'user:alice'], 'their own share and a share without an end are no entries');
+  assert.equal(c[1].label, "alice's log (shared with you)");
+  // an admin's rows and logShares naming the same person: one entry
+  const both = { ...listing, partitions: [{ user: 'alice', partition: 'user:alice', logShare: { until: '2026-10-07T12:00:00Z' } }] };
+  assert.deepEqual(logChoices(both, 'user:mona').map((x) => x.value), ['', 'user:alice']);
 });
