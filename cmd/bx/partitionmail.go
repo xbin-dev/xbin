@@ -3,10 +3,10 @@ package main
 // bx partition mail ls|ack — partition mail from where it is read
 // (docs/partitions.md §Partition mail, docs/bx.md; plans/partitions/06 §7):
 // the inbox of the credential bx runs with — in a person's terminal on a
-// partitioned tile, that person's partition's; with the global instance's
-// backend token, global's. Nobody else reads an inbox (403: admins, the
-// root token and other tiles included). Against an xbind without partition
-// mail it exits 6.
+// partitioned tile, that person's partition's; in the tile's root terminal,
+// or with the global instance's backend token, global's. Nobody else reads
+// an inbox (403: admins, the root token and other tiles included). Against
+// an xbind without partition mail it exits 6.
 
 import (
 	"encoding/json"
