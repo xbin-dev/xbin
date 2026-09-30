@@ -12,6 +12,29 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **Agent template: a coding agent's bypass modes are the owner's by
+  default** (`builtin-templates/agent/API.md` §Coding agents, "The mode and
+  options"). Only a mode the SDK catalog knows never takes a coding agent
+  past its own asks (`acp.Provider.Safe`, new, with `SafeModes`: opencode's
+  `build`/`plan`), or the one it opened its first session in by itself, is
+  anyone's; every other — bypass and full access, a mode a newer adapter
+  adds, any other mode of one the catalog doesn't know — is `explicit` and
+  the conversation owner's: to switch to (`PATCH /runs/{id}/harness`), to
+  start in (`POST /ask` from a person), to allow as a permission's option.
+  A stored option the coding agent reports as its mode is dropped with a
+  note (`acp.Config.SkipModeOptions`, new). Also: `/cancel` on a
+  conversation whose coding agent is idle stops it (the status stays); a
+  child's answer is its turn's own text (`(no answer)` when it wrote none);
+  a `PATCH` whose mode was taken and option refused keeps the mode;
+  sign-in errors name a coding agent as its manager does; opencode's mode
+  picker shows a mode restored at its start (`sdk/acp`: a `set_mode` at the
+  start also sets the agent's option of category `mode`); a backend that
+  exits with a coding agent running, idle too, leaves its resume job, so
+  the next one takes it over and stops it when idle. **Coding sandboxes**
+  (`builtin-templates/coding-sandbox/API.md` §Images): a new manager's
+  image advertises Claude Code's sign-in as `CLAUDE_CODE_REMOTE=1 claude
+  /login` (a sign-in without a browser redirect); a saved config keeps the
+  one it was saved with.
 - **Agent template: a coding agent's own routes, and where it shows**
   (`builtin-templates/agent/API.md` §Coding agents, "Its own routes").
   `GET|PATCH /runs/{id}/harness` (its summary, session and remembered
@@ -73,8 +96,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   state in the summary's `harness` and the stream's `harness` event, a
   permission it asks for a park `POST /runs/{id}/approve` answers. It
   survives a save or restart of the agent mid-turn. Additive: a run of the
-  agent's own loop answers exactly as before; an older build of the agent
-  leaves a coding agent's messages waiting.
+  agent's own loop answers exactly as before. Rolled back to an older build
+  of the agent (v0.3.64 or before), a coding agent's messages wait, and any
+  turn that build would start in its conversation — one left running or
+  parked, one a person messages — ends at once at its step cap ("stopped
+  after 500 steps in one turn"): a coding agent's run keeps `turnSteps` at
+  that ceiling, so no model call is made; the coding agent itself runs on
+  unwatched in its sandbox until the sandbox stops.
 - **Agent template: terminals relayed to the app, and a coding agent's
   log** (`builtin-templates/agent/API.md` §Coding agents, "Terminal
   relays and the log"). `GET /runs/{id}/harness/terminal?login=1&rows=&cols=&exec=`

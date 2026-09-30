@@ -780,9 +780,10 @@ instant (a `yield` wake, a subagent deadline) and are one-shot.
   request to itself open (`GET /engine/hold`); it is closed the moment work runs
   out.
 - **Resume job.** A process that exits with work pending (xbind stopping, a
-  disable) leaves a one-shot `resume` cron job (in the `beat` resource) that
-  starts the backend again; the next owner deletes it, and the pre-D81
-  `heartbeat` job, at takeover. `POST /tick` is the idempotent recovery scan it
+  disable; a coding agent's adapter running counts, idle too) leaves a
+  one-shot `resume` cron job (in the `beat` resource) that starts the
+  backend again; the next owner deletes it, and the pre-D81 `heartbeat`
+  job, at takeover. `POST /tick` is the idempotent recovery scan it
   calls.
 - **Model calls are gated, not runs.** `maxActiveRuns` bounds concurrent model
   calls. A top-level run's call goes first, and subagents may hold at most
@@ -1740,9 +1741,11 @@ gains `sandbox` as `/ask` has it, bound as you): the run is made with
 first prompt. `class` is optional (yours when it allows the coding agent,
 else the first class you may use that does). `mode` is a mode of the
 coding agent's (`GET /harnesses` `modes`) — absent, your Auto / Always
-approve — and an explicit one only from a person; `options` are its config
-options (`{"model": "…"}`) and never carry the mode. The sandbox is fixed
-for the conversation. **400** `harness.provider: no coding agent "x" (GET
+approve — and an explicit one only from a person (every mode the catalog
+doesn't know to be safe: below, "The mode and options"); `options` are its
+config options (`{"model": "…"}`) and never carry the mode (one the running
+coding agent reports as its mode option is skipped and dropped, with a
+note). The sandbox is fixed for the conversation. **400** `harness.provider: no coding agent "x" (GET
 /harnesses lists them)`, `class: the <class> class doesn't allow <name>`,
 `harness.mode: one of …`, `harness.options: the mode is harness.mode`,
 `system: a coding agent keeps its own instructions — system is for the
@@ -1799,9 +1802,10 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   title}, login?, sandbox: {ref, name, cwd, shared}, steering, title,
   gen}`; `mode` is the coding agent's session modes, else its config
   option of category `mode` (opencode speaks its build/plan agents only
-  that way), else the catalog's. The stream's **`harness`** event (`data`:
-  the whole object, coalesced per run) says when it changes between run
-  events. The conversation's title follows the coding agent's own while it
+  that way), else the catalog's; `explicit` on one of `mode.available`
+  marks it the conversation owner's (below). The stream's **`harness`**
+  event (`data`: the whole object, coalesced per run) says when it changes
+  between run events. The conversation's title follows the coding agent's own while it
   is the first message clipped. An agent-loop run has no `harness`.
 - **Waiting for you.** A permission request parks the run (`waiting_input`,
   the call's row `(awaiting your approval)`): `pendingState: {kind:
@@ -1817,7 +1821,8 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   (**400** `option: name one — every allow here raises <name> to an
   explicit mode` when every allow does), `approve: false` rejects (once,
   else always, else the cancelled outcome). An option marked `explicit`
-  (it raises the session to a bypass mode) is the conversation owner's:
+  (an allow that switches the session to a mode that is the owner's —
+  "The mode and options" below) is the conversation owner's:
   **403** `only <owner> can allow <option>`. `feedback` (a plan approval's
   "keep planning") goes with a rejection only (**400** `feedback goes with
   a rejection`): the rejection is answered, then `feedback` is your next
@@ -1846,8 +1851,12 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   question waiting settles `(interrupted)` and the coding agent ends its
   turn (`idle`) — one that doesn't within 15 s is stopped. `/cancel` and
   deleting the conversation stop the coding agent too (a subagent's link
-  settles `canceled`). `/resume` starts a fresh one when none runs and
-  sends again a message that couldn't reach it. `/compact` sends `/compact`
+  settles `canceled`); `/cancel` on a conversation that rests with its
+  coding agent idle (`ready`) stops the coding agent (`stopped`, a note;
+  `cancelled` lists the run) and leaves the status as it was — there was no
+  turn to cancel; the next message starts it again. `/resume` starts a
+  fresh one when none runs and sends again a message that couldn't reach
+  it. `/compact` sends `/compact`
   to a coding agent that offers it (`harness.commands`). A coding agent
   idle between turns keeps running for the tile's `harnessIdleMin`
   (default 15 minutes; 0: until stopped) and is then stopped
@@ -1865,7 +1874,18 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   mid-send, the connection to the sandbox dropped as it went) fails —
   "send it again" — and is never sent twice. A save or restart of the
   agent never stops one: the next process takes it over where the last one
-  left it, mid-turn too.
+  left it, mid-turn too — and a process that exits with one running, idle
+  too, and none to follow leaves the resume job (§The engine, "Resume job"),
+  whose next process takes it over and stops it once it has been idle for
+  `harnessIdleMin`. **Rolling back** to an agent from before coding agents
+  (v0.3.64 or older): its model loop never answers a coding agent's
+  conversation — every turn it would start there ends at once at its step
+  cap ("stopped after 500 steps in one turn (maxTurnSteps)"; the
+  conversation's `turnSteps` is kept at that ceiling) — but it leaves the
+  messages queued for the coding agent waiting, reads calls in flight as
+  interrupted, answers an approval there with an error result, and the
+  coding agent itself runs on unwatched in the sandbox until the sandbox
+  stops or a newer agent takes it over again.
 
 **Its own routes** (D-harness §4.2.4–§4.2.6). On a run the agent's own
 loop answers they are **409** `not a coding-agent conversation`.
@@ -1886,8 +1906,18 @@ loop answers they are **409** `not a coding-agent conversation`.
   `session/set_config_option`); either way the choice is kept in the
   conversation's `config.harness` (`mode`, `options`) for its next start —
   a stopped one's summary shows it as current. The change reaches the
-  stream as a `harness` event. An explicit mode (bypass, full access —
-  `explicit` in `mode.available`) is the conversation owner's, a person's.
+  stream as a `harness` event. A mode the coding agent took with an option
+  it refused is kept, and the answer is the option's refusal. **Bypass
+  modes are default-deny**: a mode is anyone's (who may talk in the
+  conversation) only when the SDK catalog knows it never takes the coding
+  agent past its own asks (`acp.Provider.Safe`: claude's `default`,
+  `acceptEdits`, `plan`, `auto`; codex's `read-only`, `agent`; gemini's
+  `default`, `autoEdit`, `plan`; opencode's `build`, `plan`), or it is the
+  mode the coding agent opened its first session in by itself; every other
+  — bypass and full access, a mode a newer version of it adds, any other
+  mode of one the catalog doesn't know — is `explicit` in `mode.available`
+  and the conversation owner's, a person's (to switch to here, to start in
+  with `POST /ask`, or to allow as a permission's option).
   **400** `mode or option: name one`, `mode: one of …`, `option: one of …`,
   `value: one of …`; **403** `only ‹owner› can switch ‹name› to ‹mode›`;
   **502** `{error}`: the coding agent refused, in its words; **504**
@@ -2081,10 +2111,11 @@ by no person: Always approve), which `harness_mode` only narrows —
 provider's plan mode, else its approve mode); the model never picks an
 explicit (bypass) mode. The link, the placeholder, the digest and the
 delivery are a subagent's: the child's turn end settles the link —
-answered with its turn's last text, incomplete, error with the error, or
-canceled. Refused, as the call's result: `system` with `harness` (`system:
-a coding agent keeps its own instructions — leave system out with
-harness`), `after` with `harness`, `harness_mode` other than `approve` or
+answered with that turn's last text (`(no answer)` when the turn wrote
+none — never an earlier turn's), incomplete, error with the error, or
+canceled; `subagent_cancel` on a coding agent that rests idle stops it.
+Refused, as the call's result: `system` with `harness` (`system: a coding
+agent keeps its own instructions — leave system out with harness`), `after` with `harness`, `harness_mode` other than `approve` or
 `plan` or without `harness`, a coding agent the class doesn't allow or the
 sandbox doesn't offer (`harness: <sandbox> doesn't offer <name> (it offers
 …)`), a sandbox without egress or known not to have it, one the

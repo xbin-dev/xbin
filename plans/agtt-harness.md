@@ -204,9 +204,19 @@ carries a secret and is never stored.
 
 Today's binary ignores unknown kinds, so a harness run is never LLM-driven
 by an older process during a blue/green overlap. Rolling back to a binary
-without this program leaves harness conversations inert (documented
-caveat): their `hprompt` rows wait, and `wake`/`approve` rows would be read
-as a built-in run's.
+without this program (documented caveat): its `hprompt` rows wait, but
+that binary's pass would still reach its model loop for a harness run it
+finds `running` (recover), one parked and answered (`approve`, a reply,
+`/resume`) or one a person messages through it (its own `user` row). So a
+harness run's `runs.turn_steps` is always at maxTurnSteps' ceiling (500),
+kept there by two triggers (`harness_turn_cap_*`, also through such a
+binary's own turn start): its `turn()` ends every turn it starts there at
+once, at its step cap ("stopped after 500 steps in one turn
+(maxTurnSteps)"), before any model call or compaction — only its
+`repairTranscript` (the calls in flight read interrupted) and, for an
+approved park, the call "run" as an unknown tool (an error result) happen
+first. The adapter itself runs on unwatched until its sandbox stops, or a
+newer binary takes it over again.
 
 ### 3.3 The engine fork and sessions
 
@@ -222,7 +232,9 @@ as a built-in run's.
 - Registry `e.harness[run]`; the keep-alive hold is wanted while it is
   non-empty. `recover()` gains `UNION SELECT run_id FROM harness_sessions
   WHERE state IN ('starting','live')`; `hasWork()` gains `prompt_state <>
-  ''`. `BeginShutdown` stops the pumps with `errHandoff` and never kills
+  ''` and any running adapter (Afix: an idle one too — the resume job
+  brings a next process that attaches it and re-arms its idle reclaim).
+  `BeginShutdown` stops the pumps with `errHandoff` and never kills
   execs; stdin writes check ownership (the epoch) first.
 - **ensure** (every prompt): `sandboxUse` (binder rights, class, taint,
   egress ≠ `none` — "Claude Code must reach its provider — ‹sandbox›'s
@@ -269,7 +281,7 @@ as a built-in run's.
 | `elicitation/create` (url) | honoured only during an AgTT `authenticate`: accepted, shown as `harness.login.device`; declined otherwise |
 | `_auth/status_update{kind:none}`, a -32000 prompt error | `state = login`, status `waiting_input`, `pendingState{kind:"login"}`, the failed prompt kept in `held` |
 | `current_mode_update`, `config_option_update`, `available_commands_update`, `usage_update`, `session_info_update` | the snapshot + a `harness` event |
-| turn end | flush; `idle` (end_turn → answered; max_tokens / max_turn_requests / refusal → incomplete, with a note; cancelled → interrupted) or `error` (an adapter error); a child calls `settleOwnLink` with the turn's last text; queued prompts go next |
+| turn end | flush; `idle` (end_turn → answered; max_tokens / max_turn_requests / refusal → incomplete, with a note; cancelled → interrupted) or `error` (an adapter error); a child calls `settleOwnLink` with the turn's last text — this turn's only (after `harness_sessions.turn_seq`, its first row), `(no answer)` when it wrote none; queued prompts go next |
 
 Stored call ids are `h<gen>:<acp toolCallId>` (a respawn may reuse an
 adapter's ids); `parent` ids are mapped the same way. At most one park at a
@@ -293,7 +305,10 @@ before is answered.
 - A message while an approval is parked answers it `reject_once` first (a
   question: `decline`), then is steered or queued — the LLM path's rule.
 - Cancel: `session/cancel`, kill the exec, status `canceled`, a child's link
-  settles canceled.
+  settles canceled. On a run that rests with its adapter up (no turn, no
+  park) the cancel row still goes (`cancelRuns`) and the pass stops the
+  adapter (`stopped`, a note) — the status stays: there is no turn to
+  cancel (Afix).
 
 ### 3.6 The pipe (WP-A7, `harness_pipe.go`, builds the `acp.Process`: Stdin, Stdout, Wait, Kill)
 
@@ -403,8 +418,9 @@ catalog `autoMode` is empty); 403 `the setting is a person's own`.
   probed at the first prompt, which fails the run's harness (`failed`,
   "‹sandbox› doesn't have ‹name› (claude-agent-acp not found)").
 - `harness.mode`: a provider mode id; default: the caller's setting (§4.3.12)
-  mapped to the provider's mode; an **explicit** mode only from a person
-  (the conversation's owner-to-be).
+  mapped to the provider's mode; an **explicit** mode — any the catalog
+  doesn't know to be safe (§4.3.12) — only from a person (the
+  conversation's owner-to-be).
 - `harness.options`: config options (`{"model": "…", "effort": "…"}`)
   applied after `session/new`/`load`; one the adapter refuses is a journal
   note, not an error. They never carry the mode (else they would bypass
@@ -442,7 +458,9 @@ the choice is stored in `Config.Harness` for the next start. A config
 option of category `mode` is never listed in `options` (the mode picker
 covers it; the backend routes a mode change to whichever the adapter
 speaks), and `option.id` must be one listed — so a mode change always
-goes through `mode` and its owner-only rule for explicit modes. Errors:
+goes through `mode` and its owner-only rule for explicit modes (every
+mode §4.3.12 doesn't open). A mode the adapter took with an option it
+refused stores the mode and answers the option's refusal (Afix). Errors:
 400 `mode: one of …` / `option: one of …` / `value: one of …`; 403 `only ‹owner› can switch ‹name› to ‹mode name›` (explicit mode);
 502 `{error: <the adapter's words>}`; 503 with `Retry-After: 1` while
 another process holds the session (a handoff).
@@ -555,7 +573,7 @@ written on its parent (§4.3.13).
 | Route | On a harness run |
 |---|---|
 | `POST /runs/{id}/interrupt` | `session/cancel`; the caller's queued messages come back (today's rule) |
-| `POST /runs/{id}/cancel`, `DELETE /runs/{id}` | `session/cancel` + kill the exec |
+| `POST /runs/{id}/cancel`, `DELETE /runs/{id}` | `session/cancel` + kill the exec — also of an idle adapter (the run's status then stays, §3.5) |
 | `POST /runs/{id}/resume` | respawn a fresh adapter when not live (it re-reads credentials) and resend `held` — the "Signed in? Retry" and "Retry resumes its session" buttons |
 | `POST /runs/{id}/compact` | sends `/compact` when `harness.commands` has it; else 409 `‹name› has no /compact` |
 | `PUT/DELETE /runs/{id}/memory`, `POST /runs/{id}/learn` | 409 `a coding agent has no memory` / `… can't learn a skill` |
@@ -601,7 +619,7 @@ run has no `harness` key.
 |---|---|
 | `state` | `stopped` (no adapter now; the next prompt starts one — never started, idle-reclaimed, exited cleanly) · `starting` (spawn, initialize, session/new\|load) · `ready` (live, no turn) · `working` (a prompt in flight) · `login` (needs sign-in) · `lost` (cut off: xbind restart, sandbox stop, output gap; Retry/next prompt resumes) · `failed` (couldn't start: not installed, refused, crashed at init). From storage: `none`/`stopped` → `stopped`; `starting`; `live` → `ready`/`working` by `prompt_state`/turn; `login`; `lost`; `failed` |
 | `error` | why, for `lost` and `failed` (words for people) |
-| `mode` | the session's modes (else the catalog's); `explicit` from the catalog |
+| `mode` | the session's modes (else its config option of category `mode`, else the catalog's); `explicit`: owner-only — every mode §4.3.12's rule doesn't open (default-deny) |
 | `options` | the adapter's config options (no category-`mode` option) |
 | `commands` | slash commands (`available_commands_update`, normalized like xbind's) |
 | `usage` | the last `usage_update`: context tokens `used`/`size`, cumulative `cost` when the adapter says |
@@ -824,6 +842,24 @@ Mapping to provider modes:
 | `approve` | `default` | `read-only` | `default` | (its own) | `ask` |
 | `auto` | `acceptEdits` | `agent` | `autoEdit` | — (refused, §4.2.2) | `auto` |
 | `plan` (spawn only) | `plan` | `read-only` | `plan` | (its own) | `ask` |
+
+**Bypass modes are default-deny** (Afix). A mode is open to anyone who may
+talk in the conversation only when the sdk catalog knows it never takes
+the agent past its own asks — `acp.Provider.Safe`: a non-explicit entry of
+`Modes`, or one of `SafeModes` (opencode's `build`, `plan`) — or it is the
+mode the adapter opened its first session in by itself
+(`harness_sessions.start_mode`: a harness the catalog lacks knows no
+other). Every other mode — explicit ones, one a newer adapter reports that
+the catalog doesn't list, every other mode of a harness the catalog lacks
+— is **owner-only** (a person who owns the root conversation), everywhere a
+mode is chosen: `PATCH /runs/{id}/harness {mode}` (also when it goes as the
+config option of category `mode`), `POST /ask|/runs {harness.mode}` (a
+person — the owner-to-be), A10's `harness_mode` (only ever the catalog's
+settings), a stored option the live adapter reports as category `mode`
+(skipped: `acp.Config.SkipModeOptions`, with a note), and a permission's
+allow option that names such a mode. The summary's
+`mode.available[].explicit` and a park's `options[].explicit` say it; the
+UI's ⚠ follows them.
 
 #### 4.3.13 The direct-steering notice
 
@@ -1377,3 +1413,11 @@ this spec and why.
 - 2026-09-30 (A11) §4.3.2 `mode`: the session's modes, else the adapter's config option of category `mode`, else the catalog's — opencode 1.18.32 answers `session/new` with no `modes`, only a `mode` option (`build`/`plan`), so its picker was empty (found live; `harnessModes`). It also takes `session/set_mode` (answered `{}` live), so a stored mode reaches it on a respawn as the sdk sends it.
 - 2026-09-30 (A11) The live check is `test/isolated` `TestHarnessLive` / `TestHarnessLiveVM` (and `hack/harness-smoke.sh`, `HARNESS_SMOKE_LIVE=1`): the fake adapter reaches the sandbox through the files API (copied to `/work/.xbin-a11/fakeacp`) and the image's advertisement (`fake`, an absolute `argv`), not a bind; the handoff is a live-reload redeploy of the agent's backend (a new file under `_backend`) mid-turn. The exec baseline is exercised live only by the test's own handshake (stdin POSTs, the base64 long-poll) — the pipe takes `stdio` wherever the runtime offers it, and there is no switch to make it use the baseline.
 - 2026-09-30 (A11) Settles A6's open point on claude's login: live, the adapter itself offers a terminal method under `CLAUDE_CODE_REMOTE=1` (`claude-login`, `_meta["terminal-auth"]` = `node …/claude-agent-acp --cli`: Claude Code's own onboarding, a theme and then its sign-in), which `login.command` uses once a session exists; before one, the catalog's `CLAUDE_CODE_REMOTE=1 claude /login` is right — coding-sandbox's advertised `claude /login` lacks the variable, and without it the adapter offers the browser sign-ins (`claude-ai-login`, `console-login`: `auth login --claudeai|--console`, a localhost redirect a sandbox can't take).
+- 2026-09-30 (Afix) §4.3.12 bypass modes are default-deny: `explicit` came only from the sdk catalog's flag, so a harness a manager advertises that the catalog lacks — or a mode a newer adapter adds — could be switched (PATCH), asked for (POST /ask by a non-person) or allowed (a plan approval's option) into bypass by any participant. Now only a mode `acp.Provider.Safe` knows (non-explicit `Modes`, new `SafeModes`: opencode's `build`, `plan`), or the one the adapter opened its first session in with no mode asked (`harness_sessions.start_mode`, new column), is open; the rest is owner-only (the rule in §4.3.12). A permission option is `explicit` only when it is an allow that names such a mode (a reject never is; an option that names no mode — claude's `exit-plan-default` — isn't). A stored option the live adapter reports as category `mode` is no longer set by the handshake (`acp.Config.SkipModeOptions`, new) — it leaves `config.harness.options` with a note (§4.2.3 said so; nothing did it). Both views' ⚠ reads the summary's and the park's `explicit` through `model/harness-ask.js` `controls`/`permission` — no UI change.
+- 2026-09-30 (Afix) §3.5/§4.2.11: `POST /runs/{id}/cancel` on a coding agent's run that rests with its adapter up (`cancelRuns` skipped inactive runs, so it did nothing) now queues the cancel row too (and `subagent_cancel`, a halt and a delete's fan-out with it); the pass stops the adapter (state `stopped`, a note "‹name› stopped (‹reason›) — the next message starts it again") and leaves the status as it was — there is no turn to cancel, as the built-in engine leaves an idle run. `cancelled` lists the run.
+- 2026-09-30 (Afix) §3.4: a child's link settles with this turn's text only — the newest assistant text after `harness_sessions.turn_seq` (new column: the turn's first row, set as the prompt's user row is written, and at a codex detached turn's steered row), `(no answer)` when the turn wrote none — not the run's newest text, which was an earlier turn's. §4.4: a harness child's system row drops a subagent parent's subagent contract (`strings.TrimSuffix`).
+- 2026-09-30 (Afix) §4.2.4: a PATCH with `mode` and `option` whose mode the adapter took and whose option it refused stores the mode (the next start keeps it), publishes the change and answers the option's refusal (502/504); a refused mode still stores nothing. Engine errors of `authenticate` (and the `hnote`, approve and compact texts) name a coding agent as its manager advertised it (`harness_sessions.name`), not its id.
+- 2026-09-30 (Afix) §4.3.2 `mode` for an adapter that speaks its modes as a config option of category `mode` (opencode): the sdk handshake's `session/set_mode` for a stored mode now also sets that option's current value (the snapshot, so the summary shows it), and isn't sent when the option already has it.
+- 2026-09-30 (Afix) §3.2 the rollback caveat held only for idle runs — an older binary's recover() and pass reach `turn()` for a running, parked-and-answered or messaged harness run. Mitigated without changing old binaries: `runs.turn_steps` of a harness run is kept at maxTurnSteps' ceiling (500) by two triggers (`harness_turn_cap_ins`/`_upd`, AFTER INSERT and UPDATE OF status, engine, turn_steps), so v0.3.59–v0.3.64's `turn()` ends any turn there at its step cap before a model call (its note: "stopped after 500 steps in one turn (maxTurnSteps)"); this binary never reads turn_steps for a harness run. What still happens first there is written in §3.2.
+- 2026-09-30 (Afix) §3.3 `hasWork()` also counts a harness session whose adapter runs (`exec_id` set, state starting, live or login), idle too: a process that exits with no successor leaves the resume job, and the next one (≤ 1 min) attaches the adapter and re-arms its idle reclaim. `BeginShutdown` still never stops an adapter — a process can't tell a blue/green handoff from a last exit (the successor waits on the lock unseen). With `harnessIdleMin` 0 that keeps the backend running while an adapter does, as its keep-alive hold already did.
+- 2026-09-30 (Afix) coding-sandbox's default image advertises claude's sign-in as `CLAUDE_CODE_REMOTE=1 claude /login` (A11's finding) for a new or never-saved config; a saved config keeps the logins it was saved with (the harnesses already did). Builtin templates carry no tile version (`hack/tile-versions.txt` is the builtin tiles'), so there is none to bump.
