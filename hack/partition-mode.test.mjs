@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { partitionView, markTitle, MARK_TITLE, modeName, switchDeletes, switchLabel, pendingText, requestKey,
   modeBody, postMode, errorText, bytesText, wipedText, switchSpec, switchResolve, DELETES_ALL,
   pruneDecisions, whoDecides, noteText, staleRefusal, deletesNothing, keptText, switchedText, DEP_SHARED,
-  partitionChip, CHIP_YOURS, CHIP_GLOBAL, CHIP_NONE_ROOT, framedTile, consentPerson, consentWatch, consentPrompts, keepDismissed,
+  partitionChip, CHIP_YOURS, CHIP_YOURS_GLOBAL, CHIP_GLOBAL, CHIP_NONE_ROOT, framedTile, consentPerson, consentWatch, consentPrompts, keepDismissed,
   consentEventOp, consentCall, consentKey, consentAsk, consentWhy, allowedText, declinedText, consentStoreKey, coverPoints,
   CONSENTS_API, PARTITIONS_PAGE, anyPartitioned, pageEntry, PAGE_ENTRY, PAGE_ENTRY_TITLE } from '../workspace-template/shell/partition-mode.js';
 
@@ -221,7 +221,12 @@ test('the partition chip says whose partition a window shows (I3)', () => {
     for (const who of [person, root, viewAs, null]) assert.equal(partitionChip(v, { who }), null);
   }
   assert.deepEqual(partitionChip(u, { who: person }), { kind: 'yours', text: 'yours', title: CHIP_YOURS });
-  assert.deepEqual(partitionChip(ug, { who: person }), { kind: 'yours', text: 'yours', title: CHIP_YOURS });
+  // with a global instance too: still `yours` (the partition the window's
+  // calls reach), and its tooltip says where what the tile shares comes from
+  assert.deepEqual(partitionChip(ug, { who: person }), { kind: 'yours', text: 'yours', title: CHIP_YOURS_GLOBAL });
+  assert.ok(CHIP_YOURS_GLOBAL.startsWith(`${CHIP_YOURS}. `));
+  assert.match(CHIP_YOURS_GLOBAL, /shared chat.*comes from its global instance, not from your partition$/);
+  assert.doesNotMatch(CHIP_YOURS, /global/, 'a tile without a global instance: no word of one');
   // a pending switch out of partitions: still the person's own partition (R)
   const out = partitionView(row({ state: 'pending', user: true, global: false, request: { user: false, global: false } }));
   assert.equal(partitionChip(out, { who: person }).kind, 'yours');

@@ -74,9 +74,16 @@ export const DEP_SHARED = 'Not partitioned: a deployment runs one instance that 
 // behind it reaches (the workspace token, --no-auth). A window that reaches
 // no partition says so: view-as never opens a person's partition, and the
 // workspace token has none of its own on a tile without a global instance
-// (docs/partitions.md §Who reaches which partition).
+// (docs/partitions.md §Who reaches which partition). On a tile that also
+// runs a global instance, the window of a person's partition may show what
+// the tile shares with everyone who uses it — an agent's shared
+// conversations (B2b) are the global instance's — so `yours` says so in
+// its tooltip (CHIP_YOURS_GLOBAL): the chip names the partition the
+// window's calls reach, which a page's shared view doesn't change.
 export const CHIP_YOURS = 'Your partition: this window shows your own data in this tile — everyone who uses it has their own, '
-  + 'and nobody else\'s shows here';
+  + 'and nobody else\'s partition shows here';
+export const CHIP_YOURS_GLOBAL = `${CHIP_YOURS}. Anything here that the tile shares with everyone who uses it `
+  + '(a shared chat, for example) comes from its global instance, not from your partition';
 export const CHIP_GLOBAL = 'The global instance: this window shows the tile\'s one instance for what isn\'t a person\'s, '
   + 'not anyone\'s partition (the workspace token has none of its own)';
 export const CHIP_NONE_ROOT = 'No partition: the workspace token has none of its own, and this tile has no global instance, '
@@ -93,7 +100,7 @@ export function partitionChip(v, { shown = '', who = null } = {}) {
   if (!v?.user) return null;
   if (who?.impersonatedBy) return { kind: 'none', text: 'no partition', title: chipNoneViewAs(who.id) };
   if (shown) return { kind: 'shared', text: 'shared', title: DEP_SHARED };
-  if (who?.kind === 'user') return { kind: 'yours', text: 'yours', title: CHIP_YOURS };
+  if (who?.kind === 'user') return { kind: 'yours', text: 'yours', title: v.global ? CHIP_YOURS_GLOBAL : CHIP_YOURS };
   if (who?.kind !== 'root') return null;
   return v.global ? { kind: 'global', text: 'global', title: CHIP_GLOBAL } : { kind: 'none', text: 'no partition', title: CHIP_NONE_ROOT };
 }
