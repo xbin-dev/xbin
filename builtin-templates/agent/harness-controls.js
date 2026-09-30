@@ -34,7 +34,7 @@ const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n
 function mount() {
   if (hctl) return;
   hctl = Object.assign(document.createElement('span'), { id: 'hctl', className: 'hctl', hidden: true });
-  $('clip').before(hctl);
+  $('ssel').after(hctl); // the last of the pickers (index.html .cpicks)
   for (const [id, cls] of [['hctl-pop', 'hctlpop'], ['slash', 'hslash'], ['hsteer', 'hsteer']]) {
     document.body.append(Object.assign(document.createElement('div'), { id, className: cls, hidden: true }));
   }
@@ -218,10 +218,9 @@ function drawSteered(v, h) {
 
 const style = document.createElement('style');
 style.textContent = `
-  .hctl { align-self: flex-end; flex: 0 1 auto; min-width: 2em; display: flex; }
+  .hctl { align-self: flex-end; flex: 1 1 0; min-width: 2em; max-width: max-content; display: flex; } /* the pickers' row: what's left of it */
   .hctl[hidden] { display: none; }
   .hctl .hctlb { min-width: 0; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hctl:not([hidden]) ~ textarea { min-width: 6em; }
   .hctlpop, .hslash, .hsteer { position: fixed; z-index: 30; }
   .hctlpop[hidden], .hslash[hidden], .hsteer[hidden] { display: none; }
   .hctlpop { box-sizing: border-box; width: min(340px, calc(100vw - 16px)); max-height: 70vh; overflow: auto; background: var(--bx-panel); border: 1px solid var(--bx-border);
