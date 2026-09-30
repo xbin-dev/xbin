@@ -61,6 +61,8 @@ func (b *Broker) restore(comp string, r io.Reader, put deploymentRestorer) (back
 func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymentRestorer) (backup.Manifest, error) {
 	m := br.M
 	switch {
+	case m.PartitionArchive(): // never a tile: a person's partition's alone (backup_partition_restore.go)
+		return m, fmt.Errorf("the archive holds a person's partition of %s, not a tile: restore it into that person's partition (POST /partitions/restore)", m.Component)
 	case m.DeploymentArchive():
 		return m, fmt.Errorf("the archive holds deployment %q's data of %s, not a tile: restore it into a deployment (POST /deployments/restore)", m.Deployment, m.Component)
 	case m.DataArchive():

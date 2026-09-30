@@ -10,7 +10,9 @@ package broker
 //	 "mode":     {"user": true, "global": true},       // R; absent = unpartitioned
 //	 "request":  {"spec": {…} | null, "since": "…"},   // an open request R → Q
 //	 "declined": {"spec": …, "by": "alice", "at": "…"}, // "keep the current mode" for exactly Q
-//	 "history":  [{"op": "auto|request|switch|keep|withdrawn", "from", "to", "by", "at", "wiped"}]}
+//	 "history":  [{"op": "auto|request|switch|keep|withdrawn", "from", "to", "by", "at", "wiped"},
+//	              {"op": "backup-erase|partition-restore", "by", "at", "reason", "partition", "wiped"}],
+//	 "lastWipe": {"from", "to", "at"}}                   // the last switch that deleted data: never trimmed
 //
 // The state table (01 §2.1), settled at every rescan through the registry's
 // PartitionModes hook:
@@ -51,6 +53,7 @@ const (
 	modeFile          = "mode.json"
 	modeSchema        = 1
 	modeHistoryMax    = 200 // the oldest entries go first
+	modeHistoryBackup = 100 // of them backup ops at most: the oldest backup op goes first
 	modeOpAuto        = "auto"
 	modeOpRequest     = "request"
 	modeOpSwitch      = "switch"
@@ -67,6 +70,17 @@ type modeRecord struct {
 	Request  *modeRequest            `json:"request,omitempty"`
 	Declined *modeDeclined           `json:"declined,omitempty"`
 	History  []modeHistory           `json:"history,omitempty"`
+	// LastWipe is the tile's last switch that deleted data, kept apart from
+	// the history, which drops its oldest entries: a restore of an archive
+	// made before it asks for a typed confirmation (backup_preswitch.go).
+	LastWipe *modeWipe `json:"lastWipe,omitempty"`
+}
+
+// modeWipe is a switch that deleted data: from what to what, and when.
+type modeWipe struct {
+	From *registry.PartitionSpec `json:"from"`
+	To   *registry.PartitionSpec `json:"to"`
+	At   time.Time               `json:"at"`
 }
 
 type modeRequest struct {
@@ -87,6 +101,10 @@ type modeHistory struct {
 	By    string                  `json:"by,omitempty"`
 	At    time.Time               `json:"at"`
 	Wiped map[string]int64        `json:"wiped,omitempty"`
+	// Reason and Partition: a backup op's (backup_partition.go) — why keys
+	// were erased or a partition restored, and which person's partition id.
+	Reason    string `json:"reason,omitempty"`
+	Partition string `json:"partition,omitempty"`
 }
 
 // recorded is R.
@@ -107,12 +125,31 @@ func (r *modeRecord) clone(tile string) *modeRecord {
 	return &c
 }
 
-// log appends one history entry, keeping the last modeHistoryMax.
+// log appends one history entry, keeping the last modeHistoryMax, of them
+// modeHistoryBackup backup ops at most (the oldest backup op goes first):
+// people's restores and erasures never push the managers' acts out.
 func (r *modeRecord) log(h modeHistory) {
 	r.History = append(r.History, h)
+	if h.backupOp() {
+		n := 0
+		for _, e := range r.History {
+			if e.backupOp() {
+				n++
+			}
+		}
+		for ; n > modeHistoryBackup; n-- {
+			i := slices.IndexFunc(r.History, modeHistory.backupOp)
+			r.History = slices.Delete(r.History, i, i+1)
+		}
+	}
 	if n := len(r.History) - modeHistoryMax; n > 0 {
 		r.History = slices.Delete(r.History, 0, n)
 	}
+}
+
+// backupOp reports a backup's entry (backup_partition.go), not a mode's.
+func (h modeHistory) backupOp() bool {
+	return h.Op == modeOpBackupErase || h.Op == modeOpPartitionRestore
 }
 
 // specPtr is s as a record stores it: nil for unpartitioned.
@@ -544,6 +581,9 @@ func (b *Broker) recordDecision(tile, op string, from, to registry.PartitionSpec
 		next.Request, next.Declined = nil, &modeDeclined{Spec: specPtr(to), By: by, At: now}
 	case modeOpSwitch:
 		next.Mode, next.Request, next.Declined = specPtr(to), nil, nil
+		if wipeKindOf(from, to) != wipeNone { // the pre-switch restore guard's (backup_preswitch.go)
+			next.LastWipe = &modeWipe{From: specPtr(from), To: specPtr(to), At: now}
+		}
 	default:
 		return fmt.Errorf("partitions: unknown decision %q", op)
 	}

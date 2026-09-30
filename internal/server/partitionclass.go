@@ -434,6 +434,8 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /backup-keys/export":               PartitionNeutral,
 	"POST /backup-keys/import":               PartitionNeutral,
 	"POST /backup/erase":                     GlobalOnlyRefused,
+	"GET /partitions/backups":                GlobalOnlyRefused, // the person in their own session, or an admin; never a partition's code
+	"POST /partitions/restore":               GlobalOnlyRefused, // … and the handler refuses every tile principal but the admin tile's frame
 	"GET /vault-status":                      GlobalOnlyRefused,
 	"POST /vault-unseal":                     GlobalOnlyRefused,
 	"POST /vault-seal":                       GlobalOnlyRefused,

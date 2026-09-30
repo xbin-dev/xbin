@@ -445,9 +445,9 @@ func (b *Broker) sweepPartitionOne(id nsID, now time.Time) error {
 	if err := b.dropPartitionNS(id); err != nil {
 		return err
 	}
-	subject := partitionBackupSubject(tile, id.dep, id.pkey)
-	if _, _, err := b.eraseBackupSubjectsHeld(tile, func(s string) bool { return s == subject }, "partition swept: "+pi.Orphan, ""); err != nil {
-		slog.Warn("partition sweep: backup key erase", "tile", tile, "subject", subject, "err", err)
+	// its part: key, recorded in the tile's history (backup_partition.go)
+	if _, _, err := b.erasePartitionBackupsHeld([]string{tile}, id.dep, id.pkey, "partition swept: "+pi.Orphan, ""); err != nil {
+		slog.Warn("partition sweep: backup key erase", "tile", tile, "subject", partitionBackupSubject(tile, id.dep, id.pkey), "err", err)
 	}
 	slog.Info("partition data deleted: orphaned past the retention", "scope", id.scope, "partition", id.pkey, "event", pi.Orphan, "since", m.Orphaned)
 	return nil

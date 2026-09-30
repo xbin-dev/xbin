@@ -3352,10 +3352,52 @@ POST   /backup                     admin. body {component} — build a self-
                                    vault mode): no archive is written.
                                    Readers take schema 1-3 and plaintext
                                    archives of any age; an older xbind
-                                   refuses a sealed archive
+                                   refuses a sealed archive.
+                                   A partitioned tile's people's partitions
+                                   (docs/partitions.md §Backups) are
+                                   archived after the main archive, each
+                                   under a key of its own
+                                   (.partitions.<tile-key>.<dep>.<partition
+                                   id>, schema 3, kind "partition"), sealed
+                                   under that partition's own backup key
+                                   (part:<tile-key>/<dep>/<partition id>);
+                                   the main, data and deployment archives
+                                   hold none of it (the main manifest lists
+                                   the global instance's cron jobs and bus
+                                   subscriptions only). A partition that
+                                   can't be archived doesn't fail the
+                                   backup; in the plaintext-vault mode none
+                                   is archived. The answer then gains
+                                   partitions: {archived, failed?:
+                                   ["user:<id> (<partition id>): <why>"],
+                                   skipped?: "<why none>"}; a tile without
+                                   people's partitions answers as before
 GET    /backups?component=…         admin. the archiver's version list passed
                                    through: {versions:[{version,time,size}]}
-POST   /restore                    admin. body {component, version?, file?}.
+POST   /restore                    admin. body {component, version?, file?,
+                                   confirm?}. An archive made before the
+                                   tile's last partition mode switch that
+                                   deleted data (docs/partitions.md
+                                   §Backups) restores only with confirm set
+                                   to that switch's date (YYYY-MM-DD) —
+                                   into the global instance's namespace, at
+                                   today's keys, never a person's partition
+                                   — else 409 {error: "this backup (made …)
+                                   is older than <tile>'s partition mode
+                                   switch on <date> (<from> → <to>):
+                                   restoring it brings back data the switch
+                                   deleted …", switch: {at, from, to,
+                                   confirm}}, before anything stops; the
+                                   deployment archives it lists go with it.
+                                   The switch is remembered apart from the
+                                   tile's mode history (whose trimming never
+                                   drops it). While the tile's mode record
+                                   can't be read, every archive asks, with
+                                   its own creation date (switch: {unknown:
+                                   true, error, confirm}).
+                                   A person's partition archive is never a
+                                   tile (409; POST /partitions/restore), and
+                                   no single file of one is ever served.
                                    No file → restore the whole version (stops the
                                    component, replaces its data/source from the
                                    archive; version defaults to latest). With file
@@ -3418,6 +3460,14 @@ POST   /backup-schedule            admin. body {component, schedule, retention} 
                                    the main archives that name them: each run
                                    deletes the data versions no kept main
                                    archive names (never a count of their own).
+                                   Each person's partition's archive keeps
+                                   its own newest N; one of a partition
+                                   that is gone (swept, reset, purged,
+                                   switched away) loses every version once
+                                   its key is erased — at an archiver
+                                   without POST /archive/erase too (xbind
+                                   keeps an index of the partition archives
+                                   it wrote: data/backup-refs/partitions/).
 DELETE /backup-schedule?component= admin. remove a component's schedule
 GET    /backup-keys                admin. {mode, keys, unexported, lastExport?,
                                    exports, erased, erasedSinceExport,
@@ -3489,7 +3539,87 @@ POST   /backup/erase               admin, as a person (as export). body
                                    sealing; a tile that doesn't root its
                                    scope names the root holding its data>",
                                    error?: "<a key file not removed yet —
-                                   erased all the same>"}
+                                   erased all the same>"}. data takes
+                                   people's partitions' keys (part:) too.
+                                   A tile with a partition mode record gets
+                                   a history entry {op: "backup-erase", by,
+                                   at, reason, wiped: {subkeys}}, as does
+                                   every erase of a person's partition's key
+                                   (its partition id in partition): its
+                                   sweep, reset or purge. Of the history's
+                                   200 entries backup ones (backup-erase,
+                                   partition-restore) take 100 at most, the
+                                   oldest going first: they never push a
+                                   manager's act out.
+GET    /partitions/backups?tile=…  the person (their own partition), in
+       [&user=…][&partitionId=…]   their own session, app or device; an
+                                   admin (anyone's: the root token, or the
+                                   admin tile's frame under their login).
+                                   Every tile principal else — a partition's
+                                   own code, frames, terminals, agent
+                                   sessions — and view-as: 403. The
+                                   archiver's versions of user's (default:
+                                   the caller) partition archive of tile
+                                   (.partitions.<tile-key>.<dep>.<partition
+                                   id>, dep the primary); partitionId
+                                   (u-<32 hex>) names an earlier holder's
+                                   (the id deleted and recreated since),
+                                   default the person's current one. A
+                                   person names only their own current id:
+                                   any other 403, before the archiver is
+                                   asked, never saying whose it is.
+                                   {tile, partition: "user:<id>",
+                                   partitionId, deployment, partitioned,
+                                   archiver, versions:[{version,time,size}]};
+                                   404 for no such person or tile.
+POST   /partitions/restore         the person (their own partition) or an
+                                   admin, as GET /partitions/backups. body
+                                   {tile, user?, partitionId?, version?,
+                                   confirm, to?, dryRun?} — replace user's
+                                   partition of tile (its namespace's data,
+                                   vault and registrations; its record stays
+                                   the person's current one) with a version
+                                   of its archive (default the latest),
+                                   after confirm: "<tile> user:<id>", typed
+                                   (400 {error, confirm} otherwise). Its
+                                   instance stops and its namespace is held
+                                   meanwhile; it starts again on next use.
+                                   Only a sealed partition archive sealed
+                                   under that partition's own backup key, of
+                                   the same tile and user id, restores (409
+                                   otherwise, nothing written). The same
+                                   incarnation (the archive's uid is the
+                                   person's now) restores by the person or
+                                   an admin; an earlier holder's
+                                   (partitionId) only by an admin with to:
+                                   "<id>" (the same id again: audited, the
+                                   person is told — push kind
+                                   tile.partition-restored) — a person 403,
+                                   without to 400; never into another id
+                                   (403, and 400 for a to naming another).
+                                   409 while the tile isn't partitioned
+                                   now, while it is paused, for a key
+                                   erased ("this backup's data was erased
+                                   on <date> (<reason>)") or another
+                                   workspace's ("… import its keys").
+                                   Everything is judged again under the
+                                   tile's backup lock: a switch, reset,
+                                   purge, sweep or erase that ran while the
+                                   restore waited wins (409 "… it changed
+                                   while this restore waited; nothing was
+                                   restored"). →
+                                   {ok, tile, partition, partitionId, from,
+                                   version, resources, earlierHolder, data,
+                                   vault, registrations:[files], skipped?,
+                                   vaultSkipped?} — skipped: archived
+                                   resources the tile no longer keeps per
+                                   person; vaultSkipped: a vault another
+                                   vault sealed (another workspace's
+                                   archive), left out. dryRun checks it all
+                                   and writes nothing (no confirm). The
+                                   tile's history gains {op:
+                                   "partition-restore", by, at, reason,
+                                   partition}. Audited.
 
 Tile deployments: pausing live reload, a tile's deployments, promotion
 (docs/tile-deployments.md; conventions and texts: §Tile deployments below
@@ -3885,7 +4015,16 @@ POST   /deployments/restore        admin (as above), and the reset level on
                                    using the target's data; data.state
                                    becomes restored. 409 when the target
                                    doesn't exist (the answer lists the
-                                   choices) or its data is busy
+                                   choices) or its data is busy, and for an
+                                   archive older than the tile's last
+                                   partition mode switch that deleted its
+                                   data (main's; a deployment's after one
+                                   that deleted everything,
+                                   docs/partitions.md §Backups): this route
+                                   can't confirm it — only POST /restore,
+                                   the whole tile's (its source and every
+                                   deployment's data that backup lists),
+                                   takes the switch's date
 POST   /deployments/backup-schedule
                                    admin (as above). {tile, deployment,
                                    schedule, retention?} → {state}: a

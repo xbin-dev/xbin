@@ -57,6 +57,7 @@ func (b *Broker) registerBackupKeys(srv *server.Server) {
 	srv.RegisterAPI("POST /backup-keys/export", b.apiBackupKeysExport)
 	srv.RegisterAPI("POST /backup-keys/import", b.apiBackupKeysImport)
 	srv.RegisterAPI("POST /backup/erase", b.apiBackupErase)
+	b.registerPartitionBackups(srv) // a person's partition's archives: list, restore (backup_partition_restore.go)
 }
 
 // export builds the bundle and records it: every key it holds is in an
@@ -271,6 +272,7 @@ func (b *Broker) apiBackupErase(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	b.noteBackupErase(body.Component, erased, "bx backup erase --"+body.What, p.From(), "") // the tile's history, when it has one
 	rows := []map[string]any{}
 	for _, t := range erased {
 		rows = append(rows, map[string]any{"id": t.ID, "subject": t.Subject, "gen": t.Gen})

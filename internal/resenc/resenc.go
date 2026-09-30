@@ -428,6 +428,20 @@ func (m *Manager) Touch(scopeKey, name string) {
 	}
 }
 
+// Expire ends a mounted view's idle clock at once, unless something holds
+// it: a view mounted for one pass only (a backup reading a person's
+// partition) is then due at the next UnmountIdle — which still leaves it
+// while it is held or its instance runs — rather than an idle time later.
+// A no-op for a view this Manager doesn't hold mounted.
+func (m *Manager) Expire(scopeKey, name string) {
+	k := mkey(scopeKey, name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.mounts[k]; ok && m.refs[k] == 0 {
+		m.used[k] = time.Time{}
+	}
+}
+
 // UnmountIdle unmounts every user partition's view (PartitionVolume) that
 // nobody holds and nobody used since before now-idle, and for which keep
 // (nil: none) doesn't answer true — the broker's word that its partition's

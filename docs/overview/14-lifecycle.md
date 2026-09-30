@@ -215,9 +215,19 @@ backup key ─HKDF(salt of the archive)→ archive key ─AES-256-GCM→ the arc
   (the archiver lost it; its key isn't erased) restores its source and
   terminal layer and says so (`dataMissing`), as one whose data was erased
   does (`dataErased`).
+- **People's partitions have archives of their own.** On a partitioned
+  tile each person's partition is archived after the main archive, under
+  `.partitions.<tile-key>.<deployment>.<partition id>` and a `part:` key of
+  its own (kind `partition`): its data, its vault file (values still sealed
+  by the vault), its registrations and records. The tile's main, data and
+  deployment archives hold none of it, and only the person (or an admin)
+  restores it, into that person's partition only
+  ([partitions](../partitions.md) §Backups). The plaintext-vault mode
+  archives no partition.
 
 **Erase.** `bx backup erase <tile> --data` deletes the tile's data keys
-(main's namespace and every deployment's); `--all` also its `tile:` key
+(main's namespace, every deployment's and every person's partition's);
+`--all` also its `tile:` key
 (`POST /api/xbin/backup/erase`, an admin in their own session — never a
 tile's backend, terminal or agent). The erase waits for the tile's backups
 in flight. Each key is first **tombstoned** — metadata only, and the
