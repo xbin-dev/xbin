@@ -567,30 +567,47 @@ func setStatus(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Every reader's page reads the board once (`GET /board`, in any instance)
-and then follows the bus; setting your own line goes to your own
-partition:
+Every reader's page follows the bus and reads the board (`GET /board`, in
+any instance) — in that order, so a change that lands while the board is
+read is applied on top of it rather than lost (the bus doesn't replay);
+setting your own line goes to your own partition:
 
 ```js
-// the board as it is, then each change as it happens
-const board = await (await xbin.fetch(`/api/${xbin.self}/board`)).json();
-render(board);
+// each change as it happens — kept until the board arrives — and the board as it is
+let board = null;
+const early = [];
+const apply = (topic, status) => { board[topic.slice(topic.lastIndexOf('/') + 1)] = status; };
 xbin.bus.on(`res:${xbin.self}/live/status/`, (topic, status) => {
-  board[topic.slice(topic.lastIndexOf('/') + 1)] = status;
+  if (!board) { early.push([topic, status]); return; }
+  apply(topic, status);
   render(board);
 });
+board = await (await xbin.fetch(`/api/${xbin.self}/board`)).json();
+for (const [topic, status] of early) apply(topic, status);
+render(board);
 
 // your own line: your partition writes it, and every reader's page sees it
 await xbin.fetch(`/api/${xbin.self}/status`, { method: 'POST', body: JSON.stringify({ text: 'in a meeting' }) });
 ```
 
+- A page's event socket opens in the background and reconnects on its own,
+  and a bus event is delivered at most once: one published while it is
+  down is gone. A page that must not show a stale line reads the board
+  again now and then — when it becomes visible again, say.
 - Every partition's code can read and change anything in a `true`
-  resource ([§Shared resources](#shared-resources)): keep private data out
-  of it, and let each partition write only its own person's rows — here
-  `status/<PartitionUser()>`.
-- State only the global instance may change is a `"read"` resource and a
-  `"read"` bus: global writes and publishes, and people's partitions and
-  pages only read (their writes and publishes answer 403).
+  resource ([§Shared resources](#shared-resources)) — and so can whatever
+  else acts in a partition, a person's page or terminal with write access
+  to the tile: keep private data out of it. **A row's key is not proof of
+  who wrote it**: `setStatus` writes only `status/<PartitionUser()>`, but
+  nothing stops other code writing `status/bob`, or publishing that topic
+  on the shared bus. Keep in a `true` resource only what anyone who may
+  change the tile may change.
+- When who wrote a row matters, the global instance writes it: a `"read"`
+  resource and a `"read"` bus, which global writes and publishes and
+  people's partitions and pages only read (their writes and publishes
+  answer 403). People's partitions and pages post to global, which stamps
+  the author from the call — as the hub does (2) — and never from the
+  body.
 - Pages get a shared bus's events whenever they are open. A user
   partition's backend subscription (`xbin.Subscribe`) gets them only while
   the partition runs, and they never start it: to wake a partition, mail it

@@ -67,25 +67,42 @@ test('the page has the three patterns\' JavaScript', () => {
   assert.equal(blocks().length, 3);
 });
 
-test('1. tile-wide: the board, then the shared bus', async () => {
-  const { calls, sockets } = await load((url) =>
-    url === '/api/apps/rooms/board' ? json({ alice: { text: 'in a meeting' } }) : new Response(null, { status: 204 }));
+test('1. tile-wide: the shared bus, then the board', async () => {
+  // the board's answer waits until the test lets it go, so an event can land
+  // while the page reads it
+  let answerBoard;
+  const boardAnswered = new Promise((resolve) => { answerBoard = resolve; });
+  const order = [];
+  const { calls, sockets } = await load((url) => {
+    order.push(`fetch ${url}`);
+    return url === '/api/apps/rooms/board' ? boardAnswered : new Response(null, { status: 204 });
+  });
+  const Socket = globalThis.WebSocket;
+  globalThis.WebSocket = class extends Socket { constructor(url) { super(url); order.push('socket'); } };
   const renders = [];
-  const { board } = await run(blocks()[0], { render: (b) => renders.push(structuredClone(b)) }, ['board']);
-  assert.deepEqual(renders, [{ alice: { text: 'in a meeting' } }]);
+  const ran = run(blocks()[0], { render: (b) => renders.push(structuredClone(b)) }, ['board']);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // the page follows the bus before it reads the board
+  assert.deepEqual(order, ['socket', 'fetch /api/apps/rooms/board']);
+  assert.equal(sockets.length, 1);
+  assert.match(sockets[0].url, /\/ws\/events\?frame=T$/);
+  // bob's line changes while the board is on its way: kept, applied on top
+  const ev = { type: 'bus', topic: 'res:apps/rooms/live/status/bob', data: { text: 'out' } };
+  sockets[0].onmessage({ data: JSON.stringify(ev) });
+  assert.deepEqual(renders, []);
+  answerBoard(json({ alice: { text: 'in a meeting' }, bob: { text: 'in' } }));
+  const { board } = await ran;
+  assert.deepEqual(renders, [{ alice: { text: 'in a meeting' }, bob: { text: 'out' } }]);
   assert.deepEqual(calls.map((c) => `${c.method} ${c.url} ${c.body ?? ''}`), [
     'GET /api/apps/rooms/board ',
     'POST /api/apps/rooms/status {"text":"in a meeting"}', // your own partition: no xbin-partition
   ]);
-  // xbind's event socket delivers a shared bus event: bob's line changed
-  assert.equal(sockets.length, 1);
-  assert.match(sockets[0].url, /\/ws\/events\?frame=T$/);
-  const ev = { type: 'bus', topic: 'res:apps/rooms/live/status/bob', data: { text: 'out' } };
-  sockets[0].onmessage({ data: JSON.stringify(ev) });
+  // then each change as it comes: carol's line; another resource's topic is not the board's
+  sockets[0].onmessage({ data: JSON.stringify({ ...ev, topic: 'res:apps/rooms/live/status/carol', data: { text: 'lunch' } }) });
   sockets[0].onmessage({ data: JSON.stringify({ ...ev, topic: 'res:apps/rooms/other/x' }) });
-  assert.deepEqual(renders.at(-1), { alice: { text: 'in a meeting' }, bob: { text: 'out' } });
+  assert.deepEqual(renders.at(-1), { alice: { text: 'in a meeting' }, bob: { text: 'out' }, carol: { text: 'lunch' } });
   assert.equal(renders.length, 2);
-  assert.equal(board.bob.text, 'out');
+  assert.equal(board.carol.text, 'lunch');
 });
 
 test('2. member-scoped: follow and post at the global instance', async () => {
