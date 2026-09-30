@@ -74,3 +74,33 @@ test('paused for its host: locked for a member; its host confirms from the compo
   assert.ok(post, 'Confirm goes to the host\'s own partition');
   assert.equal(JSON.parse(post.body).seen, pendingKey);
 });
+
+test('the warning is a modal the first time: open without sending, read it again, start', async () => {
+  const hosted = { host: 'bob', state: 'active', resources: ['sandboxes', 'tiles', 'vault'] };
+  const r = await run(seedFor('alice', hosted), [
+    { snapshot: 'open' },
+    { tap: { t: 'button', p: { label: 'Open without sending' } } },
+    { snapshot: 'closed' },
+    { tap: { t: 'button', p: { label: 'Read the warning…' } } },
+    { snapshot: 'again' },
+    { tap: { t: 'button', p: { label: 'Start anyway' } } },
+    { snapshot: 'started' },
+  ], { hash: 'c=' + H });
+  const sheetOf = (snap) => all(snap.root || snap, { t: 'sheet' }).find((s) => /is not private/.test(s.p.title || ''));
+  const open = sheetOf(r.snapshots.open);
+  assert.ok(open, 'the warning opens by itself');
+  assert.ok(find(open, { t: 'row', p: { title: 'its members: bob, alice' } }), 'who can read it');
+  assert.ok(find(open, { t: 'row', p: { title: "anyone who can change this agent's code" } }));
+  assert.equal(sheetOf(r.snapshots.closed), undefined, 'Open without sending closes it');
+  assert.equal(find(r.snapshots.closed, { t: 'composer' }).p.disabled, true, '…and leaves the composer locked');
+  assert.ok(sheetOf(r.snapshots.again), 'Read the warning… opens it again');
+  assert.equal(sheetOf(r.snapshots.started), undefined);
+  assert.ok(!find(r.snapshots.started, { t: 'composer' }).p.disabled, 'Start anyway unlocks it');
+});
+
+test('a host is never asked to confirm what the page doesn\'t know', async () => {
+  const hosted = { host: 'bob', state: 'paused', reason: 'confirm', pending: ['carol'], resources: ['sandboxes'] };
+  const host = await run(seedFor('bob', hosted), [{ snapshot: 'open' }], { hash: 'c=' + H });
+  assert.equal(find(host.snapshots.open, { t: 'button', p: { label: 'Confirm carol' } }), null);
+  assert.ok(find(host.snapshots.open, { t: 'button', p: { label: 'Decline' } }));
+});

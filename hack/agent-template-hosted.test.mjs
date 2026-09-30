@@ -59,3 +59,16 @@ test('the composer\'s lock', () => {
     assert.equal(e.locked, true);
   }
 });
+
+test('the composer\'s lock while it moves in or out of its host\'s hands', () => {
+  const { lockOf } = hosted;
+  const view = (h) => ({ run: { id: 2 ** 39 + 1, rootId: 2 ** 39 + 1, hosted: h } });
+  const started = new Set([2 ** 39 + 1]);
+  const p = lockOf(view({ host: 'alice', state: 'pending' }), 'bob', started);
+  assert.equal(p.kind, 'moving');
+  assert.equal(p.locked, true);
+  assert.match(p.why, /waiting for alice's own space/);
+  const c = lockOf(view({ host: 'alice', state: 'continuing' }), 'bob', started);
+  assert.equal(c.kind, 'moving');
+  assert.match(c.why, /continuing it without alice/);
+});

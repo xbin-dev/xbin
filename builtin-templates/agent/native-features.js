@@ -180,7 +180,7 @@ export const IMPLEMENTS = {
   'state.partition.sandboxes': 'native/home.js — appNotices',
   'state.partition.hidden': 'model/stream.js — Live.visibility',
   'state.partition.mcp': 'native/settings.js — mcpTpl',
-  'state.partition.hosted': 'native/hosted.js — the warning heading the transcript, the composer\'s lock and buttons (native/chat.js), the row\'s ⚠ (native/convs.js) — model/hosted.js',
+  'state.partition.hosted': 'native/hosted.js — the warning as a sheet the first time (hostedWarnSheet, native.js) and heading the transcript, the composer\'s lock and buttons (native/chat.js), the row\'s ⚠ (native/convs.js) — model/hosted.js',
 
   // Deep links
   'link.conv': 'native.js — app.follow(location.hash, xbin.native.state) (model/router.js)',

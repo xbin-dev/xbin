@@ -118,14 +118,16 @@ function barTpl(v, lk) {
       if (lk.isHost) {
         return html`<span id="host-ask">New in this conversation: <b>${lk.pending.join(', ') || 'a wider audience'}</b>.
           Let the agent keep using your private resources with them here?</span>
-          <button class="btn btnsm" id="host-confirm" @click=${act(async () => {
-            await homeApi('', `/hosting/${root}/confirm`, jbody({ seen: h.pendingKey || '' }, 'POST'));
+          <button class="btn btnsm" id="host-confirm" ?disabled=${!h.pendingKey} @click=${act(async () => {
+            if (h.pendingKey) await homeApi('', `/hosting/${root}/confirm`, jbody({ seen: h.pendingKey }, 'POST'));
           })}>Confirm</button>
           <button class="btn ghost btnsm" id="host-decline" @click=${act(async () => {
             await homeApi('', `/hosting/${root}/decline`, { method: 'POST' });
           })}>Decline</button>`;
       }
       return html`<span id="host-wait">${lk.why}.${h.dropsAt ? ` Unanswered, it stops using them on ${new Date(h.dropsAt * 1000).toLocaleDateString()}.` : ''}</span>`;
+    case 'moving':
+      return html`<span id="host-moving">${lk.why}.</span>`;
     case 'ended':
       return html`<span>${lk.why}.</span>${v.access === 'viewer' ? nothing
         : html`<button class="btn btnsm" id="host-continue" @click=${act(async () => {

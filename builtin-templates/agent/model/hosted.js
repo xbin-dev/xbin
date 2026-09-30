@@ -57,9 +57,10 @@ export function audienceOf(acl) {
 /**
  * lockOf(v, me, started): the composer's lock for an open hosted
  * conversation — null when the view isn't one. {locked, kind, why, isHost,
- * pending}: kind 'paused' (a wider audience waits for its host), 'ended'
- * (hosting dropped or its host gone), 'start' (opened without sending: the
- * warning wasn't accepted in this page session), '' (started).
+ * pending}: kind 'paused' (a wider audience waits for its host), 'moving'
+ * (its host's partition is taking it up, or someone is continuing it without
+ * them), 'ended' (hosting dropped or its host gone), 'start' (opened without
+ * sending: the warning wasn't accepted in this page session), '' (started).
  */
 export function lockOf(v, me, started) {
   const h = hostingOf(v);
@@ -70,6 +71,11 @@ export function lockOf(v, me, started) {
   if (h.state === 'paused') {
     return { locked: true, kind: 'paused', isHost, pending, root,
       why: `Paused: waiting for ${h.host} to confirm who is in it now${pending.length ? ` (new: ${pending.join(', ')})` : ''}` };
+  }
+  if (h.state === 'pending' || h.state === 'continuing') {
+    return { locked: true, kind: 'moving', isHost, pending, root,
+      why: h.state === 'pending' ? `Being set up: waiting for ${h.host}'s own space to take it up`
+        : `Someone is continuing it without ${h.host}'s private resources` };
   }
   if (h.state === 'dropped' || h.state === 'gone') {
     return { locked: true, kind: 'ended', isHost, pending, root,
