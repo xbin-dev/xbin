@@ -4,6 +4,7 @@ package broker
 // packs (plans/partitions/records/W2-wire.md).
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -165,5 +166,55 @@ func TestPartitionBusSubsSharedReach(t *testing.T) {
 	}
 	if got := edges.take(); len(got) != 0 {
 		t.Errorf("an own-scope subscription counted in the ledger: %v", got)
+	}
+}
+
+// covers 01§2.5 PD-20 03§C — a switch holds its tile until the rescan has
+// settled the new record. Until then the registry still shows the old mode:
+// on a tile that was running (here a switch after "keep") a person's
+// partition registration or vault write released early would land in what
+// the switch just wiped. The registry's change hooks run in that window
+// (the registry still publishes the old mode), so they must see the hold;
+// after the answer the tile runs.
+func TestPartitionSwitchHoldsUntilSettled(t *testing.T) {
+	f := newSwitchFx(t)
+	f.pend(docsUserManifest)
+	bob := principalFor(t, f.st, "bob")
+	if code, out := f.act(bob, keepUser); code != 200 {
+		t.Fatalf("keep: %d %v", code, out)
+	}
+	if why := f.b.PartitionHoldReason("apps/docs"); why != "" {
+		t.Fatalf("after keep the tile runs: %q", why)
+	}
+	var mu sync.Mutex
+	var seen []string
+	f.b.Reg.OnPartitionChange(func(c *registry.Component, old, new registry.PartitionMode) {
+		if c.Path != "apps/docs" {
+			return
+		}
+		why := f.b.PartitionHoldReason("apps/docs")
+		err := f.b.partPausedErr(partTarget{tile: "apps/docs", dep: "main", part: "user:dan"})
+		mu.Lock()
+		seen = append(seen, fmt.Sprintf("%s → %s: hold %q, a partition's write %v", old.State, new.State, why, err))
+		mu.Unlock()
+	})
+	if code, out := f.act(bob, switchUser); code != 200 {
+		t.Fatalf("switch: %d %v", code, out)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 {
+		t.Fatal("the switch's rescan moved nothing")
+	}
+	for _, s := range seen {
+		if strings.Contains(s, `hold ""`) || strings.Contains(s, "write <nil>") {
+			t.Errorf("the switch's settle ran without its hold: %s", s)
+		}
+	}
+	if st, _, _ := f.state("apps/docs"); st != registry.PartitionPartitioned {
+		t.Errorf("after the switch: %v", st)
+	}
+	if why := f.b.PartitionHoldReason("apps/docs"); why != "" {
+		t.Errorf("after the switch the hold stays: %q", why)
 	}
 }

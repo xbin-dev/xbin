@@ -319,9 +319,17 @@ func (b *Broker) writeDecisionErr(w http.ResponseWriter, c *registry.Component, 
 // at a rescan) and tells what shows it: the tile's frames and the shell
 // reload.
 func (b *Broker) settleAfterDecision(tile string) {
+	b.rescanAfterDecision(tile)
+	b.reloadAfterDecision(tile)
+}
+
+func (b *Broker) rescanAfterDecision(tile string) {
 	if err := b.Reg.Rescan(); err != nil {
 		slog.Warn("partitions: rescan after a mode decision", "tile", tile, "err", err)
 	}
+}
+
+func (b *Broker) reloadAfterDecision(tile string) {
 	b.Hub.Publish(events.Event{Type: "reload", Component: tile})
 }
 
@@ -383,8 +391,15 @@ func (b *Broker) actSwitch(w http.ResponseWriter, person auth.Principal, c *regi
 			"error": "the switch of " + tile + " deleted its data, but the mode wasn't recorded: " + err.Error() + " — look again"})
 		return
 	}
-	end() // before the rescan: nothing holds the new mode back
-	b.settleAfterDecision(tile)
+	// The hold stays on until the rescan has settled the new record: until
+	// then the registry still shows the old mode — on a tile that was running
+	// (a switch after "keep"), a person's partition running and writable —
+	// so a partition's write released early would land in what was just
+	// wiped. Released before the reload, so reloading frames find the tile
+	// running in its new mode.
+	b.rescanAfterDecision(tile)
+	end()
+	b.reloadAfterDecision(tile)
 	b.afterSwitch(t, sum, person)
 	extra := map[string]any{"ok": true}
 	if gc != "" {
