@@ -38,7 +38,7 @@ import { HOME } from './home.js';
 import * as classes from './classes.js';
 import { createSandboxStore } from './sandbox-store.js';
 import { homeOf } from './homes.js';
-import { movedTo } from './moves.js';
+import { movedTo, followsMove } from './moves.js';
 
 /**
  * createApp builds the model.
@@ -366,7 +366,7 @@ export function createApp(opts = {}) {
   app.session = new S(base, {
     change: () => emit('change'),
     runs: () => emit('runs'),
-    gone: (id, to) => (to ? app.select(to) : app.home()), // one that moved to your own space is followed there (model/moves.js)
+    gone: (id, to, row) => (followsMove(id, to, row, app.me?.user) ? app.select(to) : app.home()), // yours, moved to your own space: followed there (model/moves.js)
     event: (ev) => app.event(ev),
     reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); },
     frame: opts.frame,

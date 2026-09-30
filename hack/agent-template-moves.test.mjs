@@ -25,7 +25,7 @@ const streams = [];
 const moved = new Map([[5, B + 50]]); // global id → where it went
 const gone = new Set([5]);            // global ids deleted (moved)
 const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
-const view = (id) => ({ cursor: 'g.1', run: { id, title: 'run ' + id, status: 'idle', rootId: id, pendingState: {} },
+const view = (id) => ({ cursor: 'g.1', run: { id, title: 'run ' + id, status: 'idle', rootId: id, owner: id === 9 ? 'bob' : 'alice', pendingState: {} },
   messages: [], steps: [], links: [], queued: [], drafts: [], chain: [], files: [], memory: {}, config: {}, messageFiles: {}, access: 'owner' });
 const box = (id) => ({ ref: `${MGR}|${id}`, provider: MGR, manager: 'Coding sandboxes', id, name: id, state: 'running', egress: 'none',
   visibility: 'private', owner: { user: 'alice' }, mine: true, canUse: true, canManage: true, canEdit: true, caps: ['exec'], lastActive: 1 });
@@ -89,6 +89,11 @@ test('the page follows a moved conversation: its old address, and the event that
   // one deleted, not moved: home, as ever
   app.session.apply({ type: 'run', run: B + 70, root: B + 70, data: { id: B + 70, deleted: true } });
   await until(() => app.sel == null);
+  // someone else's (bob shared it with you, and it moved to his space): home, not after it
+  await app.select(9);
+  assert.equal(app.sel, 9);
+  app.session.apply({ type: 'run', run: 9, root: 9, data: { id: 9, deleted: true, movedTo: B + 90 } });
+  await until(() => app.sel == null);
   app.session.live.close();
   app.session.liveG?.close();
 });
@@ -131,6 +136,10 @@ test('unpartitioned: one list, no home asked, no move looked up', async () => {
   await app.sbx.load();
   await app.select(5).catch(() => {});
   assert.equal(app.sel, null, 'a run that is gone: home, as ever');
+  // the owner token's page at the global instance: a moved conversation's event sends it home
+  await app.select(7);
+  app.session.apply({ type: 'run', run: 7, root: 7, data: { id: 7, deleted: true, movedTo: B + 70 } });
+  await until(() => app.sel == null);
   app.sbx.ensure();
   assert.deepEqual(calls.filter((c) => c.home), [], 'no call carries a partition');
   assert.ok(!calls.some((c) => c.url.includes('/moves/')), 'no move looked up');
