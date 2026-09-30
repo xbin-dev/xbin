@@ -255,7 +255,10 @@ func (ag *Agent) importConv(ctx context.Context, b *convBundle, c who, st runSta
 	if title == "" {
 		title = "a copy"
 	}
-	st.Origin, st.TitleSrc = "chat", "user"
+	if st.Origin != heldOrigin { // a move arrives hidden until the global instance let it go (homes_move_user.go)
+		st.Origin = "chat"
+	}
+	st.TitleSrc = "user"
 	var id int64
 	err := ag.db.Tx(func(t *DB) error {
 		var err error

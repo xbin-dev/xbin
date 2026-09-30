@@ -44,6 +44,9 @@ func startMode(db *DB) {
 	if err := db.addHandoffSchema(); err != nil { // channels and triggers through partition mail (handoff.go)
 		logf("handoff tables: %v", err)
 	}
+	if err := db.addMoveSchema(); err != nil { // un-shared conversations move to their owner's partition (homes_move.go)
+		logf("move tables: %v", err)
+	}
 	limit := func() int { return parseConfig(db.getSetting("config")).maxActiveRuns() }
 	conf, team := xbin.Resource("conf"), xbin.Resource("team")
 	if conf == "" || team == "" {

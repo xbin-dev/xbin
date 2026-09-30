@@ -38,6 +38,7 @@ import { HOME } from './home.js';
 import * as classes from './classes.js';
 import { createSandboxStore } from './sandbox-store.js';
 import { homeOf } from './homes.js';
+import { movedTo } from './moves.js';
 
 /**
  * createApp builds the model.
@@ -200,7 +201,12 @@ export function createApp(opts = {}) {
       app.sel = +id;
       app.page = null;
       emit('select', app.sel);
-      try { await app.session.select(app.sel); } catch (e) { app.fail(e); return app.home(); }
+      try { await app.session.select(app.sel); } catch (e) {
+        const to = await movedTo(app.sel); // a shared one that moved to your own space since (model/moves.js)
+        if (to) return app.select(to);
+        app.fail(e);
+        return app.home();
+      }
       route(router.convHash(app.sel));
       const root = app.root;
       if (root != null) app.convs.read(root);
@@ -360,7 +366,7 @@ export function createApp(opts = {}) {
   app.session = new S(base, {
     change: () => emit('change'),
     runs: () => emit('runs'),
-    gone: () => app.home(),
+    gone: (id, to) => (to ? app.select(to) : app.home()), // one that moved to your own space is followed there (model/moves.js)
     event: (ev) => app.event(ev),
     reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); },
     frame: opts.frame,

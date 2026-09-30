@@ -181,6 +181,7 @@ func (ag *Agent) failHandoff(q queuedHandoff, why, notice string) {
 	if q.kind == "dm" {
 		_ = json.Unmarshal([]byte(q.payload), &h)
 	}
+	ag.moveMailRefused(q) // homes_move.go: a move whose mail never goes is given up
 	_ = ag.db.Tx(func(t *DB) error {
 		_, err := t.q.Exec(`UPDATE handoffs SET state='failed', payload='', error=? WHERE id=? AND state='queued'`, clip(why, 400), q.id)
 		if q.kind == "dm" && q.address != "" {
@@ -218,6 +219,9 @@ func stagedHeld() string {
 // handoffMail is the item a queued handoff mails: a DM's staged files are
 // read and carried inline (what doesn't fit is named in the text).
 func (ag *Agent) handoffMail(ctx context.Context, kind, payload string) (topic string, data any, staged []string, err error) {
+	if kind == moveKind { // homes_move.go: a conversation leaving the shared space
+		return topicMove, json.RawMessage(payload), nil, nil
+	}
 	if kind == "event" {
 		var e eventHandoff
 		if err := json.Unmarshal([]byte(payload), &e); err != nil {

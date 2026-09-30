@@ -394,6 +394,9 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			changedACL = true
+			if err := t.moveIfUnshared(root); err != nil { // homes_move.go: a partitioned agent's global instance keeps shared ones only
+				return err
+			}
 		}
 		if body.Model != nil {
 			cfg, err := t.runConfig(root)

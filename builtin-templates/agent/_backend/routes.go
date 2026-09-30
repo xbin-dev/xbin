@@ -138,6 +138,7 @@ func routeTable() []routeDef {
 // what they may do with a run, is decided here.
 func routes(mux *http.ServeMux) {
 	homeRoutes(mux) // a partitioned agent's copies between homes (homes.go); none unpartitioned
+	moveRoutes(mux) // …and moves out of the shared space (homes_move.go): the global instance only
 	for _, rt := range append(append(append(routeTable(), sandboxRoutes()...), liveRoutes()...), probeRoutes()...) {
 		// agentRole is RoleFunc("admin") unless partitioned (partition_routes.go)
 		mux.Handle(rt.pattern, agentRole(guard(rt.need, partitionRoute(rt.pattern, rt.h))))

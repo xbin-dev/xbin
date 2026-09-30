@@ -187,7 +187,7 @@ func globalRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
 		why = "a new chat's draft is made in your own space; a shared chat is created held (POST /ask {share, hold: true}), " +
 			"then files are uploaded into it (PUT /runs/{id}/upload)"
 	default:
-		return h
+		return refuseWhileMoving(pattern, h) // homes_move.go: a conversation moving out takes no more changes
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if personFromPartition(r) {

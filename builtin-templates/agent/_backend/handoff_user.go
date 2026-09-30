@@ -406,6 +406,7 @@ func (ag *Agent) startPartitionMail() {
 		kickHandoffs()
 	case userMode():
 		kickOutboxMail()
+		kickMoves() // homes_move_user.go: a move a stop cut short
 		ag.usageAtStart()
 		ag.sayHello(context.Background()) // handoff_people.go
 	}
