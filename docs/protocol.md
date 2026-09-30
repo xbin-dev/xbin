@@ -3035,8 +3035,9 @@ GET    /partitions/consents        a person's own session, app or device
                                    about in the last day and haven't allowed
                                    since (an allow answers the ask: taking
                                    the consent back doesn't list it again;
-                                   a tile deleted, moved or switched to
-                                   another mode takes the asks naming it)
+                                   a tile deleted or moved, or switched to
+                                   or from unpartitioned, takes the asks
+                                   naming it)
                                    (docs/partitions.md §Calls between
                                    partitioned tiles)
 POST   /partitions/consents        PersonOnly, as above. {from, to}: let

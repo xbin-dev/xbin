@@ -641,7 +641,8 @@ can't make people consent ahead of the grant. In the workspace shell the
 ask shows above her tiles, beside the pending grant requests — "apps/z
 asks to use your data in apps/x", why it asks, **Allow** and **Don't
 allow** — in every shell she has open or opens that day, until she answers
-it; it goes when the policy is turned off. Allow lets the next call
+it; it goes when the policy is turned off, and when either tile is removed
+or moved, or switched to or from unpartitioned. Allow lets the next call
 through; it works only while nothing covers the question (a tile's pop-out
 window over it, say) and not in the moment it appears. Don't allow stores
 nothing: the calls stay refused, that browser stops showing her the ask,
