@@ -824,6 +824,7 @@ PASSES.partitionLogs = require('./passes/partitionlogs').partitionLogs; // F12, 
 PASSES.partitionConsent = require('./passes/partitionconsent').partitionConsent;
 PASSES.agentHomes = require('./passes/agenthomes').agentHomes; // B2b: a partitioned agent's two homes (HARNESS_AGENT_PARTITION=1)
 PASSES.channelsPartitioned = require('./passes/channelspartitioned').channelsPartitioned; // B2c: HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
+PASSES.oldScaffold = require('./passes/oldscaffold').oldScaffold; // I1: the last release's shell and admin console meet partitioned and pending tiles
 
 (async () => {
   const args = process.argv.slice(2);
