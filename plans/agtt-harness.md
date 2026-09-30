@@ -130,7 +130,8 @@ What the plan rests on (verified in the code and in the adapters in
 - **An idle harness is reclaimed** after 15 min (tile config
   `harnessIdleMin`), with a one-shot timer — no tickers.
 - **D-numbers:** none for WP-R; D147 for the rest (numbered at the docs
-  pass: master was at D136, the partitions branch holds D137–D146).
+  pass: master was at D136, and the partitions branch holds the ten after
+  it).
 
 ### 2.3 Not in v1
 

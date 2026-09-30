@@ -1662,7 +1662,7 @@ turns what it does into the conversation (below, "Driving one"). Its own
 routes — the mode and options, answering its questions, signing it in —
 are "Its own routes", its terminals and log "Terminal relays and the log";
 the UI that uses them follows each. The design, and what was not chosen,
-is D147 (plans/agtt-harness.md).
+is D147.
 
 - **Runs.** A run's `engine` is `""` (the agent's own loop) or `"harness"`
   — set when it is made, never changed; `GET /runs/{id}`'s `run`, run

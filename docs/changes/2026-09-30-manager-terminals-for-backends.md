@@ -74,9 +74,9 @@ sandboxcontract.Run(t, sandboxcontract.Target{URL: srv.URL,
 
 ## Why
 
-The owner's decision (D147, plans/agtt-harness.md §2.1): terminals are part
-of the sandbox interface. The xbin app's `terminal` primitive dials only
-its own tile's routes, so a tile that shows a manager's terminal in the app
+The owner's decision (D147): terminals are part of the sandbox interface.
+The xbin app's `terminal` primitive dials only its own tile's routes, so a
+tile that shows a manager's terminal in the app
 relays it from its backend; and a coding agent that isn't signed in needs a
 terminal in its sandbox to run its sign-in. Policing asserted persons in
 the manager instead would change the rule every manager already implements
