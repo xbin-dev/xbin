@@ -60,14 +60,15 @@ func EnsureDiskAt(dir string, size int64) (string, error) {
 // The kinds of VM disk on the host (Disk.Kind), named as the sandbox
 // registry names what uses them.
 const (
-	DiskTerminal = "terminal" // a tile's terminal layer (VM terminals and agent sessions)
-	DiskTile     = "tile"     // a tile sandbox's (plans/tile-sandbox-runtime.md)
+	DiskTerminal       = "terminal"        // a tile's terminal layer (VM terminals and agent sessions)
+	DiskTile           = "tile"            // a tile sandbox's (plans/tile-sandbox-runtime.md)
+	DiskPersonTerminal = "person-terminal" // a person's terminal layer on a partitioned tile (plans/partitions PD-22)
 )
 
 // Disk is one VM disk image on the host.
 type Disk struct {
-	Kind           string `json:"kind"`                 // DiskTerminal | DiskTile
-	Key            string `json:"key"`                  // the tile's key (util.CompKey)
+	Kind           string `json:"kind"`                 // DiskTerminal | DiskTile | DiskPersonTerminal
+	Key            string `json:"key"`                  // the tile's key (util.CompKey; DiskPersonTerminal: util.TileKey)
 	Sandbox        string `json:"sandbox,omitempty"`    // DiskTile: the sandbox's name
 	SandboxUID     string `json:"sandboxUid,omitempty"` // DiskTile: its uid (a re-created name gets a new one)
 	Path           string `json:"path"`
@@ -76,7 +77,9 @@ type Disk struct {
 }
 
 // ListDisks finds the VM disk images under root: the terminal layers'
-// (.xbin/term/<key>/vm/disk.img) and the tile sandboxes'
+// (.xbin/term/<key>/vm/disk.img), people's terminal layers' on partitioned
+// tiles (.xbin/term-part/<TileKey>/<partition id>/vm/disk.img, keyed by the
+// tile alone) and the tile sandboxes'
 // (.xbin/sbx/<CK>/<name>.<uid>/cur/vm/disk.img; a dir not named so, like
 // .trash, holds none). It only stats them (never follows a symlink in a
 // disk's or a cur/'s place, never reads what the guest wrote).
@@ -87,6 +90,17 @@ func ListDisks(root string) []Disk {
 		layer := filepath.Dir(filepath.Dir(p))
 		if d, ok := statDisk(p); ok {
 			d.Kind, d.Key = DiskTerminal, filepath.Base(layer)
+			out = append(out, d)
+		}
+	}
+	person, _ := filepath.Glob(filepath.Join(root, ".xbin", layers.TreeTermPart, "*", "*", "vm", "disk.img"))
+	for _, p := range person {
+		layer := filepath.Dir(filepath.Dir(p))
+		if fi, err := os.Lstat(layer); err != nil || !fi.IsDir() {
+			continue
+		}
+		if d, ok := statDisk(p); ok {
+			d.Kind, d.Key = DiskPersonTerminal, filepath.Base(filepath.Dir(layer))
 			out = append(out, d)
 		}
 	}

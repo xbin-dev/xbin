@@ -257,3 +257,43 @@ func TestSplitStateDir(t *testing.T) {
 		}
 	}
 }
+
+// covers PD-22 — a person's terminal layer on a partitioned tile
+// (.xbin/term-part/<TK>/<pkey>) pins its base like a tile's: a base only it
+// pins survives GC (the person's persistent apt and /etc changes stand on
+// it), and goes once the layer does. List names it by tree term-part and
+// key "<TK>/<pkey>"; an unstamped one pins the legacy base, as a tile's.
+func TestPersonLayerPinsItsBase(t *testing.T) {
+	ws, rootfs := pinWS(t)
+	os.RemoveAll(filepath.Join(ws, ".xbin", "term"))
+	os.RemoveAll(filepath.Join(ws, ".xbin", "sbx"))
+	stampBase(t, rootfs+"-b-person", "b-person")
+	part := filepath.Join(ws, ".xbin", TreeTermPart, "0123abcd")
+	must(t, Stamp(mkdir(t, filepath.Join(part, "u-ana")), Stamps{Base: "b-person"}))
+	mkdir(t, filepath.Join(part, "u-bob", "upper")) // unstamped: the legacy base
+	ls, err := List(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, l := range ls {
+		got[l.Tree+":"+l.Key] = l.Base
+	}
+	if len(got) != 2 || got["term-part:0123abcd/u-ana"] != "b-person" || got["term-part:0123abcd/u-bob"] != Legacy {
+		t.Fatalf("person layers listed: %v", got)
+	}
+	pins, err := Pinned(ws, nil)
+	if err != nil || keys(pins) != "b-person,v0" {
+		t.Fatalf("pinned: %s %v", keys(pins), err)
+	}
+	GC(rootfs, pins)
+	if got := remaining(t, rootfs); got != "b-person,notabase,v0" {
+		t.Fatalf("after GC: %s", got)
+	}
+	os.RemoveAll(filepath.Join(ws, ".xbin", TreeTermPart))
+	pins, _ = Pinned(ws, nil)
+	GC(rootfs, pins)
+	if got := remaining(t, rootfs); strings.Contains(got, "b-person") {
+		t.Fatalf("the base outlived its last person layer: %s", got)
+	}
+}
