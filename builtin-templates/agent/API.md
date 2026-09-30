@@ -403,11 +403,15 @@ What a partitioned instance does differently:
   cancelled, as `PUT /halt` cancels them unpartitioned (in the manager's
   own partition at once); a manager's request for work lifts it tile-wide,
   at the global instance, and when that fails answers 503 instead of
-  queueing behind the brake. A partition that hasn't read `conf` yet (the
+  queueing behind the brake. A coding agent's turn looks at each thing it
+  does (a message chunk, a tool call…) and is cancelled at the first after
+  the partition reads the halt — the coding agent stopped, as `PUT /halt`
+  stops one unpartitioned. A partition that hasn't read `conf` yet (the
   global instance never ran, a kv error at start) treats the halt as on
-  without cancelling anything: requests for work are queued, runs wait, and
-  it looks at `conf` again (with backoff, only while runs wait) until it
-  can — then they go on by themselves. An instance whose `uses` lacks
+  without cancelling anything: requests for work are queued, runs wait — a
+  message to a coding agent waits too, and none is started — and it looks
+  at `conf` again (with backoff, only while runs wait) until it can — then
+  they go on by themselves. An instance whose `uses` lacks
   `conf` (a customized copy) can't read it at all: people's requests for
   work answer 503 saying so — update it from its template.
 - **Chat channels are the global instance's** — the messaging bridge
@@ -490,12 +494,15 @@ What a partitioned instance does differently:
   private one with 409 — so nobody passes the registry's rules there.
 - **Usage totals for managers.** Your partition mails the global instance
   its daily totals — conversations started, model calls and tokens spent,
-  per UTC day (a call counts on the day it was made, whenever its
-  conversation started); never content or times of day — when it starts and
-  at each UTC midnight while it runs. `GET /usage[?days=30]` (managers; forwarded from a
+  coding agents' sessions started (`harnessSessions`: each adapter a
+  coding agent of yours started — a number, nothing it did), per UTC day (a
+  call counts on the day it was made, whenever its conversation started);
+  never content or times of day — when it starts and at each UTC midnight
+  while it runs. `GET /usage[?days=30]` (managers; forwarded from a
   partition; at most 90 days) → `{days, since, people: [{user, days: [{day,
-  runs, llmCalls, promptTokens, completionTokens}], total}]}`; 404 in an
-  unpartitioned agent, whose managers see every conversation anyway.
+  runs, llmCalls, promptTokens, completionTokens, harnessSessions}],
+  total}]}`; 404 in an unpartitioned agent, whose managers see every
+  conversation anyway.
 - Schedules work in your partition (its own cron jobs).
 - **The global instance** takes a person's calls from their partition — a
   frame's `xbin.fetch(…, {partition: 'global'})`, or the partition's own
@@ -525,11 +532,12 @@ What a partitioned instance does differently:
 - **Resume.** A partition that stops with work leaves the `resume` job only
   for work that moves without its person (a running or queued run, an
   undelivered input, a subagent's settled result its parent will take up, a
-  run sleeping until a sandbox job ends), a `wake` job at the minute its
-  earliest timed wait ends (a sleeping run's wake, a subagent deadline), and
-  nothing for runs waiting on a person — who opens the tile anyway — nor
-  while the halt is on. The global instance follows the unpartitioned
-  rule.
+  run sleeping until a sandbox job ends, a message on its way to a coding
+  agent), a `wake` job at the minute its earliest timed wait ends (a
+  sleeping run's wake, a subagent deadline, a coding agent's idle stop:
+  below), and nothing for runs waiting on a person — who opens the tile
+  anyway — nor while the halt is on. The global instance follows the
+  unpartitioned rule.
 - **Sandboxes.** A partition calls its sandbox managers as itself: a
   manager whose `hello.caps` carry `partitions` homes the sandboxes it
   makes there ([/docs/sandbox-manager.md](/docs/sandbox-manager.md)). One
@@ -540,10 +548,48 @@ What a partitioned instance does differently:
   work only in a sandbox the manager says is homed in the partition
   (`owner.partitionId` its id, `owner.via` this tile, not `shared`) —
   checked when it is bound and at every use; any other is refused (403),
-  though you can open its terminal. Every sandbox a partitioned instance
+  though you can open its terminal (`GET /sandboxes/{ref}/terminal`; a
+  coding agent's own terminal and log, `GET /runs/{id}/harness/terminal`
+  and `…/log`, are checked as a use: 403, and 409 for a manager without
+  `partitions`). In a partition `GET /sandboxes` (and `GET
+  /sandboxes/{ref}`) says of each sandbox whether a conversation there may
+  work in it — `homed` (true or false) and, when not, `why` (in words) —
+  and the coding-agent catalog's `sandboxes` keeps only sandboxes homed
+  there. Every sandbox a partitioned instance
   makes — for a conversation or not — carries the label `xbin.agent/home`
   (the partition's id, or `global`), beside `xbin.agent/conversation` when
   it is made for one.
+- **Coding agents only in your own conversations**
+  ([/docs/partitions.md](/docs/partitions.md); §Coding agents). A coding
+  agent signs in inside its sandbox (`$HOME`), so it works only where its
+  sign-in stays yours: a conversation of your own partition, in a sandbox
+  homed there, or a subagent one of them spawns.
+  - **The global instance never starts or drives one**: `POST /ask` and
+    `POST /runs` with `harness` answer 409 there, the catalog lists every
+    coding agent unavailable (`reason: "shared-space"`), `subagent_spawn`
+    has no `harness` (and refuses one), signing one in (`POST
+    /runs/{id}/harness/authenticate`, the terminal's `login=1`) answers
+    409, and its engine refuses to start one — so neither a shared
+    conversation nor a channel's, a trigger's or a schedule's run there
+    reaches one.
+  - **A non-secure (hosted) conversation has none**: its runs'
+    `subagent_spawn` offers none (and refuses one), and a conversation a
+    coding agent answers can't be hosted (`POST /hosted`: 409).
+  - **It doesn't move between homes**: a conversation a coding agent
+    answers — or one in which a coding agent it spawned still works (a
+    turn, a question, its adapter up) — can't be published (`POST
+    /runs/{id}/publish`), exported for a copy (`GET /runs/{id}/export`,
+    so `POST /copy`), hosted or moved, and un-sharing one at the global
+    instance answers 409 rather than moving it: 409 saying why. Once the
+    spawned one rests (stopped: `/cancel`, or its idle stop), the
+    conversation copies as any other — without its subagents'
+    transcripts, as ever.
+  - **An idle one doesn't keep your partition running**: only a coding
+    agent at work (a turn, not a question waiting for you) holds it up. A
+    partition that stops with one idle leaves a `wake` job at the minute
+    it would be stopped (its last activity plus `harnessIdleMin`; none
+    when that is 0), and the partition then started stops it at once.
+  - Its sessions count in your usage totals (`harnessSessions`, above).
 - **Your own providers.** A model gateway or MCP server you bound into your
   partition yourself (a personal bind: `bx bind --personal`) is offered only
   in conversations you own, and in your model picker — never in anyone
@@ -1186,7 +1232,7 @@ Where each event goes (`mode`):
 | `GET /triggers/unmatched` | — | pushes no trigger took (managers): `{items:[{from, name, count, at}]}` — the Automations page offers to make one. Forwarded to the global instance from a person's partition |
 | `POST /triggers/registry` | `{name, prev?, source, sourceRef, match, enabled, maxPerHour}` | a partitioned agent's global instance: a person's partition registers (or updates) one of its person's private triggers, as them — never anyone else's; `prev` renames. A private push trigger needs a `match` (400), and one that is a prefix of — or prefixed by — anyone else's on the same source is 409; so is a name someone else has → `{id, name, host}`. 404 anywhere else; 403 for any caller but a person from their own partition |
 | `DELETE /triggers/registry/{name}` | — | removes the caller's own registry row (the same callers); 404 when there is none |
-| `GET /usage` | `?days=30` (1–90) | people's daily usage totals (managers; a partitioned agent's global instance, forwarded from a partition): `{days, since, people: [{user, days: [{day, runs, llmCalls, promptTokens, completionTokens}], total}]}`; 404 unpartitioned |
+| `GET /usage` | `?days=30` (1–90) | people's daily usage totals (managers; a partitioned agent's global instance, forwarded from a partition): `{days, since, people: [{user, days: [{day, runs, llmCalls, promptTokens, completionTokens, harnessSessions}], total}]}`; 404 unpartitioned |
 | `GET /handoffs/{id}/files/{fid}` | — | a partitioned agent's global instance: a file of a DM handed to the caller (too large for its mail, named in its `fetch`) — the bytes; 404 for anyone but the handoff's person from their own partition, and once it was fetched |
 | `POST /handoffs/{id}/fetched` | — | …the caller's partition has the handoff's files: the global instance deletes what it held → `{deleted}` |
 | `PUT /handoffs/{id}/reply-files` | `?key=<outbox key>-<row>/<file>&name=&mime=`, body: the bytes (≤ 16 MiB) | …stages a file of the caller's reply too large for its mail (named then in `outbox/add`'s `staged`) → `{id}`; the same key stages once. The same callers. 400 for another key; 410 for a DM older than 30 days; 413 past 10 files staged for the chat; 507 past 32 files or 64 MiB the person staged and hasn't sent (later) |
@@ -1715,7 +1761,7 @@ unbound, 403 not allowed, 502 its manager down), and nothing is created.
 
 | Route | Body / query | Result |
 |---|---|---|
-| `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
+| `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?, homed?, why?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids; `homed`/`why`: in a person's partition only — whether its conversations may work in it, and why not: §Partitioned instances). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
 | `POST /sandboxes` | `{name, provider?, image?, size?, egress?, visibility?, members?, conversation?, bind?, cwd?, clientId?, start?}` | **201** + the sandbox (as below), with `binding` when it was bound. Created at `provider` (optional while one manager is bound), owned by the caller. With `conversation` (the caller takes part in it): made for it (above) and bound there unless `bind: false` — refused up front when its class wouldn't allow it, and deleted again if the binding fails. `clientId` makes a retry return the same sandbox (per person) |
 | `GET /sandboxes/{ref}` | | one sandbox, fresh from its manager, as `GET /sandboxes` lists it |
 | `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does). New `labels` keep `xbin.agent/internal` (sent with the sandbox's `version` unless you send one: a label set meanwhile is read again and kept) |
@@ -2171,14 +2217,18 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
   manager's image has it; `manager-error` instead, `why` its error, when a
   manager that didn't answer might), `no-class` (no class you may use
   allows coding agents — or this one), `no-egress` (no manager offering it
-  offers an egress other than `none` that such a class allows).
+  offers an egress other than `none` that such a class allows); at a
+  partitioned agent's global instance every one is `shared-space` (coding
+  agents work only in a person's own conversations: §Partitioned
+  instances).
 - `modes`, `defaultMode`, `autoMode` (empty: it has none), `approveMode`,
   `planMode`: the SDK catalog's (`sdk/acp`); the name and login command are
   the catalog's, else the manager's advertisement. A manager's own `argv`
   for one of the four is what runs, and what a probe looks for.
 - `sandboxes`: what the agent last learned about it per sandbox — by a probe
   (`installed`) or a session (`signedIn`); a field absent is unknown, a
-  sandbox absent never asked. Only sandboxes the caller may see.
+  sandbox absent never asked. Only sandboxes the caller may see (in a
+  person's partition, only those homed there).
 - **`?probe=<ref>`** also asks that sandbox now which of the coding agents'
   commands it has (`command -v`, one run of at most 8 s through the
   contract's `/run`): the ones its image advertises, or the four when its
@@ -2361,7 +2411,9 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   asked again) — and a process that exits with one running, idle too,
   and none to follow leaves the resume job (§The engine, "Resume job"),
   whose next process takes it over and stops it once it has been idle for
-  `harnessIdleMin`. **Rolling back** to an agent from before coding agents
+  `harnessIdleMin` (in a person's partition a `wake` job at that minute
+  instead, and an idle one doesn't keep the partition running: §Partitioned
+  instances). **Rolling back** to an agent from before coding agents
   (v0.3.64 or older): its model loop never answers a coding agent's
   conversation — every turn it would start there ends at once at its step
   cap ("stopped after 500 steps in one turn (maxTurnSteps)"; the
