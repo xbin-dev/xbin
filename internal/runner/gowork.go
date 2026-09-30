@@ -30,9 +30,11 @@ import (
 // of it) for entry: its code read from codeRoot when that is a checkpoint
 // tree shown at c.Dir ("" = the work tree), and each other component's
 // from shown's tree when a checkpoint build shows it from its primary's
-// checkpoint (checkpointPlan; nil for a work-tree build). ok=false when c
-// has no Go module of its own: the build runs with GOWORK=off, and `go`
-// says "go.mod file not found".
+// checkpoint (checkpointPlan; nil for a work-tree build). A tile holding no
+// module of its own (at its root, in backend/, or on its entry's path)
+// builds in the component module it sits in (enclosingModule), as it did
+// with the workspace's go.work. ok=false when there is none either: the
+// build runs with GOWORK=off, and `go` says "go.mod file not found".
 func (r *Runner) buildWork(c *registry.Component, entry, codeRoot string, shown map[string]shownComp) (deps.Work, bool) {
 	root, rel := r.readRoot(c.Dir)
 	if codeRoot != "" {
@@ -47,9 +49,6 @@ func (r *Runner) buildWork(c *registry.Component, entry, codeRoot string, shown 
 	}
 	if sub, ok := deps.EntryModule(root, rel, entry); ok {
 		addOwn(sub) // BuildWork drops a repeat
-	}
-	if len(own) == 0 {
-		return deps.Work{}, false
 	}
 	rw, err := deps.ReadRootWork(r.Root)
 	if err != nil {
@@ -103,6 +102,13 @@ func (r *Runner) buildWork(c *registry.Component, entry, codeRoot string, shown 
 			others = append(others, m)
 		}
 	}
+	if len(own) == 0 {
+		m, ok := r.enclosingModule(c, comps, others, codeOf)
+		if !ok {
+			return deps.Work{}, false
+		}
+		own = append(own, m)
+	}
 	b := deps.Build{Tile: c.Path, Own: own, Others: others, Root: rw, Deps: r.namesInDeps(c)}
 	if sdk := deps.SDKPath(); sdk != "" {
 		if abs, err := filepath.Abs(sdk); err == nil {
@@ -114,6 +120,42 @@ func (r *Runner) buildWork(c *registry.Component, entry, codeRoot string, shown 
 		b.Std = stdPackage(tc.goroot)
 	}
 	return deps.BuildWork(b), true
+}
+
+// enclosingModule is the module a Go tile holding none of its own builds in
+// (apps/suite/admin, with only xbin.json and backend/, inside apps/suite's
+// module): the nearest go.mod above the tile's directory, as the go command
+// finds it from there, when that is one of others — another component's
+// module, or one a hand-managed root go.work uses — which the workspace's
+// go.work used, so such a tile built before D166. It is that component's
+// module, read where its code is, and its references are that component's.
+// ok=false when the nearest go.mod is none of them (the go command refused
+// that under the workspace's go.work too: "not one of the workspace
+// modules"), or there is none beneath the workspace.
+func (r *Runner) enclosingModule(c *registry.Component, comps []*registry.Component, others []deps.Module, codeOf func(*registry.Component) (string, string)) (deps.Module, bool) {
+	if c.Dir == r.Root || !within(c.Dir, r.Root) {
+		return deps.Module{}, false
+	}
+	for d := filepath.Dir(c.Dir); within(d, r.Root); d = filepath.Dir(d) {
+		for _, m := range others {
+			if m.Dir == d && deps.HasGoMod(m.Root, m.Rel) {
+				return m, true
+			}
+		}
+		root, rel := r.readRoot(d)
+		if n := owningComponent(comps, d); n != nil {
+			nroot, nrel := codeOf(n)
+			sub, _ := filepath.Rel(n.Dir, d)
+			root, rel = nroot, path.Join(nrel, filepath.ToSlash(sub))
+		}
+		if deps.HasGoMod(root, rel) {
+			return deps.Module{}, false // a module no go.work used
+		}
+		if d == r.Root {
+			break
+		}
+	}
+	return deps.Module{}, false
 }
 
 // readRoot is where xbind reads a component's files at dir: beneath the

@@ -346,3 +346,67 @@ func TestConfinedGoBuildOwnWorkspace(t *testing.T) {
 		t.Fatalf("a missing requirement: %v", err)
 	}
 }
+
+// covers D166 — the review's namesakes, through Runner.build, confined and
+// with isolation off: a tile declaring an SDK sub-package's path
+// (github.com/xbin-dev/xbin/sdk/ws: every agent and coding-sandbox tile
+// imports one) or a module beneath a dotless one another tile's go.mod
+// chooses by a replace with its directory (calendar/store) never reaches
+// that tile's build — the victim compiles the SDK's ws and calendar's
+// store. And a Go tile holding no module of its own (apps/suite/admin)
+// builds in the component module it sits in, as it did with the
+// workspace's go.work.
+func TestConfinedGoBuildNoNamesake(t *testing.T) {
+	fs := ckRootfs(t)
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go")
+	}
+	sdk, err := filepath.Abs("../../sdk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XBIN_SDK_PATH", sdk)
+	for _, isolate := range []bool{true, false} {
+		root := t.TempDir()
+		w := func(rel, s string) { ckWrite(t, filepath.Join(root, filepath.FromSlash(rel)), s) }
+		w("apps/victim/xbin.json", `{"runtime":"go"}`)
+		w("apps/victim/go.mod", "module victim\n\ngo 1.22\n\nrequire (\n\tgithub.com/xbin-dev/xbin/sdk v0.0.0\n\tcalendar v0.0.0\n)\n\nreplace calendar => ../calendar\n")
+		w("apps/victim/backend/main.go", "package main\n\nimport (\n\t\"fmt\"\n\n\t\"calendar/store\"\n\t\"github.com/xbin-dev/xbin/sdk/ws\"\n)\n\nfunc main() { fmt.Println(ws.DefaultMaxMessageSize, store.Who) }\n")
+		w("apps/calendar/xbin.json", `{}`)
+		w("apps/calendar/go.mod", "module calendar\n\ngo 1.22\n")
+		w("apps/calendar/store/s.go", "package store\n\nconst Who = \"real\"\n")
+		w("apps/evil/xbin.json", `{}`) // a static tile: a go.mod is all it takes
+		w("apps/evil/go.mod", "module github.com/xbin-dev/xbin/sdk/ws\n\ngo 1.22\n")
+		w("apps/evil/ws.go", "package ws\n\nconst DefaultMaxMessageSize = -1\n")
+		w("apps/evil2/xbin.json", `{}`)
+		w("apps/evil2/go.mod", "module calendar/store\n\ngo 1.22\n")
+		w("apps/evil2/s.go", "package store\n\nconst Who = \"EVIL\"\n")
+		w("apps/suite/xbin.json", `{"runtime":"go"}`)
+		w("apps/suite/go.mod", "module suite\n\ngo 1.22\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n")
+		w("apps/suite/backend/main.go", "package main\n\nfunc main() {}\n")
+		w("apps/suite/admin/xbin.json", `{"runtime":"go"}`)
+		w("apps/suite/admin/backend/main.go", "package main\n\nimport (\n\t\"fmt\"\n\n\t\"github.com/xbin-dev/xbin/sdk/ws\"\n)\n\nfunc main() { fmt.Println(\"admin\", ws.DefaultMaxMessageSize) }\n")
+		reg, err := registry.Open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		confine.Configure(fs)
+		r := &Runner{Root: root, Isolate: isolate, Rootfs: fs, Reg: reg}
+		for tile, want := range map[string]string{"apps/victim": "33554432 real", "apps/suite/admin": "admin 33554432"} {
+			c, _ := reg.Component(tile)
+			bin, err := r.build(c)
+			if err != nil {
+				confine.Configure("")
+				if be, ok := err.(*BuildError); ok {
+					t.Fatalf("isolate=%v: build %s: %s", isolate, tile, be.Output)
+				}
+				t.Fatalf("isolate=%v: build %s: %v", isolate, tile, err)
+			}
+			if out, err := exec.Command(bin).Output(); err != nil || strings.TrimSpace(string(out)) != want {
+				confine.Configure("")
+				t.Fatalf("isolate=%v: %s printed %q %v, want %q", isolate, tile, out, err, want)
+			}
+		}
+		confine.Configure("")
+	}
+}

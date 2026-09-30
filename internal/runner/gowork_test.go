@@ -230,3 +230,67 @@ func TestBuildRightAfterRegistration(t *testing.T) {
 		t.Errorf("a tile without go.mod ran with %q", b)
 	}
 }
+
+// covers D166 — a Go tile holding no module of its own (apps/suite/admin:
+// xbin.json and backend/ only) builds in the component module it sits in,
+// as it did with the workspace's go.work: its build's go.work uses
+// apps/suite's module. A nearest go.mod that is no component's module (the
+// workspace's go.work never used it: "not one of the workspace modules")
+// gives GOWORK=off, as does none at all.
+func TestBuildNestedTileInParentModule(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh for the fake go")
+	}
+	_, _ = hostToolchain()
+	root := t.TempDir()
+	fake := t.TempDir()
+	seen := filepath.Join(fake, "seen")
+	writeExec(t, filepath.Join(fake, "go"), "#!/bin/sh\n{ echo \"GOWORK=$GOWORK\"; [ -f \"$GOWORK\" ] && cat \"$GOWORK\"; } > "+seen+"\n: > \"$3\"\n")
+	t.Setenv("PATH", fake+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("XBIN_SDK_PATH", "/opt/xbin/sdk")
+	write := func(rel, s string) {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("apps/suite/xbin.json", `{"runtime":"go"}`)
+	write("apps/suite/go.mod", "module suite\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n")
+	write("apps/suite/backend/main.go", "package main\n\nfunc main() {}\n")
+	write("apps/suite/admin/xbin.json", `{"runtime":"go"}`)
+	write("apps/suite/admin/backend/main.go", "package main\n\nfunc main() {}\n")
+	write("apps/other/xbin.json", `{"runtime":"go"}`)
+	write("apps/other/go.mod", "module other\n")
+	// a module no component is: a tile beneath it built with no go.work
+	write("apps/lone/stuff/go.mod", "module stuff\n")
+	write("apps/lone/stuff/t/xbin.json", `{"runtime":"go"}`)
+	write("apps/bare/xbin.json", `{"runtime":"go"}`)
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &Runner{Root: root, Reg: reg}
+	build := func(tile string) string {
+		t.Helper()
+		c, ok := reg.Component(tile)
+		if !ok {
+			t.Fatalf("%s isn't registered", tile)
+		}
+		if _, err := r.build(c); err != nil {
+			t.Fatalf("build %s: %v", tile, err)
+		}
+		b, _ := os.ReadFile(seen)
+		return string(b)
+	}
+	got := build("apps/suite/admin")
+	if !strings.Contains(got, "\t"+filepath.Join(root, "apps/suite")+"\n") || strings.Contains(got, "apps/other") || !strings.Contains(got, "replace github.com/xbin-dev/xbin/sdk => /opt/xbin/sdk\n") {
+		t.Errorf("the nested tile's build workspace:\n%s", got)
+	}
+	for _, tile := range []string{"apps/lone/stuff/t", "apps/bare"} {
+		if got := build(tile); got != "GOWORK=off\n" {
+			t.Errorf("%s ran with %q", tile, got)
+		}
+	}
+}
