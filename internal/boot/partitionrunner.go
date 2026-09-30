@@ -33,7 +33,6 @@ func (st *State) wirePartitionRunner() {
 	run.PartitionCapsFor = brk.PartitionCaps
 	brk.SetPartitionCapDefaults(run.DefaultPartitionCaps)
 	brk.SetPartitionRunner(run.PartitionRunning, run.StopPartitions, st.Auth.RevokePartitionInstances)
-	brk.SetPartitionRestart(run.StopPartition) // a person's personal binds changed: their instance restarts (05 §3)
 	st.Reg.OnPartitionChange(func(c *registry.Component, old, new registry.PartitionMode) {
 		run.PartitionsChanged(c, runningSpec(old), runningSpec(new))
 	})
@@ -42,6 +41,10 @@ func (st *State) wirePartitionRunner() {
 			st.Auth.RevokePartitionInstances(c.Path) // 02 §2: none authenticates past the change
 		}
 	})
+
+	// a person's personal binds changed: their instance restarts (05 §3;
+	// TestPersonalBindRestartWired)
+	brk.SetPartitionRestart(run.StopPartition)
 }
 
 // runningSpec is the partition spec a tile in mode m runs: its recorded mode

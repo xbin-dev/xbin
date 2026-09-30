@@ -6,7 +6,8 @@ package broker
 // gains (bindConflict). Creating a personal bind is a person's own act
 // (PersonOnly: their session, app or device — never tile code, view-as or
 // the root token); admins list and delete every person's, and never create
-// one for someone else — a bind an admin makes for a tile is a global bind.
+// one (PD-54) — a bind an admin makes is a global bind, even of a tile they
+// own personally.
 
 import (
 	"cmp"
@@ -56,14 +57,36 @@ func (b *Broker) partitionedProviderRefusal(comp, slot, ref string) error {
 		return nil
 	}
 	prov, _ := splitRef(ref)
-	spec, part, err := b.tilePartitioning(prov)
-	if err != nil || !part || spec.Global {
-		return nil
-	}
-	if _, reqPart, err := b.tilePartitioning(comp); err == nil && reqPart {
+	if !b.partitionedProviderBlocks(comp, prov) {
 		return nil
 	}
 	return &bindConflict{fmt.Sprintf("%s is partitioned and has no global instance: %s doesn't keep each person's data apart, so no call of it would reach %s (docs/partitions.md)", prov, comp, prov)}
+}
+
+// blockPartitionedProviders marks, among requester comp's http bind options,
+// the providers POST /bindings would refuse for everyone with 409
+// (partitionedProviderBlocks): blocked, labelled why — pickers grey them
+// out rather than let a click end in the 409.
+func (b *Broker) blockPartitionedProviders(comp string, opts []bindOption) {
+	for i := range opts {
+		if prov, _ := splitRef(opts[i].ID); b.partitionedProviderBlocks(comp, prov) {
+			opts[i].Blocked = true
+			opts[i].Label += " — partitioned, no global instance"
+		}
+	}
+}
+
+// partitionedProviderBlocks: an http ref of requester comp to prov would
+// reach nothing — prov's recorded mode has user partitions and no global
+// instance, and comp isn't partitioned. The refusal above for a new ref;
+// bindOptions marks such a provider blocked, so pickers grey it out.
+func (b *Broker) partitionedProviderBlocks(comp, prov string) bool {
+	spec, part, err := b.tilePartitioning(prov)
+	if err != nil || !part || spec.Global {
+		return false
+	}
+	_, reqPart, err := b.tilePartitioning(comp)
+	return err != nil || !reqPart
 }
 
 // personalBindRow is one bind on the wire.
@@ -102,7 +125,7 @@ func (b *Broker) apiPersonalBindsList(w http.ResponseWriter, r *http.Request) {
 	switch id := personOf(p); {
 	case b.IsAdmin(p):
 		err := b.eachPersonalBinds(func(f *personalBindsFile) {
-			if b.storedPartitionUID(f.User) != f.UID {
+			if !b.personalBindsLive(f) {
 				return // a deleted person's, or an earlier incarnation's: applies to no one
 			}
 			for _, pb := range f.Binds {
@@ -146,22 +169,30 @@ func (b *Broker) apiPersonalBindAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := personOf(p)
-	if id == "" || b.Users == nil {
+	switch {
+	case id == "" || b.Users == nil:
 		server.WriteError(w, http.StatusForbidden, "a personal bind is a person's own act: sign in and do it yourself — a tile's credentials can't, and an admin's bind for a tile is a global bind (POST /bindings)", "/docs/partitions.md")
+		return
+	case b.IsAdmin(p):
+		server.WriteError(w, http.StatusForbidden, "an admin's bind is always a global bind: bind it for everyone with POST /bindings (bx bind) — admins list and remove personal binds, never make them", "/docs/partitions.md")
 		return
 	}
 	pb := personalBind{Requester: body.Requester, Slot: body.Slot, Provider: body.Provider}
+	// judged and written under the lock: a switch's wipe or a transfer
+	// (dropPersonalBinds) can't land between the check and the write
+	b.pbind.mu.Lock()
 	status, err := b.personalBindRefusal(id, pb)
 	if err != nil {
+		b.pbind.mu.Unlock()
 		server.WriteError(w, status, err.Error(), "/docs/partitions.md")
 		return
 	}
 	uid, err := b.mintPartitionUID(id)
 	if err != nil {
+		b.pbind.mu.Unlock()
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	b.pbind.mu.Lock()
 	f, err := b.readPersonalBinds(uid)
 	switch {
 	case err != nil:
@@ -193,25 +224,28 @@ func (b *Broker) apiPersonalBindAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 // personalBindRefusal is why person id may not create pb, with its status:
-// 404 an unknown tile; 403 authority (the provider isn't theirs, they can't
-// read the requester, the ceiling); 409 a bind that can't be one (the
+// 403 authority (the provider isn't theirs, they can't read the requester,
+// the ceiling); 404 an unknown tile, told only past the authority checks
+// (a tile of theirs, a path they may read), so it never says whether a
+// path someone else holds exists; 409 a bind that can't be one (the
 // requester doesn't partition or is paused, the slot, the provider's mode
-// or service, a global bind of the same provider).
+// or service, a global bind of the same provider). The caller holds
+// pbind.mu.
 func (b *Broker) personalBindRefusal(id string, pb personalBind) (int, error) {
-	c, ok := b.Reg.Component(pb.Requester)
-	if !ok {
-		return http.StatusNotFound, fmt.Errorf("no such component: %s", pb.Requester)
+	if b.Users.Owner(pb.Provider) != users.OwnerKindUser+":"+id {
+		return http.StatusForbidden, fmt.Errorf("%s isn't yours: a personal bind wires a tile you own personally into your own partition — for anything else, ask an admin for a global bind", pb.Provider)
 	}
 	if _, ok := b.Reg.Component(pb.Provider); !ok {
 		return http.StatusNotFound, fmt.Errorf("no such component: %s", pb.Provider)
 	}
-	if b.Users.Owner(pb.Provider) != users.OwnerKindUser+":"+id {
-		return http.StatusForbidden, fmt.Errorf("%s isn't yours: a personal bind wires a tile you own personally into your own partition — for anything else, ask an admin for a global bind", pb.Provider)
-	}
 	if err := b.personLive(id, pb.Requester); err != nil {
 		return http.StatusForbidden, err
 	}
-	if st, _, _ := c.PartitionState(); st.Held() || c.PartitionRecordUnknown() {
+	c, ok := b.Reg.Component(pb.Requester)
+	if !ok {
+		return http.StatusNotFound, fmt.Errorf("no such component: %s", pb.Requester)
+	}
+	if st, _, _ := c.PartitionState(); st.Held() || c.PartitionRecordUnknown() || b.switchHold(pb.Requester) != "" {
 		return http.StatusConflict, fmt.Errorf("%s is paused (its partition mode is %s): a manager must decide first", pb.Requester, st)
 	}
 	if _, part, _ := b.tilePartitioning(pb.Requester); !part {
@@ -256,8 +290,11 @@ func (b *Broker) apiPersonalBindDelete(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusForbidden, "only an admin deletes someone else's personal bind", "/docs/partitions.md")
 		return
 	}
-	match := func(user string, pb personalBind) bool {
-		if whose != "" && user != whose {
+	// a dead record (a deleted person's, an earlier incarnation's) matches
+	// nothing: listed to no one, it is no one's to delete — a person created
+	// again under the id must not reach, or even see, their predecessor's
+	match := func(user string, live bool, pb personalBind) bool {
+		if !live || whose != "" && user != whose {
 			return false
 		}
 		if body.ID != "" {
@@ -266,8 +303,8 @@ func (b *Broker) apiPersonalBindDelete(w http.ResponseWriter, r *http.Request) {
 		return pb.Requester == body.Requester && pb.Slot == body.Slot && pb.Provider == body.Provider
 	}
 	var gone []personalBindRow
-	n, _, err := b.dropPersonalBinds(func(user string, pb personalBind) bool {
-		if match(user, pb) {
+	n, _, err := b.dropPersonalBinds(func(user string, live bool, pb personalBind) bool {
+		if match(user, live, pb) {
 			gone = append(gone, personalBindRow{ID: pb.ID, User: user, Requester: pb.Requester, Slot: pb.Slot, Provider: pb.Provider, At: pb.At})
 			return true
 		}

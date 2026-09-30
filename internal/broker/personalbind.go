@@ -101,6 +101,15 @@ func (b *Broker) SetPartitionRestart(stop func(tile, dep, part string)) {
 	b.pbind.restart = stop
 }
 
+// PartitionRestartWired: boot installed the restart (SetPartitionRestart).
+// Unwired, a personal bind's change reaches a person's running instance
+// only when it next starts (internal/boot's TestPersonalBindRestartWired).
+func (b *Broker) PartitionRestartWired() bool {
+	b.pbind.mu.Lock()
+	defer b.pbind.mu.Unlock()
+	return b.pbind.restart != nil
+}
+
 // restartPartition restarts person id's partition instance of tile, its
 // primary's (user partitions run there only, PD-17).
 func (b *Broker) restartPartition(tile, id string) {
@@ -199,6 +208,16 @@ func (b *Broker) writePersonalBinds(f *personalBindsFile) error {
 		return err
 	}
 	return fsutil.WriteFileAtomicIn(path, append(raw, '\n'), 0o600)
+}
+
+// personalBindsLive: f is its person's record now — their stored uid (never
+// minted here) is the record's. A deleted person's record, or an earlier
+// incarnation's, isn't: it applies to no one, holds no tile's data, names
+// no one in a switch and matches no delete (PD-43); it is only removed (a
+// wipe, a transfer, a tile created at its requester's path,
+// PersonalBindsUserDeleted).
+func (b *Broker) personalBindsLive(f *personalBindsFile) bool {
+	return f.UID != "" && b.storedPartitionUID(f.User) == f.UID
 }
 
 // livePersonalBinds is person id's record while it is theirs: their stored
@@ -384,9 +403,11 @@ func (p brokerPolicy) PartitionInterfaces(comp string, part util.Partition) map[
 // ---- lifecycle ----
 
 // dropPersonalBinds removes every bind drop keeps, across every person's
-// record (dryRun: counts only): how many went, and whose (each once,
-// sorted).
-func (b *Broker) dropPersonalBinds(drop func(user string, pb personalBind) bool, dryRun bool) (int64, []string, error) {
+// record (dryRun: counts only): how many of live records went, and whose
+// (each once, sorted). live tells drop whether the row's record is its
+// person's now (personalBindsLive); a dead record's rows that go are
+// neither counted nor named — its id may be someone else's by now.
+func (b *Broker) dropPersonalBinds(drop func(user string, live bool, pb personalBind) bool, dryRun bool) (int64, []string, error) {
 	b.pbind.mu.Lock()
 	defer b.pbind.mu.Unlock()
 	var (
@@ -395,12 +416,15 @@ func (b *Broker) dropPersonalBinds(drop func(user string, pb personalBind) bool,
 		errs   []error
 	)
 	err := b.eachPersonalBinds(func(f *personalBindsFile) {
+		live := b.personalBindsLive(f)
 		keep := f.Binds[:0:0]
 		for _, pb := range f.Binds {
-			if drop(f.User, pb) {
-				n++
-				if !slices.Contains(people, f.User) {
-					people = append(people, f.User)
+			if drop(f.User, live, pb) {
+				if live {
+					n++
+					if !slices.Contains(people, f.User) {
+						people = append(people, f.User)
+					}
 				}
 				continue
 			}
@@ -429,8 +453,13 @@ func (b *Broker) personalBindsProviderMoved(tile string) {
 	owner := b.Users.Owner(tile)
 	type hit struct{ user, requester string }
 	var hits []hit
-	n, _, err := b.dropPersonalBinds(func(user string, pb personalBind) bool {
-		if pb.Provider != tile || owner == users.OwnerKindUser+":"+user {
+	n, _, err := b.dropPersonalBinds(func(user string, live bool, pb personalBind) bool {
+		switch {
+		case pb.Provider != tile:
+			return false
+		case !live:
+			return true // applies to no one: it goes, nothing restarts
+		case owner == users.OwnerKindUser+":"+user:
 			return false
 		}
 		hits = append(hits, hit{user, pb.Requester})
@@ -441,6 +470,38 @@ func (b *Broker) personalBindsProviderMoved(tile string) {
 	}
 	if n > 0 {
 		slog.Info("partitions: personal binds dropped: the provider changed owner", "provider", tile, "binds", n)
+	}
+	for _, h := range hits {
+		b.restartPartition(h.requester, h.user)
+		b.publishPersonalBinds(h.requester, h.user)
+	}
+}
+
+// personalBindsTileCreated drops every personal bind naming path, or a tile
+// under it, as requester or provider (assignOwner: a tile created there is a
+// new tile, whoever creates it — an admin skips pathLeftovers). Personal
+// binds are a person's consent to wire two particular tiles; a tile created
+// at a removed one's path inherits none of it, and the person binds again.
+// A live person's partition of a requester elsewhere restarts (its env
+// listed the provider).
+func (b *Broker) personalBindsTileCreated(path string) {
+	under := func(p string) bool { return p == path || strings.HasPrefix(p, path+"/") }
+	type hit struct{ user, requester string }
+	var hits []hit
+	n, _, err := b.dropPersonalBinds(func(user string, live bool, pb personalBind) bool {
+		if !under(pb.Requester) && !under(pb.Provider) {
+			return false
+		}
+		if live && !under(pb.Requester) {
+			hits = append(hits, hit{user, pb.Requester})
+		}
+		return true
+	}, false)
+	if err != nil {
+		slog.Error("partitions: personal binds naming a new tile's path can't all be dropped", "tile", path, "err", err)
+	}
+	if n > 0 {
+		slog.Info("partitions: personal binds of a removed tile dropped: a new tile took its path", "tile", path, "binds", n)
 	}
 	for _, h := range hits {
 		b.restartPartition(h.requester, h.user)
@@ -466,11 +527,15 @@ func (b *Broker) PersonalBindsUserDeleted(userID, uid string) {
 }
 
 // holdsPersonalBinds: the "personal-binds" store keeps the tile's data when
-// a person's bind names it as the requester (01 §2.2). A record that can't
-// be read holds data.
+// a live person's bind names it as the requester (01 §2.2); a deleted
+// person's record, or an earlier incarnation's, holds nothing. A record
+// that can't be read holds data.
 func holdsPersonalBinds(b *Broker, ask registry.PartitionAsk) (bool, error) {
 	held := false
 	err := b.eachPersonalBinds(func(f *personalBindsFile) {
+		if !b.personalBindsLive(f) {
+			return
+		}
 		for _, pb := range f.Binds {
 			held = held || pb.Requester == ask.Tile
 		}
@@ -480,13 +545,14 @@ func holdsPersonalBinds(b *Broker, ask registry.PartitionAsk) (bool, error) {
 
 // wipePersonalBinds is the "personal-binds" wipe (01 §2.6): a switch
 // between user partitions and unpartitioned removes every personal bind of
-// the tile, counted with the registrations; adding or removing "global"
-// keeps people's partitions and so their binds (H1).
+// the tile — a dead record's too, uncounted and unnamed — counted with the
+// registrations; adding or removing "global" keeps people's partitions and
+// so their binds (H1).
 func wipePersonalBinds(b *Broker, t wipeTarget, sum *wipeSummary) error {
 	if t.Kind != wipeEverything {
 		return nil
 	}
-	n, people, err := b.dropPersonalBinds(func(_ string, pb personalBind) bool { return pb.Requester == t.Tile }, t.DryRun)
+	n, people, err := b.dropPersonalBinds(func(_ string, _ bool, pb personalBind) bool { return pb.Requester == t.Tile }, t.DryRun)
 	sum.Registrations += n
 	for _, u := range people {
 		sum.addPerson(u)

@@ -702,6 +702,7 @@ func (b *Broker) bindOptions(comp string, req registry.Iface, wsAdmin bool) []bi
 			}
 			tiles = append(tiles, bindOption{ID: p.Path, Label: p.Path + " — " + def.Service + " (grants " + provideRole(def) + ")"})
 		}
+		b.blockPartitionedProviders(comp, tiles) // POST's 409 for everyone (personalbind_api.go)
 	}
 	sort.Slice(tiles, func(i, j int) bool { return tiles[i].ID < tiles[j].ID })
 	return append(builtins, tiles...)
