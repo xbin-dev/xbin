@@ -389,6 +389,9 @@ file and the split are named under "Merge contention".
   /api/xbin/partitions/consents {from, to}` (PersonOnly — the shell calls
   it as the signed-in person, never through `xbin.fetch`); F16's policy.
 - Depends on: F10, F14, F16.
+- Wave 4, beside F11/F12 (W2-wire: F10's API is merged, but the prompt is
+  more than an integration's wiring — `bx-shell.js` and `shots.js` sit at
+  their size budgets, so it brings a module and a pass of its own).
 - Accept: a ui-harness pass (policy on: a refused cross-partition call
   prompts, consenting lets the retry through, declining keeps the 403;
   policy off: no prompt); the old-shell pass unchanged.
@@ -502,8 +505,8 @@ file and the split are named under "Merge contention".
 | 0 | ∥**F1** ∥**F16** ∥**F17a** ∥**B1** ∥F8 skeleton | F1 merged (F17a may run into wave 2; it gates only F17b) |
 | 1 | ∥**F2** ∥**F3** ∥**F4** ∥**F13a** ∥**F13b** | F2/F3/F4 merged, zero-state goldens green |
 | 2 | ∥**F5** ∥**F7a** ∥**F9** ∥**F10** ∥**F15** ∥**F14** | F5 merged |
-| 3 | ∥**F6** ∥**F7b** ∥**F17b** ∥**B2a** ∥**F14b** (once F10 is merged) | B2a merged |
-| 4 | ∥**B2b** ∥**B2c** ∥**F11** ∥**F12** ∥B3 docs | B2b, B2c merged |
+| 3 | ∥**F6** ∥**F7b** ∥**F17b** ∥**B2a** | B2a merged |
+| 4 | ∥**B2b** ∥**B2c** ∥**F11** ∥**F12** ∥**F14b** ∥B3 docs | B2b, B2c merged |
 | 5 | ∥**B2d** ∥**I1**, F8 finalization | all green |
 | 6 | **I2** | — |
 
