@@ -402,7 +402,7 @@ export class BxCanvas extends LitElement {
           @click=${() => this._partSwitch(path, v)}>${st.busy === 'count' ? 'Counting…' : st.busy === 'switch' ? 'Switching…' : switchLabel(v.from, v.to) + '…'}</button>
       </div>` : html`<p class="pwho">Who decides: ${whoDecides(c?.owner)}.</p>`;
     return html`<div class="pover"><div class="pbox" role="alert">
-      <div class="phead"><span class="pdot"></span>Paused until a manager decides</div>
+      <div class="phead"><span class="pdot"></span>Paused until a manager decides<a class="pmore" href="/xbin/partitions" target="_blank" rel="noopener" title="the partitions page: the switches you decide, your partitions">details…</a></div>
       <p class="pmsg">${pendingText(path, v, this.alerts)}</p>
       ${note ? html`<p class="pnote">${note}</p>` : nothing}
       ${st.done ? html`<p class="pdone">${st.done}</p>` : buttons}

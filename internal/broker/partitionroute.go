@@ -216,7 +216,7 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 			return "", err
 		}
 		if b.Policies().PartitionConsent && !partitionConsentHolds(b, id, p.Component, tile) {
-			return "", fmt.Errorf("%s hasn't let %s use their %s data", id, p.Component, tile)
+			return "", fmt.Errorf("%s hasn't let %s use their %s data (they allow it at /xbin/partitions)", id, p.Component, tile)
 		}
 		return cp, nil
 	}

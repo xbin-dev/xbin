@@ -105,8 +105,16 @@ matches `agent.turn`; `test` is always delivered):
 | `agent.question` | an ACP `elicitation.request`, likewise | `agent/<session>` |
 | `agent.turn` | a turn ends (`turn.end`), except when the user cancelled it | `agent/<session>` |
 | `tile`, `tile.<kind>` | a tile called `POST /api/xbin/notify` | `c/<tile>/…` |
-| `tile.partition-switch`, `tile.partition-deleted` | xbind: a tile's partition mode switch is requested (its managers), or deleted the person's partition | `c/<tile>/` |
-| `tile.partition-consent` | xbind: a partitioned tile's call into the person's data in another was refused for want of their consent (the workspace policy partitionConsent on; one a day per edge, collapse `partition-consent:<from>→<to>`) | `xbin/partitions` — the partitions page, not served yet: an app that doesn't know the link opens the workspace |
+| `tile.partition-switch`, `tile.partition-deleted` | xbind: a tile's partition mode switch is requested (its managers), or deleted the person's partition | `xbin/partitions` — the partitions page, where managers decide and the person's notice is |
+| `tile.partition-consent` | xbind: a partitioned tile's call into the person's data in another was refused for want of their consent (the workspace policy partitionConsent on; one a day per edge, collapse `partition-consent:<from>→<to>`) | `xbin/partitions` |
+
+`xbin/partitions` is xbind's partitions page (`GET /xbin/partitions`,
+`partitions-page/1` in `GET /api/xbin/partitions`' features): a person's
+partitions, consents, personal binds, credentials waiting for them and a
+manager's switch decisions. It opens only top-level — never in a frame —
+with the person's own sign-in: an app shows it in a browser view of its own
+(signed in with a one-shot `POST /api/xbin/web-ticket`), and an app that
+doesn't know the link opens the workspace.
 | `test` | the user called `POST /api/xbin/push/test` | `""` |
 
 The deep link the app opens is `xbin://<app's workspace id>/<link>`

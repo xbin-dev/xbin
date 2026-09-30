@@ -161,7 +161,7 @@ func TestPartitionEdgeMatrix(t *testing.T) {
 		needsConsent  bool   // refused while the policy is on and alice hasn't consented
 		consentDenial string
 	}
-	const qpg, qpu = "alice hasn't let apps/q use their apps/pg data", "alice hasn't let apps/q use their apps/pu data"
+	const qpg, qpu = "alice hasn't let apps/q use their apps/pg data (they allow it at /xbin/partitions)", "alice hasn't let apps/q use their apps/pu data (they allow it at /xbin/partitions)"
 	cells := []cell{
 		// a principal of a non-partitioned tile
 		{name: "x → alice's personal tile (both unpartitioned: today)", p: xInst, target: "users/alice/mcp"},

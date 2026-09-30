@@ -574,7 +574,7 @@ func (b *Broker) afterSwitch(t wipeTarget, sum wipeSummary, person auth.Principa
 		text := fmt.Sprintf("%s changed how it keeps data; your data in it was deleted by %s at %s", t.Tile, t.By, when)
 		partitionNotice(b, user, t.Tile, text)
 		b.pushPerson(user, "tile.partition-deleted", t.Tile+" changed how it keeps data",
-			fmt.Sprintf("Your data in it was deleted by %s at %s.", t.By, when), "c/"+t.Tile+"/", "")
+			fmt.Sprintf("Your data in it was deleted by %s at %s.", t.By, when), consentPage, "") // the notice is on the partitions page
 	}
 }
 
