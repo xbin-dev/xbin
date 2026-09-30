@@ -5642,9 +5642,10 @@ Deviations and refinements made while implementing; all deliberate:
       runs a coding agent, and one that offers more saves the polling.
     - **Nothing of xbind's in the sandbox** (another tile's, with no xbin
       identity). No `bx __agent-host`: the client advertises `fs` and
-      `terminal` off (D77's terminal-output metadata still flows), `_meta` `terminal_output(_delta)`,
-      `subagent-transcript`, `terminal-auth`, and form and URL questions —
-      a URL one honoured only during an AgTT-started `authenticate`.
+      `terminal` off, and on the `_meta` flags `terminal_output(_delta)`
+      (D77's terminal output still flows), `subagent-transcript` and
+      `terminal-auth`, and form and URL questions — a URL one honoured
+      only during an AgTT-started `authenticate`.
     - **One delegation verb**: `harness` on `subagent_spawn` (a subagent's
       link, digest and delivery) plus `harness_mode` (`approve` | `plan`:
       it only narrows the owner's setting); `maxHarness` 3 at work per

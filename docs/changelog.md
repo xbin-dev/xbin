@@ -63,9 +63,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     agents with a task, steers and cancels them. Each is drawn as its own
     card where it was started — what it does, its counters, its plan and
     last steps, its park answered in place, Stop, Message, Cancel (the
-    app: from its own chat) — and
-    every one in the tree is on the **Coding agents board** (a top-bar
-    chip; at home, every one of yours at work; the app: a screen). The
+    app: from its own chat) — and every one in the tree is on the
+    **Coding agents board** (a top-bar chip; at home, every one of yours
+    at work; the app: a screen). The
     agent never answers their permission requests: people do. A person's
     message to one is told to the agent as a notice. A conversation row
     shows `?` while a run below it waits and `⧉ N` for its coding agents
@@ -150,9 +150,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     setting): at most `maxHarness` at work per tree, none where the
     sandbox's running commands would come within 4 of its limit; the
     child's turn end answers the spawn with that turn's own text (`(no
-    answer)` when it wrote none). `subagent_message` to one is sent as is;
-    an idle one stops
-    when its subtree is cancelled (its parent's turn ending, among others).
+    answer)` when it wrote none). `subagent_message` to one is sent as is
+    (while it waits for a person, it waits too); an idle one stops when
+    its subtree is cancelled (its parent's turn ending, among others).
   - **For an instance's own modules** (§The frontend). Seams, so a feature
     lands as a module instead of edits to `agent.js`, `chat-cards.js` or
     `native/chat.js`: `web-ext.js` (`ext.register({block, end, top, paint,
