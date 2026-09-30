@@ -72,7 +72,9 @@ type hpTarget struct {
 	StdinMax int    // limits.stdinMax (0: 1 MiB)
 	// Guard runs before every stdin write: an error (this process no
 	// longer owns the session — a handoff's epoch) refuses the write
-	// before a byte leaves. nil: always.
+	// before a byte leaves; before the stdio socket is attached again after
+	// a drop, it ends reading with that error and lets the command go
+	// (Detach). nil: always.
 	Guard func() error
 }
 

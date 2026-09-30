@@ -104,8 +104,19 @@ func (p *harnessPipe) open(ctx context.Context) {
 	} // any other failure: the reader tries again
 }
 
-// connect is the reader attaching the socket (again).
+// connect is the reader attaching the socket (again) — only while this
+// process owns the session (Guard): the newest attacher wins, so attaching
+// after a handoff would take the command from its new owner. A pipe that no
+// longer owns it lets the command go, as Detach does, ending with Guard's
+// error.
 func (p *harnessPipe) connect() {
+	if g := p.t.Guard; g != nil {
+		if err := g(); err != nil {
+			p.end(err)
+			p.cancel()
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(p.ctx, sbxCallTimeout)
 	defer cancel()
 	if err := p.dial(ctx); err != nil {

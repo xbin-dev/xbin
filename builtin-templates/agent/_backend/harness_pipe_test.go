@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -576,6 +577,54 @@ func TestHarnessPipeLost(t *testing.T) {
 			t.Fatalf("lost %v, err %v", p.Lost(), p.Err())
 		}
 		c.Close()
+		_ = tg.Conn.ExecDelete(ctx, tg.ID, p.ExecID())
+	})
+	t.Run("stdio drop after a handoff", func(t *testing.T) {
+		// the session is another process's now (Guard): attaching again would
+		// take the command from it (the newest attacher wins) — let it go
+		k := &hpCutter{}
+		tg, m := pipeSandbox(t, k.wrap, true, nil)
+		var owned atomic.Bool
+		owned.Store(true)
+		notOurs := errors.New("another process owns the session")
+		tg.Guard = func() error {
+			if owned.Load() {
+				return nil
+			}
+			return notOurs
+		}
+		ctx := context.Background()
+		s := fakeSpawn(7, 1)
+		s.Argv = []string{"sh", "-c", "while :; do sleep 0.05; done"}
+		p, err := startHarnessPipe(ctx, tg, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		read := make(chan error, 1)
+		go func() {
+			_, err := io.ReadAll(p.Process().Stdout)
+			read <- err
+		}()
+		owned.Store(false)
+		if n := k.cut(); n != 1 {
+			t.Fatalf("%d sockets", n)
+		}
+		select {
+		case err := <-read:
+			if !errors.Is(err, notOurs) || !errors.Is(p.Err(), notOurs) || p.Lost() {
+				t.Fatalf("read %v, err %v, lost %v", err, p.Err(), p.Lost())
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("the reader never let it go")
+		}
+		if n := m.count("GET", "/sbx/sandboxes/"+tg.ID+"/execs/"+p.ExecID()+"/stdio"); n != 1 {
+			t.Fatalf("attached %d times", n)
+		}
+		p.Kill() // not ours: nothing
+		time.Sleep(200 * time.Millisecond)
+		if ex, err := tg.Conn.ExecGet(ctx, tg.ID, p.ExecID()); err != nil || ex.State != "running" {
+			t.Fatalf("the exec after the handoff: %+v %v", ex, err)
+		}
 		_ = tg.Conn.ExecDelete(ctx, tg.ID, p.ExecID())
 	})
 }
