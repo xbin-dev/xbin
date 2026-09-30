@@ -643,7 +643,7 @@ stripping the prefix (your handler sees `/<path>`).
 
 | runtime | entry default | change behavior |
 |---------|---------------|-----------------|
-| `go` | `./backend` package | `go build` (workspace go.work, shared cache) → new process → health check → atomic swap → old gets SIGTERM, 30 s drain |
+| `go` | `./backend` package | `go build` (the build's own go.work, made from your go.mod — §Cross-component code access) → new process → health check → atomic swap → old gets SIGTERM, 30 s drain |
 | `node` | `backend/server.js` | restart-on-change (same swap dance, no compile) |
 | `python` | `backend/server.py` | restart-on-change |
 
@@ -793,3 +793,36 @@ Keep it truthful over pretty — it's a contract, not marketing.
   every Go component and the xbin SDK — any shell can `go build`/`gopls`
   across the whole workspace. If you hand-edit `go.work`, remove the
   generated-marker line and xbind will leave it alone.
+- Go, **your tile's build** (D166): xbind builds your backend with a
+  `go.work` of its own, made from your `go.mod` at each build — never the
+  root one, whose single module graph let every tile's `go.mod` change what
+  every other tile compiled (a newer requirement, a `replace`). It uses:
+  - your tile's module (at its root, or in `backend/`; and the one holding
+    your `entry` package, when that is another), and the xbin SDK;
+  - each other tile's module your tile **reaches**: one its `go.mod`
+    requires, or replaces with that tile's directory, or its code imports —
+    and on through what those reach. A reference counts only when it can
+    mean nothing but the workspace: a module path with no dot in its first
+    element (`calendar`, `lib/greet`: no proxy serves it), a `require …
+    v0.0.0` (the placeholder for an unpublished module), a `replace` with
+    the tile's directory, an import your `go.mod` doesn't require at all —
+    unless some `go.mod` of the workspace requires that path at a
+    published version — or a tile your manifest names in `deps`. So a
+    dotted path at a **published** version (`golang.org/x/crypto
+    v0.48.0`) resolves as a normal module even when a tile declares that
+    path: no tile can stand in for another's dependency. A tile's module
+    your build uses brings its `go.mod`'s `replace` lines along (in
+    workspace mode they apply to the whole build): you chose to build with
+    its code;
+  - with a hand-managed root `go.work`, its `go`, `toolchain`, `godebug`
+    and `replace` lines, and its `use`d modules as candidates like the
+    tiles' (one outside every tile — the workspace's own, which only admins
+    write — serves any reference to its path).
+
+  So **require what you import.** A package another tile's `go.mod`
+  happened to pull in no longer reaches your build: the build fails with
+  `no required module provides package …`, and xbind adds the line to put
+  in your `go.mod` ([changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md)).
+  The build's `go.work` and `go.work.sum` live under
+  `.xbin/cache/tile/<key>/work/`; a tile with no `go.mod` builds with
+  `GOWORK=off`.

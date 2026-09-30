@@ -106,7 +106,7 @@ published endpoint) is the owner's act. Declaring is cheap and inert.
 | runtime | entry default | backend shape |
 |---------|---------------|---------------|
 | `static` | — | no backend; files served via `/c/`, HTML gets the D4 injection |
-| `go` | `./backend` package | compiled per change (workspace `go.work`, shared build cache; `CGO_ENABLED=0` under `--isolate` so the static binary runs on the sandbox rootfs), then the blue/green dance below |
+| `go` | `./backend` package | compiled per change (a `go.work` of the build's own, made from the tile's `go.mod` — below; `CGO_ENABLED=0` under `--isolate` so the static binary runs on the sandbox rootfs), then the blue/green dance below |
 | `node` | `backend/server.js` | interpreter is the binary — restart-on-change, same swap dance, no compile |
 | `python` | `backend/server.py` | as node |
 
@@ -265,6 +265,18 @@ byte.
   and any gopls sees the whole workspace. The file is marker-guarded: remove
   the generated-by line to take ownership; if a stray `go work use` strips
   the marker *and* modules go missing, xbind reclaims it.
+- **Each Go build's own `go.work`** (D166). No tile's build reads the root
+  file: in workspace mode `go` builds one module graph over everything it
+  uses, so every tile's `go.mod` — a newer requirement, a `replace` —
+  changed what every other tile compiled, and a new tile's first build
+  could race the root file's regeneration. A build gets a `go.work`
+  rendered from the tile's own `go.mod` at build time: the tile's module,
+  the SDK, and only the other tiles' modules it reaches through
+  references that can mean nothing but the workspace (dotless module
+  paths, `v0.0.0` requirements, imports without a `require`, `deps`) —
+  [elements.md](../elements.md) §Cross-component code access has the
+  rules. A hand-managed root `go.work` keeps its `go`, `toolchain`,
+  `godebug` and `replace` lines for every build.
 - **The SDK is zero-dependency** by rule — components inherit its module
   graph, so the SDK must never pull anything in.
 

@@ -12,6 +12,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **BREAKING (security): each Go tile builds with a `go.work` of its
+  own** ([changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md),
+  [elements.md](/docs/elements.md) §Cross-component code access,
+  [isolation.md](/docs/isolation.md)). Builds used the workspace's root
+  `go.work`, which uses every Go tile, and in workspace mode `go` builds one
+  module graph over all of them: any tile's `go.mod` could raise the version
+  of a dependency every other tile built with, break every Go build, or —
+  with a `replace` — make another tile's backend compile code of its
+  choosing. A build's `go.work` is now made from the tile's own `go.mod` at
+  each build: its module, the xbin SDK, and only the other tiles' modules
+  it reaches (dotless module paths like `calendar`, `v0.0.0` requirements,
+  imports without a `require`, tiles named in `deps`; a hand-managed root
+  `go.work` keeps its `go`, `toolchain`, `godebug` and `replace` lines). A
+  tile that built only thanks to another tile's `go.mod` now fails with
+  `no required module provides package …`, and the build's output names
+  the `require` to add. The root `go.work` is unchanged for terminals and
+  gopls. Also fixes a new Go tile's first build failing with `go: no
+  modules were found in the current workspace` when it ran before the root
+  `go.work` listed the tile.
 - **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
   OpenCode answer a conversation, or work for the agent, in a coding
   sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A

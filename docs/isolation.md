@@ -56,8 +56,9 @@ What that means when you build a **Go backend** (`--isolate` workspaces):
 | | |
 |---|---|
 | toolchain | the host's Go, the same version as before, read-only |
-| sees | the workspace read-only (so `go.work` and every module it `use`s resolve as always) with `.xbin/`, `data/` and `homes/` masked; the xbin SDK |
-| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile. The checksums a build adds for the workspace (what `go` writes to `go.work.sum`: a module your `go.mod` names without a `go.sum` entry, or one the workspace's modules together select) go to a `go.work.sum` of your tile's own there, seeded from the workspace's, beside a copy of the generated `go.work` — a hand-managed `go.work` is used as it is |
+| sees | the workspace read-only (so every module the build uses resolves as always) with `.xbin/`, `data/` and `homes/` masked; the xbin SDK |
+| workspace | a **`go.work` of the build's own**, made from your tile's `go.mod` at each build: your module, the SDK, and only the other tiles' modules your tile reaches — never the workspace's root `go.work`, so no other tile's `go.mod` (its requirements, its `replace` lines) changes what your tile compiles (D166; [elements.md](elements.md) §Cross-component code access has the rules) |
+| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile. The checksums a build adds (what `go` writes to `go.work.sum`: a module your `go.mod` names without a `go.sum` entry) go to a `go.work.sum` beside the build's own `go.work` there, seeded from the workspace's |
 | modules | whatever the host's module cache already holds is served from it read-only, offline; new modules are downloaded — **public addresses only** (the operator sets `XBIN_BUILD_NET=host` for a GOPROXY or private modules on the LAN) |
 | not honoured | a `replace` to a path outside the workspace and the SDK (it isn't there); VCS stamping (`-buildvcs=false` — nothing your repo's config says runs, even inside the box) |
 
@@ -118,12 +119,16 @@ deployment:
   deployment's `setup` output and logs go to its own backend log,
   `.xbin/deploy/<key>/d/<name>/backend.log` (`bx logs <tile>+<name>`).
 - **The Go build** runs confined like any other, with the checkpoint at the
-  tile's path and every `go.work` module of another tile built against that
-  tile's primary (its pinned checkpoint, or its work tree while it follows
-  it). The artifact is kept per checkpoint under
-  `.xbin/build/<key>/c/<tree>/` with a `build.json` recording its inputs
-  (toolchain, Go settings, each module's code, `go.sum`'s pins), reused on
-  every restart and rebuilt only after `.xbin/` is lost. Rebuilding is
+  tile's path, its own `go.work` made from the checkpoint's `go.mod`, and
+  every other tile's module it uses built against that tile's primary (its
+  pinned checkpoint, or its work tree while it follows it). The artifact is
+  kept per checkpoint under `.xbin/build/<key>/c/<tree>/` with a
+  `build.json` recording its inputs (toolchain, Go settings, each module's
+  code, `go.sum`'s pins), reused on every restart and rebuilt only after
+  `.xbin/` is lost. A protected primary's artifact built before D166 (with
+  the workspace's `go.work`) is not rebuilt on its own: its inputs moved,
+  so a restart after `.xbin/` loss holds it until a tile manager
+  redeploys. Rebuilding is
   reproducible up to what the artifact also embedded: other tiles' code as
   their primaries stood, `go.sum`'s modules and the host toolchain. At most
   max(1, CPUs/4) builds for non-primary deployments run at once across the
