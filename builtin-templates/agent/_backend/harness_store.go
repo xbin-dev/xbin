@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS harness_sessions (
   error TEXT NOT NULL DEFAULT '',
   last_active_ms INTEGER NOT NULL DEFAULT 0,
   created_ms INTEGER NOT NULL DEFAULT 0,
-  updated_ms INTEGER NOT NULL DEFAULT 0
+  updated_ms INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL DEFAULT '',
+  shared INTEGER NOT NULL DEFAULT 0,
+  draft TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_harness_sessions_root ON harness_sessions(root_id);
 CREATE INDEX IF NOT EXISTS idx_harness_sessions_state ON harness_sessions(state);
@@ -77,8 +80,15 @@ CREATE TABLE IF NOT EXISTS harness_options (
 // any migration step that reads runs through runCols (which names engine).
 func (d *DB) addHarnessSchema() error {
 	_, _ = d.q.Exec(`ALTER TABLE runs ADD COLUMN engine TEXT NOT NULL DEFAULT ''`) // fails harmlessly when there
-	_, err := d.q.Exec(harnessSchemaSQL)
-	return err
+	if _, err := d.q.Exec(harnessSchemaSQL); err != nil {
+		return err
+	}
+	// added by the engine (A8) to a table an earlier build of this program
+	// may have made without them; each fails harmlessly when there
+	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''`)
+	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN shared INTEGER NOT NULL DEFAULT 0`)
+	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN draft TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 // --- the run's config ---------------------------------------------------------------
@@ -129,7 +139,10 @@ const (
 // harnessSession is a harness run's row: the adapter process in the sandbox
 // and what the engine needs to reattach to it after a handoff. The JSON
 // columns (Snapshot: an acp.SessionState; Rules, Plan, Usage, Counts, Login,
-// Queue, Held) are kept as the engine wrote them.
+// Queue, Held, Draft) are kept as the engine wrote them. Title is the
+// adapter's own session title; Shared, that others may use the sandbox (the
+// privacy note); Draft, the text and thinking read but not yet flushed to a
+// row as of ReadOff (harness_engine.go).
 type harnessSession struct {
 	RunID, RootID      int64
 	Ref, Cwd, Provider string
@@ -151,28 +164,32 @@ type harnessSession struct {
 	LastActiveMs       int64
 	CreatedMs          int64
 	UpdatedMs          int64
+	Title              string
+	Shared             bool
+	Draft              string
 }
 
 const harnessSessionCols = `run_id, root_id, ref, cwd, provider, argv, exec_id, client_id, gen, state, acp_session, loadable,
   steering, read_off, err_off, prompt_rpc, prompt_state, turn, snapshot, rules, plan, usage, counts, login, queue, held,
-  error, last_active_ms, created_ms, updated_ms`
+  error, last_active_ms, created_ms, updated_ms, title, shared, draft`
 
 // harnessSession is run's session row (nil: it has none).
 func (d *DB) harnessSession(run int64) (*harnessSession, error) {
 	s := &harnessSession{}
 	var argv string
-	var loadable, steering int
+	var loadable, steering, shared int
 	err := d.q.QueryRow(`SELECT `+harnessSessionCols+` FROM harness_sessions WHERE run_id=?`, run).Scan(
 		&s.RunID, &s.RootID, &s.Ref, &s.Cwd, &s.Provider, &argv, &s.ExecID, &s.ClientID, &s.Gen, &s.State, &s.ACPSession,
 		&loadable, &steering, &s.ReadOff, &s.ErrOff, &s.PromptRPC, &s.PromptState, &s.Turn, &s.Snapshot, &s.Rules,
-		&s.Plan, &s.Usage, &s.Counts, &s.Login, &s.Queue, &s.Held, &s.Error, &s.LastActiveMs, &s.CreatedMs, &s.UpdatedMs)
+		&s.Plan, &s.Usage, &s.Counts, &s.Login, &s.Queue, &s.Held, &s.Error, &s.LastActiveMs, &s.CreatedMs, &s.UpdatedMs,
+		&s.Title, &shared, &s.Draft)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	s.Loadable, s.Steering = loadable != 0, steering != 0
+	s.Loadable, s.Steering, s.Shared = loadable != 0, steering != 0, shared != 0
 	if argv != "" {
 		_ = json.Unmarshal([]byte(argv), &s.Argv)
 	}
@@ -196,7 +213,7 @@ func (d *DB) putHarnessSession(s *harnessSession) error {
 		argv = string(b)
 	}
 	_, err := d.q.Exec(`INSERT INTO harness_sessions (`+harnessSessionCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(run_id) DO UPDATE SET root_id=excluded.root_id, ref=excluded.ref, cwd=excluded.cwd,
 		  provider=excluded.provider, argv=excluded.argv, exec_id=excluded.exec_id, client_id=excluded.client_id,
 		  gen=excluded.gen, state=excluded.state, acp_session=excluded.acp_session, loadable=excluded.loadable,
@@ -204,10 +221,12 @@ func (d *DB) putHarnessSession(s *harnessSession) error {
 		  prompt_rpc=excluded.prompt_rpc, prompt_state=excluded.prompt_state, turn=excluded.turn,
 		  snapshot=excluded.snapshot, rules=excluded.rules, plan=excluded.plan, usage=excluded.usage,
 		  counts=excluded.counts, login=excluded.login, queue=excluded.queue, held=excluded.held,
-		  error=excluded.error, last_active_ms=excluded.last_active_ms, updated_ms=excluded.updated_ms`,
+		  error=excluded.error, last_active_ms=excluded.last_active_ms, updated_ms=excluded.updated_ms,
+		  title=excluded.title, shared=excluded.shared, draft=excluded.draft`,
 		s.RunID, s.RootID, s.Ref, s.Cwd, s.Provider, argv, s.ExecID, s.ClientID, s.Gen, s.State, s.ACPSession,
 		b2i(s.Loadable), b2i(s.Steering), s.ReadOff, s.ErrOff, s.PromptRPC, s.PromptState, s.Turn, s.Snapshot, s.Rules,
-		s.Plan, s.Usage, s.Counts, s.Login, s.Queue, s.Held, s.Error, s.LastActiveMs, s.CreatedMs, s.UpdatedMs)
+		s.Plan, s.Usage, s.Counts, s.Login, s.Queue, s.Held, s.Error, s.LastActiveMs, s.CreatedMs, s.UpdatedMs,
+		s.Title, b2i(s.Shared), s.Draft)
 	return err
 }
 
