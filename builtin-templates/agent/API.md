@@ -1659,8 +1659,10 @@ another the sandbox manager names) run over ACP inside a coding sandbox,
 instead of the agent's own loop: the catalog, each person's setting, the
 class gates, and the engine that starts a coding agent in its sandbox and
 turns what it does into the conversation (below, "Driving one"). Its own
-routes — the mode picker, answering its questions, signing it in, its log
-and terminals — are listed with the UI that uses them.
+routes — the mode and options, answering its questions, signing it in —
+are "Its own routes", its terminals and log "Terminal relays and the log";
+the UI that uses them follows each. The design, and what was not chosen,
+is D147 (plans/agtt-harness.md).
 
 - **Runs.** A run's `engine` is `""` (the agent's own loop) or `"harness"`
   — set when it is made, never changed; `GET /runs/{id}`'s `run`, run
@@ -1776,9 +1778,11 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   connection to the sandbox dropping, no answer within 30 s) may have
   joined the turn — its user row is written with a note that the coding
   agent may not have received it (send it again if it doesn't act on
-  it). Sent while a permission or a question waits, it answers that first — the permission rejected (reject
-  once, else always, else the cancelled outcome), the question declined —
-  then is steered or waits; while the coding agent waits for a sign-in it
+  it). A person's message sent while a permission or a question waits
+  answers that first — the permission rejected (reject once, else always,
+  else the cancelled outcome), the question declined — then is steered or
+  waits (the parent agent's message waits for the person instead: "The
+  agent's coding agents"); while the coding agent waits for a sign-in it
   waits with it. `interrupt: true` stops the running turn first and goes
   next (ignored on the agent's own runs). Messages from schedules,
   triggers, watchers or `/learn` never drive a coding agent: they are
@@ -2045,7 +2049,8 @@ shows when it was cut off (`lost`) or couldn't start (`failed`). In a
 narrow tile the composer puts its pickers (and `#hctl`) on a line above the
 message box, which keeps its width (`index.html` `.cpicks`, `.cinput`).
 
-**For managers (the UI).** ⚙ Classes has the Coding agents toolset and,
+**For managers (the UI)** (`harness-catalog.js`, `native/harness-catalog.js`;
+the words `model/harness-manage.js`). ⚙ Classes has the Coding agents toolset and,
 with it, which coding agents the class allows (all of them, or a checklist
 of the catalog's — `harnesses`); the form warns while the toolset lacks a
 sandbox or an egress other than `none`, and a refused save says the
@@ -2064,8 +2069,9 @@ the run's terminal relay, `…/harness/terminal?login=1`), then **Signed
 in? Retry** (`POST /runs/{id}/resume`: the agent starts afresh and reads
 the new credentials); an **API key** (a password field, sent once to
 `POST /runs/{id}/harness/authenticate` — never stored, never shown again);
-a **device code** (the page to open and the code to enter; the run goes on
-by itself once you are done). The card says that the credentials land in
+a **device code** (the page to open and the code to enter, shown only to
+you — someone else who asks while your sign-in waits is told it is under
+way; the run goes on by itself once you are done). The card says that the credentials land in
 the sandbox's home — anyone who may use it acts as you with that agent
 there, and its clones and snapshots keep them — and on a sandbox others
 may use it asks for a confirm first (`confirm: true`). Someone who may not
@@ -2158,7 +2164,11 @@ explicit (bypass) mode. The link, the placeholder, the digest and the
 delivery are a subagent's: the child's turn end settles the link —
 answered with that turn's last text (`(no answer)` when the turn wrote
 none — never an earlier turn's), incomplete, error with the error, or
-canceled; `subagent_cancel` on a coding agent that rests idle stops it.
+canceled; `subagent_cancel` on a coding agent that rests idle stops it, and
+so does what cancels a run's subtree — nothing below a turn outlives it:
+its parent's turn ending (a subagent parent's every turn, a top-level
+one's `finish`), the owner interrupting the parent, a channel's stop (a
+note says why; the next message starts it again, reopening its session).
 Refused, as the call's result: `system` with `harness` (`system: a coding
 agent keeps its own instructions — leave system out with harness`), `after` with `harness`, `harness_mode` other than `approve` or
 `plan` or without `harness`, a coding agent the class doesn't allow or the
@@ -2300,7 +2310,7 @@ the same model.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
-| `harness.js`, `harness-heads.js`, `harness-store.js` | coding harnesses (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — being built; their routes are documented here when the backend serves them): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
+| `harness.js`, `harness-heads.js`, `harness-store.js` | coding agents (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — §Coding agents): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
 | `harness-manage.js` | the Coding agents catalog as the managers' view says it (`catalogRows`, `modesWords`, `probeTargets`); the class editor's toolset and checklist are `classes.js`'s (`harnessNames`, `harnessWhy`) |
 | `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
 | `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
@@ -2346,19 +2356,20 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
+| `native/harness-start.js` | starting with a coding agent: "Who answers" at the top of the home page, the home's setup notice, the new-chat sheet's section, and a coding agent's chip, plan and context at the start of the conversation's subtitle |
 | `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, and the Progress screen (`plan`; the plan's progress and the context in use start the subtitle: `native/harness-start.js`) |
 | `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); ⋯ → Coding agent settings (the main menu: home's and the drawer's) → your setting per harness |
+| `native/harness-child.js` | a coding agent the agent started, as the spawn's `toolcard` in the parent's chat (its park inside it, answered on the child's run), and Cancel task in a harness child's own ⋯ |
+| `native/harness-catalog.js` | Settings → Coding agents (the managers' catalog: `model/harness-manage.js`) |
 | `native/harness-board.js` | the Coding agents board: its screen (sections Needs you, Running, Done; a row's swipe Stop, Message, Cancel task; a parked row's approval or question), the Message screen, the toolbar button and ⋯ item, the Task screen's Delegated section |
 
 **Seams.** A feature can land as a module of its own instead of edits to the
 views' hot files: it registers hooks on a view's seams when imported —
-`web-ext.js` (`ext.register({block, end, top, paint, newChat, task})`; `ctx.app`,
-`ctx.paint()` once agent.js starts) for the web, imported from
+`web-ext.js` (`ext.register({block, end, top, paint, newChat, task})`;
+`ctx.app`, `ctx.paint()` once agent.js starts) for the web, imported from
 `harness-web.js`; `native/ext.js` (`block`, `end`, `toolbar`, `subtitle`,
-`menu`, `main`, `composer`, `newChat`, `screen`; the native `ctx` as before) for the native
-`harness-web.js`; `native/ext.js` (`block`, `end`, `toolbar`, `menu`,
-`composer`, `newChat`, `screen`, `task`; the native `ctx` as before) for the native
-view, imported from `native/harness-all.js`. A hook answers a template, or
+`menu`, `main`, `composer`, `newChat`, `screen`, `task`; the native `ctx`
+as before) for the native view, imported from `native/harness-all.js`. A hook answers a template, or
 null when the block, run or screen isn't its: `block` replaces the built-in
 card of a transcript block, `end` adds to the end of the transcript (a
 coding harness's park is then its to draw), `top`/`toolbar`/`menu` add

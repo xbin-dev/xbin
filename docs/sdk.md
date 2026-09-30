@@ -619,7 +619,7 @@ mux.HandleFunc("GET /sandboxes/{ref}/terminal", func(w http.ResponseWriter, r *h
 		http.Error(w, "not yours", http.StatusForbidden)
 		return
 	}
-	xbin.RelayManagerTTY(w, r, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{User: person, Cmd: "claude /login"})
+	xbin.RelayManagerTTY(w, r, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{User: person, Cmd: "CLAUDE_CODE_REMOTE=1 claude /login"})
 })
 
 // or a terminal the backend drives: a *ws.Conn on /ws/term's wire

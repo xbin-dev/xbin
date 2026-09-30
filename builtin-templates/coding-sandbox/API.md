@@ -56,8 +56,9 @@ the list, a sandbox, a running sandbox's files and trees, its execs and
 their output, its snapshots. Every change is `403 not-allowed` before it is
 routed: create, PATCH, DELETE, start and stop, run, execs and their stdin,
 signals and resizes, terminals (both `tty` routes), stdio sockets (one
-writes its exec's stdin) and every other WebSocket upgrade, file writes,
-moves and removes, `PUT …/tar`, and taking, restoring or deleting
+writes its exec's stdin) and every other WebSocket upgrade (a port's
+too — the ports route refuses this page's readers altogether), file
+writes, moves and removes, `PUT …/tar`, and taking, restoring or deleting
 snapshots. A read
 never starts a stopped sandbox for them: that is `403 not-allowed` too, and
 `409 state` while one starts. Calls from every other consumer are as the
@@ -117,7 +118,8 @@ trusts its consumers.
   `stream` are ignored, as by any manager without it, and the route
   answers 501.
 - **Ports** (D135): `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` is
-  checked as an exec is — the partition, the person rules — then forwarded
+  checked as an exec is — the partition, the person rules; this page's
+  readers get `403 not-allowed`, whatever the method — then forwarded
   to the runtime's ports route (the SDK's `PortRoute`), the consumer's
   escaped path and query unchanged. A stopped sandbox is 409 `state`,
   never started for it. Offered while the runtime's `caps` carry `ports`
