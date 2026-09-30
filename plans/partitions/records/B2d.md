@@ -16,7 +16,8 @@ idle conversation found by the e2e and the forwarder's lock (`05fa5c70`),
 the web page (`25917c7a`), the isolated e2e (`901f71d6`), docs (`189f434f`),
 the harness pass (`42af204a`), who-is-new / approvals / the fan-out's event
 allowlist (`748a10a8`), the native view and the features registry
-(`adc63cfb`), and this record with API.md's native sentence.
+(`adc63cfb`), the host's push and API.md's native sentence (`de865d26`),
+the composer strip's CSS and a pause's words (`28ec365f`), and this record.
 
 ## What was built
 
