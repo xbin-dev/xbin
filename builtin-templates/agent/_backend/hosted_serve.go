@@ -562,25 +562,6 @@ func handleHostedRemoveMember(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
-// unshareIfOwnerOnly: after a change of who shares root — only its owner
-// left, it stops being hosted and goes back to the global instance
-// (unshareHosted; its new conversation there); otherwise the host is rung
-// (its engine pauses it if it is wider than confirmed, stops if the host is
-// no longer in it). nil: still shared.
-func unshareIfOwnerOnly(tv *Agent, root int64, c who) *Run {
-	if !ownerOnly(tv, root) {
-		audienceChanged(tv, root)
-		return nil
-	}
-	back, err := unshareHosted(tv, root, c)
-	if err != nil {
-		logf("hosted conversation #%d: un-shared, but it stays hosted for now: %v", root, err)
-		audienceChanged(tv, root)
-		return nil
-	}
-	return back
-}
-
 // handleHostedPatch: a person's pin and archive; the owner's title and who
 // may see it (a wider audience pauses it for the host); its model.
 func handleHostedPatch(w http.ResponseWriter, r *http.Request) {
