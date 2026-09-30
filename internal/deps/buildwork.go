@@ -9,8 +9,8 @@ package deps
 // tile A could point tile B's dependency at code of their choosing. A tile's
 // build now gets a go.work of its own, rendered at build time from the
 // tile's own go.mod: its own module, the xbin SDK, and only the workspace
-// modules it reaches. The root go.work stays for terminals, editors and
-// gopls; no build reads it.
+// modules its own go.mod, manifest and code choose. The root go.work stays
+// for terminals, editors and gopls; no build reads it.
 
 import (
 	"bytes"
@@ -24,6 +24,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,8 +37,9 @@ import (
 // resolves to the SDK's directory.
 const SDKModule = "github.com/xbin-dev/xbin/sdk"
 
-// buildGo is the go line of a generated build go.work: the root go.work's
-// (renderGoWork), so a module the root's covers builds the same.
+// buildGo is the lowest go line of a generated build go.work: the root
+// go.work's (renderGoWork). A module the build uses whose go line is higher
+// raises it — the go command refuses a go.work older than a module it uses.
 const buildGo = "1.24"
 
 // Module is a Go module a tile's build may use.
@@ -63,12 +65,13 @@ type Module struct {
 type Build struct {
 	Tile string // the tile being built
 	// Own are the tile's own modules — the one at its root or in backend/,
-	// and the one holding its entry package when that is another — always
-	// used, first.
+	// and the one holding its entry package when that is another (or, for a
+	// tile holding none, the component module it sits in) — always used,
+	// first.
 	Own []Module
 	// Others are every other Go module of the workspace: each component's,
-	// and each a hand-managed root go.work uses. Only those the build
-	// reaches are used (reach).
+	// and each a hand-managed root go.work uses. Only those the build's own
+	// references choose are used (BuildWork).
 	Others []Module
 	// SDK is the xbin SDK's directory ("" = none): the go.work replaces
 	// SDKModule with it, as the root go.work does.
@@ -89,62 +92,82 @@ type Work struct {
 	GoWork []byte   // the go.work, absolute paths
 	Uses   []Module // the modules it uses: the tile's own first, then the others by Dir
 
-	tile   string
-	others []offer              // every other module and its path, for Hint
-	reqs   map[string][]tileReq // what the other modules' go.mods require, for Hint
+	// for Hint, which names module paths and versions only — never another
+	// tile, or its directory (the build's output is the tile's readers', and
+	// D40 keeps unreadable tiles' names from them)
+	tile      string
+	paths     []string            // every other workspace module's path
+	published map[string]string   // a dotted path → the highest published version a workspace go.mod requires it at
+	ambiguous map[string][]string // an import several workspace modules could provide (none used) → their paths
 }
 
-type offer struct {
-	path string
-	mod  Module
-}
+// reach is how a build came to use a workspace module.
+type reach uint8
 
-type tileReq struct{ who, version string }
+const (
+	// reachChosen: a replace names its directory, the referring tile's
+	// manifest names its tile in deps, or only admins write it (Trusted) —
+	// the choice of that very code.
+	reachChosen reach = 1 << iota
+	// reachPath: a require of its module path that only a workspace can
+	// serve — a dotless path, or a placeholder version.
+	reachPath
+	// reachImport: an import no go.mod line of the build covers, of a
+	// dotless path (or from a module nested in the tile's own), that it
+	// alone provides.
+	reachImport
+)
+
+// node is a module and its go.mod.
+type node struct {
+	m   Module
+	mod goMod
+}
 
 // BuildWork renders b's build workspace: the tile's own modules, the SDK,
-// and the workspace modules the tile reaches — through its go.mod's
-// require and replace lines and its code's imports, and on through theirs.
+// and each other workspace module a module the build uses chooses —
+// starting from the tile's own go.mod and code, and on through what the
+// chosen modules choose. Whether a reference chooses a workspace module is
+// read from the referring module's own go.mod and manifest, never from the
+// go.mod of a module the build doesn't use:
 //
-// A reference is served by another workspace module only when it can mean
-// nothing else, so no tile stands in for another's dependency: a module
-// path without a dot in its first element (`calendar`: no proxy serves it),
-// a `require` at v0.0.0 (or the zero pseudo-version: an unpublished
-// module's placeholder), a `replace` naming the module's directory, a tile
-// the referring tile's manifest names in deps, a module only admins write
-// (Trusted), or an import its go.mod doesn't require at all (only a
-// workspace resolves that) — unless some go.mod of the workspace requires
-// that path at a published version, which says it is a real module a tile
-// builds with. A dotted path at a published version — `golang.org/x/crypto
-// v0.48.0` — resolves as a normal module even when a tile declares that
-// path. A module the build uses brings its own go.mod's replace lines (in
-// workspace mode they apply to the whole build): the tile chose to build
-// with that module's code, which is in its binary either way.
+//   - A require line whose go.mod also replaces that path is the replace's
+//     alone: a directory is served only by the workspace module at that
+//     directory, a module path only as a require of it would be.
+//   - A require of path p is served by a workspace module declaring p when
+//     p is dotless (`calendar`: no proxy serves it), the version is a
+//     placeholder (v0.0.0, or the zero pseudo-version `go mod tidy` writes),
+//     the referring tile's manifest names the module's tile in deps, or only
+//     admins write it (Trusted). A dotted path at a published version
+//     (`golang.org/x/crypto v0.48.0`) resolves as a normal module.
+//   - An import is looked up among the workspace's modules only when no
+//     path a used module requires or replaces, the SDK's or the go.work's
+//     replaces covers it, and no module the build uses holds its package:
+//     then the one workspace module that holds its package (as the go
+//     command finds one: the directory, no nested go.mod on the way, a .go
+//     file) serves it — a dotless path, a module nested in the tile's own
+//     module's directory, or one of a deps-named tile or an admin's (a
+//     dotted import no go.mod line covers is another tile's only by such a
+//     choice: a namesake must not fill in a require the go.mod lacks). None
+//     serves it when several could (the build fails, and Hint says how to
+//     choose one), and a module whose path lies under the tile's own module
+//     path serves it only from inside that module's directory (a nested
+//     module, never a namesake elsewhere).
+//
+// A module is never used when its path is the tile's own, the SDK's or one
+// beneath it, or one the go.work replaces at every version. A last check
+// drops a module served only by path or import whose path lies under a
+// dotted path a used module requires at a published version (and one
+// served only by an import whose path a used module's go.mod covers), and
+// resolves again without it. A module the build uses brings its go.mod's
+// replace lines (in workspace mode they apply to the whole build): the
+// tile chose to build with that module's code, which is in its binary
+// either way.
 func BuildWork(b Build) Work {
-	w := Work{tile: b.Tile, reqs: map[string][]tileReq{}}
-	type node struct {
-		m   Module
-		mod goMod
-	}
+	w := Work{tile: b.Tile, published: map[string]string{}, ambiguous: map[string][]string{}}
+	rs := &resolver{b: b, byPath: map[string][]int{}, byDir: map[string]int{}, imports: map[string][]string{}, holds: map[string]bool{}}
 	ownDirs := map[string]bool{}
 	ownPaths := map[string]bool{}
-	published := map[string]bool{} // module paths some go.mod requires at a published version
-	known := map[string]bool{}     // every module path any go.mod read declares, requires or replaces
-	note := func(mod goMod) {
-		known[mod.Path] = true
-		for p, v := range mod.Requires {
-			known[p] = true
-			if !placeholder(v) {
-				published[p] = true
-			}
-		}
-		for _, r := range mod.Replaces {
-			known[r.Old] = true
-			if !r.dir() {
-				known[r.New] = true
-			}
-		}
-	}
-	var queue []node
 	for _, m := range b.Own {
 		m.Dir = filepath.Clean(m.Dir)
 		if ownDirs[m.Dir] {
@@ -155,25 +178,8 @@ func BuildWork(b Build) Work {
 		if mod.Path != "" {
 			ownPaths[mod.Path] = true
 		}
-		note(mod)
-		w.Uses = append(w.Uses, m)
-		queue = append(queue, node{m, mod})
+		rs.own = append(rs.own, &node{m, mod})
 	}
-	// module paths no workspace module serves: the SDK's, xbind's own
-	// (configured or not), and those the go.work replaces at every version
-	// (a workspace module declaring one would fail the build: "workspace
-	// module … is replaced at all versions in the go.work file")
-	replaced := map[string]bool{SDKModule: true}
-	if b.Root != nil {
-		for _, r := range b.Root.Replaces {
-			if r.OldVersion == "" {
-				replaced[r.Old] = true
-			}
-		}
-	}
-	var cands []node
-	byPath := map[string][]int{}
-	byDir := map[string]int{}
 	for _, m := range b.Others {
 		m.Dir = filepath.Clean(m.Dir)
 		if ownDirs[m.Dir] {
@@ -183,103 +189,369 @@ func BuildWork(b Build) Work {
 		if !ok || mod.Path == "" {
 			continue // unreadable, or no module: it serves nothing (and breaks no one)
 		}
-		who := m.Tile
-		if who == "" {
-			who = m.Dir
+		w.notePublished(mod)
+		if ownPaths[mod.Path] || under(mod.Path, SDKModule) || (b.Root != nil && b.Root.replacesAll(mod.Path)) {
+			continue // the tile's own path, the SDK's, the go.work's: never another module's (nor a hint's)
 		}
-		for p, v := range mod.Requires {
-			w.reqs[p] = append(w.reqs[p], tileReq{who, v})
-		}
-		note(mod) // an excluded one's path too: it still claims its imports
-		w.others = append(w.others, offer{mod.Path, m})
-		if ownPaths[mod.Path] || replaced[mod.Path] {
-			continue // the tile's own path, the SDK's or the go.work's: never another module's
-		}
-		byPath[mod.Path] = append(byPath[mod.Path], len(cands))
-		byDir[m.Dir] = len(cands)
-		cands = append(cands, node{m, mod})
+		w.paths = append(w.paths, mod.Path)
+		i := len(rs.cands)
+		rs.cands = append(rs.cands, &node{m, mod})
+		rs.byPath[mod.Path] = append(rs.byPath[mod.Path], i)
+		rs.byDir[m.Dir] = i
 	}
-	// every module path that could provide an import: an import belongs to
-	// the longest of them, and a workspace module serves it only when that
-	// is its own path — so a tile declaring `module github.com/xbin-dev/xbin`
-	// never catches the SDK's imports, nor `golang.org/x` x/crypto's
-	for p := range replaced {
-		known[p] = true
-	}
-	paths := make([]string, 0, len(known))
-	for p := range known {
-		if p != "" {
-			paths = append(paths, p)
+	banned := map[int]bool{}
+	var used map[int]reach
+	for {
+		used = rs.run(banned)
+		drop := rs.check(used)
+		if len(drop) == 0 {
+			break
+		}
+		for _, i := range drop {
+			banned[i] = true // each round bans another used module: it ends
 		}
 	}
-	used := map[int]bool{}
-	for len(queue) > 0 {
-		n := queue[0]
-		queue = queue[1:]
-		use := func(i int) {
-			if !used[i] {
-				used[i] = true
-				queue = append(queue, cands[i])
-			}
-		}
-		serve := func(p, version string) {
-			for _, i := range byPath[p] {
-				if b.serves(n.m, cands[i].m, p, version, published[p]) {
-					use(i)
-				}
-			}
-		}
-		for p, v := range n.mod.Requires {
-			serve(p, v)
-		}
-		for _, r := range n.mod.Replaces {
-			if !r.dir() {
-				serve(r.New, r.NewVersion)
-				continue
-			}
-			d := filepath.FromSlash(r.New)
-			if !filepath.IsAbs(d) {
-				d = filepath.Join(n.m.Dir, d)
-			}
-			if i, ok := byDir[filepath.Clean(d)]; ok {
-				use(i) // the go.mod names that very directory
-			}
-		}
-		for _, imp := range scanImports(n.m) {
-			if imp == "C" || (b.Std != nil && b.Std(imp)) {
-				continue
-			}
-			if p := longestModule(paths, imp); p != "" && !ownPaths[p] {
-				serve(p, n.mod.Requires[p])
-			}
-		}
+	w.ambiguous = rs.amb
+	for _, n := range rs.own {
+		w.Uses = append(w.Uses, n.m)
 	}
 	var more []Module
-	for i := range cands {
-		if used[i] {
-			more = append(more, cands[i].m)
+	goLine := buildGo
+	if b.Root != nil && goVersionLess(goLine, b.Root.Go) {
+		goLine = b.Root.Go
+	}
+	for _, n := range rs.active {
+		if goVersionLess(goLine, n.mod.Go) {
+			goLine = n.mod.Go
 		}
+	}
+	for i := range used {
+		more = append(more, rs.cands[i].m)
 	}
 	sort.Slice(more, func(i, j int) bool { return more[i].Dir < more[j].Dir })
 	w.Uses = append(w.Uses, more...)
-	w.GoWork = renderBuildWork(w.Uses, b.SDK, b.Root)
+	w.GoWork = renderBuildWork(w.Uses, goLine, b.SDK, b.Root)
 	return w
 }
 
-// serves reports whether workspace module to may serve a reference to path
-// p (at version: "" for an import without a require) from module from;
-// published says some go.mod of the workspace requires p at a published
-// version (BuildWork).
-func (b Build) serves(from, to Module, p, version string, published bool) bool {
+// resolver finds the workspace modules one build uses (BuildWork).
+type resolver struct {
+	b      Build
+	own    []*node
+	cands  []*node          // every other workspace module that may serve a reference
+	byPath map[string][]int // module path → cands
+	byDir  map[string]int   // directory → cand
+	// caches across rounds
+	imports map[string][]string // module dir → its code's imports
+	holds   map[string]bool     // module dir NUL import → holds its package
+	// one round's
+	active []*node         // the modules used so far: own, then chosen, in order
+	claims map[string]bool // paths a used go.mod requires or replaces, the SDK's, the go.work's replaces
+	amb    map[string][]string
+}
+
+// run resolves the modules the build uses, banned aside: every used
+// module's require and replace lines first, then its imports — so an import
+// is looked up only once every go.mod line known by then has claimed its
+// paths.
+func (rs *resolver) run(banned map[int]bool) map[int]reach {
+	used := map[int]reach{}
+	rs.claims = map[string]bool{SDKModule: true}
+	if rs.b.Root != nil {
+		for _, r := range rs.b.Root.Replaces {
+			rs.claims[r.Old] = true
+		}
+	}
+	rs.amb = map[string][]string{}
+	rs.active = append([]*node(nil), rs.own...)
+	lines := append([]*node(nil), rs.own...)
+	var code []*node
+	add := func(i int, how reach) {
+		if banned[i] {
+			return
+		}
+		prev, seen := used[i]
+		used[i] = prev | how
+		if !seen {
+			rs.active = append(rs.active, rs.cands[i])
+			lines = append(lines, rs.cands[i])
+		}
+	}
+	for len(lines) > 0 || len(code) > 0 {
+		if len(lines) > 0 {
+			n := lines[0]
+			lines = lines[1:]
+			rs.modLines(n, add)
+			code = append(code, n)
+			continue
+		}
+		n := code[0]
+		code = code[1:]
+		for _, imp := range rs.importsOf(n.m) {
+			rs.importRef(n, imp, used, banned, add)
+		}
+	}
+	return used
+}
+
+// modLines claims the paths n's go.mod requires and replaces, and serves
+// its references to workspace modules.
+func (rs *resolver) modLines(n *node, add func(int, reach)) {
+	reqs := make([]string, 0, len(n.mod.Requires))
+	for p := range n.mod.Requires {
+		reqs = append(reqs, p)
+		rs.claims[p] = true
+	}
+	sort.Strings(reqs)
+	for _, r := range n.mod.Replaces {
+		rs.claims[r.Old] = true
+	}
+	for _, p := range reqs {
+		if v := n.mod.Requires[p]; !n.mod.replaced(p, v) {
+			rs.pathRef(n, p, v, add)
+		} // else its replace decides, below
+	}
+	for _, r := range n.mod.Replaces {
+		if !r.dir() {
+			rs.pathRef(n, r.New, r.NewVersion, add)
+			continue
+		}
+		d := filepath.FromSlash(r.New)
+		if !filepath.IsAbs(d) {
+			d = filepath.Join(n.m.Dir, d)
+		}
+		if i, ok := rs.byDir[filepath.Clean(d)]; ok {
+			add(i, reachChosen) // the go.mod names that very directory
+		}
+	}
+}
+
+// pathRef serves module n's reference to module path p at version v (a
+// require without a replace, or a replace's new module path).
+func (rs *resolver) pathRef(n *node, p, v string, add func(int, reach)) {
+	var chosen, open []int
+	for _, i := range rs.byPath[p] {
+		to := rs.cands[i]
+		switch {
+		case to.m.Trusted || rs.named(n, to):
+			chosen = append(chosen, i)
+		case (!dottedPath(p) || placeholder(v)) && rs.nestedIfOwn(p, to):
+			open = append(open, i)
+		}
+	}
+	if len(chosen) > 0 {
+		open = nil // the manifest's (or the admins') choice among namesakes
+	}
+	for _, i := range chosen {
+		add(i, reachChosen)
+	}
+	for _, i := range open {
+		add(i, reachPath) // namesakes both: "module … appears multiple times in workspace"
+	}
+}
+
+// importRef serves module n's import imp when nothing the build uses
+// covers it: by the one workspace module that holds its package.
+func (rs *resolver) importRef(n *node, imp string, used map[int]reach, banned map[int]bool, add func(int, reach)) {
+	if imp == "C" || !importPathOK(imp) || (rs.b.Std != nil && rs.b.Std(imp)) {
+		return
+	}
+	for p := range rs.claims {
+		if under(imp, p) {
+			return // a go.mod line of the build decides where it comes from
+		}
+	}
+	for _, u := range rs.active {
+		if under(imp, u.mod.Path) && rs.holdsPackage(u, imp) {
+			return
+		}
+	}
+	var named, open []int
+	for p := imp; p != "." && p != "/"; p = path.Dir(p) {
+		for _, i := range rs.byPath[p] {
+			if _, ok := used[i]; ok || banned[i] {
+				continue
+			}
+			to := rs.cands[i]
+			if !rs.holdsPackage(to, imp) {
+				continue
+			}
+			switch {
+			case to.m.Trusted || rs.named(n, to):
+				named = append(named, i)
+			case (!dottedPath(p) || rs.insideOwn(to)) && rs.nestedIfOwn(p, to):
+				open = append(open, i)
+			}
+		}
+	}
 	switch {
-	case to.Trusted, !dottedPath(p), placeholder(version):
-		return true
-	case version == "" && !published:
-		return true
-	case b.Deps != nil && from.Tile != "" && to.Tile != "" && from.Tile != to.Tile:
-		return b.Deps(from.Tile, to.Tile)
+	case len(named) == 1:
+		add(named[0], reachChosen)
+	case len(named) == 0 && len(open) == 1:
+		add(open[0], reachImport)
+	case len(named)+len(open) > 1:
+		var paths []string
+		for _, i := range append(named, open...) {
+			paths = append(paths, rs.cands[i].mod.Path)
+		}
+		sort.Strings(paths)
+		rs.amb[imp] = slices.Compact(paths)
+	}
+}
+
+// check lists the used modules the last check drops: one served only by
+// path or import whose path lies strictly under a dotted path a used
+// module requires, unreplaced, at a published version (that module's code
+// comes from elsewhere, and a namesake of its package must not stand in
+// for it), and one served only by an import whose path a used go.mod
+// requires or replaces, or lies under one (the lines claimed it after the
+// import was looked up).
+func (rs *resolver) check(used map[int]reach) []int {
+	published := map[string]bool{}
+	for _, n := range rs.active {
+		for p, v := range n.mod.Requires {
+			if dottedPath(p) && !placeholder(v) && !n.mod.replaced(p, v) {
+				published[p] = true
+			}
+		}
+	}
+	var drop []int
+	for i, how := range used {
+		if how&reachChosen != 0 {
+			continue
+		}
+		p := rs.cands[i].mod.Path
+		bad := false
+		for q := range published {
+			bad = bad || strings.HasPrefix(p, q+"/")
+		}
+		if how == reachImport {
+			for q := range rs.claims {
+				bad = bad || under(p, q)
+			}
+		}
+		if bad {
+			drop = append(drop, i)
+		}
+	}
+	sort.Ints(drop)
+	return drop
+}
+
+// named reports whether n's tile names to's in its manifest's deps.
+func (rs *resolver) named(n, to *node) bool {
+	return rs.b.Deps != nil && n.m.Tile != "" && to.m.Tile != "" && n.m.Tile != to.m.Tile && rs.b.Deps(n.m.Tile, to.m.Tile)
+}
+
+// nestedIfOwn reports whether workspace module to may serve path p as far
+// as the tile's own module paths go: a path strictly under one is served
+// only by a module inside that own module's directory — a nested module,
+// the only one the go command would give that path from the own module's
+// tree — never by a namesake elsewhere.
+func (rs *resolver) nestedIfOwn(p string, to *node) bool {
+	for _, o := range rs.own {
+		if o.mod.Path != "" && strings.HasPrefix(p, o.mod.Path+"/") && !inside(to.m.Dir, o.m.Dir) {
+			return false
+		}
+	}
+	return true
+}
+
+// insideOwn reports whether workspace module to lies inside one of the
+// tile's own modules' directories — a component nested in the tile's own
+// tree, which may serve a dotted import as a dotless one would.
+func (rs *resolver) insideOwn(to *node) bool {
+	for _, o := range rs.own {
+		if to.m.Dir != o.m.Dir && inside(to.m.Dir, o.m.Dir) {
+			return true
+		}
 	}
 	return false
+}
+
+func (rs *resolver) importsOf(m Module) []string {
+	if imps, ok := rs.imports[m.Dir]; ok {
+		return imps
+	}
+	imps := scanImports(m)
+	rs.imports[m.Dir] = imps
+	return imps
+}
+
+// holdsPackage reports whether n's module holds imp's package, as the go
+// command finds one (dirInModule): imp is its path or beneath it, the
+// directory holds no go.mod on the way below the module's own (that is a
+// nested module's), and it holds a .go file.
+func (rs *resolver) holdsPackage(n *node, imp string) bool {
+	mp := n.mod.Path
+	rel := ""
+	switch {
+	case mp == "":
+		return false
+	case imp == mp:
+	case strings.HasPrefix(imp, mp+"/"):
+		rel = imp[len(mp)+1:]
+	default:
+		return false
+	}
+	key := n.m.Dir + "\x00" + imp
+	if v, ok := rs.holds[key]; ok {
+		return v
+	}
+	v := holdsPackage(n.m, rel)
+	rs.holds[key] = v
+	return v
+}
+
+// holdsPackage reports whether module m holds a package at rel ("" = its
+// root), read beneath the module's directory: no go.mod on the way, and a
+// .go file there. Nothing but directories is opened, never blocking.
+func holdsPackage(m Module, rel string) bool {
+	if rel != "" && !fs.ValidPath(rel) {
+		return false
+	}
+	r, err := fsutil.OpenRootIn(m.Root, filepath.FromSlash(m.Rel))
+	if err != nil {
+		return false
+	}
+	defer r.Close()
+	dir := "."
+	if rel != "" {
+		dir = rel
+		for d := rel; d != "."; d = path.Dir(d) {
+			if fi, err := r.Lstat(d + "/go.mod"); err == nil && !fi.IsDir() {
+				return false
+			}
+		}
+	}
+	f, err := r.OpenFile(dir, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_DIRECTORY, 0)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	for {
+		ents, err := f.ReadDir(256)
+		for _, e := range ents {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+				return true
+			}
+		}
+		if err != nil {
+			return false
+		}
+	}
+}
+
+// notePublished records the dotted paths mod requires at a published
+// version, for Hint.
+func (w *Work) notePublished(mod goMod) {
+	for p, v := range mod.Requires {
+		if dottedPath(p) && !placeholder(v) {
+			if cur, ok := w.published[p]; !ok || semverLess(cur, v) {
+				w.published[p] = v
+			}
+		}
+	}
 }
 
 // placeholder reports whether a required version is the stand-in for an
@@ -296,26 +568,74 @@ func dottedPath(p string) bool {
 	return strings.Contains(first, ".")
 }
 
-// longestModule is the longest of paths that is imp or a prefix of it at a
-// path boundary; "" when none is.
-func longestModule(paths []string, imp string) string {
-	best := ""
-	for _, p := range paths {
-		if len(p) > len(best) && (imp == p || strings.HasPrefix(imp, p+"/")) {
-			best = p
-		}
-	}
-	return best
+// under reports whether import or module path p is q or beneath it.
+func under(p, q string) bool {
+	return q != "" && (p == q || strings.HasPrefix(p, q+"/"))
 }
 
-func renderBuildWork(uses []Module, sdk string, rw *RootWork) []byte {
+// inside reports whether dir is parent or beneath it.
+func inside(dir, parent string) bool {
+	rel, err := filepath.Rel(parent, dir)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+// importPathOK reports whether an import path is one a workspace module
+// could serve: a clean relative slash path.
+func importPathOK(p string) bool {
+	return p != "" && fs.ValidPath(p)
+}
+
+// goVersion matches a go line's version: 1.24, 1.24.0, 1.25rc1.
+var goVersion = regexp.MustCompile(`^([0-9]+)\.([0-9]+)(?:\.([0-9]+)|(beta|rc)([0-9]+))?$`)
+
+// goVersionLess orders go lines as the go command does (gover): a language
+// version below its pre-releases below its releases — 1.24 < 1.24rc1 <
+// 1.24.0 < 1.24.1. A version that isn't one is never more than another.
+func goVersionLess(a, b string) bool {
+	va, oka := parseGoVersion(a)
+	vb, okb := parseGoVersion(b)
+	if !okb {
+		return false
+	}
+	if !oka {
+		return true
+	}
+	for i := range va {
+		if va[i] != vb[i] {
+			return va[i] < vb[i]
+		}
+	}
+	return false
+}
+
+// parseGoVersion is a go line's version as major, minor, kind (0 language,
+// 1 beta, 2 rc, 3 release), then the pre-release or patch number.
+func parseGoVersion(s string) ([5]int, bool) {
+	m := goVersion.FindStringSubmatch(s)
+	if m == nil {
+		return [5]int{}, false
+	}
+	var v [5]int
+	v[0], _ = strconv.Atoi(m[1])
+	v[1], _ = strconv.Atoi(m[2])
+	switch {
+	case m[3] != "":
+		v[2] = 3
+		v[3], _ = strconv.Atoi(m[3])
+	case m[4] == "beta":
+		v[2] = 1
+		v[3], _ = strconv.Atoi(m[5])
+	case m[4] == "rc":
+		v[2] = 2
+		v[3], _ = strconv.Atoi(m[5])
+	}
+	return v, true
+}
+
+func renderBuildWork(uses []Module, goLine, sdk string, rw *RootWork) []byte {
 	var sb strings.Builder
 	sb.WriteString("// Code generated by xbind: this tile build's own workspace (D166), made from\n")
 	sb.WriteString("// the tile's go.mod at each build. The workspace's go.work is not read.\n\n")
-	goLine := buildGo
-	if rw != nil && rw.Go != "" {
-		goLine = rw.Go
-	}
 	fmt.Fprintf(&sb, "go %s\n", modToken(goLine))
 	if rw != nil && rw.Toolchain != "" {
 		fmt.Fprintf(&sb, "\ntoolchain %s\n", modToken(rw.Toolchain))
@@ -345,38 +665,31 @@ func renderBuildWork(uses []Module, sdk string, rw *RootWork) []byte {
 	return []byte(sb.String())
 }
 
-// noProvider is the go command's error for an import no module the build
-// uses provides.
-var noProvider = regexp.MustCompile(`no required module provides package ([^\s;:]+)`)
+// The go command's errors for an import no module the build uses provides:
+// a dotted path's, and a dotless one's (taken for a standard-library path).
+var (
+	noProvider = regexp.MustCompile(`no required module provides package ([^\s;:]+)`)
+	notInStd   = regexp.MustCompile(`package ([^\s;:]+) is not in std`)
+)
 
-// Hint explains a failed build's "no required module provides package"
-// errors that the build's own workspace causes, for the build's output:
-// the package is in a workspace module the build doesn't use, or another
-// tile's go.mod requires its module where this tile's doesn't (a build
-// with the shared go.work picked that up). "" when there is nothing to say.
+// Hint explains a failed build's errors for a package no module the build
+// uses provides, as far as the build's own workspace causes them, for the
+// build's output: several workspace modules could provide it, it is in a
+// workspace module the tile's go.mod doesn't require, or a workspace go.mod
+// requires its module at a published version where this tile's doesn't (a
+// build with the shared go.work picked that up). It names module paths and
+// versions only, never another tile. "" when there is nothing to say.
 func (w Work) Hint(output string) string {
 	var notes []string
 	seen := map[string]bool{}
-	for _, m := range noProvider.FindAllStringSubmatch(output, -1) {
-		pkg := m[1]
-		if seen[pkg] {
-			continue
-		}
-		seen[pkg] = true
-		if o, ok := w.offerFor(pkg); ok {
-			who := o.mod.Tile
-			if who == "" {
-				who = o.mod.Dir
+	for _, re := range []*regexp.Regexp{noProvider, notInStd} {
+		for _, m := range re.FindAllStringSubmatch(output, -1) {
+			if pkg := m[1]; !seen[pkg] {
+				seen[pkg] = true
+				if note := w.hintFor(pkg); note != "" {
+					notes = append(notes, note)
+				}
 			}
-			note := fmt.Sprintf("%s is in %s's Go module %s, which this build doesn't use: add `require %s v0.0.0` to %s's go.mod", pkg, who, o.path, o.path, w.tile)
-			if o.mod.Tile != "" {
-				note += fmt.Sprintf(", or name %s in its xbin.json deps", o.mod.Tile)
-			}
-			notes = append(notes, note)
-			continue
-		}
-		if p, r, ok := w.requiredFor(pkg); ok {
-			notes = append(notes, fmt.Sprintf("%s's go.mod requires %s %s and %s's doesn't — each Go tile builds against its own go.mod now (D166): add `require %s %s` to %s's go.mod", r.who, p, r.version, w.tile, p, r.version, w.tile))
 		}
 	}
 	if len(notes) == 0 {
@@ -385,38 +698,43 @@ func (w Work) Hint(output string) string {
 	return "xbind: " + strings.Join(notes, "\nxbind: ") + "\n(/docs/changes/2026-09-30-go-build-workspace.md)"
 }
 
-// offerFor is the other workspace module whose path is the longest prefix
-// of pkg.
-func (w Work) offerFor(pkg string) (offer, bool) {
-	var best offer
-	for _, o := range w.others {
-		if len(o.path) > len(best.path) && (pkg == o.path || strings.HasPrefix(pkg, o.path+"/")) {
-			best = o
+// A bare `require M v0.0.0` of a workspace module isn't advised: the go
+// command looks M@v0.0.0 up once a build loads the whole module graph (any
+// import from a module outside the workspace), and fails; a replace with
+// the module's directory, or deps, serves it either way.
+func (w Work) hintFor(pkg string) string {
+	choose := func(m string) string {
+		if m == "" {
+			m = "<it>"
+		}
+		return fmt.Sprintf("name its tile in %s's xbin.json deps, or add `require %s v0.0.0` and `replace %s => <its directory>` to %s's go.mod", w.tile, m, m, w.tile)
+	}
+	if paths := w.ambiguous[pkg]; len(paths) > 0 {
+		return fmt.Sprintf("more than one of the workspace's Go modules could provide %s (%s), so the build uses none — for the one you mean, %s", pkg, strings.Join(paths, ", "), choose(""))
+	}
+	ws := ""
+	for _, p := range w.paths {
+		if under(pkg, p) && len(p) > len(ws) {
+			ws = p
 		}
 	}
-	return best, best.path != ""
-}
-
-// requiredFor is the module path, a prefix of pkg, that other modules
-// require, and the requirement at the highest version.
-func (w Work) requiredFor(pkg string) (string, tileReq, bool) {
-	best := ""
-	for p := range w.reqs {
-		if len(p) > len(best) && (pkg == p || strings.HasPrefix(pkg, p+"/")) {
-			best = p
+	pub, ver := "", ""
+	for p, v := range w.published {
+		if under(pkg, p) && len(p) > len(pub) {
+			pub, ver = p, v
 		}
 	}
-	if best == "" {
-		return "", tileReq{}, false
+	switch {
+	case ws != "" && !dottedPath(ws):
+		return fmt.Sprintf("%s is in the workspace's Go module %s, which this build doesn't use: %s", pkg, ws, choose(ws))
+	case pub != "":
+		// the published module, and only it: a tile declaring that dotted
+		// path is no reason to build with its code
+		return fmt.Sprintf("each Go tile builds against its own go.mod now (D166): add `require %s %s` to %s's go.mod", pub, ver, w.tile)
+	case ws != "":
+		return fmt.Sprintf("no module this build uses provides %s. If you mean the workspace's Go module %s (another tile's module with a dotted path is used only when your manifest or go.mod chooses it): %s", pkg, ws, choose(ws))
 	}
-	rs := w.reqs[best]
-	top := rs[0]
-	for _, r := range rs[1:] {
-		if semverLess(top.version, r.version) || (top.version == r.version && r.who < top.who) {
-			top = r
-		}
-	}
-	return best, top, true
+	return ""
 }
 
 // semverLess orders module versions well enough for a hint: by the numbers
@@ -449,6 +767,12 @@ func semverParts(v string) ([3]int, string) {
 		n[i], _ = strconv.Atoi(f)
 	}
 	return n, pre
+}
+
+// HasGoMod reports whether the directory at rel beneath root holds a
+// go.mod, a regular file reached without leaving root.
+func HasGoMod(root, rel string) bool {
+	return regularBeneath(root, path.Join(rel, "go.mod"))
 }
 
 // ModuleSub is where the Go module of a component at rel beneath root

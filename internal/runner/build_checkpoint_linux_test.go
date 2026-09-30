@@ -130,7 +130,11 @@ func TestConfinedBuildOfCheckpointAtCanonicalPath(t *testing.T) {
 	r.Materialize = func(tile, tree string) (string, error) { return mat(tile, tree), nil }
 	arts := filepath.Join(ws, ".xbin/build", util.CompKey("apps/x"), "c")
 	build := func(tree string) (string, error) {
-		v := &registry.Component{Path: "apps/x", Dir: x, CodeRoot: mat("apps/x", tree), Manifest: registry.Manifest{Runtime: "go"}}
+		// x imports example.com/y, a sibling tile's dotted module, with no
+		// require: its manifest names apps/y in deps, which makes that
+		// module its build's (D166; example.com/sub, nested in x's own
+		// tree, needs nothing)
+		v := &registry.Component{Path: "apps/x", Dir: x, CodeRoot: mat("apps/x", tree), Manifest: registry.Manifest{Runtime: "go", Deps: []string{"apps/y"}}}
 		return r.buildCode(v, Code{Tree: tree})
 	}
 	mustBuild := func(tree, want string) string {

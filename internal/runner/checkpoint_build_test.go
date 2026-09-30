@@ -345,6 +345,10 @@ func TestCheckpointBuildPlan(t *testing.T) {
 	write(w.dir("apps/x/sub/go.mod"), "module sub\n")
 	write(w.dir("apps/y/backend/go.mod"), "module y\n") // the work tree keeps it in backend/
 	write(w.dir("apps/z/go.mod"), "module z\n")
+	// the packages x imports (a module serves an import only when it holds
+	// the package, as the go command finds one)
+	write(w.dir("apps/x/sub/p/p.go"), "package p\n\nfunc P() {}\n")
+	write(w.dir("apps/z/z.go"), "package z\n\nfunc Z() {}\n")
 	write(w.dir("apps/w/go.mod"), "module w\n\nreplace golang.org/x/sys => ./evil\n")
 	matX, matY := w.mat("apps/x", ckTree('a')), w.mat("apps/y", ckTree('b'))
 	write(filepath.Join(matX, "go.mod"), "module example.com/x\n\nrequire y v0.0.0\n")

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // modFileMax caps what is read of one go.mod or go.work.
@@ -115,9 +116,19 @@ func modTokens(line string) []string {
 	}
 }
 
-// modToken writes a token back as go.mod syntax, quoted when it has to be.
+// modToken writes a token back as go.mod syntax, quoted when it has to be:
+// as golang.org/x/mod/modfile.MustQuote says (space and quotes, the lexer's
+// punctuation — ( ) [ ] { } , — anything unprintable, a comment's start),
+// and "=>".
 func modToken(s string) string {
-	if s == "" || strings.ContainsAny(s, " \t\r\n\"`()'") || strings.Contains(s, "//") || strings.Contains(s, "=>") {
+	quote := s == "" || strings.Contains(s, "//") || strings.Contains(s, "/*") || strings.Contains(s, "=>")
+	for _, r := range s {
+		switch {
+		case strings.ContainsRune(" \"'`()[]{},", r), !unicode.IsPrint(r):
+			quote = true
+		}
+	}
+	if quote {
 		return strconv.Quote(s)
 	}
 	return s
@@ -172,8 +183,20 @@ func parseReplace(args []string) (replaceDirective, bool) {
 // goMod is what a build's workspace needs of a go.mod.
 type goMod struct {
 	Path     string            // the module directive's path; "" = none
+	Go       string            // the go line's version; "" = none
 	Requires map[string]string // module path → version
 	Replaces []replaceDirective
+}
+
+// replaced reports whether the go.mod replaces module p at version v: a
+// replace of p at every version, or at v.
+func (m goMod) replaced(p, v string) bool {
+	for _, r := range m.Replaces {
+		if r.Old == p && (r.OldVersion == "" || r.OldVersion == v) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseGoMod(data []byte) goMod {
@@ -183,6 +206,10 @@ func parseGoMod(data []byte) goMod {
 		case "module":
 			if len(l.args) >= 1 && m.Path == "" {
 				m.Path = l.args[0]
+			}
+		case "go":
+			if len(l.args) == 1 && m.Go == "" {
+				m.Go = l.args[0]
 			}
 		case "require":
 			if len(l.args) >= 2 {

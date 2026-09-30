@@ -38,12 +38,18 @@ func init() {
 // go.mod, a Go file and a package directory are links to the FIFO or its
 // directory, and another tile's go.mod and a Go file are FIFOs; the
 // workspace is computed (the go.mods read, every Go file's imports
-// scanned) without anything opening them.
+// scanned, and the packages they name looked for in the modules that could
+// hold them — a package directory that is a link to the FIFO or its
+// directory, a nested go.mod that is one or a FIFO) without anything
+// opening them.
 func nofollowBuildWork(t *testing.T, fifo string) {
 	root := filepath.Join(t.TempDir(), "ws")
 	for rel, s := range map[string]string{
-		"apps/x/backend/main.go": "package main\n\nimport _ \"y\"\n",
+		"apps/x/backend/main.go": "package main\n\nimport (\n\t_ \"y\"\n\t_ \"w/dirlink\"\n\t_ \"w/filelink\"\n\t_ \"w/modlink/p\"\n\t_ \"w/modfifo/p\"\n\t_ \"w/fifo.go\"\n)\n",
 		"apps/y/go.mod":          "module y\n",
+		"apps/w/go.mod":          "module w\n",
+		"apps/w/modlink/p/p.go":  "package p\n",
+		"apps/w/modfifo/p/p.go":  "package p\n",
 		"apps/z/backend/z.go":    "package main\n",
 	} {
 		p := filepath.Join(root, filepath.FromSlash(rel))
@@ -55,17 +61,20 @@ func nofollowBuildWork(t *testing.T, fifo string) {
 		}
 	}
 	for rel, target := range map[string]string{
-		"go.work":             fifo,
-		"apps/x/go.mod":       fifo,
-		"apps/x/backend/l.go": fifo,
-		"apps/x/pkg":          filepath.Dir(fifo),
-		"apps/y/y.go":         fifo,
+		"go.work":               fifo,
+		"apps/x/go.mod":         fifo,
+		"apps/x/backend/l.go":   fifo,
+		"apps/x/pkg":            filepath.Dir(fifo),
+		"apps/y/y.go":           fifo,
+		"apps/w/dirlink":        filepath.Dir(fifo),
+		"apps/w/filelink":       fifo,
+		"apps/w/modlink/go.mod": fifo,
 	} {
 		if err := os.Symlink(target, filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, rel := range []string{"apps/z/go.mod", "apps/z/backend/pipe.go"} {
+	for _, rel := range []string{"apps/z/go.mod", "apps/z/backend/pipe.go", "apps/w/modfifo/go.mod", "apps/w/fifo.go"} {
 		if err := syscall.Mkfifo(filepath.Join(root, filepath.FromSlash(rel)), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -77,7 +86,7 @@ func nofollowBuildWork(t *testing.T, fifo string) {
 		mod := func(rel string) deps.Module {
 			return deps.Module{Dir: filepath.Join(root, rel), Root: root, Rel: rel, Tile: rel}
 		}
-		deps.BuildWork(deps.Build{Tile: "apps/x", Own: []deps.Module{mod("apps/x")}, Others: []deps.Module{mod("apps/y"), mod("apps/z")}, Root: rw})
+		deps.BuildWork(deps.Build{Tile: "apps/x", Own: []deps.Module{mod("apps/x")}, Others: []deps.Module{mod("apps/y"), mod("apps/z"), mod("apps/w")}, Root: rw})
 		deps.BuildWork(deps.Build{Tile: "apps/z", Own: []deps.Module{mod("apps/z")}, Others: []deps.Module{mod("apps/x"), mod("apps/y")}, Root: rw})
 	}()
 	select {
