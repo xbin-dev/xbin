@@ -3,6 +3,7 @@ package broker
 import (
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -161,17 +162,23 @@ func (b *Broker) SeedInstanceRepo(instanceDir, name string) error {
 }
 
 // AddTemplateRemote points an instance's repo at its builtin template's served
-// repo as the `template` remote (idempotent). No-op if the instance isn't a repo.
+// repo as the `template` remote (idempotent), and names the manifest's merge
+// driver there (templaterepo_driver.go). No-op if the instance isn't a repo.
 func (b *Broker) AddTemplateRemote(instanceDir, name string) {
 	if !templateNameOK(name) || !isRepo(instanceDir) {
 		return
 	}
-	url := "http://xbin/api/xbin/templates/" + name + ".git"
+	url := templateRemoteURL(name)
 	if _, err := runGitIn(instanceDir, "remote", "get-url", "template"); err == nil {
 		_, _ = runGitIn(instanceDir, "remote", "set-url", "template", url)
-		return
+	} else {
+		_, _ = runGitIn(instanceDir, "remote", "add", "template", url)
 	}
-	_, _ = runGitIn(instanceDir, "remote", "add", "template", url)
+	if tile, err := filepath.Rel(b.Reg.Root, instanceDir); err == nil {
+		if err := b.ensureTemplateMergeDriver(instanceDir, filepath.ToSlash(tile)); err != nil {
+			slog.Warn("template instance: the manifest's merge driver couldn't be set", "instance", tile, "err", err)
+		}
+	}
 }
 
 // TemplateInstanceUpdate is one instance whose builtin template has snapshots

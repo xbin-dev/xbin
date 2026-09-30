@@ -11,6 +11,8 @@ import (
 //	bx template new <source> [as <path>] [--no-partition]
 //	                                        instantiate one into a named copy
 //	bx template updates                     instances behind their builtin template
+//	bx template merge-manifest …            the merge driver for an instance's
+//	                                        xbin.json (templatemerge.go)
 //
 // --no-partition: the copy doesn't start in the template's partition mode
 // (docs/partitions.md; PD-35's opt-out) — it runs one backend for everyone.
@@ -19,6 +21,8 @@ func cmdTemplate(args []string) error {
 		return fmt.Errorf("usage: bx template ls | new <source> [as <path>] [--no-partition] | updates")
 	}
 	switch args[0] {
+	case "merge-manifest":
+		return cmdTemplateMergeManifest(args[1:])
 	case "ls":
 		var tpls []struct {
 			ID               string   `json:"id"`
@@ -74,6 +78,7 @@ func cmdTemplate(args []string) error {
 			fmt.Printf("%-24s behind template %q (%s)%s\n", i.Path, i.Template, i.Head, note)
 		}
 		fmt.Println("\napply in the instance's terminal (you pick what to adopt — it's a fork):\n  git fetch template && git merge template/main    # or cherry-pick")
+		fmt.Println("(xbin.json merges by keys: /docs/overview/03-components.md §Templates)")
 		return nil
 
 	case "new":

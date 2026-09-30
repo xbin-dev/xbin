@@ -229,8 +229,13 @@ Templates and updates never switch a mode:
   false` to `POST /api/xbin/templates/new`
   ([protocol.md](protocol.md)). Without `xbind --isolate` the default isn't
   written at all (the box is off, "needs --isolate"), since people's
-  partitions need isolation. The block is stripped from instances, so `git
-  merge template/main` can't add `partition` — and a builtin template's
+  partitions need isolation. The block is stripped from instances (the
+  instance's own `partition` is the line after the opening brace), and the
+  merge driver xbind names in each instance's repository never takes a
+  `partition` change from upstream — it is a conflict for you to resolve
+  — nor merges a branch of yours, a rebase or a stash by keys
+  ([03-components](overview/03-components.md#templates-blueprint-components)),
+  so `git merge template/main` can't add or change it — and a builtin template's
   served repository (the instances' `template` remote) never changes the
   block either: one xbind creates carries none, one an older xbind created
   keeps the block it has. An upstream change to the default is therefore

@@ -23,6 +23,13 @@ bx template ls | new <source> [as <path>] [--no-partition] | updates
                                        list/instantiate template components (blueprints);
                                        --no-partition: the copy doesn't start in
                                        the template's partition mode (docs/partitions.md)
+bx template merge-manifest [--marker-size N] [--rename FROM=TO] BASE OURS THEIRS
+                                       git's merge driver for a template instance's
+                                       xbin.json, which xbind names in the
+                                       instance's repo — git runs it, you don't:
+                                       where the line merge of the template's
+                                       change conflicts, merges by keys
+                                       (docs/overview/03-components.md §Templates)
 bx builtin updates | update <id> [--replace|--merge|--pr]
                                        offer/apply newer embedded scaffold + tiles;
                                        also lists/installs MISSING essential tiles
