@@ -312,6 +312,7 @@ func (b *Broker) PartitionUserDeleted(userID, uid string) {
 		}
 		b.orphanPartitionNS(id, orphanUserDeleted, stamp)
 	})
+	b.orphanPartitionRecords(userID, uid) // their partitions' records, registrations and vaults (partitionrecords.go)
 }
 
 // orphanPartitionNS records event on id's ns.json, once.
@@ -393,6 +394,7 @@ func (b *Broker) sweepPartitionNamespaces(now time.Time) {
 	if err != nil {
 		slog.Warn("partition namespace sweep", "err", err)
 	}
+	b.sweepPartitionRecords(now) // their records, registrations and vaults (partitionrecords.go)
 }
 
 func (b *Broker) sweepPartitionOne(id nsID, now time.Time) error {

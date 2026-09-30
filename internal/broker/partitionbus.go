@@ -35,9 +35,10 @@ var (
 	// busEventPartition is e's stamp, "" for none: `e.Partition`.
 	busEventPartition func(e events.Event) string
 	// publishPartitionPushSeam delivers a person's partition's bus event to
-	// that partition's own push subscriptions (03 §D, 04 §2; F5 stores
-	// them). Until then a person's event reaches frames and sockets only:
-	// today's push subscriptions are all the global instance's.
+	// that partition's own push subscriptions (03 §D, 04 §2):
+	// partitionregs.go fills it. Unfilled, a person's event reaches frames
+	// and sockets only: today's push subscriptions are all the global
+	// instance's.
 	publishPartitionPushSeam = func(b *Broker, ra reach, topic string, data any) {}
 )
 
@@ -71,7 +72,7 @@ func (b *Broker) publishPartitioned(w http.ResponseWriter, ra reach, topic strin
 	b.Hub.Publish(ev)
 	b.countBusEvent(counter)
 	if ra.pkey == "" {
-		b.bus.publishIn(id, ra.dep, topic, data) // global's: today's subscriptions are all global's
+		b.bus.publishStamped(id, ra.dep, topic, data, partGlobalKey) // global's: today's subscriptions are all global's
 	} else {
 		publishPartitionPushSeam(b, ra, topic, data)
 	}

@@ -236,6 +236,7 @@ func (b *Broker) PartitionEnv(c *registry.Component, dep, part string) ([]string
 		slog.Warn("partitions: no data namespace for the partition", "tile", c.Path, "partition", part, "err", err)
 		return env, remap
 	}
+	b.notePartitionStart(c.Path, dep, part, pkey, uid) // the partition's record (partitionrecords.go)
 	handed := map[string]bool{}
 	for _, e := range env {
 		if k, v, ok := strings.Cut(e, "="); ok && strings.HasPrefix(k, "XBIN_RES_") {

@@ -294,8 +294,7 @@ func partitionRefusals(t *testing.T, inv map[string]string) {
 			case class == server.PartitionScoped && c.noPerson && personKeyed[pattern] != "":
 				want, wantCode = "this route isn't available to a partition's credentials that name no person yet ("+personKeyed[pattern]+")", http.StatusForbidden
 			case class == server.PartitionScoped, class == server.PartitionNeutral:
-			case class == server.GlobalOnlyDormant:
-				want, wantCode = "this route isn't available to a partition's credentials yet (dormant registrations)", http.StatusForbidden
+			case class == server.GlobalOnlyDormant: // stored for the partition, dormant (PD-21): the handler runs, stamped
 			case class == server.GlobalOnlyRefused:
 				want, wantCode = "this route is the global instance's alone: a person's partition (user:alice) can't use it", http.StatusForbidden
 			default:

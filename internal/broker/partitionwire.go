@@ -37,7 +37,7 @@ func init() {
 	partitionUIDSeam = (*Broker).storedPartitionUID
 	partitionMintUIDSeam = (*Broker).mintPartitionUID
 	partitionAdoptUID = func(b *Broker, userID string, created time.Time) (string, bool) {
-		uid := b.adoptablePartitionUID(userID, created.Unix())
+		uid := b.partitionAdoptUIDAll(userID, created.Unix()) // ns.json and partition.json (partitionrecords.go)
 		return uid, uid != ""
 	}
 	stampBusPartition = func(ev *events.Event, part string) { ev.Partition = part }
@@ -141,6 +141,15 @@ func (b *Broker) partitionLeftovers(path string, under func(string) bool) []stri
 	})
 	for scope, n := range people {
 		out = append(out, fmt.Sprintf("%s's people's partition data (%d namespace(s))", scope, n))
+	}
+	parts := map[string]int{}
+	_ = b.eachPartitionRecord("", func(_ partitionDirOf, rec partitionRecord) {
+		if gone(rec.Tile) {
+			parts[rec.Tile]++
+		}
+	})
+	for tile, n := range parts {
+		out = append(out, fmt.Sprintf("%s's people's partition vaults and records (%d partition(s))", tile, n))
 	}
 	return out
 }

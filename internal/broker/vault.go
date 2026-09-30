@@ -186,11 +186,18 @@ func (b *Broker) vaultAccess(w http.ResponseWriter, r *http.Request) (vaultCall,
 		server.WriteError(w, http.StatusForbidden, "the vault API is not reachable from a tile frontend — secrets are handled by the tile's backend (D30)", "/docs/auth.md")
 		return vaultCall{}, false
 	}
+	if b.partitionParamRefused(w, r, c.Path) {
+		return vaultCall{}, false
+	}
 	dep, named, ok := b.vaultDeployment(w, r, p, c.Path)
 	if !ok {
 		return vaultCall{}, false
 	}
-	return vaultCall{comp: c.Path, dep: dep, key: remainder, named: named}, true
+	call := vaultCall{comp: c.Path, dep: dep, key: remainder, named: named}
+	if !b.vaultPartition(w, p, &call) { // a person's partition: its own vault (partitionvault.go)
+		return vaultCall{}, false
+	}
+	return call, true
 }
 
 func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +218,7 @@ func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	m, err := b.vaultReadIn(c.comp, c.dep)
+	m, err := b.vaultReadCall(c)
 	if err != nil {
 		b.vaultError(w, err)
 		return
@@ -223,7 +230,7 @@ func (b *Broker) apiVaultGet(w http.ResponseWriter, r *http.Request) {
 		}
 		sort.Strings(keys)
 		out := map[string]any{"keys": keys}
-		if !b.isPrimary(c.comp, c.dep) { // the primary's key names with no value here (D127i)
+		if c.part == nil && !b.isPrimary(c.comp, c.dep) { // the primary's key names with no value here (D127i)
 			if out["placeholders"], err = b.vaultPlaceholders(c.comp, c.dep, m); err != nil {
 				b.vaultError(w, err)
 				return
@@ -259,10 +266,10 @@ func (b *Broker) apiVaultPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {\"value\": …}")
 		return
 	}
-	m, err := b.vaultReadIn(c.comp, c.dep)
+	m, err := b.vaultReadCall(c)
 	if err == nil {
 		m[c.key] = body.Value
-		err = b.vaultWriteIn(c.comp, c.dep, m)
+		err = b.vaultWriteCall(c, m)
 	}
 	if err != nil {
 		b.vaultError(w, err)
@@ -279,10 +286,10 @@ func (b *Broker) apiVaultDelete(w http.ResponseWriter, r *http.Request) {
 	if !b.vaultWritable(w, auth.PrincipalOf(r), c) {
 		return
 	}
-	m, err := b.vaultReadIn(c.comp, c.dep)
+	m, err := b.vaultReadCall(c)
 	if err == nil {
 		delete(m, c.key)
-		err = b.vaultWriteIn(c.comp, c.dep, m)
+		err = b.vaultWriteCall(c, m)
 	}
 	if err != nil {
 		b.vaultError(w, err)

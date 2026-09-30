@@ -72,6 +72,9 @@ type busDelivery struct {
 	Topic        string `json:"topic"` // under the resource
 	Data         any    `json:"data,omitempty"`
 	TS           int64  `json:"ts"` // unix ms, when it was published
+	// cold: a delivery that may start a person's partition — an event of
+	// its own namespace (partitionregs.go). Never sent.
+	cold bool
 }
 
 // busSubStats are a subscription's counters since the daemon started.
@@ -85,11 +88,19 @@ type busSubStats struct {
 	// subscription's deployment isn't in the active set: its deliveries are
 	// switched off (dormant.go).
 	DormantEvents int64 `json:"dormantEvents,omitempty"`
+	// DormantDrops counts events a person's partition's subscription
+	// skipped because the partition wasn't running: a shared bus's, or
+	// another scope's, never start it (partitionregs.go).
+	DormantDrops int64 `json:"dormantDrops,omitempty"`
 }
 
 type busSubState struct {
 	sub   busSub
 	owner string // the deployment it belongs to: "" for main, whose live in today's store
+	// part and pkey: the person's partition it belongs to, for a user
+	// partition's subscription (partitionregs.go); "" for everyone else's.
+	part  util.Partition
+	pkey  string
 	stats busSubStats
 	queue []busDelivery
 	busy  bool // a drain goroutine owns the queue
@@ -112,10 +123,22 @@ type busSubs struct {
 	// of those files.
 	dep    map[string]*busSubState
 	fileMu sync.Mutex
+	// part are people's partitions' subscriptions, kept in their own files
+	// and keyed by partKey (partitionregs.go).
+	part map[string]*busSubState
+}
+
+// busSubSnap is what a delivery needs of its subscription, taken under the
+// lock.
+type busSubSnap struct {
+	sub   busSub
+	owner string
+	part  util.Partition
+	pkey  string
 }
 
 func newBusSubs(b *Broker) *busSubs {
-	bs := &busSubs{b: b, subs: map[string]*busSubState{}, dep: map[string]*busSubState{}}
+	bs := &busSubs{b: b, subs: map[string]*busSubState{}, dep: map[string]*busSubState{}, part: map[string]*busSubState{}}
 	if bts, err := os.ReadFile(bs.storePath()); err == nil {
 		var list []busSub
 		if json.Unmarshal(bts, &list) == nil {
@@ -136,6 +159,7 @@ func (b *Broker) SetBusDispatch(fn BusDispatch) {
 	b.bus.dispatch = fn
 	b.bus.mu.Unlock()
 	b.bus.loadDeps()
+	b.loadParts(false, true) // people's partitions' subscriptions (partitionregs.go)
 }
 
 // DispatchBodyViaProxy adapts the proxy into BusDispatch: a POST with a JSON
@@ -291,37 +315,57 @@ func (bs *busSubs) publish(resource, topic string, data any) { bs.publishIn(reso
 // addressed namespace that is, and queues nothing for those whose deployment
 // isn't in the active set, counting the event as dormant (dormant.go).
 func (bs *busSubs) publishIn(resource, ns, topic string, data any) {
+	bs.publishStamped(resource, ns, topic, data, "")
+}
+
+// publishStamped is publishIn for an event stamped with the partition
+// whose namespace it is in (a partitioned scope's own bus, partitionbus.go):
+// "global" reaches today's subscriptions only (all the global instance's),
+// "user:<id>" that person's partition's only; unstamped ("") reaches
+// today's and people's partitions' (partitionregs.go).
+func (bs *busSubs) publishStamped(resource, ns, topic string, data any, stamp string) {
 	now := time.Now()
 	var ev *busDelivery
 	where := bs.b.busNamespace(resource, ns)
 	bs.mu.Lock()
 	defer bs.mu.Unlock()
-	for st := range bs.all() {
-		if st.sub.Resource != resource || !strings.HasPrefix(topic, st.sub.Prefix) || !where.reaches(st) {
-			continue
+	if stamp == "" || stamp == partGlobalKey {
+		for st := range bs.all() {
+			if st.sub.Resource != resource || !strings.HasPrefix(topic, st.sub.Prefix) || !where.reaches(st) {
+				continue
+			}
+			if !bs.b.firing(st.sub.Component, st.owner) {
+				st.stats.DormantEvents++
+				continue
+			}
+			bs.enqueue(st, now, &ev, resource, topic, data, false)
 		}
-		if !bs.b.firing(st.sub.Component, st.owner) {
-			st.stats.DormantEvents++
-			continue
-		}
-		if ev == nil {
-			ev = &busDelivery{ID: newBusEventID(), Resource: resource, Topic: topic, Data: data, TS: now.UnixMilli()}
-		}
-		if now.Sub(st.win) >= time.Second {
-			st.win, st.winN = now, 0
-		}
-		st.winN++
-		if st.winN > busSubPerSec || len(st.queue) >= busSubQueue {
-			st.stats.Dropped++
-			continue
-		}
-		d := *ev
-		d.Subscription = st.sub.Name
-		st.queue = append(st.queue, d)
-		if !st.busy {
-			st.busy = true
-			go bs.drain(st)
-		}
+	}
+	if stamp != partGlobalKey && len(bs.part) > 0 {
+		bs.publishToParts(resource, topic, stamp, where, now, &ev, data)
+	}
+}
+
+// enqueue queues the event (made once, *ev) for st, under the loop guard
+// and the queue's bound. The caller holds bs.mu.
+func (bs *busSubs) enqueue(st *busSubState, now time.Time, ev **busDelivery, resource, topic string, data any, cold bool) {
+	if *ev == nil {
+		*ev = &busDelivery{ID: newBusEventID(), Resource: resource, Topic: topic, Data: data, TS: now.UnixMilli()}
+	}
+	if now.Sub(st.win) >= time.Second {
+		st.win, st.winN = now, 0
+	}
+	st.winN++
+	if st.winN > busSubPerSec || len(st.queue) >= busSubQueue {
+		st.stats.Dropped++
+		return
+	}
+	d := **ev
+	d.Subscription, d.cold = st.sub.Name, cold
+	st.queue = append(st.queue, d)
+	if !st.busy {
+		st.busy = true
+		go bs.drain(st)
 	}
 }
 
@@ -387,9 +431,15 @@ func (bs *busSubs) drain(st *busSubState) {
 		d := st.queue[0]
 		st.queue = st.queue[1:]
 		sub, dispatch := st.sub, bs.dispatch
+		snap := busSubSnap{sub: sub, owner: st.owner, part: st.part, pkey: st.pkey}
 		bs.mu.Unlock()
 
-		outcome, errText := bs.deliver(dispatch, st.owner, sub, d)
+		var outcome, errText string
+		if snap.part != "" {
+			outcome, errText = bs.deliverPart(dispatch, snap, d) // a person's partition's (partitionregs.go)
+		} else {
+			outcome, errText = bs.deliver(dispatch, st.owner, sub, d)
+		}
 
 		bs.mu.Lock()
 		st.stats.LastAt = time.Now().UnixMilli()
@@ -403,9 +453,13 @@ func (bs *busSubs) drain(st *busSubState) {
 			st.stats.LastError = errText
 		case "dormant":
 			st.stats.DormantEvents++
+		case "skipped":
+			st.stats.DormantDrops++
 		}
 		bs.mu.Unlock()
-		if outcome == "gone" && st.owner != "" {
+		if outcome == "gone" && snap.part != "" {
+			bs.b.prunePartSub(snap)
+		} else if outcome == "gone" && st.owner != "" {
 			bs.b.pruneDepSub(sub.Component, st.owner, sub.Name)
 		} else if outcome == "gone" && bs.remove(sub.Component, sub.Name) {
 			slog.Info("bus subscription pruned: its component is gone", "component", sub.Component, "name", sub.Name)
@@ -463,6 +517,15 @@ type busSubView struct {
 
 func (b *Broker) apiBusSubsList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
+	if b.partitionParamRefused(w, r, cmp.Or(p.Component, r.URL.Query().Get("component"))) {
+		return
+	}
+	if t, isPart, ok := b.partOf(w, p, p.Component); isPart { // a person's partition: its own (partitionregs.go)
+		if ok {
+			b.partSubList(w, t)
+		}
+		return
+	}
 	admin := b.IsAdmin(p)
 	// the deployment listed: a tile principal's own, else ?deployment= or main
 	dep, code, err := b.listDeployment(r, p)
@@ -501,6 +564,13 @@ func (b *Broker) apiBusSubsPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "a subscription belongs to a component — admins name it with \"component\"", docs)
 		return
 	}
+	if b.partitionParamRefused(w, r, s.Component) {
+		return
+	}
+	t, isPart, ok := b.partOf(w, p, s.Component)
+	if !ok {
+		return
+	}
 	if !busSubNameRe.MatchString(s.Name) || !strings.HasPrefix(s.Path, "/") {
 		server.WriteError(w, http.StatusBadRequest, "need {name: [A-Za-z0-9._-]{1,64}, resource, path: /…, prefix?, role?}", docs)
 		return
@@ -521,7 +591,11 @@ func (b *Broker) apiBusSubsPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, code, err.Error(), docs)
 		return
 	}
-	if dep != util.MainDeployment {
+	switch {
+	case isPart:
+		b.putPartSub(w, r, t, s) // a person's partition's own file (partitionregs.go)
+		return
+	case dep != util.MainDeployment:
 		b.putDepSub(w, r, dep, s, rt) // its own file (dormant.go)
 		return
 	}
@@ -551,6 +625,15 @@ func (b *Broker) apiBusSubsDelete(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	if !b.IsAdmin(p) {
 		comp = p.Component // only your own
+	}
+	if b.partitionParamRefused(w, r, comp) {
+		return
+	}
+	if t, isPart, ok := b.partOf(w, p, comp); isPart { // a person's partition: its own (partitionregs.go)
+		if ok {
+			b.deletePartSub(w, r, t, r.PathValue("name"))
+		}
+		return
 	}
 	dep, code, err := b.regDeployment(r, p, comp)
 	if err != nil {

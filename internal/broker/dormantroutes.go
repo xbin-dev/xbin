@@ -63,6 +63,9 @@ type depIngressDoc struct {
 // bound deployment's (DR1); an admin naming the tile, its primary's (DR2).
 // ok false: the refusal is answered.
 func (b *Broker) routeTarget(w http.ResponseWriter, p auth.Principal, comp string) (dep string, dormant, ok bool) {
+	if dep, isPart, ok := b.partRouteOf(w, p, comp); isPart { // a person's partition: its own, dormant (PD-21, partitionregs.go)
+		return dep, true, ok
+	}
 	dep = b.primaryOf(comp)
 	if p.Component == comp {
 		d, err := b.addressed(p, comp)
@@ -142,6 +145,9 @@ func (b *Broker) activeInstanceMap(root map[string]map[string]string) map[string
 // into the root xbin.json map, as today, any other's into its own file; an
 // empty map clears them.
 func (b *Broker) storeInstances(comp, dep string, inst map[string]string) error {
+	if t, ok := partRouteTarget(comp, dep); ok {
+		return b.storePartInstances(t, inst)
+	}
 	if dep != util.MainDeployment {
 		return b.writeDepFile(comp, dep, depIfaceFile, depIfaceDoc{Schema: depFileSchema, Instances: inst}, len(inst) == 0)
 	}
@@ -211,6 +217,9 @@ func (b *Broker) activeHostMap(root map[string][]string) map[string][]string {
 // empty list clears them.
 func (b *Broker) storeIngressHosts(comp, dep string, hosts []string) error {
 	sort.Strings(hosts)
+	if t, ok := partRouteTarget(comp, dep); ok {
+		return b.storePartHosts(t, hosts)
+	}
 	if dep != util.MainDeployment {
 		return b.writeDepFile(comp, dep, depIngressFile, depIngressDoc{Schema: depFileSchema, Hosts: hosts}, len(hosts) == 0)
 	}
@@ -231,6 +240,9 @@ func (b *Broker) storeIngressHosts(comp, dep string, hosts []string) error {
 // traefik renders no ACME for the primary's hostnames. err: p's deployment
 // is gone (util.ErrNoDeployment) or refused.
 func (b *Broker) routesHidden(p auth.Principal) (bool, error) {
+	if p.Partition.IsUser() {
+		return true, nil // a person's partition routes nothing: ingress is the global instance's (PD-21)
+	}
 	dep, err := b.addressed(p, p.Component)
 	if err != nil {
 		return false, err

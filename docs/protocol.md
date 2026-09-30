@@ -195,8 +195,11 @@ credential, never from the URL or a header:
 
 A user partition's credential is default-deny on `/api/xbin/*`, like a
 non-primary deployment's: every route has a partition class too —
-partition-scoped (the handler acts on the caller's partition), dormant (the
-global instance's registrations), global-only (refused: `403 this route is
+partition-scoped (the handler acts on the caller's partition: its own vault,
+cron jobs and bus subscriptions among them), dormant (the global instance's
+registrations — interface instances and ingress hosts: a person's partition's
+are stored for it and answered with success and `dormant:true`, and never
+route), global-only (refused: `403 this route is
 the global instance's alone: a person's partition (user:<id>) can't use
 it`), person-only (a person's own session, app or device credential only:
 `403 this is a person's own act …` for every tile credential, partitioned
@@ -976,7 +979,12 @@ GET    /auth-overview              admin. components(+roles/uses/vault, vm?:
                                    {memMiB?,vcpus?} when the manifest asks for
                                    a VM), grants, pending, counts — powers the
                                    admin console
-GET    /vaults                     admin. [{component, keys}] across all vaults
+GET    /vaults                     admin. [{component, keys}] across all vaults.
+                                   A partitioned tile's row is its global
+                                   instance's keys plus partitions: how many
+                                   people's partitions keep a vault — a
+                                   count, never their key names (absent when
+                                   none)
 GET    /resources                  admin. declared resources [{id,scope,name,type}]
 GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    state? (lifecycle; absent = enabled),
@@ -2499,7 +2507,11 @@ PUT    /iface-instances            self or admin. body {component?, instances:
                                    no grants event, no re-wiring, not even
                                    with its deliveries on. provider#id always
                                    resolves against the provider primary's
-                                   map
+                                   map. From a person's partition of a
+                                   partitioned tile the same: 200 with
+                                   dormant:true, stored for that partition
+                                   and never routed (instances are the
+                                   global instance's, docs/partitions.md)
 
 PUT    /ingress-hosts              self or admin. body {component?, hosts:[…]}
                                    — a tile with a DELEGATED-ZONE http expose
@@ -2519,15 +2531,19 @@ PUT    /ingress-hosts              self or admin. body {component?, hosts:[…]}
                                    dormant:true; the set is stored for that
                                    deployment, zone-validated but not
                                    conflict-checked, and never routed — no
-                                   reconcile, not even with its deliveries on
+                                   reconcile, not even with its deliveries on.
+                                   A person's partition of a partitioned tile
+                                   likewise: 200 dormant:true, stored for it,
+                                   never routed
 GET    /ingress-routes             terminator tiles + admin. {routes: [{host,
                                    component, slot, paths, source, zone?}]} —
                                    the concrete host→tile routes. A tile with
                                    provides {kind:"ingress"} sees the routes
                                    bound THROUGH IT (its proxy/ACME config
                                    input); admins see all; others 403. A
-                                   non-primary deployment of a terminator
-                                   reads {"routes":[]}.
+                                   non-primary deployment of a terminator,
+                                   and a person's partition of one, reads
+                                   {"routes":[]}.
 GET    /ingress                    admin. The whole ingress picture: {exposes:
                                    [{component, slot, kind, paths|proto+port,
                                    source, host|zone|listen, routes:[{source,
@@ -3337,7 +3353,20 @@ DELETE /vault/<component>/<key>    backend/terminal self, or admin.
                                    of the deployment whose vault it is. While
                                    the primary is protected its vault is
                                    written only by its own backend and by
-                                   tile managers in their own session
+                                   tile managers in their own session.
+                                   A partitioned tile's (docs/partitions.md
+                                   §Vault and registrations): its own
+                                   credentials acting in a person's
+                                   partition — that partition's backend, the
+                                   person's terminals and agent sessions —
+                                   reach that partition's own vault (values:
+                                   its backend only); everyone else, admins
+                                   included, reaches the global instance's.
+                                   ?partition= on a partitioned tile's vault,
+                                   cron and bus-subscription routes → 400 "a
+                                   partition's vault and registrations are
+                                   reached only from inside it: …", for
+                                   everyone; ignored on other tiles
 
 GET    /kv/res:<scope>/<name>/?prefix=   reader. {keys}
 GET    /kv/res:<scope>/<name>/<key>      reader. raw bytes
@@ -3430,6 +3459,13 @@ PUT    /bus/subscriptions                reader on the bus resource (the
 DELETE /bus/subscriptions/<name>[?component=]  element: own; admin: any.
                                          ?deployment=<name> (admin): that
                                          deployment's
+                                         On a partitioned tile its credentials
+                                         acting in a person's partition list,
+                                         subscribe and delete that partition's
+                                         own (≤16; rows gain dormantDrops);
+                                         admins reach the global instance's
+                                         only; ?partition= → 400 (the vault
+                                         rows above)
 
 GET    /tile-report                      any signed-in user (read-filtered).
                                          {statuses:{<component>:{level,message,ts}}}
@@ -3482,7 +3518,12 @@ POST   /notify                           element: a tile's backend (instance
                                          users. A tile's frontend (frame token)
                                          or a shell in it (terminal token) may
                                          notify only the person using it (403
-                                         for anyone else). link is relative to
+                                         for anyone else), and so may the
+                                         backend of a person's partition of a
+                                         partitioned tile (403 "a person's
+                                         partition notifies only its person
+                                         (<id>); …"); its global instance
+                                         notifies any reader. link is relative to
                                          the tile (#fragment, ?query or a path
                                          inside it; no dot segments, encoded or
                                          not). kind (a–z 0–9 -) makes the push
@@ -3657,6 +3698,13 @@ PUT    /cron/jobs                        writer on the cron resource.
 DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
                                          ?deployment=<name> (admin): that
                                          deployment's
+                                         On a partitioned tile its credentials
+                                         acting in a person's partition list,
+                                         schedule and delete that partition's
+                                         own jobs (≤16, none more often than
+                                         once a minute: 400); admins reach the
+                                         global instance's only; ?partition= →
+                                         400 (the vault rows above)
 ```
 
 ¹ `component` is owner-only; elements always schedule (and subscribe)
@@ -3690,6 +3738,19 @@ events count as `dormantEvents`, not `dropped`). A subscription on the tile's
 own bus receives only events published in its deployment's data; one on
 another scope's bus receives that scope's primary's, re-checked against its
 edge at every delivery.
+
+A person's partition's cron jobs and subscriptions (docs/partitions.md) are
+kept in files of its own, never in `data/cron-jobs.json` or
+`data/bus-subscriptions.json`, and a backup of the tile carries the global
+instance's only. Their ticks and deliveries carry the partition
+(`X-XBin-Partition: user:<id>`) and reach it while its person exists (the
+same incarnation), is enabled and can read the tile — asked at every tick
+and delivery, so regaining access resumes them. A tick whose start the
+runner defers is tried again with jitter until the next tick is due. A
+subscription receives its own partition's events on its scope's own bus
+(which may start it), and a shared bus's, or another scope's, only while the
+partition runs (skipped ones count as `dormantDrops`); never the global
+instance's.
 
 **Push notifications** (D94). The xbin app receives pushes through a push relay
 (the repo's `relay/`, relay/README.md): it holds the APNs key, maps an opaque

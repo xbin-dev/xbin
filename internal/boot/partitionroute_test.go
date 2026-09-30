@@ -179,7 +179,11 @@ func TestPartitionWiring(t *testing.T) {
 		t.Errorf("alice's document: %d %s", code, body)
 	}
 	frame := map[string]string{auth.FrameTokenHeader: d.st.Auth.MintFrameToken("apps/pa", "alice", time.Hour)}
-	if code, body := do("GET", "/api/xbin/bus/subscriptions", frame); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
+	if code, body := do("GET", "/api/xbin/logs", frame); code != 403 || !strings.Contains(body, "isn't available to a partition's credentials yet") {
+		t.Errorf("alice's frame on the logs (not per partition yet): %d %s", code, body)
+	}
+	// her partition's own registrations (F5): none yet, not global's
+	if code, body := do("GET", "/api/xbin/bus/subscriptions", frame); code != 200 || strings.TrimSpace(body) != `{"subscriptions":[]}` {
 		t.Errorf("alice's frame on bus subscriptions: %d %s", code, body)
 	}
 	// kv acts on her partition (the data plane): past the gate, to the handler
