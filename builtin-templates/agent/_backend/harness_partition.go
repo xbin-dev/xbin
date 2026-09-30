@@ -22,18 +22,22 @@
 //     continuing without the host (exportConv) — and un-sharing one at the
 //     global instance answers 409 rather than moving it (moveIfUnshared).
 //
-// In a person's partition coding agents work as unpartitioned, with three
-// differences: an idle adapter doesn't keep the partition up (the hold,
-// owner.go: only one at work does) — the `wake` job at its reclaim's minute
-// brings the partition back to stop it (resume_mode.go) and the reclaim then
-// counts from the adapter's last activity (armIdleFrom); a halt read from
-// conf reaches a coding agent's turn at its next event (brakeSoon) and its
-// pass (brake.go: cancelled when conf is known, parked with a look again
-// while it isn't); and its sessions count in the usage totals (usage.go).
-// Unpartitioned nothing here changes a thing.
+// In a person's partition coding agents work as unpartitioned, with these
+// differences: only one at work — a turn, or a sign-in AgTT is waiting on —
+// keeps the partition up (the hold, owner.go), never one idle or waiting on
+// a person; the `wake` job at an idle one's reclaim minute brings the
+// partition back to stop it (resume_mode.go), the reclaim then counting from
+// the adapter's last activity (armIdleFrom), and a halt doesn't stop that
+// reclaim (stopping an idle adapter moves no work); a halt read from conf
+// reaches a coding agent's turn at its next event or within about confTTL
+// of a silent one (brakeSoon, brakeLook) and its pass (brake.go: cancelled
+// when conf is known, parked with a look again while it isn't); and its
+// sessions count in the usage totals (usage.go). Unpartitioned nothing here
+// changes a thing.
 package main
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -114,11 +118,12 @@ func (d *DB) harnessIdleNow() time.Duration {
 	return parseConfig(raw).harnessIdle()
 }
 
-// harnessSendingSQL counts the prompts on their way to a coding agent (a
-// successor settles each: harness_engine.go attachHarness) — work that moves
-// without the person.
+// harnessSendingSQL counts the prompts on their way to a coding agent whose
+// adapter a successor attaches (harness_engine.go attachHarness settles each)
+// — work that moves without the person. One left on an adapter that is gone
+// isn't: resumeHarness ends its turn.
 const harnessSendingSQL = `(SELECT count(*) FROM harness_sessions h JOIN runs r ON r.id=h.run_id
-	WHERE r.engine='harness' AND h.prompt_state='sending')`
+	WHERE r.engine='harness' AND h.prompt_state='sending' AND h.exec_id<>'' AND h.state IN ('starting','live','login'))`
 
 // harnessIdleWake is when a stopped partition must come back to stop the
 // adapters that rest (up with no turn, not waiting on a person): the
@@ -138,25 +143,73 @@ func (d *DB) harnessIdleWake(now time.Time) int64 {
 	return max(time.UnixMilli(last).Add(idle).Unix(), now.Unix()+61)
 }
 
-// setRest marks s resting — no turn at work: idle, or parked on a person —
-// or working. In a person's partition only a working one keeps the backend
-// up (owner.go updateHoldLocked); unpartitioned the hold is today's.
-func (s *hsess) setRest(rest bool) {
-	if s.rest.Swap(rest) != rest && userMode() {
+// The rest flag: in a person's partition only a session at work keeps the
+// backend up. Changed under s.mu (so a rest after a turn's end and the next
+// prompt's work can't land in the wrong order: workMark), the hold
+// re-read after it (holdMoved: never e.mu under s.mu — adopt takes s.mu
+// under e.mu).
+
+// restLocked (s.mu held) marks s resting or not; true when that changed.
+func (s *hsess) restLocked(rest bool) bool { return s.rest.Swap(rest) != rest }
+
+// holdMoved re-reads what the hold wants when s's part in it changed (a
+// person's partition only; unpartitioned the hold is today's).
+func (s *hsess) holdMoved(moved bool) {
+	if moved && userMode() {
 		s.e.updateHold()
 	}
 }
 
+// workMark is how many times s went to work so far — taken before a commit
+// whose poke may send the next prompt, so the rest that follows it doesn't
+// land after that prompt's work (armIdleFrom).
+func (s *hsess) workMark() *uint64 {
+	s.mu.Lock()
+	n := s.work
+	s.mu.Unlock()
+	return &n
+}
+
+// toWork: s is at work — a prompt sent (disarm: its idle reclaim off), a
+// turn of the adapter's own followed, a park cleared with its turn going
+// on. In a person's partition it keeps the backend up, and the halt is
+// looked at while it works (brakeLook).
+func (s *hsess) toWork(disarm bool) {
+	s.mu.Lock()
+	s.work++
+	if disarm {
+		s.disarmIdleLocked()
+	}
+	moved := s.restLocked(false)
+	s.mu.Unlock()
+	s.holdMoved(moved)
+	if userMode() {
+		s.e.brakeLook()
+	}
+}
+
+// toRest: s waits on a person — a question, its sign-in. No reclaim (the
+// caller disarmed it, or none was armed), and in a person's partition it
+// doesn't keep the backend up: the person's answer brings it back.
+func (s *hsess) toRest() {
+	s.mu.Lock()
+	moved := s.restLocked(true)
+	s.mu.Unlock()
+	s.holdMoved(moved)
+}
+
 // harnessHoldsLocked (e.mu held): a coding agent this process drives keeps
 // the hold — any, unpartitioned and at the global instance; in a person's
-// partition only one at work (a stopped partition's `wake` brings it back
-// for a resting one's reclaim: resume_mode.go).
+// partition only one at work, or one AgTT is signing in (its authenticate
+// awaits the adapter's answer here — at most hDeviceFor). A stopped
+// partition's `wake` brings it back for a resting one's reclaim
+// (resume_mode.go).
 func (e *Engine) harnessHoldsLocked() bool {
 	if !userMode() {
 		return len(e.harness) > 0
 	}
 	for _, s := range e.harness {
-		if !s.rest.Load() {
+		if !s.rest.Load() || s.signing.Load() {
 			return true
 		}
 	}
@@ -176,7 +229,7 @@ func (e *Engine) updateHold() {
 // built-in turn looks between its steps), and a halt conf says is on pokes
 // the run once: its pass cancels it, as PUT /halt cancels a run
 // unpartitioned (harnessPass → onBrake). A turn that says nothing (a long
-// command) is reached at its next event.
+// command) is looked at by brakeLook.
 func (s *hsess) brakeSoon() {
 	if !userMode() || confIn == nil {
 		return
@@ -189,6 +242,68 @@ func (s *hsess) brakeSoon() {
 	s.mu.Unlock()
 	if poke {
 		s.e.Poke(s.run)
+	}
+}
+
+// hBrakeLookMin floors brakeLook's period (a test's confTTL of 0).
+var hBrakeLookMin = 250 * time.Millisecond
+
+// brakeLook arms, in a person's partition, the engine's one look at the
+// halt while any coding agent works: every confTTL each working session
+// looks (brakeSoon), so a turn that says nothing — a long build — is
+// reached within about two confTTL of the halt, as PUT /halt reaches one
+// unpartitioned. It re-arms while one works and holds nothing (a turn at
+// work holds the partition already).
+func (e *Engine) brakeLook() {
+	if confIn == nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.hbrake != nil || e.closing {
+		return
+	}
+	e.hbrake = time.AfterFunc(max(confTTL, hBrakeLookMin), func() {
+		e.mu.Lock()
+		e.hbrake = nil
+		var working []*hsess
+		if !e.closing {
+			for _, s := range e.harness {
+				if !s.rest.Load() {
+					working = append(working, s)
+				}
+			}
+		}
+		e.mu.Unlock()
+		for _, s := range working {
+			s.brakeSoon()
+		}
+		if len(working) > 0 {
+			e.brakeLook()
+		}
+	})
+}
+
+// harnessIdleUnderBrake is harnessPass under the brake in a person's
+// partition, after onBrake: an idle coding agent's reclaim goes on — the
+// adapter stopped at its idle time, and one a stopped partition left (the
+// `wake` it left came back for it) taken over for that — since stopping an
+// idle adapter moves no work. A turn, a park or a sign-in waits for the
+// brake as ever.
+func (e *Engine) harnessIdleUnderBrake(ctx context.Context, runID int64) {
+	run, err := e.db.getRun(runID)
+	if err != nil || run.Status == statusRunning || run.Status == statusWaiting {
+		return
+	}
+	hs, _ := e.db.harnessSession(runID)
+	if hs == nil || hs.PromptState != "" || hs.ExecID == "" || (hs.State != hsLive && hs.State != hsStarting) {
+		return
+	}
+	switch s := e.harnessOf(runID); {
+	case s != nil && s.reclaimDue():
+		e.harnessReclaim(run, s, false)
+	case s == nil:
+		e.resumeHarness(ctx, run, hs)
 	}
 }
 

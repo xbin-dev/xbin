@@ -71,48 +71,54 @@ func (e *Engine) harnessIdleFor() time.Duration {
 }
 
 // armIdle (re)arms the reclaim: the session rests now.
-func (s *hsess) armIdle() { s.armIdleFrom(time.Time{}) }
+func (s *hsess) armIdle() { s.armIdleFrom(time.Time{}, nil) }
 
 // armIdleFrom is armIdle for a session resting since `since` (zero: now):
 // its reclaim is due at since + the idle time (harness_partition.go — a
 // person's partition taking over an adapter that rested while it was
-// stopped).
-func (s *hsess) armIdleFrom(since time.Time) {
-	s.setRest(true)
+// stopped). With mark (workMark, taken before the commit that ended a turn),
+// nothing when the session went to work again since: that commit's poke may
+// have sent a queued prompt before this runs.
+func (s *hsess) armIdleFrom(since time.Time, mark *uint64) {
 	d := s.e.harnessIdleFor()
 	if !since.IsZero() && d > 0 {
 		d = max(d-time.Since(since), time.Millisecond)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.idleT != nil {
-		s.idleT.Stop()
-		s.idleT = nil
-	}
-	s.reclaim = false
-	if s.halted || d <= 0 {
-		return
-	}
-	s.idleT = time.AfterFunc(d, func() {
-		s.mu.Lock()
-		s.idleT, s.reclaim = nil, !s.halted
-		due := s.reclaim
+	if mark != nil && *mark != s.work {
 		s.mu.Unlock()
-		if due {
-			s.e.Poke(s.run)
-		}
-	})
+		return // at work again: its next rest arms it
+	}
+	s.disarmIdleLocked()
+	if !s.halted && d > 0 {
+		s.idleT = time.AfterFunc(d, func() {
+			s.mu.Lock()
+			s.idleT, s.reclaim = nil, !s.halted
+			due := s.reclaim
+			s.mu.Unlock()
+			if due {
+				s.e.Poke(s.run)
+			}
+		})
+	}
+	moved := s.restLocked(true)
+	s.mu.Unlock()
+	s.holdMoved(moved)
 }
 
 // disarmIdle: the session works (a prompt, a park).
 func (s *hsess) disarmIdle() {
 	s.mu.Lock()
+	s.disarmIdleLocked()
+	s.mu.Unlock()
+}
+
+func (s *hsess) disarmIdleLocked() {
 	if s.idleT != nil {
 		s.idleT.Stop()
 		s.idleT = nil
 	}
 	s.reclaim = false
-	s.mu.Unlock()
 }
 
 func (s *hsess) reclaimDue() bool {

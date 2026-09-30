@@ -77,6 +77,7 @@ type Engine struct {
 	idleCh   chan struct{}         // closed when the last actor exits during shutdown
 
 	legacyTimer *time.Timer
+	hbrake      *time.Timer // a person's partition: the look at the halt while a coding agent works (harness_partition.go)
 	hold        holder
 
 	// A host's engine over team (hosted_engine.go): its own epoch key, the

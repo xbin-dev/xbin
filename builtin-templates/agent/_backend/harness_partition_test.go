@@ -63,8 +63,9 @@ func harnessPartition(t *testing.T) (*Agent, http.Handler, *sbxSandbox, *sbxTest
 }
 
 // harnessPartitionG is harnessPartition with the switch that makes the
-// manager hear the global instance instead (atGlobal).
-func harnessPartitionG(t *testing.T) (*Agent, http.Handler, *sbxSandbox, *sbxTestManager, *memKV, *atomic.Bool) {
+// manager hear the global instance instead (atGlobal), and the fake coding
+// agent's flags.
+func harnessPartitionG(t *testing.T, flags ...string) (*Agent, http.Handler, *sbxSandbox, *sbxTestManager, *memKV, *atomic.Bool) {
 	t.Helper()
 	setMode(t, modeUser, "alice")
 	kv := newMemKV()
@@ -82,7 +83,7 @@ func harnessPartitionG(t *testing.T) (*Agent, http.Handler, *sbxSandbox, *sbxTes
 	pidMu.Unlock()
 	global := &atomic.Bool{}
 	m := bindSbxWith(t, partitionManager("alice", alicePID, global), "apps/cs")["apps/cs"]
-	argv := acptest.Command()
+	argv := acptest.Command(flags...)
 	m.Harnesses = []fsbHarness{{ID: "fake", Title: "Fake agent (tests)", Argv: argv, Login: argv[0] + " acptest login"}}
 	box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Egress: "internet"})
 	if !homedHere(box) {
@@ -267,6 +268,15 @@ func TestHarnessUserWake(t *testing.T) {
 	if got := d.userWake(now); got.runnable || got.wake != 0 {
 		t.Fatalf("a stopped adapter: %+v", got)
 	}
+	// a prompt marked on its way to an adapter no successor attaches (gone)
+	// isn't work: it would bring the partition back every minute for good
+	// (a takeover ends its turn: TestHarnessSendingGone)
+	for _, st := range []string{hsStopped, hsLost, hsFailed} {
+		put(st, "sending", now)
+		if got := d.userWake(now); got.runnable || got.wake != 0 {
+			t.Fatalf("a prompt marked on its way to a %s adapter: %+v", st, got)
+		}
+	}
 	off := 0
 	cfg := defaultConfig()
 	cfg.HarnessIdleMin = &off
@@ -301,15 +311,14 @@ func TestHarnessBrakeInPartition(t *testing.T) {
 	}
 
 	// lifted: a new conversation's turn under way, then the halt again —
-	// a turn that says nothing is cancelled by its pass
+	// a turn that says nothing is reached all the same (brakeLook), no
+	// event and no poke needed
 	putConf(kv, "", cfg)
 	confIn.refresh()
 	quiet(t, ag)
 	stall := askIn(t, h, box, "stall")
 	hwait(t, "stalling", func() bool { return draftText(ag.eng, stall.ID) == "stalling" })
 	putConf(kv, "1", cfg)
-	confIn.refresh()
-	ag.eng.Poke(stall.ID)
 	waitStatus(t, ag.db, stall.ID, statusCanceled)
 	if r, _ := ag.db.getRun(stall.ID); !strings.Contains(r.Result, haltReason) {
 		t.Fatalf("the pass's cancel doesn't say why: %q", r.Result)

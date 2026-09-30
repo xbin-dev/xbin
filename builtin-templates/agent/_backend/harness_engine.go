@@ -94,10 +94,14 @@ type hsess struct {
 	newSess   bool              // spawned to open a new session (not session/load): its first mode is the adapter's own
 	steerOut  json.RawMessage   // the request id of the steer frame last put on stdin (harness_steer.go)
 	braked    bool              // a halt conf says is on was seen at an event (harness_partition.go brakeSoon)
+	work      uint64            // how many times it went to work (toWork): a rest after a turn's end checks it (harness_partition.go)
 
 	// rest: no turn at work — idle, or parked on a person. In a person's
-	// partition only a working session keeps the hold (harness_partition.go).
-	rest atomic.Bool
+	// partition only a working session keeps the hold, or one AgTT is
+	// signing in (signing: a sign-in it started, awaiting the adapter's
+	// answer) (harness_partition.go).
+	rest    atomic.Bool
+	signing atomic.Bool
 }
 
 // newHsess is a session of run at generation gen, started (or attached)
@@ -773,12 +777,14 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 			// and the wake-up it left came back for this reclaim
 			// (harness_partition.go) — due at its last activity plus the
 			// idle time, not a whole idle time from now
-			s.armIdleFrom(time.UnixMilli(hs.LastActiveMs))
+			s.armIdleFrom(time.UnixMilli(hs.LastActiveMs), nil)
 		} else {
 			s.armIdle()
 		}
 	case run.Status == statusWaiting:
-		s.setRest(true) // parked on a person: their answer moves it
+		s.toRest() // parked on a person: their answer moves it (harness_partition.go)
+	case userMode():
+		e.brakeLook() // a turn taken over mid-way: the halt looked at while it works (harness_partition.go)
 	}
 	return s, nil
 }

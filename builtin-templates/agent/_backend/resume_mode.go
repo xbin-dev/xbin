@@ -20,8 +20,9 @@
 //     agent's idle reclaim (its adapter up with no turn: last activity +
 //     harnessIdleMin, harness_partition.go) — as a 5-field cron (UTC);
 //   - nothing for runs waiting on a person (who opens the tile anyway),
-//     and nothing at all while a manager's halt is on (brake.go: its runs
-//     were cancelled; a parked one moves at the next start).
+//     and nothing while a manager's halt is on (brake.go: its runs were
+//     cancelled; a parked one moves at the next start) but a coding
+//     agent's idle reclaim — stopping an idle adapter moves no work.
 //     The next owner deletes both jobs at takeover.
 package main
 
@@ -41,6 +42,12 @@ func (ag *Agent) leaveWakeUp(d *DB) {
 		return
 	}
 	if brakeIdle() {
+		// nothing moves under the brake — but an idle coding agent is still
+		// stopped at its idle time: stopping one moves no work
+		// (harness_partition.go harnessIdleUnderBrake)
+		if at := d.harnessIdleWake(time.Now()); at > 0 {
+			ag.registerWakeJob(at)
+		}
 		return
 	}
 	switch at := d.userWake(time.Now()); {
