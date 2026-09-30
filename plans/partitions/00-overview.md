@@ -131,7 +131,9 @@ partition's own. That data is:
 - resources and vault values;
 - the backend log and tile report;
 - mail and bus traffic;
-- registration payloads and personal binds;
+- registration payloads and personal binds (exception, owner 2026-09-30:
+  workspace admins list and delete personal-bind *records* — person, slot,
+  provider — for hygiene, PD-54; never the data behind them);
 - agent-session transcripts and the terminal layer.
 
 The partition's own principals are:

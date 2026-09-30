@@ -6501,3 +6501,735 @@ Deviations and refinements made while implementing; all deliberate:
     doesn't parse (a conflicted merge abandoned with a replace would have
     opened a switch request); refusing the registry's non-exact-case keys
     (a manifest change in F1's area; matching them is additive).
+
+- **D148 — Partitioned tiles, F5: people's partitions' vaults,
+  registrations and records (2026-09-30).** Implements the vault,
+  registration and record halves of PD-20, PD-21, PD-26, PD-27 and PD-43,
+  and C5, S15, S19, C22 (plans/partitions/90-decisions.md; 03 §C-§E,
+  06 §8). Design: plans/partitions/03-runner-data-vault.md §C-§E;
+  docs/partitions.md §Vault and registrations.
+  - **Chosen.**
+    - **One directory per person's partition, beside the mode record.**
+      `data/partitions/<TileKey>/<dep>/<pkey>/` holds `partition.json` (the
+      identity record: tile, dep, user, uid, created, lastStarted, state
+      active|orphaned, reason, rebuilt) and the registration files
+      `cron.json`, `bus-subscriptions.json`, `iface-instances.json`,
+      `ingress-hosts.json` — schema 1, the deployment files' rows, plus the
+      tile and the partition the file belongs to, which every load checks.
+      The vault is `data/vault/.partitions/<TileKey>/<dep>/<pkey>.json`
+      (the global envelope plus tile, deployment and partition; 0600;
+      barrier-sealed; never bound into a sandbox). The record is written
+      before anything else of the partition lands (its first registration,
+      vault key or start — `PartitionEnv`, once per spawn, stamps
+      `lastStarted`), so a TileKey directory always names its tile for the
+      boot load. An older xbind never reads any of it, so it never fires a
+      person's job as the tile's; a backup of the tile carries global's
+      rows only (they never join today's maps: S15).
+    - **Which store a call reaches: the principal the partition gate
+      stamped.** A credential of the tile acting in a person's partition
+      (`auth.Principal.Partition`, the gate's stamp; an instance token's
+      own) reaches that partition's vault and registrations, always on the
+      primary; everyone else — admins, other tiles, the root token —
+      today's (global's). `?partition=` on a partitioned tile's vault, cron
+      and bus-subscription routes is 400 for everyone (the tile's recorded
+      mode has user partitions, or can't be read), ignored elsewhere (C22).
+    - **The liveness gate (PD-20) is asked at every tick, publish and
+      delivery, never cached**: the tile runs people's partitions (not
+      paused), is enabled, the deployment is the primary, and the person
+      exists, is enabled, can read the tile and has the directory's pkey
+      now (the same uid). A person who regains access resumes without
+      registering again; a recreated id (a new uid, a new pkey) never fires
+      the old incarnation's jobs.
+    - **Deliveries carry the partition** — `Principal{Component: xbin/cron
+      | xbin/bus, Partition: <the registration's>}` (F2's delivery
+      principals), which Route sends to that partition as a background
+      start (F3). A cron tick the runner defers (503 `partition start
+      deferred`) is retried with jitter (10–30 s, less near the next tick)
+      until the next tick is due; one still deferred is missed and counted
+      (`MissedTicks`). Caps (C5): 16 jobs, 16 subscriptions a partition,
+      no schedule more often than once a minute.
+    - **The bus.** `busSubs.publishStamped` takes the event's stamp and the
+      tile whose credential published it: global's reaches today's
+      subscriptions only; a person's (publishPartitionPushSeam) that
+      person's partition's, and may start it only when the publisher is the
+      subscriber's own tile (its backend, frames, terminals — the partition
+      runs its own code, 03 §D); an unstamped event (a shared bus, an
+      unpartitioned scope's) today's and every matching partition
+      subscription. A delivery that may not start its partition is queued
+      only while it runs (`partitionRunning`, the runner's side) — a
+      skipped one counts as `dormantDrops`. Only partition mail (F6)
+      cold-starts a partition from outside it.
+    - **A subscription to a partitioned scope's bus is a reach of that
+      scope by the partition (05 §1-§2, PD-13)**: `partSubReach` asks
+      `addressedPartition` for the partition's instance — on another tile's
+      scope, its person must read that scope's tile and, with
+      `partitionConsent` on, have consented (`partitionConsentHolds`, F10's).
+      Asked at registration (403), at every publish and at every delivery
+      (skipped: `dormantEvents`, the reason in `lastError`), never cached;
+      the row lists `dormant` meanwhile. The registration and each
+      delivery count one edge in the partition's egress ledger
+      (`reachPartition` → `partitionEdgeSeam`), as the data plane's reach
+      does.
+    - **Dormant registrations (PD-21)**: the partition gate's
+      GlobalOnlyDormant arm passes, stamped; `routeTarget` answers a
+      person's partition's own target, always dormant, and the stores write
+      its files (a NUL-joined target in routeTarget's deployment string, so
+      `netfn.go`/`ingressfn.go` stay untouched); `routesHidden` answers a
+      partition's terminator no routes.
+    - **Notify (PD-27)**: `notifier` gives a user partition's instance
+      token its person as `self` — the frame's rule; the global instance
+      keeps the backend's.
+    - **Identity records (PD-43, PD-26)**: `partitionAdoptUID` now adopts
+      the one uid a person's live `ns.json` **and** `partition.json` records
+      agree on, made after the second their users-store record was — one
+      rule, `adoptablePartitionUID`, which reads both; conflicting uids
+      adopt none. Boot's load of the registrations re-adopts at once for a
+      person whose uid an older xbind's rewrite of the users store dropped
+      (`readoptPartitionUID`: adopts or does nothing, never mints), so
+      their jobs fire without waiting for their next request.
+      `partition.json` keeps the crash metadata admins see (PD-24):
+      `lastExit`, `restarts` (exits the runner's crash watch saw, since the
+      record was made) and `crashLoop` (cleared by a start), written
+      through the runner's new `PartitionExit` hook, so they survive a
+      restart of xbind. The namespaces'
+      sweep also sweeps records: a missing `partition.json` is rebuilt from
+      `ns.json`; the orphaning events are the namespaces' (the users-store
+      delete hook through `PartitionUserDeleted`, an id held by someone new,
+      the tile gone — reclaimed when it returns); an orphan is deleted
+      30 days later (`partitionRetention`) with its registrations and vault,
+      never while its tile is paused. A new tile at a removed tile's path
+      drops the path's partitions' registrations (D85, as
+      `dropDormantAt` does the deployments'); their records and vaults are
+      leftovers of the path (`partitionLeftovers`).
+    - **Holds data and the switch's wipe** (01 §2.2, §2.6): three stores,
+      each with the wipe hook of its name — `partition-vault`,
+      `partition-registrations`, `partition-records` — deleting every
+      person's on `wipeEverything` (the broker's rows dropped first), none
+      on `wipeGlobal`/`wipeNone` (H1); the dry run counts vault keys,
+      registrations and people. The mode record stays (the switch writes
+      it next). The wipes and drops hold the stores' file locks (cron's,
+      the bus's, the dormant files', the vaults', the records'), and every
+      write of a person's registrations or vault is refused (409) under
+      that same lock while the tile is paused — the switch's hold included
+      — so nothing written during a switch brings a partition back.
+      "Holds data" counts vault files, never the empty levels a removal
+      leaves (and removals take those levels too). A vault written in
+      plain under `--insecure-vault` is sealed when the barrier is first
+      initialized, as the global ones are (`migratePartitionVaults`).
+  - **Not chosen:** partition rows in today's `data/cron-jobs.json` /
+    `bus-subscriptions.json` with an owner field (an older xbind would fire
+    them as the tile's; backups would carry them); a `?partition=` for
+    admins (PD-07: an admin never reaches a person's vault or
+    registrations); cold-starting a partition for a shared bus's events
+    (every shared publish would start every subscriber's partition);
+    storing `dormant` in `partition.json` (liveness is asked at every use,
+    PD-20); changing `routeTarget`'s signature (netfn.go is F15's file this
+    wave).
+- **D149 — Partitioned tiles, F7a: terminals and agent sessions
+  (2026-09-30).** Implements PD-09, PD-22 and the terminal half of PD-10
+  of plans/partitions/90-decisions.md; the design is
+  plans/partitions/06-terminals-ops.md §1-§3. docs/partitions.md
+  §Terminals and agent sessions, docs/protocol.md (§/ws/term,
+  `/term/sessions*`, `/agent/history`, `GET /status`, `GET /sandboxes`),
+  docs/overview/09-terminals.md.
+  - **Chosen.**
+    - **No token change; the broker answers the session's partition at
+      open.** `term.Manager` gains three hooks boot installs
+      (internal/boot/partitionterm.go): `SessionPartition` = the broker's
+      `TermPartition(p, path, dep)` (the owning tile via `Reg.Resolve` —
+      answered for an unpartitioned tile too, as `Tile` alone;
+      `addressedPartition` for the opener; the person's partition id from
+      `PartitionIdent`, which mints the uid at their first partition; a
+      non-primary target → `global`, PD-17; no person and no global →
+      `NoAPI`; a switch of the tile running → `term.ErrPartitionSwitching`,
+      409), `TilePartitioned` = `TermTilePartitioned` (recorded mode has
+      user, or unreadable), `PersonPartitionKey` (stored uid only, never
+      minted). `pickPartition` runs after `pickTarget` on both kinds (and in
+      the restart's probe, so a refusal leaves the session running). Nil
+      hooks: every session is today's.
+    - **What the session keeps** (`sessionPart`, fixed at start): its
+      owning tile (every session, partitioned or not — a switch's stop and
+      a mode change match sessions by it, so one opened on a sub-path of
+      the tile is the tile's); `XBIN_PARTITION` after
+      `XBIN_COMPONENT`/`XBIN_DEPLOYMENT` in both env paths; the start
+      directory `$HOME` for every session on a partitioned tile (the
+      agent's ACP cwd too; its `files.changed` snapshots still watch the
+      tile's work tree); the layer key `term-part/<TileKey>/<pkey>` (mapped
+      by `layerDir`; a tile's own key never holds `/`), so the one-holder
+      lock, VM disk, base stamp and reset are per person; the session
+      frame's `partition`, `partitionNote`, `api:false` (PD-10), the row's
+      `partition`. A session without a person keeps the tile's own layer.
+      On an xbind without `--isolate` the note says the host shell can read
+      every partition's data instead of promising separation (the session
+      still opens: the same person can read those files from any other
+      tile's host shell, so refusing here would hide nothing).
+    - **History by partition id**: `data/agent-history/.partitions/<pkey>/
+      <TileKey>/` (no user id starts with a dot), merged into the history
+      calls through `PersonPartitionKey`, so list, read, delete and resume
+      need no route change; a recreated person (new uid) reads none of it.
+      The calls take a `term.HistoryScope{Home, ViewAs}` (`HistoryOf(p)`):
+      an admin viewing as the person gets their own history only. `?cwd=`
+      narrows partition entries to that exact cwd, as own history is. A
+      resume stays in its store (`resumeHere`, 409): a partition's entry
+      continues only in its person's session on the partitioned tile, an
+      own entry only outside one, so a continuation never moves a
+      partition's transcript into history that outlives the partition.
+    - **Admins (PD-09)**: `adminPass` = admin and (own session, or the
+      session's tile not partitioned — at open *or now*, fail closed).
+      `mayReattach`, `MayDrive` (every drive route through `drive`/
+      `driveOther`, `GET /term/sessions/<id>` included) and the new
+      `MayRename` use it; the new `MayKill` keeps the admin pass (`DELETE
+      /term/sessions/<id>`; `DELETE /ws/term` keeps `CanTouch`). **View-as**
+      (a read-only principal: `UserID` the person, `Impersonator` the
+      admin, which `authed` lets through on every GET) is refused on every
+      session of a partitioned tile (`viewAsBarred` in `MayDrive` and
+      `mayReattach`, PD-08: view-as opens no partition). Names: a person's
+      sessions on a partitioned tile (`SessionInfo.Personal()` — in their
+      partition or in `global` on a non-primary target, both keyed by
+      their partition id) have `name` blanked in `?user=` rows, a view-as
+      listing, `GET /status` rows and the admin sandbox list. Events were
+      already F2's (`termEventVisible`).
+    - **The routes are converted**: the seven `POST /term/sessions*` rows
+      left `partitionUnconverted` — the handlers act on the caller's
+      person, whose session now opens in that person's partition with its
+      own layer.
+    - **The switch** (01 §2.5-§2.6): wipe hook `person-terminals`
+      (broker/partitionterm.go) on `wipeEverything` only: `stop` ends every
+      session of the tile and waits for their teardown (an agent's history
+      is saved then), `wipe` asks again (a session that won't end fails the
+      switch before anything of the terminals' goes) and deletes
+      `.xbin/term-part/<TileKey>/` (confined `removeLayer`, D78) and
+      `.partitions/*/<TileKey>/`; the dry run counts; the partition ids map
+      to people (`peopleOfPartitionKeys`), who are told. The terminal
+      manager reaches the broker through `SetPartitionTerminals`
+      (a `PartitionTerminals` interface, held per broker in a `sync.Map`, so
+      broker.go's struct is untouched). New sessions are refused while the
+      broker's switch hold is on.
+    - **No open slips between a stop and a wipe** (internal/term/
+      partitionhold.go): every open that passes `pickPartition` counts as
+      in flight until its session registers or the open fails
+      (`partOpened`), and a stop (`StopTileSessions`,
+      `StopPartitionSessions`) waits for the in-flight opens it matches as
+      it waits for teardowns. One partition's end holds the partition
+      (`HoldPartition(tile, pkey)`: its person's new sessions answer 409
+      `ErrPartitionEnding`, checked atomically with the in-flight count)
+      from before its stop until its wipe is done — `wipePersonTerminalsOf`
+      does, for F7b.
+    - **Mode changes without a switch** (an empty tile's manifest decides
+      at once): boot's `OnPartitionChange` hook, added after the runner's,
+      ends the tile's sessions whose partitioned-at-open flag differs from
+      the new recorded mode (`PartitionModeChanged`).
+    - **Base images**: `layers.List` walks `.xbin/term-part/<TK>/<pkey>`
+      (tree `term-part`, key `<TK>/<pkey>`, an unstamped one pinning the
+      legacy base like a tile's), so `Pinned` — and with it the boot's
+      base GC and the VM image GC — keeps every base a person layer was
+      built on. `vm.ListDisks` lists people's VM disks (kind
+      `person-terminal`, key the tile's `TileKey`; boot maps it to the
+      tile).
+  - **Not chosen:** a per-session partition claim in the terminal token
+    (the credential already decides, 02 §3); a term-side hold on the tile
+    during a switch (the broker's switch hold covers the whole act and
+    can't leak); counting layer bytes in the wipe summary (walking layers
+    of GBs on every dry run); `$HOME` only for people (the owner's global
+    session in the tile directory would invite shared-code writes too);
+    admin rename kept (it is not kill, the one act PD-09 keeps); refusing
+    people's terminals on a partitioned tile without `--isolate` (hides
+    nothing, see above); holding each person-layer key (`holdLayer`) for a
+    partition's end instead of a partition hold (it keeps the layer from
+    being mounted but not a new agent session's history from being
+    written into the wiped partition); person layers in the boot's
+    base-image gate (`CheckBaseImages` stays on `.xbin/term`: one person's
+    layer on a missing base refuses that person's session with the reset
+    hint rather than the whole boot, and the GC no longer releases their
+    bases).
+- **D150 — Partitioned tiles, F9: a user partition addresses its own
+  global instance, as its person (2026-09-30).** Implements the same-tile
+  path of PD-16 and S3 of plans/partitions/90-decisions.md; the design is
+  plans/partitions/05-fabric-edges-global.md §6 and 02 §4 (rule 2's
+  exception), §6. docs/partitions.md, docs/protocol.md, docs/auth.md.
+  - **Chosen.**
+    - **The proxy consumes, the broker decides.** The proxy
+      (`internal/proxy/globaladdress.go`) takes `?xbin-partition` off the
+      request only when the target's recorded mode has user partitions or
+      can't be read (then F1's 409 gate holds it), and asks a second
+      routing function, `Proxy.RouteGlobal` = `Broker.RouteGlobal`,
+      installed by boot beside `Route`. Public ingress to a partitioned
+      tile drops it too (`ingressQuery`; ingress reaches global anyway).
+      Every other target is untouched: the parameter reaches its backend
+      as before (10 §A.6, "consumed for partitioned targets only";
+      TestNoPartitionGolden and TestZeroStateRoute unchanged). A separate
+      function rather than a new `Route` argument keeps `Route`'s
+      signature, boot's converter and every existing Route caller as they
+      are.
+    - **RouteGlobal = Route's deployment rules, then rule 2's exception**
+      (`internal/broker/partitionglobal.go`, its own function, apart from
+      routePartition's rule 4): deliveries (02 §5: no person drives them)
+      and other tiles are refused before any rule runs; the deployment rules
+      apply unchanged (a qualifier, write on a non-primary deployment,
+      grants for people); a non-primary deployment and every credential
+      without a person (the global instance, the owner token's frames and
+      terminals, the root token) get routePartition's own answer — global
+      already, a no-op; a person is taken from xbind state only — a user
+      partition's instance token's registration, or the frame's, terminal's,
+      agent session's or session's person (view-as: the viewed one) —
+      checked live (PD-20: exists, enabled, reads the tile); then 404
+      `util.ErrNoGlobalInstance` without `global`; else `Partition: global`,
+      `CallerPartition: user:<id>` with its pkey, and for the tile's own
+      credentials `Attribute{person, live level, role}`.
+    - **The clamp:** `reader` for read, `writer` for write and terminal,
+      never `admin` (S3's "never the self-call's admin"; terminal can
+      already change the code, but admin at global reads as the tile itself
+      to code such as the agent's `principal`). The level is read from the
+      users store per call, so a level change or losing read applies to the
+      next call.
+    - **View-as is `reader`** at global, whatever the viewed person's
+      level: the read-only gate refuses only non-GET methods, and a
+      WebSocket upgrade is a GET.
+    - **An admin calling directly keeps their own role** (rule 3) and gets
+      no Attribute: identify already names them, and the clamp is about the
+      tile's code acting for a person (S3's "never the self-call's admin"),
+      not about people. Rule 4 grants a person nothing on `/api/<tile>/` by
+      themselves (`grantedRole("", t)`), so every other person in person is
+      refused with or without the parameter (`403 user:<id> is not granted
+      access to <t>`), as today; their way in is the tile's frame.
+    - **Path tickets** are marked on the request context by the server
+      (`auth.WithPathTicket` in `servePathTicket`; `auth.ViaPathTicket`) —
+      a ticket's principal is indistinguishable from its page's frame — and
+      the proxy refuses them F5 (403) before RouteGlobal.
+    - **Statuses:** `denyStatus` maps Route/RouteGlobal refusals — 404 for
+      `util.ErrNoDeployment` and the new `util.ErrNoGlobalInstance`
+      (`<tile> has no global instance`), 400 for a malformed parameter
+      (any value but exactly one `global`, an empty one and a repeat
+      included), 403 otherwise — the same order of gates as before.
+    - **`global-address/1`** is `broker.GlobalAddressFeature`, a constant
+      for the features list of `GET /api/xbin/partitions` (06 §6), which
+      isn't mounted yet (F7b).
+  - **Not chosen:** stripping the parameter on unpartitioned targets (a
+    behaviour change for every existing tile, against compat rule 8 and the
+    zero-state goldens); attributing (clamping) an admin's own direct calls
+    (they hold admin on every tile, rule 3; clamped, the global instance's
+    admin surface would answer only the owner token's credentials); opening F5 to readers
+    in person (a new direct-call grant, wider than today's rule 4); a
+    principal field for path tickets (a new field needs the tilesbx
+    principal review and travels everywhere; the context marker reaches
+    only the proxy); 404 before the person's liveness check (a person who
+    can't read the tile learns nothing about it); passing the parameter
+    through on ingress (a global instance would then see it from the
+    public, against "the backend never sees it").
+- **D151 — Partitioned tiles, F10: cross-tile edges — the person's
+  read, consent by workspace policy, the egress ledger (2026-09-30).**
+  Implements PD-12, PD-13 (decided: the grant plus the person's read;
+  consent a workspace policy, off by default), PD-14 and PD-46 of
+  plans/partitions/90-decisions.md; the design is 05 §1-§2 and 06 §6.1.
+  - **Chosen.**
+    - **The read check stays addressedPartition's** (F2): Route rule 4 and
+      the data plane's cross-scope reach both ask it, so one rule decides
+      calls, data and events. F10 adds the consent records it asks for and
+      the tests of the whole matrix (`TestPartitionEdgeMatrix`, on the
+      real identity plane).
+    - **Shared resources need no consent.** A resource declared `"shared":
+      true | "read"` is one copy at today's keys, no person's data:
+      another tile's user partition reaches it on the grant and the
+      person's read access on the scope (`reachPartition` settles it
+      before the consent is asked), read-only when `"read"`. The policy
+      never changes a shared reach, and the prompts, the approval warning,
+      `/partitions/edges` and the ledger leave shared resources out alike.
+    - **Consent records** (`internal/broker/partitionconsent.go`;
+      `partitionConsentHolds` = `consentOrAsk`, filled in
+      partitionwire.go): `data/partitions/consents/<uid>.json` `{schema: 1,
+      user, uid, edges: {"<Z>→<X>": {at, via}}}`, read by the person's
+      stored uid (never minted on a check), re-read when the file's size or
+      mtime changes. A file this xbind can't read counts as no consent, is
+      never written over, is named on `/alerts` (kind
+      `partition-consents`, admins) and answers its person's POST/DELETE
+      409. Written only by `POST /partitions/consents` (PersonOnly; the
+      policy on, else 409; both tiles partitioned — 409 —, existing — 404
+      — and readable by the person — 403; a path holding `→` 400, so every
+      key splits at its one arrow), removed by `DELETE` in either setting
+      (its answer says `revoked`). Audited; `partitions` op `consent` to
+      the person's own sockets.
+    - **Prompts:** a refused edge publishes `partitions` op
+      `consent-needed {from, to}` and pushes (kind
+      `tile.partition-consent`, link `xbin/partitions`, collapse
+      `partition-consent:<from>→<to>`) — at most once a day per person and
+      edge, only when the caller holds a grant reaching the callee's
+      people's data (`edgeGranted`, through `resolveTarget`), and on its
+      own goroutine: addressedPartition can run inside the event hub's
+      filter, whose lock Publish holds. Both consent ops carry data that
+      says `PersonOnly()` (`personEvent`): the server's
+      `partitionEventFor` passes them to the person's own sockets only,
+      never the callee's frames, terminals or instances. `GET
+      /partitions/consents` lists the edges asked about in the last day
+      (`asked`).
+    - **Revocation:** the next call and reach ask the file again, and the
+      caller tile's backend instance of the person is stopped
+      (`SetPartitionEdgeStop` = `runner.StopPartition`, wired in boot). No
+      volume of another scope is ever bound into a partition (EnvFor hands
+      no cross-scope file resource).
+    - **A consent names tiles by path, so it goes with them:** the
+      `consents` wipe hook on a switch that deletes everything, and
+      `PartitionTileChanged` (boot: `Registry.OnPartitionChange`) when a
+      partitioned tile goes (deleted, moved: its mode now the zero one) —
+      a new tile at the path never inherits what people allowed the old
+      code.
+    - **The ledger** (`internal/broker/partitionledger.go`;
+      `partitionEdgeSeam` = `ledgerEdge`, filled in partitionwire.go): per
+      user partition and day, kinds `edge` (a Route call or an authorized
+      data reach into the same person's partition of another partitioned
+      tile), `provider` (a Route call from a user partition to a tile that
+      isn't partitioned — global binds, grants and personal binds alike —
+      or to a partitioned tile's deployment beyond its primary, target
+      `<tile>+<dep>`: its one global instance, `ledgerTarget`), and
+      `bus`/`trigger` for the planes that register those (`ledgerCount`).
+      File `data/partitions/<TileKey>/<dep>/<pkey>/ledger.json` (dep = the
+      tile's primary, PD-17), `{schema: 1, tile, dep, user, uid, days:
+      {day: {kind: {target: n}}}}`, 90 days. Counted in memory under one
+      lock that covers the counts only: files are read, and snapshots
+      written, outside it (per-ledger write order, never over a newer
+      snapshot, never after a switch's wipe took the ledger). Saved when a
+      day gains a row, at most once a minute otherwise (an idle ledger's
+      counts at the next sweep), and on `Broker.Close`; a saved ledger idle
+      for 10 minutes leaves memory. Nothing counted while the tile's switch
+      runs. Rows of a person's former incarnation are never shown (the
+      uid).
+    - **Who reads it (PD-46):** `GET /partitions/ledger` (PersonOnly):
+      `rows` — the person's own; with `?tile=`, `totals` for the tile's
+      writers, managers and admins — for all but admins every personal
+      tile's target is `(a personal tile)`, merged, so a total never names
+      a person; `people` — per-person totals — for admins. `GET
+      /partitions/edges` (admin): the edges between partitioned tiles,
+      granted now or counted in the window, with `people`, `calls` and
+      `consented` — the Policies tab's turn-on confirmation and `bx
+      doctor`.
+    - **The approval warning (S1), both settings:** `PendingGrant.Warning`
+      on `GET /grants` (and the admin overview's pending rows) for a
+      partitioned tile's request on another partitioned tile or one of its
+      per-partition resources (not a shared one): "Z's code — and everyone
+      who can change it — will be able to read and write the X data of
+      every person who can read X" (policy off) / "… of every person who
+      allows it" (on). Shown where grants are approved: the grants element
+      (`web/bx-grants.js`), the admin console's binding → grants view, the
+      organisations tile's pending approvals, and `bx grants`.
+    - **Wipe hooks** (01 §2.6): `consents` (every consent naming the tile,
+      as caller or callee) and `ledgers` (the tile's people's ledgers,
+      counted and on disk), on a switch that deletes everything only.
+      Metadata hooks (`wipeHook.meta`): they run after every data store's,
+      whatever the order of registration, so a data store's failure leaves
+      them whole. A dry run deletes and counts nothing but checks what the
+      real one would: a consent file this xbind can't read fails the switch
+      — dry run included — only when its bytes may name the tile
+      (`namesTile`); an unrelated person's never blocks one. Neither is a
+      "holds data" store: 01 §2.2 names neither.
+    - **Route classes:** `GET/POST/DELETE /partitions/consents` and `GET
+      /partitions/ledger` PersonOnly (the first real PersonOnly rows);
+      `GET /partitions/edges` GlobalOnlyRefused; all five PrimaryOnly in
+      the deployments table (tile credentials never reach them).
+    - **CLI:** `bx partition consent <from> <to> [--revoke]`, `consent
+      ls`, `ledger [<tile>] [--days n]` (exit 6 against an older xbind,
+      naming the route it lacks); `--revoke` says when there was nothing
+      to take back; `bx doctor` lists the granted edges for review and
+      prints nothing when there are none.
+    - **UI:** the admin Policies tab's partitionConsent confirmation lists
+      each edge with its people and consents (nothing against an older
+      xbind); the approval warning in the admin console and the
+      organisations tile. The `adminPolicies` harness pass seeds a real
+      edge (three partitioned org:devs tiles, one approved grant, one
+      pending) and asserts the preview, both warnings, and a stubbed answer
+      with totals.
+  - **Not chosen:** counting a data reach at `reachRes` (before the grant
+    is checked: a tile without the grant inflated the ledger — moved to
+    `allowAt`); prompting for edges no grant allows (tile code could make
+    people consent ahead of an admin's approval); prompting synchronously
+    (a filter-side refusal would deadlock the hub); writing the ledger per
+    call (a busy edge would fsync per request); making consents or ledgers
+    "holds data" stores (01 §2.2); stopping every running instance when
+    the policy turns on (calls are refused from the next one; see open
+    ends); asking consent for shared resources (they aren't a person's
+    data, and the warning, prompts and preview couldn't show them — turning
+    the policy on would silently break such tiles); dropping the person's
+    read check for shared resources too (their partition of Z would show
+    data of a tile the person can't open; the policy never changes it, so
+    nothing is silently broken); failing a switch on any consent file this
+    xbind can't read (one stray file would block every switch); a stable
+    tile identity in each consent (none exists across delete and re-create
+    by the owner; the registry's change hook drops them instead).
+- **D152 — Partitioned tiles, F15: bind types — global binds under
+  today's authority, personal binds in xbind state (2026-09-30).**
+  Implements PD-16 and PD-54 of plans/partitions/90-decisions.md (owner
+  ruling 2026-09-29: today's bind authority, partitioned or not); the
+  design is plans/partitions/05-fabric-edges-global.md §3.
+  - **Chosen.**
+    - **Global binds are today's.** `apiBindingSet`, the delegated paths
+      (D26/D33 org admins, D88 personal owners) and `grantMutation` are
+      unchanged for a partitioned requester: the people who can bind a
+      provider into every partition could change the shared tile's code
+      anyway (PD-23) — except a provider org's admin (D33), flagged for
+      the owner below. The one addition is a bind-time refusal (05 §1): a
+      **new** ref of an **unpartitioned** requester's http slot to a tile
+      whose recorded mode has user partitions and **no global** instance is
+      409 (`bindConflict`; Route would refuse every call). A ref the slot
+      already holds is not judged again, so a multi slot holding a ref to a
+      tile that later partitioned stays editable (never break users). The
+      bind options mark such a provider `blocked` ("partitioned, no global
+      instance"), so pickers grey it out instead of ending in the 409.
+    - **Personal binds are xbind state keyed by uid.**
+      `data/partitions/binds/<uid>.json` = `{schema: 1, user, uid, binds:
+      [{id, requester, slot, provider, at}]}` (0600, atomic writes). A
+      person's record is read only through their **stored** uid (never
+      minted on a read). A record whose uid isn't its person's stored one —
+      a deleted person's, or an earlier incarnation's — is **dead**: it
+      applies to no one, is never listed, holds no tile's data, is neither
+      counted nor named by a switch (its rows still go in the wipe) and
+      matches no delete, a person's or an admin's (PD-43: a recreated id
+      inherits nothing, not even a view of its predecessor's rows). Older
+      binaries never read the records (PD-46).
+    - **Who creates one.** `POST /partitions/binds` is **PersonOnly** (the
+      partition class): a person's own session, app or device — never a
+      tile principal, view-as or the root token — and **never an admin**
+      (PD-54: an admin's bind is always global, even of a tile they own
+      personally; 403 pointing at `POST /bindings`). The handler checks, in
+      this order so that existence is never told to someone who may not
+      know it: the caller owns the provider (`Owner(provider) ==
+      user:<id>`, 403), then it exists (404); the caller can read the
+      requester (`personLive`, 403), then it exists (404); the requester is
+      partitioned and neither paused nor mid-switch, the slot is a multi
+      http slot, the provider isn't partitioned and provides the slot's
+      service as a plain provider (no `#instance`, v1), and isn't already
+      bound on the slot for everyone (409); the ceiling allows the edge
+      (403). The checks and the write run under the personal binds' lock,
+      so a switch's wipe or a transfer can't land between them. The uid is
+      minted at the person's first bind.
+    - **Seen by one partition.** F4's `partitionIfaceEnvSeam` appends the
+      person's live binds to each multi slot's `XBIN_IFACE_<SLOT>` JSON as
+      `{provider, url, service, personal: true}` after the global rows
+      (user partitions on the primary only; the global instance's env never
+      goes through the seam). The document meta: the server asks an
+      optional `PartitionInterfacesPolicy` (`docInterfaces`, the only
+      static.go change) for a partitioned tile's primary document viewed in
+      a person's own user partition (as `partitionHead` resolves it); every
+      other document — a non-primary deployment's included — gets
+      `Interfaces` exactly. `IfaceEndpoint.Personal` (omitempty) marks the
+      rows.
+    - **The call filter is live.** F2's `personalBindGrant` is
+      `personalBindRole(from, callerPart, target)`: for a user partition
+      only, its person's live record, a bind of `from` to `target` that
+      still holds (`personalBindCheck`: requester partitioned, multi http
+      slot, provider owned by the person, unpartitioned, providing the
+      service, ceiling), granting that provide's role (first by slot).
+      Route asks it only after `resolveTarget`'s `grantedRole` refused
+      (`NotGrantedError`) a user partition's cross-tile call, so
+      resolveTarget stays the single evaluation point
+      (`TestEdgePolicyCallers`); together they are 05 §3's
+      `grantedRoleIn`. Every other caller — another person's partition,
+      the global instance, an unpartitioned tile, a guessed URL — keeps
+      today's refusal, byte for byte.
+    - **One partition restarts.** A create or delete restarts only that
+      person's partition instance of the requester (`SetPartitionRestart` ←
+      `Runner.StopPartition`, boot; the next request starts it with the new
+      env; `TestPersonalBindRestartWired` guards the wiring) and publishes
+      `grants` for the requester stamped with the person's partition, so
+      only their sockets and frames reload.
+    - **Lifecycle.** A provider transfer drops the rows of people who no
+      longer own it and restarts their partitions
+      (`executeTransferEffects` → `personalBindsProviderMoved`); a deleted
+      person's record goes through `PersonalBindsUserDeleted(userID, uid)`
+      (the users store's delete hook); a tile created at a bind's
+      requester's or provider's path (`assignOwner`, whoever creates it)
+      drops those binds — a person's consent names the removed tile, never
+      the new one (D82's spirit; an admin skips `pathLeftovers`); the store
+      `personal-binds` makes a tile with live personal binds hold data
+      (01 §2.2) and its wipe hook removes them on a switch between user
+      partitions and unpartitioned, counted with the registrations and
+      naming their people — adding or removing `global` keeps them (H1).
+    - **Admins list and remove, never create.** `GET` answers a person's
+      own rows, or every living person's for an admin (an admin person,
+      the root token, or a tile holding `xbin:admin` — the admin console),
+      each with `live`/`why`; `DELETE {id}` or `{requester, slot,
+      provider[, user]}` by the person or an admin. The admin console's
+      wiring view labels a partitioned tile's bindings *global* and lists
+      its personal binds with a remove button.
+  - **Rejected.**
+    - Refusing the delegated paths (org admins, personal owners) for a
+      partitioned requester (the plan's rev. 2): the owner ruled today's
+      authority.
+    - An admin's personal bind of a tile they own (the first F15 cut read
+      PD-54's "never create" as "never for someone else"): PD-54 says
+      never; an admin binds globally.
+    - A `grantedRoleIn` replacing `grantedRole` inside resolveTarget: it
+      would give the edge policy a second evaluation point; the personal
+      half rides F2's seam instead.
+    - Personal binds in the workspace manifest (PD-54: a person's wiring is
+      their metadata; older binaries would read it as global).
+    - Judging every ref of a slot on each edit (the 409 on refs bound
+      before their provider partitioned would block unrelated edits).
+    - Listing a removed requester's personal binds among `pathLeftovers`
+      (D82's refusal list): a removed partitioned tile already leaves its
+      mode record there, and admins skip the list; dropping the binds when
+      a tile takes the path covers everyone.
+- **D153 — Partitioned tiles, F14: the shell's marker (design A)
+  and the pending card's Keep / Switch (2026-09-30).** Implements PD-53 as
+  the owner ruled it (H2: A, the teal half-split disc), the shell half of
+  PD-47's scaffold surfaces and 06 §12.3's card overlay, deciding through
+  F13a's route (D145). Design: plans/partitions/06-terminals-ops.md
+  §12.2-§12.3, 01 §2.4, §2.8; docs/partitions.md.
+  - **Chosen.**
+    - **One lit-free module owns the words and the decision**
+      (`workspace-template/shell/partition-mode.js`): what a row's
+      `partition` reads as (`partitionView`: state, recorded mode,
+      request, pending, declined, note), the marker's tooltip, the pending
+      card's text (the `/alerts` `partition-switch` message of the same
+      R → Q — xbind's words, as the banner shows them, without its
+      `bx partition switch|keep` hint — else the same facts from the row),
+      who decides (from the row's `owner`, as xbind's in-frame page says
+      it), the POST bodies (from/to exactly as the row showed them,
+      `null` for unpartitioned, so a changed request is xbind's 409, never
+      a blind decision), the typed confirmation's `<bx-dialog>` spec from
+      the dry run's answer, what the dialog's answer asks for, which
+      refusals close it, and the answers after a decision (xbind's
+      `deletes`, `eraseError` and `archiver`, as `bx` prints them).
+      `hack/partition-mode.test.mjs` runs it in node; the registry's
+      `TestShellSwitchWords` pins its switch words and mode names to
+      `registry.SwitchDeletes` / `PartitionSpec.String`.
+    - **The marker follows R, not the request**: shown whenever the
+      recorded mode has user partitions (partitioned, pending, invalid
+      alike) — a pending switch doesn't change it (06 §12.2). An 8px SVG
+      ring with its left half filled, `role="img"`, the tooltip as
+      `title` and `aria-label`, `cursor: default`, no border, no hover
+      rule. `shell-kit.js partitionMark(c)` returns `null` for every other
+      row, so the head falls back to the runtime dot and the row draws
+      nothing (an xbind without partitions, a tile that never asked).
+    - **A window on another deployment has no marker** (01 §2.8: a
+      non-primary deployment never runs people's partitions; its one
+      instance is its writers' shared one, `global` when its code asks):
+      the runtime dot, and beside the `+name` tag a `shared` chip whose
+      tooltip says so. The sidebar row (the tile) keeps its marker.
+    - **The hue**: `--bx-part-c: var(--bx-part, #3fb5a3)` on the elements'
+      hosts, and, where `light-dark()` is supported, `var(--bx-part,
+      light-dark(#1f8778, #3fb5a3))` — the workspace theme is dark
+      (`color-scheme: dark`), a theme that makes the page light gets the
+      deeper teal (≥3:1 on white). No token is added to `theme.css`
+      (setting it there would pin the dark value for every scheme).
+    - **The overlay** (`bx-canvas.js _partOverlay`) sits over the card
+      body only — the head stays live (menu, terminal, close, drag) — and
+      only on a window showing the primary (another deployment isn't
+      paused). It shows the request's words, the tile's `partitionNote`
+      attributed to it ("<t> says: …", from the row's new `partition.note`
+      — the box covers the in-frame page's copy of it), and either the
+      buttons, for the viewer `canAdminTile` passes (the ⚙ rule: workspace
+      admin, the tile's user owner, an admin of its owning org — the same
+      set as `mayManageTile`), or who decides. xbind still judges every
+      call (a view-as session, a race: the refusal shows in the card).
+      Calls are the person's raw `fetch` (the shell tile's `xbin.fetch`
+      would be a tile principal, which never decides). Keep posts at once.
+      Switch… posts the dry run first, then opens the typed confirmation
+      (with the note; a switch that deletes nothing — `"global"` comes —
+      shows no counts, says "Nothing is deleted", and its button isn't a
+      danger one); a wrong path, or the C12 "Switch anyway" box unticked
+      while the dry run named sandbox managers that lack `partitions`,
+      re-asks in the dialog without a call; the managers' 409 and a 500
+      part-way failure re-open the dialog with xbind's error and the typed
+      path kept; any other 409 (the request changed or was decided
+      meanwhile, a switch already runs, the data went but the mode wasn't
+      recorded) closes it, shows the error on the card and reloads.
+    - **A card's decision state lives while its request is pending**:
+      kept under the request's R → Q, pruned whenever `/components`
+      changes and the row no longer shows that request pending
+      (`pruneDecisions`: decided, withdrawn, changed, gone), and never set
+      once it doesn't — so a request that closes and reopens with the same
+      R → Q (keep, withdraw, ask again) shows the buttons again, not the
+      last answer. After a decision the shell reloads `/components` and
+      `/alerts` at once (F13a's `reload` event does it too).
+    - **A row's `partition.note`** (the one wire change): the code's
+      `partitionNote`, trimmed, only while the request is pending — what
+      the in-frame switch page shows, so a client that draws over the
+      frame can show it too; sandbox-authored, so a client shows it as
+      text, attributed to the tile. Absent otherwise: every other row is
+      byte-identical.
+  - **Not chosen:** a second "partition chip" element beside the marker
+    on the primary's window (design A's case is "no new element in the
+    head"); the shell's own `_dialogs` stack for the confirmation
+    (bx-shell.js sits at its size budget; bx-canvas renders its
+    `<bx-dialog>` beside its ⇈ menu — the backdrop still covers the whole
+    page); Switch… on a *declined* tile (06 §12.3 asks for the overlay on
+    pending tiles; `bx`, the admin section and `/xbin/partitions` offer
+    it); a light theme in `theme.css`; keying a card's state by a request
+    identity on the wire (`request.since`) — pruning on the row does it
+    without a wire change; anchoring the box away from the in-frame note
+    instead of showing the note (a short card would still cover it).
+- **D154 — Partitioned tiles, the I1 smoke slice (run as "S1"): an
+  end-to-end smoke on a real isolated xbind; a switch mounts the tile's own
+  volumes again (2026-09-30).**
+  - **What it smokes:**
+    - 00 §3's guarantees G1 (no route hands one person's partition data to
+      another) and G2 (an admin reaches their own partition, never a
+      person's; PD-08 view-as).
+    - 02 §2-§4 and §10: routing, rule 2 (self-calls), rule 4 (a
+      partitioned tile's call to another reaches the same person's
+      partition, PD-13), the identify headers, `XBIN_PARTITION`, the
+      document meta, and instance tokens bound to their generation and the
+      person's uid.
+    - 03 §A.4-§A.6: per-partition logs, PD-18 caps, the idle stop.
+    - 03 §B: namespaces, `shared`, `"read"`, PD-17 (people's partitions on
+      the primary only) and §B.9 (no seeding between partitions).
+    - 03 §E: a person deleted and created again gets a new uid and a fresh
+      partition.
+    - 05 §5: ingress and other tiles reach global.
+    - 01 §2.3-§2.6: auto, pending, keep, switch, the wipe.
+  - **Tests:** `test/isolated/partitions_smoke_test.go` (dev box only: it
+    skips in CI, which has no rootfs) and
+    `internal/broker/partitionswitch_remount_test.go` (CI).
+  - **Chosen.**
+    - **One fixture: four tiles, five people.** Every tile runs one Go
+      probe over the SDK.
+      - The probe echoes `XBIN_PARTITION`, `xbin.Partition()`,
+        `xbin.PartitionUser()`, `xbin.Caller(r)`, its instance token and a
+        boot id per process.
+      - It reads, writes and lists a per-partition kv (`kv`), a shared kv
+        (`board`, `"shared": true`), a per-partition filesystem (`files`)
+        and a read-shared filesystem (`pub`, `"shared": "read"`).
+      - It logs each value it stores, returns its sandbox's
+        `/proc/self/mountinfo`, and relays a call through `xbin.Client`.
+      - The tiles: `apps/pt` (`["user", "global"]`, with a
+        `partitionNote`); `apps/pt2` (`["user"]`, granted writer on
+        `apps/pt`); `apps/pcall` (unpartitioned, granted writer on
+        `apps/pt`); `apps/plain` (unpartitioned, holds data, later asks to
+        partition).
+      - The people: alice, bob and dave are users who read `apps/*`; carol
+        and erin are workspace admins; the owner token is the fifth
+        credential.
+    - **Data is named after whoever stored it.** alice stores
+      `alice-secret`, `alice-note`, and a key and a file named `alice-only`;
+      global stores `global-only`. So any leak shows by name, and each
+      listing is checked for its exact contents.
+    - **Every attempt has an exact answer.** A route that reaches a person
+      returns that person's own value, and never global's. A route that
+      reaches global returns global's value. A refusal must have its status
+      and its reason. The only enumerated answers are the
+      `?xbin-partition=` rows, which accept today's answer or F9's (see the
+      notes).
+    - **People reach a tile's API through its frame**, as a browser does. A
+      user's own session is no API principal of a tile unless they are an
+      admin.
+    - **The fix: a switch mounts main's volumes again, on every way out.**
+      F13a's switch wipes main's namespace (user ↔ unpartitioned, or
+      removing `"global"`), which unmounts and removes the tile's volumes at
+      today's keys. Only `MountEncrypted` mounts main's volumes (at
+      provision, unseal, a `cap:containers` change, a restore). So the
+      instance at today's keys stayed held until xbind restarted or the
+      workspace next changed. That instance is the unpartitioned one, or
+      global; a person's shared volumes live there too.
+      - `runSwitch` now defers `MountEncrypted` right before the wipe hooks
+        run, when the switch owns main's data and deletes some of it.
+      - So a wipe that stops part-way (500) and a decision that isn't
+        recorded (409) remount too, still under the namespace holds.
+    - **The idle stop runs only on request** (`XBIN_SMOKE_REAP=1`,
+      `TestPartitionsSmokeReap`). `partitionIdleReap` is a 10-minute
+      constant with no knob, and a knob would be new daemon surface for a
+      test, so the case waits it out (≈ 11 min).
+  - **Not chosen:**
+    - An env knob for the idle stop: new surface, and the runner's unit
+      test already drives the clock.
+    - Running under `test/` without isolation: people's partitions answer
+      503 there (PD-19).
+    - Building a rootfs in CI to run the smoke there: the CI budget. The
+      unit test carries the fix instead.

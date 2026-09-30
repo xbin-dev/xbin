@@ -376,7 +376,14 @@ file and the split are named under "Merge contention".
   the overlay on a pending tile: Keep → runs, Switch → typed confirmation);
   the old-shell pass unchanged.
 
-### F14b — Shell: consent prompts (06 §12.3) — S ∥
+### F14b — Shell: consent prompts and the partition chip (06 §12.3) — S ∥
+- **The partition chip (owner, 90 §I3):** a chip on every partitioned
+  tile's window head, beside the marker, saying whose partition the window
+  shows — `yours` (the viewer's own user partition), `shared` (a
+  non-primary deployment's one instance) or `global` (a window addressing
+  the global instance) — with a tooltip; `bx-canvas.js _cardTemplate`, the
+  marker's hue, quiet (not a button); the `partitionMark` harness pass
+  extended.
 - Files: `workspace-template/shell/partition-mode.js` (the prompt's words
   and bodies, beside the card overlay's; `hack/partition-mode.test.mjs`),
   `bx-canvas.js` or `bx-shell.js` (a prompt when a partitioned tile's call

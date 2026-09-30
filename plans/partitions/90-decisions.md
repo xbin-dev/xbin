@@ -614,6 +614,18 @@ questions they raised.
 - **Grant rule (PD-54): today's bind authority**, not a new admin-only rule
   — see PD-54.
 
+## I. Questions raised while building — answered (owner, 2026-09-30)
+
+- **I1 — personal binds and G1:** admins **list and delete** other people's
+  personal-bind records (PD-54 as built, D152); 00 §3's G1 names the
+  exception. Never the data behind a bind.
+- **I2 — D33 on partitioned requesters:** keep **today's bind authority**
+  — a provider org's admin may bind their provider into a partitioned
+  consumer's slot, as on any tile; the trust panel lists the bind.
+- **I3 — the partition chip (06 §12.3):** a chip on **every** partitioned
+  tile's window saying whose partition it shows (`yours` / `shared` /
+  `global`), beside F14's marker (D153); built with F14b.
+
 The questions as they were raised:
 
 
