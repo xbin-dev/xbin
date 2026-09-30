@@ -75,7 +75,7 @@ export const IMPLEMENTS = {
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
   'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; ＋ New and Manage… push the Sandboxes screens)',
-  'composer.agent': 'native/harness-start.js — the Who answers picker in the home toolbar (an unavailable one is marked; picking it says why); native/classes.js and native/home.js hide the Class and Model pickers',
+  'composer.agent': 'native/harness-start.js — the Who answers picker at the top of the home page (homeSetupTpl — a phone\'s home bar holds the class, model and sandbox pickers; an unavailable one is marked; picking it says why); native/classes.js and native/home.js hide the Class and Model pickers',
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
   'composer.heldAsk': 'native/chat.js — at home the composer uploads into the new ask\'s draft (app.uploadTarget: PUT /ask/upload?draft=); model/app.js — send sends the draft (POST /ask {draft, files})',
@@ -94,7 +94,7 @@ export const IMPLEMENTS = {
   'top.model': 'native/chat.js — ✦ in the subtitle',
   'top.task': 'native/chat.js — runMenu Task (rules.topBar task) → native/tools.js taskTpl: every request, read-only (actions.asks)',
   'top.sandbox': 'native/chat.js — ▣ in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
-  'top.harness': 'native/harness-start.js — a badge in the toolbar (model/harness-start.js topChip)',
+  'top.harness': 'native/harness-start.js — first in the subtitle (the subtitle seam; model/harness-start.js topChip): a badge beside Mode and Model pushed More off a phone\'s bar',
   'top.status': 'native/chat.js — the subtitle',
   'top.viewOnly': 'native/chat.js — the subtitle',
   'top.retry': 'native/chat.js — runMenu and the composer\'s Retry chip',
@@ -196,8 +196,8 @@ export const IMPLEMENTS = {
   'harness.tool.output': 'native/harness-cards.js — execTpl (code); all of it: the hcall screen (toolcard ↗)',
   'harness.tool.diff': 'native/harness-cards.js — diffTpl: the diff primitive (files, patch); every patch: the hcall screen',
   'harness.subagent': 'native/harness-cards.js — bodyTpl: a nested transcript in the Task\'s toolcard',
-  'harness.plan': 'native/harness-cards.js — badgeTpl (the toolbar\'s 📋 N/M), progressScreen: the plan primitive (⋯ → Progress)',
-  'harness.usage': 'native/harness-cards.js — badgeTpl (the toolbar), progressScreen',
+  'harness.plan': 'native/harness-start.js — 📋 N/M in the subtitle; native/harness-cards.js progressScreen: the plan primitive (⋯ → Progress)',
+  'harness.usage': 'native/harness-start.js — the context in use in the subtitle; native/harness-cards.js progressScreen (the cost too)',
   'harness.files': 'native/harness-cards.js — progressScreen',
   // Coding agents — asking and controls
   'harness.permission': 'native/harness-ask.js — approvalTpl through ext.end: approval with the harness\'s options, the rule as its note, feedback; a diff preview; a bypass option confirmed by a second approval',
@@ -207,7 +207,7 @@ export const IMPLEMENTS = {
   'harness.options': 'native/harness-ask.js — controlsTpl: the model option as the toolbar\'s Model picker, the others in the Mode menu (a phone\'s bar holds only so much); model/rules.js modelPicker hides the built-in Model picker',
   'harness.slash': 'native/harness-ask.js — composer slash',
   'harness.steer': 'native/harness-ask.js — composer: Send now (interrupts), the steered chip; native/chat.js — the queued chips\' label',
-  'harness.autonomy': 'native/harness-ask.js — the home toolbar\'s Coding agents → settingsScreen; the Mode menu (your setting for new ones)',
+  'harness.autonomy': 'native/harness-ask.js — ⋯ → Coding agents (the main menu: home\'s and the drawer\'s) → settingsScreen; the Mode menu (your setting for new ones)',
   // Coding agents — terminals and sign-in (D-harness §8 U5)
   'harness.login': 'native/terminal.js — the notice and device link (ext.end, a login park only), Sign in in the composer and ⋯, signInTpl: a login terminal (termTpl, Retry in its toolbar), a secure field, the device page and code, the confirm toggle, whom to ask, Retry',
 };

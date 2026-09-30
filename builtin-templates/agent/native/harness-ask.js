@@ -12,8 +12,8 @@
 //   toolbar   in a conversation: Mode (a menu: the adapter's modes, a bypass
 //             one confirmed and the owner's only, the config options but the
 //             model — effort… — and your Auto / Always approve) and the
-//             Model picker; at home: Coding agents → your setting per
-//             harness (a screen)
+//             Model picker
+//   main      Coding agents → your setting per harness (a screen)
 //   composer  the placeholder while a turn runs, the harness's slash
 //             commands, Send now (interrupts), a steered message said
 // The `end` seam answers only for a harness run parked on a permission or a
@@ -64,13 +64,18 @@ ext.register({
     return null;
   },
 
+  // main: Coding agents → your setting per harness (the main ⋯ menu: a phone's home bar
+  // already holds the class, model, sandbox and Who answers pickers)
+  main(before) {
+    const app = ctx.app;
+    app.harness.ensure();
+    return app.harness.catalog.harnesses.some((h) => h.available)
+      ? html`<button icon="agent" @tap=${() => { before(); push({ kind: 'harness-settings' }); }}>Coding agents</button>` : null;
+  },
+
   toolbar(v) {
     const app = ctx.app;
-    if (!v) {
-      app.harness.ensure();
-      return app.harness.catalog.harnesses.some((h) => h.available)
-        ? html`<button icon="agent" @tap=${() => push({ kind: 'harness-settings' })}>Coding agents</button>` : null;
-    }
+    if (!v) return null;
     const h = harnessOf(v);
     if (!h) return null;
     app.harness.ensure();

@@ -41,8 +41,9 @@ export function homeScreen() {
 }
 
 // mainMenu: what the web's side bar and top bar hold beyond conversations —
-// the Automations page, settings (managers) and the brake (model/rules.js
-// halt). before(): what to do first (the drawer closes itself).
+// the Automations page, settings (managers), the seams' items (ext.main) and
+// the brake (model/rules.js halt). before(): what to do first (the drawer
+// closes itself).
 export function mainMenu(before = () => {}) {
   const app = ctx.app;
   const go = (fn) => () => { before(); fn(); };
@@ -51,6 +52,7 @@ export function mainMenu(before = () => {}) {
   return html`
     <button icon="clock" @tap=${go(() => app.openAutomations())}>${n ? `Automations (${n} new)` : 'Automations'}</button>
     ${app.me.manager ? html`<button icon="gear" @tap=${go(() => push({ kind: 'settings' }))}>Settings</button>` : nothing}
+    ${ctx.ext.main(before) || nothing}
     ${h.shown ? html`<divider/>${app.halted
       ? html`<button icon="play" @tap=${go(guard(() => app.setHalt(false)))}>Resume the agent</button>`
       : html`<button icon="power" role="destructive" confirm=${{ title: 'Stop every running agent now?',

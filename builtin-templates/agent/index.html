@@ -45,7 +45,7 @@
     .run.unread .t { font-weight: 650; }
     .run .gl { font-size: 10.5px; color: var(--bx-muted); flex: none; }
     .run .gl.err { color: var(--bx-red); }
-    .run .gl.ask { color: var(--bx-yellow, #d9a441); font-weight: 700; }
+    .run .gl.ask { color: var(--bx-yellow, #d9a441); font-weight: 700; background: none; border: 0; padding: 0; margin: 0; } /* not the .ask card */
     .run .rmenu { visibility: hidden; flex: none; border: 0; background: none; color: var(--bx-muted); cursor: pointer; padding: 0 3px; font-size: 13px; line-height: 1; }
     .run:hover .rmenu, .run.on .rmenu { visibility: visible; }
     .run .snip { flex-basis: 100%; font-size: 11px; color: var(--bx-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -226,6 +226,7 @@
     .composer .cpicks:not(:has(> :not([hidden]))) { display: none; }
     .composer .cinput { flex: 1 1 17em; }
     .composer textarea { flex: 1; min-width: 0; resize: none; min-height: 30px; max-height: 40vh; line-height: 1.4; padding: 5px 8px; }
+    .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* one row: a long one ends in … */
     .composer .btn { height: 30px; }
     /* Attachments waiting to be sent: a row above the composer, never inside
        it, so the composer's own geometry (test/layout.mjs) is unchanged. */

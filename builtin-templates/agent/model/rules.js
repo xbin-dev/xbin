@@ -20,6 +20,11 @@ export function topBar(v, row, me) {
   const r = v.run;
   const { talk, own } = access(v);
   const web = (v.config && v.config.toolset) === 'web';
+  // a coding agent's conversation (D-harness §2.1): memory and skills are the
+  // built-in agent's (the engine turns them off), and Compact is its own
+  // /compact, offered only when it advertises one
+  const harness = r.engine === 'harness';
+  const hasCompact = harness && ((r.harness && r.harness.commands) || []).some((c) => c && c.name === 'compact');
   return {
     // an automation's run links back to it
     crumb: ['schedule', 'watcher'].includes(r.origin) && r.originId ? { kind: r.origin, id: r.originId } : null,
@@ -33,10 +38,11 @@ export function topBar(v, row, me) {
     cls: badge(v),
     viewOnly: !talk,
     talk, own,
-    retry: talk && (r.status === 'error' || r.status === 'canceled'),
-    compact: talk,
-    learn: talk,
-    memory: Object.keys(v.memory || {}).length,
+    // (a coding agent cut off or that couldn't start: Retry resumes its session)
+    retry: talk && (r.status === 'error' || r.status === 'canceled' || (harness && ['lost', 'failed'].includes((r.harness || {}).state))),
+    compact: talk && (!harness || hasCompact),
+    learn: talk && !harness,
+    memory: harness ? null : Object.keys(v.memory || {}).length, // null: no Memory
     files: (v.files || []).length,
     tree: !!(r.parentId || (v.links || []).length || v.linkCount), // linkCount: a paged view's total
     // the model it was switched to (a pick); '' = the agent's default

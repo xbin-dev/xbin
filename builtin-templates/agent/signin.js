@@ -16,8 +16,9 @@
 //
 // It warns that the credentials land in the sandbox's shared HOME, and on a
 // sandbox others may use asks for a confirm first (sent as confirm: true).
-// Someone who may not use the sandbox is told whom to ask. What it says is
-// model/terminals.js signIn.
+// Someone who may not use the sandbox is told whom to ask; a view-only reader
+// sees what it waits for, and no actions. What it says is model/terminals.js
+// signIn.
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { signIn, methodLabel, isHttps } from './model/terminals.js';
 import { findHarness } from './model/harness.js';
@@ -91,6 +92,8 @@ function cardTpl(app, c) {
       @click=${() => run('device', async () => { const r = await app.harness.authenticate(c.run, m.id, opts()); x.device = (r && r.device) || null; })}>${x.busy === 'device' ? 'Asking…' : methodLabel(m)}</button>`;
   const METHOD = { terminal: term, 'api-key': key, 'device-code': device };
   const dev = c.device || x.device;
+  // a view-only reader: what it waits for, no actions
+  if (!c.talk) return html`<div class="ask hlogin" id="hlogin" data-run=${c.run}><b>${c.title}</b><div class="hint" id="hl-view">${c.view}</div></div>`;
   return html`<div class="ask hlogin" id="hlogin" data-run=${c.run}>
     <b>${c.title}</b>
     <div class="hint" id="hl-warn">⚠ ${c.warn}</div>

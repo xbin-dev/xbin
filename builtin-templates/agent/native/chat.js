@@ -16,6 +16,7 @@ import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
 import { steerWords } from '../model/harness-ask.js'; // a coding harness's queued chips
+import { activityStill } from '../model/harness.js'; // …and its activity line
 
 const CUT = 1200; // a long result is cut here; the card's ↗ opens all of it
 
@@ -341,7 +342,7 @@ export function chatScreen(v) {
   const parked = r.status === 'waiting_input' && !(tail && ps.harness); // a harness park is the seams' while they answer
   const chain = (v.chain || []).map((c) => c.title || '#' + c.id);
   // a shared conversation says so in its header, as the web's top bar does
-  const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', r.status, t.cls.label, t.cls.warn, badgeWords(v), t.viewOnly ? 'view only' : '',
+  const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', ...(ctx.ext.subtitle(v) || []), r.status, t.cls.label, t.cls.warn, badgeWords(v), t.viewOnly ? 'view only' : '',
     t.share.tone ? `${t.share.icon} ${t.share.label}` : '', t.model ? `✦ ${t.model}` : '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
@@ -358,7 +359,7 @@ export function chatScreen(v) {
       ${tail || nothing}
       ${parked && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me), ps.park) : nothing}
       ${parked && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
-      ${s.activity ? html`<activity live text=${s.activity}/>` : nothing}
+      ${s.activity ? html`<activity ?live=${!activityStill(r)} text=${s.activity}/>` : nothing}
       ${s.conn === 'reconnecting' ? html`<notice tone="warn" text="live updates lost — reconnecting…"/>` : nothing}
       ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped until a manager resumes it."/>` : nothing}
       ${brokenTpl(v)}
@@ -388,10 +389,10 @@ function runMenu(v, t) {
   return html`
     ${t.retry ? html`<button icon="refresh" @tap=${control('resume')}>Retry</button>` : nothing}
     ${t.own ? html`<button icon="pencil" @tap=${() => { ui.rename = { id: t.shareRun.id, title: t.shareRun.title || '' }; ctx.paint(); }}>Rename…</button>` : nothing}
-    ${t.compact ? html`<button icon="archive" @tap=${control('compact')}>Compact</button>
-      <button icon="sparkles" @tap=${control('learn')}>Learn skill</button>` : nothing}
+    ${t.compact ? html`<button icon="archive" @tap=${control('compact')}>Compact</button>` : nothing}
+    ${t.learn ? html`<button icon="sparkles" @tap=${control('learn')}>Learn skill</button>` : nothing}
     ${t.task ? html`<button icon="pin" @tap=${() => push({ kind: 'task', run: id })}>${t.task.more ? `Task (+${t.task.more})` : 'Task'}</button>` : nothing}
-    <button icon="database" @tap=${() => push({ kind: 'memory', run: id })}>${`Memory (${t.memory})`}</button>
+    ${t.memory != null ? html`<button icon="database" @tap=${() => push({ kind: 'memory', run: id })}>${`Memory (${t.memory})`}</button>` : nothing}
     <button icon="folder" @tap=${() => push({ kind: 'files', run: id })}>${`Files (${t.files})`}</button>
     ${sandboxMenuTpl(v)}
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}

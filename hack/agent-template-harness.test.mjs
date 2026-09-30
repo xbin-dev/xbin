@@ -16,6 +16,8 @@ registerHooks({ resolve: (spec, ctx, next) => (spec === '/vendor/bx-kit.js' ? { 
 
 const { makeExt } = await import(new URL('model/ext.js', TPL));
 const H = await import(new URL('model/harness.js', TPL));
+const R = await import(new URL('model/rules.js', TPL));
+const T = await import(new URL('model/terminals.js', TPL));
 const HH = await import(new URL('model/harness-heads.js', TPL));
 const { headline, family, subline, outcome, ICON } = await import(new URL('model/tool-heads.js', TPL));
 const { fold, activity, FoldCache } = await import(new URL('model/fold.js', TPL));
@@ -487,9 +489,9 @@ test('app.harness: a harness run\'s calls and their bodies', async () => {
 
 // --- the native view over the fixtures, every seam hooked ---------------------------------------------
 
-async function runNativeSeed(steps, hash, setup = 'test/native-ext-probe.mjs') {
+async function runNativeSeed(steps, hash, setup = 'test/native-ext-probe.mjs', seed = harnessSeed()) {
   const r = await runNative({ entry: new URL('native.js', TPL).pathname,
-    data: { now: Date.UTC(2026, 8, 30, 12), self: 'apps/agent', setup: new URL(setup, TPL).pathname, seed: harnessSeed() },
+    data: { now: Date.UTC(2026, 8, 30, 12), self: 'apps/agent', setup: new URL(setup, TPL).pathname, seed },
     steps, state: hash ? { hash } : null });
   assert.equal(r.fatal, null);
   assert.deepEqual(r.errors, [], 'no runtime errors');
@@ -505,7 +507,7 @@ function all(root, m, out = []) {
 }
 const texts = (tree) => JSON.stringify(tree);
 
-test('native: a harness conversation — its cards, a seam\'s block, end, toolbar, menu, composer', async () => {
+test('native: a harness conversation — its cards, a seam\'s block, end, toolbar, subtitle, menu, composer', async () => {
   const r = await runNativeSeed([{ snapshot: 'chat' }], 'c=21');
   const t = r.snapshots.chat.root;
   const cards = all(t, { t: 'toolcard' });
@@ -518,6 +520,7 @@ test('native: a harness conversation — its cards, a seam\'s block, end, toolba
   assert.match(texts(t), /probe end: ready/);
   assert.ok(all(t, { t: 'button', has: 'probe toolbar' }).length, 'the toolbar hook');
   assert.ok(all(t, { t: 'button', has: 'probe menu #21' }).length, 'the menu hook');
+  assert.match(all(t, { t: 'screen' })[0].p.subtitle, /^probe subtitle · CC ready 👥 · 📋 3\/3 · ctx 26% · idle · /, 'the subtitle hooks (in the order they registered), after the chain, before the status');
   const composer = all(t, { t: 'composer' })[0];
   assert.equal(composer.p.placeholder, 'message Claude Code…', 'the last placeholder given (U4\'s, registered after the probe)');
   assert.deepEqual(composer.p.slash[0], { name: 'probe', description: 'a probe command' }, 'slash commands add up');
@@ -538,6 +541,22 @@ test('native: parks — the seam\'s end takes a harness park; the built-in card 
   assert.equal(JSON.stringify(t).includes('probe end'), false, 'the built-in agent\'s: not the probe\'s');
 });
 
+test('native: a harness park of a kind no module answers falls back to the built-in card', async () => {
+  const seed = harnessSeed();
+  const ps = { kind: 'review', park: 'Xq3review', harness: { message: 'Review the retry policy?' } };
+  for (const r of [seed.runs.find((x) => x.id === 22), seed.views[22].run]) Object.assign(r, { pendingState: ps, result: 'Review the retry policy?' });
+  const r = await runNativeSeed([{ snapshot: 'p' }], 'c=22', 'test/native-stub.mjs', seed); // the modules only (no probe)
+  const t = r.snapshots.p.root;
+  assert.equal(all(t, { t: 'approval' }).length, 0, 'no module\'s card');
+  const q = all(t, { t: 'question' });
+  assert.equal(q.length, 1, 'the built-in question');
+  assert.equal(q[0].p.title, 'The agent is asking');
+  assert.match(JSON.stringify(q[0].p.schema), /Review the retry policy\?/);
+  const plain = await runNativeSeed([{ snapshot: 'p' }], 'c=22', 'test/native-stub.mjs');
+  assert.equal(all(plain.snapshots.p.root, { t: 'question' }).length, 0, 'an approval park is harness-ask.js\'s: no built-in question');
+  assert.doesNotMatch(all(plain.snapshots.p.root, { t: 'approval' })[0].p.text || '', /acp:execute/, '…nor the built-in approval');
+});
+
 test('native: the home toolbar, a pushed screen and the new-chat sheet through the seams', async () => {
   const r = await runNativeSeed([
     { snapshot: 'home' },
@@ -546,8 +565,60 @@ test('native: the home toolbar, a pushed screen and the new-chat sheet through t
     { tap: { t: 'button', p: { label: 'Start' } } }, { wait: 50 },
   ]);
   assert.ok(all(r.snapshots.home.root, { t: 'button', has: 'probe home toolbar' }).length);
+  assert.ok(all(r.snapshots.home.root, { t: 'menu', has: '"label":"More"' }).some((m) => JSON.stringify(m).includes('probe main')), 'the main hook: home\'s ⋯');
   assert.ok(all(r.snapshots.screen.root, { t: 'screen', has: 'probe screen' }).length);
   assert.ok(all(r.snapshots.sheet.root, { t: 'section', has: 'probe section' }).length);
   const ask = r.calls.find((c) => c.method === 'POST' && /\/ask$/.test(c.url));
   assert.equal(JSON.parse(ask.body).probe, 'yes', 'the section\'s body joins the ask');
+});
+
+// --- the integration (UIint): what a harness conversation leaves out, sign-in words, view-only readers ------
+
+test('the top bar of a coding agent\'s conversation: no Memory, Learn skill or Compact (unless it has /compact); Retry when it was cut off', () => {
+  const rules = R;
+  const v = (h, extra = {}) => ({ access: 'owner', memory: { goal: 'x' }, run: { id: 1, status: 'idle', engine: 'harness', harness: { provider: 'claude', state: 'ready', ...h }, ...extra } });
+  const t = rules.topBar(v({}));
+  assert.deepEqual([t.compact, t.learn, t.memory, t.retry], [false, false, null, false]);
+  assert.equal(rules.topBar(v({ commands: [{ name: 'compact', description: 'Compact' }] })).compact, true, 'Compact: its own /compact');
+  assert.equal(rules.topBar(v({ state: 'lost', error: 'the sandbox stopped' })).retry, true, 'cut off: Retry resumes its session');
+  assert.equal(rules.topBar(v({ state: 'failed' })).retry, true);
+  assert.equal(rules.topBar({ ...v({ state: 'lost' }), access: 'viewer' }).retry, false);
+  const b = rules.topBar({ access: 'owner', memory: { goal: 'x' }, run: { id: 2, status: 'idle', engine: '' } });
+  assert.deepEqual([b.compact, b.learn, b.memory], [true, true, 1], 'the built-in agent\'s: as before');
+});
+
+test('a login park: the activity line has no spinner, the sign-in card says who may act', () => {
+  const r = (state, extra = {}) => ({ id: 1, status: 'waiting_input', engine: 'harness', harness: { provider: 'codex', name: 'Codex', state }, ...extra });
+  const login = { kind: 'login', park: 'p', harness: { login: { command: 'codex login', methods: [{ id: 'k', name: 'API key', kind: 'api-key' }] } } };
+  assert.equal(H.activityStill(r('login', { pendingState: login })), true);
+  assert.equal(H.activityStill(r('lost', { status: 'idle' })), true, 'cut off: nothing runs');
+  assert.equal(H.activityStill(r('working', { status: 'running' })), false);
+  assert.equal(H.activityStill(r('working', { pendingState: { kind: 'approval', park: 'a', harness: {} } })), false, 'waiting for a verdict: as the built-in agent\'s');
+  assert.equal(H.activityStill({ id: 2, status: 'waiting_input' }), false, 'the built-in agent\'s');
+  const v = (access) => ({ access, run: r('login', { pendingState: login }), config: { harness: { ref: 'apps/coding-sandbox|sb-1', cwd: '/w' } } });
+  const own = T.signIn(v('owner'));
+  assert.deepEqual([own.talk, own.view, own.title], [true, '', 'Codex needs you to sign in (in ▣ sb-1).']);
+  const ro = T.signIn(v('viewer'));
+  assert.deepEqual([ro.talk, ro.title], [false, 'Codex is waiting for a sign-in (in ▣ sb-1).']);
+  assert.match(ro.view, /only read this conversation/);
+});
+
+test('native: a login park says sign in (composer, activity); a view-only reader gets the notice and no actions', async () => {
+  const r = await runNativeSeed([{ snapshot: 'p' }], 'c=24', 'test/native-stub.mjs');
+  const t = r.snapshots.p.root;
+  assert.equal(all(t, { t: 'composer' })[0].p.placeholder, 'sign in to Codex first — then message it…');
+  const act = all(t, { t: 'activity' })[0];
+  assert.equal(act.p.text, 'Codex needs you to sign in');
+  assert.ok(!act.p.live, 'no spinner: it waits on you');
+  assert.ok(all(all(t, { t: 'composer' })[0], { t: 'button', has: '"label":"Sign in"' }).length, 'the composer\'s Sign in');
+  const more = all(t, { t: 'menu', has: '"label":"More"' })[0];
+  assert.ok(all(more, { t: 'button', has: 'Sign in…' }).length);
+  for (const x of ['Memory', 'Compact', 'Learn skill']) assert.equal(all(more, { t: 'button', has: x }).length, 0, `no ${x} for a coding agent`);
+  const seed = harnessSeed();
+  seed.views[24].access = 'viewer';
+  const ro = (await runNativeSeed([{ snapshot: 'p' }], 'c=24', 'test/native-stub.mjs', seed)).snapshots.p.root;
+  assert.match(all(ro, { t: 'notice', has: 'Sign in to Codex' })[0].p.text, /is waiting for a sign-in .* You may only read this conversation/);
+  assert.equal(all(all(ro, { t: 'composer' })[0], { t: 'button' }).length, 0, 'no Sign in');
+  const roMore = all(ro, { t: 'menu', has: '"label":"More"' })[0];
+  assert.equal(all(roMore, { t: 'button', has: 'Sign in…' }).length + all(roMore, { t: 'button', has: '"label":"Terminal"' }).length, 0, 'no Sign in…, no Terminal (the run\'s relay is a participant\'s)');
 });

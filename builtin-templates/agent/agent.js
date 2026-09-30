@@ -195,9 +195,9 @@ function topTpl(v) {
     <span class="badge ${r.status}">${r.status}</span>
     ${t.viewOnly ? html`<span class="badge" title="shared with you to read">view only</span>` : nothing}
     ${t.retry ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
-    ${t.compact ? html`<button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>
-    <button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
-    <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>
+    ${t.compact ? html`<button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>` : nothing}
+    ${t.learn ? html`<button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
+    ${t.memory != null ? html`<button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>` : nothing}
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
     ${ext.top(v) || nothing}

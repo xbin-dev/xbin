@@ -16,6 +16,7 @@
 // Pure (no DOM, no lit): node-tested in hack/agent-template-harness-term.test.mjs.
 import { ICON, bindingOf, sharesOf } from './sandboxes.js';
 import { harnessOf, nameOf } from './harness.js';
+import { access } from './rules.js';
 
 // --- the dock ---------------------------------------------------------------------
 
@@ -138,7 +139,8 @@ const sharedOf = (s) => !!(s && (s.visibility === 'team' || (Array.isArray(s.mem
 //    methods: [{id, name, kind}] (terminal · api-key · device-code),
 //    shared (a confirm first), canUse (true · false · null: not known yet),
 //    ask ('' | whom to ask), device ({url, message} while a device code waits),
-//    title, warn, confirmLabel}
+//    title, warn, confirmLabel,
+//    talk (false: a view-only reader — the card says so and offers nothing), view}
 export function signIn(v, { list = null, entry = null } = {}) {
   const r = v && v.run;
   const ps = r && r.pendingState;
@@ -159,12 +161,14 @@ export function signIn(v, { list = null, entry = null } = {}) {
   const canUse = row ? !!row.canUse : list && list.loaded ? false : null;
   const binder = bound.by || (row && row.owner && row.owner.user) || '';
   const shared = !!hs.shared || sharedOf(row);
+  const { talk } = access(v);
   return {
     run: r.id, park: ps.park || '', name, command, methods, shared, canUse,
     sandbox: { ref, name: sname, cwd },
     ask: canUse === false ? `Ask ${binder || 'whoever bound it'} to sign in — the sandbox is theirs.` : '',
     device: login.device && login.device.url ? { url: login.device.url, message: login.device.message || '' } : null,
-    title: `${name} needs you to sign in (in ${ICON} ${sname}).`,
+    title: talk ? `${name} needs you to sign in (in ${ICON} ${sname}).` : `${name} is waiting for a sign-in (in ${ICON} ${sname}).`,
+    talk, view: talk ? '' : 'You may only read this conversation: someone who may write in it signs it in.',
     warn: `The credentials land in ${sname}'s home: anyone who may use it acts as you with ${name} there, and its clones and snapshots keep them.`,
     confirmLabel: `${sname} is shared — sign in anyway`,
   };

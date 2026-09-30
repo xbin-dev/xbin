@@ -310,8 +310,8 @@ export function steerWords(v, { native = false } = {}) {
       : { busy: true, steering: false, placeholder: `queued — sent to ${name} when this turn ends (${cut})`, label: `queued for ${name}`, title: `sent to ${name} when its current turn ends` };
   }
   const ps = r.status === 'waiting_input' ? r.pendingState || {} : {};
-  if (ps.kind === 'login') return null;
   const words = (placeholder) => ({ busy: false, steering: false, placeholder, label: `queued for ${name}`, title: `sent to ${name} next` });
+  if (ps.kind === 'login' || h.state === 'login') return words(`sign in to ${name} first — then message it…`);
   if (ps.kind === 'approval') return words(`reply — rejects the request, then goes to ${name}`);
   if (ps.kind === 'question') return words(`reply — skips the question, then goes to ${name}`);
   return words(`message ${name}…`);

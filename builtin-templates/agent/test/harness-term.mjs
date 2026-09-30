@@ -35,6 +35,13 @@ for (const [id, sb, by] of [[30, 'sb-solo', 'admin'], [31, 'sb-bob', 'bob']]) {
     engine: 'harness', harness: { provider: 'codex', mode: 'agent', ref: s.ref, cwd: '/work', by } } };
 }
 
+// 32: run 24's park, for someone it is shared with to read
+{
+  const run = { ...r24, id: 32, rootId: 32, title: 'read only', pendingState: { ...r24.pendingState, park: 'park32' } };
+  seed.runs.push(run);
+  seed.views[32] = { ...seed.views[24], run, access: 'viewer' };
+}
+
 const browser = await launch();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 await serveTile(ctx);
@@ -78,6 +85,11 @@ ok('…the shared home\'s warning', /credentials land in api-dev's home: anyone 
 ok('…its three methods', JSON.stringify(await page.$$eval('#hlogin [data-kind]', (els) => els.map((e) => [e.dataset.kind, e.dataset.method])))
   === JSON.stringify([['terminal', 'chatgpt'], ['api-key', 'openai-api-key'], ['device-code', 'device-code']]));
 ok('no built-in card beside it', !(await page.$('.ask.approve')) && (await page.$$('#timeline div.ask')).length === 1);
+ok('the composer says sign in (not "answer the question")', (await page.getAttribute('#msg', 'placeholder')) === 'sign in to Codex first — then message it…',
+  await page.getAttribute('#msg', 'placeholder'));
+ok('…the activity line too, with no spinner: it waits on you', (await text('.activity')) === 'Codex needs you to sign in' && !(await page.$('.activity .spin')));
+ok('…and the top bar has no Memory, Learn skill or Compact (Codex has no /compact)',
+  !(await page.$$eval('#top button', (els) => els.some((e) => /^(Memory|Learn skill|Compact)/.test(e.textContent.trim())))));
 ok('a shared sandbox: every method waits for the confirm', await page.$$eval('#hlogin [data-kind="terminal"], #hlogin [data-kind="device-code"], #hlogin [data-kind="api-key"] button',
   (els) => els.every((e) => e.disabled)) && (await text('#hl-shared')).includes('api-dev is shared — sign in anyway'));
 await page.check('#hl-confirm');
@@ -213,11 +225,16 @@ await go(31, '#hlogin');
 await page.waitForSelector('#hl-ask');
 ok('a sandbox you may not use: whom to ask, no methods', (await text('#hl-ask')) === 'Ask bob to sign in — the sandbox is theirs.' && !(await page.$('#hlogin [data-kind]')) && !!(await page.$('#hl-retry')));
 
-// the end seam's rule: another park is not this card's
-await go(22, '.ask.approve');
-ok('an approval park: the built-in card, no sign-in card', !(await page.$('#hlogin')));
-await go(23, '[data-k]');
-ok('a question park: no sign-in card', !(await page.$('#hlogin')));
+// a view-only reader: what it waits for, no actions
+await go(32, '#hlogin');
+ok('a view-only reader: the card says what it waits for and offers nothing', (await text('#hlogin b')) === 'Codex is waiting for a sign-in (in ▣ api-dev).'
+  && (await text('#hl-view')).includes('You may only read this conversation') && !(await page.$('#hlogin [data-kind], #hl-retry, #hl-warn, #hl-confirm')), await text('#hlogin'));
+
+// the end seam's rule: another park is not this card's (an approval or a question is harness-ask.js's, U4)
+await go(22, '.hask');
+ok('an approval park: its own card, no sign-in card', !(await page.$('#hlogin')) && !(await page.$('.hq')));
+await go(23, '.hask.hq');
+ok('a question park: its own card, no sign-in card', !(await page.$('#hlogin')));
 
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();
