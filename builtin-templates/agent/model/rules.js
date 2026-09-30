@@ -178,8 +178,9 @@ export function halt(me, on, rows) {
 // --- a conversation row ------------------------------------------------------
 
 const SPINNING = new Set(['running', 'awaiting', 'sleeping', 'queued', 'blocked']);
-// rowGlyph: '?' waiting for you, '!' failed, a spinner while it works.
-export const rowGlyph = (r) => r.status === 'waiting_input' ? 'ask' : r.status === 'error' ? 'error' : SPINNING.has(r.status) ? 'spin' : '';
+// rowGlyph: '?' waiting for you (the conversation, or a run below it: the
+// row's `waiting`, D-harness §4.3.8), '!' failed, a spinner while it works.
+export const rowGlyph = (r) => r.status === 'waiting_input' || r.waiting ? 'ask' : r.status === 'error' ? 'error' : SPINNING.has(r.status) ? 'spin' : '';
 // rowShared: how a shared row is shared, as chips — from whom (someone else's),
 // with the team (to read or to write), with how many people — and whether it
 // is one you shared; null for a private one.

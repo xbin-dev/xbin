@@ -142,6 +142,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   coding-agent routes (arriving with the harness engine); the card appears
   only for a run parked on `login`.
 
+- **Agent template: the agent's coding agents, as cards in its chat**
+  (`builtin-templates/agent/API.md` §Coding agents, "The agent's coding
+  agents"). A coding agent the agent started is drawn where the spawn is as
+  its own card, web and app: its monogram and name, the task, its state and
+  what it does now, where it works and its counters (tool calls, files
+  +a −d, cost, time), its plan, its last 3 blocks — read once, as its
+  newest page, when the card is open and on screen, then kept current —
+  and its answer. Its permission, plan approval, question or sign-in is
+  drawn on the card and answered on the child's own run; Stop, Cancel
+  (confirmed) and Message act on the child from the card (the app: from
+  its own chat — ⋯ → Cancel task); a person's message to it is told to the
+  agent that started it, whose chat shows the notice. A conversation row
+  shows `?` while a run below it waits and `⧉ N` for its coding agents at
+  work. New modules `harness-child.js`, `native/harness-child.js`,
+  `model/harness-child.js`; for an instance's own modules,
+  `Session.fetchView(id, {paged, limit})` reads a page of any size.
+
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
   §stdio, [protocol.md](protocol.md) §Tile sandboxes, [sdk.md](sdk.md)).

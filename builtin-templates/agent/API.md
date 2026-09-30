@@ -1777,6 +1777,31 @@ in its sandbox at its working directory. Only a harness run parked on
 `login` gets the card (`signin.js`, `native/terminal.js`); other parks are
 their own cards'.
 
+**The agent's coding agents (the UI).** A coding agent the agent started
+(`subagent_spawn` with `harness`, D-harness §4.4) is drawn where the spawn
+call is as its own card instead of the subagent card (`harness-child.js`,
+`native/harness-child.js`): its monogram and name, the link's label, `#id`
+and state; what it does now (its `harness.activity`, a park, its answer's
+first line); where it works (`▣ sandbox:cwd`) and its counters (`counts`,
+`usage.cost`, the time since its link was made). The card reads no route
+for that — its summary is the link's `child` with the run and `harness`
+events since. A park — a permission, a plan approval, a question, a
+sign-in — is drawn on the card and answered on the **child's** run
+(`POST /runs/{child}/approve`, `…/harness/answer`, `…/harness/authenticate`;
+the app opens the card while it waits, and signs in from the child's own
+chat). Opened, the card shows the task, the plan and the child's last 3
+blocks — read once, as its newest page (`GET /runs/{child}/view?limit=8`),
+when the card is open and on screen, then kept current by the stream — and
+its answer. **Stop** (`POST /runs/{child}/interrupt`), **Cancel** (confirmed;
+`POST /runs/{child}/cancel`) and **Message** (`POST /runs/{child}/message`;
+Enter queues or steers, ⌘/Ctrl+Enter or Send now adds `interrupt: true`)
+act on the child from its card (the app: from its own chat — its composer,
+Stop, ⋯ → Cancel task). A person's message to a coding agent the agent
+started is told to that agent (`[direct message to #<child> (<name>) from
+<who>]`, D-harness §4.3.13), which its chat shows as a folded notice once it
+is delivered. A conversation row says `?` while it or a run below it waits
+(`waiting`) and `⧉ N` for the coding agents at work below it (`kids.harness`).
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
@@ -1808,6 +1833,7 @@ the same model.
 | `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once), and a row's coding agents at work below it (`kidsWords`) |
 | `terminals.js` | the terminal dock's tabs (`termsOf(app)`: open, show, hide, close, a New shell in place — page-level, not a conversation's), a coding agent's run relay (`runTerminalSrc`), and the sign-in card (`signIn`): a login park's methods, the sandbox whose home the credentials land in, whether it is shared (a confirm), whom to ask |
 
 `createApp({deltas, page})`: drafts arrive as deltas (`/stream?deltas=1`,

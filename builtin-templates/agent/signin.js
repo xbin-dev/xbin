@@ -107,3 +107,7 @@ function cardTpl(app, c) {
       @click=${() => run('retry', async () => { await app.harness.retry(c.run); x.msg = 'Retrying…'; })}>Signed in? Retry</button></div>
   </div>`;
 }
+
+// A coding agent's card in its parent's chat draws its child's sign-in with
+// this (harness-child.js): c = signIn(<the child's view>) — the answers go to the child.
+export { cardTpl as signInTpl };

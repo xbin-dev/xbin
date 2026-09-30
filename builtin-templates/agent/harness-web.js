@@ -21,6 +21,7 @@ import './harness-controls.js';
 import './signin.js'; // the sign-in card (end, a login park only); the dock is terminals.js, which sandboxes.js imports
 
 // U6 child cards
+import './harness-child.js'; // a coding agent the agent started, as its card in the parent's chat (ext.block)
 
 // U7 the Coding agents board
 

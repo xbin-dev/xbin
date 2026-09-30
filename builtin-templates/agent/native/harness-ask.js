@@ -198,3 +198,7 @@ const sendNow = guard(async () => {
   if (!text.trim()) { fail('Write the message first — Send now sends it and interrupts the turn.'); return; }
   await ctx.app.send(text, () => { ui.draft = ''; }, { interrupt: true });
 });
+
+// A coding agent's card in its parent's chat draws its child's park with
+// these (native/harness-child.js): r is the child's run, so the answer is the child's.
+export { approvalTpl as permissionTpl, questionTpl };

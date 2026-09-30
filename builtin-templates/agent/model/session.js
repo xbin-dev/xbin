@@ -85,9 +85,10 @@ export class Session {
   // fetchView reads a run's view (paged: its newest page — the open
   // conversation's, when the session pages). A new read replaces what was
   // held, older pages included (opening a conversation, "jump to latest");
-  // a reset or resync re-reads what is held instead (reread).
-  async fetchView(id, { paged = !!this.pageSize && id === this.sel } = {}) {
-    const v = await api(`/runs/${id}/view${paged ? `?limit=${this.pageSize}` : ''}`);
+  // a reset or resync re-reads what is held instead (reread). limit: a page
+  // of another size (a coding agent's card reads its child's newest few).
+  async fetchView(id, { paged = !!this.pageSize && id === this.sel, limit = this.pageSize } = {}) {
+    const v = await api(`/runs/${id}/view${paged ? `?limit=${limit || 50}` : ''}`);
     v.messages = v.messages || [];
     v.steps = v.steps || [];
     v.links = v.links || [];

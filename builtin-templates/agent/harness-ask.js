@@ -190,3 +190,7 @@ style.textContent = `
   .hask .hurl { word-break: break-all; }
 `;
 document.head.append(style);
+
+// A coding agent's card in its parent's chat draws its child's park with
+// these (harness-child.js): r is the child's run, so the answer is the child's.
+export { permissionTpl, questionTpl };
