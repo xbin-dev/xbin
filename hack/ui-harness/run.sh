@@ -28,7 +28,8 @@
 #                       every other agent pass and the isolated sandbox
 #                       passes expect): the admin's page is their own
 #                       partition — the agentTemplate pass runs against it,
-#                       and agentHomes (shared chats, two homes) needs it
+#                       and agentHomes (shared chats, two homes) needs it,
+#                       as does agentHosted (non-secure, hosted chats)
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"
