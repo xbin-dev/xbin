@@ -119,6 +119,8 @@ export function newChatSheet() {
   const done = () => { ui.newChat = null; ctx.paint(); };
   const set = (k) => (e) => { f[k] = e.value; };
   const more = ctx.ext.newChat(f) || []; // the seams' sections (native/ext.js)
+  // a coding agent answering it (f.agent, native/harness-start.js) keeps its own instructions
+  const coding = !!(f.agent && f.agent !== 'agent' && app.harness.find(f.agent)?.available);
   const start = guard(async () => {
     const text = f.text.trim();
     if (!text) return;
@@ -136,7 +138,7 @@ export function newChatSheet() {
       ${more.map((x) => (x.tpl ? x.tpl() : nothing))}
       <section title="Optional">
         <field label="Title" placeholder="from the first message" value=${f.title} @input=${set('title')}/>
-        <field label="Instructions" kind="multiline" placeholder="extra system instructions" value=${f.system} @input=${set('system')}/>
+        ${coding ? nothing : html`<field label="Instructions" kind="multiline" placeholder="extra system instructions" value=${f.system} @input=${set('system')}/>`}
       </section>
     </screen>
   </sheet>`;

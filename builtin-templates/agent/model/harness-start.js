@@ -177,7 +177,7 @@ export function kindOf(r) {
 }
 
 // topChip: the open conversation's coding agent for its top bar —
-// {mono, name, word, tone, label, title, shared} — else null. shared says
+// {mono, name, state, word, tone, label, title, shared} — else null. shared says
 // who can read what it does (§2.2 Privacy: its sandbox's co-users).
 export function topChip(v) {
   const h = harnessOf(v);
@@ -187,7 +187,7 @@ export function topChip(v) {
   const sb = h.sandbox || {};
   const where = sb.name || (sb.ref ? splitRef(sb.ref).id : '');
   const shared = sb.shared ? `${where} is shared — the people who may use it can read what ${name} does here` : '';
-  return { mono: monogram(h.provider), name, word: st.word, tone: st.tone, label: `${name} · ${st.word}`,
+  return { mono: monogram(h.provider), name, state: st.state, word: st.word, tone: st.tone, label: `${name} · ${st.word}`,
     title: [`${name} answers this conversation${where ? ` in ${SBX} ${where}${sb.cwd ? ' at ' + sb.cwd : ''}` : ''} — fixed for its life`,
       st.title, shared].filter(Boolean).join('\n'), shared };
 }

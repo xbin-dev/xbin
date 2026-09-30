@@ -161,7 +161,7 @@ test('native: "Who answers" in the home toolbar; picking a coding agent hides th
   const [ask] = asks(r);
   assert.deepEqual([ask.harness, ask.class, ask.sandbox, 'model' in ask], [{ provider: 'claude' }, 'coding', { ref: API_DEV }, false], JSON.stringify(ask));
   const badge = find(r.snapshots.chat, { t: 'badge', in: { t: 'toolbar' } });
-  assert.equal(badge.p.text, 'CC Claude Code · starting · shared sandbox');
+  assert.equal(badge.p.text, 'CC starting 👥', 'short, so More stays on the bar');
   assert.equal(badge.p.tone, 'accent');
   assert.ok(r.calls.some((c) => c.method === 'PUT' && /prefs\/agent$/.test(c.url) && c.body === '"claude"'), 'remembered (prefs/agent)');
   assert.ok(r.calls.some((c) => c.method === 'PUT' && /prefs\/harness-sandbox$/.test(c.url)), '…and its sandbox (prefs/harness-sandbox)');
@@ -185,8 +185,10 @@ test('native: the new-chat sheet — who answers, a coding agent\'s sandbox, no 
   const s0 = find(r.snapshots.sheet, sheet);
   assert.equal(find(s0, WHO).p.value, 'agent');
   assert.ok(find(s0, { t: 'section', p: { title: 'Class' } }), 'the built-in agent: its class');
+  assert.ok(find(s0, { t: 'field', p: { label: 'Instructions' } }), '…and its instructions');
   const s1 = find(r.snapshots.codex, sheet);
   assert.equal(find(s1, { t: 'section', p: { title: 'Class' } }), null, 'a coding agent: its class resolves');
+  assert.equal(find(s1, { t: 'field', p: { label: 'Instructions' } }), null, '…and it keeps its own instructions (none typed there to be dropped)');
   assert.equal(find(s1, { t: 'picker', p: { label: 'Sandbox' } }).p.value, API_DEV);
   assert.match(find(s1, { t: 'section', p: { title: 'Who answers' } }).p.footer, /^In ▣ Coding · not signed in on api-dev\. A coding agent keeps its own instructions/);
   const [ask] = asks(r);
@@ -207,5 +209,5 @@ test('native: no sandbox fits — the setup notice, Create filled in; a harness 
   assert.match(form, /"value":"claude-dev"/, 'the create form, its name filled in');
   assert.match(form, /"value":"internet"/, '…internet');
   const c = await run([{ wait: 50 }, { snapshot: 'chat' }], { hash: 'c=24' });
-  assert.equal(find(c.snapshots.chat, { t: 'badge', in: { t: 'toolbar' } }).p.text, 'CX Codex · needs sign-in · shared sandbox');
+  assert.equal(find(c.snapshots.chat, { t: 'badge', in: { t: 'toolbar' } }).p.text, 'CX sign-in 👥');
 });

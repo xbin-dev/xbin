@@ -59,8 +59,11 @@ ext.register({
       };
       return html`<picker label="Who answers" style="menu" value=${p.value} options=${options(p.rows)} @change=${change}/>`;
     }
+    // short — monogram, state, 👥 for a shared sandbox: the bar also holds
+    // the sandbox picker and More, which a longer badge pushes off a phone's
+    // bar; the drawer's row names the agent, the transcript says why
     const t = HS.topChip(v);
-    return t ? html`<badge text=${`${t.mono} ${t.label}${t.shared ? ' · shared sandbox' : ''}`} tone=${TONE[t.tone] || 'muted'}/>` : null;
+    return t ? html`<badge text=${`${t.mono} ${t.state === 'login' ? 'sign-in' : t.word}${t.shared ? ' 👥' : ''}`} tone=${TONE[t.tone] || 'muted'}/>` : null;
   },
   // composer: at home, who answers (and where) in its placeholder
   composer: (v) => {
@@ -103,7 +106,7 @@ ext.register({
           f.hsbx = e.value;
           ctx.paint();
         };
-        return html`<section title="Who answers" footer=${coding ? `${row && row.detail ? row.detail[0].toUpperCase() + row.detail.slice(1) + '. ' : ''}A coding agent keeps its own instructions — Instructions are for the built-in agent. Fixed once it starts.` : 'Fixed once it starts.'}>
+        return html`<section title="Who answers" footer=${coding ? `${row && row.detail ? row.detail[0].toUpperCase() + row.detail.slice(1) + '. ' : ''}A coding agent keeps its own instructions. Fixed once it starts.` : 'Fixed once it starts.'}>
           <picker label="Who answers" style="menu" value=${coding ? coding.id : AGENT} options=${options(p.rows)} @change=${pick}/>
           ${coding ? (opts.some((o) => !o.disabled)
             ? html`<picker label="Sandbox" style="menu" value=${f.hsbx} options=${opts.map((o) => ({ value: o.value, label: o.disabled ? `${o.label} — unavailable` : o.label, icon: o.disabled ? 'lock' : 'box' }))} @change=${sbx}/>`
