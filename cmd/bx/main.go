@@ -63,7 +63,7 @@ func main() {
 	case "grants":
 		err = cmdGrants()
 	case "bind":
-		err = cmdBind(os.Args[2:])
+		err = cmdBindAny(os.Args[2:]) // --personal: personalbind.go
 	case "expose":
 		err = cmdExpose(os.Args[2:])
 	case "unexpose":
@@ -149,7 +149,7 @@ func usage() {
                                         internet:<spec>|<provider tile>)
   bx bind <component> <slot>+=<p[#i]> | <slot>-=<p[#i]>
                                         add/remove on a multi slot (# = instance)
-  bx bind --unset <component> <slot>
+  bx bind --unset <component> <slot>   (--personal [--unset] <tile> <slot>=<your tile>: your partition only)
   bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P] [--add]
                                         publish an exposed endpoint (--add: one more route)
   bx unexpose <tile> <slot> [--host H|--zone '*.Z'|--listen :P]  a route, or all

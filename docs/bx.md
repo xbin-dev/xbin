@@ -146,6 +146,9 @@ bx grant --revoke <caller> <target>:<role>
 bx iface                               interface requests, providers, bindings
 bx bind <comp> <slot>=<p> | <slot>+=<p[#i]> | <slot>-=<p[#i]>
                                        wire interface slots (# = provider instance)
+bx bind --personal [--unset] <tile> <slot>=<your tile> [--json]
+                                       wire a tile you own into your own partition
+                                       of a partitioned tile; alone: list them
 bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P] [--add]
                                        publish an exposed endpoint (docs/ingress.md);
                                        --add adds a route (another hostname or
@@ -266,6 +269,11 @@ that a later set edit or transfer leaves outside the sets goes **inert**
 `slot=provider` replaces; on a `multi:true` http slot `slot+=ref` adds and
 `slot-=ref` removes, where a ref is `provider[#instance]` — instances are the
 runtime-registered sub-slots of a provider (`bx iface` lists them).
+`bx bind --personal <tile> <slot>=<provider>` makes a **personal bind**
+([partitions.md §Bind types](/docs/partitions.md)): a tile you own
+personally, wired into your own partition of a partitioned tile only — run
+it with your own sign-in, not from a tile's terminal. `--unset` removes it;
+`bx bind --personal` alone lists yours (an admin's: everyone's).
 
 **`bx code pr`** — the cross-tile suggestion channel (D48).
 You can *read* sibling tiles but write only your own, so changes to another
