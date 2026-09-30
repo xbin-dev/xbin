@@ -397,6 +397,18 @@ func TestAcquireLLMWithSlots(t *testing.T) {
 		t.Fatalf("an unusable slot directory failed the call: %v", err)
 	}
 	rel()
+	ro := t.TempDir() // a directory the lock files can't be made in: never wait for them
+	if err := os.Chmod(ro, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
+	slots = newLLMSlots(ro, func() int { return 1 })
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	if rel, err = e.acquireLLM(ctx2, true); err != nil {
+		t.Fatalf("a read-only slot directory held the call: %v", err)
+	}
+	rel()
 }
 
 // TestUserModeWake: a person's partition leaves the resume job only for

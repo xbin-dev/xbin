@@ -41,17 +41,27 @@ func (s *llmSlots) n() int { return clampCfg(s.limit(), defaultMaxActiveRuns, 32
 // try takes a free slot without waiting (nil: none free, or the directory
 // can't hold them).
 func (s *llmSlots) try() func() {
+	rel, _ := s.take()
+	return rel
+}
+
+// take is try, telling "every slot is taken" (nil, nil) from "the slots
+// can't be used here" (nil, errSlotsUnusable).
+func (s *llmSlots) take() (func(), error) {
 	n := s.n()
 	start := rand.IntN(n) // spread the processes over the files
 	for k := range n {
 		i := (start + k) % n
 		f, err := os.OpenFile(filepath.Join(s.dir, fmt.Sprintf("llm.slot.%d", i)), os.O_RDWR|os.O_CREATE, 0o600)
 		if err != nil {
-			return nil
+			return nil, errSlotsUnusable
 		}
 		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			f.Close()
-			continue
+			if err == syscall.EWOULDBLOCK || err == syscall.EINTR {
+				continue
+			}
+			return nil, errSlotsUnusable // a filesystem without flock
 		}
 		released := false
 		return func() {
@@ -61,13 +71,14 @@ func (s *llmSlots) try() func() {
 			released = true
 			_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 			f.Close()
-		}
+		}, nil
 	}
-	return nil
+	return nil, nil
 }
 
-// errSlotsUnusable: the slot files can't be made (a missing or read-only
-// directory). The call goes ahead without the tile-wide cap rather than fail.
+// errSlotsUnusable: the slot files can't be made or locked (a missing or
+// read-only directory, a filesystem without flock). The call goes ahead
+// without the tile-wide cap rather than fail or wait forever.
 var errSlotsUnusable = errors.New("llm slots: the team directory can't hold the lock files")
 
 // acquire waits for a free slot (until ctx ends).
@@ -77,8 +88,9 @@ func (s *llmSlots) acquire(ctx context.Context) (func(), error) {
 	}
 	wait := slotPollMin
 	for {
-		if rel := s.try(); rel != nil {
-			return rel, nil
+		rel, err := s.take()
+		if rel != nil || err != nil {
+			return rel, err
 		}
 		t := time.NewTimer(wait + time.Duration(rand.Int64N(int64(wait))))
 		select {
