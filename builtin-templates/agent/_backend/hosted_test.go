@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // withTeam gives the process a team database as the global instance
@@ -374,7 +376,17 @@ func TestHostEngineDrivesOnlyItsOwn(t *testing.T) {
 		t.Fatal("the forged conversation's events went to the global instance")
 	}
 
-	// a wider audience: carol joins at global — paused, the input not taken
+	// a wider audience: carol joins at global — paused, the input not taken,
+	// the host told on their phone
+	var pushMu sync.Mutex
+	var pushes []xbin.UserNotification
+	ag.needs = newNeedsPusher(func(_ context.Context, n xbin.UserNotification) error {
+		pushMu.Lock()
+		pushes = append(pushes, n)
+		pushMu.Unlock()
+		return nil
+	})
+	t.Cleanup(func() { ag.needs = nil })
 	if _, err := tr.q.Exec(`INSERT INTO run_members (run_id, user, role, added_by, via, created) VALUES (?, 'carol', 'viewer', 'bob', 'invite', ?)`, legit, now()); err != nil {
 		t.Fatal(err)
 	}
@@ -397,6 +409,12 @@ func TestHostEngineDrivesOnlyItsOwn(t *testing.T) {
 		t.Fatal("BUG: a paused conversation ran for its wider audience")
 	}
 	waitFor(t, "the pause posted to the global instance", func() bool { return fwd.count(legit, "hosted") > 0 })
+	waitFor(t, "the host told", func() bool { pushMu.Lock(); defer pushMu.Unlock(); return len(pushes) == 1 })
+	pushMu.Lock()
+	if p := pushes[0]; p.User != "alice" || p.Link != fmt.Sprintf("#c=%d", legit) || !strings.Contains(p.Body, "carol") {
+		t.Fatalf("the push to the host: %+v", p)
+	}
+	pushMu.Unlock()
 
 	// only the host confirms, and only what they were shown
 	viewed := alicesFrame("read")

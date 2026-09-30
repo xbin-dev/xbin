@@ -33,6 +33,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -431,10 +432,25 @@ func pauseHosting(tr *DB, root int64, cur, snap audience) {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return
 	}
-	logf("hosted conversation #%d: %s joined — paused until %s confirms", root, strings.Join(cur.beyond(snap), ", "), runUser)
+	joined := strings.Join(cur.beyond(snap), ", ")
+	logf("hosted conversation #%d: %s joined — paused until %s confirms", root, joined, runUser)
 	teamHostPaused(root, cur, snap)
 	go haltHosted(root)
 	hostedChangedAtGlobal(root)
+	if p := agent.needs; p != nil { // the host's phone: they are the one who must answer
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			title := "A conversation using your private resources is paused"
+			if run, err := tr.getRun(root); err == nil && run.Title != "" {
+				title = "“" + clip(run.Title, 80) + "” is paused"
+			}
+			if err := p.send(ctx, xbin.UserNotification{User: runUser, Title: title, Link: fmt.Sprintf("#c=%d", root), Kind: "hosted",
+				Body: joined + " can now read it. Confirm to let the agent keep using your private resources there, or decline.", CollapseID: fmt.Sprintf("hosted:%d", root)}); err != nil {
+				logf("hosted conversation #%d: telling %s: %v", root, runUser, err)
+			}
+		}()
+	}
 }
 
 // teamHostPaused writes the pause into team, for the members' view: the

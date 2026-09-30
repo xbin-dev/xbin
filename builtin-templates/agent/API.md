@@ -257,7 +257,10 @@ What a partitioned instance does differently:
     sending** and no "don't show again"; the composer stays locked until it
     is started, while it is paused, and once hosting ended. A shared
     conversation's share dialog offers **Use my private resources…** (the
-    same warning first).
+    same warning first). The native view heads its transcript with the
+    warning and locks its composer the same way (**Start anyway**, the
+    host's **Confirm**, **Continue without …** are the composer's buttons);
+    hosting and adding a copy are the web's for now.
   - **Add a copy of my …** (the non-hosting way): `POST /copyin
     {conversation, files: [{run, path}]}` in your partition sends copies of
     session files of your own conversations to a shared one at the global
