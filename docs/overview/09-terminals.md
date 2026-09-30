@@ -271,7 +271,9 @@ deployment says `global`), starts in `$HOME` rather than the tile directory
 and prints a grey line saying so. A session without a person (the owner
 token) acts in the tile's global instance, or, on a tile without one, opens
 with the tile API off. Admins can end other people's sessions there but not
-reattach to, drive, rename or read them, and listings leave their names out.
+reattach to, drive, rename or read them — nor read them viewing as the
+person — and listings leave their names out. (Without `--isolate` a terminal
+is a host shell that can read every partition, and its grey line says so.)
 
 Two user flags gate what the token can do (D17 b/c; clamped, never rejected, so
 an ungranted user still gets a working shell):

@@ -36,9 +36,10 @@ func init() {
 // TermPartition answers the terminal manager's question about a session p
 // opens on the tile holding path, targeting deployment dep ("" follows the
 // primary) (term.SessionPartitionFunc). A tile that isn't partitioned
-// answers the zero Partition, so its sessions are today's. An error refuses
-// the session: a mode switch of the tile runs (term.ErrPartitionSwitching),
-// or a person reaches no partition of it (addressedPartition's reason).
+// answers only its Tile (which a switch's stop matches sessions by), so
+// its sessions are today's. An error refuses the session: a mode switch of
+// the tile runs (term.ErrPartitionSwitching), or a person reaches no
+// partition of it (addressedPartition's reason).
 func (b *Broker) TermPartition(p auth.Principal, path, dep string) (term.Partition, error) {
 	c, _, ok := b.Reg.Resolve(path)
 	if !ok {
@@ -55,18 +56,19 @@ func (b *Broker) TermPartition(p auth.Principal, path, dep string) (term.Partiti
 	case err != nil:
 		return term.Partition{Partitioned: true, Tile: tile, NoAPI: err.Error()}, nil
 	case !partitioned:
-		return term.Partition{}, nil
+		return term.Partition{Tile: tile}, nil
 	}
 	out := term.Partition{Partitioned: true, Tile: tile}
 	if p.UserID != "" {
 		// the person's partition id keys their layer and history, whichever
 		// deployment the session targets; PartitionIdent checks they are
 		// live on the tile and mints their uid at their first partition
-		pkey, _, err := b.PartitionIdent(tile, string(util.UserPartition(p.UserID)))
+		pkey, uid, err := b.PartitionIdent(tile, string(util.UserPartition(p.UserID)))
 		if err != nil {
 			return term.Partition{}, err
 		}
 		out.Key = pkey
+		termPartitionRecord(b, tile, p.UserID, uid)
 	}
 	if dep != "" && !b.isPrimary(tile, dep) {
 		out.Part = string(util.PartitionGlobal) // a non-primary deployment's one instance (PD-17)
@@ -86,6 +88,17 @@ func (b *Broker) TermPartition(p auth.Principal, path, dep string) (term.Partiti
 	}
 	return out, nil
 }
+
+// termPartitionRecord is the seam for F5's identity records (PD-43,
+// partitionrecords.go): a person's session opening on partitioned tile
+// under incarnation uid writes or touches their partition record there
+// (user, uid, created). Their terminal layer and agent history are
+// partition artifacts keyed by H(id, uid) alone; without a record carrying
+// the triple, a users store that lost the uid couldn't re-adopt it, nor a
+// record-driven sweep find them. Unfilled it records nothing: the layer and
+// history are found by their partition id (WipePartitionKey, F7b's sweep of
+// a deleted person's current id) as before.
+var termPartitionRecord = func(b *Broker, tile, user, uid string) {}
 
 // TermTilePartitioned reports whether the tile holding path keeps each
 // person's data apart — its recorded mode has user partitions, paused or
@@ -113,6 +126,7 @@ func (b *Broker) PersonPartitionKey(userID string) string {
 type PartitionTerminals interface {
 	StopTileSessions(tile string) error
 	WipePartitionTile(tile string, dryRun bool) (term.PartitionTileWipe, error)
+	HoldPartition(tile, pkey string) (release func())
 	StopPartitionSessions(tile, pkey string) error
 	WipePartitionKey(tile, pkey string, dryRun bool) (term.PartitionTileWipe, error)
 }
@@ -177,13 +191,18 @@ func wipePersonTerminals(b *Broker, t wipeTarget, sum *wipeSummary) error {
 // history there — a dry run only counts. For one partition's end, which F7b
 // owns: a person's reset of their partition, an admin's purge of an
 // orphaned one, a deleted person's sweep (plans/partitions/06 §2, §6, §9).
-// A broker without terminals has none: the zero wipe.
+// The partition is held from before the stop until the wipe is done: its
+// person's new sessions answer 409 meanwhile, and none open in between (a
+// caller that stops and wipes in separate phases holds it across both,
+// PartitionTerminals.HoldPartition). A broker without terminals has none:
+// the zero wipe.
 func (b *Broker) wipePersonTerminalsOf(tile, pkey string, dry bool) (term.PartitionTileWipe, error) {
 	tm := b.partitionTerminals()
 	if tm == nil {
 		return term.PartitionTileWipe{}, nil
 	}
 	if !dry {
+		defer tm.HoldPartition(tile, pkey)()
 		if err := tm.StopPartitionSessions(tile, pkey); err != nil {
 			return term.PartitionTileWipe{}, err
 		}

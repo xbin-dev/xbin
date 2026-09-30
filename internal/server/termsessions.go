@@ -9,7 +9,6 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -99,9 +98,9 @@ func termEventFor(p auth.Principal, e events.Event) bool {
 // apiTermSessions lists the caller's live sessions (?cwd= narrows to one
 // tile). A principal that may not open terminals has none. An admin may
 // pass ?user= for another user's — the same visibility GET /status gives,
-// which leaves out the names of sessions acting in a person's partition of
-// a partitioned tile (PD-09: an agent names its tab after the
-// conversation).
+// which leaves out the names of a person's sessions on a partitioned tile
+// (PD-09: an agent names its tab after the conversation); so does an
+// admin's view as that person.
 func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	if u := r.URL.Query().Get("user"); u != "" && !p.IsAdmin() {
@@ -119,9 +118,9 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 		may = nil
 	}
 	rows := s.Term.ListFor(homeKey, r.URL.Query().Get("cwd"), may)
-	if homeKey != term.HomeKey(p) {
+	if homeKey != term.HomeKey(p) || p.ReadOnly() {
 		for i := range rows {
-			if strings.HasPrefix(rows[i].Partition, "user:") {
+			if rows[i].Personal() {
 				rows[i].Name = ""
 			}
 		}

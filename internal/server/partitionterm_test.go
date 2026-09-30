@@ -14,6 +14,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // covers PD-09 PD-29 — the agent-session routes are converted (06 §1): a
@@ -167,8 +168,65 @@ func TestPartitionTermAdmin(t *testing.T) {
 		t.Errorf("bob's own listing: %d %s", c, b)
 	}
 
+	// view-as: an admin looking as bob (read-only) gets no silent path in —
+	// every read of his session there is refused (PD-08: view-as opens no
+	// partition), his listing leaves its name out, and his partition
+	// history isn't merged in; his session on apps/u reads as today
+	s.Term.PersonPartitionKey = func(id string) string { return "k-" + id }
+	hist := func(dir, id, cwd string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"meta":{"id":"` + id + `","cwd":"` + cwd + `","provider":"fake","created":"x","ended":"x","turns":1,"preview":"` + id + ` plan"},"events":[]}`
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hist(filepath.Join(root, "data", "agent-history", ".partitions", "k-bob", util.TileKey("apps/p")), "aa01", "apps/p")
+	hist(filepath.Join(root, "data", "agent-history", "bob", util.CompKey("apps/u")), "bb02", "apps/u")
+	view := viewAs(t, h, alice, "bob")
+	for _, d := range drives[:5] { // the GETs: session, events (both), log, diff
+		if c, b := do(view, d[0], d[1], d[2]); c != 403 || !strings.Contains(b, "viewing as someone") {
+			t.Errorf("view-as %s %s: %d %s", d[0], d[1], c, b)
+		}
+	}
+	if c, b := do(view, "GET", "/term/sessions/"+ids["apps/u"], ""); c != 200 {
+		t.Errorf("view-as on bob's unpartitioned session (today's): %d %s", c, b)
+	}
+	if c, b := do(view, "GET", "/term/sessions", ""); c != 200 || strings.Contains(b, "secret plan") || !strings.Contains(b, "a plain tab") {
+		t.Errorf("view-as listing: %d %s", c, b)
+	}
+	if c, b := do(view, "GET", "/agent/history", ""); c != 200 || strings.Contains(b, "aa01") || !strings.Contains(b, "bb02") {
+		t.Errorf("view-as history: %d %s", c, b)
+	}
+	if c, b := do(view, "GET", "/agent/history/aa01/events", ""); c != 404 {
+		t.Errorf("view-as reads bob's partition transcript: %d %s", c, b)
+	}
+	if c, b := do(bob, "GET", "/agent/history", ""); c != 200 || !strings.Contains(b, "aa01") || !strings.Contains(b, "bb02") {
+		t.Errorf("bob's own history: %d %s", c, b)
+	}
+	if c, b := do(bob, "GET", "/agent/history/aa01/events", ""); c != 200 || !strings.Contains(b, "aa01 plan") {
+		t.Errorf("bob reads his partition transcript: %d %s", c, b)
+	}
+
 	// kill stays: the admin ends bob's partition session
 	if c, b := do(alice, "DELETE", "/term/sessions/"+p, ""); c != http.StatusNoContent {
 		t.Errorf("admin ends bob's partition session: %d %s", c, b)
 	}
+}
+
+// viewAs mints admin sid's view-as session of user (POST /impersonate,
+// then the ticket's URL) → its cookie.
+func viewAs(t *testing.T, h http.Handler, sid, user string) string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, withCookie("POST", "/api/xbin/impersonate", `{"user":"`+user+`"}`, sid))
+	var m struct{ URL string }
+	if err := json.Unmarshal(w.Body.Bytes(), &m); err != nil || m.URL == "" {
+		t.Fatalf("impersonate %s: %d %s", user, w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withCookie("GET", m.URL, "", sid))
+	return sessionCookie(t, w)
 }

@@ -43,15 +43,22 @@ import (
 // deleting their layers.
 var ErrPartitionSwitching = errors.New("a partition mode switch is running")
 
+// ErrPartitionEnding refuses a person's session while their partition of
+// the tile ends (409): a reset, purge or sweep is stopping its sessions and
+// deleting its layer and history (HoldPartition, partitionhold.go).
+var ErrPartitionEnding = errors.New("this partition is being reset or removed")
+
 // Partition is the broker's answer about a new session's tile
 // (SessionPartitionFunc).
 type Partition struct {
 	// Partitioned: the tile keeps each person's data apart (its recorded
 	// mode has user partitions, or its record can't be read). false: every
-	// other field is empty and the session is today's.
+	// field but Tile is empty and the session is today's.
 	Partitioned bool
-	// Tile is the partitioned tile holding the session's cwd: the key of
-	// the person layer and the partition history.
+	// Tile is the tile holding the session's cwd ("" when none does); on a
+	// partitioned tile the key of the person layer and the partition
+	// history. A switch's stop and a mode change match sessions by it, so a
+	// session opened on a sub-path of the tile is its tile's too.
 	Tile string
 	// Part is what the session's tile API reaches: "user:<id>" for a
 	// person, "global" for a session with no person (or one targeting a
@@ -81,10 +88,11 @@ const partLayerDir = "term-part"
 const partHistoryDir = ".partitions"
 
 // sessionPart is what a session keeps of its partition, fixed at start.
-// The zero value is a session on a tile that isn't partitioned: today's.
+// One with on false is a session on a tile that isn't partitioned: today's
+// (tile only names its owning tile).
 type sessionPart struct {
 	on     bool   // the tile was partitioned when the session opened
-	tile   string // that tile
+	tile   string // the tile holding its cwd (Partition.Tile), partitioned or not
 	part   string // XBIN_PARTITION and the session frame's partition ("" none)
 	key    string // the opener's partition id: their layer and history
 	note   string // the session frame's partitionNote
@@ -94,9 +102,16 @@ type sessionPart struct {
 // person reports a session acting in a person's partition.
 func (sp sessionPart) person() bool { return strings.HasPrefix(sp.part, "user:") }
 
+// personal reports a person's session on a partitioned tile — acting in
+// their partition, or in global when it targets a non-primary deployment:
+// either way its layer and history are their partition's (key), and its
+// name stays out of other people's listings (PD-09).
+func (sp sessionPart) personal() bool { return sp.on && sp.key != "" }
+
 // pickPartition asks the broker about a new session's tile (both kinds,
 // after pickTarget) and keeps the answer in o. The int is the HTTP status
-// of a refusal.
+// of a refusal. An open it lets through counts as in flight until the
+// caller's partOpened (partitionhold.go), so a stop that follows sees it.
 func (m *Manager) pickPartition(p auth.Principal, o *openOpts, rel string) (int, error) {
 	if m.SessionPartition == nil {
 		return 0, nil
@@ -108,6 +123,8 @@ func (m *Manager) pickPartition(p auth.Principal, o *openOpts, rel string) (int,
 	case err != nil:
 		return 403, err
 	case !ans.Partitioned:
+		o.part = sessionPart{tile: ans.Tile} // today's session; its tile for a stop's match
+		m.opening(o)
 		return 0, nil
 	}
 	sp := sessionPart{on: true, tile: ans.Tile, part: ans.Part, key: ans.Key}
@@ -119,13 +136,36 @@ func (m *Manager) pickPartition(p auth.Principal, o *openOpts, rel string) (int,
 		o.api, sp.apiOff = false, true
 		sp.note = "tile API off: " + ans.NoAPI
 	case ans.NoAPI != "":
+	case sp.key != "" && !m.Isolate:
+		// no sandbox: the shell runs on the host as xbind, which reads every
+		// partition's files (bx doctor flags the tile) — say so, promise nothing
+		sp.note = "partition: " + sp.part + " · no isolation: this shell runs on the host and can read every partition's data"
 	case sp.person():
 		sp.note = "partition: yours (" + sp.part + ") · the tile directory is shared code — keep your own files in $HOME"
 	case sp.part != "":
 		sp.note = "partition: " + sp.part + " · the tile directory is shared code"
 	}
 	o.part = sp
+	if !m.opening(o) {
+		return 409, fmt.Errorf("%w: %s — open the session once it is done", ErrPartitionEnding, sp.tile)
+	}
 	return 0, nil
+}
+
+// resumeHere refuses resuming a past session into a new one that saves to
+// the other store (409, as a resume the agent can't do: the UI offers a
+// fresh start): a partition's history (fromPart) continues only in its
+// person's session on the partitioned tile, their own history only outside
+// one — a continuation never carries a partition's transcript into history
+// that outlives the partition, nor the other way (PD-22).
+func (m *Manager) resumeHere(resume string, fromPart bool, o openOpts) (int, error) {
+	switch {
+	case resume == "" || fromPart == o.part.personal():
+		return 0, nil
+	case fromPart:
+		return 409, errors.New("that past session ran in your partition of the tile, and this session isn't in it (the tile no longer keeps each person's data apart) — start a new one")
+	}
+	return 409, errors.New("that past session ran before the tile kept each person's data apart, and can't continue in your partition — start a new one")
 }
 
 // partitionEnv is the session's XBIN_PARTITION: only on a partitioned tile,
@@ -190,6 +230,21 @@ func (m *Manager) adminPass(s *Session, p auth.Principal) bool {
 	return p.IsAdmin() && (s.homeKey == HomeKey(p) || !m.partitioned(s))
 }
 
+// viewAsBarred is the refusal of p, an admin viewing as a person
+// (read-only), on s when s's tile keeps each person's data apart: view-as
+// opens no partition (PD-08), so no session there either — nor its events,
+// log or diff (PD-09). "" otherwise, the view-as pass of today.
+func (m *Manager) viewAsBarred(s *Session, p auth.Principal) string {
+	if !p.ReadOnly() || !m.partitioned(s) {
+		return ""
+	}
+	return viewAsRefusal(s.Cwd)
+}
+
+func viewAsRefusal(tile string) string {
+	return "viewing as someone opens no session on " + tile + ": it keeps each person's data apart"
+}
+
 // notYours is the refusal of an admin on another person's session of a
 // partitioned tile.
 func notYours(tile string) string {
@@ -232,7 +287,7 @@ func (m *Manager) MayRename(id string, p auth.Principal) bool {
 func (m *Manager) PartitionModeChanged(tile string, partitioned bool) int {
 	n := 0
 	for _, s := range m.sorted() {
-		if (s.Cwd == tile || s.part.tile == tile) && s.part.on != partitioned {
+		if s.onTile(tile) && s.part.on != partitioned {
 			s.kill()
 			n++
 		}
@@ -250,12 +305,20 @@ var stopWait = 15 * time.Second
 // didn't end in time (the switch then fails before deleting anything of
 // the terminals').
 func (m *Manager) StopTileSessions(tile string) error {
-	return m.stopWhere(func(s *Session) bool { return s.Cwd == tile || s.part.tile == tile }, tile)
+	return m.stopWhere(func(s sessionPart) bool { return s.tile == tile }, func(s *Session) bool { return s.onTile(tile) }, tile)
 }
 
-// stopWhere ends every session on matches and waits for their teardown;
-// what names them in the error.
-func (m *Manager) stopWhere(on func(*Session) bool, what string) error {
+// onTile reports whether s is a session on tile: opened on it or on a
+// sub-path of it (its owning tile, recorded at open), or — a session opened
+// without the partition hooks — in its directory.
+func (s *Session) onTile(tile string) bool {
+	return s.Cwd == tile || s.part.tile == tile
+}
+
+// stopWhere ends every session on matches and waits for their teardown,
+// and for the opens in flight that opening matches (partitionhold.go) to
+// register or fail; what names them in the error.
+func (m *Manager) stopWhere(opening func(sessionPart) bool, on func(*Session) bool, what string) error {
 	deadline := time.Now().Add(stopWait)
 	killed := map[*Session]bool{}
 	for {
@@ -265,11 +328,12 @@ func (m *Manager) stopWhere(on func(*Session) bool, what string) error {
 				live = append(live, s)
 			}
 		}
-		if len(live) == 0 {
+		inflight := m.inFlight(opening)
+		if len(live) == 0 && inflight == 0 {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%d terminal or agent session(s) of %s did not end in time", len(live), what)
+			return fmt.Errorf("%d terminal or agent session(s) of %s did not end in time", len(live)+inflight, what)
 		}
 		for _, s := range live {
 			if !killed[s] {
@@ -284,19 +348,20 @@ func (m *Manager) stopWhere(on func(*Session) bool, what string) error {
 // StopPartitionSessions ends the sessions acting in partition id pkey — on
 // tile, or on every tile when tile is "" — and waits for their teardown,
 // as StopTileSessions does: the stop before WipePartitionKey (a partition's
-// reset or purge, a deleted person's sweep).
+// reset or purge, a deleted person's sweep). The caller holds the partition
+// (HoldPartition) from before the stop until the wipe is done, so no
+// session of it opens in between.
 func (m *Manager) StopPartitionSessions(tile, pkey string) error {
-	return m.stopWhere(func(s *Session) bool {
-		return pkey != "" && s.part.key == pkey && (tile == "" || s.part.tile == tile)
-	}, pkey)
+	match := func(sp sessionPart) bool { return pkey != "" && sp.key == pkey && (tile == "" || sp.tile == tile) }
+	return m.stopWhere(match, func(s *Session) bool { return match(s.part) }, pkey)
 }
 
 // WipePartitionKey deletes partition id pkey's person layer and partition
 // agent history — of tile, or of every tile when tile is "" — as
 // WipePartitionTile does for a whole tile; dry only counts. For a
 // partition's reset or purge and a deleted person's sweep (F7b's people
-// and partitions hooks); the caller has stopped its sessions
-// (StopPartitionSessions).
+// and partitions hooks); the caller holds the partition (HoldPartition)
+// and has stopped its sessions (StopPartitionSessions).
 func (m *Manager) WipePartitionKey(tile, pkey string, dry bool) (PartitionTileWipe, error) {
 	var out PartitionTileWipe
 	if pkey == "" || strings.ContainsAny(pkey, `/\.`) {

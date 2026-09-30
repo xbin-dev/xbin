@@ -72,7 +72,9 @@ func (m *Manager) layerOutdated(envKey string) bool {
 // terminal layer is pinned to a base image that isn't installed — stacking its
 // upper on a different base would corrupt apt/dpkg state. Called once at boot
 // when isolation is on. It gates on .xbin/term only: a tile sandbox whose base
-// is gone fails its own start instead (plans/tile-sandbox-runtime.md §7).
+// is gone fails its own start instead (plans/tile-sandbox-runtime.md §7), and
+// so does a person's layer on a partitioned tile (.xbin/term-part, PD-22) —
+// whose base the GC keeps like a tile layer's (layers.List pins it).
 func (m *Manager) CheckBaseImages() error {
 	if m.Rootfs == "" {
 		return nil

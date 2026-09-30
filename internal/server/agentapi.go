@@ -209,39 +209,41 @@ func agentStatus(err error) int {
 
 // historyScope gates the past-session routes like apiTermSessions: the
 // caller's own history, on tiles they may still open a terminal on (admins
-// see all of their own). Writes the refusal itself.
-func (s *Server) historyScope(w http.ResponseWriter, r *http.Request) (homeKey string, may func(string) bool, ok bool) {
+// see all of their own) — an admin viewing as someone sees their own
+// history but not their partition history (term.HistoryOf, PD-09). Writes
+// the refusal itself.
+func (s *Server) historyScope(w http.ResponseWriter, r *http.Request) (h term.HistoryScope, may func(string) bool, ok bool) {
 	p := auth.PrincipalOf(r)
 	if s.Term == nil || !(p.CanTerminal() || p.Via == "terminal") {
 		apiErr(w, http.StatusForbidden, "terminal access required")
-		return "", nil, false
+		return term.HistoryScope{}, nil, false
 	}
 	may = p.CanTerminalTileVia
 	if p.IsAdmin() {
 		may = nil
 	}
-	return term.HomeKey(p), may, true
+	return term.HistoryOf(p), may, true
 }
 
 // apiAgentHistory lists the caller's past agent sessions, newest first
 // (?cwd= narrows to a tile): the persisted transcripts (term/history.go).
 func (s *Server) apiAgentHistory(w http.ResponseWriter, r *http.Request) {
-	homeKey, may, ok := s.historyScope(w, r)
+	h, may, ok := s.historyScope(w, r)
 	if !ok {
 		return
 	}
-	WriteJSON(w, http.StatusOK, s.Term.ListHistory(homeKey, r.URL.Query().Get("cwd"), may))
+	WriteJSON(w, http.StatusOK, s.Term.ListHistory(h, r.URL.Query().Get("cwd"), may))
 }
 
 // apiAgentHistoryEvents is a past session's transcript, {meta, events} in
 // the live /events shape so the same client renders it; ?before=&limit=
 // asks for a page of it, as on a live session (D130).
 func (s *Server) apiAgentHistoryEvents(w http.ResponseWriter, r *http.Request) {
-	homeKey, may, ok := s.historyScope(w, r)
+	h, may, ok := s.historyScope(w, r)
 	if !ok {
 		return
 	}
-	meta, evs, err := s.Term.ReadHistory(homeKey, r.PathValue("id"))
+	meta, evs, err := s.Term.ReadHistory(h, r.PathValue("id"))
 	if err != nil || (may != nil && !may(meta.Cwd)) {
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
@@ -258,16 +260,16 @@ func (s *Server) apiAgentHistoryEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) apiAgentHistoryDelete(w http.ResponseWriter, r *http.Request) {
-	homeKey, may, ok := s.historyScope(w, r)
+	h, may, ok := s.historyScope(w, r)
 	if !ok {
 		return
 	}
-	meta, err := s.Term.HistoryMeta(homeKey, r.PathValue("id"))
+	meta, err := s.Term.HistoryMeta(h, r.PathValue("id"))
 	if err != nil || (may != nil && !may(meta.Cwd)) {
 		apiErr(w, http.StatusNotFound, "no such past session")
 		return
 	}
-	if err := s.Term.DeleteHistory(homeKey, r.PathValue("id")); err != nil {
+	if err := s.Term.DeleteHistory(h, r.PathValue("id")); err != nil {
 		apiErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

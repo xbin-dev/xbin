@@ -58,8 +58,16 @@ func TestTermPartition(t *testing.T) {
 	if _, err := b.TermPartition(auth.Principal{UserID: "bob", Via: "session"}, "apps/docs", ""); err == nil || !strings.Contains(err.Error(), "can't read") {
 		t.Errorf("bob, who can't read apps/docs: %v", err)
 	}
-	if got, err := b.TermPartition(alice, "apps/plain", ""); err != nil || got != (term.Partition{}) {
-		t.Errorf("an unpartitioned tile: %+v %v", got, err)
+	if got, err := b.TermPartition(alice, "apps/plain", ""); err != nil || got != (term.Partition{Tile: "apps/plain"}) {
+		t.Errorf("an unpartitioned tile: %+v %v (want its tile alone)", got, err)
+	}
+	if got, err := b.TermPartition(alice, "apps/docs/src", ""); err != nil || got != ans {
+		t.Errorf("a sub-path of apps/docs: %+v %v (want its tile's answer)", got, err)
+	}
+	var recorded []string
+	withSeam(t, &termPartitionRecord, func(_ *Broker, tile, user, uid string) { recorded = append(recorded, tile+" "+user+" "+uid) })
+	if _, err := b.TermPartition(alice, "apps/docs", ""); err != nil || !slices.Equal(recorded, []string{"apps/docs alice " + uid}) {
+		t.Errorf("the record seam (F5): %q %v", recorded, err)
 	}
 	if tile, on := b.TermTilePartitioned("apps/docs"); !on || tile != "apps/docs" {
 		t.Errorf("TermTilePartitioned(apps/docs) = %q %v", tile, on)
@@ -103,6 +111,17 @@ func (f *fakeTerms) WipePartitionTile(tile string, dry bool) (term.PartitionTile
 		f.calls = append(f.calls, "wipe "+tile+" "+f.state())
 	}
 	return term.PartitionTileWipe{Layers: len(f.keys), Keys: f.keys}, nil
+}
+
+func (f *fakeTerms) HoldPartition(tile, pkey string) func() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "hold "+tile+" "+pkey)
+	return func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.calls = append(f.calls, "release "+tile+" "+pkey)
+	}
 }
 
 func (f *fakeTerms) StopPartitionSessions(tile, pkey string) error {
@@ -196,12 +215,13 @@ func TestPartitionTermSwitch(t *testing.T) {
 	if people := b.peopleOfPartitionKeys([]string{alice.Key, "u-nobody"}); !slices.Equal(people, []string{"alice"}) {
 		t.Errorf("peopleOfPartitionKeys: %q", people)
 	}
-	// one partition's end (F7b's reset, purge, sweep): its sessions stop
-	// first, then its layers and history go; a dry run only counts
+	// one partition's end (F7b's reset, purge, sweep): held, its sessions
+	// stop first, then its layers and history go, then the hold is
+	// released; a dry run only counts
 	if got, err := b.wipePersonTerminalsOf("apps/docs", alice.Key, false); err != nil || got.Layers != 1 {
 		t.Errorf("wipePersonTerminalsOf: %+v %v", got, err)
 	}
-	if got, want := f.take(), []string{"stop apps/docs " + alice.Key, "wipe apps/docs " + alice.Key}; !slices.Equal(got, want) {
+	if got, want := f.take(), []string{"hold apps/docs " + alice.Key, "stop apps/docs " + alice.Key, "wipe apps/docs " + alice.Key, "release apps/docs " + alice.Key}; !slices.Equal(got, want) {
 		t.Errorf("one partition's end: %q, want %q", got, want)
 	}
 	if _, err := b.wipePersonTerminalsOf("", alice.Key, true); err != nil {

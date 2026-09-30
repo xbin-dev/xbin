@@ -42,7 +42,13 @@ type SessionInfo struct {
 	// Partition is what the session acts in on a partitioned tile:
 	// "user:<id>" or "global" (partition.go); absent on every other tile.
 	Partition string `json:"partition,omitempty"`
+	personal  bool   // a person's session on a partitioned tile (Personal)
 }
+
+// Personal reports a person's session on a partitioned tile — in their
+// partition, or in global when it targets a non-primary deployment: its
+// name stays out of every listing but its person's own (PD-09).
+func (si SessionInfo) Personal() bool { return si.personal }
 
 func (s *Session) info() SessionInfo {
 	s.mu.Lock()
@@ -57,7 +63,7 @@ func (s *Session) info() SessionInfo {
 		Created:    s.born.UTC().Format(time.RFC3339),
 		LastActive: s.hub.LastActive().UTC().Format(time.RFC3339),
 		Clients:    s.hub.Clients(), EnvHeld: s.envKey != "",
-		Partition: s.part.part,
+		Partition: s.part.part, personal: s.part.personal(),
 	}
 	if st := s.agent; st != nil {
 		st.mu.Lock()
@@ -133,9 +139,12 @@ func (m *Manager) Owner(id string) string {
 // non-admin — still terminal-level on the tile (a revoked level closes the
 // door to sessions already open there; the session itself lives on until
 // killed or reaped). On a partitioned tile (partitioned) an admin has no
-// pass into another person's session (PD-09). "" = allowed, else the
-// refusal.
+// pass into another person's session, nor view-as into any (PD-09). "" =
+// allowed, else the refusal.
 func (s *Session) mayReattach(p auth.Principal, partitioned bool) string {
+	if partitioned && p.ReadOnly() {
+		return viewAsRefusal(s.Cwd)
+	}
 	if p.IsAdmin() && (!partitioned || s.homeKey == HomeKey(p)) {
 		return ""
 	}

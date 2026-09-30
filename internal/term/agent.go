@@ -146,8 +146,10 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	// (history.go) — its provider, mode and name carry over; the agent must
 	// have advertised loadSession, else 409 and the UI offers a fresh start
 	var resumeID string
+	var fromPart bool // the entry is partition history (resumeHere)
 	if resume != "" {
-		meta, err := m.HistoryMeta(HomeKey(p), resume)
+		var meta HistoryMeta
+		meta, fromPart, err = m.historyMetaFrom(HistoryOf(p), resume)
 		if err != nil {
 			return SessionInfo{}, 404, fmt.Errorf("no such past session %q", resume)
 		}
@@ -183,7 +185,12 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
 		return SessionInfo{}, code, err
 	}
+	if code, err := m.resumeHere(resume, fromPart, o); err != nil { // partition.go
+		m.partOpened(&o)
+		return SessionInfo{}, code, err
+	}
 	s, err := m.createAgent(o, prov, mode, options, resumeID, resume)
+	m.partOpened(&o) // registered or failed: a stop sees it now (partitionhold.go)
 	if err != nil {
 		if errors.Is(err, errLimit) {
 			return SessionInfo{}, 409, err
@@ -209,15 +216,19 @@ func (m *Manager) Info(id string) (SessionInfo, bool) {
 
 // MayDrive is the gate on the per-session API routes: the creator (while
 // still terminal-level on the tile — the reattach rule) or an admin — but
-// on a partitioned tile never an admin in another person's session
-// (PD-09: their agent's sandbox holds that person's terminal token).
-// ErrNoSession for an unknown id, ErrForbidden otherwise.
+// on a partitioned tile never an admin in another person's session, nor an
+// admin viewing as its person (PD-09: their agent's sandbox holds that
+// person's terminal token). ErrNoSession for an unknown id, ErrForbidden
+// otherwise.
 func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	m.mu.Lock()
 	s := m.sessions[id]
 	m.mu.Unlock()
 	if s == nil {
 		return ErrNoSession
+	}
+	if why := m.viewAsBarred(s, p); why != "" {
+		return fmt.Errorf("%w: %s", ErrForbidden, why)
 	}
 	if m.adminPass(s, p) {
 		return nil

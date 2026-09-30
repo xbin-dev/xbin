@@ -403,14 +403,19 @@ opened it, and reaches only that person's partition:
 - **It starts in `$HOME`.** The tile directory is the tile's code, shared
   by every partition: a file left there is readable by every person's
   terminal and by the tile's code in every partition. Keep your own files
-  in `$HOME`; the terminal prints a grey line saying so.
+  in `$HOME`; the terminal prints a grey line saying so. (Without
+  `--isolate` a terminal is a host shell that can read every partition's
+  files, and its grey line says that instead.)
 - **Its dev layer is the person's own.** System changes (`apt install`,
   `/etc`) go to that person's layer of the tile, never the tile's shared
   one, so one person's terminal can't plant anything in another's; a VM
   terminal's disk is per person too. Reset resets your own layer.
 - **Its agent history is the partition's.** A finished agent session's
   transcript is kept with the person's partition, listed with their other
-  past sessions, and never read by a person recreated under the same id.
+  past sessions, and never read by a person recreated under the same id. A
+  past session continues only where it ran: one of the partition's in the
+  partition, one from before the tile was partitioned outside it (a resume
+  across answers 409, and the Agent tab offers a fresh start).
 - **Admins can end other people's sessions there, and nothing else.** On a
   partitioned tile an admin can't reattach to another person's terminal,
   drive their agent session (read its events, log or diffs, prompt it,
@@ -419,9 +424,12 @@ opened it, and reaches only that person's partition:
   another person's sessions listed without their names (`GET
   /api/xbin/term/sessions?user=`, `GET /api/xbin/status`, the sandbox
   list). Ending one (`DELETE /api/xbin/term/sessions/<id>`, `DELETE
-  /ws/term?session=`) stays allowed.
+  /ws/term?session=`) stays allowed. Viewing as the person opens none of
+  it either: no session of the tile is readable that way, its names are
+  left out, and the person's partition agent history isn't listed.
 - **A mode switch** that deletes the tile's data ends the tile's sessions
-  first, then deletes every person's layer and partition agent history of
+  (those opened on a sub-path of the tile too) first, then deletes every
+  person's layer and partition agent history of
   it; the tile's own layer and people's own history stay. None of it is in
   backups. While a switch runs, a new session on the tile answers 409.
 

@@ -24,25 +24,45 @@ import (
 // partitioned: a person acts in user:<id> with the partition id "k-<id>",
 // the owner (no person) in global while global is on and without the tile
 // API otherwise; refuse names people who reach no partition; switching
-// refuses every session on apps/p. Every other tile isn't partitioned.
+// refuses every session on apps/p. Every other tile isn't partitioned. A
+// sub-path answers as its tile (apps/p or apps/u), as the registry resolves.
 type partHooks struct {
 	mu        sync.Mutex
 	global    bool
 	switching bool
 	refuse    map[string]bool
-	on        map[string]bool // tiles partitioned now (TilePartitioned); apps/p unless set
+	on        map[string]bool // tiles partitioned now (both hooks); apps/p unless set
 }
 
-func (h *partHooks) session(p auth.Principal, tile, dep string) (Partition, error) {
+// tileOf is the tile holding path, "" for none.
+func tileOf(path string) string {
+	for _, t := range []string{"apps/p", "apps/u"} {
+		if path == t || strings.HasPrefix(path, t+"/") {
+			return t
+		}
+	}
+	return ""
+}
+
+// isOn: under h.mu.
+func (h *partHooks) isOn(tile string) bool {
+	if h.on != nil {
+		return h.on[tile]
+	}
+	return tile == "apps/p"
+}
+
+func (h *partHooks) session(p auth.Principal, path, dep string) (Partition, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if tile != "apps/p" {
-		return Partition{}, nil
-	}
-	if h.switching {
+	tile := tileOf(path)
+	if tile == "apps/p" && h.switching {
 		return Partition{}, fmt.Errorf("%w: apps/p is paused", ErrPartitionSwitching)
 	}
-	out := Partition{Partitioned: true, Tile: "apps/p"}
+	if !h.isOn(tile) {
+		return Partition{Tile: tile}, nil
+	}
+	out := Partition{Partitioned: true, Tile: tile}
 	switch {
 	case p.UserID != "" && h.refuse[p.UserID]:
 		return Partition{}, errors.New("apps/p: " + p.UserID + " can't read it")
@@ -51,7 +71,7 @@ func (h *partHooks) session(p auth.Principal, tile, dep string) (Partition, erro
 	case h.global:
 		out.Part = "global"
 	default:
-		out.NoAPI = "sign in as a person: apps/p keeps each person's data apart"
+		out.NoAPI = "sign in as a person: " + tile + " keeps each person's data apart"
 	}
 	return out, nil
 }
@@ -59,10 +79,8 @@ func (h *partHooks) session(p auth.Principal, tile, dep string) (Partition, erro
 func (h *partHooks) partitioned(path string) (string, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.on != nil {
-		return path, h.on[path]
-	}
-	return "apps/p", path == "apps/p"
+	tile := tileOf(path)
+	return tile, h.isOn(tile)
 }
 
 func (h *partHooks) install(m *Manager) {
@@ -247,9 +265,19 @@ func TestPartitionSessionOpen(t *testing.T) {
 		t.Errorf("ana's shell on apps/p starts in %s, want her $HOME %s", cwd, home)
 	}
 	hello := s.helloFields("")
-	if hello["partition"] != "user:ana" || !strings.Contains(hello["partitionNote"].(string), "partition: yours") || hello["api"] != nil {
+	// a host shell (isolation off) reads every partition: its note says so
+	if hello["partition"] != "user:ana" || !strings.Contains(hello["partitionNote"].(string), "no isolation") || hello["api"] != nil {
 		t.Errorf("the session frame: %v", hello)
 	}
+	// … a sandboxed one's promises its own partition (the note alone: no
+	// sandbox is started here)
+	iso := &Manager{Root: m.Root, Isolate: true}
+	h.install(iso)
+	io := openOpts{api: true}
+	if code, err := iso.pickPartition(ana, &io, "apps/p"); err != nil || !strings.Contains(io.part.note, "partition: yours (user:ana)") {
+		t.Errorf("the isolated note: %d %v %q", code, err, io.part.note)
+	}
+	iso.partOpened(&io)
 	if row, _ := m.Info(id); row.Partition != "user:ana" {
 		t.Errorf("the row's partition: %q", row.Partition)
 	}
@@ -401,12 +429,43 @@ func TestPartitionAdminGates(t *testing.T) {
 	if err := m.MayDrive("u1", admin); !errors.Is(err, ErrForbidden) {
 		t.Errorf("an admin driving a session on a tile partitioned since: %v", err)
 	}
-	// GET /status's listing: a person's partition session has no name
+	// GET /status's listing: a person's session there has no name — in
+	// their partition, or in global targeting a non-primary deployment
+	// (its layer and history are still theirs)
+	dev := stub(m, "p3", "ana", "apps/p", time.Now())
+	dev.part = sessionPart{on: true, tile: "apps/p", part: "global", key: "k-ana"}
 	m.Rename("p1", "dump the payroll")
+	m.Rename("p3", "payroll on dev")
 	for _, row := range m.List() {
-		if row["id"] == "p1" && (row["name"] != "" || row["partition"] != "user:ana") {
-			t.Errorf("the status row of ana's partition session: %v", row)
+		switch row["id"] {
+		case "p1", "p3":
+			if row["name"] != "" || row["partition"] == nil {
+				t.Errorf("the status row of ana's session on apps/p: %v", row)
+			}
 		}
+	}
+	if info, _ := m.Info("p3"); !info.Personal() || info.Partition != "global" {
+		t.Errorf("ana's non-primary session: %+v personal %v", info, info.Personal())
+	}
+	if info, _ := m.Info("u1"); info.Personal() {
+		t.Error("a session on an unpartitioned tile reads personal")
+	}
+
+	// view-as (an admin looking as ana, read-only) opens no session on a
+	// partitioned tile — ana's own included (PD-08); elsewhere as today
+	viewAna := termPerson("ana", "apps/p", "apps/u")
+	viewAna.Impersonator = "root"
+	if err := m.MayDrive("p1", viewAna); !errors.Is(err, ErrForbidden) || !strings.Contains(err.Error(), "viewing as someone") {
+		t.Errorf("view-as driving ana's partition session: %v", err)
+	}
+	if why := part.mayReattach(viewAna, m.partitioned(part)); !strings.Contains(why, "viewing as someone") {
+		t.Errorf("view-as reattaching to ana's partition session: %q", why)
+	}
+	h.mu.Lock()
+	h.on["apps/u"] = false
+	h.mu.Unlock()
+	if err := m.MayDrive("u1", viewAna); err != nil {
+		t.Errorf("view-as on an unpartitioned tile's session (today's pass): %v", err)
 	}
 }
 
@@ -455,14 +514,29 @@ func TestPartitionAgentHistory(t *testing.T) {
 	if ents, _ := os.ReadDir(filepath.Join(m.Root, "data", "agent-history", "ana")); len(ents) != 0 {
 		t.Errorf("the partition session wrote into ana's own history: %v", ents)
 	}
-	if hist := m.ListHistory("ana", "apps/p", nil); len(hist) != 1 || hist[0].ID != info.ID || hist[0].Preview != "secret plan" {
+	if hist := m.ListHistory(OwnHistory("ana"), "apps/p", nil); len(hist) != 1 || hist[0].ID != info.ID || hist[0].Preview != "secret plan" {
 		t.Errorf("ana's history of apps/p: %+v", hist)
 	}
-	if hist := m.ListHistory("ana", "", nil); len(hist) != 1 {
+	if hist := m.ListHistory(OwnHistory("ana"), "", nil); len(hist) != 1 {
 		t.Errorf("ana's whole history: %+v", hist)
 	}
-	if _, evs, err := m.ReadHistory("ana", info.ID); err != nil || len(evs) == 0 {
+	if _, evs, err := m.ReadHistory(OwnHistory("ana"), info.ID); err != nil || len(evs) == 0 {
 		t.Errorf("read back: %v", err)
+	}
+	// a sub-path narrows to its own entries, as ana's own history does
+	if hist := m.ListHistory(OwnHistory("ana"), "apps/p/src", nil); len(hist) != 0 {
+		t.Errorf("apps/p/src lists apps/p's partition entries: %+v", hist)
+	}
+	// an admin viewing as ana reads none of it (PD-08, PD-09)
+	viewAs := HistoryScope{Home: "ana", ViewAs: true}
+	if hist := m.ListHistory(viewAs, "", nil); len(hist) != 0 {
+		t.Errorf("view-as lists ana's partition history: %+v", hist)
+	}
+	if _, _, err := m.ReadHistory(viewAs, info.ID); !errors.Is(err, ErrNoSession) {
+		t.Errorf("view-as reads ana's partition transcript: %v", err)
+	}
+	if err := m.DeleteHistory(viewAs, info.ID); !errors.Is(err, ErrNoSession) {
+		t.Errorf("view-as deletes ana's partition transcript: %v", err)
 	}
 	// resume reopens it, in the partition again
 	info2, code, err := m.OpenAgent(ana, "apps/p", "", "", "", "", info.ID, nil)
@@ -473,14 +547,43 @@ func TestPartitionAgentHistory(t *testing.T) {
 	m.Kill(info2.ID)
 	for op := ""; op != "close:"+info2.ID; op = <-r.change {
 	}
+	// a resume never crosses stores: the partition's entry doesn't continue
+	// once apps/p stops keeping people apart (its continuation would land
+	// in ana's own history, which outlives the partition), nor an entry of
+	// ana's own history inside her partition
+	h.mu.Lock()
+	h.on = map[string]bool{"apps/p": false}
+	h.mu.Unlock()
+	if _, code, err := m.OpenAgent(ana, "apps/p", "", "", "", "", info.ID, nil); code != 409 || err == nil || !strings.Contains(err.Error(), "start a new one") {
+		t.Errorf("resuming a partition entry outside the partition: %d %v", code, err)
+	}
+	h.mu.Lock()
+	h.on = nil
+	h.mu.Unlock()
+	own := filepath.Join(m.Root, "data", "agent-history", "ana", util.CompKey("apps/p"))
+	if err := os.MkdirAll(own, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(own, "0ld0.json"), []byte(`{"meta":{"id":"0ld0","cwd":"apps/p","provider":"fake","created":"x","ended":"x","turns":1,"acpSessionId":"s","loadable":true},"events":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, code, err := m.OpenAgent(ana, "apps/p", "", "", "", "", "0ld0", nil); code != 409 || err == nil || !strings.Contains(err.Error(), "before the tile kept") {
+		t.Errorf("resuming an own entry inside the partition: %d %v", code, err)
+	}
+	if n := m.inFlight(func(sessionPart) bool { return true }); n != 0 {
+		t.Errorf("refused opens left %d in flight", n)
+	}
+	if err := os.RemoveAll(own); err != nil {
+		t.Fatal(err)
+	}
 	// a recreated ana (a new uid: a new partition id) reads none of it
 	mu.Lock()
 	keys["ana"] = "k-ana2"
 	mu.Unlock()
-	if hist := m.ListHistory("ana", "", nil); len(hist) != 0 {
+	if hist := m.ListHistory(OwnHistory("ana"), "", nil); len(hist) != 0 {
 		t.Errorf("a new incarnation inherits the partition history: %+v", hist)
 	}
-	if _, err := m.HistoryMeta("ana", info.ID); !errors.Is(err, ErrNoSession) {
+	if _, err := m.HistoryMeta(OwnHistory("ana"), info.ID); !errors.Is(err, ErrNoSession) {
 		t.Errorf("a new incarnation reads an old entry: %v", err)
 	}
 }
@@ -520,19 +623,31 @@ func TestPartitionWipeAndStop(t *testing.T) {
 		t.Fatal("the dry run removed something")
 	}
 
-	// sessions: apps/p's end (both), apps/u's stays
-	ana := termPerson("ana", "apps/p", "apps/u")
+	// sessions: apps/p's end (all three — one on a sub-path, opened before
+	// the tile was partitioned), apps/u's stays
+	ana := termPerson("ana", "apps/p", "apps/u", "apps/p/src")
+	mk("apps", "p", "src")
+	h.mu.Lock()
+	h.on = map[string]bool{"apps/p": false}
+	h.mu.Unlock()
+	early, _, _ := openShell(t, m, ana, "apps/p/src", "")
+	h.mu.Lock()
+	h.on["apps/p"] = true
+	h.mu.Unlock()
 	p1, _, _ := openShell(t, m, ana, "apps/p", "")
 	p2, _, _ := openShell(t, m, auth.Principal{Owner: true}, "apps/p", "")
 	u1, _, _ := openShell(t, m, ana, "apps/u", "")
-	if p1 == "" || p2 == "" || u1 == "" {
+	if early == "" || p1 == "" || p2 == "" || u1 == "" {
 		t.Fatal("sessions didn't open")
+	}
+	if s := sessionOf(m, early); s.part.on || s.part.tile != "apps/p" {
+		t.Fatalf("the sub-path session's partition: %+v", s.part)
 	}
 	if err := m.StopTileSessions("apps/p"); err != nil {
 		t.Fatal(err)
 	}
-	if sessionOf(m, p1) != nil || sessionOf(m, p2) != nil || sessionOf(m, u1) == nil {
-		t.Fatalf("after the stop: p1 %v p2 %v u1 %v", sessionOf(m, p1) != nil, sessionOf(m, p2) != nil, sessionOf(m, u1) != nil)
+	if sessionOf(m, early) != nil || sessionOf(m, p1) != nil || sessionOf(m, p2) != nil || sessionOf(m, u1) == nil {
+		t.Fatalf("after the stop: sub-path %v p1 %v p2 %v u1 %v", sessionOf(m, early) != nil, sessionOf(m, p1) != nil, sessionOf(m, p2) != nil, sessionOf(m, u1) != nil)
 	}
 
 	got, err := m.WipePartitionTile("apps/p", false)
@@ -566,20 +681,24 @@ func TestPartitionWipeAndStop(t *testing.T) {
 func TestPartitionModeChangedEndsStaleSessions(t *testing.T) {
 	h := &partHooks{}
 	m, _ := partManager(t, h)
-	ana := termPerson("ana", "apps/p", "apps/u")
+	if err := os.MkdirAll(filepath.Join(m.Root, "apps", "u", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ana := termPerson("ana", "apps/p", "apps/u", "apps/u/src")
 	inP, _, _ := openShell(t, m, ana, "apps/p", "")
 	inU, _, _ := openShell(t, m, ana, "apps/u", "")
+	inUSub, _, _ := openShell(t, m, ana, "apps/u/src", "") // a sub-path: its tile's session too
 	if n := m.PartitionModeChanged("apps/p", true); n != 0 {
 		t.Errorf("apps/p stays partitioned: %d ended", n)
 	}
-	if n := m.PartitionModeChanged("apps/u", true); n != 1 {
-		t.Errorf("apps/u became partitioned: %d ended, want 1", n)
+	if n := m.PartitionModeChanged("apps/u", true); n != 2 {
+		t.Errorf("apps/u became partitioned: %d ended, want 2 (one on a sub-path)", n)
 	}
 	if n := m.PartitionModeChanged("apps/p", false); n != 1 {
 		t.Errorf("apps/p stopped being partitioned: %d ended, want 1", n)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for sessionOf(m, inP) != nil || sessionOf(m, inU) != nil {
+	for sessionOf(m, inP) != nil || sessionOf(m, inU) != nil || sessionOf(m, inUSub) != nil {
 		if time.Now().After(deadline) {
 			t.Fatal("the stale sessions didn't end")
 		}
@@ -644,5 +763,62 @@ func TestPartitionKeyWipe(t *testing.T) {
 	}
 	if _, err := m.WipePartitionKey("", "../k", false); err == nil {
 		t.Error("a path as a partition id")
+	}
+}
+
+// covers PD-22 PD-26 — nothing opens between a partition's stop and its
+// wipe: while HoldPartition holds it, its person's new sessions answer 409
+// (on its tile, or on every tile for a "" hold) — nobody else's — and a
+// stop waits for the opens already in flight to register or fail, so none
+// slips past it and mounts the layer being removed.
+func TestPartitionHold(t *testing.T) {
+	h := &partHooks{on: map[string]bool{"apps/p": true, "apps/u": true}}
+	m, _ := partManager(t, h)
+	ana, bob := termPerson("ana", "apps/p", "apps/u"), termPerson("bob", "apps/p")
+	release := m.HoldPartition("apps/p", "k-ana")
+	if id, code, body := openShell(t, m, ana, "apps/p", ""); id != "" || code != 409 || !strings.Contains(body, "being reset or removed") {
+		t.Errorf("ana's shell while her partition of apps/p ends: %q %d %s", id, code, body)
+	}
+	if buildErr == nil {
+		m.BxPath = bxBin
+		if _, code, err := m.OpenAgentWith(ana, AgentOpen{Cwd: "apps/p", Provider: "fake"}); code != 409 || !errors.Is(err, ErrPartitionEnding) {
+			t.Errorf("ana's agent session while it ends: %d %v", code, err)
+		}
+	}
+	if id, _, body := openShell(t, m, ana, "apps/u", ""); id == "" {
+		t.Errorf("ana's shell on another tile: %s", body)
+	}
+	if id, _, body := openShell(t, m, bob, "apps/p", ""); id == "" {
+		t.Errorf("bob's shell on apps/p: %s", body)
+	}
+	release()
+	release() // once
+	if id, _, body := openShell(t, m, ana, "apps/p", ""); id == "" {
+		t.Errorf("ana's shell once released: %s", body)
+	}
+	every := m.HoldPartition("", "k-ana")
+	if id, code, _ := openShell(t, m, ana, "apps/u", ""); id != "" || code != 409 {
+		t.Errorf("ana's shell on apps/u under an every-tile hold: %q %d", id, code)
+	}
+	every()
+
+	// an open in flight: the stop waits for it to register
+	o := openOpts{part: sessionPart{on: true, tile: "apps/p", part: "user:ana", key: "k-ana"}}
+	if !m.opening(&o) {
+		t.Fatal("an open refused without a hold")
+	}
+	done := make(chan error, 1)
+	go func() { done <- m.StopPartitionSessions("apps/p", "k-ana") }()
+	select {
+	case err := <-done:
+		t.Fatalf("the stop returned (%v) with an open in flight", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	m.partOpened(&o)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if n := m.inFlight(func(sessionPart) bool { return true }); n != 0 {
+		t.Errorf("%d opens left in flight", n)
 	}
 }

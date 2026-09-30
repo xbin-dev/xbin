@@ -182,6 +182,7 @@ type Manager struct {
 	sessions map[string]*Session
 	envHeld  map[string]bool        // component key → a live session holds its persistent layer
 	rmTree   func(dir string) error // tests: stands in for removeLayer's confined removal
+	parts    partState              // partition holds and opens in flight (partitionhold.go)
 }
 
 func NewManager(root string, env func() []string) *Manager {
@@ -258,6 +259,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s, err = m.create(o)
+		m.partOpened(&o) // registered or failed: a stop sees it now (partitionhold.go)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -291,7 +293,7 @@ func (m *Manager) List() []map[string]any {
 		if d := m.echoOf(s); d != "" { // the session's target (target.go)
 			row["deployment"] = d
 		}
-		if s.part.person() { // a person's partition: no name in an admin's listing (PD-09)
+		if s.part.personal() { // a person's session on a partitioned tile: no name in an admin's listing (PD-09)
 			row["partition"], row["name"] = s.part.part, ""
 		}
 		out = append(out, row)

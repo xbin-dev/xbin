@@ -103,9 +103,10 @@ type vmView struct {
 }
 
 // sandboxDisk is a VM disk on the host: a tile's terminal layer's (kind
-// terminal) or a tile sandbox's (kind tile, with its sandbox's name and uid,
-// from its state dir's `<name>.<uid>`). Both carry the tile's key, so both
-// map to their tile the same way.
+// terminal), a tile sandbox's (kind tile, with its sandbox's name and uid,
+// from its state dir's `<name>.<uid>`) — both carry the tile's CompKey — or
+// a person's terminal layer on a partitioned tile (kind person-terminal,
+// carrying the tile's TileKey and no person id).
 type sandboxDisk struct {
 	vm.Disk
 	Tile  string `json:"tile,omitempty"` // "" = no tile has that key now
@@ -158,8 +159,8 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 		default:
 			if info, ok := st.Term.Info(e.ID); ok {
 				row.Name, row.Status = info.Name, info.Status
-				if strings.HasPrefix(info.Partition, "user:") {
-					row.Name = "" // a person's partition: no name in the admin's view (PD-09)
+				if info.Personal() {
+					row.Name = "" // a person's session on a partitioned tile: no name in the admin's view (PD-09)
 				}
 			}
 			if p, ok := bySandbox[e.ID]; ok {
@@ -168,13 +169,18 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 		}
 		rows = append(rows, row)
 	}
-	tiles := map[string]string{} // layer key → tile
+	tiles := map[string]string{}  // layer key → tile
+	people := map[string]string{} // a person layer's tile key (vm.DiskPersonTerminal) → tile
 	for _, c := range st.Reg.Components() {
 		tiles[util.CompKey(c.Path)] = c.Path
+		people[util.TileKey(c.Path)] = c.Path
 	}
 	disks := []sandboxDisk{}
 	for _, d := range st.listDisks() {
 		t := tiles[d.Key]
+		if d.Kind == vm.DiskPersonTerminal {
+			t = people[d.Key]
+		}
 		if sc.tile != "" && t != sc.tile {
 			continue
 		}
