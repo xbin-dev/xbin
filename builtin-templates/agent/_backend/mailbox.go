@@ -51,15 +51,16 @@ type mailSource interface {
 	Ack(ctx context.Context, ids ...string) error
 }
 
-// sdkMail reads and acks this instance's own inbox (xbin.InboxPage/Ack; the
-// SDK's calls carry their own deadline, so ctx is only checked between them).
+// sdkMail reads and acks this instance's own inbox (xbin.InboxPageContext/
+// AckContext): each call gives up when ctx — the pull's deadline — ends, so
+// a hung xbind can't hold mailMu past it.
 type sdkMail struct{}
 
 func (sdkMail) Page(ctx context.Context, after string, limit int) ([]mailItem, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	pg, err := xbin.InboxPage(after, limit)
+	pg, err := xbin.InboxPageContext(ctx, after, limit)
 	if err != nil {
 		return nil, false, err
 	}
@@ -74,7 +75,7 @@ func (sdkMail) Ack(ctx context.Context, ids ...string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return xbin.Ack(ids...)
+	return xbin.AckContext(ctx, ids...)
 }
 
 var partitionMail mailSource = sdkMail{}
