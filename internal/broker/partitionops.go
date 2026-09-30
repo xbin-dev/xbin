@@ -29,7 +29,6 @@ package broker
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -48,14 +47,55 @@ import (
 // PartitionInstance is one running (or starting, or stopping) instance of a
 // person's partition as the runner reports it: metadata, never content.
 type PartitionInstance struct {
-	Tile, Dep string
-	Partition string // user:<id>
-	State     string
-	Gen       int
-	UptimeSec int64
-	RSSKB     int64
-	Restarts  int
-	Error     string
+	Tile      string `json:"tile"`
+	Dep       string `json:"deployment"`
+	Partition string `json:"partition"` // user:<id>
+	State     string `json:"state"`
+	Gen       int    `json:"gen"`
+	UptimeSec int64  `json:"uptimeSec"`
+	RSSKB     int64  `json:"rssKb"`
+	Restarts  int    `json:"restarts"`
+	// Error is the runner's text, which the person's code may have written:
+	// only its person reads it (instanceView); others get its class.
+	Error string `json:"-"`
+}
+
+// instanceView is a partition instance on the wire: the error's text for
+// the person whose partition it is, its class (PartitionErrorClass) for
+// everyone.
+type instanceView struct {
+	PartitionInstance
+	ErrorText  string `json:"error,omitempty"`
+	ErrorClass string `json:"errorClass,omitempty"`
+}
+
+func (in PartitionInstance) view(own bool) *instanceView {
+	v := &instanceView{PartitionInstance: in}
+	if in.Error != "" {
+		v.ErrorClass = PartitionErrorClass(in.Error)
+		if own {
+			v.ErrorText = in.Error
+		}
+	}
+	return v
+}
+
+// PartitionErrorClass is a runner error's class, never its text (which a
+// person's code may have written): crash-loop, build, start, exit or other
+// (GET /backends' and GET /partitions' errorClass).
+func PartitionErrorClass(err string) string {
+	e := strings.ToLower(err)
+	switch {
+	case strings.Contains(e, "crash"):
+		return "crash-loop"
+	case strings.Contains(e, "build"):
+		return "build"
+	case strings.Contains(e, "start") || strings.Contains(e, "spawn"):
+		return "start"
+	case strings.Contains(e, "exit"):
+		return "exit"
+	}
+	return "other"
 }
 
 // partitionOps is the runner's and the identity plane's side of the
@@ -124,147 +164,6 @@ func (b *Broker) stopPartitionsOfPerson(userID string) {
 	if stop != nil {
 		stop(userID)
 	}
-}
-
-// ---- drop hooks: the planes that keep a partition's data beside these ----
-
-// partitionDropHook is one plane's part of deleting one user partition
-// whole (a reset, a purge): a plane registered after this pack (F6's mail,
-// F17b's archives) deletes its own store of (tile, dep, pkey) here. The
-// partition's instance and terminals are stopped, and the tile's backups
-// held, when it runs.
-type partitionDropHook struct {
-	name string
-	drop func(b *Broker, tile, dep, pkey string) error
-}
-
-var partitionDropHooks []partitionDropHook
-
-func registerPartitionDropHook(h partitionDropHook) {
-	partitionDropHooks = append(partitionDropHooks, h)
-}
-
-// partitionLogDir is a user partition's log directory,
-// .xbin/partition/<TileKey>/<dep>/<pkey> (the runner writes backend.log in it).
-func (b *Broker) partitionLogDir(tile, dep, pkey string) (string, error) {
-	dep = cmp.Or(dep, util.MainDeployment)
-	if tile == "" || !util.DeploymentNameOK(dep) || !util.PartitionKeyOK(pkey) {
-		return "", fmt.Errorf("%s: no partition log for %q, %q", tile, dep, pkey)
-	}
-	return filepath.Join(b.Reg.Root, ".xbin", "partition", util.TileKey(tile), dep, pkey), nil
-}
-
-// partitionDrops counts the holds on partitions being deleted (workspace
-// root, tile, pkey): no instance of one starts meanwhile
-// (ShouldRunPartition asks).
-var (
-	partitionDropsMu sync.Mutex
-	partitionDrops   = map[string]int{}
-)
-
-func (b *Broker) dropKey(tile, pkey string) string { return b.Reg.Root + "\x00" + tile + "\x00" + pkey }
-
-// holdPartitionDrop keeps partition pkey of tile from starting until
-// release: a reset holds it from before its stop until its data is gone.
-func (b *Broker) holdPartitionDrop(tile, pkey string) (release func()) {
-	k := b.dropKey(tile, pkey)
-	partitionDropsMu.Lock()
-	partitionDrops[k]++
-	partitionDropsMu.Unlock()
-	return func() {
-		partitionDropsMu.Lock()
-		defer partitionDropsMu.Unlock()
-		if partitionDrops[k]--; partitionDrops[k] <= 0 {
-			delete(partitionDrops, k)
-		}
-	}
-}
-
-// partitionDropping reports a partition held by holdPartitionDrop.
-func (b *Broker) partitionDropping(tile, pkey string) bool {
-	partitionDropsMu.Lock()
-	defer partitionDropsMu.Unlock()
-	return partitionDrops[b.dropKey(tile, pkey)] > 0
-}
-
-// dropSummary is what deleting one partition removed.
-type dropSummary struct {
-	Namespaces int   `json:"namespaces"`
-	Layers     int   `json:"layers"`
-	Histories  int   `json:"histories"`
-	Subkeys    int   `json:"subkeys"`
-	Bytes      int64 `json:"bytes"`
-}
-
-// dropOnePartition deletes user partition pkey of deployment dep of tile
-// whole: its person's sessions end and their layers and history go
-// (wipePersonTerminalsOf, which holds the partition throughout), then —
-// under the tile's backup lock — its namespaces (when tile roots its scope,
-// which owns them), registrations, record, vault, log and the other planes'
-// stores (partitionDropHooks), and last its backup subkey is erased, so no
-// backup seals the deleted data under a fresh key in between (11 §3). The
-// caller stopped its instance first.
-func (b *Broker) dropOnePartition(tile, dep, pkey, reason, by string) (dropSummary, error) {
-	var sum dropSummary
-	dep = cmp.Or(dep, util.MainDeployment)
-	tw, err := b.wipePersonTerminalsOf(tile, pkey, false)
-	sum.Layers, sum.Histories = tw.Layers, tw.Histories
-	if err != nil {
-		return sum, fmt.Errorf("ending the partition's terminals: %w", err)
-	}
-	scope := tile
-	if c, ok := b.Reg.Component(tile); ok && c.Scope != "" {
-		scope = c.Scope
-	}
-	defer b.holdBackups(scope)()
-	if scope != tile {
-		defer b.holdBackups(tile)()
-	}
-	var errs []error
-	if scope == tile {
-		var ids []nsID
-		_ = b.eachPartitionNamespace(scope, func(id nsID) {
-			if id.pkey == pkey {
-				ids = append(ids, id)
-			}
-		})
-		for _, id := range ids {
-			if dir, err := b.nsDir(id); err == nil {
-				n, _ := treeUsage(dir)
-				sum.Bytes += n
-			}
-			if err := b.dropPartitionNS(id); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			sum.Namespaces++
-		}
-	}
-	errs = append(errs, b.DropPartition(tile, dep, pkey))
-	if dir, err := b.partitionLogDir(tile, dep, pkey); err == nil {
-		errs = append(errs, os.RemoveAll(dir)) // xbind's own: the runner writes it
-		removeEmptyDirs(filepath.Dir(dir), filepath.Dir(filepath.Dir(dir)))
-	}
-	for _, h := range partitionDropHooks {
-		if err := h.drop(b, tile, dep, pkey); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", h.name, err))
-		}
-	}
-	if err := errors.Join(errs...); err != nil {
-		return sum, err // the subkey stays until what it seals is gone: a retry erases it
-	}
-	subjects := []string{partitionBackupSubject(tile, dep, pkey)}
-	if scope != tile {
-		subjects = append(subjects, partitionBackupSubject(scope, dep, pkey))
-	}
-	for _, owner := range slices.Compact([]string{scope, tile}) {
-		erased, _, err := b.eraseBackupSubjectsHeld(owner, func(s string) bool { return slices.Contains(subjects, s) }, reason, by)
-		sum.Subkeys += len(erased)
-		if err != nil {
-			slog.Warn("partitions: a partition's backup key erase", "tile", owner, "partition", pkey, "err", err)
-		}
-	}
-	return sum, nil
 }
 
 func init() {
@@ -342,19 +241,89 @@ type partitionOpBody struct {
 	Confirm   string `json:"confirm"`
 }
 
-// livePartitionOf resolves partition key part ("user:<id>") of tile to its
-// person and current partition id; the error says why not (404).
-func (b *Broker) livePartitionOf(tile, part string) (user, pkey string, err error) {
+// partitionUser parses partition key part: "user:<id>" names person id;
+// anything else is a 400's text.
+func partitionUser(part string) (string, error) {
 	pt, err := util.ParsePartition(part)
 	id, ok := pt.User()
 	if err != nil || !ok {
-		return "", "", fmt.Errorf("partition is user:<id> (the global instance is stopped like any backend)")
+		return "", fmt.Errorf("partition is user:<id> (the global instance is stopped like any backend)")
 	}
-	uid := b.storedPartitionUID(id)
-	if uid == "" {
-		return "", "", fmt.Errorf("%s has no partition of %s", id, tile)
+	return id, nil
+}
+
+// livePartitionOf resolves person user's partition of tile ("" any tile)
+// to its current partition id: their incarnation's, when a record or (the
+// tile roots its scope) a namespace of it exists; the error says why not
+// (404).
+func (b *Broker) livePartitionOf(tile, user string) (pkey string, err error) {
+	if uid := b.storedPartitionUID(user); uid != "" && b.hasPartition(tile, util.PartitionKey(user, uid)) {
+		return util.PartitionKey(user, uid), nil
 	}
-	return id, util.PartitionKey(id, uid), nil
+	if tile == "" {
+		return "", fmt.Errorf("%s has no partition", user)
+	}
+	return "", fmt.Errorf("%s has no partition of %s", user, tile)
+}
+
+// livePartitionOfOK reports whether person user holds a partition of tile
+// ("" any tile) in their current incarnation.
+func (b *Broker) livePartitionOfOK(tile, user string) bool {
+	_, err := b.livePartitionOf(tile, user)
+	return err == nil
+}
+
+// hasPartition reports whether partition pkey of tile ("" any tile) has a
+// record directory, or — the tile rooting its scope — a namespace.
+func (b *Broker) hasPartition(tile, pkey string) bool {
+	found := false
+	_ = b.eachPartitionDir(tile, func(d partitionDirOf) { found = found || d.pkey == pkey })
+	if !found && b.rootsOwnScope(tile) {
+		_ = b.eachPartitionNamespace(tile, func(id nsID) { found = found || id.pkey == pkey })
+	}
+	return found
+}
+
+// partitionOpTarget reads a stop's or reset's body and resolves its
+// partition, checking the actor's rights before it says anything of the
+// tile or the partition: a tile the actor can't read answers as a missing
+// one (unless they name their own partition of it); someone else's
+// partition is refused unless mayOthers says the actor may (403); only then
+// the tile's mode (409) and the partition (404). ok false: answered.
+func (b *Broker) partitionOpTarget(w http.ResponseWriter, r *http.Request, need string, mayOthers func(person auth.Principal, tile string) bool, refuse string) (person auth.Principal, body partitionOpBody, tile, user, pkey string, ok bool) {
+	person, ok = b.partitionActor(w, auth.PrincipalOf(r))
+	if !ok {
+		return
+	}
+	ok = false
+	if err := server.DecodeJSON(r, &body); err != nil || body.Tile == "" || body.Partition == "" {
+		server.WriteError(w, http.StatusBadRequest, "need "+need, "/docs/protocol.md")
+		return
+	}
+	tile = strings.Trim(body.Tile, "/")
+	user, err := partitionUser(body.Partition)
+	if err != nil {
+		server.WriteError(w, http.StatusBadRequest, err.Error(), modeDocs)
+		return
+	}
+	own := user == person.UserID
+	if !b.IsAdmin(person) && !person.CanReadTile(tile) && !(own && b.hasPartition(tile, util.PartitionKey(user, b.storedPartitionUID(user)))) {
+		server.WriteError(w, http.StatusNotFound, "no such tile: "+tile, modeDocs)
+		return
+	}
+	if !own && !mayOthers(person, tile) {
+		server.WriteError(w, http.StatusForbidden, refuse, modeDocs)
+		return
+	}
+	if status, msg := b.partitionedTile(tile); status != 0 {
+		server.WriteError(w, status, msg, modeDocs)
+		return
+	}
+	if pkey, err = b.livePartitionOf(tile, user); err != nil {
+		server.WriteError(w, http.StatusNotFound, err.Error(), modeDocs)
+		return
+	}
+	return person, body, tile, user, pkey, true
 }
 
 // partitionedTile answers the registered tile whose recorded mode has user
@@ -374,27 +343,10 @@ func (b *Broker) partitionedTile(tile string) (int, string) {
 // apiPartitionStop — the person's own partition, or anyone's for a tile
 // manager or an admin. Data stays; the next request starts it.
 func (b *Broker) apiPartitionStop(w http.ResponseWriter, r *http.Request) {
-	person, ok := b.partitionActor(w, auth.PrincipalOf(r))
+	person, _, tile, user, _, ok := b.partitionOpTarget(w, r, "{tile, partition}", func(p auth.Principal, tile string) bool {
+		return b.IsAdmin(p) || b.mayManageTile(p, tile)
+	}, "stopping someone else's partition is a tile manager's or an admin's act")
 	if !ok {
-		return
-	}
-	var body partitionOpBody
-	if err := server.DecodeJSON(r, &body); err != nil || body.Tile == "" || body.Partition == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {tile, partition}", "/docs/protocol.md")
-		return
-	}
-	tile := strings.Trim(body.Tile, "/")
-	if status, msg := b.partitionedTile(tile); status != 0 {
-		server.WriteError(w, status, msg, modeDocs)
-		return
-	}
-	user, _, err := b.livePartitionOf(tile, body.Partition)
-	if err != nil {
-		server.WriteError(w, http.StatusNotFound, err.Error(), modeDocs)
-		return
-	}
-	if user != person.UserID && !b.IsAdmin(person) && !b.mayManageTile(person, tile) {
-		server.WriteError(w, http.StatusForbidden, "stopping someone else's partition is a tile manager's or an admin's act", modeDocs)
 		return
 	}
 	dep := cmp.Or(b.primaryOf(tile), util.MainDeployment)
@@ -408,30 +360,13 @@ func (b *Broker) apiPartitionStop(w http.ResponseWriter, r *http.Request) {
 // for an admin (audited; the person is told). confirm must be "<tile>
 // <partition>".
 func (b *Broker) apiPartitionReset(w http.ResponseWriter, r *http.Request) {
-	person, ok := b.partitionActor(w, auth.PrincipalOf(r))
+	person, body, tile, user, pkey, ok := b.partitionOpTarget(w, r, "{tile, partition, confirm: \"<tile> <partition>\"}", func(p auth.Principal, _ string) bool {
+		return b.IsAdmin(p)
+	}, "resetting someone else's partition is an admin's act")
 	if !ok {
 		return
 	}
-	var body partitionOpBody
-	if err := server.DecodeJSON(r, &body); err != nil || body.Tile == "" || body.Partition == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {tile, partition, confirm: \"<tile> <partition>\"}", "/docs/protocol.md")
-		return
-	}
-	tile := strings.Trim(body.Tile, "/")
-	if status, msg := b.partitionedTile(tile); status != 0 {
-		server.WriteError(w, status, msg, modeDocs)
-		return
-	}
-	user, pkey, err := b.livePartitionOf(tile, body.Partition)
-	if err != nil {
-		server.WriteError(w, http.StatusNotFound, err.Error(), modeDocs)
-		return
-	}
 	own := user == person.UserID
-	if !own && !b.IsAdmin(person) {
-		server.WriteError(w, http.StatusForbidden, "resetting someone else's partition is an admin's act", modeDocs)
-		return
-	}
 	part := "user:" + user
 	if want := tile + " " + part; strings.TrimSpace(body.Confirm) != want {
 		server.WriteJSON(w, http.StatusConflict, map[string]any{"error": "a reset deletes every piece of this partition's data; confirm with the text " + strconvQuote(want),
@@ -537,7 +472,7 @@ func (b *Broker) apiPartitionPurge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if body.Partition != "" && len(picked) == 0 {
-		if _, _, err := b.livePartitionOf(tile, body.Partition); err == nil {
+		if user, err := partitionUser(body.Partition); err == nil && b.livePartitionOfOK(tile, user) {
 			server.WriteError(w, http.StatusConflict, "only orphaned partitions are purged — a person's live partition is reset instead (POST /partitions/reset)", modeDocs)
 			return
 		}
@@ -604,7 +539,7 @@ func (b *Broker) PartitionMeta(tile, part string) (m map[string]any, ok bool) {
 func (b *Broker) PartitionDisk(tile string, part util.Partition) (usage, quota int64) {
 	id, ok := part.User()
 	if uid := b.storedPartitionUID(id); ok && uid != "" {
-		usage = b.partitionBytes(tile, util.PartitionKey(id, uid))
+		usage = b.partitionBytesCached(tile, util.PartitionKey(id, uid))
 	}
 	return usage, b.PartitionBytes(tile)
 }

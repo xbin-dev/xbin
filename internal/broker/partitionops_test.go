@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -531,6 +532,26 @@ func TestRemovedTileModeRecord(t *testing.T) {
 	b.sweepRemovedModeRecords()
 	if opsExists(mode) {
 		t.Error("the removed tile's mode record stayed with nothing left")
+	}
+
+	// offloaded whole (its directory gone, its lifecycle recorded): not
+	// removed — its record stays for the restore
+	qmode := filepath.Join(f.root, "data", "partitions", util.TileKey("apps/q"), "mode.json")
+	if !opsExists(qmode) {
+		t.Fatal("apps/q has no mode record")
+	}
+	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Lifecycle = map[string]string{"apps/q": registry.StateOffloadedFull}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(f.root, "apps", "q")); err != nil {
+		t.Fatal(err)
+	}
+	f.rescan()
+	b.sweepRemovedModeRecords()
+	if !opsExists(qmode) {
+		t.Error("an offloaded tile's mode record was swept as a removed tile's")
 	}
 }
 

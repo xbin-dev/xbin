@@ -24,6 +24,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -48,9 +51,38 @@ func (b *Broker) liveReloadOn(tile string) bool {
 	return f == nil || f(tile)
 }
 
+// codeWritersTTL is how long a tile's code writers are reused: /alerts and
+// the listing ask on every poll, and the answer resolves every person's
+// access. A users-plane change (PartitionPeopleChanged) drops them at once.
+const codeWritersTTL = 15 * time.Second
+
+type writersAt struct {
+	w   []string
+	at  time.Time
+	gen uint64
+}
+
+var (
+	codeWritersSeen sync.Map // root \x00 tile → writersAt
+	codeWritersGen  atomic.Uint64
+)
+
+// forgetCodeWriters drops every tile's reused code writers (people changed).
+func forgetCodeWriters() { codeWritersGen.Add(1) }
+
 // codeWriters are the people who aren't admins and hold write level on
-// tile (they can change its code).
+// tile (they can change its code) — reused for codeWritersTTL.
 func (b *Broker) codeWriters(tile string) []string {
+	k, gen := b.Reg.Root+"\x00"+tile, codeWritersGen.Load()
+	if v, ok := codeWritersSeen.Load(k); ok && v.(writersAt).gen == gen && time.Since(v.(writersAt).at) < codeWritersTTL {
+		return slices.Clone(v.(writersAt).w)
+	}
+	w := b.codeWritersNow(tile)
+	codeWritersSeen.Store(k, writersAt{w: slices.Clone(w), at: time.Now(), gen: gen})
+	return w
+}
+
+func (b *Broker) codeWritersNow(tile string) []string {
 	var out []string
 	if b.Users == nil {
 		return out
@@ -183,6 +215,9 @@ func (b *Broker) removedTileModeRecord(tile string) {
 	}
 	if _, registered := b.Reg.Component(tile); registered {
 		return
+	}
+	if registry.IsOffloaded(b.Reg.LifecycleState(tile)) {
+		return // offloaded, not removed: a restore brings it back to its recorded mode (and its history)
 	}
 	pm.settleMu.Lock()
 	defer pm.settleMu.Unlock()

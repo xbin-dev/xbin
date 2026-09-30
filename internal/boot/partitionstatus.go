@@ -16,7 +16,7 @@ package boot
 //     deployments do); the row stays one per tile.
 
 import (
-	"strings"
+	"github.com/xbin-dev/xbin/internal/broker"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/runner"
@@ -73,7 +73,7 @@ func (pr partitionReads) nest(out map[string]any) {
 		p := map[string]any{"partition": b.Partition, "state": b.State, "gen": b.Gen, "uptimeSec": b.UptimeSec,
 			"rssKb": b.RSSKB, "restarts": b.Restarts}
 		if b.Error != "" {
-			p["errorClass"] = errorClass(b.Error)
+			p["errorClass"] = broker.PartitionErrorClass(b.Error)
 		}
 		if pr.meta != nil {
 			if m, ok := pr.meta(b.Path, b.Partition); ok {
@@ -87,21 +87,4 @@ func (pr partitionReads) nest(out map[string]any) {
 		list, _ := row["partitions"].([]map[string]any)
 		row["partitions"] = append(list, p)
 	}
-}
-
-// errorClass is a runner error's class, never its text (which a person's
-// code may have written): crash-loop, build, start, exit or other.
-func errorClass(err string) string {
-	e := strings.ToLower(err)
-	switch {
-	case strings.Contains(e, "crash"):
-		return "crash-loop"
-	case strings.Contains(e, "build"):
-		return "build"
-	case strings.Contains(e, "start") || strings.Contains(e, "spawn"):
-		return "start"
-	case strings.Contains(e, "exit"):
-		return "exit"
-	}
-	return "other"
 }

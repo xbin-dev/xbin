@@ -313,6 +313,7 @@ func (b *Broker) moveToOrphans(userID, uid string) {
 // its tokens revoked (PD-20). Nothing else changes: regaining access
 // resumes.
 func (b *Broker) PartitionPeopleChanged() {
+	forgetCodeWriters() // the trust warnings ask again (partitiontrust.go)
 	stopped := map[string]bool{}
 	for _, in := range b.partitionInstances() {
 		id, ok := util.Partition(in.Partition).User()

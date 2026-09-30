@@ -30,11 +30,13 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // The features this xbind's partitions API serves (06 §6).
@@ -57,7 +59,7 @@ type partitionRow struct {
 	State       string              `json:"state"`       // active | dormant | orphaned
 	Why         string              `json:"why,omitempty"`
 	Running     bool                `json:"running"`
-	Instance    *PartitionInstance  `json:"instance,omitempty"`
+	Instance    *instanceView       `json:"instance,omitempty"`
 	LastStarted string              `json:"lastStarted,omitempty"`
 	Created     string              `json:"created,omitempty"`
 	LastExit    string              `json:"lastExit,omitempty"`
@@ -71,42 +73,83 @@ type partitionRow struct {
 	Ledger   []ledgerRow   `json:"ledger,omitempty"`
 }
 
-// partitionPeople walks tile's people's partitions: each record (with its
-// partition directory), live or orphaned.
-func (b *Broker) partitionPeople(tile string) []partitionRow {
+// runningOf is the runner's instances of tile's people, by partition key.
+func (b *Broker) runningOf(tile string) map[string]PartitionInstance {
 	running := map[string]PartitionInstance{}
 	for _, in := range b.partitionInstances() {
 		if in.Tile == tile {
 			running[in.Partition] = in
 		}
 	}
+	return running
+}
+
+// partitionRowOf is record rec's row (its directory d): its state as the
+// users store says it now, whether it runs, its registration counts and
+// bytes. own: the person's own row (the instance's error text).
+func (b *Broker) partitionRowOf(tile string, d partitionDirOf, rec partitionRecord, running map[string]PartitionInstance, own bool) partitionRow {
+	row := partitionRow{User: rec.User, Partition: "user:" + rec.User, ID: d.pkey, State: rec.State,
+		LastStarted: rec.LastStarted, Created: rec.Created, LastExit: rec.LastExit, Restarts: rec.Restarts, CrashLoop: rec.CrashLoop}
+	if rec.State == partStateOrphaned {
+		row.Why, row.Orphaned = rec.Reason, rec.Orphaned
+	} else if b.storedPartitionUID(rec.User) != rec.UID {
+		row.State, row.Why = partStateOrphaned, orphanUserDeleted // not recorded yet: the sweep will
+	} else if err := b.personLive(rec.User, tile); err != nil {
+		row.State, row.Why = "dormant", err.Error()
+	}
+	if in, ok := running[row.Partition]; ok && row.State != partStateOrphaned {
+		row.Running, row.Instance = true, in.view(own)
+	}
+	regs := b.PartitionRegistrations(tile, d.dep, d.pkey)
+	row.Regs = &regs
+	row.Bytes = b.partitionBytesCached(tile, d.pkey)
+	return row
+}
+
+// partitionPeople walks tile's people's partitions: each record (with its
+// partition directory), live or orphaned — the admins' rows.
+func (b *Broker) partitionPeople(tile string) []partitionRow {
+	running := b.runningOf(tile)
 	var out []partitionRow
 	_ = b.eachPartitionRecord(tile, func(d partitionDirOf, rec partitionRecord) {
-		row := partitionRow{User: rec.User, Partition: "user:" + rec.User, ID: d.pkey, State: rec.State,
-			LastStarted: rec.LastStarted, Created: rec.Created, LastExit: rec.LastExit, Restarts: rec.Restarts, CrashLoop: rec.CrashLoop}
-		if rec.State == partStateOrphaned {
-			row.Why, row.Orphaned = rec.Reason, rec.Orphaned
-		} else if b.storedPartitionUID(rec.User) != rec.UID {
-			row.State, row.Why = partStateOrphaned, orphanUserDeleted // not recorded yet: the sweep will
-		} else if err := b.personLive(rec.User, tile); err != nil {
-			row.State, row.Why = "dormant", err.Error()
-		}
-		if in, ok := running[row.Partition]; ok && row.State != partStateOrphaned {
-			row.Running, row.Instance = true, &in
-		}
-		regs := b.PartitionRegistrations(tile, d.dep, d.pkey)
-		row.Regs = &regs
-		row.Bytes = b.partitionBytes(tile, d.pkey)
-		out = append(out, row)
+		out = append(out, b.partitionRowOf(tile, d, rec, running, false))
 	})
 	slices.SortFunc(out, func(x, y partitionRow) int { return cmp.Or(cmp.Compare(x.User, y.User), cmp.Compare(x.ID, y.ID)) })
 	return out
 }
 
+// ownPartitionRows are person's own live rows of tile: only the
+// directories of their current partition id are read.
+func (b *Broker) ownPartitionRows(tile, person string) []partitionRow {
+	uid := b.storedPartitionUID(person)
+	if uid == "" {
+		return nil
+	}
+	pkey := util.PartitionKey(person, uid)
+	var out []partitionRow
+	var running map[string]PartitionInstance
+	_ = b.eachPartitionDir(tile, func(d partitionDirOf) {
+		if d.pkey != pkey {
+			return
+		}
+		rec, ok, err := readPartitionRecordAt(d.dir)
+		if err != nil || !ok || rec.User != person || util.TileKey(rec.Tile) != d.tileKey || rec.Dep != d.dep || rec.State == partStateOrphaned {
+			return
+		}
+		if running == nil {
+			running = b.runningOf(tile)
+		}
+		if row := b.partitionRowOf(tile, d, rec, running, true); row.State != partStateOrphaned {
+			out = append(out, row)
+		}
+	})
+	return out
+}
+
 // partitionBytes is what person pkey's namespaces of tile's scope hold (0
-// for a tile that doesn't root its scope: the root's rows count them).
+// for a tile that doesn't root its scope: it uses no scope resources).
 func (b *Broker) partitionBytes(tile, pkey string) int64 {
-	if c, ok := b.Reg.Component(tile); ok && c.Scope != "" && c.Scope != tile {
+	if !b.rootsOwnScope(tile) {
 		return 0
 	}
 	var n int64
@@ -122,24 +165,80 @@ func (b *Broker) partitionBytes(tile, pkey string) int64 {
 	return n
 }
 
-// partitionTotals are a tile's totals, for its writers and managers.
-func partitionTotals(rows []partitionRow) map[string]int64 {
+// partitionBytesTTL is how long a partition's measured bytes are reused:
+// the listing and tile-status are polled, and a measurement walks the
+// person's whole namespace tree.
+const partitionBytesTTL = time.Minute
+
+type bytesAt struct {
+	n  int64
+	at time.Time
+}
+
+var partitionBytesSeen sync.Map // root \x00 tile \x00 pkey → bytesAt
+
+func (b *Broker) bytesKey(tile, pkey string) string {
+	return b.Reg.Root + "\x00" + tile + "\x00" + pkey
+}
+
+// partitionBytesCached is partitionBytes, measured at most once per
+// partitionBytesTTL.
+func (b *Broker) partitionBytesCached(tile, pkey string) int64 {
+	k := b.bytesKey(tile, pkey)
+	if v, ok := partitionBytesSeen.Load(k); ok && time.Since(v.(bytesAt).at) < partitionBytesTTL {
+		return v.(bytesAt).n
+	}
+	n := b.partitionBytes(tile, pkey)
+	partitionBytesSeen.Store(k, bytesAt{n, time.Now()})
+	return n
+}
+
+// forgetPartitionBytes drops pkey's measurement (its data went).
+func (b *Broker) forgetPartitionBytes(tile, pkey string) {
+	partitionBytesSeen.Delete(b.bytesKey(tile, pkey))
+}
+
+// partitionTotals are a tile's totals, for its writers, managers and
+// admins: from the records, the runner's rows, the in-memory registrations
+// and the measured bytes — never a vault opened or a tree walked per call.
+func (b *Broker) partitionTotals(tile string) map[string]int64 {
 	t := map[string]int64{"people": 0, "running": 0, "bytes": 0, "cron": 0, "bus": 0}
-	for _, r := range rows {
-		if r.State == partStateOrphaned {
-			continue
+	running := b.runningOf(tile)
+	_ = b.eachPartitionRecord(tile, func(d partitionDirOf, rec partitionRecord) {
+		if rec.State == partStateOrphaned || b.storedPartitionUID(rec.User) != rec.UID {
+			return
 		}
 		t["people"]++
-		if r.Running {
+		if _, ok := running["user:"+rec.User]; ok {
 			t["running"]++
 		}
-		t["bytes"] += r.Bytes
-		if r.Regs != nil {
-			t["cron"] += int64(r.Regs.CronJobs)
-			t["bus"] += int64(r.Regs.BusSubscriptions)
+		t["bytes"] += b.partitionBytesCached(tile, d.pkey)
+		cron, bus := b.partitionRegsLive(tile, d.dep, d.pkey)
+		t["cron"] += int64(cron)
+		t["bus"] += int64(bus)
+	})
+	return t
+}
+
+// partitionRegsLive counts partition pkey's cron jobs and bus
+// subscriptions the broker holds (PartitionRegistrations' cheap part).
+func (b *Broker) partitionRegsLive(tile, dep, pkey string) (cron, bus int) {
+	prefix := partPrefix(tile, dep, pkey)
+	b.cron.mu.Lock()
+	for key := range b.cron.part {
+		if strings.HasPrefix(key, prefix) {
+			cron++
 		}
 	}
-	return t
+	b.cron.mu.Unlock()
+	b.bus.mu.Lock()
+	for key := range b.bus.part {
+		if strings.HasPrefix(key, prefix) {
+			bus++
+		}
+	}
+	b.bus.mu.Unlock()
+	return cron, bus
 }
 
 // adminRow is a row as admins see it: metadata and whether its log is
@@ -160,8 +259,10 @@ func modeRequestView(req *registry.PartitionRequest) map[string]any {
 func (b *Broker) apiPartitionsList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	pol := b.Policies()
-	out := map[string]any{"features": partitionFeatures,
-		"policies": map[string]any{"partitionConsent": pol.PartitionConsent, "credentialResetConfirm": pol.CredentialResetConfirm}}
+	out := map[string]any{"features": partitionFeatures}
+	if b.canReadPolicies(p) { // the workspace policies are for people and admins, not tile code (F16)
+		out["policies"] = map[string]any{"partitionConsent": pol.PartitionConsent, "credentialResetConfirm": pol.CredentialResetConfirm}
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
 	if tile == "" {
@@ -195,23 +296,31 @@ func (b *Broker) apiPartitionsList(w http.ResponseWriter, r *http.Request) {
 	perTile, _ := b.PartitionCaps(tile)
 	defTile, _ := b.partitionCapDefaults()
 	out["limits"] = map[string]any{"maxRunning": setOr(perTile, defTile), "partitionBytes": b.PartitionBytes(tile)}
-	rows := b.partitionPeople(tile)
-	var mine []partitionRow
+	// only the rows the caller sees are built: their own (their directory
+	// alone is read), or every person's for an admin
 	visible := []partitionRow{}
-	for _, row := range rows {
-		switch {
-		case person != "" && row.User == person && row.State != partStateOrphaned:
+	var mine []partitionRow
+	if person != "" {
+		for _, row := range b.ownPartitionRows(tile, person) {
 			row.LogShare = b.logShareOf(tile, row.ID)
 			row.Ledger = b.personLedger(tile, person)
 			mine = append(mine, row)
-			visible = append(visible, row)
-		case admin:
-			visible = append(visible, adminRow(b, tile, row))
 		}
+	}
+	if admin {
+		for _, row := range b.partitionPeople(tile) {
+			if i := slices.IndexFunc(mine, func(m partitionRow) bool { return m.ID == row.ID }); i >= 0 {
+				visible = append(visible, mine[i])
+			} else {
+				visible = append(visible, adminRow(b, tile, row))
+			}
+		}
+	} else {
+		visible = append(visible, mine...)
 	}
 	out["partitions"] = visible
 	if admin || person != "" && (b.mayManageTile(p, tile) || p.CanWriteTile(tile)) {
-		out["totals"] = partitionTotals(rows)
+		out["totals"] = b.partitionTotals(tile)
 	}
 	if len(mine) > 0 || person != "" && p.CanReadTile(tile) {
 		out["trust"] = b.partitionTrust(tile)
@@ -311,14 +420,13 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any) {
 			tiles = append(tiles, row)
 			continue
 		}
-		rows := b.partitionPeople(c.Path)
-		for _, r := range rows {
-			if person != "" && r.User == person && r.State != partStateOrphaned {
+		if person != "" {
+			for _, r := range b.ownPartitionRows(c.Path, person) {
 				row["mine"] = map[string]any{"partition": r.Partition, "state": r.State, "running": r.Running, "bytes": r.Bytes}
 			}
 		}
 		if admin {
-			row["totals"] = partitionTotals(rows)
+			row["totals"] = b.partitionTotals(c.Path)
 			if w := b.trustWarnings(c.Path); len(w) > 0 {
 				row["trust"] = w
 			}
