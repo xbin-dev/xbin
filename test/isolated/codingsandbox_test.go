@@ -393,7 +393,13 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 			Images, Sizes       []struct{ ID string }
 		}
 		cons(t).Call("GET", "/hello?protocol=1", nil, 200, &h)
-		if fmt.Sprint(h.Caps) != "[exec files tar tty snapshots clone ports]" || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
+		// stdio: this tree's runtime has the sockets; a remote release may
+		// predate them
+		caps := "[exec files tar tty snapshots clone ports stdio]"
+		if d.IsRemote() && !slices.Contains(h.Caps, "stdio") {
+			caps = "[exec files tar tty snapshots clone ports]"
+		}
+		if fmt.Sprint(h.Caps) != caps || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
 			t.Errorf("hello: %+v", h)
 		}
 		if len(h.Images) != 1 || h.Images[0].ID != "base" || len(h.Sizes) != 2 || h.Sizes[0].ID != "tiny" {
