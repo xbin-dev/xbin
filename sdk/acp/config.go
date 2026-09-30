@@ -31,6 +31,10 @@ type Config struct {
 	Version  string            // clientInfo.version
 	Log      func(string)      // a line for the session's text log (stderr, notes)
 	Meta     map[string]string // free-form, for the embedder's own knobs (xbind: "tile")
+	// SkipModeOptions: Options never set the agent's config option of
+	// category mode — the mode is Mode's alone (an embedder that keeps some
+	// modes to some people); such an entry is skipped and logged.
+	SkipModeOptions bool
 }
 
 // Process is a spawned agent as the client sees it: its stdio and a way to

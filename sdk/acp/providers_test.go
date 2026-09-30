@@ -98,3 +98,34 @@ func TestProviderSettingModes(t *testing.T) {
 		t.Fatalf("the setting modes are the runner's, never in the JSON: %s", b)
 	}
 }
+
+// Safe is default-deny: only a mode the catalog lists as not explicit (or
+// among SafeModes) — never an explicit one, one the catalog doesn't know,
+// or any mode of a provider it lacks.
+func TestProviderSafe(t *testing.T) {
+	c, _ := Lookup("claude")
+	o, _ := Lookup("opencode")
+	f := Fake([]string{"/bin/fakeacp"})
+	for _, x := range []struct {
+		p    Provider
+		mode string
+		want bool
+	}{
+		{c, "default", true}, {c, "acceptEdits", true}, {c, "plan", true}, {c, "auto", true},
+		{c, "bypassPermissions", false}, {c, "dontAsk", false}, {c, "", false},
+		{o, "build", true}, {o, "plan", true}, {o, "yolo", false},
+		{f, "ask", true}, {f, "auto", true}, {f, "yolo", false},
+		{Provider{ID: "house-agent"}, "ask", false},
+	} {
+		if got := x.p.Safe(x.mode); got != x.want {
+			t.Errorf("%s %q: safe %v, want %v", x.p.ID, x.mode, got, x.want)
+		}
+	}
+	for _, p := range append(Providers(), f) {
+		for _, m := range []string{p.AutoMode, p.ApproveMode, p.PlanMode, p.DefaultMode} {
+			if m != "" && !p.Safe(m) {
+				t.Errorf("%s: %q is a setting's mode but not safe", p.ID, m)
+			}
+		}
+	}
+}
