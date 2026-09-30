@@ -12,6 +12,130 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **The agent template: non-secure (hosted) conversations and "Add a copy of
+  my …"** (the template's API.md "Partitioned instances" → "Non-secure
+  conversations", [partitions.md](/docs/partitions.md) §The mode). In a
+  partitioned agent a shared conversation runs at its global instance, which
+  reaches no one's own partition. A participant may now let it use **their**
+  private resources — their sandboxes, their data in other partitioned
+  tiles, their vault: everything their partition reaches — which makes it
+  **non-secure**: it moves into the agent's shared `team` database (a new
+  id, still below 2^40) and their own partition runs it, driving only what
+  its own table lists. The members keep using it at the global instance,
+  which rings the host's partition when they write and streams the host's
+  run to everyone at once. The page warns everyone who opens it — every
+  time, with who can read it and whose resources it uses — and keeps the
+  composer locked until they start it; a ⚠ **not private** chip marks it.
+  Adding people pauses it until the host confirms them (on the page, or from
+  a push); the host's partition stops at its next step. Declining, taking
+  the resources back, 7 days without an answer or the host leaving it end
+  hosting, and any member may then continue it without them; un-sharing it
+  (only its owner left) ends hosting, and a person's chat then moves to its
+  owner's own partition like any un-shared one. Only the host approves a
+  parked tool call in it, and it has no schedule, automation-thread or skill
+  tools. It has no join links. Its members can copy it into their own space
+  (the transcript); its top bar has no Compact or Learn skill and it shows
+  no sandbox picker. The non-hosting alternative: **Add a copy of my
+  files…** puts copies of your own session files into a shared conversation;
+  the originals stay private. New routes, in a partitioned instance only:
+  `GET` / `POST /hosting`, `POST /hosting/{id}/confirm|decline`, `DELETE
+  /hosting/{id}`, `POST /copyin` (a person's partition); `POST /hosted`,
+  `POST /hosted/events`, `POST /hosted/{id}/continue`, `POST
+  /runs/{id}/copyin` (the global instance); partition-mail topics
+  `hosted/input` and `hosted/changed`. The `team` resource's schema moves to
+  2 and carries the agent's run schema (the global instance migrates it; a
+  person's partition waits for it). Unpartitioned instances change nothing
+  (the routes answer 404). Nothing to change.
+- **A partitioned agent: un-sharing moves a chat home, large chat files
+  are staged** (the agent template's API.md "Partitioned instances",
+  [partitions.md](/docs/partitions.md) §The mode,
+  [agent-inbox.md](/docs/agent-inbox.md) §A partitioned agent):
+  - **A shared chat that stops being shared moves to its owner's own
+    space.** At the global instance, a person's chat that an act leaves
+    shared with nobody — made private with nobody else in it, or its last
+    member removed or gone — moves to its owner's partition once nothing
+    in it is under way: its join links are revoked, changes to it answer
+    409 while it moves (reading, stopping it, deciding an approval and
+    answering what it asked go on), and then it is the owner's — a new id
+    from 2^40, its transcript, task ledger, files and notes, the schedules
+    that report into it (now private, the owner's own) and their pin.
+    What stays behind — its subagents' own transcripts, its sandboxes,
+    the capabilities granted to it — is said in the note it arrives with.
+    It is never listed in two homes; its owner's page follows it (a non-secure conversation un-shared goes back to the shared instance first, and on from there) (the
+    `run` event deleting it carries `movedTo`; `GET /moves/{id}` answers
+    where it went for 30 days, so an old `#c=` link or push opens the new
+    one). An automation's thread at the global instance (a channel's, a
+    schedule's, a trigger's) doesn't move, nor does a conversation that
+    isn't a person's (the owner token's, another tile's). A chat too large
+    to copy (48 MiB), or that its owner's space can't take, or whose owner
+    can no longer be mailed or doesn't open the agent within 8 days, stays
+    where it is, private.
+  - **A chat file too large for a handoff's mail (640 KiB)** waits in the
+    global instance's storage and the person's partition fetches it (as
+    them) before it takes the DM, then it is deleted there; a reply's file
+    too large for its mail is staged at the global instance the same way
+    (up to 10 files a chat, 32 files / 64 MiB a person not yet sent).
+    Adapters change nothing.
+  - In a person's partition **a channel's card counts, and its run list
+    shows, its conversations in both homes** (your DMs, and its group
+    threads at the global instance you may see); the Sandboxes list and
+    picker **while a shared conversation is open are the global
+    instance's** (a shared conversation's sandboxes are its).
+  New routes, at a partitioned agent's global instance only: `GET
+  /moves/{id}`, `GET /moves/{id}/export`, `POST /moves/{id}/done`, `POST
+  /moves/{id}/abandon`, `GET /handoffs/{id}/files/{fid}`, `POST
+  /handoffs/{id}/fetched`, `PUT /handoffs/{id}/reply-files`; the mail topic
+  `conv/move`. Unpartitioned agents — every existing instance that keeps its
+  mode — change nothing. Nothing to change.
+- **Partitioned tiles: the shell's settings menu links your partitions
+  page; times read the same everywhere; `yours` says where shared things
+  come from** ([partitions.md](/docs/partitions.md) §Partitioned tiles,
+  §Your partitions page, §Operating people's partitions).
+  - Once you see a partitioned tile, the shell's **settings** menu has
+    **your partitions** under *my account*: the partitioned marker's shape
+    and a link to `/xbin/partitions` in a new tab (the page opens only
+    top-level). It shows for a signed-in person only — not for the
+    workspace token, nor for an admin viewing the workspace as someone —
+    and comes and goes with the tiles you see.
+  - On a tile that also runs a global instance, the window chip `yours`
+    keeps its word — your window's calls reach your partition — and its
+    tooltip now adds that anything the tile shares with everyone who uses
+    it (a partitioned agent's shared conversations, for example) comes
+    from its global instance, not from your partition.
+  - The admin console's partitions view shows times in your browser's
+    zone with the zone named ("2026-09-30 17:46 GMT+2"), as the partitions
+    page does; it showed UTC without saying so. The logs panel's "shared
+    with you" entry names its end the same way (it showed a UTC date).
+  - The shell and the admin tile are scaffold: existing workspaces get the
+    menu entry, the tooltip and the console's times with `bx builtin
+    update scaffold:shell` and `bx builtin update scaffold:tiles/admin`;
+    the logs panel ships with xbind. Workspaces without a partitioned tile
+    look exactly as before. Nothing to change.
+- **Partitioned tiles: realtime between partitions, and partition mail from
+  any runtime** ([partitions.md](/docs/partitions.md) §Realtime between
+  partitions, [sdk.md](/docs/sdk.md)). The builder page names the three ways
+  live state crosses people's partitions, each for its job — tile-wide state
+  is a shared resource plus a shared bus (every reader's page follows it —
+  and a row's key there proves no author); member-scoped state has the
+  global instance as hub (pages follow its stream with `xbin.fetch(…,
+  {partition: 'global'})`, partitions post to it with `xbin.GlobalURL`; the
+  hub keeps the members, stamps who posted from the call, and ends the
+  stream of a follower who can no longer read the tile — xbind doesn't (the
+  builtin agent's hub doesn't yet: a platform follow-up)); a partition that
+  must be woken gets partition mail — with one worked example tile using all
+  three, whose Go backend is the SDK's `Example_realtime`. The Go SDK's mail
+  calls gain Context variants — `MailContext`, `MailWithContext`,
+  `InboxPageContext`, `InboxContext`, `AckContext` — which give up when
+  their context ends, with an error wrapping the context's; the plain calls
+  are unchanged. A send that gives up (or fails without xbind's answer) may
+  or may not have made its item: sending again makes another item with
+  another id, so a sender that retries puts its own key in `data` for the
+  addressee to dedupe by. sdk.md gains partition mail for node and python
+  backends (a helper for xbind's API through the gateway, sending, and
+  draining the inbox page by page), and the workspace `AGENTS.md` (new
+  workspaces) lists the partition calls in its SDK cheat sheet. The builtin
+  agent template's mailbox now bounds each read and ack by its pull's
+  two-minute deadline, so a hung xbind can't hold it. Nothing to change.
 - **The agent template: shared conversations in a partitioned agent** (the
   template's API.md "Partitioned instances", [partitions.md](/docs/partitions.md)
   §The mode). In a partitioned agent a shared conversation lives at the
@@ -57,10 +181,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     says — only when xbind stamps the reply as yours and the chat account
     is still linked to you — and forgets a reply's text once the bridge
     acknowledged it (the channel's owner sees a reply wait or fail, never
-    what it says). Files up to 640 KiB a message travel with it (a larger
-    one is named in the text). Until your partition has run once (open the
-    agent once) your DMs wait for it, and the first one is answered with a
-    notice saying so;
+    what it says). Its files travel with it — inline up to 640 KiB a message, a larger one staged at the global instance until your partition fetched it. Until your partition has run once (open the agent once) your DMs wait for it like unread messages — up to 7 days; nothing answers the chat meanwhile;
   - **your event triggers are yours**: made in your partition, they register
     their name, source and topic prefix with the global instance (names are
     unique tile-wide; managers see that one exists, whose and what it
@@ -225,8 +346,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   messaging bridge) and the webhooks tile aren't partitioned and always
   reach a partitioned agent's global instance, over the same contract: the
   global instance keeps channels, their rules and the links; a linked
-  person's DM (its files inline up to 640 KiB a message) and an event for
-  a person's private trigger are handed to that person's partition by
+  person's DM (its files inline up to 640 KiB a message, a larger one staged
+  at the global instance until the partition fetched it) and an event for a
+  person's private trigger are handed to that person's partition by
   partition mail, and replies come back through the global instance, which
   posts them where its own hand-off record says; a DM that arrives before
   the person's partition ever ran waits in its inbox until they open the
@@ -235,9 +357,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   trigger needs a `match` (400) no one else's overlaps (409). The bridge
   template's `AGENTS.md` and `API.md`, and the webhooks (v3) and
   sandbox-terminal tiles' `API.md`, say the same to their builders and
-  people — including that binding them is an ordinary (global) bind, that
-  a personal bind applies to none of them (they aren't partitioned), and
-  who ends up in whose trust base. Nothing to change.
+  people — including that binding them is an ordinary (global) bind, that a
+  personal bind applies to none of them (they aren't partitioned), and who
+  ends up in whose trust base. Nothing to change.
 - **Template instances take their template's manifest changes without a
   conflict** ([03-components](/docs/overview/03-components.md)
   §Templates, [bx.md](/docs/bx.md), [protocol.md](/docs/protocol.md)
