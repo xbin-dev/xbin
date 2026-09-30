@@ -5,23 +5,32 @@
 //      row (right before ⋯) and on its window head (where the runtime dot
 //      is): role img, the tooltip naming the global instance, cursor
 //      default, no hover state; an unpartitioned tile keeps its dot;
+//   1b. a deployment of apps/ppart (01 §2.8: one instance its writers
+//      share): the window showing it has no marker — the runtime dot and a
+//      "shared" chip — while the row keeps its marker; back on the primary,
+//      the marker again;
 //   2. apps/pkeep (org devs; holds a vault key; its code starts asking for
-//      user partitions): pending — its card greys out under the alert's
-//      words; preader (reads it, manages nothing) sees no buttons; dev1 (an
-//      admin of devs) presses Keep the current mode → the overlay goes, the
-//      frame shows the tile, the vault key is still there;
+//      user partitions, with a partitionNote): pending — its card greys out
+//      under the alert's words and the tile's note; preader (reads it,
+//      manages nothing) sees no buttons, only who decides (an admin of
+//      org:devs); dev1 (an admin of devs) presses Keep the current mode →
+//      the overlay goes, the frame shows the tile, the vault key is still
+//      there; the code withdraws and asks again (the same request): the
+//      card offers Keep and Switch… again, not the last answer;
 //   3. apps/pswitch (user:dev1; recorded user, holds a vault key; its code
 //      drops partition): pending, and the marker stays; Switch… shows the
 //      dry run's counts and keep list in a typed confirmation; a wrong path
 //      is refused there, the tile's path switches: the tile runs
 //      unpartitioned, the vault key is gone, the marker and overlay go.
-// pkeep's manifest goes back to unpartitioned (withdrawn) and preader is
-// removed at the end; the tiles stay (a rerun starts them over).
+// pkeep's manifest goes back to unpartitioned (withdrawn), ppart's
+// deployment and preader are removed at the end; the tiles stay (a rerun
+// starts them over).
 const path = require('path');
 const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, closeTile, tileFrame, settle, sleep, shot, shotEl, checker } = require('../lib');
 
 const WS = process.env.WS || '';
-const PART = 'apps/ppart', KEEP = 'apps/pkeep', SWITCH = 'apps/pswitch';
+const PART = 'apps/ppart', KEEP = 'apps/pkeep', SWITCH = 'apps/pswitch', DEP = 'pdep';
+const NOTE = 'Your notes live here, one list per person.';
 const TEAL = 'rgb(63, 181, 163)';
 
 async function until(fn, label, timeout = 15000) {
@@ -35,12 +44,12 @@ async function until(fn, label, timeout = 15000) {
 }
 
 // write a static tile: its index.html names it, its xbin.json asks for partition (or not)
-function writeTile(tile, partition) {
+function writeTile(tile, partition, note = '') {
   const dir = path.join(WS, tile);
   fs.mkdirSync(dir, { recursive: true });
   const id = tile.slice(tile.lastIndexOf('/') + 1) + '-tile';
   fs.writeFileSync(path.join(dir, 'index.html'), `<!doctype html><h1 id="${id}">${tile} itself</h1>\n`);
-  fs.writeFileSync(path.join(dir, 'xbin.json'), JSON.stringify({ title: tile, ...(partition ? { partition } : {}) }));
+  fs.writeFileSync(path.join(dir, 'xbin.json'), JSON.stringify({ title: tile, ...(partition ? { partition } : {}), ...(note ? { partitionNote: note } : {}) }));
 }
 
 const card = (tile) => `bx-canvas .card[data-path="${tile}"]`;
@@ -52,12 +61,31 @@ const markFacts = (page, sel) => page.locator(sel).first().evaluate((el) => {
     border: cs.borderTopStyle, next: el.nextElementSibling?.className || '', w: el.getBoundingClientRect().width };
 }).catch(() => null);
 
+// pick what a window shows from its head's ⇈ menu
+async function pickDeployment(page, head, name) {
+  const menu = page.locator('bx-canvas bx-menu[open]');
+  await head.locator('button.dpb').click();
+  await menu.waitFor({ timeout: 10000 });
+  await menu.locator('button.it').filter({ has: page.locator('.lb', { hasText: new RegExp(`^${name}$`) }) }).click();
+  await menu.waitFor({ state: 'detached', timeout: 10000 });
+}
+
 async function partitionMark(browser) {
   const { check, done } = checker('partition-mark');
   const A = await login(browser, 'admin', 'admin');
   const api = (method, p, data) => A.ctx.request.fetch(`${URL}/api/xbin${p}`, { method, data });
   const comp = async (tile) => ((await (await api('GET', `/components/${tile}`)).json().catch(() => ({}))).component || {});
   const vaultHas = async (tile) => JSON.stringify(await (await api('GET', `/vault/${tile}`)).json().catch(() => ({}))).includes('token');
+  // a deployments op, waiting out the checkpoint rate (429 "… retry in Ns")
+  const deployOp = async (op, data) => {
+    for (let i = 0; ; i++) {
+      const r = await api('POST', `/deployments/${op}`, data);
+      const body = await r.json().catch(() => ({}));
+      const m = r.status() === 429 && /retry in (\d+)s/.exec(body?.error || '');
+      if (!m || i === 20) return { status: r.status(), error: body?.error || '' };
+      await sleep(Number(m[1]) * 1000 + 100);
+    }
+  };
   let B, R;
   try {
     // ---- the tiles ----
@@ -74,11 +102,11 @@ async function partitionMark(browser) {
     await until(async () => (await comp(SWITCH)).partition?.state === 'partitioned', `${SWITCH} partitioned`);
     const v = [await api('PUT', `/vault/${KEEP}/token`, { value: 'kept' }), await api('PUT', `/vault/${SWITCH}/token`, { value: 'doomed' })];
     check(v.every((r) => r.status() === 200), `${KEEP} and ${SWITCH} hold data: a vault key each (${v.map((r) => r.status())})`);
-    writeTile(KEEP, ['user']);
+    writeTile(KEEP, ['user'], NOTE);
     writeTile(SWITCH, null);
     const k = await until(async () => { const c = await comp(KEEP); return c.partition?.state === 'pending' && c; }, `${KEEP} pending`);
     const s = await until(async () => { const c = await comp(SWITCH); return c.partition?.state === 'pending' && c; }, `${SWITCH} pending`);
-    check(!k.partition.user && k.partition.request?.user, `${KEEP}: unpartitioned → user, pending (${JSON.stringify(k.partition)})`);
+    check(!k.partition.user && k.partition.request?.user && k.partition.note === NOTE, `${KEEP}: unpartitioned → user, pending, its note on the row (${JSON.stringify(k.partition)})`);
     check(s.partition.user && !s.partition.request?.user, `${SWITCH}: user → unpartitioned, pending (${JSON.stringify(s.partition)})`);
 
     // ---- 1. the marker ----
@@ -105,6 +133,25 @@ async function partitionMark(browser) {
     await shotEl(B.page, row(PART), 'partition-mark-row');
     await shotEl(B.page, `${card(PART)} .head`, 'partition-mark-head');
 
+    // ---- 1b. a window on a deployment: its writers' shared instance, no marker ----
+    const added = await deployOp('add', { tile: PART, deployment: DEP });
+    check(added.status === 200, `${PART} gains a deployment ${DEP} (${added.status} ${added.error})`);
+    if (added.status === 200) {
+      const head = B.page.locator(`${card(PART)} .head`);
+      await head.locator('button.dpb').waitFor({ timeout: 15000 });
+      await pickDeployment(B.page, head, DEP);
+      await head.locator('.dtag').waitFor({ timeout: 10000 });
+      check(await head.locator('.pm').count() === 0 && await head.locator('.c').count() === 1,
+        `a window showing ${DEP} carries no per-person marker: the runtime dot`);
+      const chip = await head.locator('.dshare').first().evaluate((el) => ({ text: el.textContent.trim(), title: el.title })).catch(() => null);
+      check(chip?.text === 'shared' && /^Not partitioned: .*every writer of the tile shares/.test(chip.title), `… and says shared (${JSON.stringify(chip)})`);
+      check(await B.page.locator(`${row(PART)} .pm`).count() === 1, 'the sidebar row (the tile itself) keeps its marker');
+      await shotEl(B.page, `${card(PART)} .head`, 'partition-mark-deployment');
+      await pickDeployment(B.page, head, 'main');
+      await head.locator('.dtag').waitFor({ state: 'detached', timeout: 10000 });
+      check(await head.locator('.pm').count() === 1 && await head.locator('.dshare').count() === 0, 'back on the primary: the marker again, no chip');
+    }
+
     // ---- 2. pending: a reader sees the words, a manager keeps ----
     R = await login(browser, 'preader', 'preaderpass123');
     await openShell(R.page);
@@ -112,9 +159,11 @@ async function partitionMark(browser) {
     await openTile(R.page, KEEP);
     await R.page.locator(`${card(KEEP)} .pover`).waitFor({ timeout: 15000 });
     const rtext = await R.page.locator(`${card(KEEP)} .pover`).innerText();
-    check(rtext.includes(`A partition mode switch is requested for ${KEEP} (unpartitioned → user)`) && /deletes all data in this tile/.test(rtext),
-      `a reader's card greys out under the request's words (${rtext.slice(0, 160)})`);
-    check(await R.page.locator(`${card(KEEP)} .pover button`).count() === 0 && rtext.includes('A manager of'), 'a reader gets no Keep/Switch, only who decides');
+    check(rtext.includes(`A partition mode switch is requested for ${KEEP} (unpartitioned → user)`) && /deletes all data in this tile/.test(rtext)
+      && !rtext.includes('switch|keep'), `a reader's card greys out under the request's words, without the CLI hint (${rtext.slice(0, 160)})`);
+    check(rtext.includes(`${KEEP} says: ${NOTE}`), 'the card shows the tile\'s partitionNote, attributed to it');
+    check(await R.page.locator(`${card(KEEP)} .pover button`).count() === 0 && rtext.includes('Who decides: an admin of org:devs, which owns it, or a workspace admin'),
+      'a reader gets no Keep/Switch, only who decides: the owning org\'s admins');
     await shotEl(R.page, card(KEEP), 'partition-pending-reader');
     await closeTile(R.page, KEEP);
     await closeCtx(R.ctx, R.page);
@@ -130,10 +179,23 @@ async function partitionMark(browser) {
     await ov.locator('button.pkeep').click();
     await B.page.locator(`${card(KEEP)} .pover`).waitFor({ state: 'detached', timeout: 15000 });
     const kept = await comp(KEEP);
-    check(kept.partition?.state === 'unpartitioned' && kept.partition?.request?.declined === true, `Keep: ${KEEP} runs unpartitioned, user declined (${JSON.stringify(kept.partition)})`);
+    check(kept.partition?.state === 'unpartitioned' && kept.partition?.request?.declined === true && !kept.partition?.note,
+      `Keep: ${KEEP} runs unpartitioned, user declined, no note on the row (${JSON.stringify(kept.partition)})`);
     const f = await until(async () => (await tileFrame(B.page, KEEP)).evaluate(() => !!document.getElementById('pkeep-tile')).catch(() => false), 'the kept tile in its frame');
     check(f, 'the frame shows the tile itself again');
     check(await vaultHas(KEEP), 'keep deleted nothing: the vault key is still there');
+    // the code withdraws, then asks for the same mode again: a new request
+    writeTile(KEEP, null);
+    await until(async () => { const c = await comp(KEEP); return c.path && !c.partition?.request && c; }, `${KEEP} withdrawn`);
+    writeTile(KEEP, ['user'], NOTE);
+    await until(async () => (await comp(KEEP)).partition?.state === 'pending', `${KEEP} pending again`);
+    await ov.waitFor({ timeout: 15000 });
+    await ov.locator('button.pkeep').waitFor({ timeout: 5000 }).catch(() => {});
+    check(await ov.locator('button.pkeep').count() === 1 && await ov.locator('button.pswitch').count() === 1 && await ov.locator('.pdone').count() === 0,
+      'the same request again (unpartitioned → user): Keep and Switch… again, not the last answer');
+    await ov.locator('button.pkeep').click();
+    await B.page.locator(`${card(KEEP)} .pover`).waitFor({ state: 'detached', timeout: 15000 });
+    check((await comp(KEEP)).partition?.request?.declined === true, 'and it keeps again');
 
     // ---- 3. pending: Switch… and the typed confirmation ----
     const sw = B.page.locator(`${card(SWITCH)} .pover`);
@@ -169,6 +231,7 @@ async function partitionMark(browser) {
     if (B) await closeCtx(B.ctx, B.page);
     writeTile(KEEP, null); // withdrawn
     await api('DELETE', `/vault/${KEEP}/token`).catch(() => {});
+    await deployOp('remove', { tile: PART, deployment: DEP, confirm: 'erase' }).catch(() => {});
     await api('DELETE', '/users/preader').catch(() => {});
     await closeCtx(A.ctx, A.page);
   }

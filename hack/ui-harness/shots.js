@@ -35,7 +35,7 @@ const { tabStrip } = require('./passes/tabstrip'), { sandboxes } = require('./pa
 const { sandboxTerminal } = require('./passes/sandboxterminal'), { codingSandbox } = require('./passes/codingsandbox'), { livereload } = require('./passes/livereload'), { deployments } = require('./passes/deployments'), { adminDeployments } = require('./passes/admindeploy');
 const { layoutSync } = require('./passes/layoutsync'), { deployBranches } = require('./passes/deploybranches');
 const { scrollbars } = require('./passes/scrollbars'), { agentLong } = require('./passes/agentlong'), { agentLongPerf } = require('./passes/agentlongperf'), { agentTemplateLong } = require('./passes/agenttemplatelong');
-const { agentTask } = require('./passes/agenttask'), { adminPolicies } = require('./passes/policies'), { templateCard } = require('./passes/templatecard'), { partitionSwitch } = require('./passes/partitionswitch'), { partitionMark } = require('./passes/partitionmark');
+const { agentTask } = require('./passes/agenttask'), { adminPolicies } = require('./passes/policies'), { templateCard } = require('./passes/templatecard'), { partitionSwitch } = require('./passes/partitionswitch');
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
 // terminal on an org tile.
@@ -850,8 +850,9 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, partitionMark,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch,
 };
+PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
 
 (async () => {
   const args = process.argv.slice(2);
