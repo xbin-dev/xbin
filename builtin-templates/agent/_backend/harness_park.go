@@ -349,8 +349,9 @@ func (s *hsess) answer(a hAnswer) {
 }
 
 // sendAnswer answers a through the client — again (a successor's): a
-// permission that is no longer pending here (its park cleared before the
-// handoff) is answered by its rpc id — and forgets it once delivered.
+// permission is found by its rpc id (pendingRPC), and one no longer
+// pending here (its park cleared before the handoff) is answered by its
+// rpc id alone — and forgets it once delivered.
 func (s *hsess) sendAnswer(a hAnswer, again bool) {
 	err := s.respond(a, again)
 	switch {
@@ -372,12 +373,22 @@ func (s *hsess) respond(a hAnswer, again bool) error {
 		}
 		return err
 	}
+	pid := h.PID
+	if again {
+		// a predecessor's answer names its request by rpc id: this
+		// client's pids start over, so another request may be pending
+		// here under the recorded pid — never answered with this one
+		if h.RPCID == "" {
+			return errAnswered
+		}
+		pid = s.pendingRPC(h.RPCID)
+	}
 	var res *acp.Resolution
 	switch {
-	case again && !s.pendingPID(h.PID): // its park cleared before the handoff: the reply alone
-		res = &acp.Resolution{PID: h.PID, OptionID: a.Option, By: a.By, RPCID: json.RawMessage(h.RPCID), Cancel: a.Option == ""}
+	case again && pid == "": // its park cleared before the handoff: the reply alone (no pid: it names no park here)
+		res = &acp.Resolution{OptionID: a.Option, By: a.By, RPCID: json.RawMessage(h.RPCID), Cancel: a.Option == ""}
 	case a.Option != "":
-		r, err := s.perms.Resolve(h.PID, a.Option, "", a.By)
+		r, err := s.perms.Resolve(pid, a.Option, "", a.By)
 		if err != nil {
 			return errAnswered
 		}
@@ -460,6 +471,17 @@ func (s *hsess) pendingPID(pid string) bool {
 		}
 	}
 	return false
+}
+
+// pendingRPC is the pid the permission request under the adapter's rpc id
+// waits for an answer under here ("": none does).
+func (s *hsess) pendingRPC(rpc string) string {
+	for _, p := range s.perms.List() {
+		if id := p.RPCID(); len(id) > 0 && idKey(string(id)) == idKey(rpc) {
+			return p.PID
+		}
+	}
+	return ""
 }
 
 // settleParkTx answers the park and the queue with text in the transcript

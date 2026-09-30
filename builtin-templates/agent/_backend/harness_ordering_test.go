@@ -195,6 +195,33 @@ func TestHarnessAnswerOnItsWayHandoff(t *testing.T) {
 			t.Fatalf("after the answer: %s %q", r.Status, r.Pending)
 		}
 	})
+	t.Run("pid-reused", func(t *testing.T) {
+		// a recorded answer to a request whose park cleared before the
+		// handoff, and a later request the adapter sent that a successor
+		// (its pid counter starts over) filed under the same pid: the
+		// answer goes to its own request (by rpc id), never to the one
+		// parked now, and doesn't clear that park
+		ag, mux, box := harnessFixture(t, false)
+		run := askHarness(t, mux, box, "perm")
+		p := parkOf(t, ag, run.ID, "approval")
+		handOff(t, ag, run.ID)
+		hs, _ := ag.db.harnessSession(run.ID)
+		old := &hPark{PID: p.Harness.PID, RPCID: `"x-old"`, Options: p.Harness.Options}
+		b, _ := json.Marshal([]hAnswer{{Gen: hs.Gen, Kind: "approval", Park: old, Option: pickOption(p.Harness.Options, true), By: "user:alice"}})
+		if _, err := ag.db.q.Exec(`UPDATE harness_sessions SET answers=? WHERE run_id=?`, string(b), run.ID); err != nil {
+			t.Fatal(err)
+		}
+		successor(t, ag)
+		hwait(t, "the old answer sent", func() bool { return recorded(ag, run.ID) == "" })
+		time.Sleep(500 * time.Millisecond) // an approval of the parked request would be answered by now
+		if r, _ := ag.db.getRun(run.ID); r.Status != statusWaiting || parsePending(r.Pending).Park != p.Park || strings.Contains(fullText(ag.db, run.ID), "listed") {
+			t.Fatalf("the parked request was answered by another's answer: %s %q: %s", r.Status, r.Pending, transcript(ag.db, run.ID))
+		}
+		if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", run.ID), map[string]any{"approve": true, "park": p.Park}); w.Code != 200 {
+			t.Fatalf("approve: %d %s", w.Code, w.Body)
+		}
+		hwait(t, "the turn", func() bool { return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "listed") })
+	})
 }
 
 // recorded is run's harness_sessions.answers.
