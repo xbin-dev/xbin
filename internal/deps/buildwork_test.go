@@ -163,6 +163,26 @@ func TestBuildWorkReach(t *testing.T) {
 		t.Errorf("with deps: %q", got)
 	}
 
+	// a prefix of a path the build gets elsewhere catches none of its
+	// imports: the SDK's (configured or not), x/sys's
+	wsFiles(t, root, map[string]string{
+		"apps/b/backend/sdk.go":  "package main\n\nimport _ \"github.com/xbin-dev/xbin/sdk\"\n",
+		"apps/sdkprefix/go.mod":  "module github.com/xbin-dev/xbin\n\nreplace golang.org/x/sys => ./evil\n",
+		"apps/xprefix/go.mod":    "module golang.org/x\n\nreplace golang.org/x/sys => ./evil\n",
+		"apps/sdkprefix/sdk.txt": "",
+	})
+	b.Deps = nil
+	b.Others = append(others, wsModule(root, "apps/sdkprefix"), wsModule(root, "apps/xprefix"))
+	for _, sdk := range []string{"/opt/xbin/sdk", ""} {
+		b.SDK = sdk
+		got := dirsOf(BuildWork(b).Uses)
+		for _, bad := range []string{"apps/sdkprefix", "apps/xprefix", "apps/sdkfake"} {
+			if slices.Contains(got, filepath.Join(root, bad)) {
+				t.Errorf("sdk %q: %s serves b: %q", sdk, bad, got)
+			}
+		}
+	}
+
 	// and a's build reaches none of b's: its own module alone
 	a := Build{Tile: "apps/a", Own: []Module{wsModule(root, "apps/a")}, Others: append(others[1:], wsModule(root, "apps/b")), Std: std}
 	if got := dirsOf(BuildWork(a).Uses); !reflect.DeepEqual(got, []string{filepath.Join(root, "apps/a")}) {

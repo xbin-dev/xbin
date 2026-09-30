@@ -128,10 +128,19 @@ func BuildWork(b Build) Work {
 	ownDirs := map[string]bool{}
 	ownPaths := map[string]bool{}
 	published := map[string]bool{} // module paths some go.mod requires at a published version
-	notePublished := func(mod goMod) {
+	known := map[string]bool{}     // every module path any go.mod read declares, requires or replaces
+	note := func(mod goMod) {
+		known[mod.Path] = true
 		for p, v := range mod.Requires {
+			known[p] = true
 			if !placeholder(v) {
 				published[p] = true
+			}
+		}
+		for _, r := range mod.Replaces {
+			known[r.Old] = true
+			if !r.dir() {
+				known[r.New] = true
 			}
 		}
 	}
@@ -146,17 +155,15 @@ func BuildWork(b Build) Work {
 		if mod.Path != "" {
 			ownPaths[mod.Path] = true
 		}
-		notePublished(mod)
+		note(mod)
 		w.Uses = append(w.Uses, m)
 		queue = append(queue, node{m, mod})
 	}
-	// module paths the go.work replaces at every version: a workspace
-	// module declaring one would fail the build ("workspace module … is
-	// replaced at all versions in the go.work file"), so none serves it
-	replaced := map[string]bool{}
-	if b.SDK != "" {
-		replaced[SDKModule] = true
-	}
+	// module paths no workspace module serves: the SDK's, xbind's own
+	// (configured or not), and those the go.work replaces at every version
+	// (a workspace module declaring one would fail the build: "workspace
+	// module … is replaced at all versions in the go.work file")
+	replaced := map[string]bool{SDKModule: true}
 	if b.Root != nil {
 		for _, r := range b.Root.Replaces {
 			if r.OldVersion == "" {
@@ -183,21 +190,27 @@ func BuildWork(b Build) Work {
 		for p, v := range mod.Requires {
 			w.reqs[p] = append(w.reqs[p], tileReq{who, v})
 		}
-		notePublished(mod)
+		note(mod) // an excluded one's path too: it still claims its imports
 		w.others = append(w.others, offer{mod.Path, m})
 		if ownPaths[mod.Path] || replaced[mod.Path] {
-			continue // the tile's own path, or the go.work's: never another module's
+			continue // the tile's own path, the SDK's or the go.work's: never another module's
 		}
 		byPath[mod.Path] = append(byPath[mod.Path], len(cands))
 		byDir[m.Dir] = len(cands)
 		cands = append(cands, node{m, mod})
 	}
-	paths := make([]string, 0, len(byPath)+len(ownPaths))
-	for p := range byPath {
-		paths = append(paths, p)
+	// every module path that could provide an import: an import belongs to
+	// the longest of them, and a workspace module serves it only when that
+	// is its own path — so a tile declaring `module github.com/xbin-dev/xbin`
+	// never catches the SDK's imports, nor `golang.org/x` x/crypto's
+	for p := range replaced {
+		known[p] = true
 	}
-	for p := range ownPaths {
-		paths = append(paths, p)
+	paths := make([]string, 0, len(known))
+	for p := range known {
+		if p != "" {
+			paths = append(paths, p)
+		}
 	}
 	used := map[int]bool{}
 	for len(queue) > 0 {

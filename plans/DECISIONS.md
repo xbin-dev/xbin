@@ -5798,10 +5798,15 @@ Deviations and refinements made while implementing; all deliberate:
     workspace requires that path at a published version, which says it is
     a real module a tile builds with (so a tile that imported a published
     module without requiring it, relying on another tile's requirement,
-    can't be handed a squatter's code for it). A path the go.work replaces
-    at every version (the SDK's), the tile's own path, and standard-library
-    imports (checked against the host toolchain's GOROOT: a tile declaring
-    `module net` never reaches a build that imports net/http) never match.
+    can't be handed a squatter's code for it). The SDK's path (xbind's,
+    whether an SDK is configured or not), a path the go.work replaces at
+    every version, the tile's own path, and standard-library imports
+    (checked against the host toolchain's GOROOT: a tile declaring `module
+    net` never reaches a build that imports net/http) never match. An
+    import belongs to the longest module path any go.mod read declares,
+    requires or replaces, and a workspace module serves it only when that
+    is its own — a tile declaring `module github.com/xbin-dev/xbin` would
+    otherwise catch every SDK import as an unrequired one.
   - **A used module brings its replace lines.** In workspace mode they
     apply to the whole build; the tile chose to build with that module's
     code, which is in its binary anyway, so its replaces give its authors
