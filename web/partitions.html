@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your partitions — xbin</title>
+<link rel="icon" type="image/svg+xml" href="/vendor/favicon.svg">
+<link rel="stylesheet" href="/vendor/theme.css">
+<!-- xbind's partitions page (/xbin/partitions; docs/partitions.md §Your
+     partitions page): served exactly as it is here — no HTML transform —
+     and only top-level. No inline script: its CSP allows 'self' alone. -->
+<script type="module" src="/vendor/partitions-page.js"></script>
+</head>
+<body class="bx" style="background: var(--bx-bg, #1b1e24)">
+<bx-partitions-page></bx-partitions-page>
+<noscript>The partitions page needs JavaScript. Without it: <code>bx partition ls</code> (docs/bx.md).</noscript>
+</body>
+</html>

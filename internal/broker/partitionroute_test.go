@@ -218,7 +218,7 @@ func TestAddressedPartition(t *testing.T) {
 	// reaches alice's partition only with her consent (F10's records)
 	partRouteConsent(w, true)
 	if _, err := b.addressedPartition(instanceOf("apps/q", "user:alice"), "apps/pg"); err == nil ||
-		err.Error() != "alice hasn't let apps/q use their apps/pg data" {
+		err.Error() != "alice hasn't let apps/q use their apps/pg data (they allow it at /xbin/partitions)" {
 		t.Errorf("consent policy on, no consent: %v", err)
 	}
 	withSeam(t, &partitionConsentHolds, func(_ *Broker, id, from, to string) bool {

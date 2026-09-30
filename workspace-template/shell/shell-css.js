@@ -465,6 +465,7 @@ export const partCss = css`
       border: 1px solid var(--bx-border, #363c45); border-radius: 8px; box-shadow: 0 6px 22px rgba(0, 0, 0, .35); }
     .pbox .phead { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-weight: 600; }
     .pbox .phead .pdot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--bx-amber, #f2a71b); }
+    .pbox .phead .pmore { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--bx-accent, #f5a623); text-decoration: none; }
     .pbox .pmsg { margin: 0; }
     .pbox .pnote { margin: 8px 0 0; padding-left: 9px; border-left: 2px solid var(--bx-border, #363c45);
       white-space: pre-wrap; overflow-wrap: anywhere; }

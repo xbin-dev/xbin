@@ -298,7 +298,7 @@ func (b *Broker) promptConsent(userID, from, to string) {
 			Data: personEvent{"op": "consent-needed", "from": from, "to": to}})
 	}
 	b.pushPerson(userID, "tile.partition-consent", from+" asks for your "+to+" data",
-		fmt.Sprintf("%s wants to use your data in %s. Your workspace asks you first: allow it with bx partition consent %s %s — or ignore it.", from, to, from, to),
+		fmt.Sprintf("%s wants to use your data in %s. Your workspace asks you first: allow it on your partitions page (or bx partition consent %s %s) — or ignore it.", from, to, from, to),
 		consentPage, "partition-consent:"+consentKey(from, to))
 }
 

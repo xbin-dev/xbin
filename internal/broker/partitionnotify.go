@@ -67,7 +67,7 @@ func (b *Broker) partitionModeChanged(tile string, h modeHistory) {
 	body := fmt.Sprintf("%s → %s. Switching deletes %s; keeping the current mode deletes nothing. Until a manager decides, %s doesn't run.",
 		from, to, registry.SwitchDeletes(from, to), tile)
 	for _, user := range b.tileManagers(tile) {
-		b.pushPerson(user, "tile.partition-switch", title, body, "c/"+tile+"/", "partition-switch:"+tile)
+		b.pushPerson(user, "tile.partition-switch", title, body, consentPage, "partition-switch:"+tile) // where managers decide
 	}
 }
 

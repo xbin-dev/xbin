@@ -204,7 +204,7 @@ func (b *Broker) sharedLog(p auth.Principal, tile, dep, who string) (string, uti
 		return "", "", true, http.StatusNotFound, fmt.Errorf("%s has no partition of %s", who, tile)
 	}
 	if !self && b.logShareOf(tile, util.PartitionKey(who, uid)) == nil {
-		return "", "", true, http.StatusForbidden, fmt.Errorf("%s doesn't share their partition log of %s (they can: bx partition share-log %s)", who, tile, tile)
+		return "", "", true, http.StatusForbidden, fmt.Errorf("%s doesn't share their partition log of %s (they can, at /xbin/partitions or with bx partition share-log %s)", who, tile, tile)
 	}
 	return b.partitionLogRel(tile, dep, who, part)
 }
