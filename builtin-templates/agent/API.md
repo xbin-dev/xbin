@@ -1889,7 +1889,12 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   messages queued for the coding agent waiting, reads calls in flight as
   interrupted, answers an approval there with an error result, and the
   coding agent itself runs on unwatched in the sandbox until the sandbox
-  stops or a newer agent takes it over again. Its class editor still
+  stops or a newer agent takes it over again. What waits there for the
+  coding agent — a message queued for it, an answer to its question — is
+  work to that agent that it never does: its resume job wakes the tile
+  every minute until the conversation is deleted (or, for the workspace
+  owner, `DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND
+  delivered_at=0` in the agent's `db` resource). Its class editor still
   saves (the stored classes keep the `harness` toolset apart from
   `toolsets`, where that agent would refuse it), but a class it saves
   again has lost its coding agents: tick them again after upgrading.
@@ -2149,11 +2154,13 @@ answer: <question>` / `to sign in` below it, and in detail `doing:
 parent model is never offered a child's permission: a park goes to people
 (Needs, push, the child card). **A person's direct message** (`POST
 /runs/{child}/message` or `/answer` by a person, not the parent agent) is
-told to the parent as an `hnote` inbox row — `[direct message to #<child>
-(<name>) from <user>]\n<message>` — delivered as a user-role notice at the
-parent's next step boundary, or before its next turn's first message; it
-never starts a turn, isn't a request of the task ledger, and doesn't count
-for `hasWork` (an older build ignores the kind).
+told to the parent as a notice (an `hnote`, kept apart from the inbox) —
+`[direct message to #<child> (<name>) from <user>]\n<message>` — delivered
+as a user-role message at the parent's next step boundary, or before its
+next turn's first message, among what was queued for it then; it never
+starts a turn, isn't a request of the task ledger, and isn't work for
+`hasWork` — an older build never sees it, so a notice an idle parent keeps
+never wakes that build either.
 
 **The agent's coding agents (the UI).** A coding agent the agent started
 (`subagent_spawn` with `harness`, D-harness §4.4) is drawn where the spawn

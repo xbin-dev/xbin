@@ -808,14 +808,15 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 // deliverBoundary moves what is waiting into the transcript, in one
 // transaction: queued messages (in order, with their attachments), watcher
 // rounds, a person's word to a coding agent below (hnote: a notice, never a
-// request — D-harness §4.3.13), and one notice for every background
-// subagent that finished. False means the engine lost ownership.
+// request — D-harness §4.3.13; kept in harness_notes, harness_spawn.go),
+// and one notice for every background subagent that finished. False means
+// the engine lost ownership.
 func (e *Engine) deliverBoundary(ts *turnState) bool {
 	run := ts.run
 	var delivered []int64
 	err := e.fenced(func(t *DB) error {
-		asked := false
-		rows := t.undelivered(run.ID)
+		asked, noted := false, false
+		rows := t.undeliveredWithNotes(run.ID)
 		for _, r := range rows {
 			switch r.Kind {
 			case inboxUser, inboxWatch:
@@ -824,10 +825,10 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 				if _, err := t.addMessage(m); err != nil {
 					return err
 				}
-				if !t.consume(r.ID, m.ID) {
-					return fmt.Errorf("inbox row %d consumed twice", r.ID)
+				if !t.consumeHarnessNote(r.ID, m.ID) {
+					return fmt.Errorf("harness note %d consumed twice", r.ID)
 				}
-				delivered = append(delivered, r.ID)
+				noted = true
 				e.emitMessage(t, ts.root, m)
 				continue
 			default:
@@ -875,7 +876,7 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 			delivered = append(delivered, r.ID)
 			e.emitMessage(t, ts.root, m)
 		}
-		if n := e.deliverNotices(t, ts); n > 0 || len(delivered) > 0 {
+		if n := e.deliverNotices(t, ts); n > 0 || len(delivered) > 0 || noted {
 			e.emitInbox(t, ts.root, run.ID)
 		}
 		if asked {

@@ -438,7 +438,7 @@ func (d *DB) hasWork() bool {
 	var n int
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued','blocked','awaiting','sleeping'))
-		+ (SELECT count(*) FROM inbox WHERE delivered_at=0 AND kind<>'` + inboxHNote + `')
+		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)
 		+ ` + harnessWorkSQL).Scan(&n)
 	return n > 0
 }

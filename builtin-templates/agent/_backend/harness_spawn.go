@@ -9,8 +9,9 @@
 // parent model never answers a child's permission: a park goes to people
 // (Needs, push, the child card), and a parent's message waits for them
 // (harnessPass). A person's direct message to a harness child is told to
-// its parent as an hnote, delivered at the parent's next step boundary as
-// a notice (actor.go deliverBoundary) and never a turn of its own.
+// its parent as a notice (an hnote, kept in harness_notes), delivered at
+// the parent's next step boundary (actor.go deliverBoundary) and never a
+// turn of its own.
 package main
 
 import (
@@ -335,9 +336,12 @@ func usageCost(v any) string {
 // --- a person's direct message (§4.3.13) -------------------------------------------
 
 // noteParentTx tells child's parent that a person (who) messaged child
-// directly: an hnote row, delivered as a notice at the parent's next step
+// directly: an hnote, delivered as a notice at the parent's next step
 // boundary, or before its next turn's first message — it never starts a
-// turn (hasWork, sortInbox and endTurnIfQuiet leave it out).
+// turn. It waits in harness_notes, not the inbox: an idle parent may keep
+// one for good, and a build from before coding agents, rolled back to,
+// counts every undelivered inbox row as work it never does (its resume job
+// would wake the tile every minute).
 func (ag *Agent) noteParentTx(t *DB, child *Run, who, text string, files []string) error {
 	cfg, err := t.runConfig(child.ID)
 	if err != nil || cfg.Harness == nil || child.ParentID == 0 {
@@ -347,6 +351,68 @@ func (ag *Agent) noteParentTx(t *DB, child *Run, who, text string, files []strin
 		text = "(files: " + strings.Join(files, ", ") + ")"
 	}
 	note := fmt.Sprintf("[direct message to #%d (%s) from %s]\n%s", child.ID, t.harnessRunName(child.ID, cfg.Harness.Provider), who, text)
-	_, _, err = t.enqueue(child.ParentID, inboxHNote, inboxBody{Text: note, Source: "harness", From: child.ID, Sender: who}, "")
+	return t.addHarnessNote(child.ParentID, inboxBody{Text: note, Source: "harness", From: child.ID, Sender: who})
+}
+
+// addHarnessNote queues a notice for run, after the inbox rows it has now.
+func (d *DB) addHarnessNote(runID int64, body inboxBody) error {
+	raw, _ := json.Marshal(body)
+	_, err := d.q.Exec(`INSERT INTO harness_notes (run_id, after, body, created)
+		VALUES (?, (SELECT COALESCE(max(id), 0) FROM inbox), ?, ?)`, runID, string(raw), now())
 	return err
+}
+
+// harnessNotesAfter are run's notices (only the undelivered ones: pending)
+// as inbox rows of kind hnote — their ids are harness_notes' — and each
+// one's place: the inbox rows up to that id came before it.
+func (d *DB) harnessNotesAfter(runID int64, pending bool) ([]*InboxRow, []int64) {
+	q := `SELECT id, after, body, created, delivered_at, msg_id FROM harness_notes WHERE run_id=?`
+	if pending {
+		q += ` AND delivered_at=0`
+	}
+	rows, err := d.q.Query(q+` ORDER BY after, id`, runID)
+	if err != nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var out []*InboxRow
+	var after []int64
+	for rows.Next() {
+		r := &InboxRow{RunID: runID, Kind: inboxHNote}
+		var body string
+		var a int64
+		if rows.Scan(&r.ID, &a, &body, &r.Created, &r.DeliveredAt, &r.MsgID) != nil {
+			continue
+		}
+		_ = json.Unmarshal([]byte(body), &r.Body)
+		out, after = append(out, r), append(after, a)
+	}
+	return out, after
+}
+
+// undeliveredWithNotes is run's pending input with its notices among it,
+// each after the inbox rows that were there when it was written.
+func (d *DB) undeliveredWithNotes(runID int64) []*InboxRow {
+	rows := d.undelivered(runID)
+	notes, after := d.harnessNotesAfter(runID, true)
+	if len(notes) == 0 {
+		return rows
+	}
+	out := make([]*InboxRow, 0, len(rows)+len(notes))
+	i := 0
+	for k, n := range notes {
+		for i < len(rows) && rows[i].ID <= after[k] {
+			out = append(out, rows[i])
+			i++
+		}
+		out = append(out, n)
+	}
+	return append(out, rows[i:]...)
+}
+
+// consumeHarnessNote marks a notice delivered; false if something else
+// already did.
+func (d *DB) consumeHarnessNote(id, msgID int64) bool {
+	res, err := d.q.Exec(`UPDATE harness_notes SET delivered_at=?, msg_id=? WHERE id=? AND delivered_at=0`, now(), msgID, id)
+	return err == nil && rowsAffected(res) == 1
 }

@@ -80,6 +80,16 @@ CREATE TABLE IF NOT EXISTS harness_options (
   options TEXT NOT NULL DEFAULT '',
   at INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS harness_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  after INTEGER NOT NULL DEFAULT 0,
+  body TEXT NOT NULL DEFAULT '{}',
+  created INTEGER NOT NULL DEFAULT 0,
+  delivered_at INTEGER NOT NULL DEFAULT 0,
+  msg_id INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_harness_notes_run ON harness_notes(run_id, delivered_at);
 `
 
 // addHarnessSchema adds runs.engine and the harness tables. It runs before
@@ -102,6 +112,18 @@ func (d *DB) addHarnessSchema() error {
 	// session in by itself, where the current turn's rows begin
 	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN start_mode TEXT NOT NULL DEFAULT ''`)
 	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN turn_seq INTEGER NOT NULL DEFAULT 0`)
+	// a parent's notices waiting in the inbox, where an earlier build of
+	// this program wrote them: moved to harness_notes (harness_spawn.go)
+	if err := d.Tx(func(t *DB) error {
+		if _, err := t.q.Exec(`INSERT INTO harness_notes (run_id, after, body, created)
+			SELECT run_id, id - 1, body, created FROM inbox WHERE kind='hnote' AND delivered_at=0 ORDER BY id`); err != nil {
+			return err
+		}
+		_, err := t.q.Exec(`DELETE FROM inbox WHERE kind='hnote' AND delivered_at=0`)
+		return err
+	}); err != nil {
+		return err
+	}
 	_, err := d.q.Exec(harnessTurnCapSQL)
 	return err
 }

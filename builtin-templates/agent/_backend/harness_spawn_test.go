@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -317,7 +318,14 @@ func TestHarnessDirectNote(t *testing.T) {
 		t.Fatalf("a direct message: %d %s", w.Code, w.Body)
 	}
 	hwait(t, "the direct message's turn", func() bool { return turnOver(ag, kid)() && strings.Contains(fullText(ag.db, kid), "echo: again") })
-	notes := ag.db.inboxRows(`WHERE run_id=? AND kind=?`, parent.ID, inboxHNote)
+	// an older build (v0.3.64) counts every undelivered inbox row as work
+	// (hasWork) and pokes its run (recover) but never consumes a kind it
+	// doesn't know: its resume job would wake the tile every minute while a
+	// note waits for an idle parent — so a note is no inbox row
+	if rows := ag.db.inboxRows(`WHERE run_id=? AND delivered_at=0`, parent.ID); len(rows) != 0 {
+		t.Fatalf("an older build sees work on the parent: %+v", rows[0])
+	}
+	notes := ag.db.harnessNotes(parent.ID, false)
 	if len(notes) != 1 || notes[0].Body.Text != fmt.Sprintf("[direct message to #%d (Fake agent (tests)) from alice]\nagain", kid) || notes[0].DeliveredAt != 0 {
 		t.Fatalf("the parent's note: %+v", notes)
 	}
@@ -358,7 +366,7 @@ func TestHarnessDirectNote(t *testing.T) {
 	hwait(t, "the nudge delivered after", func() bool {
 		return turnOver(ag, kid)() && strings.Contains(fullText(ag.db, kid), "echo: go ahead")
 	})
-	if n := len(ag.db.inboxRows(`WHERE run_id=? AND kind=?`, parent.ID, inboxHNote)); n != 2 {
+	if n := len(ag.db.harnessNotes(parent.ID, false)); n != 2 {
 		t.Fatalf("the parent's own message made a note: %d", n)
 	}
 }
@@ -545,5 +553,72 @@ func TestHarnessSpawnSystem(t *testing.T) {
 		if child.System != "You code." || child.Engine != engineHarness || child.Harness.Mode != "default" {
 			t.Fatalf("%q: %+v", sys, child)
 		}
+	}
+}
+
+// harnessNotes are run's notices (only the undelivered ones: pending).
+func (d *DB) harnessNotes(runID int64, pending bool) []*InboxRow {
+	out, _ := d.harnessNotesAfter(runID, pending)
+	return out
+}
+
+// A parent's notices wait apart from its inbox and are read among it, each
+// after the rows that were there when it was written; one an earlier build
+// of this program left in the inbox moves there at the next start.
+func TestHarnessNotesOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.db")
+	db, err := openDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(kind, text string) {
+		t.Helper()
+		if _, _, err := db.enqueue(7, kind, inboxBody{Text: text}, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	note := func(text string) {
+		t.Helper()
+		if err := db.addHarnessNote(7, inboxBody{Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	order := func(d *DB) string {
+		var out []string
+		for _, r := range d.undeliveredWithNotes(7) {
+			out = append(out, r.Kind+":"+r.Body.Text)
+		}
+		return strings.Join(out, " ")
+	}
+	add(inboxUser, "a")
+	note("n1")
+	note("n2")
+	add(inboxUser, "b")
+	add(inboxHNote, "legacy") // as an earlier build wrote it
+	add(inboxWatch, "c")
+	note("n3")
+	if got := order(db); got != "user:a hnote:n1 hnote:n2 user:b hnote:legacy watch:c hnote:n3" {
+		t.Fatalf("before the move: %s", got)
+	}
+	db.sql.Close()
+	if db, err = openDB(path); err != nil {
+		t.Fatal(err)
+	}
+	defer db.sql.Close()
+	if got := order(db); got != "user:a hnote:n1 hnote:n2 user:b hnote:legacy watch:c hnote:n3" {
+		t.Fatalf("after the move: %s", got)
+	}
+	if n := len(db.inboxRows(`WHERE kind=?`, inboxHNote)); n != 0 {
+		t.Fatalf("a note left in the inbox: %d", n)
+	}
+	notes := db.harnessNotes(7, true)
+	if len(notes) != 4 || !db.consumeHarnessNote(notes[0].ID, 1) || db.consumeHarnessNote(notes[0].ID, 1) {
+		t.Fatalf("consuming a note: %+v", notes)
+	}
+	if got := order(db); got != "user:a hnote:n2 user:b hnote:legacy watch:c hnote:n3" {
+		t.Fatalf("one delivered: %s", got)
+	}
+	if err := db.deleteOneRun(7); err != nil || len(db.harnessNotes(7, false)) != 0 {
+		t.Fatalf("a deleted run's notes: %v", err)
 	}
 }

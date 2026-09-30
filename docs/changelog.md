@@ -83,8 +83,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   N tool calls · $cost` and what person it waits for — the agent never
   answers its permission requests (its message waits for the person). A
   person's direct message to such a coding agent is told to the agent as a
-  notice (`[direct message to #N (<name>) from <user>]`, an `hnote` inbox
-  row) at its next step, without starting a turn. Additive.
+  notice (`[direct message to #N (<name>) from <user>]`, kept apart from
+  the inbox, so an older build rolled back to never counts it as work) at
+  its next step, without starting a turn. Additive.
 - **Agent template: a coding agent asks, steers, signs in and rests**
   (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
   `POST /runs/{id}/approve` gains `option` (one of the coding agent's own
@@ -118,7 +119,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   parked, one a person messages — ends at once at its step cap ("stopped
   after 500 steps in one turn"): a coding agent's run keeps `turnSteps` at
   that ceiling, so no model call is made; the coding agent itself runs on
-  unwatched in its sandbox until the sandbox stops.
+  unwatched in its sandbox until the sandbox stops. A message queued for a
+  coding agent (or an answer to its question) at the rollback is work to
+  that build that it never does: its resume job wakes the tile every
+  minute until the conversation is deleted (the owner may instead run
+  `DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND
+  delivered_at=0` on the agent's database).
 - **Agent template: terminals relayed to the app, and a coding agent's
   log** (`builtin-templates/agent/API.md` §Coding agents, "Terminal
   relays and the log"). `GET /runs/{id}/harness/terminal?login=1&rows=&cols=&exec=`

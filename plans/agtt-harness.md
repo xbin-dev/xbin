@@ -195,7 +195,7 @@ carries a secret and is never stored.
 |---|---|---|
 | `hprompt` (new) | `POST /runs/{id}/message` and `/answer` on a harness run; the first message of a new harness run (instead of a directly written user row); `subagent_message`; an approval's `feedback` | prompt, steer or queue (§3.5); writes the user row (+ `recordAsk`) when it is delivered |
 | `hanswer` (new) | `POST /runs/{id}/harness/answer` | answers the parked elicitation |
-| `hnote` (new) | a person's message to a harness **child**, written on the **parent** | delivered as a notice (§4.3.13) at the parent's next step boundary, or before its next turn's first message; never starts a turn (`hasWork` ignores it) |
+| `hnote` (new; a row of `harness_notes`, not `inbox` — routes-fix) | a person's message to a harness **child**, written on the **parent** | delivered as a notice (§4.3.13) at the parent's next step boundary, or before its next turn's first message, after the inbox rows there when it was written; never starts a turn (not work for `hasWork`, and invisible to an older binary's) |
 | `approve` | `POST /runs/{id}/approve` (body gains `option`, `feedback`) | answers the parked permission |
 | `interrupt` | `/interrupt`, `message {interrupt:true}` | `session/cancel`; parks settle "(interrupted)" |
 | `cancel` | `/cancel`, delete | `session/cancel`, kill the exec, status `canceled`, a child's link settles canceled |
@@ -216,7 +216,14 @@ once, at its step cap ("stopped after 500 steps in one turn
 `repairTranscript` (the calls in flight read interrupted) and, for an
 approved park, the call "run" as an unknown tool (an error result) happen
 first. The adapter itself runs on unwatched until its sandbox stops, or a
-newer binary takes it over again.
+newer binary takes it over again. Such a binary's `hasWork` counts every
+undelivered inbox row and its `recover()` pokes each one's run, but it
+never consumes a kind it doesn't know: `hprompt` and `hanswer` rows queued
+at the rollback make its resume job (`@every 1m`) wake the tile every
+minute until the conversation is deleted, or the rows are:
+`DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND delivered_at=0`.
+`hnote`s, which an idle parent keeps by design, live in `harness_notes`
+for that reason.
 
 ### 3.3 The engine fork and sessions
 
@@ -1431,3 +1438,4 @@ this spec and why.
 - 2026-09-30 (Afix) coding-sandbox's default image advertises claude's sign-in as `CLAUDE_CODE_REMOTE=1 claude /login` (A11's finding) for a new or never-saved config; a saved config keeps the logins it was saved with (the harnesses already did). Builtin templates carry no tile version (`hack/tile-versions.txt` is the builtin tiles'), so there is none to bump.
 - 2026-09-30 (Afix) verifier: claude-agent-acp 0.81 (the rootfs pin) offers its plan approval's modes under ids that name none — `exit-plan-bypass` / `exit-plan-clear-bypass` ("Yes, [clear context and] bypass permissions", `allow_always`), `exit-plan-auto`, `exit-plan-clear-auto`, `exit-plan-accept-edits`, `exit-plan-clear-accept-edits`, `exit-plan-default` (`allow_once`) — so the rule "an allow that names such a mode" let any participant approve a plan into bypass. The sdk catalog gains `acp.Provider.OptionModes` (claude: those ids → their modes; `json:"-"`), and an option is `explicit` when the mode it names (its id, else `OptionModes`) isn't open, or — default-deny — when it is an `allow_always` of a `switch_mode` call whose mode the catalog can't place (a harness the catalog lacks, a newer adapter's id). An `allow_once` that names no mode stays anyone's (codex's `implement_plan`, gemini's `proceed_once`, the fake's `exit-plan-default`), so `approve: true` still works for a participant.
 - 2026-09-30 (routes-fix) Classes (§2.2, A5): settings `k='classes'` stores the `harness` toolset apart from `toolsets` (`harness: true` on the stored class; toolsets that already hold it are read as they are) — an agent from before coding agents (v0.3.64) rolled back to refused every class save (`class coding: unknown toolset "harness"`: its editor resends every stored class, its normalize knows no such toolset). `GET /classes` and the API are unchanged; a class such a build saves again has lost its coding agents.
+- 2026-09-30 (routes-fix) §3.2 `hnote`: kept in a table of its own, `harness_notes (id, run_id, after, body, created, delivered_at, msg_id)`, not `inbox` — `after` is the inbox's highest id when it was written, so `deliverBoundary` reads it among the parent's rows in the order they came; on start, undelivered `hnote` inbox rows an earlier build of this program wrote move there; a deleted run's notes go with it. An `hnote` row an idle parent kept for good (by design) was work to a rolled-back v0.3.64 forever (its `hasWork` counts every undelivered inbox row, its pass never consumes the kind): its resume job woke the tile every minute. `hprompt`/`hanswer` rows queued at a rollback still do — documented (§3.2, API.md, changelog) with the clean-up.
