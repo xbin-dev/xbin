@@ -295,20 +295,21 @@ A partitioned tile's interface slots are wired by two kinds of bind:
 | | **Global bind** | **Personal bind** |
 |---|---|---|
 | What it is | today's binding, in the workspace `xbin.json` | a person's own wiring, kept by xbind |
-| Who creates it | whoever may bind it today — a workspace admin, an org admin within their org, a personal tile's owner to what they own or are allowed (D88); partitioning adds no rule | the owner of a personal (user-owned) tile, into **their own** partition of a partitioned tile they can read, with their own sign-in (never tile code). Admins can list and delete personal binds, never create them |
+| Who creates it | whoever may bind it today — a workspace admin, an org admin within their org, a personal tile's owner to what they own or are allowed (D88); partitioning adds no rule | the owner of a personal (user-owned) tile, into **their own** partition of a partitioned tile they can read, with their own sign-in (never tile code). Admins can list and delete personal binds, never create them — an admin's bind is always global, even of a tile they own |
 | Seen by | the global instance and every partition | only that person's partition and frames |
 | Lets calls through from | every instance of the tile | only that person's partition, while they still own the provider |
 
 A global bind puts its provider in every person's trust base: its code sees
 what each partition sends it. A personal bind is removed when its owner
-removes it or gives the provider away, when the person is deleted, and when
-the requester switches mode.
+removes it or gives the provider away, when the person is deleted, when
+the requester switches mode, and when a tile is created at the requester's
+or the provider's path (a removed tile's binds never reach the new one).
 
 **Global binds** are made as today (`POST /api/xbin/bindings`, `bx bind`,
-the Interfaces panel, which labels a partitioned tile's bindings *global*).
-One refusal is new: an unpartitioned tile's http slot can't be bound to a
-partitioned tile that has no global instance (409) — no call of it would
-reach that tile.
+the admin console's wiring view, which labels a partitioned tile's bindings
+*global*). One refusal is new: an unpartitioned tile's http slot can't be
+bound to a partitioned tile that has no global instance (409) — no call of
+it would reach that tile; bind pickers show such a provider greyed out.
 
 **Personal binds.** Alice owns `users/alice/mcp`, which provides the `mcp`
 service; `apps/agent` is partitioned, she can read it, and it has a
@@ -340,7 +341,8 @@ already bound on the slot for everyone can't be bound again. `bx bind
 --personal` lists your personal binds (`GET`; admins see everyone's, each
 with `live` and, when it no longer holds, `why`), and `bx bind --personal
 --unset apps/agent mcp=users/alice/mcp` removes one (`DELETE`; admins may
-remove anyone's).
+remove anyone's). An admin can't make one: `bx bind --personal` as an
+admin answers 403 — bind the tile for everyone instead.
 
 ## Providers: calls from partitioned tiles
 

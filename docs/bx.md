@@ -272,7 +272,8 @@ runtime-registered sub-slots of a provider (`bx iface` lists them).
 `bx bind --personal <tile> <slot>=<provider>` makes a **personal bind**
 ([partitions.md §Bind types](/docs/partitions.md)): a tile you own
 personally, wired into your own partition of a partitioned tile only — run
-it with your own sign-in, not from a tile's terminal. `--unset` removes it;
+it with your own sign-in, not from a tile's terminal; an admin can't (an
+admin's bind is always global: `bx bind`). `--unset` removes it;
 `bx bind --personal` alone lists yours (an admin's: everyone's).
 
 **`bx code pr`** — the cross-tile suggestion channel (D48).
