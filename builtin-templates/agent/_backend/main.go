@@ -78,6 +78,7 @@ func main() {
 	go agent.reRegisterTriggers()
 	go agent.pullMailAtStart() // mail that waited (mailbox.go; nothing unpartitioned)
 	go agent.startPartitionMail()
+	go startHosting() // a host's engine over team (hosted_engine.go; nothing unless this partition hosts)
 
 	// SIGTERM (a save's blue/green swap, a stop, an idle reap): stop driving
 	// at once so the successor — already booted and waiting on the engine
@@ -87,6 +88,7 @@ func main() {
 	go func() {
 		<-sig
 		eng.BeginShutdown()
+		stopHosting(0)
 	}()
 
 	mux := http.NewServeMux()
@@ -97,4 +99,5 @@ func main() {
 	// Serve returns at SIGTERM without waiting for anything; the engine gets
 	// a bounded moment to unwind and hand over.
 	eng.Shutdown(2 * time.Second)
+	stopHosting(2 * time.Second)
 }

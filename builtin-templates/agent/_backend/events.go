@@ -57,6 +57,9 @@ const ringSize = 4000
 
 type eventHub struct {
 	gen string
+	// tap sees every published event (nil: none) — a host's engine forwards
+	// its hosted conversations' events to the global instance (hosted_engine.go).
+	tap func(*Event)
 
 	mu    sync.Mutex
 	seq   int64
@@ -138,6 +141,9 @@ func (h *eventHub) publish(ev *Event) {
 	h.mu.Unlock()
 	for _, s := range targets {
 		s.push(ev)
+	}
+	if h.tap != nil {
+		h.tap(ev)
 	}
 }
 
@@ -328,6 +334,9 @@ func (e *Engine) publishRun(runID int64) {
 		if e.ag != nil {
 			ev.acl, _ = e.ag.aclOf(r.ID)
 		}
+	}
+	if e.decorate != nil {
+		e.decorate(r, data) // the global instance's team view: a hosted conversation's hosting (hosted_global.go)
 	}
 	e.hub.publish(ev)
 }

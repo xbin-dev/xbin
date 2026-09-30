@@ -146,21 +146,25 @@ func (e *Engine) runViewPage(id int64, pg *viewPage) (map[string]any, error) {
 	return v, nil
 }
 
-func handleView(w http.ResponseWriter, r *http.Request) {
+func handleView(w http.ResponseWriter, r *http.Request) { viewWith(w, r, agent, nil) }
+
+// viewWith is GET /runs/{id}/view against ag's store (the global instance's
+// team view for a hosted conversation, hosted_serve.go); more adds to it.
+func viewWith(w http.ResponseWriter, r *http.Request, ag *Agent, more func(v map[string]any)) {
 	pg, err := parseViewPage(r.URL.Query())
 	if err != nil {
 		xbin.WriteError(w, 400, err.Error())
 		return
 	}
-	v, err := agent.eng.runViewPage(pathID(r), pg)
+	v, err := ag.eng.runViewPage(pathID(r), pg)
 	if err != nil {
 		xbin.WriteError(w, 404, "no such run")
 		return
 	}
 	// What the caller may do here, and who else is in it (D83).
 	v["access"] = levelOf(r).String()
-	if run, err := agent.db.getRun(pathID(r)); err == nil {
-		if acl, err := agent.aclOf(rootOf(run)); err == nil {
+	if run, err := ag.db.getRun(pathID(r)); err == nil {
+		if acl, err := ag.aclOf(rootOf(run)); err == nil {
 			members := []map[string]string{}
 			for u, role := range acl.members {
 				members = append(members, map[string]string{"user": u, "role": role})
@@ -168,13 +172,21 @@ func handleView(w http.ResponseWriter, r *http.Request) {
 			v["acl"] = map[string]any{"owner": acl.owner, "visibility": acl.visibility, "teamRole": acl.teamRole, "members": members}
 		}
 	}
+	if more != nil {
+		more(v)
+	}
 	xbin.WriteJSON(w, 200, v)
 }
 
 // handleStream is the SSE feed. It holds the request open (which is also
 // what keeps an idle-looking backend from being reaped while a tile is open).
-func handleStream(w http.ResponseWriter, r *http.Request) {
-	e := agent.eng
+func handleStream(w http.ResponseWriter, r *http.Request) { streamWith(w, r, agent) }
+
+// streamWith is the feed of a run in ag's store (the global instance's team
+// view for a hosted conversation, hosted_serve.go — whose engine shares the
+// global instance's hub).
+func streamWith(w http.ResponseWriter, r *http.Request, ag *Agent) {
+	e := ag.eng
 	c := callerOf(r)
 	id := pathID(r)
 	if id == 0 {
@@ -182,7 +194,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	var root int64
 	if id != 0 {
-		run, lv, err := agent.runAccess(c, id)
+		run, lv, err := ag.runAccess(c, id)
 		if err != nil || lv < lvViewer {
 			xbin.WriteError(w, 404, "no such run")
 			return

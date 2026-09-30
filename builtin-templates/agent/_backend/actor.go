@@ -101,6 +101,9 @@ type turnState struct {
 // --- the pass ------------------------------------------------------------------
 
 func (e *Engine) pass(a *actor) {
+	if e.scope != nil && !e.scope(a.id) {
+		return // a host's engine: not a conversation its own hosted table lets it drive (hosted_engine.go)
+	}
 	run, err := e.db.getRun(a.id)
 	if err != nil {
 		e.disarmTimer(a.id)

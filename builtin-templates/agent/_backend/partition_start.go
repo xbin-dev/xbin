@@ -64,6 +64,9 @@ func startMode(db *DB) {
 			go confOut.kick()
 		}
 	case modeUser:
+		if err := db.addHostedSchema(); err != nil { // the conversations this person hosts (hosted.go)
+			logf("hosted table: %v", err)
+		}
 		var kv kvStore = emptyKV{}
 		if conf != "" {
 			kv = gatewayKV{res: conf}
