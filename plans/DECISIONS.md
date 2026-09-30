@@ -5608,10 +5608,9 @@ Deviations and refinements made while implementing; all deliberate:
   didn't meet: xbind's ACP client (the Agent tab, D74/D75/D77) drove the
   coding CLIs through their adapters, while coding sandboxes (D115,
   D120–D122) had one consumer, the agent template (AgTT), whose engine is
-  its own LLM loop. The owner wanted AgTT to be an ACP client on web and
-  native, the harnesses in the base images, a choice when a conversation
-  starts, the agent spawning and steering harness agents, and a terminal
-  for sign-in and general use.
+  its own LLM loop. The owner wanted AgTT an ACP client (web and native),
+  the harnesses in the base images, a choice at a conversation's start,
+  harness agents the agent spawns and steers, and a terminal.
   - **The owner's decisions (2026-09-29).** Terminals are part of the
     sandbox interface: consumer backends open PTYs through the manager and
     relay them to their pages and native views with the person
@@ -5639,10 +5638,11 @@ Deviations and refinements made while implementing; all deliberate:
       -c` wrapper. The additive `stdio` capability — one WebSocket per
       non-tty exec, stderr split, the newest attacher holding stdin, a
       ping's pong acknowledging stdin — is built in tilesbx, the SDK,
-      coding-sandbox and fakesandbox, and the pipe prefers it.
-    - **Nothing of xbind's in the sandbox.** No `bx __agent-host`: the
-      client advertises `fs` and `terminal` off (D77's terminal-output
-      metadata still flows), `_meta` `terminal_output(_delta)`,
+      coding-sandbox and fakesandbox, and the pipe prefers it: any manager
+      runs a coding agent, and one that offers more saves the polling.
+    - **Nothing of xbind's in the sandbox** (another tile's, with no xbin
+      identity). No `bx __agent-host`: the client advertises `fs` and
+      `terminal` off (D77's terminal-output metadata still flows), `_meta` `terminal_output(_delta)`,
       `subagent-transcript`, `terminal-auth`, and form and URL questions —
       a URL one honoured only during an AgTT-started `authenticate`.
     - **One delegation verb**: `harness` on `subagent_spawn` (a subagent's
