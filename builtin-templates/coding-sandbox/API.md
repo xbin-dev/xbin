@@ -114,7 +114,13 @@ trusts its consumers.
   to the runtime's ports route (the SDK's `PortRoute`), the consumer's
   escaped path and query unchanged. A stopped sandbox is 409 `state`,
   never started for it. Offered while the runtime's `caps` carry `ports`
-  (an xbind from before D135 doesn't: the route answers 501).
+  (an xbind from before D135 doesn't: the route answers 501). A sandbox
+  whose in-box agent predates ports (it started under an older xbind, or
+  from a VM image from before them) makes the runtime answer 501
+  `unsupported` on the route; the manager then reports it
+  **`restartNeeded: true`**, its `stateDetail` saying why, until it runs
+  again (the substrate's `started` after that answer) — a restart brings
+  today's agent.
 - **`hello.limits`** are the substrate's, with `sandboxes` the caller's
   effective count quota, plus (additive) `running`, `memMiB`, `vcpus` and
   `diskGiB` — 0 is no fixed limit. `hello.notes`, when present, says what
@@ -218,6 +224,20 @@ could use it as a consumer). Its owner, consumer, state, sizes, usage and
 snapshot ids are shown as for any other. A call to `/ops/*` whose
 partition headers don't agree is `403 not-allowed`, as on `/sbx/*`.
 
+### Ports rows (both pages)
+
+For the per-sandbox Ports row (a diagnostic, never the page's body): the
+page can't use the contract's ports route for another consumer's sandbox,
+and a reader can't at all, so these check the viewer themselves — an
+operator (any sandbox), or a person the port proxy itself would admit on
+this page (this tile's partition and the person rules, with write access);
+a reader is `403`, another tile `404`.
+
+| Route | |
+|---|---|
+| `GET /ports/{id}` | `{offered, why?, restartNeeded?}` — whether this manager offers ports, and why not: the runtime lacks them (an older xbind, or no isolation), the backend doesn't forward, or this sandbox's agent predates them (`restartNeeded`) |
+| `GET /ports/{id}/{port}?path=` | one `GET` of the page as the port proxy forwards it → `{ok, status?, contentType?, refusal?, error?, path, ms}` (a refusal: `not-listening`, `state` — never started for it —, `unsupported`, …) |
+
 A built image is `{id, runtime, snapshot, setupHash, mode, state:
 building|ready|error, detail, log, started, built, previous?}`. `previous`
 is the last good build (`{id, runtime, snapshot, setupHash, mode, state:
@@ -235,7 +255,8 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
   - **Sandboxes** — every consumer's sandboxes, most recently active first:
     state (and why), consumer, owner (asserted ones say so), who may use it
     (shown, never changed here), image, size, network, isolation, disk and
-    last activity; start, stop, delete; snapshots (take, restore, delete).
+    last activity; start, stop, delete; snapshots (take, restore, delete);
+    **Ports** (whether it serves ports and why not, and a probe of one).
     Usage by consumer and person against the
     quota that binds each; the substrate (its errors, modes, capabilities,
     hello's notes — and, while `cap:sandboxes` waits, who approves it);
@@ -257,7 +278,8 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
   a text file, download, upload, a new folder, remove) over the contract's
   `files/*` routes; a **terminal**: `<bx-terminal src="/api/<self>/sbx/sandboxes/{id}/tty?cwd=<workdir>">`,
   dialled with the frame token (docs/elements.md), ended at the manager
-  (`DELETE …/execs/{session}`) when it is closed.
+  (`DELETE …/execs/{session}`) when it is closed; **Ports** (as the
+  operators' row).
 - **People with read access** get a read-only view (`/me`'s `write` is
   false) of the sandboxes they may use: the ones the team may use, or those
   they are a member of. They see the list and its facts, and a running

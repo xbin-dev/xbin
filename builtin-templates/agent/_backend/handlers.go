@@ -513,6 +513,16 @@ func handleFileGet(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 404, err.Error())
 		return
 	}
+	// a report over the text cap (stored as a binary file) comes with its
+	// text, for the preview pane (render_html shows it: renderable)
+	if renderable(f) {
+		data, err := agent.readBlob(r.Context(), f.Blob)
+		if err != nil {
+			xbin.WriteError(w, 502, err.Error())
+			return
+		}
+		f.Content = string(data) // (JSON makes invalid UTF-8 U+FFFD)
+	}
 	xbin.WriteJSON(w, 200, f)
 }
 

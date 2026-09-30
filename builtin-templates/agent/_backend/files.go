@@ -90,7 +90,8 @@ func fileToolSpecs(cfg Config) []toolSpec {
 			Name: "render_html",
 			Description: "Shows the human a STATIC snapshot of an HTML file — not a browser: scripts never run and external loads are blocked, so it cannot verify JavaScript; use browser_check for that, or preview_port for a live page. " +
 				"The file is a session .html file, shown in the tile's preview pane: inline your CSS, and draw charts as inline SVG" + svgHint + " rather than using a chart library (no external images, stylesheets or fonts load). " +
-				"Use this whenever a table, report, diagram or comparison would read better than prose.",
+				"Use this whenever a table, report, diagram or comparison would read better than prose. " +
+				fmt.Sprintf("Up to %d MB of HTML; each render opens the pane at once, and the human can reopen it from the chat.", maxRenderBytes>>20),
 			Parameters: obj([]string{"path"}, map[string]any{
 				"path": strProp(showPath),
 			}),
@@ -244,12 +245,15 @@ func applyEdit(content, oldS, newS string, all bool, path, readTool string) (upd
 	return strings.Replace(content, oldS, newS, 1), n, nil
 }
 
-// renderHTML journals a render step; the tile picks it up from the run's step
-// list on its next poll. Only metadata is journaled — the HTML itself is
-// fetched on demand, because steps ride the frontend's 1.5s poll.
+// renderHTML journals a render step and streams it at once, so the pane opens
+// while the turn goes on (the frontend takes steps from the stream only).
+// Only metadata is journaled — the HTML itself is fetched on demand
+// (GET /runs/{id}/file).
 //
-// A sandbox path is copied into the session files first, in place, under its
-// own name (fetchSandboxFile): the pane shows session files.
+// A sandbox path is copied into the session files first, in place, under a
+// name of its own (sessionCopy): the pane shows session files. A copy over
+// the text cap is stored as a binary file; it still renders, up to
+// maxRenderBytes.
 func (ag *Agent) renderHTML(ctx context.Context, run *Run, cfg Config, args map[string]any) (string, error) {
 	r, err := fileArg(cfg, args, "path")
 	if err != nil {
@@ -265,12 +269,15 @@ func (ag *Agent) renderHTML(ctx context.Context, run *Run, cfg Config, args map[
 	if err != nil {
 		return "", err
 	}
-	if f.Binary {
-		return "", fmt.Errorf("%s is stored as a binary file (%s, %s) — render_html shows text HTML up to %s", f.Path, f.Mime, humanBytes(f.Bytes), humanBytes(maxReplFileBytes))
+	if f.Binary && !renderable(f) {
+		return "", fmt.Errorf("%s is stored as a binary file (%s, %s) — render_html shows text HTML up to %s", f.Path, f.Mime, humanBytes(f.Bytes), humanBytes(maxRenderBytes))
 	}
-	ag.db.journal(run.ID, "render", map[string]any{
+	st := ag.db.journal(run.ID, "render", map[string]any{
 		"path": f.Path, "version": f.Version, "bytes": f.Bytes,
 	})
+	if ag.eng != nil { // streamed at once: the pane opens while the turn goes on
+		ag.eng.emitStep(ag.db, rootOf(run), st)
+	}
 	out := fmt.Sprintf("rendered %s (%s, v%d) — shown to the human in the tile's preview pane as a static snapshot: "+
 		"no scripts ran and every external load (script, image, stylesheet, font) was blocked, so this says nothing about whether its JavaScript works — "+
 		"browser_check runs it in a real browser, preview_port shows a live page.",

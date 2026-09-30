@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -57,27 +58,51 @@ func (m *Manager) ServePort(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
-	if _, ok := m.lookup(w, k, name); !ok {
+	d, ok := m.lookup(w, k, name)
+	if !ok {
 		return
+	}
+	// what came of it, for the admin's sandboxes view (a short ring per sandbox)
+	note := func(status int, err error) {
+		o := PortOutcome{At: m.now().UnixMilli(), Port: port, Status: status, From: auth.PrincipalOf(r).Component}
+		var e *Error
+		if errors.As(err, &e) {
+			o.Status, o.Refusal = e.Status(), e.Refusal
+		}
+		m.portLog.add(d.UID, o)
 	}
 	run, release, err := m.holdRunning(k, name)
 	if err != nil {
+		note(0, err)
 		writeErr(w, err)
 		return
 	}
 	defer release() // the request (or its upgraded tunnel) holds off the idle stop
 	a := run.client()
 	if a == nil {
-		writeErr(w, &Error{Refusal: RefState, State: StateStopping, Msg: fmt.Sprintf("sandbox %q stopped", name)})
+		err := &Error{Refusal: RefState, State: StateStopping, Msg: fmt.Sprintf("sandbox %q stopped", name)}
+		note(0, err)
+		writeErr(w, err)
 		return
 	}
 	// Dial first, so a port nothing listens on is the contract's refusal
 	// rather than the proxy's bare 502.
 	c, err := a.Port(port, portDialWait)
+	var e *Error
+	switch {
+	case err == nil, errors.As(err, &e) && e.Refusal == RefNotListening:
+		run.agentPorts.Store(agentServesPorts) // it answered a port connection
+	case errors.As(err, &e) && e.Refusal == RefUnsupported:
+		run.agentPorts.Store(agentPredatesPorts)
+	}
 	if err != nil {
+		note(0, err)
 		writeErr(w, err)
 		return
 	}
+	sw := &portStatus{ResponseWriter: w}
+	defer func() { note(sw.code, nil) }()
+	w = sw
 	var once bool
 	proxyPort(w, r, port, tail, func() (net.Conn, error) {
 		if once { // keep-alives are off: one request, one connection
@@ -297,3 +322,81 @@ func dropXBinHeaders(h http.Header) {
 		}
 	}
 }
+
+// --- what came of port requests, for the admin ------------------------------------
+
+// PortOutcome is one port request's outcome, as the admin's sandboxes view
+// shows it (GET /api/xbin/sandboxes tileSandboxes[].ports).
+type PortOutcome struct {
+	At      int64  `json:"at"` // unix ms
+	Port    int    `json:"port"`
+	Status  int    `json:"status,omitempty"`  // the answer's status (the server's, or the refusal's)
+	Refusal string `json:"refusal,omitempty"` // the runtime's refusal, when it refused
+	From    string `json:"from,omitempty"`    // the calling tile (the sandbox's manager)
+}
+
+// portRingLen is how many outcomes a sandbox keeps, newest last.
+const portRingLen = 8
+
+// portRing is every sandbox's recent port outcomes, by definition uid (a
+// sandbox made again under the same name starts empty).
+type portRing struct {
+	mu sync.Mutex
+	m  map[string][]PortOutcome
+}
+
+func (p *portRing) add(uid string, o PortOutcome) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.m == nil {
+		p.m = map[string][]PortOutcome{}
+	}
+	l := append(p.m[uid], o)
+	if len(l) > portRingLen {
+		l = append([]PortOutcome(nil), l[len(l)-portRingLen:]...)
+	}
+	p.m[uid] = l
+}
+
+func (p *portRing) list(uid string) []PortOutcome {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]PortOutcome(nil), p.m[uid]...)
+}
+
+func (p *portRing) drop(uid string) {
+	p.mu.Lock()
+	delete(p.m, uid)
+	p.mu.Unlock()
+}
+
+// Whether a run's in-box agent serves ports, as its port connections found
+// (run.agentPorts): unknown until one is asked for.
+const (
+	agentPortsUnknown int32 = iota
+	agentServesPorts
+	agentPredatesPorts
+)
+
+// portStatus notes the status a proxied answer went out with; Unwrap keeps
+// a WebSocket upgrade's hijack reachable.
+type portStatus struct {
+	http.ResponseWriter
+	code int
+}
+
+func (p *portStatus) WriteHeader(code int) {
+	if p.code == 0 && code >= 200 {
+		p.code = code
+	}
+	p.ResponseWriter.WriteHeader(code)
+}
+
+func (p *portStatus) Write(b []byte) (int, error) {
+	if p.code == 0 {
+		p.code = http.StatusOK
+	}
+	return p.ResponseWriter.Write(b)
+}
+
+func (p *portStatus) Unwrap() http.ResponseWriter { return p.ResponseWriter }

@@ -8,7 +8,7 @@ import { html, repeat, nothing, native } from '/vendor/xb-native.js';
 import * as actions from '../model/actions.js';
 import { ui, ctx, push, fmtN, clip, base, when, thumb, raw, IMAGE } from './ui.js';
 import { renderDoc } from './render-doc.js';
-import { liveLabel } from '../model/live.js';
+import { liveLabel, probeWords } from '../model/live.js';
 import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
 
@@ -313,10 +313,24 @@ export function openLive(run, det, live) {
   ctx.paint();
 }
 
+// liveTpl: what is live, and Check — what the page answers now, probed as
+// its binder reaches it (GET /runs/{id}/ports/{sbx}/{port}): the status,
+// the type, a refusal and what to do about it (model/live.js probeWords).
 function liveTpl(s) {
   const d = s.det || {};
-  return html`<screen title="Live preview" subtitle=${liveLabel(d)}>
+  const check = async () => {
+    s.probe = { busy: true }; ctx.paint();
+    try { s.probe = await actions.probePort(s.run, d.sandbox, d.port, d.path || '/'); } catch (e) { s.probe = { ok: false, error: e.message }; }
+    ctx.paint();
+  };
+  const w = s.probe && !s.probe.busy ? probeWords(s.probe) : null;
+  return html`<screen title="Live preview" subtitle=${liveLabel(d)} style="form">
     <notice tone="info" text=${`The agent is serving ${d.path || '/'} live from port ${d.port} in the sandbox ${d.name || d.sandbox}. Its scripts run, so it opens only on the web, in an isolated frame: open this conversation in the browser to see it.`}/>
+    <section title="Check" footer="What the page answers now, reached as whoever bound the sandbox — never the page itself.">
+      <button icon="refresh" ?busy=${!!(s.probe && s.probe.busy)} @tap=${check}>Check</button>
+      ${w ? html`<text tone=${w.tone === 'ok' ? 'ok' : 'danger'} selectable>${w.text}</text>` : nothing}
+      ${w && w.hint ? html`<text style="footnote" tone="muted">${w.hint}</text>` : nothing}
+    </section>
   </screen>`;
 }
 

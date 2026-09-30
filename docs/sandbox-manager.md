@@ -432,6 +432,12 @@ by addition: no new protocol number).
   server would be gone anyway) — `state` otherwise. Nothing accepting on
   the port within a few seconds is **502 `not-listening`**; the server's
   own answers (a 404 of its own included) come back as they are.
+- A sandbox a manager offers ports for can still answer **501
+  `unsupported`** when what runs it predates them (on xbind: a sandbox
+  started under an older xbind, or from a VM image from before D135 — "the
+  sandbox's agent doesn't serve ports (it predates them): restart the
+  sandbox"). A restart fixes it; a manager may say so as `restartNeeded`
+  on the sandbox until it runs again (the reference manager does).
 - A consumer serving the page to people's browsers answers it under its
   own policy: the agent template serves it in an opaque-origin sandboxed
   frame with a CSP of its own (API.md §Live previews).

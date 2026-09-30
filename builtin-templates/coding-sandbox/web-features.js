@@ -9,6 +9,8 @@ export const IMPLEMENTS = {
   'ops.delete': 'web-ops.js — rowTpl delete, confirmed',
   'ops.snapshots': 'web-ops.js — snapshotsTpl (take, delete confirmed)',
   'ops.snapshots.restore': 'web-ops.js — snapshotsTpl Restore, confirmed',
+  'ops.ports': 'web-ops.js — the Ports button → web-ports.js portsTpl (GET /ports/{id}, /ports/{id}/{port})',
+  'mine.ports': 'web-mine.js — the Ports tab → web-ports.js portsTpl',
   'ops.shares': 'web-ops.js — rowTpl, the who line (model/format.js whoText); no control',
   'ops.usage': 'web-ops.js — usageTpl (model/ops.js usageRows)',
   'ops.orphans': 'web-ops.js — orphansTpl, confirmed',

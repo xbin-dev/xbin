@@ -61,7 +61,7 @@ func TestSandboxUploadDownload(t *testing.T) {
 
 	put(t, box, "out/report.txt", "the report\n")
 	out := mustTool(t, ag, r, cfg, "d", "sandbox_download", map[string]any{"path": "out/report.txt"})
-	if !strings.HasPrefix(out, "downloaded "+box.Workdir+"/out/report.txt to the session file report.txt (text, ") {
+	if !strings.HasPrefix(out, "downloaded "+box.Workdir+`/out/report.txt from the sandbox "files" to the session file report.txt (text, `) {
 		t.Fatalf("download: %q", out)
 	}
 	if f, err := ag.db.replFile(r.ID, "report.txt"); err != nil || f.Content != "the report\n" {

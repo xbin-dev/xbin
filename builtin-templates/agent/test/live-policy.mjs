@@ -48,6 +48,8 @@ if (!cspM) {
 }
 const LIVE_CSP = cspM[1];
 const liveJS = readFileSync(join(here, '..', 'live.js'), 'utf8');
+// the status strip (live-status.js) and its words (model/live.js), inlined with live.js
+const stripJS = [readFileSync(join(here, '..', 'model', 'live.js'), 'utf8'), readFileSync(join(here, '..', 'live-status.js'), 'utf8')].join('\n');
 
 let failures = 0;
 const ok = (name, cond, extra = '') => {
@@ -87,13 +89,20 @@ const HOSTILE = `<!doctype html><html><head><title>hostile</title></head><body>
 })();
 </script></body></html>`;
 
-const TILE = `<!doctype html><html><head><title>agent tile</title></head><body>
-<div id="pane"></div>
+const TILE = `<!doctype html><html><head><meta charset="utf-8"><title>agent tile</title></head><body>
+<div id="pane"><div class="phd"></div><div class="pbody" id="body"></div></div>
 <script type="module">
-${liveJS.replace(/^import .*$/gm, '').replace(/^export \{[^}]*\};$/gm, '').replace(/^export /gm, '')}
+${[stripJS, liveJS].join('\n').replace(/^import .*$/gm, '').replace(/^export \{[^}]*\};$/gm, '').replace(/^export /gm, '')}
 window.__msgs = 0;
 window.addEventListener('message', () => { window.__msgs++; });
-document.getElementById('pane').appendChild(liveFrame(${JSON.stringify(TICKET + 'index.html')}));
+document.getElementById('body').appendChild(liveFrame(${JSON.stringify(TICKET + 'index.html')}));
+// the status strip over a live frame of src, as agent.js openLive mounts it
+window.__mount = (src) => {
+  document.getElementById('livefr')?.remove();
+  const f = liveFrame(src);
+  document.getElementById('body').appendChild(f);
+  mountLive(document.getElementById('pane'), f, src);
+};
 </script></body></html>`;
 
 const SHELL = `<!doctype html><html><head><title>shell</title></head><body>
@@ -114,6 +123,18 @@ const server = createServer((req, res) => {
     res.setHeader('Content-Security-Policy', "sandbox allow-scripts allow-forms allow-modals allow-downloads; frame-ancestors 'self'");
     res.setHeader('Content-Type', 'text/html');
     return res.end(TILE);
+  }
+  // the strip's cases: nothing listens (the manager's refusal, through the
+  // live route), and xbind's answer to an expired ticket
+  if (u.pathname === TICKET + 'down/') {
+    res.statusCode = 502;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ error: 'nothing accepts connections on port 8000 in the sandbox', refusal: 'not-listening' }));
+  }
+  if (u.pathname.startsWith('/api/~expired/')) {
+    res.statusCode = 401;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ error: 'this link has expired or its sign-in ended: reload the page that showed it' }));
   }
   if (u.pathname.startsWith(TICKET)) {
     liveCookies.push(cookie);
@@ -175,6 +196,29 @@ ok('the pane keeps the live frame (a message closes nothing)', tile ? await tile
 const fr = tile ? await tile.evaluate(() => { const f = document.getElementById('livefr'); return { sandbox: f.getAttribute('sandbox'), ref: f.getAttribute('referrerpolicy') }; }) : {};
 ok('the live frame is sandboxed allow-scripts allow-forms (never allow-same-origin)', fr.sandbox === 'allow-scripts allow-forms', JSON.stringify(fr));
 ok('the live frame sends no referrer', fr.ref === 'no-referrer', JSON.stringify(fr));
+
+// The status strip (live-status.js), in the sandboxed tile frame as the
+// agent runs it: Check fetches the pane's own URL — CORS for an opaque
+// origin, as xbind answers — and says what came back; a failed answer is
+// said, with the frame hidden, never shown blank.
+const strip = async (src) => {
+  await tile.evaluate((s) => window.__mount(s), src);
+  await tile.waitForFunction(() => document.getElementById('live-strip')?.dataset.tone);
+  return tile.evaluate(() => ({ tone: document.getElementById('live-strip').dataset.tone, text: document.querySelector('#live-strip .lsout').textContent,
+    msg: document.querySelector('.lsmsg').hidden ? '' : document.querySelector('.lsmsg').textContent, hidden: document.getElementById('livefr').hidden }));
+};
+if (tile) {
+  let st = await strip(TICKET + 'index.html');
+  ok('the strip: a page that answers is ok, with its status and type', st.tone === 'ok' && st.text.startsWith('HTTP 200 · text/html') && !st.hidden && !st.msg, JSON.stringify(st));
+  st = await strip(TICKET + 'down/');
+  ok('the strip: nothing listening is said, with what to do, and the frame hidden', st.tone === 'bad' && st.text.includes('HTTP 502')
+    && st.text.includes('nothing accepts connections') && st.msg.includes('its server isn\'t running') && st.hidden, JSON.stringify(st));
+  st = await strip('/api/~expired/index.html');
+  ok('the strip: an expired link says Reload mints a new one', st.tone === 'bad' && st.text.includes('HTTP 401') && st.msg.includes('Reload mints a new one'), JSON.stringify(st));
+  await tile.click('#live-check');
+  await tile.waitForFunction(() => !document.getElementById('live-check').disabled);
+  ok('Check asks again', (await tile.textContent('#live-strip .lsout')).includes('HTTP 401'));
+}
 
 // Opened top-level (a copied link): the CSP header alone confines it.
 reports.length = 0;

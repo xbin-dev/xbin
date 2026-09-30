@@ -651,6 +651,10 @@ func (m *Manager) view(rec record, info *xbin.SandboxInfo, c caller, caps []stri
 			v.LastActive = info.LastActive
 		}
 		v.RestartNeeded = info.RestartNeeded || v.EgressNext != ""
+		if agentPredatesPorts(rec.ID, info) { // its agent refused a port: a restart brings today's (ports.go)
+			v.RestartNeeded = true
+			v.StateDetail = strings.TrimPrefix(v.StateDetail+"; its agent predates ports (live previews): restart it", "; ")
+		}
 	}
 	return v
 }

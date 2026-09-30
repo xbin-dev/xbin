@@ -51,6 +51,10 @@
 //	             "python3 -m http.server <port> --bind 127.0.0.1" as a background
 //	             job (port: this server's + 1), then preview_port {port,
 //	             "/index.html"} (D135) → "Showing it live."
+//	sandbox report
+//	             bash writing rep/index.html — a report over 64 KB (4000
+//	             rows), then render_html "./rep/index.html"; the answer then
+//	             takes 6 s → "Report shown." (the pane opens during the turn)
 //	new sandbox  sandbox_create {name "scratch"} — the owner is asked to allow
 //	             it → "Created: <its first line>"
 //	restart me   the FIRST request of that turn hangs 30 s (the harness restarts
@@ -298,6 +302,9 @@ func script(conv []turn, system string) plan {
 	}
 	if strings.Contains(lastUser, "sandbox serve") {
 		return serveScript(conv)
+	}
+	if strings.Contains(lastUser, "sandbox report") {
+		return reportScript(conv)
 	}
 	if last.Role == "tool" {
 		switch last.Tool {
@@ -785,6 +792,27 @@ const livePage = `<!doctype html><html><head><title>live</title></head><body>
 })();
 </script></body></html>
 `
+
+// reportCmd writes a report over the agent's 64 KB text cap: stored as a
+// binary session file, it must still render (up to 2 MB).
+const reportCmd = `mkdir -p rep && { printf '<!doctype html><html><body><h1 id="t">big report</h1>\n'; ` +
+	`i=1; while [ $i -le 4000 ]; do printf '<p>row %d of the big report</p>\n' $i; i=$((i+1)); done; printf '</body></html>\n'; } > rep/index.html && wc -c < rep/index.html`
+
+func reportScript(conv []turn) plan {
+	did := map[string]bool{}
+	for i := len(conv) - 1; i >= 0 && conv[i].Role != "user"; i-- {
+		if conv[i].Role == "tool" {
+			did[conv[i].Tool] = true
+		}
+	}
+	switch {
+	case !did["bash"]:
+		return plan{Calls: []call{{"bash", map[string]any{"command": reportCmd, "summary": "Write the report"}}}}
+	case !did["render_html"]:
+		return plan{Calls: []call{{"render_html", map[string]any{"path": "./rep/index.html", "summary": "Show the report"}}}}
+	}
+	return plan{Delay: 6 * time.Second, Text: "Report shown."}
+}
 
 // serveScript is "sandbox serve": write the page and start its server, then
 // preview_port it, then say so.

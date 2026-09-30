@@ -8,6 +8,7 @@
 import { html, nothing } from '/vendor/lit-all.min.js';
 import * as O from './model/ops.js';
 import * as F from './model/format.js';
+import { portsTpl } from './web-ports.js';
 
 const ask = (text) => !text || confirm(text);
 
@@ -70,9 +71,12 @@ function rowTpl(app, ui, r) {
       <td class="num">${r.disk}</td>
       <td class="small">${r.lastText}</td>
       <td class="acts">${r.actions.map((a) => html`<button class="small ${a.danger ? 'rm' : ''} ${open === a.id ? 'on' : ''}" data-act=${a.id}
-        ?disabled=${!!ui.busy} @click=${() => act(a)}>${a.label}</button>`)}</td>
+        ?disabled=${!!ui.busy} @click=${() => act(a)}>${a.label}</button>`)}
+        <button class="small ${open === 'ports' ? 'on' : ''}" data-act="ports" title="whether it serves ports (live previews), and a probe of one"
+          @click=${() => toggle('ports')}>Ports</button></td>
     </tr>
-    ${open === 'snapshots' ? html`<tr class="panel"><td colspan="11">${snapshotsTpl(app, ui, r)}</td></tr>` : nothing}`;
+    ${open === 'snapshots' ? html`<tr class="panel"><td colspan="11">${snapshotsTpl(app, ui, r)}</td></tr>` : nothing}
+    ${open === 'ports' ? html`<tr class="panel"><td colspan="11">${portsTpl(app, ui, r)}</td></tr>` : nothing}`;
 }
 
 function snapshotsTpl(app, ui, r) {

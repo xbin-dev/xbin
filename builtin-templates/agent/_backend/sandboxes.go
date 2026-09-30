@@ -214,14 +214,37 @@ func managerHello(ctx context.Context, m sbxManager) (*sbxHello, error) {
 		}
 	}
 	helloMu.Unlock()
+	return managerHelloFresh(ctx, m)
+}
+
+// managerHelloFresh asks the manager again, bypassing the cache and
+// refreshing it — before a refusal a missing capability would cause: a
+// manager updated since (or an xbind that gained a capability) must not be
+// refused for up to helloTTL on what it said before (the sandbox's own caps,
+// sandbox_info prints them, are always fresh).
+func managerHelloFresh(ctx context.Context, m sbxManager) (*sbxHello, error) {
 	h, err := fetchHello(ctx, m)
 	if ctx.Err() != nil && err != nil {
 		return nil, err // the caller gave up: nothing learned about the manager
 	}
 	helloMu.Lock()
-	helloCache[key] = helloEntry{h: h, err: err, at: time.Now()}
+	helloCache[m.Provider+"\x00"+m.URL] = helloEntry{h: h, err: err, at: time.Now()}
 	helloMu.Unlock()
 	return h, err
+}
+
+// capWords says what a manager offers, for a refusal: its title and
+// version, and its capabilities.
+func (h *sbxHello) capWords(provider string) string {
+	v := ""
+	if h != nil && h.Manager.Version != "" {
+		v = " " + h.Manager.Version
+	}
+	caps := "none"
+	if h != nil && len(h.Caps) > 0 {
+		caps = strings.Join(h.Caps, ", ")
+	}
+	return fmt.Sprintf("%s%s (it offers: %s)", h.title(provider), v, caps)
 }
 
 func fetchHello(ctx context.Context, m sbxManager) (*sbxHello, error) {

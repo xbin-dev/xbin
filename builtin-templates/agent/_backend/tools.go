@@ -31,6 +31,50 @@ func strProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
 }
 
+// finishSpec is finish, worded for who reads its result. A top-level run's
+// result is a line under its answer (the ✓ step, plain text): the answer
+// itself belongs in the reply, which renders as markdown — models put a
+// whole report in result when told it is "the answer". A subagent's result
+// IS what its parent receives.
+func finishSpec(depth int) toolSpec {
+	if depth > 0 {
+		return toolSpec{Type: "function", Function: funcDef{
+			Name: "finish", Description: "End your run and deliver its result to your parent: result is the answer your parent receives — make it the full, self-contained answer.",
+			Parameters: obj([]string{"result"}, map[string]any{"result": strProp("the full answer / outcome, delivered to your parent")}),
+		}}
+	}
+	return toolSpec{Type: "function", Function: funcDef{
+		Name: "finish", Description: "End your turn; the conversation then waits for the person. " +
+			"result is a SHORT status line (one or two sentences, shown as a ✓ line under your reply) — put the full answer or report in your normal reply BEFORE calling finish, where it renders as markdown, and don't repeat it in result.",
+		Parameters: obj([]string{"result"}, map[string]any{"result": strProp("a one- or two-sentence status line — not the answer (that goes in your reply)")}),
+	}}
+}
+
+// postedFinishSpec is finish for a top-level run whose result is POSTED as
+// its reply — a channel conversation's, a trigger's (channelTurnEnd posts
+// result; the last reply only when result is empty): there, result is the
+// answer, as it always was.
+func postedFinishSpec() toolSpec {
+	return toolSpec{Type: "function", Function: funcDef{
+		Name: "finish", Description: "End your turn: result is posted to the conversation as your reply (basic Markdown works) — make it the full answer, not a status line.",
+		Parameters: obj([]string{"result"}, map[string]any{"result": strProp("your reply, as posted — the full answer")}),
+	}}
+}
+
+// runToolSpecs is toolSpecs for run: a top-level run whose result is posted
+// (a channel's, a trigger's) gets postedFinishSpec's finish.
+func runToolSpecs(cfg Config, run *Run, mcp []toolSpec) []toolSpec {
+	specs := toolSpecs(cfg, run.Depth, mcp)
+	if run.ParentID == 0 && (run.Origin == "channel" || run.Origin == "trigger") {
+		for i := range specs {
+			if specs[i].Function.Name == "finish" {
+				specs[i] = postedFinishSpec()
+			}
+		}
+	}
+	return specs
+}
+
 // toolSpecs builds the model's tool list for this run's config, including
 // any MCP-sourced tools. The run's class (classes.go, D116) decides which
 // toolsets are offered — the core tools (memory, note, finish, yield,
@@ -72,10 +116,7 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 			Parameters: obj([]string{"text"}, map[string]any{"text": strProp("the note")}),
 		}},
 		// --- control-flow tools (handled by the loop) ---
-		{Type: "function", Function: funcDef{
-			Name: "finish", Description: "End the run with a final result.",
-			Parameters: obj([]string{"result"}, map[string]any{"result": strProp("the outcome / answer")}),
-		}},
+		finishSpec(depth),
 		yieldSpec(cfg),
 	}
 	if askUser {

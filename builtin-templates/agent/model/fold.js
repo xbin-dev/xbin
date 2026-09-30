@@ -157,7 +157,7 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
   const flushSteps = (upto, inclusive) => {
     while (si < steps.length && (upto == null || steps[si].created < upto || (inclusive && steps[si].created === upto))) {
       const s = steps[si++];
-      out.push(memo('s' + s.id, [s], () => ({ k: 'step', id: 's' + s.id, kind: s.kind, detail: detail(s), created: s.created })));
+      out.push(memo('s' + s.id, [s], () => ({ k: 'step', id: 's' + s.id, kind: s.kind, detail: detail(s), created: s.created, run: s.runId })));
     }
   };
   steps.sort((a, b) => a.created - b.created || a.id - b.id); // a filtered copy: sorting it in place is fine

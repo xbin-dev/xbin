@@ -89,8 +89,9 @@ func (ag *Agent) toolPreviewPort(ctx context.Context, run *Run, cfg Config, args
 	if err != nil {
 		return "", err
 	}
-	if !hasStr(use.Hello.Caps, "ports") {
-		return "", fmt.Errorf("this sandbox's manager doesn't serve ports, so no live preview here (it or xbind predates them) — render_html shows a static snapshot of an HTML file instead")
+	if !use.hasCap(ctx, "ports") {
+		return "", fmt.Errorf("no live preview here: this sandbox's manager, %s, doesn't serve ports (it, or the xbind it runs on, predates live previews) — render_html shows a static snapshot of an HTML file instead",
+			use.Hello.capWords(use.Conn.M.Provider))
 	}
 	status, ctype, err := probePort(ctx, use, port, p, q)
 	if err != nil {
@@ -109,6 +110,19 @@ func (ag *Agent) toolPreviewPort(ctx context.Context, run *Run, cfg Config, args
 	return fmt.Sprintf("showing http://localhost:%d/%s%s (%d %s) live to the human in the preview pane.%s "+
 		"Scripts run there; a root-absolute URL (/app.js) in the page won't load — make it relative. "+
 		"It stays live while the server runs.", port, p, qsuffix(q), status, orStr(ctype, "no content type"), note), nil
+}
+
+// livePreviewWhyNot says why preview_port can't show a page of this
+// sandbox ("" when it can): its manager doesn't serve ports (asked again
+// first), or the sandbox itself doesn't offer them.
+func livePreviewWhyNot(ctx context.Context, use *sbxUse) string {
+	switch {
+	case !use.hasCap(ctx, "ports"):
+		return "its manager, " + use.Hello.capWords(use.Conn.M.Provider) + ", doesn't serve ports (it, or the xbind it runs on, predates live previews)"
+	case !use.Box.hasCap("ports"):
+		return "the sandbox doesn't offer ports (its caps above) — its runtime doesn't serve them"
+	}
+	return ""
 }
 
 func qsuffix(q string) string {
@@ -169,8 +183,11 @@ func probePort(ctx context.Context, use *sbxUse, port int, p, q string) (int, st
 		// else is the server's own answer, whatever its status
 		if json.Unmarshal(raw, &b) == nil && contractRefusals[b.Refusal] {
 			e := &sbxError{Provider: use.Conn.M.Provider, Status: resp.StatusCode, Refusal: b.Refusal, Msg: b.Error}
-			if b.Refusal == "not-listening" {
-				return 0, "", fmt.Errorf("nothing listens on port %d in the sandbox yet: start the server as a background job first (bash background:true), listening on 127.0.0.1 or 0.0.0.0 — then preview_port again (%v)", port, e)
+			switch b.Refusal {
+			case "not-listening":
+				return 0, "", fmt.Errorf("nothing listens on port %d in the sandbox yet: start the server as a background job first (bash background:true), listening on 127.0.0.1 or 0.0.0.0 — then preview_port again (%w)", port, e)
+			case "unsupported": // xbind's: the sandbox's agent predates ports (started under an older xbind, or an older VM image)
+				return 0, "", fmt.Errorf("%w — ask the user to restart the sandbox (Stop, then Start, in this tile's Sandboxes dialog or the coding-sandbox tile), then preview_port again", e)
 			}
 			return 0, "", e
 		}
@@ -348,7 +365,11 @@ func liveErr(w http.ResponseWriter, err error) {
 	case "unbound", "unsupported":
 		status = http.StatusNotImplemented
 	}
-	xbin.WriteError(w, status, err.Error())
+	body := map[string]string{"error": err.Error()}
+	if rf := sbxRefusal(err); rf != "" { // the pane's status strip says what to do about it
+		body["refusal"] = rf
+	}
+	xbin.WriteJSON(w, status, body)
 }
 
 // liveUse is the use of run's sandbox sbx (its id at the manager), checked
@@ -389,8 +410,8 @@ func (ag *Agent) liveUse(ctx context.Context, runID int64, sbx string) (*sbxUse,
 	if err != nil {
 		return nil, err
 	}
-	if !hasStr(use.Hello.Caps, "ports") {
-		return nil, &sbxError{Refusal: "unsupported", Msg: "the sandbox manager doesn't serve ports"}
+	if !use.hasCap(ctx, "ports") {
+		return nil, &sbxError{Refusal: "unsupported", Msg: "the sandbox manager " + use.Hello.capWords(use.Conn.M.Provider) + " doesn't serve ports"}
 	}
 	liveUses.Lock()
 	for k, e := range liveUses.m {

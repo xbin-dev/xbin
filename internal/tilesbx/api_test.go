@@ -293,8 +293,27 @@ func TestAdminList(t *testing.T) {
 	if rows := e.m.AdminList("apps/mgr2"); len(rows) != 1 || rows[0].Name != "sb-2" {
 		t.Fatalf("narrowed %+v", rows)
 	}
-	// An admin deletes a removed tile's sandbox.
+	// Port requests' outcomes (a short ring, newest last) and whether the
+	// sandbox's agent serves ports, for the admin's view.
+	if rows[0].Ports != nil || rows[0].AgentPorts != "" {
+		t.Fatalf("no port requests yet: %+v", rows[0])
+	}
+	for i := 0; i < portRingLen+2; i++ {
+		e.m.portLog.add(rows[1].UID, PortOutcome{At: int64(i), Port: 8000 + i, Status: 200, From: "apps/mgr2"})
+	}
+	e.m.portLog.add(rows[1].UID, PortOutcome{At: 99, Port: 5173, Status: 502, Refusal: RefNotListening, From: "apps/mgr2"})
+	got := e.m.AdminList("apps/mgr2")[0].Ports
+	if len(got) != portRingLen || got[0].Port != 8003 || got[len(got)-1].Refusal != RefNotListening || got[len(got)-1].From != "apps/mgr2" {
+		t.Fatalf("the port ring: %+v", got)
+	}
+	if b, _ := json.Marshal(e.m.AdminList("apps/mgr")[0]); strings.Contains(string(b), `"ports"`) || strings.Contains(string(b), `"agentPorts"`) {
+		t.Fatalf("a sandbox without port requests says nothing of them: %s", b)
+	}
+	// An admin deletes a removed tile's sandbox (its port outcomes go with it).
 	e.want(e.do(admin, "DELETE", "/sandboxes/sb-2?tile=apps/mgr2", nil), http.StatusNoContent, "")
+	if l := e.m.portLog.list(rows[1].UID); len(l) != 0 {
+		t.Fatalf("a deleted sandbox's port outcomes stayed: %+v", l)
+	}
 	if rows := e.m.AdminList(""); len(rows) != 1 {
 		t.Fatalf("after delete %+v", rows)
 	}

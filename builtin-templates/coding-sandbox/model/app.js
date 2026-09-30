@@ -123,6 +123,27 @@ export function createApp(opts = {}) {
     },
     closeSnapshots() { app.snaps = null; emit(); },
 
+    // --- ports (a sandbox's Ports row, both pages) ------------------------------------
+
+    // portsOf reads whether the manager offers ports for sandbox id, and why
+    // not ({offered, why?, restartNeeded?}); probePort asks one port of it
+    // ({ok, status, contentType, refusal, error, path, ms} — never the page).
+    ports: null, // {id, info, err, probe}
+    async portsOf(id) {
+      app.ports = { id, info: null, err: '', probe: app.ports && app.ports.id === id ? app.ports.probe : null };
+      emit();
+      try { app.ports.info = await request(`/ports/${q(id)}`); } catch (e) { app.ports.err = e.message; }
+      emit();
+    },
+    async probePort(id, port, path) {
+      if (!app.ports || app.ports.id !== id) app.ports = { id, info: null, err: '', probe: null };
+      const mine = app.ports;
+      mine.probe = { busy: true };
+      emit();
+      try { mine.probe = await request(`/ports/${q(id)}/${Number(port)}?path=${q(path || '/')}`); } catch (e) { mine.probe = { ok: false, error: e.message }; }
+      emit();
+    },
+
     // saveConfig: PUT /ops/config — the top-level fields given replace the
     // stored ones; the answer is the new state.
     async saveConfig(fields) {

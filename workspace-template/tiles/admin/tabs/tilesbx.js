@@ -153,7 +153,8 @@ export class BxAdminTileSandboxes extends WithRouter(LitElement) {
   _row(r) {
     return html`<tr data-tsbx-row=${r.tile + ':' + r.name} data-state=${r.state}>
       <td class="mono" title=${r.uid ? `uid ${r.uid}` : ''}>${r.name}</td>
-      <td title=${r.stateDetail || ''}>${r.state}${r.stateDetail ? html` <span class="muted sbx-err" data-tsbx-detail>· ${r.stateDetail}</span>` : nothing}</td>
+      <td title=${r.stateDetail || ''}>${r.state}${r.stateDetail ? html` <span class="muted sbx-err" data-tsbx-detail>· ${r.stateDetail}</span>` : nothing}
+        ${this._ports(r)}</td>
       <td><span class="sbx-mode ${r.mode}">${MODE[r.mode] || r.mode}</span>${r.accel === 'emulate' ? html` <span class="pill">emulated</span>` : nothing}</td>
       <td class="mono">${mib(r.memMiB)} · ${r.vcpus} vCPU · ${r.diskGiB} GiB</td>
       <td class="num">${r.diskBytes ? fmtBytes(r.diskBytes) : '—'}</td>
@@ -164,6 +165,18 @@ export class BxAdminTileSandboxes extends WithRouter(LitElement) {
         <button class="act" data-tsbx-delete ?disabled=${this._busy} @click=${() => this._delete(r)}>delete</button>
       </td>
     </tr>`;
+  }
+
+  // its port requests (D135, newest last: port, status or refusal, the calling
+  // tile) and whether its agent serves ports — a live preview's first stop
+  _ports(r) {
+    const ps = r.ports || [];
+    if (!ps.length && !r.agentPorts) return nothing;
+    const one = (p) => `:${p.port} ${p.refusal || p.status || '?'}`;
+    const all = ps.map((p) => `${new Date(p.at).toLocaleTimeString()} ${one(p)}${p.from ? ' from ' + p.from : ''}`).join('\n');
+    return html`<div class="muted" style="font-size:10.5px" data-tsbx-ports title=${all}>
+      ${r.agentPorts === 'predates' ? html`<span class="warn-line" data-tsbx-agent-ports>its agent predates ports — restart it</span> ` : nothing}
+      ${ps.length ? html`ports ${ps.slice(-3).map(one).join(' · ')}` : nothing}</div>`;
   }
 
   _path(r, verb = '') {

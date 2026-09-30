@@ -954,10 +954,18 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    tileSandboxes:[{tile,name,uid,state,
                                    stateDetail?,mode,accel?,memMiB,vcpus,
                                    diskGiB,diskBytes,for?,forUser?,
-                                   lastActive?,tileExists}] — every tile
+                                   lastActive?,tileExists,agentPorts?,
+                                   ports?}] — every tile
                                    sandbox definition (D120), stopped ones
                                    and those of removed tiles too (an admin
-                                   stops or deletes one with ?tile=). A manager
+                                   stops or deletes one with ?tile=).
+                                   agentPorts: whether the running one's
+                                   in-box agent serves ports (serves |
+                                   predates — restart it), as a port
+                                   request found; ports: its latest 8 port
+                                   requests (D135), newest last, [{at,port,
+                                   status?,refusal?,from}] (from: the calling
+                                   manager tile); both absent until one. A manager
                                    tile's backend gets its own tile sandboxes
                                    instead (§Tile sandboxes)
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —

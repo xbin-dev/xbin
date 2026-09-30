@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"slices"
@@ -100,4 +101,138 @@ func TestXbinBackendPorts(t *testing.T) {
 	}
 	sb2 := b.Create(map[string]any{"name": "old"})
 	b.Refused("GET", "/sandboxes/"+sb2.ID+"/ports/8000/", nil, 501, "unsupported")
+}
+
+// The pages' Ports rows (GET /ports/{id}, GET /ports/{id}/{port}): whether
+// the manager offers ports and why not, and a probe of one port — for its
+// operators (write access to the tile) and the people the port proxy
+// itself admits on the page, never a reader; the page's body never comes
+// back. A runtime answering 501 unsupported (the sandbox's agent predates
+// ports) flags the sandbox restartNeeded until it runs again.
+func TestPagePortProbe(t *testing.T) {
+	rt := newRuntime("vm")
+	rt.rt.Caps = append(rt.rt.Caps, "ports")
+	m, srv, tg := xbinManager(t, rt, nil)
+	m.mu.Lock()
+	m.self = "apps/cs"
+	m.mu.Unlock()
+	pt := tg // the page: a verified person with write access to the tile
+	pt.Verified = func(r *http.Request, user string) {
+		r.Header.Set("X-XBin-User", user)
+		r.Header.Set("X-XBin-User-Level", "write")
+	}
+	page := pt.As(t, "apps/cs").Verified("alice")
+	mine := page.Create(map[string]any{"name": "web"})
+	theirs := tg.As(t, "apps/agent").Verified("bob").Create(map[string]any{"name": "bots"})
+	get := func(who as, path string, want int, out any) string {
+		t.Helper()
+		req, _ := http.NewRequest("GET", srv.URL+path, nil)
+		req.Header.Set("X-XBin-From", who.from)
+		req.Header.Set("X-XBin-Role", who.role)
+		if who.user != "" {
+			req.Header.Set("X-XBin-User", who.user)
+			req.Header.Set("X-XBin-User-Level", who.level)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != want {
+			t.Fatalf("GET %s as %+v: %d %s, want %d", path, who, resp.StatusCode, b, want)
+		}
+		if out != nil {
+			if err := json.Unmarshal(b, out); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return string(b)
+	}
+	olga := as{from: "apps/cs", role: "admin", user: "olga", level: "write"} // an operator
+	rita := as{from: "apps/cs", role: "admin", user: "rita", level: "read"}
+	alice := as{from: "apps/cs", role: "admin", user: "alice", level: "write"}
+	agentTile := as{from: "apps/agent", role: "consumer"}
+
+	var info struct {
+		Offered       bool   `json:"offered"`
+		Why           string `json:"why"`
+		RestartNeeded bool   `json:"restartNeeded"`
+	}
+	get(olga, "/ports/"+mine.ID, 200, &info)
+	if !info.Offered || info.Why != "" || info.RestartNeeded {
+		t.Fatalf("offered: %+v", info)
+	}
+	var p portProbe
+	body := get(alice, "/ports/"+mine.ID+"/8000?path=/a%20b/x.html?q=1", 200, &p)
+	if !p.OK || p.Status != 200 || p.Path != "/a%20b/x.html?q=1" || strings.Contains(body, "GET /api/xbin") {
+		t.Fatalf("a probe: %s", body)
+	}
+	if c := rt.last(t, "GET", "/ports/8000/a b/x.html"); c.Query.Get("q") != "1" || c.Header.Get("Cookie") != "" {
+		t.Fatalf("the runtime saw %+v", c)
+	}
+	get(olga, "/ports/"+theirs.ID+"/8000", 200, &p) // an operator: any consumer's sandbox
+	if !p.OK {
+		t.Fatalf("an operator's probe: %+v", p)
+	}
+	get(rita, "/ports/"+mine.ID+"/8000", 403, nil)
+	get(rita, "/ports/"+mine.ID, 403, nil)
+	get(agentTile, "/ports/"+mine.ID+"/8000", 404, nil) // not the page: the contract's route is the consumers'
+	get(olga, "/ports/nope/8000", 404, nil)
+	get(olga, "/ports/"+mine.ID+"/0", 400, nil)
+
+	// the sandbox's agent predates ports: said, and the sandbox wants a restart
+	rt.mu.Lock()
+	rt.refuse["GET /ports/9000/"] = 501
+	rt.mu.Unlock()
+	get(alice, "/ports/"+mine.ID+"/9000", 200, &p)
+	if p.OK || p.Status != 501 || p.Refusal != "unsupported" {
+		t.Fatalf("an old agent: %+v", p)
+	}
+	get(alice, "/ports/"+mine.ID, 200, &info)
+	if !info.RestartNeeded || !strings.Contains(info.Why, "restart the sandbox") {
+		t.Fatalf("after an old agent: %+v", info)
+	}
+	var v sandboxView
+	page.Call("GET", "/sandboxes/"+mine.ID, nil, 200, &v)
+	if !v.RestartNeeded || !strings.Contains(v.StateDetail, "predates ports") {
+		t.Fatalf("its view: %+v", v)
+	}
+	// stopped: the probe says so (never a start), and the flag is gone with that run
+	page.Call("POST", "/sandboxes/"+mine.ID+"/stop", nil, 200, nil)
+	m.mu.Lock()
+	delete(m.live, mine.ID)
+	m.mu.Unlock()
+	get(alice, "/ports/"+mine.ID+"/8000", 200, &p)
+	if p.OK || p.Refusal != "state" {
+		t.Fatalf("stopped: %+v", p)
+	}
+	v = sandboxView{} // (omitempty: a false one isn't sent)
+	page.Call("GET", "/sandboxes/"+mine.ID, nil, 200, &v)
+	if v.RestartNeeded {
+		t.Fatalf("stopped, still flagged: %+v", v)
+	}
+	// the consumers' own ports route notices it too
+	page.Call("POST", "/sandboxes/"+mine.ID+"/start", nil, 200, nil)
+	page.Refused("GET", "/sandboxes/"+mine.ID+"/ports/9000/", nil, 501, "unsupported")
+	v = sandboxView{}
+	page.Call("GET", "/sandboxes/"+mine.ID, nil, 200, &v)
+	if !v.RestartNeeded {
+		t.Fatalf("after the ports route met an old agent: %+v", v)
+	}
+
+	// a runtime without ports: not offered, and why
+	rt2 := newRuntime("vm")
+	m2, srv2, tg2 := xbinManager(t, rt2, nil)
+	_ = m2
+	sb2 := tg2.As(t, "apps/agent").Verified("bob").Create(map[string]any{"name": "old"})
+	srv = srv2
+	get(olga, "/ports/"+sb2.ID, 200, &info)
+	if info.Offered || !strings.Contains(info.Why, "doesn't serve ports") {
+		t.Fatalf("no ports: %+v", info)
+	}
+	get(olga, "/ports/"+sb2.ID+"/8000", 200, &p)
+	if p.OK || p.Refusal != "unsupported" {
+		t.Fatalf("no ports, a probe: %+v", p)
+	}
 }
