@@ -347,6 +347,10 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		fail("disabled", "account disabled", nil)
 		return
 	}
+	if err := s.Auth.Users.SSOSignInHeld(u); err != nil { // a provider change its person hasn't confirmed (plans/partitions/06 §9)
+		fail("held", "sign-in held for its person to confirm a provider change", err)
+		return
+	}
 	s.syncGroups(u.ID, ident, wantGroups)
 	if err := s.Auth.Users.TouchLogin(u.ID, "sso"); err != nil {
 		slog.Warn("sso: last-login stamp failed", "user", u.ID, "err", err)
@@ -780,6 +784,8 @@ func ssoErrText(code string) string {
 		return "That account is disabled — ask a workspace admin."
 	case "failed":
 		return "Single sign-on failed — try again."
+	case "held":
+		return "The workspace's single sign-on provider changed: signing in through it waits until you confirm the change from a device you're signed in on (/xbin/partitions), or 24 hours."
 	}
 	return ""
 }

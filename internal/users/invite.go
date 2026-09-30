@@ -14,7 +14,6 @@ package users
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -47,6 +46,10 @@ func CheckNewPassword(password string) error {
 // password, if any, keeps working until the invite is redeemed. Returns the
 // plaintext token — shown once; only its hash is stored.
 func (s *Store) CreateInvite(id string, ttl time.Duration) (string, error) {
+	return s.createInvite(id, ttl, false)
+}
+
+func (s *Store) createInvite(id string, ttl time.Duration, held bool) (string, error) {
 	if ttl <= 0 {
 		ttl = InviteTTL
 	}
@@ -64,6 +67,9 @@ func (s *Store) CreateInvite(id string, ttl time.Duration) (string, error) {
 	}
 	nu := *u
 	nu.InviteHash = base64.RawStdEncoding.EncodeToString(h[:])
+	if held { // no xbind redeems it until its person allows it (credhold.go)
+		nu.InviteHash = HeldInvitePrefix + nu.InviteHash
+	}
 	nu.InviteExpires = time.Now().Add(ttl).Unix()
 	s.byID[nu.ID] = &nu
 	if err := s.persistLocked(); err != nil {
@@ -83,7 +89,7 @@ func (s *Store) InviteUser(token string) (*User, bool) {
 		if u.InviteHash == "" || u.InviteExpires < timeNow() || u.Disabled {
 			continue
 		}
-		if subtle.ConstantTimeCompare([]byte(u.InviteHash), []byte(want)) == 1 {
+		if ok, _ := inviteMatch(u.InviteHash, want); ok { // a held link greets too; its redemption answers why it waits
 			c := u.Public()
 			return &c, true
 		}
@@ -107,11 +113,14 @@ func (s *Store) RedeemInvite(token, password string) (*User, error) {
 		if u.InviteHash == "" || u.InviteExpires < timeNow() || u.Disabled {
 			continue
 		}
-		if subtle.ConstantTimeCompare([]byte(u.InviteHash), []byte(want)) != 1 {
+		ok, held := inviteMatch(u.InviteHash, want)
+		if !ok {
 			continue
 		}
-		if err := s.inviteGateLocked(u); err != nil { // a link held for its person (credhold.go): kept unspent
-			return nil, err
+		if held { // a link held for its person (credhold.go): kept unspent unless the gate lets it through
+			if err := s.inviteGateLocked(u); err != nil {
+				return nil, err
+			}
 		}
 		salt := make([]byte, 16)
 		if _, err := rand.Read(salt); err != nil {

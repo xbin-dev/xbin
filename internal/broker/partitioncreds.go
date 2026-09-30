@@ -31,6 +31,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -46,6 +47,7 @@ const (
 	credInvite   = "invite"
 	credPassword = "password"
 	credEmail    = "email"
+	credSSO      = "sso-provider" // the workspace's SSO provider changed (partitioncreds_sso.go)
 )
 
 // heldCredential is one credential waiting for its person.
@@ -57,20 +59,22 @@ type heldCredential struct {
 	InviteHash string    `json:"inviteHash,omitempty"`
 	PassHash   string    `json:"passHash,omitempty"`
 	Email      string    `json:"email,omitempty"`
+	Issuer     string    `json:"issuer,omitempty"` // credSSO: the new provider
 }
 
 // heldView is a held credential as its person sees it (never a hash).
 type heldView struct {
-	ID    string    `json:"id"`
-	Kind  string    `json:"kind"`
-	By    string    `json:"by"`
-	At    time.Time `json:"at"`
-	Until time.Time `json:"until"`
-	Email string    `json:"email,omitempty"`
+	ID     string    `json:"id"`
+	Kind   string    `json:"kind"`
+	By     string    `json:"by"`
+	At     time.Time `json:"at"`
+	Until  time.Time `json:"until"`
+	Email  string    `json:"email,omitempty"`
+	Issuer string    `json:"issuer,omitempty"`
 }
 
 func (h heldCredential) view() heldView {
-	return heldView{ID: h.ID, Kind: h.Kind, By: h.By, At: h.At, Until: h.At.Add(credentialHoldFor), Email: h.Email}
+	return heldView{ID: h.ID, Kind: h.Kind, By: h.By, At: h.At, Until: h.At.Add(credentialHoldFor), Email: h.Email, Issuer: h.Issuer}
 }
 
 // credentialPerson answers whether target holds partitions (a credential
@@ -96,22 +100,37 @@ func credentialBy(p auth.Principal, target string) string {
 	return "owner"
 }
 
-// credentialInvite is the invite route's hook, after the link was minted:
-// for a partition holder the notice, and — with the policy on — the hold,
-// which out (the route's answer) then says.
-func (b *Broker) credentialInvite(r *http.Request, target, tok string, out map[string]any) {
-	by := credentialBy(auth.PrincipalOf(r), target)
-	if _, holder := b.credentialPerson(target); by == "" || !holder {
-		return
+// inviteHeldFor is the invite route's question before it mints a link for
+// target: noticed — a partition holder, made by someone else; held — and
+// the policy credentialResetConfirm is on, so the link is minted held
+// (users.Store.CreateHeldInvite): no xbind redeems it until its person
+// allows it.
+func (b *Broker) inviteHeldFor(r *http.Request, target string) (noticed, held bool) {
+	if _, holder := b.credentialPerson(target); !holder || credentialBy(auth.PrincipalOf(r), target) == "" {
+		return false, false
 	}
-	held := b.Policies().CredentialResetConfirm
+	return true, b.Policies().CredentialResetConfirm
+}
+
+// credentialInvite is the invite route's hook, after the link was minted
+// (held when inviteHeldFor said so): the notice, and the hold, which out
+// (the route's answer) then says. A hold that can't be kept revokes the
+// link it would have held (the error: the route answers 500), so a held
+// link never waits unnamed.
+func (b *Broker) credentialInvite(r *http.Request, target, tok string, held bool, out map[string]any) error {
+	by := credentialBy(auth.PrincipalOf(r), target)
 	h := heldCredential{ID: newNoticeID(), Kind: credInvite, By: by, At: peopleNow().UTC(), InviteHash: users.InviteHashOf(tok)}
-	if held && b.holdCredential(target, h) == nil {
+	if held {
+		if err := b.holdCredential(target, h); err != nil {
+			if _, rerr := b.Users.RevokeInvite(target, h.InviteHash); rerr != nil {
+				slog.Error("partitions: a held sign-in link whose hold failed couldn't be revoked", "user", target, "err", rerr)
+			}
+			return fmt.Errorf("the sign-in link couldn't be held for %s to confirm, so it was revoked: %w", target, err)
+		}
 		out["held"], out["heldUntil"] = true, h.At.Add(credentialHoldFor)
-	} else {
-		held = false
 	}
 	b.credentialNotice(target, h, held)
+	return nil
 }
 
 // credentialChange is PATCH /users/{id}'s hook, before the store's update:
@@ -160,15 +179,21 @@ func (b *Broker) credentialChange(w http.ResponseWriter, r *http.Request, cur, n
 	}
 }
 
-// holdCredential keeps h for target.
+// holdCredential keeps h for target; an error when it isn't kept.
 func (b *Broker) holdCredential(target string, h heldCredential) error {
-	return b.editPersonDoc(target, func(d *personDoc) bool {
+	kept := false
+	err := b.editPersonDoc(target, func(d *personDoc) bool {
 		if h.Kind == credInvite { // a new link replaces the held one: the store keeps one invite
 			d.Held = slices.DeleteFunc(d.Held, func(o heldCredential) bool { return o.Kind == credInvite })
 		}
 		d.Held = append(d.Held, h)
+		kept = true
 		return true
 	})
+	if err == nil && !kept {
+		err = errors.New(target + "'s notices file names someone else")
+	}
+	return err
 }
 
 // credentialText is what the person is told of h.
@@ -179,6 +204,8 @@ func credentialText(h heldCredential, held bool) (title, text string) {
 		title, text = "A sign-in link for your account", fmt.Sprintf("A sign-in link for your account was created by %s at %s.", h.By, when)
 	case credPassword:
 		title, text = "A new password for your account", fmt.Sprintf("A new password for your account was set by %s at %s.", h.By, when)
+	case credSSO:
+		return ssoCredentialText(h, held, when) // partitioncreds_sso.go
 	default:
 		title, text = "A sign-in email for your account", fmt.Sprintf("The single sign-on email %s was bound to your account by %s at %s.", h.Email, h.By, when)
 	}
@@ -201,32 +228,71 @@ func (b *Broker) credentialNotice(target string, h heldCredential, held bool) {
 	b.pushPerson(target, "account.credential", title, text, "xbin/partitions", "credential:"+h.ID)
 }
 
-// inviteGate is the users store's gate (SetInviteGate): an invite held for
-// its person waits, until they allow it or credentialHoldFor passes. It
-// runs under the store's lock, so it reads the person's file without the
-// people lock (written atomically) and never asks the store.
+// inviteGate is the users store's gate (SetInviteGate), asked only for a
+// link minted held: it redeems once its hold's 24 hours passed (the lapse
+// loop then records it); while it waits, and whenever the person's file
+// can't say — unreadable, another schema, another person's, no hold naming
+// the link — it is refused (fail closed: an admin mints another). It runs
+// under the store's lock, so it reads the person's file without the people
+// lock (written atomically) and never asks the store.
 func (b *Broker) inviteGate(u users.User) error {
+	held := &users.InviteHeldError{Person: u.ID}
+	hash := strings.TrimPrefix(u.InviteHash, users.HeldInvitePrefix)
 	path, ok := b.personDocPath(u.UID)
 	if !ok {
-		return nil
+		return held
 	}
 	d, err := readPersonDocAt(path, u.UID)
 	if err != nil || d == nil || d.User != u.ID {
-		return nil
+		return held
 	}
 	for _, h := range d.Held {
-		if h.Kind == credInvite && h.InviteHash == u.InviteHash && peopleNow().Before(h.At.Add(credentialHoldFor)) {
-			return &users.InviteHeldError{Person: u.ID}
+		if h.Kind == credInvite && h.InviteHash == hash && !peopleNow().Before(h.At.Add(credentialHoldFor)) {
+			return nil
 		}
 	}
-	return nil
+	return held
 }
 
 // InstallCredentialGate installs the invite gate in the users store (boot).
 func (b *Broker) InstallCredentialGate() {
 	if b.Users != nil {
 		b.Users.SetInviteGate(b.inviteGate)
+		b.Users.SetSSOGate(b.ssoGate) // partitioncreds_sso.go
 	}
+}
+
+// CredentialGateInstalled reports whether the users store asks this
+// broker's gate (boot's wiring test).
+func (b *Broker) CredentialGateInstalled() bool {
+	return b.Users != nil && b.Users.InviteGateInstalled()
+}
+
+var credLocks sync.Map // workspace root → *sync.Mutex
+
+// credLock serializes the decisions on held credentials: a person's answer
+// and the 24 h rule's lapse never interleave.
+func (b *Broker) credLock() *sync.Mutex {
+	v, _ := credLocks.LoadOrStore(b.Reg.Root, &sync.Mutex{})
+	return v.(*sync.Mutex)
+}
+
+// heldCredentialOf is user's held credential id.
+func (b *Broker) heldCredentialOf(user, id string) (heldCredential, bool) {
+	uid := b.storedPartitionUID(user)
+	path, ok := b.personDocPath(uid)
+	if !ok {
+		return heldCredential{}, false
+	}
+	d, _ := readPersonDocAt(path, uid)
+	if d == nil || d.User != user {
+		return heldCredential{}, false
+	}
+	i := slices.IndexFunc(d.Held, func(h heldCredential) bool { return h.ID == id })
+	if i < 0 {
+		return heldCredential{}, false
+	}
+	return d.Held[i], true
 }
 
 // takeHeld removes held credential id (every lapsed one when id is "") of
@@ -247,30 +313,43 @@ func (b *Broker) takeHeld(user, id string, now time.Time) ([]heldCredential, err
 }
 
 // applyHeld makes h take effect (allow), or revokes it (!allow), in the
-// users store — outside the people lock.
-func (b *Broker) applyHeld(user string, h heldCredential, allow bool) error {
+// users store — outside the people lock. effective false: a link that
+// is no longer pending (spent, replaced, expired), so neither happened.
+func (b *Broker) applyHeld(user string, h heldCredential, allow bool) (effective bool, err error) {
 	switch {
 	case h.Kind == credInvite && !allow:
-		return b.Users.RevokeInvite(user, h.InviteHash)
-	case h.Kind == credInvite: // the gate lets it through once no hold names it
-		return nil
+		revoked, err := b.Users.RevokeInvite(user, h.InviteHash)
+		return revoked, err
+	case h.Kind == credInvite:
+		state := b.Users.HeldInviteState(user, h.InviteHash)
+		if state == users.InviteGoneState {
+			return false, nil
+		}
+		return true, b.Users.ReleaseInvite(user, h.InviteHash)
+	case h.Kind == credSSO:
+		return b.applyHeldSSO(user, h, allow) // partitioncreds_sso.go
 	case !allow:
-		return nil
+		return true, nil // a held password or email was never stored: refusing drops it
 	case h.Kind == credPassword:
-		return b.Users.SetPassHash(user, h.PassHash)
+		return true, b.Users.SetPassHash(user, h.PassHash)
 	}
 	u, ok := b.Users.Get(user)
 	if !ok {
-		return errors.New("no such user " + user)
+		return false, errors.New("no such user " + user)
 	}
 	nu := *u
 	nu.Email = h.Email
-	_, err := b.Users.Upsert(nu, "")
-	return err
+	_, err = b.Users.Upsert(nu, "")
+	return true, err
 }
 
 // apiCredentialConfirm — POST /partitions/credential-confirm {id, allow}:
-// the person allows or refuses a credential an admin made for them.
+// the person allows or refuses a credential an admin made for them. A
+// refusal is honoured while the credential is unused — a password or email
+// the 24 h rule hasn't stored yet, a link not yet redeemed, even past its 24
+// hours. A link that is no longer pending (redeemed, replaced or expired)
+// answers 409 decision "already-effective": it may have been used, so the
+// person is told to change their password and sign out everywhere.
 func (b *Broker) apiCredentialConfirm(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	if !personOwn(w, p) {
@@ -284,14 +363,31 @@ func (b *Broker) apiCredentialConfirm(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {id, allow: true|false}", "/docs/protocol.md")
 		return
 	}
-	got, err := b.takeHeld(p.UserID, body.ID, peopleNow())
-	if err != nil || len(got) == 0 {
-		server.WriteError(w, http.StatusNotFound, "no credential "+body.ID+" waits for you (it may have taken effect, or been decided)", "/docs/partitions.md")
+	mu := b.credLock()
+	mu.Lock()
+	defer mu.Unlock()
+	h, ok := b.heldCredentialOf(p.UserID, body.ID)
+	if !ok {
+		server.WriteError(w, http.StatusNotFound, "no credential "+body.ID+" waits for you: it was decided, or took effect after 24 hours without an answer "+
+			"(your notices say which) — if you didn't allow it, change your password and sign out everywhere", "/docs/partitions.md")
 		return
 	}
-	h := got[0]
-	if err := b.applyHeld(p.UserID, h, *body.Allow); err != nil {
+	effective, err := b.applyHeld(p.UserID, h, *body.Allow)
+	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, "the credential couldn't be "+map[bool]string{true: "activated", false: "revoked"}[*body.Allow]+": "+err.Error())
+		return
+	}
+	if _, err := b.takeHeld(p.UserID, h.ID, peopleNow()); err != nil {
+		slog.Warn("partitions: a decided credential stays listed", "user", p.UserID, "err", err)
+	}
+	if !effective {
+		text := fmt.Sprintf("The %s %s made for your account was no longer waiting when you answered: it was used, replaced or expired. "+
+			"If you didn't use it, change your password and sign out everywhere.", credNoun(h.Kind), h.By)
+		slog.Info("audit", "who", p.From(), "method", "POST", "path", "/partitions/credential-confirm", "status", http.StatusConflict,
+			"credential", h.Kind, "by", h.By, "decision", "already-effective")
+		b.addNotice(p.UserID, personNotice{Kind: noticeKindCredit, Text: text})
+		server.WriteJSON(w, http.StatusConflict, map[string]any{"error": text, "id": h.ID, "kind": h.Kind, "decision": "already-effective",
+			"docs": "/docs/partitions.md"})
 		return
 	}
 	verb := map[bool]string{true: "allowed", false: "refused"}[*body.Allow]
@@ -307,6 +403,8 @@ func credNoun(kind string) string {
 		return "sign-in link"
 	case credEmail:
 		return "sign-in email"
+	case credSSO:
+		return "single sign-on provider change"
 	}
 	return "password"
 }
@@ -341,25 +439,34 @@ func (b *Broker) lapseHeldCredentials(now time.Time) {
 		if err != nil || d == nil || len(d.Held) == 0 || b.storedPartitionUID(d.User) != uid {
 			continue
 		}
-		due := false
-		for _, h := range d.Held {
-			due = due || !now.Before(h.At.Add(credentialHoldFor))
-		}
-		if !due {
+		b.lapseHeldOf(d.User, d.Held, now)
+	}
+}
+
+// lapseHeldOf makes user's held credentials whose 24 hours passed take
+// effect, each before it leaves their document (a failure keeps it for the
+// next pass) — under credLock, so no answer of the person's interleaves.
+func (b *Broker) lapseHeldOf(user string, held []heldCredential, now time.Time) {
+	mu := b.credLock()
+	mu.Lock()
+	defer mu.Unlock()
+	for _, seen := range held {
+		if now.Before(seen.At.Add(credentialHoldFor)) {
 			continue
 		}
-		got, err := b.takeHeld(d.User, "", now)
+		h, ok := b.heldCredentialOf(user, seen.ID) // still waiting: not answered meanwhile
+		if !ok {
+			continue
+		}
+		effective, err := b.applyHeld(user, h, true)
 		if err != nil {
-			slog.Warn("partitions: held credentials", "user", d.User, "err", err)
+			slog.Warn("partitions: a held credential couldn't take effect", "user", user, "kind", h.Kind, "err", err)
 			continue
 		}
-		for _, h := range got {
-			if err := b.applyHeld(d.User, h, true); err != nil {
-				slog.Warn("partitions: a held credential couldn't take effect", "user", d.User, "kind", h.Kind, "err", err)
-				continue
-			}
-			slog.Info("audit", "who", h.By, "credential", h.Kind, "for", d.User, "decision", "took effect: no answer in 24h")
-			b.addNotice(d.User, personNotice{Kind: noticeKindCredit, Text: fmt.Sprintf("The %s %s made for your account took effect: you didn't answer within 24 hours.", credNoun(h.Kind), h.By)})
+		if _, err := b.takeHeld(user, h.ID, now); err != nil {
+			slog.Warn("partitions: a lapsed credential stays listed", "user", user, "err", err)
 		}
+		slog.Info("audit", "who", h.By, "credential", h.Kind, "for", user, "decision", "took effect: no answer in 24h", "pending", effective)
+		b.addNotice(user, personNotice{Kind: noticeKindCredit, Text: fmt.Sprintf("The %s %s made for your account took effect: you didn't answer within 24 hours.", credNoun(h.Kind), h.By)})
 	}
 }
