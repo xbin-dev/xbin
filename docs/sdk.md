@@ -196,7 +196,8 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   content, by)`; `c.PendingElicitations()` lists the open ones. `c.Cancel()`
   interrupts the turn and answers everything pending as cancelled.
 - **Settings.** `c.SetOption(ctx, id, value)` (a config option the agent
-  advertised — model, effort — or `"mode"`); `Config.Mode` / `Options`
+  advertised — model, effort — or `"mode"`; `ctx` bounds the agent's
+  answer); `Config.Mode` / `Options`
   request them at start; `Config.ResumeID` reopens an earlier session
   (`session/load`) when the agent advertised `loadSession` (`c.Session()`
   reports its id and whether it can).

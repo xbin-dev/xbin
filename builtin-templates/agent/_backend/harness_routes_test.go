@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/xbin-dev/xbin/sdk/acp/acptest"
 )
 
 // bodyJSON decodes a response body.
@@ -500,4 +502,26 @@ func harnessChild(t *testing.T, ag *Agent, parent, like int64, prompt string) in
 	}
 	ag.eng.Poke(kid)
 	return kid
+}
+
+// A coding agent the sdk catalog doesn't know is called what its manager
+// advertises (the session row keeps the title from the spawn).
+func TestHarnessAdvertisedName(t *testing.T) {
+	ag, mux, box, m := harnessFixtureWith(t, nil, false)
+	argv := acptest.Command()
+	m.Harnesses = append(m.Harnesses, fsbHarness{ID: "house-agent", Title: "House agent", Argv: argv, Login: argv[0] + " acptest login"})
+	forgetHellos()
+	w := callAs(t, mux, asAlice, "POST", "/ask", map[string]any{"text": "echo hi", "class": "coding",
+		"harness": map[string]any{"provider": "house-agent"}, "sandbox": map[string]any{"ref": sandboxRef("apps/cs", box.ID)}})
+	var run Run
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &run) != nil {
+		t.Fatalf("ask: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the answer", func() bool {
+		return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "echo: echo hi")
+	})
+	h := bodyJSON(t, callAs(t, mux, asAlice, "GET", fmt.Sprintf("/runs/%d/harness", run.ID), nil).Body.Bytes())["harness"].(map[string]any)
+	if h["provider"] != "house-agent" || h["name"] != "House agent" {
+		t.Fatalf("the summary: %v", h)
+	}
 }

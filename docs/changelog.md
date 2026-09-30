@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **Agent template: a coding agent's own routes, and where it shows**
+  (`builtin-templates/agent/API.md` §Coding agents, "Its own routes").
+  `GET|PATCH /runs/{id}/harness` (its summary, session and remembered
+  rules; its mode or a config option switched at the running coding agent
+  — **502** in its words, **503** during a handoff — and kept for its next
+  start; an explicit mode only for the conversation's owner), `POST
+  /runs/{id}/harness/answer` (its question) and `…/harness/authenticate`
+  (an API key or a device code, for a person who may use the sandbox, with
+  a confirm on a shared one; the key is never stored). `/tree` nodes carry
+  `engine` and a coding agent's compact `harness`; conversation rows gain
+  `waiting` and `kids: {harness, waiting}`; `/needs` gains reason `login`
+  and the waiting coding agent's `harness`; `POST /ask`/`/runs` answer
+  with its `harness`. On a coding agent's run memory and `/learn` are
+  **409**, `/compact` **409** unless it offers `/compact`, `PATCH
+  /runs/{id}` `model`/`sandbox`/`detach` **400**; schedules and triggers
+  refuse a `harness` or a coding agent's conversation as `targetRun`
+  (**400**). Additive. `sdk/acp`'s `SetOption` is bounded by its context.
 - **Agent template: a coding agent asks, steers, signs in and rests**
   (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
   `POST /runs/{id}/approve` gains `option` (one of the coding agent's own

@@ -55,10 +55,15 @@ a subagent is exactly as visible as the conversation it works for.
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
-| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval, and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|failed, subRun}]}` |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D-harness §4.3.9) — and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|login\|failed, subRun, harness?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
 
 Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
-`archivedAt`, `readMs` and `unread` (activity after you last looked). Your
+`archivedAt`, `readMs` and `unread` (activity after you last looked) — and
+(D-harness §4.3.8; list, search, `/needs` and `PATCH /runs/{id}` rows)
+`waiting: true` when it or a run below it waits for a person
+(`waiting_input`), and `kids: {harness, waiting}` — its coding agents at
+work below the root, and its runs below the root that wait — when either
+isn't 0 (one query per page). Your
 own message marks the conversation read for you. The stream sends `ustate`
 (`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
 `revoked` (`{id}`) when you can no longer see a conversation.
@@ -151,7 +156,7 @@ llm-gw's logs. Give team members `read` on the tile.
 | `PUT /runs/{id}/memory` | `{key, value}` | set a memory block (one of the agent's notes) |
 | `DELETE /runs/{id}/memory?key=` | — | delete a memory block |
 | `POST /runs/{id}/cancel` | `{scope?, reason?}` | durable cancel; `scope` defaults to `subtree` |
-| `GET /runs/{id}/tree` | — | the whole workflow this run belongs to: nodes (each with its `link` and `phase`), statuses, blockers, cost. Metadata only |
+| `GET /runs/{id}/tree` | — | the whole workflow this run belongs to: nodes (each with its `link` and `phase`, `engine`, and a coding agent's compact `harness` — §Coding agents), statuses, blockers, cost. Metadata only |
 | `GET /halt` · `PUT /halt` | `{on}` | the global brake: cancels live runs and blocks new spawns |
 | `GET /runs/{id}/files` | — | the run's session files: `[{path, bytes, version, updated, mime?, binary?}]`, no content |
 | `GET /runs/{id}/file?path=` | — | one file with its content — a binary-stored text file up to 2 MiB too (a report over the text cap that `render_html` shows), still `binary: true` |
@@ -1858,6 +1863,83 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   agent never stops one: the next process takes it over where the last one
   left it, mid-turn too.
 
+**Its own routes** (D-harness §4.2.4–§4.2.6). On a run the agent's own
+loop answers they are **409** `not a coding-agent conversation`.
+
+| Method & path | Who | Body | Answer |
+|---|---|---|---|
+| `GET /runs/{id}/harness` | a viewer | — | `{harness, session: {gen, execId, acpSessionId, loadable, steering, startedAt, lastActive}, rules: [{kind, title}]}` — its summary, the adapter process (`startedAt`: its current generation's start, ms) and what "allow always" answers remember in this conversation |
+| `PATCH /runs/{id}/harness` | a participant; an explicit mode: the owner | `{mode?, option?: {id, value}}` | `{harness}` |
+| `POST /runs/{id}/harness/answer` | a participant | `{park?, action: accept\|decline\|cancel, content?}` | `{ok: "true"}` |
+| `POST /runs/{id}/harness/authenticate` | a participant who may use its sandbox | `{method, apiKey?, confirm?}` | **200** `{ok: "true", state: "ready"}` · **202** `{ok: "true", device: {url, message}}` |
+
+- **The mode and options.** `PATCH` switches the coding agent's mode (one
+  of `harness.mode.available`) and/or one of its config options (one of
+  `harness.options` — before its first session, one it last reported, as
+  `GET /harnesses` lists them — and `value` one of that option's values).
+  On a running coding agent it asks the agent now (`session/set_mode`, or
+  its config option of category `mode` when it speaks one;
+  `session/set_config_option`); either way the choice is kept in the
+  conversation's `config.harness` (`mode`, `options`) for its next start —
+  a stopped one's summary shows it as current. The change reaches the
+  stream as a `harness` event. An explicit mode (bypass, full access —
+  `explicit` in `mode.available`) is the conversation owner's, a person's.
+  **400** `mode or option: name one`, `mode: one of …`, `option: one of …`,
+  `value: one of …`; **403** `only ‹owner› can switch ‹name› to ‹mode›`;
+  **502** `{error}`: the coding agent refused, in its words; **504**
+  `‹name› didn't answer` (30 s); **503** with `Retry-After: 1` while another
+  process of the agent holds the session (a redeploy's handoff) — try again.
+- **Answering its question.** `answer` answers the question the run is
+  parked on (`pendingState.kind == "question"`): `accept` with `content`,
+  the form's values (an object; its keys the schema's properties),
+  `decline` or `cancel`. `park` names the question it answers (the one
+  pending now when absent). It is queued (an `hanswer` inbox row) and
+  delivered at once. **400** `no pending question`, `action is accept,
+  decline or cancel`, `content: an object with the form's fields`; **409**
+  `that question is no longer pending — the agent is asking something else
+  now`.
+- **Signing it in.** `authenticate` signs a coding agent that waits for a
+  sign-in (`harness.state` `login`) in through the agent itself: `method`
+  one of `harness.login.methods` of kind `api-key` (`apiKey` needed — it
+  goes to the coding agent once, in the one call, and is never stored,
+  logged or echoed; within 30 s the answer is 200 and the message that
+  waited goes) or `device-code` (the page and code within 30 s: 202, also
+  `harness.login.device`; the run goes on by itself once you finish). Only
+  a person who may use the sandbox **themself** — asked of its manager now
+  (the manager doesn't police the person this agent names) — and, on a
+  sandbox others may use too (team visibility, members or shares: they act
+  as you with the coding agent there, its credentials living in the
+  sandbox's HOME), with `confirm: true`. **400** `method: one of …`,
+  `apiKey: needed for ‹method›`, `apiKey: only for an API-key method`;
+  **403** `only someone who may use ‹sandbox› can sign it in` (also an
+  element, the scheduler, an admin viewing as someone); **409** `‹name› is
+  signed in`, `a sign-in to ‹name› is already under way`, and `{error:
+  "anyone who may use ‹sandbox› acts as you with ‹name› there — confirm to
+  sign in", confirm: true}`; **502** `{error}` in the coding agent's words;
+  **504** `‹name› didn't start its sign-in`; **503** as `PATCH`.
+- **Its summary everywhere.** `POST /ask` and `POST /runs` answer a coding
+  agent's new run with its `harness` too. `/tree` nodes carry `engine`
+  and, for a coding agent, `harness` without `options`, `commands`,
+  `mode.available` and `login.methods` (the board's row); `/needs` items
+  carry the same for the run that waits. A coding agent a sandbox manager
+  advertises that the SDK catalog doesn't know is `name`d as the manager
+  titles it (from its first start). The push for a coding agent's park
+  says it in its words: "‹name› wants to run ‹title› — approve or deny.",
+  its question, or "‹name› needs you to sign in to it." (kind `login`).
+- **The agent's own routes on a coding agent's run** (§4.2.11):
+  `PUT`/`DELETE /runs/{id}/memory` **409** `a coding agent has no memory`;
+  `POST /runs/{id}/learn` **409** `a coding agent can't learn a skill`;
+  `POST /runs/{id}/compact` **409** `‹name› has no /compact` unless it
+  advertises it (`harness.commands`; then it is sent); `PATCH /runs/{id}`
+  **400** with `model` (`a coding agent's model is an option: PATCH
+  /runs/{id}/harness {option: {id: "model", …}}`) and with `sandbox` or
+  `detach` (`a coding agent's sandbox is fixed for the conversation`).
+  Schedules and triggers run the agent's own loop: a `harness` in their
+  bodies is **400** `schedules run the built-in agent` (`triggers …`), and
+  a coding agent's conversation as their `targetRun` is **400**
+  `targetRun: a coding agent's conversation takes messages from people —
+  schedules run the built-in agent`.
+
 **Starting one (the UI).** "Who answers" sits in the home composer (web
 `#apick`; the native view: at the top of the home page — a phone's home bar
 already holds the class, model and sandbox pickers) and in the new-chat
@@ -2119,7 +2201,13 @@ native screen of its own kind, `task` a part of the unfolded pinned task
 (the native Task screen). Each file's header says the signatures; a
 hook that throws is logged and skipped. An instance can add modules of its
 own the same way. The coding harnesses' UI is built on them, tested
-against the STUB's harness routes and `test/harness-fixtures.mjs`.
+against the STUB's harness routes and `test/harness-fixtures.mjs` — which
+may use only what the real backend produces: `_backend/testdata/
+harness_shapes.json` records every shape's key paths and JSON types
+(`TestHarnessShapes` makes the backend produce them and fails when it stops
+producing one; regenerate the file as its header says), and
+`hack/agent-template-harness-shapes.test.mjs` fails on a path a fixture or
+the STUB serves that the file lacks.
 
 **A coding agent's transcript** (`harness-cards.js` on the web,
 `native/harness-cards.js`; the words are `model/harness-heads.js` and
