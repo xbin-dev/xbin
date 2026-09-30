@@ -173,7 +173,11 @@ func shareNew(w http.ResponseWriter, run *Run, s *shareSpec, by who) bool {
 // sharing it (POST /ask checks its body itself: askShareOK) — neither a run
 // (POST /runs) nor a new ask's draft (PUT /ask/upload: a held private run
 // whose file would sit in the shared space, and which no shared ask could
-// ever send — a shared chat is made held and uploaded into instead).
+// ever send — a shared chat is made held and uploaded into instead). The
+// same rule for automations — a person's private trigger or schedule is made
+// in their own partition — needs the body and the saved row (a switch vs an
+// edit), so their handlers check it: refusePrivateAtGlobal
+// (trigger_registry.go).
 func globalRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
 	var why string
 	switch pattern {
