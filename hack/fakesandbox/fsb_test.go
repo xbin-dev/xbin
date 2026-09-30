@@ -42,6 +42,7 @@ func newFake(t *testing.T, tweak ...func(*fsbManager)) (*fsbManager, sandboxcont
 
 func TestContract(t *testing.T) {
 	tg := fakeTarget(t, sandboxcontract.Knobs{})
+	tg.Strict = true // the reference manager passes what the suite only warns about
 	tg.Caps = []string{"exec", "files", "tar", "snapshots", "clone", "archive"}
 	if fsbHasPTY() {
 		tg.Caps = append(tg.Caps, "tty")
@@ -74,6 +75,31 @@ func TestContractBeforeStdio(t *testing.T) {
 	tg.Skip = map[string]string{}
 	for _, s := range []string{"hello", "sandboxes", "partitions", "people", "lifecycle", "run", "execs", "tty", "stdio", "files", "tar", "snapshots", "ports"} {
 		tg.Skip[s] = "TestContract runs it; this one is caps/missing's"
+	}
+	sandboxcontract.Run(t, tg)
+}
+
+// TestContractPolicingTTY: a manager built to the earlier suite that
+// refuses a consumer backend's terminal for an asserted person it wouldn't
+// admit on a verified call gets tty/backend's warning — the check skips,
+// saying why — not a failure, in the release that adds the check.
+func TestContractPolicingTTY(t *testing.T) {
+	t.Parallel()
+	if !fsbHasPTY() {
+		t.Skip("no pseudo-terminals here")
+	}
+	m := &fsbManager{Root: t.TempDir(), DefaultFrom: "apps/nobody", Grace: 200 * time.Millisecond}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tty") && r.Header.Get("X-XBin-User") == "" && r.Header.Get("Sbx-User") != "" {
+			fsbFail(w, http.StatusForbidden, "not-allowed", "terminals are for verified people here")
+			return
+		}
+		m.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.Close(); m.Close() })
+	tg := sandboxcontract.Target{URL: srv.URL, Grace: m.Grace, Skip: map[string]string{}}
+	for _, s := range []string{"hello", "sandboxes", "partitions", "people", "lifecycle", "run", "execs", "stdio", "files", "tar", "snapshots", "ports", "caps"} {
+		tg.Skip[s] = "TestContract runs it; this one is tty/backend's warning"
 	}
 	sandboxcontract.Run(t, tg)
 }

@@ -5729,7 +5729,9 @@ Deviations and refinements made while implementing; all deliberate:
     build every minute (the clean-up SQL is in API.md) and a class save
     there drops every class's coding agents. The native view has one
     terminal at a time and no buttons on child cards (the app's `toolcard`).
-    Contract: `tty/backend` now checks that a manager serves a consumer
-    backend's terminal for an asserted person (docs/changes/
-    2026-09-30-manager-terminals-for-backends.md); `caps/missing` takes a
-    pre-`stdio` manager's `not-found`, so no manager that passed breaks.
+    Conformance: no manager whose run passed fails on the upgrade —
+    `caps/missing` takes a pre-`stdio` manager's `not-found`, and
+    `tty/backend` (a consumer backend's terminal for an asserted person)
+    only warns (skips, saying why) this release; **the next release makes
+    it fail** (docs/changes/2026-09-30-manager-terminals-for-backends.md;
+    `Target.Strict` holds the reference managers to it now).

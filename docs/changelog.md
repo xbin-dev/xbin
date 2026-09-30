@@ -275,16 +275,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     and advertises the scripted agent as `fake` (`-fake-acp` /
     `$FSB_HARNESS_FAKE` set its command and flags; its sign-in is `<that
     command> login`).
-- **BREAKING (rare) — a sandbox manager of your own: the conformance suite
-  checks the terminals a consumer's backend opens** (D147,
-  [migration](changes/2026-09-30-manager-terminals-for-backends.md)).
+- **BREAKING (next release, rare) — a sandbox manager of your own: the
+  conformance suite checks the terminals a consumer's backend opens**
+  (D147, [migration](changes/2026-09-30-manager-terminals-for-backends.md)).
   `tty/backend` opens terminals as a consumer's backend does, for an
   asserted person who is neither the sandbox's owner nor a member, and on
   a sandbox shared with that consumer — what the contract always left to
-  the consumer. A manager that refuses them fails it (name it in
-  `Target.Skip`, saying why, until yours follows); `coding-sandbox` and
-  `hack/fakesandbox` pass unchanged. Nothing to change for consumers or
-  pages.
+  the consumer. A manager that refuses them is **warned in this release**
+  (the check skips: `WARNING (a failure from the next release): …`) and
+  **fails it from the next**; the new `Target.Strict` fails it now, and
+  the reference managers set it. `coding-sandbox` and `hack/fakesandbox`
+  pass. Nothing to change for consumers or pages.
 - **coding-sandbox: coding agents in its images, `stdio`, and readers
   refused every socket** (`builtin-templates/coding-sandbox/API.md`
   §Images, [sandbox-manager.md](sandbox-manager.md) §stdio). A manager
@@ -302,12 +303,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   optional `StdioBox`; one that doesn't still builds and isn't offered
   it). A new sandbox's defaults gain `IS_SANDBOX=1` beside `IN_SANDBOX=1`
   — the spelling coding agents check (Claude Code refuses its bypass mode
-  as root without it); a renamed one gains it. **Security:** the tile's own
-  page now refuses every WebSocket upgrade to a person with only read
-  access, before routing — a stdio socket (attaching took an exec's stdin:
-  a reader could type into a coding agent) and any socket added later, as
-  it refused terminals. That includes a port preview's WebSocket, which
-  the ports route already refused such a reader (with all of the route).
+  as root without it); a renamed one gains it. **Readers:** the tile's own
+  page refuses every WebSocket upgrade to a person with only read access,
+  before routing, as it refuses terminals — the stdio socket (attaching
+  takes an exec's stdin: a reader could type into a coding agent) and any
+  socket added later. That includes a port preview's WebSocket, which the
+  ports route already refused such a reader, with the rest of the route.
 - **xbind: tile sandboxes serve `stdio`, and a terminal in one gets a
   terminal's environment** ([protocol.md](protocol.md) §Tile sandboxes).
   `runtime.caps` gains `stdio`: `split` on `POST

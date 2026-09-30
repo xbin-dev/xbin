@@ -186,6 +186,36 @@ func dialRefused(t *testing.T, a Caller, path string, status int, refusal string
 	a.refusal("GET "+path+" (a WebSocket)", resp, b, status, refusal)
 }
 
+// backendTTYWarn: a consumer's backend opens a terminal (a command that
+// exits at once) for a person it asserts whom the manager wouldn't admit on
+// a verified call. The contract always left that person to the consumer
+// (docs/sandbox-manager.md §Who is asking), but the suite checked it for
+// reads and run only, so a manager built to it may refuse the terminal (403
+// or 404). In the release that adds the check (2026-09-30) that is a
+// warning — the check skips, saying why; from the next release it fails,
+// and with Target.Strict it fails now. Any other failure is attach's to
+// report.
+func backendTTYWarn(t *testing.T, e *env, a Caller, id string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	c, resp, err := a.Dial(ctx, ttyPath(id, url.Values{"cmd": {"true"}}))
+	if err == nil {
+		c.Close()
+		return
+	}
+	if resp == nil || resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusNotFound {
+		return
+	}
+	b, _ := io.ReadAll(resp.Body)
+	msg := "the manager refused a consumer backend's terminal for " + a.who() + " (" + resp.Status + " " + strings.TrimSpace(string(b)) +
+		"): a backend call's person is asserted and the consumer's to check, on terminals too — docs/changes/2026-09-30-manager-terminals-for-backends.md"
+	if e.tg.Strict {
+		t.Fatal(msg)
+	}
+	t.Skip("WARNING (a failure from the next release): " + msg)
+}
+
 var ttyChecks = []check{
 	{"unsupported", func(t *testing.T, e *env) {
 		if e.has("tty") {
@@ -281,6 +311,7 @@ var ttyChecks = []check{
 		a, b, c := e.as("a"), e.as("b"), e.as("c")
 		sb := a.Verified("alice").Create(map[string]any{"name": "backend", "visibility": "private"})
 		be := a.Asserting("bob") // neither its owner nor a member
+		backendTTYWarn(t, e, be, sb.ID)
 		script := `stty size; echo ready; read line; stty size; echo "got:$line"; exit 4`
 		tm := attach(t, be, ttyPath(sb.ID, url.Values{"cmd": {script}, "rows": {"10"}, "cols": {"20"}}))
 		if tm.session["sandbox"] != sb.ID {
@@ -309,6 +340,7 @@ var ttyChecks = []check{
 		// shared with another consumer: its backend opens one for whoever
 		// it names, the share's users being its to apply
 		a.Call("PATCH", "/sandboxes/"+sb.ID, map[string]any{"shares": []map[string]any{{"consumer": b.Consumer(), "users": []string{"carol"}}}}, http.StatusOK, nil)
+		backendTTYWarn(t, e, b.Asserting("dave"), sb.ID)
 		sh := attach(t, b.Asserting("dave"), ttyPath(sb.ID, url.Values{"cmd": {"echo shared-$((6*7))"}}))
 		sh.expect("shared-42")
 		sh.exited(0)

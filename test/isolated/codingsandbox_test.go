@@ -264,6 +264,7 @@ func (e *csEnv) target() sandboxcontract.Target {
 		Verified: func(r *http.Request, user string) { r.Header.Set("X-Csenv-User", user) },
 		Caps:     caps,
 		Grace:    5 * time.Second,
+		Strict:   !e.d.IsRemote(), // this tree's coding-sandbox passes what the suite only warns about
 	}
 }
 

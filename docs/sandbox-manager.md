@@ -663,7 +663,10 @@ make — `stdio` drives programs over the stdio socket (replay from an
 offset, gaps, split stderr, exit, `eof`, the newest attach winning);
 `tty/backend` opens terminals as a consumer's backend does, for an
 asserted person who is neither the sandbox's owner nor a member, and on a
-sandbox shared with it. A section whose optional capability hello leaves
+sandbox shared with it (a manager that refuses them is warned — the check
+skips, saying why — in the release that added it, 2026-09-30, and fails it
+from the next: docs/changes/2026-09-30-manager-terminals-for-backends.md).
+A section whose optional capability hello leaves
 out is skipped; its routes must answer `unsupported` (`caps/missing`) —
 `stdio`'s may also answer `not-found`, as a manager from before it does
 for a route it doesn't know. The rest of `Target`:
@@ -680,6 +683,9 @@ for a route it doesn't know. The rest of `Target`:
   the limits its hello states.
 - `Skip` — checks you know it fails (`"execs/stdin"`, or a whole section),
   each with why: they show as skipped, never silently.
+- `Strict` — fail what the suite still only warns about (a check a manager
+  built to the earlier suite may not pass yet skips with a warning for one
+  release); the reference managers set it.
 
 `Target.As(t, consumer)` is the suite's client (calls, refusals, runs,
 execs, files, terminals) for your own tests of what the contract leaves to

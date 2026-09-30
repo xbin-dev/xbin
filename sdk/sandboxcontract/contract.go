@@ -70,6 +70,12 @@ type Target struct {
 	// section ("execs") or one check ("execs/stdin"). They are skipped and
 	// say so: a declared deviation, never a silent one.
 	Skip map[string]string
+	// Strict fails what the suite still only warns about. A check that a
+	// manager built to an earlier suite may not pass yet, though the
+	// contract always said it (today: tty/backend's refusals, from
+	// 2026-09-30), skips with a warning for one release and fails in the
+	// next; with Strict it fails now. The reference managers set it.
+	Strict bool
 	// Setup, when set, runs at the start of every check (manager-specific
 	// preparation).
 	Setup func(t *testing.T)

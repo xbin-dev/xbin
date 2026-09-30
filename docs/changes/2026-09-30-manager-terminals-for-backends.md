@@ -1,4 +1,4 @@
-# 2026-09-30 — the conformance suite checks the terminals a consumer's backend opens (D147)
+# 2026-09-30 — the conformance suite checks the terminals a consumer's backend opens (D147): a warning now, a failure from the next release
 
 ## What changed
 
@@ -29,18 +29,25 @@ manager offers `tty`):
   `users` doesn't list;
 - a consumer it isn't shared with gets `404 not-found`, whoever it names.
 
+**In this release a manager that refuses those terminals (403 or 404) is
+warned, not failed**: `tty/backend` skips with `WARNING (a failure from the
+next release): the manager refused a consumer backend's terminal for …`.
+**From the next release it fails.** `Target.Strict` (new) fails it now; the
+reference managers set it.
+
 ## Who's affected
 
 Only authors of a sandbox manager of their own that runs the suite
 (`sandboxcontract.Run`) **and** refuses a backend's terminal for an
 asserted person it wouldn't admit on a verified call — a manager that
-polices `Sbx-User` on its `tty` routes. After upgrading the SDK its
-`TestContract/tty/backend` fails. `coding-sandbox` and `hack/fakesandbox`
-pass unchanged. Consumers and pages change nothing.
+polices `Sbx-User` on its `tty` routes. Its `go test -v` shows the warning
+as a skipped `TestContract/tty/backend`; after the next release's SDK it
+fails. `coding-sandbox` and `hack/fakesandbox` pass it (strictly).
+Consumers and pages change nothing.
 
 At run time nothing that worked stops working: such a manager refuses the
 terminals the agent template relays (the app's terminals, a coding agent's
-terminal sign-in on the app); the web's terminals dial the manager as the
+terminal sign-in in the app); the web's terminals dial the manager as the
 verified person and are unaffected.
 
 ## How to migrate
@@ -56,11 +63,13 @@ Treat `Sbx-User` on the `tty` routes as you treat it on every other route:
 - if your substrate asks about the person (xbind refuses a person with
   `noTerminal`, through `forUser`), ask about the asserted one.
 
-Until your manager does, name the check in `Target.Skip`, saying why:
+Then set `Strict: true` on your `Target` so the suite holds you to it. If
+your manager must keep refusing, say so before the check fails — name it in
+`Target.Skip` with why:
 
 ```go
 sandboxcontract.Run(t, sandboxcontract.Target{URL: srv.URL,
-	Skip: map[string]string{"tty/backend": "backend terminals are verified-only here until …"}})
+	Skip: map[string]string{"tty/backend": "backend terminals are verified-only here: …"}})
 ```
 
 ## Why
@@ -73,4 +82,7 @@ terminal in its sandbox to run its sign-in. Policing asserted persons in
 the manager instead would change the rule every manager already implements
 for every other route; the consumer knows its people, and checks the person
 against the sandbox's owner, members, `team` and shares — fresh from the
-manager — before it relays (the agent template does).
+manager — before it relays (the agent template does). The check warns for a
+release first because the SDK's semantics change only permissively
+([compat.md](/docs/compat.md) rules 8 and 11): a manager's conformance run
+that passed yesterday must not fail on an SDK upgrade without notice.
