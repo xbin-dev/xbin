@@ -53,7 +53,10 @@ filled, whose tooltip reads "Partitioned: each person here has their own
 data" — and names the global instance when the tile has one. It marks a
 state; it isn't a button. It follows the recorded mode, so a pending switch
 doesn't change it ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
-A theme may set its colour with the `--bx-part` token. The shell is
+A window showing one of the tile's other deployments has no marker: its
+head says `shared` beside the deployment's name, since that deployment's one
+instance is shared by the tile's writers (above), not your partition. A
+theme may set the marker's colour with the `--bx-part` token. The shell is
 workspace scaffold, so a workspace gets the marker with `bx builtin
 update`.
 
@@ -168,7 +171,9 @@ only the record:
   `tile.partition-switch`) when the request opens — at most one per tile
   every 15 minutes, however often the code toggles `partition`;
 - in the workspace shell, the tile's window greys out under the same words
-  — and, for a tile manager, offers **Keep the current mode** and
+  and the tile's `partitionNote` (the `/components` row carries it while
+  the switch is pending), names who decides — and, for a tile manager,
+  offers **Keep the current mode** and
   **Switch and delete all data…** (just **Switch…** when only `"global"`
   comes or goes), which shows what the switch deletes and keeps and asks
   for the tile's path before it switches. A window showing another

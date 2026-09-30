@@ -466,7 +466,9 @@ export const partCss = css`
     .pbox .phead { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-weight: 600; }
     .pbox .phead .pdot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--bx-amber, #f2a71b); }
     .pbox .pmsg { margin: 0; }
-    .pbox .pwho { margin: 8px 0 0; color: var(--bx-muted, #868f9a); font-size: 11.5px; }
+    .pbox .pnote { margin: 8px 0 0; padding-left: 9px; border-left: 2px solid var(--bx-border, #363c45);
+      white-space: pre-wrap; overflow-wrap: anywhere; }
+    .pbox .pwho, .pbox .pdone { margin: 8px 0 0; color: var(--bx-muted, #868f9a); font-size: 11.5px; white-space: pre-wrap; }
     .pbox .perr { margin: 8px 0 0; padding: 6px 9px; border-radius: 6px; white-space: pre-wrap; font-size: 12px;
       color: var(--bx-red, #ef5350); border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 55%, transparent);
       background: color-mix(in srgb, var(--bx-red, #ef5350) 12%, transparent); }
@@ -475,7 +477,12 @@ export const partCss = css`
       border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); }
     .pbox button:hover:not(:disabled) { border-color: var(--bx-muted, #868f9a); }
     .pbox button:disabled { opacity: .55; cursor: default; }
-    .pbox button.pswitch { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent); }
+    .pbox button.pdel { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent); }
+    /* a window on a deployment of a partitioned tile: no marker, and this
+       chip — that deployment's one instance is its writers' shared one */
+    .dshare { flex: none; padding: 0 5px; border-radius: 8px; cursor: default;
+      font: 600 10px/13px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a);
+      border: 1px solid var(--bx-border, #363c45); }
 `;
 
 // bx-side: the sidebar's tree, filter, folders, footers — and its mobile rows.

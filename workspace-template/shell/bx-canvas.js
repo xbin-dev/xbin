@@ -27,8 +27,9 @@ import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo } from './zorder.js';
 import { canvasCss, prbCss, partCss } from './shell-css.js';
-import { partitionView, requestKey, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
-  switchSpec, switchResolve, DECIDERS } from './partition-mode.js';
+import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
+  switchSpec, switchResolve, staleRefusal, deletesNothing, keptText, switchedText, whoDecides, noteText,
+  depShared, DEP_SHARED } from './partition-mode.js';
 
 export class BxCanvas extends LitElement {
   static properties = {
@@ -332,7 +333,10 @@ export class BxCanvas extends LitElement {
   // Both are fixed-size: the frame fills a fixed body and scrolls inside.
   _cardTemplate(o, kind = 'grid') {
     const floating = kind === 'float', shown = this._shownDep(o);
-    const c = (this.components ?? []).find((x) => x.path === o.path);
+    const c = this._rowOf(o.path), pv = partitionView(c);
+    // a window on another deployment shows no partitioned marker: that
+    // deployment's one instance is shared by the tile's writers (01 §2.8)
+    const mark = shown ? null : partitionMark(c);
     const frame = html`<bx-frame src=${o.path} deployment=${shown || nothing} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
     return html`
       <div class="card" data-path=${o.path}
@@ -341,9 +345,10 @@ export class BxCanvas extends LitElement {
              @pointerdown=${(e) => { this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._press.move(e)}
              @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}>
-          ${partitionMark(c) ?? html`<span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>`}
+          ${mark ?? html`<span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>`}
           <span class="t">${o.path}</span>
           ${shown ? html`<span class="dtag" title=${`this window shows ${o.path}'s deployment ${shown} (/c/${o.path}+${shown}/), not the primary`}>+${shown}</span>` : nothing}
+          ${shown && depShared(pv) ? html`<span class="dshare" title=${DEP_SHARED}>shared</span>` : nothing}
           ${prBadge(this.prs?.[o.path], () => this.frameOpen(o.path, 'prs'))}
           ${deployBadge(this._deployIcon(o, shown), (e) => this._deployMenu(e, o))}
           <span class="spacer"></span>
@@ -360,7 +365,7 @@ export class BxCanvas extends LitElement {
                   @click=${(e) => this._tileMenu(e, o.path, e.currentTarget)}>⋯</button>
           ${!this.mobile && this.canMutate ? html`<button title="close" @click=${() => this._emit('bx-toggle-tile', o.path)}>✕</button>` : nothing}
         </div>
-        <div class="cbody">${frame}${this._partOverlay(o.path, c, shown)}</div>
+        <div class="cbody">${frame}${this._partOverlay(o.path, c, pv, shown)}</div>
       </div>`;
   }
 
@@ -372,35 +377,42 @@ export class BxCanvas extends LitElement {
   // signed-in person; xbind judges who may). Beneath, the frame shows xbind's
   // own page either way. A window showing another deployment isn't paused,
   // so it has no overlay; a row without a pending request draws nothing.
+  // A card's decision state lives while its row shows that request pending:
+  // pruned whenever /components changes, never set once it doesn't.
+  _rowOf(path) { return (this.components ?? []).find((x) => x.path === path); }
+  willUpdate(changed) {
+    if (changed.has('components')) this._part = pruneDecisions(this._part, (p) => this._rowOf(p));
+  }
   _partOf(path, v) {
     const st = this._part[path];
     return st && st.key === requestKey(v) ? st : null;
   }
   _setPart(path, v, patch) {
+    const cur = partitionView(this._rowOf(path));
+    if (!cur?.pending || requestKey(cur) !== requestKey(v)) return; // decided, withdrawn or changed meanwhile
     this._part = { ...this._part, [path]: { ...(this._partOf(path, v) ?? { key: requestKey(v) }), ...patch } };
   }
-  _partOverlay(path, c, shown) {
-    const v = partitionView(c);
+  _partOverlay(path, c, v, shown) {
     if (!v?.pending || shown) return nothing;
-    const st = this._partOf(path, v) ?? {}, busy = !!st.busy;
+    const st = this._partOf(path, v) ?? {}, busy = !!st.busy, note = noteText(path, v);
     const buttons = this.canAdminTile?.(path) ? html`<div class="pbtns">
         <button class="pkeep" ?disabled=${busy} title="the tile runs again in its current mode (${modeName(v.from)}); nothing is deleted"
           @click=${() => this._partKeep(path, v)}>${st.busy === 'keep' ? 'Keeping…' : 'Keep the current mode'}</button>
-        <button class="pswitch" ?disabled=${busy} title="shows what the switch deletes and keeps, then asks you to type ${path}"
+        <button class=${deletesNothing(v.from, v.to) ? 'pswitch' : 'pswitch pdel'} ?disabled=${busy} title="shows what the switch deletes and keeps, then asks you to type ${path}"
           @click=${() => this._partSwitch(path, v)}>${st.busy === 'count' ? 'Counting…' : st.busy === 'switch' ? 'Switching…' : switchLabel(v.from, v.to) + '…'}</button>
-      </div>` : html`<p class="pwho">A manager of ${path} decides: ${DECIDERS}.</p>`;
+      </div>` : html`<p class="pwho">Who decides: ${whoDecides(c?.owner)}.</p>`;
     return html`<div class="pover"><div class="pbox" role="alert">
-      <div class="phead"><span class="pdot"></span>Paused: a partition mode switch is requested</div>
+      <div class="phead"><span class="pdot"></span>Paused until a manager decides</div>
       <p class="pmsg">${pendingText(path, v, this.alerts)}</p>
-      ${st.done ? html`<p class="pwho">${st.done}</p>` : buttons}
+      ${note ? html`<p class="pnote">${note}</p>` : nothing}
+      ${st.done ? html`<p class="pdone">${st.done}</p>` : buttons}
       ${st.err ? html`<p class="perr">${st.err}</p>` : nothing}
     </div></div>`;
   }
   async _partKeep(path, v) {
     this._setPart(path, v, { busy: 'keep', err: '' });
     const res = await postMode((u, i) => fetch(u, i), modeBody(path, 'keep', v));
-    this._setPart(path, v, res.ok ? { busy: '', done: `Kept ${modeName(v.from)}: ${path} runs again, and nothing was deleted.` }
-      : { busy: '', err: errorText(res) });
+    this._setPart(path, v, res.ok ? { busy: '', done: keptText(path, v) } : { busy: '', err: errorText(res) });
     this.reload?.();
   }
   // Switch…: the dry run first (the counts, the keep list, the sandbox
@@ -422,7 +434,12 @@ export class BxCanvas extends LitElement {
     this._setPart(d.path, d.v, { busy: 'switch', err: '' });
     const res = await postMode((u, i) => fetch(u, i), modeBody(d.path, 'switch', d.v, r.extra));
     if (res.ok) {
-      this._setPart(d.path, d.v, { busy: '', done: `Switched ${d.path} to ${modeName(d.v.to)}: ${res.body?.deletes || 'its data'} deleted.` });
+      this._setPart(d.path, d.v, { busy: '', done: switchedText(d.path, d.v, res.body) });
+      this.reload?.();
+      return;
+    }
+    if (staleRefusal(res)) { // the request changed or was decided meanwhile: the card says why, and looks again
+      this._setPart(d.path, d.v, { busy: '', err: errorText(res) });
       this.reload?.();
       return;
     }

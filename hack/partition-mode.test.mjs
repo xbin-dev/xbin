@@ -3,12 +3,15 @@
 // `make js-test`: what a /components row's `partition` reads as, the
 // marker's tooltip, the pending card's text, the switch's words (in step
 // with xbind's registry.SwitchDeletes), the POST /partitions/mode bodies,
-// and the typed confirmation's spec and answers. A row without `partition`
-// (an older xbind, a tile that never asked) reads as nothing at all.
+// the typed confirmation's spec and answers, what the card says after a
+// decision, and how long a card's decision state lives. A row without
+// `partition` (an older xbind, a tile that never asked) reads as nothing at
+// all.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { partitionView, markTitle, MARK_TITLE, modeName, switchDeletes, switchLabel, pendingText, requestKey,
-  modeBody, postMode, errorText, bytesText, wipedText, switchSpec, switchResolve, DELETES_ALL } from '../workspace-template/shell/partition-mode.js';
+  modeBody, postMode, errorText, bytesText, wipedText, switchSpec, switchResolve, DELETES_ALL,
+  pruneDecisions, whoDecides, noteText, staleRefusal, deletesNothing, keptText, switchedText, depShared, DEP_SHARED } from '../workspace-template/shell/partition-mode.js';
 
 const row = (partition) => ({ path: 'apps/p', partition });
 
@@ -57,8 +60,9 @@ test('modes and what a switch deletes match xbind\'s words (H1)', () => {
 
 test('the pending card says the alert\'s words, else the row\'s', () => {
   const v = partitionView(row({ state: 'pending', user: false, global: false, request: { user: true, global: false } }));
-  const alerts = [{ kind: 'disk', tile: 'apps/p', message: 'disk' }, { kind: 'partition-switch', tile: 'apps/p', message: 'xbind says so' }];
-  assert.equal(pendingText('apps/p', v, alerts), 'xbind says so');
+  const alerts = [{ kind: 'disk', tile: 'apps/p', message: 'disk (unpartitioned → user)' },
+    { kind: 'partition-switch', tile: 'apps/p', message: 'xbind says so (unpartitioned → user)' }];
+  assert.equal(pendingText('apps/p', v, alerts), 'xbind says so (unpartitioned → user)');
   const own = pendingText('apps/p', v, [{ kind: 'partition-switch', tile: 'apps/q', message: 'another tile' }]);
   assert.match(own, /^A partition mode switch is requested for apps\/p \(unpartitioned → user\): switching deletes all data in this tile\./);
   assert.equal(pendingText('apps/p', v, undefined), own);
@@ -122,4 +126,80 @@ test('the confirmation\'s answers: cancel, again, or the switch body', () => {
   assert.match(noYes.again, /Switch anyway/);
   assert.deepEqual(switchResolve('apps/p', { button: 'switch', values: { confirm: 'apps/p', yes: true } }, { managers: ['sbx/a'] }).extra,
     { confirm: 'apps/p', yes: true });
+});
+
+test('a card\'s decision state lives only while its request is pending', () => {
+  const pend = (global) => ({ path: 'apps/p', partition: { state: 'pending', user: false, global: false, request: { user: true, global: !!global } } });
+  const key = requestKey(partitionView(pend()));
+  const part = { 'apps/p': { key, done: 'Kept unpartitioned: …' }, 'apps/q': { key, err: 'x' } };
+  // still pending, the same request: kept, and the same object (no re-render)
+  const rows = { 'apps/p': pend(), 'apps/q': pend() };
+  assert.equal(pruneDecisions(part, (p) => rows[p]), part);
+  // kept (declined), withdrawn (no partition), gone, or another request: dropped
+  const kept = { path: 'apps/p', partition: { state: 'unpartitioned', user: false, global: false, request: { user: true, declined: true } } };
+  for (const r of [kept, { path: 'apps/p' }, undefined, pend(true)]) {
+    const out = pruneDecisions(part, (p) => (p === 'apps/p' ? r : rows[p]));
+    assert.deepEqual(Object.keys(out), ['apps/q']);
+    assert.notEqual(out, part);
+  }
+  // keep, withdraw, then the same R → Q again: the reopened request starts over
+  let st = pruneDecisions(part, (p) => (p === 'apps/p' ? kept : rows[p]));
+  st = pruneDecisions(st, (p) => (p === 'apps/p' ? { path: 'apps/p' } : rows[p]));
+  st = pruneDecisions(st, (p) => rows[p]);
+  assert.equal(st['apps/p'], undefined);
+  assert.equal(pruneDecisions(undefined, () => null), undefined);
+});
+
+test('who decides, the tile\'s note, and a deployment\'s window', () => {
+  assert.equal(whoDecides('org:devs'), 'an admin of org:devs, which owns it, or a workspace admin');
+  assert.equal(whoDecides('user:dev1'), 'its owner, user:dev1, or a workspace admin');
+  assert.equal(whoDecides(''), 'a workspace admin');
+  assert.equal(whoDecides(undefined), 'a workspace admin');
+  const v = partitionView(row({ state: 'pending', user: false, request: { user: true }, note: '  Your notes live here.  ' }));
+  assert.equal(v.note, 'Your notes live here.');
+  assert.equal(noteText('apps/p', v), 'apps/p says: Your notes live here.');
+  assert.equal(noteText('apps/p', partitionView(row({ state: 'pending', request: { user: true }, note: 7 }))), '');
+  // a deployment of a partitioned tile is its writers' shared instance
+  assert.equal(depShared(partitionView(row({ state: 'partitioned', user: true }))), true);
+  assert.equal(depShared(partitionView(row({ state: 'partitioned', global: true }))), false);
+  assert.equal(depShared(null), false);
+  assert.match(DEP_SHARED, /^Not partitioned: .*shares.*not each person's own partition$/);
+});
+
+test('the card takes the alert of this request, without the CLI hint', () => {
+  const v = partitionView(row({ state: 'pending', user: false, global: false, request: { user: true, global: false } }));
+  const msg = 'A partition mode switch is requested for apps/p (unpartitioned → user): switching deletes all data in this tile. '
+    + 'Until a manager of apps/p switches or keeps the current mode (bx partition switch|keep apps/p), it doesn\'t run.';
+  assert.equal(pendingText('apps/p', v, [{ kind: 'partition-switch', tile: 'apps/p', message: msg }]),
+    'A partition mode switch is requested for apps/p (unpartitioned → user): switching deletes all data in this tile. '
+    + 'Until a manager of apps/p switches or keeps the current mode, it doesn\'t run.');
+  // an alert of an older request (alerts and rows load apart): the row's words
+  const old = msg.replace('(unpartitioned → user)', '(unpartitioned → user + global)');
+  assert.equal(pendingText('apps/p', v, [{ kind: 'partition-switch', tile: 'apps/p', message: old }]), pendingText('apps/p', v, []));
+});
+
+test('a switch that deletes nothing says so; the answers after a decision', () => {
+  const U = { user: true, global: false }, UG = { user: true, global: true };
+  assert.equal(deletesNothing(U, UG), true);
+  assert.equal(deletesNothing(UG, U), false);
+  assert.equal(deletesNothing({}, U), false);
+  const v = partitionView(row({ state: 'pending', user: true, global: false, request: { user: true, global: true }, note: 'shared lists' }));
+  const s = switchSpec('apps/p', v, { deletes: 'nothing (the global instance starts empty)', wiped: {}, keeps: ['the code'] });
+  assert.doesNotMatch(s.message, /It deletes:|can't be undone/);
+  assert.match(s.message, /apps\/p says: shared lists/);
+  assert.match(s.message, /Nothing is deleted: the global instance starts empty\.$/);
+  assert.deepEqual(s.buttons.map((b) => [b.label, !!b.danger]), [['Cancel', false], ['Switch', false]]);
+  assert.equal(switchedText('apps/p', v, { deletes: 'nothing (the global instance starts empty)' }),
+    'Switched apps/p to user + global: nothing was deleted (the global instance starts empty).');
+  const all = partitionView(row({ state: 'pending', user: true, global: false, request: { user: false, global: false } }));
+  assert.equal(switchedText('apps/p', all, { deletes: DELETES_ALL }), 'Switched apps/p to unpartitioned: all data in this tile deleted.');
+  assert.equal(switchedText('apps/p', all, { deletes: DELETES_ALL, eraseError: 'key file busy', archiver: 'gc runs tonight' }),
+    'Switched apps/p to unpartitioned: all data in this tile deleted.\n'
+    + 'The backup keys are erased, but not every key file is removed yet: key file busy\nArchiver: gc runs tonight');
+  assert.equal(keptText('apps/p', all), 'Kept user: apps/p runs again, and nothing was deleted.');
+  // a refusal the dialog can't fix closes it; the managers' 409 and a 500 re-open it
+  assert.equal(staleRefusal({ status: 409, body: { error: 'changed', partition: { state: 'pending' } } }), true);
+  assert.equal(staleRefusal({ status: 409, body: { error: 'already running' } }), true);
+  assert.equal(staleRefusal({ status: 409, body: { error: 'managers', managers: ['sbx/a'] } }), false);
+  assert.equal(staleRefusal({ status: 500, body: { error: 'part-way' } }), false);
 });

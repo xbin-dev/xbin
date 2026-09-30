@@ -12,8 +12,8 @@
 // drew.
 //
 // TODO(consent prompts): shown only while the partitionConsent policy is
-// on, they need the partition consents API, which xbind doesn't serve yet;
-// they belong beside the card overlay once it does.
+// on, they need the partition consents API, which this xbind doesn't serve
+// yet; they belong beside the card overlay once it does.
 
 // The marker's words.
 export const MARK_TITLE = 'Partitioned: each person here has their own data';
@@ -26,20 +26,47 @@ const spec = (x) => ({ user: !!x?.user, global: !!x?.global });
 
 // partitionView(c) → null, or what c's row says: its state, its recorded
 // mode (from: user, global), the mode its code asks for (to, null without a
-// request), and whether that request waits for a manager (pending) or was
-// declined.
+// request), whether that request waits for a manager (pending) or was
+// declined, and the tile's partitionNote while it waits (note: the tile's
+// own words — sandbox-writable, so shown as text and attributed to it).
 export function partitionView(c) {
   const p = c?.partition;
   if (!p || typeof p !== 'object') return null;
   const q = p.request && typeof p.request === 'object' ? p.request : null;
   const from = spec(p), to = q ? spec(q) : null;
   const state = typeof p.state === 'string' ? p.state : '';
-  return { state, user: from.user, global: from.global, from, to, pending: state === 'pending' && !!to, declined: !!q?.declined };
+  const note = typeof p.note === 'string' ? p.note.trim() : '';
+  return { state, user: from.user, global: from.global, from, to, pending: state === 'pending' && !!to, declined: !!q?.declined, note };
 }
 
-// requestKey(view) → a request's identity (R → Q): what a card's decision
-// state is kept under, so a new request never shows an old one's answer.
+// requestKey(view) → a request's R → Q: what a card's decision state is kept
+// under while the request stays pending. pruneDecisions drops it once the
+// row stops showing that request pending, so a request that closes and
+// reopens with the same R → Q starts over.
 export const requestKey = (v) => (v ? `${modeName(v.from)}→${modeName(v.to)}` : '');
+
+// pruneDecisions(part, rowOf) → the cards' decision states (path → {key, …})
+// without those whose row no longer shows that request pending — decided,
+// withdrawn, changed or gone. The same object when nothing goes.
+export function pruneDecisions(part, rowOf) {
+  let out = part;
+  for (const [path, st] of Object.entries(part ?? {})) {
+    const v = partitionView(rowOf(path));
+    if (v?.pending && st?.key === requestKey(v)) continue;
+    if (out === part) out = { ...part };
+    delete out[path];
+  }
+  return out;
+}
+
+// A window showing a non-primary deployment of a partitioned tile carries
+// no marker: a deployment never runs people's partitions — its one instance
+// is shared by the tile's writers (01 §2.8). Its head shows a "shared" chip
+// instead (depShared(view): the tile's recorded mode has user partitions),
+// with DEP_SHARED as the tooltip.
+export const DEP_SHARED = 'Not partitioned: a deployment runs one instance that every writer of the tile shares '
+  + '(its global instance, when its code asks for partitions), not each person\'s own partition';
+export const depShared = (v) => !!v?.user;
 
 // markTitle(view) → the marker's tooltip, '' when the tile has no user
 // partitions (no marker). The marker follows the recorded mode: a pending
@@ -71,16 +98,30 @@ export const switchLabel = (from, to) => (switchDeletes(from, to) === DELETES_AL
 
 // pendingText(path, view, alerts) → the card's words for a pending tile: the
 // /alerts row's message (xbind's words, as the banner shows them) when there
-// is one, else the same facts from the row.
+// is one for this request, else the same facts from the row. The message's
+// `bx partition switch|keep` hint is left out: the card has the buttons, and
+// says who decides.
 export function pendingText(path, v, alerts) {
-  const a = (Array.isArray(alerts) ? alerts : []).find((x) => x?.kind === 'partition-switch' && x?.tile === path);
-  if (a?.message) return String(a.message);
-  return `A partition mode switch is requested for ${path} (${modeName(v?.from)} → ${modeName(v?.to)}): switching deletes `
+  const rq = `(${modeName(v?.from)} → ${modeName(v?.to)})`;
+  const a = (Array.isArray(alerts) ? alerts : []).find((x) => x?.kind === 'partition-switch' && x?.tile === path
+    && typeof x?.message === 'string' && x.message.includes(rq));
+  if (a) return a.message.replace(` (bx partition switch|keep ${path})`, '');
+  return `A partition mode switch is requested for ${path} ${rq}: switching deletes `
     + `${switchDeletes(v?.from, v?.to)}. Until a manager of ${path} switches or keeps the current mode, it doesn't run.`;
 }
 
-// Who decides (docs/partitions.md §The mode), for people who can't.
-export const DECIDERS = 'the tile\'s owner, an admin of its owning org, or a workspace admin';
+// whoDecides(owner) → who decides this tile, from its row's owner
+// ("user:<id>" | "org:<id>" | ""), as xbind's in-frame page names them.
+export function whoDecides(owner) {
+  const o = typeof owner === 'string' ? owner : '';
+  if (o.startsWith('org:')) return `an admin of ${o}, which owns it, or a workspace admin`;
+  if (o.startsWith('user:')) return `its owner, ${o}, or a workspace admin`;
+  return 'a workspace admin';
+}
+
+// noteText(path, view) → the tile's partitionNote attributed to it ('' when
+// it has none), as xbind's in-frame page says it.
+export const noteText = (path, v) => (v?.note ? `${path} says: ${v.note}` : '');
 
 // modeBody(path, act, view, extra) → POST /partitions/mode's body: the
 // request as the row showed it (xbind refuses a decision on another one).
@@ -105,6 +146,34 @@ export async function postMode(fetchFn, body) {
 
 // errorText(answer) → a refusal's words.
 export const errorText = (res) => String(res?.body?.error || `failed (${res?.status ?? '?'})`);
+
+// staleRefusal(answer) → whether a refused switch is one the typed
+// confirmation can't fix: a 409 other than the sandbox managers' (C12) —
+// the request changed or was decided meanwhile, a switch already runs, or
+// the data went but the mode wasn't recorded. The card closes the dialog,
+// shows why and looks again; the managers' 409 and a part-way failure (500)
+// re-open the dialog.
+export const staleRefusal = (res) => res?.status === 409 && !Array.isArray(res?.body?.managers);
+
+// deletesNothing(from, to) → whether the switch deletes nothing ("global"
+// comes, H1).
+export const deletesNothing = (from, to) => switchDeletes(from, to).startsWith('nothing');
+
+// keptText(path, view) → a Keep's answer on the card.
+export const keptText = (path, v) => `Kept ${modeName(v?.from)}: ${path} runs again, and nothing was deleted.`;
+
+// switchedText(path, view, body) → a switch's answer on the card, from
+// xbind's: what it deleted, an erase that left key files behind, and the
+// archiver's note (what bx prints).
+export function switchedText(path, v, body = {}) {
+  const deletes = String(body?.deletes || switchDeletes(v?.from, v?.to));
+  const lines = [deletes.startsWith('nothing')
+    ? `Switched ${path} to ${modeName(v?.to)}: nothing was deleted (the global instance starts empty).`
+    : `Switched ${path} to ${modeName(v?.to)}: ${deletes} deleted.`];
+  if (body?.eraseError) lines.push(`The backup keys are erased, but not every key file is removed yet: ${body.eraseError}`);
+  if (body?.archiver) lines.push(`Archiver: ${body.archiver}`);
+  return lines.join('\n');
+}
 
 const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 export function bytesText(n) {
@@ -132,14 +201,14 @@ export function wipedText(w = {}) {
 // switchSpec(path, view, dry, {typed, error, yes}) → the <bx-dialog> spec of
 // the typed confirmation, from the dry run's answer (dry: what it deletes,
 // the counts, what it keeps, the sandbox managers that don't keep people
-// apart). The confirm field must hold the tile's path.
+// apart), with the tile's partitionNote attributed to it. The confirm field
+// must hold the tile's path. A switch that deletes nothing ("global" comes)
+// shows no counts, says so, and its button isn't a danger one.
 export function switchSpec(path, v, dry = {}, { typed = '', error = '', yes = false } = {}) {
-  const from = v?.from, to = v?.to;
-  const lines = [
-    `Switching ${path} from ${modeName(from)} to ${modeName(to)} deletes ${dry.deletes || switchDeletes(from, to)}.`,
-    '',
-    `It deletes: ${wipedText(dry.wiped)}.`,
-  ];
+  const from = v?.from, to = v?.to, none = deletesNothing(from, to);
+  const lines = [`Switching ${path} from ${modeName(from)} to ${modeName(to)} deletes ${dry.deletes || switchDeletes(from, to)}.`];
+  if (v?.note) lines.push('', noteText(path, v));
+  if (!none) lines.push('', `It deletes: ${wipedText(dry.wiped)}.`);
   if (dry.people) lines.push(`${plural(dry.people, 'person', 'people')} whose partition is deleted will be told.`);
   const keeps = Array.isArray(dry.keeps) ? dry.keeps : [];
   if (keeps.length) lines.push('', 'It keeps:', ...keeps.map((k) => `• ${k}`));
@@ -148,7 +217,7 @@ export function switchSpec(path, v, dry = {}, { typed = '', error = '', yes = fa
     lines.push('', `These sandbox managers don't keep people apart (their hello lacks "partitions"): ${managers.join(', ')} — `
       + 'each person\'s partition would see every person\'s sandboxes there. Update them, or switch anyway.');
   }
-  lines.push('', 'This can\'t be undone.');
+  lines.push('', none ? 'Nothing is deleted: the global instance starts empty.' :'This can\'t be undone.');
   const fields = [{ name: 'confirm', label: `Type ${path} to confirm`, placeholder: path, value: typed }];
   if (managers.length) fields.push({ name: 'yes', type: 'checkbox', label: 'Switch anyway', value: yes });
   return {
@@ -156,7 +225,7 @@ export function switchSpec(path, v, dry = {}, { typed = '', error = '', yes = fa
     message: lines.join('\n'),
     error: error || undefined,
     fields,
-    buttons: [{ label: 'Cancel', value: null }, { label: switchLabel(from, to), value: 'switch', danger: true }],
+    buttons: [{ label: 'Cancel', value: null }, { label: switchLabel(from, to), value: 'switch', danger: !none }],
   };
 }
 
