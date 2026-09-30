@@ -368,13 +368,31 @@ file and the split are named under "Merge contention".
     the pending card overlay with Keep/Switch… for managers);
   - `shell-kit.js` (`partitionMark`) and `shell-css.js` (the `--bx-part`
     token, marker CSS);
-  - the partition chip, and consent prompts (with the policy on).
+  - the partition chip, and consent prompts (with the policy on) — the
+    consent prompts moved to F14b (F10's API isn't there in wave 2).
 
   Design A unless the owner picks B or C (PD-53).
 - Depends on: F1 (the components row), F13a (the mode API).
 - Accept: a ui-harness pass (the marker on row and head with its tooltip;
   the overlay on a pending tile: Keep → runs, Switch → typed confirmation);
   the old-shell pass unchanged.
+
+### F14b — Shell: consent prompts (06 §12.3) — S ∥
+- Files: `workspace-template/shell/partition-mode.js` (the prompt's words
+  and bodies, beside the card overlay's; `hack/partition-mode.test.mjs`),
+  `bx-canvas.js` or `bx-shell.js` (a prompt when a partitioned tile's call
+  into another person-scoped tile needs the person's consent — **only with
+  the `partitionConsent` policy on**), and a ui-harness pass; the
+  `TODO(consent prompts)` in `partition-mode.js` and docs/partitions.md's
+  "Not documented yet" line go.
+- Built against F10's contract: the `partitions` op `consent-needed` event
+  (to the person's own sessions) and `GET/POST/DELETE
+  /api/xbin/partitions/consents {from, to}` (PersonOnly — the shell calls
+  it as the signed-in person, never through `xbin.fetch`); F16's policy.
+- Depends on: F10, F14, F16.
+- Accept: a ui-harness pass (policy on: a refused cross-partition call
+  prompts, consenting lets the retry through, declining keeps the 403;
+  policy off: no prompt); the old-shell pass unchanged.
 
 ## Builtin tiles
 
@@ -485,7 +503,7 @@ file and the split are named under "Merge contention".
 | 0 | ∥**F1** ∥**F16** ∥**F17a** ∥**B1** ∥F8 skeleton | F1 merged (F17a may run into wave 2; it gates only F17b) |
 | 1 | ∥**F2** ∥**F3** ∥**F4** ∥**F13a** ∥**F13b** | F2/F3/F4 merged, zero-state goldens green |
 | 2 | ∥**F5** ∥**F7a** ∥**F9** ∥**F10** ∥**F15** ∥**F14** | F5 merged |
-| 3 | ∥**F6** ∥**F7b** ∥**F17b** ∥**B2a** | B2a merged |
+| 3 | ∥**F6** ∥**F7b** ∥**F17b** ∥**B2a** ∥**F14b** (once F10 is merged) | B2a merged |
 | 4 | ∥**B2b** ∥**B2c** ∥**F11** ∥**F12** ∥B3 docs | B2b, B2c merged |
 | 5 | ∥**B2d** ∥**I1**, F8 finalization | all green |
 | 6 | **I2** | — |
@@ -499,6 +517,7 @@ file and the split are named under "Merge contention".
 - F16 → F10, F7b, F11;
 - F17a → F17b;
 - F15, F10 → F11;
+- F10, F14, F16 → F14b;
 - F1–F6, F13b, B1 → B2a → B2b, B2c → B2d;
 - B2c → B3.
 
@@ -513,6 +532,7 @@ file and the split are named under "Merge contention".
 | `internal/broker/backup.go` | F17a, F17b | sequential; F5 no longer touches it |
 | `workspace-template/tiles/admin/admin.js` (`GROUPS`, `render()`) | F16, F12, F17a | append-style edits; resolve line-anchored |
 | `internal/broker/usersapi.go` | F7b only | — |
+| `hack/ui-harness/shots.js` (the `require` lines, `PASSES`) | every pack adding a harness pass (F14, F15, …) | the union; F14 registers its pass on a line of its own after `PASSES` (`PASSES.partitionMark = …`), so it merges with the others' edits; the file sits at its size budget |
 
 New code goes in new files (`partitionmode.go`, `partitionroute.go`,
 `partitionrecords.go`, `partitionmail.go`, `partitionconsent.go`,
