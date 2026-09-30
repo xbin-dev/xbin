@@ -122,13 +122,17 @@ async function tilePages(browser) {
 
   // ---- llm-gw: usage by partition (B3) ----
   // The harness runs no partitioned caller, so the rows are seeded into
-  // llm-gw's kv and its backend restarted to read them; the page shows them
-  // to its manager (admin) with the fairness limit's form, which saves.
+  // llm-gw's kv and its backend restarted to read them. Signed in, the admin
+  // reads as a manager of the tile (a tile can't tell an admin): the
+  // people's partitions together and the global instance, never a person's
+  // row, and the fairness limit's form, which saves. dev1, given read on
+  // it for this block, sees their own row only, and no form.
   {
     const now = Date.now();
     const rows = [
       { from: 'apps/agent', partition: 'global', reqs: 12, tokIn: 48210, tokOut: 3120, cost: 0.41, last: now - 90e3 },
       { from: 'apps/agent', partition: 'user:dev1', partitionId: 'u-0123456789abcdef0123456789abcdef', reqs: 7, tokIn: 20488, tokOut: 1811, cost: 0, last: now - 3 * 3600e3 },
+      { from: 'apps/agent', partition: 'user:sales1', partitionId: 'u-fedcba9876543210fedcba9876543210', reqs: 5, tokIn: 10000, tokOut: 900, cost: 0.2, last: now - 600e3 },
     ];
     const kv = (method, data) => ctx.request.fetch(`${URL}/api/xbin/kv/res:apps/llm-gw/state/callers`, { method, data });
     const restart = async () => {
@@ -139,12 +143,23 @@ async function tilePages(browser) {
     const put = await kv('PUT', JSON.stringify(rows));
     check(put.ok(), `llm-gw: seed its callers (${put.status()})`);
     await restart();
+    // section: the text of the section's two tables and whether the form shows
+    const section = () => {
+      const r = document.querySelector('bx-llm-gw')?.shadowRoot;
+      const t = (sel) => (r?.querySelector(sel)?.textContent || '').replace(/\s+/g, ' ');
+      return { rows: t('table[data-callers]'), totals: t('table[data-caller-totals]'), form: !!r?.querySelector('form input[name="limit"]') };
+    };
     const { page, errors } = await openPage('apps/llm-gw');
     const seen = await until(page, () => {
-      const t = document.querySelector('bx-llm-gw')?.shadowRoot?.querySelector('table[data-callers]')?.textContent || '';
-      return t.includes('dev1') && t.includes('global instance') ? t.replace(/\s+/g, ' ') : null;
-    }, null, 60000).then((h) => h.jsonValue()).catch(() => '');
-    check(seen.includes("dev1's partition") && seen.includes('48,210') && seen.includes('20,488'), `llm-gw: usage by partition lists the global instance and dev1's partition (${seen.slice(0, 200)})`);
+      const r = document.querySelector('bx-llm-gw')?.shadowRoot;
+      const tot = r?.querySelector('table[data-caller-totals]')?.textContent || '';
+      return tot.includes('together') && (r?.querySelector('table[data-callers]')?.textContent || '').includes('global instance');
+    }, null, 60000).then(() => page.evaluate(section)).catch(() => ({ rows: '', totals: '', form: false }));
+    check(seen.totals.includes('2 together') && seen.totals.includes('30,488') && seen.rows.includes('48,210'),
+      `llm-gw: a manager sees the people's partitions together and the global instance (${seen.totals.slice(0, 160)} | ${seen.rows.slice(0, 160)})`);
+    check(!seen.rows.includes('dev1') && !seen.rows.includes('sales1') && !seen.totals.includes('dev1'),
+      `llm-gw: a manager sees no person's row (${seen.rows.slice(0, 200)})`);
+    check(seen.form, 'llm-gw: a manager is offered the fairness limit');
     await shot(page, 'tile-llmgw-partitions');
     const input = page.locator('bx-llm-gw form:has(input[name="limit"]) input[name="limit"]');
     await input.fill('2');
@@ -158,6 +173,25 @@ async function tilePages(browser) {
     await page.evaluate(() => xbin.fetch('/api/apps/llm-gw/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partitionLimit: 0 }) }));
     check(errors.length === 0, `llm-gw: no page errors (${errors.join(' | ')})`);
     await page.close();
+
+    // a person who reads the tile: their own row, nothing else
+    const grant = (level) => api('PUT', '/access', { tile: 'apps/llm-gw', kind: 'user', id: 'dev1', level });
+    check((await grant('read')).ok(), 'llm-gw: dev1 may read it');
+    const dev = await login(browser, 'dev1', 'devpass123');
+    const dpage = await dev.ctx.newPage();
+    const derrors = [];
+    dpage.on('pageerror', (e) => derrors.push(e.message));
+    await dpage.goto(`${URL}/c/apps/llm-gw/`);
+    const mine = await until(dpage, () => (document.querySelector('bx-llm-gw')?.shadowRoot?.querySelector('table[data-callers]')?.textContent || '').includes('dev1'),
+      null, 60000).then(() => dpage.evaluate(section)).catch(() => ({ rows: '', totals: '', form: true }));
+    check(mine.rows.includes("dev1's partition") && mine.rows.includes('20,488') && !mine.rows.includes('sales1') && !mine.rows.includes('global instance'),
+      `llm-gw: dev1 sees their own row only (${mine.rows.slice(0, 200)})`);
+    check(!mine.totals && !mine.form, `llm-gw: dev1 gets no totals and no limit form (${mine.totals.slice(0, 80)} form=${mine.form})`);
+    await shot(dpage, 'tile-llmgw-partitions-reader');
+    check(derrors.length === 0, `llm-gw: no page errors for dev1 (${derrors.join(' | ')})`);
+    await dev.ctx.close();
+    await grant('');
+
     await kv('DELETE');
     await restart(); // back to no rows: the page as in a workspace without partitioned tiles
   }
