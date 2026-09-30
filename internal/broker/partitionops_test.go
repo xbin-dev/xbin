@@ -287,6 +287,12 @@ func TestPartitionLogChoice(t *testing.T) {
 	if rel, _, _, _ := ask(instanceOf("apps/pg", "user:alice"), "apps/pg", ""); rel != own {
 		t.Errorf("alice's instance: %q", rel)
 	}
+	// another partitioned tile's code acting for alice reads none of hers
+	for _, q := range []string{"", "user=alice"} {
+		if rel, _, _, _ := ask(instanceOf("apps/q", "user:alice"), "apps/pg", q); rel != "" {
+			t.Errorf("BUG: apps/q's instance of alice reads her apps/pg log (%q): %q", q, rel)
+		}
+	}
 	if _, _, _, st := ask(alice, "apps/pg", "partition=user:alice"); st != 400 {
 		t.Errorf("?partition=: %d", st)
 	}

@@ -167,8 +167,13 @@ func (b *Broker) PartitionLog(p auth.Principal, tile string, q url.Values) (rel 
 	if who := q.Get("user"); who != "" {
 		return b.sharedLog(p, tile, primary, who)
 	}
-	own := p.Partition
-	if !own.IsUser() {
+	var own util.Partition
+	switch {
+	case ownCredential(p, tile):
+		own = p.Partition // the partition gate's stamp: the partition it acts in on its tile
+	case p.Component != "":
+		return "", util.PartitionGlobal, true, 0, nil // another tile's credential: today's rule (it reads no log)
+	default:
 		var err error
 		if own, err = b.addressedPartition(p, tile); err != nil {
 			return "", "", true, http.StatusForbidden, err
@@ -188,7 +193,7 @@ func (b *Broker) sharedLog(p auth.Principal, tile, dep, who string) (string, uti
 	if !util.PartitionUserIDOK(who) {
 		return "", "", true, http.StatusBadRequest, errors.New("?user= names a person")
 	}
-	self := p.Component == "" && p.Impersonator == "" && p.UserID == who || p.Partition == part
+	self := p.Component == "" && p.Impersonator == "" && p.UserID == who || ownCredential(p, tile) && p.Partition == part
 	if !self {
 		if p.Component != "" || p.Impersonator != "" || !b.IsAdmin(p) && !b.mayManageTile(p, tile) {
 			return "", "", true, http.StatusForbidden, fmt.Errorf("%s's partition log is %s's: an admin or a manager of %s reads it only while they share it", who, who, tile)
@@ -202,6 +207,15 @@ func (b *Broker) sharedLog(p auth.Principal, tile, dep, who string) (string, uti
 		return "", "", true, http.StatusForbidden, fmt.Errorf("%s doesn't share their partition log of %s (they can: bx partition share-log %s)", who, tile, tile)
 	}
 	return b.partitionLogRel(tile, dep, who, part)
+}
+
+// ownCredential reports p as one of tile's own credentials — its backend,
+// frames, terminals — whose stamped partition is the one it acts in on
+// tile. Another tile's credential acting for a person (a nested tile's and
+// an xbin.window sub-path's included, as canReadLogs has it) never reads
+// that person's log of tile.
+func ownCredential(p auth.Principal, tile string) bool {
+	return p.Component != "" && p.Component == tile
 }
 
 // partitionLogRel is person id's partition log of tile, workspace-relative.
