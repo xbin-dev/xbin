@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **Agent template: coding agents checked end to end on a real xbind**
+  (the UI harness's `agentHarness` pass: `hack/ui-harness`, a scripted
+  coding agent in `apps/fakesbx`). A coding agent that uses a call id
+  again for a new call once the earlier one ended gets a card of its own
+  (stored as `h<gen>:<id>#<n>`) instead of rewriting the earlier call's
+  (`builtin-templates/agent/API.md` §Coding agents). The chat no longer
+  says a message was "steered into the running turn" when it was sent
+  between turns or started the conversation; a sign-in note follows the
+  message it is about; "Who answers" names the sandbox a coding agent is
+  signed in on (not its id); the terminal dock's header wraps on a narrow
+  window rather than cut off ✕. In the app, a Retry on the Sign in screen
+  (or its login terminal) goes back to the chat, and a question's
+  multiple-choice answers are named for their question. Additive.
 - **Agent template: a coding agent's own routes, and where it shows**
   (`builtin-templates/agent/API.md` §Coding agents, "Its own routes").
   `GET|PATCH /runs/{id}/harness` (its summary, session and remembered
