@@ -98,7 +98,7 @@ func (c *Client) openSession(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := c.setOption(id, c.cfg.Options[id]); err != nil {
+		if err := c.setOption(ctx, id, c.cfg.Options[id]); err != nil {
 			c.logf("set option %s=%s: %v", id, c.cfg.Options[id], err)
 		}
 	}
@@ -118,13 +118,14 @@ func (c *Client) option(id string) (ConfigOption, bool) {
 	return ConfigOption{}, false
 }
 
-// setOption is the wire call; the response carries the refreshed list.
-func (c *Client) setOption(id, value string) error {
+// setOption is the wire call, bounded by ctx; the response carries the
+// refreshed list.
+func (c *Client) setOption(ctx context.Context, id, value string) error {
 	c.mu.Lock()
 	sid := c.sessionID
 	c.mu.Unlock()
 	var res SetConfigResult
-	if err := c.conn.Call(MSessionSetConfig, SetConfigParams{SessionID: sid, ConfigID: id, Value: value}, &res); err != nil {
+	if err := c.conn.CallCtx(ctx, MSessionSetConfig, SetConfigParams{SessionID: sid, ConfigID: id, Value: value}, &res); err != nil {
 		return err
 	}
 	c.mu.Lock()
@@ -142,15 +143,15 @@ func (c *Client) setOption(id, value string) error {
 }
 
 // SetOption changes a session setting for the clients: the refreshed
-// options ride a status event.
+// options ride a status event. ctx bounds the agent's answer.
 func (c *Client) SetOption(ctx context.Context, id, value string) error {
 	if _, ok := c.option(id); !ok {
 		if id == "mode" && c.hasMode(value) { // no "mode" config option: the older session/set_mode
-			return c.setModeLive(value)
+			return c.setModeLive(ctx, value)
 		}
 		return fmt.Errorf("the agent offers no option %q", id)
 	}
-	if err := c.setOption(id, value); err != nil {
+	if err := c.setOption(ctx, id, value); err != nil {
 		return err
 	}
 	c.emit(c.optionsEvent())
@@ -173,11 +174,11 @@ func (c *Client) hasMode(id string) bool {
 
 // setModeLive switches the permission mode mid-session (session/set_mode)
 // and tells the clients through a status {currentMode}.
-func (c *Client) setModeLive(mode string) error {
+func (c *Client) setModeLive(ctx context.Context, mode string) error {
 	c.mu.Lock()
 	sid := c.sessionID
 	c.mu.Unlock()
-	if err := c.conn.Call(MSessionSetMode, SetModeParams{SessionID: sid, ModeID: mode}, nil); err != nil {
+	if err := c.conn.CallCtx(ctx, MSessionSetMode, SetModeParams{SessionID: sid, ModeID: mode}, nil); err != nil {
 		return err
 	}
 	c.mu.Lock()
