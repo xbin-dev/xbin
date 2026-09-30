@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -699,7 +700,15 @@ func cmdBind(args []string) error {
 		return fmt.Errorf("usage: bx bind <component> <slot>=<provider> | <slot>+=<ref> | <slot>-=<ref> …  |  bx bind --unset <component> <slot>")
 	}
 	comp := args[0]
+	var ans struct {
+		Warning string `json:"warning"` // partitioned tiles (docs/partitions.md)
+	}
+	var warnings []string // printed on stderr once every pair is bound
 	for _, pair := range args[1:] {
+		if ans.Warning != "" && !slices.Contains(warnings, ans.Warning) {
+			warnings = append(warnings, ans.Warning)
+		}
+		ans.Warning = ""
 		// <slot>=<ref> replaces; <slot>+=<ref> adds to and <slot>-=<ref> removes
 		// from a multi slot's set. Refs are "<provider>[#<instance>]".
 		var op byte
@@ -712,7 +721,7 @@ func cmdBind(args []string) error {
 		}
 		if op == 0 {
 			body := map[string]string{"component": comp, "slot": slot, "provider": ref}
-			if err := apiJSON("POST", "/api/xbin/bindings", body, nil); err != nil {
+			if err := apiJSON("POST", "/api/xbin/bindings", body, &ans); err != nil {
 				if strings.Contains(err.Error(), "not covered") {
 					// The org's network sets are the ceiling (D54).
 					return fmt.Errorf("%w\nhint: bx org ls shows the org's reach; bx netset set <set> --add <rule> widens it, or bind net=org (the org network) / net=none", err)
@@ -754,11 +763,17 @@ func cmdBind(args []string) error {
 		if len(set) == 0 {
 			method, body = "DELETE", map[string]any{"component": comp, "slot": slot}
 		}
-		if err := apiJSON(method, "/api/xbin/bindings", body, nil); err != nil {
+		if err := apiJSON(method, "/api/xbin/bindings", body, &ans); err != nil {
 			return err
 		}
 	}
+	if ans.Warning != "" && !slices.Contains(warnings, ans.Warning) {
+		warnings = append(warnings, ans.Warning)
+	}
 	fmt.Println("ok")
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "⚠ "+w)
+	}
 	return nil
 }
 

@@ -2623,7 +2623,10 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    again. A partitioned
                                    component binds under the same rules as
                                    any other: its bindings are global binds,
-                                   seen by every person's partition.
+                                   seen by every person's partition; binding
+                                   its http slot to another partitioned tile
+                                   answers {ok, warning} — the approval
+                                   warning of POST /grants.
 DELETE /bindings                   admin / owning-org admin (always) /
                                    provider-org admin (withdrawing
                                    service). body {component, slot} — clear a binding

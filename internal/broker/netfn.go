@@ -857,7 +857,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	if b.OnIngressChange != nil {
 		b.OnIngressChange() // stream listeners / forward sockets may have changed
 	}
-	server.WriteOK(w)
+	b.writeBindOK(w, body.Component, body.Slot, delta, del) // + the approval warning (partitionconsent.go)
 }
 
 // validateBinding checks a binding set before it lands: slot exists (except

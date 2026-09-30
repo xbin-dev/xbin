@@ -434,7 +434,8 @@ every person who can read X. Approving such a grant says so where it is
 approved — the grants panel, the admin console's binding → grants view,
 the organisations tile's pending approvals and `bx grants`
 (`GET /api/xbin/grants`' pending rows carry the `warning`), and `bx grant`
-prints it once approved (`POST /api/xbin/grants` answers it).
+prints it once approved (`POST /api/xbin/grants` answers it) — as `bx bind`
+does for a global bind of Z's http slot to X (`POST /api/xbin/bindings`).
 
 **With the policy on**, a call without alice's consent is refused, `403
 alice hasn't let apps/z use their apps/x data`, and alice is asked — a push

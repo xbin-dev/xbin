@@ -381,6 +381,27 @@ func (b *Broker) writeGrantOK(w http.ResponseWriter, r *http.Request, g registry
 	server.WriteOK(w)
 }
 
+// writeBindOK answers a binding set as writeGrantOK a grant: an http
+// binding is a call grant (05 §3), so binding a partitioned tile's http slot
+// to another partitioned tile answers the approval warning beside today's
+// ok (additive; `bx bind` prints it). Every other answer is byte-identical.
+func (b *Broker) writeBindOK(w http.ResponseWriter, comp, slot string, delta registry.Binding, del bool) {
+	var warns []string
+	if !del && b.isHTTPSlot(comp, slot) {
+		for _, e := range delta {
+			prov, _ := splitRef(e.Ref)
+			if warn := b.partitionGrantWarning(comp, prov); warn != "" && !slices.Contains(warns, warn) {
+				warns = append(warns, warn)
+			}
+		}
+	}
+	if len(warns) == 0 {
+		server.WriteOK(w)
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "warning": strings.Join(warns, "; ")})
+}
+
 // partitionGrantWarning is the approval warning of a grant of from on
 // target when both ends keep each person's data apart (05 §2, S1), in the
 // words of the workspace's partitionConsent setting; "" otherwise.

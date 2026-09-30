@@ -47,6 +47,47 @@ func TestBxGrantWarning(t *testing.T) {
 	}
 }
 
+// covers 05§2 05§3 S1 — bx bind prints the approval warning POST /bindings
+// answers for a partitioned tile's http slot bound to another partitioned
+// tile, once, on stderr after "ok"; other binds print as today.
+func TestBxBindWarning(t *testing.T) {
+	warn := "apps/agent's code — and everyone who can change it — will be able to read and write the apps/pg data of every person who can read apps/pg"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		switch {
+		case r.Method == "GET":
+			_, _ = io.WriteString(w, `{"bindings":{"apps/agent":{"docs":["apps/pg"]}}}`)
+		case r.Method == "POST" && strings.Contains(string(b), `apps/pg`):
+			_, _ = io.WriteString(w, `{"ok":"true","warning":"`+warn+`"}`)
+		default:
+			_, _ = io.WriteString(w, `{"ok":"true"}`)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("XBIN_URL", srv.URL)
+	t.Setenv("XBIN_TOKEN", "t")
+	for _, c := range []struct {
+		args    []string
+		errText string
+	}{
+		{[]string{"apps/agent", "docs=apps/pg", "docs+=apps/pg"}, "⚠ " + warn + "\n"},
+		{[]string{"apps/agent", "docs+=users/alice/mcp"}, "⚠ " + warn + "\n"}, // the set still holds apps/pg
+		{[]string{"apps/plain", "net=internet"}, ""},
+		{[]string{"--unset", "apps/agent", "docs"}, ""},
+	} {
+		var err error
+		stderr := captureStderrW2(t, func() {
+			out := captureStdoutF10(t, func() { err = cmdBind(c.args) })
+			if out != "ok\n" {
+				t.Errorf("bx bind %v printed %q on stdout", c.args, out)
+			}
+		})
+		if err != nil || stderr != c.errText {
+			t.Errorf("bx bind %v: %v, stderr %q, want %q", c.args, err, stderr, c.errText)
+		}
+	}
+}
+
 // captureStderrW2 runs fn with os.Stderr redirected, returning what it wrote.
 func captureStderrW2(t *testing.T, fn func()) string {
 	t.Helper()

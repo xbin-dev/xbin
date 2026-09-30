@@ -263,7 +263,8 @@ read naturally: `bx grant apps/email res:apps/calendar/bus:reader`.
 Grants are rows in the workspace `xbin.json`; revoking is deleting the row.
 Approving a partitioned tile's grant on another partitioned tile's people's
 data prints, on stderr, whose data its code will now reach
-([partitions.md](/docs/partitions.md)).
+([partitions.md](/docs/partitions.md)); so does `bx bind` wiring a
+partitioned tile's http slot to another partitioned tile.
 
 **`bx bind`** — wires a component's interface slots (docs/overview/11-interfaces.md).
 Net slots take the builtin refs `internet`, `host`, `lan:<cidr>` — or the

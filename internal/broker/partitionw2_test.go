@@ -377,6 +377,31 @@ func TestGrantApprovalWarning(t *testing.T) {
 	}
 }
 
+// covers 05§2 05§3 S1 — an http binding is a call grant: binding a
+// partitioned tile's slot to another partitioned tile answers the approval
+// warning beside today's ok (bx bind prints it); an unpartitioned
+// requester's binding and an unbind answer today's body exactly.
+func TestBindApprovalWarning(t *testing.T) {
+	w, _, _ := pbindWS(t)
+	b := w.b
+	owner := auth.Principal{Owner: true}
+	bind := func(method, comp, provider string) (int, string) {
+		t.Helper()
+		rec := call(t, b.apiBindingSet, owner, method, "/bindings", `{"component":"`+comp+`","slot":"docs","provider":"`+provider+`"}`, nil)
+		return rec.Code, strings.TrimSpace(rec.Body.String())
+	}
+	warn := "apps/agent's code — and everyone who can change it — will be able to read and write the apps/pg data of every person who can read apps/pg"
+	if code, body := bind("POST", "apps/agent", "apps/pg"); code != 200 || body != `{"ok":"true","warning":"`+warn+`"}` {
+		t.Errorf("binding apps/agent.docs to apps/pg: %d %s", code, body)
+	}
+	if code, body := bind("POST", "apps/plain", "apps/pg"); code != 200 || body != `{"ok":"true"}` {
+		t.Errorf("binding the unpartitioned apps/plain.docs to apps/pg: %d %s, want today's answer", code, body)
+	}
+	if code, body := bind("DELETE", "apps/agent", "apps/pg"); code != 200 || body != `{"ok":"true"}` {
+		t.Errorf("unbinding apps/agent.docs: %d %s, want today's answer", code, body)
+	}
+}
+
 // covers 05§2 05§3 06§6.1 PD-54 — a personal bind's calls go to a tile that
 // isn't partitioned: no person's partition of another tile, so no consent
 // is asked, the policy on or off; and the caller partition's ledger counts
