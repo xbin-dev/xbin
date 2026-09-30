@@ -260,6 +260,7 @@ const T = await import(new URL('terminals.js', MODEL).href);
 const R = await import(new URL('rules.js', MODEL).href);
 const S = await import(new URL('sandboxes.js', MODEL).href);
 const { catalogOf } = await import(new URL('harness.js', MODEL).href);
+const { steerWords } = await import(new URL('harness-ask.js', MODEL).href);
 const { createHarnessStore } = await import(new URL('harness-store.js', MODEL).href);
 const { harnessSeed, SBX, API_DEV } = await import(new URL('../test/harness-fixtures.mjs', MODEL).href);
 
@@ -358,6 +359,8 @@ test('a person\'s partition: the sandbox a coding agent starts in is her own; it
   Object.assign(own.run, { id: B + 24, rootId: B + 24 });
   const c = T.signIn(own, { list: lst, me: 'admin' });
   assert.deepEqual([c.talk, c.away, c.view, c.methods.length], [true, '', '', 3], 'her own: the sign-in, as ever');
+  assert.equal(steerWords(seed.views[24]).placeholder, 'Codex is waiting for a sign-in — your message waits with it…', 'the composer doesn\'t ask for one');
+  assert.equal(steerWords(own).placeholder, 'sign in to Codex first — then message it…');
 
   // a coding agent's conversation stays in her own space
   const hrow = { id: B + 21, title: 'fix it', access: 'owner', mine: true, engine: 'harness', harness: { provider: 'claude' }, parentId: 0 };

@@ -16,6 +16,7 @@
 // Pure (no DOM): node-tested in hack/agent-template-harness-ask.test.mjs.
 import { isHarness, nameOf, modeOf } from './harness.js';
 import { busy } from './fold.js';
+import { signInAway } from './harness-homes.js';
 
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 export const isAllow = (o) => /^allow/.test((o && o.kind) || '');
@@ -316,7 +317,8 @@ export function steerWords(v, { native = false } = {}) {
   }
   const ps = r.status === 'waiting_input' ? r.pendingState || {} : {};
   const words = (placeholder) => ({ busy: false, steering: false, placeholder, label: `queued for ${name}`, title: `sent to ${name} next` });
-  if (ps.kind === 'login' || h.state === 'login') return words(`sign in to ${name} first — then message it…`);
+  // (a sign-in this page doesn't offer — model/harness-homes.js signInAway: the message waits with it)
+  if (ps.kind === 'login' || h.state === 'login') return words(signInAway(r.id) ? `${name} is waiting for a sign-in — your message waits with it…` : `sign in to ${name} first — then message it…`);
   if (ps.kind === 'approval') return words(`reply — rejects the request, then goes to ${name}`);
   if (ps.kind === 'question') return words(`reply — skips the question, then goes to ${name}`);
   return words(`message ${name}…`);

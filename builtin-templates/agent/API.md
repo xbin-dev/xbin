@@ -2567,7 +2567,8 @@ credentials.
 - **Sign-in** is offered only for a run homed in the person's own
   partition. Anywhere else — a run at the global instance, seen from a
   person's partition or from the global instance's own page — the card is
-  read-only and says why, and the app offers no Sign in.
+  read-only and says why, the composer says a message waits with it, and
+  the app offers no Sign in.
 - **Calls follow the run's home.** A coding agent's calls (mode, options,
   a permission, an answer, a message, Stop, Cancel, Retry, the log) go to
   the run's home, as every call about a conversation does. So does the
