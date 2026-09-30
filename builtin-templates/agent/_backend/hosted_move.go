@@ -338,6 +338,10 @@ func handleHostedMove(w http.ResponseWriter, r *http.Request) {
 	case movingRefused(w, id): // homes_move.go: on its way to its owner's own space (90 §I10) — not taken into team
 		return
 	}
+	if err := agent.db.harnessStays(id); err != nil { // a coding agent's conversation isn't hosted (harness_partition.go)
+		xbin.WriteError(w, 409, err.Error())
+		return
+	}
 	moved, left, err := moveIntoTeam(r.Context(), tv, run, c)
 	if err != nil {
 		writeImportErr(w, err)

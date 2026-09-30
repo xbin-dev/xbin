@@ -566,6 +566,9 @@ type harnessReq struct {
 // safe (an explicit one, one it doesn't list, any of a harness it lacks)
 // only from a person — the conversation's owner-to-be (default-deny).
 func harnessClass(ctx context.Context, c who, req *harnessReq, class, system, model string) (agentClass, error) {
+	if globalMode() { // a person's own conversations only (harness_partition.go)
+		return agentClass{}, &errClass{http.StatusConflict, harnessNotAtGlobal}
+	}
 	st := currentClasses()
 	req.Provider = strings.TrimSpace(req.Provider)
 	prov, ok := knownHarness(ctx, req.Provider)

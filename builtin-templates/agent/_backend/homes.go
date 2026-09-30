@@ -305,6 +305,9 @@ func writeImportErr(w http.ResponseWriter, err error) {
 	if _, ok := err.(badRequest); ok {
 		code = 400
 	}
+	if isHarnessMoveErr(err) { // harness_partition.go
+		code = http.StatusConflict
+	}
 	xbin.WriteError(w, code, err.Error())
 }
 

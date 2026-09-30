@@ -35,6 +35,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
@@ -92,6 +93,11 @@ type hsess struct {
 	endLost   bool              // … and the session is lost, not stopped
 	newSess   bool              // spawned to open a new session (not session/load): its first mode is the adapter's own
 	steerOut  json.RawMessage   // the request id of the steer frame last put on stdin (harness_steer.go)
+	braked    bool              // a halt conf says is on was seen at an event (harness_partition.go brakeSoon)
+
+	// rest: no turn at work — idle, or parked on a person. In a person's
+	// partition only a working session keeps the hold (harness_partition.go).
+	rest atomic.Bool
 }
 
 // newHsess is a session of run at generation gen, started (or attached)
@@ -338,6 +344,9 @@ func (e *Engine) failHarness(run *Run, err error) error {
 // harnessUse is the sandbox a harness run works in, checked as every
 // sandbox tool checks it (sandboxUse), plus what a coding agent needs of it.
 func (e *Engine) harnessUse(ctx context.Context, run *Run, cfg Config) (*sbxUse, acp.Provider, error) {
+	if why := harnessBarred(run); why != "" { // the global instance, a hosted conversation (harness_partition.go)
+		return nil, acp.Provider{}, &harnessFail{why}
+	}
 	h := cfg.Harness
 	b, ok := cfg.sandboxBinding(h.Ref)
 	if !ok {

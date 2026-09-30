@@ -134,7 +134,7 @@ func handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 		}
 		return t.moveIfUnshared(root.ID, was) // homes_move.go: a partitioned agent's global instance keeps shared ones only
 	}); err != nil {
-		xbin.WriteError(w, 500, err.Error())
+		writeTxErr(w, err)
 		return
 	}
 	_, _ = agent.db.q.Exec(`DELETE FROM run_user_state WHERE run_id=? AND user=?`, root.ID, user)

@@ -56,6 +56,10 @@ func handleRunTerminal(w http.ResponseWriter, r *http.Request) {
 	if notTerminalUpgrade(w, r) {
 		return
 	}
+	if globalMode() && r.URL.Query().Get("login") == "1" { // no sign-in at the global instance (harness_partition.go)
+		xbin.WriteError(w, http.StatusConflict, harnessNotAtGlobal)
+		return
+	}
 	c := callerOf(r)
 	if sbxUserOf(c) == "" {
 		xbin.WriteError(w, http.StatusForbidden, "only a person can open a terminal")

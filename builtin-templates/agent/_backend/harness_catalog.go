@@ -157,7 +157,7 @@ type hcEntry struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
 	Available   bool                   `json:"available"`
-	Reason      string                 `json:"reason,omitempty"` // no-image | manager-error | no-class | no-egress
+	Reason      string                 `json:"reason,omitempty"` // no-image | manager-error | no-class | no-egress | shared-space
 	Why         string                 `json:"why,omitempty"`
 	Classes     []string               `json:"classes"`
 	Images      []hcImage              `json:"images"`
@@ -338,6 +338,9 @@ func harnessCatalog(c who, mgrs []hcManager, visible func(ref string) bool) []hc
 			}
 		}
 		e.Reason, e.Why = harnessUnavailable(e, classes, failed)
+		if globalMode() { // a person's own conversations only (harness_partition.go)
+			e.Reason, e.Why = "shared-space", harnessNotAtGlobal
+		}
 		e.Available = e.Reason == ""
 		e.Options = agent.db.harnessOptions(id)
 		if visible != nil {
