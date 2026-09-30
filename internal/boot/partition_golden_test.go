@@ -36,16 +36,13 @@ http.createServer((req, res) => {
 // npGoldenWire is the rest of TestNoPartitionGolden (plans/partitions/10
 // §A.1; work pack I1): on the same workspace without partitions, a
 // backend's env and the X-XBin-* headers it receives (the owner's call and
-// a reader's frame), bus event JSON, the cron store, ?partition= on vault,
-// cron and logs (ignored: the answer is today's), and the users store
-// after a delete and a recreate (no uid) — none carries anything of
-// partitions, and still no partition store is written.
+// a reader's frame; a node backend, so its subtest SKIPs without node on
+// PATH), bus event JSON, the cron store, ?partition= on vault, cron and
+// logs (ignored: the answer is today's), and the users store after a
+// delete and a recreate through the users API (no uid, no orphan) — none
+// carries anything of partitions, and still no partition store is written.
 func npGoldenWire(t *testing.T, d *zsDaemon, ws, owner, ana string) {
 	t.Helper()
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Log("SKIP (partial): no node on PATH — the backend's env and headers are not checked")
-		return
-	}
 	for rel, body := range map[string]string{
 		"apps/npnode/scope.json":        `{"resources":{"ev":{"type":"bus"},"tick":{"type":"cron"}}}`,
 		"apps/npnode/backend/server.js": npEnvServer,
@@ -72,8 +69,15 @@ func npGoldenWire(t *testing.T, d *zsDaemon, ws, owner, ana string) {
 	if code != 200 || json.Unmarshal(body, &ft) != nil || ft.Token == "" {
 		t.Fatalf("ana's frame token of apps/npnode: %d %s", code, body)
 	}
+	t.Run("backend", func(t *testing.T) { npGoldenBackend(t, d, owner, ft.Token) })
+	npGoldenStores(t, d, ws, owner)
+}
 
-	// the backend's env and the headers it receives: today's
+// npGoldenBackend: the backend's env and the headers it receives, today's.
+func npGoldenBackend(t *testing.T, d *zsDaemon, owner, frameToken string) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("no node on PATH: the node backend's env and headers are not checked (the rest of the wire is)")
+	}
 	type echo struct {
 		Xbin      map[string]string
 		Env       []string
@@ -104,7 +108,7 @@ func npGoldenWire(t *testing.T, d *zsDaemon, ws, owner, ana string) {
 	}
 	for name, hdr := range map[string][]string{
 		"the owner":   {"Authorization", owner},
-		"ana's frame": {"X-XBin-Frame-Token", ft.Token, "X-XBin-Partition", "user:ana", "X-XBin-Partition-Id", "u-forged"},
+		"ana's frame": {"X-XBin-Frame-Token", frameToken, "X-XBin-Partition", "user:ana", "X-XBin-Partition-Id", "u-forged"},
 	} {
 		e := call(name, hdr...)
 		for k := range e.Xbin {
@@ -127,7 +131,12 @@ func npGoldenWire(t *testing.T, d *zsDaemon, ws, owner, ana string) {
 			t.Errorf("what ana's frame's call carried: %v", e.Xbin)
 		}
 	}
+}
 
+// npGoldenStores: bus event JSON, the cron store, ?partition= and the users
+// store after a delete and a recreate.
+func npGoldenStores(t *testing.T, d *zsDaemon, ws, owner string) {
+	t.Helper()
 	// bus event JSON: no partition member
 	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(d.url, "http")+"/ws/events", http.Header{"Authorization": {owner}})
 	if err != nil {
@@ -192,23 +201,24 @@ func npGoldenWire(t *testing.T, d *zsDaemon, ws, owner, ana string) {
 		t.Errorf("GET /logs with ?partition=: %d %s, without: %d", c2, b2, c1)
 	}
 
-	// the users store after a delete and a recreate: no uid
-	for _, step := range []func() error{
-		func() error { _, err := d.st.Users.Delete("ana"); return err },
-		func() error {
-			_, err := d.st.Users.Upsert(users.User{ID: "ana", Role: users.RoleUser, Tiles: map[string]string{"apps/np": users.LevelRead}}, "password2")
-			return err
-		},
+	// the users store after a delete and a recreate through the users API
+	// (DELETE /users/{id} runs the partition-aware delete hooks — for a
+	// person who never held a partition, nothing): no uid, no orphan
+	for _, step := range []struct{ method, path, body string }{
+		{"DELETE", "/api/xbin/users/ana", ""},
+		{"POST", "/api/xbin/users", `{"id":"ana","role":"user","tiles":{"apps/np":"read"},"password":"password2-np"}`},
 	} {
-		if err := step(); err != nil {
-			t.Fatal(err)
+		if code, body := npDo(t, d, step.method, step.path, owner, step.body); code != 200 {
+			t.Fatalf("%s %s: %d %s", step.method, step.path, code, body)
 		}
 		if b, err := os.ReadFile(filepath.Join(ws, "data", "users.json")); err != nil || bytes.Contains(b, []byte(`"uid"`)) {
-			t.Errorf("data/users.json after a delete/recreate: %v %s", err, b)
+			t.Errorf("data/users.json after %s %s: %v %s", step.method, step.path, err, b)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(ws, "data", "partitions")); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("data/partitions exists after the wire checks: %v", err)
+	for _, rel := range []string{"data/partitions", "data/orphans"} {
+		if _, err := os.Stat(filepath.Join(ws, filepath.FromSlash(rel))); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s exists after the wire checks: %v", rel, err)
+		}
 	}
 }
 
