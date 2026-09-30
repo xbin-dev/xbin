@@ -74,9 +74,13 @@ func hostedInfo(h *teamHost) map[string]any {
 	out := map[string]any{"host": hostOf(h), "state": state, "reason": reason, "resources": h.Resources,
 		"since": h.Since, "movedFrom": h.MovedFrom}
 	if state == hostPaused {
-		p, _ := parseAudience(h.Pending)
-		out["pending"] = p.Members
-		out["pendingKey"] = h.Pending
+		var p teamPending
+		_ = json.Unmarshal([]byte(h.Pending), &p)
+		if p.Audience.Members == nil {
+			p.Audience.Members = map[string]string{}
+		}
+		out["pending"] = append([]string{}, p.New...) // who is new
+		out["pendingKey"] = p.Audience.key()          // what the host confirms (POST /hosting/{id}/confirm {seen})
 		out["dropsAt"] = time.Unix(h.Since, 0).Add(hostPauseTTL).Unix()
 	}
 	return out
@@ -386,16 +390,19 @@ func handleHostedEvents(w http.ResponseWriter, r *http.Request) {
 			refused++
 			continue
 		}
-		published++
 		switch ev.Type {
 		case "hosted":
 			publishHosted(tv, ev.Root)
 		case evRun:
 			tv.eng.publishRun(ev.Run)
-		default:
+		case evMessage, evStep, evInbox, evLink, evText, evThinking, evToolArgs, evDraftEnd:
 			noteHostedDraft(tv.eng, ev)
 			tv.eng.hub.publish(&Event{Type: ev.Type, Run: ev.Run, Root: ev.Root, Data: ev.Data, key: ev.Key})
+		default: // a stream's own words (reset, bye, revoked…) are the global instance's to say
+			refused++
+			continue
 		}
+		published++
 	}
 	if refused > 0 {
 		logf("hosted events from %s: %d refused (not conversations it hosts)", host, refused)

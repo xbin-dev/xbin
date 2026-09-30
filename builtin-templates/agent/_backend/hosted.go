@@ -437,11 +437,19 @@ func pauseHosting(tr *DB, root int64, cur, snap audience) {
 	hostedChangedAtGlobal(root)
 }
 
-// teamHostPaused writes the pause into team, for the members' view.
+// teamHostPaused writes the pause into team, for the members' view: the
+// audience that waits (its key is what the host confirms) and who is new in it.
 func teamHostPaused(root int64, cur, snap audience) {
 	if tr := teamRuns(); tr != nil {
-		_ = tr.setTeamHostState(root, hostPaused, "confirm", cur.key())
+		b, _ := json.Marshal(teamPending{Audience: cur, New: cur.beyond(snap)})
+		_ = tr.setTeamHostState(root, hostPaused, "confirm", string(b))
 	}
+}
+
+// teamPending is team_hosts.pending: a wider audience waiting for its host.
+type teamPending struct {
+	Audience audience `json:"audience"`
+	New      []string `json:"new"`
 }
 
 // expireHostPauses drops hosting of the conversations paused for longer

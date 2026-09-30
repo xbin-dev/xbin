@@ -50,6 +50,7 @@ var hostedHandlers = map[string]http.HandlerFunc{
 	"POST /runs/{id}/interrupt":          handleHostedControl,
 	"POST /runs/{id}/cancel":             handleHostedControl,
 	"DELETE /runs/{id}/inbox/{iid}":      handleHostedRemoveQueued,
+	"POST /runs/{id}/approve":            handleHostedApprove,
 	"GET /runs/{id}/asks":                handleHostedAsks,
 	"GET /runs/{id}/members":             handleHostedMembers,
 	"POST /runs/{id}/members":            handleHostedAddMember,
@@ -394,6 +395,46 @@ func handleHostedControl(w http.ResponseWriter, r *http.Request) {
 		stopped = []int64{}
 	}
 	xbin.WriteJSON(w, 200, map[string]any{"ok": "true", "cancelled": stopped, "returned": []any{}})
+}
+
+// handleHostedApprove is a verdict on a parked approval (POST
+// /runs/{id}/approve), into team for the host's engine. A call that needs a
+// grant (D111) is the conversation owner's to allow — for its own person's
+// capabilities, which in a hosted conversation are the host's: refused.
+func handleHostedApprove(w http.ResponseWriter, r *http.Request) {
+	tv, root, h, ok := hostedRootOf(w, r)
+	if !ok || !talkable(w, h) {
+		return
+	}
+	id := pathID(r)
+	var body struct {
+		Approve bool
+		Park    string
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	run, err := tv.db.getRun(id)
+	if err != nil {
+		xbin.WriteError(w, 404, "no such run")
+		return
+	}
+	p := parsePending(run.Pending)
+	switch {
+	case p.Kind != "approval":
+		xbin.WriteError(w, 400, "no pending approval")
+		return
+	case body.Park != "" && body.Park != p.Park:
+		xbin.WriteError(w, 409, "that approval is no longer pending — the agent is asking something else now")
+		return
+	case p.Grant != "" && body.Approve:
+		xbin.WriteError(w, 409, "a grant can't be given in a non-secure conversation: deny it, or ask its host to do this in their own space")
+		return
+	}
+	if _, _, err := tv.queue(id, inboxApprove, inboxBody{Approve: body.Approve, Sender: callerOf(r).tag(), Park: p.Park}, ""); err != nil {
+		xbin.WriteError(w, 500, err.Error())
+		return
+	}
+	wakeHost(tv, root.ID, hostedInput{Run: id})
+	xbin.WriteJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func handleHostedRemoveQueued(w http.ResponseWriter, r *http.Request) {

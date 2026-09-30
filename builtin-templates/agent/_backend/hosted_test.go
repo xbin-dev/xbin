@@ -192,6 +192,10 @@ func TestHostedAtGlobal(t *testing.T) {
 	if got := post("bob", text("forged by bob")); got["refused"] != 1 || got["published"] != 0 {
 		t.Fatalf("bob's post of alice's run: %v", got)
 	}
+	if got := post("alice", fwdEvent{Type: evBye, Run: id, Root: id}, fwdEvent{Type: evRevoked, Run: id, Root: id}); got["refused"] != 2 {
+		t.Fatalf("the host's post of a stream's own words: %v", got)
+	}
+	serveJSON(t, h, as("POST", fmt.Sprintf("/runs/%d/approve", id), `{"approve":true}`, f5("bob", "read")), 400, nil) // nothing parked
 	post("alice", text("Once"))
 	waitFor(t, "bob's stream to carry the draft's start", func() bool { s, _ := bob.text(t, id); return s == "Once" })
 	post("alice", text("Once upon a time"))
@@ -381,8 +385,12 @@ func TestHostEngineDrivesOnlyItsOwn(t *testing.T) {
 	if strings.Join(row.Pending, ",") != "carol" {
 		t.Fatalf("waiting for: %v", row.Pending)
 	}
-	if th, _ := tr.teamHost(legit); th.State != hostPaused || th.Reason != "confirm" {
+	th, _ := tr.teamHost(legit)
+	if th.State != hostPaused || th.Reason != "confirm" {
 		t.Fatalf("team's note of the pause: %+v", th)
+	}
+	if info := hostedInfo(th); fmt.Sprint(info["pending"]) != "[carol]" || info["pendingKey"] != row.PendingKey {
+		t.Fatalf("the members' view of the pause: pending %v, key %v (the host's %s)", info["pending"], info["pendingKey"], row.PendingKey)
 	}
 	time.Sleep(100 * time.Millisecond)
 	if answered(tr, legit, "second answer") {
