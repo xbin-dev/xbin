@@ -384,6 +384,13 @@ func (b *Broker) actSwitch(w http.ResponseWriter, person auth.Principal, c *regi
 		return
 	}
 	end() // before the rescan: nothing holds the new mode back
+	if t.OwnsMain && t.Kind != wipeNone {
+		// main's volumes the wipe removed mount again, empty, as at
+		// provision (a restore's precedent): only MountEncrypted mounts
+		// main's, so without it the tile's instance at today's keys — the
+		// unpartitioned one, or global — stays held until xbind restarts
+		b.MountEncrypted()
+	}
 	b.settleAfterDecision(tile)
 	b.afterSwitch(t, sum, person)
 	extra := map[string]any{"ok": true}
