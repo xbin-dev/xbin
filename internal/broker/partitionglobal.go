@@ -39,9 +39,13 @@ package broker
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -150,6 +154,29 @@ func (b *Broker) personLevel(userID, tile string) string {
 		return ""
 	}
 	return acc.TileLevel(tile)
+}
+
+// globalAddressRegRefused answers 400, up front, a cron job or bus
+// subscription of tile whose delivery path carries ?xbin-partition (any
+// value, an encoded key too) when tile is partitioned — its recorded mode
+// has user partitions, or can't be read: the proxy would consume the
+// parameter and refuse every delivery (RouteGlobal: no person drives one).
+// On every other tile the parameter reaches the backend as today, so
+// nothing is refused. ok false: the refusal is answered.
+func (b *Broker) globalAddressRegRefused(w http.ResponseWriter, tile, path, kind string) bool {
+	_, query, _ := strings.Cut(path, "?")
+	if tile == "" || query == "" {
+		return false
+	}
+	if q, _ := url.ParseQuery(query); !q.Has(util.QueryPartition) { // the pairs that parse, as the proxy reads them
+		return false
+	}
+	if _, partitioned, err := b.tilePartitioning(tile); !partitioned && err == nil {
+		return false
+	}
+	server.WriteError(w, http.StatusBadRequest, fmt.Sprintf("a %s delivery acts in the partition it was registered for: ?%s=global is for %s's own frames, terminals, agent sessions and backends",
+		kind, util.QueryPartition, tile), "/docs/partitions.md")
+	return true
 }
 
 // attributedRole is the role an attributed F5 call holds at global: its

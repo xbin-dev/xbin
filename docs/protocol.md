@@ -703,7 +703,9 @@ addresses a partitioned tile's global instance: its one value is global`);
 another tile's credentials (`403 ?xbin-partition=global addresses a tile's
 own global instance: <caller> can't use it on <tile>`); cron, bus and mail
 deliveries (`403 a <cron|bus|mail> delivery acts in the partition it was
-registered for: …`); a path ticket (`403 a path ticket reaches its own
+registered for: …` — and a partitioned tile's `PUT /cron/jobs` or `PUT
+/bus/subscriptions` whose `path` carries the parameter answers 400 with
+those words when it is registered); a path ticket (`403 a path ticket reaches its own
 partition only: ?xbin-partition=global needs the page's own frame
 token`); a tile without a global instance (`404 <tile> has no global
 instance` — the one 404 with that text: the same words as a 403 are the

@@ -286,7 +286,7 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "owner-registered jobs need \"component\"")
 		return
 	}
-	if b.partitionParamRefused(w, r, j.Component) {
+	if b.partitionParamRefused(w, r, j.Component) || b.globalAddressRegRefused(w, j.Component, j.Path, "cron") {
 		return
 	}
 	t, isPart, ok := b.partOf(w, p, j.Component)

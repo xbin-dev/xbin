@@ -569,7 +569,7 @@ func (b *Broker) apiBusSubsPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "a subscription belongs to a component — admins name it with \"component\"", docs)
 		return
 	}
-	if b.partitionParamRefused(w, r, s.Component) {
+	if b.partitionParamRefused(w, r, s.Component) || b.globalAddressRegRefused(w, s.Component, s.Path, "bus") {
 		return
 	}
 	t, isPart, ok := b.partOf(w, p, s.Component)

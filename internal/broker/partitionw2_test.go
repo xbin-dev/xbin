@@ -409,3 +409,51 @@ func TestPersonalBindLedgerNoConsent(t *testing.T) {
 		t.Errorf("alice's apps/agent ledger: %d provider calls to users/alice/mcp, %d edge rows; want 2 and 0", provider, edge)
 	}
 }
+
+// covers 05§6 02§5 PD-16 — a cron job or bus subscription of a partitioned
+// tile whose delivery path carries ?xbin-partition (any value, an encoded
+// key too) is refused when it is registered (400), not at every delivery
+// (RouteGlobal's 403): a delivery acts in the partition it was registered
+// for — a person's or the global instance's alike. On a tile that isn't
+// partitioned the parameter is the backend's own, as today: registered.
+func TestGlobalAddressRegRefused(t *testing.T) {
+	w := partRegWS(t)
+	b := w.b
+	w.write(map[string]string{
+		"apps/x/scope.json": `{"resources":{"beat":{"type":"cron"},"feed":{"type":"bus"}}}`,
+		"apps/x/xbin.json":  `{"runtime":"go","uses":[{"target":"res:apps/x/beat","role":"writer"},{"target":"res:apps/x/feed","role":"writer"}]}`,
+	})
+	w.rescan()
+	cron := func(p auth.Principal, tile, path string) (int, string) {
+		t.Helper()
+		rec := call(t, b.apiCronPut, p, "PUT", "/cron/jobs", `{"name":"j","resource":"res:`+tile+`/beat","schedule":"@every 1m","path":"`+path+`"}`, nil)
+		return rec.Code, rec.Body.String()
+	}
+	bus := func(p auth.Principal, tile, path string) (int, string) {
+		t.Helper()
+		rec := call(t, b.apiBusSubsPut, p, "PUT", "/bus/subscriptions", `{"name":"s","resource":"res:`+tile+`/feed","path":"`+path+`"}`, nil)
+		return rec.Code, rec.Body.String()
+	}
+	refusal := "delivery acts in the partition it was registered for: ?xbin-partition=global is for "
+	for _, c := range []struct {
+		name string
+		put  func(auth.Principal, string, string) (int, string)
+		p    auth.Principal
+		tile string
+		path string
+		want int
+	}{
+		{"alice's partition's cron job", cron, partInst("apps/pu", "alice"), "apps/pu", "/t?xbin-partition=global", 400},
+		{"the global instance's cron job, another value", cron, instanceOf("apps/pg", ""), "apps/pg", "/t?a=1&xbin-partition=user:bob", 400},
+		{"alice's partition's subscription, an encoded key", bus, partInst("apps/pu", "alice"), "apps/pu", "/b?xbin%2Dpartition=global", 400},
+		{"the global instance's subscription", bus, instanceOf("apps/pg", ""), "apps/pg", "/b?xbin-partition=global", 400},
+		{"alice's partition's cron job without it", cron, partInst("apps/pu", "alice"), "apps/pu", "/t?x=1", 200},
+		{"an unpartitioned tile's cron job", cron, instanceOf("apps/x", ""), "apps/x", "/t?xbin-partition=global", 200},
+		{"an unpartitioned tile's subscription", bus, instanceOf("apps/x", ""), "apps/x", "/b?xbin-partition=global", 200},
+	} {
+		code, body := c.put(c.p, c.tile, c.path)
+		if code != c.want || c.want == 400 && !strings.Contains(body, refusal+c.tile+"'s own frames") {
+			t.Errorf("%s (%s): %d %s, want %d", c.name, c.path, code, body, c.want)
+		}
+	}
+}

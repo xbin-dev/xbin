@@ -309,9 +309,10 @@ bus events. The two sides talk through:
   gets there read-only: `reader`, whatever the viewed person's level. An
   admin calling the tile directly may use it too, keeping their own role
   (other people come in through the tile's frame). Other tiles, cron and
-  bus deliveries and path tickets can't (403), and a tile without a global
-  instance answers 404 ([protocol.md](protocol.md) §HTTP routes › Core has
-  every refusal). In Go,
+  bus deliveries and path tickets can't (403; a cron job or bus
+  subscription whose path carries the parameter is refused, 400, when it
+  is registered), and a tile without a global instance answers 404
+  ([protocol.md](protocol.md) §HTTP routes › Core has every refusal). In Go,
   `xbin.Client().Get(xbin.GlobalURL("runs/42"))`; in a frame,
   `` xbin.fetch(`/api/${xbin.self}/runs/42`, {partition: 'global'}) ``. Both
   add `?xbin-partition=global`, and only in a user partition; elsewhere they
