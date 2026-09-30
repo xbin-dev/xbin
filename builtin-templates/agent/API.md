@@ -2027,6 +2027,27 @@ task (the spawn's) and a way to its chat (the app: a section of the Task
 screen). "Needs you" says `login` as "needs you to sign in to ‹name›" when
 the item names the coding agent (its own `harness`, or its conversation's).
 
+**Testing coding agents.** `hack/harness-smoke.sh` runs, in about a
+minute and with no sandbox, the ACP client and its scripted fake adapter
+(`sdk/acp`, `sdk/acp/acptest` — `hack/fakeacp`) and this template's engine,
+pipe, catalog and relays against fakesandbox with that adapter.
+`HARNESS_SMOKE_LIVE=1` adds the live check (`test/isolated`
+`TestHarnessLive`): an isolated xbind with owner auth, coding-sandbox on its
+runtime and this template bound to it, a sandbox with internet egress; the
+rootfs's Claude Code, Codex, Gemini CLI and opencode adapters each go
+through `initialize` and `session/new` to a sign-in park (or an answer —
+opencode has free models), and the fake adapter (copied into the sandbox,
+advertised by the image as `fake`) through a terminal sign-in on the run
+relay, a permission, the stdio pipe and a redeploy of this backend
+mid-turn, which the next process attaches to. It prints what each real
+adapter did (`adapter <id>: …`: its sign-in methods, its login command and
+what that shows in a terminal). `HARNESS_SMOKE_VM=1` repeats it with VM
+sandboxes; `HARNESS_LIVE_ONLY=claude,codex` narrows the adapters. It needs
+user namespaces, the base rootfs (`make rootfs`) and `bin/`'s helpers, and
+takes about a minute more. To try an adapter of your own, advertise it on a
+coding-sandbox image (`harnesses: [{id, title, argv, login}]`, §Coding
+agents "The catalog").
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
