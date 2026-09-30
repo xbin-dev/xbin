@@ -123,7 +123,12 @@ func admitCaller(r *http.Request, c *callerRef, limit int) (release func(), ok b
 		return func() {}, true
 	}
 	callersMu.Lock()
-	limitNow = limit
+	if limit != limitNow { // the config changed under the calls waiting
+		limitNow = limit
+		for _, g := range gates {
+			pumpLocked(g)
+		}
+	}
 	g := gates[c.key]
 	if g == nil {
 		g = &gate{part: c.part}
