@@ -691,8 +691,10 @@ snaps, err := sb.Snapshots(ctx)                                             // S
 A **consumer** of the sandbox-manager contract (a tile bound to managers,
 [sandbox-manager.md](sandbox-manager.md) §Wiring) opens terminals in their
 sandboxes from its backend — through xbind, with its instance credential,
-naming the person it acts for (`Sbx-User`: asserted, not verified) — and
-either relays one to its own page or app, or drives it itself:
+naming the person it acts for (`Sbx-User`: asserted, not verified —
+except in a person's partition of a partitioned tile, whose person the
+manager knows, verified; below) — and either relays one to its own page
+or app, or drives it itself:
 
 ```go
 // your page's (or the app's) terminal WebSocket, relayed
@@ -745,13 +747,19 @@ c, err := xbin.DialManagerTTY(ctx, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{
   id) can end it when the answer says it didn't exit — the agent template
   does, unless a client attached to it again meanwhile
   (`builtin-templates/agent/API.md` §Coding agents).
-- **Your checks are the only ones about the person.** The manager treats
-  them as asserted: it keeps the partitions (your sandboxes and those
-  shared with you) but not who among your people may use one — apply its
-  rules ([sandbox-manager.md](sandbox-manager.md) §Partitions, sharing and
+- **Your checks come first.** The manager treats the person as asserted:
+  it keeps consumers apart (your sandboxes and those shared with you) but
+  not who among your people may use one — apply its rules
+  ([sandbox-manager.md](sandbox-manager.md) §Consumers, sharing and
   people: owner, members, `team`, a share's `users`) yourself, and whether
-  they may have a terminal at all, before the relay. A manager on xbind's runtime still refuses a person with
-  `noTerminal`.
+  they may have a terminal at all, before the relay. A manager on xbind's
+  runtime still refuses a person with `noTerminal`. **In a person's
+  partition** of a partitioned tile ([partitions.md](partitions.md)) the
+  person is the partition's, and verified: a manager whose hello offers
+  `partitions` applies those rules itself, and a `User` naming anyone
+  else is `403 not-allowed` ([sandbox-manager.md](sandbox-manager.md)
+  §Partitioned consumers) — whether they may have a terminal at all is
+  still yours to check.
 
 **A program's stdio** (where the manager's `hello.caps` has `stdio`,
 [sandbox-manager.md](sandbox-manager.md) §stdio): start it as a non-tty
@@ -775,7 +783,10 @@ The offsets are the exec's `…/output` offsets, so a consumer that
 restarts resumes where it read to, and attaching again replaces the socket
 before. `xbin.ManagerStdioURL` builds the route (typed parts only, as
 `ManagerTTYURL`). Without `stdio` the exec's `…/output` and `…/stdin`
-routes do the same by polling.
+routes do the same by polling. Who may attach is as for a terminal
+(above): the person rules are yours to apply before you dial, except in a
+person's partition, where the manager applies them to that person — and
+attaching takes the exec's stdin from whoever held it.
 
 ## node backend (no SDK needed)
 

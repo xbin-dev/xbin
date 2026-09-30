@@ -970,9 +970,10 @@ runtime routes), `docs/sdk.md`, a changelog entry.
 - The `tty` routes (`GET …/tty`, `GET …/execs/{eid}/tty`) serve a consumer's
   **backend** as well as its pages: a backend dials with its own credential
   and `Sbx-User: <person>` (asserted). The person rules are **unchanged**
-  (§Who is asking, §Partitions): on a backend call the manager records the
-  asserted person (as for `execs`: the runtime's `forUser`) and does not
-  police it — the consumer checks its own rules before it dials (AgTT:
+  (§Who is asking, §Consumers, sharing and people): on a backend call the
+  manager records the asserted person (as for `execs`: the runtime's
+  `forUser`) and does not police it — the consumer checks its own rules
+  before it dials (AgTT:
   `sandboxAccess(caller).Use`, fresh from the manager, §4.2.8); a verified
   `X-XBin-User` wins over the header. The backend relays the socket to its
   page or app byte for byte. Every manager implements it (a cloud manager:

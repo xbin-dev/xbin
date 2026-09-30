@@ -7,7 +7,11 @@ package xbin
 // acts for in Sbx-User (asserted: the manager records it and doesn't verify
 // it). It drives the terminal itself (DialManagerTTY) or relays it to its
 // own page or app (RelayManagerTTY) — after checking that person may use
-// the sandbox: the manager can't.
+// the sandbox: the manager can't. The exception is a person's partition of
+// a partitioned tile: its person is the partition's, verified, and a
+// manager with the partitions capability applies its person rules to them
+// itself (an Sbx-User naming anyone else is 403 not-allowed;
+// docs/sandbox-manager.md §Partitioned consumers).
 //
 // Not to be confused with sandbox_tty.go: a MANAGER relaying its
 // consumer's terminal on to xbind's runtime.
@@ -46,6 +50,10 @@ type ManagerTTYOptions struct {
 	// User is the person the consumer acts for, sent as Sbx-User: the
 	// manager records it and doesn't verify it. "" is the consumer itself.
 	// Check the person may use the sandbox before you open it for them.
+	// From a person's partition of a partitioned tile the person is the
+	// partition's, verified — the manager applies its person rules to them,
+	// and a User naming anyone else is refused (403 not-allowed); "" is
+	// that person there.
 	User string
 	// Client dials the manager (nil: Client() — through the gateway, with
 	// this instance's credential).

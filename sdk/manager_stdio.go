@@ -5,8 +5,10 @@ package xbin
 // it started as a non-tty exec in a bound manager's sandbox (a coding agent
 // speaking ACP on stdio, POST …/execs {stdin: true, split: true}) over one
 // WebSocket, dialled through xbind with its instance credential and the
-// person it acts for in Sbx-User. Only where the manager's hello.caps has
-// "stdio"; without it, the exec's output and stdin routes do the same.
+// person it acts for in Sbx-User (asserted, as for a terminal — the
+// partition's own person, verified, from a person's partition:
+// manager_tty.go). Only where the manager's hello.caps has "stdio";
+// without it, the exec's output and stdin routes do the same.
 
 import (
 	"context"
@@ -24,6 +26,10 @@ type ManagerStdioOptions struct {
 	Since, ErrSince int64
 	// User is the person the consumer acts for, sent as Sbx-User: the
 	// manager records it and doesn't verify it. "" is the consumer itself.
+	// From a person's partition of a partitioned tile the person is the
+	// partition's, verified — the manager applies its person rules to them,
+	// and a User naming anyone else is refused (403 not-allowed); "" is
+	// that person there.
 	User string
 	// Client dials the manager (nil: Client() — through the gateway, with
 	// this instance's credential).

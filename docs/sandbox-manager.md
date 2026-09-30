@@ -52,7 +52,9 @@ below is under `<url>/sbx/`.
 - **A person, asserted**, is `Sbx-User: <user id>`: a consumer's backend
   (whose calls carry no person) names the person it acts for. The manager
   records it as asserted (`owner.asserted`), shows it, and does not verify
-  it; a verified `X-XBin-User` always wins over it.
+  it; a verified `X-XBin-User` always wins over it. (A partitioned
+  consumer's user partition is the exception: its person is the
+  partition's, verified — §Partitioned consumers.)
 - **A partition**, on a call from a **partitioned** consumer — a tile xbind
   runs as one instance per person (a *user partition*), plus maybe one
   shared *global* instance: `X-XBin-Partition` is `user:<user id>` or
@@ -78,7 +80,8 @@ body (a sandboxed page can't set custom request headers).
   owner, a member, or the sandbox must be `team` — and on a shared
   consumer, the share's `users` must include them. On a **backend** call
   the consumer is trusted to enforce its own rules for the person it acts
-  for; the manager only records the assertion.
+  for; the manager only records the assertion (a user partition's backend
+  call is its verified person's: §Partitioned consumers).
 - Changing `visibility`, `members` or `shares` takes the home consumer's
   backend, the owner (verified, through the home consumer), or the
   manager's operators. Only the home consumer deletes a sandbox.
@@ -102,7 +105,8 @@ the manager's (never in a sandbox's `caps`):
   consumer don't see it (`not-found`) unless it is shared with them.
   `clientId`s are per consumer and partition.
 - **The person** of a user partition's call is the partition's, and
-  verified: the person rules apply as on a page's call, and an `Sbx-User`
+  verified — its backend's calls and sockets (`tty`, `stdio`) as much as
+  its page's: the person rules apply as on a page's call, and an `Sbx-User`
   or `X-XBin-User` naming anyone else is `403 not-allowed`. So is a call
   whose partition headers don't agree (a user partition without its id, a
   kind the manager doesn't know): it is never taken for the consumer's
@@ -417,6 +421,12 @@ manager doesn't know: it ignores it, and the exec answers `split` false).
 - **Who dials it**: a consumer's backend, through xbind with its instance
   credential and its person in `Sbx-User`, as any backend call (in Go,
   `xbin.DialManagerStdio`, docs/sdk.md), or a page with its frame token.
+  Who may is as on every route: a sandbox the consumer doesn't see is
+  `not-found`; the person rules are the manager's on a verified call and
+  the consumer's for an asserted person — except from a partitioned
+  consumer's user partition, whose person is the partition's and verified:
+  the manager applies the person rules itself, and an `Sbx-User` naming
+  anyone else is `403 not-allowed` (§Partitioned consumers).
   Attaching is a **change**, not a read — the socket writes the exec's
   stdin and takes it from whoever held it — so a manager that lets some
   people only look (the reference manager's own page, for people with
@@ -463,19 +473,25 @@ true}`), serve a consumer's pages and its backend alike:
   (an SSH bridge, a sign-in it runs) or to relay one to its own page or app.
   It names the person it acts for in `Sbx-User`, as on any backend call:
   **asserted**, recorded, not verified (§Who is asking). The manager
-  answers it as any backend call — the partitions hold, the person rules are
-  the consumer's — and a manager that asks its substrate about the person
-  (xbind's `noTerminal`, through `forUser`) asks about that one.
+  answers it as any backend call — consumers stay apart (the consumer's own
+  sandboxes and those shared with it), the person rules are the
+  consumer's — and a manager that asks its substrate about the person
+  (xbind's `noTerminal`, through `forUser`) asks about that one. **From a
+  partitioned consumer's user partition** the person is the partition's,
+  and verified (§Partitioned consumers): the manager applies the person
+  rules itself, as on a page's call, and an `Sbx-User` naming anyone else
+  is `403 not-allowed`.
 - **A consumer that relays a terminal to a person checks that person first**
-  — may they use this sandbox, by the rules of §Partitions, sharing and
+  — may they use this sandbox, by the rules of §Consumers, sharing and
   people as it applies them, and may they have a terminal at all: the
-  manager can't, and the relay carries whatever they type. It relays every
-  message both ways unchanged (the session and exit frames, resizes and
-  pings included), dials anew for each client — no header, cookie or query
-  of the person's request passes — and closes each end the way the other
-  ended. In Go, `xbin.RelayManagerTTY` does exactly this, and
-  `xbin.DialManagerTTY` dials for a backend that drives the terminal itself
-  (docs/sdk.md).
+  manager can't (from a user partition it applies the first itself; the
+  second stays the consumer's), and the relay carries whatever they type.
+  It relays every message both ways unchanged (the session and exit
+  frames, resizes and pings included), dials anew for each client — no
+  header, cookie or query of the person's request passes — and closes each
+  end the way the other ended. In Go, `xbin.RelayManagerTTY` does exactly
+  this, and `xbin.DialManagerTTY` dials for a backend that drives the
+  terminal itself (docs/sdk.md).
 
 The xbin app's `terminal` primitive dials only a tile's own routes, so an
 app view reaches a manager's terminal through its tile's relay.

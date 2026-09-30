@@ -189,12 +189,13 @@ func dialRefused(t *testing.T, a Caller, path string, status int, refusal string
 // backendTTYWarn: a consumer's backend opens a terminal (a command that
 // exits at once) for a person it asserts whom the manager wouldn't admit on
 // a verified call. The contract always left that person to the consumer
-// (docs/sandbox-manager.md §Who is asking), but the suite checked it for
-// reads and run only, so a manager built to it may refuse the terminal (403
-// or 404). In the release that adds the check (2026-09-30) that is a
-// warning — the check skips, saying why; from the next release it fails,
-// and with Target.Strict it fails now. Any other failure is attach's to
-// report.
+// (docs/sandbox-manager.md §Who is asking; a partitioned consumer's user
+// partition, whose person is verified, makes no such call), but the suite
+// checked it for reads and run only, so a manager built to it may refuse
+// the terminal (403 or 404). In the release that adds the check
+// (2026-09-30) that is a warning — the check skips, saying why; from the
+// next release it fails, and with Target.Strict it fails now. Any other
+// failure is attach's to report.
 func backendTTYWarn(t *testing.T, e *env, a Caller, id string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -304,7 +305,10 @@ var ttyChecks = []check{
 		// relay one to its page or app — naming its person in Sbx-User: an
 		// assertion the manager records and doesn't verify (the consumer
 		// polices its people), on its own sandboxes and shared ones alike;
-		// the partitions hold
+		// consumers stay apart. (A partitioned consumer's user partition is
+		// the exception: its person is the partition's, verified, and the
+		// manager applies the person rules — user-partitions/person and
+		// user-partitions/sockets.)
 		if !e.has("tty") {
 			t.Skip("no tty capability")
 		}
