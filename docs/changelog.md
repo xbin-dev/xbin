@@ -79,6 +79,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   Nothing changes on screen; an instance's own modules can use them too.
   They carry the coding-harness UI now being built, whose model modules
   (`model/harness*.js`, `app.harness`) and test fixtures land with them.
+- **Agent template: a coding agent asks, and you drive it**
+  (`builtin-templates/agent/API.md` §The frontend, "A coding agent asking
+  and driven"). The first coding-harness UI, web and native, on the seams:
+  a permission card with the harness's own options (reject first when it
+  defaults to no; an option that raises it to a bypass mode only for the
+  conversation's owner, marked ⚠ and confirmed), the call and a diff
+  preview, what "always" remembers and an optional word with a rejection;
+  a plan approval with the plan and a "keep planning" box; a question as a
+  form (url mode: the page, then Done); the composer's `#hctl` — the live
+  mode and config options, and each person's Auto / Always approve per
+  harness; a slash-command menu; steering words while a turn runs, and
+  ⌘/Ctrl+Enter (native: Send now) to interrupt it. Nothing changes for the
+  built-in agent's conversations. For an instance's own modules:
+  `app.send(text, clear, {interrupt})` and `Session.send(text, files,
+  {interrupt})` send `interrupt: true` (ignored by a built-in run), and
+  `queueTpl(queued, remove, words?)` takes the chips' `{label, title}`.
 
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)
