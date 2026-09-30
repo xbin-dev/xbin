@@ -130,12 +130,12 @@ func fresh(t *testing.T, limit int) {
 type hdrs map[string]string
 
 var (
-	chat     = hdrs{"X-XBin-From": "apps/chat", "X-XBin-Role": "writer"} // a tile that isn't partitioned
-	global   = hdrs{"X-XBin-From": "apps/agent", "X-XBin-Role": "writer", "X-XBin-Partition": "global"}
-	alice    = hdrs{"X-XBin-From": "apps/agent", "X-XBin-Role": "writer", "X-XBin-Partition": "user:alice", "X-XBin-Partition-Id": "u-a"}
-	bob      = hdrs{"X-XBin-From": "apps/agent", "X-XBin-Role": "writer", "X-XBin-Partition": "user:bob", "X-XBin-Partition-Id": "u-b"}
-	aliceDev = hdrs{"X-XBin-From": "apps/agent", "X-XBin-Deployment": "dev", "X-XBin-Role": "writer", "X-XBin-Partition": "user:alice", "X-XBin-Partition-Id": "u-a"}
-	aliceZ   = hdrs{"X-XBin-From": "apps/z", "X-XBin-Role": "writer", "X-XBin-Partition": "user:alice", "X-XBin-Partition-Id": "u-za"}
+	chat      = hdrs{"X-XBin-From": "apps/chat", "X-XBin-Role": "writer"} // a tile that isn't partitioned
+	global    = hdrs{"X-XBin-From": "apps/agent", "X-XBin-Role": "writer", "X-XBin-Partition": "global"}
+	alice     = hdrs{"X-XBin-From": "apps/agent", "X-XBin-Role": "writer", "X-XBin-Partition": "user:alice", "X-XBin-Partition-Id": "u-a"}
+	bob       = hdrs{"X-XBin-From": "apps/agent", "X-XBin-Role": "writer", "X-XBin-Partition": "user:bob", "X-XBin-Partition-Id": "u-b"}
+	globalDev = hdrs{"X-XBin-From": "apps/agent", "X-XBin-Deployment": "dev", "X-XBin-Role": "writer", "X-XBin-Partition": "global"} // a non-primary deployment runs as global
+	aliceZ    = hdrs{"X-XBin-From": "apps/z", "X-XBin-Role": "writer", "X-XBin-Partition": "user:alice", "X-XBin-Partition-Id": "u-za"}
 )
 
 func request(ctx context.Context, method, path, body string, h hdrs) *http.Request {
@@ -197,7 +197,7 @@ func TestCallerCounters(t *testing.T) {
 	if b := fx.get("callers"); b != nil {
 		t.Errorf("a call from a tile that isn't partitioned wrote callers: %s", b)
 	}
-	for _, h := range []hdrs{alice, alice, bob, global, aliceDev, aliceZ} {
+	for _, h := range []hdrs{alice, alice, bob, global, globalDev, aliceZ} {
 		if w := proxy(ctx, h, "m"); w.Code != 200 {
 			t.Fatalf("%v: %d %s", h, w.Code, w.Body)
 		}
@@ -214,7 +214,7 @@ func TestCallerCounters(t *testing.T) {
 			{"apps/agent", "", "u-a", "user:alice", 2},
 			{"apps/agent", "", "u-b", "user:bob", 1},
 			{"apps/agent", "", "", "global", 1},
-			{"apps/agent", "dev", "u-a", "user:alice", 1},
+			{"apps/agent", "dev", "", "global", 1},
 			{"apps/z", "", "u-za", "user:alice", 1},
 		} {
 			r := rowOf(rows, c.from, c.dep, c.pid)

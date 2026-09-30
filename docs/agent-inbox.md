@@ -43,6 +43,11 @@ agent's Automations page, which sets its owner, its visibility and its
 rules. Until then the binding authorizes the calls, but nobody owns what
 they would do.
 
+An agent may be **partitioned** — one instance per person, plus a global
+one; new instances of the template are, by default. The adapter then
+always talks to the agent's **global instance**, over this same contract
+([A partitioned agent](#a-partitioned-agent)).
+
 ## Routes
 
 All bodies are JSON. Errors are `{error}` with a 4xx/5xx status.
@@ -342,6 +347,53 @@ agent's **web lane**, which has no internal reach.
 **The halt:** while the agent is halted, messages are kept and the
 sender is told the agent is paused. A channel message never lifts the
 halt.
+
+## A partitioned agent
+
+A partitioned agent ([/docs/partitions.md](/docs/partitions.md)) runs one
+instance per person who uses it — their **partition**, holding their own
+conversations — and a **global instance** for what is the tile's rather
+than one person's. An adapter isn't partitioned, so every call it makes
+reaches the global instance (the table in partitions.md, "Who reaches which
+partition"). **Nothing changes on the wire:** the same routes, one outbox
+stream per adapter, the same verdicts. What changes is where the work runs:
+
+| Arrives at the global instance | Goes to |
+|---|---|
+| `hello`, claiming a channel, its rules | the global instance: channels and their routing tables are the tile's, kept in its data. Managers claim and configure them there |
+| a message in a group or channel | a shared conversation at the global instance, as without partitions |
+| a DM from a chat account **linked** to a person | handed to **that person's partition**: the global instance records the hand-off (routing facts, no text) and sends the message to the person's partition by partition mail ([/docs/partitions.md](/docs/partitions.md) §Partition mail); the DM runs there as their own private conversation. Attachments go with it (up to 1 MiB inline; larger ones wait in the global instance's storage until the partition has them) |
+| that person's reply | mailed by their partition back to the global instance, which takes where to post it from **its own** hand-off record — never from the reply — and appends it to the outbox as usual |
+| a DM from an account nobody linked | the global instance, as without partitions (pairing, link codes) |
+| `POST /adapter/link` and unlinking, from the adapter's page | the global instance, as the signed-in person (`X-XBin-User`): links are the tile's routing, kept in its data |
+| `POST /adapter/event` for a team trigger | the global instance runs it |
+| … for a person's private trigger | handed to their partition by mail, which runs it with that trigger's settings |
+
+For the adapter this means:
+
+- **Bind it to the agent as today** (`bx bind <adapter> agent=apps/agent`):
+  a global bind, which whoever may bind today makes — an admin, an org
+  admin within their org, a personal tile's owner to what they own. A
+  personal bind doesn't apply: the adapter isn't partitioned, so it has
+  one wiring for everyone. A partitioned agent without a global instance
+  can't be bound (409): nothing of it would answer.
+- **A linked person's DM is answered later, not refused.** A person's
+  partition starts when they use the agent; a DM that arrives before their
+  partition ever ran waits for it (partition mail never starts one), and
+  the agent posts a short `notice` saying so (open the agent once to get
+  replies). The reply comes through the outbox whenever it is ready —
+  treat `runId`, `inboxId` and `sessionKey` in a verdict or an `out` row as
+  informational, as the bridge template does.
+- **What passes through whom.** A linked person's DM and its reply are
+  theirs, but they cross the adapter (it is their chat platform) and the
+  global instance's outbox (until the adapter acks the row). The adapter's
+  writers and the agent's are in that person's trust base, as the chat
+  platform itself is.
+- **Webhooks and other pushed events** get their answer from the global
+  instance once the event is stored or handed on — a `2xx` means "taken",
+  not "the person's partition ran it". A person's private push trigger
+  needs a `match` that isn't empty and doesn't overlap another person's
+  on the same source, so nobody can quietly take every event of a tile.
 
 ## The owner's API (on the agent)
 

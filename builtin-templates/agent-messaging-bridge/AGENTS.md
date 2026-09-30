@@ -176,6 +176,29 @@ faithfully. How it works:
 So the platform must deliver DMs, keep the bot reachable by DM, and pass `/link`
 through as a command (or as text). Mention it in your `Setup` steps.
 
+## The agent may be partitioned
+
+An agent can run one instance per person (its **partitions**) plus a
+**global** one; new copies of the agent template do, by default. **You always
+talk to its global instance** — this tile isn't partitioned, so every call
+it makes lands there — and nothing in your platform file changes:
+
+- The global instance keeps the channels, their rules and the links. Group
+  and channel messages run there, as shared conversations.
+- A **linked** person's DM is handed to their own partition and answered
+  from there; the reply reaches you through the same outbox stream. Until
+  that person has opened the agent once, their DM waits and the agent posts
+  a short notice saying so. So a DM's reply may come minutes or hours later:
+  never wait for it, and never depend on `runId` or `sessionKey` in a
+  verdict or an outbox row (the bridge only logs them).
+- Linking stays on this tile's page; the link is recorded by the global
+  instance for the signed-in person.
+- Binding: `bx bind <this tile> agent=apps/<agent>` is an ordinary (global)
+  bind, as for an agent that isn't partitioned. An agent that is partitioned
+  without a global instance can't be bound (409).
+
+The contract's section is "A partitioned agent" in `/docs/agent-inbox.md`.
+
 ## Other rules
 
 - **Credentials:** only through `Info().Secrets` and `b.Secret`.

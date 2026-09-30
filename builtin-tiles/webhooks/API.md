@@ -47,6 +47,39 @@ The event sent to each agent (`POST /adapter/event`, docs/agent-inbox.md):
 - `data` is the JSON body (or `text`, for other bodies).
 - `dataClass` is `public`.
 
+## A partitioned agent
+
+An agent may be partitioned — one instance per person, plus a global one;
+new copies of the agent template are, by default
+([/docs/partitions.md](/docs/partitions.md)). This tile isn't: it holds the
+hooks, their secrets and one public URL for everyone. Nothing changes here:
+
+- **Deliveries reach the agent's global instance** (every call from a tile
+  that isn't partitioned does). Its **team** triggers run there, as without
+  partitions. A person's **private** push trigger is registered there too
+  (name, source, match — never its instructions), and a delivery it takes
+  is handed to that person's partition by partition mail, which runs it.
+- **The answer means "taken", not "run".** The agent answers once the event
+  is stored or handed on, so a hook's `202` may come before the person's
+  partition has run it (their partition starts when they use the agent; a
+  hand-off waits for it). `404` (no trigger, team or private, takes the
+  topic) and `503` (the agent is halted or unreachable: retry) mean what
+  they meant; the same delivery sent again still runs nothing twice.
+- **A private push trigger needs a `match`**, and one that doesn't overlap
+  another person's on the same source (neither is a prefix of the other):
+  nobody can quietly take every hook's deliveries. Team triggers are made
+  by the agent's managers, as before.
+- **Binding** it to an agent is an ordinary (global) bind, made by whoever
+  may bind today — an admin, an org admin within their org, a personal
+  tile's owner to what they own. A personal bind doesn't apply: this tile
+  isn't partitioned, so it has one wiring for everyone. A partitioned agent
+  without a global instance can't be bound (409).
+- **Who sees a delivery.** A hook's body is public data from outside; it
+  passes through this tile (the page lists the last 50 deliveries' topics
+  and event ids, not their bodies) and the agent's global instance on its
+  way to a person's partition. This tile's writers and the agent's are in
+  the trust base of whoever's trigger takes it.
+
 ## Routes (the tile's own page; admin, changes need write access)
 
 | Method & path | Body | Purpose |
