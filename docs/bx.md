@@ -382,14 +382,15 @@ stderr, so `--json` keeps stdout to the JSON answer.
 While the workspace policy `partition-consent` is on (`bx policies`), a
 partitioned tile reaches your data in another partitioned tile only once
 you allow it: `bx partition consent <from> <to>` does, `--revoke` takes it
-back (at once: `<from>`'s instance of you is stopped), and `consent ls`
-lists your consents and the edges you were asked about. Both are your own
-acts: bx with your login, never a tile's terminal. `bx partition ledger`
-prints your partitions' egress ledger — per day, how often each of your
-partitions called or reached another tile, never what it sent — for one
-tile or all (`--days`, default 30); with a tile, its managers also get its
-totals, and admins every person's totals. Both exit 6 against an xbind
-without them.
+back (at once: `<from>`'s backend instance of you is stopped; it says so
+when there was nothing to take back), and `consent ls` lists your consents
+and the edges you were asked about. Both are your own acts: bx with your
+login, never a tile's terminal. `bx partition ledger` prints your
+partitions' egress ledger — per day, how often each of your partitions
+called or reached another tile, never what it sent — for one tile or all
+(`--days`, default 30); with a tile, its managers also get its totals
+(personal tiles unnamed), and admins every person's totals. Both exit 6
+against an xbind without them, naming the route it lacks.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset

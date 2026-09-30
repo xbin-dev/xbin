@@ -93,7 +93,7 @@ The plaintext is the UTF-8 JSON of:
 | `kind` | string | `agent.permission`, `agent.question`, `agent.turn`, `tile`, `tile.<kind>`, `test` |
 | `title` | string | plain text, at most 120 characters |
 | `body` | string | plain text, may contain `\n`, at most 1000 characters |
-| `link` | string | workspace-relative: `c/<tile>/[path][?query][#fragment]` for a tile, `agent/<session id>` for an agent session, `""` = none |
+| `link` | string | workspace-relative: `c/<tile>/[path][?query][#fragment]` for a tile, `agent/<session id>` for an agent session, `xbin/<page>` for one of xbind's own pages, `""` = none |
 | `collapseId` | string | notifications with the same one replace each other (`""` = none) |
 
 Kinds (registration `kinds` match a kind and everything under it: `agent`
@@ -105,6 +105,8 @@ matches `agent.turn`; `test` is always delivered):
 | `agent.question` | an ACP `elicitation.request`, likewise | `agent/<session>` |
 | `agent.turn` | a turn ends (`turn.end`), except when the user cancelled it | `agent/<session>` |
 | `tile`, `tile.<kind>` | a tile called `POST /api/xbin/notify` | `c/<tile>/…` |
+| `tile.partition-switch`, `tile.partition-deleted` | xbind: a tile's partition mode switch is requested (its managers), or deleted the person's partition | `c/<tile>/` |
+| `tile.partition-consent` | xbind: a partitioned tile's call into the person's data in another was refused for want of their consent (the workspace policy partitionConsent on; one a day per edge, collapse `partition-consent:<from>→<to>`) | `xbin/partitions` — the partitions page, not served yet: an app that doesn't know the link opens the workspace |
 | `test` | the user called `POST /api/xbin/push/test` | `""` |
 
 The deep link the app opens is `xbin://<app's workspace id>/<link>`
