@@ -388,6 +388,20 @@ func (b *Broker) edgeGranted(from, to string) bool {
 	return false
 }
 
+// writeGrantOK answers a grant's approval or revocation: today's ok, and,
+// on an approval that reaches another partitioned tile's people's data,
+// the approval warning beside it (additive; `bx grant` prints it) — the
+// same words the pending row carried. Every other answer is byte-identical.
+func (b *Broker) writeGrantOK(w http.ResponseWriter, r *http.Request, g registry.Grant) {
+	if r.Method == http.MethodPost {
+		if warn := b.partitionGrantWarning(g.From, g.Target); warn != "" {
+			server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "warning": warn})
+			return
+		}
+	}
+	server.WriteOK(w)
+}
+
 // partitionGrantWarning is the approval warning of a grant of from on
 // target when both ends keep each person's data apart (05 §2, S1), in the
 // words of the workspace's partitionConsent setting; "" otherwise.

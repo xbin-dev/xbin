@@ -814,10 +814,16 @@ func cmdGrant(args []string) error {
 	if revoke {
 		method = "DELETE"
 	}
-	if err := apiJSON(method, "/api/xbin/grants", body, nil); err != nil {
+	var out struct {
+		Warning string `json:"warning"` // partitioned tiles (docs/partitions.md)
+	}
+	if err := apiJSON(method, "/api/xbin/grants", body, &out); err != nil {
 		return err
 	}
 	fmt.Println("ok")
+	if out.Warning != "" {
+		fmt.Fprintln(os.Stderr, "⚠ "+out.Warning)
+	}
 	return nil
 }
 

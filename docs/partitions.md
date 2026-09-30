@@ -432,7 +432,8 @@ Z's code — and everyone who can change it — reads and writes the X data of
 every person who can read X. Approving such a grant says so where it is
 approved — the grants panel, the admin console's binding → grants view,
 the organisations tile's pending approvals and `bx grants`
-(`GET /api/xbin/grants`' pending rows carry the `warning`).
+(`GET /api/xbin/grants`' pending rows carry the `warning`), and `bx grant`
+prints it once approved (`POST /api/xbin/grants` answers it).
 
 **With the policy on**, a call without alice's consent is refused, `403
 alice hasn't let apps/z use their apps/x data`, and alice is asked — a push

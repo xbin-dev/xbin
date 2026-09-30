@@ -340,3 +340,39 @@ func TestTermPartitionRecordWired(t *testing.T) {
 		t.Error("carol's record once the tile runs again")
 	}
 }
+
+// covers 05§2 S1 — approving a partitioned tile's grant on another
+// partitioned tile's people's data answers the approval warning beside
+// today's ok (for `bx grant` to print); a grant on a shared resource or an
+// unpartitioned tile, and every revocation, answer today's body exactly.
+func TestGrantApprovalWarning(t *testing.T) {
+	f := newEdgeFx(t)
+	b := f.b
+	f.write(map[string]string{
+		"apps/r/xbin.json": `{"runtime":"go","partition":["user"],"uses":[{"target":"apps/pg","role":"reader"},` +
+			`{"target":"res:apps/pg/board","role":"reader"},{"target":"apps/x","role":"reader"}]}`,
+	})
+	f.rescan()
+	owner := auth.Principal{Owner: true}
+	grant := func(method, target string) (int, string) {
+		t.Helper()
+		h := b.apiGrantsAdd
+		if method == "DELETE" {
+			h = b.apiGrantsRevoke
+		}
+		rec := call(t, h, owner, method, "/grants", `{"from":"apps/r","target":"`+target+`","role":"reader"}`, nil)
+		return rec.Code, strings.TrimSpace(rec.Body.String())
+	}
+	warn := "apps/r's code — and everyone who can change it — will be able to read and write the apps/pg data of every person who can read apps/pg"
+	if code, body := grant("POST", "apps/pg"); code != 200 || body != `{"ok":"true","warning":"`+warn+`"}` {
+		t.Errorf("approving apps/r on apps/pg: %d %s", code, body)
+	}
+	for _, target := range []string{"res:apps/pg/board", "apps/x"} {
+		if code, body := grant("POST", target); code != 200 || body != `{"ok":"true"}` {
+			t.Errorf("approving apps/r on %s: %d %s, want today's answer", target, code, body)
+		}
+	}
+	if code, body := grant("DELETE", "apps/pg"); code != 200 || body != `{"ok":"true"}` {
+		t.Errorf("revoking apps/r on apps/pg: %d %s, want today's answer", code, body)
+	}
+}

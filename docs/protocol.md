@@ -2440,6 +2440,10 @@ POST   /grants                     admin — any. An org admin may approve on
                                    delegable (D120). body
                                    {from,target,role} — approve/add; the
                                    stored row records approvedBy/approvedAt.
+                                   → {ok, warning?}: warning is the pending
+                                   row's approval warning (GET /grants) when
+                                   a partitioned tile's grant reaches
+                                   another partitioned tile's people's data.
                                    Approving a res:* / gpu:* grant restarts the
                                    caller's backend (that env/devices are captured
                                    at spawn) so it takes effect at once.

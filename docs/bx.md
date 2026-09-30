@@ -261,6 +261,9 @@ After scaffolding, frame it somewhere:
 **`bx grant`** — the role goes after the *last* colon, so resource targets
 read naturally: `bx grant apps/email res:apps/calendar/bus:reader`.
 Grants are rows in the workspace `xbin.json`; revoking is deleting the row.
+Approving a partitioned tile's grant on another partitioned tile's people's
+data prints, on stderr, whose data its code will now reach
+([partitions.md](/docs/partitions.md)).
 
 **`bx bind`** — wires a component's interface slots (docs/overview/11-interfaces.md).
 Net slots take the builtin refs `internet`, `host`, `lan:<cidr>` — or the

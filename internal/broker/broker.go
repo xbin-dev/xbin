@@ -766,7 +766,7 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return registry.Grant{}, false
 	}
-	server.WriteOK(w)
+	b.writeGrantOK(w, r, g) // + the approval warning (partitionconsent.go)
 	return g, true
 }
 
