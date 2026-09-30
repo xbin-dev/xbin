@@ -3,7 +3,9 @@
 // tile manager (dev1) uses it:
 //   0. it is xbind's page as it ships (the bytes of web/partitions.html, no
 //      transform), top-level only (frame-ancestors 'none', X-Frame-Options
-//      DENY): framed, nothing of it renders;
+//      DENY): the browser refuses the frame; and with those headers stripped
+//      (a browser ignoring them), the element itself shows nothing of
+//      dev1's and reads nothing;
 //   1. a switch decision: apps/pp-switch (dev1's; recorded user, holds a
 //      vault key; its code drops partition) is pending — the page offers
 //      Switch and delete all data…, shows the dry run's counts and keep
@@ -15,11 +17,15 @@
 //      apps/pp-docs use their apps/pp-notes data, sees it listed, takes it
 //      back;
 //   3. a personal bind: dev1 binds their own apps/pp-mcp into their
-//      partition of apps/pp-notes (slot mcp) and removes it;
+//      partition of apps/pp-notes (slot mcp); meanwhile the admin's page
+//      shows neither dev1's partition nor that bind as the admin's; dev1
+//      removes it;
 //   4. a credential confirmation, with credentialResetConfirm on: an admin
 //      mints dev1 a sign-in link; the page shows it held, with the notice;
-//      dev1 allows it;
-//      another link is refused;
+//      Allow asks first (who made it, when), then allows it; a link no
+//      longer waiting (replaced while the policy was off) answers xbind's
+//      warning, which stays after the reload; another link is refused in
+//      one click;
 //   5. dev1's own partition of apps/pp-notes (a terminal of theirs made
 //      it): its row, the trust panel, a log share on and off, "restore
 //      from a backup" (none kept here), and a reset after the typed
@@ -109,6 +115,17 @@ async function personPage(browser) {
     check(h['x-frame-options'] === 'DENY' && /frame-ancestors 'none'/.test(h['content-security-policy'] || ''),
       `it refuses to be framed (${h['x-frame-options']}; ${h['content-security-policy']})`);
     check((await B.ctx.request.get(`${URL}/vendor/partitions.html`)).status() === 404, '/vendor/ has no copy of the page');
+    // signed out, a link to the page: sign in, and land back on it
+    const S = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    const sp = await S.newPage();
+    await sp.goto(`${URL}/xbin/partitions`);
+    const atLogin = sp.url();
+    await sp.fill('input[name=username]', 'dev1');
+    await sp.fill('input[name=password]', 'devpass123');
+    await Promise.all([sp.waitForNavigation(), sp.click('button')]);
+    check(atLogin === `${URL}/login?next=%2Fxbin%2Fpartitions` && sp.url() === `${URL}/xbin/partitions`,
+      `signed out, a link to the page signs in and lands back on it (${atLogin} → ${sp.url()})`);
+    await S.close();
     const p = B.page;
     await p.goto(`${URL}/`);
     const framed = await p.evaluate(async () => {
@@ -122,7 +139,34 @@ async function personPage(browser) {
       f.remove();
       return { shown };
     });
-    check(!framed.shown, 'framed, the page shows nothing of dev1\'s');
+    check(!framed.shown, 'framed, the browser refuses it: nothing of dev1\'s shows');
+    // the element's own guard: a browser that ignored those headers (this
+    // route strips them from a framed load) still renders nothing of dev1's
+    const strip = async (route) => {
+      if (!route.request().frame().parentFrame()) return route.continue();
+      const res = await route.fetch();
+      const headers = { ...res.headers() };
+      delete headers['x-frame-options'];
+      headers['content-security-policy'] = String(headers['content-security-policy'] || '').replace(/;\s*frame-ancestors 'none'/, '');
+      return route.fulfill({ response: res, headers });
+    };
+    await p.route('**/xbin/partitions?framed=1', strip);
+    await p.goto(`${URL}/xbin/partitions`);
+    await p.locator(`${PAGE} section#partitions`).waitFor({ timeout: 15000 });
+    await p.evaluate(() => { const f = document.createElement('iframe'); f.src = '/xbin/partitions?framed=1'; document.body.append(f); });
+    const inner = await until(async () => {
+      const fr = p.frames().find((f) => f.url().endsWith('/xbin/partitions?framed=1'));
+      return fr && fr.evaluate(() => {
+        const el = document.querySelector('bx-partitions-page');
+        const alert = el?.shadowRoot?.querySelector('[role=alert]');
+        if (!alert) return null;
+        return { text: alert.textContent, sections: el.shadowRoot.querySelectorAll('section').length, framed: el.testApi().framed(),
+          reads: performance.getEntriesByType('resource').filter((e) => e.name.includes('/api/xbin/')).length };
+      });
+    }, 'the framed element', 10000);
+    check(inner.framed && /only when it is opened on its own/.test(inner.text) && inner.sections === 0 && inner.reads === 0,
+      `headers stripped, the element in a frame refuses: no section, no read of the API (${JSON.stringify(inner)})`);
+    await p.unroute('**/xbin/partitions?framed=1', strip);
 
     await p.goto(`${URL}/xbin/partitions`);
     await p.locator(`${PAGE} section#partitions`).waitFor({ timeout: 15000 });
@@ -200,6 +244,21 @@ async function personPage(browser) {
     const binds = (await (await dev1('GET', '/partitions/binds')).json()).binds ?? [];
     check(binds.length === 1 && binds[0].requester === NOTES && binds[0].provider === MCP && binds[0].slot === 'mcp', `the bind is dev1's (${JSON.stringify(binds)})`);
     await shotEl(p, `${PAGE} section#binds`, 'person-page-bind');
+    // meanwhile, the admin's page: the admin's answers carry dev1's row and
+    // bind (an admin lists them: 90 §I1), and none of it shows as the admin's
+    const adm = await (await api(A.ctx, 'GET', `/partitions?tile=${NOTES}`)).json();
+    check((adm.partitions ?? []).some((r) => r.user === 'dev1') && (adm.binds ?? []).some((b) => b.user === 'dev1'),
+      `the admin's answer lists dev1's partition and bind (${(adm.partitions ?? []).length} rows, ${(adm.binds ?? []).length} binds)`);
+    await A.page.goto(`${URL}/xbin/partitions`);
+    const acard = A.page.locator(`${PAGE} section#partitions [data-tile="${NOTES}"]`);
+    await acard.waitFor({ timeout: 15000 });
+    if (!(await acard.locator('details.trust').evaluate((d) => d.open))) await acard.locator('details.trust summary').click();
+    const atext = await acard.innerText();
+    const amodel = await A.page.locator(PAGE).evaluate((el, t) => { const x = el.testApi().model().tiles.find((y) => y.tile === t); return { rows: x.rows.length, binds: x.binds.length }; }, NOTES);
+    check(/You have no partition here yet/.test(atext) && !/your personal binds/.test(atext) && !atext.includes(MCP) && amodel.rows === 0 && amodel.binds === 0 &&
+      await A.page.locator(`${PAGE} section#binds tr[data-bind]`).count() === 0,
+      `the admin's page shows none of dev1's rows or binds as the admin's (${JSON.stringify(amodel)})`);
+    await shotEl(A.page, `${PAGE} section#partitions [data-tile="${NOTES}"]`, 'person-page-admin-card');
     await brow.first().locator('button[data-act="unbind"]').click();
     await until(async () => (await brow.count()) === 0, 'the bind removed');
     check(!((await (await dev1('GET', '/partitions/binds')).json()).binds ?? []).length, 'removed: dev1 has none');
@@ -209,20 +268,53 @@ async function personPage(browser) {
     await cr.first().waitFor({ timeout: 10000 });
     check(/A sign-in link for your account, made by admin/.test(await cr.first().innerText()), 'the held sign-in link shows, with who made it');
     check(/sign-in link for your account was created by admin/.test(await p.locator(`${PAGE} section#notices`).innerText()), 'and its notice');
-    await shotEl(p, `${PAGE} section#credentials`, 'person-page-credential');
+    const waiting = async () => ((await (await dev1('GET', '/partitions')).json()).credentials ?? []).length;
+    const reloaded = () => until(async () => (await p.locator(PAGE).evaluate((el) => el.testApi().model().credentials.length)) === 0, 'the page reloaded');
+    const decided = (id) => p.locator(`${PAGE} section#credentials [data-cred-decided="${id}"]`);
+    // refusing is the one-click primary act; allowing asks first
+    check(await cr.first().locator('button[data-act="refuse"]').getAttribute('class') === 'primary' &&
+      await cr.first().locator('button[data-act="allow"]').innerText() === 'Allow…', 'Refuse is the one-click primary act, Allow… asks');
+    const id1 = await cr.first().getAttribute('data-cred');
     await cr.first().locator('button[data-act="allow"]').click();
-    await until(async () => /Allowed: it works now\./.test(await p.locator(`${PAGE} section#credentials`).innerText().catch(() => '')) ||
-      !((await (await dev1('GET', '/partitions')).json()).credentials ?? []).length, 'allowed');
-    check(!((await (await dev1('GET', '/partitions')).json()).credentials ?? []).length, 'allowed: nothing waits any more');
-    // another link: refused this time (the page asks once more first)
+    const ask = cr.first().locator('[data-confirm="allow"]');
+    await ask.waitFor({ timeout: 10000 });
+    check(/Allow the sign-in link admin made at \d{4}-\d\d-\d\d \d\d:\d\d \S+\? Whoever opens it signs in as you/.test(await ask.innerText()),
+      `Allow asks, naming who made it and when: ${(await ask.innerText()).split('\n')[0]}`);
+    await shotEl(p, `${PAGE} section#credentials`, 'person-page-credential');
+    await ask.locator('button[data-act="allow-yes"]').click();
+    await until(async () => !(await waiting()), 'allowed');
+    await reloaded();
+    check(/^Allowed: a sign-in link for your account works now\.$/.test(await decided(id1).innerText()) && await decided(id1).getAttribute('role') === 'status',
+      'allowed: nothing waits, and the answer stays after the reload drops the credential');
+    // a link no longer waiting: held, then replaced by one minted while the policy was off
     const inv2 = await (await api(A.ctx, 'POST', '/users/dev1/invite', {})).json().catch(() => ({}));
-    check(inv2.held === true, 'a second sign-in link is held too');
-    const refuse = p.locator(`${PAGE} section#credentials [data-cred] button[data-act="refuse"]`);
-    await refuse.first().waitFor({ timeout: 10000 });
-    await refuse.first().click();
-    await p.locator(`${PAGE} section#credentials button[data-act="refuse-yes"]`).click();
-    await until(async () => !((await (await dev1('GET', '/partitions')).json()).credentials ?? []).length, 'refused');
-    const redeem = await B.ctx.request.fetch(`${URL}/api/xbin/invite/check`, { method: 'POST', data: { invite: inv2.invite } });
+    const cr2 = p.locator(`${PAGE} section#credentials [data-cred]`);
+    await cr2.first().waitFor({ timeout: 10000 });
+    const id2 = await cr2.first().getAttribute('data-cred');
+    await api(A.ctx, 'PUT', '/workspace-policies', { credentialResetConfirm: false });
+    const inv3 = await (await api(A.ctx, 'POST', '/users/dev1/invite', {})).json().catch(() => ({}));
+    await api(A.ctx, 'PUT', '/workspace-policies', { credentialResetConfirm: true });
+    check(inv2.held === true && inv3.held !== true && await waiting() === 1, `a held link, then one minted with the policy off replaces it in the store (${inv2.held}, ${inv3.held})`);
+    await p.locator(`${PAGE} [data-cred="${id2}"] button[data-act="allow"]`).click();
+    await p.locator(`${PAGE} [data-cred="${id2}"] button[data-act="allow-yes"]`).click();
+    await decided(id2).waitFor({ timeout: 10000 });
+    await reloaded();
+    const late = decided(id2);
+    check(/was no longer waiting when you answered.*change your password and sign out everywhere/s.test(await late.innerText()) &&
+      await late.getAttribute('role') === 'alert' && /\bwarn\b/.test(await late.getAttribute('class')),
+      `a link no longer waiting: xbind's warning (409 already-effective), kept after the reload: ${await late.innerText()}`);
+    await shotEl(p, `${PAGE} section#credentials`, 'person-page-credential-late');
+    // another link: refused, in one click
+    const inv4 = await (await api(A.ctx, 'POST', '/users/dev1/invite', {})).json().catch(() => ({}));
+    check(inv4.held === true, 'another sign-in link is held');
+    const cr4 = p.locator(`${PAGE} section#credentials [data-cred]`);
+    await cr4.first().waitFor({ timeout: 10000 });
+    const id4 = await cr4.first().getAttribute('data-cred');
+    await cr4.first().locator('button[data-act="refuse"]').click();
+    await until(async () => !(await waiting()), 'refused');
+    await reloaded();
+    check(/^Refused: a sign-in link for your account was revoked\.$/.test(await decided(id4).innerText()), 'refused: its answer stays too');
+    const redeem = await B.ctx.request.fetch(`${URL}/api/xbin/invite/check`, { method: 'POST', data: { invite: inv4.invite } });
     check(redeem.status() !== 200, `refused: the link no longer signs anyone in (POST /invite/check: ${redeem.status()})`);
 
     // ---- 5. dev1's own partition of apps/pp-notes ----
@@ -233,7 +325,7 @@ async function personPage(browser) {
     await until(async () => /shared with the tile's managers and admins until/.test(await card.innerText()), 'the log shared');
     await card.locator('button[data-act="unshare"]').click();
     await until(async () => /private: only you read it/.test(await card.innerText()), 'the share ended');
-    check(true, 'dev1 shares their partition\'s log and stops');
+    check(!(((await (await dev1('GET', `/partitions?tile=${NOTES}`)).json()).partitions ?? [])[0]?.logShare?.until), 'the log share ended: xbind keeps none');
     if (!(await card.locator('details.trust').evaluate((d) => d.open))) await card.locator('details.trust summary').click();
     check(/its code/.test(await card.innerText()) && /global binds/.test(await card.innerText()), 'the trust panel: who changes the code, the global binds');
     // restore: this workspace keeps no backups, and the page says so
