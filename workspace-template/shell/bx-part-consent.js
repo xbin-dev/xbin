@@ -77,6 +77,7 @@ export class BxPartConsent extends LitElement {
     .err { margin: 4px 0 0; color: var(--bx-red, #ef5350); font-size: 12px; white-space: pre-wrap; }
     .done { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--bx-muted, #868f9a); }
     .done span { flex: 1; overflow-wrap: anywhere; }
+    .done a { color: var(--bx-accent, #f5a623); text-decoration: none; }
     button { font: inherit; font-size: 12px; font-weight: 600; border-radius: 5px; padding: 2px 10px; cursor: pointer;
       border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); }
     button.allow { color: var(--bx-part-c); border-color: color-mix(in srgb, var(--bx-part-c) 60%, transparent); }
