@@ -10,7 +10,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -77,9 +76,7 @@ func main() {
 	eng.Start()
 	go agent.reRegisterSchedules()
 	go agent.reRegisterTriggers()
-	if partitioned() {
-		go func() { _, _, _ = agent.pullMail(context.Background()) }() // mail that waited (mailbox.go)
-	}
+	go agent.pullMailAtStart() // mail that waited (mailbox.go; nothing unpartitioned)
 
 	// SIGTERM (a save's blue/green swap, a stop, an idle reap): stop driving
 	// at once so the successor — already booted and waiting on the engine
