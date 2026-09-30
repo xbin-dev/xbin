@@ -170,6 +170,7 @@ func (s *hsess) loginTx(t *DB, hs *harnessSession, held *heldPrompt) error {
 	s.e.emitRun(t, run.ID)
 	signed := false
 	_ = t.noteHarnessSeen(hs.Ref, s.prov.ID, nil, &signed)
+	t.AfterCommit(s.toRest) // waiting on a person: it doesn't keep a person's partition up (harness_partition.go)
 	return nil
 }
 
@@ -246,20 +247,26 @@ type hAuth struct {
 // beginAuth claims the session's one sign-in (false: one is under way).
 func (s *hsess) beginAuth(a *hAuth) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.authing != nil {
+		s.mu.Unlock()
 		return false
 	}
 	s.authing = a
+	s.signing.Store(true)
+	s.mu.Unlock()
+	s.holdMoved(true) // AgTT awaits the adapter's answer: that holds a person's partition (harness_partition.go)
 	return true
 }
 
 func (s *hsess) endAuth(a *hAuth) {
 	s.mu.Lock()
-	if s.authing == a {
+	ended := s.authing == a
+	if ended {
 		s.authing = nil
+		s.signing.Store(false)
 	}
 	s.mu.Unlock()
+	s.holdMoved(ended)
 }
 
 func (s *hsess) auth() *hAuth {

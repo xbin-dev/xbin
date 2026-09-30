@@ -4,7 +4,8 @@
 // manager opens. So each partition mails the global instance its daily
 // totals — how many conversations it started and how many model calls and
 // tokens it used, per UTC day; numbers, never content or times of day — and
-// `GET /usage` shows managers those totals per person.
+// `GET /usage` shows managers those totals per person. Coding agents'
+// sessions count too (how many adapters it started: harness_partition.go).
 //
 // A partition sends the days it hasn't sent yet (up to yesterday, at most
 // the last 31) when it starts and at each UTC midnight it is still running
@@ -34,6 +35,7 @@ type usageDay struct {
 	LLMCalls         int    `json:"llmCalls"`
 	PromptTokens     int64  `json:"promptTokens"`
 	CompletionTokens int64  `json:"completionTokens"`
+	HarnessSessions  int    `json:"harnessSessions"` // coding agents' sessions started (an adapter each)
 }
 
 var dayRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -92,11 +94,11 @@ func (d *DB) usageDays(after string, today time.Time) []usageDay {
 	if t, err := time.Parse("2006-01-02", after); err == nil && t.AddDate(0, 0, 1).After(from) {
 		from = t.AddDate(0, 0, 1)
 	}
-	rows, err := d.q.Query(`SELECT day, SUM(n), SUM(calls), SUM(p), SUM(c) FROM (
-		  SELECT strftime('%Y-%m-%d', created, 'unixepoch') AS day, 1 AS n, 0 AS calls, 0 AS p, 0 AS c
+	rows, err := d.q.Query(`SELECT day, SUM(n), SUM(calls), SUM(p), SUM(c), SUM(h) FROM (
+		  SELECT strftime('%Y-%m-%d', created, 'unixepoch') AS day, 1 AS n, 0 AS calls, 0 AS p, 0 AS c, 0 AS h
 		    FROM runs WHERE parent_id=0 AND created>=? AND created<?
 		  UNION ALL
-		  SELECT day, 0, llm_calls, prompt_tokens, completion_tokens FROM usage_daily WHERE day>=? AND day<?)
+		  SELECT day, 0, llm_calls, prompt_tokens, completion_tokens, harness_sessions FROM usage_daily WHERE day>=? AND day<?)
 		GROUP BY day ORDER BY day`, from.Unix(), today.Unix(), from.Format("2006-01-02"), today.Format("2006-01-02"))
 	if err != nil {
 		return nil
@@ -105,7 +107,7 @@ func (d *DB) usageDays(after string, today time.Time) []usageDay {
 	var out []usageDay
 	for rows.Next() {
 		var u usageDay
-		if rows.Scan(&u.Day, &u.Runs, &u.LLMCalls, &u.PromptTokens, &u.CompletionTokens) == nil {
+		if rows.Scan(&u.Day, &u.Runs, &u.LLMCalls, &u.PromptTokens, &u.CompletionTokens, &u.HarnessSessions) == nil {
 			out = append(out, u)
 		}
 	}
@@ -159,13 +161,13 @@ func handleUsageMail(_ context.Context, t *DB, it mailItem) error {
 		return nil
 	}
 	for _, u := range in.Days {
-		if !dayRe.MatchString(u.Day) || u.Runs < 0 || u.LLMCalls < 0 || u.PromptTokens < 0 || u.CompletionTokens < 0 {
+		if !dayRe.MatchString(u.Day) || u.Runs < 0 || u.LLMCalls < 0 || u.PromptTokens < 0 || u.CompletionTokens < 0 || u.HarnessSessions < 0 {
 			continue
 		}
-		if _, err := t.q.Exec(`INSERT INTO usage_days (person, day, runs, llm_calls, prompt_tokens, completion_tokens, at) VALUES (?, ?, ?, ?, ?, ?, ?)
+		if _, err := t.q.Exec(`INSERT INTO usage_days (person, day, runs, llm_calls, prompt_tokens, completion_tokens, harness_sessions, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(person, day) DO UPDATE SET runs=excluded.runs, llm_calls=excluded.llm_calls, prompt_tokens=excluded.prompt_tokens,
-			  completion_tokens=excluded.completion_tokens, at=excluded.at`,
-			person, u.Day, u.Runs, u.LLMCalls, u.PromptTokens, u.CompletionTokens, now()); err != nil {
+			  completion_tokens=excluded.completion_tokens, harness_sessions=excluded.harness_sessions, at=excluded.at`,
+			person, u.Day, u.Runs, u.LLMCalls, u.PromptTokens, u.CompletionTokens, u.HarnessSessions, now()); err != nil {
 			return err
 		}
 	}
@@ -186,7 +188,7 @@ func handleUsage(w http.ResponseWriter, r *http.Request) {
 		n = 30
 	}
 	since := time.Now().UTC().AddDate(0, 0, -n).Format("2006-01-02")
-	rows, err := agent.db.q.Query(`SELECT person, day, runs, llm_calls, prompt_tokens, completion_tokens FROM usage_days
+	rows, err := agent.db.q.Query(`SELECT person, day, runs, llm_calls, prompt_tokens, completion_tokens, harness_sessions FROM usage_days
 		WHERE day >= ? ORDER BY person, day`, since)
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
@@ -202,7 +204,7 @@ func handleUsage(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u usageDay
 		var who string
-		if rows.Scan(&who, &u.Day, &u.Runs, &u.LLMCalls, &u.PromptTokens, &u.CompletionTokens) != nil {
+		if rows.Scan(&who, &u.Day, &u.Runs, &u.LLMCalls, &u.PromptTokens, &u.CompletionTokens, &u.HarnessSessions) != nil {
 			continue
 		}
 		p := byUser[who]
@@ -215,6 +217,7 @@ func handleUsage(w http.ResponseWriter, r *http.Request) {
 		p.Total.LLMCalls += u.LLMCalls
 		p.Total.PromptTokens += u.PromptTokens
 		p.Total.CompletionTokens += u.CompletionTokens
+		p.Total.HarnessSessions += u.HarnessSessions
 	}
 	out := []*person{}
 	for _, p := range byUser {

@@ -12,14 +12,17 @@
 //     queued, an undelivered inbox row, a settled subagent whose parent
 //     takes its result (a foreground link to an awaiting parent; a
 //     background one to a root that isn't failed — pass() leaves the rest
-//     for a person's next message), and a run sleeping on a sandbox job
-//     (the job's end is only seen by looking, as legacy's resume does);
+//     for a person's next message), a run sleeping on a sandbox job
+//     (the job's end is only seen by looking, as legacy's resume does),
+//     and a prompt on its way to a coding agent (its successor settles it);
 //   - else one `wake` job at the minute the earliest timed wait ends — a
-//     sleeping run's wake, an awaiting run's subagent deadline — as a
-//     5-field cron (UTC);
+//     sleeping run's wake, an awaiting run's subagent deadline, a coding
+//     agent's idle reclaim (its adapter up with no turn: last activity +
+//     harnessIdleMin, harness_partition.go) — as a 5-field cron (UTC);
 //   - nothing for runs waiting on a person (who opens the tile anyway),
-//     and nothing at all while a manager's halt is on (brake.go: its runs
-//     were cancelled; a parked one moves at the next start).
+//     and nothing while a manager's halt is on (brake.go: its runs were
+//     cancelled; a parked one moves at the next start) but a coding
+//     agent's idle reclaim — stopping an idle adapter moves no work.
 //     The next owner deletes both jobs at takeover.
 package main
 
@@ -39,6 +42,12 @@ func (ag *Agent) leaveWakeUp(d *DB) {
 		return
 	}
 	if brakeIdle() {
+		// nothing moves under the brake — but an idle coding agent is still
+		// stopped at its idle time: stopping one moves no work
+		// (harness_partition.go harnessIdleUnderBrake)
+		if at := d.harnessIdleWake(time.Now()); at > 0 {
+			ag.registerWakeJob(at)
+		}
 		return
 	}
 	switch at := d.userWake(time.Now()); {
@@ -62,24 +71,31 @@ func (d *DB) userWake(now time.Time) userWakeAt {
 	var n int
 	// a settled link is work only where pass() takes it: a foreground one
 	// at an awaiting (or running) parent; a background one at a root that is
-	// running, sleeping or resting without an error
+	// running, sleeping or resting without an error; a prompt on its way to
+	// a coding agent (harness_partition.go)
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued'))
 		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)
 		+ (SELECT count(*) FROM links l JOIN runs p ON p.id = l.parent_id
 			WHERE l.state<>'running' AND l.delivered=0 AND (
 				(l.mode='fg' AND p.status IN ('running','queued','awaiting'))
-				OR (l.mode='bg' AND p.parent_id=0 AND p.status IN ('running','queued','sleeping','idle','done','canceled'))))`).Scan(&n)
+				OR (l.mode='bg' AND p.parent_id=0 AND p.status IN ('running','queued','sleeping','idle','done','canceled'))))
+		+ ` + harnessSendingSQL).Scan(&n)
 	if n > 0 || d.sleepsOnJobs() || d.repliesWait() || d.movesWait() { // repliesWait: handoff_user.go; movesWait: homes_move_user.go
 		return userWakeAt{runnable: true}
 	}
 	var wake int64
 	_ = d.q.QueryRow(`SELECT COALESCE(min(wake_at), 0) FROM runs WHERE status IN ('sleeping','awaiting') AND wake_at > 0`).Scan(&wake)
+	if wake > 0 && wake <= now.Unix()+60 {
+		return userWakeAt{runnable: true}
+	}
+	// a coding agent's adapter up with no turn: back at its idle reclaim's
+	// minute, to stop it (never within the minute: harnessIdleWake)
+	if idle := d.harnessIdleWake(now); idle > 0 && (wake == 0 || idle < wake) {
+		wake = idle
+	}
 	if wake == 0 {
 		return userWakeAt{}
-	}
-	if wake <= now.Unix()+60 {
-		return userWakeAt{runnable: true}
 	}
 	return userWakeAt{wake: wake}
 }

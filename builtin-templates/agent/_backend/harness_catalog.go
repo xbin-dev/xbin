@@ -157,7 +157,7 @@ type hcEntry struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
 	Available   bool                   `json:"available"`
-	Reason      string                 `json:"reason,omitempty"` // no-image | manager-error | no-class | no-egress
+	Reason      string                 `json:"reason,omitempty"` // no-image | manager-error | no-class | no-egress | shared-space
 	Why         string                 `json:"why,omitempty"`
 	Classes     []string               `json:"classes"`
 	Images      []hcImage              `json:"images"`
@@ -338,6 +338,9 @@ func harnessCatalog(c who, mgrs []hcManager, visible func(ref string) bool) []hc
 			}
 		}
 		e.Reason, e.Why = harnessUnavailable(e, classes, failed)
+		if globalMode() { // a person's own conversations only (harness_partition.go)
+			e.Reason, e.Why = "shared-space", harnessNotAtGlobal
+		}
 		e.Available = e.Reason == ""
 		e.Options = agent.db.harnessOptions(id)
 		if visible != nil {
@@ -442,6 +445,9 @@ func probeHarnesses(ctx context.Context, c who, ref string, mgrs []hcManager) hc
 	switch a := sandboxAccess(c, box); {
 	case !a.seen():
 		pr.Error = "no such sandbox"
+		return pr
+	case partitionBoxRefusal(box) != "": // a person's partition: not a sandbox of its own
+		pr.Error = partitionBoxRefusal(box)
 		return pr
 	case !a.Use:
 		pr.Error = "you may not use this sandbox (" + box.Name + ")"
@@ -565,7 +571,9 @@ func handleHarnesses(w http.ResponseWriter, r *http.Request) {
 		cat := sandboxCatalog(ctx)
 		refs := map[string]bool{}
 		for _, e := range cat.Sandboxes {
-			if sandboxAccess(c, e.Box).seen() {
+			// a person's partition: only sandboxes homed here — no other one
+			// can have its coding agents (sandbox_partition.go)
+			if sandboxAccess(c, e.Box).seen() && partitionBoxRefusal(e.Box) == "" {
 				refs[e.Ref] = true
 			}
 		}

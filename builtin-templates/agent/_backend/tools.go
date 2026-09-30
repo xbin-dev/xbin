@@ -64,6 +64,8 @@ func postedFinishSpec() toolSpec {
 // runToolSpecs is toolSpecs for run: a top-level run whose result is posted
 // (a channel's, a trigger's) gets postedFinishSpec's finish.
 func runToolSpecs(cfg Config, run *Run, mcp []toolSpec) []toolSpec {
+	// no coding agent at the global instance, nor in a hosted conversation (harness_partition.go)
+	cfg.noHarness = harnessBarred(run) != ""
 	specs := hostedToolSpecs(run, toolSpecs(cfg, run.Depth, mcp)) // a hosted conversation's lack (hosted_tools.go)
 	if run.ParentID == 0 && (run.Origin == "channel" || run.Origin == "trigger") {
 		for i := range specs {

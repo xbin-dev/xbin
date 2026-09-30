@@ -135,6 +135,17 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 		e.harnessInterrupt(ctx, run, h.interrupt)
 	}
 	if e.halted() {
+		// a person's partition reads it from conf: a known halt cancels
+		// the run, one not read yet parks it with a look again (brake.go);
+		// elsewhere the run waits, as ever
+		if !userMode() {
+			return
+		}
+		if r, err := e.db.getRun(run.ID); err == nil {
+			run = r
+		}
+		e.onBrake(run)
+		e.harnessIdleUnderBrake(ctx, run.ID) // an idle one's reclaim moves no work: it goes on (harness_partition.go)
 		return
 	}
 	if len(h.stray) > 0 {
@@ -264,7 +275,13 @@ func (e *Engine) resumeHarness(ctx context.Context, run *Run, hs *harnessSession
 			return nil
 		}
 		cur.State = hsStopped
-		return t.putHarnessSession(cur)
+		sending := cur.PromptState != "" // never sent by a session that hadn't opened (a wake counts it: harness_partition.go)
+		cur.PromptState, cur.PromptRPC = "", ""
+		if err := t.putHarnessSession(cur); err != nil || !sending {
+			return err
+		}
+		return e.endHarnessTurnTx(t, run.ID, "error", "the backend was replaced while your message was on its way to "+
+			t.harnessRunName(run.ID, cfg.Harness.Provider)+" — send it again")
 	})
 }
 
@@ -383,7 +400,7 @@ func (e *Engine) harnessPrompt(ctx context.Context, run *Run, row *InboxRow) {
 // sendPrompt starts the turn at the adapter; a prompt that can't go ends
 // it with why.
 func (e *Engine) sendPrompt(ctx context.Context, s *hsess, run *Run, text string) {
-	s.disarmIdle()
+	s.toWork(true) // at work: it keeps a person's partition up (harness_partition.go)
 	s.setInflight(&heldPrompt{Text: text})
 	s.activity("thinking", "")
 	err := s.c.Prompt(ctx, acp.Prompt{Text: text})
@@ -566,6 +583,9 @@ type harnessReq struct {
 // safe (an explicit one, one it doesn't list, any of a harness it lacks)
 // only from a person — the conversation's owner-to-be (default-deny).
 func harnessClass(ctx context.Context, c who, req *harnessReq, class, system, model string) (agentClass, error) {
+	if globalMode() { // a person's own conversations only (harness_partition.go)
+		return agentClass{}, &errClass{http.StatusConflict, harnessNotAtGlobal}
+	}
 	st := currentClasses()
 	req.Provider = strings.TrimSpace(req.Provider)
 	prov, ok := knownHarness(ctx, req.Provider)

@@ -31,7 +31,7 @@ const hsmPlan = "plan"
 // attached one named by `sandbox`) offers, reaching out (egress ≠ none).
 func spawnHarnessIDs(cfg Config) []string {
 	cls := classOf(cfg)
-	if !cls.has(tsHarness) || !sandboxToolsOn(cfg) {
+	if !cls.has(tsHarness) || !sandboxToolsOn(cfg) || cfg.noHarness || globalMode() { // harness_partition.go
 		return nil
 	}
 	var out []string
@@ -107,6 +107,9 @@ func (e *Engine) harnessSpawnOf(ctx context.Context, ts *turnState, args map[str
 			return nil, fmt.Errorf("harness_mode goes with harness")
 		}
 		return nil, nil
+	}
+	if why := harnessBarred(ts.run); why != "" { // the global instance, a hosted conversation (harness_partition.go)
+		return nil, fmt.Errorf("harness: %s", why)
 	}
 	cfg := ts.cfg
 	cls := classOf(cfg)

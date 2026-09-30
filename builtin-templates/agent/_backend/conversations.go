@@ -582,6 +582,9 @@ func writeTxErr(w http.ResponseWriter, err error) {
 		xbin.WriteError(w, 400, string(b))
 		return
 	}
+	if writeHarnessMoveErr(w, err) { // un-sharing a coding agent's conversation (harness_partition.go)
+		return
+	}
 	if err == sql.ErrNoRows {
 		xbin.WriteError(w, 404, "no such run")
 		return

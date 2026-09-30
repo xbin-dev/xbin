@@ -77,6 +77,9 @@ func (ag *Agent) exportConv(ctx context.Context, root int64, withFiles bool) (*c
 	if err != nil {
 		return nil, err
 	}
+	if err := ag.db.harnessStays(root); err != nil { // a coding agent's stays home (harness_partition.go)
+		return nil, err
+	}
 	cfg, _ := ag.db.runConfig(root)
 	b := &convBundle{Version: bundleVersion, Title: run.Title, Class: cfg.Class, Model: cfg.Pick, Summary: run.Summary, Owner: run.Owner}
 	msgs, err := ag.db.messages(root, false)
@@ -183,6 +186,9 @@ func writeBundleErr(w http.ResponseWriter, err error) {
 	var tl tooLargeToCopy
 	if errors.As(err, &tl) {
 		xbin.WriteError(w, http.StatusRequestEntityTooLarge, err.Error())
+		return
+	}
+	if writeHarnessMoveErr(w, err) { // harness_partition.go
 		return
 	}
 	xbin.WriteError(w, 500, err.Error())
