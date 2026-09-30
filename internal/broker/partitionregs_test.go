@@ -195,6 +195,9 @@ func TestPartitionCron(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(w.root, "data", "cron-jobs.json")); strings.Contains(string(data), "j0") {
 		t.Errorf("a partition's job landed in today's store: %s", data)
 	}
+	if rows := b.cronJobsFor("apps/pu"); len(rows) != 0 { // a backup of the tile carries global's rows only (S15)
+		t.Errorf("the tile's backup would carry a partition's job: %s", rows)
+	}
 	if code, body := put(alice, "fast", "@every 30s"); code != 400 || !strings.Contains(body, "once a minute") {
 		t.Errorf("a job more often than once a minute: %d %s", code, body)
 	}
@@ -323,6 +326,9 @@ func TestPartitionBusSubs(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(w.root, "data", "bus-subscriptions.json")); strings.Count(string(data), `"name"`) != 2 {
 		t.Errorf("today's store holds more than global's two: %s", data)
+	}
+	if subs := b.bus.forComponent("apps/pg"); len(subs) != 2 { // a backup of the tile carries global's rows only (S15)
+		t.Errorf("the tile's backup would carry %d subscriptions, want global's 2", len(subs))
 	}
 	publish := func(p auth.Principal, res string) {
 		t.Helper()
