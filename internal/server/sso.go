@@ -170,6 +170,7 @@ type ssoState struct {
 	// redirected to xbin://sso instead of a cookie.
 	App       bool   `json:"a,omitempty"`
 	Challenge string `json:"c,omitempty"`
+	Next      string `json:"x,omitempty"` // where the browser lands (GET /login/sso?next=, loginnext.go)
 }
 
 func (s *Server) ssoKey() []byte {
@@ -241,6 +242,9 @@ func (s *Server) handleSSOStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ssoAppStart(w, r, &st) {
 		return
+	}
+	if n := loginNext(r.URL.Query().Get("next")); n != "/" && !st.App {
+		st.Next = n
 	}
 	payload, _ := json.Marshal(st)
 	http.SetCookie(w, &http.Cookie{
@@ -362,7 +366,7 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, ip))
 	slog.Info("audit", "who", "user:"+u.ID, "method", "SSO", "path", "/login/sso/callback", "status", 200)
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, loginNext(st.Next), http.StatusFound)
 }
 
 // syncGroups reconciles the user's memberships/admin role with the groups

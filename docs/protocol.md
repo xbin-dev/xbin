@@ -239,8 +239,13 @@ every credential of a tile that isn't partitioned, meet none of this.
 
 ```
 GET  /healthz                    200 "ok", unauthenticated (liveness)
-GET  /login                      login page; ?token=<root> sets the admin cookie
-POST /login                      {username,password} form → session cookie (throttled)
+GET  /login                      login page; ?token=<root> sets the admin cookie.
+                                 ?next=<path>: where the sign-in lands — a
+                                 same-origin path, not a sign-in route
+                                 (else ignored); the form and the single
+                                 sign-on link carry it on
+POST /login                      {username,password[,next]} form → session
+                                 cookie, 302 next (or /) (throttled)
 GET  /login?invite=<tok>         invite set-password page (D22; single-use link)
 GET  /login?impersonate=<tok>    redeems a view-as ticket (POST /api/xbin/
                                  impersonate): the signed-in minting admin's
@@ -285,7 +290,9 @@ POST /login/invite               {invite,password,password2} form → redeems th
 GET  /login/sso                  SSO sign-in start (docs/auth.md §SSO; 404 when
                                  not configured): redirects to the IdP with
                                  PKCE + state + nonce, carried in a signed
-                                 short-TTL cookie (throttled)
+                                 short-TTL cookie (throttled); ?next=<path>
+                                 rides that cookie, and the callback lands
+                                 there (the same rule as GET /login's)
 GET  /login/sso/callback         the IdP's return leg: verifies state and the
                                  ID token (or fetches GitHub's verified
                                  primary email), resolves the email to a user
@@ -605,7 +612,9 @@ GET  /xbin/partitions            the partitions page (docs/partitions.md
                                  everyone — that reads and acts through
                                  /api/xbin/partitions… with the signed-in
                                  person's session. Any principal; signed
-                                 out, a browser → /login. Top-level only:
+                                 out, a browser → /login?next=/xbin/
+                                 partitions (it lands back here after
+                                 signing in). Top-level only:
                                  X-Frame-Options DENY, CSP frame-ancestors
                                  'none' (with default-src and script-src
                                  'self', no inline script), COOP

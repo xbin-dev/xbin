@@ -220,7 +220,7 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		p, ok := s.Auth.FromRequest(r)
 		if !ok {
 			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
-				http.Redirect(w, r, "/login", http.StatusFound)
+				http.Redirect(w, r, loginURLFor(r), http.StatusFound) // a deep-link page carries ?next= (loginnext.go)
 				return
 			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
@@ -408,7 +408,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// set). Label is admin-config, HTML-escaped.
 	sso := ""
 	if s.SSOReady() {
-		sso = `<a class="sso" href="/login/sso">` + html.EscapeString(SSOButtonLabel(s.ssoConfig())) +
+		sso = `<a class="sso" href="` + html.EscapeString(ssoStartURL(r)) + `">` + html.EscapeString(SSOButtonLabel(s.ssoConfig())) +
 			`</a><div class="or">or</div>`
 	}
 	page = strings.ReplaceAll(page, "{{SSO}}", sso)
@@ -426,7 +426,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		note = `<div class="warn">Password sign-in is reserved for workspace admins — everyone else uses ` +
 			html.EscapeString(SSOButtonLabel(s.ssoConfig())) + `.</div>`
 	}
-	page = strings.ReplaceAll(page, "{{PWNOTE}}", note)
+	page = strings.ReplaceAll(page, "{{PWNOTE}}", note+loginNextField(r)) // ?next= rides the form (loginnext.go)
 	_, _ = w.Write([]byte(page))
 }
 
@@ -536,7 +536,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	s.loginThrottle.ok(s.ClientIP(r))
 	s.touchLogin(u.ID, "password")
 	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, loginNext(r.FormValue("next")), http.StatusFound)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {

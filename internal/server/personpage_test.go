@@ -56,8 +56,8 @@ func TestPersonPage(t *testing.T) {
 					t.Errorf("%s: headers %v", who, h)
 				}
 			}
-			// signed out: a browser is sent to sign in; an API client gets 401
-			if rec := w.do(PersonPagePath, hdr("Accept", "text/html")); rec.Code != 302 || rec.Header().Get("Location") != "/login" {
+			// signed out: a browser is sent to sign in, and back here after (loginnext.go); an API client gets 401
+			if rec := w.do(PersonPagePath, hdr("Accept", "text/html")); rec.Code != 302 || rec.Header().Get("Location") != "/login?next=%2Fxbin%2Fpartitions" {
 				t.Errorf("signed out: %d %v", rec.Code, rec.Header())
 			}
 			if rec := w.do(PersonPagePath); rec.Code != 401 {
