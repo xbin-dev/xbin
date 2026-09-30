@@ -2171,9 +2171,10 @@ PUT    /workspace-policies        admin. {partitionConsent?,
                                    key of the file; 500 without writing on a
                                    file it can't read; publishes `policies`;
                                    audited with each switch's old→new
-POST   /partitions/limits         admin; a tile manager (with their own
-                                   session, app or device) may lower their
-                                   own tile's. {tile?, maxRunning?,
+POST   /partitions/limits         admin (the admin console: when the
+                                   person driving it is one); a tile
+                                   manager (with their own session, app or
+                                   device) may lower their own tile's. {tile?, maxRunning?,
                                    partitionBytes?}: without tile, the
                                    workspace's cap on people's partition
                                    instances running at once (maxRunning,
@@ -2919,8 +2920,10 @@ POST   /partitions/mode            a tile manager (the tile's user-owner, an
                                    reload).
 GET    /partitions/binds           a person (their own personal binds), or
                                    admin — an admin person, the root token or
-                                   a tile holding xbin:admin (the admin
-                                   console) — every living person's; every
+                                   a tile holding xbin:admin; its frame
+                                   under a person's login (the admin
+                                   console) only when that person is an
+                                   admin — every living person's; every
                                    other tile principal 403.
                                    → {binds: [{id, user, requester, slot,
                                    provider, at, live, why?}]} — live: the
@@ -3124,13 +3127,20 @@ GET    /partitions                 anyone; what it answers depends on who
                                    globalMail? {pending, bytes, expired,
                                    undeliverable?} (the global instance's
                                    inbox: counts only, once it held an
-                                   item). A tile's own
+                                   item); for a tile manager who isn't an
+                                   admin, in their own session, logShares?
+                                   [{user, until}] (who shares their
+                                   partition's log now, the manager's own
+                                   left out: the logs panel offers each).
+                                   A tile's own
                                    credentials (its frames, backend,
                                    terminals) get the tile-level fields and
                                    features only — except the admin tile's
-                                   frame under a person's login (the admin
-                                   console), which reads as an admin, with
-                                   and without tile. Without tile: tiles:
+                                   frame under an admin's login (the admin
+                                   console driven by an admin), which reads
+                                   as an admin, with and without tile;
+                                   driven by anyone else it is tile code
+                                   here. Without tile: tiles:
                                    [{tile, state, spec, request, error?,
                                    mine?: {partition, state, running,
                                    bytes}, totals? (admins), trust?

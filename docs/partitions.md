@@ -893,7 +893,8 @@ an xbind without partitions). What it answers depends on who asks:
   reach it live, whether its primary is protected, its last code change
   (for a tile with deployments) and whether it runs **reviewed code only**;
 - **the tile's writers and managers**: totals only — people, running
-  instances, bytes, cron jobs, bus subscriptions;
+  instances, bytes, cron jobs, bus subscriptions — and, for a manager, who
+  shares their log with them now (`logShares`: the person and until when);
 - **admins**: every person's metadata row (with their inbox's counts), the
   personal binds on the tile, its orphaned partitions, its mode history
   (requests, switches, keeps, backup keys erased, partitions restored) and
@@ -917,19 +918,28 @@ limits, each person's metadata row with **stop**, **reset…** (the typed
 `<tile> user:<id>`) and **restore…** (a backup of that person's partition,
 [§Backups](#backups)), the personal binds (an admin removes the record,
 never sees what it reaches), the tile's orphans and its mode history; below
-the list, the workspace's orphaned partitions and their purge. Every act
-is the person's driving the console — xbind judges them as in their own
-session. The runtime → sandboxes view labels each person's partition
+the list, the workspace's orphaned partitions and their purge. The
+console reads and acts as the person driving it, and it is an admin's:
+xbind answers the admin tile's frame under an admin's login what that
+admin reads, and judges each act as theirs (a mode decision needs a manager
+of the tile; the limits, a reset of someone else's partition, a restore,
+the purge, a personal bind's removal and reviewed code only need an admin).
+Opened by anyone else it shows each tile's state and any request — a
+manager can keep or switch their tile's mode there — and nobody's rows. The
+runtime → sandboxes view labels each person's partition
 instance, their sessions (without names) and their terminal disks. An admin
 tile from before this view keeps working: it simply has no partitions tab.
 
 **The logs panel.** A partitioned tile's logs panel (the tile's window →
 logs, in the shell) shows your own partition's log and names it in its
 corner; its switcher offers the global instance's log when the tile runs
-one, and — for an admin — each person's log while they share it. The panel
-asks for the one you pick (`&xbin-partition=global`, `&user=<id>`) and
-shows it only if xbind's answer names that partition; on a tile that isn't
-partitioned, or an older xbind, it is the panel it always was.
+one and you may read it (terminal access to the tile, or an admin), and —
+for an admin or a manager of the tile — each person's log while they share
+it (a manager's listing names who shares: `logShares`). The panel asks for
+the one you pick (`&xbin-partition=global`, `&user=<id>`) and shows it
+only if xbind's answer names that partition; what it offers is asked again
+each time the panel opens. On a tile that isn't partitioned, or an older
+xbind, it is the panel it always was.
 
 **Logs and status.** Each person's instance logs to its own file. `GET
 /api/xbin/logs?component=<tile>` (and `bx logs` in a partition's terminal)

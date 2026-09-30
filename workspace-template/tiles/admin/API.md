@@ -69,10 +69,13 @@ All under `/api/xbin`, gated by owner-or-`xbin:admin` unless
 `/partitions/stop`, `/partitions/reset`, `/partitions/purge`,
 `/partitions/binds`, `/partitions/backups`, `/partitions/restore`.
 
-The partitions tab's acts are the person's who opened the console, like
-the deployments tab's below: a mode decision needs a manager of the tile,
-a reset of someone else's partition, a restore, the purge and reviewed code
-only an admin.
+The partitions tab reads and acts as the person who opened the console,
+like the deployments tab below — not with the tile's `xbin:admin` grant:
+xbind lists people's rows, totals, orphans and the mode history only when
+that person is an admin, and judges each act as theirs (a mode decision
+needs a manager of the tile; the limits, a reset of someone else's
+partition, a restore, the purge, a personal bind's removal and reviewed
+code only an admin).
 
 ## Tile managers' acts (the deployments tab)
 

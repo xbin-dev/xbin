@@ -355,7 +355,7 @@ func TestPartitionPeopleHooks(t *testing.T) {
 	if !opsExists(filepath.Join(orphan, "home")) || !opsExists(filepath.Join(orphan, "agent-history")) || opsExists(filepath.Join(root, "homes/zed")) {
 		t.Errorf("zed's home and history weren't moved to %s", orphan)
 	}
-	rows := b.partitionPeople("apps/pg")
+	rows := b.partitionPeople("apps/pg", b.mailCountsOf("apps/pg"))
 	if i := slices.IndexFunc(rows, func(r partitionRow) bool { return r.User == "zed" }); i < 0 || rows[i].State != partStateOrphaned {
 		t.Errorf("zed's partition isn't orphaned: %+v", rows)
 	}

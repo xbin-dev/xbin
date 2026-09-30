@@ -123,7 +123,7 @@ func (b *Broker) apiPersonalBindsList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	rows := []personalBindRow{}
 	switch id := personOf(p); {
-	case b.IsAdmin(p):
+	case b.partitionsAdmin(p): // the admin console: its driver's role (partitionadmin.go)
 		err := b.eachPersonalBinds(func(f *personalBindsFile) {
 			if !b.personalBindsLive(f) {
 				return // a deleted person's, or an earlier incarnation's: applies to no one
@@ -277,7 +277,8 @@ func (b *Broker) apiPersonalBindDelete(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {id} or {requester, slot, provider[, user]}")
 		return
 	}
-	admin, self := b.IsAdmin(p), personOf(p)
+	// the admin console: its driver's role (partitionsAdmin, partitionadmin.go)
+	admin, self := b.partitionsAdmin(p), personOf(p)
 	whose := body.User // "": the caller's own — an admin's by id, or without a person of their own: anyone's
 	if whose == "" && !(admin && body.ID != "") {
 		whose = self
