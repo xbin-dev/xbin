@@ -253,7 +253,9 @@ func (f *hostedForwarder) send(batch []fwdEvent) {
 		logf("hosted events: %v", err)
 		return
 	}
+	f.mu.Lock()
 	post := f.post
+	f.mu.Unlock()
 	if post == nil {
 		post = postHostedEvents
 	}

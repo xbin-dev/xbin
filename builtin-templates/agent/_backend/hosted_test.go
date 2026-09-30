@@ -417,6 +417,39 @@ func TestHostEngineDrivesOnlyItsOwn(t *testing.T) {
 	serveJSON(t, h, as("DELETE", fmt.Sprintf("/hosting/%d", forged), "", alicesFrame("read")), 404, nil)
 }
 
+// TestHostedAudienceMail: the global instance's ring after a member was
+// added pauses an idle hosted conversation at once (nothing to run, so no
+// pass would look); a ring from anyone but the global instance is ignored.
+func TestHostedAudienceMail(t *testing.T) {
+	ag, _, tdb, _ := hostAgent(t)
+	tr := tdb.runs
+	id := hostedRun(t, tr, "bob", map[string]string{"alice": roleParticipant}, "user:alice", "legit hello")
+	ag.hostSnapshot(t, tr, id)
+	if e := ensureHostEngine(); e == nil {
+		t.Fatal("no host engine")
+	}
+	waitFor(t, "the first answer", func() bool { return answered(tr, id, "ok") })
+	waitQuiet(t, &Agent{eng: hostEngine.Load()})
+	if _, err := tr.q.Exec(`INSERT INTO run_members (run_id, user, role, added_by, via, created) VALUES (?, 'dave', 'viewer', 'bob', 'invite', ?)`, id, now()); err != nil {
+		t.Fatal(err)
+	}
+	ring := func(from string) {
+		data, _ := json.Marshal(hostedInput{Conversation: id, Signal: "audience"})
+		if err := ag.db.Tx(func(d *DB) error {
+			return handleHostedInputMail(context.Background(), d, mailItem{ID: "m-" + from, From: from, Topic: topicHostedInput, Data: data})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ring("user:bob")
+	time.Sleep(50 * time.Millisecond)
+	if row, _ := ag.db.hostedRow(id); row.State != hostActive {
+		t.Fatal("a ring from someone other than the global instance was taken")
+	}
+	ring("global")
+	waitFor(t, "the idle conversation to pause", func() bool { row, _ := ag.db.hostedRow(id); return row.State == hostPaused })
+}
+
 // TestHostEngineFencing: two host engines of one person over team (a
 // blue/green pair) fence each other by the person's own epoch; another
 // person's takeover — or the legacy key — touches neither.

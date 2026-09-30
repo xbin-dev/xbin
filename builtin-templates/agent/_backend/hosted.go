@@ -496,6 +496,8 @@ func handleHostedInputMail(_ context.Context, t *DB, it mailItem) error {
 			e.Signal(run, errInterrupt)
 		case "cancel":
 			e.Signal(run, errCancel)
+		case "audience": // who is in it changed: look now, even with nothing to run (a wider one pauses it)
+			hostDrives(e.db, in.Conversation)
 		}
 		e.recover() // every run of it with work — and the audience check at its pass
 	})
