@@ -549,7 +549,32 @@ func TestPartitionsSmoke(t *testing.T) {
 		}
 		psExpect(t, "bob, alice's shared log", d.Call(t, "GET", shared, nil, e.as("bob")...), psForbid("bob", false),
 			psWant{403, "reads it only while they share it", false})
+		// carol follows it; alice stops sharing: the follow ends by itself (F7b fix)
+		followed := make(chan string, 1)
+		go func() {
+			req, _ := http.NewRequest("GET", d.URL+shared+"&follow=1", nil)
+			for _, h := range e.as("carol") {
+				req.Header.Set(h.K, h.V)
+			}
+			resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+			if err != nil {
+				followed <- "error: " + err.Error()
+				return
+			}
+			b, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			followed <- string(b)
+		}()
+		time.Sleep(time.Second)
 		d.Must(t, "DELETE", "/api/xbin/partitions/share-log", map[string]any{"tile": psTile}, 200, e.as("alice")...)
+		select {
+		case body := <-followed:
+			if !strings.Contains(body, "alice-secret") || !strings.Contains(body, "stream closed") {
+				t.Errorf("carol's follow of alice's shared log: %s", cut(body, 400))
+			}
+		case <-time.After(20 * time.Second):
+			t.Error("BUG: carol's follow of alice's log kept streaming after alice stopped sharing")
+		}
 		psExpect(t, "carol, after alice stopped sharing", d.Call(t, "GET", shared, nil, e.as("carol")...), psForbid("", false),
 			psWant{403, "doesn't share", false})
 		// tile-status: a person's partition's own credential reads its own

@@ -541,6 +541,7 @@ file and the split are named under "Merge contention".
 | `internal/broker/backup.go` | F17a, F17b | sequential; F5 no longer touches it |
 | `workspace-template/tiles/admin/admin.js` (`GROUPS`, `render()`) | F16, F12, F17a | append-style edits; resolve line-anchored |
 | `internal/broker/usersapi.go` | F7b only | — |
+| `internal/broker/partitionrecords.go` (`sweepPartitionRecords`), `partitionns.go` (the namespace sweep) | F5, F7b, F17b | one deletion path: take F7b's sweep line (`dropOnePartition`), delete F17b's `dropSweptPartition`, and make F7b's `erasePartitionKeysHeld` call F17b's `erasePartitionBackupsHeld([]string{tile}, dep, pkey, …)` per deployment — the tile's own keys only, never the scope root's (records/F7b.md "Merge with F17b"); `partitionns.go`'s two edits are separate hunks |
 | `internal/server/partitionclass.go` (`partitionUnconverted`) | F5, F7a, F7b | each pack removes only its own rows; gofmt realigns the whole map, so resolve by taking the union of the removals, never one side: after F5 and F7a only `GET /logs` and `GET /tile-status` stay (F7b's); tests probe a synthetic unconverted row, never a real one |
 | `hack/ui-harness/shots.js` (the `require` lines, `PASSES`) | every pack adding a harness pass (F14, F15, …) | the union; F14 registers its pass on a line of its own after `PASSES` (`PASSES.partitionMark = …`), so it merges with the others' edits; the file sits at its size budget |
 

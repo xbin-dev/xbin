@@ -291,7 +291,10 @@ GET  /login/sso/callback         the IdP's return leg: verifies state and the
                                  allow-rule JIT-provisions), then mints the
                                  same session cookie as password login.
                                  Errors land back on /login as fixed
-                                 ?sso_err= codes (throttled; audit-logged)
+                                 ?sso_err= codes (throttled; audit-logged);
+                                 held: a change of the provider its person
+                                 hasn't confirmed (docs/partitions.md
+                                 §Credential resets)
 GET  /login/sso?app=1&challenge=<c>
                                  the native app's SSO sign-in (in
                                  ASWebAuthenticationSession): c =
@@ -1077,7 +1080,11 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    root token, another tile) reads the
                                    global instance's as before;
                                    &partition= 400. X-XBin-Partition names
-                                   the partition served
+                                   the partition served. A follow of a
+                                   partition's log asks again every few
+                                   seconds and ends (with a closing line)
+                                   once the reader may no longer read it —
+                                   a share that ended or was revoked
 GET    /auth-overview              admin. components(+roles/uses/vault, vm?:
                                    {memMiB?,vcpus?} when the manifest asks for
                                    a VM), grants, pending, counts — powers the
@@ -1659,7 +1666,9 @@ POST   /invite/redeem             none — the invite is the credential.
                                    the invite is NOT spent; 403 as above;
                                    409 {error: "waiting for <person> to
                                    confirm…"}: a link held for its person
-                                   (docs/partitions.md §Credential resets),
+                                   (docs/partitions.md §Credential resets;
+                                   stored held, so an xbind without the
+                                   check never redeems it),
                                    not spent; 429 throttled
 POST   /devices/enroll-code       a signed-in user (browser or app
                                    session), [{password}]. → {code, url:
@@ -1869,7 +1878,15 @@ PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled?:
                                    clientSecret keeps the stored one), null
                                    clears it; passwordLoginDisabled = SSO-
                                    only mode for non-admins — enabling
-                                   needs a READY provider (409 otherwise)
+                                   needs a READY provider (409 otherwise).
+                                   A new provider identity (kind, issuer,
+                                   client id) is a credential for every
+                                   partition holder bound by email: audited
+                                   naming them, each told; with
+                                   credentialResetConfirm their SSO sign-ins
+                                   are held (?sso_err=held) until they allow
+                                   it or 24 hours pass (docs/partitions.md
+                                   §Credential resets)
 POST   /auth-settings/sso/test    admin/xbin:users. probe the provider
                                    without a user (D53): OIDC discovery +
                                    JWKS, or GitHub API reachability. Body
@@ -2692,7 +2709,11 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    seen by every person's partition; binding
                                    its http slot to another partitioned tile
                                    answers {ok, warning} — the approval
-                                   warning of POST /grants.
+                                   warning of POST /grants. Into a tile
+                                   that runs reviewed code only (POST
+                                   /partitions/reviewed), a provider that
+                                   isn't partitioned and whose primary
+                                   isn't protected is 409.
 DELETE /bindings                   admin / owning-org admin (always) /
                                    provider-org admin (withdrawing
                                    service). body {component, slot} — clear a binding
@@ -3024,19 +3045,26 @@ GET    /partitions                 anyone; what it answers depends on who
                                    "global-address/1", "partition-ops/1",
                                    "log-share/1", "credential-confirm/1",
                                    …] (what this xbind serves; a 404 is an
-                                   xbind without partitions), policies:
+                                   xbind without partitions), policies?:
                                    {partitionConsent,
-                                   credentialResetConfirm}, …}.
+                                   credentialResetConfirm} (people and
+                                   admins, never tile code), …}.
                                    ?tile=<t> (one the caller can read, else
                                    404): tile, state (partitioned |
                                    unpartitioned | pending | invalid), spec
                                    {user, global}, request {spec, since,
                                    declined} | null, error?, limits
-                                   {maxRunning, partitionBytes};
-                                   partitions: the caller's own row
-                                   {user, partition, partitionId, state
-                                   (active | dormant | orphaned), why?,
-                                   running, instance?, lastStarted?,
+                                   {maxRunning, partitionBytes},
+                                   reviewedOnly {on, by?, at?,
+                                   unprotected?} (POST
+                                   /partitions/reviewed); partitions: the
+                                   caller's own row {user, partition,
+                                   partitionId, state (active | dormant |
+                                   orphaned), why?, running, instance?:
+                                   {tile, deployment, partition, state,
+                                   gen, uptimeSec, rssKb, restarts,
+                                   error? (their own row only),
+                                   errorClass?}, lastStarted?,
                                    created, lastExit?, restarts?,
                                    crashLoop?, bytes, registrations:
                                    {cronJobs, busSubscriptions,
@@ -3046,13 +3074,19 @@ GET    /partitions                 anyone; what it answers depends on who
                                    target, count}] (30 days)} — for admins
                                    every person's metadata row (never
                                    content, vault key names, log lines or
-                                   mail; logShare, no ledger), orphaned
-                                   ones included; totals {people, running,
-                                   bytes, cron, bus} (the tile's writers,
-                                   managers, admins); trust {writers,
-                                   admins, liveReload, protected,
-                                   providers: [{tile, writers,
-                                   liveReload}], warnings} (its people);
+                                   mail; logShare, no ledger;
+                                   instance.errorClass, never the error's
+                                   text), orphaned ones included; bytes are
+                                   measured at most once a minute; totals
+                                   {people, running, bytes, cron, bus} (the
+                                   tile's writers, managers, admins); trust
+                                   {writers, admins, liveReload, protected,
+                                   lastCodeChange? {at, by, how, result}
+                                   (the primary's last code move, for a
+                                   tile with deployments), reviewedOnly,
+                                   providers: [{tile, writers, liveReload,
+                                   protected, lastCodeChange?}], warnings}
+                                   (its people);
                                    consents (the person's, policy on);
                                    binds (personal binds whose requester
                                    is the tile: the person's own, every
@@ -3064,14 +3098,23 @@ GET    /partitions                 anyone; what it answers depends on who
                                    [{tile, state, spec, request, error?,
                                    mine?: {partition, state, running,
                                    bytes}, totals? (admins), trust?
-                                   (admins: the warnings), globalBinds?
-                                   (admins)}] — the tiles that are or ask
+                                   (admins: the warnings), globalBinds?,
+                                   reviewedOnly?, capsHit? {at, kind
+                                   (evicted | refused | deferred), count}
+                                   (the last 24 hours), and with
+                                   ?untracked=1 untracked? (files the
+                                   tile's own repository doesn't track, at
+                                   most 20), untrackedCount?,
+                                   untrackedError? (admins)}] — the tiles
+                                   that are or ask
                                    to be partitioned, that the caller can
                                    read — and for admins isolated, orphans
                                    [{tile, deployment, partition, user,
                                    reason, since}] and now; for a person
-                                   credentials [{id, kind, by, at, until,
-                                   email?}] (credentials an admin made for
+                                   credentials [{id, kind (invite |
+                                   password | email | sso-provider), by,
+                                   at, until, email?, issuer?}]
+                                   (credentials an admin made for
                                    them, waiting for their answer) and
                                    notices [{id, at, kind, tile?, text,
                                    hold?}]. Cache-Control: no-store
@@ -3081,26 +3124,38 @@ POST   /partitions/stop            a person's act: their own session, app or
                                    else 403). {tile, partition: "user:<id>"}:
                                    stop that partition's instance — the
                                    person their own, a tile manager or an
-                                   admin anyone's (403). Its token is
-                                   revoked first; its data stays and the
-                                   next request starts it again. 404 for a
-                                   person without a partition of the tile,
-                                   409 on a tile that isn't partitioned.
-                                   → {ok, tile, partition}; audited
+                                   admin anyone's. Its token is revoked
+                                   first; its data stays and the next
+                                   request starts it again. In order: a
+                                   partition that isn't user:<id> 400; a
+                                   tile the caller can't read 404 as a
+                                   missing one (unless they name their own
+                                   partition of it); someone else's
+                                   partition 403, before anything of it is
+                                   said; a tile that isn't partitioned 409;
+                                   a person without a partition of the
+                                   tile 404. → {ok, tile, partition};
+                                   audited
 POST   /partitions/reset           as for stop: the person their own, an
                                    admin anyone's. {tile, partition,
                                    confirm: "<tile> <partition>"} (else
                                    409 {error, confirm}). Stops the
                                    instance, ends the person's terminal and
                                    agent sessions on the tile (a new one
-                                   answers 409 meanwhile), deletes the
-                                   partition's namespaces (when the tile
-                                   roots its scope), vault, registrations,
+                                   answers 409 until the reset is done),
+                                   deletes — in every deployment it has
+                                   data in — the partition's namespaces
+                                   (only when the tile roots its scope: a
+                                   partitioned tile in another's scope
+                                   uses none), vault, registrations,
                                    records, ledger, log share, backend log,
                                    terminal layers and agent-session
-                                   history, and erases its backup subkey
-                                   (part:…; its archives become
-                                   unreadable). 409 while the tile is
+                                   history, and erases the tile's own
+                                   backup keys of it
+                                   (part:<tile>/<deployment>/<partition
+                                   id>; its archives become unreadable —
+                                   never the scope root's). The refusals
+                                   in stop's order. 409 while the tile is
                                    paused. → {ok, tile, partition, deleted:
                                    {namespaces, layers, histories, subkeys,
                                    bytes}}; audited; an admin's reset tells
@@ -3136,15 +3191,36 @@ POST   /partitions/credential-confirm
                                    PersonOnly. {id, allow: bool}: the
                                    person allows (it takes effect) or
                                    refuses (a link stops working; a
-                                   password or email is dropped) a
-                                   credential an admin made for them while
-                                   the workspace policy
+                                   password or email is dropped; a
+                                   provider change unbinds their SSO
+                                   email) a credential an admin made for
+                                   them while the workspace policy
                                    credentialResetConfirm was on (GET
                                    /partitions' credentials). Unanswered,
                                    it takes effect 24 hours after they were
-                                   told. 404 for one that isn't waiting. →
-                                   {ok, id, kind, decision:
+                                   told; a refusal still revokes one that
+                                   is unused. 409 {error, decision:
+                                   "already-effective"}: a link no longer
+                                   pending (redeemed, replaced or expired)
+                                   — change the password and sign out
+                                   everywhere. 404 for one that isn't
+                                   waiting. → {ok, id, kind, decision:
                                    allowed|refused}; audited; a notice
+POST   /partitions/reviewed        admin (as for stop). {tile, on: bool}:
+                                   the tile's "reviewed code only" switch
+                                   (docs/partitions.md §Reviewed code
+                                   only). on needs the tile partitioned
+                                   (409) and the primary of the tile and of
+                                   every non-partitioned provider bound to
+                                   it protected (409 {error,
+                                   unprotected}); while on, unprotecting
+                                   any of them (POST /deployments/protect
+                                   {on: false}) and binding into the tile
+                                   a provider that isn't partitioned and
+                                   whose primary isn't protected answer
+                                   409. off always succeeds. → {ok, tile,
+                                   reviewedOnly: {on, by?, at?,
+                                   unprotected?}}; audited
 
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
@@ -3614,7 +3690,11 @@ POST   /deployments/protect        tile manager. {tile, on, expect?} →
                                    code its writers change; warnings: one
                                    per unprotected nested component, and
                                    "not enforced: authentication is off"
-                                   under --no-auth. An opt-in. Idempotent
+                                   under --no-auth. An opt-in. Idempotent.
+                                   off answers 409 (kind policy) while the
+                                   tile, or a partitioned tile it is bound
+                                   into, runs reviewed code only (POST
+                                   /partitions/reviewed)
 POST   /deployments/edge           tile manager. {tile, edge:
                                    slot:<slot>|grant:<target>, policy: read|
                                    block|inherit|default} → {state}: that

@@ -694,17 +694,20 @@ an xbind without partitions). What it answers depends on who asks:
   subscriptions it keeps (with missed ticks and dropped deliveries), your
   egress ledger's totals, your log share — plus the tile's **trust panel**:
   who can change the code that runs on your data (the people who write it,
-  every admin, the providers bound to it and their writers) and whether
-  saves reach it live;
+  every admin, the providers bound to it and their writers), whether saves
+  reach it live, whether its primary is protected, its last code change
+  (for a tile with deployments) and whether it runs **reviewed code only**;
 - **the tile's writers and managers**: totals only — people, running
   instances, bytes, cron jobs, bus subscriptions;
 - **admins**: every person's metadata row, the personal binds on the tile
   and its orphaned partitions — never what a partition holds, its vault key
   names, its log lines or its mail;
 - **the tile's own code** (its frames, backend, terminals): the tile's state
-  and the features, nothing about people.
+  and the features, nothing about people (not even the workspace policies).
 
-`bx partition ls` prints it ([bx.md](bx.md)).
+Only the rows the caller sees are built, and a partition's bytes are
+measured at most once a minute. `bx partition ls` prints it
+([bx.md](bx.md)).
 
 **Logs and status.** Each person's instance logs to its own file. `GET
 /api/xbin/logs?component=<tile>` (and `bx logs` in a partition's terminal)
@@ -712,11 +715,13 @@ answers **your own partition's log**, at any access level — it is your
 data. Nobody else reads it: not the tile's writers, not its managers, not
 admins — unless you **share it** (`bx partition share-log <tile> --days
 n`, at most 14 days; `--stop` ends it). While shared, the tile's managers
-and admins read it with `&user=<your id>`. The global instance's log stays
-where it was: admins, people with terminal level and the tile's own
-credentials read it with `&xbin-partition=global` (a person's partition
-never does), and a credential that acts in no person's partition (the root
-token, another tile) reads it as before. `?partition=` is refused (400):
+and admins read it with `&user=<your id>` (`bx logs <tile> --user <id>`); a
+follow (`-f`) of it ends by itself once the share ends or you stop it. The
+global instance's log stays where it was: admins, people with terminal
+level and the tile's own credentials read it with `&xbin-partition=global`
+(`bx logs <tile> --global`; a person's partition never does), and a
+credential that acts in no person's partition (the root token, another
+tile) reads it as before. `?partition=` is refused (400):
 the credential decides. `GET /api/xbin/tile-status` and `bx status` in a
 partition's terminal answer that partition's instance and disk and say
 `partition: user:<id>`; admins' `GET /api/xbin/backends` lists people's
@@ -728,12 +733,18 @@ text).
 partition's instance (a tile manager or an admin may stop anyone's); its
 data stays and the next request starts it. `bx partition reset <tile>`
 deletes your partition's data on the tile — its data, vault,
-registrations, ledger, log, terminal layers and agent-session history —
-after you type `<tile> user:<you>`, and erases its backup key, so its
-archives can't be read any more; an admin may reset anyone's, and that
-person is told. A partition whose person was deleted, or whose tile was
-removed, is **orphaned**: it is deleted 30 days later, or at once by an
-admin's `bx partition purge`. A live person's partition is never purged.
+registrations, ledger, log, terminal layers and agent-session history, in
+every deployment it has any — after you type `<tile> user:<you>`, and
+erases the tile's backup keys of it, so its archives can't be read any
+more; an admin may reset anyone's, and that person is told. A partitioned
+tile inside another tile's scope uses none of the scope's resources, so
+its reset never touches the scope root's data or keys. A tile you can't
+read answers as a missing one, and naming someone else's partition is
+refused before anything of it is said. A partition whose person was
+deleted, or whose tile was removed, is **orphaned**: it is deleted 30 days
+later, or at once by an admin's `bx partition purge` — which lists what it
+would delete and deletes it only with `--yes`. A live person's partition
+is never purged.
 
 **People's lifecycle.** Deleting a person stops their instances, revokes
 their tokens and orphans their partitions; their personal binds, consents
@@ -758,15 +769,38 @@ aside while the old one keeps working. The person allows or refuses it from
 any of their signed-in sessions, apps or devices (`bx partition credential
 <id> allow|refuse`, `POST /api/xbin/partitions/credential-confirm`);
 refusing revokes it. Unanswered, it takes effect **24 hours after they were
-told**, which covers someone who lost every device. A person without
-partitions, and anyone changing their own credentials, is unaffected.
+told**, which covers someone who lost every device; a refusal still
+revokes it while it is unused. A link that was already used (or replaced,
+or expired) answers "already effective": change your password and sign
+out everywhere. A held link is stored so that no xbind without this check
+— an older one after a downgrade — redeems it, and a link whose hold
+can't be recorded is revoked at once. Repointing the workspace's **single
+sign-on provider** (a new kind, issuer or client id) is the same for every
+partition holder with a bound email: audited naming them, and each is
+told; with the policy on, their sign-ins through the new provider wait for
+their answer (or the 24 hours), and refusing unbinds their email. A person
+without partitions, and anyone changing their own credentials, is
+unaffected.
 
 **Trust warnings.** While a partitioned tile runs its work tree live and
 people who aren't admins can change its code — or the code of a provider
 bound to it — `/alerts` (kind `partition-trust`), the trust panel and `bx
 doctor` say so: their saves run on every person's data there. Once saves
 no longer reach the primary — live reload paused or aimed at another
-deployment, or the primary pinned to a checkpoint — the warning ends.
+deployment, or the primary pinned to a checkpoint — the warning ends. `bx
+doctor` also lists files the tile's own repository doesn't track (a file a
+person leaves in the shared directory is everyone's) and the caps its
+people's partitions met in the last day.
+
+**Reviewed code only.** An admin can set a partitioned tile to run
+reviewed code only (`bx partition reviewed <tile> on`, `POST
+/api/xbin/partitions/reviewed`). It needs the tile's primary protected
+([tile-deployments.md](tile-deployments.md): its code then moves only by a
+tile manager naming the reviewed checkpoint) and so every provider bound to
+it that isn't partitioned. While it is on, unprotecting any of them is
+refused, and so is binding into the tile a provider whose primary isn't
+protected; a gap that opens some other way shows as a trust warning. `off`
+lifts it.
 
 **Offload.** A partitioned tile can't be offloaded yet (409); nothing is
 archived or stopped.
