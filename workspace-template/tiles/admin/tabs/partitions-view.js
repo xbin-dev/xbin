@@ -39,7 +39,7 @@ export function requestText(tile, x) {
   const q = x?.request;
   if (!q || typeof q !== 'object') return '';
   const move = `${modeName(x.spec)} → ${modeName(q.spec)}`;
-  const since = q.since ? ` since ${day(q.since)}` : '';
+  const since = q.since ? ` since ${when(q.since)}` : '';
   return q.declined ? `The request ${move} was declined: ${tile} runs ${modeName(x.spec)}, nothing was deleted.`
     : `${tile}'s code asks for ${move}${since}; it runs nothing until a manager switches or keeps the current mode.`;
 }
@@ -101,11 +101,27 @@ export const resetConfirm = (tile, user) => `${tile} user:${user}`;
 // partitionOp(tile, row, extra) → a stop's / reset's body.
 export const partitionOp = (tile, row, extra = {}) => ({ tile, partition: row.partition || `user:${row.user}`, ...extra });
 
-const day = (t) => {
+// when(t) → a time in the viewer's zone, with the zone named ("2026-09-30
+// 16:08 CEST"): the partitions page's format (web/partitions-kit.js
+// timeText — the same fact reads the same in both; xbind's own texts, the
+// alerts and notices, say UTC). A time that doesn't parse shows as sent.
+export function when(t, zone = zoneName) {
   const d = new Date(t);
-  return Number.isNaN(d.getTime()) ? String(t || '') : d.toISOString().slice(0, 16).replace('T', ' ');
-};
-export const when = day;
+  if (Number.isNaN(d.getTime())) return String(t || '');
+  const p = (n) => String(n).padStart(2, '0');
+  const z = zone(d);
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}${z ? ` ${z}` : ''}`;
+}
+
+// zoneName(date) → the browser's short zone name at date ("CEST", "UTC",
+// "GMT+2"), or '' where Intl can't say.
+export function zoneName(d) {
+  try {
+    return new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(d).find((x) => x.type === 'timeZoneName')?.value || '';
+  } catch {
+    return '';
+  }
+}
 
 // regsText(r) → a row's registrations in words ('' for none).
 export function regsText(r) {
@@ -246,7 +262,7 @@ export function tileNotes(row) {
   const out = [];
   if (row?.reviewedOnly?.on) out.push({ kind: 'ok', text: 'reviewed code only' });
   for (const w of Array.isArray(row?.trust) ? row.trust : []) out.push({ kind: 'warn', text: String(w) });
-  if (row?.capsHit) out.push({ kind: 'warn', text: `caps hit: ${row.capsHit.kind} ×${row.capsHit.count} (last ${day(row.capsHit.at)})` });
+  if (row?.capsHit) out.push({ kind: 'warn', text: `caps hit: ${row.capsHit.kind} ×${row.capsHit.count} (last ${when(row.capsHit.at)})` });
   const gb = row?.globalBinds && typeof row.globalBinds === 'object' ? Object.entries(row.globalBinds) : []; // slot → providers
   if (gb.length) out.push({ kind: 'info', text: `global binds: ${gb.map(([slot, refs]) => `${slot} → ${[].concat(refs).join(', ')}`).join('; ')}` });
   if (Array.isArray(row?.boundWithoutGlobal) && row.boundWithoutGlobal.length) out.push({ kind: 'warn', text: `bound by ${row.boundWithoutGlobal.join(', ')}, which reach nothing (no global instance)` });

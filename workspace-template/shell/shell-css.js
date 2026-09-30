@@ -233,6 +233,16 @@ export const shellCss = [scrollCss, css`
       margin-bottom: 10px; padding: 5px 9px; text-align: left; border-left: 3px solid var(--bx-accent, #f5a623); }
     .wsmenu button.add-device b { font-size: 12px; }
     .wsmenu button.add-device span { font-size: 10.5px; color: var(--bx-muted, #868f9a); }
+    /* "your partitions" (owner ruling I13, shell-account.js): the account
+       block's link to the partitions page — a button like devices…, with the
+       partitioned marker's shape (partCss .pm) */
+    .wsmenu a.parts { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px;
+      box-sizing: border-box; width: 100%; font-size: 11.5px; padding: 3px 8px; text-decoration: none;
+      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
+      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
+    .wsmenu a.parts:hover { background: var(--bx-panel-2, #2b3038); }
+    .wsmenu a.parts .ext { color: var(--bx-muted, #868f9a); }
+    .wsmenu a.parts .pm { cursor: inherit; }
 
 
     main { flex: 1; min-width: 0; overflow: auto; padding: 14px; }

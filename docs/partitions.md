@@ -67,11 +67,19 @@ tile's global instance, which a window with no person behind it reaches:
 the workspace token, `--no-auth`). A window that reaches no partition says
 `no partition`: an admin viewing the workspace as someone (view-as never
 opens a person's partition, [below](#who-reaches-which-partition)), or the
-workspace token on a tile without a global instance. A theme may set the
-marker's colour with the `--bx-part` token. The shell is workspace
-scaffold, so a workspace gets the marker, the chip and the consent prompts
-([§Calls between partitioned tiles](#calls-between-partitioned-tiles)) with
-`bx builtin update`.
+workspace token on a tile without a global instance. On a tile that also
+runs a global instance your window may show what the tile shares with
+everyone who uses it — a partitioned agent's shared conversations, say —
+which lives at the global instance: the chip still says `yours` (the
+partition your window's calls reach), and its tooltip says that what the
+tile shares comes from the global instance. A theme may set the
+marker's colour with the `--bx-part` token. Once you see a partitioned
+tile, the shell's settings menu links your partitions page under *my
+account* (**your partitions**, [below](#your-partitions-page)). The shell
+is workspace scaffold, so a workspace gets the marker, the chip, the
+consent prompts
+([§Calls between partitioned tiles](#calls-between-partitioned-tiles)) and
+the menu's link with `bx builtin update`.
 
 ## Who reaches which partition
 
@@ -1336,13 +1344,15 @@ manager can keep or switch their tile's mode there — and nobody's rows. The
 runtime → sandboxes view labels each person's partition
 instance, their sessions (without names) and their terminal disks. An admin
 tile from before this view keeps working: it simply has no partitions tab.
+Its times show in your browser's zone, named, as on the partitions page.
 
 **The logs panel.** A partitioned tile's logs panel (the tile's window →
 logs, in the shell) shows your own partition's log and names it in its
 corner; its switcher offers the global instance's log when the tile runs
 one and you may read it (terminal access to the tile, or an admin), and —
 for an admin or a manager of the tile — each person's log while they share
-it (a manager's listing names who shares: `logShares`). The panel asks for
+it (a manager's listing names who shares: `logShares`; the share's end in
+your browser's zone, named). The panel asks for
 the one you pick (`&xbin-partition=global`, `&user=<id>`) and shows it
 only if xbind's answer names that partition; what it offers is asked again
 each time the panel opens. On a tile that isn't partitioned, or an older
@@ -1457,11 +1467,13 @@ person. It ships with xbind — no `bx builtin update` needed. The pushes
 that ask someone to decide or consent link it, the refusals for want of a
 consent or a log share and the shell's switch banner name it, and the
 shell's card of a paused tile and its answer to an allowed consent link it
-(**details…**, **open it**). It opens only on its own, top-level (never inside a tile or
+(**details…**, **open it**), as does its settings menu, under *my account*
+(**your partitions**, in a new tab), for a signed-in person who sees a
+partitioned tile. It opens only on its own, top-level (never inside a tile or
 another page), with your own sign-in — signed out, you sign in and land
 back on it — and acts through the same API as `bx partition`: xbind judges
 each act again. Times show in your browser's zone, named (xbind's notices
-say UTC).
+say UTC), as in the admin console's partitions view and the logs panel.
 
 - **Credentials waiting for you** — a sign-in link, password or single
   sign-on email someone else made for your account while

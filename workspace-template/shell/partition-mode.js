@@ -4,10 +4,11 @@
 // partition chip a window's head carries (whose partition it shows), the
 // text of a pending tile's card, a tile manager's decision through POST
 // /api/xbin/partitions/mode — keep, or switch after a dry run and a typed
-// confirmation — and the consent prompts' words and calls (the end of this
-// file). Pure and lit-free, so hack/partition-mode.test.mjs runs it in node;
-// shell-kit.js draws the marker, bx-canvas.js the chip and the card
-// overlay, bx-part-consent.js the prompts.
+// confirmation — the consent prompts' words and calls, and when the
+// settings menu links the partitions page (the end of this file). Pure and
+// lit-free, so hack/partition-mode.test.mjs runs it in node; shell-kit.js
+// draws the marker, bx-canvas.js the chip and the card overlay,
+// bx-part-consent.js the prompts, shell-account.js the menu entry.
 //
 // Optional (docs/compat.md rule 3): a row without `partition` — every tile
 // of an xbind older than partitioned tiles, and every tile that never
@@ -73,9 +74,16 @@ export const DEP_SHARED = 'Not partitioned: a deployment runs one instance that 
 // behind it reaches (the workspace token, --no-auth). A window that reaches
 // no partition says so: view-as never opens a person's partition, and the
 // workspace token has none of its own on a tile without a global instance
-// (docs/partitions.md §Who reaches which partition).
+// (docs/partitions.md §Who reaches which partition). On a tile that also
+// runs a global instance, the window of a person's partition may show what
+// the tile shares with everyone who uses it — an agent's shared
+// conversations (B2b) are the global instance's — so `yours` says so in
+// its tooltip (CHIP_YOURS_GLOBAL): the chip names the partition the
+// window's calls reach, which a page's shared view doesn't change.
 export const CHIP_YOURS = 'Your partition: this window shows your own data in this tile — everyone who uses it has their own, '
-  + 'and nobody else\'s shows here';
+  + 'and nobody else\'s partition shows here';
+export const CHIP_YOURS_GLOBAL = `${CHIP_YOURS}. Anything here that the tile shares with everyone who uses it `
+  + '(a shared chat, for example) comes from its global instance, not from your partition';
 export const CHIP_GLOBAL = 'The global instance: this window shows the tile\'s one instance for what isn\'t a person\'s, '
   + 'not anyone\'s partition (the workspace token has none of its own)';
 export const CHIP_NONE_ROOT = 'No partition: the workspace token has none of its own, and this tile has no global instance, '
@@ -92,7 +100,7 @@ export function partitionChip(v, { shown = '', who = null } = {}) {
   if (!v?.user) return null;
   if (who?.impersonatedBy) return { kind: 'none', text: 'no partition', title: chipNoneViewAs(who.id) };
   if (shown) return { kind: 'shared', text: 'shared', title: DEP_SHARED };
-  if (who?.kind === 'user') return { kind: 'yours', text: 'yours', title: CHIP_YOURS };
+  if (who?.kind === 'user') return { kind: 'yours', text: 'yours', title: v.global ? CHIP_YOURS_GLOBAL : CHIP_YOURS };
   if (who?.kind !== 'root') return null;
   return v.global ? { kind: 'global', text: 'global', title: CHIP_GLOBAL } : { kind: 'none', text: 'no partition', title: CHIP_NONE_ROOT };
 }
@@ -342,9 +350,13 @@ export const consentPerson = (who) => who?.kind === 'user' && !who.impersonatedB
 // consents at all: a signed-in person who sees a partitioned tile. A
 // consent event makes it look anyway (for a person).
 export function consentWatch(components, who) {
-  if (!consentPerson(who)) return false;
-  return (Array.isArray(components) ? components : []).some((c) => partitionView(c)?.user);
+  return consentPerson(who) && anyPartitioned(components);
 }
+
+// anyPartitioned(components) → whether a /components listing holds a
+// partitioned tile: one whose recorded mode has user partitions (the
+// marker's rule — a pending switch into partitions isn't one yet).
+export const anyPartitioned = (components) => (Array.isArray(components) ? components : []).some((c) => partitionView(c)?.user);
 
 // consentStoreKey(who) → the localStorage key this browser keeps the
 // person's dismissed asks under: one per person, so on a shared browser
@@ -410,3 +422,16 @@ export const consentEventOp = (e) => (e?.type === 'partitions' && ['consent-need
 // person's consents view, POST an edge (allow) or DELETE it (take back).
 export const consentCall = (fetchFn, method = 'GET', edge) => personCall(fetchFn, CONSENTS_API, method,
   method === 'GET' ? undefined : { from: edge?.from, to: edge?.to });
+
+// ---- the settings menu's "your partitions" entry (owner ruling I13) ----
+// pageEntry(components, who) → whether the account block of the shell's
+// settings menu links the person's partitions page (PARTITIONS_PAGE): a
+// signed-in person who sees a partitioned tile. Not the workspace token (no
+// partitions of its own; a paused card's "details…" still links the page
+// for a switch it decides) nor an admin viewing as someone (the page shows
+// view-as none of that person's partitions). Nothing on a workspace without
+// a partitioned tile, and nothing on an xbind that doesn't partition.
+export const pageEntry = (components, who) => consentPerson(who) && anyPartitioned(components);
+export const PAGE_ENTRY = 'your partitions';
+export const PAGE_ENTRY_TITLE = 'Your partitions page: your own data in each partitioned tile, the consents and personal binds '
+  + 'you gave, and the switches you decide — xbind\'s page, in a new tab';

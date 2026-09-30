@@ -33,10 +33,13 @@ export const RUNTIME_COLOR = {
 export function partitionMark(c) {
   const t = markTitle(partitionView(c));
   if (!t) return null;
-  return html`<span class="pm" role="img" aria-label=${t} title=${t}><svg viewBox="0 0 8 8" aria-hidden="true">
-    <circle cx="4" cy="4" r="3.35" fill="none" stroke="currentColor" stroke-width="1.1"/>
-    <path d="M4 .65a3.35 3.35 0 0 0 0 6.7z" fill="currentColor"/></svg></span>`;
+  return html`<span class="pm" role="img" aria-label=${t} title=${t}>${markShape}</span>`;
 }
+// markShape: the marker's drawing alone (the settings menu's "your
+// partitions" entry carries it too, shell-account.js).
+export const markShape = html`<svg viewBox="0 0 8 8" aria-hidden="true">
+    <circle cx="4" cy="4" r="3.35" fill="none" stroke="currentColor" stroke-width="1.1"/>
+    <path d="M4 .65a3.35 3.35 0 0 0 0 6.7z" fill="currentColor"/></svg>`;
 
 // The partition chip (owner ruling I3; partition-mode.js partitionChip):
 // whose partition a partitioned tile's window shows — quiet, in the

@@ -14,8 +14,9 @@ import assert from 'node:assert/strict';
 import {
   modeName, specOf, stateWords, requestText, switchDeletes, deletesNothing, modeBody, wipedText, switchLines,
   resetConfirm, partitionOp, regsText, mailText, runningText, historyText, limitsBody, tileNotes, bytesText, shortId,
-  orphanWhy, purgeBodies, untrackedOf, withUntracked,
+  orphanWhy, purgeBodies, untrackedOf, withUntracked, when, zoneName,
 } from '../workspace-template/tiles/admin/tabs/partitions-view.js';
+import { timeText } from '../web/partitions-kit.js';
 import { switchDeletes as shellSwitchDeletes } from '../workspace-template/shell/partition-mode.js';
 
 test('modes and states in words', () => {
@@ -31,9 +32,24 @@ test('modes and states in words', () => {
   assert.equal(stateWords('something-new'), 'something-new', 'a state a newer xbind adds shows as it is');
 });
 
+test('times: the viewer\'s zone, named — the partitions page\'s format', () => {
+  for (const t of ['2026-09-30T14:08:00Z', '2026-01-05T23:59:30+02:00', '2026-09-30T14:08:00.123456789Z']) {
+    assert.equal(when(t), timeText(t), `the admin console and the partitions page agree on ${t}`);
+    assert.equal(when(t, () => 'XYZ'), timeText(t, () => 'XYZ'));
+  }
+  assert.equal(when('2026-09-30T14:08:00Z', () => 'XYZ').slice(-4), ' XYZ');
+  assert.match(when('2026-09-30T14:08:00Z', () => ''), /^\d{4}-\d\d-\d\d \d\d:\d\d$/, 'no zone name: none shown');
+  assert.match(when('2026-09-30T14:08:00Z'), /^\d{4}-\d\d-\d\d \d\d:\d\d \S+/, 'the browser\'s zone, named');
+  assert.equal(when('nope'), 'nope', 'a time that doesn\'t parse shows as sent');
+  assert.equal(when(''), '');
+  assert.equal(when(undefined), '');
+  assert.equal(typeof zoneName(new Date()), 'string');
+});
+
 test('a request in words: open, declined, none', () => {
   const open = { spec: null, request: { spec: { user: true, global: false }, since: '2026-09-30T10:00:00Z', declined: false } };
-  assert.match(requestText('apps/docs', open), /^apps\/docs's code asks for unpartitioned → user since 2026-09-30 10:00; it runs nothing until a manager/);
+  assert.match(requestText('apps/docs', open), /^apps\/docs's code asks for unpartitioned → user since \d{4}-\d\d-\d\d \d\d:\d\d( \S+)?; it runs nothing until a manager/);
+  assert.ok(requestText('apps/docs', open).includes(` since ${when('2026-09-30T10:00:00Z')};`), 'the time in the viewer\'s zone, named');
   const declined = { spec: { user: true }, request: { spec: null, declined: true } };
   assert.match(requestText('apps/docs', declined), /declined: apps\/docs runs user, nothing was deleted/);
   assert.equal(requestText('apps/docs', { spec: { user: true }, request: null }), '');

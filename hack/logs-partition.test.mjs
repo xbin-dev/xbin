@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { logsQuery, echoOK, defaultLabel, logChoices, badgeText, globalProbe } from '../web/logs-partition.js';
+import { timeText } from '../web/partitions-kit.js';
 
 test('each choice asks GET /logs for its log; the default asks for nothing', () => {
   assert.equal(logsQuery(''), '');
@@ -63,7 +64,7 @@ test('an admin: each person who shares their log now, besides their own and glob
   const c = logChoices(listing, 'user:root2');
   assert.deepEqual(c.map((x) => x.value), ['', 'global', 'user:alice']);
   assert.equal(c[2].label, "alice's log (shared with you)");
-  assert.match(c[2].title, /until 2026-10-07/);
+  assert.equal(c[2].title, `alice shares their partition's log until ${timeText('2026-10-07T12:00:00Z')}`, 'the partitions page\'s format: the viewer\'s zone, named');
   // the root token reaches global by default: no second global entry
   const root = logChoices(listing, 'global');
   assert.equal(defaultLabel('global'), 'global');

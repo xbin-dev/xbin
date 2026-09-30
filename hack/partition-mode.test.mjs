@@ -6,16 +6,17 @@
 // the typed confirmation's spec and answers, what the card says after a
 // decision, how long a card's decision state lives, the partition chip a
 // window's head carries, and the consent prompts (what they show, when the
-// shell reads them, the calls). A row without `partition` (an older xbind,
-// a tile that never asked) reads as nothing at all.
+// shell reads them, the calls), and when the settings menu links the
+// partitions page. A row without `partition` (an older xbind, a tile that
+// never asked) reads as nothing at all.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { partitionView, markTitle, MARK_TITLE, modeName, switchDeletes, switchLabel, pendingText, requestKey,
   modeBody, postMode, errorText, bytesText, wipedText, switchSpec, switchResolve, DELETES_ALL,
   pruneDecisions, whoDecides, noteText, staleRefusal, deletesNothing, keptText, switchedText, DEP_SHARED,
-  partitionChip, CHIP_YOURS, CHIP_GLOBAL, CHIP_NONE_ROOT, framedTile, consentPerson, consentWatch, consentPrompts, keepDismissed,
+  partitionChip, CHIP_YOURS, CHIP_YOURS_GLOBAL, CHIP_GLOBAL, CHIP_NONE_ROOT, framedTile, consentPerson, consentWatch, consentPrompts, keepDismissed,
   consentEventOp, consentCall, consentKey, consentAsk, consentWhy, allowedText, declinedText, consentStoreKey, coverPoints,
-  CONSENTS_API, PARTITIONS_PAGE } from '../workspace-template/shell/partition-mode.js';
+  CONSENTS_API, PARTITIONS_PAGE, anyPartitioned, pageEntry, PAGE_ENTRY, PAGE_ENTRY_TITLE } from '../workspace-template/shell/partition-mode.js';
 
 const row = (partition) => ({ path: 'apps/p', partition });
 
@@ -220,7 +221,12 @@ test('the partition chip says whose partition a window shows (I3)', () => {
     for (const who of [person, root, viewAs, null]) assert.equal(partitionChip(v, { who }), null);
   }
   assert.deepEqual(partitionChip(u, { who: person }), { kind: 'yours', text: 'yours', title: CHIP_YOURS });
-  assert.deepEqual(partitionChip(ug, { who: person }), { kind: 'yours', text: 'yours', title: CHIP_YOURS });
+  // with a global instance too: still `yours` (the partition the window's
+  // calls reach), and its tooltip says where what the tile shares comes from
+  assert.deepEqual(partitionChip(ug, { who: person }), { kind: 'yours', text: 'yours', title: CHIP_YOURS_GLOBAL });
+  assert.ok(CHIP_YOURS_GLOBAL.startsWith(`${CHIP_YOURS}. `));
+  assert.match(CHIP_YOURS_GLOBAL, /shared chat.*comes from its global instance, not from your partition$/);
+  assert.doesNotMatch(CHIP_YOURS, /global/, 'a tile without a global instance: no word of one');
   // a pending switch out of partitions: still the person's own partition (R)
   const out = partitionView(row({ state: 'pending', user: true, global: false, request: { user: false, global: false } }));
   assert.equal(partitionChip(out, { who: person }).kind, 'yours');
@@ -274,6 +280,34 @@ test('the shell reads consents only for a person who sees a partitioned tile', (
   for (const who of [null, { kind: 'root', id: 'root' }, { kind: 'user', id: 'alice', impersonatedBy: 'owner' }, { kind: 'user' }, { kind: 'element', id: 'x' }]) {
     assert.equal(consentPerson(who), false);
   }
+});
+
+test('the settings menu links the partitions page for a person who sees a partitioned tile (I13)', () => {
+  const plain = { path: 'apps/a' };
+  const part = { path: 'apps/p', partition: { state: 'partitioned', user: true, global: false } };
+  const person = { kind: 'user', id: 'alice' };
+  assert.equal(pageEntry([plain, part], person), true);
+  assert.equal(pageEntry([plain, { path: 'apps/pg', partition: { state: 'partitioned', user: true, global: true } }], person), true);
+  // no partitioned tile in the listing: no entry
+  assert.equal(pageEntry([plain], person), false);
+  assert.equal(pageEntry([], person), false);
+  assert.equal(pageEntry(null, person), false);
+  assert.equal(pageEntry([plain, { path: 'apps/o', partition: null }], person), false, 'an older xbind\'s row, or a tile that never asked');
+  assert.equal(pageEntry([{ path: 'apps/g', partition: { state: 'partitioned', user: false, global: true } }], person), false, 'global only: no person\'s partition');
+  assert.equal(pageEntry([{ path: 'apps/q', partition: { state: 'pending', user: false, global: false, request: { user: true, global: false } } }], person), false,
+    'a switch into partitions still pending: not partitioned yet (the card links the page)');
+  assert.equal(pageEntry([{ path: 'apps/s', partition: { state: 'pending', user: true, global: false, request: { user: false, global: false } } }], person), true,
+    'a switch out of partitions pending: people\'s partitions are still there');
+  // nobody but a signed-in person: not the workspace token, not view-as, not before /whoami
+  for (const who of [{ kind: 'root', id: 'root' }, { kind: 'user', id: 'alice', impersonatedBy: 'owner' }, null, { kind: 'user' }]) {
+    assert.equal(pageEntry([part], who), false, JSON.stringify(who));
+  }
+  assert.equal(anyPartitioned([plain, part]), true);
+  assert.equal(anyPartitioned([plain]), false);
+  assert.equal(anyPartitioned(undefined), false);
+  assert.equal(PARTITIONS_PAGE, '/xbin/partitions');
+  assert.equal(PAGE_ENTRY, 'your partitions');
+  assert.match(PAGE_ENTRY_TITLE, /^Your partitions page: .*in a new tab$/);
 });
 
 test('dismissals are kept per person in this browser', () => {
