@@ -560,7 +560,15 @@ layout math — `overlaps()` and `pushLayout()`, the push a dragged or
 resized tile performs on its neighbours (D66) — lit-free, tested in
 `hack/grid-layout.test.mjs`; `shell-kit.js` re-exports the constants and
 holds the rest of what the shell and its children share: `RUNTIME_COLOR`,
-the `LongPress` gesture, `selectedText()` and the `prBadge()` template.
+the partitioned marker (`partitionMark(c)`), the `LongPress` gesture,
+`selectedText()` and the `prBadge()` template. `partition-mode.js` is
+partitioned tiles' words and decisions, lit-free: what a row's `partition`
+reads as, the marker's tooltip, a pending card's text, the POST
+`/partitions/mode` bodies and the typed confirmation's spec — tested in
+`hack/partition-mode.test.mjs` (xbind's switch words are pinned against it
+by the registry's `TestShellSwitchWords`), end to end by the harness's
+`partitionMark` pass (the marker on row and head; Keep, and Switch… through
+the confirmation, on pending cards).
 `layout-sync.js` is how an open shell follows a layout another client (the
 app, another tab) saved: `follow(shell, event, key)` on a `prefs` event —
 skip our own writes (`X-Prefs-Writer`), hold the reload while `editing()`

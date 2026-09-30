@@ -1851,7 +1851,7 @@ export class BxShell extends LitElement {
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
           <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs}
             .canMutate=${this._canMutate} .personal=${!this._activeOrgScreen} .mobile=${this._mobile} .menuOpen=${!!this._menu} .scale=${this._gridScale}
-            .canAdminTile=${(p) => this._canAdminTile(p)}
+            .canAdminTile=${(p) => this._canAdminTile(p)} .alerts=${this._alerts} .reload=${() => { this._load(); this._loadAlerts(); }}
             .emptyText=${this._activeOrgScreen && !this._canMutate ? 'empty shared screen' : 'empty screen — open a tile from the sidebar'}
             @bx-tiles=${(e) => this._mutateTiles(() => e.detail)}
             @bx-toggle-tile=${(e) => this._toggle(e.detail)}

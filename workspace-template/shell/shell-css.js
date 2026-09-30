@@ -338,10 +338,11 @@ export const canvasCss = [scrollCss, css`
       content: attr(data-path); position: absolute; left: 8px; top: 6px;
       font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-accent, #f5a623); opacity: .8;
     }
-    /* the resize corner */
+    /* the resize corner — above what covers a card body: bx-frame's build-error
+       overlay (9) and a pending tile's partition overlay (11, partCss) */
     .gtile .rz {
       position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
-      cursor: nwse-resize; z-index: 3; touch-action: none;
+      cursor: nwse-resize; z-index: 12; touch-action: none;
       background: linear-gradient(135deg, transparent 50%, var(--bx-border, #363c45) 50%);
       border-bottom-right-radius: var(--bx-radius, 6px); opacity: .6;
     }
@@ -433,6 +434,48 @@ export const statusCss = css`
       0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--st) 65%, transparent); opacity: 1; }
       55% { box-shadow: 0 0 0 4px transparent; opacity: .5; }
     }
+`;
+
+// Partitioned tiles (docs/partitions.md; PD-53 design A): the marker a
+// sidebar row and a window head carry (shell-kit.js partitionMark) and a
+// pending tile's card overlay (bx-canvas.js). The hue is --bx-part, a token
+// a theme may set; unset, a calm teal — lighter where the page's colour
+// scheme is dark (the workspace default), deeper where a theme makes it
+// light, so the ring keeps its contrast. Plain green is status "ok" (above)
+// and node's runtime colour; the half-filled shape, not the hue, says
+// "divided". The marker is status, not a button: no border, no hover state.
+export const partCss = css`
+    :host { --bx-part-c: var(--bx-part, #3fb5a3); }
+    @supports (color: light-dark(#000, #fff)) {
+      :host { --bx-part-c: var(--bx-part, light-dark(#1f8778, #3fb5a3)); }
+    }
+    .pm { flex: none; display: inline-flex; width: 8px; height: 8px; color: var(--bx-part-c);
+      cursor: default; border: 0; background: none; padding: 0; }
+    .pm svg { width: 8px; height: 8px; display: block; }
+    .item .pm { margin-left: 4px; }
+    /* a pending tile (docs/partitions.md §The mode): its card greys out
+       under a note, and a tile manager decides there — the head stays live
+       (menu, terminal, close) */
+    .pover { position: absolute; inset: 0; z-index: 11; display: flex; align-items: center; justify-content: center;
+      padding: 12px; box-sizing: border-box; overflow: auto;
+      background: color-mix(in srgb, var(--bx-bg, #1b1e24) 70%, transparent);
+      -webkit-backdrop-filter: grayscale(1); backdrop-filter: grayscale(1); }
+    .pbox { max-width: 440px; margin: auto; box-sizing: border-box; padding: 12px 14px; font-size: 12.5px; line-height: 1.45;
+      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
+      border: 1px solid var(--bx-border, #363c45); border-radius: 8px; box-shadow: 0 6px 22px rgba(0, 0, 0, .35); }
+    .pbox .phead { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-weight: 600; }
+    .pbox .phead .pdot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--bx-amber, #f2a71b); }
+    .pbox .pmsg { margin: 0; }
+    .pbox .pwho { margin: 8px 0 0; color: var(--bx-muted, #868f9a); font-size: 11.5px; }
+    .pbox .perr { margin: 8px 0 0; padding: 6px 9px; border-radius: 6px; white-space: pre-wrap; font-size: 12px;
+      color: var(--bx-red, #ef5350); border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 55%, transparent);
+      background: color-mix(in srgb, var(--bx-red, #ef5350) 12%, transparent); }
+    .pbox .pbtns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin: 12px 0 0; }
+    .pbox button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); }
+    .pbox button:hover:not(:disabled) { border-color: var(--bx-muted, #868f9a); }
+    .pbox button:disabled { opacity: .55; cursor: default; }
+    .pbox button.pswitch { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent); }
 `;
 
 // bx-side: the sidebar's tree, filter, folders, footers — and its mobile rows.

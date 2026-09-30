@@ -46,6 +46,17 @@ instance, as today, reachable by the tile's writers; when its code asks for
 partitions that instance runs as `global` — whether or not the primary is
 partitioned — so every writer who opens the deployment shares it.
 
+In the workspace shell a partitioned tile is still one tile, with one
+window: opening it opens your own partition. Its sidebar row (before ⋯) and
+its window head (in place of the runtime dot) carry a small teal disc, half
+filled, whose tooltip reads "Partitioned: each person here has their own
+data" — and names the global instance when the tile has one. It marks a
+state; it isn't a button. It follows the recorded mode, so a pending switch
+doesn't change it ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
+A theme may set its colour with the `--bx-part` token. The shell is
+workspace scaffold, so a workspace gets the marker with `bx builtin
+update`.
+
 ## Who reaches which partition
 
 xbind decides the partition a request reaches from its verified credential —
@@ -155,10 +166,19 @@ only the record:
   can't run);
 - the tile's managers get a push notification (kind
   `tile.partition-switch`) when the request opens — at most one per tile
-  every 15 minutes, however often the code toggles `partition`.
+  every 15 minutes, however often the code toggles `partition`;
+- in the workspace shell, the tile's window greys out under the same words
+  — and, for a tile manager, offers **Keep the current mode** and
+  **Switch and delete all data…** (just **Switch…** when only `"global"`
+  comes or goes), which shows what the switch deletes and keeps and asks
+  for the tile's path before it switches. A window showing another
+  deployment of the tile isn't paused and isn't greyed out. The shell is
+  workspace scaffold: a workspace gets this with `bx builtin update`, and
+  an older shell shows the banner and the page only.
 
-Managers decide with `bx partition switch <tile>` or `bx partition keep
-<tile>` ([bx.md](bx.md)), or `POST /api/xbin/partitions/mode`. A switch
+Managers decide in the shell, with `bx partition switch <tile>` or `bx
+partition keep <tile>` ([bx.md](bx.md)), or with `POST
+/api/xbin/partitions/mode`. A switch
 first shows what it deletes — data namespaces (the tile's own and every
 deployment's), people's partitions, vault keys, cron jobs, bus
 subscriptions, interface instances and ingress hosts, bytes, backup keys —
@@ -466,8 +486,8 @@ and restoring one on another machine needs the exported backup keys.
   credential resets that wait for the person) and the admin Policies tab;
 - terminals, agent sessions, logs and status on partitioned tiles;
 - the partitions page (`/xbin/partitions`), `bx partition` beyond
-  `switch`/`keep`, the admin tile's Partitions section, the shell's marker
-  and its Keep/Switch overlay;
+  `switch`/`keep`, the admin tile's Partitions section, and the shell's
+  consent prompts;
 - sealed backups, backup keys and disaster recovery;
 - the wire reference in [protocol.md](protocol.md) for
   `?xbin-partition=global` and the partitions API (the headers, the

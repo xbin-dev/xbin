@@ -3,8 +3,10 @@
  * and the floating (unpinned) windows over it. Owns the pointer gestures on
  * them (grid drag/resize, float drag/raise/resize-commit, pin/unpin, the
  * touch long-press and the right-click that open menus) and the per-card
- * chrome (head buttons, the >_ terminal toggle, the ⇄ and ⇈ badges, and
- * the deployment a window shows: ⇈ picks it, a +name tag says so).
+ * chrome (head buttons, the >_ terminal toggle, the ⇄ and ⇈ badges, the
+ * deployment a window shows: ⇈ picks it, a +name tag says so; and on
+ * partitioned tiles the marker and a pending switch's overlay, where a tile
+ * manager keeps the mode or switches it).
  *
  * The tiles array is a property; every geometry change comes back as one
  * `bx-tiles` event carrying the new array — the shell persists it (a shared
@@ -17,13 +19,16 @@
 import { LitElement, html, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
 import '/vendor/bx-menu.js';
+import '/vendor/bx-dialog.js';
 import { clampBox, dragPointer, pathHas } from '/vendor/bx-kit.js';
 import { GRID, GAP, MIN_W, MIN_H, snap, RUNTIME_COLOR, LongPress, selectedText, prBadge,
-  followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge } from './shell-kit.js';
+  followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge, partitionMark } from './shell-kit.js';
 import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo } from './zorder.js';
-import { canvasCss, prbCss } from './shell-css.js';
+import { canvasCss, prbCss, partCss } from './shell-css.js';
+import { partitionView, requestKey, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
+  switchSpec, switchResolve, DECIDERS } from './partition-mode.js';
 
 export class BxCanvas extends LitElement {
   static properties = {
@@ -37,10 +42,14 @@ export class BxCanvas extends LitElement {
     canAdminTile: { attribute: false }, // (path) → boolean: whether the ⚙ button shows
     emptyText: { attribute: false },    // what an empty screen says
     scale: { attribute: false },        // px per logical px of the grid — the per-browser grid scale (D68); 1 = 48px cells
+    alerts: { attribute: false },       // /alerts rows (optional): a pending tile's card says its partition-switch message
+    reload: { attribute: false },       // () → the shell reloads /components and /alerts (optional; after a decision)
     _drag: { state: true },             // a grid drag/resize in flight: {path, rect, moves, dirs, orig, positive}
     _dmenu: { state: true },            // a window head's ⇈ menu: {items, anchor, title}
+    _part: { state: true },             // path → a pending card's decision {key, busy, err, done}
+    _pdlg: { state: true },             // the Switch… typed confirmation: {path, v, dry, spec}
   };
-  static styles = [canvasCss, prbCss];
+  static styles = [canvasCss, prbCss, partCss];
 
   constructor() {
     super();
@@ -48,7 +57,7 @@ export class BxCanvas extends LitElement {
     this.canMutate = true; this.personal = true; this.mobile = false; this.menuOpen = false; this.emptyText = ''; this.scale = 1;
     this._press = new LongPress();
     this._pending = new Map(); // path → layout to open once its card exists
-    this._drag = null; this._dmenu = null;
+    this._drag = null; this._dmenu = null; this.alerts = []; this._part = {}; this._pdlg = null;
     this._shown = new Map(); // path → the deployment its window shows, where the layout doesn't keep it (a shared screen)
     // The rect a card's terminal pop-up must stay inside (D66): the canvas's
     // tile extent, in viewport coordinates — never left of / above the scroll
@@ -323,6 +332,7 @@ export class BxCanvas extends LitElement {
   // Both are fixed-size: the frame fills a fixed body and scrolls inside.
   _cardTemplate(o, kind = 'grid') {
     const floating = kind === 'float', shown = this._shownDep(o);
+    const c = (this.components ?? []).find((x) => x.path === o.path);
     const frame = html`<bx-frame src=${o.path} deployment=${shown || nothing} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
     return html`
       <div class="card" data-path=${o.path}
@@ -331,7 +341,7 @@ export class BxCanvas extends LitElement {
              @pointerdown=${(e) => { this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._press.move(e)}
              @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}>
-          <span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>
+          ${partitionMark(c) ?? html`<span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>`}
           <span class="t">${o.path}</span>
           ${shown ? html`<span class="dtag" title=${`this window shows ${o.path}'s deployment ${shown} (/c/${o.path}+${shown}/), not the primary`}>+${shown}</span>` : nothing}
           ${prBadge(this.prs?.[o.path], () => this.frameOpen(o.path, 'prs'))}
@@ -350,8 +360,75 @@ export class BxCanvas extends LitElement {
                   @click=${(e) => this._tileMenu(e, o.path, e.currentTarget)}>⋯</button>
           ${!this.mobile && this.canMutate ? html`<button title="close" @click=${() => this._emit('bx-toggle-tile', o.path)}>✕</button>` : nothing}
         </div>
-        <div class="cbody">${frame}</div>
+        <div class="cbody">${frame}${this._partOverlay(o.path, c, shown)}</div>
       </div>`;
+  }
+
+  // ---- partitioned tiles (docs/partitions.md §The mode) ----
+  // A pending tile's card greys out under the switch request's words (its
+  // /alerts row, as the banner says them), and a tile manager decides there:
+  // Keep the current mode, or Switch… — the dry run's counts and keep list,
+  // then the tile's path typed (POST /api/xbin/partitions/mode, as the
+  // signed-in person; xbind judges who may). Beneath, the frame shows xbind's
+  // own page either way. A window showing another deployment isn't paused,
+  // so it has no overlay; a row without a pending request draws nothing.
+  _partOf(path, v) {
+    const st = this._part[path];
+    return st && st.key === requestKey(v) ? st : null;
+  }
+  _setPart(path, v, patch) {
+    this._part = { ...this._part, [path]: { ...(this._partOf(path, v) ?? { key: requestKey(v) }), ...patch } };
+  }
+  _partOverlay(path, c, shown) {
+    const v = partitionView(c);
+    if (!v?.pending || shown) return nothing;
+    const st = this._partOf(path, v) ?? {}, busy = !!st.busy;
+    const buttons = this.canAdminTile?.(path) ? html`<div class="pbtns">
+        <button class="pkeep" ?disabled=${busy} title="the tile runs again in its current mode (${modeName(v.from)}); nothing is deleted"
+          @click=${() => this._partKeep(path, v)}>${st.busy === 'keep' ? 'Keeping…' : 'Keep the current mode'}</button>
+        <button class="pswitch" ?disabled=${busy} title="shows what the switch deletes and keeps, then asks you to type ${path}"
+          @click=${() => this._partSwitch(path, v)}>${st.busy === 'count' ? 'Counting…' : st.busy === 'switch' ? 'Switching…' : switchLabel(v.from, v.to) + '…'}</button>
+      </div>` : html`<p class="pwho">A manager of ${path} decides: ${DECIDERS}.</p>`;
+    return html`<div class="pover"><div class="pbox" role="alert">
+      <div class="phead"><span class="pdot"></span>Paused: a partition mode switch is requested</div>
+      <p class="pmsg">${pendingText(path, v, this.alerts)}</p>
+      ${st.done ? html`<p class="pwho">${st.done}</p>` : buttons}
+      ${st.err ? html`<p class="perr">${st.err}</p>` : nothing}
+    </div></div>`;
+  }
+  async _partKeep(path, v) {
+    this._setPart(path, v, { busy: 'keep', err: '' });
+    const res = await postMode((u, i) => fetch(u, i), modeBody(path, 'keep', v));
+    this._setPart(path, v, res.ok ? { busy: '', done: `Kept ${modeName(v.from)}: ${path} runs again, and nothing was deleted.` }
+      : { busy: '', err: errorText(res) });
+    this.reload?.();
+  }
+  // Switch…: the dry run first (the counts, the keep list, the sandbox
+  // managers that don't keep people apart), then the typed confirmation.
+  async _partSwitch(path, v) {
+    this._setPart(path, v, { busy: 'count', err: '' });
+    const res = await postMode((u, i) => fetch(u, i), modeBody(path, 'switch', v, { dryRun: true }));
+    this._setPart(path, v, res.ok ? { busy: '' } : { busy: '', err: errorText(res) });
+    if (res.ok) this._pdlg = { path, v, dry: res.body, spec: switchSpec(path, v, res.body) };
+    else if (res.status === 409) this.reload?.(); // the request changed: look again
+  }
+  async _partResolve(detail) {
+    const d = this._pdlg;
+    if (!d) return;
+    const r = switchResolve(d.path, detail, d.dry);
+    if (r.cancel) { this._pdlg = null; return; }
+    if (r.again) { this._pdlg = { ...d, spec: switchSpec(d.path, d.v, d.dry, { typed: r.typed, yes: r.yes, error: r.again }) }; return; }
+    this._pdlg = null;
+    this._setPart(d.path, d.v, { busy: 'switch', err: '' });
+    const res = await postMode((u, i) => fetch(u, i), modeBody(d.path, 'switch', d.v, r.extra));
+    if (res.ok) {
+      this._setPart(d.path, d.v, { busy: '', done: `Switched ${d.path} to ${modeName(d.v.to)}: ${res.body?.deletes || 'its data'} deleted.` });
+      this.reload?.();
+      return;
+    }
+    this._setPart(d.path, d.v, { busy: '' });
+    const dry = Array.isArray(res.body?.managers) ? { ...d.dry, managers: res.body.managers } : d.dry;
+    this._pdlg = { ...d, dry, spec: switchSpec(d.path, d.v, dry, { typed: r.typed, yes: r.yes, error: errorText(res) }) };
   }
 
   // ---- floating (unpinned) windows ----
@@ -475,7 +552,9 @@ export class BxCanvas extends LitElement {
       ${grid.length === 0 && floats.length === 0 ? html`<div class="empty">${this.emptyText}</div>` : nothing}
       ${repeat(floats, (o) => o.path, (o) => this._floatTemplate(o))}
       ${this._dmenu ? html`<bx-menu open .items=${this._dmenu.items} .anchor=${this._dmenu.anchor} ?sheet=${this.mobile}
-          title=${this._dmenu.title} @bx-menu-close=${() => { this._dmenu = null; }}></bx-menu>` : nothing}`;
+          title=${this._dmenu.title} @bx-menu-close=${() => { this._dmenu = null; }}></bx-menu>` : nothing}
+      ${this._pdlg ? html`<bx-dialog open .spec=${this._pdlg.spec}
+          @bx-dialog-resolve=${(e) => { e.stopPropagation(); this._partResolve(e.detail); }}></bx-dialog>` : nothing}`;
   }
 }
 
