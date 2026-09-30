@@ -13,7 +13,10 @@
 //     stream at once (the host's run through the global instance, 90 §I4);
 //   - the admin adds sales1: the conversation pauses — dev1's composer is
 //     locked ("waiting for admin to confirm"), the admin is asked above the
-//     composer; the admin confirms and dev1 may write again.
+//     composer; the admin confirms and dev1 may write again;
+//   - its top bar has no Compact / Learn skill (a plain one's has);
+//   - the admin takes everyone out: hosting ends, and the admin's page
+//     follows it back to the global instance and on into their own space.
 // Otherwise (the default unpartitioned seed) it says SKIP.
 const { login, sleep, log, shot, checker, noGocryptfs } = require('../lib');
 
@@ -27,6 +30,7 @@ const call = (page, p, { method = 'GET', body, global } = {}) => page.evaluate(a
 }, [p, method, body ?? null, !!global]);
 const answered = (page, t, timeout = 60000) => until(page, ([t]) => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')]
   .some((e) => e.textContent.includes(t)), [t], timeout);
+const compactShown = (page) => page.evaluate(() => [...document.querySelectorAll('#top button')].some((b) => /^(Compact|Learn skill)$/.test(b.textContent.trim())));
 const dialogOpen = (page) => page.evaluate(() => !!document.querySelector('#hostdlg')?.open);
 const composer = (page) => page.evaluate(() => ({ disabled: document.getElementById('msg').disabled, placeholder: document.getElementById('msg').placeholder,
   bar: !document.getElementById('hostbar')?.hidden && (document.getElementById('hostbar')?.textContent || '').replace(/\s+/g, ' ').trim() }));
@@ -60,6 +64,7 @@ async function agentHosted(browser) {
   const shared = made.body.id;
   await go(A, shared);
   await answered(A.page, 'Hello from the fake model.');
+  check(await compactShown(A.page), 'a plain shared conversation\'s top bar has Compact (the control for the hosted one below)');
 
   // the admin lets it use their private resources: the warning, then hosting
   await A.page.waitForSelector('#top .sharepill');
@@ -104,6 +109,8 @@ async function agentHosted(browser) {
   check(!c.disabled && !c.bar, `"Start anyway": dev1 may write (${JSON.stringify(c)})`);
   await until(D.page, (id) => !!document.querySelector(`#runs .run[data-id="${id}"] .chip.notprivate`), hid, 20000).catch(() => {});
   check(await D.page.evaluate((id) => !!document.querySelector(`#runs .run[data-id="${id}"] .chip.notprivate`), hid), 'dev1\'s list row has the ⚠ chip');
+  check(!(await compactShown(D.page)) && !(await D.page.$('#top #sbxbadge')),
+    'its top bar offers no Compact / Learn skill and no sandbox badge (the global instance answers them 409)');
 
   // dev1 writes; the admin's partition runs it; both watch it stream
   await D.page.fill('#msg', 'paras 8');
@@ -129,6 +136,19 @@ async function agentHosted(browser) {
   await A.page.click('#hostbar #host-confirm');
   const resumed = await until(D.page, () => !document.getElementById('msg').disabled, null, 30000).then(() => true, () => false);
   check(resumed, 'the admin confirms: dev1 may write again');
+
+  // un-shared (W5-wire, AF × B2d): the admin takes sales1 and dev1 out —
+  // hosting ends, it is back at the global instance, and it moves on into
+  // the admin's own space; the admin's page follows it both steps
+  for (const u of ['sales1', 'dev1']) {
+    const r = await call(A.page, `/runs/${hid}/members/${u}`, { method: 'DELETE', global: true });
+    check(r.status === 200, `the admin takes ${u} out (${r.status}${r.body?.movedTo ? `, back at the global instance as #${r.body.movedTo}` : ''})`);
+  }
+  const home = await until(A.page, ([b]) => { const m = /#c=(\d+)/.exec(location.hash); return m && +m[1] >= b && +m[1]; }, [B], 90000)
+    .then((h) => h.jsonValue(), () => 0);
+  check(home >= B, `un-shared: the admin's page followed it into their own space (#${hid} → #${home})`);
+  check(await answered(A.page, 'Paragraph 8', 30000).then(() => true, () => false), 'its transcript came along');
+  await shot(A.page, 'agent-hosted-unshared-home');
 
   const errs = [...A.errors, ...D.errors];
   check(errs.length === 0, `no page errors (${errs.slice(0, 3).join(' | ')})`);

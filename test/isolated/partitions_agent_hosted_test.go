@@ -20,7 +20,9 @@ package isolated
 //     alice confirms from her partition; then it runs again;
 //   - "Add a copy of my …": a file of alice's own conversation, copied into
 //     another shared conversation, is read there by bob, while the original
-//     stays hers alone.
+//     stays hers alone;
+//   - alice un-shares it (takes everyone out): hosting ends, it is back at
+//     the global instance, and moves on to her own partition (AF's move).
 
 import (
 	"encoding/json"
@@ -185,5 +187,34 @@ func paHostedChats(t *testing.T, e *psEnv) {
 	if st := call("bob", "POST", "/copyin", map[string]any{"conversation": other.ID,
 		"files": []map[string]any{{"run": mine.ID, "path": "plan.md"}}}, false).Status; st != 404 {
 		t.Errorf("bob copies alice's file from his partition: %d, want 404", st)
+	}
+
+	// un-shared (AF × B2d, W5-wire): alice takes dave and bob out — hosting
+	// ends, it is back at the global instance, and from there it moves on to
+	// alice's own partition like any un-shared chat
+	must(200, "alice", "DELETE", fmt.Sprintf("/runs/%d/members/dave", id), nil, true)
+	var out struct{ MovedTo int64 }
+	must(200, "alice", "DELETE", fmt.Sprintf("/runs/%d/members/bob", id), nil, true).Decode(t, &out)
+	if out.MovedTo <= 0 || out.MovedTo >= pa2to39 {
+		t.Fatalf("un-sharing the hosted conversation: movedTo %d (want the global instance's own id)", out.MovedTo)
+	}
+	var home int64
+	xbindtest.Eventually(t, 3*time.Minute, "the un-shared hosted conversation reached alice's partition", func() (bool, string) {
+		var m struct {
+			State string
+			To    int64
+		}
+		r := call("alice", "GET", fmt.Sprintf("/moves/%d", out.MovedTo), nil, true)
+		_ = json.Unmarshal(r.Body, &m)
+		home = m.To
+		return m.State == "moved" && m.To >= pa2to40, fmt.Sprintf("%d %s", r.Status, r)
+	})
+	if s := transcript("alice", home, false); !strings.Contains(s, "our hosted plan") || !strings.Contains(s, "Paragraph 12") {
+		t.Errorf("alice's own copy of the formerly hosted conversation: %s", s)
+	}
+	for _, old := range []int64{id, out.MovedTo} {
+		if st := call("bob", "GET", fmt.Sprintf("/runs/%d", old), nil, true).Status; st != 404 {
+			t.Errorf("bob reads #%d after alice un-shared it: %d, want 404", old, st)
+		}
 	}
 }
