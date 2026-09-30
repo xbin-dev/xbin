@@ -14,6 +14,8 @@
 //   25  "Refactor the API" — the built-in agent with three Claude Code / Codex
 //       children: 26 working, 27 parked on a plan approval, 28 done — and a
 //       direct message to #26 told to it (the notice); seed.trees[25] its tree
+//       — kidsSeed() has them as a child card draws them: 26 working through
+//       its plan, 27 parked on a permission, 28 signed out
 //
 // Also: the catalog (claude, codex available; gemini no-egress; opencode
 // no-image), the caller's modes (claude: auto), sandboxes, needs (login,
@@ -226,15 +228,7 @@ export function harnessSeed() {
     27: childView(c27, 'Plan the users table migration'),
     28: childView(c28, 'Add the changelog entry'),
   };
-  // the tree's nodes: §4.3.2 without options, commands, mode.available and login.methods (§4.3.6)
-  const node = (r, depth) => {
-    const out = { id: r.id, parentId: r.parentId || 0, depth, created: r.id, title: r.title, status: r.status, engine: r.engine || '' };
-    if (r.engine !== 'harness') return out;
-    const h = { ...r.harness, mode: { current: r.harness.mode.current } };
-    delete h.options; delete h.commands;
-    if (h.login) h.login = { command: h.login.command };
-    return { ...out, harness: h };
-  };
+  const node = treeNode;
   return structuredClone({
     me: { kind: 'user', user: 'admin', level: 'terminal', manager: true, halted: false, epochMs: 0 },
     runs, views,
@@ -258,6 +252,70 @@ export function harnessSeed() {
     ],
     trees: { 25: { root: 25, nodes: [node(runs[4], 0), node(c26, 1), node(c27, 1), node(c28, 1)], totals: {} } },
   });
+}
+
+// treeNode: a run as GET /runs/{id}/tree's node — §4.3.2 without options,
+// commands, mode.available and login.methods (§4.3.6).
+function treeNode(r, depth) {
+  const out = { id: r.id, parentId: r.parentId || 0, depth, created: r.id, title: r.title, status: r.status, engine: r.engine || '' };
+  if (r.engine !== 'harness') return out;
+  const h = { ...r.harness, mode: { current: r.harness.mode.current } };
+  delete h.options; delete h.commands;
+  if (h.login) h.login = { command: h.login.command };
+  return { ...out, harness: h };
+}
+
+// kidsSeed: harnessSeed() with 25's three coding agents in the states a
+// child card draws (D-harness §8 U6): 26 working through its plan (its own
+// transcript: five blocks, the last a command still running), 27 Codex
+// parked on a permission (a command, park Xq3kid), 28 Claude Code signed out
+// (a login park, Xq3kidlogin; its link still open) — the links started 20 min
+// ago, the tree to match.
+export function kidsSeed() {
+  const s = harnessSeed();
+  const run = (id) => s.runs.find((r) => r.id === id); // one object with its link's child and its view's run
+  const at = now - 1190;
+  s.views[26].messages = transcript(26, [
+    { user: 'Split the router into one file per resource' },
+    { call: ['h1:k01', 'read', { file_path: '/work/api/router.go', summary: 'Read router.go' }, '1\tpackage api\n2\n3\tfunc routes() {', { title: 'Read /work/api/router.go', tool: 'Read' }] },
+    { call: ['h1:k02', 'edit', { file_path: '/work/api/users.go', summary: 'Create users.go' }, 'edited /work/api/users.go (+24 −0)',
+      { title: 'Write /work/api/users.go', tool: 'Write', diffs: [{ path: '/work/api/users.go', status: 'added', add: 24, del: 0, patch: '', truncated: false }] }] },
+    { call: ['h1:k03', 'edit', { file_path: '/work/api/router.go', summary: 'Mount users.go' }, 'edited /work/api/router.go (+7 −4)',
+      { title: 'Edit /work/api/router.go', tool: 'Edit', diffs: [{ path: '/work/api/router.go', status: 'modified', add: 7, del: 4, patch: '', truncated: false }] }] },
+    { text: 'The users routes live in users.go now; checking the package with go vet.' },
+    { call: ['h1:k04', 'execute', { command: 'go vet ./...', summary: 'Run go vet ./...' }, '(running…)',
+      { title: 'go vet ./...', label: 'Run go vet ./...', tool: 'Bash', status: 'in_progress', output: '' }] },
+  ]);
+
+  const c27 = run(27);
+  const call27 = acall('h1:k21', 'execute', { command: 'psql -f migrations/0007_users.sql', summary: 'Apply the migration' });
+  const ps27 = { kind: 'approval', park: 'Xq3kid', toolCalls: [call27], harness: {
+    callId: 'h1:k21',
+    options: [{ optionId: 'approved', name: 'Yes', kind: 'allow_once' }, { optionId: 'approved-for-session', name: 'Yes, and don\'t ask again', kind: 'allow_always' },
+      { optionId: 'abort', name: 'No, tell Codex what to do', kind: 'reject_once' }],
+    tool: { title: 'psql -f migrations/0007_users.sql', kind: 'execute', name: 'shell', label: 'Apply the migration', command: 'psql -f migrations/0007_users.sql',
+      rawInput: { command: ['psql', '-f', 'migrations/0007_users.sql'] }, content: [] },
+    rule: { kind: 'execute', title: 'psql -f migrations/0007_users.sql' }, defaultToNo: false, description: '', planApproval: false, plan: '', pid: 'p4', rpcId: 'h27.1-4' } };
+  Object.assign(c27, { status: 'waiting_input', pendingState: ps27 });
+  c27.harness = { ...c27.harness, mode: { current: 'agent', available: c27.harness.mode.available }, activity: { kind: 'waiting', at: NOW - 40000 },
+    pending: { park: 'Xq3kid', kind: 'approval', title: 'psql -f migrations/0007_users.sql' } };
+  s.views[27].messages.push({ id: 2, runId: 27, seq: 2, role: 'assistant', content: 'The migration is written; applying it.', created: now - 60, toolCalls: [call27] },
+    { id: 3, runId: 27, seq: 3, role: 'tool', toolCallId: 'h1:k21', name: 'acp:execute', content: '(awaiting your approval)', created: now - 59,
+      acp: { kind: 'execute', title: 'psql -f migrations/0007_users.sql', label: 'Apply the migration', tool: 'shell', status: 'pending' } });
+
+  const c28 = run(28);
+  const login = { command: 'CLAUDE_CODE_REMOTE=1 claude /login', methods: [{ id: 'claude-login', name: 'Log in with Claude', kind: 'terminal' },
+    { id: 'anthropic-api-key', name: 'Anthropic API key', kind: 'api-key' }] };
+  Object.assign(c28, { status: 'waiting_input', result: '', pendingState: { kind: 'login', park: 'Xq3kidlogin', harness: { login } } });
+  c28.harness = { ...c28.harness, state: 'login', login, counts: { tools: 0, files: 0, add: 0, del: 0 },
+    pending: { park: 'Xq3kidlogin', kind: 'login', title: 'Sign in to Claude Code' } };
+  delete c28.harness.usage;
+
+  const links = s.views[25].links;
+  for (const l of links) l.created = at;
+  Object.assign(links[2], { state: 'running', result: '' });
+  s.trees[25].nodes = [treeNode(s.runs.find((r) => r.id === 25), 0), ...[26, 27, 28].map((id) => treeNode(run(id), 1))];
+  return s;
 }
 
 // The built-in coding class as §4.3.11 has it: the harness toolset, every harness.
