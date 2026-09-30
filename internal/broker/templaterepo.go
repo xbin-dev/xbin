@@ -175,7 +175,7 @@ func (b *Broker) AddTemplateRemote(instanceDir, name string) {
 		_, _ = runGitIn(instanceDir, "remote", "add", "template", url)
 	}
 	if tile, err := filepath.Rel(b.Reg.Root, instanceDir); err == nil {
-		if err := b.ensureManifestDriver(instanceDir, filepath.ToSlash(tile), name); err != nil {
+		if err := b.ensureTemplateMergeDriver(instanceDir, filepath.ToSlash(tile)); err != nil {
 			slog.Warn("template instance: the manifest's merge driver couldn't be set", "instance", tile, "err", err)
 		}
 	}
