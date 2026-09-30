@@ -71,16 +71,33 @@ func armUsage() {
 	})
 }
 
+// addUsageDay counts one model call in today's (UTC) totals, where its
+// tokens were spent (addRunCost; a person's partition only — the table is
+// nowhere else).
+func (d *DB) addUsageDay(prompt, completion int) {
+	if !userMode() {
+		return
+	}
+	_, _ = d.q.Exec(`INSERT INTO usage_daily (day, llm_calls, prompt_tokens, completion_tokens) VALUES (?, 1, ?, ?)
+		ON CONFLICT(day) DO UPDATE SET llm_calls=llm_calls+1, prompt_tokens=prompt_tokens+excluded.prompt_tokens,
+		  completion_tokens=completion_tokens+excluded.completion_tokens`, time.Now().UTC().Format("2006-01-02"), prompt, completion)
+}
+
 // usageDays are this partition's totals for the days after `after` up to
 // yesterday (UTC), at most 31, oldest first; days with nothing are left out.
+// Conversations count on the day they started, model calls and tokens on
+// the day they were spent (usage_daily).
 func (d *DB) usageDays(after string, today time.Time) []usageDay {
 	from := today.AddDate(0, 0, -31)
 	if t, err := time.Parse("2006-01-02", after); err == nil && t.AddDate(0, 0, 1).After(from) {
 		from = t.AddDate(0, 0, 1)
 	}
-	rows, err := d.q.Query(`SELECT strftime('%Y-%m-%d', created, 'unixepoch') AS day,
-		SUM(CASE WHEN parent_id=0 THEN 1 ELSE 0 END), SUM(llm_calls), SUM(prompt_tokens), SUM(completion_tokens)
-		FROM runs WHERE created>=? AND created<? GROUP BY day ORDER BY day`, from.Unix(), today.Unix())
+	rows, err := d.q.Query(`SELECT day, SUM(n), SUM(calls), SUM(p), SUM(c) FROM (
+		  SELECT strftime('%Y-%m-%d', created, 'unixepoch') AS day, 1 AS n, 0 AS calls, 0 AS p, 0 AS c
+		    FROM runs WHERE parent_id=0 AND created>=? AND created<?
+		  UNION ALL
+		  SELECT day, 0, llm_calls, prompt_tokens, completion_tokens FROM usage_daily WHERE day>=? AND day<?)
+		GROUP BY day ORDER BY day`, from.Unix(), today.Unix(), from.Format("2006-01-02"), today.Format("2006-01-02"))
 	if err != nil {
 		return nil
 	}
@@ -120,6 +137,7 @@ func (ag *Agent) sendUsage(ctx context.Context) {
 		}
 	}
 	_ = ag.db.putSetting("usage_sent", yesterday)
+	_, _ = ag.db.q.Exec(`DELETE FROM usage_daily WHERE day < ?`, today.AddDate(0, 0, -40).Format("2006-01-02")) // past what is ever sent
 }
 
 // --- the global instance -------------------------------------------------------------------
@@ -132,6 +150,7 @@ func handleUsageMail(_ context.Context, t *DB, it mailItem) error {
 		logf("usage/day %s from %q: only a person's partition reports usage to the global instance — refused", it.ID, it.From)
 		return nil
 	}
+	t.markRan(person) // handoff_people.go
 	var in struct {
 		Days []usageDay `json:"days"`
 	}

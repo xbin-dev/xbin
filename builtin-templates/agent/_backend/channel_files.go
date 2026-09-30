@@ -83,7 +83,8 @@ func handleAdapterUpload(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		// files whose message never came
-		rows, err := t.q.Query(`SELECT blob FROM channel_files WHERE created<? AND blob<>''`, now()-stagedTTL)
+		held := stagedHeld() // handoff_send.go: a partitioned agent's global instance keeps what waits to be mailed or posted
+		rows, err := t.q.Query(`SELECT blob FROM channel_files WHERE created<? AND blob<>''`+held, now()-stagedTTL)
 		if err == nil {
 			for rows.Next() {
 				var b string
@@ -93,7 +94,7 @@ func handleAdapterUpload(w http.ResponseWriter, r *http.Request) {
 			}
 			rows.Close()
 		}
-		_, err = t.q.Exec(`DELETE FROM channel_files WHERE created<?`, now()-stagedTTL)
+		_, err = t.q.Exec(`DELETE FROM channel_files WHERE created<?`+held, now()-stagedTTL)
 		return err
 	})
 	if err != nil {
@@ -234,7 +235,7 @@ func handleAdapterFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	of := rows[0].Body.Files[i]
-	if serveStagedFile(w, r, of) { // a person's partition's reply (handoff.go)
+	if serveStagedFile(w, r, rows[0], of) { // a person's partition's reply (handoff.go)
 		return
 	}
 	f, err := agent.db.replFile(rows[0].RunID, of.Path)

@@ -165,13 +165,15 @@ func (ag *Agent) pullMail(ctx context.Context) (mailCounts, error) {
 				}
 				continue
 			}
+			hctx, settle := prepareMail(ctx, it) // mail_prepare.go: an item's files are stored before its transaction
 			err := ag.db.Tx(func(t *DB) error {
-				if err := h(ctx, t, it); err != nil {
+				if err := h(hctx, t, it); err != nil {
 					return err
 				}
 				_, err := t.q.Exec(`INSERT OR IGNORE INTO mail_seen (id, topic, at) VALUES (?, ?, ?)`, it.ID, it.Topic, now())
 				return err
 			})
+			settle(err == nil)
 			if err != nil {
 				logf("mail %s (%s): %v — left for the next pull", it.ID, it.Topic, err)
 				c.Left++

@@ -312,7 +312,6 @@ func (ag *Agent) fireTriggerIn(db *DB, tr *Trigger, ev trigEvent) (v trigVerdict
 			v.Dup = true
 			return nil
 		}
-		t.AfterCommit(func() { emitAutomation("trigger", tr.ID) })
 		refuse := func(reason string) error {
 			v.Reason = reason
 			_, err := t.q.Exec(`UPDATE trigger_events SET reason=? WHERE trigger_id=? AND event_id=?`, reason, tr.ID, clip(ev.ID, 200))
@@ -321,6 +320,7 @@ func (ag *Agent) fireTriggerIn(db *DB, tr *Trigger, ev trigEvent) (v trigVerdict
 		if host := t.hostAtGlobal(tr); host != "" { // a person's private trigger: their partition runs it (trigger_registry.go)
 			return ag.handEvent(t, tr, host, ev, &v, refuse)
 		}
+		t.AfterCommit(func() { emitAutomation("trigger", tr.ID) })
 		switch {
 		case !tr.Enabled:
 			return refuse("disabled")

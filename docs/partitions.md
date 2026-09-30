@@ -269,8 +269,10 @@ linked to a person, or an event for their private trigger, to that
 person's partition by [partition mail](#partition-mail); the partition runs
 it and mails its reply back, and the global instance posts it where its own
 record says — only for the person the handoff was for. A private trigger on
-pushes needs a topic prefix that no one else's overlaps. The template's
-API.md ("Partitioned instances") has the details.
+pushes needs a topic prefix that no one else's overlaps, and is made in its
+person's own partition (the global instance refuses a person's private
+automation). The template's API.md ("Partitioned instances") has the
+details.
 
 ## Shared resources
 

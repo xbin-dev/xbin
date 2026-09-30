@@ -212,12 +212,52 @@ func hostedEditRefused(w http.ResponseWriter, tr *Trigger, patch map[string]json
 	return true
 }
 
+// hostedElsewhere (GET /triggers/{id}/events, POST /triggers/{id}/test, at
+// global): a registry row's events and test runs are its person's own, in
+// their partition — global keeps no log of them, and a test from here would
+// hand them a made-up event. true: refused (409).
+func hostedElsewhere(w http.ResponseWriter, tr *Trigger) bool {
+	if !hostedHere(agent.db, tr) {
+		return false
+	}
+	xbin.WriteError(w, http.StatusConflict, "this trigger runs in "+tr.Owner+"'s own space: its events and tests are there")
+	return true
+}
+
+// privateAtGlobalWords answers a person who makes a private automation at
+// the global instance.
+const privateAtGlobalWords = "a private automation is made in your own space — make it there " +
+	"(the agent's shared space keeps team automations, and only the registry entry of a private trigger)"
+
+// refusePrivateAtGlobal (POST /triggers, PUT /triggers/{id} beyond a switch,
+// POST and PUT /schedules, at global): a person's call from their own
+// partition — `xbin.fetch(…, {partition: 'global'})`, their backend — may
+// not keep a private automation here. A private trigger or schedule is theirs,
+// made in their partition: its runs are private there, and a trigger's
+// registry row (POST /triggers/registry) holds the rules no one's may break
+// (S10: a push trigger's topic prefix, no overlap with anyone else's) — a
+// private push trigger saved here would bypass them and quietly take other
+// people's pushes. vis is the automation's visibility once saved. true:
+// refused (409).
+func refusePrivateAtGlobal(w http.ResponseWriter, r *http.Request, vis string) bool {
+	if !globalMode() || vis == visTeam || !personFromPartition(r) {
+		return false
+	}
+	xbin.WriteError(w, http.StatusConflict, privateAtGlobalWords)
+	return true
+}
+
 // --- global: a push for a registry row -------------------------------------------------
 
 // handEvent is fireTrigger's step for a registry row (in its transaction,
 // after the dedupe): the switch, the halt and the hourly cap are global's;
-// the event is queued for the person's partition, which runs it.
+// the event is queued for the person's partition, which runs it (and keeps
+// its record). Global keeps a registry row's events only as long as the
+// dedupe and the hourly cap need them — a day — so no log of a person's
+// activity builds up here (a delivery repeated later is handed again, and
+// the partition's own dedupe drops it).
 func (ag *Agent) handEvent(t *DB, tr *Trigger, host string, ev trigEvent, v *trigVerdict, refuse func(string) error) error {
+	_, _ = t.q.Exec(`DELETE FROM trigger_events WHERE trigger_id=? AND created<?`, tr.ID, now()-86400)
 	switch {
 	case !tr.Enabled:
 		return refuse("disabled")
@@ -238,7 +278,6 @@ func (ag *Agent) handEvent(t *DB, tr *Trigger, host string, ev trigEvent, v *tri
 		return err
 	}
 	_, _ = t.q.Exec(`UPDATE trigger_events SET accepted=1, reason='handed-off' WHERE trigger_id=? AND event_id=?`, tr.ID, clip(ev.ID, 200))
-	_, _ = t.q.Exec(`UPDATE triggers SET last_event=? WHERE id=?`, now(), tr.ID)
 	v.Accepted = true
 	t.AfterCommit(kickHandoffs)
 	return nil
@@ -315,21 +354,14 @@ func (d *DB) seedTriggerIDs() error {
 // globalTriggerOversight: on a manager's page in their own partition, the
 // other people's registry rows the global instance keeps (oversight: that
 // one exists, whose, what it listens to — never what it does). Nothing for
-// anyone else, or when global doesn't answer within a few seconds.
+// anyone else (read from the listing channels share: handoff_user.go
+// globalAutomations).
 func globalTriggerOversight(w who) []AutomationItem {
 	if !userMode() || !w.manager() || w.viewedBy != "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	res, err := callGlobal(ctx, http.MethodGet, "/automations", nil, "")
-	if err != nil || res.Status != http.StatusOK {
-		return nil
-	}
-	var all struct{ Items []AutomationItem }
-	_ = json.Unmarshal(res.Body, &all)
 	var out []AutomationItem
-	for _, it := range all.Items {
+	for _, it := range globalAutomations() {
 		if it.Kind == "trigger" && it.Access == "oversee" && it.ID < partitionIDBase {
 			out = append(out, it)
 		}

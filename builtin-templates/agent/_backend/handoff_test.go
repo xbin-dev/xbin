@@ -49,7 +49,7 @@ func stubMail(t *testing.T) *mailStub {
 				*tm = nil
 			}
 		}
-		handoffSender.backoff, outboxMailer.backoff = 0, 0
+		outboxMailer.backoff = 0
 		outboxMailer.mu.Unlock()
 		handoffSender.mu.Unlock()
 		sendMail = old
@@ -120,6 +120,7 @@ func TestLinkedDMHandoff(t *testing.T) {
 	ch := helloAs(t, gMux, "apps/slack", "T1")
 	claim(t, gMux, ch, map[string]any{"dm": map[string]any{"policy": "linked"}})
 	_, _ = gAg.db.q.Exec(`INSERT INTO channel_peers (channel_id, peer_id, name, state, created, xbin_user, linked_at) VALUES (?, 'ho-uma', 'Uma', 'allowed', ?, 'alice', ?)`, ch, now(), now())
+	gAg.db.markRan("alice") // her partition has run (TestFirstDMNotice: before it has)
 	_, _ = gAg.db.q.Exec(`INSERT INTO channel_files (id, channel_id, name, mime, size, content, blob, created) VALUES ('fx1', ?, 'notes.txt', 'text/plain', 8, 'line one', '', ?)`, ch, now())
 
 	m := chMsg(ch, "dm", "D1", "ho-uma", "hello private")
@@ -227,6 +228,12 @@ func TestLinkedDMHandoff(t *testing.T) {
 	if addr.Conversation != "D1" || addr.Type != "dm" {
 		t.Fatalf("the reply's address (global's record): %s", answers[0].Address)
 	}
+	// the channel's owner (a manager) sees that alice's replies wait, never what they say
+	if w := callAs(t, gMux, asMgr, "GET", fmt.Sprintf("/channels/%d/outbox?state=pending", ch), nil); w.Code != 200 ||
+		strings.Contains(w.Body.String(), "hi alice") || strings.Contains(w.Body.String(), "r.txt") ||
+		strings.Count(w.Body.String(), "not shown") != 2 || strings.Count(w.Body.String(), `"address":{}`) != 2 {
+		t.Fatalf("the owner's view of alice's pending replies: %d %s", w.Code, w.Body)
+	}
 	// the reply's file, from where global staged it
 	w := adapterCall(t, gMux, "apps/slack", "GET", fmt.Sprintf("/adapter/files/%d/0", answers[1].ID), nil)
 	if w.Code != 200 || w.Body.String() != "reply file" {
@@ -266,6 +273,7 @@ func TestHandoffRefused(t *testing.T) {
 	ch := helloAs(t, gMux, "apps/slack", "T1")
 	claim(t, gMux, ch, map[string]any{"dm": map[string]any{"policy": "linked"}})
 	_, _ = gAg.db.q.Exec(`INSERT INTO channel_peers (channel_id, peer_id, name, state, created, xbin_user, linked_at) VALUES (?, 'ho-gone', 'Uma', 'allowed', ?, 'gone', ?)`, ch, now(), now())
+	gAg.db.markRan("gone")
 	mail.mu.Lock()
 	mail.fail = fmt.Errorf("partition mail: HTTP 507: the inbox is full") // may retry
 	mail.mu.Unlock()
@@ -511,20 +519,32 @@ func TestUsageSummaries(t *testing.T) {
 	putConf(kv, "", `{}`)
 	uAg, _ := chanFixture(t)
 	partitionConf(t, uAg, kv)
+	_ = uAg.db.addHandoffSchema()
 	mail := stubMail(t)
 	day := time.Now().UTC().AddDate(0, 0, -2)
+	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 	for i := 0; i < 3; i++ {
 		id, _ := uAg.db.createRun("x", "{}", 0)
 		_, _ = uAg.db.q.Exec(`UPDATE runs SET created=?, llm_calls=2, prompt_tokens=100, completion_tokens=10 WHERE id=?`, day.Unix()+int64(i), id)
 	}
+	// model calls count on the day they were spent (the runs' own counters
+	// don't say when): two days ago, and yesterday — a conversation of two
+	// days ago that went on
+	_, _ = uAg.db.q.Exec(`INSERT INTO usage_daily (day, llm_calls, prompt_tokens, completion_tokens) VALUES (?, 6, 300, 30), (?, 4, 200, 20)`,
+		day.Format("2006-01-02"), yesterday)
 	today, _ := uAg.db.createRun("today", "{}", 0) // not counted before the day is over
-	_ = today
+	uAg.db.addRunCost(today, 50, 5)
+	var todays int
+	_ = uAg.db.q.QueryRow(`SELECT llm_calls FROM usage_daily WHERE day=?`, time.Now().UTC().Format("2006-01-02")).Scan(&todays)
+	if todays != 1 {
+		t.Fatalf("a model call today counts in today's totals: %d", todays)
+	}
 	uAg.sendUsage(context.Background())
 	sent := mail.wait(t, 1)
 	var u struct{ Days []usageDay }
 	_ = json.Unmarshal(sent[0].data, &u)
-	if sent[0].to != "global" || sent[0].topic != topicUsage || len(u.Days) != 1 || u.Days[0].Runs != 3 || u.Days[0].PromptTokens != 300 ||
-		u.Days[0].Day != day.Format("2006-01-02") {
+	if sent[0].to != "global" || sent[0].topic != topicUsage || len(u.Days) != 2 || u.Days[0].Runs != 3 || u.Days[0].PromptTokens != 300 ||
+		u.Days[0].Day != day.Format("2006-01-02") || u.Days[1] != (usageDay{Day: yesterday, LLMCalls: 4, PromptTokens: 200, CompletionTokens: 20}) {
 		t.Fatalf("the usage mail: %+v %s", sent[0], sent[0].data)
 	}
 	uAg.sendUsage(context.Background())
@@ -550,7 +570,7 @@ func TestUsageSummaries(t *testing.T) {
 		}
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
-	if w.Code != 200 || len(got.People) != 1 || got.People[0].User != "alice" || got.People[0].Total.Runs != 3 || got.People[0].Total.LLMCalls != 6 {
+	if w.Code != 200 || len(got.People) != 1 || got.People[0].User != "alice" || got.People[0].Total.Runs != 3 || got.People[0].Total.LLMCalls != 10 {
 		t.Fatalf("GET /usage: %d %s", w.Code, w.Body)
 	}
 	if w := callAs(t, gMux, asAlice, "GET", "/usage", nil); w.Code != 403 {

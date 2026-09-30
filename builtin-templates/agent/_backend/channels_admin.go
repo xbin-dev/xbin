@@ -439,7 +439,8 @@ func handleChannelOutbox(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "state is failed or pending")
 		return
 	}
-	xbin.WriteJSON(w, 200, map[string]any{"items": agent.db.outRows(`WHERE channel_id=? AND state=? ORDER BY id DESC LIMIT 100`, ch.ID, state)})
+	items := agent.db.outRows(`WHERE channel_id=? AND state=? ORDER BY id DESC LIMIT 100`, ch.ID, state)
+	xbin.WriteJSON(w, 200, map[string]any{"items": redactHanded(items)}) // people's private replies show no content (handoff.go)
 }
 
 // handleChannelRetry puts a failed reply back in the queue.

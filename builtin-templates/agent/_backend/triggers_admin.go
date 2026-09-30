@@ -37,6 +37,9 @@ func triggerItems(w who) []AutomationItem {
 		if tr.Mode == "persistent" {
 			it.CurrentRun, _ = agent.db.sessionRun(trigKey(tr.ID))
 		}
+		if hostedHere(agent.db, tr) { // a person's trigger runs in their partition: no activity of it here (trigger_registry.go)
+			it.LastRunAt, it.LastStatus, it.LastRunID = 0, "", 0
+		}
 		switch lv := tr.access(w); {
 		case lv >= lvOwner:
 			it.Access = "owner"
@@ -132,6 +135,9 @@ func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusConflict, noShareWords)
 		return
 	}
+	if refusePrivateAtGlobal(w, r, tr.Visibility) { // a person's own is made in their partition (trigger_registry.go)
+		return
+	}
 	if !registerPrivate(w, r, &tr, "") { // a person's partition: the name and match at global's registry (trigger_registry.go)
 		return
 	}
@@ -191,6 +197,9 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	if !switched || len(patch) != 1 {
 		if msg := next.validate(prev); msg != "" {
 			xbin.WriteError(w, 400, msg)
+			return
+		}
+		if refusePrivateAtGlobal(w, r, next.Visibility) { // trigger_registry.go
 			return
 		}
 	}
@@ -262,7 +271,7 @@ func handleDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 //	POST /triggers/{id}/test {topic?, text?, data?}
 func handleTestTrigger(w http.ResponseWriter, r *http.Request) {
 	tr, _, lv, ok := triggerFor(w, r)
-	if !ok {
+	if !ok || hostedElsewhere(w, tr) { // trigger_registry.go
 		return
 	}
 	if lv < lvOwner {
@@ -287,7 +296,7 @@ func handleTestTrigger(w http.ResponseWriter, r *http.Request) {
 // handleTriggerEvents: the last events it saw, newest first.
 func handleTriggerEvents(w http.ResponseWriter, r *http.Request) {
 	tr, _, lv, ok := triggerFor(w, r)
-	if !ok {
+	if !ok || hostedElsewhere(w, tr) { // trigger_registry.go
 		return
 	}
 	if lv < lvViewer {

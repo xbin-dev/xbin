@@ -79,7 +79,7 @@ func (d *DB) outboxAdd(chID int64, key string, runID int64, kind, addr, text str
 		logf("outbox: %v", err)
 		return
 	}
-	_, _ = d.q.Exec(`DELETE FROM outbox WHERE state<>'pending' AND created<?`, now()-7*86400)
+	_, _ = d.q.Exec(`DELETE FROM outbox WHERE state<>'pending' AND created<?`+handedKept(), now()-7*86400) // handedKept: handoff.go
 	d.AfterCommit(outboxKick)
 	if userMode() { // a person's partition mails its replies to the global instance (handoff_user.go)
 		d.AfterCommit(kickOutboxMail)

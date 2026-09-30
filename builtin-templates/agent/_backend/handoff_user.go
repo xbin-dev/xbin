@@ -26,11 +26,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
-	"unicode/utf8"
 )
 
 func init() {
@@ -42,10 +43,14 @@ func init() {
 }
 
 // channelUserRoutes are routes a person's partition forwards to the global
-// instance (partition_routes.go's userRoutes takes them): a channel is
-// global's — its rules, people, sessions and failed replies — and so are
-// the pushes nothing took and the usage totals.
+// instance (partition_routes.go's userRoutes takes them, over its own
+// entries): a channel is global's — its claim, rules, people, sessions and
+// failed replies — and so are the pushes nothing took and the usage totals.
+// A person's trigger is theirs, made here (registered at global:
+// trigger_registry.go).
 var channelUserRoutes = map[string]userRoute{
+	"POST /channels/{id}/claim":              userGlobal,
+	"POST /triggers":                         userLocal,
 	"PUT /channels/{id}":                     userGlobal,
 	"DELETE /channels/{id}":                  userGlobal,
 	"GET /channels/{id}/peers":               userGlobal,
@@ -154,14 +159,15 @@ func runAll(fs []func()) {
 }
 
 // adoptInline makes files carried in a mail item session files of the run
-// (text in the db, anything else in the blob store).
+// (text in the db, anything else in the blob store — stored before the
+// transaction: mail_prepare.go).
 func (ag *Agent) adoptInline(ctx context.Context, t *DB, runID int64, files []hoFile) ([]string, error) {
 	var paths []string
-	for _, f := range files {
+	for i, f := range files {
 		name := sanitizeUploadName(orStr(f.Name, "file"))
-		mime := normalizeMime(f.Mime, f.Data[:min(len(f.Data), 512)])
+		mime, text := mailFileKind(f)
 		p := t.freePath(runID, name)
-		if isTextMime(mime) && utf8.Valid(f.Data) && len(f.Data) <= maxReplFileBytes {
+		if text {
 			rf, err := t.replPutFile(runID, p, string(f.Data), 0)
 			if err != nil {
 				return nil, err
@@ -170,9 +176,15 @@ func (ag *Agent) adoptInline(ctx context.Context, t *DB, runID int64, files []ho
 			paths = append(paths, rf.Path)
 			continue
 		}
-		blob := newBlobPath(runID)
-		if err := ag.blobs.Put(ctx, blob, f.Data, mime); err != nil {
-			return nil, err // the item stays for the next pull
+		blob, err := preparedBlob(ctx, i)
+		if err != nil {
+			return nil, err // the blob store: the item stays for the next pull
+		}
+		if blob == "" { // not prepared (a caller without mailbox.go's step): stored here
+			blob = newBlobPath(runID)
+			if err := ag.blobs.Put(ctx, blob, f.Data, mime); err != nil {
+				return nil, err
+			}
 		}
 		rf, err := t.replPutBinary(runID, p, mime, len(f.Data), blob)
 		if err != nil {
@@ -350,24 +362,63 @@ func (ag *Agent) inlineReplyFiles(ctx context.Context, o *OutRow) []hoFile {
 // globalChannelItems are the channels as the global instance lists them to
 // this partition's person (channelItems in a person's partition): channels
 // are global's, and so are their routes (forwarded: partition_routes.go).
-// Nothing when global doesn't answer within a few seconds.
 func globalChannelItems(_ who) []AutomationItem {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	res, err := callGlobal(ctx, "GET", "/automations", nil, "")
-	if err != nil || res.Status != 200 {
-		logf("the channels at the global instance: %v (HTTP %d)", err, res.Status)
-		return nil
-	}
-	var all struct{ Items []AutomationItem }
-	_ = json.Unmarshal(res.Body, &all)
 	var out []AutomationItem
-	for _, it := range all.Items {
+	for _, it := range globalAutomations() {
 		if it.Kind == "channel" {
 			out = append(out, it)
 		}
 	}
 	return out
+}
+
+// globalListing is the global instance's GET /automations as this
+// partition's person reads it: the source of the channels' items
+// (globalChannelItems) and of a manager's oversight rows
+// (globalTriggerOversight). One call serves both, and a burst of listings
+// and badge counts, for a few seconds; a write this partition forwards to
+// global makes it stale at once (noteGlobalWrite); a call that fails or
+// takes too long answers the last listing it had.
+var globalListing struct {
+	mu    sync.Mutex
+	ag    *Agent // the agent it was read for
+	gen   int64  // globalWrites when it was read
+	at    time.Time
+	items []AutomationItem
+}
+
+// globalWrites counts the writes this partition made at global.
+var globalWrites atomic.Int64
+
+const globalListingTTL = 5 * time.Second
+
+// noteGlobalWrite: a call that may change what global lists returned
+// (callGlobal, for anything but a read).
+func noteGlobalWrite() { globalWrites.Add(1) }
+
+func globalAutomations() []AutomationItem {
+	l := &globalListing
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ag != agent {
+		l.ag, l.at, l.items = agent, time.Time{}, nil
+	}
+	gen := globalWrites.Load()
+	if l.gen == gen && time.Since(l.at) < globalListingTTL {
+		return l.items
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := callGlobal(ctx, http.MethodGet, "/automations", nil, "")
+	if err != nil || res.Status != http.StatusOK {
+		logf("the automations at the global instance: %v (HTTP %d) — the last listing stands", err, res.Status)
+		l.gen, l.at = gen, time.Now().Add(-globalListingTTL+2*time.Second) // asked again in two seconds
+		return l.items
+	}
+	var all struct{ Items []AutomationItem }
+	_ = json.Unmarshal(res.Body, &all)
+	l.gen, l.at, l.items = gen, time.Now(), all.Items
+	return l.items
 }
 
 // startPartitionMail is what a partitioned instance does at start beside
@@ -380,5 +431,6 @@ func (ag *Agent) startPartitionMail() {
 	case userMode():
 		kickOutboxMail()
 		ag.usageAtStart()
+		ag.sayHello(context.Background()) // handoff_people.go
 	}
 }
