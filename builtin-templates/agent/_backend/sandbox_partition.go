@@ -64,6 +64,19 @@ func homedHere(box *sbxSandbox) bool {
 	return o.Partition == partitionKey()
 }
 
+// homedAtOwnGlobal: in a person's partition, box is homed at this agent's
+// own non-personal identity (a sandbox the global instance made: owner.via
+// this tile, no partition). The manager shows it there `shared` — the
+// partition changes neither who may use it nor deletes it — and only where
+// the person may use it at that identity (docs/sandbox-manager.md
+// §Partitioned consumers), so it isn't another consumer's share needing
+// one for this tile: the person rules apply as at the global instance, and
+// its terminal opens (partitionBoxRefusal keeps conversations out of it).
+func homedAtOwnGlobal(box *sbxSandbox) bool {
+	o := box.Owner
+	return userMode() && o.Via == xbin.Self() && o.PartitionID == "" && (o.Partition == "" || o.Partition == "global")
+}
+
 // partitionBoxRefusal: in a person's partition, a sandbox that isn't homed
 // there is never bound to a conversation, nor used by one.
 func partitionBoxRefusal(box *sbxSandbox) string {

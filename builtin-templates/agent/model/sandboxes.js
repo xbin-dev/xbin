@@ -186,6 +186,12 @@ const detailOf = (s) => [s.manager, STATES[s.state] || s.state, egressWords(s)].
 // does not allow, is there but disabled with the reason — as is one
 // opts.fits(s) says why not (at home, a coding agent's: D147). `none`
 // leaves the conversation without an active sandbox.
+// notHomed: why a conversation of a person's partition can't work in row s
+// — the backend's word (GET /sandboxes: `homed` false, `why`), sent only in
+// a person's partition's list (the team's sandboxes there, API.md
+// "Partitioned instances"); '' for any other row.
+const notHomed = (s) => (s.homed === false ? String(s.why || 'not a sandbox of your own space') : '');
+
 export function sandboxPicker(list, conv, me, opts = {}) {
   const cls = conv ? conv.class : opts.cls;
   const shown = hasSandbox(cls);
@@ -196,7 +202,7 @@ export function sandboxPicker(list, conv, me, opts = {}) {
   // else bound works on for everyone, but only they can make it active again
   const row = (s) => {
     const why = !s.canUse && s.ref !== value ? 'someone else bound it — you may not use it yourself'
-      : classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s), s.manager) || taintWhy(cls, s) || (opts.fits ? opts.fits(s) : '');
+      : classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s), s.manager) || taintWhy(cls, s) || notHomed(s) || (opts.fits ? opts.fits(s) : '');
     return { value: s.ref, name: nameOf(s), label: `${nameOf(s)} · ${STATES[s.state] || s.state || '?'}`, detail: detailOf(s),
       state: s.state || '', egress: s.egress || '', on: s.ref === value, disabled: !!why, why };
   };
@@ -421,7 +427,7 @@ export function sandboxRows(list, me, opts = {}) {
     const acts = [];
     const on = !!(active && active.ref === s.ref);
     if (hasSandbox(cls) && s.canUse && !on && talks(conv) && !classAllows(cls, s.provider || splitRef(s.ref).provider, firewallEgress(s))
-      && !taintWhy(cls, s)) {
+      && !taintWhy(cls, s) && !notHomed(s)) {
       const ask = bindConfirm(L, conv, s.ref);
       acts.push({ id: 'use', label: conv ? 'Use here' : 'Use for a new chat', ...(ask ? { confirm: ask } : {}) });
     }

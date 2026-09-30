@@ -549,8 +549,11 @@ What a partitioned instance does differently:
   without it isn't used in a partition at all — its hello is refused with
   refusal `partitions` (409), naming it and how to update it, in the tools,
   the catalog and the Sandboxes dialog; the global instance keeps using it.
-  A partition also sees the team's sandboxes (`shared`); its conversations
-  work only in a sandbox the manager says is homed in the partition
+  A partition also sees the team's sandboxes (`shared`: those homed at the
+  global instance that its person may use there, by §Coding sandboxes'
+  rules — listed, and a terminal opens on them, but never changed or
+  deleted from the partition); its conversations work only in a sandbox
+  the manager says is homed in the partition
   (`owner.partitionId` its id, `owner.via` this tile, not `shared`) —
   checked when it is bound and at every use; any other is refused (403),
   though you can open its terminal (`GET /sandboxes/{ref}/terminal`; a

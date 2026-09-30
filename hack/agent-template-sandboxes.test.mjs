@@ -77,6 +77,19 @@ test('the picker: only where the class has the sandbox toolset; grouped; the rea
   assert.ok(!p.groups.flatMap((g) => g.rows).some((r) => r.name === 'private-other'), 'one you may not use is not offered');
   assert.deepEqual(p.actions.map((a) => [a.id, a.disabled]), [['new', false], ['manage', false]]);
   assert.equal(S.sandboxPicker(L, { ...v, access: 'viewer' }, {}).disabled, true, 'view only');
+  // a person's partition: the team's sandboxes are listed there (homed false,
+  // the backend's why) — shown, not offered for a conversation of hers
+  const why = 'team isn\'t a sandbox of your own space (the team\'s, …): create one, or open this one\'s terminal instead';
+  const P = list([sb('mine-new', { homed: true }), sb('team', { mine: false, visibility: 'team', owner: { user: '' }, canManage: false,
+    canEdit: false, shared: true, homed: false, why })]);
+  const pp = S.sandboxPicker(P, conv({}), { user: 'alice' });
+  const trow = pp.groups.flatMap((g) => g.rows).find((r) => r.name === 'team');
+  assert.equal(trow.disabled, true, 'a sandbox not homed in her partition');
+  assert.equal(trow.why, why, 'the backend\'s words');
+  assert.equal(pp.groups.flatMap((g) => g.rows).find((r) => r.name === 'mine-new').disabled, false, 'her own');
+  const drows = S.sandboxRows(P, { user: 'alice' }, { conv: conv({}) });
+  assert.ok(!drows.find((r) => r.name === 'team').actions.some((a) => a.id === 'use'), 'the dialog offers no Use here for it');
+  assert.ok(drows.find((r) => r.name === 'mine-new').actions.some((a) => a.id === 'use'), '…and does for her own');
 
   // at home: the next new chat's pick
   const h = S.sandboxPicker(L, null, {}, { cls: coding, pick: { ref: `${MGR}|team`, name: 'team' } });
