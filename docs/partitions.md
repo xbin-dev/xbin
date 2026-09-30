@@ -1011,15 +1011,25 @@ from its own code's request.
 ## Your partitions page
 
 `/xbin/partitions` is xbind's own page for everything partitions ask of a
-person. It ships with xbind — no `bx builtin update` needed — and every
-push, refusal and page that sends someone to decide or consent links it.
-It opens only on its own, top-level (never inside a tile or another page),
-with your own sign-in, and acts through the same API as `bx partition`:
-xbind judges each act again.
+person. It ships with xbind — no `bx builtin update` needed. The pushes
+that ask someone to decide or consent link it, the refusals for want of a
+consent or a log share name it, and the shell's card of a paused tile links
+it (**details…**); the shell's switch banner still names `bx partition
+switch|keep`. It opens only on its own, top-level (never inside a tile or
+another page), with your own sign-in — signed out, you sign in and land
+back on it — and acts through the same API as `bx partition`: xbind judges
+each act again. Times show in your browser's zone, named (xbind's notices
+say UTC).
 
 - **Credentials waiting for you** — a sign-in link, password or single
   sign-on email someone else made for your account while
-  credentialResetConfirm is on: **Allow** or **Refuse**
+  credentialResetConfirm is on: **Refuse** (one click: a link stops
+  working, a password or email is dropped), or **Allow…**, which first
+  asks, naming who made it and when — allowing is the act that lets
+  someone else in. The answer stays on the page after the credential
+  leaves the list; one that was no longer waiting (used, replaced or
+  expired) is a warning in xbind's words: change your password and sign
+  out everywhere
   ([§Operating people's partitions](#operating-peoples-partitions)).
 - **Partition mode switches to decide** (tile managers): each paused tile —
   the switch (`unpartitioned → user`), what it deletes and the tile's
@@ -1036,7 +1046,8 @@ xbind judges each act again.
   **trust panel** says who can change the code that runs on your data (its
   writers, every admin), whether saves reach it live, whether its primary
   is protected or runs reviewed code only, its last code change, the global
-  binds whose providers every person's partition calls, your personal
+  binds whose providers every person's partition calls (each with its
+  writers, live reload, protection and last code change), your personal
   binds on it, and which tiles used your data in it (30 days).
 - **Consents** — with partitionConsent on, the tiles that asked for your
   data (**Allow**), your consents (**Take back**) and a form to allow one
