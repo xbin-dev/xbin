@@ -61,8 +61,7 @@ func bindSbxWith(t *testing.T, wrap func(http.Handler) http.Handler, providers .
 	}
 	raw, _ := json.Marshal(eps)
 	t.Setenv("XBIN_IFACE_SANDBOXES", string(raw))
-	old := sbxClient
-	sbxClient = func() *http.Client { return http.DefaultClient }
+	old := setSbxClient(func() *http.Client { return http.DefaultClient })
 	forgetHellos()
 	invalidateSandboxCatalog()
 	forgetLiveUses := func() { // the live route's cache outlives a test (same run and sandbox ids next time)
@@ -72,7 +71,7 @@ func bindSbxWith(t *testing.T, wrap func(http.Handler) http.Handler, providers .
 	}
 	forgetLiveUses()
 	t.Cleanup(func() {
-		sbxClient = old
+		setSbxClient(old)
 		testManagers = nil
 		forgetHellos()
 		invalidateSandboxCatalog()

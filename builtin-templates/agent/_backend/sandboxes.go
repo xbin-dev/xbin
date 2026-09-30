@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -34,8 +35,27 @@ type sbxManager struct {
 }
 
 // sbxClient reaches the managers (through the xbin gateway); tests point it
-// at plain HTTP servers.
-var sbxClient = xbin.Client
+// at plain HTTP servers with setSbxClient — under a lock, since a harness
+// pipe's background eof or kill can outlive the test that started it.
+var (
+	sbxClientMu sync.RWMutex
+	sbxClientFn = xbin.Client
+)
+
+func sbxClient() *http.Client {
+	sbxClientMu.RLock()
+	f := sbxClientFn
+	sbxClientMu.RUnlock()
+	return f()
+}
+
+// setSbxClient points sbxClient at f and returns what it was (tests).
+func setSbxClient(f func() *http.Client) (old func() *http.Client) {
+	sbxClientMu.Lock()
+	defer sbxClientMu.Unlock()
+	old, sbxClientFn = sbxClientFn, f
+	return old
+}
 
 // sandboxManagers reads the `sandboxes` slot's bindings from the
 // runner-injected env (rebinding restarts the backend). Nothing bound ⇒ none:

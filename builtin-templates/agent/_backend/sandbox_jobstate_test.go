@@ -29,10 +29,9 @@ func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r)
 // bindSbx), which passes them on with next.
 func sbxTransport(t *testing.T, rt func(r *http.Request, next http.RoundTripper) (*http.Response, error)) {
 	t.Helper()
-	old := sbxClient
 	c := &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) { return rt(r, http.DefaultTransport) })}
-	sbxClient = func() *http.Client { return c }
-	t.Cleanup(func() { sbxClient = old })
+	old := setSbxClient(func() *http.Client { return c })
+	t.Cleanup(func() { setSbxClient(old) })
 }
 
 // rewriteBody replaces old with new in a response's body.
