@@ -189,4 +189,12 @@ export const IMPLEMENTS = {
 
   // Coding agents (D-harness)
   'harness.start': 'harness-start.js — the setup card #hsetup (model/harness-start.js startOf, setupOf; keepSandbox, wired by model/app.js)',
+  // Coding agents — the transcript
+  'harness.tool': 'harness-cards.js — cardTpl (ext.block; model/harness-heads.js acpChip)',
+  'harness.tool.output': 'harness-cards.js — execTpl',
+  'harness.tool.diff': 'harness-cards.js — editTpl, patchTpl (xbind\'s code viewer highlights it when it loads, else model/harness-heads.js patchLines)',
+  'harness.subagent': 'harness-cards.js — subagentTpl (model/fold.js nests its blocks)',
+  'harness.plan': 'harness-cards.js — planTpl (ext.top)',
+  'harness.usage': 'harness-cards.js — topTpl (model/harness.js usageBadge)',
+  'harness.files': 'harness-cards.js — topTpl (model/harness.js countsWords)',
 };

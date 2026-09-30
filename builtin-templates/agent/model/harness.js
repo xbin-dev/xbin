@@ -190,3 +190,31 @@ export function sandboxFits(h, s) {
   if (seen && seen.installed === false) return out(`${sname} doesn't have ${name}`);
   return out('');
 }
+
+// usageBadge: the top bar's usage badge — {text: "ctx 26% · $0.41", head:
+// "ctx 26%" (the native toolbar's: a phone's bar has no room for the cost,
+// which Progress shows), title, pct, tone: warn | bad | ''} — the context
+// in use, else the tokens, and the cost so far when the adapter says; null
+// when it says nothing.
+export function usageBadge(u) {
+  if (!u) return null;
+  const w = usageWords(u);
+  const c = u.cost && u.cost.amount != null ? `${u.cost.currency === 'USD' || !u.cost.currency ? '$' : u.cost.currency + ' '}${Number(u.cost.amount).toFixed(2)}` : '';
+  const used = Number(u.used) || 0;
+  if (!w && !used && !c) return null;
+  const head = w ? w.text : used ? `${used >= 1000 ? Math.round(used / 1000) + 'k' : used} tokens` : '';
+  return {
+    text: [head, c].filter(Boolean).join(' · '), head: head || c, pct: w ? w.pct : null,
+    tone: w && w.pct >= 90 ? 'bad' : w && w.pct >= 75 ? 'warn' : '',
+    title: w ? w.title : [used ? `${fmtN(used)} tokens of context` : '', c ? `${c} so far` : ''].filter(Boolean).join(' · '),
+  };
+}
+
+// PLAN_MARK: a plan entry's status as a glyph (○ pending, ◐ in progress, ● done).
+export const PLAN_MARK = { pending: '○', in_progress: '◐', completed: '●' };
+
+// planEntries: a plan's entries as the native `plan` takes them — {text,
+// status} with status one of pending, in_progress, completed.
+export const planEntries = (p) => ((p && p.entries) || []).map((e) => ({
+  text: String(e.content ?? ''), status: PLAN_MARK[e.status] ? e.status : 'pending',
+}));

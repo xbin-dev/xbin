@@ -1816,6 +1816,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
+| `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, the toolbar's plan/usage badge and the Progress screen (`plan`) |
 
 **Seams.** A feature can land as a module of its own instead of edits to the
 views' hot files: it registers hooks on a view's seams when imported —
@@ -1833,6 +1834,22 @@ native screen of its own kind. Each file's header says the signatures; a
 hook that throws is logged and skipped. An instance can add modules of its
 own the same way. The coding harnesses' UI is built on them, tested
 against the STUB's harness routes and `test/harness-fixtures.mjs`.
+
+**A coding agent's transcript** (`harness-cards.js` on the web,
+`native/harness-cards.js`; the words are `model/harness-heads.js` and
+`model/harness.js`). Each `acp:<kind>` call is a card of its kind, drawn
+from its tool row's `acp`: a command (the command, its output without
+colour codes — the last 20 000 characters, all of it on asking — and the
+exit code), an edit (a row per file, `+a −d`, unfolding to its patch; the
+web highlights patches with xbind's `/vendor/bx-code.js` when the page can
+import it, else draws them plain; native uses `diff`), read, search, fetch,
+delete, move, think, switch_mode and other; its chip says pending, running,
+needs approval, failed or cancelled, and a failed one opens by itself. A
+Claude Task's steps and text sit inside its card (the fold's `kids`); one
+whose Task is paged out shows flat, marked ↳. The top bar (native: a
+toolbar badge, and ⋯ → Progress) carries the context in use and the cost,
+what the conversation changed (`counts`), and the 📋 plan, pinned under the
+task (unfolding to its entries); all follow the `harness` stream event.
 
 **Customising an instance.** A persona or domain changes `HOME` in
 `model/home.js`. The web files keep their names, and the modules that moved

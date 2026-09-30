@@ -1,7 +1,7 @@
 // harness.mjs — coding-harness conversations in the web view over the
-// fixtures (test/harness-fixtures.mjs, STUB's §4 routes), before any
-// harness feature module exists (D-harness §8 U1): the built-in
-// cards draw every `acp:*` call (family, headline, outcome), a Task's
+// fixtures (test/harness-fixtures.mjs, STUB's §4 routes), as U1 left them
+// (D-harness §8 U1): the cards draw every `acp:*` call in the built-in's
+// frame (family, headline, outcome — harness-cards.js's since U3), a Task's
 // calls open inside it, a park falls back to the built-in approval card,
 // the direct-steering notice folds — and each web seam (web-ext.js) draws
 // where it says once a module hooks it: block, end (taking a harness park
@@ -57,7 +57,8 @@ await page.evaluate(async () => {
   const { ext, ctx } = await import('/web-ext.js');
   window.__painted = 0;
   ext.register({
-    block: (b) => (b.k === 'tool' && b.name === 'acp:execute' ? html`<div class="probe-block" data-k=${b.id}>${b.headline}</div>` : null),
+    // (the acp:* cards are harness-cards.js's, registered first: the probe takes the answers)
+    block: (b) => (b.k === 'assistant' && !b.parent ? html`<div class="probe-block" data-k=${b.id}>${b.text}</div>` : null),
     end: (s) => (s.run.engine === 'harness' ? html`<div class="probe-end">${s.run.harness.state}</div>` : null),
     top: (v) => html`<span class="probe-top">${v ? '#' + v.run.id : 'home'} · ${ctx.app.me.user}</span>`,
     paint: () => { window.__painted++; },
@@ -68,7 +69,7 @@ await page.evaluate(async () => {
   });
 });
 await go(21, '.probe-block');
-ok('block: a module draws a card its way', (await page.$$('.probe-block')).length === 2 && !(await page.$('.tcard[data-tool="acp:execute"]')));
+ok('block: a module draws a block its way', (await page.$$('.probe-block')).length === 2 && !(await page.$('#timeline > .msg.assistant')));
 ok('end: after the transcript', (await page.textContent('.probe-end')) === 'ready');
 ok('top: a chip in the top bar (ctx: the app)', (await page.textContent('#top .probe-top')) === '#21 · admin');
 ok('paint: after every paint', await page.evaluate(() => window.__painted > 0));

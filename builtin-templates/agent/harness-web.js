@@ -11,6 +11,7 @@
 import './harness-start.js';
 
 // U3 the transcript
+import './harness-cards.js';
 
 // U4 asking and controls
 

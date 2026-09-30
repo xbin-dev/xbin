@@ -95,6 +95,10 @@ export function acpOutcome(name, content, acp) {
       if (!t.files) return null;
       return { text: `${t.files > 1 ? `${t.files} files ` : ''}+${t.add} −${t.del}`, tone: '' };
     }
+    case 'delete': {
+      const t = diffTotals(acp);
+      return t.del ? { text: `−${t.del}`, tone: '' } : null;
+    }
     case 'read': {
       const c = String(content ?? '').replace(/\n+$/, '');
       if (!c) return null;
@@ -131,3 +135,90 @@ export function outputTail(acp, n = 20000) {
   const dropped = Number(acp && acp.outputTruncated) || 0;
   return t.length > n ? { text: t.slice(-n), cut: t.length - n, dropped } : { text: t, cut: 0, dropped };
 }
+
+// --- the cards (harness-cards.js on the web, native/harness-cards.js) --------------------
+
+// acpChip: a call's status as its card's chip — {text, tone: warn | bad |
+// run | ''} — or null once it completed (its outcome says what it came to).
+// The tool row's placeholder says it is parked on your approval; ACP's
+// status says pending, running, failed and cancelled.
+export function acpChip(acp, state) {
+  const s = acp && acp.status;
+  if (state === 'approval') return { text: 'needs approval', tone: 'warn' };
+  if (s === 'failed' || state === 'error') return { text: 'failed', tone: 'bad' };
+  if (s === 'cancelled' || state === 'stopped') return { text: 'cancelled', tone: '' };
+  if (state === 'writing') return { text: 'writing', tone: 'run' };
+  if (s === 'pending') return { text: 'pending', tone: '' };
+  if (s === 'in_progress' || state === 'running') return { text: 'running', tone: 'run' };
+  return null;
+}
+
+// isSubagentCall: a harness-internal subagent (a Claude Task) — the call
+// says so, or blocks run under it (the fold's kids).
+export const isSubagentCall = (b) => !!(b && ((b.acp && b.acp.subagent) || (b.kids && b.kids.length)));
+
+// stepsWords: "3 steps" — the calls a subagent made (its kids that are calls).
+export function stepsWords(kids) {
+  const n = (kids || []).filter((k) => k.k === 'tool' || k.k === 'agent').length;
+  return n ? `${n} step${n === 1 ? '' : 's'}` : '';
+}
+
+// taskOf: what a subagent call was asked (Task's prompt, else its description).
+export function taskOf(a) {
+  const t = a && (a.prompt ?? a.task ?? a.description);
+  return typeof t === 'string' ? t : '';
+}
+
+// diffFiles: an edit's diffs (§4.3.5), each {path, status, add, del, patch,
+// truncated} with every field present.
+export function diffFiles(acp) {
+  return ((acp && Array.isArray(acp.diffs)) ? acp.diffs : []).filter((d) => d && d.path).map((d) => ({
+    path: String(d.path), status: d.status || 'modified', add: Number(d.add) || 0, del: Number(d.del) || 0,
+    patch: typeof d.patch === 'string' ? d.patch : '', truncated: !!d.truncated,
+  }));
+}
+
+// joinPatches: an edit's patches as one unified diff (the native `diff`
+// takes one), whole files only while it stays under max characters —
+// {patch, files, left}: left the files whose patch was left out.
+export function joinPatches(acp, max = Infinity) {
+  const files = diffFiles(acp);
+  let patch = '', left = 0;
+  for (const d of files) {
+    if (!d.patch) continue;
+    const p = d.patch.endsWith('\n') ? d.patch : d.patch + '\n';
+    if (patch && patch.length + p.length > max) { left++; continue; }
+    if (!patch && p.length > max) { left++; continue; }
+    patch += p;
+  }
+  return { patch, files, left };
+}
+
+// patchLines: a unified diff's lines, each with its class — fh (a file
+// header), h (a hunk header), d (added), a (deleted), ctx — the classes
+// /vendor/bx-code.js's diffHTML gives them, so one stylesheet draws both.
+export function patchLines(patch) {
+  const out = [];
+  for (const raw of String(patch || '').replace(/\n$/, '').split('\n')) {
+    let cls = 'fh';
+    if (/^(--- |\+\+\+ )(a\/|b\/|\/dev\/null)|^(diff --git|index |new file|deleted file|similarity |rename )/.test(raw)) cls = 'fh';
+    else if (raw.startsWith('@@')) cls = 'h';
+    else if (raw[0] === '+') cls = 'd';
+    else if (raw[0] === '-') cls = 'a';
+    else if (raw[0] === ' ' || raw === '') cls = 'ctx';
+    out.push({ cls, text: raw });
+  }
+  return out;
+}
+
+// placesOf: the paths (and lines) a call touched — "path:line" for each of
+// its locations, else its files.
+export function placesOf(acp) {
+  const locs = (acp && Array.isArray(acp.locations)) ? acp.locations.filter((l) => l && l.path) : [];
+  if (locs.length) return locs.map((l) => (l.line ? `${l.path}:${l.line}` : l.path));
+  return (acp && Array.isArray(acp.files)) ? acp.files.map(String) : [];
+}
+
+// resultText: what a finished call answered — '' while the tool row holds
+// its placeholder (running, parked).
+export const resultText = (b) => (b && b.result && !['running', 'approval', 'writing'].includes(b.state) ? b.result : '');

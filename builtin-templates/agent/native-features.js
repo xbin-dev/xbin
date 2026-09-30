@@ -189,4 +189,12 @@ export const IMPLEMENTS = {
 
   // Coding agents (D-harness)
   'harness.start': 'native/harness-start.js — homeSetupTpl in native/home.js (model/harness-start.js startOf, setupOf; keepSandbox, wired by model/app.js)',
+  // Coding agents — the transcript
+  'harness.tool': 'native/harness-cards.js — cardTpl: a toolcard (ctx.ext.block) with its chips',
+  'harness.tool.output': 'native/harness-cards.js — execTpl (code); all of it: the hcall screen (toolcard ↗)',
+  'harness.tool.diff': 'native/harness-cards.js — diffTpl: the diff primitive (files, patch); every patch: the hcall screen',
+  'harness.subagent': 'native/harness-cards.js — bodyTpl: a nested transcript in the Task\'s toolcard',
+  'harness.plan': 'native/harness-cards.js — badgeTpl (the toolbar\'s 📋 N/M), progressScreen: the plan primitive (⋯ → Progress)',
+  'harness.usage': 'native/harness-cards.js — badgeTpl (the toolbar), progressScreen',
+  'harness.files': 'native/harness-cards.js — progressScreen',
 };
