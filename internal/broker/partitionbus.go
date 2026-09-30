@@ -96,10 +96,14 @@ func (b *Broker) publisherTile(p auth.Principal) string {
 }
 
 // busPartitionReaches is busFilter's partition rule for bus rt (res) as p
-// reaches it (own: its own scope): true for a scope no tile partitions and
-// for a shared bus; on a partitioned scope's own bus, only an event stamped
-// with the partition p acts in there — an unstamped one reaches no one. A
-// scope whose root's mode can't be read reaches no one (fail closed).
+// reaches it (own: its own scope): true for a scope no tile partitions; a
+// partitioned scope's shared bus as the data plane reaches it (F10's rule
+// for shared resources, W2): another tile's person's partition while that
+// person can read the scope — never their consent — asked at every event,
+// as a person's push subscription asks it; on a partitioned scope's own
+// bus, only an event stamped with the partition p acts in there — an
+// unstamped one reaches no one. A scope whose root's mode can't be read
+// reaches no one (fail closed).
 func (b *Broker) busPartitionReaches(p auth.Principal, rt resTarget, res registry.Resource, own bool, e events.Event) bool {
 	root, isTile := b.Reg.Component(rt.Scope)
 	switch {
@@ -112,10 +116,18 @@ func (b *Broker) busPartitionReaches(p auth.Principal, rt resTarget, res registr
 	if busEventPartition != nil {
 		stamp = busEventPartition(e)
 	}
-	if _, partitioned := b.Reg.PartitionedScope(rt.Scope); !partitioned || sharedRes(res) {
+	_, partitioned := b.Reg.PartitionedScope(rt.Scope)
+	if !partitioned || sharedRes(res) {
 		// a person's event never reaches past their partition, even when
 		// the scope stopped partitioning between its publish and now
-		return !strings.HasPrefix(stamp, "user:")
+		if strings.HasPrefix(stamp, "user:") {
+			return false
+		}
+		if partitioned { // shared: the reach the data plane would allow (reachPartition)
+			_, err := b.reachPartition(p, rt.Scope, own, true)
+			return err == nil
+		}
+		return true
 	}
 	part, err := b.partitionOf(p, rt.Scope, own)
 	return err == nil && stamp != "" && part == stamp

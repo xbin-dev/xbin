@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -169,6 +170,37 @@ func TestPartitionBusSubsSharedReach(t *testing.T) {
 	}
 	if got := edges.take(); len(got) != 0 {
 		t.Errorf("an own-scope subscription counted in the ledger: %v", got)
+	}
+}
+
+// covers 05§2 04§2 G1 — a socket's bus events (/ws/events, busFilter) of a
+// partitioned scope's shared bus follow the data plane's rule: another
+// tile's person's partition gets them while the person can read the
+// scope, never needing consent; its own partitions and global always.
+func TestPartitionSharedBusSocket(t *testing.T) {
+	w := crossTileBusWS(t)
+	b := w.b
+	ev := events.Event{Type: "bus", Topic: "res:apps/pg/wall/t", Data: 1}
+	aliceQ := auth.Principal{Component: "apps/q", UserID: "alice", Via: "frame", Partition: "user:alice"}
+	carolQ := auth.Principal{Component: "apps/q", UserID: "carol", Via: "frame", Partition: "user:carol"}
+	partRouteConsent(w, true) // nobody consented: a shared bus needs none
+	if !b.busFilter(aliceQ, ev) {
+		t.Error("alice's apps/q frame, who reads apps/pg, doesn't get apps/pg's shared wall")
+	}
+	if b.busFilter(carolQ, ev) {
+		t.Error("carol's apps/q frame, who can't read apps/pg, gets apps/pg's shared wall")
+	}
+	if !b.busFilter(partInst("apps/pg", "bob"), ev) || !b.busFilter(instanceOf("apps/pg", ""), ev) {
+		t.Error("apps/pg's own partitions and global don't get its shared wall")
+	}
+	setTiles(t, b, "alice", map[string]string{"apps/q": "read"})
+	if b.busFilter(aliceQ, ev) {
+		t.Error("alice's apps/q frame still gets apps/pg's shared wall once she can't read apps/pg")
+	}
+	stamped := ev
+	stamped.Partition = "user:alice"
+	if b.busFilter(partInst("apps/pg", "alice"), stamped) {
+		t.Error("a person-stamped event on a shared bus reached a socket")
 	}
 }
 

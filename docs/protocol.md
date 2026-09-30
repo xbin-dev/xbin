@@ -5760,7 +5760,9 @@ global instance there, with no admin pass. `term` and `session` events of
 a partitioned tile reach only the session's person (their browsers, and
 their terminal on the tile): admins don't receive them there. Events
 without `partition` — every event of a tile that isn't partitioned, a
-shared bus's, and the global instance's others — are delivered as above.
+shared bus's, and the global instance's others — are delivered as above;
+a partitioned scope's shared bus reaches another tile's credential acting
+in a person's partition only while that person can read the scope.
 
 ### Agent session events
 
