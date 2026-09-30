@@ -26,10 +26,24 @@ func (st *State) wirePartitionOps() {
 	run, brk := st.Run, st.Broker
 	brk.SetPartitionOps(func() []broker.PartitionInstance { return partitionInstances(run.InspectPartitions()) },
 		run.StopPartitionsOf, st.Auth.RevokeUserPartitionInstances)
+	brk.SetPartitionCapHits(func() map[string]broker.PartitionCapHit {
+		out := map[string]broker.PartitionCapHit{}
+		for tile, h := range run.PartitionCapHits() {
+			out[tile] = broker.PartitionCapHit{At: h.At, Kind: h.Kind, Count: h.Count}
+		}
+		return out
+	})
 	if dp := st.Deployments; dp != nil {
 		brk.SetPartitionLiveReload(func(tile string) bool {
 			dep, attached := dp.LiveReload(tile)
 			return attached && dep == dp.Primary(tile)
+		})
+		brk.SetPartitionLastCode(func(tile string) (map[string]any, bool) { // the trust panel's last code change (06 §4)
+			ld := dp.Deploys(context.Background(), tile, dp.Primary(tile)).LastDeploy
+			if ld == nil {
+				return nil, false
+			}
+			return map[string]any{"at": ld.At, "by": ld.By, "how": ld.How, "result": ld.Result}, true
 		})
 	}
 	brk.InstallCredentialGate()

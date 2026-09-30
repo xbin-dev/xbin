@@ -472,6 +472,8 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /partitions/stop":  GlobalOnlyRefused,
 	"POST /partitions/reset": GlobalOnlyRefused,
 	"POST /partitions/purge": GlobalOnlyRefused,
+	// the admins' reviewed-code-only switch (06 §4): a person's act
+	"POST /partitions/reviewed": GlobalOnlyRefused,
 	// a person's own acts: sharing their partition's log, deciding a
 	// credential an admin made for them (06 §5, §9)
 	"POST /partitions/share-log":          PersonOnly,

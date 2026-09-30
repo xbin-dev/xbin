@@ -396,6 +396,7 @@ var routeClasses = map[string]RouteClass{
 	"POST /partitions/share-log":          PrimaryOnly,
 	"DELETE /partitions/share-log":        PrimaryOnly,
 	"POST /partitions/credential-confirm": PrimaryOnly,
+	"POST /partitions/reviewed":           PrimaryOnly,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

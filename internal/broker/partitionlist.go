@@ -266,7 +266,7 @@ func (b *Broker) apiPartitionsList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	tile := strings.Trim(r.URL.Query().Get("tile"), "/")
 	if tile == "" {
-		b.partitionsOverview(p, out)
+		b.partitionsOverview(p, out, r.URL.Query().Get("untracked") == "1")
 		server.WriteJSON(w, http.StatusOK, out)
 		return
 	}
@@ -292,6 +292,10 @@ func (b *Broker) apiPartitionsList(w http.ResponseWriter, r *http.Request) {
 	if p.Component != "" && !admin {
 		server.WriteJSON(w, http.StatusOK, out)
 		return
+	}
+	out["reviewedOnly"] = map[string]any{"on": false} // the admin switch (partitionreviewed.go)
+	if v := b.reviewedOnlyView(tile); v != nil {
+		out["reviewedOnly"] = v
 	}
 	perTile, _ := b.PartitionCaps(tile)
 	defTile, _ := b.partitionCapDefaults()
@@ -400,7 +404,7 @@ func (b *Broker) personLedger(tile, person string) []ledgerRow {
 // paused, or asking) tile the caller can read, with the caller's own
 // partition's state on each; admins also get people and running counts,
 // orphans, and whether xbind isolates (people's partitions need it).
-func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any) {
+func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any, untracked bool) {
 	admin := b.IsAdmin(p)
 	person := ""
 	if p.Component == "" && p.Impersonator == "" {
@@ -440,6 +444,20 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any) {
 			}
 			if m := b.managersLackingPartitions(c); len(m) > 0 {
 				row["managersLacking"] = m
+			}
+			if _, on := c.Partitioned(); on && untracked { // ?untracked=1 (bx doctor): a confined git per tile
+				if files, err := b.untrackedInTile(c.Path); err != nil {
+					row["untrackedError"] = hostless(err).Error()
+				} else if len(files) > 0 {
+					row["untracked"] = firstFiles(files, maxUntrackedListed)
+					row["untrackedCount"] = len(files)
+				}
+			}
+			if ro := b.reviewedOnlyView(c.Path); ro != nil {
+				row["reviewedOnly"] = ro
+			}
+			if h, ok := b.recentCapHit(c.Path); ok { // bx doctor's "caps hit recently" (06 §7)
+				row["capsHit"] = h
 			}
 		}
 		tiles = append(tiles, row)

@@ -347,16 +347,12 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	noticed, held := b.inviteHeldFor(r, r.PathValue("id")) // a partition holder is told; held with credentialResetConfirm (partitioncreds.go)
-	mint := st.CreateInvite
-	if held {
-		mint = st.CreateHeldInvite // no xbind redeems it until its person allows it
-	}
-	tok, err := mint(r.PathValue("id"), 0)
+	tok, told, err := b.mintInvite(r, st, r.PathValue("id")) // a partition holder's is told, held with credentialResetConfirm (partitioncreds.go)
 	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	b.usersEvent()
 	out := map[string]any{
 		"invite": tok, "inviteUrl": "/login?invite=" + tok,
 		"inviteExpires": time.Now().Add(users.InviteTTL).Unix(),
@@ -364,14 +360,10 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 	if l := b.inviteLink(r, tok); l != "" {
 		out["inviteLink"] = l
 	}
-	if noticed {
-		if err := b.credentialInvite(r, r.PathValue("id"), tok, held, out); err != nil {
-			b.usersEvent()
-			server.WriteError(w, http.StatusInternalServerError, err.Error(), "/docs/partitions.md")
-			return
-		}
+	if err := told(out); err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error(), "/docs/partitions.md")
+		return
 	}
-	b.usersEvent()
 	server.WriteJSON(w, http.StatusOK, out)
 }
 

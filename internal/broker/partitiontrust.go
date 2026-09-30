@@ -18,6 +18,7 @@ package broker
 // removed tile's mode record once nothing of its partitions is left.
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 )
@@ -153,10 +155,12 @@ func (b *Broker) requestersWithoutGlobal(tile string) []string {
 func (b *Broker) partitionTrust(tile string) map[string]any {
 	provs := []map[string]any{}
 	for _, prov := range b.boundProviders(tile) {
-		provs = append(provs, map[string]any{"tile": prov, "writers": b.codeWriters(prov), "liveReload": b.liveReloadOn(prov)})
+		provs = append(provs, map[string]any{"tile": prov, "writers": b.codeWriters(prov), "liveReload": b.liveReloadOn(prov),
+			"protected": b.primaryProtected(prov), "lastCodeChange": b.lastCodeChange(prov)})
 	}
 	return map[string]any{"writers": b.codeWriters(tile), "admins": "every workspace admin", "liveReload": b.liveReloadOn(tile),
-		"protected": b.primaryProtected(tile), "providers": provs, "warnings": b.trustWarnings(tile)}
+		"protected": b.primaryProtected(tile), "lastCodeChange": b.lastCodeChange(tile), "providers": provs,
+		"warnings": b.trustWarnings(tile), "reviewedOnly": b.reviewedOnlyOn(tile)}
 }
 
 // trustWarnings are tile's trust warnings (06 §4): live reload on while
@@ -173,7 +177,7 @@ func (b *Broker) trustWarnings(tile string) []string {
 				tile, prov, len(w), strings.Join(w, ", ")))
 		}
 	}
-	return out
+	return append(out, b.reviewedOnlyWarnings(tile)...) // the switch on, something unprotected (partitionreviewed.go)
 }
 
 // partitionTrustAlerts are the /alerts rows of the trust warnings: admins
@@ -238,6 +242,7 @@ func (b *Broker) removedTileModeRecord(tile string) {
 		slog.Warn("partitions: a removed tile's mode record", "tile", tile, "err", err)
 		return
 	}
+	b.dropReviewed(tile) // its reviewed-code-only switch goes with it (partitionreviewed.go)
 	removeEmptyDirs(dir)
 	pm.mu.Lock()
 	delete(pm.recs, tile)
@@ -263,4 +268,41 @@ func (b *Broker) sweepRemovedModeRecords() {
 	for _, tile := range gone {
 		b.removedTileModeRecord(tile)
 	}
+}
+
+// maxUntrackedListed is how many untracked files the admins' overview names
+// per tile (untrackedCount says how many there are).
+const maxUntrackedListed = 20
+
+// untrackedInTile lists the files the tile's own repository doesn't track
+// (06 §7, AR-9): its directory is shared code, so a file a person leaves
+// there is everyone's. Each component is its own repository, so the tile's
+// is asked — by a confined git, its .git being sandbox-writable (D78) —
+// and nested repositories (other components) are left out. None for a tile
+// that isn't a repository; the error: git couldn't answer.
+func (b *Broker) untrackedInTile(tile string) ([]string, error) {
+	c, ok := b.Reg.Component(tile)
+	if !ok || !isRepo(c.Dir) {
+		return nil, nil
+	}
+	out, err := confine.GitRead(context.Background(), c.Dir, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, fmt.Errorf("listing %s's untracked files: %w", tile, err)
+	}
+	var files []string
+	for _, f := range strings.Split(out, "\x00") {
+		if f != "" && !strings.HasSuffix(f, "/") { // "sub/": a nested repository, another component's
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}
+
+// firstFiles is files cut to n, sorted.
+func firstFiles(files []string, n int) []string {
+	files = slices.Sorted(slices.Values(files))
+	if len(files) > n {
+		files = files[:n]
+	}
+	return files
 }

@@ -1,6 +1,6 @@
 package main
 
-// bx partition ls|stop|reset|purge|limits|share-log|credential — operating
+// bx partition ls|stop|reset|purge|limits|share-log|credential|reviewed — operating
 // people's partitions (docs/partitions.md §Operating people's partitions,
 // docs/bx.md). They call GET /api/xbin/partitions and its acts as the
 // person bx signs in as (or the root token); a tile's terminal gets the
@@ -22,20 +22,24 @@ const partitionOpsUsage = `  bx partition ls [<tile>] [--json]     partitioned t
                                         stop a partition's instance (yours by default); data stays
   bx partition reset <tile> [--user <id>] --yes
                                         delete a partition's data (yours, or anyone's for admins)
-  bx partition purge [<tile>] [--partition <id>]
-                                        delete orphaned partitions now (admin)
+  bx partition purge [<tile>] [--partition <id>] [--yes]
+                                        delete orphaned partitions now (admin); without --yes
+                                        it lists what it would delete
   bx partition limits [<tile>] [--max-running n] [--partition-bytes n]
                                         running caps and per-partition byte ceilings
   bx partition share-log <tile> [--days n] [--stop]
                                         share your partition's backend log with its managers and admins
   bx partition credential <id> allow|refuse
                                         answer a credential an admin made for you
+  bx partition reviewed <tile> on|off   run reviewed code only: the primary and every bound
+                                        provider stay protected (admin)
 `
 
 // partitionOpCmds are the subcommands of this file.
 var partitionOpCmds = map[string]func([]string) error{
 	"ls": partitionLs, "stop": partitionStop, "reset": partitionReset, "purge": partitionPurge,
 	"limits": partitionLimits, "share-log": partitionShareLog, "credential": partitionCredential,
+	"reviewed": partitionReviewed,
 }
 
 // me is the person bx acts as: the whoami answer's user id ("" for the root
@@ -126,6 +130,9 @@ func partitionLs(args []string) error {
 	if out["request"] != nil {
 		fmt.Printf(" (a mode switch request is open; bx partition switch|keep %s)", out["tile"])
 	}
+	if ro, _ := out["reviewedOnly"].(map[string]any); ro["on"] == true {
+		fmt.Print(", reviewed code only")
+	}
 	fmt.Println()
 	if tot, ok := out["totals"].(map[string]any); ok {
 		fmt.Printf("  people %d, running %d, %s, cron jobs %d, bus subscriptions %d\n", int(fnum(tot["people"])), int(fnum(tot["running"])),
@@ -148,7 +155,7 @@ func partitionLs(args []string) error {
 		fmt.Println(line)
 	}
 	if orph, ok := out["orphans"].([]any); ok && len(orph) > 0 {
-		fmt.Printf("  %d orphaned partition(s) — bx partition purge %s\n", len(orph), out["tile"])
+		fmt.Printf("  %d orphaned partition(s) — bx partition purge %s (lists them; --yes deletes)\n", len(orph), out["tile"])
 	}
 	if tr, ok := out["trust"].(map[string]any); ok {
 		for _, w := range asStrings(tr["warnings"]) {
@@ -239,7 +246,7 @@ func partitionReset(args []string) error {
 }
 
 func partitionPurge(args []string) error {
-	pos, vals, asJSON, _, err := opsFlags("purge", args, "partition")
+	pos, vals, asJSON, yes, err := opsFlags("purge", args, "partition")
 	if err != nil || len(pos) > 1 {
 		return cmpErrBx(err, errors.New("usage:\n"+partitionOpsUsage))
 	}
@@ -249,6 +256,9 @@ func partitionPurge(args []string) error {
 	}
 	if p := vals["partition"]; p != "" {
 		body["partition"] = p
+	}
+	if !yes { // a purge erases backup keys for good: say what first
+		return purgePreview(pos, vals["partition"], asJSON)
 	}
 	out, err := partitionAPI("POST", "/api/xbin/partitions/purge", body)
 	if err != nil {
@@ -270,6 +280,43 @@ func partitionPurge(args []string) error {
 		fmt.Printf("  %v %v (%v's, %v): deleted\n", row["tile"], row["partition"], row["user"], row["reason"])
 	}
 	return nil
+}
+
+// purgePreview lists the orphans a purge would delete (GET /partitions'
+// orphans) and fails: nothing is deleted without --yes.
+func purgePreview(pos []string, partition string, asJSON bool) error {
+	q := ""
+	if len(pos) == 1 {
+		q = "?tile=" + url.QueryEscape(pos[0])
+	}
+	out, err := partitionAPI("GET", "/api/xbin/partitions"+q, nil)
+	if err != nil {
+		return err
+	}
+	all, _ := out["orphans"].([]any)
+	would := []map[string]any{}
+	for _, o := range all {
+		row := o.(map[string]any)
+		if partition == "" || row["partition"] == partition || "user:"+fmt.Sprint(row["user"]) == partition {
+			would = append(would, row)
+		}
+	}
+	if asJSON {
+		if err := asJSONOut(map[string]any{"wouldPurge": would}); err != nil {
+			return err
+		}
+	} else {
+		for _, row := range would {
+			fmt.Printf("  %v %v (%v's, %v since %v)\n", row["tile"], row["partition"], row["user"], row["reason"], row["since"])
+		}
+	}
+	if len(would) == 0 {
+		if !asJSON {
+			fmt.Println("no orphaned partitions")
+		}
+		return nil
+	}
+	return fmt.Errorf("%d orphaned partition(s) would be deleted and their backup keys erased — for good: run again with --yes", len(would))
 }
 
 func partitionLimits(args []string) error {
@@ -374,6 +421,28 @@ func partitionCredential(args []string) error {
 		return asJSONOut(out)
 	}
 	fmt.Printf("the %v was %v\n", out["kind"], out["decision"])
+	return nil
+}
+
+// partitionReviewed — bx partition reviewed <tile> on|off (admins): the
+// tile runs reviewed code only while on (docs/partitions.md).
+func partitionReviewed(args []string) error {
+	pos, _, asJSON, _, err := opsFlags("reviewed", args)
+	if err != nil || len(pos) != 2 || pos[1] != "on" && pos[1] != "off" {
+		return cmpErrBx(err, errors.New("usage:\n"+partitionOpsUsage))
+	}
+	out, err := partitionAPI("POST", "/api/xbin/partitions/reviewed", map[string]any{"tile": pos[0], "on": pos[1] == "on"})
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return asJSONOut(out)
+	}
+	if pos[1] == "on" {
+		fmt.Printf("%s runs reviewed code only: its primary and every bound provider stay protected\n", pos[0])
+	} else {
+		fmt.Printf("%s: reviewed code only is off\n", pos[0])
+	}
 	return nil
 }
 

@@ -27,6 +27,7 @@ func wireDeploymentData(dp *deployments.Plane, brk *broker.Broker) {
 	// Partition modes (plans/partitions/01 §2.5, §2.7): a move onto the
 	// primary warns when it will pause the tile; a switch logs a line.
 	dp.PartitionHolds = brk.PartitionHoldsData
+	dp.ProtectRequired = brk.ReviewedOnlyRequires // reviewed code only keeps primaries protected (06 §4)
 	brk.SetPartitionDeployLog(dp.LogPartitionSwitch)
 	// The governance acts' broker half (ops_gov.go): the edge check and the
 	// restarts an edge change needs, a reassignment's consumer and ingress

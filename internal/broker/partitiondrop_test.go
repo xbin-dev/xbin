@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -190,4 +191,31 @@ func TestPartitionOpsTargets(t *testing.T) {
 	// carol can't read apps/pg: it answers as a missing tile, whoever's partition she names
 	mustCode(t, call(t, b.apiPartitionStop, carol, "POST", "/", `{"tile":"apps/pg","partition":"user:alice"}`, nil), 404, "a non-reader names someone's")
 	mustCode(t, call(t, b.apiPartitionStop, carol, "POST", "/", `{"tile":"apps/pg","partition":"user:carol"}`, nil), 404, "a non-reader names her own, which she doesn't hold")
+}
+
+// covers PD-20 06§9 — the people hooks through the users API itself (not
+// the hooks called directly): PATCH /users/{id} disabling a person stops
+// their running instance before it answers; DELETE /users/{id} stops and
+// revokes theirs and orphans their partitions.
+func TestPartitionPeopleHooksThroughAPI(t *testing.T) {
+	f := newOpsFx(t)
+	b := f.b
+	bob := personP(t, f.partWS, "bob")
+	f.running = []PartitionInstance{{Tile: "apps/pg", Dep: "main", Partition: "user:alice"}, {Tile: "apps/pg", Dep: "main", Partition: "user:zed"}}
+	update := func(w http.ResponseWriter, r *http.Request) { b.apiUsersUpdate(nil, w, r) }
+	del := func(w http.ResponseWriter, r *http.Request) { b.apiUsersDelete(nil, w, r) }
+
+	mustCode(t, call(t, update, bob, "PATCH", "/", `{"disabled":true}`, map[string]string{"id": "alice"}), 200, "disable alice")
+	if !slices.Contains(f.stops, "apps/pg main user:alice") || slices.Contains(f.stops, "apps/pg main user:zed") {
+		t.Errorf("disabling alice stopped %q", f.stops)
+	}
+
+	zpkey := f.pkeyOf("zed")
+	mustCode(t, call(t, del, bob, "DELETE", "/", "", map[string]string{"id": "zed"}), 200, "delete zed")
+	if !slices.Contains(f.stopOf, "zed") || !slices.Contains(f.revoked, "zed") {
+		t.Errorf("deleting zed: stops %q, revoked %q", f.stopOf, f.revoked)
+	}
+	if !slices.ContainsFunc(b.partitionOrphans("apps/pg"), func(o orphanRow) bool { return o.Partition == zpkey }) {
+		t.Errorf("zed's partition isn't orphaned: %+v", b.partitionOrphans("apps/pg"))
+	}
 }

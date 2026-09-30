@@ -112,6 +112,31 @@ func (b *Broker) inviteHeldFor(r *http.Request, target string) (noticed, held bo
 	return true, b.Policies().CredentialResetConfirm
 }
 
+// mintInvite mints target's sign-in link for the invite route — held when
+// inviteHeldFor says so — and answers told, which (once the route built its
+// answer) notices and holds it for a partition holder: its error (the
+// route's 500) says the hold couldn't be kept and the link was revoked.
+func (b *Broker) mintInvite(r *http.Request, st *users.Store, target string) (tok string, told func(out map[string]any) error, err error) {
+	noticed, held := b.inviteHeldFor(r, target)
+	mint := st.CreateInvite
+	if held {
+		mint = st.CreateHeldInvite // no xbind redeems it until its person allows it
+	}
+	if tok, err = mint(target, 0); err != nil {
+		return "", nil, err
+	}
+	return tok, func(out map[string]any) error {
+		if !noticed {
+			return nil
+		}
+		err := b.credentialInvite(r, target, tok, held, out)
+		if err != nil {
+			b.usersEvent() // the link was revoked
+		}
+		return err
+	}, nil
+}
+
 // credentialInvite is the invite route's hook, after the link was minted
 // (held when inviteHeldFor said so): the notice, and the hold, which out
 // (the route's answer) then says. A hold that can't be kept revokes the

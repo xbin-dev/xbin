@@ -111,6 +111,69 @@ type partitionOps struct {
 	revokeUser func(userID string) int
 	// liveReload: do saves reach tile's running code (SetPartitionLiveReload).
 	liveReload func(tile string) bool
+	// capHits: when each tile's people's partitions last met the running
+	// caps (runner.PartitionCapHits; SetPartitionCapHits).
+	capHits func() map[string]PartitionCapHit
+	// lastCode: the primary's newest finished code move (deploy, promote,
+	// rollback, …) per the deployments plane (SetPartitionLastCode).
+	lastCode func(tile string) (map[string]any, bool)
+}
+
+// SetPartitionLastCode installs the deployments plane's last code move of a
+// tile's primary: the trust panel's "their last code changes" (06 §4).
+func (b *Broker) SetPartitionLastCode(f func(tile string) (map[string]any, bool)) {
+	o := b.partOps()
+	o.mu.Lock()
+	o.lastCode = f
+	o.mu.Unlock()
+}
+
+// lastCodeChange is tile's primary's last code move, nil when unknown (a
+// tile without deployments runs its work tree: every save is a change).
+func (b *Broker) lastCodeChange(tile string) map[string]any {
+	o := b.partOps()
+	o.mu.RLock()
+	f := o.lastCode
+	o.mu.RUnlock()
+	if f == nil {
+		return nil
+	}
+	if m, ok := f(tile); ok {
+		return m
+	}
+	return nil
+}
+
+// PartitionCapHit is when a tile's people's partitions last met the running
+// caps, how (evicted, refused, deferred) and how often since xbind started.
+type PartitionCapHit struct {
+	At    time.Time `json:"at"`
+	Kind  string    `json:"kind"`
+	Count int       `json:"count"`
+}
+
+// capsHitRecently is how far back bx doctor's "caps hit recently" looks.
+const capsHitRecently = 24 * time.Hour
+
+// SetPartitionCapHits installs the runner's cap hits (boot).
+func (b *Broker) SetPartitionCapHits(f func() map[string]PartitionCapHit) {
+	o := b.partOps()
+	o.mu.Lock()
+	o.capHits = f
+	o.mu.Unlock()
+}
+
+// recentCapHit is tile's cap hit within capsHitRecently, if any.
+func (b *Broker) recentCapHit(tile string) (PartitionCapHit, bool) {
+	o := b.partOps()
+	o.mu.RLock()
+	f := o.capHits
+	o.mu.RUnlock()
+	if f == nil {
+		return PartitionCapHit{}, false
+	}
+	h, ok := f()[tile]
+	return h, ok && time.Since(h.At) < capsHitRecently
 }
 
 var partitionOpsOf sync.Map // *Broker → *partitionOps
@@ -216,6 +279,7 @@ func (b *Broker) registerPartitionOps(srv *server.Server) {
 	srv.RegisterAPI("POST /partitions/share-log", b.apiPartitionShareLog)          // partitionlogshare.go
 	srv.RegisterAPI("DELETE /partitions/share-log", b.apiPartitionShareLog)        // partitionlogshare.go
 	srv.RegisterAPI("POST /partitions/credential-confirm", b.apiCredentialConfirm) // partitioncreds.go
+	srv.RegisterAPI("POST /partitions/reviewed", b.apiPartitionReviewed)           // partitionreviewed.go
 }
 
 // partitionActor is the person acting on a partitions route: a person's

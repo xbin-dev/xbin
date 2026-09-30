@@ -198,6 +198,10 @@ func TestPartitionBusyText(t *testing.T) {
 	if !errors.Is(err, ErrPartitionBusy) || !errors.Is(err, sbx.ErrRefused) {
 		t.Errorf("the refusal %v isn't ErrPartitionBusy and an sbx refusal", err)
 	}
+	// bx doctor's "caps hit recently" (plans/partitions 06 §7)
+	if h, ok := w.r.PartitionCapHits()["apps/x"]; !ok || h.Kind != "refused" || h.Count != 1 || h.At.IsZero() {
+		t.Errorf("the cap hit isn't recorded: %+v", w.r.PartitionCapHits())
+	}
 }
 
 // covers PD-18 — a background start's partition (a cron delivery's) isn't
