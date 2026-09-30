@@ -41,6 +41,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   survives a save or restart of the agent mid-turn. Additive: a run of the
   agent's own loop answers exactly as before; an older build of the agent
   leaves a coding agent's messages waiting.
+- **Agent template: terminals relayed to the app, and a coding agent's
+  log** (`builtin-templates/agent/API.md` §Coding agents, "Terminal
+  relays and the log"). `GET /runs/{id}/harness/terminal?login=1&rows=&cols=&exec=`
+  (a shell in a coding agent's sandbox at its cwd, or its sign-in command)
+  and `GET /sandboxes/{ref}/terminal?cwd=&cmd=&rows=&cols=&exec=` (any
+  terminal in a sandbox you may use) relay the manager's `tty` to the
+  native view as you, after checking you may use the sandbox yourself;
+  refusals come before the upgrade, as JSON. A terminal a relay started is
+  ended 5 s after its client goes, unless it exited or a client attached to
+  it again (`exec=`). `GET /runs/{id}/harness/log?max=` is the tail of the
+  coding agent's stderr, for a person who may use its sandbox.
+- **`xbin.RelayManagerTTY` says what happened** ([sdk.md](sdk.md) §A
+  manager's terminals): it returns `ManagerTTYRelay` — the terminal's exec
+  id (its session frame's) and whether its command exited — and
+  `ManagerTTYOptions.OnSession` is called with the id as the session frame
+  passes, so a consumer can end a terminal it started for a client that
+  can't come back to it. A call that ignores the answer is unchanged.
 - **Agent template: start a conversation with a coding agent**
   (`builtin-templates/agent/API.md` §Coding agents, "Starting one").
   "Who answers" in the home composer and the new-chat dialog (web and

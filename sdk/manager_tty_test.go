@@ -202,10 +202,18 @@ func TestRelayManagerTTY(t *testing.T) {
 			_ = c.WriteMessage(typ, append([]byte("echo:"), msg...))
 		}
 	}))
+	type relayed struct {
+		ManagerTTYRelay
+		noted string // what OnSession was told
+	}
+	answers := make(chan relayed, 8)
 	consumer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// (a consumer checks the person first; the test's picks the sandbox
 		// and command from the query)
-		RelayManagerTTY(w, r, "http://xbin/api/apps/mgr", r.URL.Query().Get("sb"), ManagerTTYOptions{User: "alice", Cmd: r.URL.Query().Get("cmd")})
+		var noted string
+		res := RelayManagerTTY(w, r, "http://xbin/api/apps/mgr", r.URL.Query().Get("sb"), ManagerTTYOptions{User: "alice", Cmd: r.URL.Query().Get("cmd"),
+			OnSession: func(id string) { noted = id }})
+		answers <- relayed{res, noted}
 	}))
 	defer consumer.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -249,6 +257,9 @@ func TestRelayManagerTTY(t *testing.T) {
 	if err := <-ended; !ws.IsClose(err, 4001) {
 		t.Fatalf("the manager's end: %v", err)
 	}
+	if a := <-answers; a.Session != "ab12cd-1" || a.Exited || a.noted != "ab12cd-1" {
+		t.Fatalf("a terminal the person left: %+v", a)
+	}
 
 	// the terminal ends: its exit frame, then a normal close
 	c, _, err = page("sb=sb-1&cmd=exit")
@@ -265,6 +276,9 @@ func TestRelayManagerTTY(t *testing.T) {
 	if _, _, err := c.ReadMessage(); !ws.IsClose(err, ws.CloseNormalClosure) {
 		t.Fatalf("after exit: %v", err)
 	}
+	if a := <-answers; a.Session != "ab12cd-1" || !a.Exited {
+		t.Fatalf("a terminal that exited: %+v", a)
+	}
 
 	// the manager lost: 1011, so the terminal reconnects
 	c, _, err = page("sb=sb-1&cmd=drop")
@@ -278,6 +292,9 @@ func TestRelayManagerTTY(t *testing.T) {
 	if _, _, err := c.ReadMessage(); !ws.IsClose(err, ws.CloseInternalServerErr) {
 		t.Fatalf("a lost manager: %v", err)
 	}
+	if a := <-answers; a.Session != "ab12cd-1" || a.Exited {
+		t.Fatalf("a lost manager's terminal: %+v", a)
+	}
 
 	// the manager's refusal, before the upgrade
 	_, resp, err := page("sb=sb-gone")
@@ -290,6 +307,9 @@ func TestRelayManagerTTY(t *testing.T) {
 		t.Fatalf("the refusal: %s", b)
 	}
 	<-seen
+	if a := <-answers; a != (relayed{}) {
+		t.Fatalf("a refused terminal: %+v", a)
+	}
 
 	// not a handshake, or a bad sandbox id: refused, the manager never asked
 	for _, q := range []string{"sb=sb-1&cmd=echo", "sb=..%2Fsb-2&cmd=echo"} {

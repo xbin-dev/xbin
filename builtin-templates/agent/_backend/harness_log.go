@@ -9,7 +9,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
+	"time"
+
+	xbin "github.com/xbin-dev/xbin/sdk"
 )
 
 // harnessTail prints the last $1 bytes of the log $2 the wrapper wrote,
@@ -72,4 +76,73 @@ func (c *sbxConn) execStderr(ctx context.Context, id, eid string, since int64, l
 	var out sbxChunk
 	q := map[string]string{"since": strconv.FormatInt(since, 10), "max": strconv.Itoa(limit), "encoding": "base64", "stream": "stderr"}
 	return &out, c.call(ctx, "GET", sbxPath(id, "execs", eid, "output"), q, nil, &out, sbxCallTimeout)
+}
+
+// handleHarnessLog is the tail of a coding agent's stderr, read as the
+// caller (Sbx-User) — a person who may use its sandbox themself, checked
+// first (the file lives in a HOME the sandbox's users can write, and a
+// manager doesn't police an asserted person). Its current generation's.
+//
+//	GET /runs/{id}/harness/log?max=<bytes ≤ 65536> → text/plain
+func handleHarnessLog(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r)
+	cfg, err := harnessRunOf(id)
+	if err != nil {
+		writeSbxErr(w, err)
+		return
+	}
+	limit := hpLogMax
+	if v := r.URL.Query().Get("max"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			xbin.WriteError(w, http.StatusBadRequest, fmt.Sprintf("max: a number of bytes, at most %d", hpLogMax))
+			return
+		}
+		limit = min(n, hpLogMax)
+	}
+	denied := func(name string) string { return "only a person who may use " + name + " can read its log" }
+	c := callerOf(r)
+	if sbxUserOf(c) == "" {
+		name := cfg.Harness.Ref
+		if b, ok := cfg.sandboxBinding(name); ok && b.Name != "" {
+			name = b.Name
+		} else if _, sid, ok := splitSandboxRef(name); ok {
+			name = sid
+		}
+		xbin.WriteError(w, http.StatusForbidden, denied(name))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	conn, sid, _, err := personSandbox(ctx, c, cfg.Harness.Ref, func(b *sbxSandbox) string { return denied(sbxLabel(b)) })
+	if err != nil {
+		writeSbxErr(w, err)
+		return
+	}
+	s, err := agent.db.harnessSession(id)
+	if err != nil {
+		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if s == nil || (s.ExecID == "" && s.Gen == 0) { // never started
+		xbin.WriteError(w, http.StatusNotFound, errNoHarnessLog.Error())
+		return
+	}
+	data, err := harnessLogTail(ctx, conn, sid, s.ExecID, id, s.Gen, limit)
+	var se *sbxError
+	switch {
+	case errors.Is(err, errNoHarnessLog):
+		xbin.WriteError(w, http.StatusNotFound, errNoHarnessLog.Error())
+		return
+	case errors.As(err, &se):
+		writeSbxErr(w, err)
+		return
+	case err != nil:
+		xbin.WriteError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }

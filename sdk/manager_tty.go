@@ -13,8 +13,10 @@ package xbin
 // consumer's terminal on to xbind's runtime.
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -48,6 +50,22 @@ type ManagerTTYOptions struct {
 	// Client dials the manager (nil: Client() — through the gateway, with
 	// this instance's credential).
 	Client *http.Client
+	// OnSession, when set, is called by RelayManagerTTY with the
+	// terminal's exec id as the manager's session frame passes — before the
+	// person's end has it (so a consumer can note the terminal before anyone
+	// could attach to it again). DialManagerTTY doesn't call it.
+	OnSession func(execID string)
+}
+
+// ManagerTTYRelay is how a relayed terminal went: RelayManagerTTY's answer.
+type ManagerTTYRelay struct {
+	// Session is the terminal's exec id, from the manager's session frame
+	// ("" when the relay never got that far: a bad request, a refusal).
+	Session string
+	// Exited: the manager's exit frame passed — the command has ended.
+	// When it didn't, the command may still run at the manager (the person
+	// left, or the manager's side dropped).
+	Exited bool
 }
 
 // managerTTYMax bounds a message either way of a manager's terminal (a
@@ -187,7 +205,8 @@ func DialManagerTTY(ctx context.Context, endpoint, sandboxID string, o ManagerTT
 // relayed unchanged both ways (the /ws/term wire end to end: keystrokes and
 // output, resize, ping and pong, the session and exit frames) until either
 // end closes; the other is closed the same way (a lost manager: 1011, so a
-// terminal reconnects). It returns when both are closed.
+// terminal reconnects). It returns when both are closed, with the
+// terminal's session id and whether its command exited (ManagerTTYRelay).
 //
 // Nothing of r reaches the manager — no header, no query, not its
 // handshake: the relay dials anew, with this tile's credential and
@@ -196,7 +215,9 @@ func DialManagerTTY(ctx context.Context, endpoint, sandboxID string, o ManagerTT
 // refusal (the manager's or xbind's) as it came, in the contract's error
 // shape, both before anything is upgraded or started. Leaving doesn't end
 // the command (the contract's terminals outlive their clients): DELETE
-// …/execs/{id} does, or its own exit.
+// …/execs/{id} does, or its own exit — a relay that started a terminal for
+// a client that can't come back to it (an app's) may end it when the answer
+// says it didn't exit.
 //
 //	mux.HandleFunc("GET /runs/{id}/terminal", func(w http.ResponseWriter, r *http.Request) {
 //		person, sb, ok := mayUseSandbox(w, r) // your checks, first
@@ -205,10 +226,10 @@ func DialManagerTTY(ctx context.Context, endpoint, sandboxID string, o ManagerTT
 //		}
 //		xbin.RelayManagerTTY(w, r, sb.Endpoint, sb.ID, xbin.ManagerTTYOptions{User: person, Cmd: "claude /login"})
 //	})
-func RelayManagerTTY(w http.ResponseWriter, r *http.Request, endpoint, sandboxID string, o ManagerTTYOptions) {
+func RelayManagerTTY(w http.ResponseWriter, r *http.Request, endpoint, sandboxID string, o ManagerTTYOptions) ManagerTTYRelay {
 	if why := notHandshake(r); why != "" { // before anything starts at the manager
 		WriteSandboxError(w, invalidf("%s", why))
-		return
+		return ManagerTTYRelay{}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), managerTTYDial)
 	mc, err := DialManagerTTY(ctx, endpoint, sandboxID, o)
@@ -217,13 +238,13 @@ func RelayManagerTTY(w http.ResponseWriter, r *http.Request, endpoint, sandboxID
 		var se *SandboxError
 		if !errors.As(err, &se) {
 			if r.Context().Err() != nil {
-				return // the person hung up
+				return ManagerTTYRelay{} // the person hung up
 			}
 			se = &SandboxError{Status: http.StatusServiceUnavailable, Refusal: "unavailable",
 				Message: "the sandbox manager didn't answer: " + err.Error()}
 		}
 		WriteSandboxError(w, se)
-		return
+		return ManagerTTYRelay{}
 	}
 	pc, err := ws.Upgrade(w, r, &ws.UpgradeOptions{MaxMessageSize: managerTTYMax,
 		Error: func(w http.ResponseWriter, _ *http.Request, status int, reason string) {
@@ -231,9 +252,9 @@ func RelayManagerTTY(w http.ResponseWriter, r *http.Request, endpoint, sandboxID
 		}})
 	if err != nil {
 		_ = mc.Close()
-		return
+		return ManagerTTYRelay{}
 	}
-	relayTerminal(pc, mc)
+	return relayTerminal(pc, mc, o.OnSession)
 }
 
 // notHandshake says why r isn't a WebSocket handshake Upgrade takes ("" when
@@ -253,23 +274,60 @@ func notHandshake(r *http.Request) string {
 }
 
 // relayTerminal copies messages between a person's connection and the
-// manager's until one ends, then closes the other the same way.
-func relayTerminal(person, manager *ws.Conn) {
+// manager's until one ends, then closes the other the same way; it watches
+// the manager's control frames on the way (ttyWatch).
+func relayTerminal(person, manager *ws.Conn, onSession func(string)) ManagerTTYRelay {
+	tw := &ttyWatch{onSession: onSession}
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		relayOneWay(manager, person, ws.CloseInternalServerErr, "the sandbox's terminal dropped")
+		relayOneWay(manager, person, ws.CloseInternalServerErr, "the sandbox's terminal dropped", tw.see)
 	}()
-	relayOneWay(person, manager, ws.CloseGoingAway, "")
+	relayOneWay(person, manager, ws.CloseGoingAway, "", nil)
 	wg.Wait()
+	return tw.out
 }
 
-// relayOneWay copies src's messages to dst. When src ends, dst is closed
-// with src's close code, or with lost and why when src was lost (no close
-// frame, or a code no frame may carry). When a write to dst fails, dst's
-// reader — the other way — sees how dst ended and closes src.
-func relayOneWay(src, dst *ws.Conn, lost int, why string) {
+// ttyWatch reads the manager's control frames as they pass: the session
+// frame's id (the first one's) and whether an exit frame passed. Only the
+// manager-to-person copier calls see.
+type ttyWatch struct {
+	out       ManagerTTYRelay
+	onSession func(string)
+	session   bool
+}
+
+func (t *ttyWatch) see(typ int, msg []byte) {
+	if typ != ws.TextMessage || len(msg) > 4096 || !bytes.Contains(msg, []byte(`"op"`)) {
+		return
+	}
+	var ctl struct {
+		Op string `json:"op"`
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(msg, &ctl) != nil {
+		return
+	}
+	switch ctl.Op {
+	case "session":
+		if !t.session {
+			t.session, t.out.Session = true, ctl.ID
+			if t.onSession != nil && ctl.ID != "" {
+				t.onSession(ctl.ID)
+			}
+		}
+	case "exit":
+		t.out.Exited = true
+	}
+}
+
+// relayOneWay copies src's messages to dst, each shown to see first (nil:
+// none). When src ends, dst is closed with src's close code, or with lost
+// and why when src was lost (no close frame, or a code no frame may carry).
+// When a write to dst fails, dst's reader — the other way — sees how dst
+// ended and closes src.
+func relayOneWay(src, dst *ws.Conn, lost int, why string, see func(int, []byte)) {
 	for {
 		typ, msg, err := src.ReadMessage()
 		if err != nil {
@@ -285,6 +343,9 @@ func relayOneWay(src, dst *ws.Conn, lost int, why string) {
 			}
 			_ = dst.CloseWith(code, reason)
 			return
+		}
+		if see != nil {
+			see(typ, msg)
 		}
 		if err := dst.WriteMessage(typ, msg); err != nil {
 			if !errors.Is(err, ws.ErrClosed) { // lost, not closing: make its reader see it
