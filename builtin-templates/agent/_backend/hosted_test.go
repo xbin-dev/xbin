@@ -27,11 +27,13 @@ func withTeam(t *testing.T) *teamDB {
 	return tdb
 }
 
-// quickWakes makes the global instance ring a host once, at once.
+// quickWakes makes the global instance ring a host once, at once (and the
+// test's end waits for the rings in flight, before stubMail's cleanup).
 func quickWakes(t *testing.T) {
 	old := wakeRetries
 	wakeRetries = []time.Duration{0}
 	t.Cleanup(func() { wakeRetries = old })
+	t.Cleanup(ringing.Wait)
 }
 
 // fwdCapture stands in for the global instance the host's engine posts its
@@ -129,6 +131,13 @@ func TestHostedAtGlobal(t *testing.T) {
 		t.Fatalf("moved: %+v", moved)
 	}
 	id := moved.Conversation
+	if th, _ := tdb.runs.teamHost(id); th.State != hostPending {
+		t.Fatalf("moved, not yet taken up by its host's partition: %+v", th)
+	}
+	serveJSON(t, h, as("POST", fmt.Sprintf("/runs/%d/message", id), `{"text":"too early"}`, f5("bob", "read")), 409, nil)
+	if !tdb.runs.ackTeamHost(id, "user:alice", hostActive, "", "") { // what alice's partition does (hosted_move.go)
+		t.Fatal("the host's ack")
+	}
 	serveJSON(t, h, as("GET", fmt.Sprintf("/runs/%d/view", run.ID), "", f5("alice", "read")), 404, nil)
 	var links int
 	_ = ag.db.q.QueryRow(`SELECT count(*) FROM share_links WHERE run_id=?`, run.ID).Scan(&links)
