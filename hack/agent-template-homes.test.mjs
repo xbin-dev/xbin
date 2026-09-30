@@ -189,6 +189,52 @@ test('a person\'s page: the list merges both homes; the router opens each at its
   app.session.live.close();
 });
 
+test('a row held below the horizon: live events reach it, and each conversation is listed once', async () => {
+  const { ConvList } = await import(new URL('conv-list.js', MODEL).href);
+  pages.global.first = { pinned: [], items: [row(5, 8000), row(4, 3000)], next: '' };
+  const list = new ConvList({ change() {}, epoch: () => 0 });
+  await list.load();
+  assert.deepEqual(list.items.map((r) => r.id), [B + 3, 5, B + 2]);
+  assert.deepEqual(list.held.map((r) => r.id), [4]);
+  list.apply({ type: 'ustate', data: { id: 4, readMs: 3001 } });
+  assert.equal(list.held[0].readMs, 3001, 'its read state (another tab) reaches it');
+  list.apply({ type: 'run', run: 4, root: 4, data: { id: 4, activityMs: 4000, mine: true } });
+  assert.deepEqual([list.items.map((r) => r.id), list.held.map((r) => r.id)], [[B + 3, 5, B + 2], [4]], 'still below the horizon: held, not listed');
+  list.apply({ type: 'run', run: 4, root: 4, data: { id: 4, activityMs: 99999, mine: true } }); // bob writes in it
+  assert.deepEqual([list.items.map((r) => r.id), list.held.map((r) => r.id)], [[4, B + 3, 5, B + 2], []], 'above the horizon: listed');
+  await list.more();
+  const ids = list.items.map((r) => r.id);
+  assert.deepEqual(ids, [4, B + 3, 5, B + 2, B + 1]);
+  assert.equal(new Set(ids).size, ids.length, 'each conversation once');
+});
+
+test('with nothing shared listed, the page catches up with the shared space when looked at again', async () => {
+  const { ConvList } = await import(new URL('conv-list.js', MODEL).href);
+  pages.global.first = { pinned: [], items: [], next: '' };
+  const list = new ConvList({ change() {}, epoch: () => 0 });
+  await list.load();
+  assert.equal(list.wantsGlobal(), false);
+  assert.equal(await list.catchUp(100000), false, 'nothing shared yet');
+  pages.global.first = { pinned: [], items: [row(9, 7000, { mine: false, visibility: 'private' })], next: '' }; // shared with her since
+  assert.equal(await list.catchUp(101000), false, 'at most every 15 s');
+  assert.equal(await list.catchUp(116000), true);
+  assert.ok(list.items.some((r) => r.id === 9), 'listed');
+  assert.equal(list.wantsGlobal(), true, 'the shared space\'s stream follows the list now');
+  assert.equal(await list.catchUp(200000), false, 'while it does, its events keep the list');
+});
+
+test('the native view\'s images and exports of a shared conversation ask xbind for global', async () => {
+  const nui = await import(new URL('../native/ui.js', MODEL).href);
+  nui.ctx.app = { base: '/api/apps/agent' };
+  assert.equal(nui.thumb(5, 'a.png'), '/api/apps/agent/runs/5/thumb?path=a.png&w=480&xbin-partition=global');
+  assert.equal(nui.raw(5, 'a b.png'), '/api/apps/agent/runs/5/raw?path=a%20b.png&xbin-partition=global');
+  assert.equal(nui.thumb(B + 3, 'a.png', 1024), `/api/apps/agent/runs/${B + 3}/thumb?path=a.png&w=1024`, 'her own: at home');
+  const was = globalThis.xbin.partition;
+  delete globalThis.xbin.partition;
+  assert.equal(nui.raw(5, 'a.png'), '/api/apps/agent/runs/5/raw?path=a.png', 'unpartitioned: as ever');
+  globalThis.xbin.partition = was;
+});
+
 test('an unpartitioned page (and the global instance\'s own) never asks for a partition', async () => {
   for (const p of [undefined, 'global']) {
     calls.length = 0;

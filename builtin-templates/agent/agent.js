@@ -759,9 +759,10 @@ $('newopts').onclick = () => {
 const newShare = mountNewShare(document.querySelector('#newdlg .dlg-bd')); // {} unless a person's partition
 $('n-create').onclick = async (e) => {
   const text = $('n-goal').value.trim();
-  if (!text) { e.preventDefault(); return; }
+  const share = text ? newShare() : {}; // null: people chosen, none named (the dialog says so and stays)
+  if (!text || !share) { e.preventDefault(); return; }
   try {
-    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value, ...newShare() });
+    await app.ask({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value, ...share });
   } catch (err) { alert(err.message); }
 };
 let searchT = null;

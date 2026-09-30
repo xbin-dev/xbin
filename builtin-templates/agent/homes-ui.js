@@ -78,9 +78,10 @@ function tpl() {
   return html`<form method="dialog" @submit=${(e) => e.preventDefault()}>
     <div class="dlg-hd">Share a copy of “${st.run.title || 'conversation'}”</div>
     <div class="dlg-bd share">
-      <div class="muted small" id="pubnote">This conversation is in your own space, which only you can open. A copy goes to the
-        shared space, where the people you choose — and the agent's managers — can read it; your private files and sandbox stay
-        yours unless you add them.</div>
+      <div class="muted small" id="pubnote">This conversation is in your own space, which only you can open. A copy of its whole
+        transcript goes to the shared space — your messages, the agent's answers and everything its tools returned, which can
+        quote your private files, memory or sandbox — where the people you choose and the agent's managers can read it. Its
+        session files go too only if you add them.</div>
       <div class="field"><label>Who can see the copy</label>
         ${radio('team-viewer', 'Everyone who can open this agent — to read')}
         ${radio('team-participant', 'Everyone who can open this agent — to read and write')}
@@ -114,21 +115,32 @@ export function copyTpl(runId, close, onChange) {
 
 /**
  * mountNewShare adds "Who can see it" to the New chat dialog (dlgBody) in a
- * person's partition; it returns what the dialog's Start sends beside its
- * other fields: {share} for a shared chat, {} for one of their own (and
- * always {} elsewhere).
+ * person's partition: only you, the team (to read, or to write), or people
+ * you name — with the team, or on their own. It returns what the dialog's
+ * Start sends beside its other fields: {share} for a shared chat, {} for one
+ * of their own (and always {} elsewhere) — or null when people were chosen
+ * and none named (the field says so; the dialog stays open).
  */
 export function mountNewShare(dlgBody) {
   if (!twoHomes() || !dlgBody) return () => ({});
   const f = Object.assign(document.createElement('div'), { className: 'field', id: 'n-share-f' });
-  render(html`<label>Who can see it</label><select id="n-share">
+  let vis = 'mine';
+  const draw = (err = '') => render(html`<label>Who can see it</label><select id="n-share" @change=${(e) => { vis = e.target.value; draw(); }}>
       <option value="mine">Only you — in your own space</option>
       <option value="team-participant">Everyone who can open this agent — to read and write (shared space)</option>
       <option value="team-viewer">Everyone who can open this agent — to read (shared space)</option>
-    </select>`, f);
+      <option value="people">Only the people you name (shared space)</option>
+    </select>
+    <input id="n-share-people" ?hidden=${vis === 'mine'} autocomplete="off"
+      placeholder=${vis === 'people' ? 'user ids, comma-separated — they can write' : 'and people too (optional): user ids, comma-separated'}>
+    ${err ? html`<div class="err" id="n-share-err">${err}</div>` : nothing}`, f);
+  draw();
   dlgBody.insertBefore(f, dlgBody.children[1] || null);
   return () => {
-    const s = shareOf(f.querySelector('select').value, '');
-    return s ? { share: s } : {};
+    vis = f.querySelector('select').value;
+    if (vis === 'mine') { draw(); return {}; }
+    const s = shareOf(vis, f.querySelector('#n-share-people').value);
+    draw(s ? '' : 'Name the people who can see it (their user ids).');
+    return s ? { share: s } : null;
   };
 }

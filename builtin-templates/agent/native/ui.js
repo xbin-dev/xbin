@@ -4,6 +4,7 @@
 // tree, settings, the render preview), and the last error — plus the small
 // helpers every native screen uses. No lit, no DOM: native.js draws with
 // /vendor/xb-native.js, and node tests run it against a stubbed backend.
+import { homeOf } from '../model/homes.js';
 
 // The state that is the view's, not the model's.
 export const ui = {
@@ -80,7 +81,10 @@ export function cardState(st) {
 }
 
 // thumb: a sized image of a run's session file (GET /runs/{id}/thumb), which
-// the app loads itself with the tile's frame token; raw: the file's bytes.
-export const thumb = (runId, path, w = 480) => `${ctx.app.base}/runs/${runId}/thumb?path=${encodeURIComponent(path)}&w=${w}`;
-export const raw = (runId, path) => `${ctx.app.base}/runs/${runId}/raw?path=${encodeURIComponent(path)}`;
+// the app loads itself with the tile's frame token; raw: the file's bytes. A
+// shared conversation in a person's partition is the global instance's
+// (model/homes.js): its URLs ask xbind for it, as model/app.js uploadTarget.
+const at = (runId) => (homeOf(runId) === 'global' ? '&xbin-partition=global' : '');
+export const thumb = (runId, path, w = 480) => `${ctx.app.base}/runs/${runId}/thumb?path=${encodeURIComponent(path)}&w=${w}${at(runId)}`;
+export const raw = (runId, path) => `${ctx.app.base}/runs/${runId}/raw?path=${encodeURIComponent(path)}${at(runId)}`;
 export const IMAGE = /^image\/(png|jpeg|gif|webp)$/;

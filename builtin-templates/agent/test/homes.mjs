@@ -109,7 +109,9 @@ ok('her own is read at home', (await calls(new RegExp(`/runs/${MINE}/view`))).ev
 await page.waitForSelector('#top .sharepill');
 await page.click('#top .sharepill');
 await page.waitForSelector('#pubdlg #pub-go');
-ok('the copy\'s dialog says what goes where', /private files and sandbox stay\s+yours/.test(await page.$eval('#pubnote', (e) => e.textContent)));
+const note = (await page.$eval('#pubnote', (e) => e.textContent)).replace(/\s+/g, ' ');
+ok('the copy\'s dialog says what goes where — the whole transcript, what its tools returned too', /everything its tools returned/.test(note) &&
+  /session files go too only if you add them/.test(note), note);
 await page.click('#pubdlg #pub-go');
 await page.waitForFunction(() => location.hash === '#c=7');
 const pub = await calls(/\/publish$/);
@@ -127,6 +129,20 @@ await page.click('#n-create');
 await page.waitForFunction(() => window.__calls.some((c) => /\/ask$/.test(c.url)));
 const ask = (await calls(/\/ask$/))[0];
 ok('a shared new chat is made at global, shared', ask.home === 'global' && JSON.parse(ask.body).share.visibility === 'team', JSON.stringify(ask));
+// …or shared with people: none named, the dialog says so and stays open
+await page.click('#newopts');
+await page.waitForSelector('#newdlg[open] #n-share');
+await page.fill('#n-goal', 'for carol and dave');
+await page.selectOption('#n-share', 'people');
+await page.click('#n-create');
+await page.waitForSelector('#newdlg[open] #n-share-err');
+ok('people chosen, none named: the dialog says so and stays open', (await calls(/\/ask$/)).length === 1);
+await page.fill('#n-share-people', 'carol, dave');
+await page.click('#n-create');
+await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.url)).length === 2);
+const ask2 = (await calls(/\/ask$/))[1];
+ok('a chat shared with people is made at global, with them', ask2.home === 'global' &&
+  JSON.stringify(JSON.parse(ask2.body).share) === '{"members":[{"user":"carol","role":"participant"},{"user":"dave","role":"participant"}]}', ask2.body);
 ok('no page errors', !errors.length, errors.join(' | '));
 await browser.close();
 done('homes');

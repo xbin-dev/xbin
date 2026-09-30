@@ -203,7 +203,7 @@ export const FEATURES = {
   'state.partition.homes': 'in a person\'s partition a conversation has one of two homes, told by its id (from 2^40: their own; below: the shared space): the list merges both, an address (#c=) opens each at its home, and the stream follows it there (model/homes.js)',
   'state.partition.publish': 'in a person\'s partition, Share a copy… of one of their own conversations: who can see the copy, its session files or not, the original kept or deleted; the copy opens (POST /runs/{id}/publish)',
   'state.partition.copy': 'in a person\'s partition, a shared conversation\'s share dialog makes a private copy in their own space (POST /copy)',
-  'state.partition.newShared': 'in a person\'s partition, New chat with options asks who can see it: only you (your own space) or the team (made in the shared space)',
+  'state.partition.newShared': 'in a person\'s partition, New chat with options asks who can see it: only you (your own space), or the team or people you name (made in the shared space)',
   'state.partition.global': 'at a partitioned instance\'s global instance (the owner token), a note to sign in as a person for private conversations',
   'state.partition.sandboxes': 'in a person\'s partition, a notice naming a bound sandbox manager that can\'t keep people apart, and how to update it',
   'state.partition.hidden': 'in a partitioned instance the live stream closes while the page is hidden and resumes from its cursor when it shows (model/stream.js)',

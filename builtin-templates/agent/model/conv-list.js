@@ -31,6 +31,13 @@ export class ConvList {
     this.lasts = {};         // home → the oldest row read from it
     this.held = [];          // rows read below the horizon (model/homes.js splitRows)
     this.failed = null;      // the shared space didn't answer (the view shows the rest)
+    this.caught = 0;         // when catchUp last read the shared space
+    const d = typeof document !== 'undefined' ? document : null;
+    if (d && twoHomes()) { // a person's partition: catch up with the shared space when the page is looked at again
+      const again = () => { if (!d.hidden) this.catchUp().catch(() => {}); };
+      d.addEventListener('visibilitychange', again);
+      globalThis.addEventListener?.('focus', again);
+    }
   }
 
   params(extra = {}) {
@@ -51,23 +58,29 @@ export class ConvList {
     });
   }
 
-  // took keeps what pages from homes said (their cursors and oldest rows)
-  // and returns their rows.
+  // took keeps what pages from homes said (their cursors and oldest rows —
+  // as read: a live event moving that row on doesn't move the horizon) and
+  // returns their rows.
   took(homes, ps) {
     const rows = [];
     homes.forEach((h, i) => {
       const items = (ps[i].items || []).map((r) => this.fix(r));
       this.cursors[h] = ps[i].next || '';
-      if (items.length) this.lasts[h] = items[items.length - 1];
+      if (items.length) { const l = items[items.length - 1]; this.lasts[h] = { id: l.id, activityMs: l.activityMs }; }
       rows.push(...items);
     });
     return rows;
   }
 
-  // place shows rows with what is held, newest first, down to the horizon.
+  // place shows rows with what is held, newest first, down to the horizon —
+  // each conversation once (the newest of its rows).
   place(rows) {
-    const have = new Set([...this.items, ...this.held].map((r) => r.id));
-    const all = [...this.items, ...this.held, ...rows.filter((r) => !have.has(r.id))];
+    const byId = new Map();
+    for (const r of [...this.items, ...this.held, ...rows]) {
+      const had = byId.get(r.id);
+      if (!had || (r.activityMs || 0) > (had.activityMs || 0)) byId.set(r.id, r);
+    }
+    const all = [...byId.values()];
     const lasts = Object.keys(this.cursors).filter((h) => this.cursors[h]).map((h) => this.lasts[h]).filter(Boolean);
     const { shown, held } = splitRows(all, lasts, byActivity);
     this.items = shown;
@@ -127,6 +140,22 @@ export class ConvList {
     return this.scope !== 'mine' || [...this.pinned, ...this.items, ...this.held].some((r) => homeOf(r.id) === 'global');
   }
 
+  // catchUp: while Mine lists nothing shared the shared space's stream is
+  // closed (wantsGlobal), so a conversation shared with the person since —
+  // or one they joined elsewhere — arrives by no event. When the page shows
+  // again or gains focus (at most every 15 s) the shared space's first page
+  // is read again; anything there reloads the list, and the stream opens.
+  async catchUp(now = Date.now()) {
+    if (!twoHomes() || this.scope !== 'mine' || this.archived || this.q || this.loading || this.wantsGlobal()) return false;
+    if (now - this.caught < 15000) return false;
+    this.caught = now;
+    const my = this.seq;
+    const p = await homeApi('global', `/conversations?${this.params()}`).catch(() => null);
+    if (!p || my !== this.seq || this.wantsGlobal() || !((p.pinned || []).length || (p.items || []).length)) return false;
+    await this.load();
+    return true;
+  }
+
   view(scope, archived) {
     this.scope = scope;
     this.archived = archived;
@@ -137,7 +166,8 @@ export class ConvList {
 
   fix(r) { r.unread = isUnread(r, this.on.epoch?.()); return r; }
 
-  find(id) { return this.pinned.find((r) => r.id === id) || this.items.find((r) => r.id === id); }
+  // find: a row this view holds — listed, or held below the horizon.
+  find(id) { return this.pinned.find((r) => r.id === id) || this.items.find((r) => r.id === id) || this.held.find((r) => r.id === id); }
   all() { return [...this.pinned, ...this.items]; }
 
   remove(id) {
@@ -177,7 +207,8 @@ export class ConvList {
     if (r) {
       Object.assign(r, d);
       this.fix(r);
-      this.items.sort(byActivity);
+      if (this.held.includes(r)) this.place([]); // it may be above the horizon now
+      else this.items.sort(byActivity);
     } else if (this.belongs(d)) {
       this.items.unshift(this.fix({ ...d }));
       this.items.sort(byActivity);
@@ -191,6 +222,7 @@ export class ConvList {
     this.remove(r.id);
     if (!!r.archivedAt !== this.archived) return;
     if (r.pinnedAt && !this.archived) this.pinned = [r, ...this.pinned].sort((a, b) => b.pinnedAt - a.pinnedAt);
+    else if (twoHomes()) this.place([r]); // listed, or held below the horizon (two homes)
     else this.items = [...this.items, r].sort(byActivity);
   }
 
