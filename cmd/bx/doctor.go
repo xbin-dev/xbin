@@ -263,6 +263,7 @@ func cmdDoctor() error {
 	// sealed archives only with an exported bundle. Admin credentials only.
 	if comps != nil {
 		doctorBackupKeys(warn, ok)
+		doctorPartitionEdges(ok) // edges between partitioned tiles, for review (partitionconsent.go)
 	}
 
 	// go.work ownership.

@@ -763,23 +763,27 @@ func cmdBind(args []string) error {
 }
 
 func cmdGrants() error {
+	type row struct{ From, Target, Role, Blocked, Warning string } // pending rows carry approvers[] too
 	var out struct {
-		Grants  []map[string]string `json:"grants"`
-		Pending []map[string]string `json:"pending"`
+		Grants  []row `json:"grants"`
+		Pending []row `json:"pending"`
 	}
 	if err := apiJSON("GET", "/api/xbin/grants", nil, &out); err != nil {
 		return err
 	}
 	fmt.Println("granted:")
 	for _, g := range out.Grants {
-		fmt.Printf("  %-30s → %s : %s\n", g["from"], g["target"], g["role"])
+		fmt.Printf("  %-30s → %s : %s\n", g.From, g.Target, g.Role)
 	}
 	if len(out.Pending) > 0 {
 		fmt.Println("pending (approve with bx grant <caller> <target>:<role>):")
 		for _, g := range out.Pending {
-			fmt.Printf("  %-30s → %s : %s", g["from"], g["target"], g["role"])
-			if g["blocked"] != "" {
-				fmt.Printf("   ⛔ %s", g["blocked"])
+			fmt.Printf("  %-30s → %s : %s", g.From, g.Target, g.Role)
+			if g.Blocked != "" {
+				fmt.Printf("   ⛔ %s", g.Blocked)
+			}
+			if g.Warning != "" { // a partitioned tile on another's people's data
+				fmt.Printf("\n      ⚠ %s", g.Warning)
 			}
 			fmt.Println()
 		}
@@ -806,14 +810,19 @@ func cmdGrant(args []string) error {
 		return fmt.Errorf("usage: bx grant [--revoke] <caller> <target>:<role>")
 	}
 	body := map[string]string{"from": rest[0], "target": rest[1][:i], "role": rest[1][i+1:]}
-	method := "POST"
+	method, warning := "POST", ""
 	if revoke {
 		method = "DELETE"
+	} else {
+		warning = grantWarning(body["from"], body["target"], body["role"]) // partitionconsent.go
 	}
 	if err := apiJSON(method, "/api/xbin/grants", body, nil); err != nil {
 		return err
 	}
 	fmt.Println("ok")
+	if warning != "" {
+		fmt.Println("⚠ " + warning)
+	}
 	return nil
 }
 
