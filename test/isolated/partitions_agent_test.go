@@ -54,6 +54,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/jsonc"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/test/xbindtest"
 )
@@ -194,7 +195,7 @@ func TestPartitionsAgent(t *testing.T) {
 			t.Errorf("the new instance's mode record: %v %+v", has, m)
 		}
 		b, _ := os.ReadFile(filepath.Join(d.WS, paAgent, "xbin.json"))
-		if !strings.Contains(string(b), `"partition"`) || strings.Contains(string(b), `"template"`) {
+		if _, block, _ := jsonc.TopLevel(b, "template"); !strings.Contains(string(b), `"partition"`) || block { // the template's comments stay (T1)
 			t.Errorf("the new instance's manifest carries its own partition and no template block: %s", cut(string(b), 400))
 		}
 		e.waitState(t, paPlain, "")

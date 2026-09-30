@@ -44,7 +44,9 @@ func repoManifest(embedded, carried []byte) []byte {
 			return out
 		}
 	}
-	if out, err := jsonc.DeleteTopLevel(embedded, templateBlockKey); err == nil {
+	// as instantiation strips it (builtins' templatestrip.go): the block and
+	// the comment introducing it, so an instance is this plus its partition
+	if out, err := jsonc.DeleteTopLevelNoted(embedded, templateBlockKey); err == nil {
 		return out
 	}
 	return embedded

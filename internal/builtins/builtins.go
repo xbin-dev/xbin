@@ -377,25 +377,3 @@ func WriteTree(dstRoot, targetPath string, files map[string][]byte) ([]string, e
 	}
 	return written, nil
 }
-
-// stripTemplateBlock removes the top-level "template" key from a xbin.json so
-// an instantiated copy is a normal, plugged-in component, and writes the
-// block's "partition" as the copy's own when opts allows (partition.go).
-// Best-effort: on any parse failure the original bytes are returned unchanged.
-func stripTemplateBlock(data []byte, opts InstanceOpts) []byte {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(jsonc.Strip(data), &m) != nil {
-		return data
-	}
-	tpl, ok := m["template"]
-	if !ok {
-		return data
-	}
-	delete(m, "template")
-	instancePartition(m, tpl, opts)
-	out, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return data
-	}
-	return append(out, '\n')
-}

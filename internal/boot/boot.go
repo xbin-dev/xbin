@@ -471,7 +471,8 @@ func (st *State) stepBroker() error {
 		}
 		brk.EnsureComponentRepos() // new/imported components get their own git repo
 	}
-	brk.EnsureComponentRepos() // migrate existing components to per-component repos
+	brk.EnsureComponentRepos()       // migrate existing components to per-component repos
+	brk.EnsureTemplateMergeDrivers() // template instances merge xbin.json by keys (templaterepo_driver.go)
 	brk.Users = userStore
 	// a person's partition token authenticates only while covered (plans/partitions/02 §2)
 	st.Auth.SetPartitionCoverage(brk.PartitionCovered)
