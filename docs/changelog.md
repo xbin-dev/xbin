@@ -213,8 +213,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a stored edit of it keeps what it was saved with, and a save that leaves
   `harnesses` out keeps the class's. The stored classes keep the
   `harness` toolset apart from `toolsets`, so an older agent rolled back
-  to (v0.3.64 or before) still saves classes; a class it saves again has
-  lost its coding agents (tick them again after upgrading). Runs, run events, conversation rows
+  to (v0.3.64 or before) still saves classes; any class save there
+  rewrites every stored class, which loses its coding agents (tick them
+  again after upgrading; Reset brings back the built-in Coding class). Runs, run events, conversation rows
   and a link's `child` carry `engine` (`""` until coding-agent
   conversations land), a sandbox binding carries its image's `harnesses`,
   and `GET`/`PUT /config` gain `harnessIdleMin` and `maxHarness`. The

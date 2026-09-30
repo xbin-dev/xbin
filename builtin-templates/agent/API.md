@@ -1898,8 +1898,10 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   owner, `DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND
   delivered_at=0` in the agent's `db` resource). Its class editor still
   saves (the stored classes keep the `harness` toolset apart from
-  `toolsets`, where that agent would refuse it), but a class it saves
-  again has lost its coding agents: tick them again after upgrading.
+  `toolsets`, where that agent would refuse it), but any class save there
+  rewrites every stored class (its editor sends them all), so each one
+  loses its coding agents: tick them again after upgrading (Reset brings
+  the built-in Coding class back as it ships).
 
 **Its own routes** (D-harness §4.2.4–§4.2.6). On a run the agent's own
 loop answers they are **409** `not a coding-agent conversation`.
