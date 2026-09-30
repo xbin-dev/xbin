@@ -287,6 +287,12 @@ successor):
   everything replays idempotently except a prompt that ended meanwhile: if
   your own record says a prompt is still in flight, set `PromptRPC` and
   `Turn` from it before attaching.
+- `c.Abandon(id, why)` ends a call the client waits on (a request id, e.g.
+  `State().PromptRPC`) as if the agent had answered it with an error —
+  for a transport that dropped the request and can't tell whether the
+  agent got it, so it isn't sent twice; a prompt's turn ends (`turn.end`,
+  `stopReason: "error"`, `why` in its error). False when nothing waits on
+  it (the agent answered).
 
 The codec is exported too — `acp.NewConn(r, w)` / `acp.NewConnWith(r, w,
 acp.ConnOptions{IDPrefix, Offset})` (`Call`, `CallCtx`, `Notify`, `Reply`,

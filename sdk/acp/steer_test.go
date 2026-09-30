@@ -257,3 +257,40 @@ func TestElicitationIdempotent(t *testing.T) {
 		t.Fatalf("%s %v %s %v %s %v %s %v", a, dup, b, dup2, c, dup3, d, dup4)
 	}
 }
+
+// Abandon: a prompt the embedder's transport dropped ends its turn with
+// the error at once (turn.end, stopReason error), the client takes the
+// next prompt; a call the agent already answered isn't touched.
+func TestAbandon(t *testing.T) {
+	p := newPeer(t)
+	c, _, err := p.start(ClientOptions{}, NewPermissions(), 0, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	collect(t, c, idle)
+	ctx := context.Background()
+	if err := c.Prompt(ctx, Prompt{Text: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	collect(t, c, isText("working"))
+	id := c.State().PromptRPC
+	if !c.Abandon(id, "the message was lost on its way") {
+		t.Fatal("nothing waited on the prompt")
+	}
+	es := collect(t, c, isType(EvTurnEnd))
+	end := data(es[len(es)-1])
+	if end["stopReason"] != "error" || !strings.Contains(end["error"].(string), "the message was lost on its way") {
+		t.Fatalf("the turn's end: %v", end)
+	}
+	if c.State().PromptRPC != nil || c.Abandon(id, "again") {
+		t.Fatal("the abandoned prompt is still in flight")
+	}
+	p.end("end_turn") // the agent's late answer is discarded
+	if err := c.Prompt(ctx, Prompt{Text: "go"}); err != nil {
+		t.Fatalf("the next prompt: %v", err)
+	}
+	collect(t, c, isText("working"))
+	p.end("end_turn")
+	collect(t, c, isType(EvTurnEnd))
+}

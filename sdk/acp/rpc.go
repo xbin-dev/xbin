@@ -362,6 +362,25 @@ func (c *Conn) drop(key string) {
 	c.mu.Unlock()
 }
 
+// fail ends the call waiting on id as if the peer had answered it with
+// rerr (Client.Abandon); false when no call waits on it.
+func (c *Conn) fail(id json.RawMessage, rerr *Error) bool {
+	key := idKey(id)
+	c.mu.Lock()
+	w := c.calls[key]
+	delete(c.calls, key)
+	c.mu.Unlock()
+	if w == nil {
+		return false
+	}
+	m := &Message{ID: id, Error: rerr}
+	if c.onResponse != nil {
+		c.onResponse(w.method, m)
+	}
+	w.ch <- m
+	return true
+}
+
 // Serve reads frames until the reader ends; responses are matched to their
 // calls, the rest go to the handlers. On return every waiting call fails.
 func (c *Conn) Serve() error {

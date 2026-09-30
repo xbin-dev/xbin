@@ -164,6 +164,18 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Abandon ends the call this client waits on under request id as if the
+// agent had answered it with an error (why) — for an embedder whose
+// transport dropped the request before the agent took it, and won't send
+// it twice. A session/prompt's turn ends with it (turn.end, stopReason
+// "error"). False when nothing waits on id (the agent answered it).
+func (c *Client) Abandon(id json.RawMessage, why string) bool {
+	if c.conn == nil || len(id) == 0 {
+		return false
+	}
+	return c.conn.fail(id, &Error{Code: CodeInternal, Message: why})
+}
+
 // Done is closed once the read loop has ended.
 func (c *Client) Done() <-chan struct{} { return c.done }
 
