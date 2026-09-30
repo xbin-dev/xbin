@@ -123,16 +123,22 @@ func handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := r.PathValue("user")
-	if c := callerOf(r); levelOf(r) < lvOwner && !(c.kind == whoUser && c.user == user) {
+	c := callerOf(r)
+	if levelOf(r) < lvOwner && !(c.kind == whoUser && c.user == user) {
 		xbin.WriteError(w, 403, "only the owner can remove someone else")
 		return
 	}
+	leave := c.kind == whoUser && c.user == user && user != root.Owner
 	if err := agent.db.Tx(func(t *DB) error {
 		was := t.sharedAtGlobal(root.ID)
 		if _, err := t.q.Exec(`DELETE FROM run_members WHERE run_id=? AND user=?`, root.ID, user); err != nil {
 			return err
 		}
-		return t.moveIfUnshared(root.ID, was) // homes_move.go: a partitioned agent's global instance keeps shared ones only
+		err := t.moveIfUnshared(root.ID, was) // homes_move.go: a partitioned agent's global instance keeps shared ones only
+		if leave && isHarnessMoveErr(err) {
+			return nil // a member's own leave is theirs: a coding agent's conversation stays here with its owner (harness_partition.go)
+		}
+		return err
 	}); err != nil {
 		writeTxErr(w, err)
 		return

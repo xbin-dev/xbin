@@ -188,8 +188,7 @@ func writeBundleErr(w http.ResponseWriter, err error) {
 		xbin.WriteError(w, http.StatusRequestEntityTooLarge, err.Error())
 		return
 	}
-	if isHarnessMoveErr(err) {
-		xbin.WriteError(w, http.StatusConflict, err.Error())
+	if writeHarnessMoveErr(w, err) { // harness_partition.go
 		return
 	}
 	xbin.WriteError(w, 500, err.Error())

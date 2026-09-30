@@ -462,6 +462,9 @@ func TestHarnessSpawnInPartition(t *testing.T) {
 	if why := harnessBarred(hosted); why != "" {
 		t.Fatalf("unpartitioned: %q", why)
 	}
+	if why := hostedHarnessRefusal(hosted.ID, "apps/cs|sb-1", "box"); why != "" {
+		t.Fatalf("unpartitioned, a sandbox refused to a team-range run: %q", why)
+	}
 }
 
 // TestHarnessStaysHome: a coding agent's conversation doesn't move between
@@ -494,12 +497,26 @@ func TestHarnessStaysHome(t *testing.T) {
 	parent, _ := ag.db.createRunStamped("parent", raw, 0, statusIdle, runStamp{Owner: "alice", Visibility: visPrivate, TeamRole: roleViewer, Origin: "chat"})
 	_, _ = ag.db.q.Exec(`INSERT INTO messages (run_id, seq, role, content, created) VALUES (?, 1, 'user', 'hi', 1)`, parent)
 	kid, _ := ag.db.createRun("fake: a task", raw, parent)
-	_, _ = ag.db.q.Exec(`UPDATE runs SET engine='harness', status='idle' WHERE id=?`, kid)
-	if err := ag.db.putHarnessSession(&harnessSession{RunID: kid, RootID: parent, State: hsLive, ExecID: "e1"}); err != nil {
+	_, _ = ag.db.q.Exec(`UPDATE runs SET engine='harness', status='running' WHERE id=?`, kid)
+	last := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
+	if err := ag.db.putHarnessSession(&harnessSession{RunID: kid, RootID: parent, State: hsLive, ExecID: "e1", LastActiveMs: last.UnixMilli()}); err != nil {
 		t.Fatal(err)
 	}
-	if body := publish(parent, 409); !strings.Contains(body, "still at work") {
-		t.Fatalf("publishing while a coding agent works in it: %s", body)
+	var refused struct {
+		Error string
+		Runs  []int64
+	}
+	if err := json.Unmarshal([]byte(publish(parent, 409)), &refused); err != nil || !strings.Contains(refused.Error, "still at work") ||
+		!strings.Contains(refused.Error, fmt.Sprintf("run #%d", kid)) || len(refused.Runs) != 1 || refused.Runs[0] != kid {
+		t.Fatalf("publishing while a coding agent works in it: %+v %v", refused, err)
+	}
+	// its turn over, its adapter still up (until its idle stop): said so,
+	// with when
+	_, _ = ag.db.q.Exec(`UPDATE runs SET status='idle' WHERE id=?`, kid)
+	refused.Runs = nil
+	if err := json.Unmarshal([]byte(publish(parent, 409)), &refused); err != nil || !strings.Contains(refused.Error, "has finished, but it is still running, idle") ||
+		!strings.Contains(refused.Error, "idle stop at about 10:15 UTC") || len(refused.Runs) != 1 || refused.Runs[0] != kid {
+		t.Fatalf("publishing while an idle coding agent is still up: %+v %v", refused, err)
 	}
 	_, _ = ag.db.q.Exec(`UPDATE harness_sessions SET state='stopped' WHERE run_id=?`, kid)
 	publish(parent, 200)
@@ -536,6 +553,36 @@ func TestHarnessUnshareRefused(t *testing.T) {
 		t.Fatalf("the refused un-share changed its members: %d", members)
 	}
 	serveJSON(t, h, as("PATCH", fmt.Sprintf("/runs/%d", run.ID), `{"visibility":"private"}`, f5("alice", "read")), 200, nil) // still shared with bob: no move
+
+	// shared with the team only: making it private is the un-share — 409,
+	// saying what to do instead
+	var team Run
+	serveJSON(t, h, as("POST", "/ask", `{"text":"y","share":{"visibility":"team"}}`, f5("alice", "read")), 200, &team)
+	waitStatus(t, ag.db, team.ID, statusIdle)
+	_, _ = ag.db.q.Exec(`UPDATE runs SET engine='harness' WHERE id=?`, team.ID)
+	rec = serveJSON(t, h, as("PATCH", fmt.Sprintf("/runs/%d", team.ID), `{"visibility":"private"}`, f5("alice", "read")), 409, nil)
+	if !strings.Contains(rec.Body.String(), "keep it shared, or delete it") {
+		t.Fatalf("making it private: %s", rec.Body)
+	}
+	if r, _ := ag.db.getRun(team.ID); r.Visibility != visTeam {
+		t.Fatalf("the refused un-share changed its visibility: %q", r.Visibility)
+	}
+	if st, _ := moveRow(ag, team.ID); st != "" {
+		t.Fatalf("a move was asked: %q", st)
+	}
+
+	// a member's own leave is theirs: bob leaves; it stays here, with alice
+	serveJSON(t, h, as("DELETE", fmt.Sprintf("/runs/%d/members/bob", run.ID), "", f5("bob", "read")), 200, nil)
+	_ = ag.db.q.QueryRow(`SELECT count(*) FROM run_members WHERE run_id=?`, run.ID).Scan(&members)
+	if st, _ := moveRow(ag, run.ID); members != 0 || st != "" {
+		t.Fatalf("bob's leave: %d members, move %q", members, st)
+	}
+	if r, err := ag.db.getRun(run.ID); err != nil || r.Owner != "alice" {
+		t.Fatalf("after bob left: %+v %v", r, err)
+	}
+
+	// control: a built-in one's un-share moves it
+	serveJSON(t, h, as("POST", fmt.Sprintf("/runs/%d/members", run.ID), `{"user":"bob","role":"participant"}`, f5("alice", "read")), 200, nil)
 	_, _ = ag.db.q.Exec(`UPDATE runs SET engine='' WHERE id=?`, run.ID)
 	serveJSON(t, h, as("DELETE", fmt.Sprintf("/runs/%d/members/bob", run.ID), "", f5("alice", "read")), 200, nil)
 	if st, _ := moveRow(ag, run.ID); st != "asked" {
@@ -616,8 +663,9 @@ func TestSandboxRowsHomed(t *testing.T) {
 	if s := seen[box.ID]; s == nil || s["homed"] != true || s["why"] != nil {
 		t.Fatalf("her own sandbox's row: %v", s)
 	}
-	if s := seen[team.ID]; s == nil || s["homed"] != false || !strings.Contains(fmt.Sprint(s["why"]), "isn't a sandbox of your own space") {
-		t.Fatalf("a sandbox not homed here: %v", s)
+	if s := seen[team.ID]; s == nil || s["homed"] != false || s["why"] != partitionBoxRefusal(team) ||
+		!strings.Contains(fmt.Sprint(s["why"]), "isn't a sandbox of your own space") {
+		t.Fatalf("a sandbox not homed here (its why: partitionBoxRefusal's words, W6-U's seam): %v", s)
 	}
 	var cat struct{ Harnesses []hcEntry }
 	serveJSON(t, h, as("GET", "/harnesses", "", alicesFrame("read")), 200, &cat)

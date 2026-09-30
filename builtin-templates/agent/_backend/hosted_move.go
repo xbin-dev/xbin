@@ -339,7 +339,7 @@ func handleHostedMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := agent.db.harnessStays(id); err != nil { // a coding agent's conversation isn't hosted (harness_partition.go)
-		xbin.WriteError(w, 409, err.Error())
+		writeHarnessMoveErr(w, err)
 		return
 	}
 	moved, left, err := moveIntoTeam(r.Context(), tv, run, c)
@@ -415,7 +415,8 @@ func moveIntoTeam(ctx context.Context, tv *Agent, run *Run, c who) (int64, []str
 		return 0, nil, err
 	}
 	note := fmt.Sprintf("%s hosts this conversation now: the agent may use %s's private resources in it "+
-		"(their sandboxes, their data in other tiles, their vault). It is not private: its members, the agent's managers, "+
+		"(their sandboxes and anything signed in inside them, though never one where a coding agent of theirs signed in or worked; "+
+		"their data in other tiles; their vault). It is not private: its members, the agent's managers, "+
 		"workspace admins and anyone who can change the agent's code can read it.", c.user, c.user)
 	if len(left) > 0 {
 		note += " Left behind: " + strings.Join(left, ", ") + "."

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -11,7 +13,8 @@ import (
 )
 
 // More of coding agents in a partitioned agent (harness_partition.go): the
-// hold, the wake and the brake around sign-ins and idle adapters.
+// hold, the wake and the brake around sign-ins and idle adapters, the host's
+// sandboxes, and the refusals through their routes.
 
 // TestHarnessSignInRests: a coding agent parked on its sign-in (a prompt
 // refused signed out) waits on a person — it doesn't keep a person's
@@ -87,6 +90,107 @@ func TestHarnessRestAfterWork(t *testing.T) {
 	}
 	hwait(t, "both turns", func() bool { return turnOver(ag, run.ID)() && strings.Count(fullText(ag.db, run.ID), "tick 9") == 2 })
 	hwait(t, "the hold let go", func() bool { return open.Load() == 0 })
+}
+
+// TestHarnessHostedSandbox: a hosted (non-secure) conversation, driven by
+// its host's engine in the host's partition, doesn't work in a sandbox of
+// the host's where one of their coding agents signed in or worked — its
+// members could have the agent read that sign-in — nor does the host's
+// engine start a coding agent for it (A-M2).
+func TestHarnessHostedSandbox(t *testing.T) {
+	ag, h, box, _, _ := harnessPartition(t)
+	run := askIn(t, h, box, "echo mine")
+	hwait(t, "her own coding agent's turn", turnOver(ag, run.ID))
+	ref := sandboxRef("apps/cs", box.ID)
+	clean := mkSandbox(t, "apps/cs", "alice", sbxCreate{Name: "clean", Egress: "internet"})
+	cfgFor := func(b *sbxSandbox) Config {
+		cfg := defaultConfig()
+		bd := SandboxBinding{Ref: sandboxRef("apps/cs", b.ID), Name: b.Name, Egress: "internet"}
+		cfg.Class, cfg.Sandbox, cfg.Attached = "coding", &bd, []SandboxBinding{bd}
+		return cfg
+	}
+	hosted := teamIDBase + 7
+	_, err := ag.sandboxUse(context.Background(), hosted, cfgFor(box), "")
+	if sbxRefusal(err) != "not-allowed" || !strings.Contains(err.Error(), "non-secure (hosted) conversation doesn't work in") {
+		t.Fatalf("a hosted conversation in a sandbox where her coding agent works: %v", err)
+	}
+	if _, err := ag.sandboxUse(context.Background(), hosted, cfgFor(clean), ""); err != nil && strings.Contains(err.Error(), "non-secure") {
+		t.Fatalf("control: a sandbox no coding agent of hers used: %v", err)
+	}
+	if _, err := ag.sandboxUse(context.Background(), run.ID, cfgFor(box), ""); err != nil && strings.Contains(err.Error(), "non-secure") {
+		t.Fatalf("her own conversation: %v", err)
+	}
+	// one she signed in to elsewhere (a probe saw it) counts the same
+	_ = ag.db.noteHarnessSeen(sandboxRef("apps/cs", clean.ID), "fake", nil, ptrBool(true))
+	if why := hostedHarnessRefusal(hosted, sandboxRef("apps/cs", clean.ID), "clean"); why == "" {
+		t.Fatal("a sandbox where a coding agent is signed in")
+	}
+	if why := hostedHarnessRefusal(hosted, ref, box.Name); why == "" {
+		t.Fatal("the refusal")
+	}
+	// the host's engine: no coding agent in a hosted run, whatever asks
+	cfg := cfgFor(clean)
+	cfg.Harness = &HarnessConfig{Provider: "fake", Ref: sandboxRef("apps/cs", clean.ID)}
+	if _, _, err := ag.eng.harnessUse(context.Background(), &Run{ID: hosted, Engine: engineHarness}, cfg); !isHarnessFail(err) ||
+		!strings.Contains(err.Error(), "non-secure") {
+		t.Fatalf("the host's engine starting a coding agent in a hosted run: %v", err)
+	}
+	// (unpartitioned it says nothing: TestHarnessSpawnInPartition — no
+	// engine runs there to race the mode's change)
+}
+
+// TestHarnessHostingLiveChild: a shared conversation in which a coding agent
+// it started still works isn't hosted (A-M2, A-M3): 409, naming the run.
+func TestHarnessHostingLiveChild(t *testing.T) {
+	ag, h := moveAgent(t)
+	withTeam(t)
+	stubMail(t)
+	var run Run
+	serveJSON(t, h, as("POST", "/ask", `{"text":"x","share":{"members":[{"user":"bob","role":"participant"}]}}`, f5("alice", "read")), 200, &run)
+	waitStatus(t, ag.db, run.ID, statusIdle)
+	raw := mustJSON(defaultConfig())
+	kid, _ := ag.db.createRun("fake: a task", raw, run.ID)
+	_, _ = ag.db.q.Exec(`UPDATE runs SET engine='harness', status='running' WHERE id=?`, kid)
+	var refused struct {
+		Error string
+		Runs  []int64
+	}
+	serveJSON(t, h, as("POST", "/hosted", fmt.Sprintf(`{"conversation":%d}`, run.ID), f5("alice", "read")), 409, &refused)
+	if !strings.Contains(refused.Error, "still at work") || len(refused.Runs) != 1 || refused.Runs[0] != kid {
+		t.Fatalf("hosting while a coding agent works in it: %+v", refused)
+	}
+	_, _ = ag.db.q.Exec(`UPDATE runs SET status='done' WHERE id=?`, kid)
+	if err := ag.db.harnessStays(run.ID); err != nil {
+		t.Fatalf("control: its coding agent done and stopped: %v", err)
+	}
+}
+
+// TestHarnessPlantedAtGlobalStopped: an adapter left running at the global
+// instance (none can start there now; a tree from before could have one)
+// is stopped by the takeover that finds it — never driven — saying why.
+func TestHarnessPlantedAtGlobalStopped(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false)
+	run := askHarness(t, mux, box, "echo planted")
+	hwait(t, "the planted turn", turnOver(ag, run.ID))
+	before, _ := ag.db.harnessSession(run.ID)
+	s := ag.eng.harnessOf(run.ID)
+	ag.eng.Shutdown(2 * time.Second) // let go: the adapter runs on in its sandbox
+	select {
+	case <-s.done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the predecessor's consumer runs on")
+	}
+	quiet(t, ag)
+	setMode(t, modeGlobal, "")
+	b := successor(t, ag)
+	hwait(t, "the takeover's stop", func() bool {
+		hs, _ := ag.db.harnessSession(run.ID)
+		return hs.State == hsFailed && b.harnessOf(run.ID) == nil
+	})
+	hs, _ := ag.db.harnessSession(run.ID)
+	if hs.Gen != before.Gen || !strings.Contains(hs.Error, "own conversations") {
+		t.Fatalf("after the takeover at the global instance: %+v", hs)
+	}
 }
 
 // TestHarnessReclaimUnderBrake: stopping an idle adapter moves no work, so
@@ -212,6 +316,40 @@ func TestHarnessSendingGone(t *testing.T) {
 		t.Fatalf("after the takeover: %q %+v", r.Result, hs)
 	}
 	// (in a person's partition such a prompt isn't work: TestHarnessUserWake)
+}
+
+// TestHarnessRelayRoutesInPartition: in a person's partition a coding
+// agent's log and terminal, asked for through their routes, refuse a
+// sandbox that isn't homed there (403, saying why) — before anything is
+// asked of it (A-S2).
+func TestHarnessRelayRoutesInPartition(t *testing.T) {
+	ag, h, box, _, _, global := harnessPartitionG(t)
+	run := askIn(t, h, box, "echo mine")
+	hwait(t, "the turn", turnOver(ag, run.ID))
+	team := atGlobal(t, global, "apps/cs", "alice", "team box")
+	// planted: its coding agent's sandbox one not homed here
+	cfg, err := ag.db.runConfig(run.ID)
+	if err != nil || cfg.Harness == nil {
+		t.Fatalf("its config: %+v %v", cfg, err)
+	}
+	cfg.Harness.Ref = sandboxRef("apps/cs", team.ID)
+	if _, err := ag.db.q.Exec(`UPDATE runs SET config=? WHERE id=?`, mustJSON(cfg), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec := serveJSON(t, h, as("GET", fmt.Sprintf("/runs/%d/harness/log", run.ID), "", alicesFrame("read")), 403, nil)
+	if !strings.Contains(rec.Body.String(), "isn't a sandbox of your own space") {
+		t.Fatalf("the log: %s", rec.Body)
+	}
+	req := as("GET", fmt.Sprintf("/runs/%d/harness/terminal", run.ID), "", alicesFrame("read"))
+	for k, v := range map[string]string{"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13",
+		"Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="} {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "isn't a sandbox of your own space") {
+		t.Fatalf("the terminal: %d %s", w.Code, w.Body)
+	}
 }
 
 // TestHarnessBrakeReachesChild: a halt reaches a coding agent a person's

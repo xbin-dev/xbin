@@ -582,8 +582,7 @@ func writeTxErr(w http.ResponseWriter, err error) {
 		xbin.WriteError(w, 400, string(b))
 		return
 	}
-	if isHarnessMoveErr(err) { // un-sharing a coding agent's conversation (harness_partition.go)
-		xbin.WriteError(w, http.StatusConflict, err.Error())
+	if writeHarnessMoveErr(w, err) { // un-sharing a coding agent's conversation (harness_partition.go)
 		return
 	}
 	if err == sql.ErrNoRows {

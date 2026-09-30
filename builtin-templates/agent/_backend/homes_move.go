@@ -140,6 +140,10 @@ func (d *DB) moveIfUnshared(root int64, was bool) error {
 		return nil
 	}
 	if err := d.harnessStays(root); err != nil { // a coding agent's doesn't move: the un-share is refused (harness_partition.go)
+		var h *harnessMoveErr
+		if errors.As(err, &h) {
+			return &harnessMoveErr{msg: h.msg + harnessUnshare, runs: h.runs}
+		}
 		return err
 	}
 	_, _ = d.q.Exec(`DELETE FROM conv_moves WHERE (state='asked' AND created<?) OR (state='moved' AND done<?) OR (state='leaving' AND created<?)`,
