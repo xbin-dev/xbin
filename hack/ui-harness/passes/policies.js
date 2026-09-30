@@ -2,8 +2,11 @@
 // workspace → policies tab (workspace-template/tiles/admin/tabs/policies.js),
 // on the admin tile's own page as admin:
 //   1. both switches render off, each saying "applies to partitioned tiles";
-//   2. "Ask each person…" asks before turning on: cancel leaves it off (the
-//      server agrees), Turn on saves it;
+//   2. "Ask each person…" asks before turning on, showing the edges between
+//      partitioned tiles it would start asking about with the people who used
+//      each in the last 30 days (GET /partitions/edges: the real answer, then
+//      a stubbed one with totals — covers F10 06§12.3): cancel leaves it off
+//      (the server agrees), Turn on saves it;
 //   3. "Credential resets wait…" saves at once;
 //   4. a second console follows a change made elsewhere (the `policies`
 //      event);
@@ -18,8 +21,10 @@ const view = () => {
   if (!r || !r.querySelector('[data-policies]')) return null;
   const st = {};
   for (const c of r.querySelectorAll('[data-policy-card]')) st[c.dataset.policyCard] = c.dataset.state;
+  const edges = r.querySelector('[data-policy-edges]');
   return { st, asking: r.querySelector('[data-policy-confirm]')?.dataset.policyConfirm || '',
-    scopes: [...r.querySelectorAll('.scope')].filter((s) => s.textContent.includes('applies to partitioned tiles')).length };
+    scopes: [...r.querySelectorAll('.scope')].filter((s) => s.textContent.includes('applies to partitioned tiles')).length,
+    edges: edges?.dataset.policyEdges || '', edgesText: (edges?.textContent || '').replace(/\s+/g, ' ').trim() };
 };
 
 async function adminPolicies(browser) {
@@ -42,10 +47,28 @@ async function adminPolicies(browser) {
     await consent.click();
     await until(A.page, (x) => x.asking === 'partitionConsent', null, 'the turn-on confirmation');
     check(!(await consent.isChecked()) && (await get()).partitionConsent === false, 'turning consent on asks first; nothing saved yet');
-    await shot(A.page, 'admin-policies-confirm');
+    await until(A.page, (x) => x.edges !== '' && x.edges !== 'loading', null, 'the edges preview');
+    v = await read(A.page);
+    check(v.edges === 'none' || Number(v.edges) > 0, `the confirmation shows the edges it would ask about (${v.edges}: ${v.edgesText})`);
     await A.page.locator('[data-policy-confirm] button', { hasText: 'cancel' }).click();
     await until(A.page, (x) => !x.asking && x.st.partitionConsent === 'off', null, 'cancel');
     check((await get()).partitionConsent === false, 'cancel leaves it off');
+    // the ledger totals, as an xbind with partitioned tiles answers them
+    const edgesRoute = '**/api/xbin/partitions/edges*';
+    await A.page.route(edgesRoute, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      days: 30, policy: { partitionConsent: false }, edges: [
+        { from: 'apps/q', to: 'apps/pg', granted: true, people: 3, calls: 41, consented: 1 },
+        { from: 'apps/q', to: 'apps/old', granted: false, people: 1, calls: 2, consented: 0 },
+        { from: 'apps/q', to: 'apps/idle', granted: false, people: 0, calls: 0, consented: 0 }] }) }));
+    await consent.click();
+    await until(A.page, (x) => x.edges === '2', null, 'the stubbed edges preview');
+    v = await read(A.page);
+    check(v.edgesText.includes('apps/q → apps/pg: 3 people, 1 already allowed it') && v.edgesText.includes('apps/q → apps/old: 1 person (no grant now)') &&
+      !v.edgesText.includes('apps/idle'), `the preview shows each edge's ledger totals (${v.edgesText})`);
+    await shot(A.page, 'admin-policies-confirm');
+    await A.page.locator('[data-policy-confirm] button', { hasText: 'cancel' }).click();
+    await until(A.page, (x) => !x.asking, null, 'cancel again');
+    await A.page.unroute(edgesRoute);
     await consent.click();
     await A.page.locator('[data-policy-confirm] button', { hasText: 'Turn on' }).click();
     await until(A.page, (x) => x.st.partitionConsent === 'on', null, 'consent on');

@@ -6,7 +6,10 @@
  *    their data;
  *  - credentialResetConfirm: credential resets wait for the person.
  * Saves go through PUT /workspace-policies (admin), one key at a time;
- * every open console re-reads on the `policies` event. The D20 grant
+ * every open console re-reads on the `policies` event. Before turning
+ * partitionConsent on, the confirmation shows the edges it would start
+ * asking about: GET /partitions/edges, the people who used each in the
+ * last 30 days (an older xbind has no such route: nothing shown). The D20 grant
  * ceiling ("workspace policy") is a different thing and stays in the
  * organisations tab.
  */
@@ -37,6 +40,7 @@ export class BxAdminPolicies extends WithRouter(LitElement) {
   static properties = {
     _state: { state: true },   // GET /workspace-policies (null until loaded)
     _asking: { state: true },  // the key whose turn-on awaits confirmation
+    _edges: { state: true },   // GET /partitions/edges' rows: null loading, undefined unavailable
     _busy: { state: true },
     _err: { state: true },
   };
@@ -52,6 +56,8 @@ export class BxAdminPolicies extends WithRouter(LitElement) {
     .ask { margin: 8px 0 0 24px; padding: 8px 10px; border-radius: 6px; font-size: 12px;
            background: color-mix(in srgb, var(--bx-amber, #f2a71b) 14%, transparent); }
     .ask .row { display: flex; gap: 6px; margin-top: 6px; }
+    .ask ul { margin: 4px 0 0; padding-left: 18px; }
+    .ask code { font-size: 11px; }
   `];
 
   constructor() { super(); this._state = null; this._asking = ''; this._busy = false; }
@@ -70,8 +76,35 @@ export class BxAdminPolicies extends WithRouter(LitElement) {
 
   // A switch's checkbox: turning partitionConsent on asks first.
   _toggle(sw, on, input) {
-    if (on && sw.confirm) { input.checked = false; this._asking = sw.key; return; }
+    if (on && sw.confirm) {
+      input.checked = false; this._asking = sw.key;
+      if (sw.key === 'partitionConsent') this._loadEdges();
+      return;
+    }
     this._set(sw, on);
+  }
+
+  // The edges between partitioned tiles that turning consent on would start
+  // asking about: granted now, or used in the last 30 days (06 §12.3).
+  async _loadEdges() {
+    this._edges = null;
+    try {
+      const r = await api('/partitions/edges?days=30');
+      this._edges = (r.edges ?? []).filter((e) => e.granted || e.people > 0);
+    } catch { this._edges = undefined; }
+  }
+
+  _edgesPreview() {
+    const edges = this._edges;
+    if (edges === undefined) return nothing;
+    if (edges === null) return html`<div class="hint" data-policy-edges="loading">counting the edges…</div>`;
+    if (edges.length === 0) {
+      return html`<div data-policy-edges="none">No partitioned tile uses another's people's data: nobody will be asked.</div>`;
+    }
+    return html`<div data-policy-edges=${edges.length}>In the last 30 days:
+      <ul>${edges.map((e) => html`<li data-edge=${e.from + '→' + e.to}><code>${e.from}</code> → <code>${e.to}</code>:
+        ${e.people} ${e.people === 1 ? 'person' : 'people'}${e.consented ? `, ${e.consented} already allowed it` : ''}${e.granted ? '' : ' (no grant now)'}</li>`)}</ul>
+    </div>`;
   }
 
   async _set(sw, on) {
@@ -95,6 +128,7 @@ export class BxAdminPolicies extends WithRouter(LitElement) {
       <div class="line">${on ? sw.on : sw.off}</div>
       ${this._asking === sw.key ? html`<div class="ask" data-policy-confirm=${sw.key}>
         ${sw.confirm}
+        ${sw.key === 'partitionConsent' ? this._edgesPreview() : nothing}
         <div class="row">
           <button class="go" ?disabled=${this._busy} @click=${() => this._set(sw, true)}>Turn on</button>
           <button @click=${() => { this._asking = ''; }}>cancel</button>
