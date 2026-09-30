@@ -559,7 +559,9 @@ _ = xbin.Publish(xbin.Resource("bus"), "changed", payload)
 node/python: no SDK needed — listen on `process.env.XBIN_SOCKET` /
 `os.environ["XBIN_SOCKET"]`, read `X-XBin-From`/`X-XBin-Role` (and
 `X-XBin-User`/`X-XBin-User-Level` — the signed-in human driving the call,
-D29; `X-XBin-Viewed-By` when an admin is viewing as that user, D64) headers,
+D29; `X-XBin-Viewed-By` when an admin is viewing as that user, D64;
+`X-XBin-Partition`/`X-XBin-Partition-Id` when a partitioned tile calls you
+for a person — see Auth) headers,
 call outbound via the `XBIN_GATEWAY` unix socket with
 `Authorization: Bearer $XBIN_TOKEN`. `bx new` scaffolds working skeletons.
 `cgi` was removed (it ran tile code outside the sandbox): a tile declaring it
@@ -909,6 +911,17 @@ it. Declare `interfaces`/`provides`/`exposes`; leave **binding to the owner**
 - xbind verifies identity on every call and injects `X-XBin-From` /
   `X-XBin-Role` — never verify auth yourself; never trust a role you
   didn't receive in those headers.
+- **Who is calling, per person.** A person's own call (their frame of
+  your tile) carries `X-XBin-User`. A call from a **partitioned** tile made
+  for a person carries `X-XBin-Partition: user:<id>` and
+  `X-XBin-Partition-Id` (opaque, stable for that person; `global` and no id
+  for the tile's global instance). If you keep per-caller state or stats (a
+  gateway, a manager, usage counters), key it on (`X-XBin-From`,
+  `X-XBin-Deployment`, `X-XBin-Partition-Id`) — keyed on `X-XBin-From` alone
+  you merge every person's data into one; show `user:<id>` for display only
+  (a person deleted and created again gets a new partition id). Go:
+  `xbin.CallerInfo(r).Partition` / `.PartitionID`. Unpartitioned tiles'
+  backend calls carry neither. docs/partitions.md §Providers.
 - Role convention: `reader` / `writer` / `admin`, implication downward.
   On bus resources, `subscriber`/`publisher` alias reader/writer.
 - **Vault** = per-element private secrets, write-only outside the backend
@@ -923,6 +936,37 @@ it. Declare `interfaces`/`provides`/`exposes`; leave **binding to the owner**
   until an admin unseals. See docs/auth.md §vault.
 - Prefer **service APIs over shared state** across scopes: "email reads
   calendar" is a reader grant on calendar's API, not a shared db file.
+
+## Partitioned tiles — one backend per person (read docs/partitions.md)
+
+For a tile holding each person's own data that nobody else — admins
+included — should reach (a mailbox connector, personal notes, an agent's
+private chats):
+
+- `"partition": ["user"]` in xbin.json (or `["user", "global"]`): xbind
+  runs one backend instance per person who uses the tile — same code, but
+  their own resources, vault, cron, bus subscriptions and terminals — plus,
+  with `"global"`, one global instance for other tiles, ingress and
+  tile-wide work. A person's frames and terminals reach their own partition
+  by themselves: nothing to route. Only under `xbind --isolate`.
+- In code: `xbin.Partition()` is `user:<id>`, `global` or `""`;
+  `xbin.RequirePartition()` refuses to run unpartitioned (an older xbind
+  ignores the key and would serve everyone from one backend).
+- State every partition may see: a resource `"shared": true` (or `"read"`:
+  partitions read, global writes) in scope.json — it must hold no person's
+  data.
+- Between partitions there are no direct calls. Tile-wide live state → a
+  shared resource plus the shared bus. Live state for some people (a shared
+  chat) → the global instance is the hub: browsers call it with
+  `xbin.fetch(url, {partition: 'global'})`, a partition's backend with
+  `xbin.GlobalURL(path)`. Waking a partition → partition mail
+  (`xbin.Mail`, the `partitionMail` doorbell).
+- **The mode rule:** `partition` takes effect by itself only while the tile
+  holds no data. Changing it later pauses the tile until a manager chooses
+  *switch* — **which deletes all its data** — or *keep*. Never change it on
+  a tile with data without telling the user.
+- The tile must root its scope; not for `vm` or chrome tiles, nor with
+  `xbin:*` grants.
 
 ## Resources (docs/resources.md)
 
