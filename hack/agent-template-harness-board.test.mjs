@@ -284,9 +284,10 @@ test('native: the Task screen\'s Delegated section; at home, yours at work and N
     ['#28 Write the changelog', 'needs sign-in · Add the changelog entry', 'CC']]);
   const h = await runSeed([
     { snapshot: 'home' },
-    { tap: btn('5 coding agents need you') }, { wait: 50 },
+    { tap: btn('Coding agents (5 waiting)') }, { wait: 50 },
     { snapshot: 'board' },
   ], '');
+  assert.equal(find(h.snapshots.home.root, btn('5 coding agents need you')), null, 'not on home\'s bar: Needs you is on the page, the board in ⋯');
   const need = find(h.snapshots.home.root, { t: 'row', p: { title: 'Port the CLI' }, in: { t: 'section', p: { title: 'Needs you' } } });
   assert.deepEqual([need.p.subtitle, need.p.icon], ['needs you to sign in to Codex', 'key']);
   const b = find(h.snapshots.board.root, BOARD);

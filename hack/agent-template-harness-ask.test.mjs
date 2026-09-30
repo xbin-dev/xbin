@@ -349,12 +349,12 @@ test('native: the composer — slash commands, the steering words, Send now inte
   assert.equal(msg.interrupt, true);
 });
 
-test('native: at home — Coding agents → your Auto / Always approve per harness', async () => {
+test('native: at home — Coding agent settings → your Auto / Always approve per harness', async () => {
   const r = await runSeed([
-    { tap: { t: 'button', has: 'Coding agents' } }, { wait: 20 }, { snapshot: 's' },
+    { tap: { t: 'button', has: 'Coding agent settings' } }, { wait: 20 }, { snapshot: 's' },
     { event: [{ t: 'picker', p: { label: 'Codex' } }, 'change', { value: 'auto' }] }, { wait: 50 },
   ]);
-  const [t] = all(r.snapshots.s.root, { t: 'screen', has: '"title":"Coding agents"' });
+  const [t] = all(r.snapshots.s.root, { t: 'screen', has: '"title":"Coding agent settings"' });
   assert.ok(t, 'the screen');
   const pickers = all(t, { t: 'picker' });
   assert.deepEqual(pickers.map((p) => [p.p.label, p.p.value]), [['Claude Code', 'auto'], ['Codex', 'approve']]);

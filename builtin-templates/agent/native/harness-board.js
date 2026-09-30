@@ -13,9 +13,10 @@
 //            'hmsg' {id, name}: Message — a multiline field, Send (queues or
 //            steers) and Send now (interrupts its turn first); the agent that
 //            started it is told
-//   toolbar  a button while any needs you (not in a coding agent's own chat) —
-//            at home while any runs or needs you
+//   toolbar  a button while any needs you (not in a coding agent's own chat)
 //   menu     Coding agents (N) in a conversation's ⋯
+//   main     at home, the main ⋯ menu's Coding agents (N) — home's bar holds
+//            Conversations, the class and ⋯ only (a phone's width)
 //   task     the Task screen's Delegated section: each coding agent below the
 //            run, its state and task, a tap to its chat
 //
@@ -37,16 +38,20 @@ const needLabel = (c) => `${c.needs} coding agent${c.needs === 1 ? ' needs' : 's
 
 ext.register({
   toolbar(v) {
-    const app = ctx.app;
-    if (!v && (app.sel != null || app.page)) return null;
-    // not in a coding agent's own chat: its bar already holds its badge, Mode
-    // and Model (a phone's bar drops the ⋯ past that) — there ⋯ → Coding agents
-    if (v && isHarness(v.run)) return null;
+    // not at home (its bar holds Conversations, the class and ⋯; Needs you is
+    // on the page and the board in ⋯) nor in a coding agent's own chat (its
+    // bar already holds Mode and Model; a phone's bar drops the ⋯ past that)
+    if (!v || isHarness(v.run)) return null;
     const root = rootOf(v);
-    const c = app.board.chip(root);
+    const c = ctx.app.board.chip(root);
     // in a conversation only while one waits for you: a phone's bar has little room
-    if (!c || (v && !c.needs)) return null;
-    return html`<button icon=${c.needs ? 'bell' : 'terminal'} @tap=${() => push({ kind: 'hboard', root })}>${c.needs ? needLabel(c) : c.text}</button>`;
+    if (!c || !c.needs) return null;
+    return html`<button icon="bell" @tap=${() => push({ kind: 'hboard', root })}>${needLabel(c)}</button>`;
+  },
+  main(before) {
+    const c = ctx.app.board.chip(null);
+    if (!c) return null;
+    return html`<button icon="terminal" @tap=${() => { before(); push({ kind: 'hboard', root: null }); }}>${`Coding agents (${c.needs ? c.needs + ' waiting' : c.n})`}</button>`;
   },
   menu(v) {
     const root = rootOf(v);

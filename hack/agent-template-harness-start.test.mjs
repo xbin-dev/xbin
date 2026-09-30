@@ -170,7 +170,7 @@ test('native: "Who answers" at the top of the home page; picking a coding agent 
   const who = find(home, WHO);
   assert.ok(who && !find(home, { ...WHO, in: { t: 'toolbar' } }), 'on the home page, not in its toolbar (a phone\'s bar keeps its ⋯)');
   assert.deepEqual(find(home, { t: 'toolbar' }).c.map((x) => x.t), ['button', 'picker', 'menu'], 'the bar: Conversations, Class, More');
-  assert.ok(find(home, { t: 'button', p: { label: 'Coding agents' }, in: { t: 'menu', p: { label: 'More' } } }), 'Coding agents (your setting) in ⋯');
+  assert.ok(find(home, { t: 'button', p: { label: 'Coding agent settings' }, in: { t: 'menu', p: { label: 'More' } } }), 'Coding agent settings (your setting) in ⋯');
   assert.equal(who.p.value, 'agent');
   assert.deepEqual(who.p.options.map((o) => o.label), ['Agent (built in)', 'CC · Claude Code', 'CX · Codex', 'GM · Gemini CLI — unavailable', 'OC · opencode — unavailable']);
   assert.ok(find(home, { t: 'picker', p: { label: 'Class' } }), 'the class picker, while the built-in agent answers');

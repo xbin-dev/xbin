@@ -2004,7 +2004,8 @@ conversation's tree — at home, every one of yours that runs or needs you:
 your coding-agent conversations and those the agent started below your
 conversations — in one place (`harness-board.js`, `native/harness-board.js`;
 the rows are `app.board`'s, `model/harness-board.js`). The top bar's chip
-(the app: a toolbar button while one needs you, and ⋯ → Coding agents)
+(the app: a toolbar button while one needs you, ⋯ → Coding agents in a
+conversation and in the main menu at home)
 says "⌨ 3 coding agents · 1 needs you" and opens it: on the web a dock at
 the right (over the chat in a narrow window), rows in the order they
 started — never re-sorted as they change — each a child card as above (its
@@ -2096,9 +2097,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
 | `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, and the Progress screen (`plan`; the plan's progress and the context in use start the subtitle: `native/harness-start.js`) |
-| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); ⋯ → Coding agents (the main menu: home's and the drawer's) → your setting per harness |
-| `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, the toolbar's plan/usage badge and the Progress screen (`plan`) |
-| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); at home, Coding agents → your setting per harness |
+| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); ⋯ → Coding agent settings (the main menu: home's and the drawer's) → your setting per harness |
 | `native/harness-board.js` | the Coding agents board: its screen (sections Needs you, Running, Done; a row's swipe Stop, Message, Cancel task; a parked row's approval or question), the Message screen, the toolbar button and ⋯ item, the Task screen's Delegated section |
 
 **Seams.** A feature can land as a module of its own instead of edits to the
@@ -2161,7 +2160,7 @@ the placeholder says whether a message steers it or waits for it, the
 queued chips say so too, a message steered into the turn is said for a
 moment, and ⌘/Ctrl+Enter sends it with `interrupt: true` (`app.send(text,
 clear, {interrupt: true})`; the native composer's Send now). Native: the
-toolbar's Mode menu (the options but the model too) and Model picker, ⋯ → Coding agents (the main menu) for your setting.
+toolbar's Mode menu (the options but the model too) and Model picker, ⋯ → Coding agent settings (the main menu) for your setting.
 
 **Customising an instance.** A persona or domain changes `HOME` in
 `model/home.js`. The web files keep their names, and the modules that moved

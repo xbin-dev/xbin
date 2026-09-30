@@ -97,7 +97,7 @@ export const IMPLEMENTS = {
   'top.model': 'native/chat.js — ✦ in the subtitle',
   'top.task': 'native/chat.js — runMenu Task (rules.topBar task) → native/tools.js taskTpl: every request, read-only (actions.asks)',
   'top.task.delegated': 'native/harness-board.js — the Task screen\'s Delegated section through ext.task: a row per coding agent below the run (app.board.delegated), a tap to its chat',
-  'top.board': 'native/harness-board.js — a toolbar button while any needs you (not in a coding agent\'s own chat, whose bar is full; at home while any runs or needs you) and ⋯ → Coding agents (N) (app.board.chip)',
+  'top.board': 'native/harness-board.js — a toolbar button while any needs you (not at home — Needs you is on the page — nor in a coding agent\'s own chat, whose bar is full) and ⋯ → Coding agents (N), at home the main menu\'s (app.board.chip)',
   'top.sandbox': 'native/chat.js — ▣ in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
   'top.harness': 'native/harness-start.js — first in the subtitle (the subtitle seam; model/harness-start.js topChip): a badge beside Mode and Model pushed More off a phone\'s bar',
   'top.status': 'native/chat.js — the subtitle',
@@ -213,7 +213,7 @@ export const IMPLEMENTS = {
   'harness.options': 'native/harness-ask.js — controlsTpl: the model option as the toolbar\'s Model picker, the others in the Mode menu (a phone\'s bar holds only so much); model/rules.js modelPicker hides the built-in Model picker',
   'harness.slash': 'native/harness-ask.js — composer slash',
   'harness.steer': 'native/harness-ask.js — composer: Send now (interrupts), the steered chip; native/chat.js — the queued chips\' label',
-  'harness.autonomy': 'native/harness-ask.js — ⋯ → Coding agents (the main menu: home\'s and the drawer\'s) → settingsScreen; the Mode menu (your setting for new ones)',
+  'harness.autonomy': 'native/harness-ask.js — ⋯ → Coding agent settings (the main menu: home\'s and the drawer\'s) → settingsScreen; the Mode menu (your setting for new ones)',
   // Coding agents — terminals and sign-in (D-harness §8 U5)
   'harness.login': 'native/terminal.js — the notice and device link (ext.end, a login park only), Sign in in the composer and ⋯, signInTpl: a login terminal (termTpl, Retry in its toolbar), a secure field, the device page and code, the confirm toggle, whom to ask, Retry',
 };
