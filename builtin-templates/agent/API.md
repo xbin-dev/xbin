@@ -1589,8 +1589,12 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   a conversation holds for someone else), running or able to start (an
   archived one says to thaw it). ⤢ makes it larger; when the shell exits it
   says so and offers **New shell**; **✕** ends the shell (`DELETE
-  …/execs/{id}` at the manager, from the page). One terminal at a time;
-  one left by a page that closed runs on until its manager ends it.
+  …/execs/{id}` at the manager, from the page). Each terminal is a tab of
+  one dock (`terminals.js`): **＋** opens another shell in the same sandbox,
+  a tab's ✕ ends that one, **▾** hides the dock with its shells still
+  running (a top-bar pill, "2 terminals", brings it back), and the tabs
+  stay open while you switch conversations. One left by a page that closed
+  runs on until its manager ends it.
 - **Keeping current.** After a change the conversation's binding is read
   again (`GET /runs/{id}/view?limit=1` → `config`); a `run` event that
   carries `sandbox` (and `attached`, a count) updates it at once, and a
@@ -1618,9 +1622,12 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   the create form, and Share with a terminal tile… pushes its form (Stop
   sharing behind a share's swipe, confirmed). A ▣ tool card is a `terminal` icon; what the call came to
   is a chip (`exit 1 · 14s · job 3` in red), its command the card's first
-  line. It opens no terminal: the app's `terminal` dials only the tile's own
-  routes, and a manager's `tty` is another tile's (a D96 difference,
-  `model/features.js`).
+  line. A row's **Terminal** and the Sandbox screen's **Open terminal**
+  push a Terminal screen: the app's `terminal` dials only the tile's own
+  routes, so it goes through the agent's relay (`GET
+  /sandboxes/{ref}/terminal?cwd=`, D-harness §4.2.8), which checks that you
+  may use the sandbox and dials its manager's `tty` as you. One at a time
+  (the app's terminal closes its socket when its screen goes).
 
 **Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
 cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
@@ -1717,6 +1724,26 @@ auto-edit mode (`autoMode`: claude `acceptEdits`, codex `agent`, gemini
 created; one that exists keeps its mode. Explicit modes (bypass, full
 access) are never a setting.
 
+**Terminals and sign-in in the UI.** A coding agent that needs you to sign
+in parks its run on `pendingState.kind == "login"` (status `waiting_input`);
+the conversation then shows a sign-in card with the agent's own methods:
+a **login terminal** (web: a tab of the terminal dock running the agent's
+sign-in command through the manager's `tty?cwd=&cmd=`, as you; the app:
+the run's terminal relay, `…/harness/terminal?login=1`), then **Signed
+in? Retry** (`POST /runs/{id}/resume`: the agent starts afresh and reads
+the new credentials); an **API key** (a password field, sent once to
+`POST /runs/{id}/harness/authenticate` — never stored, never shown again);
+a **device code** (the page to open and the code to enter; the run goes on
+by itself once you are done). The card says that the credentials land in
+the sandbox's home — anyone who may use it acts as you with that agent
+there, and its clones and snapshots keep them — and on a sandbox others
+may use it asks for a confirm first (`confirm: true`). Someone who may not
+use the sandbox is told whom to ask. A coding agent's conversation also
+has **>_ Terminal** (web: the top bar; the app: ⋯ → Terminal) — a shell
+in its sandbox at its working directory. Only a harness run parked on
+`login` gets the card (`signin.js`, `native/terminal.js`); other parks are
+their own cards'.
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
@@ -1744,7 +1771,8 @@ the same model.
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
 | `harness.js`, `harness-heads.js`, `harness-store.js` | coding harnesses (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — being built; their routes are documented here when the backend serves them): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
-| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `terminals.js` | the terminal dock's tabs (`termsOf(app)`: open, show, hide, close, a New shell in place — page-level, not a conversation's), a coding agent's run relay (`runTerminalSrc`), and the sign-in card (`signIn`): a login park's methods, the sandbox whose home the credentials land in, whether it is shared (a confirm), whom to ask |
 
 `createApp({deltas, page})`: drafts arrive as deltas (`/stream?deltas=1`,
 "Deltas" above) and the open conversation is read in pages (`?limit=`,
@@ -1778,6 +1806,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
 | `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
 | `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the ▣ in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
+| `native/terminal.js` | the Terminal screen (the app's `terminal` on the tile's relays) and a coding agent's sign-in: the notice, Sign in in the composer and ⋯, the Sign in screen |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
