@@ -10,7 +10,7 @@ package xbin
 //
 // When the tile declares "partitionMail": "/mailbox" beside "global", xbind
 // rings that path on the addressee's instance whenever its inbox holds
-// items (a MailBell body, From: xbin/mail); the handler reads with Inbox
+// items (a MailBell body, From: xbin/mail); the handler reads with InboxPage
 // and acknowledges with Ack. Without it, the code polls Inbox.
 
 import (
@@ -103,10 +103,18 @@ func MailWith(to, topic string, data any, o MailOptions) (string, error) {
 	return out.ID, nil
 }
 
-// Inbox lists this partition's unacknowledged mail, oldest first: after is
-// the last id already read ("" from the start), limit at most 1000 (0 means
-// 100). An empty page means nothing more is waiting.
-func Inbox(after string, limit int) ([]MailItem, error) {
+// MailPage is one page of this partition's inbox. More says items wait
+// past it: a page stops at its limit or at about 8 MiB of data, so a page
+// shorter than the limit isn't the end — only More false is.
+type MailPage struct {
+	Items []MailItem `json:"items"`
+	More  bool       `json:"more"`
+}
+
+// InboxPage lists this partition's unacknowledged mail, oldest first: after
+// is the last id already read ("" from the start), limit at most 1000 (0
+// means 100). Read on with the last item's ID while More.
+func InboxPage(after string, limit int) (MailPage, error) {
 	q := url.Values{}
 	if after != "" {
 		q.Set("after", after)
@@ -120,23 +128,29 @@ func Inbox(after string, limit int) ([]MailItem, error) {
 	}
 	resp, err := Client().Get(u)
 	if err != nil {
-		return nil, err
+		return MailPage{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if resp.StatusCode == http.StatusNotFound {
-			return nil, errNoMail(resp.Status)
+			return MailPage{}, errNoMail(resp.Status)
 		}
-		return nil, fmt.Errorf("partition mail: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return MailPage{}, fmt.Errorf("partition mail: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
-	var out struct {
-		Items []MailItem `json:"items"`
-	}
+	var out MailPage
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("partition mail: %w", err)
+		return MailPage{}, fmt.Errorf("partition mail: %w", err)
 	}
-	return out.Items, nil
+	return out, nil
+}
+
+// Inbox is InboxPage's items alone. A page shorter than limit may not be
+// the end (it stops at about 8 MiB of data): an empty page is, or use
+// InboxPage and its More.
+func Inbox(after string, limit int) ([]MailItem, error) {
+	pg, err := InboxPage(after, limit)
+	return pg.Items, err
 }
 
 // Ack removes items from this partition's inbox; ids already acknowledged

@@ -187,8 +187,8 @@ partition keep <tile>` ([bx.md](bx.md)), or with `POST
 /api/xbin/partitions/mode`. A switch
 first shows what it deletes — data namespaces (the tile's own and every
 deployment's), people's partitions, vault keys, cron jobs, bus
-subscriptions, interface instances and ingress hosts, partition mail,
-bytes, backup keys —
+subscriptions, interface instances and ingress hosts, bytes (partition
+mail's among them: it has no count of its own), backup keys —
 and what it keeps: the code (the tile directory, checkpoints, deployment
 records), grants and bindings, the tile's own terminal layer, people's
 homes and their own agent-session history, records a provider keeps (such
@@ -351,15 +351,23 @@ own storage keeping a copy, and a person's partition hands something back.
   data (never in a sandbox) and not backed up.
 - **Limits.** An item is at most 1 MiB (topic and data); an inbox holds at
   most 1000 items and 64 MiB — the sender gets 507 until the addressee
-  acknowledges some. An item expires after its `ttl` (7 days by default, at
-  most 30), and is then dropped and counted.
+  acknowledges some. The global instance's inbox is every person's to
+  mail, so each sender has a share of it: at most 100 of their items and
+  8 MiB waiting there (507 to that sender alone — one person can't fill it
+  for everyone). An item expires after its `ttl` (7 days by default, at
+  most 30), and is then dropped and counted; one that can't be opened
+  (sealed under another vault key, or damaged) is dropped at the next read
+  and counted as undeliverable, and never holds up the items behind it.
 - **At least once.** An item stays until it is acknowledged or expires, so a
   handler may see it again: dedupe by `id`.
 - **The doorbell.** With `"partitionMail": "/mailbox"`, xbind POSTs
   `{"partition": "<addressee>", "pending": <n>}` to that path on the
   addressee's instance, as `xbin/mail` (role `writer`), while its inbox
-  holds items: at once for a new item, again when the addressee starts,
-  and after 1 min, 5 min, 30 min, 2 h, then every 6 h while items remain.
+  holds items: at once for a new item, again when the addressee starts
+  (unless a ring reached that start — often the doorbell's own ring
+  started it), and after 1 min, 5 min, 30 min, 2 h, then every 6 h while
+  items remain; a start never shortens those steps, so an item a handler
+  leaves unacknowledged wakes a stopped partition less and less often.
   It starts a person's stopped partition only if that partition has run
   before and its person can still read the tile — mail never starts a
   person's first instance — and within the background start limits (6 mail
@@ -370,7 +378,8 @@ own storage keeping a copy, and a person's partition hands something back.
   deletion, deletes their inbox; a switch between user partitions and
   unpartitioned deletes the tile's mail; removing `"global"` deletes the
   global instance's inbox only. While the tile is paused every mail call
-  answers 409.
+  answers 409; while the vault is sealed a send and a read that returns
+  items answer 503, and acknowledging still works.
 
 ```go
 // the global instance hands alice a message
@@ -378,19 +387,34 @@ id, err := xbin.Mail("user:alice", "handoff/dm", dm)
 
 // the tile's partitionMail handler, the same code in every instance
 mux.HandleFunc("POST /mailbox", func(w http.ResponseWriter, r *http.Request) {
+	after := ""
 	for {
-		items, err := xbin.Inbox("", 100)
-		if err != nil || len(items) == 0 {
-			break
+		pg, err := xbin.InboxPage(after, 100)
+		if err != nil { // the doorbell rings again later
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
 		}
-		for _, it := range items {
-			handle(it)      // dedupe by it.ID; it.From is "global" or "user:<id>"
-			xbin.Ack(it.ID) // acknowledged: it is gone
+		var done []string
+		for _, it := range pg.Items {
+			handle(it) // dedupe by it.ID; it.From is "global" or "user:<id>"
+			done = append(done, it.ID)
+			after = it.ID
+		}
+		if err := xbin.Ack(done...); err != nil { // one call a page; acknowledged items are gone
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		if !pg.More { // a short page isn't the end; More is
+			break
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 })
 ```
+
+Acknowledge what you won't handle too (a topic this version doesn't know):
+an item left unacknowledged is rung for again — less and less often, and it
+starts a stopped partition each time — until it expires.
 
 `xbin.MailWith(to, topic, data, xbin.MailOptions{TTL: …, Source: …})` sets
 the expiry; `Source` names where a private trigger's event came from when
@@ -720,7 +744,7 @@ xbin.Partition()        // "user:<id>" | "global" | "" (not partitioned) — $XB
 xbin.PartitionUser()    // the <id> of a user partition, "" otherwise
 xbin.RequirePartition() // exit 3 unless run as a partition (§Older xbinds)
 xbin.GlobalURL(path)    // this tile's global instance, from a user partition
-xbin.Mail(to, topic, data)  // partition mail (§Partition mail); Inbox, Ack
+xbin.Mail(to, topic, data)  // partition mail (§Partition mail); InboxPage, Ack
 c := xbin.Caller(r)
 c.Partition             // X-XBin-Partition: the partition the call acts in, "" if none
 c.PartitionID           // X-XBin-Partition-Id: key per-caller state on it

@@ -2972,7 +2972,11 @@ POST   /partitions/mail            a partitioned tile's global instance (its
                                    from the body (a from field is ignored).
                                    Limits: topic ≤ 256 bytes, topic + data
                                    ≤ 1 MiB (413); an inbox holds ≤ 1000
-                                   items and ≤ 64 MiB (507 to the sender).
+                                   items and ≤ 64 MiB (507 to the sender);
+                                   in the global instance's inbox each
+                                   sender (global, each person) has ≤ 100
+                                   items and ≤ 8 MiB waiting (507 "your
+                                   share … is full" to that sender only).
                                    ttl: seconds, 1–2592000 (default 7 days;
                                    400 outside). source (the global instance
                                    to a person only): a private trigger's
@@ -2985,19 +2989,31 @@ POST   /partitions/mail            a partitioned tile's global instance (its
                                    sealed with the vault barrier; not backed
                                    up; not in the audit stream (data plane).
                                    Rings the addressee's doorbell (below)
-GET    /partitions/mail            as POST, reading the caller's OWN inbox
+GET    /partitions/mail            the same callers as POST (403 and 409
+                                   alike), reading the caller's OWN inbox
                                    only — its person's partition's, or the
                                    global instance's; no parameter names
                                    another, and admins see counts only (GET
                                    /partitions). ?after=<id> ?limit=1-1000
                                    (100) → {items: [{id, from, topic, data,
-                                   at, expires}], more}: oldest first,
-                                   expired items dropped (and counted)
-POST   /partitions/mail/ack        as GET. {ids} (≤ 1000) → {ok}: removes
-                                   those items of the caller's own inbox;
-                                   ids acked or expired already are nothing
-                                   to do. Delivery is at-least-once until
-                                   acked or expired: dedupe by id
+                                   at, expires}], more}: oldest first. A
+                                   page stops at limit or past ~8 MiB of
+                                   data (at least one item): only more
+                                   false ends the inbox. Expired items are
+                                   dropped (counted as expired); an item
+                                   that can't be opened (sealed under
+                                   another key, damaged) is dropped
+                                   (counted as undeliverable) and never
+                                   stops the page. 503 while the vault is
+                                   sealed and the page would hold items (an
+                                   empty inbox answers 200)
+POST   /partitions/mail/ack        the same callers as GET. {ids} (≤ 1000)
+                                   → {ok}: removes those items of the
+                                   caller's own inbox; ids acked or expired
+                                   already are nothing to do. It never
+                                   opens an item: it works while the vault
+                                   is sealed. Delivery is at-least-once
+                                   until acked or expired: dedupe by id
 
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
@@ -4127,9 +4143,11 @@ addressee>` (`global`, or `user:<id>` with its `X-XBin-Partition-Id`):
 ```
 
 The handler reads with `GET /partitions/mail` and acks; the answer's status
-only is logged. A new item rings at once, the addressee's start (whatever
-starts it) rings again, and while items remain it rings after 1 min, 5 min,
-30 min, 2 h, then every 6 h. A person's stopped partition is started for it
+only is logged. A new item rings at once and starts the steps over; the
+addressee's start (whatever starts it) rings again unless a ring was in
+flight at it or came after it (the doorbell's own ring often started it);
+and while items remain it rings after 1 min, 5 min, 30 min, 2 h, then every
+6 h — a start doesn't shorten the steps. A person's stopped partition is started for it
 — a background start that counts against the tile's mail starts (6 a
 minute) — only when it has run before, and only while its person exists (the
 same incarnation), is enabled and can read the tile; otherwise its items wait

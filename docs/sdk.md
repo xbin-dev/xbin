@@ -268,17 +268,19 @@ person's partition ([partitions.md](/docs/partitions.md) §Partition mail):
 id, err := xbin.Mail("user:alice", "handoff/dm", v) // global → a person; a partition mails "global" only
 id, err = xbin.MailWith("user:alice", "handoff/event", v,
 	xbin.MailOptions{TTL: 24 * time.Hour, Source: "apps/webhooks"}) // expiry; a private trigger's source
-items, err := xbin.Inbox(after, 100) // this partition's own unacked items, oldest first
-err = xbin.Ack(items[0].ID)          // done with it
+pg, err := xbin.InboxPage(after, 100) // this partition's own unacked items, oldest first
+err = xbin.Ack(ids...)                 // done with them: they are gone
 ```
 
 `MailItem.From` is stamped by xbind (`global` or `user:<id>`): trust it,
 never a person named in `Data`. Delivery is at-least-once, so dedupe by
-`ID`. With `"partitionMail": "/mailbox"` in `xbin.json` (beside
-`"global"`), xbind POSTs a `MailBell` (`{partition, pending}`, `From:
-xbin/mail`) to that path while the inbox holds items; without it, poll
-`Inbox`. On an xbind without partition mail the three return an error
-naming `partition-mail/1`.
+`ID`. A page stops at its limit or at about 8 MiB of data, so a short page
+isn't the end: read on with the last item's `ID` while `MailPage.More`
+(`Inbox` is `InboxPage` without it). With `"partitionMail": "/mailbox"` in
+`xbin.json` (beside `"global"`), xbind POSTs a `MailBell` (`{partition,
+pending}`, `From: xbin/mail`) to that path while the inbox holds items;
+without it, poll `InboxPage`. On an xbind without partition mail they
+return an error naming `partition-mail/1`.
 
 ### Notifying a person on their phone
 

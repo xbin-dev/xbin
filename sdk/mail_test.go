@@ -91,6 +91,26 @@ func TestMailHelpers(t *testing.T) {
 	}
 }
 
+// InboxPage carries the answer's more: a page cut short by xbind's byte cap
+// says more wait, so a handler doesn't stop at a short page.
+func TestMailInboxPage(t *testing.T) {
+	calls := mailGateway(t, func(method, path string) (int, string) {
+		return 200, `{"items":[{"id":"0123456789abcdef01234567","from":"user:alice","topic":"big","data":null,` +
+			`"at":"2026-09-30T10:00:00Z","expires":"2026-10-07T10:00:00Z"}],"more":true}`
+	})
+	pg, err := InboxPage("", 50)
+	if err != nil || len(pg.Items) != 1 || !pg.More || pg.Items[0].From != "user:alice" {
+		t.Fatalf("InboxPage: %+v %v", pg, err)
+	}
+	if got := calls(); len(got) != 1 || got[0] != "GET /api/xbin/partitions/mail?limit=50 " {
+		t.Errorf("calls %q", got)
+	}
+	mailGateway(t, func(string, string) (int, string) { return 404, "404 page not found" })
+	if _, err := InboxPage("", 0); err == nil || !strings.Contains(err.Error(), "partition-mail/1") {
+		t.Errorf("InboxPage on an older xbind: %v", err)
+	}
+}
+
 func TestMailOlderXbind(t *testing.T) {
 	mailGateway(t, func(method, path string) (int, string) {
 		if method == "POST" && path == "/api/xbin/partitions/mail" {
