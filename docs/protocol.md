@@ -3040,6 +3040,12 @@ POST   /restore                    admin. body {component, version?, file?,
                                    deleted …", switch: {at, from, to,
                                    confirm}}, before anything stops; the
                                    deployment archives it lists go with it.
+                                   The switch is remembered apart from the
+                                   tile's mode history (whose trimming never
+                                   drops it). While the tile's mode record
+                                   can't be read, every archive asks, with
+                                   its own creation date (switch: {unknown:
+                                   true, error, confirm}).
                                    A person's partition archive is never a
                                    tile (409; POST /partitions/restore), and
                                    no single file of one is ever served.
@@ -3106,7 +3112,13 @@ POST   /backup-schedule            admin. body {component, schedule, retention} 
                                    deletes the data versions no kept main
                                    archive names (never a count of their own).
                                    Each person's partition's archive keeps
-                                   its own newest N.
+                                   its own newest N; one of a partition
+                                   that is gone (swept, reset, purged,
+                                   switched away) loses every version once
+                                   its key is erased — at an archiver
+                                   without POST /archive/erase too (xbind
+                                   keeps an index of the partition archives
+                                   it wrote: data/backup-refs/partitions/).
 DELETE /backup-schedule?component= admin. remove a component's schedule
 GET    /backup-keys                admin. {mode, keys, unexported, lastExport?,
                                    exports, erased, erasedSinceExport,
@@ -3185,7 +3197,11 @@ POST   /backup/erase               admin, as a person (as export). body
                                    at, reason, wiped: {subkeys}}, as does
                                    every erase of a person's partition's key
                                    (its partition id in partition): its
-                                   sweep, reset or purge.
+                                   sweep, reset or purge. Of the history's
+                                   200 entries backup ones (backup-erase,
+                                   partition-restore) take 100 at most, the
+                                   oldest going first: they never push a
+                                   manager's act out.
 GET    /partitions/backups?tile=…  the person (their own partition), in
        [&user=…][&partitionId=…]   their own session, app or device; an
                                    admin (anyone's: the root token, or the
@@ -3199,7 +3215,10 @@ GET    /partitions/backups?tile=…  the person (their own partition), in
                                    id>, dep the primary); partitionId
                                    (u-<32 hex>) names an earlier holder's
                                    (the id deleted and recreated since),
-                                   default the person's current one.
+                                   default the person's current one. A
+                                   person names only their own current id:
+                                   any other 403, before the archiver is
+                                   asked, never saying whose it is.
                                    {tile, partition: "user:<id>",
                                    partitionId, deployment, partitioned,
                                    archiver, versions:[{version,time,size}]};
@@ -3233,7 +3252,13 @@ POST   /partitions/restore         the person (their own partition) or an
                                    now, while it is paused, for a key
                                    erased ("this backup's data was erased
                                    on <date> (<reason>)") or another
-                                   workspace's ("… import its keys"). →
+                                   workspace's ("… import its keys").
+                                   Everything is judged again under the
+                                   tile's backup lock: a switch, reset,
+                                   purge, sweep or erase that ran while the
+                                   restore waited wins (409 "… it changed
+                                   while this restore waited; nothing was
+                                   restored"). →
                                    {ok, tile, partition, partitionId, from,
                                    version, resources, earlierHolder, data,
                                    vault, registrations:[files], skipped?,
@@ -3637,7 +3662,16 @@ POST   /deployments/restore        admin (as above), and the reset level on
                                    using the target's data; data.state
                                    becomes restored. 409 when the target
                                    doesn't exist (the answer lists the
-                                   choices) or its data is busy
+                                   choices) or its data is busy, and for an
+                                   archive older than the tile's last
+                                   partition mode switch that deleted its
+                                   data (main's; a deployment's after one
+                                   that deleted everything,
+                                   docs/partitions.md §Backups): this route
+                                   can't confirm it — only POST /restore,
+                                   the whole tile's (its source and every
+                                   deployment's data that backup lists),
+                                   takes the switch's date
 POST   /deployments/backup-schedule
                                    admin (as above). {tile, deployment,
                                    schedule, retention?} → {state}: a

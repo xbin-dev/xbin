@@ -160,6 +160,45 @@ func cmdRestorePartition(args []string) error {
 	return nil
 }
 
+// partitionBackupsAnswer is POST /backup's partitions: what the backup of a
+// partitioned tile did with its people's partitions.
+type partitionBackupsAnswer struct {
+	Archived int      `json:"archived"`
+	Failed   []string `json:"failed"`
+	Skipped  string   `json:"skipped"`
+}
+
+// report prints it: a person's partition not backed up fails bx backup
+// (exit 1, the tile's own archive written all the same); a plaintext-vault
+// workspace's skipped partitions are a warning.
+func (p *partitionBackupsAnswer) report(tile string) error {
+	if p == nil {
+		return nil
+	}
+	if p.Archived > 0 {
+		fmt.Printf("  and %d people's partitions, each in an archive of its own\n", p.Archived)
+	}
+	if p.Skipped != "" {
+		fmt.Fprintln(os.Stderr, "bx: warning: "+p.Skipped)
+	}
+	for _, f := range p.Failed {
+		fmt.Fprintln(os.Stderr, "bx: a person's partition isn't backed up: "+f)
+	}
+	if len(p.Failed) > 0 {
+		return fmt.Errorf("%d people's partitions of %s aren't backed up (the tile's own archive is)", len(p.Failed), tile)
+	}
+	return nil
+}
+
+// predatesConfirm explains the 400 of an xbind older than bx restore
+// --confirm: it refuses the body's unknown field, naming the body it knows.
+func predatesConfirm(err error, confirm string) error {
+	if confirm != "" && strings.Contains(err.Error(), "need {component, version?, file?}") {
+		return fmt.Errorf("%w — this xbind predates bx restore --confirm (it has no partition mode switch to confirm): run the restore without it", err)
+	}
+	return err
+}
+
 // partitionBackupCall calls one of the routes; an xbind without them exits
 // 6 (compat rule 8: a mux 404 carries no JSON error).
 func partitionBackupCall(method, path string, body any) (map[string]any, error) {

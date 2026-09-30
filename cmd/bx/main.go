@@ -594,12 +594,15 @@ func cmdBackup(args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: bx backup <component>")
 	}
-	var out struct{ Version string }
+	var out struct {
+		Version    string
+		Partitions *partitionBackupsAnswer `json:"partitions"` // partitionbackup.go
+	}
 	if err := apiJSON("POST", "/api/xbin/backup", map[string]string{"component": args[0]}, &out); err != nil {
 		return err
 	}
 	fmt.Printf("backed up %s → version %s\n", args[0], out.Version)
-	return nil
+	return out.Partitions.report(args[0])
 }
 
 func cmdBackups(args []string) error {
@@ -655,9 +658,9 @@ func cmdRestore(args []string) error {
 				file = args[i]
 			}
 		case "--confirm":
-			i++
-			if i < len(args) {
-				confirm = args[i]
+			var err error
+			if confirm, err = nextArg(args, &i); err != nil {
+				return fmt.Errorf("--confirm needs the date of the tile's partition mode switch (YYYY-MM-DD), as the refusal names it")
 			}
 		default:
 			if isFlag(args[i]) {
@@ -674,7 +677,7 @@ func cmdRestore(args []string) error {
 	}
 	body := map[string]string{"component": comp, "version": version, "file": file}
 	if confirm != "" {
-		body["confirm"] = confirm // an older xbind ignores it
+		body["confirm"] = confirm // an xbind without partitions refuses the field (400): predatesConfirm
 	}
 	if file != "" {
 		resp, err := api("POST", "/api/xbin/restore", body)
@@ -689,7 +692,7 @@ func cmdRestore(args []string) error {
 		return err
 	}
 	if err := apiJSON("POST", "/api/xbin/restore", body, nil); err != nil {
-		return err
+		return predatesConfirm(err, confirm)
 	}
 	fmt.Printf("restored %s\n", comp)
 	return nil

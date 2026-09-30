@@ -639,22 +639,27 @@ partitioned tile, **each person's partition gets archives of its own**:
   record. **The tile's own archives hold nothing of anyone's partition**,
   and people's terminal layers, partition agent history and mail are in no
   archive. A partition that can't be archived doesn't fail the backup; the
-  answer lists it (`partitions: {archived, failed}`). A plaintext-vault
-  workspace (`--insecure-vault`) archives no partition — a person's data
-  never leaves in the clear — and the answer says so. A schedule's
-  retention keeps each partition's newest versions.
+  answer lists it (`partitions: {archived, failed}`), and `bx backup`
+  then exits 1. A plaintext-vault workspace (`--insecure-vault`) archives
+  no partition — a person's data never leaves in the clear — and the
+  answer (and `bx backup`, as a warning) says so. A schedule's retention
+  keeps each partition's newest versions, and deletes every version of a
+  partition that is gone once its key is erased.
 - **Restoring a partition.** `bx restore <tile> --partition` (`POST
   /api/xbin/partitions/restore`) replaces your partition — its data, vault
   and registrations — with a backup of it, after you type `<tile>
   user:<you>`; `bx backups <tile> --partition` lists the versions. You do it
-  from your own session; an admin may for anyone (`--user`), and the
-  person is told. Only the archive of **the same tile and the same person**
+  from your own session, for your own partition only (naming any other
+  partition id is refused, before anything is fetched); an admin may for
+  anyone (`--user`), and the person is told. Only the archive of **the same tile and the same person**
   restores, and only while the tile is partitioned: a partition archive is
   never restored as a tile, into global, or into anyone else's partition.
   If the person's id was deleted and given out again since the backup, it
   was an earlier holder's: only an admin restores it, naming the id again
   (`--partition-id <the old one> --to <id>`), and the person is told. Main
-  archives never restore into a partition.
+  archives never restore into a partition. A restore judges all of this
+  again once it holds the tile's backups: a switch, reset or erase that ran
+  while it waited wins, and nothing is restored.
 - **Erasing.** Deleting a partition's backup key crypto-erases it in every
   archive, and the archiver is asked to delete those versions. That
   happens when the partition's data is deleted: a mode switch between user
@@ -672,7 +677,11 @@ partitioned tile, **each person's partition gets archives of its own**:
   switch deleted — a plaintext archive's data, the registrations any
   archive lists — into the global instance's namespace, never a person's
   partition. A sealed backup's data was erased with its key; its source
-  restores.
+  restores. A deployment's data restore (`POST /api/xbin/deployments/restore`)
+  refuses such a backup: only the whole tile's restore takes the
+  confirmation. The switch is remembered for good, however long the tile's
+  history grows; while the tile's mode record can't be read, every restore
+  of it asks, with the backup's own date.
 
 ## In your code
 
