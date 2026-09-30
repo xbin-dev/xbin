@@ -322,6 +322,7 @@ func TestPartitionsSmokeW2(t *testing.T) {
 // shell (flowc_test.go's termSession, for this package).
 type w2Term struct {
 	conn      *websocket.Conn
+	id        string // the session's id (its session frame's)
 	partition string
 	mu        sync.Mutex
 	out       []byte
@@ -375,6 +376,7 @@ func w2OpenTerm(t *testing.T, d *xbindtest.Daemon, tile string, cred xbindtest.H
 	case <-time.After(2 * time.Minute):
 		t.Fatal("/ws/term sent no session frame")
 	}
+	s.id = id
 	t.Cleanup(func() {
 		conn.Close()
 		d.Call(t, "DELETE", "/ws/term?session="+id, nil)

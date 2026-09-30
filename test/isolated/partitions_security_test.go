@@ -5,24 +5,34 @@ package isolated
 // partitions_security_test.go — the partitioned tiles' security suite
 // (plans/partitions/10 §B.2, the threat model; work pack I1), on a real
 // `xbind --isolate` with owner auth on, with S1's fixture and helpers
-// (partitions_smoke_fx_test.go). Each case is one actor's explicit attempt
-// on one path the table lists, with its exact expected answer: the status
-// and the refusal's words, and that no other person's data comes back.
+// (partitions_smoke_fx_test.go); its longer cases are in
+// partitions_security_cases_test.go. Each case is one actor's explicit
+// attempt on one path the table lists, with its exact expected answer: the
+// status and the refusal's words, and that no other person's data comes
+// back. A check that something did not reach someone has a positive control
+// beside it — the same path reaching whom it should — so a dead socket or a
+// fixture that never ran fails instead of passing.
 //
 // The table's rows and where each is attempted — this file's subtests
 // (TestPartitionsSecurity/<name>), or the suite that already makes the same
-// attempt, named so that nothing is tried twice:
+// attempt, named so that nothing is tried twice. "In-process" names a
+// package test that is the only coverage of that part of the row:
 //
 //	bob → alice's data through /api/<tile>/…        TestPartitionsSmoke/bob-never-sees-alice
 //	bob forges X-XBin-Partition/-Id/-User           TestPartitionsSmoke/bob-never-sees-alice, TestPartitionsSmokeW2/global-address
 //	bob holds alice's frame token                   tokens (a signed-out session's and a tampered token: 401)
-//	bob's /ws/events: bus, session, status          events (and admins': no blanket pass)
-//	bob's terminal: /tmp leftovers of alice's       terminal (her layer; sessions start in $HOME)
+//	bob's /ws/events: bus, session, status          events (her bus event, status and terminal's term events reach bob, an
+//	                                                  admin and the root token nowhere); an agent session's own `session`
+//	                                                  events: in-process (internal/server TestPartitionTermAdmin)
+//	bob's terminal: /tmp leftovers of alice's       terminal (her /opt change is in her layer only; sessions start in $HOME)
 //	a writer changes code to exfiltrate             residual (PD-23): the trust panel, not an xbind refusal
 //	admin: API, view-as, logs, vault, mail          TestPartitionsSmoke/admin, /view-as, /logs; TestPartitionsSmokeW2/vault; TestPartitionsSmokeMail/outsiders
-//	admin: reattach, drive, rename (kill allowed)   terminal
+//	admin: reattach, drive, events, rename (kill)   terminal (reattach; get, events, log, prompt; rename; the listing's
+//	                                                  name; kill allowed); cancel, restart, diff, answers: in-process
+//	                                                  (TestPartitionTermAdmin)
 //	admin: backups                                  TestPartitionsSmokeBackups (sealed: ciphertext at the archiver)
-//	admin: a reset link / password for alice        credential-reset (credentialResetConfirm on: held)
+//	admin: a reset link / password / SSO email      credential-reset (credentialResetConfirm on: held; the link redeemed by
+//	                                                  whoever holds it refused until alice allows it; alice told)
 //	admin or root token forges mail to alice        TestPartitionsSmokeMail/outsiders
 //	admin: Z uses X, mail wakes Z                   TestPartitionsSmokeMail/never-run-restart (mail starts no partition); consent
 //	admin: restore alice's archive into bob         TestPartitionsSmokeBackups (bob, alice's frame, bob's partition id: 403)
@@ -30,7 +40,7 @@ package isolated
 //	bob's partition of Z → X                        TestPartitionsSmoke/cross-tile; consent (policy on)
 //	a partition's code: F5 to global                TestPartitionsSmokeW2/global-address (attributed)
 //	a partition's code: the bot's replies anywhere  TestPartitionsAgentChannels/forged-outbox
-//	a partition's code: shared routing rows         read-only ("read" resources refuse writes)
+//	a partition's code: shared routing rows         read-only ("read" kv, blob and bus refuse writes, deletes, publishes)
 //	a partition's code: a private empty trigger     TestPartitionsAgentChannels/private-webhook-trigger; the agent template's trigger tests
 //	members widen a hosted conversation             B2d (not built in this wave)
 //	the global instance's code → a person           global-no-route
@@ -38,25 +48,39 @@ package isolated
 //	  abstract sockets, host network                  abstract sockets, host network under a net → host bind)
 //	alice's partition spams people                  notify (clamped to alice); TestPartitionsSmokeMail/person-to-global (mail)
 //	a code writer flips partition / rolls back      TestPartitionsSmoke/mode-keep, /mode-pending-unpartitioned; test/partitions_test.go
-//	a code writer switches the mode                 mode-deciders (the tile's own credentials, a writer: 403)
+//	                                                  (TestPartitionsNoIsolate/pending, /rollback)
+//	a code writer switches the mode                 mode-deciders (a writer, the tile's frame, instance and terminal tokens: 403)
 //	a tile manager switches                         TestPartitionsSmoke/mode-switch (typed, recorded)
-//	a builtin update / template merge               test/partitions_test.go; TestPartitionsTemplateMerge
+//	a builtin update / template merge               TestPartitionsTemplateMerge (a template instance's merge, e2e); a
+//	                                                  builtin update adding partition: in-process only
+//	                                                  (internal/broker TestBuiltinUpdatePROnlyPartition,
+//	                                                  TestUpdaterReadsRecordedPartition)
 //	no bind authority: a shared provider            bind-authority
-//	bob's partition / global → alice's personal     personal-bind (making one: 403) and TestPartitionsSmokeW2/personal-bind (calls: 403)
+//	bob's partition / global → alice's personal     personal-bind (making one: 403; calling one: 403, and alice's own
+//	                                                  reaches it — TestPartitionsSmokeW2/personal-bind's control)
 //	an archiver reads backups                       TestPartitionsSmokeBackups (XBINSEAL, no plaintext)
 //	an old backup of a deleted person               TestPartitionsSmokeBackups (erased key: unrestorable)
 //	a live partition token after a mode change      TestPartitionsSmoke/token-revocation, /mode-switch
-//	a lost users file                               test/downgrade_test.go (uid re-adopted)
+//	a lost users file / index                       test/downgrade_partitions_test.go (TestDowngradePartitions: the previous
+//	                                                  release drops the uids — re-adopted; a person it deleted and made
+//	                                                  again gets fresh partitions); a lost partition.json rebuilt: in-process
+//	                                                  (internal/broker TestPartitionRecordsReadopt); a corrupted file: not tried
 //	deleted alice, recreated                        TestPartitionsSmoke/person-recreated
-//	a person who lost read                          TestPartitionsSmoke/token-revocation, /cross-tile
+//	a person who lost read                          lost-read (their partition's cron job is dormant); their bus
+//	                                                  subscriptions: in-process (TestPartitionRegsLostRead); their
+//	                                                  tokens: TestPartitionsSmoke/token-revocation, /cross-tile
 //	a provider keyed on From                        TestCodingSandboxContract (user-partitions through xbind)
-//	a crash in alice's partition                    events (partition-scoped status)
+//	a crash in alice's partition                    crash (the breaker's error names her partition, no log path; her
+//	                                                  sockets only)
 //
 //	set -a; eval "$(sed -n 's/^export \([A-Z_]*\) := \(.*\)$/\1=\2/p' .dev.mk | grep -v ^PATH)"; set +a
 //	go test -tags=integration -count=1 -v -run '^TestPartitionsSecurity$' ./test/isolated/
 //
-// Like the smoke, it needs user namespaces, a base rootfs and gocryptfs: run
-// it with the Bash sandbox off on a dev box; CI skips it.
+// Like the smoke, it needs user namespaces, a base rootfs and gocryptfs: a
+// dev box's suite, run with the Bash sandbox off. CI's integration job has
+// no rootfs, so it SKIPs there (xbindtest.Require): the release checklist
+// (plans/partitions/records/I1.md) runs it. The lost-read case waits for a
+// cron job's first minute, so the suite takes about two minutes.
 
 import (
 	"bytes"
@@ -76,12 +100,13 @@ import (
 	"github.com/xbin-dev/xbin/test/xbindtest"
 )
 
-const secTile = "apps/psec" // ["user", "global"]: kv, a cron, a bus; net and a multi mcp slot
+const secTile = "apps/psec" // ["user", "global"]: kv, a cron, a bus, "read"-shared kv, blob and bus; net and a multi mcp slot
 
 // secRoutes are the security probe's routes beside the wave-2 probe's: a
 // POST relay through xbin.Client, its network namespace and the abstract
 // unix sockets it sees, a TCP dial, a loopback listener and an abstract
-// socket of its own, a bus publish and a status report.
+// socket of its own, a bus publish, a status report, and an exit (a
+// crash, logged first).
 const secRoutes = `	mux.HandleFunc("POST /callp", func(w http.ResponseWriter, r *http.Request) {
 		resp, err := xbin.Client().Post("http://xbin"+r.URL.Query().Get("path"), "application/json", r.Body)
 		if err != nil {
@@ -150,6 +175,11 @@ const secRoutes = `	mux.HandleFunc("POST /callp", func(w http.ResponseWriter, r 
 		}
 		reply(w, 200, map[string]string{"ok": "reported"})
 	})
+	mux.HandleFunc("POST /exit", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("crash-probe exiting in %s", xbin.Partition())
+		reply(w, 200, map[string]string{"ok": "exiting"})
+		go func() { time.Sleep(200 * time.Millisecond); os.Exit(1) }()
+	})
 `
 
 // secSource is the wave-2 probe with the security routes.
@@ -161,10 +191,12 @@ func secWrite(t *testing.T, d *xbindtest.Daemon) {
 	t.Helper()
 	files := w2Files(secTile, `, "partition": ["user", "global"], "uses": [`+
 		`{"target": "res:`+secTile+`/kv", "role": "writer"}, {"target": "res:`+secTile+`/beat", "role": "writer"}, `+
-		`{"target": "res:`+secTile+`/bus", "role": "writer"}, {"target": "res:`+secTile+`/pub", "role": "writer"}], `+
+		`{"target": "res:`+secTile+`/bus", "role": "writer"}, {"target": "res:`+secTile+`/pub", "role": "writer"}, `+
+		`{"target": "res:`+secTile+`/pubblob", "role": "writer"}, {"target": "res:`+secTile+`/pubbus", "role": "writer"}], `+
 		`"interfaces": {"net": {"kind": "net"}, "mcp": {"kind": "http", "service": "mcp", "multi": true}}`)
 	files["backend/main.go"] = secSource
-	files["scope.json"] = `{"resources": {"kv": {"type": "kv"}, "beat": {"type": "cron"}, "bus": {"type": "bus"}, "pub": {"type": "kv", "shared": "read"}}}` + "\n"
+	files["scope.json"] = `{"resources": {"kv": {"type": "kv"}, "beat": {"type": "cron"}, "bus": {"type": "bus"}, "pub": {"type": "kv", "shared": "read"}, ` +
+		`"pubblob": {"type": "blob", "shared": "read"}, "pubbus": {"type": "bus", "shared": "read"}}}` + "\n"
 	m := files["xbin.json"]
 	delete(files, "xbin.json")
 	if err := d.WriteFiles(secTile, files); err != nil {
@@ -275,10 +307,15 @@ func TestPartitionsSecurity(t *testing.T) {
 	d.Bind(t, secTile, "net", "host")
 
 	api := "/api/" + secTile
-	for _, p := range []string{"alice", "bob", "carol"} {
+	e.addPerson(t, "frank", "user") // the lost-read case's: he loses read on the tile
+	for _, p := range []string{"alice", "bob", "carol", "frank"} {
 		e.put(t, api+"/kv/kv/secret", p+"-secret", e.fr(t, secTile, p))
 	}
 	e.put(t, api+"/kv/kv/secret", "global-secret")
+	for _, p := range []string{"alice", "bob"} { // the events and terminal cases' sessions
+		d.Must(t, "PUT", "/api/xbin/access", map[string]string{"tile": secTile, "kind": "user", "id": p, "level": "terminal"}, 200)
+	}
+	lostRead := secLostReadSetup(t, e) // checked a minute on, in lost-read
 
 	t.Run("tokens", func(t *testing.T) {
 		// bob holding alice's frame token: it is hers, bound to the session
@@ -304,116 +341,46 @@ func TestPartitionsSecurity(t *testing.T) {
 	t.Run("read-only", func(t *testing.T) {
 		// a "shared": "read" resource is where shared routing rows live:
 		// global writes it, a person's partition only reads it — through
-		// its backend's kv client and through the kv API with its own token
+		// its backend's kv client and through the resource APIs with its
+		// own token: a kv's put and delete, a blob's put and delete, a
+		// bus's publish
 		e.put(t, api+"/kv/pub/route", "from-global")
+		d.Must(t, "PUT", "/api/xbin/blob/res:"+secTile+"/pubblob/route", "blob-from-global", 200)
 		for _, p := range []string{"alice", "bob"} {
 			secExpect(t, p+" reads the read-shared kv", d.Call(t, "GET", api+"/kv/pub/route", nil, e.fr(t, secTile, p)), nil, psOK("from-global"))
 		}
 		secExpect(t, "alice's backend writes the read-shared kv", d.Call(t, "PUT", api+"/kv/pub/route", "alice-route", e.fr(t, secTile, "alice")),
 			nil, psWant{502, "is read-only for people's partitions", false})
 		tok := xbindtest.H("Authorization", "Bearer "+e.who(t, api+"/who", e.fr(t, secTile, "alice")).Token)
-		secExpect(t, "alice's instance token writes the read-shared kv through the API",
-			d.Call(t, "PUT", "/api/xbin/kv/res:"+secTile+"/pub/route", "alice-route", tok), nil, psWant{403, "res:" + secTile + "/pub is read-only for people's partitions", false})
-		secExpect(t, "global's value after the attempts", d.Call(t, "GET", api+"/kv/pub/route", nil), []string{"alice-route"}, psOK("from-global"))
+		readOnly := func(res string) psWant {
+			return psWant{403, "res:" + secTile + "/" + res + " is read-only for people's partitions", false}
+		}
+		if r := d.Call(t, "GET", "/api/xbin/blob/res:"+secTile+"/pubblob/route", nil, tok); r.Status != 200 || string(r.Body) != "blob-from-global" {
+			t.Errorf("alice's instance token reads the read-shared blob (so the refusals below are the write's): %d %s", r.Status, r)
+		}
+		for _, a := range []struct {
+			name, method, path string
+			body               any
+			res                string
+		}{
+			{"puts the read-shared kv", "PUT", "/api/xbin/kv/res:" + secTile + "/pub/route", "alice-route", "pub"},
+			{"deletes the read-shared kv's key", "DELETE", "/api/xbin/kv/res:" + secTile + "/pub/route", nil, "pub"},
+			{"puts the read-shared blob", "PUT", "/api/xbin/blob/res:" + secTile + "/pubblob/route", "alice-blob", "pubblob"},
+			{"deletes the read-shared blob", "DELETE", "/api/xbin/blob/res:" + secTile + "/pubblob/route", nil, "pubblob"},
+			{"publishes on the read-shared bus", "POST", "/api/xbin/bus/publish", map[string]string{"resource": "res:" + secTile + "/pubbus", "topic": "t", "data": "alice-route"}, "pubbus"},
+		} {
+			secExpect(t, "alice's instance token "+a.name, d.Call(t, a.method, a.path, a.body, tok), nil, readOnly(a.res))
+		}
+		secExpect(t, "global's kv value after the attempts", d.Call(t, "GET", api+"/kv/pub/route", nil), []string{"alice-route"}, psOK("from-global"))
+		if r := d.Call(t, "GET", "/api/xbin/blob/res:"+secTile+"/pubblob/route", nil); r.Status != 200 || string(r.Body) != "blob-from-global" {
+			t.Errorf("global's blob after the attempts: %d %s", r.Status, r)
+		}
+		// global publishes on it (the bus accepts a writer's publish)
+		d.Must(t, "POST", "/api/xbin/bus/publish", map[string]string{"resource": "res:" + secTile + "/pubbus", "topic": "t", "data": "global-route"}, 200)
 	})
 
-	t.Run("events", func(t *testing.T) {
-		// 10 §B.2 (bob's /ws/events; admins lose the blanket pass): an
-		// event of alice's partition — a bus message in its data, its
-		// status, her terminal's term events — reaches her own sockets and
-		// the tile's credentials acting in her partition, never bob's, an
-		// admin's (carol) or the root token's
-		aliceFrame := e.secEvents(t, "alice's frame", "?frame="+e.fr(t, secTile, "alice").V)
-		aliceSess := e.secEvents(t, "alice's session", "", e.as("alice")...)
-		others := []*secEvents{
-			e.secEvents(t, "bob's frame", "?frame="+e.fr(t, secTile, "bob").V),
-			e.secEvents(t, "bob's session", "", e.as("bob")...),
-			e.secEvents(t, "carol's (admin) session", "", e.as("carol")...),
-			e.secEvents(t, "carol's frame", "?frame="+e.fr(t, secTile, "carol").V),
-			e.secEvents(t, "the root token", ""),
-		}
-		time.Sleep(500 * time.Millisecond) // the sockets are subscribed
-		d.Must(t, "POST", api+"/publish?topic=t", "alice-evt-2c9d", 200, e.fr(t, secTile, "alice"))
-		d.Must(t, "POST", api+"/publish?topic=t", "bob-evt-7e11", 200, e.fr(t, secTile, "bob"))
-		d.Must(t, "POST", api+"/status", "alice-status-51fa", 200, e.fr(t, secTile, "alice"))
-		xbindtest.Eventually(t, 20*time.Second, "alice's frame gets her partition's bus event", func() (bool, string) {
-			got := aliceFrame.with("alice-evt-2c9d")
-			return len(got) == 1 && strings.Contains(got[0], `"partition":"user:alice"`), fmt.Sprint(got)
-		})
-		xbindtest.Eventually(t, 20*time.Second, "alice's session gets her partition's status", func() (bool, string) {
-			got := aliceSess.with("alice-status-51fa")
-			return len(got) == 1 && strings.Contains(got[0], `"partition":"user:alice"`), fmt.Sprint(got)
-		})
-		if got := aliceFrame.with("bob-evt-7e11"); len(got) != 0 {
-			t.Errorf("BUG: alice's frame got bob's partition's bus event: %q", got)
-		}
-		time.Sleep(2 * time.Second) // what reaches alice's reaches the others' by now
-		for _, s := range others {
-			for _, f := range []string{"alice-evt-2c9d", "alice-status-51fa", `"partition":"user:alice"`} {
-				if got := s.with(f); len(got) != 0 {
-					t.Errorf("BUG: %s got alice's partition's event (%s): %q", s.name, f, got)
-				}
-			}
-		}
-		if got := others[0].with("bob-evt-7e11"); len(got) != 1 {
-			t.Errorf("bob's frame didn't get his own partition's bus event (so the check above proves nothing): %q", got)
-		}
-	})
-
-	t.Run("terminal", func(t *testing.T) {
-		// PD-22, PD-09: alice's shell leaves a file in /tmp; bob's shell on
-		// the same tile has a layer of his own. carol, an admin, may end
-		// alice's session but neither reattach to it nor rename it.
-		for _, p := range []string{"alice", "bob"} {
-			d.Must(t, "PUT", "/api/xbin/access", map[string]string{"tile": secTile, "kind": "user", "id": p, "level": "terminal"}, 200)
-		}
-		a := w2OpenTerm(t, d, secTile, e.as("alice")[0])
-		if out, rc := a.run(t, `echo alice-left > /tmp/alice-left-9b2e && cd && pwd && ls /tmp`, time.Minute); rc != 0 || !strings.Contains(out, "alice-left-9b2e") {
-			t.Fatalf("alice's shell: exit %d %q", rc, out)
-		}
-		b := w2OpenTerm(t, d, secTile, e.as("bob")[0])
-		out, rc := b.run(t, `ls -a /tmp; cat /tmp/alice-left-9b2e 2>&1; printf 'pwd=%s' "$PWD"`, time.Minute)
-		if strings.Contains(out, "alice-left") && !strings.Contains(out, "No such file") {
-			t.Errorf("BUG: bob's shell on %s sees alice's /tmp leftovers: exit %d %q", secTile, rc, out)
-		}
-		if !strings.Contains(out, "No such file") {
-			t.Errorf("bob's shell: %q (want cat's No such file)", out)
-		}
-		if strings.Contains(out, "pwd=/"+secTile) || strings.HasSuffix(out, "pwd=") {
-			t.Errorf("bob's shell starts in %q, want his $HOME (the tile directory is shared code)", out)
-		}
-		var rows []struct{ ID, Cwd string }
-		d.Must(t, "GET", "/api/xbin/term/sessions", nil, 200, e.as("alice")...).Decode(t, &rows)
-		id := ""
-		for _, r := range rows { // her own listing: her sessions
-			if r.Cwd == secTile {
-				id = r.ID
-			}
-		}
-		if id == "" {
-			t.Fatalf("alice's session isn't listed to her: %+v", rows)
-		}
-		refusal := "session belongs to another user: " + secTile + " keeps each person's data apart"
-		for name, cred := range map[string]xbindtest.Header{"carol (admin)": e.as("carol")[0], "bob": e.as("bob")[0]} {
-			c, r, err := d.Dial(t, "/ws/term?session="+id, cred)
-			if err == nil {
-				c.Close()
-				t.Errorf("BUG: %s reattached to alice's session", name)
-			} else if r.Status != 403 {
-				t.Errorf("%s reattaching to alice's session: %d %s (%v)", name, r.Status, r, err)
-			}
-			t.Logf("%s reattaching: %d %s", name, r.Status, cut(r.String(), 200))
-		}
-		secExpect(t, "carol renames alice's session", d.Call(t, "PATCH", "/api/xbin/term/sessions/"+id, map[string]string{"name": "carol's"}, e.as("carol")...),
-			nil, psWant{403, "session belongs to another user", false})
-		var listed []struct{ ID, Name string }
-		d.Must(t, "GET", "/api/xbin/term/sessions?all=1", nil, 200, e.as("carol")...).Decode(t, &listed)
-		t.Logf("carol's listing: %+v (refusal words: %q)", listed, refusal)
-		secExpect(t, "bob ends alice's session", d.Call(t, "DELETE", "/api/xbin/term/sessions/"+id, nil, e.as("bob")...), nil, psWant{403, "session belongs to another user", false})
-		if r := d.Call(t, "DELETE", "/api/xbin/term/sessions/"+id, nil, e.as("carol")...); r.Status/100 != 2 {
-			t.Errorf("carol (admin) ends alice's session (governance keeps kill): %d %s", r.Status, r)
-		}
-	})
+	t.Run("events", func(t *testing.T) { secEventsCase(t, e) })     // partitions_security_cases_test.go
+	t.Run("terminal", func(t *testing.T) { secTerminalCase(t, e) }) // partitions_security_cases_test.go
 
 	t.Run("host-net", func(t *testing.T) {
 		// 03 §A (the non-primary network rule), 10 §B.2: the tile's net slot
@@ -574,13 +541,22 @@ func TestPartitionsSecurity(t *testing.T) {
 		} {
 			secExpect(t, a.name+" decides the mode", d.Call(t, "POST", "/api/xbin/partitions/mode", sw, a.hdrs...), nil, psWant{403, a.refusal, false})
 		}
+		// alice's terminal on the tile (terminal level, with its API and
+		// network): its token is the tile's credential acting for her
+		d.Must(t, "PATCH", "/api/xbin/users/alice", map[string]bool{"termNet": true, "termApi": true}, 200)
+		term := w2OpenTerm(t, d, secTile, e.as("alice")[0])
+		body, _ := json.Marshal(sw)
+		out, rc := term.run(t, `curl -s -X POST -H "Authorization: Bearer $XBIN_TOKEN" -H 'Content-Type: application/json' -d '`+string(body)+
+			`' -w ' HTTP%{http_code}' "$XBIN_URL/api/xbin/partitions/mode"`, time.Minute)
+		t.Logf("alice's terminal token decides the mode: exit %d %s", rc, cut(out, 300))
+		if !strings.HasSuffix(out, " HTTP403") || !strings.Contains(out, secGlobalOnly("alice")) {
+			t.Errorf("alice's terminal token decides the mode: exit %d %q, want 403 %q", rc, out, secGlobalOnly("alice"))
+		}
 		// the request doesn't exist here: a switch needs one pending. What
 		// is checked is who is refused before that — a manager gets past it
-		r := e.mode(t, "carol", sw)
-		t.Logf("carol's (admin) dry run with no request pending: %d %s", r.Status, cut(r.String(), 300))
-		if r.Status == 403 {
-			t.Errorf("carol (a tile manager) is refused like the others: %d %s", r.Status, r)
-		}
+		// to the tile's own answer
+		secExpect(t, "carol's (admin) dry run with no request pending", e.mode(t, "carol", sw), nil,
+			psWant{409, secTile + " has no partition mode switch request (it runs user + global)", false})
 	})
 
 	t.Run("bind-authority", func(t *testing.T) {
@@ -620,6 +596,10 @@ func TestPartitionsSecurity(t *testing.T) {
 		// alice's own bind reaches her partition only
 		d.Must(t, "POST", "/api/xbin/partitions/binds", body, 200, e.as("alice")...)
 		call := api + "/call?path=/api/" + w2Mcp + "/who"
+		xbindtest.Eventually(t, time.Minute, "alice's partition calls her personal tile (the refusals' control)", func() (bool, string) {
+			w, st := relayWho(t, d.Call(t, "GET", call, nil, e.fr(t, secTile, "alice")))
+			return st == 200 && w.Caller.From == secTile && w.Caller.Partition == "user:alice", fmt.Sprintf("%d %+v", st, w)
+		})
 		for name, hdrs := range map[string][]xbindtest.Header{"bob's partition": {e.fr(t, secTile, "bob")}, "the global instance": nil} {
 			st, b := secRelay(t, d.Call(t, "GET", call, nil, hdrs...))
 			if st != 403 || !strings.Contains(b, "not granted access to "+w2Mcp) {
@@ -682,35 +662,10 @@ func TestPartitionsSecurity(t *testing.T) {
 		secExpect(t, "bob's pt2 → pt, policy off again", call("bob"), psForbid("bob", true), psOK("bob-secret"))
 	})
 
-	t.Run("credential-reset", func(t *testing.T) {
-		// G2 remaining path 2: an admin can take over a person's account by
-		// resetting its credentials; with credentialResetConfirm on, a reset
-		// link or a new password for someone who holds partitions is held
-		// (the old password keeps working) until they allow it
-		d.Must(t, "PUT", "/api/xbin/workspace-policies", map[string]bool{"credentialResetConfirm": true}, 200, e.as("carol")...)
-		defer d.Must(t, "PUT", "/api/xbin/workspace-policies", map[string]bool{"credentialResetConfirm": false}, 200, e.as("carol")...)
-		var inv struct {
-			Held      bool   `json:"held"`
-			HeldUntil string `json:"heldUntil"`
-			InviteURL string `json:"inviteUrl"`
-		}
-		d.Must(t, "POST", "/api/xbin/users/alice/invite", nil, 200, e.as("carol")...).Decode(t, &inv)
-		if !inv.Held || inv.HeldUntil == "" {
-			t.Errorf("carol's reset link for alice isn't held: %+v", inv)
-		}
-		r := d.Call(t, "PATCH", "/api/xbin/users/alice", map[string]string{"password": "carol-knows-it-1"}, e.as("carol")...)
-		if r.Status != 200 || r.Header.Get("X-XBin-Credential-Held") != "password" {
-			t.Errorf("carol sets alice's password: %d held %q %s", r.Status, r.Header.Get("X-XBin-Credential-Held"), r)
-		}
-		b, _ := json.Marshal(map[string]string{"username": "alice", "password": "carol-knows-it-1"})
-		if st, body := secLogin(t, d, b); st == 200 {
-			t.Errorf("BUG: carol's held password signs in as alice: %d %s", st, cut(body, 200))
-		}
-		e.sess["alice"] = d.Login(t, "alice", psPassword("alice")) // her own still works
-		e.forget("alice")
-		// bob, a user, mints nothing for alice
-		secExpect(t, "bob mints alice a reset link", d.Call(t, "POST", "/api/xbin/users/alice/invite", nil, e.as("bob")...), nil, psWant{403, "invites are minted by admins", false})
-	})
+	t.Run("credential-reset", func(t *testing.T) { secCredentialCase(t, e) }) // partitions_security_cases_test.go
+	t.Run("lost-read", func(t *testing.T) { secLostReadCase(t, e, lostRead) })
+	// last: it leaves alice's instance of the tile crash-looping
+	t.Run("crash", func(t *testing.T) { secCrashCase(t, e) })
 }
 
 // secAttempt is one actor's attempt: who, with what credential, and the
