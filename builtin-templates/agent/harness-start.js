@@ -127,7 +127,7 @@ ext.register({
     app.harness.ensure();
     app.sbx.ensure();
     const f = { agent: app.harness.picked() ? app.harness.pick : AGENT, ref: '' };
-    const coding = () => (f.agent !== AGENT ? app.harness.find(f.agent) : null);
+    const coding = () => { const h = f.agent !== AGENT ? app.harness.find(f.agent) : null; return h && h.available ? h : null; };
     const fields = (on) => {
       for (const id of ['n-class', 'n-system']) { const el = $(id)?.closest('.field'); if (el) el.style.display = on ? 'none' : ''; }
     };
