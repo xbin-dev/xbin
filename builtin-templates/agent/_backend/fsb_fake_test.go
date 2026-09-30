@@ -59,6 +59,7 @@ type fsbManager struct {
 	Grace       time.Duration // TERM → KILL on a timeout (0 = 5 s)
 	Ring        int           // an exec's output ring (0 = 1 MiB); it keeps between Ring and 2×Ring bytes
 	FileMax     int64         // limits.fileMax (0 = 64 MiB)
+	StdinMax    int           // limits.stdinMax (0 = 1 MiB): a stdin POST's body, a stdio socket's frame
 	// Harnesses are what hello says its image has (nil = the scripted
 	// "fake" agent, fsbFakeHarness; empty = none).
 	Harnesses []fsbHarness
@@ -246,9 +247,9 @@ type fsbHarness struct {
 
 // fsbFakeHarness is the harness hello advertises by default: hack/fakeacp,
 // the scripted ACP agent, found on the host's PATH (a sandbox's commands are
-// host processes here).
-var fsbFakeHarness = fsbHarness{ID: "fake", Title: "Fake agent (test fixture)", Argv: []string{"fakeacp"},
-	Login: "echo 'the fake agent needs no sign-in'"}
+// host processes here), signed in at a terminal by its login subcommand.
+var fsbFakeHarness = fsbHarness{ID: "fake", Title: "Fake agent (tests)", Argv: []string{"fakeacp"},
+	Login: "fakeacp login"}
 
 func (m *fsbManager) images() []map[string]any {
 	hs := m.Harnesses
@@ -440,6 +441,13 @@ func (m *fsbManager) ringSize() int {
 		return m.Ring
 	}
 	return 1 << 20
+}
+
+func (m *fsbManager) stdinMax() int {
+	if m.StdinMax > 0 {
+		return m.StdinMax
+	}
+	return fsbStdinMax
 }
 
 func (m *fsbManager) fileMax() int64 {
@@ -649,7 +657,7 @@ func (m *fsbManager) hello(w http.ResponseWriter, r *http.Request) {
 		"caps":    m.caps(), "egress": []string{"none", "internet"},
 		"images": m.images(), "sizes": []map[string]any{{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}},
 		"limits": map[string]int{"sandboxes": 0, "runTimeoutMaxMs": fsbRunMaxMs, "runOutputMax": fsbRunOutMax,
-			"execsRunning": 16, "outputRing": m.ringSize(), "stdinMax": fsbStdinMax, "fileMax": int(m.fileMax()),
+			"execsRunning": 16, "outputRing": m.ringSize(), "stdinMax": m.stdinMax(), "fileMax": int(m.fileMax()),
 			"tarMax": 1 << 30, "waitMaxSec": fsbWaitMax},
 	})
 }
@@ -1292,7 +1300,7 @@ func (m *fsbManager) run(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(stdin) > fsbStdinMax {
+	if len(stdin) > m.stdinMax() {
 		fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "stdin is over limits.stdinMax")
 		return
 	}
@@ -1785,8 +1793,8 @@ func (m *fsbManager) execStdin(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusBadRequest, "invalid", "stdin is closed")
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, fsbStdinMax+1))
-	if err == nil && len(body) > fsbStdinMax {
+	body, err := io.ReadAll(io.LimitReader(r.Body, int64(m.stdinMax())+1))
+	if err == nil && len(body) > m.stdinMax() {
 		fsbFail(w, http.StatusRequestEntityTooLarge, "too-large", "over limits.stdinMax")
 		return
 	}
@@ -2054,7 +2062,7 @@ func (m *fsbManager) stdioAttach(w http.ResponseWriter, r *http.Request) {
 		fsbFail(w, http.StatusBadRequest, "invalid", fmt.Sprintf("errSince %d is past stderr's end (%d)", errSince, errTotal))
 		return
 	}
-	c, err := fsbws.Upgrade(w, r, &fsbws.UpgradeOptions{MaxMessageSize: fsbStdinMax,
+	c, err := fsbws.Upgrade(w, r, &fsbws.UpgradeOptions{MaxMessageSize: int64(m.stdinMax()),
 		Error: func(w http.ResponseWriter, _ *http.Request, status int, reason string) {
 			fsbFail(w, status, "invalid", reason)
 		}})

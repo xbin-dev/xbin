@@ -78,13 +78,13 @@ func TestHarnessCatalogShape(t *testing.T) {
 	}
 	fake := l.entry(t, "fake")
 	want := map[string]any{
-		"id": "fake", "name": "Fake agent (test fixture)", "available": true, "classes": []any{"coding"},
+		"id": "fake", "name": "Fake agent (tests)", "available": true, "classes": []any{"coding"},
 		"images": []any{map[string]any{"provider": "apps/fsb", "manager": "Fake sandboxes (test fixture)", "image": "base",
 			"advertised": true, "egress": []any{"internet"}}},
 		"modes": []any{map[string]any{"id": "ask", "name": "Ask before acting"}, map[string]any{"id": "auto", "name": "Auto"},
 			map[string]any{"id": "yolo", "name": "Yolo", "explicit": true}},
 		"defaultMode": "ask", "autoMode": "auto", "approveMode": "ask", "planMode": "ask", "setting": "approve",
-		"login": map[string]any{"command": "echo 'the fake agent needs no sign-in'"}, "sandboxes": map[string]any{},
+		"login": map[string]any{"command": "fakeacp login"}, "sandboxes": map[string]any{},
 	}
 	if !reflect.DeepEqual(fake, want) {
 		t.Fatalf("fake\n got %s\nwant %s", jsonOf(fake), jsonOf(want))

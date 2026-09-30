@@ -216,7 +216,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `PUT /ops/config` (the page's image editor keeps them); a config saved
   before this keeps its images as they were — no harnesses listed — until
   an operator adds them. `hack/fakesandbox` advertises one, `fake` (the
-  scripted `fakeacp`; `-fake-acp` / `$FSB_FAKE_ACP` sets its command).
+  scripted `fakeacp`; `-fake-acp` / `$FSB_HARNESS_FAKE` sets its command
+  and flags, e.g. `bin/fakeacp --steer --require-login`, and its sign-in
+  is `<that command> login`).
 - **A terminal in a sandbox has a terminal's environment.** A tile
   sandbox's `tty` exec (and its `tty` route) now gets
   `TERM=xterm-256color`, `COLORTERM=truecolor` and `LANG=C.UTF-8`, as
