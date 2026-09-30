@@ -205,10 +205,17 @@ toolset acting from their partition), their partition's vault.
   on the conversation header and in lists.
 - **Members' inputs and views:** other members post through global (F5,
   attributed) into `team`'s input queue; global mails `user:<host>`
-  `hosted/input {conversation}`; the host's engine consumes. The host's
-  engine mails `global` `hosted/changed {conversation}` after each committed
-  change; global re-emits it to members' streams. Live drafts reach the
-  host's own browser only (v1).
+  `hosted/input {conversation}` (mail wakes the host's partition when it
+  isn't running); the host's engine consumes.
+- **Live for every member (owner, 2026-09-30, 90 §I4 — global is the hub):**
+  while it runs a hosted conversation, the host's engine streams its deltas
+  (drafts, tool steps, commits) to its own global instance over F5
+  (`GlobalURL`, attributed; one long-lived request or batched posts), and
+  global fans them out to the conversation's members' streams under its
+  ACL — so every member sees the run streaming at the same time, as in an
+  ordinary shared conversation. Mail stays the durable path only: the
+  wake-up above, and `hosted/changed {conversation}` after each committed
+  change for a member stream that reconnects (global re-reads `team`).
 - **One host per conversation** (v1); removing the last partitioned resource
   ends hosting (as declining does).
 - **Share a copy (PD-32, decided): the non-hosting alternative.** From a

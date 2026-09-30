@@ -625,6 +625,43 @@ questions they raised.
 - **I3 — the partition chip (06 §12.3):** a chip on **every** partitioned
   tile's window saying whose partition it shows (`yours` / `shared` /
   `global`), beside F14's marker (D153); built with F14b.
+- **I4 — realtime between partitions: global is the hub.** Three patterns,
+  each for its job, named in the builder docs (F8 finalization):
+  tile-wide live state = a shared resource plus the shared bus (reaches
+  every reader of the tile); member-scoped live state = the global instance
+  as hub (people's browsers attach to global's stream via F5, and a
+  partition streams to global via `GlobalURL`); a partition that must be
+  woken = partition mail (durable, rings a doorbell). Hosted (non-secure)
+  agent conversations stream live to every member through global (08 §4,
+  B2d); no new xbind primitive ("rooms") now.
+- **I5 — logs on partitioned tiles:** a plain `GET /logs` / `bx logs` acts
+  in the caller's own partition (06 §5, as built in F7b); the logs tab gets a
+  partition switcher (own partition / global, and for admins what they may
+  see) — F12 / the shell's logs panel.
+- **I6 — the global inbox:** readable (and ackable) by the tile's
+  principals acting as global — the global instance's backend, the owner
+  token's frames and the tile's root/owner terminals and agent sessions
+  (04 §3's "the addressee's principals"); view-as, other tiles and people's
+  partitions stay refused.
+- **I7 — static MCP servers with auth headers** in a partitioned agent stay
+  global-only (their headers never reach the conf mirror); people bind such
+  a server as a tile or a personal bind; the settings UI says so.
+- **I8 — partition archive restore by an admin:** allowed (11 §4 as built,
+  D-F17b), audited, recorded in history, pushed to the person.
+- **I9 — "reviewed code only":** refuses unprotecting a primary and binding
+  an unprotected provider in; other gaps are trust warnings (F7b as built).
+- **Built as recommended (no ruling needed unless the owner objects):**
+  credentials held under `credentialResetConfirm` stay held when the policy
+  is turned off; an unreadable notices file lets an SSO sign-in through
+  with a log line; mail's optional `source` counts `LedgerTrigger`; a
+  per-sender share of the global inbox (100 items / 8 MiB, 507); sealed
+  pre-switch main archives also need the typed confirmation; the pre-switch
+  restore guard doesn't outlive a removed tile; `bx backup` exits 1 when a
+  person's partition archive fails; a person's partition's model-call gate
+  is 2 (PD-36); the partitions branch holds back from master and releases
+  until B2b and B2c land (the agent's sharing answers 409 in a partition
+  until then); an existing agent instance's merge of the template's
+  `template` block resolves automatically (W3b).
 
 The questions as they were raised:
 

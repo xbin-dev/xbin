@@ -316,6 +316,10 @@ file and the split are named under "Merge contention".
   `ns:`/`part:`, not `tile:`".
 
 ### F8 — SDK, JS client, docs (07) — M
+- **Finalization adds (90 §I4):** a "realtime between partitions" section in
+  docs/partitions.md naming the three patterns (shared resource + shared
+  bus; global as hub via `GlobalURL` and F5 streams; partition mail for
+  wake-ups), with a worked example each, and the Node/Python mail snippets.
 - Files:
   - `sdk/xbin.go` + tests: `Partition`, `PartitionUser`,
     `RequirePartition`, `CallerInfo.Partition/PartitionID`, mail helpers,
@@ -350,6 +354,8 @@ file and the split are named under "Merge contention".
   top-level only.
 
 ### F12 — Admin tile: Partitions section (06 §12.3) — S/M
+- **Owner, 90 §I5:** the tile logs tab (shell and admin views) gets a
+  partition switcher: own partition / global (and what an admin may see).
 - Files: `workspace-template/tiles/admin`, a runtime → partitions section:
   - per tile: mode, request/decline, Switch/Keep, and "reviewed code
     only";
@@ -451,6 +457,10 @@ file and the split are named under "Merge contention".
   retries.
 
 ### B2d — Agent: non-secure conversations and "share a copy" (08 §4) — L
+- **Owner, 90 §I4:** hosted conversations stream live to every member
+  through global (the host's engine streams deltas to its global instance
+  over F5; global fans out); mail only for the wake-up and the durable
+  `hosted/changed`.
 - Files: `_backend` (the `team` schema, the `hosted` table, the host engine
   scope, widening pause/re-confirm, share-link refusal, mail doorbells,
   **share-a-copy** via F5); the frontend's modal, ⚠ chip, composer lock and
