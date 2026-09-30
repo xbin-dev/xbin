@@ -530,8 +530,8 @@ A tile called by a partitioned one learns which partition is calling:
   for the person and never reused by a person later created under the same
   id.
 
-A provider that keeps per-caller state (a sandbox manager, a chat bridge)
-**keys it on (`X-XBin-From`, `X-XBin-Deployment`, `X-XBin-Partition-Id`)**:
+A provider that keeps per-caller state (a sandbox manager, a model
+gateway's usage counters) **keys it on (`X-XBin-From`, `X-XBin-Deployment`, `X-XBin-Partition-Id`)**:
 an absent partition and `global` are then one consumer — the tile's own —
 and each person's partition is another. Keyed on `X-XBin-From` alone, a
 provider merges every person's data into one. Both headers are absent on
@@ -544,6 +544,31 @@ into it that act for a partition: a person reaching their partition
 at global — a user partition's call to it (`user:<id>`, with `X-XBin-From`
 the tile's own path; see above). A tile that isn't partitioned calling in
 sends neither header.
+
+**The builtin tiles around a partitioned agent** aren't partitioned: each
+serves one shared thing (a sandbox runtime, upstream model keys, a bot
+connection, public hook URLs, an SSH port).
+
+- The **coding-sandbox** manager homes a sandbox made in a person's
+  partition there ([sandbox-manager.md](sandbox-manager.md) §Partitioned
+  consumers).
+- **llm-gw** counts requests and tokens per person's partition of each
+  calling tile — each person sees their own, its managers each tile's
+  people together — and can cap how many calls one partition has in
+  flight (its API.md, "Partitioned callers").
+- The **agent messaging bridge** and the **webhooks** tile reach a
+  partitioned agent's global instance, like every tile that isn't
+  partitioned; it hands a linked person's DM, and an event for a person's
+  private trigger, to that person's partition by
+  [partition mail](#partition-mail) ([agent-inbox.md](agent-inbox.md) §A
+  partitioned agent).
+- **sandbox-terminal** opens a sandbox homed in a person's partition only
+  once it is shared with it for that person.
+
+Each of them sees what the partitions that use it send, so its writers are
+in those people's trust base ([below](#operating-peoples-partitions)).
+Binding them is a global bind, as today; a person may personal-bind their
+own model gateway or MCP server into their own partition instead.
 
 ## Calls between partitioned tiles
 
