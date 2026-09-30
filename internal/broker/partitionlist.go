@@ -325,6 +325,14 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any) {
 			if gb := b.globalBindsOn(c.Path); len(gb) > 0 {
 				row["globalBinds"] = gb
 			}
+			if spec, on := c.Partitioned(); on && !spec.Global {
+				if rs := b.requestersWithoutGlobal(c.Path); len(rs) > 0 {
+					row["boundWithoutGlobal"] = rs
+				}
+			}
+			if m := b.managersLackingPartitions(c); len(m) > 0 {
+				row["managersLacking"] = m
+			}
 		}
 		tiles = append(tiles, row)
 	}

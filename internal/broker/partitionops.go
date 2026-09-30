@@ -453,7 +453,7 @@ type orphanRow struct {
 // record says so, or their namespace's ns.json does.
 func (b *Broker) partitionOrphans(tile string) []orphanRow {
 	seen := map[string]bool{}
-	var out []orphanRow
+	out := []orphanRow{}
 	_ = b.eachPartitionRecord(tile, func(d partitionDirOf, rec partitionRecord) {
 		if rec.State == partStateOrphaned {
 			seen[rec.Tile+"\x00"+d.dep+"\x00"+d.pkey] = true

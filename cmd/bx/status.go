@@ -206,6 +206,7 @@ func printStatusDeployments(s *tileStatus, tile string, st *deployState) {
 
 type tileStatus struct {
 	Component string `json:"component"`
+	Partition string `json:"partition"` // a person's partition's own answer (user:<id>)
 	// A tile with a record (11-contract §8): the deployment reported, and
 	// for admins and terminal tokens the summary of every deployment.
 	Deployment  string `json:"deployment"`
@@ -252,6 +253,9 @@ type tileStatus struct {
 
 func printTileStatus(s *tileStatus) {
 	fmt.Println(s.Component)
+	if s.Partition != "" { // the person's partition this terminal acts in (docs/partitions.md)
+		fmt.Printf("  partition  %s\n", s.Partition)
+	}
 	if b := s.Backend; b != nil {
 		up := ""
 		if b.UptimeSec > 0 {

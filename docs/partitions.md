@@ -681,6 +681,101 @@ backend as `user:<id>` or `global`, not that the instance serves one person:
 code that must never mix people serves per-person data only where
 `xbin.PartitionUser() != ""`.
 
+## Operating people's partitions
+
+xbind tells people and operators about partitions without handing anyone a
+person's data. `GET /api/xbin/partitions` ([protocol.md](protocol.md)) is
+the one read; its `features` list says what this xbind serves (a 404 means
+an xbind without partitions). What it answers depends on who asks:
+
+- **you**, for a tile you can read: its state, and your own partition's
+  row — whether it is active or dormant (and why), running or not, when it
+  last started, how many bytes it holds, how many cron jobs and bus
+  subscriptions it keeps (with missed ticks and dropped deliveries), your
+  egress ledger's totals, your log share — plus the tile's **trust panel**:
+  who can change the code that runs on your data (the people who write it,
+  every admin, the providers bound to it and their writers) and whether
+  saves reach it live;
+- **the tile's writers and managers**: totals only — people, running
+  instances, bytes, cron jobs, bus subscriptions;
+- **admins**: every person's metadata row, the personal binds on the tile
+  and its orphaned partitions — never what a partition holds, its vault key
+  names, its log lines or its mail;
+- **the tile's own code** (its frames, backend, terminals): the tile's state
+  and the features, nothing about people.
+
+`bx partition ls` prints it ([bx.md](bx.md)).
+
+**Logs and status.** Each person's instance logs to its own file. `GET
+/api/xbin/logs?component=<tile>` (and `bx logs` in a partition's terminal)
+answers **your own partition's log**, at any access level — it is your
+data. Nobody else reads it: not the tile's writers, not its managers, not
+admins — unless you **share it** (`bx partition share-log <tile> --days
+n`, at most 14 days; `--stop` ends it). While shared, the tile's managers
+and admins read it with `&user=<your id>`. The global instance's log stays
+where it was: admins, people with terminal level and the tile's own
+credentials read it with `&xbin-partition=global` (a person's partition
+never does), and a credential that acts in no person's partition (the root
+token, another tile) reads it as before. `?partition=` is refused (400):
+the credential decides. `GET /api/xbin/tile-status` and `bx status` in a
+partition's terminal answer that partition's instance and disk and say
+`partition: user:<id>`; admins' `GET /api/xbin/backends` lists people's
+running instances inside their tile's row, metadata only (state, uptime,
+memory, restarts, crash loop, last exit, an error's class — never its
+text).
+
+**Stopping, resetting, purging.** `bx partition stop <tile>` stops your
+partition's instance (a tile manager or an admin may stop anyone's); its
+data stays and the next request starts it. `bx partition reset <tile>`
+deletes your partition's data on the tile — its data, vault,
+registrations, ledger, log, terminal layers and agent-session history —
+after you type `<tile> user:<you>`, and erases its backup key, so its
+archives can't be read any more; an admin may reset anyone's, and that
+person is told. A partition whose person was deleted, or whose tile was
+removed, is **orphaned**: it is deleted 30 days later, or at once by an
+admin's `bx partition purge`. A live person's partition is never purged.
+
+**People's lifecycle.** Deleting a person stops their instances, revokes
+their tokens and orphans their partitions; their personal binds, consents
+and notices go with them, and — if they held partitions — their home and
+agent-session history move to `data/orphans/<id>-<uid8>/`, so someone
+created later under the same id starts with neither. Disabling a person,
+or taking away their read access on a tile, stops their instances there at
+once: their partition is **dormant** (nothing starts it, no cron job fires,
+no delivery arrives) and resumes when they have access again.
+
+**Credential resets.** An admin can still take over someone's account by
+giving it a new credential. For a person who holds partitions, a sign-in
+link minted for them (by an admin, or an org admin's reset by link), a
+password set on them or a single sign-on email bound to them by someone
+else is recorded in the audit log, and they are told — a push ("a sign-in
+link for your account was created by `<admin>` at `<time>`") and a notice
+in `GET /api/xbin/partitions`. With the workspace policy
+**credentialResetConfirm** on (`bx policies set credential-reset-confirm
+on`, admins) such a credential is **held**: the link answers "waiting for
+`<person>` to confirm" when redeemed, and a new password or email is kept
+aside while the old one keeps working. The person allows or refuses it from
+any of their signed-in sessions, apps or devices (`bx partition credential
+<id> allow|refuse`, `POST /api/xbin/partitions/credential-confirm`);
+refusing revokes it. Unanswered, it takes effect **24 hours after they were
+told**, which covers someone who lost every device. A person without
+partitions, and anyone changing their own credentials, is unaffected.
+
+**Trust warnings.** While a partitioned tile runs its work tree live and
+people who aren't admins can change its code — or the code of a provider
+bound to it — `/alerts` (kind `partition-trust`), the trust panel and `bx
+doctor` say so: their saves run on every person's data there. Once saves
+no longer reach the primary — live reload paused or aimed at another
+deployment, or the primary pinned to a checkpoint — the warning ends.
+
+**Offload.** A partitioned tile can't be offloaded yet (409); nothing is
+archived or stopped.
+
+**When a tile is removed**, its people's partitions are orphaned and
+deleted 30 days later with their backup keys; once nothing of the tile is
+left, its partition mode record goes too, so a new tile at the path starts
+from its own code's request.
+
 ## What partitions protect, and what they don't
 
 Partitions keep the people who *use* a tile apart, and keep workspace admins
@@ -698,13 +793,6 @@ and restoring one on another machine needs the exported backup keys.
 ## Not documented yet (TODO)
 
 - partition mail, `partitionMail`, and the SDK's `Mail`/`Inbox`/`Ack`;
-- the workspace policy for credential resets that wait for the person;
-- logs and status on partitioned tiles;
-- the partitions page (`/xbin/partitions`), `bx partition` beyond
-  `switch`/`keep`, the admin tile's Partitions section, and the shell's
-  consent prompts;
-- sealed backups, backup keys and disaster recovery;
-- the wire reference in [protocol.md](protocol.md) for the partitions API
-  (the headers, the `xbin-partition` meta, `XBIN_PARTITION`,
-  `?xbin-partition=global`, which partition each credential acts in and the
-  API's partition classes are there).
+- the partitions page (`/xbin/partitions`), the admin tile's Partitions
+  section, and the shell's consent prompts;
+- sealed backups, backup keys and disaster recovery.

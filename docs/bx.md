@@ -104,6 +104,16 @@ bx partition consent <from> <to> [--revoke] | consent ls [--json]
                                        first), or take it back
 bx partition ledger [<tile>] [--days n] [--json]
                                        your partitions' egress ledger (counts)
+bx partition ls [<tile>] [--json]      partitioned tiles, or one tile's partitions
+bx partition stop|reset <tile> [--user <id>] [--yes]
+                                       stop a partition's instance, or delete its data
+bx partition purge [<tile>] [--partition <id>]
+                                       delete orphaned partitions now (admin)
+bx partition limits [<tile>] [--max-running n] [--partition-bytes n]
+bx partition share-log <tile> [--days n] [--stop]
+                                       share your partition's log with its managers
+bx partition credential <id> allow|refuse
+                                       answer a credential an admin made for you
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
 bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <user> [level]]
                                        per-tile access entries — exact entries
@@ -404,6 +414,34 @@ called or reached another tile, never what it sent — for one tile or all
 (`--days`, default 30); with a tile, its managers also get its totals
 (personal tiles unnamed), and admins every person's totals. Both exit 6
 against an xbind without them, naming the route it lacks.
+
+**`bx partition ls|stop|reset|purge|limits|share-log|credential`** —
+operating people's partitions ([partitions.md §Operating people's
+partitions](/docs/partitions.md)). `ls` lists the partitioned tiles (and
+your partition of each), or one tile's partitions: yours; totals for its
+writers and managers; every person's metadata for admins (never what a
+partition holds), its orphans and its trust warnings. `stop` stops a
+partition's instance — yours by default, anyone's (`--user`) for a tile
+manager or admin; its data stays. `reset` deletes a partition's data —
+yours, or anyone's for an admin, who tells them — after you type
+`<tile> user:<id>` (`--yes` answers for you); its backup key is erased.
+`purge` (admin) deletes orphaned partitions — their person deleted, their
+tile removed — now instead of 30 days later. `limits` shows or sets the
+running cap and each partition's byte ceiling (admins; a tile manager may
+lower their tile's). `share-log` lets the tile's managers and admins read
+your partition's backend log for `--days` (1–14, default 7; they read it
+with `GET /api/xbin/logs?component=<tile>&user=<id>`), `--stop` ends it. `credential` answers a
+sign-in link, password or SSO email an admin made for you while the
+workspace asks people first (`bx policies`: credential-reset-confirm);
+`bx partition ls` prints the ones waiting. All are your own acts — bx with
+your login or the root token, never a tile's terminal — and exit 6 against
+an xbind without them. In a partition's terminal, `bx status` prints
+`partition: user:<id>` and `bx logs` reads your partition's own log.
+`bx doctor` reports tiles waiting for a mode decision, partitioned tiles
+without `--isolate`, who can change a partitioned tile's code while it runs
+live, its global binds, tiles bound to one without a global instance,
+sandbox managers that don't keep people apart, untracked files in its
+directory, and orphaned partitions.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset

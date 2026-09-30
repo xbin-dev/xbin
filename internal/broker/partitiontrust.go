@@ -97,6 +97,26 @@ func (b *Broker) globalBindsOn(tile string) map[string][]string {
 	return out
 }
 
+// requestersWithoutGlobal are the tiles that aren't partitioned and hold a
+// global bind to tile, a partitioned tile without a global instance: their
+// calls reach nothing (PD-12), which bx doctor reports.
+func (b *Broker) requestersWithoutGlobal(tile string) []string {
+	var out []string
+	for req, slots := range b.Reg.Workspace().Bindings {
+		if _, partitioned, _ := b.tilePartitioning(req); partitioned || slices.Contains(out, req) {
+			continue
+		}
+		for _, bind := range slots {
+			if slices.ContainsFunc(bind.Refs(), func(ref string) bool { p, _ := splitRef(ref); return p == tile }) {
+				out = append(out, req)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // partitionTrust is the trust panel of a partitioned tile.
 func (b *Broker) partitionTrust(tile string) map[string]any {
 	provs := []map[string]any{}
