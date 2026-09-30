@@ -427,6 +427,15 @@ func (b *Broker) runSwitch(t wipeTarget) (sum wipeSummary, gc string, err error)
 		}
 	}
 	defer b.holdBackups(t.Tile)() // no backup seals the doomed data under a fresh key meanwhile (F17a)
+	if t.OwnsMain && t.Kind != wipeNone && !t.DryRun {
+		// main's volumes the wipe removes mount again, empty, as at
+		// provision (a restore's precedent), on every way out — a wipe that
+		// stops part-way too — while the holds still stand: only
+		// MountEncrypted mounts main's, so without it the tile's instance at
+		// today's keys (the unpartitioned one, global, or a person's shared
+		// volumes) stays held until xbind restarts or the workspace changes
+		defer b.MountEncrypted()
+	}
 	for _, h := range wipeHooks {
 		if err := h.wipe(b, t, &sum); err != nil {
 			return sum, "", fmt.Errorf("%s: %w", h.name, err)
