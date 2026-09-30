@@ -264,6 +264,11 @@ func TestPartitionsSmokeW2(t *testing.T) {
 				"400", nil},
 			{"the vault's keys", c + `"$XBIN_URL/api/xbin/vault/` + w2Tile + `"`, w2Alice, []string{w2Glob, "alice-vault"}},
 			{"bx vault ls", `bx vault ls ` + w2Tile, w2Alice, []string{w2Glob, "alice-vault"}},
+			// F7b (06 §5, §7): tile-status names her partition (what bx status
+			// prints — the terminal's bx is the base rootfs's, so the smoke
+			// asks the route), and bx logs reads her partition's own log
+			{"tile-status", c + `"$XBIN_URL/api/xbin/tile-status?component=` + w2Tile + `"`, `"partition":"user:alice"`, []string{"bob-", "global-"}},
+			{"bx logs", `bx logs ` + w2Tile, "alice-secret", []string{"bob-secret", "global-secret"}},
 		} {
 			out := run(x.cmd)
 			if !strings.Contains(out, x.want) {
