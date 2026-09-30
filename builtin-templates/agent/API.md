@@ -188,6 +188,28 @@ What a partitioned instance does differently:
     conversation over 48 MiB as a whole answers 413 — leave its files out.
   - `POST /copy {from, files?}` in your partition makes a **private copy**
     of a shared conversation you can see (`from`: its id) → the new run.
+  - **Un-sharing moves it to its owner's own space.** A person's
+    conversation at the global instance that stops being shared — made
+    private (`PATCH /runs/{id} {visibility: "private"}`) with nobody else
+    in it, or its last member removed or gone — moves to its owner's
+    partition: its join links are revoked and every change to it is
+    refused (409) while it moves (reads go on); its owner's partition,
+    told by partition mail (`conv/move`), reads it once no run of it is
+    working (`GET /moves/{id}/export`: the bundle with its session files;
+    files past the bundle's cap one by one), takes it in hidden, has the
+    global instance delete its copy (`POST /moves/{id}/done {to}`), then
+    lists it — a new id from 2^40, the whole transcript, its task ledger
+    and files. It is listed in one home at every moment, never two. The
+    global instance's `run` event deleting it carries `movedTo` (the new
+    id), and `GET /moves/{id}` (its owner only) answers `{run, state:
+    "asked" | "moved", to}` for 30 days, so a page open on it, a push link
+    or a saved place follows it (the page does). Every step is idempotent
+    and taken up again after a crash or a stop. A conversation too large
+    to copy (a 48 MiB bundle), or whose owner can no longer be mailed, or
+    whose move nobody took within 8 days, stays where it is — private, and
+    changeable again (`POST /moves/{id}/abandon` is the partition's way to
+    say so). Conversations that aren't a person's (the owner token's, an
+    element's) don't move.
   - The copies travel as a bundle: `GET /runs/{id}/export[?files=1]` (a
     viewer; either home) and `POST /import {conversation, share}` (the
     global instance only; a person's must name `share`). An unpartitioned
@@ -207,7 +229,10 @@ What a partitioned instance does differently:
     nothing shared, the page reads the shared space's list again when it
     shows or gains focus, so a conversation shared with you since appears.
     The global instance's own page (the owner token) is today's single list
-    of its conversations.
+    of its conversations. While a shared conversation is open the sandbox
+    picker and the Sandboxes dialog list the global instance's sandboxes
+    (a shared conversation's are its), and every call about one goes there;
+    at home and in your own conversations, your partition's.
 - **Settings are the tile's.** The config, classes, the halt switch and the
   shared skills live in the global instance's `db`. It mirrors them into
   `conf` (kv, `"shared": "read"`), which every partition reads at each use
@@ -253,28 +278,41 @@ What a partitioned instance does differently:
   `/channels/{id}/…`, `GET /triggers/unmatched`) are forwarded to the global
   instance, attributed to you, and your Automations page lists its channels.
   Group messages, and DMs from chat accounts nobody linked, are the global
-  instance's conversations, as ever.
+  instance's conversations, as ever. In your partition a channel's card
+  counts, and its run list shows, both its conversations here (your DMs)
+  and those at the global instance you may see (its group threads) — `GET
+  /automations/{kind}/{aid}/runs` reads both and merges them by its
+  cursor, `POST …/read` marks both; the same for a trigger of the global
+  instance's (an id below 2^40).
 - **A DM from the chat account you linked is yours.** The global instance
   keeps a record of where it came from — the channel, the chat account, the
   reply address and you — and hands it to your partition by partition mail
   (`handoff/dm`: the message, the rules the channel gives it — lane, class,
   `deny`, its system text — and its files inline, up to 640 KiB a message;
-  a larger file is named in the text instead). Your partition runs the
+  a larger one waits in the global instance's storage and the mail names
+  it in `fetch`: your partition reads it, as you, from `GET
+  /handoffs/{id}/files/{fid}` before it takes the DM, and once it has it
+  `POST /handoffs/{id}/fetched` deletes it there — if it is gone meanwhile
+  the DM says so in its text). Your partition runs the
   conversation (yours, private, in your list) and mails each reply back
-  (`outbox/add`, naming the handoff, its files inline); the global instance
+  (`outbox/add`, naming the handoff, its files inline — one too large for
+  the mail is staged at the global instance first, `PUT
+  /handoffs/{id}/reply-files?key=&name=&mime=`, and named in `staged`); the global instance
   posts it where **its own record** says the DM came from, and only when
   xbind stamps the mail as yours and the chat account is still linked to
   you — a reply naming someone else's handoff is refused (logged, never
   posted) — once however often it comes, for up to 30 days after the DM.
   `/help` and `/link` are answered by the global instance, the other chat
   commands by your partition. Until your partition has run once (open the
-  agent once) your DMs wait in its inbox, and the first one is answered with
-  a notice saying so (a partition mails the global instance
-  `partition/hello` when it first starts). If xbind refuses the mail for
-  good (you can no longer use the agent), or it can't be mailed within
-  7 days, the chat is told. What the global instance holds of it:
-  the message and its files only until they are mailed (or given up, at
-  most 7 days; one person's full inbox holds back only their own); your
+  agent once) your DMs wait in its inbox, like unread messages — nothing
+  answers the chat for them meanwhile, and its typing status says `idle`
+  (a partition mails the global instance `partition/hello` when it first
+  starts). If xbind refuses the mail for good (you can no longer use the
+  agent), or it can't be mailed within 7 days, the chat is told. What the
+  global instance holds of it: the message and its files only until they
+  are mailed (or given up, at most 7 days; one person's full inbox holds
+  back only their own) — a file too large for the mail until your
+  partition fetched it (at most 8 days); your
   reply's text and files only until the bridge acknowledged it (the
   channel's owner sees such a reply wait or fail, never what it says); a
   record of the handoff (no content) for 30 days.
@@ -379,8 +417,8 @@ What a partitioned instance does differently:
   for 30 minutes after it was sent — a newer version mid-deploy may read it
   — and is then acknowledged unhandled (logged), rather than start the
   partition at every doorbell step until it expires. The agent's own
-  topics are `handoff/dm` and `handoff/event` (global → a person),
-  `outbox/add`, `usage/day` and `partition/hello` (a person → global),
+  topics are `handoff/dm`, `handoff/event` and `conv/move` (global → a
+  person), `outbox/add`, `usage/day` and `partition/hello` (a person → global),
   above; an item's files are stored before its transaction; add yours to
   `mailHandlers` (`_backend/mailbox.go`). The doorbell
   answers `{handled, left, dropped}`. Only xbind's `xbin/mail`, the owner
@@ -990,6 +1028,11 @@ Where each event goes (`mode`):
 | `POST /triggers/registry` | `{name, prev?, source, sourceRef, match, enabled, maxPerHour}` | a partitioned agent's global instance: a person's partition registers (or updates) one of its person's private triggers, as them — never anyone else's; `prev` renames. A private push trigger needs a `match` (400), and one that is a prefix of — or prefixed by — anyone else's on the same source is 409; so is a name someone else has → `{id, name, host}`. 404 anywhere else; 403 for any caller but a person from their own partition |
 | `DELETE /triggers/registry/{name}` | — | removes the caller's own registry row (the same callers); 404 when there is none |
 | `GET /usage` | `?days=30` (1–90) | people's daily usage totals (managers; a partitioned agent's global instance, forwarded from a partition): `{days, since, people: [{user, days: [{day, runs, llmCalls, promptTokens, completionTokens}], total}]}`; 404 unpartitioned |
+| `GET /handoffs/{id}/files/{fid}` | — | a partitioned agent's global instance: a file of a DM handed to the caller (too large for its mail, named in its `fetch`) — the bytes; 404 for anyone but the handoff's person from their own partition, and once it was fetched |
+| `POST /handoffs/{id}/fetched` | — | …the caller's partition has the handoff's files: the global instance deletes what it held → `{deleted}` |
+| `PUT /handoffs/{id}/reply-files` | `?key=&name=&mime=`, body: the bytes (≤ 16 MiB) | …stages a file of the caller's reply too large for its mail (named then in `outbox/add`'s `staged`) → `{id}`; the same key stages once. The same callers |
+| `GET /moves/{id}` | — | a partitioned agent's global instance: where a conversation of the caller's that stopped being shared went → `{run, state: "asked" \| "moved", to}` (30 days); 404 for anyone else (Partitioned instances → Shared conversations) |
+| `GET /moves/{id}/export`, `POST /moves/{id}/done {to}`, `POST /moves/{id}/abandon {why}` | | …its owner's partition drives the move: reads it (409 while it works), says it has it (it is deleted here; idempotent; 409 when the move was given up meanwhile), or gives it up (it stays here) |
 
 Triggers are kind `trigger` in `GET /automations` (reset starts a persistent
 one's thread afresh). An agent-made loop is refused: a trigger on this
@@ -1915,7 +1958,8 @@ the same model.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
-| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list, the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty`: the route, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `homes.js`, `home-api.js`, `moves.js` | a partitioned instance's two homes (a person's own partition, the shared space): a conversation's home by its id, calls and streams sent there; a shared conversation that moved to your own space, followed (`movedTo`) |
 
 `createApp({deltas, page})`: drafts arrive as deltas (`/stream?deltas=1`,
 "Deltas" above) and the open conversation is read in pages (`?limit=`,

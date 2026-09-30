@@ -1,5 +1,5 @@
 // handoff_fetch.go — a chat file too large for a handoff's mail (08 §5;
-// plans/partitions 90 §I11). A mail item carries up to mailFileBudget of
+// the partitioned-tiles plan, 90 §I11). A mail item carries up to mailFileBudget of
 // files inline; a larger one is staged instead — it waits in the global
 // instance's storage, the mail names it, and the other side fetches it over
 // the person's own-global calls (F5, attributed to them), after which it is

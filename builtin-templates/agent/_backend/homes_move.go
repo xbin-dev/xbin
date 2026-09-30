@@ -1,5 +1,5 @@
 // homes_move.go — un-sharing a shared conversation in a partitioned agent
-// (plans/partitions 90 §I10; API.md "Partitioned instances" → "Shared
+// (the partitioned-tiles plan, 90 §I10; API.md "Partitioned instances" → "Shared
 // conversations"): the global instance's side. The shared space keeps shared
 // conversations only, so one that stops being shared — made private with
 // nobody left in it (PATCH visibility private), or its last member removed
