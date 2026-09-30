@@ -3,7 +3,9 @@
  * admin console's runtime → partitions view (partitions.js;
  * docs/partitions.md §Operating people's partitions): what GET /api/xbin/partitions?tile= answers an admin, and the
  * acts on it, each a person's act through the admin tile's frame
- * (AdminFrameDriver: xbind judges the person driving it):
+ * (AdminFrameDriver: xbind judges the person driving it; a driver who isn't
+ * an admin reads the tile's state only — its mode and request, which a
+ * manager decides here too):
  *
  *   - the mode, and an open or declined request: Keep the current mode, or
  *     Switch… after a dry run and the typed tile path (POST
@@ -29,7 +31,7 @@ import { base } from '../admin-css.js';
 import { WithRouter } from '../shared.js';
 import {
   modeName, stateWords, requestText, switchLines, modeBody, deletesNothing, resetConfirm, partitionOp,
-  bytesText, regsText, mailText, runningText, shortId, when, historyText, limitsBody,
+  bytesText, regsText, mailText, runningText, shortId, when, historyText, limitsBody, orphanWhy,
 } from './partitions-view.js';
 
 // The view's styles (partitions.js adopts them too).
@@ -147,7 +149,8 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
           <input class="typed mono" data-pt-typed placeholder=${this.tile} .value=${a.typed} aria-label=${`type ${this.tile} to confirm`}
             @input=${(e) => { this._ask = { ...a, typed: e.target.value, error: '' }; }}>
           ${a.dry?.managers?.length ? html`<label><input type="checkbox" .checked=${a.yes} @change=${(e) => { this._ask = { ...a, yes: e.target.checked }; }}> switch anyway</label>` : nothing}
-          <button class="act ${deletesNothing(from, to) ? 'go' : 'rm'}" data-pt-switch-go ?disabled=${this._busy} @click=${() => this._switch()}>
+          <button class="act ${deletesNothing(from, to) ? 'go' : 'rm'}" data-pt-switch-go
+            ?disabled=${this._busy || a.typed.trim() !== this.tile || (a.dry?.managers?.length && !a.yes)} @click=${() => this._switch()}>
             ${deletesNothing(from, to) ? 'Switch' : 'Switch and delete all data'}</button>
           <button class="act" @click=${() => { this._ask = null; }}>cancel</button>
         </div>
@@ -239,6 +242,7 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
   }
 
   _people(d) {
+    if (d.partitions === undefined) return html`<p class="muted" data-pt-people="hidden">Who holds a partition of ${this.tile} is an admin's to see.</p>`;
     const rows = d.partitions || [];
     if (!rows.length) return html`<p class="muted" data-pt-people="0">Nobody holds a partition of ${this.tile} yet: a person's starts on their first use.</p>`;
     return html`<table class="pt" data-pt-people=${rows.length}>
@@ -246,7 +250,7 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
       ${rows.map((r) => html`<tr data-pt-person=${r.user} data-state=${r.state}>
           <td class="mono">${r.user}</td>
           <td class="mono" title=${r.partitionId}>${shortId(r.partitionId)}</td>
-          <td>${r.state}${r.why ? html`<span class="pt-note info">${r.why}</span>` : nothing}</td>
+          <td>${r.state}${r.why ? html`<span class="pt-note info">${r.state === 'orphaned' ? orphanWhy(r.why) : r.why}</span>` : nothing}</td>
           <td>${runningText(r)}${r.lastStarted ? html`<span class="pt-note info">last started ${when(r.lastStarted)}</span>` : nothing}
             ${r.lastExit ? html`<span class="pt-note info">last exit ${when(r.lastExit)}${r.restarts ? ` · ${r.restarts} restarts` : ''}</span>` : nothing}</td>
           <td class="num">${bytesText(r.bytes)}</td>
@@ -285,7 +289,7 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
     if (!h.length && !d.lastWipe) return nothing;
     return html`<h4>mode history</h4>
       ${d.lastWipe ? html`<div class="line muted" data-pt-lastwipe>last switch that deleted data: ${modeName(d.lastWipe.from)} → ${modeName(d.lastWipe.to)}, ${when(d.lastWipe.at)}
-        (a backup from before it restores only with that date typed)</div>` : nothing}
+        (a workspace backup of ${this.tile} from before it restores only with that date typed; a person's partition restores as above)</div>` : nothing}
       <table class="hist" data-pt-history=${h.length}>${h.slice(0, 20).map((e) => html`<tr><td class="mono">${when(e.at)}</td><td>${historyText(e)}</td></tr>`)}</table>`;
   }
 
@@ -308,7 +312,7 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
       ${this._people(d)}
       ${this._binds(d)}
       ${(d.orphans || []).length ? html`<h4>orphaned here</h4><div class="muted line" data-pt-tile-orphans=${d.orphans.length}>
-        ${d.orphans.map((o) => `${o.user} · ${shortId(o.partition)} (${o.reason})`).join(' · ')} — purge them in the list below.</div>` : nothing}
+        ${d.orphans.map((o) => `${o.user} · ${shortId(o.partition)} (${orphanWhy(o.reason)})`).join(' · ')} — purge them in the list below.</div>` : nothing}
       ${this._history(d)}
     </div>`;
   }

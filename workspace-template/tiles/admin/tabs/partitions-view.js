@@ -193,6 +193,53 @@ export function limitsBody(tile, draft = {}) {
   return b;
 }
 
+// ORPHAN_WHY: why a partition is orphaned (xbind's reason token), in words.
+export const ORPHAN_WHY = { 'tile-removed': 'the tile was removed', 'user-deleted': 'the person was deleted' };
+export const orphanWhy = (reason) => ORPHAN_WHY[reason] || String(reason || '');
+
+// purgeBodies(rows) → one POST /partitions/purge body per confirmed orphan
+// (its tile and partition id): a purge deletes exactly the orphans listed
+// and confirmed, never one that appeared since (a body without them would
+// purge every orphan there is when the click lands).
+export function purgeBodies(rows) {
+  const seen = new Set(), out = [];
+  for (const o of Array.isArray(rows) ? rows : []) {
+    const k = `${o?.tile}\n${o?.partition}`;
+    if (!o?.tile || !o?.partition || seen.has(k)) continue;
+    seen.add(k);
+    out.push({ tile: o.tile, partition: o.partition });
+  }
+  return out;
+}
+
+const UNTRACKED_KEYS = ['untracked', 'untrackedCount', 'untrackedError'];
+
+// untrackedOf(d) → the untracked-files fields of a GET /partitions?untracked=1
+// answer, per tile ({} for an answer without them).
+export function untrackedOf(d) {
+  const out = {};
+  for (const t of Array.isArray(d?.tiles) ? d.tiles : []) {
+    const r = {};
+    for (const k of UNTRACKED_KEYS) if (t?.[k] !== undefined) r[k] = t[k];
+    if (Object.keys(r).length) out[t.tile] = r;
+  }
+  return out;
+}
+
+// withUntracked(tiles, checked) → a plain poll's rows with the last check's
+// untracked fields merged in: the check is a confined git per partitioned
+// tile, run once per click, never by the poll.
+export function withUntracked(tiles, checked) {
+  const rows = Array.isArray(tiles) ? tiles : [];
+  if (!checked) return rows;
+  return rows.map((t) => {
+    if (!checked[t.tile]) return t;
+    const r = { ...t };
+    for (const k of UNTRACKED_KEYS) delete r[k];
+    return { ...r, ...checked[t.tile] };
+  });
+}
+
 // tileNotes(row) → an overview row's flags in words: reviewed code only,
 // trust warnings, caps hit, global binds and requesters without global.
 export function tileNotes(row) {

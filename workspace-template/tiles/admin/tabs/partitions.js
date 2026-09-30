@@ -10,8 +10,12 @@
  * the workspace's orphaned partitions and their purge.
  *
  * Reads GET /partitions (the admins' overview: the admin tile's frame under
- * its person's login reads as that admin) and polls it every 10 s; follows
- * the partitions / reload / users events. An xbind without partitioned
+ * an admin's login reads as that admin; anyone else driving it reads each
+ * tile's state only) and polls it every 10 s; follows the partitions /
+ * reload / users events. The untracked-files check (?untracked=1, a
+ * confined git per partitioned tile) runs once per click, its answer kept
+ * across the polls; a purge deletes exactly the orphans it listed, one
+ * request each. An xbind without partitioned
  * tiles answers 404: the view says so and asks for nothing more. An admin
  * sees metadata only — never what a partition holds, its vault, its mail or
  * its log (a person may share their log: the tile's logs panel in the shell
@@ -21,7 +25,9 @@ import { LitElement, html, nothing } from 'lit';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base } from '../admin-css.js';
 import { WithFilter, WithRouter } from '../shared.js';
-import { modeName, stateWords, requestText, bytesText, tileNotes, when, shortId } from './partitions-view.js';
+import {
+  modeName, stateWords, requestText, bytesText, tileNotes, when, shortId, orphanWhy, purgeBodies, untrackedOf, withUntracked,
+} from './partitions-view.js';
 import { partitionsCss } from './partition-tile.js';
 
 export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
@@ -30,14 +36,14 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
     _open: { state: true },    // the tiles whose own view is open
     _purge: { state: true },   // the purge awaiting confirmation: {tile?, partition?, rows}
     _busy: { state: true },
-    _untracked: { state: true }, // the untracked files were asked for (a confined git per tile)
+    _untracked: { state: true }, // the last untracked-files check: {at, byTile} (null: never asked)
     _err: { state: true },
     _q: { state: true },
     _cats: { state: true },
   };
   static styles = [base, partitionsCss];
 
-  constructor() { super(); this._open = new Set(); this._purge = null; this._busy = false; this._untracked = false; this._q = ''; this._cats = new Set(); }
+  constructor() { super(); this._open = new Set(); this._purge = null; this._busy = false; this._untracked = null; this._q = ''; this._cats = new Set(); }
 
   connectedCallback() {
     super.connectedCallback();
@@ -53,11 +59,24 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
 
   async load() {
     try {
-      this._d = await api(`/partitions${this._untracked ? '?untracked=1' : ''}`);
+      this._d = await api('/partitions');
     } catch (e) {
       if (/404|not found/i.test(String(e?.message))) this._d = null; // an xbind without partitioned tiles
       else this._fail(e);
     }
+  }
+
+  // _checkUntracked asks once (a confined git per partitioned tile) and
+  // keeps the answer: the polls never ask again; "check again" does.
+  async _checkUntracked() {
+    this._busy = true;
+    try {
+      const d = await api('/partitions?untracked=1');
+      this._untracked = { at: new Date().toISOString(), byTile: untrackedOf(d) };
+      this._d = d;
+      this._ok();
+    } catch (e) { this._fail(e); }
+    this._busy = false;
   }
 
   _toggle(tile) {
@@ -67,20 +86,26 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
   }
 
   // ---- purge: orphaned partitions, listed first, deleted on confirmation ----
-  _askPurge(rows, tile = '', partition = '') { this._purge = { rows, tile, partition }; }
+  _askPurge(rows) { this._purge = { rows }; }
+  // _doPurge deletes exactly the confirmed rows, one request each (a body
+  // without tile and partition would purge every orphan there is by then).
   async _doPurge() {
     const p = this._purge;
     this._busy = true;
-    try {
-      const body = {};
-      if (p.tile) body.tile = p.tile;
-      if (p.partition) body.partition = p.partition;
-      const r = await api('/partitions/purge', jbody(body, 'POST'));
-      const done = (r.purged || []).filter((x) => !x.error).length, failed = (r.purged || []).filter((x) => x.error);
+    let done = 0;
+    const failed = [];
+    for (const body of purgeBodies(p.rows)) {
+      try {
+        const r = await api('/partitions/purge', jbody(body, 'POST'));
+        for (const x of r.purged || []) x.error ? failed.push(x.error) : done++;
+      } catch (e) { failed.push(`${body.tile} ${shortId(body.partition)}: ${String(e?.message ?? e)}`); }
+    }
+    if (failed.length && !done) this._fail(failed.join('; '));
+    else {
       this._ok();
-      this._emit('bx-admin-notice', `purged ${done} orphaned partition${done === 1 ? '' : 's'}${failed.length ? ` (${failed.length} failed: ${failed.map((x) => x.error).join('; ')})` : ''}`);
-      this._purge = null;
-    } catch (e) { this._fail(e); }
+      this._emit('bx-admin-notice', `purged ${done} orphaned partition${done === 1 ? '' : 's'}${failed.length ? ` (${failed.length} failed: ${failed.join('; ')})` : ''}`);
+    }
+    this._purge = null;
     this._busy = false;
     this.refresh();
   }
@@ -92,9 +117,9 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
       ${rows.map((o) => html`<tr data-pt-orphan=${o.partition}>
         <td class="mono">${o.tile}${o.deployment && o.deployment !== 'main' ? html` <span class="muted">· ${o.deployment}</span>` : nothing}</td>
         <td class="mono">${o.user}</td><td class="mono" title=${o.partition}>${shortId(o.partition)}</td>
-        <td>${o.reason === 'tile-removed' ? 'the tile was removed' : o.reason === 'user-deleted' ? 'the person was deleted' : o.reason}</td>
+        <td>${orphanWhy(o.reason)}</td>
         <td class="mono">${when(o.since)}</td>
-        <td><button class="act rm" ?disabled=${this._busy} @click=${() => this._askPurge([o], o.tile, o.partition)}>purge…</button></td>
+        <td><button class="act rm" ?disabled=${this._busy} @click=${() => this._askPurge([o])}>purge…</button></td>
       </tr>`)}
     </table>
     <div class="pt-bar"><button class="act rm" data-pt-purge-all ?disabled=${this._busy} @click=${() => this._askPurge(rows)}>purge all orphans…</button>
@@ -141,13 +166,17 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
         <span class="mono">GET /api/xbin/partitions</span>): nothing to show. See
         <a href="/docs/partitions.md" target="_blank">docs/partitions.md</a>.</p></div>`;
     }
-    const tiles = d.tiles || [];
+    const tiles = withUntracked(d.tiles, this._untracked?.byTile);
     const cats = [...new Set(tiles.map((t) => t.state))];
     const rows = tiles.filter((t) => this._catActive(t.state) && this._match(t.tile, modeName(t.spec)));
+    const admin = d.orphans !== undefined; // xbind answers the console an admin's view only when its driver is one
+    const u = this._untracked;
     return html`<div data-partitions=${tiles.length}>
       <p class="hint muted pt-intro">Tiles where each person has their own data — their own backend instance, resources, vault and
         log (<a href="/docs/partitions.md" target="_blank">docs/partitions.md</a>). You see who has a partition, its size and counts,
         never what it holds. Open a tile to decide its mode, stop or reset a person's partition, or restore one from a backup.</p>
+      ${admin ? nothing : html`<div class="pt-warn" data-pt-notadmin>You aren't a workspace admin: this view shows each tile's state and
+        any request (a tile's manager can keep or switch its mode here), never who holds a partition.</div>`}
       ${d.isolated === false ? html`<div class="pt-warn" data-pt-unisolated>⚠ xbind runs without <span class="mono">--isolate</span>:
         people's partitions can't start here (a tile that asks for them runs no one's).</div>` : nothing}
       ${tiles.length ? html`
@@ -156,17 +185,26 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
           <tr><th>tile</th><th>mode</th><th>state</th><th>people</th><th>running</th><th>data</th><th>cron · bus</th><th></th></tr>
           ${rows.map((t) => this._row(t))}
         </table>
-        <div class="pt-bar"><button class="act" data-pt-untracked ?disabled=${this._busy}
-          @click=${() => { this._untracked = true; this.load(); }}>${this._untracked ? 'untracked files: checked' : 'check untracked files'}</button>
-          <span class="muted" style="font-size:11px">files a person left in a partitioned tile's shared directory, which its repository doesn't track</span></div>`
+        ${admin ? html`<div class="pt-bar"><button class="act" data-pt-untracked=${u ? 'checked' : ''} ?disabled=${this._busy}
+          @click=${() => this._checkUntracked()}>${u ? 'check untracked files again' : 'check untracked files'}</button>
+          <span class="muted" style="font-size:11px">files a person left in a partitioned tile's shared directory, which its repository
+            doesn't track${u ? html` — checked ${when(u.at)}, ${untrackedSummary(u.byTile)}` : ''}</span></div>` : nothing}`
         : html`<p class="muted" data-pt-none>No tile keeps each person's data apart yet. A tile asks for it with
           <span class="mono">"partition": ["user"]</span> in its xbin.json.</p>`}
       ${requestLines(tiles)}
-      <h4>orphaned partitions</h4>
-      ${this._purgeAsk()}
-      ${this._orphans(d.orphans)}
+      ${admin ? html`<h4>orphaned partitions</h4>
+        ${this._purgeAsk()}
+        ${this._orphans(d.orphans)}` : nothing}
     </div>`;
   }
+}
+
+// untrackedSummary: the last check's answer in words.
+function untrackedSummary(byTile) {
+  const all = Object.values(byTile || {});
+  const found = all.filter((r) => r.untrackedCount > 0).length, failed = all.filter((r) => r.untrackedError).length;
+  if (!found && !failed) return 'none found';
+  return [found ? `${found} tile${found === 1 ? '' : 's'} with untracked files` : '', failed ? `${failed} couldn't be checked` : ''].filter(Boolean).join(', ');
 }
 
 // requestLines: the requests waiting for a manager, in words, above the orphans.

@@ -5,13 +5,16 @@
 // step with xbind's registry.SwitchDeletes and the shell's
 // partition-mode.js), the mode act's body, a dry run's confirmation text,
 // the typed reset confirmation, the rows' metadata in words (never more than
-// the counts), the history, the limits' body, and an overview row's flags.
+// the counts), the history, the limits' body, an overview row's flags, the
+// purge's bodies (exactly the confirmed orphans) and the on-demand untracked
+// check merged into the plain polls.
 // A field an older xbind doesn't send is left out, never read as zero.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   modeName, specOf, stateWords, requestText, switchDeletes, deletesNothing, modeBody, wipedText, switchLines,
   resetConfirm, partitionOp, regsText, mailText, runningText, historyText, limitsBody, tileNotes, bytesText, shortId,
+  orphanWhy, purgeBodies, untrackedOf, withUntracked,
 } from '../workspace-template/tiles/admin/tabs/partitions-view.js';
 import { switchDeletes as shellSwitchDeletes } from '../workspace-template/shell/partition-mode.js';
 
@@ -116,4 +119,37 @@ test('an overview row\'s flags', () => {
   assert.deepEqual(notes.map((n) => n.kind), ['ok', 'warn', 'warn', 'info', 'warn', 'warn']);
   assert.equal(notes[3].text, 'global binds: llm → apps/llm-gw');
   assert.match(notes[2].text, /^caps hit: evicted ×3/);
+});
+
+test('a purge deletes exactly the orphans confirmed', () => {
+  const rows = [
+    { tile: 'apps/pg', user: 'zed', partition: 'u-zed1', deployment: 'main', reason: 'user-deleted' },
+    { tile: 'apps/pg', user: 'zed', partition: 'u-zed1', deployment: 'beta', reason: 'user-deleted' },
+    { tile: 'apps/gone', user: 'amy', partition: 'u-amy1', reason: 'tile-removed' },
+    { tile: 'apps/x' }, null,
+  ];
+  assert.deepEqual(purgeBodies(rows), [{ tile: 'apps/pg', partition: 'u-zed1' }, { tile: 'apps/gone', partition: 'u-amy1' }],
+    'one body per listed tile and partition, never an empty one (which purges every orphan there is)');
+  assert.deepEqual(purgeBodies([]), []);
+  assert.deepEqual(purgeBodies(undefined), []);
+  assert.equal(orphanWhy('user-deleted'), 'the person was deleted');
+  assert.equal(orphanWhy('tile-removed'), 'the tile was removed');
+  assert.equal(orphanWhy('something-new'), 'something-new', 'a reason a newer xbind adds shows as it is');
+});
+
+test('the untracked check runs once per click; the polls keep its answer', () => {
+  const checked = untrackedOf({ tiles: [
+    { tile: 'apps/pg', state: 'partitioned', untracked: ['notes.txt'], untrackedCount: 1 },
+    { tile: 'apps/pu', state: 'partitioned', untrackedCount: 0 },
+    { tile: 'apps/bad', state: 'partitioned', untrackedError: 'listing failed' },
+    { tile: 'apps/wait', state: 'pending' },
+  ] });
+  assert.deepEqual(Object.keys(checked).sort(), ['apps/bad', 'apps/pg', 'apps/pu']);
+  const poll = [{ tile: 'apps/pg', state: 'partitioned', totals: { people: 2 } }, { tile: 'apps/wait', state: 'pending' }, { tile: 'apps/new', state: 'partitioned' }];
+  const rows = withUntracked(poll, checked);
+  assert.deepEqual(rows[0], { tile: 'apps/pg', state: 'partitioned', totals: { people: 2 }, untracked: ['notes.txt'], untrackedCount: 1 });
+  assert.equal(rows[1], poll[1]);
+  assert.equal(rows[2], poll[2], 'a tile the check didn\'t see has nothing merged');
+  assert.equal(withUntracked(poll, null), poll, 'never checked: the poll as it is');
+  assert.deepEqual(untrackedOf({}), {});
 });
