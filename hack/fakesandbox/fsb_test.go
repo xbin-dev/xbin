@@ -43,7 +43,7 @@ func newFake(t *testing.T, tweak ...func(*fsbManager)) (*fsbManager, sandboxcont
 func TestContract(t *testing.T) {
 	tg := fakeTarget(t, sandboxcontract.Knobs{})
 	tg.Strict = true // the reference manager passes what the suite only warns about
-	tg.Caps = []string{"exec", "files", "tar", "snapshots", "clone", "archive", "partitions"}
+	tg.Caps = []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "archive", "partitions"}
 	if fsbHasPTY() {
 		tg.Caps = append(tg.Caps, "tty")
 	}
