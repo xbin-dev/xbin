@@ -10,7 +10,9 @@
 //     follows it to its new id in the admin's own partition (from 2^40), its
 //     transcript there; the list shows it once, never the old one;
 //   - the old address (#c=<old id>, a push link) opens the new one;
-//   - dev1 reads neither copy; no page errors.
+//   - dev1, at the global instance, learns nothing of the move and can't
+//     drive it; nor can the admin's own page (only their partition's
+//     backend, with the mailed key); no page errors.
 // Otherwise (the default unpartitioned seed) it says SKIP.
 const { login, log, shot, checker, noGocryptfs } = require('../lib');
 
@@ -77,9 +79,21 @@ async function agentMoves(browser) {
   const via = await until(A.page, (b) => { const m = /#c=(\d+)/.exec(location.hash); return m && +m[1] >= b && +m[1]; }, B, 20000).then((h) => h.jsonValue(), () => 0);
   check(via === moved, `#c=<the old id> opens it where it went (${via})`);
 
-  // dev1 reads neither
-  const [a, b] = [await call(D.page, `/runs/${old}`, { global: true }), await call(D.page, `/runs/${moved}`)];
-  check(a.status === 404 && b.status === 404, `dev1 reads neither copy (${a.status}, ${b.status})`);
+  // dev1, at the global instance, learns nothing of the move and can't drive it (done answers him as for no move at all);
+  // nor can the admin's own page — only their partition's backend has the key the move was mailed with
+  const tries = [
+    [D, 'GET', `/moves/${old}`, 404], [D, 'GET', `/moves/${old}/export`, 404], [D, 'POST', `/moves/${old}/abandon`, 404],
+    [D, 'POST', `/moves/${old}/done`, 200, 'gone'], [D, 'POST', '/moves/99999/done', 200, 'gone'],
+    [A, 'GET', `/moves/${old}/export`, 403], [A, 'POST', `/moves/${old}/done`, 403], [A, 'POST', `/moves/${old}/abandon`, 403],
+  ];
+  const got = [];
+  for (const [who, method, p, want, state] of tries) {
+    const x = await call(who.page, p, { method, global: true, ...(method === 'POST' ? { body: { to: moved + 1 } } : {}) });
+    got.push(`${who === D ? 'dev1' : 'admin'} ${method} ${p}: ${x.status}${x.body?.state ? ' ' + x.body.state : ''}`);
+    check(x.status === want && (!state || x.body?.state === state), `${got[got.length - 1]} (want ${want}${state ? ' ' + state : ''})`);
+  }
+  const still = await call(A.page, `/moves/${old}`, { global: true });
+  check(still.status === 200 && still.body?.state === 'moved' && still.body?.to === moved, `the move's record unchanged by those (${still.status} ${JSON.stringify(still.body)})`);
   const errs = [...A.errors, ...D.errors];
   check(errs.length === 0, `no page errors${errs.length ? ': ' + errs.join(' | ') : ''}`);
   await A.ctx.close();

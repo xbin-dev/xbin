@@ -115,7 +115,7 @@ func TestPartitionsAgentChannels(t *testing.T) {
 	if strings.Join(inst.Partition, ",") != "user,global" {
 		t.Fatalf("the new agent: partition %v", inst.Partition)
 	}
-	if err := d.WriteFiles(paAgent, map[string]string{"_backend/zz_e2e_handoffs.go": pcHandoffProbe}); err != nil {
+	if err := d.WriteFiles(paAgent, map[string]string{"_backend/zz_e2e_handoffs.go": pcHandoffProbe, "_backend/zz_e2e_held.go": pcHeldProbe}); err != nil {
 		t.Fatal(err)
 	}
 	ok("POST", "/api/xbin/templates/new", map[string]string{"source": "agent-messaging-bridge", "path": pcBridge})

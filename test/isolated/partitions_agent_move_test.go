@@ -17,7 +17,9 @@ package isolated
 //     throughout); in the end it is in her own list (an id from 2^40) with
 //     its transcript, gone from global's (404), its tombstone saying where
 //     it went, and alice's stream of it got the event naming the new id;
-//   - bob reads neither copy.
+//   - bob, at the global instance, learns nothing of the move and can't
+//     drive it; nor can alice's own page (403: only her partition's backend
+//     has the key the move was mailed with).
 
 import (
 	"encoding/json"
@@ -118,8 +120,40 @@ func paUnshareMoves(t *testing.T, e *psEnv) {
 	if st := call("alice", "GET", fmt.Sprintf("/runs/%d", x.ID), nil, true).Status; st != 404 {
 		t.Errorf("the shared copy after the move: %d, want 404", st)
 	}
-	if st := call("bob", "GET", fmt.Sprintf("/runs/%d", to), nil, false).Status; st != 404 {
-		t.Errorf("BUG: bob reads alice's moved conversation: %d", st)
+	// bob, at the global instance, learns nothing of alice's move and can't
+	// drive it (done answers him as for an id with no move at all); nor can
+	// alice's own page — xbind stamps it as her partition, but only her
+	// partition's backend has the key the move was mailed with
+	for _, c := range []struct {
+		person, method, path string
+		want                 int
+		body                 string
+	}{
+		{"bob", "GET", "/moves/%d", 404, ""},
+		{"bob", "GET", "/moves/%d/export", 404, ""},
+		{"bob", "POST", "/moves/%d/done", 200, `"state":"gone"`},
+		{"bob", "POST", "/moves/%d/abandon", 404, ""},
+		{"bob", "GET", "/runs/%d", 404, ""},
+		{"bob", "GET", "/runs/%d/raw?path=x", 404, ""},
+		{"alice", "GET", "/moves/%d/export", 403, ""},
+		{"alice", "POST", "/moves/%d/done", 403, ""},
+		{"alice", "POST", "/moves/%d/abandon", 403, ""},
+	} {
+		body := any(nil)
+		if c.method == "POST" {
+			body = map[string]any{"to": to + 1}
+		}
+		if r := call(c.person, c.method, fmt.Sprintf(c.path, x.ID), body, true); r.Status != c.want || !strings.Contains(string(r.Body), c.body) {
+			t.Errorf("BUG: %s's page, %s %s at the global instance: %d %s (want %d %s)", c.person, c.method, fmt.Sprintf(c.path, x.ID), r.Status, r, c.want, c.body)
+		}
+	}
+	if st := call("bob", "POST", "/moves/99999/done", map[string]any{"to": to + 1}, true); st.Status != 200 || !strings.Contains(string(st.Body), `"state":"gone"`) {
+		t.Errorf("bob's done on no move at all: %d %s (want the same as on alice's)", st.Status, st)
+	}
+	var after struct{ State string }
+	must(200, "alice", "GET", fmt.Sprintf("/moves/%d", x.ID), nil, true).Decode(t, &after)
+	if after.State != "moved" {
+		t.Errorf("the tombstone after the refused calls: %+v", after)
 	}
 	xbindtest.Eventually(t, time.Minute, "alice's stream heard where it went", func() (bool, string) {
 		n := stream.count(x.ID, "run", func(d json.RawMessage) bool { return strings.Contains(string(d), fmt.Sprintf(`"movedTo":%d`, to)) })
