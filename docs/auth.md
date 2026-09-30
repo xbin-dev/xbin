@@ -43,7 +43,12 @@ tile). Absent for automation, cron, and the bootstrap owner token. This is
 how a backend tells *who clicked*: a frame call from the tile's own UI runs
 at the tile's full self-role, so an app with mixed-trust viewers should gate
 mutating endpoints on the attributed level — the SDK's
-`xbin.Caller(r).UserCanWrite()` does exactly that. A credential the tile
+`xbin.Caller(r).UserCanWrite()` does exactly that. One exception, on
+partitioned tiles only ([partitions.md](/docs/partitions.md)): a call from
+one of a person's partition's credentials to the tile's own global instance
+(`?xbin-partition=global`) carries that person — the partition's backend's
+calls included — and its `X-XBin-Role` is clamped to their level (`reader`
+or `writer`), never the self-role. A credential the tile
 keeps past the call (an SSH key a person registered on its page) is checked
 again at each use: the tile's backend asks `GET /api/xbin/access/<user>`
 (`xbin.AccessOf`) for that person's level on **itself** now — none once

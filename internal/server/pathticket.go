@@ -101,7 +101,9 @@ func (s *Server) servePathTicket(w http.ResponseWriter, r *http.Request, originI
 		WriteError(w, http.StatusNotFound, "no such tile", "/docs/protocol.md")
 		return
 	}
-	r2 := r.Clone(auth.WithNoSetCookie(auth.WithPrincipal(r.Context(), p)))
+	// marked, so the proxy refuses it ?xbin-partition=global (a ticket is
+	// its own partition's only, plans/partitions/05 §6)
+	r2 := r.Clone(auth.WithPathTicket(auth.WithNoSetCookie(auth.WithPrincipal(r.Context(), p))))
 	r2.URL.Path = "/api" + inner + dec
 	r2.URL.RawPath = ""
 	if raw := "/api" + inner + rest; raw != r2.URL.EscapedPath() {

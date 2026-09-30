@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -90,6 +91,19 @@ func (a *Auth) MintPathTicket(p Principal, prefix string) (string, time.Time, er
 	body := base64.RawURLEncoding.EncodeToString(b)
 	return pathTicketPrefix + body + "." + a.pathTicketMAC(body), exp, nil
 }
+
+type pathTicketKey struct{}
+
+// WithPathTicket marks a request a path ticket reached: its principal is
+// the minting page's frame, bound to the ticket's prefix. The component
+// proxy refuses such a call ?xbin-partition=global (plans/partitions/05
+// §6, S3): the ticket is a credential for its own partition only.
+func WithPathTicket(ctx context.Context) context.Context {
+	return context.WithValue(ctx, pathTicketKey{}, true)
+}
+
+// ViaPathTicket reports WithPathTicket.
+func ViaPathTicket(ctx context.Context) bool { v, _ := ctx.Value(pathTicketKey{}).(bool); return v }
 
 func (a *Auth) pathTicketMAC(body string) string {
 	m := hmac.New(sha256.New, a.secret)

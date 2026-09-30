@@ -136,6 +136,21 @@ A proxied response from a non-primary deployment carries
 `X-XBin-Deployment: <name>`, set by xbind over any value the backend set; a
 primary's responses are unchanged (§Tile deployments).
 
+A partitioned tile's own call **addressing its global instance**
+(`?xbin-partition=global`, §HTTP routes › Core) arrives there as the
+partition's **person**, whatever the credential — a user partition's
+backend's instance token included, and any value the caller sent
+stripped: `X-XBin-User` is the person, `X-XBin-User-Level` their level on
+the tile (read live), `X-XBin-Role` `reader` for read or `writer` for write
+and terminal — never the self-call's `admin` — `X-XBin-From` the tile
+itself, and `X-XBin-Partition: user:<id>` with its `X-XBin-Partition-Id`. A
+global instance must never treat a call carrying `X-XBin-Partition:
+user:…` as the tile itself. A view-as credential's call is `reader` there
+whatever the viewed person's level, with `X-XBin-Viewed-By`. An admin
+calling the tile directly — the only person who can call `/api/<tile>/…`
+by themselves; everyone else comes in through the tile's frame — keeps
+their own identity and role there.
+
 xbind's own credentials never reach a backend: the session cookie
 (`xbin_session` / `__Host-xbin_session`), the tile-origin cookie, an
 `Authorization: Bearer` (owner, instance, terminal or app-session token)
@@ -191,7 +206,12 @@ credential, never from the URL or a header:
   global instance, or `403 <tile> is partitioned: only partitioned tiles
   reach its people's data, and it has no global instance`;
 - a non-primary deployment of a partitioned tile has one instance,
-  `global`.
+  `global`;
+- the one way out of a partition by the URL: the tile's own frames,
+  terminals, agent sessions and user-partition backends — and an admin
+  calling it directly — reach its **global instance** with
+  `?xbin-partition=global` (§HTTP routes › Core), attributed to the person.
+  Nothing addresses a user partition by the URL.
 
 A user partition's credential is default-deny on `/api/xbin/*`, like a
 non-primary deployment's: every route has a partition class too —
@@ -659,6 +679,40 @@ partition §Authentication names (403 with the reason when it reaches none),
 and a person's partition that can't start now answers 503 with why;
 public ingress reaches only the tile's global instance, and a tile without
 one answers 503 `this site is not being served right now`.
+**`?xbin-partition=global`** on a call to a partitioned tile addresses the
+tile's global instance instead of the caller's partition
+([partitions.md](/docs/partitions.md) §The global instance and people's
+partitions). xbind consumes it — the backend never sees it; the rest of
+the query passes — on partitioned tiles only (their recorded mode has user
+partitions, or can't be read), public ingress to one included (which
+reaches global anyway); on every other tile it reaches the backend as any
+query parameter, as it always has. It is honoured for the tile's own
+frames, terminals, agent sessions and user-partition backends, whose call
+reaches the global instance attributed to the partition's person
+(§Authentication, after the identity headers), and for an admin calling
+the tile directly, who keeps their own role (a reader or writer calling
+`/api/<tile>/…` by themselves is refused with or without it, `403 user:<id>
+is not granted access to <tile>`: their way in is the tile's frame). A
+view-as frame reaches it as the viewed person with `X-XBin-Role: reader`,
+whatever their level, and `X-XBin-Viewed-By`; its writes are refused (403
+`read-only: …`) as everywhere. For credentials already in `global` — the global
+instance, the owner token and its frames and terminals, a non-primary
+deployment's credentials (whose one instance is `global`) — it changes
+nothing. Refused: a value other than one `global` (400 `?xbin-partition
+addresses a partitioned tile's global instance: its one value is global`);
+another tile's credentials (`403 ?xbin-partition=global addresses a tile's
+own global instance: <caller> can't use it on <tile>`); cron, bus and mail
+deliveries (`403 a <cron|bus|mail> delivery acts in the partition it was
+registered for: …`); a path ticket (`403 a path ticket reaches its own
+partition only: ?xbin-partition=global needs the page's own frame
+token`); a tile without a global instance (`404 <tile> has no global
+instance` — the one 404 with that text: the same words as a 403 are the
+refusal of a credential whose own partition is `global`, such as the
+global instance's token or a global cron job, on a tile without one); and
+a person who can't read the tile, is disabled or deleted
+(the partition refusals of §Authentication). The client's
+`xbin.fetch(url, {partition: 'global'})` and the Go SDK's
+`xbin.GlobalURL(path)` add it, from a user partition only.
 
 ### xbind API (`/api/xbin/…`)
 

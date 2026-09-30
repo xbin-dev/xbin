@@ -112,6 +112,11 @@ type Proxy struct {
 	// at which role, or why it is refused. qualifier is the deployment the
 	// URL names, "" for the bare URL.
 	Route func(p auth.Principal, target *registry.Component, qualifier string) Decision
+	// RouteGlobal is the broker's routing function for a call that
+	// addresses a partitioned target's global instance
+	// (?xbin-partition=global, consumed here; globaladdress.go), installed
+	// at boot beside Route. nil = such a call is refused.
+	RouteGlobal func(p auth.Principal, target *registry.Component, qualifier string) Decision
 	// Deployments answers what a qualified URL and the role rule ask about a
 	// tile's deployments (a record, its deployments, its primary): the
 	// deployments plane. nil = no tile has a record.
@@ -198,12 +203,14 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// The decision is taken here and acted on in the order the gates have
 	// always run: the tile-level gates answer first, the refusal after them.
-	d := px.decide(p, comp, qualifier)
+	// A partitioned target's ?xbin-partition=global is consumed here and
+	// decided by RouteGlobal (globaladdress.go).
+	d := px.decideAddressed(r, p, comp, qualifier)
 	if rerr != nil {
 		// An unknown deployment, or a nested tile under a qualifier: a caller
 		// who may not know the tile's deployments gets the gate's refusal,
 		// whether or not the name exists (11-contract §2.2, §2.4).
-		if d.Deny != nil && !errors.Is(d.Deny, util.ErrNoDeployment) {
+		if d.Deny != nil && denyStatus(d.Deny) == http.StatusForbidden {
 			jsonErr(w, http.StatusForbidden, d.Deny.Error(), "")
 		} else {
 			jsonErr(w, http.StatusNotFound, rerr.Error(), "")
@@ -254,11 +261,9 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if d.Deny != nil {
-		code := http.StatusForbidden
-		if errors.Is(d.Deny, util.ErrNoDeployment) {
-			code = http.StatusNotFound // a bound deployment that no longer exists (09-fabric §3.1)
-		}
-		jsonErr(w, code, d.Deny.Error(), "")
+		// 404 for a bound deployment that no longer exists (09-fabric §3.1)
+		// or a global instance the tile doesn't have; else 403
+		jsonErr(w, denyStatus(d.Deny), d.Deny.Error(), "")
 		return
 	}
 	// The partition gate (partition.go): a pending or invalid mode runs no

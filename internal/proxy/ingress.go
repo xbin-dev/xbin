@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/ingress"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // The ingress last hop (plans/ingress.md ING-5): forward an admitted public
@@ -77,9 +79,7 @@ func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingre
 	release := px.Runner.Track(comp.Path)
 	defer release()
 
-	outQuery := r.URL.Query()
-	outQuery.Del("frame") // never let the browser-auth credential shape leak inward
-	rawQuery := outQuery.Encode()
+	rawQuery := ingressQuery(r.URL, partitioned)
 
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -104,6 +104,19 @@ func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingre
 		},
 	}
 	rp.ServeHTTP(w, r)
+}
+
+// ingressQuery is the query a public request forwards: never ?frame= (the
+// browser-auth credential shape), and on a partitioned tile never
+// ?xbin-partition either — consumed on partitioned tiles as on /api/ (F5,
+// globaladdress.go), and a public request reaches global anyway.
+func ingressQuery(u *url.URL, partitioned bool) string {
+	q := u.Query()
+	q.Del("frame")
+	if partitioned {
+		q.Del(util.QueryPartition)
+	}
+	return q.Encode()
 }
 
 // stripCookie removes one cookie by name, keeping the tile's own cookies —
