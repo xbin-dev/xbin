@@ -178,6 +178,7 @@ export const IMPLEMENTS = {
   'state.partition.global': 'native/home.js — appNotices',
   'state.partition.sandboxes': 'native/home.js — appNotices',
   'state.partition.hidden': 'model/stream.js — Live.visibility',
+  'state.partition.mcp': 'native/settings.js — mcpTpl',
 
   // Deep links
   'link.conv': 'native.js — app.follow(location.hash, xbin.native.state) (model/router.js)',

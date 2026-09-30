@@ -37,7 +37,7 @@ import { liveURL, liveFrame, liveLabel } from './live.js';
 import { mountLive, unmountLive } from './live-status.js';
 import { makePorts } from './ports.js';
 import { tabFiles, selectFile } from './settings-files.js';
-import { mountPartitionUI } from './partition-ui.js';
+import { mountPartitionUI, mountStaticMcp } from './partition-ui.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -976,6 +976,7 @@ function tabMcp(bd) {
          component's <b>Interfaces</b> tab (slot <span class="mono">mcp</span>); their tools then become
          available to the agent.</div>`}
   </div>`;
+  mountStaticMcp(bd, actions.getConfig); // a partitioned instance's static servers (partition-ui.js); nothing unpartitioned
 }
 
 // --- start ------------------------------------------------------------------

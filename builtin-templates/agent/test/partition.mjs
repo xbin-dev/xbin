@@ -3,10 +3,12 @@
 //
 //   - unpartitioned (no xbin.partition): today's page — no notice, the
 //     Shared view, Share in the row menu and the top bar, a stream that
-//     ignores the page's visibility;
+//     ignores the page's visibility, an MCP tab of bound servers only;
 //   - a person's partition ("user:alice"): no sharing anywhere, one banner
-//     naming a bound sandbox manager that can't keep people apart, and a
-//     stream that closes while the page is hidden and comes back when shown;
+//     naming a bound sandbox manager that can't keep people apart, a stream
+//     that closes while the page is hidden and comes back when shown, and
+//     the MCP tab's static servers, one with headers marked as working in
+//     shared (global) conversations only;
 //   - the global instance ("global"): the note to sign in as a person.
 //
 //   node test/partition.mjs        (needs playwright + a chromium build)
@@ -28,6 +30,13 @@ async function open(partition) {
   const ctx = await browser.newContext();
   await serveTile(ctx);
   await ctx.addInitScript(STUB, seed);
+  await ctx.addInitScript(() => { // the settings: one static MCP server with headers, one without
+    const j = window.__json;
+    window.__route('GET', /\/config$/, () => j({ models: {}, mcp: [
+      { name: 'gh', url: 'https://mcp.example/gh', headers: { Authorization: 'Bearer secret-token' } },
+      { name: 'docs', url: 'https://mcp.example/docs' }] }));
+    window.__route('GET', /\/models$/, () => j({ data: [] }));
+  });
   if (partition) {
     await ctx.addInitScript((p) => {
       window.xbin.partition = p;
@@ -51,6 +60,16 @@ const menu = async (page) => {
   await page.click('.mback');
   return items;
 };
+// mcpTab opens ⚙ → MCP and answers its text once the static list had its moment.
+const mcpTab = async (page, wantStatic) => {
+  await page.click('#gear');
+  await page.waitForSelector('#cf-save');
+  await page.click('#tabs .tab[data-tab="mcp"]');
+  await page.waitForSelector('#sbd .sec h4');
+  if (wantStatic) await page.waitForSelector('#mcp-static:not([hidden]) table');
+  else await page.waitForTimeout(200);
+  return page.$eval('#sbd', (e) => e.textContent);
+};
 const hide = (page, hidden) => page.evaluate((h) => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => h });
   document.dispatchEvent(new Event('visibilitychange'));
@@ -69,6 +88,9 @@ const hide = (page, hidden) => page.evaluate((h) => {
   await hide(page, true);
   await page.waitForTimeout(150);
   ok('unpartitioned: a hidden page keeps its stream', (await page.evaluate(() => window.__streams())) > 0);
+  await hide(page, false);
+  const mcp = await mcpTab(page, false);
+  ok('unpartitioned: the MCP tab lists the bound servers only, as ever', !(await page.$('#mcp-static')) && !/works in shared/.test(mcp), mcp);
   ok('unpartitioned: no page errors', !errors.length, errors.join(' | '));
   await ctx.close();
 }
@@ -97,6 +119,13 @@ const hide = (page, hidden) => page.evaluate((h) => {
   await page.evaluate(() => window.__push({ type: 'run', run: 1, root: 1, data: { id: 1, title: 'my renamed notes', status: 'idle', parentId: 0, rootId: 1, origin: 'chat', mine: true, access: 'owner' } }));
   await page.waitForFunction(() => document.getElementById('runs').textContent.includes('my renamed notes'));
   ok('partition: the reconnected stream delivers', true);
+  const rows = async () => { await mcpTab(page, true); return page.$$eval('#mcp-static tr', (trs) => trs.slice(1).map((tr) => tr.textContent.replace(/\s+/g, ' ').trim())); };
+  const list = await rows();
+  ok('partition: the MCP tab lists the static servers', list.length === 2, list.join(' / '));
+  ok('partition: one with headers works in shared (global) conversations only — bind it as a tile or a personal bind',
+    /^gh.*works in shared \(global\) conversations only — to use it in your own conversations, bind it as a tile or a personal bind/.test(list[0] || ''), list[0]);
+  ok('partition: one without headers works everywhere', /^docs.*every conversation/.test(list[1] || '') && !/shared/.test(list[1] || ''), list[1]);
+  ok('partition: never the header itself', !(await page.$eval('#sbd', (e) => e.textContent)).includes('secret-token'));
   ok('partition: no page errors', !errors.length, errors.join(' | '));
   await ctx.close();
 }

@@ -4,7 +4,7 @@
 // partitioned instance's page is hidden (model/stream.js).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { partitionState, sharing, pausesHidden, notices, appNotices, oldManagers } from '../builtin-templates/agent/model/partition.js';
+import { partitionState, sharing, pausesHidden, notices, appNotices, oldManagers, staticMcp, mcpNote, MCP_GLOBAL_ONLY } from '../builtin-templates/agent/model/partition.js';
 import { rowMenu, topBar } from '../builtin-templates/agent/model/rules.js';
 import { Live } from '../builtin-templates/agent/model/stream.js';
 
@@ -77,6 +77,26 @@ test('appNotices reads the sandbox list once in a person\'s partition with manag
     appNotices(app);
     assert.equal(ensured, 1, 'an unpartitioned page reads nothing for it');
   } finally { globalThis.xbin = before; }
+});
+
+test('static MCP servers: a partitioned instance marks the ones with headers as shared-only; unpartitioned lists none', () => {
+  const cfg = { mcp: [
+    { name: 'gh', url: 'https://mcp.example/gh', headers: { Authorization: 'Bearer x' } },
+    { name: 'docs', url: 'https://mcp.example/docs' },
+    { name: 'empty', url: 'https://mcp.example/e', headers: {} },
+  ] };
+  assert.deepEqual(staticMcp(cfg, 'legacy'), [], 'unpartitioned: today\'s page, nothing listed');
+  for (const st of ['user', 'global']) {
+    const list = staticMcp(cfg, st);
+    assert.deepEqual(list.map((s) => [s.name, s.globalOnly]), [['gh', true], ['docs', false], ['empty', false]]);
+    assert.ok(!JSON.stringify(list).includes('Bearer'), 'never the header itself');
+    assert.equal(mcpNote(list), `gh: ${MCP_GLOBAL_ONLY}.`);
+  }
+  assert.match(MCP_GLOBAL_ONLY, /shared \(global\) conversations only.*bind it as a tile or a personal bind/);
+  assert.equal(mcpNote(staticMcp({ mcp: [{ name: 'docs', url: 'u' }] }, 'user')), '');
+  assert.deepEqual(staticMcp(null, 'user'), []);
+  withPartition('user:alice', () => assert.equal(staticMcp(cfg).length, 3));
+  withPartition(undefined, () => assert.equal(staticMcp(cfg).length, 0));
 });
 
 // a stream stand-in: xbin.fetch answers a body that stays open until aborted
