@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -129,7 +130,7 @@ func GoWork(reg *registry.Registry, sdkPath string) error {
 
 	cur, err := os.ReadFile(workPath)
 	if err != nil {
-		return os.WriteFile(workPath, []byte(desired), 0o644) // no file yet
+		return fsutil.WriteFileAtomic(workPath, []byte(desired), 0o644) // no file yet
 	}
 	if string(cur) == desired {
 		return nil // already correct — don't feed the file watcher
@@ -142,7 +143,9 @@ func GoWork(reg *registry.Registry, sdkPath string) error {
 			slog.Warn("go.work is missing component modules — reclaiming it (a `go work use` likely rewrote it and stripped xbind's marker)", "missing", missing)
 		}
 	}
-	return os.WriteFile(workPath, []byte(desired), 0o644)
+	// atomically: every Go build reads this file (ReadRootWork), and a torn
+	// one would read as hand-managed
+	return fsutil.WriteFileAtomic(workPath, []byte(desired), 0o644)
 }
 
 // goModules lists the workspace's Go module use-paths, sorted; include
