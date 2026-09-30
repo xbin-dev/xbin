@@ -44,6 +44,7 @@ import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { loadBrand, applyFavicon, brandLogo } from './shell-brand.js';
 import { openDevices } from './bx-devices.js';
+import { accountMenu } from './shell-account.js'; // my account: password, devices…, your partitions
 
 const LAYOUT_PREF = 'layout';
 const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
@@ -1476,46 +1477,6 @@ export class BxShell extends LitElement {
     setTimeout(() => { this._menuMsg = null; }, 4000);
   }
 
-  // My account (D38): identity + self-service password change; devices…
-  // opens the xbin app's device list (bx-devices.js).
-  _accountMenu() {
-    if (this._who?.kind !== 'user') return nothing;
-    const w = this._who;
-    return html`
-      <div class="hd" style="margin-top:10px">my account — ${w.id}${w.name && w.name !== w.id ? ` (${w.name})` : ''} · ${w.role}</div>
-      <form style="display:flex; flex-direction:column; gap:4px"
-            @submit=${(e) => this._changePassword(e)}>
-        <input name="cur" type="password" placeholder="current password" autocomplete="current-password" required>
-        <input name="nw" type="password" placeholder="new password (min 8)" minlength="8" autocomplete="new-password" required>
-        <input name="nw2" type="password" placeholder="repeat new password" minlength="8" autocomplete="new-password" required>
-        <label style="font-size:11px; display:flex; gap:5px; align-items:center" title="the xbin app on your phones signs in with its own key — a new password alone doesn't sign it out"><input type="checkbox" name="rmdev" style="margin:0">and remove my app devices</label>
-        <button class="act" type="submit">change password</button>
-      </form>
-      <button class="act" style="margin-top:6px; width:100%" title="the xbin app on your phones and tablets — add one with a QR code, or remove one"
-              @click=${() => { this._settingsOpen = false; openDevices(); }}>devices…</button>`;
-  }
-
-  async _changePassword(e) {
-    e.preventDefault();
-    const f = e.target;
-    if (f.nw.value !== f.nw2.value) {
-      this._menuMsg = { ok: false, text: "new passwords don't match" };
-      setTimeout(() => { this._menuMsg = null; }, 4000);
-      return;
-    }
-    try {
-      const r = await fetch('/api/xbin/account/password', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current: f.cur.value, new: f.nw.value, ...(f.rmdev.checked ? { removeDevices: true } : {}) }),
-      });
-      const d = await r.json().catch(() => ({}));
-      this._menuMsg = r.ok ? { ok: true, text: `password changed${d.devicesRemoved ? ` · ${d.devicesRemoved} device(s) removed` : ''}` }
-        : { ok: false, text: d.error ?? `failed (${r.status})` };
-      if (r.ok) f.reset();
-    } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }
-    setTimeout(() => { this._menuMsg = null; }, 4000);
-  }
-
   _sideResizeStart(e) {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -1793,7 +1754,7 @@ export class BxShell extends LitElement {
               </span></div>
             <div class="gshint">per browser: the layout stays the same for everyone</div>
             ${this._screenShareMenu()}
-            ${this._accountMenu()}
+            ${accountMenu(this)}
             ${this._menuMsg ? html`<div class="menu-msg ${this._menuMsg.ok ? 'ok' : 'bad'}" style="margin-top:6px">${this._menuMsg.text}</div>` : nothing}
           </div>` : nothing}
         <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green, #4caf50)"></span>docs</a>
