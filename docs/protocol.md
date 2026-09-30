@@ -2623,7 +2623,9 @@ POST   /partitions/mode            a tile manager (the tile's user-owner, an
                                    or to unpartitioned: every namespace
                                    (main's and every deployment's), vault file
                                    and registration (cron, bus, interface
-                                   instances, ingress hosts), and erases its
+                                   instances, ingress hosts; people's
+                                   personal binds on the tile, counted with
+                                   the registrations), and erases its
                                    ns: backup keys (tile: stays); removing
                                    "global": global's namespace, vault and
                                    registrations and global's ns: key only;

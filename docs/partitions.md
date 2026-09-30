@@ -304,8 +304,43 @@ what each partition sends it. A personal bind is removed when its owner
 removes it or gives the provider away, when the person is deleted, and when
 the requester switches mode.
 
-**TODO:** personal binds' rows in `XBIN_IFACE_<SLOT>` and `xbin.iface()`
-(`personal: true`), the routes and `bx bind --personal`.
+**Global binds** are made as today (`POST /api/xbin/bindings`, `bx bind`,
+the Interfaces panel, which labels a partitioned tile's bindings *global*).
+One refusal is new: an unpartitioned tile's http slot can't be bound to a
+partitioned tile that has no global instance (409) — no call of it would
+reach that tile.
+
+**Personal binds.** Alice owns `users/alice/mcp`, which provides the `mcp`
+service; `apps/agent` is partitioned, she can read it, and it has a
+`"multi": true` http slot `mcp`. With her own sign-in (not from a tile's
+terminal) she runs
+
+```
+bx bind --personal apps/agent mcp=users/alice/mcp
+```
+
+(`POST /api/xbin/partitions/binds {requester, slot, provider}`). Then:
+
+- only her partition of `apps/agent` is restarted, and its
+  `XBIN_IFACE_MCP` lists the provider after the global rows:
+  `{"provider": "users/alice/mcp", "url": "http://xbin/api/users/alice/mcp",
+  "service": "mcp", "personal": true}`; her frames' `xbin.iface('mcp')`
+  endpoints list it with `personal: true`. Bob's partition and the global
+  instance don't;
+- a call to `users/alice/mcp` passes only from `apps/agent` acting in her
+  partition, while she still owns the tile. Every other caller — bob's
+  partition, the global instance — gets the same 403 as if nothing were
+  bound. The provider sees `X-XBin-From: apps/agent`,
+  `X-XBin-Partition: user:alice` and `X-XBin-Partition-Id`.
+
+The slot must be a `multi: true` http slot, the provider a personal tile
+that isn't partitioned and provides the slot's service as a plain provider
+(not instances), and the policy ceiling must allow the edge; a provider
+already bound on the slot for everyone can't be bound again. `bx bind
+--personal` lists your personal binds (`GET`; admins see everyone's, each
+with `live` and, when it no longer holds, `why`), and `bx bind --personal
+--unset apps/agent mcp=users/alice/mcp` removes one (`DELETE`; admins may
+remove anyone's).
 
 ## Providers: calls from partitioned tiles
 
@@ -460,8 +495,6 @@ and restoring one on another machine needs the exported backup keys.
 ## Not documented yet (TODO)
 
 - partition mail, `partitionMail`, and the SDK's `Mail`/`Inbox`/`Ack`;
-- personal binds in `XBIN_IFACE_<SLOT>` / `xbin.iface()`, their routes and
-  `bx bind --personal`;
 - the workspace policies (per-person consent for cross-tile partition calls;
   credential resets that wait for the person) and the admin Policies tab;
 - terminals, agent sessions, logs and status on partitioned tiles;
