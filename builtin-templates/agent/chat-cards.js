@@ -162,7 +162,8 @@ function agentTpl(b, ui, depth) {
   const title = b.link && b.link.label ? b.link.label : b.headline;
   const phase = b.link && b.link.phase ? b.link.phase : child.status || '';
   const steps = child.llmCalls ? `${child.llmCalls} step${child.llmCalls === 1 ? '' : 's'}` : '';
-  if (open && b.childId && !b.blocks) ui.act.loadChild(b.childId);
+  if (open && b.childId && !b.blocks) ui.act.loadChild(b.childId); // once: a failed read waits (model/session.js Failures)
+  const readErr = open && b.childId && !b.blocks && ui.readError ? ui.readError(b.childId) : '';
   return html`<div class=${classMap({ acard: true, on: open, [b.state]: true })} data-k=${b.id}>
     <div class="ach" @click=${() => ui.toggle(b.id, running)}>
       <span class="ic">⑂</span>
@@ -178,7 +179,9 @@ function agentTpl(b, ui, depth) {
     ${open ? html`<div class="acb">
       ${b.task ? html`<div class="task ${ui.isOpen(b.id + ':task', false) ? 'on' : ''}" @click=${() => ui.toggle(b.id + ':task', false)}>
         <span class="k">task</span> ${b.task}</div>` : nothing}
-      ${b.blocks ? blocksTpl(b.blocks, ui, depth + 1) : html`<div class="muted small">loading…</div>`}
+      ${b.blocks ? blocksTpl(b.blocks, ui, depth + 1) : readErr ? html`<div class="small readfail" role="status"><span class="err">Couldn't read its steps: ${readErr}</span>
+        <button class="lnk" data-act="retry" title="read it again" @click=${() => ui.act.retryRead(b.childId)}>Retry</button></div>`
+      : html`<div class="muted small">loading…</div>`}
       ${!running && b.result && !b.result.startsWith('(') ? html`<div class="answer"><span class="k">answer</span>
         <div class="md">${unsafeHTML(mdOf(b, 'answer', stripHead(b.result)))}</div></div>` : nothing}
     </div>` : nothing}

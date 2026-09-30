@@ -145,6 +145,35 @@ await page.click('#hboard [data-act="close"]');
 await page.waitForFunction(() => document.getElementById('hboard').hidden && !document.querySelector('.wrap').classList.contains('dockon'));
 ok('✕ closes the dock', true);
 
+// --- a child that can't be read (the backend restarting): read once — not at every paint --------------------
+// — its card says why, with Retry, in the conversation and at home
+for (const where of ['conv', 'home']) {
+  const c2 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await serveTile(c2);
+  await c2.addInitScript(STUB, kidsSeed());
+  const p = await c2.newPage();
+  p.on('pageerror', (e) => errors.push(e.message));
+  p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await p.goto(`${ORIGIN}/${where === 'conv' ? '#c=25' : ''}`);
+  await p.waitForSelector('#hbchip');
+  await p.evaluate(() => { window.__down = true; window.__route('GET', /\/runs\/2[678]\/view/, () => (window.__down ? window.__json({ error: 'bad gateway' }, 500) : null)); });
+  const viewReads = (id) => p.evaluate((n) => window.__calls.filter((c) => c.url.includes(`/runs/${n}/view`)).length, id);
+  await p.click('#hbchip');
+  await p.waitForSelector(`${row(27)} .hkid`);
+  await p.click(`${row(27)} .ach`); // its card open: its last blocks are read (at home the board reads its park too)
+  await p.waitForTimeout(2000);
+  const [r27, r28] = [await viewReads(27), await viewReads(28)];
+  ok(`${where}: a child whose view read fails is read once in 2 s, not at every paint (27: ${r27}, 28: ${r28})`, r27 >= 1 && r27 <= 2 && r28 <= 2);
+  const why = await p.$eval(`${row(27)} .readfail .err`, (e) => e.textContent).catch(() => '(none)');
+  ok(`${where}: its open card says why, with Retry — not "loading…" for ever`,
+    why === "Couldn't read its latest steps: bad gateway" && !!(await p.$(`${row(27)} .readfail [data-act="retry"]`)), why);
+  await p.evaluate(() => { window.__down = false; });
+  await p.click(`${row(27)} .readfail [data-act="retry"]`);
+  await p.waitForSelector(`${row(27)} .hktail`);
+  ok(`${where}: Retry reads it: its last blocks, and nothing to say`, (await viewReads(27)) === r27 + 1 && !(await p.$(`${row(27)} .readfail`)));
+  await c2.close();
+}
+
 ok('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();
 done('harness-board');

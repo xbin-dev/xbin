@@ -17,6 +17,7 @@ const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
 registerHooks({ resolve: (spec, ctx, next) => (spec === '/vendor/bx-kit.js' ? { url: KIT, shortCircuit: true } : next(spec, ctx)) });
 
 const K = await import(new URL('model/harness-child.js', TPL));
+const { Session, Failures } = await import(new URL('model/session.js', TPL));
 const { fold } = await import(new URL('model/fold.js', TPL));
 const { rowGlyph } = await import(new URL('model/rules.js', TPL));
 const { harnessSeed, kidsSeed, NOW } = await import(new URL('test/harness-fixtures.mjs', TPL));
@@ -123,7 +124,7 @@ test('tailOf and loadTail: the last 3 blocks, read once, with a small page', asy
   assert.deepEqual(K.tailOf({ blocks: [1] }), [1]);
   const reads = [];
   let changed = 0;
-  const s = { views: new Map(), loading: new Set(), changed: () => { changed++; },
+  const s = { views: new Map(), loading: new Set(), failed: new Failures(), changed: () => { changed++; },
     fetchView: async (id, o) => { reads.push([id, o]); s.views.set(id, {}); } };
   assert.equal(K.loadTail(s, 26), true);
   assert.equal(K.loadTail(s, 26), false, 'one read at a time');
@@ -132,6 +133,97 @@ test('tailOf and loadTail: the last 3 blocks, read once, with a small page', asy
   assert.equal(K.loadTail(s, 0), false);
   assert.deepEqual(reads, [[26, { paged: true, limit: 8 }]]);
   assert.equal(changed, 1);
+});
+
+test('a tail read that fails is not tried again at every paint: it waits, doubling; an event, Retry or a success clears it', async () => {
+  let now = 1e6;
+  const reads = [];
+  let fails = true;
+  let changed = 0;
+  const s = { views: new Map(), loading: new Set(), failed: new Failures(() => now), changed: () => { changed++; },
+    fetchView: async (id) => {
+      reads.push(id);
+      if (fails) throw new Error('bad gateway');
+      s.views.set(id, {});
+      s.failed.clear(id); // as Session.fetchView does
+    } };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  assert.equal(K.loadTail(s, 27), true);
+  await tick();
+  assert.deepEqual([reads.length, changed, K.tailError(s, 27)], [1, 1, "Couldn't read its latest steps: bad gateway"], 'it failed: the card says why (and repaints)');
+  for (let i = 0; i < 50; i++) assert.equal(K.loadTail(s, 27), false, 'the paints that follow read nothing');
+  now += 14e3;
+  assert.equal(K.loadTail(s, 27), false, 'not before 15 s');
+  now += 1e3;
+  assert.equal(K.loadTail(s, 27), true, 'after 15 s: once more');
+  await tick();
+  now += 15e3;
+  assert.equal(K.loadTail(s, 27), false, 'a second failure in a row waits 30 s');
+  now += 15e3;
+  assert.equal(K.loadTail(s, 27), true);
+  await tick();
+  for (let i = 0; i < 6; i++) { now += 200e3; K.loadTail(s, 27); await tick(); }
+  now += 119e3;
+  assert.equal(K.loadTail(s, 27), false, 'at most 2 min…');
+  now += 1e3;
+  assert.equal(K.loadTail(s, 27), true, '…and no more');
+  await tick();
+  s.failed.soon(27);
+  now += 1e3;
+  assert.equal(K.loadTail(s, 27), false, 'its run moved: 2 s after it failed…');
+  now += 1e3;
+  assert.equal(K.loadTail(s, 27), true, '…not the whole wait');
+  await tick();
+  s.failed.clear(27); // Retry
+  fails = false;
+  assert.equal(K.loadTail(s, 27), true, 'Retry: at once');
+  await tick();
+  assert.deepEqual([s.views.has(27), K.tailError(s, 27), K.loadTail(s, 27)], [true, '', false], 'read: nothing to say, nothing to read');
+  assert.equal(K.tailError(s, 0), '');
+});
+
+test('Session: a subagent card\'s read (loadChild) that fails waits too; a stream reset, an event and Retry read it again; a good one is read as before', async () => {
+  let now = 5e6;
+  const s = new Session('/api/apps/agent', { change() {}, frame: (f) => f() });
+  s.failed = new Failures(() => now);
+  const real = s.fetchView.bind(s);
+  const reads = [];
+  let answer = { status: 502, body: { error: 'bad gateway' } };
+  const had = { window: globalThis.window, fetch: globalThis.fetch };
+  globalThis.window = { xbin: { self: 'apps/agent' } };
+  globalThis.fetch = async (url) => { reads.push(url); return new Response(JSON.stringify(answer.body), { status: answer.status }); };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  try {
+    s.fetchView = (id, o) => real(id, o);
+    s.loadChild(40);
+    await tick(); await tick();
+    assert.deepEqual(reads, ['/api/apps/agent/runs/40/view'], 'one whole-view read');
+    assert.equal(s.ui.readError(40), 'bad gateway', 'the card says why');
+    for (let i = 0; i < 20; i++) s.ui.act.loadChild(40);
+    await tick();
+    assert.equal(reads.length, 1, 'the paints that follow read nothing');
+    s.apply({ type: 'run', run: 40, root: 1, data: { id: 40, status: 'running' } });
+    now += 2e3;
+    s.loadChild(40);
+    await tick(); await tick();
+    assert.equal(reads.length, 2, 'its run moved: read again 2 s after it failed');
+    s.loadChild(40);
+    s.reload(); // the stream could not replay: the backend is back
+    s.loadChild(40);
+    await tick(); await tick();
+    assert.equal(reads.length, 3, 'a stream reset: read again');
+    s.ui.act.retryRead(40);
+    answer = { status: 200, body: { run: { id: 40, status: 'done' }, messages: [] } };
+    s.loadChild(40);
+    await tick(); await tick();
+    assert.deepEqual([reads.length, s.views.has(40), s.ui.readError(40)], [4, true, ''], 'Retry: read, held, nothing to say');
+    s.loadChild(41);
+    await tick(); await tick();
+    assert.deepEqual([reads.length, s.views.has(41), s.ui.readError(41)], [5, true, ''], 'a child that answers is read at once, as before');
+  } finally {
+    globalThis.window = had.window;
+    globalThis.fetch = had.fetch;
+  }
 });
 
 test('a list row: ? for a run waiting below it; ⧉ N coding agents at work', () => {
@@ -209,6 +301,30 @@ test('native: an open card reads the child\'s newest page and draws its last 3 b
   assert.deepEqual(drawn, ['Mount users.go', 'message', 'Run go vet ./...'], 'the last 3 blocks');
   const nav = find(r.snapshots.child.root, { t: 'nav' });
   assert.deepEqual(nav.c.map((s) => s.p.title), ['Refactor the API', 'Split the router'], '↗: the child\'s chat over its parent');
+});
+
+test('native: a card whose child can\'t be read says why — read once, not at every paint; opening it again retries', async () => {
+  const s = kidsSeed();
+  s.routes = [['GET', '/runs/(26|27|28)/view', { error: 'bad gateway' }, 502]];
+  const r = await runSeed([
+    { wait: 100 }, { snapshot: 'failed' },
+    { wait: 2000 }, { snapshot: 'later' },
+    { event: [CARD('Plan the users migration'), 'toggle', { open: false }] }, { wait: 50 },
+    { event: [CARD('Plan the users migration'), 'toggle', { open: true }] }, { wait: 50 },
+    { snapshot: 'retried' },
+  ], 'c=25', s);
+  const per = (re) => reads(r, re).length;
+  // the parked ones (27, 28) open by themselves: one read each, then nothing for as long as the test runs
+  assert.equal(per(/\/runs\/28\/view/), 1, 'one read of 28 in 2 s');
+  assert.equal(per(/\/runs\/27\/view/), 2, 'one read of 27 in 2 s — and one more when its card is opened again');
+  assert.equal(per(/\/runs\/26\/view/), 0, 'a closed card reads nothing');
+  for (const k of ['failed', 'later']) {
+    const card = find(r.snapshots[k].root, CARD('Plan the users migration'));
+    const why = find(card, { t: 'notice', p: { tone: 'danger' } });
+    assert.equal(why && why.p.text, "Couldn't read its latest steps: bad gateway — fold the card and open it again to retry.", `${k}: it says why`);
+    assert.equal(find(card, { t: 'progress' }), null, `${k}: not "loading…" for ever`);
+  }
+  assert.ok(find(find(r.snapshots.retried.root, CARD('Plan the users migration')), { t: 'notice', p: { tone: 'danger' } }), 'still failing: said again');
 });
 
 test('native: a harness child\'s own chat offers Cancel task (confirmed); the drawer says ⧉ N', async () => {

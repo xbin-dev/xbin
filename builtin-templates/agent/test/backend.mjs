@@ -19,8 +19,8 @@
 // cancel — test/harness-fixtures.mjs has a seed of each) — and a live stream
 // the test drives with window.__push(event) (the same SSE the real backend
 // writes). Tests add or override routes with window.__route(method, regexp,
-// fn) from their own init script, and read what the tile sent from
-// window.__calls.
+// fn) from their own init script (fn answering null leaves the request to
+// the stub), and read what the tile sent from window.__calls.
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -510,7 +510,8 @@ export function STUB(seed) {
       window.__calls.push({ method, url, body: typeof opt.body === 'string' ? opt.body : undefined });
       for (const r of routes) {
         const m = r.method === method && url.match(r.re);
-        if (m) return r.fn(m, opt);
+        const res = m ? r.fn(m, opt) : null;
+        if (res != null) return res; // a test's route that answers nothing leaves it to the stub
       }
       for (const [meth, re, fn] of base) {
         const m = meth === method && url.match(re);

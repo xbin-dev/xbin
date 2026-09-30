@@ -156,7 +156,8 @@ function agentTpl(b, depth) {
   const title = b.link && b.link.label ? b.link.label : b.headline;
   const phase = b.link && b.link.phase ? b.link.phase : child.status || '';
   const steps = child.llmCalls ? `${child.llmCalls} step${child.llmCalls === 1 ? '' : 's'}` : '';
-  if (open && b.childId && !b.blocks) ctx.app.session.ui.act.loadChild(b.childId);
+  if (open && b.childId && !b.blocks) ctx.app.session.ui.act.loadChild(b.childId); // once: a failed read waits (model/session.js Failures)
+  const readErr = open && b.childId && !b.blocks ? ctx.app.session.ui.readError(b.childId) : '';
   const chips = [
     ...(b.childId ? [{ text: '#' + b.childId }] : []),
     ...(b.state === 'done' ? [{ text: steps || 'done' }] : phase ? [{ text: phase, tone: b.state === 'approval' ? 'warn' : 'accent' }] : []),
@@ -165,10 +166,13 @@ function agentTpl(b, depth) {
   const state = { running: 'running', approval: 'running', error: 'error', stopped: 'canceled', done: 'ok' }[b.state] || 'running';
   const answer = !running && b.result && !b.result.startsWith('(') ? stripHead(b.result) : '';
   return html`<toolcard title=${title} icon="branch" family="agent" state=${state} chips=${chips}
-      open=${open} @toggle=${setOpen(b.id)} @open=${b.childId ? () => openChild(b.childId) : nothing}>
+      open=${open} @toggle=${(e) => { if (e.open && b.childId) ctx.app.session.failed.clear(b.childId); setOpen(b.id)(e); }}
+      @open=${b.childId ? () => openChild(b.childId) : nothing}>
     ${b.task ? html`<text style="footnote" tone="muted" lines=${isOpen(b.id + ':task', false) ? nothing : 3}>${'task: ' + b.task}</text>` : nothing}
     <transcript>
-      ${b.blocks ? repeat(b.blocks, (x) => x.id, (x) => blockTpl(x, depth + 1)) : html`<progress label="loading…"/>`}
+      ${b.blocks ? repeat(b.blocks, (x) => x.id, (x) => blockTpl(x, depth + 1))
+        : readErr ? html`<notice tone="danger" text=${`Couldn't read its steps: ${readErr} — fold the card and open it again to retry.`}/>`
+        : html`<progress label="loading…"/>`}
       ${b.pendingApproval ? approvalTpl(b.pendingApproval, b.childId, 'The subagent wants to run') : nothing}
     </transcript>
     ${answer ? html`<text style="caption" tone="muted">answer</text><markdown source=${answer}/>` : nothing}

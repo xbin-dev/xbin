@@ -5,7 +5,9 @@
 //   block  the spawn's `toolcard` (family agent): its monogram, #id and state
 //          as chips, what it does now, where it works and its counters, and —
 //          open — its task, plan, last 3 blocks (the child's newest page, read
-//          once the card is drawn open) and its answer; its permission,
+//          once the card is drawn open; a read that failed says why and is
+//          tried again when the card is opened again — not at every paint)
+//          and its answer; its permission,
 //          plan approval or question (native/harness-ask.js's cards) inside
 //          it, answered on the CHILD's run — the card opens by itself while
 //          it waits — and its sign-in as a notice (Sign in is in its own chat)
@@ -20,7 +22,7 @@ import { ext } from './ext.js';
 import { ctx, guard } from './ui.js';
 import { blockTpl, openChild } from './chat.js';
 import { permissionTpl, questionTpl } from './harness-ask.js';
-import { isHarnessChild, childRun, childCard, tailOf, loadTail, cancelWords, isChildRun } from '../model/harness-child.js';
+import { isHarnessChild, childRun, childCard, tailOf, loadTail, tailError, cancelWords, isChildRun } from '../model/harness-child.js';
 import { permission, question, ownerOf } from '../model/harness-ask.js';
 import { signIn } from '../model/terminals.js';
 import { HARNESSES, findHarness, planEntries } from '../model/harness.js';
@@ -31,6 +33,9 @@ const STATE = { starting: 'running', working: 'running', approval: 'running', qu
 
 const isOpen = (id, dflt) => ctx.app.session.ui.isOpen(id, dflt);
 const setOpen = (id) => (e) => { ctx.app.session.open.set(id, !!e.open); ctx.paint(); };
+// reopen: opening a card again is its Retry when its child could not be read
+// (a toolcard holds no button)
+const reopen = (id, child) => (e) => { if (e.open && child) ctx.app.session.failed.clear(child); setOpen(id)(e); };
 
 ext.register({
   block: (b, depth) => (b.k === 'agent' && isHarnessChild(b) ? cardTpl(b, depth) : null),
@@ -77,26 +82,28 @@ function cardTpl(b, depth) {
   const run = childRun(b, held);
   const c = childCard(b, run);
   const open = isOpen(b.id, !!c.park); // opens by itself while it waits for you
-  if (open) loadTail(app.session, c.id);
+  if (open) loadTail(app.session, c.id); // once: a read that failed waits (model/session.js Failures)
+  const err = open && !b.blocks ? tailError(app.session, c.id) : '';
   const m = memo.get(b);
-  if (!c.park && m && m.held === held && m.open === open) return m.tpl;
+  if (!c.park && m && m.held === held && m.open === open && m.err === err) return m.tpl;
   const v = app.session.current();
   const w = { owner: ownerOf(v, app.me), talk: app.rules.access(v).talk, name: c.name, access: v && v.access };
   const tail = open ? tailOf(b) : null;
   const chips = [{ text: c.mono }, ...(c.id ? [{ text: '#' + c.id }] : []), { text: c.state.word, ...(TONE[c.state.tone] ? { tone: TONE[c.state.tone] } : {}) }];
   const tpl = html`<toolcard title=${c.title} icon=${(HARNESSES[c.provider] || {}).icon || 'agent'} family="agent" state=${STATE[c.state.key] || 'running'}
-      chips=${chips} open=${open} @toggle=${setOpen(b.id)} @open=${c.id ? () => openChild(c.id) : nothing}>
+      chips=${chips} open=${open} @toggle=${reopen(b.id, c.id)} @open=${c.id ? () => openChild(c.id) : nothing}>
     <text tone=${c.state.tone === 'warn' ? 'warn' : c.state.tone === 'bad' ? 'danger' : nothing}>${c.status}</text>
     <text style="footnote" tone="muted">${[c.name, c.where, c.meta].filter(Boolean).join(' · ')}</text>
     ${c.task ? html`<text style="footnote" tone="muted" lines=${3}>${'task: ' + c.task}</text>` : nothing}
     <transcript>
       ${c.plan ? html`<plan entries=${planEntries(run.harness.plan)}/>` : nothing}
-      ${open ? (tail ? repeat(tail, (x) => x.id, (x) => blockTpl(x, depth + 1)) : html`<progress label="loading…"/>`) : nothing}
+      ${open ? (tail ? repeat(tail, (x) => x.id, (x) => blockTpl(x, depth + 1))
+        : err ? html`<notice tone="danger" text=${`${err} — fold the card and open it again to retry.`}/>` : html`<progress label="loading…"/>`) : nothing}
       ${parkTpl(b, run, c, w)}
     </transcript>
     ${c.answer ? html`<text style="caption" tone="muted">answer</text><markdown source=${c.answer}/>` : nothing}
   </toolcard>`;
-  memo.set(b, { held, open, tpl });
+  memo.set(b, { held, open, err, tpl });
   return tpl;
 }
 
