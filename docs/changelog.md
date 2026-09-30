@@ -17,7 +17,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A
   conversation can be answered by a coding agent run over ACP in one of
   its sandboxes instead of by the agent's own loop, on the web and in the
-  app. Nothing changes in a conversation the agent's own loop answers.
+  app. A conversation the agent's own loop answers works as before (its
+  sandbox terminals become tabs, below).
   - **Starting one** ("Starting one"). "Who answers" in the home composer
     and the new-chat dialog (the app: the top of the home page and the
     new-chat sheet): the agent itself or a coding agent, with why one isn't
@@ -61,7 +62,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     toolset (the built-in `coding` class has it) the agent starts coding
     agents with a task, steers and cancels them. Each is drawn as its own
     card where it was started — what it does, its counters, its plan and
-    last steps, its park answered in place, Stop, Message, Cancel — and
+    last steps, its park answered in place, Stop, Message, Cancel (the
+    app: from its own chat) — and
     every one in the tree is on the **Coding agents board** (a top-bar
     chip; at home, every one of yours at work; the app: a screen). The
     agent never answers their permission requests: people do. A person's
@@ -147,8 +149,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     `harness_mode` (`approve` | `plan`: it only narrows the owner's
     setting): at most `maxHarness` at work per tree, none where the
     sandbox's running commands would come within 4 of its limit; the
-    child's turn end answers the spawn with that turn's text (`(no
-    answer)`). `subagent_message` to one is sent as is; an idle one stops
+    child's turn end answers the spawn with that turn's own text (`(no
+    answer)` when it wrote none). `subagent_message` to one is sent as is;
+    an idle one stops
     when its subtree is cancelled (its parent's turn ending, among others).
   - **For an instance's own modules** (§The frontend). Seams, so a feature
     lands as a module instead of edits to `agent.js`, `chat-cards.js` or
