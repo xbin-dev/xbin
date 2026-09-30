@@ -7,6 +7,7 @@ import { busy } from './fold.js';
 import { badge } from './classes.js';
 import { sharing } from './partition.js';
 import { publishes } from './homes.js';
+import { hostingOf } from './hosted.js';
 
 // access: what you may do in a conversation (its view's `access`: owner |
 // system | participant | viewer; absent from an older backend = everything).
@@ -22,6 +23,8 @@ export function topBar(v, row, me) {
   const r = v.run;
   const { talk, own } = access(v);
   const web = (v.config && v.config.toolset) === 'web';
+  // a hosted (non-secure) conversation: its global instance answers compact and learn 409 (API.md)
+  const hosted = !!hostingOf(v);
   return {
     // an automation's run links back to it
     crumb: ['schedule', 'watcher'].includes(r.origin) && r.originId ? { kind: r.origin, id: r.originId } : null,
@@ -36,8 +39,8 @@ export function topBar(v, row, me) {
     viewOnly: !talk,
     talk, own,
     retry: talk && (r.status === 'error' || r.status === 'canceled'),
-    compact: talk,
-    learn: talk,
+    compact: talk && !hosted,
+    learn: talk && !hosted,
     memory: Object.keys(v.memory || {}).length,
     files: (v.files || []).length,
     tree: !!(r.parentId || (v.links || []).length || v.linkCount), // linkCount: a paged view's total

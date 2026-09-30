@@ -9,8 +9,11 @@
 // ended. Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 
 const MODEL = new URL('../builtin-templates/agent/model/', import.meta.url);
+const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
+registerHooks({ resolve: (spec, ctx, next) => (spec === '/vendor/bx-kit.js' ? { url: KIT, shortCircuit: true } : next(spec, ctx)) });
 const hosted = await import(new URL('hosted.js', MODEL).href);
 
 test('hosted ids are the shared space\'s', () => {
@@ -71,4 +74,29 @@ test('the composer\'s lock while it moves in or out of its host\'s hands', () =>
   const c = lockOf(view({ host: 'alice', state: 'continuing' }), 'bob', started);
   assert.equal(c.kind, 'moving');
   assert.match(c.why, /continuing it without alice/);
+});
+
+test('a hosted conversation\'s top bar and composer offer nothing its global instance answers 409', async () => {
+  const rules = await import(new URL('rules.js', MODEL).href);
+  const { createSandboxStore } = await import(new URL('sandbox-store.js', MODEL).href);
+  const coding = { id: 'coding', name: 'Coding', toolsets: ['sandbox'], managers: 'all', sandboxEgress: ['none'] };
+  const box = { ref: 'apps/coding-sandbox|b1', name: 'b1', cwd: '/work', manager: 'Coding sandboxes', egress: 'none', by: 'alice' };
+  const view = (id, h) => ({ access: 'participant', class: coding, run: { id, rootId: id, status: 'idle', ...(h ? { hosted: h } : {}) },
+    config: { sandbox: box, attached: [box] }, memory: {}, files: [], links: [] });
+  const plain = view(7);
+  const hv = view(2 ** 39 + 1, { host: 'alice', state: 'active' });
+  // Compact and Learn skill: a plain shared one's, not a hosted one's (409 there)
+  assert.equal(rules.topBar(plain).compact, true);
+  assert.equal(rules.topBar(plain).learn, true);
+  assert.equal(rules.topBar(hv).compact, false);
+  assert.equal(rules.topBar(hv).learn, false);
+  // the sandbox picker and badge: its run's sandboxes are its host's partition's; binding one there 409s
+  let open = plain;
+  const app = { emit() {}, on() {}, me: { user: 'bob' }, classes: { classes: [coding] }, classId: 'coding', session: { current: () => open, views: new Map() } };
+  const sbx = createSandboxStore(app);
+  assert.equal(sbx.picker().shown, true);
+  assert.ok(sbx.badge(), 'a plain conversation\'s bound sandbox has its badge');
+  open = hv;
+  assert.equal(sbx.picker().shown, false);
+  assert.equal(sbx.badge(), null);
 });

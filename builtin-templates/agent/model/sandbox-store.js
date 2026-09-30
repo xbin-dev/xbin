@@ -22,6 +22,7 @@ import * as actions from './actions.js';
 import * as S from './sandboxes.js';
 import * as classes from './classes.js';
 import { homeOf } from './homes.js';
+import { hostedId } from './hosted.js';
 
 const cid = () => 's' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -109,8 +110,13 @@ export function createSandboxStore(app) {
 
     // What the views draw (model/sandboxes.js), for where you are. rows:
     // order — the refs as the view shows them (kept while its list is open).
-    picker() { return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.classId), pick: sbx.pick }); },
-    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
+    // A hosted (non-secure) conversation shows neither: the sandboxes its
+    // run uses are its host's partition's, and binding one there answers 409.
+    picker() {
+      const p = S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.classId), pick: sbx.pick });
+      return hostedId(rootOf(conv())) ? { ...p, shown: false } : p;
+    },
+    badge(v = conv()) { if (hostedId(rootOf(v))) return null; recheck(v); return S.sandboxBadge(v, sbx.list); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
     // terminal: "Open terminal" for ref at cwd (model/sandboxes.js terminal):
     // {shown, why, src, …} — src is what <bx-terminal src> dials.

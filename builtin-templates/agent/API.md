@@ -345,7 +345,10 @@ What a partitioned instance does differently:
     the agent's code) and whose private resources it uses — every time it is
     opened into a page session, with **Start anyway** / **Open without
     sending** and no "don't show again"; the composer stays locked until it
-    is started, while it is paused or moving, and once hosting ended. A
+    is started, while it is paused or moving, and once hosting ended. Its
+    top bar has no Compact or Learn skill, and neither its bar nor its
+    composer the sandbox badge or picker (the sandboxes its run uses are its
+    host's). A
     shared conversation's share dialog offers **Use my private resources…**
     (the same warning first). The native view opens the warning as a modal
     sheet the first time it is opened in an app session (the composer's
