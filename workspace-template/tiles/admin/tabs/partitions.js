@@ -173,8 +173,8 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
     const u = this._untracked;
     return html`<div data-partitions=${tiles.length}>
       <p class="hint muted pt-intro">Tiles where each person has their own data — their own backend instance, resources, vault and
-        log (<a href="/docs/partitions.md" target="_blank">docs/partitions.md</a>). You see who has a partition, its size and counts,
-        never what it holds. Open a tile to decide its mode, stop or reset a person's partition, or restore one from a backup.</p>
+        log (<a href="/docs/partitions.md" target="_blank">docs/partitions.md</a>).${admin ? html` You see who has a partition, its size and counts,
+        never what it holds. Open a tile to decide its mode, stop or reset a person's partition, or restore one from a backup.` : nothing}</p>
       ${admin ? nothing : html`<div class="pt-warn" data-pt-notadmin>You aren't a workspace admin: this view shows each tile's state and
         any request (a tile's manager can keep or switch its mode here), never who holds a partition.</div>`}
       ${d.isolated === false ? html`<div class="pt-warn" data-pt-unisolated>⚠ xbind runs without <span class="mono">--isolate</span>:
