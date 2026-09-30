@@ -153,6 +153,7 @@ test('a person\'s page: the list merges both homes; the router opens each at its
   await until(() => (app.session.views.get(5)?.messages || []).length === 1);
   await app.session.send('hello team');
   assert.ok(calls.some((c) => c.url.endsWith('/runs/5/message') && c.home === 'global'));
+  assert.equal(app.uploadTarget().path, '/api/apps/agent/runs/5/upload?name={name}&xbin-partition=global', 'an app\'s own upload into it asks xbind for global');
 
   // one of her own: read at her partition; the shared stream goes back to the list
   await app.select(B + 3);

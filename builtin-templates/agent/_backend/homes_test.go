@@ -371,6 +371,9 @@ func TestPublishAndCopy(t *testing.T) {
 		t.Fatalf("calls to global: %v", g.got())
 	}
 	bundle := sent.Conversation
+	oldExport := exportAtGlobal // the bundle's own read, through the same stand-in
+	exportAtGlobal = func(ctx context.Context, path string) (gwResp, error) { return callGlobal(ctx, "GET", path, nil, "") }
+	t.Cleanup(func() { exportAtGlobal = oldExport })
 
 	// global takes it: a shared conversation of alice's, with the transcript
 	t.Run("import", func(t *testing.T) {

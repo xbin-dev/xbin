@@ -31,6 +31,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -189,7 +190,7 @@ func globalRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
 
 const (
 	bundleVersion  = 1
-	maxBundleBytes = 24 << 20 // a bundle as a request body
+	maxBundleBytes = 48 << 20 // a bundle as a request body (binary files travel base64)
 	maxBundleBlobs = 16 << 20 // binary files a copy carries, together
 )
 
@@ -478,7 +479,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	st := c.stamp("chat")
 	body.Share.stamp(&st)
-	note := "Published from " + orStr(c.user, "another space") + "’s own space: a copy — the original stayed there."
+	note := "Published from " + orStr(c.user, "another space") + "’s own space: a copy of a conversation of theirs."
 	run, err := agent.importConv(r.Context(), body.Conversation, c, st, cls, body.Share, note)
 	if err != nil {
 		writeImportErr(w, err)
@@ -596,7 +597,7 @@ func handleCopy(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	res, err := callGlobal(ctx, http.MethodGet, path, nil, "")
+	res, err := exportAtGlobal(ctx, path)
 	if err != nil {
 		xbin.WriteError(w, http.StatusBadGateway, "the agent's shared instance didn't answer: "+err.Error())
 		return
@@ -626,6 +627,26 @@ func handleCopy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	xbin.WriteJSON(w, 200, run)
+}
+
+// exportAtGlobal reads a bundle from the global instance as this
+// partition's person (callGlobal's gateway call, with room for a bundle:
+// gwDo keeps 4 MiB of an answer). A var so tests stand in.
+var exportAtGlobal = func(ctx context.Context, path string) (gwResp, error) {
+	if !userMode() {
+		return gwResp{}, errors.New("only a person's partition calls the global instance")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, xbin.GlobalURL(path), nil)
+	if err != nil {
+		return gwResp{}, err
+	}
+	resp, err := xbin.Client().Do(req)
+	if err != nil {
+		return gwResp{}, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBundleBytes))
+	return gwResp{Status: resp.StatusCode, Type: resp.Header.Get("Content-Type"), Body: b}, err
 }
 
 // deleteConversation deletes a conversation as DELETE /runs/{id} does.
