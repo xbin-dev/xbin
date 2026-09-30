@@ -1,13 +1,13 @@
 # Partitioned tiles: one instance per person
 
-> **Status: in development.** The model on this page is settled; xbind is
-> gaining it in stages. Until this line changes, don't rely on a tile being
-> partitioned: an xbind that doesn't run partitioned tiles treats
-> `"partition"` like any manifest key it doesn't know and runs the tile as
-> one ordinary instance ([§Older xbinds](#older-xbinds)). The builder side is
-> in place — the Go SDK's partition functions and `xbin.partition` in the
-> in-frame client ([§In your code](#in-your-code)) — and reads nothing on an
-> xbind that doesn't partition. Items marked **TODO** aren't built yet.
+> **Status: in development until the release notes say otherwise.** This
+> page describes partitioned tiles as built; no release carries them yet.
+> Until one does, don't rely on a tile being partitioned: an xbind that
+> doesn't run partitioned tiles treats `"partition"` like any manifest key
+> it doesn't know and runs the tile as one ordinary instance
+> ([§Older xbinds](#older-xbinds)), and the Go SDK's partition functions and
+> `xbin.partition` in the in-frame client ([§In your code](#in-your-code))
+> read nothing there.
 
 A **partitioned tile** keeps the people who use it apart. It declares, in
 its `xbin.json`:
@@ -28,6 +28,8 @@ its global binds; each one has its own:
 - cron jobs and bus subscriptions;
 - backend log and status;
 - terminal layer;
+- inbox of [partition mail](#partition-mail), when the tile has a global
+  instance;
 - personal binds ([§Bind types](#bind-types-global-and-personal)).
 
 With `"global"`, the tile also runs its **global instance**: one instance,
@@ -36,7 +38,7 @@ act for a person (below). It keeps its data, vault and registrations at
 today's keys — which a switch to partitions empties, so the global instance
 starts empty too ([§The mode](#the-mode-set-while-empty-then-switch-or-keep)).
 Without `"global"` only people's partitions run: the tile has no public
-surface, and only partitioned tiles can call it.
+surface, and no tile but a partitioned one can call it.
 
 A person's partition starts on their first use and stops when idle, like any
 backend. Partitions run only on the tile's primary deployment, and only on
@@ -80,9 +82,11 @@ never from the URL, and never from a header the caller controls:
 |---|---|
 | a person: their session, and the tile's frames, terminals, agent sessions and path tickets they open | **their own** partition, if they can read the tile. A workspace admin too: an admin reaches their own partition, never someone else's |
 | a user partition's backend calling its own tile | its own partition |
+| a person's page, terminal or partition backend addressing the tile's global instance (`?xbin-partition=global`) | the **global** instance, as that person ([below](#the-global-instance-and-peoples-partitions)) |
 | `user:alice`'s partition of another partitioned tile, holding a grant on this one | `user:alice` of this tile, if alice can read it — and, when the workspace asks people first, has allowed it ([below](#calls-between-partitioned-tiles)) |
 | any other tile, the root token, a public request through a published endpoint | the **global** instance; without one, 403 (503 for a public request) |
 | xbind's cron and bus deliveries | the partition that registered them |
+| xbind's mail doorbell | the instance whose inbox holds the mail ([below](#partition-mail)) |
 | an admin viewing the workspace as a person | no partition: view-as never opens a person's partition. It reaches the global instance only by an explicit call to it ([below](#the-global-instance-and-peoples-partitions)) |
 
 A person who can no longer read the tile, is disabled or is deleted stops
@@ -280,10 +284,11 @@ the sandbox managers an agent uses before you create or switch one (a
 manager whose `hello.caps` lack `partitions` isn't used in people's
 partitions, [sandbox-manager.md](sandbox-manager.md#partitioned-consumers)).
 A partitioned agent's **shared conversations** live at its global instance,
-and people's pages reach them through their own global instance
+and people's pages reach them there from their own partition
 (`?xbin-partition=global`, below): a conversation's id says its home (a
 person's from 2^40, the global instance's below), everyone in a shared one
-follows its stream there — so all see a run live — and a person shares one
+follows its stream there — so all see a run live, the global instance being
+the hub ([§Realtime](#realtime-between-partitions)) — and a person shares one
 of their own by publishing a copy to the global instance.
 
 A partitioned agent's chat channels and event triggers show how a tile that
@@ -501,7 +506,7 @@ or partition directly.
 
 People's partitions never see each other, so live state that more than
 one person sees needs a place they all reach. There are three, each for
-its own job; xbind adds no primitive of its own for it:
+its own job, and each is built from what a partitioned tile already has:
 
 | You need | Use | It reaches |
 |---|---|---|
@@ -919,10 +924,9 @@ apps/x --revoke`: the next call and data reach are refused, and Z's
 backend instance of her stops (it starts again on its next request,
 without her consent). Taking it back doesn't bring the answered ask back;
 xbind asks again, at most once a day, when apps/z tries again. A stream
-that a
-page, terminal or agent session of Z opened as her before the revocation
-lasts until it closes; so does one opened before an admin turned the
-policy on. Consents belong to the person as they are now: someone deleted
+that a page, terminal or agent session of Z opened as her before the
+revocation lasts until it closes; so does one opened before an admin turned
+the policy on. Consents belong to the person as they are now: someone deleted
 and created again under the same id has none. They name tiles by path: a
 tile that is deleted or moved, or whose partition mode switches, takes
 every consent naming it, so a new tile at its path starts with none.
@@ -1046,8 +1050,9 @@ switch deleting its data — a person's partition can't change its vault or
 registrations (409). A switch of the tile's mode that deletes its data deletes
 all of these (removing or adding `"global"` keeps people's). They are
 deleted with the partition — and erased from its backups
-([§Backups](#backups)) — 30 days after its tile is removed (unless the
-tile comes back) or its person's id is given to someone new.
+([§Backups](#backups)) — 30 days after its person is deleted (or their id
+is given to someone new) or its tile is removed (unless the tile comes
+back).
 
 ## Terminals and agent sessions
 
@@ -1164,7 +1169,8 @@ xbin.Partition()        // "user:<id>" | "global" | "" (not partitioned) — $XB
 xbin.PartitionUser()    // the <id> of a user partition, "" otherwise
 xbin.RequirePartition() // exit 3 unless run as a partition (§Older xbinds)
 xbin.GlobalURL(path)    // this tile's global instance, from a user partition
-xbin.Mail(to, topic, data)  // partition mail (§Partition mail); InboxPage, Ack
+xbin.Mail(to, topic, data)  // partition mail (§Partition mail); InboxPage, Ack —
+                            // each with a …Context variant (MailContext, …)
 c := xbin.Caller(r)
 c.Partition             // X-XBin-Partition: the partition the call acts in, "" if none
 c.PartitionID           // X-XBin-Partition-Id: key per-caller state on it
@@ -1175,10 +1181,13 @@ root token, public requests, every person's calls to it — and, on a
 non-primary deployment whose code asks for partitions, every writer who
 opens it. Keep per-person data where `xbin.PartitionUser() != ""`, or judge
 `global`'s callers yourself (`c.User`, `c.UserCanWrite()`), as an
-unpartitioned tile does today.
+unpartitioned tile does today — the hub of
+[§Realtime between partitions](#realtime-between-partitions) shows how.
 
 **node / python:** `process.env.XBIN_PARTITION` (`os.environ.get`), and the
-`x-xbin-partition` and `x-xbin-partition-id` request headers.
+`x-xbin-partition` and `x-xbin-partition-id` request headers; partition
+mail is three routes of xbind's API ([sdk.md](sdk.md) has both runtimes'
+helpers).
 
 **In a frame:** `xbin.partition` is the partition the viewer reaches —
 `user:<id>`, or `global` for the root token and `--no-auth` — and is absent
