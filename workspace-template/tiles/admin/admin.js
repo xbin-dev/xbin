@@ -35,7 +35,7 @@ import './tabs/users.js';
 import './tabs/signin.js';
 import './tabs/sessions.js';
 import './tabs/runtime.js';
-import { PLAIN_TABS } from './plain-tabs.js'; // sandboxes, deployments, branding, nativeapp, policies
+import { PLAIN_TABS } from './plain-tabs.js'; // sandboxes, deployments, branding, nativeapp, policies, partitions
 import { targetOptions, serviceOptions, WithDrafts } from './shared.js';
 
 export class BxAdmin extends WithDrafts(LitElement) {
@@ -97,6 +97,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
       { id: 'components', label: 'components' },
       { id: 'resources', label: 'resources' },
       { id: 'sandboxes', label: 'sandboxes' }, { id: 'deployments', label: 'deployments' },
+      { id: 'partitions', label: 'partitions' },
       { id: 'backup', label: 'backup' },
       { id: 'cron', label: 'cron' },
     ] },

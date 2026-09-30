@@ -24,7 +24,10 @@ package broker
 //     mail counts are metadata: 04 §3).
 //
 // A tile's credentials (its frames, backend, terminals) get the tile-level
-// fields and features only: tile code never reads people's metadata.
+// fields and features only: tile code never reads people's metadata. The
+// admin tile's frame under an admin's login (AdminFrameDriver, its driver
+// an admin) is the exception: the admin console reads an admin's view
+// (partitionadmin.go).
 
 import (
 	"cmp"
@@ -130,10 +133,10 @@ func (b *Broker) partitionRowOf(tile string, d partitionDirOf, rec partitionReco
 }
 
 // partitionPeople walks tile's people's partitions: each record (with its
-// partition directory), live or orphaned — the admins' rows.
-func (b *Broker) partitionPeople(tile string) []partitionRow {
+// partition directory), live or orphaned — the admins' rows. mail is the
+// listing's mailCountsOf(tile), so each deployment's store is read once.
+func (b *Broker) partitionPeople(tile string, mail func(dep, pkey string) *MailCount) []partitionRow {
 	running := b.runningOf(tile)
-	mail := b.mailCountsOf(tile)
 	var out []partitionRow
 	_ = b.eachPartitionRecord(tile, func(d partitionDirOf, rec partitionRecord) {
 		row := b.partitionRowOf(tile, d, rec, running, false)
@@ -311,8 +314,8 @@ func (b *Broker) apiPartitionsList(w http.ResponseWriter, r *http.Request) {
 	person := ""
 	if p.Component == "" && p.Impersonator == "" {
 		person = p.UserID
-	} else if d, ok := b.AdminFrameDriver(p); ok {
-		person, admin = d.UserID, true // the admin tile, driven by its person: an admin's view
+	} else if d, ok := b.consoleAdminDriver(p); ok {
+		person, admin = d.UserID, true // the admin tile, driven by an admin: an admin's view (partitionadmin.go)
 	} else {
 		admin = false // tile code: the tile-level fields only
 	}
@@ -338,8 +341,9 @@ func (b *Broker) apiPartitionsList(w http.ResponseWriter, r *http.Request) {
 			mine = append(mine, row)
 		}
 	}
+	mail := b.mailCountsOf(tile) // each deployment's mail store read once, when asked
 	if admin {
-		for _, row := range b.partitionPeople(tile) {
+		for _, row := range b.partitionPeople(tile, mail) {
 			if i := slices.IndexFunc(mine, func(m partitionRow) bool { return m.ID == row.ID }); i >= 0 {
 				visible = append(visible, mine[i])
 			} else {
@@ -364,6 +368,9 @@ func (b *Broker) apiPartitionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	if admin {
 		out["orphans"] = b.partitionOrphans(tile)
+		b.partitionAdminExtras(tile, out, mail) // history, lastWipe, globalMail (partitionadmin.go)
+	} else {
+		b.partitionManagerExtras(p, tile, person, out) // logShares, for a manager (partitionadmin.go)
 	}
 	if person != "" {
 		out["notices"] = b.noticesOf(person, tile)
@@ -437,6 +444,7 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any, untrac
 	if p.Component == "" && p.Impersonator == "" {
 		person = p.UserID
 	}
+	tileCode := p.Component != "" && !b.adminConsoleView(p) // the admin tile driven by an admin reads as an admin (partitionadmin.go)
 	tiles := []map[string]any{}
 	for _, c := range b.Reg.Components() {
 		if !c.PartitionShown() || !admin && !p.CanReadTile(c.Path) {
@@ -447,7 +455,7 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any, untrac
 		if c.PartitionErr != "" {
 			row["error"] = c.PartitionErr
 		}
-		if p.Component != "" {
+		if tileCode {
 			tiles = append(tiles, row)
 			continue
 		}
@@ -490,7 +498,7 @@ func (b *Broker) partitionsOverview(p auth.Principal, out map[string]any, untrac
 		tiles = append(tiles, row)
 	}
 	out["tiles"] = tiles
-	if admin && p.Component == "" {
+	if admin && !tileCode {
 		out["isolated"] = partitionIsolated()
 		out["orphans"] = b.partitionOrphans("")
 		out["now"] = time.Now().UTC()

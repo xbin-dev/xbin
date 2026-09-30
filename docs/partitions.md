@@ -925,16 +925,53 @@ an xbind without partitions). What it answers depends on who asks:
   reach it live, whether its primary is protected, its last code change
   (for a tile with deployments) and whether it runs **reviewed code only**;
 - **the tile's writers and managers**: totals only — people, running
-  instances, bytes, cron jobs, bus subscriptions;
+  instances, bytes, cron jobs, bus subscriptions — and, for a manager, who
+  shares their log with them now (`logShares`: the person and until when);
 - **admins**: every person's metadata row (with their inbox's counts), the
-  personal binds on the tile and its orphaned partitions — never what a
-  partition holds, its vault key names, its log lines or its mail;
+  personal binds on the tile, its orphaned partitions, its mode history
+  (requests, switches, keeps, backup keys erased, partitions restored) and
+  the global instance's inbox counts — never what a partition holds, its
+  vault key names, its log lines or its mail;
 - **the tile's own code** (its frames, backend, terminals): the tile's state
   and the features, nothing about people (not even the workspace policies).
 
 Only the rows the caller sees are built, and a partition's bytes are
 measured at most once a minute. `bx partition ls` prints it
 ([bx.md](bx.md)).
+
+**The admin console** (the admin tile, runtime → **partitions**, arriving
+with `bx builtin update`) shows the same as an admin reads it: every tile
+that keeps people's data apart or asks to, with its mode, any request
+waiting for a manager, its people, what runs and what it holds, and what
+needs an eye (trust warnings, caps hit, untracked files on demand). A tile's
+row opens its own view: **Keep the current mode** or **Switch…** (the dry
+run's counts, then the tile's path typed), **reviewed code only**, the
+limits, each person's metadata row with **stop**, **reset…** (the typed
+`<tile> user:<id>`) and **restore…** (a backup of that person's partition,
+[§Backups](#backups)), the personal binds (an admin removes the record,
+never sees what it reaches), the tile's orphans and its mode history; below
+the list, the workspace's orphaned partitions and their purge. The
+console reads and acts as the person driving it, and it is an admin's:
+xbind answers the admin tile's frame under an admin's login what that
+admin reads, and judges each act as theirs (a mode decision needs a manager
+of the tile; the limits, a reset of someone else's partition, a restore,
+the purge, a personal bind's removal and reviewed code only need an admin).
+Opened by anyone else it shows each tile's state and any request — a
+manager can keep or switch their tile's mode there — and nobody's rows. The
+runtime → sandboxes view labels each person's partition
+instance, their sessions (without names) and their terminal disks. An admin
+tile from before this view keeps working: it simply has no partitions tab.
+
+**The logs panel.** A partitioned tile's logs panel (the tile's window →
+logs, in the shell) shows your own partition's log and names it in its
+corner; its switcher offers the global instance's log when the tile runs
+one and you may read it (terminal access to the tile, or an admin), and —
+for an admin or a manager of the tile — each person's log while they share
+it (a manager's listing names who shares: `logShares`). The panel asks for
+the one you pick (`&xbin-partition=global`, `&user=<id>`) and shows it
+only if xbind's answer names that partition; what it offers is asked again
+each time the panel opens. On a tile that isn't partitioned, or an older
+xbind, it is the panel it always was.
 
 **Logs and status.** Each person's instance logs to its own file. `GET
 /api/xbin/logs?component=<tile>` (and `bx logs` in a partition's terminal)
@@ -1112,4 +1149,4 @@ another machine needs the exported backup keys ([§Backups](#backups)).
 
 ## Not documented yet (TODO)
 
-- the admin tile's Partitions section, and the shell's consent prompts.
+- the shell's consent prompts.

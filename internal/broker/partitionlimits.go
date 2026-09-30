@@ -186,8 +186,9 @@ func (b *Broker) apiPartitionLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A manager acts with their own session, app or device (PD-49), and only
-	// lowers their tile's.
-	admin := b.IsAdmin(p)
+	// lowers their tile's. The admin console is an admin only when its
+	// driver is one (partitionsAdmin, partitionadmin.go).
+	admin := b.partitionsAdmin(p)
 	manager := !admin && body.Tile != "" && humanID(p) != "" && b.mayManageTile(p, body.Tile)
 	if !admin && !manager {
 		server.WriteError(w, http.StatusForbidden, "admin only; a tile manager may lower their own tile's limits", "/docs/partitions.md")

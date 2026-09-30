@@ -29,6 +29,14 @@ const MODE_TITLE = {
   host: 'no sandbox: xbind runs without --isolate',
 };
 const KINDS = ['backend', 'terminal', 'agent', 'tile'];
+// On a partitioned tile (docs/partitions.md): a person's partition's backend
+// names its partition (metadata: who runs, never what it holds); a person's
+// terminal or agent session is listed without its name (PD-09), and a
+// person's terminal layer's disk without the person.
+const PERSON_DISK = "a person's own terminal layer on a partitioned tile (the person isn't named)";
+const partLabel = (e) => (e.partition ? html` <span class="pill sbx-part" data-sbx-partition=${e.partition}
+    title="a person's partition's own instance: metadata only, never what it holds">${e.partition}</span>`
+  : e.personal ? html` <span class="muted" data-sbx-personal title="a person's session on a partitioned tile: its name is theirs">· a person's session</span>` : nothing);
 // what a shared stat measures; a tile that runs no other deployment keeps one title
 const scopeTitle = (s, split) => (s.scope === 'deployment' ? "this deployment's cgroup: every generation in it"
   : s.scope !== 'tile' ? '' : split ? "main's cgroup: every generation in it" : "the tile's cgroup: every generation");
@@ -311,10 +319,10 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     // a backend's stats are its deployment's leaf (every generation there): shown on the newest
     const showStats = s && (!shared(s) || at.statsOn.has(e.id));
     const named = dep || (at.split ? 'main' : '');
-    const kind = e.kind === 'backend' ? html`backend <span class="muted">${named ? `${named} · ` : ''}g${e.gen}${cur ? '' : ' · draining'}</span>`
-      : e.kind === 'agent' ? html`agent <span class="muted">${e.label || ''}${e.name ? ' · ' + e.name : ''}${e.status ? ' · ' + e.status : ''}</span>`
+    const kind = e.kind === 'backend' ? html`backend <span class="muted">${named ? `${named} · ` : ''}g${e.gen}${cur ? '' : ' · draining'}</span>${partLabel(e)}`
+      : e.kind === 'agent' ? html`agent <span class="muted">${e.label || ''}${e.name ? ' · ' + e.name : ''}${e.status ? ' · ' + e.status : ''}</span>${partLabel(e)}`
       : e.kind === 'tile' ? html`tile sandbox <span class="muted">${e.name || ''}${e.for ? ' · for ' + e.for : ''}${e.forUser ? ' · ' + e.forUser : ''}</span>`
-      : html`${e.kind} <span class="muted">${e.name || ''}</span>`;
+      : html`${e.kind} <span class="muted">${e.name || ''}</span>${partLabel(e)}`;
     return html`<tr data-sbx-id=${e.id} data-sbx-kind=${e.kind} data-sbx-mode=${e.mode} data-depth=${depth}
       data-sbx-deployment=${dep || nothing}>
       <td style="padding-left:${depth * 18}px">${depth ? html`<span class="muted">↳ </span>` : nothing}${kind}</td>
@@ -337,7 +345,8 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
         <tr><th>tile</th><th>size</th><th>on disk</th><th>in use</th><th>path</th></tr>
         ${disks.map((d) => html`<tr data-sbx-disk=${d.key}>
           <td class="mono">${d.tile || html`<span class="muted" title="no tile has this key now (deleted or renamed)">${d.key}</span>`}${d.sandbox
-            ? html` <span class="muted" title=${"a tile sandbox's disk" + (d.sandboxUid ? ` (uid ${d.sandboxUid})` : '')} data-sbx-disk-sandbox=${d.sandbox}>· sandbox ${d.sandbox}</span>` : nothing}</td>
+            ? html` <span class="muted" title=${"a tile sandbox's disk" + (d.sandboxUid ? ` (uid ${d.sandboxUid})` : '')} data-sbx-disk-sandbox=${d.sandbox}>· sandbox ${d.sandbox}</span>` : nothing}${d.kind === 'person-terminal'
+            ? html` <span class="muted" title=${PERSON_DISK} data-sbx-disk-person>· a person's terminal layer</span>` : nothing}</td>
           <td class="num">${fmtBytes(d.apparentBytes)}</td>
           <td class="num" title="sparse: what it takes on the host">${fmtBytes(d.allocatedBytes)}</td>
           <td>${d.inUse ? '✓' : html`<span class="muted">—</span>`}</td>

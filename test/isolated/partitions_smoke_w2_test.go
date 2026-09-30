@@ -280,6 +280,21 @@ func TestPartitionsSmokeW2(t *testing.T) {
 				}
 			}
 		}
+		// F12 (06 §12.3): the admin's sandbox list labels her session as a
+		// person's — personal, without its name (PD-09)
+		var sb struct {
+			Sandboxes []map[string]any `json:"sandboxes"`
+		}
+		_ = json.Unmarshal(d.Must(t, "GET", "/api/xbin/sandboxes?tile="+w2Tile, nil, 200).Body, &sb)
+		labelled := false
+		for _, r := range sb.Sandboxes {
+			if r["kind"] == "terminal" && r["user"] == "alice" {
+				labelled = r["personal"] == true && r["name"] == nil
+			}
+		}
+		if !labelled {
+			t.Errorf("the sandbox list doesn't label alice's session a person's (personal, no name): %v", sb.Sandboxes)
+		}
 	})
 
 	t.Run("cron", func(t *testing.T) {
