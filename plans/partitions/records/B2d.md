@@ -19,6 +19,12 @@ allowlist (`748a10a8`), the native view and the features registry
 (`adc63cfb`), the host's push and API.md's native sentence (`de865d26`),
 the composer strip's CSS and a pause's words (`28ec365f`), and this record.
 
+**Review fixes, branch `pt/b2d-fix`** (on `pt/b2d`; the review's 14
+findings, each fixed or answered in "Review fixes" below): a hosted run's
+missing tools (`70b1b2d2`), the backend's failure paths (`2877e0f7`), their
+tests (`2c55afbb`), the page and the native modal (`d3eac8ee`), API.md
+(`b5c9cc57`), a file split (`91ea3d45`), and this record's update.
+
 ## What was built
 
 - **`team` holds the agent's run schema** (`team_runs.go`): the global
@@ -115,6 +121,82 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
   anyway, the host's Confirm/Decline, Continue without …); the row says ⚠
   not private. Hosting and adding a copy are DIFFERENCES (the web's for now).
 
+## Review fixes (pt/b2d-fix)
+
+Every high and medium finding is fixed; the lows too. By finding:
+
+1. **A hosted run's `schedule` wrote the host's cron** (high). Team
+   numbers schedules from 1 like the partition, so `sched-<id>` was the
+   host's private job; `unschedule #N` deleted it. A hosted run now has
+   **no schedule, automation-thread or skill tools** — absent from its
+   tool list, refused if called (`hosted_tools.go`; one line each in
+   `runToolSpecs` and `runTool`). The thread tools went too (they read the
+   owner's other threads in team: other hosts' conversations), and the
+   skill tools (team's `skills` table is every hosted conversation's).
+   Audited the rest of the engine's tool paths for the global `agent`
+   (partition state) instead of the run's `ag`: none.
+2. **A paused conversation's audience changing again** (high): `hostDrives`
+   now looks at a paused one too — a further change rewrites `hosted.pending`
+   and `team_hosts.pending` (`repauseHosting`, `setTeamHostPending`: the
+   7 days keep running from the first pause) and republishes, so the
+   prompt's key follows; an audience back within the snapshot makes it
+   active again (`resumeHosting`).
+3. **The host removed** (medium): `hostDrives` requires the host to be a
+   participant (owner, member participant, or the team as participant);
+   otherwise hosting drops (`left`), and confirm refuses.
+4. **Mid-turn widening without a ring** (medium): the turn loop checks
+   `e.scope` next to `brakeInTurn` and again before `execTools` (two
+   line-local lines in `actor.go`; nil on every other engine).
+5. **Forged live events** (medium): an event must name a run whose root is
+   the conversation the caller hosts; messages, steps, the queue and links
+   are re-read from team by id (only drafts are taken as posted, with keys
+   made at global); a draft never touches another conversation's.
+6. **The move** (medium) is two-phase (`hosted_move.go`): the partition's
+   intent row (`hosting_moves`) and a detached context; team's copy is
+   `pending` until the partition acks (conditional on the host and on it not
+   being continued); `POST /hosted` idempotent by `(moved_from, host)`,
+   finishing the delete a stop left, with `lookup: true` for the
+   partition's start (`reconcileHostingMoves` — looks, never moves); a
+   pending copy unacked for 10 minutes shows `dropped`/`unclaimed`
+   (continuable), and one whose original is still at global is deleted
+   (`settleHostedMoves`, at global's start and on every move/continue). The
+   re-adopt of a dropped one now makes it `pending`, not active.
+7. **The host engine's wake-up** (medium): `hostedWake` is `userWake`
+   over the active hosted trees (settled links, sleeps on jobs, wake times);
+   it leaves `resume`, or `wake` at the earlier of its own and the main
+   engine's time (the jobs share the name).
+8. **AF's un-share move** (medium): un-sharing a hosted conversation (only
+   its owner left: the last member removed or gone, made private with nobody
+   in it) ends hosting and brings it back to global as a plain conversation
+   (`unshareHosted` — the continue path; the answer carries `movedTo`, the
+   deleted `run` event too). AF's `moveIfUnshared` then applies to it: one
+   line at merge (below). `POST /hosted` answers 409 while AF's `conv_moves`
+   row says `asked` (`convMovingHome` reads AF's table; no table, no row).
+9. **Phantom drafts** (low): drafts let go after 60 s silent (with a
+   `draft.end`); `hosted/changed` drops the conversation's drafts and sends
+   its streams `reset`; the forwarder flushes (one try, then mail) at stop.
+10. **Consent failing open** (low): `seen` is required by `POST /hosting`
+    and confirm (400); the web's Confirm is disabled and the native one
+    absent without a `pendingKey`.
+11. **The 7-day timer** (low): every pause arms its own; a confirmation
+    after the 7 days drops it (409).
+12. **Delete and continue** (low): deleting rings the host (the ring is
+    sent with the host read before the delete); continue claims the row
+    (`continuing`, a compare-and-set on what it read; a claim older than two
+    minutes is a stopped process's and is taken again), imports, leaves a
+    tombstone (`continued`, `continued_to`, kept 30 days) that answers a
+    retry — or another participant — with the same id.
+13. **Spec gaps** (low): PD-33's modal — the native view now opens the
+    warning as a **sheet** the first time a hosted conversation is opened in
+    an app session (the composer's "Read the warning…" reopens it; the
+    notice still heads the transcript). Approvals — **only the host approves
+    a parked call** in a hosted conversation (it runs with their resources);
+    any participant may deny. `POST /runs/{id}/resume` is served for hosted
+    runs (a wake into team + a ring). PD-32's other sources stay a
+    deviation and an owner question (below).
+14. **Tests** (low): `hosted_fix_test.go` covers each of the above; the
+    fencing test now runs real per-host lock files (below).
+
 ## Changelog entry (docs/changelog.md, under the merge date)
 
 ```markdown
@@ -133,10 +215,12 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
   opens it — every time, with who can read it and whose resources it uses —
   and keeps the composer locked until they start it; a ⚠ **not private**
   chip marks it. Adding people pauses it until the host confirms them (on
-  the page, or from a push);
-  declining, taking the resources back or 7 days without an answer end
-  hosting, and any member may then continue it without them. It has no join
-  links. The non-hosting alternative: **Add a copy of my files…** puts
+  the page, or from a push); the host's partition stops at its next step.
+  Declining, taking the resources back, 7 days without an answer or the
+  host leaving it end hosting, and any member may then continue it without
+  them; un-sharing it (only its owner left) brings it back to the shared
+  instance. Only the host approves a parked tool call in it, and it has no
+  schedule, automation-thread or skill tools. It has no join links. The non-hosting alternative: **Add a copy of my files…** puts
   copies of your own session files into a shared conversation; the
   originals stay private. New routes, in a partitioned instance only: `GET`
   / `POST /hosting`, `POST /hosting/{id}/confirm|decline`, `DELETE
@@ -204,6 +288,16 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
     - **"Add a copy of my …"** copies a person's own session files into a
       shared conversation at global (`from-<person>/`, a note): no host, no
       pause, no chip; the originals stay private.
+    - **Failure paths**: the move is two-phase (the partition's intent, a
+      `pending` copy the partition acks; idempotent by the original's id; a
+      copy never taken up is continuable after 10 minutes, one whose original
+      stayed is deleted); continue claims the conversation and leaves a
+      tombstone; the host engine looks at the audience before every step
+      (paused again on a further change, resumed when it narrows back,
+      dropped when the host is no longer in it); global re-reads every
+      durable live event from team; a hosted run lacks the tools that keep
+      state outside it (schedules, automation threads, skills); approvals
+      are the host's; un-sharing ends hosting (90 §I10).
   - **Not chosen:** a mirror of the transcript in global's db (two copies
     and id clashes; team is the ruling's home); making every handler take
     its agent from the request (≈250 call sites in shared files); a
@@ -211,7 +305,11 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
     xbind attributes as a whole — a partial one would be advisory); mailing
     `hosted/changed` after every commit (the live post carries it; mail is
     the fallback); join links on hosted conversations (they'd admit people
-    the host never saw).
+    the host never saw); giving team's schedules their own id range and a
+    fire route the host serves from team (a hosted schedule would fire with
+    the host's resources long after the members stopped looking — the
+    members can schedule after continuing it without the host); refusing
+    to un-share a hosted conversation (a member couldn't leave).
 ```
 
 ## Seams for the integrator
@@ -229,6 +327,14 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
 | `hosted-ui.js` `hostedPaint(v, app)`, `hostedChipTpl`, `hostedRowChip`, `hostTpl` | agent.js, sidebar.js, share.js | one call each |
 | `native/hosted.js` | native/chat.js (notice, composer state, buttons), native/convs.js (row) | — |
 | a shared conversation's sandbox picker | not changed | still B2b's open item; a hosted conversation's `PATCH {sandbox}` answers 409 (the agent in it can still use the host's sandboxes through its tools) |
+| `hostedToolRefused`, `hostedToolSpecs` | `hosted_tools.go`; one line each in `tools.go` (`runToolSpecs`, `runTool`) | a new toolset that keeps state outside a conversation: add it to `hostedToolsets` |
+| `hosting_moves`, `reconcileHostingMoves`, `adoptHosted`, `ackTeamHost` | `hosted_move.go` (a person's partition) | the partition's intent; `startHosting` runs the reconcile |
+| `team_hosts` states `pending`, `continuing`, `continued`; column `continued_to` | `hosted_move.go`, `team_runs.go` (schema 2 as shipped here: nothing released) | `setTeamHostState` never overwrites `continuing`/`continued` |
+| `unshareHosted` — **AF at merge** | `hosted_move.go` | after the import, add `_ = agent.db.Tx(func(t *DB) error { return t.moveIfUnshared(back.ID) })` (the comment marks the place) |
+| `convMovingHome` | `hosted_move.go` | reads AF's `conv_moves` by SQL (false without the table); at merge it may call AF's `moving()` instead |
+| `dropConversationTo(ag, root, why, to)` | `hosted_move.go` | the deleted `run` event carries `movedTo` (AF's page follows it) |
+| `ringing` (a WaitGroup) | `hosted_global.go` | tests wait for rings in flight (`quickWakes` does) |
+| `hostedWake` | `hosted_engine.go` | `userWake`'s rule over given trees; keep it in step with `resume_mode.go` |
 
 ## Deviations
 
@@ -261,6 +367,19 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
   those buttons).
 - **agent.js** grew 3 lines (998 of 1016); **hack/ui-harness/shots.js** one
   line (848 of 877).
+- **"Add a copy of my …" copies session files only.** PD-32 (decided) also
+  lists a memory item, a skill, a document from another partitioned tile
+  and sandbox files; v1 builds session files. Owner question below.
+- **A hosted run has no schedule, automation-thread or skill tools** (review
+  finding 1): the members schedule after continuing it without the host.
+- **A move's copy is `pending` until the host's partition takes it up**;
+  members' writes answer 409 meanwhile (normally well under a second); one
+  no partition takes up within 10 minutes is continuable.
+- **xbind doesn't tell a person's frame from their partition's backend**
+  (`personFromPartition` admits both): the frame can post `/hosted/events`
+  and `POST /hosted` too. Global now trusts nothing durable from the post;
+  a frame's direct `POST /hosted` leaves a `pending` copy no partition
+  acks — continuable after 10 minutes.
 
 ## Bugs found
 
@@ -276,6 +395,12 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
 - **Pre-existing, not changed**: the share pill's "shared with N people"
   count isn't live (list rows carry `members`, run summaries don't) — seen
   on a hosted conversation after adding someone.
+
+- **Found by the review, fixed on `pt/b2d-fix`**: the fourteen findings
+  in "Review fixes" above — among them a hosted run's `schedule` replacing
+  the host's private cron job, a paused conversation stuck on 409, the host
+  removed yet still driving it, a frame's forged live events, and a move
+  stranded by a closed page.
 
 ## Merge risks
 
@@ -306,6 +431,16 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
   sentence; the `team` bullet. `docs/partitions.md`: a paragraph after the
   shared-conversations sentences of §The mode.
 
+- **AF (pt/af-fix) — review finding 8**: `git merge-tree` conflicts in
+  `_backend/routes.go`, `API.md`, `docs/partitions.md`,
+  `hack/ui-harness/shots.js` and `test/isolated/partitions_agent_test.go`
+  (union both sides' lines). Then the one line in `unshareHosted` (seams),
+  and AF's new `/runs/{id}…` routes answer 409 on a hosted id until added to
+  `hostedHandlers` (for AF's `/moves` routes nothing is needed: they aren't
+  `{id}` run routes). Function names checked against AF: its `movesWait`,
+  `moving`, `moveOf` are distinct from this pack's `hostingMovesWait`,
+  `convMovingHome`. SH and I1 also add lines after `PASSES` in shots.js.
+
 ## Owner questions
 
 - **Per-resource hosting.** 08 §4 lets a person enable "their private …"
@@ -326,6 +461,23 @@ the composer strip's CSS and a pause's words (`28ec365f`), and this record.
   *Recommendation:* a shared blob resource beside `team` in the template
   (`"shared": true`) in a follow-up; T1's merge by keys brings the `uses`
   line to existing instances.
+
+- **"Add a copy of my …" beyond session files.** PD-32 lists a memory
+  item, a skill, a document from another partitioned tile and sandbox files.
+  *Recommendation:* next, a skill and a memory item (both are the person's
+  own rows, one copy each, the same `from-<person>/` note); a document from
+  another tile and sandbox files later, through that tile's or sandbox's
+  own export — the copy-in route takes files, so only the picker grows.
+- **Approvals in a hosted conversation are its host's** (built: only the
+  host approves a parked call — it runs with their resources; anyone may
+  deny). *Recommendation:* keep; if members need to approve, it is a
+  per-conversation delegation the host grants explicitly.
+- **xbind can't tell a person's frame from their partition's backend.**
+  The agent now trusts nothing durable from `/hosted/events`, but a frame
+  can still ask global to move a conversation of theirs directly (it stays
+  `pending`, unhosted). *Recommendation:* an xbind header marking calls
+  from a partition's backend (instance) vs. its frames, so tile code can
+  require the backend for backend-only routes.
 
 ## Tests
 
@@ -350,3 +502,26 @@ Not run: the other harness passes (unchanged surfaces), the partitions
 smokes `TestPartitionsSmoke*` (no xbind change). An e2e run in the middle
 failed on the box's full `/tmp` (tmpfs out of inodes — builds of parallel
 packs), not on the code; re-run alone, it passed.
+
+### On pt/b2d-fix (the review fixes; final tree)
+
+| Run | Result |
+|---|---|
+| template `_backend`, new `hosted_fix_test.go`: `TestHostedRunLacksPartitionTools` (a control run has `schedule`; a hosted run lacks all nine tools and refuses them; **the probe: with alice's schedule #1 in her partition, a hosted run's `schedule` call is refused, team holds no schedule, #1 unchanged, the model was never offered it**), `TestHostedPausedAudienceChanges` (**carol then dave while paused: asked about both, the first key 409s, the new one confirms; erin added then removed: active again, it answers**), `TestHostRemovedDropsHosting` (**alice removed: dropped `left`, never answers**), `TestHostedWidenMidTurn` (**mallory added during step 1, no ring: paused, the tool never ran, one model step**), `TestHostedEventsChecked` (**alice's draft naming bob's run refused, carol's view keeps bob's draft; a message team doesn't hold refused; a real one published as team has it — no `FORGED` reaches bob**), `TestHostedDraftsLetGo` (a silent draft goes; `hosted/changed` sends `reset` and drops drafts), `TestHostingMoveTwoPhase` (`seen` required; a 503 keeps the intent; the start's lookup takes it up and acks; a never-made move is forgotten; **a copy continued meanwhile isn't taken back**), `TestHostedMoveIdempotent` (**the lookup finishes deleting an original a stop left**; another person 409; a stale copy beside its original deleted; an unclaimed copy continued, **a second continue answers the same id**, one copy at global), `TestHostedContinueClaim`, `TestHostedUnshareAndDelete` (the last member leaving: back at global, a tombstone, the host rung; **deleting rings the host**; AF's `asked` move → 409), `TestHostedApprovalsAndResume` (a participant's approve 403, the host's 200, a deny 200; resume queues a wake), `TestHostingConsentChecks` (`{}` and `""` 400; after 7 days 409 and dropped; a pause's own timer drops it), `TestHostedWakeUp` (a hosted run sleeping 5 min → `wake` at its time; the partition's earlier wake wins; a settled subagent → `resume`; paused → nothing), `TestHostEngineLocks` (real lock files: alice's successor waits on the lock, bob's engine takes its own at once, the successor fences the predecessor after it lets go); the existing hosted tests (TestHostedAtGlobal now acks the pending copy) — `-race -count=3` | PASS |
+| **the legacy golden**: `TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh agent` | PASS (261 s) |
+| **e2e** `TestPartitionsAgent` on a real `xbind --isolate` — all nine cases, `hosted-chats` through the two-phase move | PASS (67.8 s; hosted-chats 3.3 s) |
+| JS: `hack/agent-template-hosted.test.mjs` (+ the `moving` lock), `hack/agent-template-native-hosted.test.mjs` (+ **the warning sheet opens by itself, Open without sending closes it and leaves the composer locked, Read the warning… reopens it, Start anyway unlocks**; no Confirm without a `pendingKey`); `make fmt-check vet js-check js-test` | PASS (513 tests, 512 pass, 1 skipped as before) |
+| repo guards: `go test . ./internal/assetscan ./internal/sizebudget ./internal/docscheck ./internal/builtins ./internal/apicheck` | PASS |
+| template browser tests from a scratch copy: `hosted homes share native chat` | PASS |
+| UI harness `agentHosted` | **not re-run** — see below |
+
+The harness pass wasn't re-run on this branch: the box's `/tmp` (tmpfs,
+shared by the parallel packs) ran out of inodes while its seed was
+building (the tool shell itself failed with ENOSPC), so the run was
+stopped and its workspace deleted to give the other packs room. The page
+changes it would see are small — Confirm needs a `pendingKey` (the pass's
+host always has one), a `moving` lock for the fraction of a second a move
+is pending — and the template's browser test `test/hosted.mjs` (the same
+flows against the stub backend) passes. Re-run it when `/tmp` has room:
+`HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1 hack/ui-harness/run.sh --keep
+agentHosted agentHomes`.
