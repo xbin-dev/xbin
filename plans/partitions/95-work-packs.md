@@ -513,6 +513,7 @@ file and the split are named under "Merge contention".
 | `internal/broker/backup.go` | F17a, F17b | sequential; F5 no longer touches it |
 | `workspace-template/tiles/admin/admin.js` (`GROUPS`, `render()`) | F16, F12, F17a | append-style edits; resolve line-anchored |
 | `internal/broker/usersapi.go` | F7b only | — |
+| `internal/server/partitionclass.go` (`partitionUnconverted`) | F5, F7a, F7b | each pack removes only its own rows; gofmt realigns the whole map, so resolve by taking the union of the removals, never one side: after F5 and F7a only `GET /logs` and `GET /tile-status` stay (F7b's); tests probe a synthetic unconverted row, never a real one |
 
 New code goes in new files (`partitionmode.go`, `partitionroute.go`,
 `partitionrecords.go`, `partitionmail.go`, `partitionconsent.go`,
