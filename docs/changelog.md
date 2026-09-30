@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **Agent template: terminals relayed to the app, and a coding agent's
+  log** (`builtin-templates/agent/API.md` §Coding agents, "Terminal
+  relays and the log"). `GET /runs/{id}/harness/terminal?login=1&rows=&cols=&exec=`
+  (a shell in a coding agent's sandbox at its cwd, or its sign-in command)
+  and `GET /sandboxes/{ref}/terminal?cwd=&cmd=&rows=&cols=&exec=` (any
+  terminal in a sandbox you may use) relay the manager's `tty` to the
+  native view as you, after checking you may use the sandbox yourself;
+  refusals come before the upgrade, as JSON. A terminal a relay started is
+  ended 5 s after its client goes, unless it exited or a client attached to
+  it again (`exec=`). `GET /runs/{id}/harness/log?max=` is the tail of the
+  coding agent's stderr, for a person who may use its sandbox.
 - **`xbin.RelayManagerTTY` says what happened** ([sdk.md](sdk.md) §A
   manager's terminals): it returns `ManagerTTYRelay` — the terminal's exec
   id (its session frame's) and whether its command exited — and

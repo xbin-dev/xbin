@@ -1627,7 +1627,8 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   routes, so it goes through the agent's relay (`GET
   /sandboxes/{ref}/terminal?cwd=`, D-harness §4.2.8), which checks that you
   may use the sandbox and dials its manager's `tty` as you. One at a time
-  (the app's terminal closes its socket when its screen goes).
+  (the app's terminal closes its socket when its screen goes — and the
+  relay then ends the shell it started, §Coding agents "Terminal relays").
 
 **Subagents on another sandbox.** `subagent_spawn` also takes `{sandbox?,
 cwd?}` where a sandbox is bound: `sandbox` names one of the conversation's
@@ -1776,6 +1777,56 @@ has **>_ Terminal** (web: the top bar; the app: ⋯ → Terminal) — a shell
 in its sandbox at its working directory. Only a harness run parked on
 `login` gets the card (`signin.js`, `native/terminal.js`); other parks are
 their own cards'.
+
+**Terminal relays and the log** (D-harness §4.2.7, §4.2.8). The native
+view's terminals and a coding agent's stderr, for a person who may use the
+sandbox **themself** — checked here first, fresh from the manager (by the
+rules of §Coding sandboxes: owner, members, `team`, a share), because the
+manager doesn't police the person this agent names: both relays dial the
+manager's `tty` route as this tile with `Sbx-User: <you>` (asserted) and
+relay `/ws/term`'s wire byte for byte (`xbin.RelayManagerTTY`); the runtime
+still refuses a person with `noTerminal` (D88). The web doesn't use them —
+its terminals dial the manager directly, as you (verified).
+
+| Method & path | Who | Query | Answer |
+|---|---|---|---|
+| `GET /runs/{id}/harness/terminal` | a participant who may use its sandbox | `login=1`, `rows`, `cols`, `exec` | WebSocket: a terminal in the coding agent's sandbox at its cwd — its sign-in command with `login=1` (`harness.login.command`: the adapter's own when it offered one, else the catalog's, else the manager's advertisement), else the login shell |
+| `GET /sandboxes/{ref}/terminal` | a person who may use the sandbox | `cwd`, `cmd`, `rows`, `cols`, `exec` | WebSocket: `cmd` as the contract's `tty` route runs it (the login shell unless given) |
+| `GET /runs/{id}/harness/log` | a viewer who may use its sandbox | `max` (bytes, ≤ 65536: the default; more is the cap) | `text/plain`: the tail of the coding agent's stderr, its current generation |
+
+- **`exec=<id>`** (a terminal's session id, from its session frame)
+  attaches again to that tty exec instead of starting one; the other
+  parameters are then ignored — send a resize. `GET /sandboxes/{ref}` is
+  still the sandbox: only a path ending in `/terminal` is the relay (a
+  sandbox id never holds `/`).
+- **Refusals come before the upgrade, as JSON:** **400** `a terminal is a
+  WebSocket upgrade`, `rows: a number of character cells`; **403** `only a
+  person can open a terminal` (an element, the scheduler, the tile itself,
+  an admin viewing as someone); **403** `you may not use ‹sandbox› — ask
+  ‹who›` (who bound it into the conversation, else its owner, else this
+  agent's managers); **404** a run you can't see (`no such run`), a
+  sandbox you neither see nor have bound (`no such sandbox`), or the
+  manager's `not-found` (a sandbox or exec gone); **409** `not a
+  coding-agent conversation` (the run relay on a built-in run), `‹name› has
+  no sign-in command to run in a terminal`; the manager's other refusals
+  pass through as `{error, refusal, state?}` (`unsupported` 501 without
+  `tty`, `state` 409 on an archived sandbox).
+- **What a relay started, it ends.** A terminal a relay started (no
+  `exec=`) — a shell or a sign-in — is ended (`DELETE …/execs/{id}` at the
+  manager, as you) 5 s after its client goes, unless its command exited, or
+  a client attached to it again through a relay (`exec=<id>`) before then:
+  that client keeps it, and it runs until it exits or someone ends it. The
+  app's terminal can neither end a shell nor come back to one, so what it
+  leaves would otherwise run on for nobody. The rule is the process's that
+  relayed it: across a redeploy, a terminal whose relay ran in the old
+  process runs on.
+- **The log** is read as you: a split exec's own stderr (a manager offering
+  `stdio`), else the file the wrapper writes in the sandbox's HOME
+  (`~/.cache/xbin-harness/<run>-<gen>.log`, read with `tail -c` through the
+  contract's `run` — which starts a stopped sandbox). **403** `only a
+  person who may use ‹sandbox› can read its log`; **404** `no log yet`
+  (never started, or no file); **409** on a built-in run; **400** `max: a
+  number of bytes, at most 65536`.
 
 ## The frontend: one model, thin views
 
