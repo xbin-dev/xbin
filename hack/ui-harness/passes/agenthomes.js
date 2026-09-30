@@ -48,7 +48,9 @@ async function agentHomes(browser) {
   const A = await open(browser, 'admin', 'admin');
   const D = await open(browser, 'dev1', 'devpass123');
   const part = await A.page.evaluate(() => xbin.partition || '');
-  if (!part.startsWith('user:')) { skip(`apps/agent isn't partitioned here (xbin.partition ${JSON.stringify(part)})`); return done(); }
+  // HARNESS_AGENT_PARTITION says it is partitioned: a page that isn't is a failure, not a skip
+  check(part.startsWith('user:'), `the admin's page is their own partition (xbin.partition ${JSON.stringify(part)})`);
+  if (!part.startsWith('user:')) return done();
 
   // the seed: one private conversation each, one shared with the team (at global)
   const n = Date.now().toString(36);
@@ -129,18 +131,19 @@ async function agentHomes(browser) {
   check(await D.page.evaluate(() => [...document.querySelectorAll('#timeline .msg')].some((e) => e.textContent.includes('Paragraph 10'))), 'the copy carries the shared transcript');
 
   // the global-viewer state: the owner token's page is the global instance's
+  // (an acceptance item: no owner token, or a page not opening as global, fails)
   let token = '';
   try { token = fs.readFileSync(path.join(process.env.WS || '', '.xbin', 'token'), 'utf8').trim(); } catch { /* no workspace here */ }
-  if (!token) skip('the global-viewer state: no owner token ($WS/.xbin/token)');
-  else {
+  check(!!token, 'the global-viewer state: the owner token ($WS/.xbin/token) is there');
+  if (token) {
     const ctx = await browser.newContext({ viewport: { width: 1300, height: 900 }, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
     const page = await ctx.newPage();
     let viaGlobal = 0; // the global instance's own page never addresses its global instance
     page.on('request', (r) => { if (r.url().includes('xbin-partition=')) viaGlobal++; });
     await page.goto(`${URL}/c/apps/agent/`);
     const ok = await page.waitForSelector('#partnote .pn.global', { timeout: 30000 }).then(() => true, () => false);
-    if (!ok) skip(`the global-viewer state: the owner token's page didn't open as the global instance (partition ${await page.evaluate(() => globalThis.xbin?.partition || '').catch(() => '?')})`);
-    else {
+    check(ok, `the global-viewer state: the owner token's page opens as the global instance (partition ${await page.evaluate(() => globalThis.xbin?.partition || '').catch(() => '?')})`);
+    if (ok) {
       await until(page, (id) => document.querySelector(`#runs .run[data-id="${id}"]`), team, 20000).catch(() => {});
       const gRows = await rows(page);
       check(gRows.some((r) => r.id === team) && !gRows.some((r) => r.id >= B), `the global-viewer: the global instance's list only (${JSON.stringify(gRows.slice(0, 5))})`);

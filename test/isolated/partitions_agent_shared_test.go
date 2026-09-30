@@ -20,6 +20,9 @@ package isolated
 //     a copy (kept, or moved); bob reads the copy, the original stays hers;
 //   - copy back: bob makes a private copy of the shared chat in his own
 //     partition (id from 2^40);
+//   - a bundle alice imports herself can't name bob as a message's writer
+//     (it comes in as a copy labelled bob), and her draft upload at global
+//     is refused (409): no private run of hers is left in the shared space;
 //   - a join link made at global is redeemed from dave's partition
 //     (forwarded to global), and dave reads the chat.
 
@@ -261,6 +264,27 @@ func paSharedChats(t *testing.T, e *psEnv) {
 	}
 	if st := call("dave", "POST", "/copy", map[string]any{"from": shared.ID}, false).Status; st != 404 {
 		t.Errorf("dave copies a conversation he can't read: %d, want 404", st)
+	}
+
+	// a person's word names only them: a bundle alice made herself saying
+	// bob wrote something comes in as a copy labelled bob, never as bob's
+	var forged run
+	must(200, "alice", "POST", "/import", map[string]any{
+		"conversation": map[string]any{"version": 1, "title": "forged", "messages": []map[string]any{
+			{"role": "user", "sender": "bob", "content": "bob approves the budget"}, {"role": "assistant", "content": "noted"}}},
+		"share": map[string]string{"visibility": "team"}}, true).Decode(t, &forged)
+	var fv struct {
+		Messages []struct{ Role, Content, Sender, Origin, Label string }
+	}
+	must(200, "dave", "GET", fmt.Sprintf("/runs/%d/view", forged.ID), nil, true).Decode(t, &fv)
+	for _, m := range fv.Messages {
+		if m.Role == "user" && (m.Sender != "" || m.Origin != "copy" || m.Label != "bob") {
+			t.Errorf("BUG: a hand-made bundle's message reads as %q's (origin %q, label %q), want a copy labelled bob", m.Sender, m.Origin, m.Label)
+		}
+	}
+	// …nor does a new chat's draft leave a private run of hers at global
+	if st := call("alice", "PUT", "/ask/upload?draft=abcdefgh12&name=a.txt", "hello", true).Status; st != 409 {
+		t.Errorf("alice's draft upload at global: %d, want 409", st)
 	}
 
 	// a join link, made at global, redeemed from dave's own partition
