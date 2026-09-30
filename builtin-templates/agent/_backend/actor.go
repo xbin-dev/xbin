@@ -101,6 +101,9 @@ type turnState struct {
 // --- the pass ------------------------------------------------------------------
 
 func (e *Engine) pass(a *actor) {
+	if e.scope != nil && !e.scope(a.id) {
+		return // a host's engine: not a conversation its own hosted table lets it drive (hosted_engine.go)
+	}
 	run, err := e.db.getRun(a.id)
 	if err != nil {
 		e.disarmTimer(a.id)
@@ -501,6 +504,9 @@ func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 		if e.brakeInTurn(run) {
 			return // a person's partition learns of a halt from conf, step by step (brake.go)
 		}
+		if e.scope != nil && !e.scope(run.ID) {
+			return // a host's engine: paused or dropped mid-turn — no further step (hosted.go)
+		}
 		if run.TurnSteps >= cfg.maxTurnSteps() {
 			e.endTurn(ts, endCap, fmt.Sprintf("stopped after %d steps in one turn (maxTurnSteps) — send a message to continue", run.TurnSteps))
 			return
@@ -529,6 +535,9 @@ func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 				return
 			}
 			continue // a message arrived while it was answering: answer that too
+		}
+		if e.scope != nil && !e.scope(run.ID) {
+			return // a host's engine: no tool runs with the host's resources for a wider audience (hosted.go)
 		}
 		if e.execTools(ctx, ts, calls, false) {
 			return

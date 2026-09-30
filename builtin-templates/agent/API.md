@@ -259,6 +259,104 @@ What a partitioned instance does differently:
     picker and the Sandboxes dialog list the global instance's sandboxes
     (a shared conversation's are its), and every call about one goes there;
     at home and in your own conversations, your partition's.
+- **Non-secure conversations: a shared one that uses your private
+  resources.** A shared conversation runs at the global instance, which
+  reaches no one's partition. A participant may let it use **theirs** —
+  their sandboxes, their data in other partitioned tiles, their vault:
+  everything their partition reaches — which makes it **non-secure** and
+  **hosted** by them:
+  - `POST /hosting {conversation, seen}` in your partition (after the
+    warning; `seen`, required: the audience you were shown, `{owner,
+    visibility, teamRole, members: {user: role}}`) → the global instance
+    moves it into `team` — a new id from 2^39, still below 2^40, so pages
+    reach it at the global instance; its join links are deleted, its binary
+    session files stay behind (named in a note) — and your partition records
+    it in its own `hosted` table and drives it with an engine of its own over
+    `team` (its own lock `<team>.engine.<partition id>` and epoch). Only what
+    that table lists is ever driven: a row in `team` naming you as host makes
+    your partition do nothing. `GET /hosting` lists yours; `DELETE
+    /hosting/{id}` takes your resources back. An audience wider than `seen`
+    is recorded paused at once. The move is two-phase: your partition notes
+    it first and asks with a context of its own (closing the page cancels
+    nothing), the copy in `team` is `pending` until your partition takes it
+    up, and a move asked for before a stop is looked up at your partition's
+    next start (`POST /hosted {conversation, lookup: true}` — never made
+    then). A copy no partition took up within 10 minutes shows as dropped
+    (reason `unclaimed`); one whose original is still at the global instance
+    is deleted there instead.
+  - The members keep using it at the global instance, with the routes of any
+    shared conversation — the view (with `hosted: {host, state, reason,
+    resources, pending, pendingKey, dropsAt}`, also on its run summaries in
+    the stream and the lists), the stream, messages, answers, stop and
+    interrupt, Retry (`resume`), members, pins, read state, files (text; a
+    binary one's bytes are the host's). Their inputs go into `team`; the
+    global instance rings the host's partition (partition mail
+    `hosted/input`), whose engine takes them up — never the global
+    instance's. While it runs, the host's partition posts its run to its
+    global instance (`POST /hosted/events`, batched, attributed — only for
+    runs of conversations `team` says it hosts), which publishes it on the
+    members' streams: everyone sees it stream at once. What is durable (a
+    run, a message, a step, the queue, a link) is re-read from `team` by its
+    id, never taken from the post; a draft that hears nothing for a minute
+    is let go. A batch that doesn't get through (or is still queued when the
+    host's partition stops) becomes `hosted/changed` mail: the global
+    instance drops its drafts and has the streams re-read it (`reset`).
+    Other routes on it answer 409; join links 409. A parked tool call runs
+    with the host's resources: only the host approves it, any participant
+    may deny it; a grant can't be given in it.
+  - **A wider audience pauses it** — a member added, the team let in, a
+    viewer made a participant, at the global instance: the host's engine
+    stops at its next step (it looks before each model call and each batch
+    of tools, not only when rung; a model call in flight is abandoned,
+    writing nothing, and made again once confirmed; a tool call in flight
+    ends as after a restart), members' messages answer 409, and the host is
+    asked (on the page, and by a push to their xbin app): `POST
+    /hosting/{id}/confirm {seen: pendingKey}` (required; 409 if it changed
+    again) or `/decline`. A further change while paused is what the host is
+    asked about (a new `pendingKey`); an audience back within what they
+    confirmed makes it active again by itself. Declining, `DELETE
+    /hosting/{id}`, 7 days without an answer (a confirmation after that
+    answers 409), the host no longer able to talk in it (removed, left,
+    made a viewer), or the host's partition refusing mail for good (the
+    person deleted, disabled or no longer able to open the agent) end
+    hosting; then any participant may `POST /hosted/{id}/continue` at the
+    global instance: it becomes a plain shared conversation there again (a
+    new id), without the host's resources — one at a time (409 while someone
+    else does), and a retry answers the id it got. Deleting it rings the
+    host, whose partition stops at once.
+  - **Un-sharing ends hosting**: when only its owner is left (its last
+    member removed or gone, made private with nobody in it) it leaves `team`
+    for the global instance as its owner's plain conversation (the answer's
+    `movedTo`, or PATCH's item with `movedFrom`; its `run` event with
+    `deleted` names `movedTo`), and its host's partition stops.
+  - A hosted run has no schedule, automation-thread or skill tools
+    (`schedule`, `unschedule`, `schedules_list`, `schedule_inspect`,
+    `threads_list`, `thread_inspect`, `skills_*`): they would keep state
+    outside the conversation — in its host's partition, or in `team` where
+    every hosted conversation reads it. One called anyway is refused.
+  - The page shows a hosted conversation with a ⚠ **not private** chip (its
+    header and its row) and opens the warning — who can read it (its
+    members, the agent's managers, workspace admins, anyone who can change
+    the agent's code) and whose private resources it uses — every time it is
+    opened into a page session, with **Start anyway** / **Open without
+    sending** and no "don't show again"; the composer stays locked until it
+    is started, while it is paused or moving, and once hosting ended. A
+    shared conversation's share dialog offers **Use my private resources…**
+    (the same warning first). The native view opens the warning as a modal
+    sheet the first time it is opened in an app session (the composer's
+    **Read the warning…** opens it again), heads its transcript with it, and
+    locks its composer the same way (the host's **Confirm**, **Continue
+    without …** are the composer's buttons); hosting and adding a copy are
+    the web's for now.
+  - **Add a copy of my …** (the non-hosting way): `POST /copyin
+    {conversation, files: [{run, path}]}` in your partition sends copies of
+    session files of your own conversations to a shared one at the global
+    instance (`POST /runs/{id}/copyin {files}`, a participant: they land
+    under `from-<you>/`, with a note in the conversation); it stays an
+    ordinary shared conversation, and the originals stay private. The share
+    dialog's **Add a copy of my files…** says who can read the copies. At
+    most 20 files, 16 MiB together.
+  - An unpartitioned instance has none of this (the routes answer 404).
 - **Settings are the tile's.** The config, classes, the halt switch and the
   shared skills live in the global instance's `db`. It mirrors them into
   `conf` (kv, `"shared": "read"`), which every partition reads at each use
@@ -395,7 +493,10 @@ What a partitioned instance does differently:
   `<team>.migrate` flock); a partition opens it without migrating, and when
   its schema is behind wakes the global instance (`GET /health`) and waits
   up to 30 s — meanwhile what needs it answers 503 "the shared space is
-  being upgraded". Anything in it is readable by every partition's code.
+  being upgraded". It holds the non-secure conversations (the agent's own
+  run schema, which the global instance re-applies at every start; a
+  partition also waits while a column this version needs is missing).
+  Anything in it is readable by every partition's code.
 - **Model calls have a tile-wide cap**: `maxActiveRuns` (default 4) lock
   files `llm.slot.<i>` beside `team`'s file — a flock semaphore every
   partition shares; a dead process frees its slot. As within one instance,
@@ -445,9 +546,10 @@ What a partitioned instance does differently:
   for 30 minutes after it was sent — a newer version mid-deploy may read it
   — and is then acknowledged unhandled (logged), rather than start the
   partition at every doorbell step until it expires. The agent's own
-  topics are `handoff/dm`, `handoff/event` and `conv/move` (global → a
-  person), `outbox/add`, `usage/day` and `partition/hello` (a person → global),
-  above; an item's files are stored before its transaction; add yours to
+  topics are `handoff/dm`, `handoff/event`, `conv/move` and `hosted/input`
+  (global → a person), `outbox/add`, `usage/day`, `partition/hello` and
+  `hosted/changed` (a person → global), above; an item's files are stored
+  before its transaction; add yours to
   `mailHandlers` (`_backend/mailbox.go`). The doorbell
   answers `{handled, left, dropped}`. Only xbind's `xbin/mail`, the owner
   token and the tile itself may ring it. `GET /health` → `{ok, mode, team?}` answers whoever may call this

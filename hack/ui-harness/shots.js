@@ -828,6 +828,7 @@ PASSES.partitionsEntry = require('./passes/partitionsentry').partitionsEntry; //
 PASSES.oldScaffold = require('./passes/oldscaffold').oldScaffold; // I1: the last release's shell and admin console meet partitioned and pending tiles
 PASSES.personPageAsked = require('./passes/personpageasked').personPageAsked; // I1: F11's asked consents, allowed on the page
 PASSES.agentMoves = require('./passes/agentmoves').agentMoves; // AF: an un-shared conversation moves home (HARNESS_AGENT_PARTITION=1)
+PASSES.agentHosted = require('./passes/agenthosted').agentHosted; // B2d: non-secure (hosted) chats, HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
 
 (async () => {
   const args = process.argv.slice(2);

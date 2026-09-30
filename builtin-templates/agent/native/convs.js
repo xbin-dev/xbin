@@ -86,7 +86,8 @@ function rowTpl(r, withMatch) {
   const app = ctx.app;
   const g = GLYPH[rowGlyph(r)];
   const shared = rowShared(r);
-  const sub = withMatch && r.match ? r.match.snippet : shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : '';
+  const sub = withMatch && r.match ? r.match.snippet : [r.hosted ? '⚠ not private' : '', // a non-secure conversation (native/hosted.js)
+    shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : ''].filter(Boolean).join(' · ');
   const sel = app.root === r.id;
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}
       badge=${g ? g[0] : nothing} tone=${g ? g[1] : r.unread ? 'accent' : nothing} ?selected=${sel}

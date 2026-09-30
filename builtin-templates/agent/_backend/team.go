@@ -1,9 +1,10 @@
 // team.go — the `team` resource of a partitioned agent (sqlite, "shared":
 // true in scope.json): the one database every partition and the global
 // instance read and write (API.md "Partitioned instances"). It is where
-// non-secure (hosted) conversations will live; for now it
-// holds its schema version, and the tile-wide LLM slot locks sit beside it
-// (llmslots.go). Anything in it is readable by every partition's code.
+// non-secure (hosted) conversations live — the agent's run schema and
+// team_hosts (team_runs.go) — beside its schema version, and the tile-wide
+// LLM slot locks sit beside it (llmslots.go). Anything in it is readable by
+// every partition's code.
 //
 //   - Only the global instance migrates it, under an exclusive flock on
 //     "<team>.migrate" (migrateTeam), so two global generations of a
@@ -35,11 +36,14 @@ import (
 // teamSchema is the team schema this code needs. Each bump adds a step to
 // teamMigrations; a person's partition on newer code waits for global to
 // apply it.
-const teamSchema = 1
+const teamSchema = 2
 
-// teamMigrations[i] takes the schema from i to i+1.
+// teamMigrations[i] takes the schema from i to i+1. The run schema itself
+// is re-applied at every global start (migrateTeamRuns): it grows with the
+// agent's own (migrate.go), which a partition checks column by column.
 var teamMigrations = []string{
 	`CREATE TABLE IF NOT EXISTS team_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
+	teamHostsSQL, // hosted conversations (team_runs.go)
 }
 
 // teamWait bounds how long a person's partition waits for global to
@@ -53,6 +57,7 @@ var (
 type teamDB struct {
 	path  string
 	sql   *sql.DB
+	runs  *DB // the same database as the agent's run store (team_runs.go)
 	ready atomic.Bool
 
 	mu      sync.Mutex // one check at a time
@@ -104,7 +109,11 @@ func migrateTeam(path string) (*teamDB, error) {
 			return nil, err
 		}
 	}
-	t := &teamDB{path: path, sql: db, checked: time.Now()}
+	if err := migrateTeamRuns(db); err != nil { // hosted conversations (team_runs.go)
+		db.Close()
+		return nil, fmt.Errorf("team run schema: %w", err)
+	}
+	t := &teamDB{path: path, sql: db, runs: &DB{sql: db, q: db}, checked: time.Now()}
 	t.ready.Store(true)
 	return t, nil
 }
@@ -116,7 +125,7 @@ func openShared(ctx context.Context, path string) (*teamDB, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &teamDB{path: path, sql: db}
+	t := &teamDB{path: path, sql: db, runs: &DB{sql: db, q: db}}
 	t.check(ctx, true)
 	return t, nil
 }
@@ -135,7 +144,8 @@ func (t *teamDB) check(ctx context.Context, wait bool) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.checked = time.Now()
-	if teamVersion(t.sql) >= teamSchema {
+	current := func() bool { return teamVersion(t.sql) >= teamSchema && teamCovers(t.sql) }
+	if current() {
 		t.ready.Store(true)
 		return true
 	}
@@ -150,7 +160,7 @@ func (t *teamDB) check(ctx context.Context, wait bool) bool {
 			return false
 		case <-time.After(250 * time.Millisecond):
 		}
-		if teamVersion(t.sql) >= teamSchema {
+		if current() {
 			t.ready.Store(true)
 			return true
 		}

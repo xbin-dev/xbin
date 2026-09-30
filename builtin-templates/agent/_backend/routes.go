@@ -137,15 +137,17 @@ func routeTable() []routeDef {
 // level (the tile itself and its owner); who the human behind a call is, and
 // what they may do with a run, is decided here.
 func routes(mux *http.ServeMux) {
-	homeRoutes(mux) // a partitioned agent's copies between homes (homes.go); none unpartitioned
+	homeRoutes(mux)   // a partitioned agent's copies between homes (homes.go); none unpartitioned
+	hostedRoutes(mux) // non-secure (hosted) conversations and copies into shared ones (hosted.go); none unpartitioned
 	// a partitioned agent's global instance only: moves out of the shared
 	// space (homes_move.go), a handoff's files too large for its mail
 	// (handoff_fetch.go)
 	moveRoutes(mux)
 	fetchRoutes(mux)
 	for _, rt := range append(append(append(routeTable(), sandboxRoutes()...), liveRoutes()...), probeRoutes()...) {
-		// agentRole is RoleFunc("admin") unless partitioned (partition_routes.go)
-		mux.Handle(rt.pattern, agentRole(guard(rt.need, partitionRoute(rt.pattern, rt.h))))
+		// agentRole is RoleFunc("admin") unless partitioned (partition_routes.go);
+		// hostedRoute serves a hosted conversation's routes from team at global (hosted_serve.go)
+		mux.Handle(rt.pattern, agentRole(hostedRoute(rt.pattern, rt.need, guard(rt.need, partitionRoute(rt.pattern, rt.h)))))
 	}
 	mailboxRoutes(mux) // partition mail's doorbell (mailbox.go)
 }

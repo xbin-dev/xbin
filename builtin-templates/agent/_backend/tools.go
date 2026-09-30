@@ -64,7 +64,7 @@ func postedFinishSpec() toolSpec {
 // runToolSpecs is toolSpecs for run: a top-level run whose result is posted
 // (a channel's, a trigger's) gets postedFinishSpec's finish.
 func runToolSpecs(cfg Config, run *Run, mcp []toolSpec) []toolSpec {
-	specs := toolSpecs(cfg, run.Depth, mcp)
+	specs := hostedToolSpecs(run, toolSpecs(cfg, run.Depth, mcp)) // a hosted conversation's lack (hosted_tools.go)
 	if run.ParentID == 0 && (run.Origin == "channel" || run.Origin == "trigger") {
 		for i := range specs {
 			if specs[i].Function.Name == "finish" {
@@ -341,6 +341,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	// because the spec was absent from its list.
 	if (name == "schedule" || name == "unschedule") && run.Depth > 0 {
 		return "", fmt.Errorf("only a top-level run can create or remove cron-agents; report the cadence you want and let your parent (or the owner) set it up")
+	}
+	if err := hostedToolRefused(run, name); err != nil { // hosted_tools.go
+		return "", err
 	}
 	switch name {
 	case "memory_set":

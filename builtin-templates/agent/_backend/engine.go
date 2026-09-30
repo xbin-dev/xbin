@@ -76,9 +76,25 @@ type Engine struct {
 	legacyTimer *time.Timer
 	hold        holder
 
+	// A host's engine over team (hosted_engine.go): its own epoch key, the
+	// conversations it may drive, its own wake-up at exit. Zero on every
+	// other engine, which then behaves exactly as before.
+	epochKey string                               // "" = "engine_epoch"
+	scope    func(id int64) bool                  // nil = every run
+	wake     func()                               // nil = ag.leaveWakeUp(db)
+	decorate func(r *Run, summary map[string]any) // nil = a run's summary as it is (publishRun)
+
 	// Test seams.
 	now      func() time.Time
 	onTakeup func() // called after takeover (tests)
+}
+
+// epochName is the settings key of this engine's epoch.
+func (e *Engine) epochName() string {
+	if e.epochKey != "" {
+		return e.epochKey
+	}
+	return "engine_epoch"
 }
 
 func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
@@ -124,9 +140,9 @@ func (e *Engine) takeOver() {
 	e.mu.Unlock()
 	var epoch int64
 	err := e.db.Tx(func(t *DB) error {
-		_ = t.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k='engine_epoch'`).Scan(&epoch)
+		_ = t.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k=?`, e.epochName()).Scan(&epoch)
 		epoch++
-		return t.putSetting("engine_epoch", itoa(epoch))
+		return t.putSetting(e.epochName(), itoa(epoch))
 	})
 	if err != nil {
 		logf("engine takeover failed: %v", err)
@@ -221,7 +237,9 @@ func (e *Engine) runActor(a *actor) {
 			e.mu.Unlock()
 		}
 	}()
-	e.markDriving(a.id)
+	if e.scope == nil || e.scope(a.id) { // a host's engine marks only what it may drive (pass checks each time)
+		e.markDriving(a.id)
+	}
 	for {
 		e.mu.Lock()
 		if !a.dirty || e.closing {
@@ -281,7 +299,7 @@ func (e *Engine) Signal(id int64, cause error) {
 func (e *Engine) fenced(fn func(t *DB) error) error {
 	return e.db.Tx(func(t *DB) error {
 		var ep int64
-		_ = t.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k='engine_epoch'`).Scan(&ep)
+		_ = t.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k=?`, e.epochName()).Scan(&ep)
 		e.mu.Lock()
 		mine := e.epoch
 		e.mu.Unlock()
@@ -422,7 +440,9 @@ func (e *Engine) Shutdown(wait time.Duration) {
 		}
 		t.Stop()
 	}
-	if owned && e.ag != nil {
+	if owned && e.wake != nil {
+		e.wake() // a host's engine (hosted_engine.go)
+	} else if owned && e.ag != nil {
 		e.ag.leaveWakeUp(e.db) // resume_mode.go: today's rule, or a person's partition's
 	}
 	e.releaseLock()

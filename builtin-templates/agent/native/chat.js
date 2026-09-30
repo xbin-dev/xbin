@@ -13,6 +13,7 @@ import { argsShown } from '../model/tool-heads.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
+import { hostedNoticeTpl, hostedComposer, hostedButtonsTpl } from './hosted.js'; // a non-secure conversation's warning and lock
 
 const CUT = 1200; // a long result is cut here; the card's ↗ opens all of it
 
@@ -339,6 +340,7 @@ export function chatScreen(v) {
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
     </toolbar>
     <transcript follow ?older=${w.start > 0 || s.hasOlder} @more=${more} @scrolled=${scrolled}>
+      ${hostedNoticeTpl(v)}
       ${s.olderHidden && !w.start && !s.hasOlder ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
       ${repeat(w.start ? s.blocks.slice(w.start) : s.blocks, (b) => b.id, rowTpl)}
       ${r.status === 'waiting_input' && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me), ps.park) : nothing}
@@ -403,7 +405,7 @@ export function modelPickerTpl(v) {
 
 export function composerTpl(v, t) {
   const app = ctx.app;
-  const c = app.rules.composer(v, app.HOME);
+  const c = v ? hostedComposer(app.rules.composer(v, app.HOME), v) : app.rules.composer(v, app.HOME);
   const talk = !v || app.rules.access(v).talk;
   // what was picked here (at home: into the new ask's draft, which Send sends)
   const place = v ? v.run.id : 'home';
@@ -421,6 +423,7 @@ export function composerTpl(v, t) {
       @uploaded=${uploaded(place)}
       @remove=${(e) => app.attach.remove(+e.id)}>
     ${t && t.retry ? html`<button icon="refresh" role="primary" @tap=${guard(() => app.actions.control(v.run.id, 'resume'))}>Retry</button>` : nothing}
+    ${v ? hostedButtonsTpl(v) : nothing}
     ${repeat(queued, (q) => q.id, (q) => html`<button icon="xmark"
       @tap=${guard(() => app.session.removeQueued(q.id))}>${'queued: ' + clip(q.text || '(files)', 40)}</button>`)}
   </composer>`;
