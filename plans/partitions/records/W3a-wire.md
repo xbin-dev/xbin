@@ -139,6 +139,10 @@ yet" list) read correctly; no conflict markers are left.
   goroutine still reads it in `leaveLeaf` (limits.go:38, from runner.go's
   `startDeployment`). A test-only race (the test mutates the runner under
   its goroutines); neither file is a partition change.
+- **A load flake, not this wave's:** the first `make check` failed once on
+  `TestSSHClientLeaves` (builtin-tiles/sandbox-terminal: "timed out
+  waiting: the command is ended", a 10 s wait); it passed four runs alone
+  and the second `make check`. No wave-3a pack touches that tile.
 
 ## Smokes on the merged tree
 
@@ -166,7 +170,8 @@ unchanged.
   zero-state goldens (`TestNoPartitionGolden`, `TestZeroStateRoute`),
   `-race` on broker, server, boot, runner, users, obs, backup, deployments
   and `cmd/bx` (green; the runner's one flake above, green on re-run), the
-  smokes above, and `make check` at the end.
+  smokes above, and `make check` at the end (green; its first run hit the
+  sandbox-terminal flake above).
 - New: internal/broker/partitionw3a_test.go — `TestPartitionsListMailCounts`,
   `TestPartitionDropsEraseThroughHistory`,
   `TestPartitionOffloadRefusedByOffload` (the first two fail on the merged
