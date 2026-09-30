@@ -778,6 +778,21 @@ func TestPartitionsSmoke(t *testing.T) {
 		psExpect(t, "old dave's instance token once dave is made again", d.Call(t, "GET", kv, nil, oldTok), nil, psWant{401, "", false})
 	})
 
+	t.Run("reset", func(t *testing.T) {
+		// 06 §6 (F7b): a person's reset deletes their partition's data —
+		// only theirs — after the typed confirmation; it starts empty again
+		kv := "/api/" + psTile + "/kv/kv/secret"
+		e.put(t, kv, "erin-secret", e.fr(t, psTile, "erin"))
+		body := map[string]string{"tile": psTile, "partition": "user:erin"}
+		psExpect(t, "erin's reset without the confirmation", d.Call(t, "POST", "/api/xbin/partitions/reset", body, e.as("erin")...),
+			nil, psWant{409, psTile + " user:erin", false})
+		psExpect(t, "bob resets erin's", d.Call(t, "POST", "/api/xbin/partitions/reset",
+			map[string]string{"tile": psTile, "partition": "user:erin", "confirm": psTile + " user:erin"}, e.as("bob")...), nil, psWant{403, "an admin's act", false})
+		d.Must(t, "POST", "/api/xbin/partitions/reset", map[string]string{"tile": psTile, "partition": "user:erin", "confirm": psTile + " user:erin"}, 200, e.as("erin")...)
+		psExpect(t, "erin after her reset", d.Call(t, "GET", kv, nil, e.fr(t, psTile, "erin")), []string{"erin-"}, psWant{404, `"not found"`, false})
+		psExpect(t, "bob after erin's reset", d.Call(t, "GET", kv, nil, e.fr(t, psTile, "bob")), psForbid("bob", true), psOK("bob-secret"))
+	})
+
 	t.Run("mode-keep", func(t *testing.T) {
 		// 01 §2.4: a manifest change on a tile that holds data is a request;
 		// nothing runs while it's pending; keep runs the recorded mode again

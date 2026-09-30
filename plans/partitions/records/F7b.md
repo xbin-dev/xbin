@@ -230,6 +230,15 @@ Declared here for later packs (nothing fails open without them):
 - cmd/bx: `TestBxPartitionOps`; `TestBxPartition`'s unknown-subcommand row
   no longer uses `stop`.
 - S1 smoke (isolated xbind, env from .dev.mk, Bash sandbox off):
-  `TestPartitionsSmoke` 18/18 (the `logs` case rewritten for F7b's
-  answers; a new `ops` case) and `TestPartitionsSmokeW2` 5/5 (the terminal
-  case adds tile-status and `bx logs` in alice's terminal).
+  `TestPartitionsSmoke` 19/19 (the `logs` case rewritten for F7b's
+  answers — each person their own log, global's by the root token or
+  `?xbin-partition=global`, a share for an admin only while it lasts,
+  tile-status of alice's frame; new `ops` — the listing's audiences, a
+  person's stop — and `reset` — erin's reset deletes her data only, after
+  the typed confirmation — cases) and `TestPartitionsSmokeW2` 5/5 (the
+  terminal case adds tile-status and `bx logs` in alice's terminal); 36 s
+  and 72 s.
+- `go test ./...`, `make fmt-check vet`, the repo guards (`.`, assetscan,
+  sizebudget, docscheck, builtins, apicheck), `-race` on broker, boot,
+  server, obs, users, cmd/bx, runner, auth, confine: green. No JS changed
+  (`make js-check` runs in the pre-commit hook: green).
