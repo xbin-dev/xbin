@@ -73,6 +73,9 @@ func (s *hsess) onPermission(ev acp.Event) {
 		} else if c != nil {
 			park.Plan = c.meta.Text
 		}
+		if park.Plan != "" {
+			tool.Content = nil // the call's content is the plan: said once, as `plan`
+		}
 	}
 	s.parkOrQueue(ev, "approval", park, c)
 }

@@ -107,6 +107,26 @@ func TestHarnessRejectFeedback(t *testing.T) {
 	}
 }
 
+// A plan approval (claude's ExitPlanMode, a switch_mode call) parks with
+// planApproval and the plan said once (not again as the call's content),
+// and no rule; "keep planning" is a rejection with feedback.
+func TestHarnessPlanApproval(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false)
+	run := askHarness(t, mux, box, "plan")
+	p := parkOf(t, ag, run.ID, "approval")
+	h := p.Harness
+	if !h.PlanApproval || !strings.HasPrefix(h.Plan, "# Fake plan") || h.Rule != nil || h.Tool == nil || len(h.Tool.Content) != 0 || len(h.Options) != 4 {
+		t.Fatalf("the plan park: %+v %+v", h, h.Tool)
+	}
+	w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", run.ID), map[string]any{"approve": false, "park": p.Park, "feedback": "keep it smaller"})
+	if w.Code != 200 {
+		t.Fatalf("keep planning: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the feedback's turn", func() bool {
+		return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "echo: keep it smaller")
+	})
+}
+
 // An option that raises the session to an explicit mode is the owner's:
 // a participant gets 403, and approve:true never picks one (400 when every
 // allow is explicit); the owner may.
