@@ -161,11 +161,12 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 	case len(h.prompt) > 0 && parked:
 		// a person's reply answers the park first; the parent agent's waits
 		// for them — the parent model never answers a child's permission
-		// (D-harness §4.4)
+		// (D-harness §4.4) — and the pass goes on below: a successor still
+		// takes a predecessor's adapter over
 		if p := h.replyPrompt(); p != nil {
 			e.harnessReplyToPark(ctx, run, p)
+			return
 		}
-		return
 	case len(h.prompt) > 0 && turn && s != nil:
 		// a turn being interrupted isn't steered: the message sent with the
 		// interrupt (and any other) is the next prompt, at its end (§3.5)

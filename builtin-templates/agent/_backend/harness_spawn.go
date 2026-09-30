@@ -149,6 +149,11 @@ func (e *Engine) harnessSpawnOf(ctx context.Context, ts *turnState, args map[str
 	if u.Box.effectiveEgress() == "none" {
 		return nil, fmt.Errorf("%s must reach its provider — %s's egress is none", prov.Name, name)
 	}
+	if u.Hello.advertises() && !hasStr(u.Hello.imageHarnesses(u.Box.Image.ID), id) {
+		// a binding without harnesses offers the catalog's; a manager that
+		// does advertise says what this image has (as POST /ask checks)
+		return nil, fmt.Errorf("%s's image doesn't have %s", name, prov.Name)
+	}
 	if max := u.Hello.Limits.ExecsRunning; max > 0 {
 		execs, err := u.Conn.ExecList(ctx, u.ID)
 		if err != nil {

@@ -481,3 +481,54 @@ func TestHarnessSpawnOffered(t *testing.T) {
 		t.Fatalf("the spawn's description: %s", buf.String())
 	}
 }
+
+// A handoff while a coding agent the agent started waits for a person,
+// with its parent's message queued behind the park: the successor still
+// takes the adapter over (the parent's message answers nothing, but the
+// pass goes on to attach), and the person's approval then lets the turn
+// end and the parent's message follow.
+func TestHarnessSpawnParkHandoff(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false)
+	run := askHarness(t, mux, box, "perm")
+	p := parkOf(t, ag, run.ID, "approval")
+	if _, _, err := ag.queue(run.ID, inboxHPrompt, inboxBody{Text: "after that", Source: "parent", From: run.ID}, ""); err != nil {
+		t.Fatal(err)
+	}
+	ag.eng.BeginShutdown()
+	b := successor(t, ag)
+	hwait(t, "the attach", func() bool { return b.harnessOf(run.ID) != nil })
+	if r, _ := ag.db.getRun(run.ID); r.Status != statusWaiting || parsePending(r.Pending).Park != p.Park {
+		t.Fatalf("the parent's message answered the park: %s %s", r.Status, r.Pending)
+	}
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", run.ID), map[string]any{"approve": true, "park": p.Park}); w.Code != 200 {
+		t.Fatalf("approve: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the parent's message after", func() bool {
+		return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "listed") && strings.Contains(fullText(ag.db, run.ID), "echo: after that")
+	})
+}
+
+// A binding stored without harnesses (before the field) is offered the
+// catalog's, and the spawn asks the manager: one that advertises says what
+// the sandbox's image has (here only fake).
+func TestHarnessSpawnOldBinding(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false)
+	fakeOf(ag).on(turnOnly(lastIs("user", "old")), say("ok")).once()
+	parent := codingParent(t, mux, box, "old")
+	hwait(t, "the parent's turn", func() bool { return statusOf(ag.db, parent.ID) == statusIdle })
+	ts := &turnState{run: parent, root: parent.ID}
+	ts.cfg, _ = ag.db.runConfig(parent.ID)
+	old := *ts.cfg.Sandbox
+	old.Harnesses = nil
+	ts.cfg.Sandbox = &old
+	for i := range ts.cfg.Attached {
+		ts.cfg.Attached[i].Harnesses = nil
+	}
+	if ids := spawnHarnessIDs(ts.cfg); fmt.Sprint(ids) != "[claude codex gemini opencode]" {
+		t.Fatalf("offered: %v", ids)
+	}
+	if _, err := ag.eng.harnessSpawnOf(t.Context(), ts, map[string]any{"harness": "claude"}, nil); err == nil ||
+		err.Error() != box.Name+"'s image doesn't have Claude Code" {
+		t.Fatalf("claude: %v", err)
+	}
+}
