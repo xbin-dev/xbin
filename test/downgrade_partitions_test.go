@@ -4,6 +4,7 @@ package test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,11 +23,18 @@ import (
 // tile at today's keys, so apps/dg-part serves global's data to everyone
 // and nobody's partition data; alice's job never fires as the tile's; and
 // apps/dg-req runs no backend at all (fail closed). It rewrites the users
-// store (a user's change), dropping the uids it doesn't know. The new
-// xbind again: the uids are re-adopted from the partitions' records, so
-// alice's and bob's partitions — ids and data — are theirs as before, and
-// apps/dg-req runs. (A sealed archive refused and a plaintext one restored
-// by the previous release: sealed_backup_test.go.)
+// store (a user's change), dropping the uids it doesn't know — asserted,
+// it is the premise of what follows — and it deletes bob and makes a new
+// bob under the same id (10 §A.3's dangerous branch, C2, S17). The new
+// xbind again: alice's uid is re-adopted from her partitions' records, so
+// her partition — id and data — is hers as before; the new bob, made after
+// the old bob's records, adopts nothing: fresh partitions, never the old
+// bob's data; and apps/dg-req runs. (A sealed archive refused and a
+// plaintext one restored by the previous release: sealed_backup_test.go.)
+//
+// It needs the previous release's binary (.dev.mk's XBIN_DOWNGRADE_BIN)
+// and an isolated xbind (a rootfs): a dev box's test, SKIPped in CI
+// (downgradeBinOrSkip, isolationOrSkip).
 
 const (
 	dgPart = "apps/dg-part"
@@ -127,22 +135,36 @@ func TestDowngradePartitions(t *testing.T) {
 	if c != 200 || strings.Contains(b, "/alice-tick") {
 		t.Errorf("under the previous release alice's partition's job fired as the tile's: %d %s", c, b)
 	}
-	// a user's change: the previous release rewrites the users store
-	if c, b := e.a.do("PATCH", "/api/xbin/users/bob", `{"name":"Bob B"}`); c != 200 {
-		t.Fatalf("the previous release changes bob: %d %s", c, b)
+	// a user's change: the previous release rewrites the users store and
+	// drops the uids it doesn't know — the premise of the re-adoption below
+	if c, b := e.a.do("PATCH", "/api/xbin/users/alice", `{"name":"Alice A"}`); c != 200 {
+		t.Fatalf("the previous release changes alice: %d %s", c, b)
 	}
 	rewritten := dgUIDs(t, d.WS)
 	t.Logf("the users store's uids under the previous release: %v", rewritten)
+	if rewritten["alice"] != "" || rewritten["bob"] != "" {
+		t.Fatalf("the previous release kept the uids %v: it isn't a release before partitions' users store, so nothing is re-adopted", rewritten)
+	}
+	// bob deleted and made again under the same id — a new person, whose
+	// record is younger than every record of the old bob's partitions
+	if c, b := e.a.do("DELETE", "/api/xbin/users/bob", ""); c != 200 {
+		t.Fatalf("the previous release deletes bob: %d %s", c, b)
+	}
+	time.Sleep(1100 * time.Millisecond) // a record's second: the new bob is made after it
+	if c, b := e.a.do("POST", "/api/xbin/users", `{"id":"bob","role":"user","tiles":{"apps/*":"read"},"password":"pw-bob-4d1"}`); c != 200 {
+		t.Fatalf("the previous release makes a new bob: %d %s", c, b)
+	}
+	if now := dgUIDs(t, d.WS); now["bob"] != "" {
+		t.Fatalf("the previous release's new bob has a uid: %v", now)
+	}
 
 	// the new binary again
 	d.stop(t)
 	d.Bin = xbindBin
 	d.start(t)
 	login()
-	if rewritten["alice"] == "" {
-		t.Log("the previous release dropped the uids: the new one re-adopts them from the partitions' records")
-	}
-	for _, p := range []string{"alice", "bob"} {
+	caller := func(p string) (string, string) {
+		t.Helper()
 		fr := e.frame(t, dgPart, p)
 		var who struct{ Partition, PartitionID string }
 		var c int
@@ -151,15 +173,25 @@ func TestDowngradePartitions(t *testing.T) {
 			c, b, _ = e.call(t, "GET", "/api/"+dgPart+"/caller", "", fr...)
 			return c == 200
 		}, 3*time.Minute)
-		if c != 200 || json.Unmarshal([]byte(b), &who) != nil || who.Partition != "user:"+p || who.PartitionID != ids[p] {
-			t.Errorf("%s's partition after the upgrade: %d %s, want id %s (re-adopted)", p, c, b, ids[p])
+		if c != 200 || json.Unmarshal([]byte(b), &who) != nil || who.Partition != "user:"+p || who.PartitionID == "" {
+			t.Fatalf("%s's partition after the upgrade: %d %s", p, c, b)
 		}
-		if c, b, _ := e.call(t, "GET", "/api/"+dgPart+"/kv/k", "", fr...); c != 200 || b != p+"-dg" {
-			t.Errorf("%s's data after the upgrade: %d %q", p, c, b)
-		}
+		c, b, _ = e.call(t, "GET", "/api/"+dgPart+"/kv/k", "", fr...)
+		return who.PartitionID, fmt.Sprint(c, " ", b)
 	}
-	if now := dgUIDs(t, d.WS); now["alice"] != uids["alice"] || now["bob"] != uids["bob"] {
-		t.Errorf("the uids after the upgrade %v, before the downgrade %v", now, uids)
+	// alice: re-adopted — her partition id and her data
+	if id, kv := caller("alice"); id != ids["alice"] || kv != "200 alice-dg" {
+		t.Errorf("alice's partition after the upgrade: id %s, kv %q; want id %s (re-adopted) and her data", id, kv, ids["alice"])
+	}
+	// the new bob: fresh partitions, never the old bob's id or data
+	id, kv := caller("bob")
+	t.Logf("the new bob after the upgrade: partition %s (the old bob's %s), kv %q", id, ids["bob"], kv)
+	if id == ids["bob"] || strings.Contains(kv, "bob-dg") || !strings.HasPrefix(kv, "404 ") {
+		t.Errorf("BUG: the new bob's partition after the upgrade: id %s (the old bob's %s), kv %q; want a new id and no data", id, ids["bob"], kv)
+	}
+	now := dgUIDs(t, d.WS)
+	if now["alice"] != uids["alice"] || now["bob"] == "" || now["bob"] == uids["bob"] {
+		t.Errorf("the uids after the upgrade %v, before the downgrade %v (want alice's re-adopted, a new one for the new bob)", now, uids)
 	}
 	waitProbeA(t, e.a, dgReq, "req-v1")
 }
