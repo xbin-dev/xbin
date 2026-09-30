@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +53,7 @@ func TestGlobalAddressWiring(t *testing.T) {
 	for _, u := range []users.User{
 		{ID: "alice", Role: users.RoleUser, Tiles: map[string]string{"apps/pa": users.LevelRead, "apps/pn": users.LevelRead}},
 		{ID: "wendy", Role: users.RoleUser, Tiles: map[string]string{"apps/pa": users.LevelWrite}},
+		{ID: "bob", Role: users.RoleAdmin},
 	} {
 		if _, err := d.st.Users.Upsert(u, "password1"); err != nil {
 			t.Fatal(err)
@@ -143,11 +146,65 @@ func TestGlobalAddressWiring(t *testing.T) {
 	if code, _, raw := do("GET", "/api/apps/pa/hello?xbin-partition=user:wendy", frame("apps/pa", "alice"), ""); code != 400 {
 		t.Errorf("another value: %d %s", code, raw)
 	}
-	// a cron delivery of alice's partition, through the dispatch cron uses
+	// a cron delivery of alice's partition, through the dispatch cron uses,
+	// and a bus delivery of hers, through the bus's
 	dispatch := broker.DispatchViaProxy(d.st.Proxy)
 	cron := auth.Principal{Component: broker.CronPrincipal, Via: "cron", Role: "writer", Partition: util.UserPartition("alice")}
 	if code, raw := dispatch(cron, "apps/pa", "/tick?xbin-partition=global"); code != 403 || !strings.Contains(raw, "a cron delivery acts in the partition it was registered for") {
 		t.Errorf("alice's cron delivery: %d %s", code, raw)
+	}
+	deliver := broker.DispatchBodyViaProxy(d.st.Proxy)
+	bus := auth.Principal{Component: broker.BusPrincipal, Via: "bus", Role: "reader", Partition: util.UserPartition("alice")}
+	if code, raw := deliver(t.Context(), bus, "apps/pa", "/on-event?xbin-partition=global", []byte(`{"topic":"t"}`)); code != 403 ||
+		!strings.Contains(raw, "a bus delivery acts in the partition it was registered for") {
+		t.Errorf("alice's bus delivery: %d %s", code, raw)
+	}
+	// a person in person: only an admin passes Route's rules on /api/<tile>/
+	// (their frame is a reader's way in), with or without the parameter
+	cookie := func(id string) map[string]string {
+		return map[string]string{"Cookie": auth.CookieName + "=" + d.st.Auth.NewSession(id, "127.0.0.1")}
+	}
+	if code, _, raw := do("GET", "/api/apps/pa/hello?xbin-partition=global", cookie("alice"), ""); code != 403 ||
+		!strings.Contains(raw, "user:alice is not granted access to apps/pa") {
+		t.Errorf("alice in person: %d %s", code, raw)
+	}
+	if code, a, raw := do("GET", "/api/apps/pa/hello?xbin-partition=global", cookie("bob"), ""); code != 200 || a.URL != "/hello" ||
+		a.Xbin["x-xbin-user"] != "bob" || a.Xbin["x-xbin-role"] != "admin" || a.Xbin["x-xbin-partition"] != "user:bob" || a.Xbin["x-xbin-from"] != "user:bob" {
+		t.Errorf("bob (an admin) in person: %d %s", code, raw)
+	}
+	// an admin viewing as wendy (write): her frame reaches global as her,
+	// read-only — reader whatever her level, X-XBin-Viewed-By, writes refused
+	bobSession := d.st.Auth.NewSession("bob", "127.0.0.1")
+	br := httptest.NewRequest("GET", "/", nil)
+	br.AddCookie(&http.Cookie{Name: auth.CookieName, Value: bobSession})
+	admin, ok := d.st.Auth.FromRequest(br)
+	if !ok {
+		t.Fatal("bob's session")
+	}
+	vt, err := d.st.Auth.NewImpersonationTicket(admin, "wendy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := d.st.Auth.RedeemImpersonation(vt, admin, bobSession, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _, raw = do("GET", "/api/xbin/frame-token?component=apps/pa", map[string]string{"Cookie": auth.CookieName + "=" + view}, "")
+	var ft struct{ Token string }
+	if err := json.Unmarshal([]byte(raw), &ft); code != 200 || err != nil || ft.Token == "" {
+		t.Fatalf("wendy's frame token, viewed by bob: %d %s", code, raw)
+	}
+	viewFrame := map[string]string{auth.FrameTokenHeader: ft.Token}
+	if code, a, raw := do("GET", "/api/apps/pa/hello?xbin-partition=global", viewFrame, ""); code != 200 || a.URL != "/hello" ||
+		a.Xbin["x-xbin-user"] != "wendy" || a.Xbin["x-xbin-user-level"] != "write" || a.Xbin["x-xbin-role"] != "reader" ||
+		a.Xbin["x-xbin-viewed-by"] != "bob" || a.Xbin["x-xbin-partition"] != "user:wendy" {
+		t.Errorf("wendy's frame viewed by bob: %d %s", code, raw)
+	}
+	if code, _, raw := do("POST", "/api/apps/pa/runs?xbin-partition=global", viewFrame, `{}`); code != 403 || !strings.Contains(raw, "read-only") {
+		t.Errorf("a write from wendy's frame viewed by bob: %d %s", code, raw)
+	}
+	if code, _, raw := do("GET", "/api/apps/pa/hello", viewFrame, ""); code != 403 || !strings.Contains(raw, "view-as can't open it") {
+		t.Errorf("wendy's frame viewed by bob, her partition: %d %s", code, raw)
 	}
 	// a path ticket: its own partition only
 	tk := frame("apps/pa", "alice")
@@ -162,5 +219,54 @@ func TestGlobalAddressWiring(t *testing.T) {
 	}
 	if code, _, raw := do("GET", ticket.URL+"x", nil, ""); code != 503 {
 		t.Errorf("a path ticket without it (alice's partition, no --isolate): %d %s", code, raw)
+	}
+}
+
+// covers PD-16 — the seam guard for global-address/1 (06 §6): once GET
+// /api/xbin/partitions is served (F7b), its features must list
+// broker.GlobalAddressFeature, the word by which a client learns that this
+// xbind consumes ?xbin-partition=global. Until that route exists (404) the
+// guard only logs; a merge that mounts it without the word fails here.
+func TestGlobalAddressFeatureServed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace")
+	}
+	ws := zsWorkspace(t)
+	for rel, body := range map[string]string{
+		"apps/pa/xbin.json":         `{"runtime":"node","partition":["user","global"]}`,
+		"apps/pa/backend/server.js": zsNodeServer,
+	} {
+		p := filepath.Join(ws, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := zsBoot(t, ws)
+	req, err := http.NewRequest("GET", d.url+"/api/xbin/partitions?tile=apps/pa", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+d.owner)
+	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		t.Logf("GET /api/xbin/partitions isn't served yet (F7b): %s", raw)
+		return
+	}
+	var body struct {
+		Features []string `json:"features"`
+	}
+	if err := json.Unmarshal(raw, &body); resp.StatusCode != http.StatusOK || err != nil {
+		t.Fatalf("GET /api/xbin/partitions: %d %s", resp.StatusCode, raw)
+	}
+	if !slices.Contains(body.Features, broker.GlobalAddressFeature) {
+		t.Errorf("GET /api/xbin/partitions lists features %q without %q: F5 is served (TestGlobalAddressWiring), so list it", body.Features, broker.GlobalAddressFeature)
 	}
 }
