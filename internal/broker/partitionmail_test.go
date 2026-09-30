@@ -19,6 +19,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -158,7 +159,8 @@ func TestMailRules(t *testing.T) {
 		"global's frame":           {Component: "apps/pg", Via: "frame"},
 		"a root terminal":          {Component: "apps/pg", Via: "terminal"},
 		"view-as alice":            {Component: "apps/pg", UserID: "alice", Via: "frame", Impersonator: "bob"},
-		"another tile":             instanceOf("apps/x", ""),
+		"another tile's backend":   instanceOf("apps/q", ""),
+		"another tile's frame":     mailFrame("apps/x", "alice"),
 		"the dev deployment":       {Component: "apps/pg", Via: "instance", Deployment: "dev"},
 		"a cron delivery":          {Component: CronPrincipal, Via: "cron", Partition: util.PartitionGlobal},
 		"a bus delivery":           {Component: BusPrincipal, Via: "bus", Partition: util.UserPartition("alice")},
@@ -210,11 +212,12 @@ func TestMailInboxPrivacy(t *testing.T) {
 		t.Errorf("global reads: %d %s", code, body)
 	}
 	for name, p := range map[string]auth.Principal{
-		"admin bob":      personP(t, w, "bob"),
-		"the root token": {Owner: true},
-		"global's frame": {Component: "apps/pg", Via: "frame"},
-		"view-as alice":  {Component: "apps/pg", UserID: "alice", Via: "frame", Impersonator: "bob"},
-		"another tile":   instanceOf("apps/x", ""),
+		"admin bob":             personP(t, w, "bob"),
+		"the root token":        {Owner: true},
+		"global's frame":        {Component: "apps/pg", Via: "frame"},
+		"view-as alice":         {Component: "apps/pg", UserID: "alice", Via: "frame", Impersonator: "bob"},
+		"another tile":          instanceOf("apps/q", ""),
+		"an unpartitioned tile": instanceOf("apps/x", ""),
 	} {
 		if code, _, body := mailRead(t, b, p, ""); code != 403 {
 			t.Errorf("%s reads mail: %d %s", name, code, body)
@@ -359,7 +362,17 @@ func TestMailSwitchRemovesStore(t *testing.T) {
 	if got := mailTopics(t, b, global); len(got) != 0 {
 		t.Errorf("global's inbox after removing global: %q", got)
 	}
-	// a dry run counts; the switch's own flow removes the store
+	// a dry run counts; the switch's own flow removes the store. A person
+	// is told only when their partition exists: bob, mailed by global but
+	// never on the tile, had none to lose
+	mailSendOK(t, b, global, "user:bob", "dm", 3)
+	sum = wipeSummary{}
+	if err := wipePartitionMail(b, wipeTarget{Tile: "apps/pg", Kind: wipeEverything, DryRun: true}, &sum); err != nil || sum.Bytes == 0 ||
+		len(sum.People) != 0 {
+		t.Errorf("dry run, no partition recorded: %+v %v", sum, err)
+	}
+	u, _ := b.Users.Get("alice")
+	b.notePartitionStart("apps/pg", "main", "user:alice", w.pkeyOf("alice"), u.UID)
 	sum = wipeSummary{}
 	if err := wipePartitionMail(b, wipeTarget{Tile: "apps/pg", Kind: wipeEverything, DryRun: true}, &sum); err != nil || sum.Bytes == 0 ||
 		fmt.Sprint(sum.People) != "[alice]" {
@@ -422,6 +435,9 @@ func TestMailDrops(t *testing.T) {
 	}
 	// deletion: bob's inbox goes at once; a new bob reads nothing of it
 	u, _ := b.Users.Get("bob")
+	if _, err := b.Users.Delete("bob"); err != nil {
+		t.Fatal(err)
+	}
 	b.PartitionUserDeleted("bob", u.UID)
 	counts, _ := b.PartitionMailCounts("apps/pg", "")
 	if _, ok := counts[util.PartitionKey("bob", u.UID)]; ok {
@@ -429,6 +445,19 @@ func TestMailDrops(t *testing.T) {
 	}
 	if len(counts) != 1 {
 		t.Errorf("counts after the deletions: %+v (global's only)", counts)
+	}
+	if _, err := b.Users.Upsert(users.User{ID: "bob", Role: users.RoleAdmin}, "password1"); err != nil {
+		t.Fatal(err)
+	}
+	if uid, err := b.mintPartitionUID("bob"); err != nil || uid == u.UID {
+		t.Fatalf("the new bob's uid %q (%v), the old one's %q", uid, err, u.UID)
+	}
+	if got := mailTopics(t, b, partInst("apps/pg", "bob")); len(got) != 0 {
+		t.Errorf("BUG: a new bob reads the old one's mail: %q", got)
+	}
+	mailSendOK(t, b, global, "user:bob", "hello-again", 1)
+	if got := mailTopics(t, b, partInst("apps/pg", "bob")); fmt.Sprint(got) != "[global hello-again]" {
+		t.Errorf("the new bob's inbox: %q", got)
 	}
 
 	// leftovers: a removed tile's store, until a tile is created there
@@ -570,7 +599,7 @@ func TestMailDoorbell(t *testing.T) {
 	for len(calls) > 0 {
 		<-calls
 	}
-	b.ringMail(mailBellKey{"apps/pg", "main", pk}, true)
+	b.ringMail(mailBellKey{"apps/pg", "main", pk}, ringNew, time.Time{})
 	noBell(t, calls, "for a disabled person")
 
 	// a doorbell is a mail delivery to Route: a background start of class mail

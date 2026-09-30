@@ -49,11 +49,33 @@ type mailBellKey struct{ tile, dep, bucket string }
 
 // mailBell is one inbox's doorbell state.
 type mailBell struct {
-	timer   *time.Timer // the next re-ring
-	attempt int         // rings since the last new item or start
-	ringing bool        // a ring is in flight
-	again   bool        // a new item or a start came during it: ring once more
+	timer      *time.Timer // the next re-ring
+	attempt    int         // the next re-ring's step in the backoff; a new item starts it over
+	ringing    bool        // a ring is in flight
+	againNew   bool        // a new item came during it: ring once more, the backoff started over
+	againStart time.Time   // the addressee started during it: ring once more, unless a ring reached it
+	rang       time.Time   // when the last ring that reached the delivery path ended
 }
+
+// ringWhy is why an inbox rings now.
+type ringWhy int
+
+const (
+	// ringNew: a new item — at once, and its backoff starts over (a sender
+	// resetting it for a person's stopped partition meets the runner's mail
+	// start rate).
+	ringNew ringWhy = iota
+	// ringStart: the addressee started — at once, the backoff kept, unless
+	// a ring was in flight at the start or came after it: often the
+	// doorbell's own ring started the partition, and it was delivered to
+	// the new instance. Were such a start to ring again (or to reset the
+	// backoff), an item left unacked would cold-start its partition over
+	// and over for its whole ttl (S20); a handler that crashes on an item
+	// would loop.
+	ringStart
+	// ringTimer: the backoff's next step.
+	ringTimer
+)
 
 // mailDispatch is the delivery path: the bus's (the proxy, installed at boot
 // by SetBusDispatch), or a test's.
@@ -78,9 +100,9 @@ func mailPrincipal(dep string, part util.Partition) auth.Principal {
 	return auth.Principal{Component: partitionMailPrincipal, Via: "mail", Role: "writer", Deployment: dep, Partition: part}
 }
 
-// ringMail rings inbox k now; reset (a new item, a start) restarts its
-// backoff. A ring in flight takes a reset as one more ring after it.
-func (b *Broker) ringMail(k mailBellKey, reset bool) {
+// ringMail rings inbox k now, for why (at: a start's time, for ringStart).
+// A ring in flight takes a new item or a start as one more ring after it.
+func (b *Broker) ringMail(k mailBellKey, why ringWhy, at time.Time) {
 	ms := b.mail()
 	ms.bellMu.Lock()
 	if ms.closed {
@@ -92,11 +114,22 @@ func (b *Broker) ringMail(k mailBellKey, reset bool) {
 		bl = &mailBell{}
 		ms.bells[k] = bl
 	}
-	if reset {
+	switch {
+	case why == ringNew:
 		bl.attempt = 0
+	case why == ringStart && !bl.rang.Before(at): // a ring reached the start: it has had its ring
+		ms.bellMu.Unlock()
+		return
 	}
 	if bl.ringing {
-		bl.again = bl.again || reset
+		switch why {
+		case ringNew:
+			bl.againNew = true
+		case ringStart:
+			if at.After(bl.againStart) {
+				bl.againStart = at
+			}
+		}
 		ms.bellMu.Unlock()
 		return
 	}
@@ -111,7 +144,7 @@ func (b *Broker) ringMail(k mailBellKey, reset bool) {
 
 // rungMail rings once, then schedules what follows.
 func (b *Broker) rungMail(k mailBellKey, bl *mailBell) {
-	pending := b.ringOnce(k)
+	pending, dispatched := b.ringOnce(k)
 	ms := b.mail()
 	ms.bellMu.Lock()
 	if ms.bells[k] != bl { // forgotten meanwhile (acked, dropped, wiped)
@@ -119,11 +152,22 @@ func (b *Broker) rungMail(k mailBellKey, bl *mailBell) {
 		return
 	}
 	bl.ringing = false
+	if dispatched {
+		bl.rang = time.Now()
+	}
+	// a new item during the ring (after its last count, maybe), or a start
+	// this ring didn't reach (it was held, say): ring again
+	againNew, startAt := bl.againNew, bl.againStart
+	again := againNew || !startAt.IsZero() && bl.rang.Before(startAt)
+	bl.againNew, bl.againStart = false, time.Time{}
 	switch {
-	case bl.again: // a new item or a start during the ring (after its last count, maybe): ring again, counting anew
-		bl.again = false
+	case again:
+		why := ringStart
+		if againNew {
+			why = ringNew
+		}
 		ms.bellMu.Unlock()
-		b.ringMail(k, true)
+		b.ringMail(k, why, startAt)
 		return
 	case pending == 0:
 		delete(ms.bells, k)
@@ -131,7 +175,7 @@ func (b *Broker) rungMail(k mailBellKey, bl *mailBell) {
 		backoff := knobs().backoff
 		d := backoff[min(bl.attempt, len(backoff)-1)]
 		bl.attempt++
-		bl.timer = time.AfterFunc(d, func() { b.ringMail(k, false) })
+		bl.timer = time.AfterFunc(d, func() { b.ringMail(k, ringTimer, time.Time{}) })
 	}
 	ms.bellMu.Unlock()
 }
@@ -165,20 +209,21 @@ func (b *Broker) forgetBellsOf(tile string) {
 }
 
 // ringOnce rings inbox k if it may ring now, answering how many items it
-// holds after (0: nothing left to ring for).
-func (b *Broker) ringOnce(k mailBellKey) int {
+// holds after (0: nothing left to ring for), and whether the ring went to
+// the delivery path.
+func (b *Broker) ringOnce(k mailBellKey) (pending int, dispatched bool) {
 	n, meta, err := b.mailPending(k.tile, k.dep, k.bucket)
 	if err != nil {
 		slog.Warn("partition mail: an inbox can't be read for its doorbell", "tile", k.tile, "err", err)
-		return 1 // try again later
+		return 1, false // try again later
 	}
 	if n == 0 {
-		return 0
+		return 0, false
 	}
 	path, part, why := b.mailBellHeld(k, meta)
 	dispatch := b.mailDispatch()
 	if why != "" || dispatch == nil {
-		return n // the items wait: a later ring, a start or a new item
+		return n, false // the items wait: a later ring, a start or a new item
 	}
 	body, _ := json.Marshal(map[string]any{"partition": part, "pending": n})
 	ctx, cancel := context.WithTimeout(context.Background(), knobs().ringTimeout)
@@ -188,9 +233,9 @@ func (b *Broker) ringOnce(k mailBellKey) int {
 		slog.Info("partition mail: a doorbell wasn't answered", "tile", k.tile, "partition", part, "status", code)
 	}
 	if n, _, err = b.mailPending(k.tile, k.dep, k.bucket); err != nil {
-		return 1
+		return 1, true
 	}
-	return n
+	return n, true
 }
 
 // mailBellHeld is where inbox k's doorbell rings and whose it is, or why it
@@ -231,12 +276,14 @@ func (b *Broker) mailBellHeld(k mailBellKey, meta mailBoxMeta) (path string, par
 
 // mailPartitionStarted is a person's partition starting (the partitions'
 // records see every spawn, notePartitionStart): its doorbell rings if its
-// inbox holds items — the items that waited for it.
+// inbox holds items — the items that waited for it — keeping its backoff,
+// and not at all when a ring reached the start (ringStart: the start may be
+// the doorbell's own).
 func (b *Broker) mailPartitionStarted(tile, dep, pkey string) {
-	k := mailBellKey{tile, cmp0(dep), pkey}
+	k, at := mailBellKey{tile, cmp0(dep), pkey}, time.Now()
 	time.AfterFunc(knobs().startDelay, func() {
 		if n, _, err := b.mailPending(k.tile, k.dep, k.bucket); err == nil && n > 0 {
-			b.ringMail(k, true)
+			b.ringMail(k, ringStart, at)
 		}
 	})
 }
@@ -297,10 +344,8 @@ func (b *Broker) closeMail() {
 // sweepMail drops every store's expired items, rings each inbox that holds
 // items and has no doorbell, and removes the store of a tile no longer
 // registered once it holds nothing (mail is transient: a removed tile's
-// items wait out their ttl, then go).
+// items wait out their ttl, then go). It holds one tile's lock at a time.
 func (b *Broker) sweepMail() {
-	ms := b.mail()
-	ms.mu.Lock()
 	stores, err := b.eachMailStore("")
 	if err != nil {
 		slog.Warn("partition mail: a store this xbind can't read; kept", "err", err)
@@ -308,58 +353,67 @@ func (b *Broker) sweepMail() {
 	now := mailNow()
 	var ring []mailBellKey
 	for _, s := range stores {
-		held := false
-		err := withMailStore(s.path, s.tile, s.dep, false, func(db *bolt.DB) error {
-			return db.Update(func(tx *bolt.Tx) error {
-				var names []string
-				_ = tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
-					if string(name) != string(mailMetaBucket) {
-						names = append(names, string(name))
-					}
-					return nil
-				})
-				for _, name := range names {
-					n, _, err := purgeExpired(tx, name, now)
-					if err != nil {
-						return err
-					}
-					if n > 0 {
-						held = true
-						ring = append(ring, mailBellKey{s.tile, s.dep, name})
-					}
-				}
-				return nil
-			})
-		})
-		if err != nil {
-			slog.Warn("partition mail: sweeping a store", "tile", s.tile, "err", err)
-			continue
-		}
-		if _, registered := b.Reg.Component(s.tile); !held && !registered {
-			if err := os.Remove(s.path); err == nil {
-				removeEmptyDirs(filepath.Dir(s.path))
-				slog.Info("partition mail: a removed tile's empty store removed", "tile", s.tile)
-			}
-		}
+		ring = append(ring, b.sweepMailStore(s, now)...)
 	}
-	ms.mu.Unlock()
+	ms := b.mail()
 	for _, k := range ring {
 		ms.bellMu.Lock()
 		_, has := ms.bells[k]
 		ms.bellMu.Unlock()
 		if !has {
-			b.ringMail(k, true)
+			b.ringMail(k, ringTimer, time.Time{})
 		}
 	}
+}
+
+// sweepMailStore sweeps one store under its tile's lock, answering the
+// inboxes that hold items.
+func (b *Broker) sweepMailStore(s mailStoreOf, now time.Time) (ring []mailBellKey) {
+	unlock := b.mail().lockKey(mailPathKey(s.path))
+	defer unlock()
+	err := withMailStore(s.path, s.tile, s.dep, false, func(db *bolt.DB) error {
+		return mailUpdate(db, func(tx *bolt.Tx) (bool, error) {
+			var names []string
+			_ = tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
+				if string(name) != string(mailMetaBucket) {
+					names = append(names, string(name))
+				}
+				return nil
+			})
+			changed := false
+			for _, name := range names {
+				u, purged, err := purgeExpired(tx, name, now, false)
+				if err != nil {
+					return false, err
+				}
+				changed = changed || purged
+				if u.items > 0 {
+					ring = append(ring, mailBellKey{s.tile, s.dep, name})
+				}
+			}
+			return changed, nil
+		})
+	})
+	switch {
+	case errors.Is(err, errNoMailStore):
+		return nil
+	case err != nil:
+		slog.Warn("partition mail: sweeping a store", "tile", s.tile, "err", err)
+		return nil
+	}
+	if _, registered := b.Reg.Component(s.tile); len(ring) == 0 && !registered {
+		if err := os.Remove(s.path); err == nil {
+			removeEmptyDirs(filepath.Dir(s.path))
+			slog.Info("partition mail: a removed tile's empty store removed", "tile", s.tile)
+		}
+	}
+	return ring
 }
 
 // mailLeftovers are the mail stores tiles no longer registered at or under
 // a path left (pathLeftovers, through partitionLeftovers): a new tile there
 // would read them.
 func (b *Broker) mailLeftovers(gone func(string) bool) []string {
-	ms := b.mail()
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
 	stores, _ := b.eachMailStore("")
 	var out []string
 	for _, s := range stores {
@@ -374,8 +428,6 @@ func (b *Broker) mailLeftovers(gone func(string) bool) []string {
 // under it, when a tile is created there (assignOwner): the new tile never
 // reads a removed one's mail.
 func (b *Broker) mailTileCreated(path string) {
-	ms := b.mail()
-	ms.mu.Lock()
 	stores, _ := b.eachMailStore("")
 	var dropped []string
 	for _, s := range stores {
@@ -383,14 +435,18 @@ func (b *Broker) mailTileCreated(path string) {
 		if s.tile != path && (!strings.HasPrefix(s.tile, path+"/") || registered) {
 			continue
 		}
-		if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		unlock := b.mail().lockKey(mailPathKey(s.path))
+		err := os.Remove(s.path)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			removeEmptyDirs(filepath.Dir(s.path))
+		}
+		unlock()
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			slog.Warn("partition mail: a removed tile's store can't be removed", "tile", s.tile, "err", err)
 			continue
 		}
-		removeEmptyDirs(filepath.Dir(s.path))
 		dropped = append(dropped, s.tile)
 	}
-	ms.mu.Unlock()
 	for _, t := range dropped {
 		b.forgetBellsOf(t)
 	}

@@ -10,26 +10,31 @@ package broker
 // only, PD-17):
 //
 //	data/partitions/<TileKey>/<dep>/mail.db     (bbolt, xbind's own, 0600)
-//	    meta        {store: {schema, tile, dep}, seq, box:<bucket>: {user, uid, expired}}
+//	    meta        {store: {schema, tile, dep}, seq, box:<bucket>: {user, uid, expired, undeliverable}}
 //	    global      the global instance's inbox
 //	    u-<32 hex>  a person's inbox, by their partition id (pkey)
 //
 // An item is keyed by its id (12 bytes: 8 of a per-store monotonic time, 4
-// random; hex on the wire, so ids sort in arrival order) and stored as its
-// expiry (8 bytes, unsealed, so a sweep needs no vault) followed by the
-// item — {from, topic, data, at} — sealed with the vault barrier under a
-// label naming the tile, deployment and inbox, like kv values (encodeKV): a
-// value moved to another inbox fails to open. data/ is never in a sandbox
-// (D118), and mail isn't backed up (transient by design, AR-14).
+// random; hex on the wire, so ids sort in arrival order) and stored as
 //
-// Who sends, reads and acks is partitionmail_api.go's; the doorbell,
-// the boot load and the sweep are partitionmail_bell.go's; the drops (a
-// person's inbox on a reset, purge, orphan sweep or deletion; the whole
-// store on a switch) and "holds data" (01 §2.2) partitionmail_drop.go's.
-// This file keeps the store: put, list, ack and counts.
+//	expiry (8 bytes) | len(sender) (1 byte) | sender | sealed item
+//
+// — the expiry and the sender's inbox name ("global" or their pkey) in
+// the clear, so expiry, counts, the sweep and each sender's share of the
+// global inbox need no vault; the item — {from, topic, data, at} — sealed
+// with the vault barrier under a label naming the tile, deployment and
+// inbox, like kv values (encodeKV): a value moved to another inbox fails to
+// open. data/ is never in a sandbox (D118), and mail isn't backed up
+// (transient by design, AR-14).
+//
+// Who sends, reads and acks is partitionmail_api.go's; put, list, ack and
+// counts partitionmail_inbox.go's; the doorbell, the boot load and the
+// sweep partitionmail_bell.go's; the drops (a person's inbox on a reset,
+// purge, orphan sweep or deletion; the whole store on a switch) and "holds
+// data" (01 §2.2) partitionmail_drop.go's. This file keeps the store's
+// shape: its path, lock, value layout, metadata and ids.
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -50,7 +55,8 @@ import (
 )
 
 // PartitionMailFeature is the feature word of partition mail, for the
-// features list of GET /api/xbin/partitions (06 §6; F7b's route lists it).
+// features list of GET /api/xbin/partitions (06 §6; the integrator
+// registers it with that route's list).
 const PartitionMailFeature = "partition-mail/1"
 
 // The limits of 04 §3 (an inbox's are knobs, below).
@@ -87,6 +93,8 @@ var (
 type mailKnobs struct {
 	inboxItems  int   // items an inbox holds
 	inboxBytes  int64 // stored bytes an inbox holds
+	senderItems int   // items one sender may have waiting in the global inbox (its many senders share it)
+	senderBytes int64 // stored bytes one sender may have waiting there
 	backoff     []time.Duration
 	startDelay  time.Duration // a partition's start rings its doorbell this much later (the ring joins the start)
 	bootDelay   time.Duration // boot's first sweep waits for the rest of boot
@@ -97,6 +105,7 @@ type mailKnobs struct {
 
 var mailDefaults = mailKnobs{
 	inboxItems: 1000, inboxBytes: 64 << 20,
+	senderItems: 100, senderBytes: 8 << 20,
 	// the re-ring delays after each ring; the last repeats
 	backoff:    []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour},
 	startDelay: 2 * time.Second, bootDelay: 5 * time.Second, ringTimeout: 2 * time.Minute, sweepEvery: time.Hour,
@@ -148,20 +157,24 @@ type mailStoreMeta struct {
 }
 
 // mailBoxMeta is one inbox's metadata: whose (a person's: user and uid),
-// and how many items expired unread.
+// how many items expired unread, and how many were dropped undeliverable
+// (their value can't be opened: sealed under another key, or damaged).
 type mailBoxMeta struct {
-	User    string `json:"user,omitempty"`
-	UID     string `json:"uid,omitempty"`
-	Expired int64  `json:"expired,omitempty"`
+	User          string `json:"user,omitempty"`
+	UID           string `json:"uid,omitempty"`
+	Expired       int64  `json:"expired,omitempty"`
+	Undeliverable int64  `json:"undeliverable,omitempty"`
 }
 
 func boxMetaKey(bucket string) []byte { return []byte("box:" + bucket) }
 
-// mailState is a broker's mail: one lock for every store's open, read,
-// write and removal (each operation opens its store and closes it, so a
-// switch's wipe or a reset never meets an open file), and the doorbells.
+// mailState is a broker's mail: a lock per tile for every open, read,
+// write and removal of its stores (each operation opens its store and
+// closes it, so a switch's wipe or a reset never meets an open file, and
+// one tile's mail never waits on another's), and the doorbells.
 type mailState struct {
-	mu       sync.Mutex
+	locksMu  sync.Mutex
+	locks    map[string]*sync.Mutex // by TileKey: all of a tile's deployments' stores
 	bellMu   sync.Mutex
 	bells    map[mailBellKey]*mailBell
 	dispatch BusDispatch // tests; nil: the bus's delivery path (the proxy)
@@ -176,9 +189,29 @@ func (b *Broker) mail() *mailState {
 	if v, ok := mailStates.Load(b); ok {
 		return v.(*mailState)
 	}
-	v, _ := mailStates.LoadOrStore(b, &mailState{bells: map[mailBellKey]*mailBell{}})
+	v, _ := mailStates.LoadOrStore(b, &mailState{locks: map[string]*sync.Mutex{}, bells: map[mailBellKey]*mailBell{}})
 	return v.(*mailState)
 }
+
+// lockKey takes the lock of the tile whose TileKey is key — every store of
+// the tile, each deployment's — and answers its unlock.
+func (ms *mailState) lockKey(key string) func() {
+	ms.locksMu.Lock()
+	m := ms.locks[key]
+	if m == nil {
+		m = &sync.Mutex{}
+		ms.locks[key] = m
+	}
+	ms.locksMu.Unlock()
+	m.Lock()
+	return m.Unlock
+}
+
+// lockTile takes tile's mail lock.
+func (b *Broker) lockTile(tile string) func() { return b.mail().lockKey(util.TileKey(tile)) }
+
+// mailPathKey is the TileKey a store's path names.
+func mailPathKey(path string) string { return filepath.Base(filepath.Dir(filepath.Dir(path))) }
 
 // mailStorePath is data/partitions/<TileKey>/<dep>/mail.db.
 func (b *Broker) mailStorePath(tile, dep string) (string, error) {
@@ -198,8 +231,8 @@ func mailSealLabel(tile, dep, bucket string) string {
 var errNoMailStore = errors.New("no mail store")
 
 // withMailStore runs fn on the store at path, opened for the call; the
-// caller holds the mail lock. create makes a missing store (and stamps its
-// tile); otherwise a missing one is errNoMailStore.
+// caller holds the tile's mail lock. create makes a missing store (and
+// stamps its tile); otherwise a missing one is errNoMailStore.
 func withMailStore(path, tile, dep string, create bool, fn func(db *bolt.DB) error) error {
 	if _, err := os.Stat(path); err != nil { // walk-ok: data/partitions is xbind's own
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -218,19 +251,39 @@ func withMailStore(path, tile, dep string, create bool, fn func(db *bolt.DB) err
 	}
 	defer db.Close()
 	if create {
-		err := db.Update(func(tx *bolt.Tx) error {
+		err := mailUpdate(db, func(tx *bolt.Tx) (bool, error) {
 			meta, err := tx.CreateBucketIfNotExists(mailMetaBucket)
 			if err != nil || meta.Get(mailStoreKey) != nil {
-				return err
+				return false, err
 			}
 			raw, _ := json.Marshal(mailStoreMeta{Schema: mailSchema, Tile: tile, Dep: dep})
-			return meta.Put(mailStoreKey, raw)
+			return true, meta.Put(mailStoreKey, raw)
 		})
 		if err != nil {
 			return err
 		}
 	}
 	return fn(db)
+}
+
+// errMailUnchanged rolls back a write transaction that changed nothing.
+var errMailUnchanged = errors.New("partition mail: nothing changed")
+
+// mailUpdate runs fn in a write transaction and commits it only when fn
+// says it changed something: a read, a count or a refused send that found
+// nothing to drop costs no commit (and no fsync).
+func mailUpdate(db *bolt.DB, fn func(tx *bolt.Tx) (changed bool, err error)) error {
+	err := db.Update(func(tx *bolt.Tx) error {
+		changed, err := fn(tx)
+		if err == nil && !changed {
+			return errMailUnchanged
+		}
+		return err
+	})
+	if errors.Is(err, errMailUnchanged) {
+		return nil
+	}
+	return err
 }
 
 // readStoreMeta reads a store's own record.
@@ -266,42 +319,95 @@ func writeBoxMeta(tx *bolt.Tx, bucket string, m mailBoxMeta) error {
 	return meta.Put(boxMetaKey(bucket), raw)
 }
 
-// mailExpires reads an item's expiry (its value's prefix).
-func mailExpires(v []byte) (time.Time, bool) {
-	if len(v) < mailExpiresLen {
-		return time.Time{}, false
-	}
-	return time.Unix(0, int64(binary.BigEndian.Uint64(v[:mailExpiresLen]))), true
+// mailValue lays an item out for the store: its expiry, its sender's
+// inbox name, and the sealed item.
+func mailValue(expires time.Time, sender string, sealed []byte) []byte {
+	v := make([]byte, mailExpiresLen+1, mailExpiresLen+1+len(sender)+len(sealed))
+	binary.BigEndian.PutUint64(v, uint64(expires.UnixNano()))
+	v[mailExpiresLen] = byte(len(sender))
+	v = append(v, sender...)
+	return append(v, sealed...)
 }
 
-// purgeExpired drops bucket's expired items (and malformed values), counts
-// them in the inbox's metadata, and answers what stays: items and bytes.
-func purgeExpired(tx *bolt.Tx, name string, now time.Time) (n int, size int64, err error) {
+// splitMailValue reads a stored value: expiry, sender, sealed item; ok
+// false for a value this layout doesn't hold.
+func splitMailValue(v []byte) (expires time.Time, sender string, sealed []byte, ok bool) {
+	if len(v) < mailExpiresLen+1 {
+		return time.Time{}, "", nil, false
+	}
+	n := int(v[mailExpiresLen])
+	if len(v) < mailExpiresLen+1+n {
+		return time.Time{}, "", nil, false
+	}
+	expires = time.Unix(0, int64(binary.BigEndian.Uint64(v[:mailExpiresLen])))
+	return expires, string(v[mailExpiresLen+1 : mailExpiresLen+1+n]), v[mailExpiresLen+1+n:], true
+}
+
+// boxUsage is what an inbox holds once its expired items are dropped:
+// items and stored bytes, and — when asked — each sender's.
+type boxUsage struct {
+	items   int
+	bytes   int64
+	senders map[string]senderUsage
+}
+
+type senderUsage struct {
+	items int
+	bytes int64
+}
+
+// purgeExpired drops bucket's expired items (counted as expired) and values
+// this layout can't read (counted as undeliverable) into the inbox's
+// metadata, and answers what stays — each sender's too when bySender.
+// changed: it dropped something.
+func purgeExpired(tx *bolt.Tx, name string, now time.Time, bySender bool) (u boxUsage, changed bool, err error) {
 	bk := tx.Bucket([]byte(name))
 	if bk == nil {
-		return 0, 0, nil
+		return u, false, nil
 	}
-	var gone [][]byte
+	if bySender {
+		u.senders = map[string]senderUsage{}
+	}
+	var expired, bad [][]byte
 	err = bk.ForEach(func(k, v []byte) error {
-		if exp, ok := mailExpires(v); !ok || !now.Before(exp) {
-			gone = append(gone, append([]byte(nil), k...))
-			return nil
+		exp, sender, _, ok := splitMailValue(v)
+		switch {
+		case !ok:
+			bad = append(bad, append([]byte(nil), k...))
+		case !now.Before(exp):
+			expired = append(expired, append([]byte(nil), k...))
+		default:
+			u.items++
+			u.bytes += int64(len(v))
+			if bySender {
+				s := u.senders[sender]
+				s.items++
+				s.bytes += int64(len(v))
+				u.senders[sender] = s
+			}
 		}
-		n++
-		size += int64(len(v))
 		return nil
 	})
-	if err != nil || len(gone) == 0 {
-		return n, size, err
+	if err != nil || len(expired)+len(bad) == 0 {
+		return u, false, err
 	}
-	for _, k := range gone {
-		if err := bk.Delete(k); err != nil {
-			return n, size, err
+	return u, true, dropMailItems(tx, bk, name, expired, bad)
+}
+
+// dropMailItems deletes items of inbox name, counting expired and
+// undeliverable ones in its metadata.
+func dropMailItems(tx *bolt.Tx, bk *bolt.Bucket, name string, expired, undeliverable [][]byte) error {
+	for _, keys := range [][][]byte{expired, undeliverable} {
+		for _, k := range keys {
+			if err := bk.Delete(k); err != nil {
+				return err
+			}
 		}
 	}
 	m := readBoxMeta(tx, name)
-	m.Expired += int64(len(gone))
-	return n, size, writeBoxMeta(tx, name, m)
+	m.Expired += int64(len(expired))
+	m.Undeliverable += int64(len(undeliverable))
+	return writeBoxMeta(tx, name, m)
 }
 
 // nextMailID is a fresh id: a time after every earlier id of the store, and
@@ -336,257 +442,11 @@ func parseMailID(s string) ([]byte, bool) {
 
 // mailPaused refuses a mail act on tile while its partition mode holds it —
 // pending or invalid, or a switch deleting its data: 409. Asked under the
-// mail lock, which the switch's wipe takes, so nothing mailed after the
-// wipe survives it.
+// tile's mail lock, which the switch's wipe takes, so nothing mailed after
+// the wipe survives it.
 func (b *Broker) mailPaused(tile string) error {
 	if why := b.PartitionHoldReason(tile); why != "" {
 		return statusErr{http.StatusConflict, tile + " " + why + ": its partition mail waits meanwhile"}
 	}
 	return nil
-}
-
-// mailPut stores an item from from in box, answering its id: 409 while the
-// tile is paused, 507 when the inbox is full.
-func (b *Broker) mailPut(box mailBox, from util.Partition, topic string, data json.RawMessage, ttl time.Duration) (string, error) {
-	path, err := b.mailStorePath(box.tile, box.dep)
-	if err != nil {
-		return "", err
-	}
-	now := mailNow()
-	rec, err := json.Marshal(mailRecord{From: string(from), Topic: topic, Data: data, At: now.UTC()})
-	if err != nil {
-		return "", err
-	}
-	sealed, err := b.encodeKV(mailSealLabel(box.tile, box.dep, box.bucket), rec)
-	if err != nil {
-		return "", err
-	}
-	val := make([]byte, mailExpiresLen, mailExpiresLen+len(sealed))
-	binary.BigEndian.PutUint64(val, uint64(now.Add(ttl).UnixNano()))
-	val = append(val, sealed...)
-	ms := b.mail()
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	if err := b.mailPaused(box.tile); err != nil {
-		return "", err
-	}
-	var id []byte
-	full := ""
-	err = withMailStore(path, box.tile, box.dep, true, func(db *bolt.DB) error {
-		return db.Update(func(tx *bolt.Tx) error {
-			bk, err := tx.CreateBucketIfNotExists([]byte(box.bucket))
-			if err != nil {
-				return err
-			}
-			n, size, err := purgeExpired(tx, box.bucket, now)
-			switch {
-			case err != nil:
-				return err
-			case n >= knobs().inboxItems:
-				full = fmt.Sprintf("the inbox holds %d items, its limit", n)
-				return nil
-			case size+int64(len(val)) > knobs().inboxBytes:
-				full = fmt.Sprintf("the inbox holds %d MiB, and its limit is %d", size>>20, knobs().inboxBytes>>20)
-				return nil
-			}
-			if id, err = nextMailID(tx, now); err != nil {
-				return err
-			}
-			if err := bk.Put(id, val); err != nil {
-				return err
-			}
-			if box.user != "" {
-				m := readBoxMeta(tx, box.bucket)
-				if m.User != box.user || m.UID != box.uid {
-					m.User, m.UID = box.user, box.uid
-					return writeBoxMeta(tx, box.bucket, m)
-				}
-			}
-			return nil
-		})
-	})
-	if err != nil {
-		return "", err
-	}
-	if full != "" {
-		return "", statusErr{http.StatusInsufficientStorage, fmt.Sprintf("%s's inbox is full: %s; it takes more once its partition reads and acknowledges some", box.part, full)}
-	}
-	return hex.EncodeToString(id), nil
-}
-
-// mailList reads box's items after after (an id; "" from the first), at
-// most limit and about mailPageBytes; more: others follow. Expired items
-// are dropped first.
-func (b *Broker) mailList(box mailBox, after string, limit int) ([]mailItem, bool, error) {
-	path, err := b.mailStorePath(box.tile, box.dep)
-	if err != nil {
-		return nil, false, err
-	}
-	var from []byte
-	if after != "" {
-		var ok bool
-		if from, ok = parseMailID(after); !ok {
-			return nil, false, statusErr{http.StatusBadRequest, "after: not a mail id"}
-		}
-	}
-	label := mailSealLabel(box.tile, box.dep, box.bucket)
-	now := mailNow()
-	ms := b.mail()
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	if err := b.mailPaused(box.tile); err != nil {
-		return nil, false, err
-	}
-	items := []mailItem{}
-	more := false
-	err = withMailStore(path, box.tile, box.dep, false, func(db *bolt.DB) error {
-		return db.Update(func(tx *bolt.Tx) error {
-			if _, _, err := purgeExpired(tx, box.bucket, now); err != nil {
-				return err
-			}
-			bk := tx.Bucket([]byte(box.bucket))
-			if bk == nil {
-				return nil
-			}
-			c := bk.Cursor()
-			k, v := c.First()
-			if from != nil {
-				if k, v = c.Seek(from); k != nil && bytes.Equal(k, from) {
-					k, v = c.Next()
-				}
-			}
-			size := 0
-			for ; k != nil; k, v = c.Next() {
-				if len(items) >= limit || len(items) > 0 && size >= mailPageBytes {
-					more = true
-					return nil
-				}
-				exp, _ := mailExpires(v)
-				raw, err := b.decodeKV(label, v[mailExpiresLen:])
-				if err != nil {
-					return err
-				}
-				var rec mailRecord
-				if err := json.Unmarshal(raw, &rec); err != nil {
-					return fmt.Errorf("a mail item can't be read: %w", err)
-				}
-				data := rec.Data
-				if len(data) == 0 {
-					data = json.RawMessage("null")
-				}
-				size += len(data)
-				items = append(items, mailItem{ID: hex.EncodeToString(k), From: rec.From, Topic: rec.Topic, Data: data,
-					At: rec.At.UTC().Format(time.RFC3339Nano), Expires: exp.UTC().Format(time.RFC3339Nano)})
-			}
-			return nil
-		})
-	})
-	if err != nil && !errors.Is(err, errNoMailStore) {
-		return nil, false, err
-	}
-	return items, more, nil
-}
-
-// mailAck removes ids from box, answering how many items remain. Unknown
-// ids (acked or expired already) are nothing to do.
-func (b *Broker) mailAck(box mailBox, ids [][]byte) (left int, err error) {
-	path, err := b.mailStorePath(box.tile, box.dep)
-	if err != nil {
-		return 0, err
-	}
-	ms := b.mail()
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	if err := b.mailPaused(box.tile); err != nil {
-		return 0, err
-	}
-	err = withMailStore(path, box.tile, box.dep, false, func(db *bolt.DB) error {
-		return db.Update(func(tx *bolt.Tx) error {
-			if bk := tx.Bucket([]byte(box.bucket)); bk != nil {
-				for _, k := range ids {
-					if err := bk.Delete(k); err != nil {
-						return err
-					}
-				}
-			}
-			left, _, err = purgeExpired(tx, box.bucket, mailNow())
-			return err
-		})
-	})
-	if errors.Is(err, errNoMailStore) {
-		return 0, nil
-	}
-	return left, err
-}
-
-// mailPending is how many unexpired items bucket of tile's deployment dep
-// holds, and whose inbox it is (a person's: user and uid).
-func (b *Broker) mailPending(tile, dep, bucket string) (n int, meta mailBoxMeta, err error) {
-	path, err := b.mailStorePath(tile, dep)
-	if err != nil {
-		return 0, meta, err
-	}
-	ms := b.mail()
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	err = withMailStore(path, tile, dep, false, func(db *bolt.DB) error {
-		return db.Update(func(tx *bolt.Tx) error {
-			meta = readBoxMeta(tx, bucket)
-			n, _, err = purgeExpired(tx, bucket, mailNow())
-			return err
-		})
-	})
-	if errors.Is(err, errNoMailStore) {
-		err = nil
-	}
-	return n, meta, err
-}
-
-// MailCount is one inbox's metadata for admins (the partitions API, F7b):
-// counts, never contents.
-type MailCount struct {
-	Pending int   `json:"pending"`
-	Bytes   int64 `json:"bytes"`
-	Expired int64 `json:"expired"`
-}
-
-// PartitionMailCounts are tile's inboxes' counts on deployment dep ("" is
-// the primary), keyed "global" or a person's partition id (pkey): what
-// GET /partitions shows admins (06 §6, 04 §3). Never a content.
-func (b *Broker) PartitionMailCounts(tile, dep string) (map[string]MailCount, error) {
-	if dep == "" {
-		dep = b.primaryOf(tile)
-	}
-	path, err := b.mailStorePath(tile, dep)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]MailCount{}
-	ms := b.mail()
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	now := mailNow()
-	err = withMailStore(path, tile, dep, false, func(db *bolt.DB) error {
-		return db.View(func(tx *bolt.Tx) error {
-			return tx.ForEach(func(name []byte, bk *bolt.Bucket) error {
-				if bytes.Equal(name, mailMetaBucket) {
-					return nil
-				}
-				c := MailCount{Expired: readBoxMeta(tx, string(name)).Expired}
-				_ = bk.ForEach(func(_, v []byte) error {
-					if exp, ok := mailExpires(v); ok && now.Before(exp) {
-						c.Pending++
-						c.Bytes += int64(len(v))
-					}
-					return nil
-				})
-				out[string(name)] = c
-				return nil
-			})
-		})
-	})
-	if errors.Is(err, errNoMailStore) {
-		err = nil
-	}
-	return out, err
 }

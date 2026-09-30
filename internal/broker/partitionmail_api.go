@@ -195,7 +195,7 @@ func (b *Broker) apiMailSend(w http.ResponseWriter, r *http.Request) {
 		writeMailErr(w, err)
 		return
 	}
-	id, err := b.mailPut(to, from.part, body.Topic, body.Data, ttl)
+	id, err := b.mailPut(to, from, body.Topic, body.Data, ttl)
 	if err != nil {
 		writeMailErr(w, err)
 		return
@@ -205,7 +205,7 @@ func (b *Broker) apiMailSend(w http.ResponseWriter, r *http.Request) {
 		// in their egress ledger (06 §6.1), never the content
 		b.ledgerCount(to.tile, to.user, LedgerTrigger, body.Source)
 	}
-	b.ringMail(mailBellKey{to.tile, to.dep, to.bucket}, true)
+	b.ringMail(mailBellKey{to.tile, to.dep, to.bucket}, ringNew, time.Time{})
 	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
 }
 

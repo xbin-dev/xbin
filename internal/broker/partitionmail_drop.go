@@ -32,26 +32,25 @@ func (b *Broker) dropMailBucket(tile, dep, bucket string) (removed int, user str
 	if err != nil {
 		return 0, "", err
 	}
-	ms := b.mail()
-	ms.mu.Lock()
+	unlock := b.lockTile(tile)
 	err = withMailStore(path, tile, dep, false, func(db *bolt.DB) error {
-		return db.Update(func(tx *bolt.Tx) error {
+		return mailUpdate(db, func(tx *bolt.Tx) (bool, error) {
 			bk := tx.Bucket([]byte(bucket))
 			if bk == nil {
-				return nil
+				return false, nil
 			}
 			removed = bk.Stats().KeyN
 			user = readBoxMeta(tx, bucket).User
 			if err := tx.DeleteBucket([]byte(bucket)); err != nil {
-				return err
+				return false, err
 			}
 			if meta := tx.Bucket(mailMetaBucket); meta != nil {
-				return meta.Delete(boxMetaKey(bucket))
+				return true, meta.Delete(boxMetaKey(bucket))
 			}
-			return nil
+			return true, nil
 		})
 	})
-	ms.mu.Unlock()
+	unlock()
 	b.forgetBell(mailBellKey{tile, dep, bucket})
 	if errors.Is(err, errNoMailStore) {
 		err = nil
@@ -65,9 +64,11 @@ type mailStoreOf struct {
 	tile, dep string
 }
 
-// eachMailStore lists the stores of tile ("" for all) whose record reads;
-// the caller holds the mail lock. One that can't be read is an error, and
-// listed with the tile its directory names only when asked for one tile.
+// eachMailStore lists the stores of tile ("" for all) whose record reads.
+// For one tile the caller holds its mail lock; for all, each store is read
+// under its own tile's lock, one at a time. One that can't be read is an
+// error, and listed with the tile its directory names only when asked for
+// one tile.
 func (b *Broker) eachMailStore(tile string) ([]mailStoreOf, error) {
 	key := "*"
 	if tile != "" {
@@ -82,20 +83,30 @@ func (b *Broker) eachMailStore(tile string) ([]mailStoreOf, error) {
 	var errs []error
 	for _, path := range paths {
 		dep := filepath.Base(filepath.Dir(path))
-		if !util.DeploymentNameOK(dep) || !tileKeyOK(filepath.Base(filepath.Dir(filepath.Dir(path)))) {
+		if !util.DeploymentNameOK(dep) || !tileKeyOK(mailPathKey(path)) {
 			continue
 		}
 		s := mailStoreOf{path: path, dep: dep}
-		err := withMailStore(path, "", dep, false, func(db *bolt.DB) error {
-			return db.View(func(tx *bolt.Tx) error {
-				m, ok := readStoreMeta(tx)
-				if !ok {
-					return fmt.Errorf("%s names no tile this xbind can read", path)
-				}
-				s.tile = m.Tile
-				return nil
+		read := func() error {
+			return withMailStore(path, "", dep, false, func(db *bolt.DB) error {
+				return db.View(func(tx *bolt.Tx) error {
+					m, ok := readStoreMeta(tx)
+					if !ok {
+						return fmt.Errorf("%s names no tile this xbind can read", path)
+					}
+					s.tile = m.Tile
+					return nil
+				})
 			})
-		})
+		}
+		var err error
+		if tile == "" {
+			unlock := b.mail().lockKey(mailPathKey(path))
+			err = read()
+			unlock()
+		} else {
+			err = read()
+		}
 		switch {
 		case errors.Is(err, errNoMailStore):
 		case err != nil:
@@ -121,9 +132,8 @@ func init() {
 // included, until a read or the sweep drops them. A store that can't be
 // read holds data.
 func holdsPartitionMail(b *Broker, ask registry.PartitionAsk) (bool, error) {
-	ms := b.mail()
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
+	unlock := b.lockTile(ask.Tile)
+	defer unlock()
 	stores, err := b.eachMailStore(ask.Tile)
 	if err != nil {
 		return true, err
@@ -153,13 +163,15 @@ func holdsPartitionMail(b *Broker, ask registry.PartitionAsk) (bool, error) {
 // user partitions and unpartitioned removes the tile's whole mail store,
 // every deployment's; removing "global" deletes the global instance's
 // inbox only — people's inboxes stay with their partitions (owner ruling
-// H1); adding it deletes nothing. A dry run counts.
+// H1); adding it deletes nothing. A dry run counts. Its bytes are the
+// summary's (mail has no count of its own there); a person is added to
+// its People only when their partition exists — someone the global
+// instance mailed who never opened the tile had no partition to lose.
 func wipePartitionMail(b *Broker, t wipeTarget, sum *wipeSummary) error {
 	if t.Kind == wipeNone {
 		return nil
 	}
-	ms := b.mail()
-	ms.mu.Lock()
+	unlock := b.lockTile(t.Tile)
 	// A store this xbind can't read is listed with the tile anyway: a switch
 	// that deletes everything removes it (the manager confirmed deleting all
 	// the tile's data), and only a removal that fails stops the switch.
@@ -177,7 +189,7 @@ func wipePartitionMail(b *Broker, t wipeTarget, sum *wipeSummary) error {
 					switch {
 					case bytes.Equal(name, mailMetaBucket):
 					case t.Kind == wipeEverything:
-						if k, _ := bk.Cursor().First(); k != nil {
+						if k, _ := bk.Cursor().First(); k != nil && b.mailPartitionExists(s, string(name)) {
 							people = append(people, readBoxMeta(tx, string(name)).User)
 						}
 					case string(name) == mailGlobalBox:
@@ -212,7 +224,7 @@ func wipePartitionMail(b *Broker, t wipeTarget, sum *wipeSummary) error {
 			dropGlobal = append(dropGlobal, s)
 		}
 	}
-	ms.mu.Unlock()
+	unlock()
 	if t.DryRun {
 		return errors.Join(errs...)
 	}
@@ -227,17 +239,30 @@ func wipePartitionMail(b *Broker, t wipeTarget, sum *wipeSummary) error {
 	return errors.Join(errs...)
 }
 
+// mailPartitionExists: inbox bucket of store s is a person's whose
+// partition of the tile has a record (it ran, or was opened).
+func (b *Broker) mailPartitionExists(s mailStoreOf, bucket string) bool {
+	if !util.PartitionKeyOK(bucket) {
+		return false
+	}
+	dir, err := b.partitionRecordDir(s.tile, s.dep, bucket)
+	if err != nil {
+		return false
+	}
+	_, ok, err := readPartitionRecordAt(dir)
+	return ok || err != nil // a record that can't be read is a partition's
+}
+
 // mailUserDeleted removes person userID's inboxes (of incarnation uid; ""
 // every one this store names) in every tile: the users store's delete hook,
 // through PartitionUserDeleted. Mail is transient: it doesn't wait for the
 // orphan retention.
 func (b *Broker) mailUserDeleted(userID, uid string) {
-	ms := b.mail()
-	ms.mu.Lock()
 	stores, _ := b.eachMailStore("")
 	type drop struct{ tile, dep, bucket string }
 	var drops []drop
 	for _, s := range stores {
+		unlock := b.mail().lockKey(mailPathKey(s.path))
 		_ = withMailStore(s.path, s.tile, s.dep, false, func(db *bolt.DB) error {
 			return db.View(func(tx *bolt.Tx) error {
 				return tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
@@ -248,8 +273,8 @@ func (b *Broker) mailUserDeleted(userID, uid string) {
 				})
 			})
 		})
+		unlock()
 	}
-	ms.mu.Unlock()
 	for _, d := range drops {
 		if _, _, err := b.dropMailBucket(d.tile, d.dep, d.bucket); err != nil {
 			slog.Warn("partition mail: a deleted person's inbox can't be removed", "tile", d.tile, "err", err)
