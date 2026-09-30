@@ -166,12 +166,14 @@ function callScreen(s) {
 
 // --- the plan, the changes, the usage ------------------------------------------------------
 
-// badgeTpl: the toolbar's badge — the plan's progress and the context in use.
+// badgeTpl: the toolbar's badge — the plan's progress and the context in
+// use; short (the cost is on Progress): a phone's bar that overflows loses
+// the title and the ⋯ menu, which is where Progress is.
 function badgeTpl(v) {
   const h = harnessOf(v.run);
   if (!h) return null;
   const p = planOf(h), u = usageBadge(h.usage);
-  const text = [p ? `📋 ${p.done}/${p.total}` : '', u ? u.text : ''].filter(Boolean).join(' · ');
+  const text = [p ? `📋 ${p.done}/${p.total}` : '', u ? u.head : ''].filter(Boolean).join(' · ');
   return text ? html`<badge text=${text} tone=${u && u.tone === 'bad' ? 'danger' : u && u.tone === 'warn' ? 'warn' : 'muted'}/>` : null;
 }
 

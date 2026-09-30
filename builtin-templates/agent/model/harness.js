@@ -191,9 +191,10 @@ export function sandboxFits(h, s) {
   return out('');
 }
 
-// usageBadge: the top bar's usage badge (the native toolbar's) — {text:
-// "ctx 26% · $0.41", title, pct, tone: warn | bad | ''} — the context in
-// use, else the tokens, and the cost so far when the adapter says; null
+// usageBadge: the top bar's usage badge — {text: "ctx 26% · $0.41", head:
+// "ctx 26%" (the native toolbar's: a phone's bar has no room for the cost,
+// which Progress shows), title, pct, tone: warn | bad | ''} — the context
+// in use, else the tokens, and the cost so far when the adapter says; null
 // when it says nothing.
 export function usageBadge(u) {
   if (!u) return null;
@@ -203,7 +204,7 @@ export function usageBadge(u) {
   if (!w && !used && !c) return null;
   const head = w ? w.text : used ? `${used >= 1000 ? Math.round(used / 1000) + 'k' : used} tokens` : '';
   return {
-    text: [head, c].filter(Boolean).join(' · '), pct: w ? w.pct : null,
+    text: [head, c].filter(Boolean).join(' · '), head: head || c, pct: w ? w.pct : null,
     tone: w && w.pct >= 90 ? 'bad' : w && w.pct >= 75 ? 'warn' : '',
     title: w ? w.title : [used ? `${fmtN(used)} tokens of context` : '', c ? `${c} so far` : ''].filter(Boolean).join(' · '),
   };

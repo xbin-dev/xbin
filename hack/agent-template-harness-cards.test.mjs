@@ -67,11 +67,12 @@ test('an edit\'s diffs: per file, one patch for native, each line\'s class', () 
 
 test('the usage badge and the plan\'s entries', () => {
   assert.deepEqual(H.usageBadge({ used: 52000, size: 200000, cost: { amount: 0.41, currency: 'USD' } }),
-    { text: 'ctx 26% · $0.41', pct: 26, tone: '', title: '52 000 of 200 000 tokens of context · $0.41' });
+    { text: 'ctx 26% · $0.41', head: 'ctx 26%', pct: 26, tone: '', title: '52 000 of 200 000 tokens of context · $0.41' });
   assert.equal(H.usageBadge({ used: 160000, size: 200000 }).tone, 'warn');
   assert.equal(H.usageBadge({ used: 190000, size: 200000 }).tone, 'bad');
-  assert.deepEqual(H.usageBadge({ used: 12400 }), { text: '12k tokens', pct: null, tone: '', title: '12 400 tokens of context' });
+  assert.deepEqual(H.usageBadge({ used: 12400 }), { text: '12k tokens', head: '12k tokens', pct: null, tone: '', title: '12 400 tokens of context' });
   assert.equal(H.usageBadge({ cost: { amount: 1.5, currency: 'EUR' } }).text, 'EUR 1.50');
+  assert.equal(H.usageBadge({ cost: { amount: 1.5, currency: 'EUR' } }).head, 'EUR 1.50', 'the cost, when that is all it says');
   assert.equal(H.usageBadge({}), null);
   assert.equal(H.usageBadge(null), null);
   assert.deepEqual(H.planEntries(H.planOf({ plan: { entries: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'in_progress' }, { content: 'c', status: 'odd' }] } })),
@@ -144,7 +145,7 @@ test('native: the toolbar badge, Progress (the plan) and the harness event', asy
     { call: ['push', { type: 'harness', run: 21, root: 21, data: next }] }, { wait: 50 }, { snapshot: 'after' },
   ], 'c=21');
   const badge = all(r.snapshots.chat.root, { t: 'toolbar' })[0].c.find((c) => c.t === 'badge');
-  assert.deepEqual(badge.p, { text: '📋 3/3 · ctx 26% · $0.41', tone: 'muted' });
+  assert.deepEqual(badge.p, { text: '📋 3/3 · ctx 26%', tone: 'muted' }, 'short: the cost is on Progress (a phone\'s bar keeps its title and ⋯)');
   const scr = all(r.snapshots.progress.root, { t: 'screen', has: 'Progress' }).pop();
   assert.equal(scr.p.subtitle, 'Claude Code · 3/3');
   assert.deepEqual(all(scr, { t: 'plan' })[0].p.entries.map((e) => e.status), ['completed', 'completed', 'completed']);
