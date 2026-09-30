@@ -543,7 +543,8 @@ func init() {
 	registerPartitionStore(partitionStore{"partition-records", holdsPartitionRecords})
 	registerWipeHook(wipeHook{name: "partition-vault", wipe: wipePartitionVaults})
 	registerWipeHook(wipeHook{name: "partition-registrations", wipe: wipePartitionRegistrations})
-	registerWipeHook(wipeHook{name: "partition-records", wipe: wipePartitionRecords})
+	// "partition-records" is registered in partitionwire.go, as the last
+	// metadata hook: the records name whose every other store's leftovers are
 }
 
 // holdsPartitionRecords: a person's partition of the tile has a directory —

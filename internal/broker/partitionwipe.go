@@ -126,10 +126,12 @@ func (s *wipeSummary) addPerson(user string) {
 // wipeHook is one plane's part of a switch (01 §2.6).
 type wipeHook struct {
 	name string
-	// meta: the plane keeps metadata about the tile (consents, ledgers),
+	// meta: the plane keeps metadata about the tile (consents, ledgers,
+	// the partitions' identity records — which also answer "holds data"),
 	// not its data. Its hook runs after every data store's, whatever the
 	// order of registration, so a data store's failure — the switch stops,
-	// the mode unchanged — leaves it whole.
+	// the mode unchanged — leaves it whole. Metadata hooks run in their
+	// registration order (partitionwire.go registers them in one init).
 	meta bool
 	// stop runs once the scope's namespaces are held and its backends
 	// stopped, before the backups are locked and anything is removed: a

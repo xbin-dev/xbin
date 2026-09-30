@@ -25,10 +25,16 @@ package broker
 //   - the identity plane asks the consent plane (F10: partitionconsent.go)
 //     about a person's consent while partitionConsent is on, and counts
 //     allowed cross-tile edges in the egress ledger (partitionledger.go);
-//     both planes' records go last in a switch's wipe (metadata hooks).
+//     both planes' records go last in a switch's wipe (metadata hooks),
+//     then the partitions' identity records (F5: partitionrecords.go);
+//   - a person's terminal opening on a partitioned tile (F7a:
+//     partitionterm.go) writes their partition's identity record (F5)
+//     (plans/partitions/records/W2-wire.md).
 
 import (
+	"cmp"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -56,6 +62,33 @@ func init() {
 	partitionEdgeSeam = (*Broker).ledgerEdge
 	registerWipeHook(wipeHook{name: "consents", meta: true, wipe: wipeConsentsHook})
 	registerWipeHook(wipeHook{name: "ledgers", meta: true, wipe: wipeLedgersHook})
+	// F5's identity records last of all (W2): a record names whose a
+	// partition's leftovers are (PD-43) — a data store's failure leaves it,
+	// and a retry, a re-adoption and a record-driven sweep still find them —
+	// and its wipe removes each person's directory whole, the ledger's file
+	// in it included, once the ledgers' hook has stopped their writes
+	registerWipeHook(wipeHook{name: "partition-records", meta: true, wipe: wipePartitionRecords})
+	// F5 ↔ F7a (W2): a person's terminal or agent session opening on a
+	// partitioned tile writes their partition's record, so their layer and
+	// history, keyed by the partition id alone, have one
+	termPartitionRecord = (*Broker).noteTermPartition
+}
+
+// noteTermPartition is termPartitionRecord (partitionterm.go): person
+// user's partition of tile under incarnation uid gets its partition.json on
+// the tile's primary — people's partitions run nowhere else (PD-17) —
+// unless one exists; none while the tile is paused (nothing of it runs, and
+// a switch's wipe may be deleting the records), as for a start. Best effort:
+// a record that can't be written is logged, the session opens.
+func (b *Broker) noteTermPartition(tile, user, uid string) {
+	dep := cmp.Or(b.primaryOf(tile), util.MainDeployment)
+	if user == "" || uid == "" || b.partitionPaused(tile, dep) {
+		return
+	}
+	t := partTarget{tile: tile, dep: dep, pkey: util.PartitionKey(user, uid), part: util.UserPartition(user), user: user, uid: uid}
+	if err := b.notePartition(t, false); err != nil {
+		slog.Warn("partitions: a terminal's partition record", "tile", tile, "partition", t.part, "err", err)
+	}
 }
 
 // partitionRunSlot is the runner's side of people's partitions as the

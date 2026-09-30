@@ -210,7 +210,9 @@ for a partition-mode decision.
 A tile **holds data** when xbind's own stores have anything of it: a data
 namespace with content (a file, a kv key, a blob — an empty sqlite file
 counts), a vault key, a cron job, bus subscription, interface instance or
-ingress host registration, or a partition, its mail or a personal bind.
+ingress host registration, or a person's partition (its backend started, or
+a terminal or agent session of theirs opened on the tile), its mail or a
+personal bind.
 Volumes that are provisioned but empty don't count.
 
 Templates and updates never switch a mode:

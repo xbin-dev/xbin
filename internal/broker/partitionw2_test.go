@@ -5,12 +5,15 @@ package broker
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // crossTileBusWS is partRegWS with apps/q (["user"]) granted apps/pg's
@@ -216,5 +219,124 @@ func TestPartitionSwitchHoldsUntilSettled(t *testing.T) {
 	}
 	if why := f.b.PartitionHoldReason("apps/docs"); why != "" {
 		t.Errorf("after the switch the hold stays: %q", why)
+	}
+}
+
+// covers 01§2.6 PD-43 06§6.1 — a switch's wipe runs every data store's hook
+// first, then the metadata: consents, ledgers, and the partitions' identity
+// records last. A data store that fails stops the switch with its person's
+// record, ledger and consent whole (a retry and a re-adoption still find
+// them); the retry removes each person's directory whole, the ledger's file
+// in it included, and leaves no level behind.
+func TestPartitionWipeFailureKeepsMeta(t *testing.T) {
+	w := partRegWS(t)
+	b := w.b
+	alice := partInst("apps/pu", "alice")
+	if rec := call(t, b.apiCronPut, alice, "PUT", "/cron/jobs", `{"name":"j","resource":"res:apps/pu/beat","schedule":"@every 1m","path":"/t"}`, nil); rec.Code != 200 {
+		t.Fatalf("alice's job: %d %s", rec.Code, rec.Body)
+	}
+	uid := b.storedPartitionUID("alice")
+	dir := w.partDir("apps/pu", "alice")
+	partitionEdgeSeam(b, "alice", "apps/pu", "apps/pg")
+	b.flushLedgers()
+	if _, err := b.editConsents("alice", uid, func(d *consentDoc) bool {
+		d.Edges[consentKey("apps/pu", "apps/pg")] = consentEdge{At: time.Now()}
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	consented := func() bool {
+		d, err := b.consentDocOf(uid)
+		_, ok := d.Edges[consentKey("apps/pu", "apps/pg")]
+		return err == nil && d != nil && ok
+	}
+	for _, f := range []string{partRecordFile, ledgerFileName, depCronFile} {
+		if !exists(filepath.Join(dir, f)) {
+			t.Fatalf("before the switch: no %s in alice's partition directory", f)
+		}
+	}
+	if !consented() {
+		t.Fatal("before the switch: no consent")
+	}
+	old := wipeHooks
+	t.Cleanup(func() { wipeHooks = old })
+	registerWipeHook(wipeHook{name: "failing", wipe: func(b *Broker, t wipeTarget, sum *wipeSummary) error {
+		if t.DryRun {
+			return nil
+		}
+		return errFailingHook
+	}})
+	tgt := wipeTarget{Tile: "apps/pu", Scope: "apps/pu", RootsScope: true, From: registry.PartitionSpec{User: true},
+		Kind: wipeEverything, By: "owner", At: time.Now()}
+	if _, _, err := b.runSwitch(tgt); err == nil || !strings.Contains(err.Error(), "failing") {
+		t.Fatalf("the switch with a failing data store: %v", err)
+	}
+	if exists(filepath.Join(dir, depCronFile)) {
+		t.Error("the data stores before the failing one didn't run: alice's cron file is still there")
+	}
+	for _, f := range []string{partRecordFile, ledgerFileName} {
+		if !exists(filepath.Join(dir, f)) {
+			t.Errorf("a data store's failure took alice's %s", f)
+		}
+	}
+	if !consented() {
+		t.Error("a data store's failure took alice's consent")
+	}
+	wipeHooks = old
+	if _, _, err := b.runSwitch(tgt); err != nil {
+		t.Fatalf("the switch again: %v", err)
+	}
+	if exists(dir) || exists(filepath.Dir(dir)) {
+		t.Errorf("after the switch alice's partition directory (or its level) is left: %v %v", exists(dir), exists(filepath.Dir(dir)))
+	}
+	if consented() {
+		t.Error("after the switch alice's consent naming apps/pu stays")
+	}
+}
+
+// covers PD-43 06§1 — F7a's termPartitionRecord seam is F5's record: a
+// person's terminal opening on a partitioned tile writes their partition's
+// partition.json (user, uid) on the primary, a non-primary target too; an
+// unpartitioned tile gets none, and neither does a paused one.
+func TestTermPartitionRecordWired(t *testing.T) {
+	w := partFx(t)
+	b := w.b
+	realPartitionIdentity()
+	alice := auth.Principal{UserID: "alice", Via: "session"}
+	if _, err := b.TermPartition(alice, "apps/docs", ""); err != nil {
+		t.Fatal(err)
+	}
+	uid := b.storedPartitionUID("alice")
+	dir, err := b.partitionRecordDir("apps/docs", "main", util.PartitionKey("alice", uid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, ok, err := readPartitionRecordAt(dir)
+	if err != nil || !ok || rec.User != "alice" || rec.UID != uid || rec.Tile != "apps/docs" || rec.State != partStateActive {
+		t.Fatalf("alice's record after her terminal opened: %+v %v %v", rec, ok, err)
+	}
+	if _, err := b.TermPartition(alice, "apps/plain", ""); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(w.root, "data", partitionsDir, util.TileKey("apps/plain"))) {
+		t.Error("an unpartitioned tile's terminal wrote a partition record")
+	}
+	carolUID, err := b.mintPartitionUID("carol")
+	if err != nil {
+		t.Fatal(err)
+	}
+	end, ok := b.beginSwitch("apps/docs", "is paused: switching")
+	if !ok {
+		t.Fatal("beginSwitch")
+	}
+	b.noteTermPartition("apps/docs", "carol", carolUID)
+	end()
+	cdir, _ := b.partitionRecordDir("apps/docs", "main", util.PartitionKey("carol", carolUID))
+	if exists(cdir) {
+		t.Error("a paused tile's terminal wrote a partition record")
+	}
+	b.noteTermPartition("apps/docs", "carol", carolUID)
+	if _, ok, _ := readPartitionRecordAt(cdir); !ok {
+		t.Error("carol's record once the tile runs again")
 	}
 }

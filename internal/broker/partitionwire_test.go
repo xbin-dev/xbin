@@ -85,8 +85,10 @@ func TestPartitionWireSeams(t *testing.T) {
 	for _, h := range wipeHooks {
 		names = append(names, h.name)
 	}
-	if n := len(names); n < 2 || names[n-2] != "consents" || names[n-1] != "ledgers" || slices.ContainsFunc(wipeHooks[:n-2], func(h wipeHook) bool { return h.meta }) {
-		t.Errorf("the wipe hooks' order %q: the metadata ones (consents, ledgers) go after every data store's", names)
+	// then F5's identity records, last of all (W2)
+	if n := len(names); n < 3 || !slices.Equal(names[n-3:], []string{"consents", "ledgers", "partition-records"}) ||
+		slices.ContainsFunc(wipeHooks[:n-3], func(h wipeHook) bool { return h.meta }) {
+		t.Errorf("the wipe hooks' order %q: the metadata ones (consents, ledgers, then partition-records) go after every data store's", names)
 	}
 }
 
