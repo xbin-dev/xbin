@@ -7,13 +7,15 @@
 //     "user:<id>" and their role clamped to reader or writer — never the
 //     tile itself — and guard() decides what they may do as that person
 //     (agentRole).
-//   - A person's partition serves its person's own conversations. What is
-//     the tile's, not theirs, goes elsewhere (partitionRoute): a manager's
-//     change of the tile-wide settings (config, classes, the halt switch, a
-//     shared skill) is forwarded to the global instance, which checks them
-//     as a manager and mirrors the result into conf; sharing a conversation,
-//     and the channels and event triggers the global instance runs, answer
-//     409 here.
+//   - A person's partition serves its person's own conversations and
+//     automations (a private trigger is made here and registered at global:
+//     trigger_registry.go). What is the tile's, not theirs, goes elsewhere
+//     (partitionRoute): a manager's change of the tile-wide settings (config,
+//     classes, the halt switch, a shared skill), a join link, and the chat
+//     channels, unmatched pushes and usage totals the global instance keeps
+//     (handoff.go) are forwarded to the global instance, which checks them
+//     as that person and mirrors settings into conf; sharing a conversation
+//     answers 409 here (a copy is shared instead: homes.go).
 package main
 
 import (
@@ -58,25 +60,42 @@ func personFromPartition(r *http.Request) bool {
 type userRoute int
 
 const (
-	userLocal      userRoute = iota // served here
-	userGlobal                      // a tile-wide setting: forwarded to the global instance
-	userSkill                       // a skill: the person's own here, a shared one forwarded
-	userNoShare                     // sharing: 409, the conversation is its person's alone here
-	userNoChannels                  // channels and event triggers are global's: 409
+	userLocal   userRoute = iota // served here
+	userGlobal                   // the tile's, not the person's: forwarded to the global instance
+	userSkill                    // a skill: the person's own here, a shared one forwarded
+	userNoShare                  // sharing: 409, the conversation is its person's alone here
 )
 
 var userRoutes = map[string]userRoute{
-	"GET /config":               userGlobal, // the whole config, as managers edit it: conf holds it as viewers see it
-	"PUT /config":               userGlobal,
-	"PUT /classes":              userGlobal,
-	"PUT /halt":                 userGlobal,
-	"PUT /skills":               userSkill,
-	"DELETE /skills/{name}":     userSkill,
-	"POST /runs/{id}/members":   userNoShare,
-	"POST /runs/{id}/links":     userNoShare,
-	"POST /join":                userGlobal, // join links are the shared space's: redeemed there
-	"POST /channels/{id}/claim": userNoChannels,
-	"POST /triggers":            userNoChannels,
+	"GET /config":             userGlobal, // the whole config, as managers edit it: conf holds it as viewers see it
+	"PUT /config":             userGlobal,
+	"PUT /classes":            userGlobal,
+	"PUT /halt":               userGlobal,
+	"PUT /skills":             userSkill,
+	"DELETE /skills/{name}":   userSkill,
+	"POST /runs/{id}/members": userNoShare,
+	"POST /runs/{id}/links":   userNoShare,
+	"POST /join":              userGlobal, // join links are the shared space's: redeemed there
+	// a chat channel is global's — its claim, rules, people, sessions and
+	// failed replies — and so are the pushes nothing took and the usage
+	// totals (handoff.go, usage.go)
+	"POST /channels/{id}/claim":              userGlobal,
+	"PUT /channels/{id}":                     userGlobal,
+	"DELETE /channels/{id}":                  userGlobal,
+	"GET /channels/{id}/peers":               userGlobal,
+	"POST /channels/{id}/pair":               userGlobal,
+	"PUT /channels/{id}/peers/{peer}":        userGlobal,
+	"DELETE /channels/{id}/peers/{peer}":     userGlobal,
+	"GET /channels/{id}/sessions":            userGlobal,
+	"POST /channels/{id}/sessions/reset":     userGlobal,
+	"GET /channels/{id}/outbox":              userGlobal,
+	"POST /channels/{id}/outbox/{oid}/retry": userGlobal,
+	"GET /triggers/unmatched":                userGlobal,
+	"GET /usage":                             userGlobal,
+	// a person's trigger is theirs: made here, registered at global
+	// (trigger_registry.go); a registry row's id below 2^40 is forwarded
+	// by its handlers (forwardGlobalTrigger)
+	"POST /triggers": userLocal,
 }
 
 // sharesInPartition: a change that would share a conversation (or an
@@ -87,10 +106,7 @@ func sharesInPartition(vis, role *string) bool {
 	return userMode() && (vis != nil && *vis != visPrivate || role != nil && *role != roleViewer)
 }
 
-const (
-	noShareWords    = "this conversation is in your own space, which only you can open: it can't be shared from here"
-	noChannelsWords = "chat channels and event triggers are run by the agent's shared instance: they can't be set up from your own space"
-)
+const noShareWords = "this conversation is in your own space, which only you can open: it can't be shared from here"
 
 // partitionRoute is h as a person's partition serves pattern.
 func partitionRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
@@ -107,8 +123,6 @@ func partitionRoute(pattern string, h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) { forwardSkill(w, r, h) }
 	case userNoShare:
 		return func(w http.ResponseWriter, _ *http.Request) { xbin.WriteError(w, http.StatusConflict, noShareWords) }
-	case userNoChannels:
-		return func(w http.ResponseWriter, _ *http.Request) { xbin.WriteError(w, http.StatusConflict, noChannelsWords) }
 	}
 	return h
 }

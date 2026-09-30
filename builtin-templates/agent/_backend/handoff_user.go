@@ -34,35 +34,11 @@ import (
 	"time"
 )
 
+// The channels' routes a person's partition forwards to the global instance
+// are partition_routes.go's userRoutes.
 func init() {
 	mailHandlers[topicDM] = handleDMHandoff
 	mailHandlers[topicEvent] = handleEventHandoff
-	for pattern, how := range channelUserRoutes {
-		userRoutes[pattern] = how
-	}
-}
-
-// channelUserRoutes are routes a person's partition forwards to the global
-// instance (partition_routes.go's userRoutes takes them, over its own
-// entries): a channel is global's — its claim, rules, people, sessions and
-// failed replies — and so are the pushes nothing took and the usage totals.
-// A person's trigger is theirs, made here (registered at global:
-// trigger_registry.go).
-var channelUserRoutes = map[string]userRoute{
-	"POST /channels/{id}/claim":              userGlobal,
-	"POST /triggers":                         userLocal,
-	"PUT /channels/{id}":                     userGlobal,
-	"DELETE /channels/{id}":                  userGlobal,
-	"GET /channels/{id}/peers":               userGlobal,
-	"POST /channels/{id}/pair":               userGlobal,
-	"PUT /channels/{id}/peers/{peer}":        userGlobal,
-	"DELETE /channels/{id}/peers/{peer}":     userGlobal,
-	"GET /channels/{id}/sessions":            userGlobal,
-	"POST /channels/{id}/sessions/reset":     userGlobal,
-	"GET /channels/{id}/outbox":              userGlobal,
-	"POST /channels/{id}/outbox/{oid}/retry": userGlobal,
-	"GET /triggers/unmatched":                userGlobal,
-	"GET /usage":                             userGlobal,
 }
 
 // handleDMHandoff takes a DM global handed this person.
