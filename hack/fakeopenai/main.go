@@ -5,8 +5,19 @@
 // uses: Chat Completions (reasoning as delta.reasoning_content) for "fake-chat",
 // and the Responses API (reasoning summaries) for "gpt-5-fake".
 //
-// The script is chosen by words in the last user message (lower-cased):
+// The script is chosen by words in the last user message (lower-cased) —
+// the coding-agent ones (D-harness §7.2) before every other:
 //
+//	harness spawn
+//	             subagent_spawn {task "perm", label "fake coder", harness
+//	             "fake"} (foreground: the coding agent asks a person first)
+//	             → "The coding agent said: <its answer's first line>"
+//	harness fan out
+//	             three background spawns {harness "fake", wait false} with
+//	             tasks perm, slow, todo → "Started three coding agents."
+//	harness steer
+//	             subagent_message {id: the newest coding agent this
+//	             conversation started, text "steer: use tabs"} → "Steered it."
 //	hello        thinking "Considering the greeting…", then "Hello from the fake model."
 //	use a tool   a note call with summary "Jot down a quick note" → "Noted it."
 //	make a file  file_write note.txt, then attach_to_reply it (a chat channel's
@@ -277,6 +288,9 @@ func script(conv []turn, system string) plan {
 		}
 		return plan{Text: "subagent: " + task}
 	}
+	if p, ok := harnessScript(conv, last, lastUser); ok { // before every other keyword: they hold "steer", "fan out"
+		return p
+	}
 	// long N: N units, each a markdown answer with a note call, then "done: N units"
 	// (a long transcript fast); paras N: an answer of N paragraphs, streamed slowly
 	if n, ok := countAfter(lastUser, "long "); ok {
@@ -438,6 +452,62 @@ func script(conv []turn, system string) plan {
 		return plan{Delay: d, Calls: []call{{"note", map[string]any{"text": "restarted", "summary": "Survive a restart"}}}}
 	}
 	return plan{Text: "ok: " + lastUser}
+}
+
+// coderRe finds a coding agent's id in a spawn's result ("started coding
+// agent #12 …", "--- #12 fake coder (done) ---").
+var coderRe = regexp.MustCompile(`#(\d+)`)
+
+// harnessScript plays the coding-agent keywords (D-harness §7.2).
+func harnessScript(conv []turn, last turn, lastUser string) (plan, bool) {
+	switch {
+	case strings.Contains(lastUser, "harness spawn"):
+		if last.Role == "tool" {
+			return plan{Text: "The coding agent said: " + answerLine(last.Text)}, true
+		}
+		return plan{Calls: []call{{"subagent_spawn", map[string]any{"task": "perm", "label": "fake coder", "harness": "fake",
+			"summary": "Ask the coding agent"}}}}, true
+	case strings.Contains(lastUser, "harness fan out"):
+		if last.Role == "tool" {
+			return plan{Text: "Started three coding agents."}, true
+		}
+		var cs []call
+		for i, task := range []string{"perm", "slow", "todo"} {
+			cs = append(cs, call{"subagent_spawn", map[string]any{"task": task, "harness": "fake", "wait": false,
+				"label": fmt.Sprintf("coder %d", i+1), "summary": fmt.Sprintf("Start coding agent %d", i+1)}})
+		}
+		return plan{Calls: cs}, true
+	case strings.Contains(lastUser, "harness steer"):
+		if last.Role == "tool" {
+			return plan{Text: "Steered it."}, true
+		}
+		newest := 0
+		for _, t := range conv {
+			if t.Role != "tool" || (t.Tool != "subagent_spawn" && t.Tool != "spawn_subagent") || !strings.Contains(t.Text, "coding agent") && !strings.HasPrefix(t.Text, "--- #") {
+				continue
+			}
+			if m := coderRe.FindStringSubmatch(t.Text); m != nil {
+				if n, _ := strconv.Atoi(m[1]); n > newest {
+					newest = n
+				}
+			}
+		}
+		return plan{Calls: []call{{"subagent_message", map[string]any{"id": newest, "text": "steer: use tabs", "summary": "Steer the coding agent"}}}}, true
+	}
+	return plan{}, false
+}
+
+// answerLine is a delivered answer's first line, past its "--- #N … ---"
+// header.
+func answerLine(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "--- #") {
+		if _, rest, ok := strings.Cut(s, "\n"); ok {
+			s = strings.TrimSpace(rest)
+		}
+	}
+	first, _, _ := strings.Cut(s, "\n")
+	return first
 }
 
 // --- Chat Completions -------------------------------------------------------------
