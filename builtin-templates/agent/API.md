@@ -169,8 +169,10 @@ What a partitioned instance does differently:
   a run as it streams.
   - `POST /ask` **at the global instance** makes one: a person's must carry
     `share` (409 otherwise — the shared space holds shared conversations;
-    `POST /runs` from a person is refused there alike). A `POST /ask` with
-    `share` in your partition answers 409.
+    `POST /runs` and a new ask's draft, `PUT /ask/upload`, from a person are
+    refused there alike: a shared chat with files is made `hold: true` and
+    uploaded into). A `POST /ask` with `share` in your partition answers
+    409.
   - `POST /join` in your partition is redeemed at the global instance (join
     links are its).
   - `POST /runs/{id}/publish {share, files?, keep?}` in your partition
@@ -178,21 +180,34 @@ What a partitioned instance does differently:
     with `files`, its session files) goes to the global instance as a new
     conversation of yours shared as `share` says (required) → `{run: the
     copy, deleted, left}`; the original is deleted unless `keep` (`left`:
-    files too large to carry, 16 MiB of binary files at most). Subagents'
-    transcripts, memory, grants, sandboxes and the task ledger stay behind.
+    files too large to carry — 16 MiB of session files together at most).
+    The copy is the conversation the model reads: every message with what
+    its tools returned (folded and stubbed ones as they were) and its task
+    ledger (the requests `# Your task` pins, compacted ones too).
+    Subagents' transcripts, memory, grants and sandboxes stay behind. A
+    conversation over 48 MiB as a whole answers 413 — leave its files out.
   - `POST /copy {from, files?}` in your partition makes a **private copy**
     of a shared conversation you can see (`from`: its id) → the new run.
   - The copies travel as a bundle: `GET /runs/{id}/export[?files=1]` (a
     viewer; either home) and `POST /import {conversation, share}` (the
     global instance only; a person's must name `share`). An unpartitioned
-    instance has none of these four routes.
+    instance has none of these four routes. A bundle is its caller's word:
+    at `POST /import` a message keeps its writer only when that is the
+    caller — anyone else's comes as a copy (`origin: "copy"`, `label`: the
+    id it named; the page says "copied · <id>", the model reads it as no
+    one's), and a request in the ledger that isn't the caller's becomes a
+    `copy` one. `POST /copy` reads the global instance's own export, whose
+    writers stand.
   - The page (web and native) lists both homes in **Mine** — your own and
     the shared ones you take part in — and the global instance's in
     **Shared**; `#c=<id>` opens a conversation at its home. The web's Share
     on one of your own is **Share a copy…**; a shared one's share dialog
     offers **Copy to my own space**; **New chat with options** asks who can
-    see it. The global instance's own page (the owner token) is today's
-    single list of its conversations.
+    see it (only you, the team, or people you name). While Mine lists
+    nothing shared, the page reads the shared space's list again when it
+    shows or gains focus, so a conversation shared with you since appears.
+    The global instance's own page (the owner token) is today's single list
+    of its conversations.
 - **Settings are the tile's.** The config, classes, the halt switch and the
   shared skills live in the global instance's `db`. It mirrors them into
   `conf` (kv, `"shared": "read"`), which every partition reads at each use
