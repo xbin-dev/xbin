@@ -24,10 +24,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/fsutil"
@@ -107,18 +109,36 @@ func (b *Broker) openPartVault(doc partVaultDoc) (map[string]string, error) {
 	return out, nil
 }
 
+// partVaultLocks serialize a workspace's partition vault writes with their
+// removals (a root → *sync.Mutex): a write refused while the tile is
+// paused is refused under the lock the switch's wipe takes.
+var partVaultLocks sync.Map
+
+func (b *Broker) partVaultLock() *sync.Mutex {
+	v, _ := partVaultLocks.LoadOrStore(b.Reg.Root, &sync.Mutex{})
+	return v.(*sync.Mutex)
+}
+
 // partVaultWrite replaces t's vault with m, atomically, sealed as every
-// vault is (vaultSeal); an empty map removes the file. The partition's
-// record is made first (partitionrecords.go).
+// vault is (vaultSeal); an empty map removes the file, and the levels it
+// leaves empty. The partition's record is made first
+// (partitionrecords.go). Refused (409) while the tile is paused.
 func (b *Broker) partVaultWrite(t partTarget, m map[string]string) error {
 	p, err := b.partVaultPath(t.tile, t.dep, t.pkey)
 	if err != nil {
+		return err
+	}
+	mu := b.partVaultLock()
+	mu.Lock()
+	defer mu.Unlock()
+	if err := b.partPausedErr(t); err != nil {
 		return err
 	}
 	if len(m) == 0 {
 		if err := os.Remove(p); err != nil && !errNotExist(err) {
 			return err
 		}
+		removeEmptyDirs(filepath.Dir(p), filepath.Dir(filepath.Dir(p)))
 		return nil
 	}
 	if err := b.notePartition(t, false); err != nil {
@@ -197,36 +217,47 @@ func (b *Broker) vaultWriteCall(c vaultCall, m map[string]string) error {
 // partitionVaults counts the people's partitions of tile that keep a vault
 // file, for the admins' listing: a count, never key names (S19).
 func (b *Broker) partitionVaults(tile string) int {
+	n, _ := b.countPartitionVaults(tile)
+	return n
+}
+
+// countPartitionVaults counts tile's partition vault files (<pkey>.json
+// under a deployment's level), and says which levels it couldn't list.
+func (b *Broker) countPartitionVaults(tile string) (int, error) {
 	n := 0
-	deps, _ := os.ReadDir(b.partVaultDir(tile)) // walk-ok: data/vault is xbind's own
+	deps, err := os.ReadDir(b.partVaultDir(tile)) // walk-ok: data/vault is xbind's own
+	if errNotExist(err) {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+	var errs []error
 	for _, d := range deps {
 		if !d.IsDir() || !util.DeploymentNameOK(d.Name()) {
 			continue
 		}
-		files, _ := os.ReadDir(filepath.Join(b.partVaultDir(tile), d.Name())) // walk-ok: as above
+		files, err := os.ReadDir(filepath.Join(b.partVaultDir(tile), d.Name())) // walk-ok: as above
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		for _, f := range files {
-			if pkey, ok := strings.CutSuffix(f.Name(), ".json"); ok && util.PartitionKeyOK(pkey) {
+			if pkey, ok := strings.CutSuffix(f.Name(), ".json"); ok && util.PartitionKeyOK(pkey) && f.Type().IsRegular() {
 				n++
 			}
 		}
 	}
-	return n
+	return n, errors.Join(errs...)
 }
 
 // ---- holds data and the switch's wipe ----
 
 // holdsPartitionVault: a person's partition of the tile keeps a vault file
-// (each is removed when it empties). A directory that can't be read holds
-// data.
+// (each is removed when it empties) — directories a removal left behind
+// hold nothing. A directory that can't be read holds data.
 func holdsPartitionVault(b *Broker, ask registry.PartitionAsk) (bool, error) {
-	ents, err := os.ReadDir(b.partVaultDir(ask.Tile)) // walk-ok: data/vault is xbind's own
-	switch {
-	case errNotExist(err):
-		return false, nil
-	case err != nil:
-		return true, err
-	}
-	return len(ents) > 0, nil
+	n, err := b.countPartitionVaults(ask.Tile)
+	return n > 0 || err != nil, err
 }
 
 // wipePartitionVaults removes every person's partition vault of the tile on
@@ -235,6 +266,11 @@ func holdsPartitionVault(b *Broker, ask registry.PartitionAsk) (bool, error) {
 func wipePartitionVaults(b *Broker, t wipeTarget, sum *wipeSummary) error {
 	if t.Kind != wipeEverything {
 		return nil
+	}
+	if !t.DryRun {
+		mu := b.partVaultLock() // no write that read the vault lands after
+		mu.Lock()
+		defer mu.Unlock()
 	}
 	dir := b.partVaultDir(t.Tile)
 	var errs []error
@@ -267,4 +303,59 @@ func wipePartitionVaults(b *Broker, t wipeTarget, sum *wipeSummary) error {
 		return errors.Join(errs...)
 	}
 	return errors.Join(append(errs, os.RemoveAll(dir))...)
+}
+
+// migratePartitionVaults seals people's partition vaults written in plain
+// (--insecure-vault) now that a barrier is initialized, as migrateVaults
+// does the global ones: each keeps its tile, deployment and partition.
+// Idempotent; a file it can't read or seal stays as it is.
+func (b *Broker) migratePartitionVaults() {
+	top := filepath.Join(b.Reg.Root, "data", "vault", partitionsLevel)
+	keys, err := os.ReadDir(top) // walk-ok: data/vault is xbind's own; no sandbox sees it
+	if err != nil {
+		return
+	}
+	for _, k := range keys {
+		if !k.IsDir() || !tileKeyOK(k.Name()) {
+			continue
+		}
+		deps, _ := os.ReadDir(filepath.Join(top, k.Name())) // walk-ok: as above
+		for _, d := range deps {
+			if !d.IsDir() || !util.DeploymentNameOK(d.Name()) {
+				continue
+			}
+			dir := filepath.Join(top, k.Name(), d.Name())
+			files, _ := os.ReadDir(dir) // walk-ok: as above
+			for _, f := range files {
+				if pkey, ok := strings.CutSuffix(f.Name(), ".json"); ok && util.PartitionKeyOK(pkey) && f.Type().IsRegular() {
+					b.sealPartitionVault(filepath.Join(dir, f.Name()))
+				}
+			}
+		}
+	}
+}
+
+// sealPartitionVault rewrites the plain partition vault file p sealed.
+func (b *Broker) sealPartitionVault(p string) {
+	doc, ok, err := readPartVaultDoc(p)
+	if err != nil || !ok || doc.Enc > 0 || doc.Tile == "" {
+		return
+	}
+	m := doc.Plain
+	if m == nil {
+		m = map[string]string{}
+	}
+	plain, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	ct, err := b.barrier.Encrypt(plain)
+	if err != nil {
+		return
+	}
+	doc.Plain, doc.Enc, doc.Data = nil, 1, ct
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err == nil && fsutil.WriteFileAtomic(p, out, 0o600) == nil {
+		slog.Info("vault: migrated a person's partition vault to encrypted", "tile", doc.Tile, "partition", doc.Partition)
+	}
 }

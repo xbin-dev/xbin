@@ -159,6 +159,7 @@ func (b *Broker) migrateVaults() {
 		}
 	}
 	b.migrateDeploymentVaults() // the vaults beyond main, below data/vault/.deployments (deployvault.go)
+	b.migratePartitionVaults()  // people's partitions', below data/vault/.partitions (partitionvault.go)
 }
 
 // vaultAccess parses {rest...} into (component, key) using the component
@@ -307,6 +308,10 @@ func (b *Broker) vaultError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errVaultUnconfigured) {
 		server.WriteError(w, http.StatusServiceUnavailable, err.Error(), "/docs/auth.md")
+		return
+	}
+	if se := (statusErr{}); errors.As(err, &se) { // a person's partition's vault while its tile is paused (partitionvault.go)
+		server.WriteError(w, se.code, se.msg, "/docs/partitions.md")
 		return
 	}
 	server.WriteError(w, http.StatusInternalServerError, err.Error())

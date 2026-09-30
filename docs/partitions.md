@@ -397,19 +397,24 @@ partition from its own store:
   other tiles, the root token, workspace admins — reaches the global
   instance's vault; admins' vault listing counts how many people keep one,
   never their key names.
-- **Cron jobs** are the partition's own: at most 16, none more often than
-  once a minute. They tick that partition while its person exists, is
+- **Cron jobs** are the partition's own: at most 16 (the 17th: 409), none
+  more often than once a minute (400). They tick that partition while its person exists, is
   enabled and can read the tile, and resume by themselves when they can
   again. A tick whose background start is deferred (too many people's
   instances starting) is tried again, with jitter, before the next one is
   due; one that stays deferred is missed and counted.
-- **Bus subscriptions** are the partition's own too, at most 16. An event
-  a person's partition publishes on its scope's own bus reaches that
-  partition's subscriptions (and may start it); an event of a shared bus, of
-  another tile's scope or of an unpartitioned scope reaches a person's
-  subscription only while their partition runs — it never starts it — and a
-  skipped one is counted (`dormantDrops`). The global instance's events
-  never reach people's partitions, and theirs never reach it.
+- **Bus subscriptions** are the partition's own too, at most 16 (the 17th:
+  409). An event a person's partition publishes on its scope's own bus
+  reaches that partition's subscriptions (and may start it); an event of a
+  shared bus, of an unpartitioned scope, or one another tile's code
+  published for the person, reaches a person's subscription only while their
+  partition runs — it never starts it — and a skipped one is counted
+  (`dormantDrops`). The global instance's events never reach people's
+  partitions, and theirs never reach it. Subscribing to another partitioned
+  tile's bus follows the rule of calling it: the person must be able to read
+  that tile and, with the workspace's `partitionConsent` policy on, have
+  consented — otherwise 403, and a subscription made before gets nothing
+  (listed `"dormant": true`) until they can again.
 - **Interface instances and ingress hosts** registered from a person's
   partition answer 200 with `"dormant": true`, are kept for that partition,
   and never route: `provider#instance` bindings and the public surface are
@@ -420,7 +425,9 @@ partition from its own store:
 
 `?partition=` on the vault, cron or bus-subscription routes of a partitioned
 tile is refused (400) for everyone: a partition's own stores are reached only
-from inside it. A switch of the tile's mode that deletes its data deletes
+from inside it. While the tile is paused — its mode pending or invalid, or a
+switch deleting its data — a person's partition can't change its vault or
+registrations (409). A switch of the tile's mode that deletes its data deletes
 all of these (removing or adding `"global"` keeps people's). They are
 deleted with the partition 30 days after its tile is removed (unless the
 tile comes back) or its person's id is given to someone new.

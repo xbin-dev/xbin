@@ -3366,7 +3366,11 @@ DELETE /vault/<component>/<key>    backend/terminal self, or admin.
                                    cron and bus-subscription routes → 400 "a
                                    partition's vault and registrations are
                                    reached only from inside it: …", for
-                                   everyone; ignored on other tiles
+                                   everyone; ignored on other tiles. While
+                                   the tile is paused (its partition mode
+                                   pending or invalid, or a switch deleting
+                                   its data) a partition's vault writes →
+                                   409
 
 GET    /kv/res:<scope>/<name>/?prefix=   reader. {keys}
 GET    /kv/res:<scope>/<name>/<key>      reader. raw bytes
@@ -3462,7 +3466,15 @@ DELETE /bus/subscriptions/<name>[?component=]  element: own; admin: any.
                                          On a partitioned tile its credentials
                                          acting in a person's partition list,
                                          subscribe and delete that partition's
-                                         own (≤16; rows gain dormantDrops);
+                                         own (≤16, the 17th: 409; rows gain
+                                         dormantDrops); on a partitioned
+                                         scope's bus the partition must reach
+                                         that scope — its person can read it
+                                         and, with partitionConsent on,
+                                         consented — else 403, and deliveries
+                                         stop while it doesn't (the row is
+                                         dormant); while the tile is paused
+                                         (pending, invalid, switching) → 409;
                                          admins reach the global instance's
                                          only; ?partition= → 400 (the vault
                                          rows above)
@@ -3701,10 +3713,13 @@ DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
                                          On a partitioned tile its credentials
                                          acting in a person's partition list,
                                          schedule and delete that partition's
-                                         own jobs (≤16, none more often than
-                                         once a minute: 400); admins reach the
-                                         global instance's only; ?partition= →
-                                         400 (the vault rows above)
+                                         own jobs (≤16, the 17th: 409; none
+                                         more often than once a minute: 400;
+                                         while the tile is paused — pending,
+                                         invalid, switching — 409); admins
+                                         reach the global instance's only;
+                                         ?partition= → 400 (the vault rows
+                                         above)
 ```
 
 ¹ `component` is owner-only; elements always schedule (and subscribe)
@@ -3747,10 +3762,17 @@ instance's only. Their ticks and deliveries carry the partition
 same incarnation), is enabled and can read the tile — asked at every tick
 and delivery, so regaining access resumes them. A tick whose start the
 runner defers is tried again with jitter until the next tick is due. A
-subscription receives its own partition's events on its scope's own bus
-(which may start it), and a shared bus's, or another scope's, only while the
-partition runs (skipped ones count as `dormantDrops`); never the global
-instance's.
+subscription receives its own partition's events (a partitioned scope's own
+bus, its person's namespace) — which start the partition only when its own
+tile published them — and a shared bus's, an unpartitioned scope's or one
+another tile published for the person only while the partition runs
+(skipped ones count as `dormantDrops`); never the global instance's. On a
+partitioned scope's bus it is registered, and each event delivered, only
+while the partition reaches that scope as a call of it would: its person can
+read the scope's tile and, with the `partitionConsent` policy on, consented
+(403 at registration; a delivery refused meanwhile counts as
+`dormantEvents`, its reason in `lastError`). A failed tick or delivery logs
+its status, never the partition's answer.
 
 **Push notifications** (D94). The xbin app receives pushes through a push relay
 (the repo's `relay/`, relay/README.md): it holds the APNs key, maps an opaque

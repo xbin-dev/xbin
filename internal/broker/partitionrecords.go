@@ -21,7 +21,7 @@ package broker
 //   - the registrations of the directory are loaded at boot for the right
 //     tile (a TileKey is a hash);
 //   - a person whose uid an older xbind's rewrite of the users store dropped
-//     adopts it back (partitionAdoptUIDAll, beside the namespaces' ns.json);
+//     adopts it back (adoptablePartitionUID, beside the namespaces' ns.json);
 //   - a person's deletion, or their id held by someone new, orphans the
 //     partition (the same rules as its namespaces', partitionOrphanEvent),
 //     and the sweep deletes an orphan after partitionRetention — never while
@@ -61,7 +61,10 @@ const (
 
 // partitionRecord is one user partition's partition.json (03 §E). dormant
 // (disabled, or lost read) isn't stored: it is the liveness gate's answer
-// at every use (PD-20).
+// at every use (PD-20). The crash metadata admins see (PD-24) — the last
+// exit the runner's crash watch saw, how many there were, and whether its
+// breaker holds the instance — survives a restart of xbind here
+// (NotePartitionExit); a start clears crashLoop.
 type partitionRecord struct {
 	Schema      int    `json:"schema"`
 	Tile        string `json:"tile"`
@@ -73,7 +76,10 @@ type partitionRecord struct {
 	State       string `json:"state"`            // active | orphaned
 	Reason      string `json:"reason,omitempty"` // an orphan's event: user-deleted | tile-removed
 	Orphaned    string `json:"orphaned,omitempty"`
-	Rebuilt     bool   `json:"rebuilt,omitempty"` // made from the namespaces' ns.json
+	Rebuilt     bool   `json:"rebuilt,omitempty"`  // made from the namespaces' ns.json
+	LastExit    string `json:"lastExit,omitempty"` // RFC 3339: an exit nothing asked for
+	Restarts    int    `json:"restarts,omitempty"` // such exits, since the record was made
+	CrashLoop   bool   `json:"crashLoop,omitempty"`
 }
 
 // partTarget is one user partition of a tile's deployment: whose its
@@ -195,20 +201,50 @@ func (b *Broker) notePartition(t partTarget, started bool) error {
 		return nil
 	}
 	if started {
-		rec.LastStarted = now.Format(time.RFC3339)
+		rec.LastStarted, rec.CrashLoop = now.Format(time.RFC3339), false
 	}
 	return writePartitionRecordAt(dir, rec)
 }
 
 // notePartitionStart records a start of user partition part of deployment
-// dep of tile (PartitionEnv: once per spawn), best effort.
+// dep of tile (PartitionEnv: once per spawn), best effort; none while the
+// tile is paused (nothing of it starts then, and a switch's wipe may be
+// deleting the record).
 func (b *Broker) notePartitionStart(tile, dep, part, pkey, uid string) {
 	id, ok := util.Partition(part).User()
-	if !ok {
+	if !ok || b.partitionPaused(tile, dep) {
 		return
 	}
 	t := partTarget{tile: tile, dep: dep, pkey: pkey, part: util.Partition(part), user: id, uid: uid}
 	if err := b.notePartition(t, true); err != nil {
+		slog.Warn("partitions: the partition's record", "tile", tile, "partition", part, "err", err)
+	}
+}
+
+// NotePartitionExit records an exit of user partition part (id pkey) of
+// deployment dep of tile that the runner's crash watch saw — nothing asked
+// for it — in its record: the time, one more restart, and whether the
+// breaker now holds the instance (crashLoop). The runner's PartitionExit
+// hook, called outside its state's lock. A partition without a record (its
+// data deleted meanwhile) gets none: an exit never makes one.
+func (b *Broker) NotePartitionExit(tile, dep, part, pkey string, crashLoop bool) {
+	if _, ok := util.Partition(part).User(); !ok {
+		return
+	}
+	dir, err := b.partitionRecordDir(tile, dep, pkey)
+	if err != nil {
+		return
+	}
+	mu := b.partRecLock()
+	mu.Lock()
+	defer mu.Unlock()
+	rec, ok, err := readPartitionRecordAt(dir)
+	if err != nil || !ok || rec.Tile != tile {
+		return
+	}
+	rec.LastExit, rec.CrashLoop = time.Now().UTC().Format(time.RFC3339), crashLoop
+	rec.Restarts++
+	if err := writePartitionRecordAt(dir, rec); err != nil {
 		slog.Warn("partitions: the partition's record", "tile", tile, "partition", part, "err", err)
 	}
 }
@@ -304,7 +340,8 @@ func (b *Broker) eachPartitionRecord(tile string, fn func(d partitionDirOf, rec 
 
 // rebuildPartitionRecords writes the partition.json a namespace's ns.json
 // names when it is missing (03 §E): the tile is the scope's root, which
-// owns the namespace.
+// owns the namespace. None while the tile is paused: a switch's wipe may be
+// between the records and the namespaces.
 func (b *Broker) rebuildPartitionRecords() {
 	_ = b.eachPartitionNamespace("", func(id nsID) {
 		m, ok, err := b.readNS(id)
@@ -323,6 +360,9 @@ func (b *Broker) rebuildPartitionRecords() {
 		if _, found, err := readPartitionRecordAt(dir); found || err != nil {
 			return
 		}
+		if b.partitionPaused(cmp.Or(pi.Tile, id.scope), id.dep) {
+			return // a switch may be deleting it (the records' wipe holds this lock): the next sweep
+		}
 		rec := partitionRecord{Schema: partRecordSchema, Tile: cmp.Or(pi.Tile, id.scope), Dep: id.dep, User: pi.User, UID: pi.UID,
 			Created: pi.Created, State: partStateActive, Rebuilt: true}
 		if pi.Orphan != "" {
@@ -334,38 +374,39 @@ func (b *Broker) rebuildPartitionRecords() {
 	})
 }
 
-// partitionAdoptUIDAll is the uid a users-store record without one (whose
-// Created is created, Unix seconds) adopts (PD-43): the one uid its live
-// partitions' records carry — the namespaces' ns.json and the partitions'
-// partition.json alike — made after the second the person's record was
-// created. Two uids, or none: "" (a new one is minted).
-func (b *Broker) partitionAdoptUIDAll(userID string, created int64) string {
-	after := time.Unix(created, 0).Add(time.Second)
-	uids := map[string]bool{}
-	note := func(user, uid, at string, orphan bool) {
-		t, err := time.Parse(time.RFC3339Nano, at)
-		if user == userID && !orphan && uid != "" && err == nil && !t.Before(after) {
-			uids[uid] = true
-		}
-	}
-	_ = b.eachPartitionNamespace("", func(id nsID) {
-		if m, ok, err := b.readNS(id); err == nil && ok && m.Partition != nil {
-			note(m.Partition.User, m.Partition.UID, m.Partition.Created, m.Partition.Orphan != "")
-		}
-	})
+// eachRecordIdentity calls note with whose every readable partition.json
+// is (user, uid), when it was made and whether it is orphaned: the records'
+// half of adoptablePartitionUID's rule (PD-43), beside the namespaces'
+// ns.json.
+func (b *Broker) eachRecordIdentity(note func(user, uid, created string, orphan bool)) {
 	_ = b.eachPartitionRecord("", func(_ partitionDirOf, rec partitionRecord) {
 		note(rec.User, rec.UID, rec.Created, rec.State == partStateOrphaned)
 	})
-	if len(uids) > 1 {
-		slog.Warn("partitions: records of one person carry different uids; none is adopted", "user", userID)
+}
+
+// readoptPartitionUID gives person userID back the uid their partitions'
+// records agree on (adoptablePartitionUID) when an older xbind's rewrite of
+// the users store dropped it (PD-43) — at boot's load of the registrations,
+// so their jobs and subscriptions fire without waiting for their next
+// request on the tile. Nothing when the records name no uid, or two: a new
+// uid is minted only at their next partition, as ever.
+func (b *Broker) readoptPartitionUID(userID string) {
+	if b.Users == nil || partitionAdoptUID == nil {
+		return
 	}
-	if len(uids) != 1 {
-		return ""
+	u, ok := b.Users.Get(userID)
+	if !ok || u.UID != "" {
+		return
 	}
-	for uid := range uids {
-		return uid
+	uid, ok := partitionAdoptUID(b, u.ID, time.Unix(u.Created, 0))
+	if !ok {
+		return
 	}
-	return ""
+	if _, err := b.Users.EnsureUID(u.ID, uid); err != nil {
+		slog.Warn("partitions: re-adopting a person's uid from their partitions' records", "user", userID, "err", err)
+		return
+	}
+	slog.Info("partitions: a person's uid re-adopted from their partitions' records", "user", userID)
 }
 
 // orphanPartitionRecords marks person userID's partitions (of uid, when
@@ -454,16 +495,37 @@ func (b *Broker) dropPartition(t partTarget) error {
 	if err != nil {
 		return err
 	}
-	b.dropPartRows(t.tile, t.dep, t.pkey)
 	vf, err := b.partVaultPath(t.tile, t.dep, t.pkey)
 	if err != nil {
 		return err
 	}
-	errs := []error{os.RemoveAll(dir)}
+	defer b.lockPartFiles()() // no rewrite that read the files lands after
+	b.dropPartRows(t.tile, t.dep, t.pkey)
+	vmu := b.partVaultLock()
+	vmu.Lock()
+	defer vmu.Unlock()
+	var errs []error
 	if err := os.Remove(vf); err != nil && !errNotExist(err) {
 		errs = append(errs, err)
 	}
+	removeEmptyDirs(filepath.Dir(vf), filepath.Dir(filepath.Dir(vf)))
+	mu := b.partRecLock()
+	mu.Lock()
+	defer mu.Unlock()
+	errs = append(errs, os.RemoveAll(dir))
+	removeEmptyDirs(filepath.Dir(dir)) // the deployment's level; the TileKey's keeps mode.json
 	return errors.Join(errs...)
+}
+
+// removeEmptyDirs removes each directory of dirs, in order, while it is
+// empty (os.Remove refuses one that isn't): the levels a removal left
+// behind, so "holds data" never counts an empty directory.
+func removeEmptyDirs(dirs ...string) {
+	for _, d := range dirs {
+		if os.Remove(d) != nil {
+			return
+		}
+	}
 }
 
 // DropPartition deletes user partition pkey of deployment dep of tile's
@@ -520,6 +582,12 @@ func wipePartitionRecords(b *Broker, t wipeTarget, sum *wipeSummary) error {
 	if t.Kind != wipeEverything {
 		return nil
 	}
+	if !t.DryRun {
+		defer b.lockPartFiles()() // no rewrite that read the files lands after
+		mu := b.partRecLock()
+		mu.Lock()
+		defer mu.Unlock()
+	}
 	var dirs []partitionDirOf
 	err := b.eachPartitionDir(t.Tile, func(d partitionDirOf) { dirs = append(dirs, d) })
 	if err != nil {
@@ -527,7 +595,7 @@ func wipePartitionRecords(b *Broker, t wipeTarget, sum *wipeSummary) error {
 	}
 	var errs []error
 	for _, d := range dirs {
-		if rec, ok, _ := readPartitionRecordAt(d.dir); ok {
+		if rec, ok, _ := readPartitionRecordAt(d.dir); ok { // under partRecLock: readPartitionRecordAt takes none
 			sum.addPerson(rec.User)
 		}
 		if t.DryRun {

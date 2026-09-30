@@ -25,7 +25,8 @@ package broker
 // Seams other packs fill (the defaults fail closed or do nothing):
 // partitionConsentHolds (F10), personalBindGrant (F15) and partitionEdgeSeam
 // (F10's ledger, partitionreach.go: the one count for calls and data alike);
-// partitionAdoptUID is F4's adoptablePartitionUID (partitionwire.go).
+// partitionAdoptUID is adoptablePartitionUID (partitionwire.go): ns.json
+// and partition.json alike.
 
 import (
 	"cmp"
@@ -76,7 +77,8 @@ var (
 	// they were created at or after the person's record (created; 03 §E,
 	// PD-43) and agree: what a person whose uid an older xbind dropped
 	// adopts instead of a new one. ok false: none. nil while no store keeps
-	// such records; F4's adoptablePartitionUID fills it, and
+	// such records; adoptablePartitionUID fills it (the namespaces' ns.json
+	// and the partitions' partition.json), and
 	// TestPartitionUIDAdoptionWired fails a merge that leaves it nil.
 	partitionAdoptUID func(b *Broker, userID string, created time.Time) (uid string, ok bool)
 )

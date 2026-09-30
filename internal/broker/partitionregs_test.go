@@ -556,16 +556,23 @@ func TestPartitionRecordsReadopt(t *testing.T) {
 		b.Users = st
 	}
 	dropUID()
-	tickAll(b)
-	if got := calls.take(); len(got) != 0 {
-		t.Errorf("with no uid in the store the job fired: %+v", got)
+	// the next boot's load of the registrations adopts it back at once, so
+	// her job fires before she makes any request; a person without
+	// partition records gets no uid at boot
+	calls.install(b)
+	if u, _ := b.Users.Get("alice"); u.UID != uid1 {
+		t.Fatalf("re-adoption at boot: %q, want %q", u.UID, uid1)
 	}
-	if uid, err := b.mintPartitionUID("alice"); err != nil || uid != uid1 {
-		t.Fatalf("re-adoption: %q %v, want %q", uid, err, uid1)
+	if u, _ := b.Users.Get("carol"); u.UID != "" {
+		t.Errorf("boot minted a uid for carol, who has no partition: %q", u.UID)
 	}
 	tickAll(b)
 	if got := calls.take(); len(got) != 1 {
 		t.Errorf("after re-adoption: %d ticks, want 1", len(got))
+	}
+	// the request path's minting answers the same
+	if uid, err := b.mintPartitionUID("alice"); err != nil || uid != uid1 {
+		t.Fatalf("re-adoption: %q %v, want %q", uid, err, uid1)
 	}
 
 	// deleted and made again: a new incarnation

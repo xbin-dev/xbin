@@ -424,6 +424,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 				recent++
 			}
 		}
+		r.partitionExited(s, recent >= crashLimit)
 		if recent >= crashLimit { // a save never reaches pinned code (07-runtime §7)
 			s.lastErr = r.crashLoop(s, code, recent)
 			r.emitState(s, "build-error", s.lastErr.Error())

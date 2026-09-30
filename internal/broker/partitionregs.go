@@ -31,13 +31,15 @@ package broker
 //     a minute. A tick the runner defers (its background admission,
 //     503 partition start deferred) is retried with jitter until the next
 //     tick is due; one still undelivered is counted (MissedTicks).
-//   - Bus: at most partBusCap subscriptions a partition. An event of the
-//     partition's own namespace — its scope's own bus, stamped with it —
-//     reaches its subscriptions and may start it (its publisher is the
-//     partition, which runs); an event of a shared bus, of an unpartitioned
-//     scope's bus or of another tile's scope reaches it only while the
-//     partition runs, never cold-starting it; one skipped is counted
-//     (dormantDrops). Global's events never reach a person's partition.
+//   - Bus: at most partBusCap subscriptions a partition. An event stamped
+//     with the partition reaches its subscriptions, and may start it when
+//     the partition itself published it (partitionbussubs.go); any other —
+//     a shared bus's, an unpartitioned scope's, one another tile published
+//     for the person — only while the partition runs, never cold-starting
+//     it; one skipped is counted (dormantDrops). Global's events never
+//     reach a person's partition, and a partitioned scope's bus reaches a
+//     subscription only while the partition reaches that scope (its person
+//     reads it; consent, with partitionConsent on: PD-13).
 //   - Interface instances and ingress hosts: stored and answered with
 //     success, dormant: they never route — the public surface and #instance
 //     bindings are the global instance's (PD-21).
@@ -55,6 +57,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -202,6 +205,53 @@ func (b *Broker) partOf(w http.ResponseWriter, p auth.Principal, tile string) (t
 	return t, true, true
 }
 
+// partPausedErr refuses a change to t's registrations or vault while its
+// tile is paused — its partition mode pending or invalid, or a switch
+// deleting its data (01 §2.3, §2.5): 409. Asked under the lock the switch's
+// wipe takes for that store, so nothing written after the wipe brings the
+// partition back.
+func (b *Broker) partPausedErr(t partTarget) error {
+	why := b.PartitionHoldReason(t.tile)
+	if why == "" || !b.isPrimary(t.tile, t.dep) {
+		return nil
+	}
+	return statusErr{http.StatusConflict, t.tile + " " + why + ": a person's partition's registrations and vault can't change meanwhile"}
+}
+
+// partRegLocks serialize the dormant registration files' writes (interface
+// instances and ingress hosts, written whole under no plane's file lock)
+// with the drops and wipes (a workspace root → *sync.Mutex).
+var partRegLocks sync.Map
+
+func (b *Broker) partRegLock() *sync.Mutex {
+	v, _ := partRegLocks.LoadOrStore(b.Reg.Root, &sync.Mutex{})
+	return v.(*sync.Mutex)
+}
+
+// lockPartFiles holds every lock a write of a partition's registration
+// files takes — cron's and the bus's file locks, in
+// dropDeploymentRegistrations' order, then the dormant files' — so a drop
+// or a wipe never races a rewrite that read the files before it.
+func (b *Broker) lockPartFiles() (unlock func()) {
+	if b.cron != nil {
+		b.cron.fileMu.Lock()
+	}
+	if b.bus != nil {
+		b.bus.fileMu.Lock()
+	}
+	l := b.partRegLock()
+	l.Lock()
+	return func() {
+		l.Unlock()
+		if b.bus != nil {
+			b.bus.fileMu.Unlock()
+		}
+		if b.cron != nil {
+			b.cron.fileMu.Unlock()
+		}
+	}
+}
+
 // ---- cron ----
 
 // partJob is one scheduled job of a person's partition.
@@ -238,31 +288,43 @@ func partScheduleOK(spec string) error {
 	return nil
 }
 
-// setPart makes rows exactly t's scheduled jobs.
+// setPart makes rows exactly t's scheduled jobs. A job whose row is
+// unchanged keeps its schedule entry, its missed ticks and a retry pending
+// for it; a changed one is scheduled anew.
 func (cr *cronRunner) setPart(t partTarget, rows []depCronRow) {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	prefix := partKey(t, "")
-	for key, pj := range cr.part {
-		if strings.HasPrefix(key, prefix) {
-			cr.sched.Remove(pj.entry)
-			delete(cr.part, key)
-		}
-	}
+	keep := map[string]bool{}
 	for _, row := range rows {
 		row.Role = cmp.Or(row.Role, "writer")
 		if err := row.check(); err != nil {
 			slog.Warn("cron: dropping a partition's job", "tile", t.tile, "partition", t.part, "job", row.Name, "err", err)
 			continue
 		}
-		pj := &partJob{t: t, job: row.job(t.tile)}
-		key := partKey(t, row.Name)
+		key, job := partKey(t, row.Name), row.job(t.tile)
+		if old, ok := cr.part[key]; ok {
+			if old.job == job {
+				keep[key] = true
+				continue
+			}
+			cr.sched.Remove(old.entry)
+			delete(cr.part, key)
+		}
+		pj := &partJob{t: t, job: job}
 		id, err := cr.sched.AddFunc(row.Schedule, func() { cr.firePart(key, pj) })
 		if err != nil {
 			continue
 		}
 		pj.entry = id
 		cr.part[key] = pj
+		keep[key] = true
+	}
+	prefix := partKey(t, "")
+	for key, pj := range cr.part {
+		if strings.HasPrefix(key, prefix) && !keep[key] {
+			cr.sched.Remove(pj.entry)
+			delete(cr.part, key)
+		}
 	}
 }
 
@@ -270,6 +332,9 @@ func (cr *cronRunner) setPart(t partTarget, rows []depCronRow) {
 func (cr *cronRunner) rewritePart(t partTarget, change func([]depCronRow) ([]depCronRow, error)) error {
 	cr.fileMu.Lock()
 	defer cr.fileMu.Unlock()
+	if err := cr.b.partPausedErr(t); err != nil {
+		return err
+	}
 	var doc partCronDoc
 	if err := cr.b.readPartFile(t, depCronFile, &doc); err != nil {
 		return err
@@ -320,9 +385,8 @@ func partDeferred(code int, body string) bool {
 func (cr *cronRunner) deliverPart(key string, pj *partJob, dispatch func(auth.Principal, string, string) (int, string), next time.Time) {
 	code, body := dispatch(partCronPrincipal(pj), pj.job.Component, pj.job.Path)
 	if !partDeferred(code, body) {
-		if code >= 400 {
-			slog.Warn("cron job failed", "job", pj.job.Name, "component", pj.job.Component, "partition", pj.t.part,
-				"status", code, "body", firstLine(body))
+		if code >= 400 { // the status only: the body is the person's partition's (PD-46)
+			slog.Warn("cron job of a person's partition failed", "job", pj.job.Name, "component", pj.job.Component, "partition", pj.t.part, "status", code)
 		}
 		return
 	}
@@ -442,26 +506,54 @@ func (b *Broker) partRouteOf(w http.ResponseWriter, p auth.Principal, comp strin
 	if !isPart || !ok {
 		return "", isPart, ok
 	}
+	if err := b.partPausedErr(t); err != nil {
+		writeRegErr(w, err)
+		return "", true, false
+	}
 	return partRouteDep(t), true, true
 }
 
 // storePartInstances writes a partition's interface instances (dormant).
 func (b *Broker) storePartInstances(t partTarget, inst map[string]string) error {
-	return b.writePartFile(t, depIfaceFile, partIfaceDoc{t.head(), inst}, len(inst) == 0)
+	return b.storePartDormant(t, depIfaceFile, partIfaceDoc{t.head(), inst}, len(inst) == 0)
 }
 
 // storePartHosts writes a partition's ingress hosts (dormant).
 func (b *Broker) storePartHosts(t partTarget, hosts []string) error {
-	return b.writePartFile(t, depIngressFile, partIngressDoc{t.head(), hosts}, len(hosts) == 0)
+	return b.storePartDormant(t, depIngressFile, partIngressDoc{t.head(), hosts}, len(hosts) == 0)
+}
+
+// storePartDormant writes one of t's dormant registration files, under the
+// lock its drops and wipes take, refused while its tile is paused.
+func (b *Broker) storePartDormant(t partTarget, file string, doc any, empty bool) error {
+	l := b.partRegLock()
+	l.Lock()
+	defer l.Unlock()
+	if err := b.partPausedErr(t); err != nil {
+		return err
+	}
+	return b.writePartFile(t, file, doc, empty)
 }
 
 // ---- boot, drops, counts ----
 
 // loadParts schedules every person's partition's jobs and holds their
 // subscriptions, from their files (boot: after the dispatches are set). A
-// directory whose record can't be read keeps its files, unloaded.
+// directory whose record can't be read keeps its files, unloaded. A person
+// whose uid an older xbind's rewrite of the users store dropped adopts it
+// back from the records now (readoptPartitionUID), so their jobs fire
+// without waiting for their next request on the tile.
 func (b *Broker) loadParts(cronToo, busToo bool) {
+	lost := map[string]bool{}
+	defer func() {
+		for id := range lost {
+			b.readoptPartitionUID(id)
+		}
+	}()
 	_ = b.eachPartitionRecord("", func(d partitionDirOf, rec partitionRecord) {
+		if rec.State != partStateOrphaned && b.storedPartitionUID(rec.User) == "" {
+			lost[rec.User] = true
+		}
 		t := partTarget{tile: rec.Tile, dep: d.dep, pkey: d.pkey, part: util.UserPartition(rec.User), user: rec.User, uid: rec.UID}
 		if cronToo {
 			var doc partCronDoc
@@ -518,8 +610,12 @@ func (b *Broker) dropPartRows(tile, dep, pkey string) int64 {
 // partitions of path and the tiles under it before a new tile is created
 // there (D85, as dropDormantAt does the deployments'): the rows the broker
 // holds and the files. Records and vaults stay leftovers of the path
-// (partitionLeftovers).
+// (partitionLeftovers). The caller, dropDormantAt, holds cron's and the
+// bus's file locks; the dormant files' is taken here.
 func (b *Broker) dropPartitionRegistrationsAt(path string) int {
+	l := b.partRegLock()
+	l.Lock()
+	defer l.Unlock()
 	n := 0
 	_ = b.eachPartitionRecord("", func(d partitionDirOf, rec partitionRecord) {
 		if rec.Tile != path && !strings.HasPrefix(rec.Tile, path+"/") {
@@ -542,6 +638,9 @@ func (b *Broker) dropPartitionRegistrationsAt(path string) int {
 func wipePartitionRegistrations(b *Broker, t wipeTarget, sum *wipeSummary) error {
 	if t.Kind != wipeEverything {
 		return nil
+	}
+	if !t.DryRun {
+		defer b.lockPartFiles()()
 	}
 	var errs []error
 	err := b.eachPartitionDir(t.Tile, func(d partitionDirOf) {

@@ -111,6 +111,13 @@ type PartitionHooks struct {
 	// person's sockets only (02 §9): build-start/-ok/-error and reload.
 	// nil: the event is dropped — never published tile-wide.
 	PartitionEvent func(tile, dep, part, typ, text string)
+	// PartitionExit records an exit of user partition part (id pkey) of
+	// deployment dep of tile that the crash watch saw — no stop or
+	// replacement asked for it — and whether the crash-loop breaker now
+	// holds the instance (the broker's partition.json: lastExit, restarts,
+	// crashLoop, which survive a restart of xbind; 03 §E, PD-24). Called on
+	// its own goroutine, outside the state's lock. nil: nothing recorded.
+	PartitionExit func(tile, dep, part, pkey string, crashLoop bool)
 	// PartitionCapsFor answers the running caps an admin or a tile manager
 	// set for tile's user partitions and the workspace's (POST
 	// /partitions/limits); 0 = the default derived from memory
@@ -577,6 +584,14 @@ func (r *Runner) crashLoop(s *state, code Code, n int) error {
 		return crashLoopError(s.comp, s.dep, code, n)
 	}
 	return partCrashLoop{fmt.Errorf("%s's instance is crash-looping (%d exits); a change to the tile's code retries it — its log is theirs (bx logs in their terminal)", s.pt.part, n)}
+}
+
+// partitionExited tells PartitionExit of an exit of user partition state s
+// the crash watch saw (it holds s.mu: the hook runs on its own goroutine).
+func (r *Runner) partitionExited(s *state, crashLoop bool) {
+	if f := r.PartitionExit; s.pt != nil && f != nil {
+		go f(s.comp, s.dep, s.pt.part, s.pt.pkey, crashLoop)
+	}
 }
 
 // afterExit is the crash watch's alwaysOn hook for state s: a user

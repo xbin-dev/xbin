@@ -315,15 +315,17 @@ func (bs *busSubs) publish(resource, topic string, data any) { bs.publishIn(reso
 // addressed namespace that is, and queues nothing for those whose deployment
 // isn't in the active set, counting the event as dormant (dormant.go).
 func (bs *busSubs) publishIn(resource, ns, topic string, data any) {
-	bs.publishStamped(resource, ns, topic, data, "")
+	bs.publishStamped(resource, ns, topic, data, "", "")
 }
 
 // publishStamped is publishIn for an event stamped with the partition
 // whose namespace it is in (a partitioned scope's own bus, partitionbus.go):
 // "global" reaches today's subscriptions only (all the global instance's),
 // "user:<id>" that person's partition's only; unstamped ("") reaches
-// today's and people's partitions' (partitionregs.go).
-func (bs *busSubs) publishStamped(resource, ns, topic string, data any, stamp string) {
+// today's and people's partitions' (partitionbussubs.go). from is the tile
+// whose credential published a person's event: only that tile's own
+// partition subscriptions may be started by it.
+func (bs *busSubs) publishStamped(resource, ns, topic string, data any, stamp, from string) {
 	now := time.Now()
 	var ev *busDelivery
 	where := bs.b.busNamespace(resource, ns)
@@ -342,7 +344,7 @@ func (bs *busSubs) publishStamped(resource, ns, topic string, data any, stamp st
 		}
 	}
 	if stamp != partGlobalKey && len(bs.part) > 0 {
-		bs.publishToParts(resource, topic, stamp, where, now, &ev, data)
+		bs.publishToParts(resource, topic, stamp, from, where, now, &ev, data)
 	}
 }
 
@@ -455,6 +457,9 @@ func (bs *busSubs) drain(st *busSubState) {
 			st.stats.DormantEvents++
 		case "skipped":
 			st.stats.DormantDrops++
+		case "refused": // a person's partition no longer reaches the bus's scope (partitionbussubs.go)
+			st.stats.DormantEvents++
+			st.stats.LastError = errText
 		}
 		bs.mu.Unlock()
 		if outcome == "gone" && snap.part != "" {
