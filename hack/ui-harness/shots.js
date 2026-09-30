@@ -853,6 +853,7 @@ const PASSES = {
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
   netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, personalBinds,
 };
+PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
 
 (async () => {
   const args = process.argv.slice(2);

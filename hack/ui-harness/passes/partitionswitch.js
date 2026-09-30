@@ -1,21 +1,28 @@
-// hack/ui-harness/passes/partitionswitch.js — covers PD-44 01§2.4 — a pending
-// partition mode switch reaches people inside today's shell, which knows
-// nothing of partitions (the shell is scaffold: an upgrade never changes it,
-// so what an old shell shows is what this one shows):
+// hack/ui-harness/passes/partitionswitch.js — covers PD-44 01§2.4 and
+// 10-compat's old-shell rule — a pending partition mode switch reaches
+// people inside a shell that knows nothing of partitions. The shell is
+// scaffold (an xbind upgrade never changes a workspace's copy), so the
+// browsers here run the shell as it was before partitioned tiles: every
+// /c/shell/*.js it loads is served from git — the parent of the commit that
+// added workspace-template/shell/partition-mode.js — over the harness's
+// dev overlay (the current shell is partitionMark's):
 //   1. apps/pmode (owned by dev1) holds data (a vault key); its code starts
 //      asking for user partitions: the switch is pending;
 //   2. its frame shows xbind's own page — the switch, "all data … will be
 //      deleted", the tile's partitionNote as text (its markup escaped),
-//      who decides — and nothing of the tile; the page runs no script;
+//      who decides — and nothing of the tile; the page runs no script; the
+//      old shell draws no overlay and no marker over it;
 //   3. the shell's top banner shows the /alerts partition-switch alert to
 //      dev1 (a reader and the tile's manager); sales1, an outsider, has none;
 //   4. dev1 keeps the current mode from their session (POST
 //      /partitions/mode): the frame shows the tile again, and the banner goes.
 // The tile's manifest goes back to unpartitioned at the end (withdrawn).
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, tileFrame, sleep, shot, shotEl, checker } = require('../lib');
 
 const WS = process.env.WS || '';
+const REPO = process.env.REPO || path.join(__dirname, '..', '..', '..');
 const TILE = 'apps/pmode';
 const NOTE = 'Your notes live here. <b>bold</b> & "quoted"';
 const manifest = (partition) => JSON.stringify({ title: 'Partition mode', ...(partition ? { partition: ['user'], partitionNote: NOTE } : {}) });
@@ -28,6 +35,38 @@ async function until(fn, label, timeout = 15000) {
     if (Date.now() > deadline) throw new Error(`timed out: ${label}`);
     await sleep(200);
   }
+}
+
+// oldShell() → {base, files: name → source}: the shell's scripts from
+// before partitioned tiles, read from git. Without that history (a shallow
+// clone) the pass fails, saying so: it never quietly runs today's shell.
+function oldShell() {
+  const git = (...a) => execFileSync('git', ['-C', REPO, ...a], { encoding: 'utf8', maxBuffer: 64 << 20 });
+  let base;
+  try {
+    const added = git('log', '--diff-filter=A', '--format=%H', '--', 'workspace-template/shell/partition-mode.js').trim().split('\n').pop();
+    base = git('rev-parse', '--short', `${added}^`).trim();
+  } catch (e) {
+    throw new Error(`the old-shell pass needs the repo's history (the commit that added shell/partition-mode.js and its parent): ${e.message}`);
+  }
+  const files = new Map();
+  for (const n of git('ls-tree', '--name-only', base, 'workspace-template/shell/').trim().split('\n')) {
+    if (n.endsWith('.js')) files.set(path.basename(n), git('show', `${base}:${n}`));
+  }
+  return { base, files };
+}
+
+// useOldShell(ctx, old) → the set of old files served: the context's
+// /c/shell/*.js requests answer from old.files.
+async function useOldShell(ctx, old) {
+  const served = new Set();
+  const nameOf = (u) => { const p = new globalThis.URL(u).pathname; return p.startsWith('/c/shell/') ? p.slice('/c/shell/'.length) : ''; };
+  await ctx.route((u) => old.files.has(nameOf(u.href)), (route) => {
+    const name = nameOf(route.request().url());
+    served.add(name);
+    return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', headers: { 'Cache-Control': 'no-store' }, body: old.files.get(name) });
+  });
+  return served;
 }
 
 // frameText: the tile frame's visible text and a few facts about its page.
@@ -43,6 +82,7 @@ const banner = (page) => page.locator('bx-shell .alerts .alert', { hasText: `par
 
 async function partitionSwitch(browser) {
   const { check, done } = checker('partition-switch');
+  const old = oldShell();
   const A = await login(browser, 'admin', 'admin');
   const api = (method, p, data) => A.ctx.request.fetch(`${URL}/api/xbin${p}`, { method, data });
   const row = async () => ((await (await api('GET', `/components/${TILE}`)).json().catch(() => ({}))).component || {});
@@ -62,7 +102,10 @@ async function partitionSwitch(browser) {
     check(r.partition.request?.user === true && r.partition.user === false, `pending: unpartitioned → user (${JSON.stringify(r.partition)})`);
 
     B = await login(browser, 'dev1', 'devpass123');
+    const served = await useOldShell(B.ctx, old);
     await openShell(B.page);
+    check(served.has('bx-shell.js') && served.has('bx-canvas.js') && !old.files.has('partition-mode.js'),
+      `dev1's browser runs the shell from before partitioned tiles (${old.base}: ${[...served].sort().join(', ')})`);
     await usePersonalScreen(B.page);
     await openTile(B.page, TILE);
     let f = await until(async () => { const x = await frameFacts(B.page); return x.switchPage && x; }, 'the switch page in the frame');
@@ -71,12 +114,15 @@ async function partitionSwitch(browser) {
     check(f.text.includes(`${TILE} says: ${NOTE}`) && !f.noteMarkup, 'the partitionNote shows as text, its markup escaped');
     check(f.text.includes(`bx partition switch ${TILE}`) && f.text.includes('user:dev1'), 'it says who decides, and where');
     check(!f.tile && f.scripts === 0, 'nothing of the tile, and no script, runs in the frame');
+    check(await B.page.locator(`bx-canvas .card[data-path="${TILE}"] .pover`).count() === 0 && await B.page.locator('bx-canvas .pm, bx-side .pm').count() === 0,
+      'the old shell draws no overlay and no marker: the frame\'s page and the banner carry the request');
     await banner(B.page).first().waitFor({ timeout: 15000 });
     check(await banner(B.page).count() === 1, 'the shell\'s top banner shows the partition-switch alert to a reader');
     await shot(B.page, 'partition-switch-shell');
     await shotEl(B.page, `.card[data-path="${TILE}"]`, 'partition-switch-frame');
 
     const C = await login(browser, 'sales1', 'salespass123');
+    await useOldShell(C.ctx, old);
     await openShell(C.page);
     await sleep(500);
     check(await banner(C.page).count() === 0, 'an outsider\'s shell shows no alert about the tile');

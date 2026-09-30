@@ -1096,7 +1096,11 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    global (the recorded mode), request?:
                                    {user, global, declined} (what the code
                                    asks when it differs: pending, or kept
-                                   by a tile manager — declined)} and, for
+                                   by a tile manager — declined), note?
+                                   (while pending: the code's
+                                   partitionNote, trimmed — the tile's own
+                                   words, sandbox-writable: show it as
+                                   text, attributed to the tile)} and, for
                                    an invalid request, partitionError (also
                                    in manifestError). A tile with a
                                    recorded mode whose code's xbin.json, or
