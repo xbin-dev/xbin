@@ -200,6 +200,23 @@ func stalledGateway(t *testing.T, body bool) {
 	t.Cleanup(func() { close(release) }) // first: the servers close after (cleanups run last-first)
 }
 
+// errStillWaiting is within's answer for a call that hasn't returned.
+var errStillWaiting = errors.New("still waiting")
+
+// within runs f in a goroutine and answers its error, or errStillWaiting
+// when f hasn't returned after d — so a call that hangs fails its test by
+// name instead of holding the binary until go test's own timeout.
+func within(d time.Duration, f func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- f() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(d):
+		return errStillWaiting
+	}
+}
+
 // A hung xbind: each Context variant gives up when its ctx ends, with an
 // error wrapping ctx's — whether xbind never answers or stalls in its
 // answer's body. (An ack answered 200 is done, whatever its body.)
@@ -222,12 +239,14 @@ func TestMailContextHungXbind(t *testing.T) {
 		t.Run(stall, func(t *testing.T) {
 			stalledGateway(t, stall == "stalled-body")
 			for _, c := range calls {
-				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-				start := time.Now()
-				err := c.call(ctx)
-				cancel()
-				if took := time.Since(start); took > 5*time.Second {
-					t.Errorf("%s took %v", c.name, took)
+				err := within(5*time.Second, func() error {
+					ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+					defer cancel()
+					return c.call(ctx)
+				})
+				if err == errStillWaiting { // it ignores ctx: named here, released when the subtest ends
+					t.Errorf("%s is still waiting 5 s after its 100 ms deadline", c.name)
+					continue
 				}
 				if stall == "stalled-body" && !c.body {
 					if err != nil {
