@@ -11,9 +11,15 @@
 //   - `bye` means this backend is being replaced: reconnect at once and the
 //     successor answers;
 //   - a stream that just ends is retried with a short backoff, and the tile
-//     shows that it is reconnecting.
+//     shows that it is reconnecting;
+//   - in a partitioned instance (model/partition.js) the stream closes while
+//     the page is hidden and reconnects from its cursor when it shows again,
+//     so a background tab doesn't keep the viewer's partition running. An
+//     unpartitioned instance's stream ignores visibility, as it always has.
+import { pausesHidden } from './partition.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const doc = () => (typeof document !== 'undefined' ? document : null);
 
 export class Live {
   /**
@@ -21,7 +27,8 @@ export class Live {
    * @param {object} on        {event(ev), reset(), state(s)} — s: live | reconnecting
    * @param {object} opts      {deltas}: ask for text.delta / thinking.delta / tool.delta
    *                           (API.md "Deltas") instead of the whole draft text (a tool
-   *                           call's whole arguments) every time
+   *                           call's whole arguments) every time; {pauseHidden}: close
+   *                           while the page is hidden (default: in a partitioned instance)
    */
   constructor(base, on, opts = {}) {
     this.base = base;
@@ -31,16 +38,25 @@ export class Live {
     this.cursor = '';
     this.gen = 0;
     this.ctrl = null;
+    this.following = false; // follow() was called and close() wasn't since
+    this.paused = false;    // closed for a hidden page; reconnects when it shows
+    this.pauseHidden = opts.pauseHidden ?? pausesHidden();
+    const d = doc();
+    if (this.pauseHidden && d) d.addEventListener('visibilitychange', () => this.visibility());
   }
 
+  hidden() { const d = doc(); return this.pauseHidden && !!d && !!d.hidden; }
+
   // follow (re)connects for a run's tree (null = the run list only), from a
-  // cursor a /view returned.
+  // cursor a /view returned — once the page shows, when it is hidden.
   follow(run, cursor) {
     this.run = run;
     this.cursor = cursor || '';
     this.gen++;
+    this.following = true;
     if (this.ctrl) this.ctrl.abort();
-    this.loop(this.gen);
+    this.paused = this.hidden();
+    if (!this.paused) this.loop(this.gen);
   }
 
   // resync reconnects from where the stream is: the backend sends every live
@@ -49,7 +65,25 @@ export class Live {
 
   close() {
     this.gen++;
+    this.following = false;
+    this.paused = false;
     if (this.ctrl) this.ctrl.abort();
+  }
+
+  // visibility: hidden, the stream closes (its cursor kept); shown again, it
+  // reconnects from there — what it missed is replayed, or `reset` re-reads.
+  visibility() {
+    if (!this.following) return;
+    if (this.hidden()) {
+      if (this.paused) return;
+      this.paused = true;
+      this.gen++;
+      if (this.ctrl) this.ctrl.abort();
+    } else if (this.paused) {
+      this.paused = false;
+      this.gen++;
+      this.loop(this.gen);
+    }
   }
 
   url() {

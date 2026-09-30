@@ -92,7 +92,7 @@ func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
 		titling: map[int64]bool{},
 		now:     time.Now,
 	}
-	e.gate = newLLMGate(parseConfig(db.getSetting("config")).maxActiveRuns())
+	e.gate = newLLMGate(gateLimit(parseConfig(db.getSetting("config"))))
 	e.hub = newEventHub(e.gen)
 	if ag != nil {
 		ag.eng = e
@@ -422,8 +422,8 @@ func (e *Engine) Shutdown(wait time.Duration) {
 		}
 		t.Stop()
 	}
-	if owned && e.ag != nil && e.db.hasWork() {
-		e.ag.registerResumeJob()
+	if owned && e.ag != nil {
+		e.ag.leaveWakeUp(e.db) // resume_mode.go: today's rule, or a person's partition's
 	}
 	e.releaseLock()
 }

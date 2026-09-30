@@ -7,8 +7,20 @@
   "template": {
     "title": "AI Agent",
     "description": "A durable, debuggable agentic loop — sqlite-persisted, event-driven, LLM via any bound provider (llm-gw) with streamed thinking, tools + subagents (shown inline) + MCP, steering mid-turn, compaction, self-scheduling. Clone it and build up.",
-    "defaultName": "agent"
+    "defaultName": "agent",
+    // New instances keep each person's conversations apart: one backend per
+    // person plus a global instance (docs/partitions.md, API.md "Partitioned
+    // instances"). Instantiating writes this as the copy's own "partition";
+    // untick "Keep each person's data apart" (or --no-partition) for one
+    // unpartitioned instance, which is also what xbind without --isolate
+    // makes. Existing instances keep their mode.
+    "partition": ["user", "global"]
   },
+
+  // Where xbind rings the partition-mail doorbell (a partitioned instance
+  // only), and what a mode switch of an instance that holds data deletes.
+  "partitionMail": "/mailbox",
+  "partitionNote": "Every conversation (private and shared), all memory and every schedule of this agent are deleted, for everyone, with its skills, triggers, channel links and settings. Sandboxes stay with their sandbox manager.",
 
   "runtime": "go",
   // The backend lives in _backend/ (not the usual backend/): the underscore
@@ -27,6 +39,13 @@
     { "target": "res:apps/agent/beat", "role": "writer" },
     { "target": "res:apps/agent/events", "role": "writer" },
     { "target": "res:apps/agent/files", "role": "writer" },
+    // A partitioned instance's shared ground (scope.json): conf, the
+    // tile-wide settings the global instance mirrors for people's partitions
+    // to read; team, the one database every partition shares, beside which
+    // the tile-wide cap on model calls keeps its locks. An unpartitioned
+    // instance never opens them.
+    { "target": "res:apps/agent/conf", "role": "writer" },
+    { "target": "res:apps/agent/team", "role": "writer" },
     // The chat renders markdown links with target="_blank"; a sandboxed
     // frame may only open new tabs with cap:open-links (ND11). Lands
     // pending — approve it in the grants panel.

@@ -177,6 +177,10 @@ export const IMPLEMENTS = {
   // States
   'state.halted': 'agent.js — syncHalt',
   'state.errors': 'agent.js — app.on(\'error\') and the controls\' alerts',
+  'state.partition.share': 'sidebar.js (row menu, views), agent.js top bar — model/partition.js sharing',
+  'state.partition.global': 'partition-ui.js — the notice above the main pane',
+  'state.partition.sandboxes': 'partition-ui.js — the notice above the main pane',
+  'state.partition.hidden': 'model/stream.js — Live.visibility',
 
   // Deep links
   'link.conv': 'agent.js — followHash (model/router.js)',

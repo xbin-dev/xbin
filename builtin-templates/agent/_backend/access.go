@@ -60,6 +60,8 @@ func principal(r *http.Request) who {
 			lvl = "read"
 		}
 		return who{kind: whoUser, user: c.User, level: lvl, viewedBy: r.Header.Get("X-XBin-Viewed-By")}
+	case globalMode() && c.From == self && strings.HasPrefix(c.Partition, "user:"):
+		return who{kind: whoNone} // a person's partition calling global is never the tile itself (mode.go)
 	case c.From != "" && c.From == self:
 		return who{kind: whoSystem}
 	case c.From != "":
@@ -116,11 +118,17 @@ func haltBlocks(w http.ResponseWriter, r *http.Request, runID int64) bool {
 	if agent.db.getSetting("halt") != "1" {
 		return false
 	}
+	if stop, handled := confBrakeBlocks(w); handled { // a partition that doesn't know conf yet (brake.go)
+		return stop
+	}
 	if !callerOf(r).manager() {
 		xbin.WriteError(w, http.StatusLocked, "the agent is paused by a manager")
 		return true
 	}
-	agent.resumeIfHalted(runID)
+	if !agent.resumeIfHalted(runID) {
+		xbin.WriteError(w, http.StatusServiceUnavailable, "the agent is paused, and taking the pause off at its shared instance failed — try again in a moment")
+		return true
+	}
 	return false
 }
 
@@ -144,8 +152,12 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	kinds := map[whoKind]string{whoSystem: "system", whoUser: "user", whoElement: "element", whoCron: "cron"}
 	epoch, _ := strconv.ParseInt(agent.db.getSetting("conv_epoch_ms"), 10, 64)
-	xbin.WriteJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"kind": kinds[c.kind], "user": c.user, "level": c.level, "manager": c.manager(),
 		"viewedBy": c.viewedBy, "halted": agent.db.getSetting("halt") == "1", "epochMs": epoch,
-	})
+	}
+	if partitioned() {
+		out["partition"] = partitionKey() // which instance answered (mode.go)
+	}
+	xbin.WriteJSON(w, http.StatusOK, out)
 }

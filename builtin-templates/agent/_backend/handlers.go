@@ -392,19 +392,25 @@ func handleHaltPut(w http.ResponseWriter, r *http.Request) {
 	}
 	stopped := 0
 	if body.On {
-		ids := scanIDs(agent.db.q.Query(`SELECT id FROM runs WHERE status IN ('running','queued','blocked','awaiting','sleeping','waiting_input')`))
-		_ = agent.db.Tx(func(t *DB) error {
-			for _, id := range ids {
-				stopped += len(agent.cancelRuns(t, id, false, "halted by the owner"))
-			}
-			return nil
-		})
-		// Cancel rows are applied even while halted (the pass handles stops
-		// before the brake).
+		stopped = agent.haltStop()
 	} else if agent.eng != nil {
 		go agent.eng.recover()
 	}
 	xbin.WriteJSON(w, 200, map[string]any{"on": body.On, "cancelled": stopped})
+}
+
+// haltStop cancels every live run for the brake. Cancel rows are applied
+// even while halted (the pass handles stops before the brake).
+func (ag *Agent) haltStop() int {
+	stopped := 0
+	ids := scanIDs(ag.db.q.Query(`SELECT id FROM runs WHERE status IN ('running','queued','blocked','awaiting','sleeping','waiting_input')`))
+	_ = ag.db.Tx(func(t *DB) error {
+		for _, id := range ids {
+			stopped += len(ag.cancelRuns(t, id, false, "halted by the owner"))
+		}
+		return nil
+	})
+	return stopped
 }
 
 func handleMemoryPut(w http.ResponseWriter, r *http.Request) {
@@ -442,13 +448,17 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Sandbox, cfg.Attached, cfg.HeldInternal = nil, nil, false // a conversation's own, never a default
 	b, _ := json.Marshal(cfg)
+	if confTooBig(b) { // conf.go: a partitioned agent mirrors it into a kv value
+		xbin.WriteError(w, 400, "the config is too big for a partitioned agent's shared settings (900 KiB at most)")
+		return
+	}
 	if err := agent.db.putSetting("config", string(b)); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
 	// The model-call limit bounds the process, so it is read live here rather
 	// than snapshotted into each run's config.
-	agent.eng.gate.setLimit(cfg.maxActiveRuns())
+	agent.eng.gate.setLimit(gateLimit(cfg))
 	xbin.WriteJSON(w, 200, cfg)
 }
 
@@ -466,7 +476,7 @@ func handleFeatures(w http.ResponseWriter, r *http.Request) {
 // picker, the tier pickers): {data: [{id, provider, ref, …}], providers:
 // [{path, ok, error?}]}. ref is what a config or a pick stores.
 func handleModels(w http.ResponseWriter, r *http.Request) {
-	c := modelCatalog(r.Context())
+	c := modelCatalog(callerPersonal(r)) // a person's own providers for them only (iface_personal.go)
 	models := c.Models
 	if models == nil {
 		models = []catalogModel{}

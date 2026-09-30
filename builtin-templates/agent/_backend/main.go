@@ -10,6 +10,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -47,6 +48,12 @@ type Agent struct {
 var agent *Agent
 
 func main() {
+	// legacy, global or one person's partition (mode.go); an unknown kind of
+	// partition serves no one rather than everyone from one instance
+	if err := detectMode(); err != nil {
+		log.Printf("xbin: %s: %v — refusing to serve (/docs/partitions.md)", xbin.Self(), err)
+		os.Exit(3)
+	}
 	dbPath := xbin.Resource("db")
 	if dbPath == "" {
 		log.Fatal("no db resource (grant res:<self>/db writer) — see scope.json")
@@ -57,7 +64,10 @@ func main() {
 	}
 	agent = &Agent{db: db, repl: newReplRegistry(), toolSem: make(chan struct{}, maxToolsGlobal),
 		blobs: gatewayBlobs{}, blobCache: newBlobCache(48 << 20), needs: newNeedsPusher(xbin.NotifyUserWith)}
-	if db.getSetting("config") == "" {
+	// partition_start.go (nothing when unpartitioned); a person's partition
+	// reads the config global keeps (conf.go), so it writes no default
+	startMode(db)
+	if !userMode() && db.getSetting("config") == "" {
 		b, _ := json.Marshal(defaultConfig())
 		_ = db.putSetting("config", string(b))
 	}
@@ -67,6 +77,9 @@ func main() {
 	eng.Start()
 	go agent.reRegisterSchedules()
 	go agent.reRegisterTriggers()
+	if partitioned() {
+		go func() { _, _, _ = agent.pullMail(context.Background()) }() // mail that waited (mailbox.go)
+	}
 
 	// SIGTERM (a save's blue/green swap, a stop, an idle reap): stop driving
 	// at once so the successor — already booted and waiting on the engine

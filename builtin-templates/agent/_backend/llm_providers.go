@@ -28,6 +28,9 @@ type llmProvider struct {
 	Path   string // the provider component ("apps/llm-gw"; "apps/llm-gw#inst" for an instance)
 	URL    string // its OpenAI-compatible base, no trailing slash
 	Legacy bool   // the unbound fallback: apps/llm-gw by name
+	// Personal: a person's own provider, bound into their partition only
+	// (iface_personal.go: offered in their own conversations only).
+	Personal bool
 }
 
 const legacyGateway = "apps/llm-gw"
@@ -44,6 +47,7 @@ func llmProviders() []llmProvider {
 		Provider string `json:"provider"`
 		Instance string `json:"instance"`
 		URL      string `json:"url"`
+		Personal bool   `json:"personal"`
 	}
 	if raw := os.Getenv("XBIN_IFACE_LLM"); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &eps)
@@ -57,7 +61,7 @@ func llmProviders() []llmProvider {
 		if e.Instance != "" {
 			name += "#" + e.Instance
 		}
-		out = append(out, llmProvider{Path: name, URL: strings.TrimRight(e.URL, "/")})
+		out = append(out, llmProvider{Path: name, URL: strings.TrimRight(e.URL, "/"), Personal: e.Personal})
 	}
 	if len(out) == 0 {
 		out = append(out, llmProvider{Path: legacyGateway, URL: "http://xbin/api/" + legacyGateway, Legacy: true})
@@ -85,7 +89,7 @@ func modelRef(provider, id string, many bool) string {
 // for. A provider that is no longer bound falls back to the first one, with
 // the same id — a config outliving a rebinding keeps working when it can.
 func resolveModel(ctx context.Context, ref string) (llmProvider, string) {
-	provs := llmProviders()
+	provs := llmProvidersIn(ctx)
 	want, id := splitModelRef(ref)
 	if want != "" {
 		for _, p := range provs {
@@ -206,10 +210,14 @@ var (
 	catalogTTL   = 60 * time.Second
 )
 
-// modelCatalog merges every provider's model list, cached briefly (a picker
+// modelCatalog is the model list a call in ctx may use (iface_personal.go:
+// a person's own providers only in their own conversations).
+func modelCatalog(ctx context.Context) *catalog { return catalogIn(ctx, fullCatalog(ctx)) }
+
+// fullCatalog merges every provider's model list, cached briefly (a picker
 // and bare-id routing both read it). Providers are asked in parallel; one
 // that fails is reported, not fatal.
-func modelCatalog(ctx context.Context) *catalog {
+func fullCatalog(ctx context.Context) *catalog {
 	catalogMu.Lock()
 	if c := catalogCache; c != nil && time.Since(c.at) < catalogTTL {
 		catalogMu.Unlock()

@@ -380,7 +380,7 @@ function runMenu(v, t) {
     <button icon="folder" @tap=${() => push({ kind: 'files', run: id })}>${`Files (${t.files})`}</button>
     ${sandboxMenuTpl(v)}
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}
-    <button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>
+    ${t.sharing ? html`<button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>` : nothing}
     ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label.replace(/^🔓 /, '')}`}</button>`)}
     ${t.crumb ? html`<button icon="clock" @tap=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
     ${t.del ? html`<divider/><button icon="trash" role="destructive"

@@ -8,6 +8,7 @@ import { REASON } from '../model/home.js';
 import { composerTpl, modelPickerTpl } from './chat.js';
 import { classPickerTpl } from './classes.js';
 import { sandboxPickerTpl } from './sandboxes.js';
+import { appNotices } from '../model/partition.js'; // a partitioned instance's notices; none unpartitioned
 
 export function homeScreen() {
   const app = ctx.app;
@@ -24,6 +25,7 @@ export function homeScreen() {
     </toolbar>
     ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
     ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped. Resume it from ⋯."/>` : nothing}
+    ${appNotices(app).map((n) => html`<notice tone=${n.kind === 'sandbox' ? 'warn' : 'info'} text=${n.text}/>`)}
     <text style="title2">${H.hi}</text>
     <text tone="muted">${H.sub}</text>
     ${mcpBound ? nothing : html`<notice tone="info" text="No MCP servers are bound yet — see ⋯ → Settings → MCP."/>`}

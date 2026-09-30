@@ -246,9 +246,15 @@ Templates and updates never switch a mode:
   change would be the partition has nothing to propose: the version is
   recorded instead.
 
-The agent template is to start new instances partitioned, with that
-opt-out, once the agent can run partitioned (**TODO**: not yet — today its
-instances start unpartitioned); existing instances stay as they are.
+The builtin agent template asks for `["user", "global"]`: a new agent
+instance keeps each person's conversations in their own partition, unless
+you opt out as above (or xbind lacks `--isolate`). Existing agent instances
+keep their mode — they run unpartitioned, as before, until a manager
+switches them, which deletes their conversations, memory and schedules. The
+template's API.md ("Partitioned instances") says what runs where; update
+the sandbox managers an agent uses before you create or switch one (a
+manager whose `hello.caps` lack `partitions` isn't used in people's
+partitions, [sandbox-manager.md](sandbox-manager.md#partitioned-consumers)).
 
 ## Shared resources
 

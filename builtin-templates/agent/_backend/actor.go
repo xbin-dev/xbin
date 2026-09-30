@@ -132,6 +132,7 @@ func (e *Engine) pass(a *actor) {
 	// message clears it before it is queued (resumeIfHalted), so a prompt is
 	// never swallowed.
 	if e.halted() {
+		e.onBrake(run) // a person's partition reads it from conf (brake.go)
 		return
 	}
 
@@ -393,6 +394,7 @@ func (e *Engine) denyParked(run *Run, p pendingState, text string) bool {
 // in force (read again here); else they are dropped and the run stays parked.
 func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 	ctx, cancel := context.WithCancelCause(e.base)
+	ctx = e.ag.personalCtx(ctx, run) // a person's own providers in their own conversations (iface_personal.go)
 	e.setStepCancel(run.ID, cancel)
 	defer func() {
 		e.setStepCancel(run.ID, nil)
@@ -495,6 +497,9 @@ func (e *Engine) turn(a *actor, run *Run, v *verdict) {
 		}
 		if e.controlQueued(run.ID) {
 			return // the next pass applies it
+		}
+		if e.brakeInTurn(run) {
+			return // a person's partition learns of a halt from conf, step by step (brake.go)
 		}
 		if run.TurnSteps >= cfg.maxTurnSteps() {
 			e.endTurn(ts, endCap, fmt.Sprintf("stopped after %d steps in one turn (maxTurnSteps) — send a message to continue", run.TurnSteps))
@@ -606,7 +611,7 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 	specs, own := injectSummaries(runToolSpecs(cfg, run, ts.mcp))
 	ts.own = own
 	msgs, specs, ts.back = wireNames(msgs, specs)
-	release, err := e.gate.acquire(ctx, run.Depth == 0)
+	release, err := e.acquireLLM(ctx, run.Depth == 0)
 	if err != nil {
 		e.failTurn(ctx, ts, err.Error())
 		return LLMReply{}, false
@@ -926,16 +931,20 @@ func (e *Engine) halted() bool { return e.db.getSetting("halt") == "1" }
 
 // resumeIfHalted clears the brake when a human explicitly asks for work: a
 // halt that silently swallows prompts is indistinguishable from a broken
-// agent.
-func (ag *Agent) resumeIfHalted(runID int64) {
+// agent. false: it is on and couldn't be taken off (a person's partition:
+// the shared instance didn't take it — clearHalt, partition_routes.go).
+func (ag *Agent) resumeIfHalted(runID int64) bool {
 	if ag.db.getSetting("halt") != "1" {
-		return
+		return true
 	}
-	_ = ag.db.putSetting("halt", "")
+	if !ag.clearHalt() {
+		return false
+	}
 	if runID != 0 {
 		ag.db.journal(runID, "note", map[string]string{"text": "halt cleared: you sent a message, which resumes the agent"})
 	}
 	if ag.eng != nil {
 		go ag.eng.recover()
 	}
+	return true
 }

@@ -37,6 +37,7 @@ import { liveURL, liveFrame, liveLabel } from './live.js';
 import { mountLive, unmountLive } from './live-status.js';
 import { makePorts } from './ports.js';
 import { tabFiles, selectFile } from './settings-files.js';
+import { mountPartitionUI } from './partition-ui.js';
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -190,8 +191,8 @@ function topTpl(v) {
     <button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
-    <button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
-      title=${t.share.title}>${t.share.icon} ${t.share.label}</button>
+    ${t.sharing ? html`<button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
+      title=${t.share.title}>${t.share.icon} ${t.share.label}</button>` : nothing}
     ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
       ? html`<button class="linkbtn" title="stop it now" @click=${() => session.revokeGrant(g.run, g.cap).catch((e) => alert(e.message))}>revoke</button>` : nothing}</span>`)}
     ${t.del ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}
@@ -981,6 +982,7 @@ function tabMcp(bd) {
 
 paint();
 app.start();
+mountPartitionUI(app); // a partitioned instance's notices (partition-ui.js); nothing unpartitioned
 // A link to a conversation (#c=<id>) opens it; an invite (#join=…) joins it;
 // #auto[=kind:id] opens the Automations page — on load, and when the address
 // changes while the tile is open (model/router.js).

@@ -22,6 +22,12 @@
 #                       the livereload, deployments and sandboxes passes drive
 #                       them; the other passes are written for the default,
 #                       unisolated harness
+#   HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1 ./run.sh …   seed apps/agent
+#                       partitioned (the template's default for new
+#                       instances; otherwise it is seeded unpartitioned, as
+#                       every other agent pass and the isolated sandbox
+#                       passes expect): the admin's page is their own
+#                       partition — the agentTemplate pass runs against it
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"

@@ -191,6 +191,10 @@
     .top { flex: none; padding: 8px 12px; border-bottom: 1px solid var(--bx-border); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .top .title { font-weight: 600; flex: 1; min-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .timeline { overflow: auto; flex: 1; padding: 10px 12px; min-height: 0; }
+    /* a partitioned instance's notices above the main pane (partition-ui.js) */
+    .partnote { flex: none; }
+    .partnote .pn { padding: 6px 12px; font-size: 12px; border-bottom: 1px solid var(--bx-border); color: var(--bx-muted); }
+    .partnote .pn.sandbox { color: var(--bx-text); background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent); }
     /* the pinned task (D133, agent.js taskTpl): a line under the controls, unfolding to every request */
     .top .taskpin { flex-basis: 100%; display: flex; gap: 6px; align-items: baseline; min-width: 0; font-size: 12px; }
     .top .taskpin .tasktoggle { flex: none; align-self: flex-start; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: var(--bx-muted); }

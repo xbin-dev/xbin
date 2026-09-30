@@ -507,6 +507,7 @@ func forConversation(req *sbxCreate, c who, root int64) {
 		req.Labels = map[string]string{}
 	}
 	req.Labels["xbin.agent/conversation"] = strconv.FormatInt(root, 10)
+	req.Labels = withHomeLabel(req.Labels) // a partitioned agent: whose db the conversation is in (sandbox_partition.go)
 	a, err := agent.aclOf(root)
 	if err != nil {
 		return

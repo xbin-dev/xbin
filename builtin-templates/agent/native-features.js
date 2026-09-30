@@ -174,6 +174,10 @@ export const IMPLEMENTS = {
   // States
   'state.halted': 'native/home.js, native/chat.js — the Halted notice',
   'state.errors': 'native/ui.js — fail(): a notice on the screen',
+  'state.partition.share': 'native/convs.js (row menu, scopes), native/chat.js toolbar — model/partition.js sharing',
+  'state.partition.global': 'native/home.js — appNotices',
+  'state.partition.sandboxes': 'native/home.js — appNotices',
+  'state.partition.hidden': 'model/stream.js — Live.visibility',
 
   // Deep links
   'link.conv': 'native.js — app.follow(location.hash, xbin.native.state) (model/router.js)',

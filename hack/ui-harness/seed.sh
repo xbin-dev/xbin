@@ -156,7 +156,12 @@ say "agent template → llm-gw → fakeopenai (the agentTemplate pass)"
 api POST /builtins/import '{"name":"llm-gw"}' | head -c 300; echo
 api POST /bindings '{"component":"apps/llm-gw","slot":"net","provider":"host"}'
 api PUT /vault/apps/llm-gw/api-token-fake '{"value":"sk-fake"}'
-api POST /templates/new '{"source":"agent","path":"apps/agent"}' | head -c 300; echo
+# unpartitioned (every agent pass, and the isolated sandbox passes whose
+# managers lack `partitions`, are written for one instance), unless
+# HARNESS_AGENT_PARTITION=1 keeps the template's partitioned default (run.sh)
+agent_new='{"source":"agent","path":"apps/agent","partition":false}'
+[[ -n "${HARNESS_AGENT_PARTITION:-}" ]] && agent_new='{"source":"agent","path":"apps/agent"}'
+api POST /templates/new "$agent_new" | head -c 300; echo
 # the agent's models come through its `llm` interface (D111): bound to
 # llm-gw — the binding is the grant
 api POST /bindings '{"component":"apps/agent","slot":"llm","providers":["apps/llm-gw"]}'

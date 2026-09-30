@@ -8,10 +8,24 @@
   //   files  — blob: the bytes of binary session files (attachments such as
   //            images). Text files stay in sqlite, where the model, the REPL
   //            and the render pane read them; only binary payloads live here.
+  //
+  // A partitioned instance (docs/partitions.md, API.md "Partitioned
+  // instances") keeps db, files and events per person — the global instance's
+  // at today's keys — and shares two more (`shared` is ignored, and they
+  // stay unopened, in an unpartitioned instance):
+  //   conf   — kv the global instance writes and people's partitions only
+  //            read: the tile-wide settings, classes, halt switch and shared
+  //            skills, mirrored from the global instance's db.
+  //   team   — sqlite every partition reads and writes: the shared space (its
+  //            schema, for now) and, beside its file, the lock files of the
+  //            tile-wide cap on model calls. Anything here is readable by
+  //            every partition's code.
   "resources": {
     "db": { "type": "sqlite" },
     "beat": { "type": "cron" },
     "events": { "type": "bus" },
-    "files": { "type": "blob" }
+    "files": { "type": "blob" },
+    "conf": { "type": "kv", "shared": "read" },
+    "team": { "type": "sqlite", "shared": true }
   }
 }

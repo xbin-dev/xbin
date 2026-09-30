@@ -368,7 +368,8 @@ const summarizerSystem = "You compact an AI agent's working context. Merge the p
 // summarize is one model call under the gate (it competes for the same slots
 // as every other call).
 func (e *Engine) summarize(ctx context.Context, run *Run, cfg Config, task, prior, transcript string) string {
-	release, err := e.gate.acquire(ctx, run.Depth == 0)
+	ctx = e.ag.personalCtx(ctx, run) // iface_personal.go
+	release, err := e.acquireLLM(ctx, run.Depth == 0)
 	if err != nil {
 		return ""
 	}

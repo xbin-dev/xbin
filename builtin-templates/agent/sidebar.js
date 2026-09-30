@@ -9,6 +9,7 @@
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { groupRows } from './model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
+import { sharing } from './model/partition.js'; // no Shared view in a person's own partition
 import * as actions from './model/actions.js';
 
 /**
@@ -83,7 +84,7 @@ export function viewsTpl(list, ui) {
   const at = (scope, archived) => list.scope === scope && list.archived === archived && !list.results;
   const seg = (label, scope, archived, title) => html`<button class=${'seg' + (at(scope, archived) ? ' on' : '')} title=${title}
       aria-pressed=${at(scope, archived) ? 'true' : 'false'} @click=${() => ui.view(scope, archived)}>${label}</button>`;
-  return html`${seg('Mine', 'mine', false, 'your conversations')}${seg('Shared', 'shared', false, 'what you shared, and what others shared with you')}${seg('Archived', 'mine', true, 'your archive')}`;
+  return html`${seg('Mine', 'mine', false, 'your conversations')}${sharing() ? seg('Shared', 'shared', false, 'what you shared, and what others shared with you') : nothing}${seg('Archived', 'mine', true, 'your archive')}`;
 }
 
 // makeSideUI is the list's behaviour: selection, the row menu, inline rename
