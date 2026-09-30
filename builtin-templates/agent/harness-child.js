@@ -12,8 +12,9 @@
 //            on the card and answered on the CHILD's run, open or not
 //   body     (the card open) the task, its plan, its last 3 blocks — the
 //            child's newest page, read once the card is open AND on screen
-//            (an IntersectionObserver), kept current by the stream — and its
-//            answer once done
+//            (an IntersectionObserver), kept current by the stream; a read
+//            that failed says why, with Retry, and is not read again at every
+//            paint — and its answer once done
 //   actions  Open ↗ (its own chat), Stop (interrupts its turn), Cancel
 //            (confirmed; for good) and Message: a person's message straight
 //            to it (POST /runs/{child}/message; Enter queues or steers,
@@ -30,7 +31,7 @@ import { md } from './chat-md.js';
 import { blocksTpl } from './chat-cards.js';
 import { permissionTpl, questionTpl } from './harness-ask.js';
 import { signInTpl } from './signin.js';
-import { isHarnessChild, childRun, childCard, tailOf, loadTail, stopWords, cancelWords, messageWords } from './model/harness-child.js';
+import { isHarnessChild, childRun, childCard, tailOf, loadTail, tailError, stopWords, cancelWords, messageWords } from './model/harness-child.js';
 import { permission, question, ownerOf } from './model/harness-ask.js';
 import { signIn } from './model/terminals.js';
 import { findHarness, PLAN_MARK } from './model/harness.js';
@@ -62,11 +63,13 @@ const observer = () => io || (io = new IntersectionObserver((es) => {
     if (id && ctx.app) loadTail(ctx.app.session, id);
   }
 }));
+// (not while a read that failed waits to be tried again: the card says why, with Retry)
 class OnScreen extends Directive {
   render() { return noChange; }
   update(part, [id]) {
     const el = part.element;
-    if (id && wanted.get(el) !== id && !ctx.app.session.views.has(id)) { wanted.set(el, id); observer().observe(el); }
+    const s = ctx.app.session;
+    if (id && wanted.get(el) !== id && !s.views.has(id) && s.failed.due(id)) { wanted.set(el, id); observer().observe(el); }
     return noChange;
   }
 }
@@ -91,8 +94,8 @@ function parkTpl(app, b, run, c, who) {
   if (ps.kind === 'login') {
     const held = app.session.merged(run.id);
     const v = held ? { ...held, run: { ...held.run, ...run } } : { run, access: who.access, config: {} };
-    const si = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, c.provider) });
-    if (si) { app.sbx.ensure(); return signInTpl(app, si); }
+    const si = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, c.provider), me: app.me });
+    if (si) { app.sbx.ensure(si.sandbox.ref); return signInTpl(app, si); }
   }
   // a park the summary has only in brief: its own chat answers it
   return c.park ? html`<div class="hint hkopen">${c.status} — <button class="lnk" @click=${() => app.select(c.id)}>open it ↗</button> to answer</div>` : nothing;
@@ -144,12 +147,15 @@ function bodyTpl(b, ui, depth, c) {
   const tail = tailOf(b);
   const held = ctx.app.session.views.get(c.id);
   const more = !!tail && ((held && held.hasOlder) || b.blocks.length > tail.length); // older pages, or blocks past the last 3
+  const failed = tail ? '' : tailError(ctx.app.session, c.id); // its read failed: why, and Retry (not "loading…" for ever)
   return html`<div class="acb hkbody" ${onScreen(tail ? 0 : c.id)}>
     ${c.task ? html`<div class="task ${ui.isOpen(b.id + ':task', false) ? 'on' : ''}" @click=${() => ui.toggle(b.id + ':task', false)}>
       <span class="k">task</span> ${c.task}</div>` : nothing}
     ${c.plan ? html`<div class="hkplan">${c.plan.entries.map((e) => html`<div class="pe ${e.status || 'pending'}"><span class="pm">${PLAN_MARK[e.status] || PLAN_MARK.pending}</span> ${e.content}</div>`)}</div>` : nothing}
     ${tail ? html`<div class="hktail">${more ? html`<div class="muted small hkmore">… <button class="lnk" @click=${() => ui.act.select(c.id)}>all of it in its chat ↗</button></div>` : nothing}
         ${blocksTpl(tail, ui, depth + 1)}</div>`
+      : failed ? html`<div class="small readfail" role="status"><span class="err">${failed}</span>
+          <button class="lnk" data-act="retry" title="read it again" @click=${() => ui.act.retryRead(c.id)}>Retry</button></div>`
       : html`<div class="muted small">loading…</div>`}
     ${c.answer ? html`<div class="answer"><span class="k">answer</span><div class="md">${unsafeHTML(md(c.answer))}</div></div>` : nothing}
   </div>`;

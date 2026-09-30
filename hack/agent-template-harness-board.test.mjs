@@ -297,3 +297,16 @@ test('native: the Task screen\'s Delegated section; at home, yours at work and N
     ['Running (1)', ['Split the router']]]);
   assert.match(find(b, ROW('Split the router')).p.subtitle, /^in Refactor the API · /, 'a child says which conversation');
 });
+
+test('native: at home, a parked row whose child can\'t be read is read once — not at every paint; its park says to open it', async () => {
+  const s = kidsSeed();
+  s.routes = [['GET', '/runs/(26|27|28)/view', { error: 'bad gateway' }, 502]];
+  const r = await runSeed([
+    { tap: btn('Coding agents (5 waiting)') }, { wait: 2000 },
+    { snapshot: 'board' },
+  ], '', s);
+  const n = (id) => r.calls.filter((c) => c.method === 'GET' && c.url.includes(`/runs/${id}/view`)).length;
+  assert.deepEqual([n(27), n(28)], [1, 1], 'one read each in 2 s (their parks in full, to answer here)');
+  const park = find(find(r.snapshots.board.root, ROW('Plan the users migration')), { t: 'notice' });
+  assert.match(park.p.text, /open it \(↗\) to answer\.$/, 'the compact park: its own chat answers it');
+});

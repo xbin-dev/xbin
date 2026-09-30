@@ -11,10 +11,12 @@
 // - the sign-in card (signIn): a harness run parked on `login` — its
 //   methods (a terminal login, an API key, a device code), the sandbox whose
 //   HOME the credentials land in, whether that sandbox is shared (a confirm
-//   first), and who to ask when the person may not use it.
+//   first), who to ask when the person may not use it, and — when the
+//   sandbox is gone or its manager down — that there is nothing to sign in
+//   to there.
 //
 // Pure (no DOM, no lit): node-tested in hack/agent-template-harness-term.test.mjs.
-import { ICON, bindingOf, sharesOf } from './sandboxes.js';
+import { ICON, bindingOf, sharesOf, brokenWhy, splitRef } from './sandboxes.js';
 import { harnessOf, nameOf } from './harness.js';
 import { access } from './rules.js';
 
@@ -134,14 +136,21 @@ const sharedOf = (s) => !!(s && (s.visibility === 'team' || (Array.isArray(s.mem
 // signIn: the sign-in card for view v — null unless its run is a harness run
 // parked on `login` (pendingState.kind "login", §4.3.4). opts: list (GET
 // /sandboxes, model/sandboxes.js listOf), entry (the harness's catalog
-// entry: its login command when the park has none). Answers
+// entry: its login command when the park has none), me (GET /me, or its
+// user: who reads the card). Answers
 //   {run, park, name, sandbox: {ref, name, cwd}, command,
 //    methods: [{id, name, kind}] (terminal · api-key · device-code),
-//    shared (a confirm first), canUse (true · false · null: not known yet),
-//    ask ('' | whom to ask), device ({url, message} while a device code waits),
+//    shared (a confirm first), canUse (true · false · null: not known — not
+//    read yet, or not listed),
+//    ask ('' | what to do when you may not use it: whom to ask),
+//    gone ('' | why the sandbox can't be reached: the list read has no row
+//    for it — gone from its manager, its manager unbound or down — as
+//    GET /sandboxes lists every sandbox bound to a conversation you can
+//    see), goneText (the card's words for it, in place of the methods),
+//    device ({url, message} while a device code waits),
 //    title, warn, confirmLabel,
 //    talk (false: a view-only reader — the card says so and offers nothing), view}
-export function signIn(v, { list = null, entry = null } = {}) {
+export function signIn(v, { list = null, entry = null, me = null } = {}) {
   const r = v && v.run;
   const ps = r && r.pendingState;
   if (!r || r.status !== 'waiting_input' || !ps || ps.kind !== 'login' || !ps.harness) return null;
@@ -158,14 +167,26 @@ export function signIn(v, { list = null, entry = null } = {}) {
   let methods = (login.methods || []).filter((m) => m && KINDS.includes(m.kind));
   // no methods said: the login command in a terminal
   if (!methods.length && command) methods = [{ id: '', name: `Sign in to ${name}`, kind: 'terminal' }];
-  const canUse = row ? !!row.canUse : list && list.loaded ? false : null;
-  const binder = bound.by || (row && row.owner && row.owner.user) || '';
+  // not in the list read: not "someone else's" (the list has every sandbox a
+  // conversation you see is bound to) — gone, or its manager unbound or down
+  const listed = !!(list && list.loaded);
+  const gone = !row && listed && ref ? brokenWhy({ ref, manager: hs.manager || bound.manager || '' }, null, list) || 'gone — its manager no longer has it' : '';
+  const mgr = gone ? (list.managers || []).find((m) => m.provider === splitRef(ref).provider) : null;
+  const canUse = row ? !!row.canUse : null;
+  const who = typeof me === 'string' ? me : (me && me.user) || '';
+  const owner = (row && row.owner && row.owner.user) || '';
+  const binder = bound.by || owner;
+  const newChat = `start a new chat with ${name} in another sandbox`;
   const shared = !!hs.shared || sharedOf(row);
   const { talk } = access(v);
   return {
     run: r.id, park: ps.park || '', name, command, methods, shared, canUse,
     sandbox: { ref, name: sname, cwd },
-    ask: canUse === false ? `Ask ${binder || 'whoever bound it'} to sign in — the sandbox is theirs.` : '',
+    // someone else's: ask them; yours no longer (a share taken back): its owner, or another sandbox
+    ask: canUse !== false ? '' : binder && binder !== who ? `Ask ${binder} to sign in — the sandbox is theirs.`
+      : `You may no longer use ${sname} — ${owner && owner !== who ? `ask ${owner} to share it with you again, or ` : ''}${newChat}.`,
+    gone,
+    goneText: gone ? `${ICON} ${sname}: ${gone}. ${name} can't sign in there — ${mgr && mgr.ok === false ? 'Retry once it is back, or ' : ''}${newChat}.` : '',
     device: login.device && login.device.url ? { url: login.device.url, message: login.device.message || '' } : null,
     title: talk ? `${name} needs you to sign in (in ${ICON} ${sname}).` : `${name} is waiting for a sign-in (in ${ICON} ${sname}).`,
     talk, view: talk ? '' : 'You may only read this conversation: someone who may write in it signs it in.',

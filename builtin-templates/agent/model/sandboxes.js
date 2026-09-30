@@ -254,9 +254,13 @@ export function sandboxPicker(list, conv, me, opts = {}) {
 
 // sandboxBadge: the open conversation's ▣ — its active sandbox and working
 // directory, and why the binding no longer resolves (gone, its manager
-// unbound or down, its class no longer allows it); every attached one for
-// the popover (switch, detach). null when it has none.
-export function sandboxBadge(conv, list, now = Date.now()) {
+// unbound or down, its class no longer allows it) with what to do (advice);
+// every attached one for the popover (switch, detach). null when it has none.
+// opts.fixed: the conversation keeps its sandbox — a coding agent's, named
+// (D-harness §2.2: the backend refuses a rebind, a detach and a new cwd) —
+// so nothing changes it here (canChange false) and a broken one's advice
+// is a new chat. talk: a participant, fixed or not (ports.js).
+export function sandboxBadge(conv, list, now = Date.now(), { fixed = '' } = {}) {
   const b = bindingOf(conv);
   if (!b) return null;
   const cls = conv.class || null;
@@ -271,8 +275,11 @@ export function sandboxBadge(conv, list, now = Date.now()) {
     label: `${ICON} ${name}${b.cwd ? ' · ' + b.cwd : ''}`,
     broken,
     detail: [manager, EGRESS[egress] || egress, STATES[state] || state].filter(Boolean).join(' · '),
-    title: broken ? `${name}: ${broken}` : `works in ${name}${b.cwd ? ' at ' + b.cwd : ''} (${[manager, EGRESS[egress] || egress].filter(Boolean).join(', ')}) — change it here`,
-    canChange: talks(conv),
+    title: broken ? `${name}: ${broken}` : `works in ${name}${b.cwd ? ' at ' + b.cwd : ''} (${[manager, EGRESS[egress] || egress].filter(Boolean).join(', ')}) — ${fixed ? 'fixed for this conversation' : 'change it here'}`,
+    canChange: !fixed && talks(conv),
+    talk: talks(conv), // a participant (not a viewer): the popover's Ports (D135) — a coding agent's too
+    fixed: !!fixed,
+    advice: fixed ? `start a new chat with ${fixed} in another sandbox` : 'pick another, or detach it',
     attached: attachedOf(conv).map((a) => ({ ref: a.ref, name: a.name || nameOf(find(list, a.ref)) || splitRef(a.ref).id, cwd: a.cwd || '',
       on: a.ref === b.ref, broken: brokenWhy(a, cls, list) })),
     since: b.at ? ago(b.at, now) : '',

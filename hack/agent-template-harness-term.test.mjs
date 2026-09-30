@@ -94,7 +94,24 @@ test('the sign-in card: only for a login park; what it offers and says', () => {
   assert.deepEqual([t.canUse, t.ask, t.shared], [false, 'Ask carol to sign in — the sandbox is theirs.', false], 'the binder, else the owner');
   delete v.config.sandbox.by;
   assert.equal(T.signIn(v, { list: list([theirs]) }).ask, 'Ask bob to sign in — the sandbox is theirs.');
-  assert.equal(T.signIn(v, { list: list() }).canUse, false, 'not in the list read: you may not use it');
+  // bound by you (a share since taken back): never "Ask admin" of admin — its owner, or another sandbox
+  v.config.sandbox.by = 'admin';
+  assert.equal(T.signIn(v, { list: list([theirs]), me: { kind: 'user', user: 'admin' } }).ask,
+    'You may no longer use bobs — ask bob to share it with you again, or start a new chat with Codex in another sandbox.');
+  assert.equal(T.signIn(v, { list: list([{ ...theirs, owner: { user: 'admin' } }]), me: 'admin' }).ask,
+    'You may no longer use bobs — start a new chat with Codex in another sandbox.', 'nobody else to ask');
+  assert.equal(T.signIn(v, { list: list([theirs]), me: 'carol' }).ask, 'Ask admin to sign in — the sandbox is theirs.');
+  // not in the list read: not someone else's (the list has every sandbox a conversation you see is bound to) — gone, or its manager down
+  const mgr = (extra = {}) => ({ provider: SBX, title: 'Coding sandboxes', ok: true, ...extra });
+  const g = T.signIn(v, { list: S.listOf({ sandboxes: seed.sandboxes, managers: [mgr()] }), me: 'admin' });
+  assert.deepEqual([g.canUse, g.ask, g.gone], [null, '', 'gone — its manager no longer has it'], 'gone: nobody to ask');
+  assert.equal(g.goneText, '▣ bobs: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.');
+  const down = T.signIn(v, { list: S.listOf({ sandboxes: [], managers: [mgr({ ok: false, error: 'connection refused' })] }) });
+  assert.equal(down.gone, 'its manager (Coding sandboxes) is unavailable: connection refused');
+  assert.match(down.goneText, /Codex can't sign in there — Retry once it is back, or start a new chat with Codex in another sandbox\.$/, 'a manager that may come back: Retry');
+  assert.match(T.signIn(v, { list: list() }).gone, /^its manager \(apps\/coding-sandbox\) is no longer bound/, 'no manager at all');
+  assert.deepEqual([T.signIn(v).gone, T.signIn(v).canUse], ['', null], 'not read yet: nothing to say');
+  delete v.config.sandbox.by;
   // shared by its row when the summary doesn't say
   assert.equal(T.signIn(v, { list: list([{ ...theirs, canUse: true, visibility: 'team' }]) }).shared, true);
   assert.equal(T.signIn(v, { list: list([{ ...theirs, canUse: true, shares: [{ consumer: 'apps/sandbox-terminal' }] }]) }).shared, true);
@@ -264,6 +281,18 @@ test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal th
   const scr = topScreen(r.snapshots.screen);
   assert.equal(find(scr, { t: 'notice', p: { tone: 'info' } }).p.text, 'Ask bob to sign in — the sandbox is theirs.');
   assert.equal(find(scr, { t: 'field' }), null, 'no methods');
+
+  // its sandbox gone (not in the list read): said as such — not "ask admin" — with Retry, no methods, no shared-home warning
+  const gone = (s) => { s.sandboxes = s.sandboxes.filter((x) => x.ref !== API_DEV); return s; };
+  const g = await run([{ wait: 50 }, { snapshot: 'chat' }, { tap: { t: 'button', p: { label: 'Sign in…' }, in: { t: 'menu' } } }, { snapshot: 'screen' }], 'c=24', gone);
+  const GONE = '▣ api-dev: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.';
+  assert.equal(find(g.snapshots.chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text, `Codex needs you to sign in (in ▣ api-dev). ${GONE}`);
+  assert.equal(find(g.snapshots.chat, { t: 'button', p: { label: 'Sign in' }, in: { t: 'composer' } }), null, 'nothing to sign in to');
+  const gs = topScreen(g.snapshots.screen);
+  assert.deepEqual(all(gs, { t: 'notice' }).map((n) => n.p.text), [GONE], 'no shared-home warning, nobody to ask');
+  assert.equal(find(gs, { t: 'field' }), null, 'no methods');
+  assert.equal(find(gs, { t: 'row', p: { title: 'Open a login terminal' } }), null);
+  assert.ok(find(gs, { t: 'button', p: { label: 'Signed in? Retry' } }), 'Retry stays');
 
   // a shell at the agent's cwd (⋯ → Terminal), and the ▣ screen and Sandboxes rows (the tile's relay)
   const r2 = await run([

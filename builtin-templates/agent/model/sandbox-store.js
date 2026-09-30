@@ -16,7 +16,7 @@ import * as actions from './actions.js';
 import * as S from './sandboxes.js';
 import * as classes from './classes.js';
 import { fitsWhy, createPrefill } from './harness-start.js';
-import { isHarness } from './harness.js';
+import { isHarness, harnessOf, nameOf } from './harness.js';
 
 const cid = () => 's' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -38,13 +38,14 @@ export function createSandboxStore(app) {
   // the agent just made (sandbox_create), or bound elsewhere since — is read
   // again (fresh, once per ref) rather than shown as gone.
   const checked = new Set();
-  const recheck = (v) => {
-    if (!v || !loadedAt || inflight) return;
-    const missing = [S.bindingOf(v), ...S.attachedOf(v)].filter((b) => b && !find(b.ref) && !checked.has(b.ref));
+  const recheckRefs = (refs) => {
+    if (!loadedAt || inflight) return;
+    const missing = refs.filter((ref) => ref && !find(ref) && !checked.has(ref));
     if (!missing.length) return;
-    missing.forEach((b) => checked.add(b.ref));
+    missing.forEach((ref) => checked.add(ref));
     sbx.load(true).catch(() => {});
   };
+  const recheck = (v) => { if (v) recheckRefs([S.bindingOf(v), ...S.attachedOf(v)].map((b) => b && b.ref)); };
 
   // patchShares PATCHes ref's whole shares list as bodyOf(sandbox) computes
   // it from the sandbox as the list has it — with its version, so a change
@@ -91,7 +92,9 @@ export function createSandboxStore(app) {
       return inflight;
     },
     // ensure reads it once a view needs it; refresh again when it is older than 15 s.
-    ensure() { if (!loadedAt && !inflight) sbx.load().catch(() => {}); },
+    // ref: a sandbox the view names (a sign-in card's) that the list read
+    // before lacks is read again, fresh, once (recheck) — not shown as gone.
+    ensure(ref) { if (!loadedAt && !inflight) sbx.load().catch(() => {}); else if (ref) recheckRefs([ref]); },
     refresh() { if (Date.now() - loadedAt > 15e3) sbx.load().catch(() => {}); },
 
     // What the views draw (model/sandboxes.js), for where you are. rows:
@@ -102,7 +105,8 @@ export function createSandboxStore(app) {
       // a coding agent's conversation keeps the sandbox it started in (D-harness §2.2): no picker
       return v && isHarness(v.run) ? { ...p, shown: false } : p;
     },
-    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
+    // a coding agent's conversation keeps its sandbox and cwd (D-harness §2.2): the badge offers no change
+    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list, undefined, { fixed: v && isHarness(v.run) ? nameOf(harnessOf(v)) : '' }); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
     // terminal: "Open terminal" for ref at cwd, running cmd ('' = the login
     // shell) (model/sandboxes.js terminal): {shown, why, src, …} — src is

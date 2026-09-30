@@ -274,7 +274,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   agent's sign-in** (`builtin-templates/agent/API.md` §Coding sandboxes →
   In the UI, §Coding agents → Terminals and sign-in). On the web a sandbox's
   terminals are tabs of one dock: ＋ another shell, ✕ ends one, ▾ hides the
-  dock with its shells running (a top-bar pill brings it back), and they
+  dock with its shells running (a top-bar pill — a button, Enter and Space
+  too — brings it back), and they
   stay open across conversations. The native view now opens terminals too —
   a Sandboxes row's Terminal, the Sandbox screen's Open terminal — through
   the agent's relay (`GET /sandboxes/{ref}/terminal`), one at a time. A
@@ -282,14 +283,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   terminal running its sign-in command, then "Signed in? Retry"; an API key
   sent once and kept nowhere; a device code's page and code — with a
   warning that credentials land in the sandbox's shared home and a confirm
-  on a sandbox others may use. The relays and `authenticate` are the
+  on a sandbox others may use. A sandbox that is gone, or whose manager is
+  unbound or down, is said as such in place of the methods (a new chat in
+  another sandbox; Retry once the manager is back) — not "ask whoever
+  bound it", which was you. The relays and `authenticate` are the
   coding-agent routes (arriving with the harness engine); the card appears
   only for a run parked on `login`.
 - **Agent template: the coding-agent UI, put together**
   (`builtin-templates/agent/API.md` §Coding agents, §The frontend). A
   coding agent's top bar leaves out Memory and Learn skill, offers Compact
   only when the agent advertises `/compact`, and Retry when it was cut off
-  or couldn't start; while it waits for a sign-in the composer and the
+  or couldn't start; its ▣ shows the working directory read-only, with no
+  switch or Detach (its sandbox is fixed: the backend refuses them), and a
+  broken binding says to start a new chat; while it waits for a sign-in the composer and the
   activity line say so (no spinner), and someone it is shared with to read
   sees the sign-in card's words but no actions (the app: no Sign in… or
   Terminal either). A park of a kind no module draws falls back to the
@@ -311,8 +317,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   its own card, web and app: its monogram and name, the task, its state and
   what it does now, where it works and its counters (tool calls, files
   +a −d, cost, time), its plan, its last 3 blocks — read once, as its
-  newest page, when the card is open and on screen, then kept current —
-  and its answer. Its permission, plan approval, question or sign-in is
+  newest page, when the card is open and on screen, then kept current; a
+  read that fails says why, with Retry (the app: open the card again), and
+  waits before trying again rather than at every repaint (the built-in
+  subagent card's read too) — and its answer. Its permission, plan approval, question or sign-in is
   drawn on the card and answered on the child's own run; Stop, Cancel
   (confirmed) and Message act on the child from the card (the app: from
   its own chat — ⋯ → Cancel task); a person's message to it is told to the
@@ -320,7 +328,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   shows `?` while a run below it waits and `⧉ N` for its coding agents at
   work. New modules `harness-child.js`, `native/harness-child.js`,
   `model/harness-child.js`; for an instance's own modules,
-  `Session.fetchView(id, {paged, limit})` reads a page of any size.
+  `Session.fetchView(id, {paged, limit})` reads a page of any size and
+  `Session.failed` (`ui.readError(id)`, `ui.act.retryRead(id)`) holds a
+  child whose read failed.
 
 - **Agent template: the Coding agents board** (`builtin-templates/agent/API.md`
   §Coding agents, "The Coding agents board"). Every coding agent in the

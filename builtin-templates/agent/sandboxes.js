@@ -2,7 +2,9 @@
 // picker (#ssel, beside the model picker — only where the class has the
 // sandbox toolset: the open conversation's, or the next new chat's), the top
 // bar's ▣ badge (#sbxbadge) with its popover (#sbxpop: the working
-// directory, switching among the attached sandboxes, Detach, Manage…), and
+// directory, switching among the attached sandboxes, Detach, Manage… — a
+// coding agent's conversation keeps its sandbox: its cwd read-only, no
+// switch, no Detach), and
 // the Sandboxes dialog (#sbxdlg: every sandbox you may see, with the
 // lifecycle actions your rights allow, the create form, and sharing one with
 // a terminal tile: #sbx-share), and terminals (<bx-terminal src> on the
@@ -69,7 +71,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
     // another sandbox became the active one: the field is its directory
     if (pop.open && pop.ref !== b.ref) { pop.ref = b.ref; pop.cwd = b.cwd; }
     return html`<span class="sbxwrap"><span class="badge sbxbadge ${b.broken ? 'broken' : ''}" id="sbxbadge" role="button" tabindex="0"
-        title=${b.title} @click=${() => toggle(b)}>${b.label}${b.broken ? ' ⚠' : ''}</span>${pop.open ? popTpl(b) : nothing}</span>`;
+        aria-expanded=${pop.open ? 'true' : 'false'} title=${b.title} @click=${() => toggle(b)}
+        @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(b); } }}>${b.label}${b.broken ? ' ⚠' : ''}</span>${pop.open ? popTpl(b) : nothing}</span>`;
   }
   function toggle(b) {
     pop.open = !pop.open;
@@ -98,13 +101,16 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
     return html`<div class="mback" @click=${closePop}></div>
       <div class="sbxpop" id="sbxpop" role="dialog" aria-label="This conversation's sandbox">
         <div class="sbxhd"><b>${S.ICON} ${b.name}</b><span class="muted">${b.detail}</span></div>
-        ${b.broken ? html`<div class="err" id="sbx-broken">⚠ ${b.broken} — pick another, or detach it</div>` : nothing}
-        <div class="field"><label>Working directory</label>
+        ${b.broken ? html`<div class="err" id="sbx-broken">⚠ ${b.broken} — ${b.advice}</div>` : nothing}
+        ${b.fixed ? html`<div class="field"><label>Working directory</label>
+          <div class="mono" id="sbx-cwd-fixed">${b.cwd || 'its workdir'}</div>
+          <div class="hint">Fixed for this conversation: a coding agent keeps the sandbox and directory it started in.</div></div>`
+        : html`<div class="field"><label>Working directory</label>
           <div class="sbxcwd"><input id="sbx-cwd" class="mono" .value=${pop.cwd} placeholder="the sandbox's workdir" ?disabled=${!b.canChange}
               @input=${(e) => { pop.cwd = e.target.value; }} @keydown=${(e) => { if (e.key === 'Enter') setCwd(b); }}>
             <button class="btn btnsm" id="sbx-cwd-set" ?disabled=${!b.canChange} @click=${() => setCwd(b)}>Set</button></div>
-          <div class="hint">The tools work there from the agent's next turn.</div></div>
-        ${b.attached.length > 1 ? html`<div class="field"><label>Attached — the agent works in one at a time</label>
+          <div class="hint">The tools work there from the agent's next turn.</div></div>`}
+        ${b.attached.length > 1 && !b.fixed ? html`<div class="field"><label>Attached — the agent works in one at a time</label>
           ${b.attached.map((a) => html`<div class="sbxatt ${a.on ? 'on' : ''}" data-ref=${a.ref} title=${a.broken || (a.on ? 'the active one' : 'make it the active one')}
               @click=${() => { if (!a.on && b.canChange) run(() => app.sbx.choose(a.ref, a.cwd)); }}>
             ${a.on ? '●' : '○'} ${a.name}${a.cwd ? html` <span class="mono muted">${a.cwd}</span>` : nothing}${a.broken ? ' ⚠' : ''}</div>`)}</div>` : nothing}
@@ -112,8 +118,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
         ${popExtra ? popExtra(b, closePop) : nothing}
         ${tt.shown && tt.why ? html`<div class="hint" id="sbx-term-why">No terminal: ${tt.why}.</div>` : nothing}
         <div class="sbxacts">
-          <button class="btn rm btnsm" id="sbx-detach" ?disabled=${!b.canChange} title="Take it off this conversation (the sandbox stays)"
-            @click=${() => run(() => app.sbx.detach(b.ref), true)}>Detach</button>
+          ${b.fixed ? nothing : html`<button class="btn rm btnsm" id="sbx-detach" ?disabled=${!b.canChange} title="Take it off this conversation (the sandbox stays)"
+            @click=${() => run(() => app.sbx.detach(b.ref), true)}>Detach</button>`}
           ${tt.shown ? html`<button class="btn btnsm" id="sbx-term" ?disabled=${!!tt.why}
             title=${tt.why || `a shell in ${b.name} at ${b.cwd || 'its workdir'}, as you`}
             @click=${() => { pop.open = false; repaint(); openTerm(tt); }}>Open terminal</button>` : nothing}

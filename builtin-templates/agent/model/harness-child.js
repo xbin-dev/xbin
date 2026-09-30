@@ -166,12 +166,22 @@ export function tailOf(b, n = TAIL) {
 // loadTail reads the child's newest page into the session (Session.fetchView
 // with a small limit) — once, for a card that is open and on screen; the
 // stream keeps it current from then on. A view already held (the child was
-// opened) is used as it is. True when a read started.
+// opened) is used as it is. A read that failed is not tried again at the
+// next paint (session.failed, model/session.js Failures: after a while, or
+// at the card's Retry — tailError says why). True when a read started.
 export function loadTail(session, id, n = TAIL_READ) {
-  if (!id || session.views.has(id) || session.loading.has(id)) return false;
+  if (!id || session.views.has(id) || session.loading.has(id) || !session.failed.due(id)) return false;
   session.loading.add(id);
-  session.fetchView(id, { paged: true, limit: n }).catch(() => {}).finally(() => { session.loading.delete(id); session.changed(); });
+  session.fetchView(id, { paged: true, limit: n }).catch((e) => session.failed.fail(id, e))
+    .finally(() => { session.loading.delete(id); session.changed(); });
   return true;
+}
+
+// tailError: what a card says in place of its last blocks when its child
+// could not be read ('' = nothing failed).
+export function tailError(session, id) {
+  const why = id ? session.failed.why(id) : '';
+  return why ? `Couldn't read its latest steps: ${why}` : '';
 }
 
 // stopWords / cancelWords: what Stop and Cancel say (Cancel asks first).
