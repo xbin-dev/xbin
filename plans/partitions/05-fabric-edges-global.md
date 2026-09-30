@@ -136,13 +136,13 @@ has two kinds:
 | | **Global bind** | **Personal bind** (new) |
 |---|---|---|
 | Record | today's `bindings` in the workspace `xbin.json` (`registry.go:300`), unchanged shape | xbind state `data/partitions/binds/<uid>.json`: `{schema: 1, user, uid, binds: [{id, requester, slot, provider, at}]}` |
-| Who creates it | **admins only** when the requester is partitioned (`Broker.IsAdmin`). The delegated paths (org admins D26/D33, personal owners D88) answer 403. Unpartitioned requesters keep today's rules | the **owner of a user-owned provider** (`Owner(provider) == "user:<id>"`), for **their own** partition of a partitioned requester they can read, with their own credential (PersonOnly). Admins may list and delete, never create: an admin's bind is always global |
+| Who creates it | **today's bind authority** (PD-54, owner 2026-09-29): workspace admins, org admins within their org (D26/D33), personal owners (D88) — partitioned requester or not | the **owner of a user-owned provider** (`Owner(provider) == "user:<id>"`), for **their own** partition of a partitioned requester they can read, with their own credential (PersonOnly). Admins may list and delete, never create: an admin's bind is always global |
 | Provider | any tile (shared, or partitioned, per §1) | a user-owned (personal) tile, not partitioned |
 | Slot | any http/net/stream slot, as today | multi http slots (v1) whose service the provider provides (`validateBinding`'s http checks, `netfn.go:947-968`); the ceiling rules apply |
 | Seen in `XBIN_IFACE_*` / `xbin-interfaces` by | the global instance and every user partition (as today) | only `user:<id>`'s partition instance and that person's frames |
 | Counts as the call grant for | every instance of the requester | a call from the requester acting in `user:<id>` whose uid matches, while `<id>` still owns the provider |
 | Routing | the edge matrix (§1) | the provider's primary, with `X-XBin-From: <requester>`, `X-XBin-Partition: user:<id>`, `X-XBin-Partition-Id` |
-| Removed by | admins | the person, an admin, a provider transfer (the owner changes), user delete (uid), the requester's mode switch (01 §2.6) |
+| Removed by | today's bind authority, as it creates | the person, an admin, a provider transfer (the owner changes), user delete (uid), the requester's mode switch (01 §2.6) |
 
 **Who may create a global bind** (owner ruling, 2026-09-29): **today's
 bind authority, unchanged by partitioning** — whoever may manage the
@@ -312,12 +312,14 @@ principals never satisfy a governance check.
   - the file survives an older-format rewrite of `users.json`;
   - an off → on → off cycle keeps the records.
 - broker bind types:
-  - on a partitioned requester, an org admin's or personal owner's global
-    bind gives 403 and an admin's succeeds; the same for `uses` approval of
-    a non-partitioned target;
+  - on a partitioned requester, global binds follow today's bind authority
+    (PD-54, owner 2026-09-29): an admin's, an org admin's within their org
+    (D26), a provider org admin's (D33) and a personal owner's (D88)
+    succeed, anyone else's 403; the same for `uses` approval;
   - an unpartitioned requester keeps today's rules (golden);
   - a personal bind by the provider's owner succeeds, by anyone else 403,
-    by an admin for someone else 403, and on a non-multi slot 409;
+    by an admin 403 (even of a tile they own: an admin's bind is always
+    global), and on a non-multi slot 409;
   - env: alice's partition sees her entry, while bob's partition and
     global don't;
   - calls: alice's partition → her tile passes; bob's partition, global

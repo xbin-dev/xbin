@@ -242,18 +242,17 @@ file and the split are named under "Merge contention".
     partitioned requester keeps today's authority checks; the `validateBinding` 409 for a
     non-partitioned requester → a partitioned provider without global;
     per-partition `HTTPSlots`/`HTTPInterfaces` (`:325-392`);
-  - `internal/broker/delegated.go`/`personal.go` (delegated paths refused
-    for partitioned requesters);
-  - `internal/broker/broker.go` (`grantMutation` `:710-764`, the same rule
-    for `uses` on non-partitioned targets; `grantedRole` `:452-484` →
-    `grantedRoleIn` with the caller's partition);
+  - `internal/broker/delegated.go`/`personal.go`/`grantMutation`:
+    unchanged — today's bind authority (PD-54, owner 2026-09-29);
+  - `grantedRole` (`broker.go:452-484`) stays resolveTarget's; the
+    personal half of `grantedRoleIn` rides F2's `personalBindGrant` seam;
   - new `internal/broker/personalbind.go` (`data/partitions/binds/<uid>.json`,
     routes, validation, lifecycle hooks: transfer, user delete, the switch
     wipe);
   - the `PartitionEnv` personal-bind hook (F4's slot) and a restart of the
     one partition;
   - `bx bind --personal`;
-  - the Interfaces panel's "global/personal" labels.
+  - the "global/personal" labels in the admin console's wiring view.
 - Depends on: F2 (caller partition), F4 (`PartitionEnv`); PD-16, PD-54.
 - Accept: 05 §Tests "bind types" (who may create, env visibility per
   partition, the call filter, the lifecycle); unpartitioned-requester
@@ -547,8 +546,9 @@ independent and can ship first.
 - **gocryptfs process count and cold-start latency** with the default-
   partitioned agent (I2).
 - **Build stampede** on save for tiles with many live partitions (03 §A.3/7).
-- **Global-bind narrowing (F15)** changes who can wire a partitioned agent
-  (org admins and personal owners can't). Docs and the refusal text must
-  point people to admins and to personal binds.
+- **Global binds (F15)** keep today's bind authority (PD-54, owner
+  2026-09-29): no narrowing. What remains is the trust base — every global
+  bind, a provider org admin's (D33) included, reaches every person's
+  partition; the trust panel lists them.
 - **The agent's per-host engine scope (B2d)** touches D81 fencing. Keep it
   behind the non-secure feature.

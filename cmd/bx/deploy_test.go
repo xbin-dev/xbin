@@ -443,6 +443,18 @@ func TestBxTodayInvocationsUnchanged(t *testing.T) {
 			`DELETE /api/xbin/bindings {"component":"apps/x","slot":"net"}`,
 			"exit 0",
 		}},
+		{"", []string{"bind", "--personal", "apps/agent", "mcp=users/alice/mcp"}, []string{
+			`POST /api/xbin/partitions/binds {"provider":"users/alice/mcp","requester":"apps/agent","slot":"mcp"}`,
+			"exit 0",
+		}},
+		{"", []string{"bind", "--personal", "--unset", "apps/agent", "mcp=users/alice/mcp"}, []string{
+			`DELETE /api/xbin/partitions/binds {"provider":"users/alice/mcp","requester":"apps/agent","slot":"mcp"}`,
+			"exit 0",
+		}},
+		{"", []string{"bind", "--personal"}, []string{
+			"GET /api/xbin/partitions/binds",
+			"exit 0",
+		}},
 		{"", []string{"expose", "apps/x", "web=backend", "--host", "shop.example.com"}, []string{
 			`POST /api/xbin/bindings {"component":"apps/x","host":"shop.example.com","provider":"backend","slot":"web"}`,
 			"exit 0",

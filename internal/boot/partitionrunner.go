@@ -44,6 +44,10 @@ func (st *State) wirePartitionRunner() {
 		}
 	})
 	st.Reg.OnPartitionChange(brk.PartitionTileChanged) // a tile that went takes the consents naming it
+
+	// a person's personal binds changed: their instance restarts (05 §3;
+	// TestPersonalBindRestartWired)
+	brk.SetPartitionRestart(run.StopPartition)
 }
 
 // runningSpec is the partition spec a tile in mode m runs: its recorded mode

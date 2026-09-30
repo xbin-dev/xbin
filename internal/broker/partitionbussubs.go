@@ -193,7 +193,11 @@ func (b *Broker) partSubReach(tile, dep string, part util.Partition, resource st
 	p := auth.Principal{Component: tile, Via: "instance", Deployment: owner, Partition: part}
 	reached := b.partitionOf
 	if count {
-		reached = b.reachPartition
+		// the bus as a partitioned scope's own (F5's rule); a "shared" bus's
+		// reach (F10's shared flag) is the W2 integration's to settle
+		reached = func(p auth.Principal, scope string, own bool) (string, error) {
+			return b.reachPartition(p, scope, own, false)
+		}
 	}
 	got, err := reached(p, rt.Scope, own)
 	switch {

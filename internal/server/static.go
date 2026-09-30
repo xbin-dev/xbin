@@ -513,7 +513,7 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 	im, _ := json.Marshal(map[string]any{"imports": imports})
 
 	ifaceMeta := ""
-	if ifaces := s.policy().Interfaces(compPath); len(ifaces) > 0 {
+	if ifaces := s.docInterfaces(r, compPath); len(ifaces) > 0 { // + the viewer's personal binds (partitionifaces.go)
 		j, _ := json.Marshal(ifaces)
 		ifaceMeta = fmt.Sprintf("<meta name=\"xbin-interfaces\" content=\"%s\">\n", htmlEscape(string(j)))
 	}

@@ -303,17 +303,54 @@ A partitioned tile's interface slots are wired by two kinds of bind:
 | | **Global bind** | **Personal bind** |
 |---|---|---|
 | What it is | today's binding, in the workspace `xbin.json` | a person's own wiring, kept by xbind |
-| Who creates it | whoever may bind it today — a workspace admin, an org admin within their org, a personal tile's owner to what they own or are allowed (D88); partitioning adds no rule | the owner of a personal (user-owned) tile, into **their own** partition of a partitioned tile they can read, with their own sign-in (never tile code). Admins can list and delete personal binds, never create them |
+| Who creates it | whoever may bind it today — a workspace admin, an org admin within their org, a personal tile's owner to what they own or are allowed (D88); partitioning adds no rule | the owner of a personal (user-owned) tile, into **their own** partition of a partitioned tile they can read, with their own sign-in (never tile code). Admins can list and delete personal binds, never create them — an admin's bind is always global, even of a tile they own |
 | Seen by | the global instance and every partition | only that person's partition and frames |
 | Lets calls through from | every instance of the tile | only that person's partition, while they still own the provider |
 
 A global bind puts its provider in every person's trust base: its code sees
 what each partition sends it. A personal bind is removed when its owner
-removes it or gives the provider away, when the person is deleted, and when
-the requester switches mode.
+removes it or gives the provider away, when the person is deleted, when
+the requester switches mode, and when a tile is created at the requester's
+or the provider's path (a removed tile's binds never reach the new one).
 
-**TODO:** personal binds' rows in `XBIN_IFACE_<SLOT>` and `xbin.iface()`
-(`personal: true`), the routes and `bx bind --personal`.
+**Global binds** are made as today (`POST /api/xbin/bindings`, `bx bind`,
+the admin console's wiring view, which labels a partitioned tile's bindings
+*global*). One refusal is new: an unpartitioned tile's http slot can't be
+bound to a partitioned tile that has no global instance (409) — no call of
+it would reach that tile; bind pickers show such a provider greyed out.
+
+**Personal binds.** Alice owns `users/alice/mcp`, which provides the `mcp`
+service; `apps/agent` is partitioned, she can read it, and it has a
+`"multi": true` http slot `mcp`. With her own sign-in (not from a tile's
+terminal) she runs
+
+```
+bx bind --personal apps/agent mcp=users/alice/mcp
+```
+
+(`POST /api/xbin/partitions/binds {requester, slot, provider}`). Then:
+
+- only her partition of `apps/agent` is restarted, and its
+  `XBIN_IFACE_MCP` lists the provider after the global rows:
+  `{"provider": "users/alice/mcp", "url": "http://xbin/api/users/alice/mcp",
+  "service": "mcp", "personal": true}`; her frames' `xbin.iface('mcp')`
+  endpoints list it with `personal: true`. Bob's partition and the global
+  instance don't;
+- a call to `users/alice/mcp` passes only from `apps/agent` acting in her
+  partition, while she still owns the tile. Every other caller — bob's
+  partition, the global instance — gets the same 403 as if nothing were
+  bound. The provider sees `X-XBin-From: apps/agent`,
+  `X-XBin-Partition: user:alice` and `X-XBin-Partition-Id`.
+
+The slot must be a `multi: true` http slot, the provider a personal tile
+that isn't partitioned and provides the slot's service as a plain provider
+(not instances), and the policy ceiling must allow the edge; a provider
+already bound on the slot for everyone can't be bound again. `bx bind
+--personal` lists your personal binds (`GET`; admins see everyone's, each
+with `live` and, when it no longer holds, `why`), and `bx bind --personal
+--unset apps/agent mcp=users/alice/mcp` removes one (`DELETE`; admins may
+remove anyone's). An admin can't make one: `bx bind --personal` as an
+admin answers 403 — bind the tile for everyone instead.
 
 ## Providers: calls from partitioned tiles
 
@@ -579,8 +616,6 @@ and restoring one on another machine needs the exported backup keys.
 ## Not documented yet (TODO)
 
 - partition mail, `partitionMail`, and the SDK's `Mail`/`Inbox`/`Ack`;
-- personal binds in `XBIN_IFACE_<SLOT>` / `xbin.iface()`, their routes and
-  `bx bind --personal`;
 - the workspace policy for credential resets that wait for the person;
 - terminals, agent sessions, logs and status on partitioned tiles;
 - the partitions page (`/xbin/partitions`), `bx partition` beyond
