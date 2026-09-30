@@ -423,6 +423,19 @@ func (s *hsess) onDevice(ev acp.Event, q acp.Elicitation, a *hAuth) {
 	s.publishSummary()
 }
 
+// storedState is st (the client's State, its own copy) as harness_sessions
+// .snapshot keeps it: a url question's page and words left out — the only
+// url questions AgTT accepts are device codes (onDevice), the requester's
+// alone. A successor restores the question by its ids, which stay.
+func storedState(st acp.SessionState) acp.SessionState {
+	for i := range st.Elicitations {
+		if st.Elicitations[i].Mode == "url" {
+			st.Elicitations[i].URL, st.Elicitations[i].Message = "", ""
+		}
+	}
+	return st
+}
+
 // setDeviceTx puts d (nil: none) in the session's login and the park's —
 // stored and published, so never the code itself (onDevice).
 func (s *hsess) setDeviceTx(t *DB, hs *harnessSession, d *hDevice) error {

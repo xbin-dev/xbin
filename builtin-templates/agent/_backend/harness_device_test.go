@@ -38,14 +38,31 @@ func TestHarnessDeviceCodeIsTheRequesters(t *testing.T) {
 	leaks := func(s string) bool {
 		return strings.Contains(s, "FAKE-1234") || strings.Contains(s, "example.invalid/device")
 	}
-	// stored nowhere
-	for _, q := range []string{`SELECT login FROM harness_sessions`, `SELECT pending FROM runs`, `SELECT body FROM inbox`,
-		`SELECT content||meta FROM messages`, `SELECT detail FROM steps`} {
-		for _, v := range scanStrings(t, ag.db, q) {
-			if leaks(v) {
-				t.Fatalf("the code is stored (%s): %s", q, v)
+	// stored nowhere: no table's cell (the client's snapshot, which keeps
+	// the accepted url question for a successor, included)
+	for _, tbl := range scanStrings(t, ag.db, `SELECT name FROM sqlite_master WHERE type='table'`) {
+		rows, err := ag.db.sql.Query(`SELECT * FROM "` + tbl + `"`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cols, _ := rows.Columns()
+		for rows.Next() {
+			vals := make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				t.Fatal(err)
+			}
+			for i, v := range vals {
+				if s := fmt.Sprintf("%s", v); leaks(s) {
+					rows.Close()
+					t.Fatalf("the code is stored (%s.%s): %s", tbl, cols[i], clip(s, 300))
+				}
 			}
 		}
+		rows.Close()
 	}
 	// nobody else reads it; everyone reads who started it
 	for _, c := range []caller{asBob, asCarol, asDave, asAlice} {

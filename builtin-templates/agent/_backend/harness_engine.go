@@ -862,7 +862,7 @@ func (s *hsess) commit(ev *acp.Event, fn func(t *DB, hs *harnessSession) error) 
 	}
 	var snap []byte
 	if s.c != nil {
-		snap, _ = json.Marshal(s.c.State())
+		snap, _ = json.Marshal(storedState(s.c.State())) // never a device code (harness_login.go)
 	}
 	s.mu.Lock()
 	rows := s.dirtyRowsLocked()
