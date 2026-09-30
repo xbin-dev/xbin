@@ -1889,7 +1889,10 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   messages queued for the coding agent waiting, reads calls in flight as
   interrupted, answers an approval there with an error result, and the
   coding agent itself runs on unwatched in the sandbox until the sandbox
-  stops or a newer agent takes it over again.
+  stops or a newer agent takes it over again. Its class editor still
+  saves (the stored classes keep the `harness` toolset apart from
+  `toolsets`, where that agent would refuse it), but a class it saves
+  again has lost its coding agents: tick them again after upgrading.
 
 **Its own routes** (D-harness §4.2.4–§4.2.6). On a run the agent's own
 loop answers they are **409** `not a coding-agent conversation`.

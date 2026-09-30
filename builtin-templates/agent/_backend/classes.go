@@ -249,10 +249,52 @@ func laneClass(toolset string) string {
 
 // --- the stored set ----------------------------------------------------------------
 
-// classSettings is settings k='classes'.
+// classSettings is the classes as saved (settings k='classes' stores them
+// as storedClasses).
 type classSettings struct {
 	Classes []agentClass `json:"classes"`
 	Default string       `json:"default,omitempty"` // a new conversation's class when none is named
+}
+
+// storedClasses is settings k='classes'. A class keeps the harness toolset
+// out of its toolsets there, in harness: a build from before coding agents
+// (v0.3.64 and older), rolled back to, refuses a toolset it doesn't know —
+// and its editor resends every stored class, so every class save would
+// fail. That build ignores harness; a class it saves again has no coding
+// agents. Toolsets that hold harness (an earlier build of this program
+// stored them so) are read as they are.
+type storedClasses struct {
+	Classes []storedClass `json:"classes"`
+	Default string        `json:"default,omitempty"`
+}
+
+type storedClass struct {
+	agentClass
+	Harness bool `json:"harness,omitempty"` // the harness toolset
+}
+
+func (s classSettings) stored() storedClasses {
+	out := storedClasses{Classes: make([]storedClass, 0, len(s.Classes)), Default: s.Default}
+	for _, c := range s.Classes {
+		sc := storedClass{agentClass: c, Harness: c.has(tsHarness)}
+		if sc.Harness {
+			sc.Toolsets = without(c.Toolsets, tsHarness)
+		}
+		out.Classes = append(out.Classes, sc)
+	}
+	return out
+}
+
+func (s storedClasses) settings() classSettings {
+	out := classSettings{Classes: make([]agentClass, 0, len(s.Classes)), Default: s.Default}
+	for _, sc := range s.Classes {
+		c := sc.agentClass
+		if sc.Harness && !c.has(tsHarness) {
+			c.Toolsets = append(append([]string(nil), c.Toolsets...), tsHarness)
+		}
+		out.Classes = append(out.Classes, c)
+	}
+	return out
 }
 
 // classState is the classes in force: the built-ins first, in their order
@@ -330,11 +372,11 @@ func currentClasses() *classState {
 
 // loadClasses (re)reads the stored classes into the cache.
 func loadClasses(d *DB) *classState {
-	var s classSettings
+	var s storedClasses
 	if raw := d.getSetting("classes"); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &s)
 	}
-	st := newClassState(s)
+	st := newClassState(s.settings())
 	classStore.Store(st)
 	return st
 }
@@ -647,7 +689,7 @@ func handlePutClasses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	raw, _ := json.Marshal(classSettings{Classes: body.Classes, Default: body.Default})
+	raw, _ := json.Marshal(classSettings{Classes: body.Classes, Default: body.Default}.stored())
 	if err := agent.db.putSetting("classes", string(raw)); err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
