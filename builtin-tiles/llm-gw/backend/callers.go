@@ -10,25 +10,23 @@
 // call from a tile that isn't partitioned carries neither header and is
 // counted per backend only, as before: nothing here changes for it.
 //
-// The optional fairness limit (partitionLimit, off by default) caps how many
-// calls one person's partition of a calling tile may have in flight; more
-// wait their turn, in order, until one ends or the caller goes away. The
-// global instance and tiles that aren't partitioned are never held.
+// Counting is in memory; one writer goroutine persists the latest snapshot
+// to kv after calls ended (coalesced: a burst of calls is one write), so no
+// call waits on kv. Who sees which rows is callers_view.go's; the optional
+// fairness limit is fairness.go's.
 package main
 
 import (
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 )
-
-// maxPartitionLimit bounds partitionLimit.
-const maxPartitionLimit = 64
 
 // maxCallerRows bounds the persisted rows: past it the least recently seen
 // row goes (a deleted person's partition id is never used again).
@@ -49,30 +47,33 @@ type callerRow struct {
 	TokIn       int64   `json:"tokIn"`
 	TokOut      int64   `json:"tokOut"`
 	Cost        float64 `json:"cost"`
-	Last        int64   `json:"last"` // unix ms of the last call
+	Last        int64   `json:"last,omitempty"` // unix ms of the last call
 }
 
 func (r *callerRow) key() callerKey { return callerKey{r.From, r.Deployment, r.PartitionID} }
 
-// gate is a caller's calls in flight and those waiting for a slot.
-type gate struct {
-	part    string // the caller's display name, for GET /stats
-	n       int
-	waiters []chan struct{}
-}
+// person reports whether the row is a person's partition (not a global
+// instance).
+func (r *callerRow) person() bool { return r.PartitionID != "" }
 
 var (
-	callersMu  sync.Mutex
-	callerRows map[callerKey]*callerRow // nil until loaded from kv
-	gates      = map[callerKey]*gate{}
-	limitNow   int // the partitionLimit the last call saw (for releases)
+	callersMu sync.Mutex
+	// callerRows: the persisted rows once loaded, plus the calls counted
+	// since this process started (a failed load never drops them).
+	callerRows    = map[callerKey]*callerRow{}
+	callersLoaded bool  // the persisted rows are in callerRows
+	callersDirty  bool  // callerRows has counts kv hasn't
+	loadRetryAt   int64 // unix ms: a failed load is tried again after it
 
-	persistMu sync.Mutex // one kv write at a time, the latest snapshot last
+	persistMu   sync.Mutex // one kv write at a time, the latest snapshot last
+	persistWake = make(chan struct{}, 1)
+	persistOnce sync.Once
 
 	// The kv the rows live in ("callers"); tests replace them.
 	loadCallersKV  = func() ([]byte, error) { return kv.Get("callers") }
 	storeCallersKV = func(b []byte) error { return kv.Put("callers", b) }
 	nowMs          = func() int64 { return time.Now().UnixMilli() }
+	persistRetry   = 2 * time.Second // after a failed load or write
 )
 
 // callerRef is a counted call: its key and display name. nil for a call
@@ -91,116 +92,72 @@ func callerOf(r *http.Request) *callerRef {
 	return &callerRef{key: callerKey{c.From, c.Deployment, c.PartitionID}, part: c.Partition}
 }
 
-// limited: the fairness limit applies to the caller — a person's partition.
-func (c *callerRef) limited() bool { return c != nil && c.key.PartitionID != "" }
-
-// loadCallersLocked reads the rows from kv once. callersMu held.
+// loadCallersLocked reads the persisted rows once, adding them to what was
+// counted since the start. A missing key is no rows; any other kv error is
+// tried again later — never "no rows", which the next write would persist
+// over every counter. callersMu held.
 func loadCallersLocked() {
-	if callerRows != nil {
+	if callersLoaded || nowMs() < loadRetryAt {
 		return
 	}
-	callerRows = map[callerKey]*callerRow{}
 	b, err := loadCallersKV()
-	if err != nil {
-		return
-	}
 	var rows []*callerRow
-	if json.Unmarshal(b, &rows) != nil {
+	switch {
+	case errors.Is(err, xbin.ErrNotFound):
+	case err != nil:
+		loadRetryAt = nowMs() + persistRetry.Milliseconds()
+		log.Printf("llm-gw: reading the per-caller counters: %v (trying again)", err)
 		return
+	case json.Unmarshal(b, &rows) != nil:
+		log.Printf("llm-gw: the per-caller counters in kv are unreadable: starting them afresh")
+		rows = nil
 	}
 	for _, r := range rows {
-		if r != nil && r.From != "" {
+		if r == nil || r.From == "" {
+			continue
+		}
+		m := callerRows[r.key()]
+		if m == nil {
 			callerRows[r.key()] = r
+			continue
+		}
+		m.Reqs += r.Reqs // counted since the start: the persisted add up
+		m.TokIn += r.TokIn
+		m.TokOut += r.TokOut
+		m.Cost += r.Cost
+		m.Last = max(m.Last, r.Last)
+	}
+	callersLoaded = true
+	for _, r := range sortedRowsLocked() {
+		if callerRows[r.key()] == r {
+			supersedeLocked(r)
 		}
 	}
+	pruneLocked()
 }
 
-// admitCaller counts a call of c in flight, first waiting for a slot when
-// the fairness limit holds c's partition. It answers the release to defer,
-// and false when r's caller went away while waiting (nothing to answer).
-func admitCaller(r *http.Request, c *callerRef, limit int) (release func(), ok bool) {
-	if c == nil {
-		return func() {}, true
-	}
-	callersMu.Lock()
-	if limit != limitNow { // the config changed under the calls waiting
-		limitNow = limit
-		for _, g := range gates {
-			pumpLocked(g)
-		}
-	}
-	g := gates[c.key]
-	if g == nil {
-		g = &gate{part: c.part}
-		gates[c.key] = g
-	}
-	if !c.limited() || limit <= 0 || g.n < limit {
-		g.n++
-		callersMu.Unlock()
-		return func() { releaseCaller(c.key) }, true
-	}
-	ch := make(chan struct{})
-	g.waiters = append(g.waiters, ch)
-	callersMu.Unlock()
-	select {
-	case <-ch: // a release handed its slot on (g.n already counts it)
-		return func() { releaseCaller(c.key) }, true
-	case <-r.Context().Done():
-		callersMu.Lock()
-		for i, w := range g.waiters {
-			if w == ch {
-				g.waiters = append(g.waiters[:i], g.waiters[i+1:]...)
-				callersMu.Unlock()
-				return nil, false
-			}
-		}
-		callersMu.Unlock()
-		releaseCaller(c.key) // handed a slot as it left: pass it on
-		return nil, false
-	}
-}
-
-// releaseCaller ends a call in flight and hands free slots to the waiters.
-func releaseCaller(k callerKey) {
-	callersMu.Lock()
-	defer callersMu.Unlock()
-	g := gates[k]
-	if g == nil {
+// supersedeLocked drops the rows of an earlier partition of the same person
+// of the same calling tile: the display name "user:<id>" came with another
+// partition id, so that person was deleted and recreated (or their
+// partition reset) — the new one never inherits the old one's records, and
+// the old ones aren't kept.
+func supersedeLocked(row *callerRow) {
+	if !row.person() {
 		return
 	}
-	g.n--
-	pumpLocked(g)
-	if g.n <= 0 && len(g.waiters) == 0 {
-		delete(gates, k)
+	for k, o := range callerRows {
+		if o != row && o.person() && o.From == row.From && o.Deployment == row.Deployment &&
+			o.Partition == row.Partition && o.Last <= row.Last {
+			delete(callerRows, k)
+		}
 	}
 }
 
-// pumpLocked admits waiters while the limit (as last seen) allows.
-func pumpLocked(g *gate) {
-	for len(g.waiters) > 0 && (limitNow <= 0 || g.n < limitNow) {
-		g.n++
-		close(g.waiters[0])
-		g.waiters = g.waiters[1:]
-	}
-}
-
-// setPartitionLimit applies a changed limit to calls already waiting.
-func setPartitionLimit(limit int) {
-	callersMu.Lock()
-	defer callersMu.Unlock()
-	limitNow = limit
-	for _, g := range gates {
-		pumpLocked(g)
-	}
-}
-
-// countCaller adds one finished call to c's row and persists the rows.
+// countCaller adds one finished call to c's row; the writer persists it.
 func countCaller(c *callerRef, tokIn, tokOut int64, cost float64) {
 	if c == nil {
 		return
 	}
-	persistMu.Lock()
-	defer persistMu.Unlock()
 	callersMu.Lock()
 	loadCallersLocked()
 	row := callerRows[c.key]
@@ -214,12 +171,55 @@ func countCaller(c *callerRef, tokIn, tokOut int64, cost float64) {
 	row.TokOut += tokOut
 	row.Cost += cost
 	row.Last = nowMs()
+	supersedeLocked(row)
 	pruneLocked()
-	b, err := json.Marshal(sortedRowsLocked())
+	callersDirty = true
 	callersMu.Unlock()
-	if err == nil {
-		_ = storeCallersKV(b)
+	persistOnce.Do(func() { go persistLoop() })
+	select {
+	case persistWake <- struct{}{}:
+	default: // a write is due already: it takes this call's count too
 	}
+}
+
+// persistLoop is the one writer: each wake writes the latest snapshot.
+func persistLoop() {
+	for range persistWake {
+		for !persistCallers() {
+			time.Sleep(persistRetry)
+		}
+	}
+}
+
+// persistCallers writes the rows to kv when they changed. false: it
+// couldn't (the load or the write failed) — try again later.
+func persistCallers() bool {
+	persistMu.Lock()
+	defer persistMu.Unlock()
+	callersMu.Lock()
+	loadCallersLocked()
+	if !callersDirty {
+		callersMu.Unlock()
+		return true
+	}
+	if !callersLoaded {
+		callersMu.Unlock()
+		return false
+	}
+	b, err := json.Marshal(sortedRowsLocked())
+	callersDirty = false
+	callersMu.Unlock()
+	if err != nil {
+		return true
+	}
+	if err := storeCallersKV(b); err != nil {
+		log.Printf("llm-gw: writing the per-caller counters: %v (trying again)", err)
+		callersMu.Lock()
+		callersDirty = true
+		callersMu.Unlock()
+		return false
+	}
+	return true
 }
 
 // pruneLocked drops the least recently seen rows past maxCallerRows.
@@ -256,61 +256,4 @@ func sortRows(rows []*callerRow) {
 		}
 		return a.Partition+"\x00"+a.PartitionID < b.Partition+"\x00"+b.PartitionID
 	})
-}
-
-// callerStat is a row as GET /stats shows it.
-type callerStat struct {
-	callerRow
-	Active  int `json:"active"`
-	Waiting int `json:"waiting"`
-}
-
-// callersFor is the rows r may see: every row for a manager of this tile
-// (write or terminal access, the owner token), only their own partitions'
-// for anyone else who opens its page, none while an admin views the
-// workspace as someone — per-person usage is the tile's managers'.
-func callersFor(r *http.Request) []callerStat {
-	c := xbin.Caller(r)
-	if c.ViewedBy != "" {
-		return nil
-	}
-	all := c.UserCanWrite()
-	callersMu.Lock()
-	defer callersMu.Unlock()
-	loadCallersLocked()
-	rows := sortedRowsLocked()
-	for k, g := range gates { // a caller whose first call hasn't ended yet
-		if callerRows[k] == nil {
-			rows = append(rows, &callerRow{From: k.From, Deployment: k.Deployment, PartitionID: k.PartitionID, Partition: g.part})
-		}
-	}
-	sortRows(rows)
-	var out []callerStat
-	for _, row := range rows {
-		if !all && row.Partition != "user:"+c.User {
-			continue
-		}
-		s := callerStat{callerRow: *row}
-		if g := gates[row.key()]; g != nil {
-			s.Active, s.Waiting = g.n, len(g.waiters)
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
-// partitionLimitIn is a PUT /config body's partitionLimit, checked: nil
-// when absent, else the limit or why it can't be set.
-func partitionLimitIn(r *http.Request, raw json.RawMessage) (*int, string, int) {
-	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
-		return nil, "", 0
-	}
-	if !xbin.Caller(r).UserCanWrite() {
-		return nil, "the fairness limit needs write access to this tile", http.StatusForbidden
-	}
-	var n int
-	if json.Unmarshal(raw, &n) != nil || n < 0 || n > maxPartitionLimit {
-		return nil, "partitionLimit is a whole number from 0 (off) to 64", http.StatusBadRequest
-	}
-	return &n, "", 0
 }

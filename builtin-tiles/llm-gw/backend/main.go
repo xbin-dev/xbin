@@ -545,9 +545,13 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 func handleProxy(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
 	caller := callerOf(r) // a partitioned tile's partition, else nil (callers.go)
-	release, ok := admitCaller(r, caller, c.PartitionLimit)
-	if !ok {
+	release, adm := admitCaller(r, caller, c.PartitionLimit)
+	switch adm {
+	case callerGone:
 		return // it went away while waiting under the fairness limit
+	case limitBusy:
+		writeLimitBusy(w, c.PartitionLimit) // fairness.go
+		return
 	}
 	defer release()
 
@@ -684,6 +688,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	release() // the call ended: its partition's slot is free before any counting
 	tokIn, tokOut := usageOf(tail)
 	cost := costOf(c, reqModel, tokIn, tokOut)
 	bumpStats(beName, tokIn, tokOut, cost)

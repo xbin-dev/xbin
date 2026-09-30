@@ -43,29 +43,55 @@ every call (`X-XBin-Partition`, `X-XBin-Partition-Id`).
 tile, its deployment and the person's partition (its `X-XBin-Partition-Id`;
 the global instance is its own row) — beside the per-backend counters:
 requests, tokens in/out and cost. Metadata only: no prompt, answer or
-model is kept. The page shows them under **usage by partition**, every row
-to a manager of this tile (write or terminal access) and to the owner, and
-to anyone else who opens the page only their own partitions' rows; viewing
-the workspace as someone shows none. `GET /metrics` stays per backend: a
-metrics reader never sees who used what. A call from a tile that isn't
-partitioned is counted per backend only, as before, and until a partitioned
-tile calls, nothing on the page or in `GET /stats` changes.
+model is kept. The page shows them under **usage by partition**, to each
+viewer what is theirs to see:
+
+- a person who opens the page: their own partitions' rows (with the last
+  use and the calls in flight);
+- a manager of this tile (write or terminal access): each calling tile's
+  people's partitions **together** — how many, requests, tokens, cost — and
+  its global instance's row, besides their own; never another person's row
+  or partition id. A workspace admin signed in as themselves sees this
+  view too (a tile learns a person's level on it, not whether they are an
+  admin); per person and per day, admins read each person's calls to this
+  tile in xbind's egress ledger (`GET /api/xbin/partitions/ledger`,
+  [/docs/partitions.md](/docs/partitions.md));
+- the owner token (or the page opened with it): every row, a person's
+  with its counters only — not when it was last used nor its calls in
+  flight, so polling the page never draws anyone's activity over time;
+- viewing the workspace as someone: none.
+
+`GET /metrics` stays per backend: a metrics reader never sees who used
+what. A call from a tile that isn't partitioned is counted per backend
+only, as before, and until a partitioned tile calls, nothing on the page or
+in `GET /stats` changes. A person deleted and recreated under the same id
+(or whose partition was reset) calls with a new partition id: their row
+starts afresh and the old one is dropped then. At most 1000 rows are kept,
+the least recently used going first.
 
 **Fairness limit** (off by default). `partitionLimit` caps how many calls one
 person's partition of a calling tile may have in flight at once; more wait
-their turn, in order, until one ends (or the caller hangs up). Other people's
-partitions, the global instance and tiles that aren't partitioned are never
-held by it. The agent already caps its model calls tile-wide (its API.md),
-so upstream concurrency doesn't grow with the number of people; the limit
-is for keeping one person from taking all of it.
+their turn, in order, for **at most 20 s** without an answer, and are then
+answered `429` with `Retry-After: 2` — well before a caller's own watchdog
+(the agent's gives up on a stream with no bytes for 90 s, headers
+included) would take a held call for a stalled one. The agent retries a
+`429` (three times, backing off), so a call held past that fails its turn
+naming the limit. Other people's partitions, the global instance and tiles
+that aren't partitioned are never held by it. The agent already caps its
+model calls tile-wide (its API.md) and each person's partition to two at
+once, so upstream concurrency doesn't grow with the number of people, and
+one person can't take more than half of its slots: for the agent the limit
+matters only below 2, and a call it holds keeps one of the agent's
+tile-wide slots idle while it waits. It is for partitioned callers without
+such caps of their own.
 
 **Who is in whose trust base.** Every prompt a person's partition sends
 passes through here, so whoever can change this tile's code — its writers
 and every admin — can read what the partitions bound to it send. The trust
 panel of each partitioned tile bound to it names this tile and its writers,
 a writer of this tile who isn't an admin shows there as a trust warning
-while that tile runs its saves live, and **reviewed code only** on such a
-tile needs this tile's primary protected too
+while this tile (llm-gw) runs its saves live, and **reviewed code only**
+on such a tile needs this tile's primary protected too
 ([/docs/partitions.md](/docs/partitions.md) §Operating people's
 partitions). Binding llm-gw into a partitioned tile is
 a **global bind**, made by whoever may bind it today — an admin, an org
@@ -153,10 +179,15 @@ resp, _ := xbin.Client().Post("http://xbin/api/apps/llm-gw/v1/chat/completions",
 the workspace owner.
 
 - `GET /stats` is `{backends: {<name>: {reqs, tokIn, tokOut, active, cost}}}`,
-  plus `callers` once a partitioned tile has called: `[{from, deployment?,
-  partition, partitionId?, reqs, tokIn, tokOut, cost, last, active, waiting}]`
-  (`partition` is `user:<id>` or `global`, `last` unix ms; the rows the
-  viewer may see, above).
+  plus, once a partitioned tile has called, what the viewer may see of it
+  (above): `callers` `[{from, deployment?, partition, partitionId?, reqs,
+  tokIn, tokOut, cost, last?, active?, waiting?}]` (`partition` is
+  `user:<id>` or `global`, `last` unix ms; `last`, `active` and `waiting`
+  only on the viewer's own rows and the global instances'), a manager's
+  `callerTotals` `[{from, deployment?, partitions, reqs, tokIn, tokOut,
+  cost}]` (each calling tile's people's partitions together), and
+  `canManage: true` when the viewer may set the fairness limit (also when
+  one is set and no partitioned tile called yet).
 - `PUT /config {aliases?, partitionLimit?}`: `partitionLimit` is 0 (off) to
   64 and needs write access to the tile (403 otherwise); `GET /config` names
   it only while it is set. Tokens (`PUT /config/backend {name, baseURL, token?}`,

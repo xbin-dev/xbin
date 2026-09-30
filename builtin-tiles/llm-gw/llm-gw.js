@@ -24,7 +24,7 @@ export class BxLlmGw extends LitElement {
   static properties = {
     _backends: { state: true },  // [{name, baseURL, hasToken}]
     _stats: { state: true },     // name -> {reqs, tokIn, tokOut, active, cost}
-    _callers: { state: true },   // GET /stats' callers: partitioned tiles' calls per partition
+    _callers: { state: true },   // GET /stats' {callers, callerTotals, canManage}: partitioned tiles' calls
     _limit: { state: true },     // the fairness limit (0 = off)
     _aliases: { state: true },
     _preferred: { state: true }, // use-type -> model id
@@ -89,7 +89,7 @@ export class BxLlmGw extends LitElement {
     super();
     this._backends = [];
     this._stats = {};
-    this._callers = [];
+    this._callers = {};
     this._limit = 0;
     this._aliases = {};
     this._preferred = {};
@@ -136,7 +136,7 @@ export class BxLlmGw extends LitElement {
     try {
       const s = await api('/stats');
       this._stats = s.backends ?? {};
-      this._callers = s.callers ?? [];
+      this._callers = { callers: s.callers, callerTotals: s.callerTotals, canManage: s.canManage };
     } catch { /* backend restarting; next tick */ }
   }
 

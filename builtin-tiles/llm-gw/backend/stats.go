@@ -111,8 +111,17 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 	statsMu.Unlock()
 	resp := map[string]any{"backends": out}
-	if rows := callersFor(r); len(rows) > 0 {
-		resp["callers"] = rows // only once a partitioned tile has called
+	// Partitioned callers (callers_view.go): only once one has called, or a
+	// fairness limit is set — until then the answer is as it always was.
+	v := viewFor(r)
+	if len(v.rows) > 0 {
+		resp["callers"] = v.rows
+	}
+	if len(v.totals) > 0 {
+		resp["callerTotals"] = v.totals
+	}
+	if v.manage && (len(v.rows) > 0 || len(v.totals) > 0 || c.PartitionLimit > 0) {
+		resp["canManage"] = true // the page offers the fairness limit's form
 	}
 	xbin.WriteJSON(w, http.StatusOK, resp)
 }

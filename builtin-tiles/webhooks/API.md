@@ -65,10 +65,10 @@ hooks, their secrets and one public URL for everyone. Nothing changes here:
   hand-off waits for it). `404` (no trigger, team or private, takes the
   topic) and `503` (the agent is halted or unreachable: retry) mean what
   they meant; the same delivery sent again still runs nothing twice.
-- **A private push trigger needs a `match`**, and one that doesn't overlap
-  another person's on the same source (neither is a prefix of the other):
-  nobody can quietly take every hook's deliveries. Team triggers are made
-  by the agent's managers, as before.
+- **A private push trigger needs a `match`** (400 without one), and one
+  that doesn't overlap anyone else's on the same source — neither a prefix
+  of the other (409): nobody can quietly take every hook's deliveries. Team
+  triggers are made by the agent's managers, as before.
 - **Binding** it to an agent is an ordinary (global) bind, made by whoever
   may bind today — an admin, an org admin within their org, a personal
   tile's owner to what they own. A personal bind doesn't apply: this tile
