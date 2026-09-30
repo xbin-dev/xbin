@@ -548,9 +548,9 @@ connection, public hook URLs, an SSH port).
   partition there ([sandbox-manager.md](sandbox-manager.md) §Partitioned
   consumers).
 - **llm-gw** counts requests and tokens per person's partition of each
-  calling tile, shown to its managers (and to each person, their own), and
-  can cap how many calls one partition has in flight (its API.md,
-  "Partitioned callers").
+  calling tile — each person sees their own, its managers each tile's
+  people together — and can cap how many calls one partition has in
+  flight (its API.md, "Partitioned callers").
 - The **agent messaging bridge** and the **webhooks** tile reach a
   partitioned agent's global instance, like every tile that isn't
   partitioned; it hands a linked person's DM, and an event for a person's

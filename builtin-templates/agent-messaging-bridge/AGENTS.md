@@ -187,10 +187,12 @@ it makes lands there — and nothing in your platform file changes:
   and channel messages run there, as shared conversations.
 - A **linked** person's DM is handed to their own partition and answered
   from there; the reply reaches you through the same outbox stream. Until
-  that person has opened the agent once, their DM waits and the agent posts
-  a short notice saying so. So a DM's reply may come minutes or hours later:
-  never wait for it, and never depend on `runId` or `sessionKey` in a
-  verdict or an outbox row (the bridge only logs them).
+  that person has opened the agent once, their DM waits in their
+  partition's inbox, unanswered. So a DM's reply may come minutes or hours
+  later: never wait for it, and never depend on `runId` or `sessionKey` in
+  a verdict or an outbox row (the bridge only logs them). Its files go
+  along up to 640 KiB a message; a larger one reaches the person's
+  partition as its name only.
 - Linking stays on this tile's page; the link is recorded by the global
   instance for the signed-in person.
 - Binding: `bx bind <this tile> agent=apps/<agent>` is an ordinary (global)

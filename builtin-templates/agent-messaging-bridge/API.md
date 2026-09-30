@@ -29,7 +29,7 @@ you are.
 copies of the agent template are): this tile talks to its global instance,
 which keeps the channels and links. A linked person's DM is answered from
 their own partition, once they have opened the agent at least once; until
-then it waits, and the agent says so in the chat. Nothing to configure here
+then it waits, unanswered. Nothing to configure here
 (`/docs/agent-inbox.md`, "A partitioned agent").
 
 ## Routes (the tile's own page; changes need write access)
