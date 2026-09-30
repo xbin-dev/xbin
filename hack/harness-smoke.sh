@@ -52,7 +52,7 @@ step "live: $tests (test/isolated, an isolated xbind with coding-sandbox and the
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 set +e
-go test -tags=integration -count=1 -v -timeout 60m -run "$tests" ./test/isolated/ 2>&1 | tee "$log"
+XBIN_HARNESS_LIVE=1 go test -tags=integration -count=1 -v -timeout 60m -run "$tests" ./test/isolated/ 2>&1 | tee "$log"
 rc=${PIPESTATUS[0]}
 set -e
 step "what the real adapters did"

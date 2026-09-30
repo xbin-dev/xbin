@@ -326,6 +326,13 @@ func runHarness(t *testing.T, e *csEnv, fake []byte, mode string, slow time.Dura
 	t.Run("catalog", func(t *testing.T) { testHarnessCatalog(t, e, box) })
 
 	only := os.Getenv("HARNESS_LIVE_ONLY")
+	if os.Getenv("XBIN_HARNESS_LIVE") != "1" {
+		// the real adapters reach outside services (opencode's free model
+		// answers, codex asks OpenAI for a device code): only on asking — the
+		// fake adapter's turn, the relays and the handoff always run
+		t.Log("the real adapters are skipped: XBIN_HARNESS_LIVE=1 (hack/harness-smoke.sh with HARNESS_SMOKE_LIVE=1) drives them")
+		only = "-"
+	}
 	t.Run("adapters", func(t *testing.T) {
 		for _, h := range realHarnesses {
 			if only != "" && !slices.Contains(strings.Split(only, ","), h.id) {

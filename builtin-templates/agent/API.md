@@ -2183,7 +2183,11 @@ relay, a permission, the stdio pipe and a redeploy of this backend
 mid-turn, which the next process attaches to. It prints what each real
 adapter did (`adapter <id>: …`: its sign-in methods, its login command and
 what that shows in a terminal). `HARNESS_SMOKE_VM=1` repeats it with VM
-sandboxes; `HARNESS_LIVE_ONLY=claude,codex` narrows the adapters. It needs
+sandboxes; `HARNESS_LIVE_ONLY=claude,codex` narrows the adapters. The real
+adapters reach outside services (opencode's model answers; codex asks
+OpenAI for a device code), so `make integration` runs `TestHarnessLive`
+with the fake adapter only unless `XBIN_HARNESS_LIVE=1` (which the smoke's
+live step sets). It needs
 user namespaces, the base rootfs (`make rootfs`) and `bin/`'s helpers, and
 takes about a minute more. To try an adapter of your own, advertise it on a
 coding-sandbox image (`harnesses: [{id, title, argv, login}]`, §Coding
