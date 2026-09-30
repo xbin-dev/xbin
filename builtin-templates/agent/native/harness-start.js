@@ -17,6 +17,7 @@ import { ext } from './ext.js';
 import { ctx, fail, guard, push } from './ui.js';
 import * as HS from '../model/harness-start.js';
 import { AGENT } from '../model/harness-start.js';
+import { harnessOf, planOf, usageBadge } from '../model/harness.js';
 
 const TONE = { run: 'accent', ok: 'ok', warn: 'warn', bad: 'danger' };
 
@@ -59,11 +60,17 @@ ext.register({
       };
       return html`<picker label="Who answers" style="menu" value=${p.value} options=${options(p.rows)} @change=${change}/>`;
     }
-    // short — monogram, state, 👥 for a shared sandbox: the bar also holds
-    // the sandbox picker and More, which a longer badge pushes off a phone's
-    // bar; the drawer's row names the agent, the transcript says why
+    // the conversation's one badge — monogram, state, 👥 for a shared
+    // sandbox, then the plan's progress and the context in use (the cost is
+    // on ⋯ → Progress): a phone's bar also holds Mode, Model and More, which
+    // a second badge pushes off it; the drawer's row names the agent, the
+    // transcript says why
     const t = HS.topChip(v);
-    return t ? html`<badge text=${`${t.mono} ${t.state === 'login' ? 'sign-in' : t.word}${t.shared ? ' 👥' : ''}`} tone=${TONE[t.tone] || 'muted'}/>` : null;
+    if (!t) return null;
+    const h = harnessOf(v), p = planOf(h), u = usageBadge(h.usage);
+    const text = [`${t.mono} ${t.state === 'login' ? 'sign-in' : t.word}${t.shared ? ' 👥' : ''}`, p ? `📋 ${p.done}/${p.total}` : '', u ? u.head : ''].filter(Boolean).join(' · ');
+    const tone = u && (u.tone === 'bad' || u.tone === 'warn') && t.tone !== 'bad' ? (u.tone === 'bad' ? 'danger' : 'warn') : TONE[t.tone] || 'muted';
+    return html`<badge text=${text} tone=${tone}/>`;
   },
   // composer: at home, who answers (and where) in its placeholder
   composer: (v) => {

@@ -16,6 +16,7 @@ import * as actions from './actions.js';
 import * as S from './sandboxes.js';
 import * as classes from './classes.js';
 import { fitsWhy, createPrefill } from './harness-start.js';
+import { isHarness } from './harness.js';
 
 const cid = () => 's' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -96,8 +97,10 @@ export function createSandboxStore(app) {
     // What the views draw (model/sandboxes.js), for where you are. rows:
     // order — the refs as the view shows them (kept while its list is open).
     picker() {
-      const h = sbx.coding();
-      return S.sandboxPicker(sbx.list, conv(), app.me, { cls: classes.find(app.classes, app.newClassId()), pick: sbx.pick, fits: h ? fitsWhy(h) : null });
+      const h = sbx.coding(), v = conv();
+      const p = S.sandboxPicker(sbx.list, v, app.me, { cls: classes.find(app.classes, app.newClassId()), pick: sbx.pick, fits: h ? fitsWhy(h) : null });
+      // a coding agent's conversation keeps the sandbox it started in (D-harness §2.2): no picker
+      return v && isHarness(v.run) ? { ...p, shown: false } : p;
     },
     badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list); },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },

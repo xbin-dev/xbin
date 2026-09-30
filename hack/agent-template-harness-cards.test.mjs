@@ -144,8 +144,9 @@ test('native: the toolbar badge, Progress (the plan) and the harness event', asy
     { tap: { t: 'button', has: 'Progress (3/3)' } }, { snapshot: 'progress' },
     { call: ['push', { type: 'harness', run: 21, root: 21, data: next }] }, { wait: 50 }, { snapshot: 'after' },
   ], 'c=21');
-  const badge = all(r.snapshots.chat.root, { t: 'toolbar' })[0].c.find((c) => c.t === 'badge');
-  assert.deepEqual(badge.p, { text: '📋 3/3 · ctx 26%', tone: 'muted' }, 'short: the cost is on Progress (a phone\'s bar keeps its title and ⋯)');
+  const badges = all(r.snapshots.chat.root, { t: 'toolbar' })[0].c.filter((c) => c.t === 'badge');
+  assert.equal(badges.length, 1, 'the conversation\'s one badge');
+  assert.match(badges[0].p.text, / · 📋 3\/3 · ctx 26%$/, 'short: the cost is on Progress (a phone\'s bar keeps its title and ⋯)');
   const scr = all(r.snapshots.progress.root, { t: 'screen', has: 'Progress' }).pop();
   assert.equal(scr.p.subtitle, 'Claude Code · 3/3');
   assert.deepEqual(all(scr, { t: 'plan' })[0].p.entries.map((e) => e.status), ['completed', 'completed', 'completed']);

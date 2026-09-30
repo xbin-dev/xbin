@@ -6,13 +6,14 @@
 //            its status), the command and its output's tail (`code`), an
 //            edit's files and patch (`diff`), the result — and a Claude Task's
 //            steps in a nested `transcript`; ↗ opens the call in full
-//   toolbar  a badge: the plan's progress and the context in use
 //   menu     Progress (3/7) → the Progress screen
 //   screen   `hcall` (one call in full: all of its output, every patch) and
 //            `hprogress` (the `plan`, what the conversation changed, usage)
 //
 // The plan is not drawn at the transcript's end: the end seam is a run's park
-// (native/ext.js) — it sits in the toolbar and on its screen instead.
+// (native/ext.js) — its progress and the context in use sit in the
+// conversation's one toolbar badge (native/harness-start.js), all of it on
+// its screen.
 // Memoized per block and open state (rowTpl asks the seams every render).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
@@ -34,7 +35,6 @@ const tone = (t) => (TONE[t] ? { tone: TONE[t] } : {});
 
 ext.register({
   block: (b, depth) => (b.k === 'tool' && (b.acp || isAcp(b.name)) ? cardTpl(b, depth) : null),
-  toolbar: (v) => (v ? badgeTpl(v) : null),
   menu: (v) => (harnessOf(v.run) ? html`<button icon="list" @tap=${() => push({ kind: 'hprogress', run: v.run.id })}>${progressLabel(v.run)}</button>` : null),
   screen: (s) => (s.kind === 'hcall' ? callScreen(s) : s.kind === 'hprogress' ? progressScreen(s) : null),
 });
@@ -165,17 +165,6 @@ function callScreen(s) {
 }
 
 // --- the plan, the changes, the usage ------------------------------------------------------
-
-// badgeTpl: the toolbar's badge — the plan's progress and the context in
-// use; short (the cost is on Progress): a phone's bar that overflows loses
-// the title and the ⋯ menu, which is where Progress is.
-function badgeTpl(v) {
-  const h = harnessOf(v.run);
-  if (!h) return null;
-  const p = planOf(h), u = usageBadge(h.usage);
-  const text = [p ? `📋 ${p.done}/${p.total}` : '', u ? u.head : ''].filter(Boolean).join(' · ');
-  return text ? html`<badge text=${text} tone=${u && u.tone === 'bad' ? 'danger' : u && u.tone === 'warn' ? 'warn' : 'muted'}/>` : null;
-}
 
 function progressLabel(r) {
   const p = planOf(harnessOf(r));
