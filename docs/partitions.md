@@ -573,7 +573,8 @@ from inside it. While the tile is paused — its mode pending or invalid, or a
 switch deleting its data — a person's partition can't change its vault or
 registrations (409). A switch of the tile's mode that deletes its data deletes
 all of these (removing or adding `"global"` keeps people's). They are
-deleted with the partition 30 days after its tile is removed (unless the
+deleted with the partition — and erased from its backups
+([§Backups](#backups)) — 30 days after its tile is removed (unless the
 tile comes back) or its person's id is given to someone new.
 
 ## Terminals and agent sessions
@@ -621,6 +622,57 @@ opened it, and reaches only that person's partition:
   person's layer and partition agent history of
   it; the tile's own layer and people's own history stay. None of it is in
   backups. While a switch runs, a new session on the tile answers 409.
+
+## Backups
+
+In a workspace with a vault barrier every archive is sealed under a backup
+key ([lifecycle](overview/14-lifecycle.md) §Sealed archives). On a
+partitioned tile, **each person's partition gets archives of its own**:
+
+- **What goes where.** A backup of the tile (`bx backup`, a schedule)
+  writes its main and data archives as for any tile — the global instance's
+  data at today's keys, its shared resources, its cron jobs and bus
+  subscriptions — and then one archive per person's partition,
+  `.partitions.<tile-key>.<deployment>.<partition id>`, sealed under that
+  partition's own key: its data (the resources not declared `shared`), its
+  vault (the values still sealed by the vault), its registrations and its
+  record. **The tile's own archives hold nothing of anyone's partition**,
+  and people's terminal layers, partition agent history and mail are in no
+  archive. A partition that can't be archived doesn't fail the backup; the
+  answer lists it (`partitions: {archived, failed}`). A plaintext-vault
+  workspace (`--insecure-vault`) archives no partition — a person's data
+  never leaves in the clear — and the answer says so. A schedule's
+  retention keeps each partition's newest versions.
+- **Restoring a partition.** `bx restore <tile> --partition` (`POST
+  /api/xbin/partitions/restore`) replaces your partition — its data, vault
+  and registrations — with a backup of it, after you type `<tile>
+  user:<you>`; `bx backups <tile> --partition` lists the versions. You do it
+  from your own session; an admin may for anyone (`--user`), and the
+  person is told. Only the archive of **the same tile and the same person**
+  restores, and only while the tile is partitioned: a partition archive is
+  never restored as a tile, into global, or into anyone else's partition.
+  If the person's id was deleted and given out again since the backup, it
+  was an earlier holder's: only an admin restores it, naming the id again
+  (`--partition-id <the old one> --to <id>`), and the person is told. Main
+  archives never restore into a partition.
+- **Erasing.** Deleting a partition's backup key crypto-erases it in every
+  archive, and the archiver is asked to delete those versions. That
+  happens when the partition's data is deleted: a mode switch between user
+  partitions and unpartitioned (the tile's `ns:` and `part:` keys; its
+  source backups survive), a person's partition swept 30 days after their
+  deletion or the tile's removal, and `bx backup erase <tile> --data`. A
+  restore of an erased backup says when and why: `this backup's data was
+  erased on <date> (<reason>)`. Each erase, and each restore of a
+  partition, is recorded in the tile's mode history (`backup-erase`,
+  `partition-restore`, with the partition id).
+- **Backups from before a switch.** A backup of the tile made before its
+  last partition mode switch that deleted data restores only with `bx
+  restore <tile> --confirm <the switch's date>` (`POST /api/xbin/restore`
+  with `confirm`; otherwise 409 naming the switch): it brings back what the
+  switch deleted — a plaintext archive's data, the registrations any
+  archive lists — into the global instance's namespace, never a person's
+  partition. A sealed backup's data was erased with its key; its source
+  restores.
 
 ## In your code
 
@@ -693,7 +745,8 @@ still take over a person's account by resetting its credentials; that is
 recorded and the person is told, and a workspace policy can make such resets
 wait for the person. Switching a tile's partition mode deletes all its data,
 and erases it from backups, after a manager confirms. Backups are encrypted,
-and restoring one on another machine needs the exported backup keys.
+each person's partition under a key of its own, and restoring one on
+another machine needs the exported backup keys ([§Backups](#backups)).
 
 ## Not documented yet (TODO)
 
@@ -703,7 +756,6 @@ and restoring one on another machine needs the exported backup keys.
 - the partitions page (`/xbin/partitions`), `bx partition` beyond
   `switch`/`keep`, the admin tile's Partitions section, and the shell's
   consent prompts;
-- sealed backups, backup keys and disaster recovery;
 - the wire reference in [protocol.md](protocol.md) for the partitions API
   (the headers, the `xbin-partition` meta, `XBIN_PARTITION`,
   `?xbin-partition=global`, which partition each credential acts in and the

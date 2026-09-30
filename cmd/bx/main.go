@@ -163,8 +163,10 @@ func usage() {
                                         sealed backups' keys: export for disaster recovery
   bx backup erase <tile> --data|--all   crypto-erase a tile's backups (every archive)
   bx backups <component>                list archived versions
-  bx restore <component> [--version v] [--file path]
+  bx restore <component> [--version v] [--file path] [--confirm <date>]
                                         restore a version, or one file to stdout
+  bx backups|restore <tile> --partition [--user <id>] …
+                                        a person's partition's backups (docs/partitions.md)
   bx backup-schedule [<component> --every 24h|--cron "expr" [--keep N] | --rm]   scheduled backups
   bx vault status|unseal|seal|rekey     encryption-at-rest barrier
   bx vault ls|get|set|rm <component> [key] [value]
@@ -601,6 +603,9 @@ func cmdBackup(args []string) error {
 }
 
 func cmdBackups(args []string) error {
+	if hasFlag(args, "--partition") {
+		return cmdBackupsPartition(args) // a person's partition's (partitionbackup.go)
+	}
 	if len(args) != 1 {
 		return fmt.Errorf("usage: bx backups <component>")
 	}
@@ -626,10 +631,17 @@ func cmdBackups(args []string) error {
 
 // cmdRestore restores a whole version or a single file (--file):
 //
-//	bx restore <component> [--version v]
+//	bx restore <component> [--version v] [--confirm <date>]
 //	bx restore <component> --file <path> [--version v]   (streams the file to stdout)
+//	bx restore <tile> --partition …                       a person's partition (partitionbackup.go)
+//
+// --confirm names the tile's last partition mode switch (its date) when
+// the backup is older than it (docs/partitions.md §Backups).
 func cmdRestore(args []string) error {
-	var comp, version, file string
+	if hasFlag(args, "--partition") {
+		return cmdRestorePartition(args)
+	}
+	var comp, version, file, confirm string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--version":
@@ -642,6 +654,11 @@ func cmdRestore(args []string) error {
 			if i < len(args) {
 				file = args[i]
 			}
+		case "--confirm":
+			i++
+			if i < len(args) {
+				confirm = args[i]
+			}
 		default:
 			if isFlag(args[i]) {
 				if err := unknownFlag("restore", args[i], true); err != nil {
@@ -653,9 +670,12 @@ func cmdRestore(args []string) error {
 		}
 	}
 	if comp == "" {
-		return fmt.Errorf("usage: bx restore <component> [--version v] [--file path]")
+		return fmt.Errorf("usage: bx restore <component> [--version v] [--file path] [--confirm <date>]")
 	}
 	body := map[string]string{"component": comp, "version": version, "file": file}
+	if confirm != "" {
+		body["confirm"] = confirm // an older xbind ignores it
+	}
 	if file != "" {
 		resp, err := api("POST", "/api/xbin/restore", body)
 		if err != nil {

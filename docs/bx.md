@@ -195,8 +195,28 @@ bx hide | unhide <component>           hidden = disabled + out of sidebars (D42)
 bx offload <component> [--full]        archive + free local bytes (--full incl. source)
 bx backup <component>                  snapshot to the bound @archive provider
 bx backups <component>                 list archived versions
-bx restore <component> [--version V] [--file PATH]
-                                       restore a whole version, or one file
+bx restore <component> [--version V] [--file PATH] [--confirm DATE]
+                                       restore a whole version, or one file;
+                                       a backup older than the tile's last
+                                       partition mode switch restores only
+                                       with --confirm <the switch's date>
+                                       (docs/partitions.md §Backups)
+bx backups <tile> --partition [--user ID] [--partition-id u-…]
+                                       a person's partition's archived
+                                       versions: your own, or (an admin)
+                                       anyone's
+bx restore <tile> --partition [--user ID] [--version V] [--partition-id u-…]
+           [--to ID] [--dry-run] [--yes] [--json]
+                                       replace a person's partition — its
+                                       data, vault and registrations — with
+                                       its backup; asks you to type
+                                       "<tile> user:<id>" unless --yes; your
+                                       own from your own session, anyone's
+                                       as an admin; an earlier holder's
+                                       (--partition-id, the id deleted and
+                                       recreated since) only an admin, with
+                                       --to <the id>; exits 6 against an
+                                       xbind without it
 bx backup-schedule [<component> --every 24h|--cron "…" [--keep N]|--rm]
                                        owner-scheduled backups
 bx backup keys status                  are archives sealed; keys in no export
