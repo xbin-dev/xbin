@@ -130,9 +130,15 @@ func (m *Manager) pageReader(r *http.Request) bool {
 }
 
 // mutates: r changes something. That is every method but GET and HEAD, and
-// a terminal too: a GET upgrade that starts a shell or types into one.
+// every GET that upgrades: a terminal (it starts a shell or types into
+// one), a stdio socket (it writes an exec's stdin, and takes it from the
+// socket attached before), a port's socket — and any socket added later,
+// until it is shown to only read. The two socket routes count by their
+// path too, so the refusal never depends on how complete a handshake is.
 func mutates(r *http.Request) bool {
-	return r.Method != http.MethodGet && r.Method != http.MethodHead || strings.HasSuffix(r.URL.Path, "/tty")
+	p := r.URL.Path
+	return r.Method != http.MethodGet && r.Method != http.MethodHead || r.Header.Get("Upgrade") != "" ||
+		strings.HasSuffix(p, "/tty") || strings.HasSuffix(p, "/stdio")
 }
 
 // shared: the sandbox is shared with consumer's partition partID ("" its
