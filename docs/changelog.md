@@ -141,6 +141,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   on a sandbox others may use. The relays and `authenticate` are the
   coding-agent routes (arriving with the harness engine); the card appears
   only for a run parked on `login`.
+- **Agent template: the coding-agent UI, put together**
+  (`builtin-templates/agent/API.md` §Coding agents, §The frontend). A
+  coding agent's top bar leaves out Memory and Learn skill, offers Compact
+  only when the agent advertises `/compact`, and Retry when it was cut off
+  or couldn't start; while it waits for a sign-in the composer and the
+  activity line say so (no spinner), and someone it is shared with to read
+  sees the sign-in card's words but no actions (the app: no Sign in… or
+  Terminal either). A park of a kind no module draws falls back to the
+  built-in card. In a narrow tile the web composer puts its pickers on a
+  line above the message box (`index.html`: `.cpicks` and `.cinput`
+  groups; `#hctl` follows `#ssel`), so Send stays on screen. The app keeps
+  More on a phone's bar: a coding agent's state, plan and context start
+  the conversation's subtitle instead of a toolbar badge, "Who answers"
+  sits at the top of the home page, and Coding agents (your setting) is in
+  ⋯ — the native seams gain `subtitle` and `main` (the main ⋯ menu). Also:
+  a waiting conversation's `?` in the web list is a glyph again, not a
+  card, and the xb reference renderer turns only an open card's own
+  chevron. Nothing changes for the built-in agent's conversations beyond
+  the list's glyph and the narrow composer.
 
 - **Sandbox managers can offer a program's streams on one socket: the
   optional `stdio` capability** ([sandbox-manager.md](sandbox-manager.md)

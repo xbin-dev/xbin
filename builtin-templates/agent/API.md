@@ -1725,7 +1725,9 @@ created; one that exists keeps its mode. Explicit modes (bypass, full
 access) are never a setting.
 
 **Starting one (the UI).** "Who answers" sits in the home composer (web
-`#apick`, the native home toolbar) and in the new-chat dialog (`#n-agent`):
+`#apick`; the native view: at the top of the home page — a phone's home bar
+already holds the class, model and sandbox pickers) and in the new-chat
+dialog (`#n-agent`):
 the agent itself, or a coding agent of the catalog with its monogram (CC,
 CX, GM, OC) — one that isn't available is listed with its `why`. Your pick
 is your default for new chats (xbind's `prefs/agent`: `"agent"` or a coding
@@ -1744,8 +1746,15 @@ with others, that they act as you). The ask carries `harness: {provider,
 options?}`, the resolved `class` and the `sandbox` — never a `mode`: the
 backend applies your Auto / Always approve. A coding agent's conversation
 carries its monogram in the list (the app: its name before the subtitle),
-and its top bar says which coding agent, its state and — its sandbox being
-shared — that the sandbox's users can read what it does.
+and its top bar (the app: the start of its subtitle) says which coding
+agent, its state and — its sandbox being shared — that the sandbox's users
+can read what it does. The top bar leaves out Memory and Learn skill (the
+built-in agent's; the engine turns memory and skills off for a coding
+agent) and offers Compact only when the coding agent advertises `/compact`
+(`POST /runs/{id}/compact` sends it); Retry (`POST /runs/{id}/resume`)
+shows when it was cut off (`lost`) or couldn't start (`failed`). In a
+narrow tile the composer puts its pickers (and `#hctl`) on a line above the
+message box, which keeps its width (`index.html` `.cpicks`, `.cinput`).
 
 **For managers (the UI).** ⚙ Classes has the Coding agents toolset and,
 with it, which coding agents the class allows (all of them, or a checklist
@@ -1771,11 +1780,15 @@ by itself once you are done). The card says that the credentials land in
 the sandbox's home — anyone who may use it acts as you with that agent
 there, and its clones and snapshots keep them — and on a sandbox others
 may use it asks for a confirm first (`confirm: true`). Someone who may not
-use the sandbox is told whom to ask. A coding agent's conversation also
+use the sandbox is told whom to ask; someone the conversation is shared
+with to read sees what it waits for and no actions (nor the app's ⋯ →
+Sign in… or Terminal). While it waits, the composer says to sign in first
+and the activity line has no spinner. A coding agent's conversation also
 has **>_ Terminal** (web: the top bar; the app: ⋯ → Terminal) — a shell
 in its sandbox at its working directory. Only a harness run parked on
 `login` gets the card (`signin.js`, `native/terminal.js`); other parks are
-their own cards'.
+their own cards' — and a park of a kind no module draws falls back to the
+built-in approval or question card.
 
 ## The frontend: one model, thin views
 
@@ -1846,20 +1859,21 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
-| `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, the toolbar's plan/usage badge and the Progress screen (`plan`) |
+| `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, and the Progress screen (`plan`; the plan's progress and the context in use start the subtitle: `native/harness-start.js`) |
 | `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); at home, Coding agents → your setting per harness |
 
 **Seams.** A feature can land as a module of its own instead of edits to the
 views' hot files: it registers hooks on a view's seams when imported —
 `web-ext.js` (`ext.register({block, end, top, paint, newChat})`; `ctx.app`,
 `ctx.paint()` once agent.js starts) for the web, imported from
-`harness-web.js`; `native/ext.js` (`block`, `end`, `toolbar`, `menu`,
-`composer`, `newChat`, `screen`; the native `ctx` as before) for the native
+`harness-web.js`; `native/ext.js` (`block`, `end`, `toolbar`, `subtitle`,
+`menu`, `main`, `composer`, `newChat`, `screen`; the native `ctx` as before) for the native
 view, imported from `native/harness-all.js`. A hook answers a template, or
 null when the block, run or screen isn't its: `block` replaces the built-in
 card of a transcript block, `end` adds to the end of the transcript (a
 coding harness's park is then its to draw), `top`/`toolbar`/`menu` add
-controls, `composer` a placeholder, slash commands and buttons, `newChat`
+controls (`main`: the main ⋯ menu — home's and the drawer's), `subtitle`
+words for a conversation's subtitle, `composer` a placeholder, slash commands and buttons, `newChat`
 a field of the new-chat dialog and its part of the ask, `screen` a pushed
 native screen of its own kind. Each file's header says the signatures; a
 hook that throws is logged and skipped. An instance can add modules of its
@@ -1878,7 +1892,7 @@ delete, move, think, switch_mode and other; its chip says pending, running,
 needs approval, failed or cancelled, and a failed one opens by itself. A
 Claude Task's steps and text sit inside its card (the fold's `kids`); one
 whose Task is paged out shows flat, marked ↳. The top bar (native: a
-toolbar badge, and ⋯ → Progress) carries the context in use and the cost,
+subtitle, and ⋯ → Progress) carries the context in use and the cost,
 what the conversation changed (`counts`), and the 📋 plan, pinned under the
 task (unfolding to its entries); all follow the `harness` stream event.
 
@@ -1894,8 +1908,8 @@ word sent with a rejection (`POST /runs/{id}/approve {park, option,
 feedback?}`). A plan approval shows the plan and a "keep planning" box (the
 feedback of its rejection). A question is a form from its schema (Submit:
 `POST /runs/{id}/harness/answer {park, action: "accept", content}`; Skip:
-`decline`); url mode shows the page, then Done. The web's `#hctl` (beside
-the attach clip) switches the live mode and config options (`PATCH
+`decline`); url mode shows the page, then Done. The web's `#hctl` (the last of
+the composer's pickers) switches the live mode and config options (`PATCH
 /runs/{id}/harness {mode}` / `{option: {id, value}}`; a bypass mode ⚠, the
 owner's only, confirmed) and holds your Auto / Always approve for the
 harness (`PUT /prefs/harness-mode/{id}`) — at home, for the harness that
@@ -1905,7 +1919,7 @@ the placeholder says whether a message steers it or waits for it, the
 queued chips say so too, a message steered into the turn is said for a
 moment, and ⌘/Ctrl+Enter sends it with `interrupt: true` (`app.send(text,
 clear, {interrupt: true})`; the native composer's Send now). Native: the
-toolbar's Mode menu (the options but the model too) and Model picker, Coding agents at home.
+toolbar's Mode menu (the options but the model too) and Model picker, ⋯ → Coding agents (the main menu) for your setting.
 
 **Customising an instance.** A persona or domain changes `HOME` in
 `model/home.js`. The web files keep their names, and the modules that moved
