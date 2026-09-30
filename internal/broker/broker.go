@@ -183,6 +183,7 @@ func (b *Broker) Close() {
 		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
 	b.flushLedgers() // counts not yet saved (partitionledger.go)
+	b.closeMail()    // partition mail's doorbells and sweep (partitionmail_bell.go)
 }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
@@ -290,6 +291,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("POST /bindings", b.apiBindingSet)
 	srv.RegisterAPI("DELETE /bindings", b.apiBindingSet)
 	b.registerPersonalBinds(srv) // GET/POST/DELETE /partitions/binds (personalbind_api.go)
+	b.registerPartitionMail(srv) // POST/GET /partitions/mail, POST /partitions/mail/ack (partitionmail_api.go)
 	srv.RegisterAPI("PUT /iface-instances", b.apiIfaceInstancesSet)
 	srv.RegisterAPI("PUT /ingress-hosts", b.apiIngressHosts)
 	srv.RegisterAPI("GET /ingress-routes", b.apiIngressRoutes)

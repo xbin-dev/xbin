@@ -385,6 +385,12 @@ var routeClasses = map[string]RouteClass{
 	"DELETE /partitions/consents": PrimaryOnly,
 	"GET /partitions/ledger":      PrimaryOnly,
 	"GET /partitions/edges":       PrimaryOnly,
+
+	// ---- partition mail (plans/partitions 04 §3): people's partitions run
+	// on the primary only, and so does its mail ----
+	"POST /partitions/mail":     PrimaryOnly,
+	"GET /partitions/mail":      PrimaryOnly,
+	"POST /partitions/mail/ack": PrimaryOnly,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

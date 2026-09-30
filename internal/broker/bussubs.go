@@ -160,6 +160,7 @@ func (b *Broker) SetBusDispatch(fn BusDispatch) {
 	b.bus.mu.Unlock()
 	b.bus.loadDeps()
 	b.loadParts(false, true) // people's partitions' subscriptions (partitionregs.go)
+	b.loadMailBells()        // partition mail's doorbells ring through the same path (partitionmail_bell.go)
 }
 
 // DispatchBodyViaProxy adapts the proxy into BusDispatch: a POST with a JSON

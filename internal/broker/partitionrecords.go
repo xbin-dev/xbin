@@ -219,6 +219,7 @@ func (b *Broker) notePartitionStart(tile, dep, part, pkey, uid string) {
 	if err := b.notePartition(t, true); err != nil {
 		slog.Warn("partitions: the partition's record", "tile", tile, "partition", part, "err", err)
 	}
+	b.mailPartitionStarted(tile, dep, pkey) // mail that waited for it rings (partitionmail_bell.go)
 }
 
 // NotePartitionExit records an exit of user partition part (id pkey) of
@@ -513,7 +514,10 @@ func (b *Broker) dropPartition(t partTarget) error {
 	mu.Lock()
 	defer mu.Unlock()
 	errs = append(errs, os.RemoveAll(dir))
-	removeEmptyDirs(filepath.Dir(dir)) // the deployment's level; the TileKey's keeps mode.json
+	removeEmptyDirs(filepath.Dir(dir))                                    // the deployment's level; the TileKey's keeps mode.json
+	if _, _, err := b.dropMailBucket(t.tile, t.dep, t.pkey); err != nil { // its inbox (partitionmail.go)
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
 }
 

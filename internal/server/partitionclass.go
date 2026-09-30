@@ -479,6 +479,13 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /partitions/ledger":      PersonOnly,
 	"GET /partitions/edges":       GlobalOnlyRefused,
 
+	// ---- partition mail (04 §3): the caller's own inbox — its person's
+	// partition's, or the global instance's; the handlers refuse everyone
+	// else, and a partition mails "global" only ----
+	"POST /partitions/mail":     PartitionScoped,
+	"GET /partitions/mail":      PartitionScoped,
+	"POST /partitions/mail/ack": PartitionScoped,
+
 	// ---- reads of workspace facts ----
 	"GET /whoami":               PartitionNeutral,
 	"GET /status":               PartitionNeutral,
