@@ -678,3 +678,32 @@ func TestMailTriggerLedger(t *testing.T) {
 		t.Errorf("a source with a newline: %d %s", code, body)
 	}
 }
+
+// covers 01§2.2 01§2.6 — a mail store this xbind can't read holds data (the
+// rule leans toward asking), and a switch that deletes everything removes
+// it without failing.
+func TestMailUnreadableStore(t *testing.T) {
+	w := mailWS(t)
+	b := w.b
+	store := filepath.Join(w.root, "data", "partitions", util.TileKey("apps/pg"), "main", "mail.db")
+	if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store, []byte("not a bbolt file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ask := registry.PartitionAsk{Tile: "apps/pg", Scope: "apps/pg", RootsScope: true}
+	if held, err := holdsPartitionMail(b, ask); !held || err == nil {
+		t.Errorf("an unreadable store: held %v, err %v", held, err)
+	}
+	var sum wipeSummary
+	if err := wipePartitionMail(b, wipeTarget{Tile: "apps/pg", Kind: wipeEverything}, &sum); err != nil {
+		t.Errorf("the switch's wipe of an unreadable store: %v", err)
+	}
+	if _, err := os.Stat(store); !os.IsNotExist(err) {
+		t.Errorf("the unreadable store after the wipe: %v", err)
+	}
+	if held, err := holdsPartitionMail(b, ask); held || err != nil {
+		t.Errorf("after the wipe: held %v, err %v", held, err)
+	}
+}
