@@ -355,11 +355,12 @@ func (e *Engine) harnessAuthenticate(ctx context.Context, run *Run, method, apiK
 		actx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		err := s.c.Authenticate(actx, m.ID, map[string]any{"api-key": map[string]any{"apiKey": apiKey}})
 		cancel()
-		s.endAuth(a)
 		if err != nil {
+			s.endAuth(a)
 			return nil, authFailure(err, name)
 		}
 		e.signedIn(s)
+		s.endAuth(a) // after its outcome is stored (as below)
 		return &hAuthResult{State: "ready"}, nil
 	}
 	actx, cancel := context.WithTimeout(context.Background(), hDeviceFor)
@@ -367,12 +368,17 @@ func (e *Engine) harnessAuthenticate(ctx context.Context, run *Run, method, apiK
 	go func() {
 		err := s.c.Authenticate(actx, m.ID, nil)
 		cancel()
-		s.endAuth(a)
+		// the sign-in stays under way until its outcome is stored: the
+		// adapter's elicitation/complete, applied meanwhile, must not read
+		// as a predecessor's sign-in (onURLComplete: a second wake that
+		// restarts the adapter just signed in), nor its auth status as a
+		// sign-out (harness_map.go)
 		if err == nil {
 			e.signedIn(s)
 		} else {
 			s.deviceEnded(err)
 		}
+		s.endAuth(a)
 		done <- err
 	}()
 	t := time.NewTimer(30 * time.Second)
