@@ -595,7 +595,7 @@ test('run tools: memory, files and the editor, skills, the workflow tree, settin
   assert.equal(find(tree, { t: 'row', p: { title: '· research' } }).p.subtitle, '⛔ waiting on #3');
   assert.equal(find(tree, { t: 'button', p: { label: 'Stop' } }).p.confirm.title, 'Cancel this workflow and every run below it?');
   const set = topScreen(r.snapshots.settings);
-  assert.deepEqual(all(set, { t: 'row' }).map((x) => x.p.title), ['Config', 'Features', 'Classes', 'Skills', 'MCP servers']);
+  assert.deepEqual(all(set, { t: 'row' }).map((x) => x.p.title), ['Config', 'Features', 'Classes', 'Coding agents', 'Skills', 'MCP servers']);
   const cfg = topScreen(r.snapshots.config);
   assert.equal(find(cfg, { t: 'picker', p: { label: 'General' } }).p.value, 'm1');
   assert.equal(find(cfg, { t: 'toggle', p: { label: 'Subagents (expose spawn_subagent)' } }).p.value, true);

@@ -171,7 +171,8 @@ export const IMPLEMENTS = {
   'manage.config': 'native/settings.js — configTpl',
   'manage.features': 'native/settings.js — featuresTpl',
   'manage.mcp': 'native/settings.js — mcpTpl',
-  'manage.classes': 'native/classes.js — classesTpl, classFormTpl (native/settings.js — the Classes row)',
+  'manage.classes': 'native/classes.js — classesTpl, classFormTpl (native/settings.js — the Classes row; the coding agents: harnessNames)',
+  'manage.harnesses': 'native/harness-catalog.js — the Coding agents screen (native/settings.js — its row; model/harness-manage.js catalogRows)',
   'manage.halt': 'native/home.js — mainMenu (home and the drawer); native/settings.js — the brake (confirmed)',
 
   // States

@@ -197,7 +197,8 @@ export const FEATURES = {
   'manage.config': 'the config: model per tier, system prompt, limits, behaviour',
   'manage.features': 'feature switches',
   'manage.mcp': 'the MCP servers bound',
-  'manage.classes': 'the classes: list, add, edit (name, icon, description, toolsets, MCP servers, sandbox managers and egress, model, system addendum, who), delete — a built-in resets to its default; the default for new chats; saving one that can move internal data out is confirmed',
+  'manage.classes': 'the classes: list, add, edit (name, icon, description, toolsets — coding agents too, and which of them —, MCP servers, sandbox managers and egress, model, system addendum, who), delete — a built-in resets to its default; the default for new chats; saving one that can move internal data out is confirmed; a refusal says why',
+  'manage.harnesses': 'the Coding agents catalog (D-harness): each coding agent — whether you could start it and why not, the managers and images that have it, the sandboxes it was found or signed in on, the classes that allow it, its default and auto modes, its sign-in command; checking a running sandbox now',
   'manage.halt': 'halt every run (while runs are active), and resume',
 
   // States

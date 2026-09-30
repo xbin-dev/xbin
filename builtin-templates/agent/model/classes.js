@@ -13,6 +13,7 @@ export const TOOLSETS = [
   { id: 'web', label: 'Web', hint: 'web_search, web_fetch — reaches outside the workspace' },
   { id: 'internal', label: 'Internal systems', hint: 'xbin_call and the MCP servers — the workspace\'s data' },
   { id: 'sandbox', label: 'Coding sandbox', hint: 'bash, files and search in a sandbox' },
+  { id: 'harness', label: 'Coding agents', hint: 'Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — needs Coding sandbox and an egress other than none' },
   { id: 'subagents', label: 'Subagents', hint: 'the subagent_* tools' },
   { id: 'schedule', label: 'Schedules', hint: 'schedule, unschedule' },
   { id: 'threads', label: 'Threads', hint: 'read its automations and threads' },
@@ -153,21 +154,23 @@ export function formOf(c) {
   const set = (v, relevant) => (v === 'all' || !relevant ? { mode: 'all', names: '' } : { mode: 'only', names: (v || []).join(', ') });
   const mcp = set(c.mcp, ts.includes('internal'));
   const mgr = set(c.managers, ts.includes('sandbox'));
+  const hs = set(c.harnesses, ts.includes('harness'));
   return {
     orig: c.id, id: c.id, name: c.name || '', icon: c.icon || '', description: c.description || '', toolsets: ts,
-    mcpMode: mcp.mode, mcp: mcp.names, managersMode: mgr.mode, managers: mgr.names,
+    mcpMode: mcp.mode, mcp: mcp.names, managersMode: mgr.mode, managers: mgr.names, harnessesMode: hs.mode, harnesses: hs.names,
     egress: (c.sandboxEgress || []).length ? [...c.sandboxEgress] : ['none'],
     model: c.model || '', system: c.system || '', who: c.who === 'managers' ? 'managers' : 'everyone', builtin: !!c.builtin,
   };
 }
 export const blankForm = () => ({
   orig: '', id: '', name: '', icon: '', description: '', toolsets: ['files', 'repl', 'subagents', 'skills'],
-  mcpMode: 'all', mcp: '', managersMode: 'all', managers: '', egress: ['none'], model: '', system: '', who: 'everyone', builtin: false,
+  mcpMode: 'all', mcp: '', managersMode: 'all', managers: '', harnessesMode: 'all', harnesses: '', egress: ['none'], model: '', system: '', who: 'everyone', builtin: false,
 });
 
 // classOf: the form as PUT /classes takes a class. mcp only with internal,
-// managers and sandboxEgress only with a sandbox (the backend's defaults
-// otherwise); toolsets a newer backend knows and this list does not stay.
+// managers and sandboxEgress only with a sandbox, harnesses only with the
+// harness toolset (the backend's defaults otherwise); toolsets a newer
+// backend knows and this list does not stay.
 export function classOf(f) {
   const known = TOOLSETS.map((t) => t.id);
   const toolsets = [...known.filter((t) => f.toolsets.includes(t)), ...f.toolsets.filter((t) => !known.includes(t))];
@@ -179,7 +182,26 @@ export function classOf(f) {
     c.sandboxEgress = EGRESS.map((e) => e.id).filter((e) => f.egress.includes(e));
     if (!c.sandboxEgress.length) c.sandboxEgress = ['none'];
   }
+  if (toolsets.includes('harness')) c.harnesses = f.harnessesMode === 'only' ? splitNames(f.harnesses) : 'all';
   return c;
+}
+
+// harnessNames: the "only these" checklist of coding agents — the catalog's
+// (GET /harnesses, model/harness.js catalogOf), then any the class lists
+// that it doesn't have — {id, name, on}.
+export function harnessNames(text, catalog) {
+  const on = splitNames(text);
+  const known = ((catalog && catalog.harnesses) || []).map((h) => ({ id: h.id, name: h.name || h.id }));
+  return [...known, ...on.filter((id) => !known.some((k) => k.id === id)).map((id) => ({ id, name: id }))].map((h) => ({ ...h, on: on.includes(h.id) }));
+}
+
+// HARNESS_NEEDS: what the backend says of a class with the harness toolset
+// but no sandbox, or no egress but none (_backend/classes.go normalize);
+// harnessWhy says it of a form before it is saved ('' = it holds).
+export const HARNESS_NEEDS = 'the harness toolset needs sandbox and an egress other than none — a coding agent must reach its provider';
+export function harnessWhy(f) {
+  if (!f.toolsets.includes('harness')) return '';
+  return f.toolsets.includes('sandbox') && f.egress.some((e) => e !== 'none') ? '' : HARNESS_NEEDS;
 }
 
 // strip: a listed class (GET's view) back as a class to save.

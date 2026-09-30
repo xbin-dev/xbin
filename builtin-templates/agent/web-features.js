@@ -174,7 +174,8 @@ export const IMPLEMENTS = {
   'manage.config': 'agent.js — tabConfig',
   'manage.features': 'agent.js — tabFeatures',
   'manage.mcp': 'agent.js — tabMcp',
-  'manage.classes': 'classes.js — tabClasses (model/classes.js savePlan, removePlan, defaultPlan → app.saveClasses)',
+  'manage.classes': 'classes.js — tabClasses (model/classes.js savePlan, removePlan, defaultPlan → app.saveClasses; the coding agents: harnessNames)',
+  'manage.harnesses': 'harness-catalog.js — tabHarnesses, the Coding agents tab (model/harness-manage.js catalogRows)',
   'manage.halt': 'agent.js — #halt (model/rules.js halt)',
 
   // States

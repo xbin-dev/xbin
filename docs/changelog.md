@@ -23,7 +23,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   signed in there, and sends `POST /ask {harness: {provider}, class,
   sandbox}` — the mode is your Auto / Always approve. Its conversations
   carry its monogram in the list and a chip in the top bar. Nothing
-  changes while no coding agent is available.
+  changes while no coding agent is available. For managers: ⚙ Classes
+  gains the Coding agents toolset and which of them a class allows (the
+  built-in `coding` class has it, so its form can now take it off too), and
+  ⚙ Coding agents (the app: Settings → Coding agents) lists the catalog —
+  what is available and why not, where, for which classes — and checks a
+  running sandbox now.
 - **`sdk/acp` can steer a running turn, sign an agent in, and hand a
   live session to another process** ([sdk.md](sdk.md) §Driving a coding
   agent). Additive; a client with the default options is unchanged (the

@@ -20,4 +20,4 @@ import './harness-start.js';
 
 // U7 the Coding agents board
 
-// U8 managers
+// U8 managers (the Coding agents tab: agent.js imports harness-catalog.js)

@@ -21,3 +21,4 @@ import './harness-start.js';
 // U7 the Coding agents board
 
 // U8 managers
+import './harness-catalog.js';
