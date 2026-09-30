@@ -343,6 +343,11 @@ manager doesn't know: it ignores it, and the exec answers `split` false).
 - **Who dials it**: a consumer's backend, through xbind with its instance
   credential and its person in `Sbx-User`, as any backend call (in Go,
   `xbin.DialManagerStdio`, docs/sdk.md), or a page with its frame token.
+  Attaching is a **change**, not a read — the socket writes the exec's
+  stdin and takes it from whoever held it — so a manager that lets some
+  people only look (the reference manager's own page, for people with
+  read access to it) refuses them the socket before the upgrade, as it
+  does a terminal.
 
 ### Terminals (`tty`)
 

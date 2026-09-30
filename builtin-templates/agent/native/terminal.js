@@ -64,13 +64,19 @@ const openLink = (url) => {
 // the device code's code, when its message has one (ABCD-1234)
 const codeOf = (msg) => (String(msg || '').match(/\b[A-Z0-9]{4,}(?:-[A-Z0-9]{4,})+\b/) || [''])[0];
 
+// the device code authenticate gave you, per park: the summary says only
+// who started one (the code is the requester's), so the notice shows yours
+const devices = new Map();
+const devOf = (c) => c.device || devices.get(`${c.run}:${c.park}`) || null;
+
 ext.register({
   end(v) {
     const x = harnessOfView(v);
     if (!x || !x.c) return null;
     const c = x.c;
+    const dev = devOf(c);
     return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${c.title} ${c.view || c.ask || 'Tap Sign in below.'}`}/>
-      ${c.device && isHttps(c.device.url) ? html`<markdown source=${`Open [${c.device.url}](${c.device.url}) — ${c.device.message}`}
+      ${dev && isHttps(dev.url) ? html`<markdown source=${`Open [${dev.url}](${dev.url}) — ${dev.message}`}
         @link=${(e) => openLink(e.href)}/>` : nothing}`;
   },
   composer(v) {
@@ -167,13 +173,17 @@ function signInTpl(s) {
       @input=${(e) => keys.set(s, e.value)} @submit=${sendKey(m)}/>
     <button role="primary" ?disabled=${blocked} ?busy=${s.busy === 'key'} @tap=${sendKey(m)}>Sign in</button>
   </section>`;
-  const dev = c.device || s.device;
+  const dev = devOf(c) || s.device;
   const device = (m) => html`<section title=${m.name} footer=${dev ? 'This finishes by itself once you are done on that page.' : 'You get a page to open and a code to enter there.'}>
     ${dev && isHttps(dev.url) ? html`<row title="Open the sign-in page" subtitle=${dev.url} icon="external" @tap=${() => openLink(dev.url)}/>
       ${dev.message ? html`<text selectable text=${dev.message}/>` : nothing}
       ${codeOf(dev.message) ? html`<button icon="copy" copy=${codeOf(dev.message)}>Copy the code</button>` : nothing}`
     : html`<button ?disabled=${blocked} ?busy=${s.busy === 'device'}
-      @tap=${run('device', async () => { const r = await app.harness.authenticate(c.run, m.id, opts()); s.device = (r && r.device) || null; })}>${methodLabel(m)}</button>`}
+      @tap=${run('device', async () => {
+        const r = await app.harness.authenticate(c.run, m.id, opts());
+        s.device = (r && r.device) || null;
+        if (s.device) devices.set(`${c.run}:${c.park}`, s.device);
+      })}>${methodLabel(m)}</button>`}
   </section>`;
   const METHOD = { terminal: term, 'api-key': key, 'device-code': device };
   return html`<screen title=${`Sign in to ${c.name}`} subtitle=${`${ICON} ${c.sandbox.name}`} style="form">

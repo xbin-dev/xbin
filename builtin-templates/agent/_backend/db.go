@@ -448,6 +448,7 @@ func (d *DB) deleteOneRun(id int64) error {
 			`DELETE FROM sandbox_jobs WHERE root_id=?`,
 			`DELETE FROM sandbox_creates WHERE root_id=?`,
 			`DELETE FROM harness_sessions WHERE run_id=?`,
+			`DELETE FROM harness_notes WHERE run_id=?`,
 			`DELETE FROM runs WHERE id=?`,
 		} {
 			if _, err := t.q.Exec(q, id); err != nil {

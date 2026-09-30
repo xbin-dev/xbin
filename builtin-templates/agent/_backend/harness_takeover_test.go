@@ -160,7 +160,7 @@ func TestHarnessLoginParkHandoff(t *testing.T) {
 	if h.State != hsLogin || h.ExecID != hs.ExecID || r.Status != statusWaiting || parsePending(r.Pending).Kind != "login" {
 		t.Fatalf("after the takeover: session %+v, run %s %s", h, r.Status, r.Pending)
 	}
-	res, err := b.harnessAuthenticate(context.Background(), r, "fake-api-key", "k")
+	res, err := b.harnessAuthenticate(context.Background(), r, "fake-api-key", "k", "alice")
 	if err != nil || res.State != "ready" {
 		t.Fatalf("authenticate: %+v %v", res, err)
 	}

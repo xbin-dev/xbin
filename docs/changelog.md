@@ -59,7 +59,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   start; an explicit mode only for the conversation's owner), `POST
   /runs/{id}/harness/answer` (its question) and `…/harness/authenticate`
   (an API key or a device code, for a person who may use the sandbox, with
-  a confirm on a shared one; the key is never stored). `/tree` nodes carry
+  a confirm on a shared one; the key is never stored, and a device code's
+  page and code are the requester's alone — the answer, their `GET
+  /runs/{id}/harness`, asking again — while the summary's
+  `login.device` says only `{by}`). `/tree` nodes carry
   `engine` and a coding agent's compact `harness`; conversation rows gain
   `waiting` and `kids: {harness, waiting}`; `/needs` gains reason `login`
   and the waiting coding agent's `harness`; `POST /ask`/`/runs` answer
@@ -83,8 +86,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   N tool calls · $cost` and what person it waits for — the agent never
   answers its permission requests (its message waits for the person). A
   person's direct message to such a coding agent is told to the agent as a
-  notice (`[direct message to #N (<name>) from <user>]`, an `hnote` inbox
-  row) at its next step, without starting a turn. Additive.
+  notice (`[direct message to #N (<name>) from <user>]`, kept apart from
+  the inbox, so an older build rolled back to never counts it as work) at
+  its next step, without starting a turn. Additive.
 - **Agent template: a coding agent asks, steers, signs in and rests**
   (`builtin-templates/agent/API.md` §Coding agents, "Driving one").
   `POST /runs/{id}/approve` gains `option` (one of the coding agent's own
@@ -125,7 +129,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   parked, one a person messages — ends at once at its step cap ("stopped
   after 500 steps in one turn"): a coding agent's run keeps `turnSteps` at
   that ceiling, so no model call is made; the coding agent itself runs on
-  unwatched in its sandbox until the sandbox stops.
+  unwatched in its sandbox until the sandbox stops. A message queued for a
+  coding agent (or an answer to its question) at the rollback is work to
+  that build that it never does: its resume job wakes the tile every
+  minute until the conversation is deleted (the owner may instead run
+  `DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND
+  delivered_at=0` on the agent's database).
 - **Agent template: terminals relayed to the app, and a coding agent's
   log** (`builtin-templates/agent/API.md` §Coding agents, "Terminal
   relays and the log"). `GET /runs/{id}/harness/terminal?login=1&rows=&cols=&exec=`
@@ -209,7 +218,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (needs `sandbox` and an egress other than `none`) and the field
   `harnesses` (`"all"` or ids); the built-in `coding` class has both —
   a stored edit of it keeps what it was saved with, and a save that leaves
-  `harnesses` out keeps the class's. Runs, run events, conversation rows
+  `harnesses` out keeps the class's. The stored classes keep the
+  `harness` toolset apart from `toolsets`, so an older agent rolled back
+  to (v0.3.64 or before) still saves classes; any class save there
+  rewrites every stored class, which loses its coding agents (tick them
+  again after upgrading; Reset brings back the built-in Coding class). Runs, run events, conversation rows
   and a link's `child` carry `engine` (`""` until coding-agent
   conversations land), a sandbox binding carries its image's `harnesses`,
   and `GET`/`PUT /config` gain `harnessIdleMin` and `maxHarness`. The
@@ -351,7 +364,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `coding-sandbox` template offers it on an xbind that has it (a backend
   added to a copy serves it by implementing the optional `StdioBox`; one
   that doesn't keeps building and isn't offered it), `hack/fakesandbox`
-  always. The conformance suite gains a `stdio` section (skipped for a
+  always; attaching is a change (it takes the exec's stdin), so the
+  template's own page refuses the socket — as it does a terminal, and
+  every WebSocket upgrade — to a person with only read access to the
+  tile. The conformance suite gains a `stdio` section (skipped for a
   manager without the capability) and knows `stdio` among hello's caps;
   `caps/missing` now wants a manager without it to ignore `split` and
   answer the stdio route `501 unsupported` — a manager of your own whose

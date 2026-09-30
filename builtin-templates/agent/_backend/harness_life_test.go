@@ -102,13 +102,13 @@ func TestHarnessAuthenticateAPIKey(t *testing.T) {
 		{"fake-device", "k", 400, "apiKey: only for an API-key method"},
 		{"fake-api-key", "bad", 502, "invalid API key"},
 	} {
-		_, err := ag.eng.harnessAuthenticate(ctx, run, c.method, c.key)
+		_, err := ag.eng.harnessAuthenticate(ctx, run, c.method, c.key, "alice")
 		if code, msg := authErr(err); code != c.code || !strings.Contains(msg, c.want) {
 			t.Fatalf("%s %q: %d %s", c.method, c.key, code, msg)
 		}
 	}
 	const key = "sk-fake-secret-4711"
-	res, err := ag.eng.harnessAuthenticate(ctx, run, "fake-api-key", key)
+	res, err := ag.eng.harnessAuthenticate(ctx, run, "fake-api-key", key, "alice")
 	if err != nil || res.State != "ready" {
 		t.Fatalf("authenticate: %+v %v", res, err)
 	}
@@ -119,7 +119,7 @@ func TestHarnessAuthenticateAPIKey(t *testing.T) {
 	if hs.Gen != 1 || hs.State != hsLive || hs.Held != "" {
 		t.Fatalf("after the sign-in: %+v", hs)
 	}
-	if _, err := ag.eng.harnessAuthenticate(ctx, run, "fake-api-key", key); err == nil || !strings.Contains(err.Error(), "is signed in") {
+	if _, err := ag.eng.harnessAuthenticate(ctx, run, "fake-api-key", key, "alice"); err == nil || !strings.Contains(err.Error(), "is signed in") {
 		t.Fatalf("signed in already: %v", err)
 	}
 	for _, q := range []string{`SELECT count(*) FROM harness_sessions WHERE snapshot||login||held||rules LIKE '%` + key + `%'`,
@@ -138,11 +138,11 @@ func TestHarnessAuthenticateAPIKey(t *testing.T) {
 func TestHarnessAuthenticateDevice(t *testing.T) {
 	ag, mux, _, run := signedOutFixture(t, "--device-ms=400")
 	ctx := context.Background()
-	res, err := ag.eng.harnessAuthenticate(ctx, run, "fake-device", "")
+	res, err := ag.eng.harnessAuthenticate(ctx, run, "fake-device", "", "alice")
 	if err != nil || res.Device == nil || res.Device.URL != "https://example.invalid/device" || !strings.Contains(res.Device.Message, "FAKE-1234") {
 		t.Fatalf("the device code: %+v %v", res, err)
 	}
-	if _, err := ag.eng.harnessAuthenticate(ctx, run, "fake-api-key", "k"); err == nil || !strings.Contains(err.Error(), "already under way") {
+	if _, err := ag.eng.harnessAuthenticate(ctx, run, "fake-api-key", "k", "alice"); err == nil || !strings.Contains(err.Error(), "already under way") {
 		t.Fatalf("a second sign-in: %v", err)
 	}
 	sum := viewOf(t, mux, run.ID)["run"].(map[string]any)["harness"].(map[string]any)

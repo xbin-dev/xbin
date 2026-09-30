@@ -364,7 +364,7 @@ func TestHarnessSteerOnItsWay(t *testing.T) {
 func TestHarnessDeviceSignInHandoff(t *testing.T) {
 	t.Run("completed", func(t *testing.T) {
 		ag, _, _, run := signedOutFixture(t, "--device-ms=1500")
-		res, err := ag.eng.harnessAuthenticate(context.Background(), run, "fake-device", "")
+		res, err := ag.eng.harnessAuthenticate(context.Background(), run, "fake-device", "", "alice")
 		if err != nil || res.Device == nil {
 			t.Fatalf("the device code: %+v %v", res, err)
 		}
@@ -381,7 +381,7 @@ func TestHarnessDeviceSignInHandoff(t *testing.T) {
 	})
 	t.Run("nothing-to-complete", func(t *testing.T) {
 		ag, _, _, run := signedOutFixture(t, "--device-ms=600000")
-		res, err := ag.eng.harnessAuthenticate(context.Background(), run, "fake-device", "")
+		res, err := ag.eng.harnessAuthenticate(context.Background(), run, "fake-device", "", "alice")
 		if err != nil || res.Device == nil {
 			t.Fatalf("the device code: %+v %v", res, err)
 		}

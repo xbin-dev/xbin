@@ -55,8 +55,10 @@ to the tile (write or terminal). With read access a person may look: hello,
 the list, a sandbox, a running sandbox's files and trees, its execs and
 their output, its snapshots. Every change is `403 not-allowed` before it is
 routed: create, PATCH, DELETE, start and stop, run, execs and their stdin,
-signals and resizes, terminals (both `tty` routes), stdio sockets, file writes, moves and
-removes, `PUT …/tar`, and taking, restoring or deleting snapshots. A read
+signals and resizes, terminals (both `tty` routes), stdio sockets (one
+writes its exec's stdin) and every other WebSocket upgrade, file writes,
+moves and removes, `PUT …/tar`, and taking, restoring or deleting
+snapshots. A read
 never starts a stopped sandbox for them: that is `403 not-allowed` too, and
 `409 state` while one starts. Calls from every other consumer are as the
 contract says, whatever the person's level on this tile: the contract

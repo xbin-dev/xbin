@@ -1846,17 +1846,19 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   message so — parks the run on `pendingState: {kind: "login", park,
   harness: {login}}` (`waiting_input`; `harness.state` `login`,
   `harness.login: {command, methods: [{id, name, kind: terminal | api-key
-  | device-code}], device?}`) and keeps the message that failed. **Retry**
+  | device-code}], device?: {by}}`) and keeps the message that failed. **Retry**
   (`/resume`) ends the signed-out coding agent, starts a fresh one — it
   reads what a terminal sign-in left in the sandbox's home — and sends the
   message again (signed out still, it parks again). Signing in through the
   coding agent (an API key, a device code) is `POST /runs/{id}/harness/
   authenticate`: the key goes to the coding agent once and is never
-  stored; a device code's page (`harness.login.device: {url, message}`)
-  stays up until you finish, then the run goes on by itself — across a
-  save or restart of the agent too: the next process takes the coding
-  agent's word that the sign-in is done and starts it afresh, as Retry
-  does; a code no process waits on any more is taken away. A page the
+  stored; a device code's page and code are yours alone — the answer, and
+  your `GET /runs/{id}/harness` — while everyone sees who is signing in
+  (`harness.login.device: {by}`); it stays up until you finish, then the
+  run goes on by itself — across a save or restart of the agent too: the
+  next process takes the coding agent's word that the sign-in is done and
+  starts it afresh, as Retry does; a code no process waits on any more is
+  taken away. A page the
   coding agent asks to have opened at any other time is declined.
 - **Stops and restarts.** `/interrupt` stops the turn: a permission or
   question waiting settles `(interrupted)` and the coding agent ends its
@@ -1901,14 +1903,24 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   messages queued for the coding agent waiting, reads calls in flight as
   interrupted, answers an approval there with an error result, and the
   coding agent itself runs on unwatched in the sandbox until the sandbox
-  stops or a newer agent takes it over again.
+  stops or a newer agent takes it over again. What waits there for the
+  coding agent — a message queued for it, an answer to its question — is
+  work to that agent that it never does: its resume job wakes the tile
+  every minute until the conversation is deleted (or, for the workspace
+  owner, `DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND
+  delivered_at=0` in the agent's `db` resource). Its class editor still
+  saves (the stored classes keep the `harness` toolset apart from
+  `toolsets`, where that agent would refuse it), but any class save there
+  rewrites every stored class (its editor sends them all), so each one
+  loses its coding agents: tick them again after upgrading (Reset brings
+  the built-in Coding class back as it ships).
 
 **Its own routes** (D-harness §4.2.4–§4.2.6). On a run the agent's own
 loop answers they are **409** `not a coding-agent conversation`.
 
 | Method & path | Who | Body | Answer |
 |---|---|---|---|
-| `GET /runs/{id}/harness` | a viewer | — | `{harness, session: {gen, execId, acpSessionId, loadable, steering, startedAt, lastActive}, rules: [{kind, title}]}` — its summary, the adapter process (`startedAt`: its current generation's start, ms) and what "allow always" answers remember in this conversation |
+| `GET /runs/{id}/harness` | a viewer | — | `{harness, session: {gen, execId, acpSessionId, loadable, steering, startedAt, lastActive}, rules: [{kind, title}]}` — its summary, the adapter process (`startedAt`: its current generation's start, ms) and what "allow always" answers remember in this conversation; to the person who started a device-code sign-in that waits, its `harness.login.device` is `{url, message, by}` (everyone else's, and every other view's, only `{by}`) |
 | `PATCH /runs/{id}/harness` | a participant; an explicit mode: the owner | `{mode?, option?: {id, value}}` | `{harness}` |
 | `POST /runs/{id}/harness/answer` | a participant | `{park?, action: accept\|decline\|cancel, content?}` | `{ok: "true"}` |
 | `POST /runs/{id}/harness/authenticate` | a participant who may use its sandbox | `{method, apiKey?, confirm?}` | **200** `{ok: "true", state: "ready"}` · **202** `{ok: "true", device: {url, message}}` |
@@ -1953,8 +1965,13 @@ loop answers they are **409** `not a coding-agent conversation`.
   one of `harness.login.methods` of kind `api-key` (`apiKey` needed — it
   goes to the coding agent once, in the one call, and is never stored,
   logged or echoed; within 30 s the answer is 200 and the message that
-  waited goes) or `device-code` (the page and code within 30 s: 202, also
-  `harness.login.device`; the run goes on by itself once you finish). Only
+  waited goes) or `device-code` (the page and code within 30 s: 202; the
+  run goes on by itself once you finish). The page and code are yours
+  alone — never stored, and in no summary but your own `GET
+  /runs/{id}/harness` (anyone else who saw them could enter the code
+  first, signing the coding agent in as themselves); everyone sees
+  `harness.login.device: {by}`, and asking again for the device code of
+  the sign-in you started answers it again (202). Only
   a person who may use the sandbox **themself** — asked of its manager now
   (the manager doesn't police the person this agent names) — and, on a
   sandbox others may use too (team visibility, members or shares: they act
@@ -2158,11 +2175,13 @@ answer: <question>` / `to sign in` below it, and in detail `doing:
 parent model is never offered a child's permission: a park goes to people
 (Needs, push, the child card). **A person's direct message** (`POST
 /runs/{child}/message` or `/answer` by a person, not the parent agent) is
-told to the parent as an `hnote` inbox row — `[direct message to #<child>
-(<name>) from <user>]\n<message>` — delivered as a user-role notice at the
-parent's next step boundary, or before its next turn's first message; it
-never starts a turn, isn't a request of the task ledger, and doesn't count
-for `hasWork` (an older build ignores the kind).
+told to the parent as a notice (an `hnote`, kept apart from the inbox) —
+`[direct message to #<child> (<name>) from <user>]\n<message>` — delivered
+as a user-role message at the parent's next step boundary, or before its
+next turn's first message, among what was queued for it then; it never
+starts a turn, isn't a request of the task ledger, and isn't work for
+`hasWork` — an older build never sees it, so a notice an idle parent keeps
+never wakes that build either.
 
 **The agent's coding agents (the UI).** A coding agent the agent started
 (`subagent_spawn` with `harness`, D-harness §4.4) is drawn where the spawn

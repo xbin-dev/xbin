@@ -64,7 +64,7 @@ func TestHarnessMigrationKeepsOldRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrating: %v", err)
 	}
-	for _, tbl := range []string{"harness_sessions", "harness_prefs", "harness_seen", "harness_options"} {
+	for _, tbl := range []string{"harness_sessions", "harness_prefs", "harness_seen", "harness_options", "harness_notes"} {
 		var n int
 		if err := db.sql.QueryRow(`SELECT count(*) FROM ` + tbl).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("%s: %d %v", tbl, n, err)

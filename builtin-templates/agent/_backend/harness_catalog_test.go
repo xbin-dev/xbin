@@ -516,3 +516,90 @@ func TestHarnessClassGainsToolset(t *testing.T) {
 		t.Fatalf("a save leaving it out: %s", jsonOf(dev.Harnesses))
 	}
 }
+
+// Rolled back to a build from before coding agents (v0.3.64), the classes
+// this build saved must still save there: that build's editor resends every
+// stored class and its normalize refuses a toolset it doesn't know ("class
+// coding: unknown toolset \"harness\""), so the harness toolset is stored
+// apart from toolsets (the class's `harness`), and read back into it here.
+// A class stored with it in toolsets (an earlier build of this program) is
+// read as it was; one an older build saved again has lost it.
+func TestHarnessClassRollback(t *testing.T) {
+	_, mux := accessFixture(t)
+	t.Cleanup(func() { classStore.Store(nil) })
+	bindSbx(t, "apps/fsb")
+	// v0.3.64's classToolsets
+	old := []string{tsFiles, tsRepl, tsWeb, tsInternal, tsSandbox, tsSubagents, tsSchedule, tsThreads, tsSkills}
+	coding := map[string]any{"id": "coding", "name": "Coding", "description": "Ours.", "toolsets": []string{"sandbox", "web", "files", "harness"},
+		"sandboxEgress": []string{"none", "internet"}}
+	dev := map[string]any{"id": "dev", "name": "Dev", "toolsets": []string{"sandbox", "harness", "files"}, "sandboxEgress": []string{"internet"},
+		"harnesses": []string{"claude"}}
+	plain := map[string]any{"id": "notes", "name": "Notes", "toolsets": []string{"files", "skills"}}
+	getClasses := func() map[string]map[string]any {
+		t.Helper()
+		w := callAs(t, mux, asMgr, "GET", "/classes", nil)
+		var l struct{ Classes []map[string]any }
+		if err := json.Unmarshal(w.Body.Bytes(), &l); err != nil {
+			t.Fatalf("GET /classes: %d %s", w.Code, w.Body)
+		}
+		out := map[string]map[string]any{}
+		for _, c := range l.Classes {
+			out[c["id"].(string)] = c
+		}
+		return out
+	}
+	check := func(when string) {
+		t.Helper()
+		// what an older build reads: only toolsets it knows
+		var stored struct {
+			Classes []struct {
+				ID       string   `json:"id"`
+				Toolsets []string `json:"toolsets"`
+			} `json:"classes"`
+		}
+		raw := agent.db.getSetting("classes")
+		if err := json.Unmarshal([]byte(raw), &stored); err != nil || len(stored.Classes) != 3 {
+			t.Fatalf("%s: stored %s (%v)", when, raw, err)
+		}
+		for _, c := range stored.Classes {
+			for _, ts := range c.Toolsets {
+				if !hasStr(old, ts) {
+					t.Fatalf("%s: class %s stored with toolset %q, which v0.3.64 refuses: %s", when, c.ID, ts, raw)
+				}
+			}
+		}
+		// what this build reads: as saved
+		got := getClasses()
+		if !strings.Contains(jsonOf(got["dev"]["toolsets"]), `"harness"`) || jsonOf(got["dev"]["harnesses"]) != `["claude"]` ||
+			!strings.Contains(jsonOf(got["coding"]["toolsets"]), `"harness"`) || got["coding"]["harnesses"] != "all" ||
+			got["coding"]["description"] != "Ours." || strings.Contains(jsonOf(got["notes"]["toolsets"]), `"harness"`) {
+			t.Fatalf("%s: GET /classes %s", when, jsonOf(got))
+		}
+		if c, _ := currentClasses().find("dev"); !c.allowsHarness("claude") || c.allowsHarness("codex") || !c.has(tsFiles) {
+			t.Fatalf("%s: dev %+v", when, c)
+		}
+		if c, _ := currentClasses().find("notes"); c.has(tsHarness) {
+			t.Fatalf("%s: notes gained coding agents: %+v", when, c)
+		}
+	}
+	if w := callAs(t, mux, asMgr, "PUT", "/classes", map[string]any{"classes": []any{coding, dev, plain}}); w.Code != 200 {
+		t.Fatalf("PUT /classes: %d %s", w.Code, w.Body)
+	}
+	check("saved")
+	// the editor sends back what GET said
+	got := getClasses()
+	if w := callAs(t, mux, asMgr, "PUT", "/classes", map[string]any{"classes": []any{got["coding"], got["dev"], got["notes"]}}); w.Code != 200 {
+		t.Fatalf("PUT /classes again: %d %s", w.Code, w.Body)
+	}
+	check("saved again")
+	// the form an earlier build of this program stored: harness in toolsets
+	_ = agent.db.putSetting("classes", `{"classes":[{"id":"dev","name":"Dev","toolsets":["sandbox","harness"],"sandboxEgress":["internet"],"harnesses":["codex"]}]}`)
+	if c, _ := loadClasses(agent.db).find("dev"); !c.allowsHarness("codex") || c.allowsHarness("claude") {
+		t.Fatalf("toolsets holding harness: %+v", c)
+	}
+	// saved again by an older build: the class has no coding agents
+	_ = agent.db.putSetting("classes", `{"classes":[{"id":"dev","name":"Dev","toolsets":["sandbox","files"],"mcp":[],"managers":"all","sandboxEgress":["internet"]}]}`)
+	if c, _ := loadClasses(agent.db).find("dev"); c.has(tsHarness) || c.allowsHarness("claude") {
+		t.Fatalf("an older build's save: %+v", c)
+	}
+}

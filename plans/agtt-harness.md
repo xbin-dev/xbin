@@ -195,7 +195,7 @@ carries a secret and is never stored.
 |---|---|---|
 | `hprompt` (new) | `POST /runs/{id}/message` and `/answer` on a harness run; the first message of a new harness run (instead of a directly written user row); `subagent_message`; an approval's `feedback` | prompt, steer or queue (§3.5); writes the user row (+ `recordAsk`) when it is delivered |
 | `hanswer` (new) | `POST /runs/{id}/harness/answer` | answers the parked elicitation |
-| `hnote` (new) | a person's message to a harness **child**, written on the **parent** | delivered as a notice (§4.3.13) at the parent's next step boundary, or before its next turn's first message; never starts a turn (`hasWork` ignores it) |
+| `hnote` (new; a row of `harness_notes`, not `inbox` — routes-fix) | a person's message to a harness **child**, written on the **parent** | delivered as a notice (§4.3.13) at the parent's next step boundary, or before its next turn's first message, after the inbox rows there when it was written; never starts a turn (not work for `hasWork`, and invisible to an older binary's) |
 | `approve` | `POST /runs/{id}/approve` (body gains `option`, `feedback`) | answers the parked permission |
 | `interrupt` | `/interrupt`, `message {interrupt:true}` | `session/cancel`; parks settle "(interrupted)" |
 | `cancel` | `/cancel`, delete | `session/cancel`, kill the exec, status `canceled`, a child's link settles canceled |
@@ -216,7 +216,14 @@ once, at its step cap ("stopped after 500 steps in one turn
 `repairTranscript` (the calls in flight read interrupted) and, for an
 approved park, the call "run" as an unknown tool (an error result) happen
 first. The adapter itself runs on unwatched until its sandbox stops, or a
-newer binary takes it over again.
+newer binary takes it over again. Such a binary's `hasWork` counts every
+undelivered inbox row and its `recover()` pokes each one's run, but it
+never consumes a kind it doesn't know: `hprompt` and `hanswer` rows queued
+at the rollback make its resume job (`@every 1m`) wake the tile every
+minute until the conversation is deleted, or the rows are:
+`DELETE FROM inbox WHERE kind IN ('hprompt','hanswer') AND delivered_at=0`.
+`hnote`s, which an idle parent keeps by design, live in `harness_notes`
+for that reason.
 
 ### 3.3 The engine fork and sessions
 
@@ -486,8 +493,11 @@ engine starts the adapter (initialize only) when none is live.
 - api-key → waits for the result (≤ 30 s): 200 `{ok: "true", state:
   "ready"}`, the held prompt resent.
 - device-code → waits for the URL elicitation (≤ 30 s): 202 `{ok: "true",
-  device: {url, message}}` (also in `harness.login.device`); the run leaves
-  `login` by itself when the person finishes.
+  device: {url, message}}` — the requester's alone (routes-fix): kept in
+  memory with the sign-in, served again only to them (their `GET
+  /runs/{id}/harness`, or the same method asked again); stored and
+  published is `harness.login.device: {by}`. The run leaves `login` by
+  itself when the person finishes.
 - Errors: 400 `method: one of …`; 400 `apiKey: needed for ‹method name›` /
   `apiKey: only for an API-key method`; 409 `‹name› is signed in` (state not
   `login`); 403 `only someone who may use ‹sandbox› can sign it in`; 409
@@ -607,7 +617,7 @@ run has no `harness` key.
  "pending": {"park": "Xq3…", "kind": "approval", "title": "Run go test ./..."},
  "login": {"command": "CLAUDE_CODE_REMOTE=1 claude /login",
            "methods": [{"id": "claude-login", "name": "Log in with Claude", "kind": "terminal"}],
-           "device": {"url": "https://…", "message": "Enter code ABCD-1234 at …"}},
+           "device": {"by": "alice"}},
  "sandbox": {"ref": "apps/coding-sandbox|sb-7f3a", "name": "api-dev", "cwd": "/work/api", "shared": true},
  "steering": true, "title": "Fix the flaky test", "gen": 2}
 ```
@@ -627,7 +637,7 @@ run has no `harness` key.
 | `activity` | `kind`: `idle` · `thinking` (thought chunks) · `writing` (message chunks) · `tool` (a call in progress; `title` its summary) · `waiting` (a park); `at` when it began |
 | `counts` | this conversation's harness calls, distinct files edited, lines added/deleted (across respawns) |
 | `pending` | the park, compact: `kind` `approval` \| `question` \| `login`, `title` (the tool's title, the question's message, "Sign in to ‹name›"); the full card data is `pendingState.harness` |
-| `login` | present while `state == "login"` (and during a sign-in): `command` for the login terminal (the adapter's terminal-auth argv shell-quoted when it offers one, else the catalog's `LoginCmd`); `methods` from the adapter's `authMethods`, `kind` `terminal` \| `api-key` \| `device-code` (others are not offered); `device` while a device-code sign-in waits |
+| `login` | present while `state == "login"` (and during a sign-in): `command` for the login terminal (the adapter's terminal-auth argv shell-quoted when it offers one, else the catalog's `LoginCmd`); `methods` from the adapter's `authMethods`, `kind` `terminal` \| `api-key` \| `device-code` (others are not offered); `device` while a device-code sign-in waits: `{by}`, who started it — its `url` and `message` (the code) only in that person's own `GET /runs/{id}/harness` (routes-fix) |
 | `sandbox` | the fixed sandbox and cwd; `shared`: others may use it (team visibility, members or shares) — the UI's privacy note |
 | `steering` | the adapter steers mid-turn (§3.5) |
 | `title` | the adapter's own session title |
@@ -1433,3 +1443,6 @@ this spec and why.
 - 2026-09-30 (engine-fix) §3.3 attach: a successor's attach the conversation's rights refuse (`harnessUse`: egress none, the binder's Use or part gone, the sandbox detached, the harness gone from the image) stops the adapter as a refusal mid-turn does (`stopHarnessNow`: killed, `failed` with why, a park settled `(stopped)`, the turn ended) — it was only stored `failed`, the adapter left working unread and the run `running`. Ending an adapter this process doesn't drive (`dropExec`: a predecessor's, half-started or refused) needs no rights — its manager is called for the binder (the harness's starter once the binding is gone) over the exec routes — and `/cancel`, a delete, an `hstop` and a sign-in's Retry also end one stored `failed` or `lost` (a stop whose kill may not have got through; a pipe cut off by a manager that stopped answering). An attach the manager doesn't answer (`unavailable`/`unreachable`: it restarts too) is tried again by the run's one-shot timer, 2 s doubling to 1 min (a count per run, in memory), until it takes, the exec turns out gone (the turn ends, `lost`) or the rights refuse it.
 - 2026-09-30 (engine-fix) §3.3 attach: an adapter parked on its sign-in with no session (codex refuses `session/new` signed out: `AwaitLogin`) is attached like one with its session open (the snapshot has `authNeeded`; `authenticate` opens the session through it), not ended as "still opening" — which left the run parked on a sign-in `authenticate` refused ("is signed in"); a sign-in park with neither is left as a Retry leaves it. codex's detached turn (§10 A2) is followed again by the successor: the record already says it — the run `running` with no prompt in flight once a turn began (`turn_seq` > 0; a new run is `running` before its first prompt goes) — so it isn't persisted separately; its quiet timer ends it, an interrupt ends it (one queued before the attach too), a message waits for its end. A stdio socket closed `4001 replaced` while this process still owns the session (`hpTarget.Guard` nil: a successor bumps the epoch before it attaches) is another client's, not a handoff: the pipe attaches again (logged) instead of letting the session go unread.
 - 2026-09-30 (engine-fix) §3.3 consistency, §3.5 steering: what a handoff may catch between an event and its commit. **Questions:** the snapshot is the client's state, which may be ahead of `read_off` (the read loop files a question before the consumer applies the event before it), so the successor restores only the questions the record knows — the question park's, the queued ones', one whose answer is on its way, a sign-in's url one — and keeps `elicitNext`: a question dropped is read again and parks (a url one is declined), where restored it was taken for one already filed and nobody was asked. **Answers** (a permission's option, a question's action) are recorded in `harness_sessions.answers` (additive) before they go and forgotten once the adapter has them (a stdin POST answered; over stdio, a pong): the client's resolution clears the park before its reply is on the wire, so a handoff while the reply still retries lost it; the successor answers each recorded one again (a permission by its rpc id, never its recorded pid — a successor's pids start over, so another request may be pending under it; one whose park cleared by the reply alone — the adapter ignores a second answer). **Steers** are at most once, as prompts: the inbox row is marked on its way (`harness_sessions.steer_row`, additive) before `_session/steering` goes (its answer bounded at 30 s); one that never left or that the adapter answered with an error waits for the turn's end; one whose answer is lost (a handoff, a stdio drop, the timeout) — or a mark a successor finds — is written as the user row with a note that the coding agent may not have it, never delivered again. **A device-code sign-in** a predecessor started: its `authenticate` answer is lost with it, so the successor takes the adapter's `elicitation/complete` (the url question restored while the login shows its code, accepted again) as the sign-in done and wakes the run as Retry does (a fresh adapter reads the stored sign-in, the held prompt goes); a shown code with no url question restored is taken away. `sdk/acp`: accepting a url question moves it to the accepted ones in one step, so `State()` never misses it between the two.
+- 2026-09-30 (routes-fix) Classes (§2.2, A5): settings `k='classes'` stores the `harness` toolset apart from `toolsets` (`harness: true` on the stored class; toolsets that already hold it are read as they are) — an agent from before coding agents (v0.3.64) rolled back to refused every class save (`class coding: unknown toolset "harness"`: its editor resends every stored class, its normalize knows no such toolset). `GET /classes` and the API are unchanged; a class save on such a build rewrites every stored class (its editor resends them all), so every class loses its coding agents (verifier: said so in API.md and the changelog).
+- 2026-09-30 (routes-fix) §3.2 `hnote`: kept in a table of its own, `harness_notes (id, run_id, after, body, created, delivered_at, msg_id)`, not `inbox` — `after` is the inbox's highest id when it was written, so `deliverBoundary` reads it among the parent's rows in the order they came; on start, undelivered `hnote` inbox rows an earlier build of this program wrote move there (and, verifier, a run's own as its input is read: that build's process still serves through a blue/green swap after the start's move, and a late row read as a note would name no `harness_notes` id); a deleted run's notes go with it. An `hnote` row an idle parent kept for good (by design) was work to a rolled-back v0.3.64 forever (its `hasWork` counts every undelivered inbox row, its pass never consumes the kind): its resume job woke the tile every minute. `hprompt`/`hanswer` rows queued at a rollback still do — documented (§3.2, API.md, changelog) with the clean-up.
+- 2026-09-30 (routes-fix) §4.2.6/§4.3.2 a device code is the requester's alone: `harness_sessions.login` and the park's `login` store — and every summary, view, `/tree`, `/needs` and event publishes — `login.device: {by}` only; the page and code stay in memory with the sign-in (`hAuth.dev`), answered in the 202, in the requester's own `GET /runs/{id}/harness` (`{url, message, by}`, while this process drives the session), and again (202) to the same person asking again for the same method (else 409 `already under way`). Everyone who saw the conversation — a viewer, a participant `authenticate` refuses — could read the code and enter it first, signing the shared sandbox's harness in as themselves (A9b had put it in the summary for the UI; its cards already fall back to the 202). The app keeps the 202's device per park for its transcript link too. `Engine.harnessAuthenticate` gains `by`. (verifier) The client's snapshot (`harness_sessions.snapshot`, which keeps an accepted url question for a successor) is stored without the question's `url` and `message` too (`storedState`): a successor restores it by its ids.
