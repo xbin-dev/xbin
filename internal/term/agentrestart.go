@@ -51,6 +51,9 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 	if c, err := m.pickTarget(p, &probe, s.Cwd, deployment); err != nil {
 		return SessionInfo{}, false, c, err
 	}
+	if c, err := m.pickPartition(p, &probe, s.Cwd); err != nil { // a refusal leaves the session running too
+		return SessionInfo{}, false, c, err
+	}
 
 	s.kill()
 	select { // history saved, the tile's layer released, the row gone

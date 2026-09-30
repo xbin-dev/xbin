@@ -166,7 +166,10 @@ and what it keeps: the code (the tile directory, checkpoints, deployment
 records), grants and bindings, the tile's own terminal layer, people's
 homes and their own agent-session history, records a provider keeps (such
 as sandboxes at a sandbox manager — clean them up there), and backups made
-before backups were sealed, which no key erases. The manager types the
+before backups were sealed, which no key erases. Between user partitions
+and unpartitioned it also ends the tile's terminal and agent sessions and
+deletes people's terminal layers and partition agent history of the tile
+([§Terminals and agent sessions](#terminals-and-agent-sessions)). The manager types the
 tile's path; xbind stops the tile, deletes, erases the data's backup keys,
 records the new mode (with what it deleted, in the tile's mode history)
 and writes a line in the tile's deploy log. A switch that fails part-way —
@@ -384,6 +387,44 @@ key, in the sandbox list (`/api/xbin/sandboxes` rows gain `partition`) —
 never what it holds. A person's partition's crash messages name the
 partition, not its log.
 
+## Terminals and agent sessions
+
+A terminal or agent session on a partitioned tile belongs to the person who
+opened it, and reaches only that person's partition:
+
+- **Its API is the person's partition.** The session's `XBIN_TOKEN` is
+  today's terminal token; xbind puts it in the opener's own partition, so
+  `bx`, `curl http://xbin/…` and every tool in the session reach
+  `user:<id>`'s instance and data — an admin's session too, only ever the
+  admin's own. The session gets `XBIN_PARTITION=user:<id>` (`global` for a
+  session targeting a non-primary deployment). A session with no person
+  (the owner token) reaches the global instance, or, on a tile without
+  one, opens with the tile API off.
+- **It starts in `$HOME`.** The tile directory is the tile's code, shared
+  by every partition: a file left there is readable by every person's
+  terminal and by the tile's code in every partition. Keep your own files
+  in `$HOME`; the terminal prints a grey line saying so.
+- **Its dev layer is the person's own.** System changes (`apt install`,
+  `/etc`) go to that person's layer of the tile, never the tile's shared
+  one, so one person's terminal can't plant anything in another's; a VM
+  terminal's disk is per person too. Reset resets your own layer.
+- **Its agent history is the partition's.** A finished agent session's
+  transcript is kept with the person's partition, listed with their other
+  past sessions, and never read by a person recreated under the same id.
+- **Admins can end other people's sessions there, and nothing else.** On a
+  partitioned tile an admin can't reattach to another person's terminal,
+  drive their agent session (read its events, log or diffs, prompt it,
+  answer its permissions or questions, change its settings, restart or
+  rename it), receives none of its `term` or `session` events, and sees
+  another person's sessions listed without their names (`GET
+  /api/xbin/term/sessions?user=`, `GET /api/xbin/status`, the sandbox
+  list). Ending one (`DELETE /api/xbin/term/sessions/<id>`, `DELETE
+  /ws/term?session=`) stays allowed.
+- **A mode switch** that deletes the tile's data ends the tile's sessions
+  first, then deletes every person's layer and partition agent history of
+  it; the tile's own layer and people's own history stay. None of it is in
+  backups. While a switch runs, a new session on the tile answers 409.
+
 ## In your code
 
 **Go** ([sdk.md](sdk.md)):
@@ -464,7 +505,7 @@ and restoring one on another machine needs the exported backup keys.
   `bx bind --personal`;
 - the workspace policies (per-person consent for cross-tile partition calls;
   credential resets that wait for the person) and the admin Policies tab;
-- terminals, agent sessions, logs and status on partitioned tiles;
+- logs and status on partitioned tiles;
 - the partitions page (`/xbin/partitions`), `bx partition` beyond
   `switch`/`keep`, the admin tile's Partitions section, the shell's marker
   and its Keep/Switch overlay;

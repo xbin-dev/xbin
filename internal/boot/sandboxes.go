@@ -158,6 +158,9 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 		default:
 			if info, ok := st.Term.Info(e.ID); ok {
 				row.Name, row.Status = info.Name, info.Status
+				if strings.HasPrefix(info.Partition, "user:") {
+					row.Name = "" // a person's partition: no name in the admin's view (PD-09)
+				}
 			}
 			if p, ok := bySandbox[e.ID]; ok {
 				row.Stats = &sandboxStats{CPU: p.CPU, Mem: p.Mem, Pids: p.Pids, Scope: "sandbox"}

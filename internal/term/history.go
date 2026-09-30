@@ -12,6 +12,13 @@ package term
 // History stays per tile, whichever deployment a session targeted: it is a
 // conversation about the tile's one work tree. Each entry names its
 // session's target deployment, when it had one, in `deployment`.
+//
+// On a partitioned tile a person's session is their partition's, and so is
+// its history (PD-22): data/agent-history/.partitions/<pkey>/<TileKey>/,
+// keyed by the person's partition id — a person deleted and recreated
+// under the same id never reads the old one's — and deleted with the
+// partition (a mode switch: WipePartitionTile). The routes below merge it
+// with the person's own (partitionHistoryRoot).
 
 import (
 	"encoding/json"
@@ -59,6 +66,28 @@ func (m *Manager) historyDir(homeKey, cwd string) string {
 	return filepath.Join(m.historyRoot(homeKey), util.CompKey(cwd))
 }
 
+// partitionHistoryRoot is homeKey's partition history root: their
+// partition id's, "" while they have none (or no hook is installed).
+// homeKey is the person's id (validated ids are their own home keys).
+func (m *Manager) partitionHistoryRoot(homeKey string) string {
+	if m.PersonPartitionKey == nil || homeKey == ownerHomeKey {
+		return ""
+	}
+	if key := m.PersonPartitionKey(homeKey); key != "" {
+		return filepath.Join(m.Root, "data", "agent-history", partHistoryDir, key)
+	}
+	return ""
+}
+
+// sessionHistoryDir is where s's transcript goes: its partition's on a
+// partitioned tile, else its person's own per tile.
+func (m *Manager) sessionHistoryDir(s *Session) string {
+	if s.part.key != "" {
+		return filepath.Join(m.Root, "data", "agent-history", partHistoryDir, s.part.key, util.TileKey(s.part.tile))
+	}
+	return m.historyDir(s.homeKey, s.Cwd)
+}
+
 // saveHistory persists a session's transcript and meta. Called when the
 // session ends (agentPump) and on shutdown (FlushAgents).
 func (m *Manager) saveHistory(s *Session) {
@@ -82,7 +111,7 @@ func (m *Manager) saveHistory(s *Session) {
 		Turns: turns, Preview: firstPrompt(evs), ACPSessionID: acpID, Loadable: loadable && acpID != "",
 		Deployment: s.target.Deployment,
 	}, Events: evs}
-	dir := m.historyDir(s.homeKey, s.Cwd)
+	dir := m.sessionHistoryDir(s)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		slog.Warn("agent history: mkdir", "id", s.ID, "err", err)
 		return
@@ -175,13 +204,28 @@ func historyMetaFrom(r io.Reader) (HistoryMeta, bool) {
 func (m *Manager) ListHistory(homeKey, cwd string, may func(rel string) bool) []HistoryMeta {
 	out := []HistoryMeta{}
 	var dirs []string
+	part := m.partitionHistoryRoot(homeKey)
 	if cwd != "" {
 		dirs = []string{m.historyDir(homeKey, cwd)}
+		if part != "" {
+			tile := cwd
+			if m.TilePartitioned != nil {
+				if t, on := m.TilePartitioned(cwd); on {
+					tile = t
+				}
+			}
+			dirs = append(dirs, filepath.Join(part, util.TileKey(tile)))
+		}
 	} else {
-		ents, _ := os.ReadDir(m.historyRoot(homeKey))
-		for _, e := range ents {
-			if e.IsDir() {
-				dirs = append(dirs, filepath.Join(m.historyRoot(homeKey), e.Name()))
+		for _, root := range []string{m.historyRoot(homeKey), part} {
+			if root == "" {
+				continue
+			}
+			ents, _ := os.ReadDir(root)
+			for _, e := range ents {
+				if e.IsDir() {
+					dirs = append(dirs, filepath.Join(root, e.Name()))
+				}
 			}
 		}
 	}
@@ -202,16 +246,21 @@ func (m *Manager) ListHistory(homeKey, cwd string, may func(rel string) bool) []
 	return out
 }
 
-// historyPath finds a past session's file by id across the user's tiles.
+// historyPath finds a past session's file by id across the user's tiles:
+// their own history, then their partition history (partitionHistoryRoot).
 func (m *Manager) historyPath(homeKey, id string) (string, error) {
 	if id == "" || strings.ContainsAny(id, "/\\.") { // ids are hex tokens
 		return "", ErrNoSession
 	}
-	matches, _ := filepath.Glob(filepath.Join(m.historyRoot(homeKey), "*", id+".json"))
-	if len(matches) == 0 {
-		return "", ErrNoSession
+	for _, root := range []string{m.historyRoot(homeKey), m.partitionHistoryRoot(homeKey)} {
+		if root == "" {
+			continue
+		}
+		if matches, _ := filepath.Glob(filepath.Join(root, "*", id+".json")); len(matches) > 0 {
+			return matches[0], nil
+		}
 	}
-	return matches[0], nil
+	return "", ErrNoSession
 }
 
 // HistoryMeta is one past session's meta alone (the file's head).

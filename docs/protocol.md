@@ -674,7 +674,10 @@ GET    /status                     admin. terminals ({id,cwd,net,kind,vm,user,
                                    delta two polls for rates), and version (the
                                    running xbind build commit). A terminal
                                    whose session targets a named deployment
-                                   carries deployment
+                                   carries deployment; one acting in a
+                                   person's partition of a partitioned
+                                   tile carries partition ("user:<id>")
+                                   and an empty name
 GET    /backends                   admin. per-component backend state
                                    {<path>: {state, gen, error?}}. The row
                                    stays the primary's; a tile with
@@ -1194,10 +1197,17 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    tabs (the shell's <bx-frame> lists them here,
                                    not in the browser). A row whose session
                                    targets a named deployment carries
-                                   deployment
-PATCH  /term/sessions/<id>        creator or admin. {name}: name the tab (empty
-                                   clears; lives on the session → follows the
-                                   user) → ok
+                                   deployment. A row of a session on a
+                                   partitioned tile carries partition
+                                   ("user:<id>" | "global": what it acts
+                                   in); in an admin's ?user= listing a
+                                   person's partition session's name is
+                                   empty
+PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
+                                   the creator only: 403 for an admin on
+                                   another person's session). {name}: name
+                                   the tab (empty clears; lives on the
+                                   session → follows the user) → ok
 GET    /agent/providers           authenticated. the coding agents this daemon
                                    runs: [{id,name,modes:[{id,name,explicit?}],
                                    defaultMode,login}] (D74; explicit modes are
@@ -1358,6 +1368,23 @@ GET    /term/sessions/<id>/diff   creator or admin. ?toolCallId=<id> |
                                    itself, not through a sibling either; a
                                    shell's token on the tile still does,
                                    as `bx agent` there)
+                                  (on a partitioned tile — docs/partitions.md
+                                   §Terminals and agent sessions — "or
+                                   admin" holds for the admin's own
+                                   sessions only: on another person's
+                                   session every route above but DELETE
+                                   answers 403 `session belongs to another
+                                   user: <tile> keeps each person's data
+                                   apart, so an admin can't open other
+                                   people's sessions there (ending one is
+                                   allowed)`. A new session there acts in
+                                   its opener's partition — SessionInfo
+                                   carries partition — or, without a
+                                   person, in global (api false when the
+                                   tile has none); 409 while the tile's
+                                   partition mode switches. A person's
+                                   terminal on the tile may open and drive
+                                   its own agent sessions)
 GET    /agent/history             terminal-level. Your past agent sessions,
                                    newest first: [{id, cwd, provider, mode,
                                    name, created, ended, turns, preview,
@@ -1368,7 +1395,11 @@ GET    /agent/history             terminal-level. Your past agent sessions,
                                    ?cwd= narrows to a tile. loadable: the
                                    agent can reopen it (resume). An entry of
                                    a session that had a named target carries
-                                   deployment
+                                   deployment. A session on a partitioned
+                                   tile's entry is kept with its person's
+                                   partition, and listed, read and deleted
+                                   here the same way — never by a person
+                                   recreated under the same id
 GET    /agent/history/<id>/events terminal-level (own). {meta, events} — the
                                    persisted transcript in the live /events
                                    shape; 404 when not yours or gone.
@@ -4988,6 +5019,7 @@ GET    /ws/term?cwd=<p>|session=<id>   WebSocket upgrade → a terminal session 
 DELETE /ws/term?session=<id>       end a session now (creator or admin) → 204
 DELETE /ws/term/env?cwd=<p>        terminal level on the tile: wipe its persistent
                                    terminal layer back to the base rootfs → 204
+                                   (on a partitioned tile: the caller's own)
 GET    /ws/term/env?cwd=<p>        that layer's state → {exists, baseOutdated,
                                    vm:{available,reason,memMiB,vcpus}}
 ```
@@ -5105,7 +5137,12 @@ The frames are [the terminal wire](#the-terminal-wire) (below), with
     session asked for or was given a target but has no tile API (the
     protected-primary fallback, or a user without the `termApi` grant). All
     three are absent for a session that sent no `deployment` and follows the
-    primary; a tile sandbox's TTY, which speaks this wire too, adds
+    primary. On a partitioned tile only, the frame adds `partition`
+    (`user:<id>` | `global`: what the session acts in), `partitionNote` (a
+    line to print like `netNote`: `partition: yours (user:<id>) · the tile
+    directory is shared code — keep your own files in $HOME`, or `tile API
+    off: <why>`) and `api:false` when the session has no person and the tile
+    no global instance; a tile sandbox's TTY, which speaks this wire too, adds
     `sandbox` — the sandbox's id — so ignore fields you don't know),
     `{"op":"exit"}` — the process ended (here, the shell), and the socket
     closes after it. It may carry `"code":N`, or `"code":null` with
@@ -5126,6 +5163,25 @@ The frames are [the terminal wire](#the-terminal-wire) (below), with
 
 `DELETE /ws/term?session=<id>` ends a session immediately (creator or admin;
 used by the UI to restart under a new scope); `204` on success, `404` unknown.
+
+**On a partitioned tile** ([partitions.md](/docs/partitions.md) §Terminals and
+agent sessions) a new session belongs to its opener's partition: its
+`XBIN_TOKEN` acts there (§Authentication), `XBIN_PARTITION=user:<id>` is set
+right after `XBIN_COMPONENT` (after `XBIN_DEPLOYMENT` when that is set;
+`global` for a session targeting a non-primary deployment), it starts in its
+`$HOME` instead of the tile directory, and its persistent layer is the
+person's own (`.xbin/term-part/<tile-key>/<partition-id>/`, never backed up;
+`/ws/term/env` resets and reports that one). A session without a person (the
+owner token) acts in the global instance, or opens with no tile API when the
+tile has none (the session frame's `api:false`). An admin reattaching to
+another person's session there gets 403 `session belongs to another user:
+<tile> keeps each person's data apart, so an admin can't open other
+people's sessions there (ending one is allowed)`; ending it stays allowed. A
+session asked for while the tile's partition mode switches answers 409; a
+switch that deletes the tile's data ends its sessions first and deletes the
+person layers, and a tile whose recorded mode gains or loses user partitions
+ends the sessions opened under the other mode. Every other tile's sessions
+are unchanged.
 
 `DELETE /ws/term/env?cwd=<component-path>` (terminal level on that tile; the
 root layer — `cwd` empty — admin-only) wipes that component's
@@ -5411,7 +5467,8 @@ The live log is in memory; an `exited` or `error` status is final and the
 session leaves the directory (`term` event `close`). Its transcript does not
 die with it: when a session ends — or the daemon stops — the log and a little
 metadata are written to `data/agent-history/` (per user × tile, the newest 20
-per tile; a session that never took a prompt is not kept). `GET
+per tile — on a partitioned tile per person's partition × tile, deleted by a
+partition mode switch; a session that never took a prompt is not kept). `GET
 /agent/history` lists them and `GET /agent/history/<id>/events` serves one in
 this same shape, read-only; where the agent advertised `loadSession`, `POST
 /term/sessions {resume:<id>}` reopens it (the agent replays the earlier turns

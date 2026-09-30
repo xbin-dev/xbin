@@ -18,7 +18,9 @@ import (
 // api:false when the target choice's last fallback took the tile API away
 // (D127p) or a session that asked for a target has no tile API (a D17
 // clamp), are present only for a session that has a target to state: every
-// other session's frame is today's.
+// other session's frame is today's. On a partitioned tile the frame adds
+// partition (what the session acts in), partitionNote (a line to print like
+// targetNote) and api:false when PD-10 took the tile API away.
 func (s *Session) helloFields(deployment string) map[string]any {
 	h := map[string]any{
 		"id": s.ID, "net": s.Net, "baseOutdated": s.baseOld,
@@ -33,6 +35,17 @@ func (s *Session) helloFields(deployment string) map[string]any {
 	}
 	if s.target.note != "" {
 		h["targetNote"] = s.target.note
+	}
+	if s.part.on { // a partitioned tile only (partition.go): every other frame is today's
+		if s.part.part != "" {
+			h["partition"] = s.part.part
+		}
+		if s.part.apiOff {
+			h["api"] = false
+		}
+		if s.part.note != "" {
+			h["partitionNote"] = s.part.note
+		}
 	}
 	return h
 }

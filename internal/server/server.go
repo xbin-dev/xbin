@@ -313,7 +313,7 @@ func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.Term.ResetEnv(cwd); err != nil {
+	if err := s.Term.ResetEnvFor(auth.PrincipalOf(r), cwd); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -329,7 +329,7 @@ func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	exists, old := s.Term.EnvStatus(cwd)
+	exists, old := s.Term.EnvStatusFor(auth.PrincipalOf(r), cwd)
 	WriteJSON(w, http.StatusOK, map[string]any{"exists": exists, "baseOutdated": old, "vm": s.Term.VMStatus()})
 }
 

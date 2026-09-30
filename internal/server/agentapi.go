@@ -148,7 +148,9 @@ func agentOpenErr(w http.ResponseWriter, code int, err error) {
 }
 
 // drive gates the per-session routes: the session's creator (still
-// terminal-level on the tile) or an admin. Writes the refusal itself.
+// terminal-level on the tile) or an admin — never an admin in another
+// person's session on a partitioned tile (term.Manager.MayDrive, PD-09).
+// Writes the refusal itself.
 func (s *Server) drive(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id := r.PathValue("id")
 	if s.Term == nil {
@@ -293,10 +295,17 @@ func (s *Server) apiAgentGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiAgentDelete ends a session of either kind (the API-side twin of
-// DELETE /ws/term?session=).
+// DELETE /ws/term?session=): the creator, or an admin — on a partitioned
+// tile too, where every other route of another person's session refuses
+// admins (PD-09: governance keeps kill).
 func (s *Server) apiAgentDelete(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.drive(w, r)
-	if !ok {
+	id := r.PathValue("id")
+	if s.Term == nil {
+		apiErr(w, http.StatusNotImplemented, "terminals are not enabled")
+		return
+	}
+	if err := s.Term.MayKill(id, auth.PrincipalOf(r)); err != nil {
+		apiErr(w, agentStatus(err), err.Error())
 		return
 	}
 	if !s.Term.Kill(id) {

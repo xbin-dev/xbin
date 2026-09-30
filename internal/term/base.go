@@ -50,8 +50,12 @@ func (m *Manager) ensureLayerBase(layer string) string {
 // terminal is open: whether one exists, and whether it was built on an older
 // base image than the current rootfs (the terminal window's "base update").
 func (m *Manager) EnvStatus(rel string) (exists, outdated bool) {
-	key := termKey(rel)
-	_, err := os.Stat(filepath.Join(m.Root, ".xbin", "term", key))
+	return m.envStatusOf(termKey(rel))
+}
+
+// envStatusOf is EnvStatus for layer key.
+func (m *Manager) envStatusOf(key string) (exists, outdated bool) {
+	_, err := os.Stat(m.layerDir(key))
 	return err == nil, m.layerOutdated(key)
 }
 
@@ -61,7 +65,7 @@ func (m *Manager) layerOutdated(envKey string) bool {
 	if envKey == "" || m.Rootfs == "" {
 		return false
 	}
-	return layers.Outdated(filepath.Join(m.Root, ".xbin", "term", envKey), m.Rootfs)
+	return layers.Outdated(m.layerDir(envKey), m.Rootfs)
 }
 
 // CheckBaseImages is the startup safety gate: it refuses to run if any existing

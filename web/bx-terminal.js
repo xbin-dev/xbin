@@ -29,11 +29,13 @@
  *              mirrored back without a restart, as net's is.
  *
  * Events: 'bx-session' (detail: {id, net, scopes:[{id,label,desc}], label,
- * netNote, vm, deployment, asked, api}) once the server assigns a session —
- * `scopes` is exactly what this user may pick on this tile, `netNote`
- * explains a clamp, `deployment` is the target the server echoed ('' for a
- * session that follows the primary) and `asked` the one this connection
- * requested, `api` whether it has the tile API (when the server says).
+ * netNote, vm, deployment, asked, api, partition?}) once the server assigns
+ * a session — `scopes` is exactly what this user may pick on this tile,
+ * `netNote` explains a clamp, `deployment` is the target the server echoed
+ * ('' for a session that follows the primary) and `asked` the one this
+ * connection requested, `api` whether it has the tile API (when the server
+ * says), `partition` what the session acts in on a partitioned tile
+ * (`user:<id>` | `global`; absent elsewhere).
  * Methods: note(text) writes a grey notice line (held while a full-screen
  * program owns the screen); end(text) ends the session with a red line.
  * Wire protocol: docs/protocol.md §/ws/term.
@@ -808,16 +810,19 @@ export class BxTerminal extends HTMLElement {
         this.#serverDep = ctl.deployment || '';
         this.#serverApi = typeof ctl.api === 'boolean' ? (ctl.api ? '1' : '0') : null;
         // A clamp note ("host networking is admin-only — using the org
-        // network") and the session's own target note ("this terminal
-        // calls apps/crm+dev") are worth one gray line each, once per
-        // session; the pickers show the rest.
-        if ((ctl.netNote || ctl.targetNote) && ctl.id !== this.#notedSession) {
+        // network"), the session's own target note ("this terminal
+        // calls apps/crm+dev") and, on a partitioned tile, its partition
+        // note ("partition: yours · the tile directory is shared code") are
+        // worth one gray line each, once per session; the pickers show the
+        // rest.
+        if ((ctl.netNote || ctl.targetNote || ctl.partitionNote) && ctl.id !== this.#notedSession) {
           this.#notedSession = ctl.id;
-          for (const n of [ctl.netNote, ctl.targetNote]) if (n) this.#term.write(`\r\n\x1b[90m[${n}]\x1b[0m\r\n`);
+          for (const n of [ctl.netNote, ctl.targetNote, ctl.partitionNote]) if (n) this.#term.write(`\r\n\x1b[90m[${n}]\x1b[0m\r\n`);
         }
         this.dispatchEvent(new CustomEvent('bx-session', {
           detail: { id: ctl.id, net: ctl.net, scopes: ctl.scopes, label: ctl.label, netNote: ctl.netNote, baseOutdated: !!ctl.baseOutdated, vm: !!ctl.vm,
-            deployment: this.#serverDep, asked: this.#asked, ...(this.#serverApi ? { api: ctl.api } : {}) },
+            deployment: this.#serverDep, asked: this.#asked, ...(this.#serverApi ? { api: ctl.api } : {}),
+            ...(ctl.partition ? { partition: ctl.partition } : {}) },
           bubbles: true }));
         // this xbind acks input and answers pings: measure the link, keep measuring
         this.#echoAck = !!ctl.echoAck;
