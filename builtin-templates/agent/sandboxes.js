@@ -71,7 +71,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
     // another sandbox became the active one: the field is its directory
     if (pop.open && pop.ref !== b.ref) { pop.ref = b.ref; pop.cwd = b.cwd; }
     return html`<span class="sbxwrap"><span class="badge sbxbadge ${b.broken ? 'broken' : ''}" id="sbxbadge" role="button" tabindex="0"
-        title=${b.title} @click=${() => toggle(b)}>${b.label}${b.broken ? ' ⚠' : ''}</span>${pop.open ? popTpl(b) : nothing}</span>`;
+        aria-expanded=${pop.open ? 'true' : 'false'} title=${b.title} @click=${() => toggle(b)}
+        @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(b); } }}>${b.label}${b.broken ? ' ⚠' : ''}</span>${pop.open ? popTpl(b) : nothing}</span>`;
   }
   function toggle(b) {
     pop.open = !pop.open;

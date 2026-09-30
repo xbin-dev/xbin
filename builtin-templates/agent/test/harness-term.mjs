@@ -9,8 +9,8 @@
 // running behind a pill, across conversations); the top bar's >_ Terminal
 // opens a shell at the agent's cwd; an API key is sent once and never
 // echoed; a device code shows its page and code; a sandbox the person may
-// not use says whom to ask, one that is gone says so; a coding agent's ▣
-// offers no change.
+// not use says whom to ask, one that is gone says so; the pill and the ▣
+// badge answer the keyboard; a coding agent's ▣ offers no change.
 //
 //   node test/harness-term.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -140,9 +140,18 @@ ok('…their sockets stay open', await page.evaluate(() => window.__tty.sockets.
 const nDials = (await dials()).length;
 await go(21, '[data-k="ch1:toolu_10"]');
 ok('another conversation: the pill stays', !!(await page.$('#sbxterm-pill')));
-await page.click('#sbxterm-pill');
+await page.focus('#sbxterm-pill');
+await page.keyboard.press('Enter');
 await until(() => document.getElementById('sbxterm-pane').style.display !== 'none');
-ok('…and brings the same terminals back (nothing dialled again)', (await page.$$('#sbxterm-pane .sbxtab')).length === 2 && (await dials()).length === nDials && !(await page.$('#sbxterm-pill')));
+ok('…Enter on it brings the same terminals back (nothing dialled again)', (await page.$$('#sbxterm-pane .sbxtab')).length === 2 && (await dials()).length === nDials && !(await page.$('#sbxterm-pill')));
+await until(() => document.activeElement?.tagName === 'BX-TERMINAL');
+ok('…and the keys go to the shown shell', await page.evaluate(() => document.activeElement.style.display !== 'none'));
+await page.click('#sbxterm-hide');
+await page.waitForSelector('#sbxterm-pill');
+await page.focus('#sbxterm-pill');
+await page.keyboard.press('Space');
+await until(() => document.getElementById('sbxterm-pane').style.display !== 'none');
+ok('…Space too: a real button', !(await page.$('#sbxterm-pill')));
 
 // ✕ on a tab ends that shell only
 await page.click(`#sbxterm-pane .sbxtab[data-tab="${shellKey}"] [data-close]`);
@@ -180,9 +189,10 @@ await until(() => !document.getElementById('sbxterm-pane'));
 
 // --- a coding agent's ▣: its sandbox is fixed for the conversation (the backend refuses a change) -----------
 await go(21, '#sbxbadge');
-await page.click('#sbxbadge');
+await page.focus('#sbxbadge');
+await page.keyboard.press('Enter');
 await page.waitForSelector('#sbxpop');
-ok('a coding agent\'s ▣: its working directory, read-only', (await text('#sbx-cwd-fixed')) === '/work/api'
+ok('a coding agent\'s ▣ (opened from the keyboard): its working directory, read-only', (await text('#sbx-cwd-fixed')) === '/work/api'
   && !(await page.$('#sbx-cwd')) && !(await page.$('#sbx-cwd-set')));
 ok('…no switch or Detach', !(await page.$('#sbx-detach')) && !(await page.$('#sbxpop .sbxatt')));
 ok('…Open terminal and Manage stay', !!(await page.$('#sbx-term')) && !!(await page.$('#sbx-manage')));

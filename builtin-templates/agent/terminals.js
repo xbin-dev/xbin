@@ -104,6 +104,16 @@ export function termDock(app) {
   return dock;
 }
 
+// focusShown: once the dock is drawn again, the shown tab's terminal takes
+// the keys (xterm's input in its shadow root) — else ▾, which hid it.
+function focusShown() {
+  requestAnimationFrame(() => {
+    const t = document.querySelector('#sbxterm-pane bx-terminal:not([style*="display:none"])');
+    const input = t && t.shadowRoot && t.shadowRoot.querySelector('textarea');
+    (input || document.getElementById('sbxterm-hide'))?.focus();
+  });
+}
+
 // The top bar: the pill of a hidden dock, and in a coding agent's
 // conversation >_ Terminal — a shell in its sandbox at its cwd.
 ext.register({
@@ -117,8 +127,9 @@ ext.register({
     const tt = sb ? app.sbx.terminal(sb.ref, sb.cwd) : null;
     if (tt) app.sbx.ensure();
     if (!pill && !(tt && tt.shown)) return null;
-    return html`${pill ? html`<span class="badge termpill" id="sbxterm-pill" role="button" tabindex="0" title="Show the terminals — their shells kept running"
-        @click=${() => d.terms.show()}>&gt;_ ${pill}</span>` : nothing}${tt && tt.shown ? html`<button class="btn ghost btnsm" id="hterm" ?disabled=${!!tt.why}
+    // a real button: Enter and Space bring the dock back too — and the keys go to its shell
+    return html`${pill ? html`<button class="badge termpill" id="sbxterm-pill" title="Show the terminals — their shells kept running"
+        @click=${() => { d.terms.show(); focusShown(); }}>&gt;_ ${pill}</button>` : nothing}${tt && tt.shown ? html`<button class="btn ghost btnsm" id="hterm" ?disabled=${!!tt.why}
         title=${tt.why ? `No terminal: ${tt.why}` : `A shell in ${tt.name} at ${tt.cwd || 'its workdir'}, as you`}
         @click=${() => d.open(tt)}>&gt;_ Terminal</button>` : nothing}`;
   },
