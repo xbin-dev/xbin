@@ -49,6 +49,35 @@ func TestContract(t *testing.T) {
 	sandboxcontract.Run(t, tg)
 }
 
+// TestContractBeforeStdio: a manager from before the stdio capability — it
+// ignores split, and its stdio route is one it doesn't know (404
+// not-found) — still passes caps/missing, as it did before the suite knew
+// stdio: the suite takes not-found there as well as unsupported.
+func TestContractBeforeStdio(t *testing.T) {
+	t.Parallel()
+	var fresh func(*testing.T, sandboxcontract.Knobs) sandboxcontract.Target
+	fresh = func(t *testing.T, k sandboxcontract.Knobs) sandboxcontract.Target {
+		t.Helper()
+		m := &fsbManager{Root: t.TempDir(), DefaultFrom: "apps/nobody", Grace: 200 * time.Millisecond,
+			Ring: k.OutputRing, FileMax: k.FileMax, Caps: k.Caps}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/stdio") && !m.hasCap("stdio") {
+				fsbFail(w, http.StatusNotFound, "not-found", "no such route")
+				return
+			}
+			m.ServeHTTP(w, r)
+		}))
+		t.Cleanup(func() { srv.Close(); m.Close() })
+		return sandboxcontract.Target{URL: srv.URL, Grace: m.Grace, Fresh: fresh}
+	}
+	tg := fresh(t, sandboxcontract.Knobs{})
+	tg.Skip = map[string]string{}
+	for _, s := range []string{"hello", "sandboxes", "partitions", "people", "lifecycle", "run", "execs", "tty", "stdio", "files", "tar", "snapshots", "ports"} {
+		tg.Skip[s] = "TestContract runs it; this one is caps/missing's"
+	}
+	sandboxcontract.Run(t, tg)
+}
+
 func q(p string) string { return url.QueryEscape(p) }
 
 // --- the reference manager itself -------------------------------------------------------------

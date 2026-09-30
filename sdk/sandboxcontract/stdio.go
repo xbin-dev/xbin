@@ -457,7 +457,10 @@ var stdioChecks = []check{
 }
 
 // noStdio: a manager without the stdio capability ignores split (a field it
-// doesn't know) and refuses the stdio route.
+// doesn't know) and refuses the stdio route: 501 unsupported — or, a manager
+// from before the capability, 404 not-found, as its unknown routes answer
+// (docs/sandbox-manager.md §hello: a consumer checks caps first). So a
+// manager that passed caps/missing before stdio existed still passes it.
 func noStdio(t *testing.T, a Caller) {
 	t.Helper()
 	sb := a.Create(map[string]any{"name": "no-stdio"})
@@ -465,6 +468,15 @@ func noStdio(t *testing.T, a Caller) {
 	if out, _ := a.Drain(sb.ID, x.ID); out != "oe" || x.Split {
 		t.Fatalf("split without stdio: %q %+v", out, x)
 	}
-	a.Refused("GET", "/sandboxes/"+sb.ID+"/execs/"+x.ID+"/stdio", nil, 501, "unsupported")
-	dialRefused(t, a, "/sandboxes/"+sb.ID+"/execs/"+x.ID+"/stdio", 501, "unsupported")
+	path := "/sandboxes/" + sb.ID + "/execs/" + x.ID + "/stdio"
+	resp, b, err := a.Do(context.Background(), "GET", path, nil)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	status, refusal := http.StatusNotImplemented, "unsupported"
+	if resp.StatusCode == http.StatusNotFound {
+		status, refusal = http.StatusNotFound, "not-found" // a manager from before stdio
+	}
+	a.refusal("GET "+path, resp, b, status, refusal)
+	dialRefused(t, a, path, status, refusal)
 }

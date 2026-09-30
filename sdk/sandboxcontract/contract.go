@@ -14,7 +14,8 @@
 // partitions, people, lifecycle, run, execs, tty, stdio, files, tar,
 // snapshots, ports, caps — so `go test -run 'TestContract/execs'` picks a section. Sections
 // of an optional capability hello doesn't offer are skipped; a missing
-// one's routes must answer `unsupported`.
+// one's routes must answer `unsupported` (stdio's may answer `not-found`: a
+// manager from before it).
 //
 // Each check acts as consumers of its own (apps/ct-<section>-<check>-a, …),
 // so the checks run in parallel against one manager and see only their own

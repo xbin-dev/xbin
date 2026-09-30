@@ -379,11 +379,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   every WebSocket upgrade — to a person with only read access to the
   tile. The conformance suite gains a `stdio` section (skipped for a
   manager without the capability) and knows `stdio` among hello's caps;
-  `caps/missing` now wants a manager without it to ignore `split` and
-  answer the stdio route `501 unsupported` — a manager of your own whose
-  unknown routes answer `404` fails it until it does (or names
-  `caps/missing` in `Target.Skip`, saying why). Nothing to change for
-  consumers or pages.
+  `caps/missing` wants a manager without it to ignore `split` and refuse
+  the stdio route — `501 unsupported`, or `404 not-found` as a manager
+  from before it answers a route it doesn't know, so one that passed
+  before still passes. Nothing to change for consumers or pages.
 
 ## 2026-09-29
 

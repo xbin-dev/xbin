@@ -664,8 +664,9 @@ offset, gaps, split stderr, exit, `eof`, the newest attach winning);
 `tty/backend` opens terminals as a consumer's backend does, for an
 asserted person who is neither the sandbox's owner nor a member, and on a
 sandbox shared with it. A section whose optional capability hello leaves
-out is skipped; its routes must answer `unsupported`. The rest of
-`Target`:
+out is skipped; its routes must answer `unsupported` (`caps/missing`) —
+`stdio`'s may also answer `not-found`, as a manager from before it does
+for a route it doesn't know. The rest of `Target`:
 
 - `Client` — the HTTP client for every call and terminal (TLS, a proxy).
 - `Consumer`, `Verified`, `Asserted` — how to call as a consumer, a verified
