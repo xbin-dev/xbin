@@ -49,9 +49,9 @@ type partReach struct {
 // partitionEdgeSeam counts one allowed cross-tile edge by tile from, acting
 // in person userID's partition, to tile (or scope) to, in that partition's
 // egress ledger (06 §6.1): Route's cross-tile partition calls
-// (routePartition) and the data plane's cross-scope reaches into the same
-// person's namespace (reachPartition) — the one ledger seam, which the
-// ledger plane (F10) fills. A no-op until then.
+// (routePartition) and the data plane's authorized cross-scope reaches into
+// the same person's namespace (countPartitionReach) — the one ledger seam,
+// which the ledger plane fills (partitionledger.go). A no-op without it.
 var partitionEdgeSeam = func(b *Broker, userID, from, to string) {}
 
 // partitionIfaceEnvSeam adds a user partition's personal binds to its env
@@ -124,16 +124,25 @@ func (b *Broker) partitionReach(p auth.Principal, ra *reach) error {
 }
 
 // reachPartition is the partition p acts in on scope's root tile
-// (partitionOf), counting a cross-scope reach by another tile's user
-// partition in its egress ledger.
+// (partitionOf). A cross-scope reach by another tile's user partition is
+// counted in its egress ledger once it is authorized (countPartitionReach,
+// from allowAt), never here: the grant isn't checked yet.
 func (b *Broker) reachPartition(p auth.Principal, scope string, own bool) (string, error) {
-	part, err := b.partitionOf(p, scope, own)
-	if user, isUser := strings.CutPrefix(part, "user:"); err == nil && !own && p.Component != "" && isUser {
-		if _, isTile := b.Reg.Component(p.Component); isTile {
-			partitionEdgeSeam(b, user, p.Component, scope)
-		}
+	return b.partitionOf(p, scope, own)
+}
+
+// countPartitionReach counts, in the caller partition's egress ledger
+// (06 §6.1), an authorized reach by another tile's user partition into
+// the same person's namespace of a partitioned scope (03 §B.2) — through
+// the one ledger seam, as Route counts calls.
+func (b *Broker) countPartitionReach(p auth.Principal, ra reach) {
+	user, isUser := strings.CutPrefix(ra.part, "user:")
+	if ra.own || p.Component == "" || !isUser || user == "" || ra.pkey == "" {
+		return
 	}
-	return part, err
+	if _, isTile := b.Reg.Component(p.Component); isTile {
+		partitionEdgeSeam(b, user, p.Component, ra.rt.Scope)
+	}
 }
 
 // partitionOf is the partition p acts in on scope's root tile, counting

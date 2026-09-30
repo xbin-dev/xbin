@@ -33,6 +33,7 @@ func (st *State) wirePartitionRunner() {
 	run.PartitionCapsFor = brk.PartitionCaps
 	brk.SetPartitionCapDefaults(run.DefaultPartitionCaps)
 	brk.SetPartitionRunner(run.PartitionRunning, run.StopPartitions, st.Auth.RevokePartitionInstances)
+	brk.SetPartitionEdgeStop(run.StopPartition) // a revoked consent stops the caller's instance of the person
 	st.Reg.OnPartitionChange(func(c *registry.Component, old, new registry.PartitionMode) {
 		run.PartitionsChanged(c, runningSpec(old), runningSpec(new))
 	})
