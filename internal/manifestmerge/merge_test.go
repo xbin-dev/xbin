@@ -106,8 +106,10 @@ func TestOldInstanceTakesTemplateManifest(t *testing.T) {
 			if _, has := top(t, r.Out, "partition"); has {
 				t.Errorf("the merge made the instance partitioned")
 			}
-			if got := strings.Join(r.Took, " "); got != "uses partitionMail partitionNote" {
-				t.Errorf("took %q", got)
+			for _, k := range []string{"uses", "partitionMail", "partitionNote"} { // B2a's
+				if !strings.Contains(" "+strings.Join(r.Took, " ")+" ", " "+k+" ") {
+					t.Errorf("took %q, not %s", r.Took, k)
+				}
 			}
 		})
 	}
