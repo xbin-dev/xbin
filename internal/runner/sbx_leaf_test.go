@@ -37,8 +37,18 @@ func TestRegistryListsPlacedLeaf(t *testing.T) {
 	if l, placed := listed("g2"), curOf(t, h.r, "apps/x", "main").leaf; l != placed || l != leafXmn {
 		t.Errorf("g2 listed in %q, placed in %q; want %q", l, placed, leafXmn)
 	}
-	h.r.cgOps = nil
-	if l := h.r.listedLeaf(leafXmn); l != "" {
+	// A runner of its own: h.r's cgroup model is set once, before it runs —
+	// g1's drain still reads it (leaveLeaf) while this asks, so clearing it
+	// here raced (-race, under load).
+	if l := (&Runner{}).listedLeaf(leafXmn); l != "" {
 		t.Errorf("without cgroup accounting the listed leaf is %q", l)
 	}
+	if l := (&Runner{cgOps: disabledCgroup{cg}}).listedLeaf(leafXmn); l != "" {
+		t.Errorf("with cgroup accounting off the listed leaf is %q", l)
+	}
 }
+
+// disabledCgroup is a cgroup model whose accounting is off.
+type disabledCgroup struct{ cgroupOps }
+
+func (disabledCgroup) Enabled() bool { return false }

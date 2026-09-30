@@ -12,6 +12,31 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-09-30
 
+- **BREAKING (security): each Go tile builds with a `go.work` of its
+  own** ([changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md),
+  [elements.md](/docs/elements.md) §Cross-component code access,
+  [isolation.md](/docs/isolation.md)). Builds used the workspace's root
+  `go.work`, which uses every Go tile, and in workspace mode `go` builds one
+  module graph over all of them: any tile's `go.mod` could raise the version
+  of a dependency every other tile built with, break every Go build, or —
+  with a `replace`, or by declaring a module path another tile imports —
+  make another tile's backend compile code of its choosing. A build's
+  `go.work` is now made from the tile's own `go.mod` at each build: its
+  module, the xbin SDK, and only the other tiles' modules the tile's own
+  `go.mod`, manifest and code choose (a dotless `require` like `calendar`
+  or one at `v0.0.0`, a `replace` with a tile's directory, a dotless import
+  one module alone holds, tiles named in `deps`; a hand-managed root
+  `go.work` keeps its `go`, `toolchain`, `godebug` and `replace` lines).
+  A tile that built only thanks to another tile's `go.mod`, or that imports
+  another tile's dotted module with no `require` or `deps`, now fails with
+  `no required module provides package …`, and the build's output says
+  what to add (module paths and versions, never another tile); a dotted
+  tile module required at a published version now builds from the
+  published module unless `deps` names the tile. The root `go.work` is
+  unchanged for terminals and gopls, and is now written atomically. Also
+  fixes a new Go tile's first build failing with `go: no modules were found
+  in the current workspace` when it ran before the root `go.work` listed
+  the tile.
 - **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
   OpenCode answer a conversation, or work for the agent, in a coding
   sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A
