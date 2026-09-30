@@ -41,8 +41,11 @@ var userPartitionChecks = []check{
 			t.Fatal("alice's partition doesn't list its sandbox")
 		}
 		// another partition of the same consumer, the consumer's global
-		// instance, its people there: for them it doesn't exist
-		for _, other := range []Caller{bob, bob.Verified("bob"), a, a.Global(), a.Verified("alice"), a.Asserting("alice")} {
+		// instance, its people there, and alice's partition of another
+		// consumer — the same partition id (xbind's is the person's, not the
+		// tile's: the consumer is the pair): for them it doesn't exist
+		ba := e.as("b").InPartition("alice", pid("alice"))
+		for _, other := range []Caller{bob, bob.Verified("bob"), a, a.Global(), a.Verified("alice"), a.Asserting("alice"), ba, ba.Verified("alice")} {
 			other.Refused("GET", "/sandboxes/"+sb.ID, nil, 404, "not-found")
 			other.Refused("POST", "/sandboxes/"+sb.ID+"/run", map[string]any{"cmd": "true"}, 404, "not-found")
 			other.Refused("PATCH", "/sandboxes/"+sb.ID, map[string]any{"name": "x"}, 404, "not-found")
@@ -202,7 +205,10 @@ var userPartitionChecks = []check{
 		// the sockets — a terminal, a tty exec's, a program's stdio (whose
 		// attach takes over its stdin: a coding agent's) — keep the
 		// partitions as every route does: a partition-homed sandbox's are
-		// that partition's alone, refused before the upgrade; the partition's
+		// that partition's alone, refused before the upgrade — to its
+		// consumer's other partitions and global instance, and to the
+		// person's partition of another consumer; an exec is its sandbox's
+		// alone, named under one the caller sees or not; the partition's
 		// backend is its person's; a team sandbox at the consumer's
 		// non-personal identity is the partition's person's to use
 		tty, stdio := e.has("tty"), e.has("stdio")
@@ -224,11 +230,13 @@ var userPartitionChecks = []check{
 			agent = openPipe(t, alice, sb.ID, x.ID, 0, 0) // alice's partition holds its stdin
 			paths = append(paths, stdioPath(sb.ID, x.ID, 0, 0))
 		}
+		ba := e.as("b").InPartition("alice", pid("alice")) // alice's partition of another consumer: the same partition id
 		for _, path := range paths {
 			// another partition (its backend, its page, its backend naming
-			// its person), the consumer's global instance and that instance
-			// naming alice: for them it doesn't exist
-			for _, other := range []Caller{bob, bob.Verified("bob"), bob.Asserting("bob"), a, a.Global(), a.Asserting("alice"), a.Global().Asserting("alice")} {
+			// its person), alice's partition of another consumer, the
+			// consumer's global instance and that instance naming alice: for
+			// them it doesn't exist
+			for _, other := range []Caller{bob, bob.Verified("bob"), bob.Asserting("bob"), ba, ba.Verified("alice"), ba.Asserting("alice"), a, a.Global(), a.Asserting("alice"), a.Global().Asserting("alice")} {
 				dialRefused(t, other, path, 404, "not-found")
 			}
 			// the partition naming another person
@@ -271,6 +279,25 @@ var userPartitionChecks = []check{
 			p.op(map[string]any{"op": "eof"})
 			p.exited(code(0), "")
 		}
+		// an exec of alice's sandbox named under a sandbox bob's partition
+		// does see: an exec is its sandbox's alone, whatever its id
+		var probes, started []string
+		if tty {
+			x := execNotIn(t, alice, sb.ID, map[string]any{"cmd": "cat", "tty": true}, a, team.ID)
+			probes, started = append(probes, "/sandboxes/"+team.ID+"/execs/"+x.ID+"/tty"), append(started, x.ID)
+		}
+		if stdio {
+			x := execNotIn(t, alice, sb.ID, map[string]any{"cmd": "cat", "stdin": true, "split": true}, a, team.ID)
+			probes, started = append(probes, stdioPath(team.ID, x.ID, 0, 0)), append(started, x.ID)
+		}
+		for _, path := range probes {
+			for _, other := range []Caller{bob, bob.Asserting("bob"), a} {
+				dialRefused(t, other, path, 404, "not-found")
+			}
+		}
+		for _, id := range started {
+			alice.Call("DELETE", "/sandboxes/"+sb.ID+"/execs/"+id, nil, http.StatusNoContent, nil)
+		}
 	}},
 	{"recreated", func(t *testing.T, e *env) {
 		// a person deleted and made again has a new partition id: nothing of
@@ -301,4 +328,26 @@ var userPartitionChecks = []check{
 			t.Fatalf("the owner's partitionId: %s", raw)
 		}
 	}},
+}
+
+// execNotIn starts an exec (body) in sandbox id as c, one whose id sandbox
+// other doesn't hold as lister lists it: exec ids are per sandbox, so "e1"
+// in one may be "e1" in the next.
+func execNotIn(t *testing.T, c Caller, id string, body map[string]any, lister Caller, other string) Exec {
+	t.Helper()
+	var l struct{ Execs []Exec }
+	lister.Call("GET", "/sandboxes/"+other+"/execs", nil, http.StatusOK, &l)
+	held := map[string]bool{}
+	for _, x := range l.Execs {
+		held[x.ID] = true
+	}
+	for range len(held) + 1 {
+		x := c.Exec(id, body)
+		if !held[x.ID] {
+			return x
+		}
+		c.Call("DELETE", "/sandboxes/"+id+"/execs/"+x.ID, nil, http.StatusNoContent, nil)
+	}
+	t.Fatalf("every exec %s started in %s has an id %s holds (%d execs)", c.who(), id, other, len(held))
+	return Exec{}
 }
