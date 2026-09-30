@@ -98,6 +98,10 @@ bx partition switch <tile> [--dry-run] [--confirm <tile>] [--yes] [--json]
 bx partition keep <tile> [--json]     decide a tile's partition mode switch
                                        request (a tile manager): switch deletes
                                        all its data, keep deletes nothing
+bx partition mail ls [--after <id>] [--limit n] [--json] | mail ack <id>...
+                                       the partition mail inbox of the
+                                       partition bx runs in (a person's
+                                       terminal on a partitioned tile)
 bx partition consent <from> <to> [--revoke] | consent ls [--json]
                                        let partitioned tile <from> use your data
                                        in <to> (while the workspace asks people
@@ -403,6 +407,16 @@ meanwhile is refused rather than decided blind. They exit 6 against an
 xbind without partitioned tiles (one older than them: its rows carry no
 partition and it lacks the route). The typed confirmation's prompt goes to
 stderr, so `--json` keeps stdout to the JSON answer.
+
+**`bx partition mail ls|ack`** — partition mail
+([partitions.md §Partition mail](/docs/partitions.md)) from where it is
+read: in your terminal on a partitioned tile, your partition's inbox (the
+terminal's credential is your partition's); with the global instance's
+backend token, the global instance's. `ls` lists the waiting items, oldest
+first, one row each (`--limit`, default 100; when more wait it prints the
+`--after <id>` to read on with; `--json` prints the answer); `ack <id>…`
+removes items. Nobody else reads an inbox: an admin's login or the root
+token gets 403. It exits 6 against an xbind without partition mail.
 
 **`bx partition consent|ledger`** — calls between partitioned tiles
 ([partitions.md §Calls between partitioned tiles](/docs/partitions.md)).

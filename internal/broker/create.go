@@ -202,6 +202,7 @@ func (b *Broker) assignOwner(path, ref string) {
 		slog.Info("dropped a removed tile's cron jobs and bus subscriptions", "tile", path, "count", n)
 	}
 	b.personalBindsTileCreated(path)
+	b.mailTileCreated(path) // a removed tile's partition mail there (partitionmail_bell.go)
 	if err := b.resetDeploymentState(path); err != nil {
 		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", path, "err", err)
 	}

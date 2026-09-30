@@ -246,7 +246,7 @@ func (b *Broker) partitionLeftovers(path string, under func(string) bool) []stri
 	for tile, n := range parts {
 		out = append(out, fmt.Sprintf("%s's people's partition vaults and records (%d partition(s))", tile, n))
 	}
-	return out
+	return append(out, b.mailLeftovers(gone)...) // its mail stores (partitionmail_bell.go)
 }
 
 // wipePartitionNamespacesHook is the "partition-namespaces" store's wipe:

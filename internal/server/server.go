@@ -732,9 +732,10 @@ func auditable(method, path string) bool {
 	default:
 		return false
 	}
-	// The element data plane (prefs/kv/blob/bus) is high-frequency and not
-	// governance — exclude it so the audit stream stays signal.
-	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/"} {
+	// The element data plane (prefs/kv/blob/bus, partition mail) is
+	// high-frequency and not governance — exclude it so the audit stream
+	// stays signal.
+	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/", "/partitions/mail"} {
 		if strings.HasPrefix(path, dp) {
 			return false
 		}

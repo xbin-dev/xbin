@@ -115,9 +115,10 @@ relayed egress under the tile's egress policy
 Two optional keys go with it. `"partitionNote": "…"` (at most 280
 characters) is the tile's own words, shown as plain text under xbind's on
 the page a paused tile's frame shows when a mode switch is requested — say
-what its data is, and what a switch would lose. `"partitionMail": "/path"`,
-where xbind rings the global ↔ person mail doorbell, is **TODO**,
-documented when it is built.
+what its data is, and what a switch would lose. `"partitionMail": "/path"`
+(an absolute path without a query, read only beside `"global"`) is where
+xbind rings the partition mail doorbell
+([§Partition mail](#partition-mail)).
 
 ## The mode: set while empty, then switch or keep
 
@@ -186,7 +187,8 @@ partition keep <tile>` ([bx.md](bx.md)), or with `POST
 /api/xbin/partitions/mode`. A switch
 first shows what it deletes — data namespaces (the tile's own and every
 deployment's), people's partitions, vault keys, cron jobs, bus
-subscriptions, interface instances and ingress hosts, bytes, backup keys —
+subscriptions, interface instances and ingress hosts, bytes (partition
+mail's among them: it has no count of its own), backup keys —
 and what it keeps: the code (the tile directory, checkpoints, deployment
 records), grants and bindings, the tile's own terminal layer, people's
 homes and their own agent-session history, records a provider keeps (such
@@ -295,10 +297,9 @@ The global instance never calls a user partition, reads its data or sees its
 bus events. The two sides talk through:
 
 - **shared resources** (above);
-- **partition mail** — **TODO**: an xbind-owned inbox per addressee; the
-  global instance mails one person's partition, a partition mails only
-  global, and xbind stamps the sender. The SDK's `xbin.Mail`, `xbin.Inbox`
-  and `xbin.Ack` come with it;
+- **partition mail** ([below](#partition-mail)): an xbind-owned inbox per
+  addressee; the global instance mails one person's partition, a partition
+  mails only global, and xbind stamps the sender;
 - **a user partition calling its own global instance.** A person's frame,
   terminal or partition backend may call the tile's global instance, and the
   call arrives there **as that person**: `X-XBin-User` is the person,
@@ -326,6 +327,118 @@ bus events. The two sides talk through:
   **A global instance must never treat a call carrying
   `X-XBin-Partition: user:…` as the tile itself**, even when `X-XBin-From`
   is its own path.
+
+## Partition mail
+
+A tile that declares `"global"` gets one inbox per addressee — its global
+instance, and each person's partition — that xbind keeps. Through it the
+global instance hands something to **one** person (a direct message, a
+webhook payload meant for them) without another partition, an admin or its
+own storage keeping a copy, and a person's partition hands something back.
+
+| Sender | May mail |
+|---|---|
+| the tile's global instance (its backend) | `user:<id>` — a person who can read the tile; anyone else answers 404 `no such person here`, which says nothing more — or `global` |
+| a person's partition (its backend, that person's frames, terminals and agent sessions) | `global` only: there is no person-to-person channel |
+| everyone else — people outside the tile's own credentials (admins included), the root token, frames and terminals that act for no person, view-as, other tiles | nothing (403) |
+
+- **`from` is xbind's.** Every item carries `from`, `global` or `user:<id>`,
+  stamped from the sender's credential and never read from the request.
+  Trust it; never trust a person named inside `data`.
+- **Only the addressee reads.** A partition reads and acknowledges its own
+  inbox, the global instance its own. No route reads another's, and admins
+  see counts only. Items are sealed with the vault, kept in xbind's own
+  data (never in a sandbox) and not backed up.
+- **Limits.** An item is at most 1 MiB (topic and data); an inbox holds at
+  most 1000 items and 64 MiB — the sender gets 507 until the addressee
+  acknowledges some. The global instance's inbox is every person's to
+  mail, so each sender has a share of it: at most 100 of their items and
+  8 MiB waiting there (507 to that sender alone — one person can't fill it
+  for everyone). An item expires after its `ttl` (7 days by default, at
+  most 30), and is then dropped and counted; one that can't be opened
+  (sealed under another vault key, or damaged) is dropped at the next read
+  and counted as undeliverable, and never holds up the items behind it.
+- **At least once.** An item stays until it is acknowledged or expires, so a
+  handler may see it again: dedupe by `id`.
+- **The doorbell.** With `"partitionMail": "/mailbox"`, xbind POSTs
+  `{"partition": "<addressee>", "pending": <n>}` to that path on the
+  addressee's instance, as `xbin/mail` (role `writer`), while its inbox
+  holds items: at once for a new item, again when the addressee starts
+  (unless a ring reached that start — often the doorbell's own ring
+  started it), and after 1 min, 5 min, 30 min, 2 h, then every 6 h while
+  items remain; a start never shortens those steps, so an item a handler
+  leaves unacknowledged wakes a stopped partition less and less often.
+  It starts a person's stopped partition only if that partition has run
+  before and its person can still read the tile — mail never starts a
+  person's first instance — and within the background start limits (6 mail
+  starts a minute per tile, [§How people's partitions run](#how-peoples-partitions-run));
+  otherwise the items wait for the partition's next start. Without
+  `partitionMail`, poll the inbox (at start and on a timer).
+- **What deletes it.** A reset of a person's partition, or the person's
+  deletion, deletes their inbox; a switch between user partitions and
+  unpartitioned deletes the tile's mail; removing `"global"` deletes the
+  global instance's inbox only. While the tile is paused every mail call
+  answers 409; while the vault is sealed a send and a read that returns
+  items answer 503, and acknowledging still works.
+
+```go
+// the global instance hands alice a message
+id, err := xbin.Mail("user:alice", "handoff/dm", dm)
+
+// the tile's partitionMail handler, the same code in every instance
+mux.HandleFunc("POST /mailbox", func(w http.ResponseWriter, r *http.Request) {
+	after := ""
+	for {
+		pg, err := xbin.InboxPage(after, 100)
+		if err != nil { // the doorbell rings again later
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		var done []string
+		for _, it := range pg.Items {
+			handle(it) // dedupe by it.ID; it.From is "global" or "user:<id>"
+			done = append(done, it.ID)
+			after = it.ID
+		}
+		if err := xbin.Ack(done...); err != nil { // one call a page; acknowledged items are gone
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		if !pg.More { // a short page isn't the end; More is
+			break
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+})
+```
+
+Acknowledge what you won't handle too (a topic this version doesn't know):
+an item left unacknowledged is rung for again — less and less often, and it
+starts a stopped partition each time — until it expires.
+
+`xbin.MailWith(to, topic, data, xbin.MailOptions{TTL: …, Source: …})` sets
+the expiry; `Source` names where a private trigger's event came from when
+the global instance hands one to a person, and is counted, never the
+content, in that person's egress ledger. The routes are `POST` and `GET
+/api/xbin/partitions/mail` and `POST /api/xbin/partitions/mail/ack`
+([protocol.md](protocol.md)); frames call them with `xbin.fetch`, though
+normally their backend does.
+
+Two patterns keep a person in charge of what leaves their partition:
+
+- **Global keeps routing, never content.** Handing alice a message, global
+  records only where it came from (id → destination); alice's partition
+  replies by mailing global `{inReplyTo: <id>, text}`, and global takes the
+  destination from **its own** record and checks that `from` is the person
+  it handed the message to. A partition can't pick an arbitrary
+  destination.
+- **Publishing on purpose.** A person's partition makes an item visible to
+  everyone by mailing global (`publish {docId, …}`); global, the only
+  writer of a `"shared": "read"` resource, stores it keyed by `from` and
+  serves it from there. The partition's private data never leaves it.
+
+Anything a partition mails to global is readable by the global instance's
+code; nothing mailed reaches a frame or another partition directly.
 
 ## Bind types: global and personal
 
@@ -631,6 +744,7 @@ xbin.Partition()        // "user:<id>" | "global" | "" (not partitioned) — $XB
 xbin.PartitionUser()    // the <id> of a user partition, "" otherwise
 xbin.RequirePartition() // exit 3 unless run as a partition (§Older xbinds)
 xbin.GlobalURL(path)    // this tile's global instance, from a user partition
+xbin.Mail(to, topic, data)  // partition mail (§Partition mail); InboxPage, Ack
 c := xbin.Caller(r)
 c.Partition             // X-XBin-Partition: the partition the call acts in, "" if none
 c.PartitionID           // X-XBin-Partition-Id: key per-caller state on it
@@ -826,7 +940,6 @@ and restoring one on another machine needs the exported backup keys.
 
 ## Not documented yet (TODO)
 
-- partition mail, `partitionMail`, and the SDK's `Mail`/`Inbox`/`Ack`;
 - the partitions page (`/xbin/partitions`), the admin tile's Partitions
   section, and the shell's consent prompts;
 - sealed backups, backup keys and disaster recovery.

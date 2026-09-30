@@ -313,6 +313,7 @@ func (b *Broker) PartitionUserDeleted(userID, uid string) {
 		b.orphanPartitionNS(id, orphanUserDeleted, stamp)
 	})
 	b.orphanPartitionRecords(userID, uid) // their partitions' records, registrations and vaults (partitionrecords.go)
+	b.mailUserDeleted(userID, uid)        // their inboxes, at once: mail is transient (partitionmail.go)
 }
 
 // orphanPartitionNS records event on id's ns.json, once.

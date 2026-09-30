@@ -10,3 +10,13 @@ func partitionEndpoints() []ep {
 			nil, jsonBody("the limits", oapi{"tile": str("tile path; absent = the workspace"), "maxRunning": integer(), "partitionBytes": integer()}), "{tile?, limits?: {maxRunning, partitionBytes}, workspace: {maxRunning}, defaults: {maxRunning, workspaceMaxRunning}}"},
 	}
 }
+
+// joinEndpoints is endpoints()'s tail: the sandbox and partition lists in
+// order (one call, so each pack adds its list without re-nesting appends).
+func joinEndpoints(lists ...[]ep) []ep {
+	var out []ep
+	for _, l := range lists {
+		out = append(out, l...)
+	}
+	return out
+}

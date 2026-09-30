@@ -78,7 +78,7 @@ Identity headers **injected by xbind** on proxied component requests
 (inbound values are stripped — receiving them means they're verified):
 
 ```
-X-XBin-From: owner | <component-path> | xbin/cron | xbin/bus | ingress
+X-XBin-From: owner | <component-path> | xbin/cron | xbin/bus | xbin/mail | ingress
 X-XBin-Role: <role granted on the callee>
 X-XBin-User: <user id>                   (the signed-in HUMAN driving the
                                           call, when there is one — direct,
@@ -195,7 +195,8 @@ credential, never from the URL or a header:
   is covered — the tile is still partitioned and its person still exists
   (the same incarnation), is enabled and can read the tile: otherwise it is
   a **401**, at once;
-- cron and bus deliveries in their registration's partition, refused (403)
+- cron and bus deliveries in their registration's partition, and a
+  partition mail doorbell (`xbin/mail`) in its addressee's, refused (403)
   while its person is gone, disabled or can't read the tile;
 - another tile's credentials in their own partition, mapped onto the
   callee (§Providers in partitions.md): a partitioned caller's user
@@ -3230,6 +3231,72 @@ POST   /partitions/reviewed        admin (as for stop). {tile, on: bool}:
                                    reviewedOnly: {on, by?, at?,
                                    unprotected?}}; audited
 
+POST   /partitions/mail            a partitioned tile's global instance (its
+                                   instance token, on the primary) or a
+                                   person's partition of it (its backend,
+                                   that person's frames, terminals and agent
+                                   sessions); everyone else 403 — people
+                                   outside the tile's credentials (admins
+                                   included), the root token, frames and
+                                   terminals acting in no person's
+                                   partition, view-as, other tiles, a
+                                   non-primary deployment and every delivery
+                                   principal. {to, topic, data?, ttl?,
+                                   source?} → {ok, id}. The global instance
+                                   mails "user:<id>" — a person who exists,
+                                   is enabled and can read the tile, else
+                                   404 "no such person here: user:<id>",
+                                   whatever the reason — or "global"; a
+                                   person's partition mails "global" only
+                                   (403 otherwise, and on a tile without a
+                                   global instance). from is stamped by
+                                   xbind — global or user:<id> — never read
+                                   from the body (a from field is ignored).
+                                   Limits: topic ≤ 256 bytes, topic + data
+                                   ≤ 1 MiB (413); an inbox holds ≤ 1000
+                                   items and ≤ 64 MiB (507 to the sender);
+                                   in the global instance's inbox each
+                                   sender (global, each person) has ≤ 100
+                                   items and ≤ 8 MiB waiting (507 "your
+                                   share … is full" to that sender only).
+                                   ttl: seconds, 1–2592000 (default 7 days;
+                                   400 outside). source (the global instance
+                                   to a person only): a private trigger's
+                                   source, counted as kind trigger in that
+                                   person's egress ledger — never the
+                                   content. 409 while the tile is paused (a
+                                   mode switch pending or deleting); 503
+                                   while the vault is sealed. Stored in
+                                   data/partitions/<tile-key>/<dep>/mail.db,
+                                   sealed with the vault barrier; not backed
+                                   up; not in the audit stream (data plane).
+                                   Rings the addressee's doorbell (below)
+GET    /partitions/mail            the same callers as POST (403 and 409
+                                   alike), reading the caller's OWN inbox
+                                   only — its person's partition's, or the
+                                   global instance's; no parameter names
+                                   another, and admins see counts only (GET
+                                   /partitions). ?after=<id> ?limit=1-1000
+                                   (100) → {items: [{id, from, topic, data,
+                                   at, expires}], more}: oldest first. A
+                                   page stops at limit or past ~8 MiB of
+                                   data (at least one item): only more
+                                   false ends the inbox. Expired items are
+                                   dropped (counted as expired); an item
+                                   that can't be opened (sealed under
+                                   another key, damaged) is dropped
+                                   (counted as undeliverable) and never
+                                   stops the page. 503 while the vault is
+                                   sealed and the page would hold items (an
+                                   empty inbox answers 200)
+POST   /partitions/mail/ack        the same callers as GET. {ids} (≤ 1000)
+                                   → {ok}: removes those items of the
+                                   caller's own inbox; ids acked or expired
+                                   already are nothing to do. It never
+                                   opens an item: it works while the vault
+                                   is sealed. Delivery is at-least-once
+                                   until acked or expired: dedupe by id
+
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
                                    env + a manager tile's sandbox definitions,
@@ -4349,6 +4416,31 @@ read the scope's tile and, with the `partitionConsent` policy on, consented
 — a shared bus needs the read access alone (403 at registration; a delivery refused meanwhile counts as
 `dormantEvents`, its reason in `lastError`). A failed tick or delivery logs
 its status, never the partition's answer.
+
+**Partition mail doorbell** (docs/partitions.md §Partition mail). While an
+inbox of a partitioned tile holds unacked items (`POST /partitions/mail`),
+xbind POSTs to the tile's `partitionMail` path — declared beside `"global"`
+in `xbin.json` — on the addressee's instance, through the proxy, as
+`X-XBin-From: xbin/mail`, `X-XBin-Role: writer` and `X-XBin-Partition: <the
+addressee>` (`global`, or `user:<id>` with its `X-XBin-Partition-Id`):
+
+```
+{"partition":"user:<id>" | "global","pending":<unacked items>}
+```
+
+The handler reads with `GET /partitions/mail` and acks; the answer's status
+only is logged. A new item rings at once and starts the steps over; the
+addressee's start (whatever starts it) rings again unless a ring was in
+flight at it or came after it (the doorbell's own ring often started it);
+and while items remain it rings after 1 min, 5 min, 30 min, 2 h, then every
+6 h — a start doesn't shorten the steps. A person's stopped partition is started for it
+— a background start that counts against the tile's mail starts (6 a
+minute) — only when it has run before, and only while its person exists (the
+same incarnation), is enabled and can read the tile; otherwise its items wait
+for its next start. Nothing rings while the tile is paused, disabled or
+declares no `partitionMail` (its code polls `GET`). A restart of xbind loses
+no mail: boot rings every inbox holding items. The feature word is
+`partition-mail/1`.
 
 **Push notifications** (D94). The xbin app receives pushes through a push relay
 (the repo's `relay/`, relay/README.md): it holds the APNs key, maps an opaque

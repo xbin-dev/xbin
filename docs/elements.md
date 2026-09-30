@@ -94,8 +94,10 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // that scope. /components reports the mode as partition. A template sets
   // its instances' mode in its "template" block instead (below).
   "partition": ["user", "global"],
-  // Where xbind rings the partition mail doorbell of the global instance
-  // (an absolute path without a query; read only beside "global"), and a
+  // Where xbind rings the partition mail doorbell on the addressee's
+  // instance, global's or a person's partition's (docs/partitions.md
+  // §Partition mail; an absolute path without a query; read only beside
+  // "global"), and a
   // note of at most 280 characters shown, after xbind's own text, when a
   // mode switch is requested (read only beside "partition"). Where they are
   // read, a malformed partitionMail or a longer note makes the request
