@@ -51,6 +51,7 @@ async function gateway(t) {
           : send(200, { items: [item(ids[0], 1), item(ids[1], 2)], more: true });
       }
       if (u.pathname === '/api/xbin/partitions/mail/ack') return send(200, { ok: true });
+      if (u.pathname === '/cut-off') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"items":['); }
       send(404, { error: 'not here' });
     });
   });
@@ -72,13 +73,16 @@ test('node: send, then drain the inbox page by page', async (t) => {
   const block = snippet('## node backend', 'js');
   const AsyncFunction = (async () => {}).constructor;
   const env = { XBIN_GATEWAY: sock, XBIN_TOKEN: 'tok' };
-  const run = new AsyncFunction('require', 'process', 'dm', `${block}\nreturn { id, drain };`);
-  const { id, drain } = await run(createRequire(import.meta.url), { env }, { text: 'hi' });
+  const run = new AsyncFunction('require', 'process', 'dm', `${block}\nreturn { id, drain, xbind };`);
+  const { id, drain, xbind } = await run(createRequire(import.meta.url), { env }, { text: 'hi' });
   assert.equal(id, 'abcdef0123456789abcdef01');
   const seen = [];
   await drain(async (it) => { seen.push(it.data.n); });
   assert.deepEqual(seen, [1, 2, 3]);
   assert.deepEqual(calls, want);
+  // a 200 whose body isn't JSON (cut off, a proxy's page) rejects the call —
+  // it must not throw in the response's 'end' listener, which would crash the backend
+  await assert.rejects(xbind('GET', '/cut-off'), SyntaxError);
 });
 
 test('python: send, then drain the inbox page by page', async (t) => {

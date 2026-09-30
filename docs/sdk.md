@@ -526,8 +526,10 @@ function xbind(method, path, body) {
       let text = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => { text += chunk; });
-      res.on('end', () => (res.statusCode === 200 ? resolve(JSON.parse(text))
-        : reject(new Error(`${method} ${path}: ${res.statusCode} ${text}`))));
+      res.on('end', () => {
+        if (res.statusCode !== 200) return reject(new Error(`${method} ${path}: ${res.statusCode} ${text}`));
+        try { resolve(JSON.parse(text)); } catch (e) { reject(e); } // a cut-off answer: an error, never a crash
+      });
     });
     req.setTimeout(60_000, () => req.destroy(new Error(`${method} ${path}: no answer`)));
     req.on('error', reject);

@@ -450,9 +450,11 @@ id, err := xbin.Mail("user:alice", "handoff/dm", dm)
 
 // the tile's partitionMail handler, the same code in every instance
 mux.HandleFunc("POST /mailbox", func(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), time.Minute) // a hung xbind can't hold it
+	defer cancel()
 	after := ""
 	for {
-		pg, err := xbin.InboxPage(after, 100)
+		pg, err := xbin.InboxPageContext(ctx, after, 100)
 		if err != nil { // the doorbell rings again later
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
@@ -463,7 +465,7 @@ mux.HandleFunc("POST /mailbox", func(w http.ResponseWriter, r *http.Request) {
 			done = append(done, it.ID)
 			after = it.ID
 		}
-		if err := xbin.Ack(done...); err != nil { // one call a page; acknowledged items are gone
+		if err := xbin.AckContext(ctx, done...); err != nil { // one call a page; acknowledged items are gone
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -777,10 +779,10 @@ partition's `/mailbox`, starting it if it has run before. In the example,
 ```
 
 The mentioned person's `/mailbox` handler is
-[§Partition mail](#partition-mail)'s, reading with `InboxPageContext` and
-acknowledging with `AckContext` under a minute's deadline, and it hands each
-`room/mention` from `global` to `keepMention`, which keeps it — once — and
-pushes their phone:
+[§Partition mail](#partition-mail)'s — reading with `InboxPageContext` and
+acknowledging with `AckContext` under a minute's deadline — and it hands
+each `room/mention` from `global` to `keepMention`, which keeps it — once —
+and pushes their phone:
 
 ```go
 func keepMention(ctx context.Context, it xbin.MailItem) error {
