@@ -20,7 +20,8 @@ package broker
 //     and the trust panel (who can change the code that runs on their data);
 //   - the tile's writers and managers: totals only;
 //   - admins: every person's metadata row, the personal-bind rows and the
-//     orphans. Never contents, vault key names, log lines or mail.
+//     orphans. Never contents, vault key names, log lines or mail (a row's
+//     mail counts are metadata: 04 §3).
 //
 // A tile's credentials (its frames, backend, terminals) get the tile-level
 // fields and features only: tile code never reads people's metadata.
@@ -71,6 +72,28 @@ type partitionRow struct {
 	// the person's own row only
 	LogShare *logShareView `json:"logShare,omitempty"`
 	Ledger   []ledgerRow   `json:"ledger,omitempty"`
+	// the person's own row and admins': their inbox's counts, never a
+	// content (partition mail, 04 §3; partitionmail_inbox.go)
+	Mail *MailCount `json:"mail,omitempty"`
+}
+
+// mailCountsOf answers the counts of tile's inbox pkey on deployment dep,
+// reading each deployment's mail store once per listing; nil for an inbox
+// that holds nothing (or a store that can't be read: the counts are
+// metadata, never a reason to fail the listing).
+func (b *Broker) mailCountsOf(tile string) func(dep, pkey string) *MailCount {
+	byDep := map[string]map[string]MailCount{}
+	return func(dep, pkey string) *MailCount {
+		counts, ok := byDep[dep]
+		if !ok {
+			counts, _ = b.PartitionMailCounts(tile, dep)
+			byDep[dep] = counts
+		}
+		if c, ok := counts[pkey]; ok {
+			return &c
+		}
+		return nil
+	}
 }
 
 // runningOf is the runner's instances of tile's people, by partition key.
@@ -110,9 +133,12 @@ func (b *Broker) partitionRowOf(tile string, d partitionDirOf, rec partitionReco
 // partition directory), live or orphaned — the admins' rows.
 func (b *Broker) partitionPeople(tile string) []partitionRow {
 	running := b.runningOf(tile)
+	mail := b.mailCountsOf(tile)
 	var out []partitionRow
 	_ = b.eachPartitionRecord(tile, func(d partitionDirOf, rec partitionRecord) {
-		out = append(out, b.partitionRowOf(tile, d, rec, running, false))
+		row := b.partitionRowOf(tile, d, rec, running, false)
+		row.Mail = mail(d.dep, d.pkey)
+		out = append(out, row)
 	})
 	slices.SortFunc(out, func(x, y partitionRow) int { return cmp.Or(cmp.Compare(x.User, y.User), cmp.Compare(x.ID, y.ID)) })
 	return out
@@ -140,6 +166,7 @@ func (b *Broker) ownPartitionRows(tile, person string) []partitionRow {
 			running = b.runningOf(tile)
 		}
 		if row := b.partitionRowOf(tile, d, rec, running, true); row.State != partStateOrphaned {
+			row.Mail = b.mailCountsOf(tile)(d.dep, d.pkey)
 			out = append(out, row)
 		}
 	})

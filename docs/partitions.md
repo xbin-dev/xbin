@@ -867,16 +867,17 @@ an xbind without partitions). What it answers depends on who asks:
   row — whether it is active or dormant (and why), running or not, when it
   last started, how many bytes it holds, how many cron jobs and bus
   subscriptions it keeps (with missed ticks and dropped deliveries), your
-  egress ledger's totals, your log share — plus the tile's **trust panel**:
+  egress ledger's totals, your log share, how many items wait in your
+  [inbox](#partition-mail) — plus the tile's **trust panel**:
   who can change the code that runs on your data (the people who write it,
   every admin, the providers bound to it and their writers), whether saves
   reach it live, whether its primary is protected, its last code change
   (for a tile with deployments) and whether it runs **reviewed code only**;
 - **the tile's writers and managers**: totals only — people, running
   instances, bytes, cron jobs, bus subscriptions;
-- **admins**: every person's metadata row, the personal binds on the tile
-  and its orphaned partitions — never what a partition holds, its vault key
-  names, its log lines or its mail;
+- **admins**: every person's metadata row (with their inbox's counts), the
+  personal binds on the tile and its orphaned partitions — never what a
+  partition holds, its vault key names, its log lines or its mail;
 - **the tile's own code** (its frames, backend, terminals): the tile's state
   and the features, nothing about people (not even the workspace policies).
 
@@ -908,7 +909,7 @@ text).
 partition's instance (a tile manager or an admin may stop anyone's); its
 data stays and the next request starts it. `bx partition reset <tile>`
 deletes your partition's data on the tile — its data, vault,
-registrations, ledger, log, terminal layers and agent-session history, in
+registrations, ledger, log, mail, terminal layers and agent-session history, in
 every deployment it has any — after you type `<tile> user:<you>`, and
 erases the tile's backup keys of it, so its archives can't be read any
 more; an admin may reset anyone's, and that person is told. A partitioned

@@ -3080,10 +3080,13 @@ GET    /partitions                 anyone; what it answers depends on who
                                    ifaceInstances, ingressHosts,
                                    missedTicks, dormantDrops, vaultKeys},
                                    logShare?: {until}, ledger?: [{kind,
-                                   target, count}] (30 days)} — for admins
+                                   target, count}] (30 days), mail?:
+                                   {pending, bytes, expired,
+                                   undeliverable?} (their inbox's counts,
+                                   once it has held an item)} — for admins
                                    every person's metadata row (never
                                    content, vault key names, log lines or
-                                   mail; logShare, no ledger;
+                                   mail: its counts only; logShare, no ledger;
                                    instance.errorClass, never the error's
                                    text), orphaned ones included; bytes are
                                    measured at most once a minute; totals
