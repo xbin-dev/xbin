@@ -18,11 +18,21 @@
 //      manager — Keep the current mode runs it again, nothing deleted;
 //      apps/padm-switch (recorded user, holds data, drops partition): Switch…
 //      shows the dry run's counts, the typed path switches it;
-//   5. the orphans list purges porphan's partition;
+//   5. the orphans list purges porphan's partition — exactly the rows it
+//      listed, one request each ({tile, partition});
 //   6. an xbind without partitions (GET /partitions stubbed 404): the view
 //      says so; the old admin scaffold (the one before this view, from git)
 //      still renders its sandboxes and components tabs over these tiles.
-// The tiles stay (a rerun starts them over: their manifests are rewritten).
+// Besides: "check untracked files" asks once (a poll after it doesn't); dev1
+// (no admin) opening the console reads each tile's state, nobody's rows; a
+// running person's instance (the listing stubbed: the harness runs no
+// person's instance without --isolate) stops from its row; the sandboxes
+// tab labels a person's partition backend, session and terminal disk, and
+// the Backup tab's "back up" says a person's partition wasn't archived
+// (both stubbed: they need --isolate and a sealed vault).
+// The tiles stay (a rerun starts them over: their manifests are rewritten);
+// their non-admin people's access goes at the end, so no trust warning
+// follows into later passes' screenshots.
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { URL, fs, login, closeCtx, gotoTab, shot, checker, sleep } = require('../lib');
@@ -64,6 +74,30 @@ function oldAdmin() {
 }
 
 const tileView = (page) => page.locator(`bx-admin-partition-tile`).filter({ has: page.locator(`[data-pt-view="${T}"]`) }).first();
+
+// listLoad: the list tab's own load(), as its 10 s poll runs it
+const listLoad = (page) => page.evaluate(async () => {
+  const find = (root) => {
+    for (const el of root.querySelectorAll('*')) {
+      if (el.localName === 'bx-admin-partitions') return el;
+      const f = el.shadowRoot && find(el.shadowRoot);
+      if (f) return f;
+    }
+    return null;
+  };
+  await find(document)?.load();
+});
+
+// stubRows: GET /partitions?tile=T answered with dev1's instance running
+const isTileListing = (u) => u.pathname === '/api/xbin/partitions' && u.searchParams.get('tile') === T;
+async function stubRunning(route) {
+  const res = await route.fetch();
+  const j = await res.json();
+  for (const r of j.partitions || []) {
+    if (r.user === 'dev1') Object.assign(r, { running: true, instance: { tile: T, deployment: 'main', partition: 'user:dev1', state: 'running', gen: 1, uptimeSec: 42 } });
+  }
+  return route.fulfill({ response: res, json: j });
+}
 
 async function adminPartitions(browser) {
   const { check, done } = checker('admin-partitions');
@@ -123,7 +157,32 @@ async function adminPartitions(browser) {
       "porphan's partition is listed as an orphan");
     await shot(A.page, 'admin-partitions-list');
 
+    // untracked files: one confined check per click, never by the poll
+    const untrackedAsks = [];
+    const onReq = (q) => { if (q.url().includes('/api/xbin/partitions?untracked=1')) untrackedAsks.push(q.url()); };
+    A.page.on('request', onReq);
+    await A.page.locator('[data-pt-untracked]').click();
+    await until(async () => (await A.page.locator('[data-pt-untracked="checked"]').count()) === 1, 'the untracked check answered');
+    await listLoad(A.page);
+    await listLoad(A.page);
+    A.page.off('request', onReq);
+    const ubar = await A.page.locator('.pt-bar').filter({ has: A.page.locator('[data-pt-untracked]') }).first().innerText();
+    check(untrackedAsks.length === 1 && /check untracked files again/.test(ubar) && /checked /.test(ubar),
+      `untracked files: asked once, the polls after it don't ask again (${untrackedAsks.length} asks; ${ubar.replace(/\s+/g, ' ').slice(0, 160)})`);
+
+    // dev1 opens the console: no admin, so each tile's state only
+    const adm = await api(A.ctx, 'PUT', '/access', { tile: 'tiles/admin', kind: 'user', id: 'dev1', level: 'read' });
+    await gotoTab(D.page, 'partitions', "You aren't a workspace admin");
+    await D.page.locator(`tr[data-pt-tile="${T}"]`).click();
+    await D.page.locator(`[data-pt-view="${T}"]`).waitFor({ timeout: 15000 });
+    const others = await D.page.locator('tr[data-pt-person="admin"], tr[data-pt-person="sales1"], tr[data-pt-orphan]').count();
+    const dText = await D.page.locator(`[data-pt-view="${T}"]`).innerText();
+    check(adm.status() === 200 && others === 0 && await D.page.locator('[data-pt-orphans], [data-pt-untracked], [data-pt-history]').count() === 0,
+      `dev1 (no admin) in the console: the tile's state, nobody's rows, orphans, history or checks (${others} rows; ${dText.replace(/\s+/g, ' ').slice(0, 120)})`);
+    await shot(D.page, 'admin-partitions-not-admin');
+
     // ---- the tile's own view ----
+    await A.page.route(isTileListing, stubRunning); // dev1's instance "runs": its stop button shows
     await row(T).click();
     const view = tileView(A.page);
     await view.locator('[data-pt-people]').waitFor({ timeout: 15000 });
@@ -135,6 +194,13 @@ async function adminPartitions(browser) {
       "dev1's personal bind is listed");
     check(await view.locator('[data-pt-history] tr').count() >= 1, 'the mode history shows');
     await shot(A.page, 'admin-partitions-tile');
+    // stop dev1's instance from its row
+    const stopped = A.page.waitForResponse((r) => r.url().endsWith('/api/xbin/partitions/stop') && r.request().method() === 'POST');
+    await person('dev1').locator('[data-pt-stop]').click();
+    const sr = await stopped;
+    check(sr.status() === 200 && JSON.stringify(sr.request().postDataJSON()) === JSON.stringify({ tile: T, partition: 'user:dev1' }),
+      `stop: dev1's instance, from its row (${sr.status()} ${sr.request().postData()})`);
+    await A.page.unroute(isTileListing, stubRunning);
 
     // limits
     await view.locator('[data-pt-limits-edit]').click();
@@ -169,7 +235,7 @@ async function adminPartitions(browser) {
     const restoreBox = view.locator('[data-pt-restore-confirm="dev1"]');
     await until(async () => (await restoreBox.count()) || (await err.count()), 'the restore answers');
     const rtext = (await restoreBox.count()) ? await restoreBox.innerText() : await err.innerText();
-    check(/No backup|archiv|backup/i.test(rtext), `the restore says what there is to restore (${rtext.replace(/\s+/g, ' ').slice(0, 160)})`);
+    check(/No backup of dev1's partition of apps\/padm yet/.test(rtext), `the restore says there is no backup to restore (${rtext.replace(/\s+/g, ' ').slice(0, 160)})`);
 
     // ---- the mode decisions ----
     await gotoTab(A.page, 'partitions', 'Tiles where each person has their own data');
@@ -189,9 +255,9 @@ async function adminPartitions(browser) {
     check(st.includes(`Switching ${SW} from user to unpartitioned deletes all data in this tile`) && /vault key/.test(st),
       `Switch… shows the dry run (${st.replace(/\s+/g, ' ').slice(0, 200)})`);
     await shot(A.page, 'admin-partitions-switch');
+    check(await sw.locator('[data-pt-switch-go]').isDisabled(), 'the destructive button is off until the path is typed');
     await sw.locator('[data-pt-typed]').fill('apps/wrong');
-    await sw.locator('[data-pt-switch-go]').click();
-    check(/Type the tile's path exactly/.test(await sw.innerText()), 'a wrong path is refused there');
+    check(await sw.locator('[data-pt-switch-go]').isDisabled(), 'another path keeps it off, as Reset does');
     await sw.locator('[data-pt-typed]').fill(SW);
     await sw.locator('[data-pt-switch-go]').click();
     await until(async () => (await comp(SW)).partition?.state !== 'pending', 'switched');
@@ -201,15 +267,60 @@ async function adminPartitions(browser) {
     // ---- purge the orphan ----
     await gotoTab(A.page, 'partitions', 'Tiles where each person has their own data');
     await A.page.locator('tr[data-pt-orphan]').filter({ hasText: 'porphan' }).first().waitFor();
-    await A.page.locator('[data-pt-purge-all]').click(); // every orphan (a rerun leaves an earlier porphan's too)
+    await A.page.locator('[data-pt-purge-all]').click(); // every orphan listed (a rerun leaves an earlier porphan's too)
     const pc = A.page.locator('[data-pt-purge-confirm]');
     await pc.waitFor();
+    const listed = await pc.locator('li').count();
     check((await pc.innerText()).includes('porphan'), 'the purge lists what it deletes first');
     await shot(A.page, 'admin-partitions-purge');
+    const purges = [];
+    const onPurge = (q) => { if (q.url().endsWith('/api/xbin/partitions/purge')) purges.push(q.postDataJSON()); };
+    A.page.on('request', onPurge);
     await A.page.locator('[data-pt-purge-go]').click();
     await until(async () => (await A.page.locator('tr[data-pt-orphan]').filter({ hasText: 'porphan' }).count()) === 0, 'purged');
-    check(true, "porphan's orphaned partition is purged");
+    A.page.off('request', onPurge);
+    check(purges.length >= 1 && purges.length <= listed && purges.every((b) => b && b.tile && b.partition),
+      `porphan's orphaned partition is purged: exactly the listed rows, one {tile, partition} each (${listed} listed; ${JSON.stringify(purges).slice(0, 200)})`);
     await shot(A.page, 'admin-partitions-after');
+
+    // ---- the sandboxes view's labels; the Backup tab's partitions (stubbed: --isolate, a sealed vault) ----
+    const now = new Date().toISOString();
+    const sbxStub = async (r) => {
+      const res = await r.fetch();
+      const j = await res.json();
+      j.sandboxes = [...(j.sandboxes || []),
+        { id: 'backend:padm-fixture:g1:dev1', kind: 'backend', tile: T, mode: 'namespace', gen: 1, pid: 1, started: now, uptimeSec: 7, partition: 'user:dev1' },
+        { id: 'terminal:padm-fixture:dev1', kind: 'terminal', tile: T, mode: 'namespace', pid: 1, started: now, uptimeSec: 7, personal: true }];
+      j.disks = [...(j.disks || []), { kind: 'person-terminal', key: 'padm-fixture-layer', tile: T, path: '/fixture', apparentBytes: 4096, allocatedBytes: 1024, inUse: false }];
+      return r.fulfill({ response: res, json: j });
+    };
+    await A.page.route('**/api/xbin/sandboxes', sbxStub);
+    await gotoTab(A.page, 'sandboxes', 'sandboxes');
+    await A.page.locator('[data-sbx-partition="user:dev1"]').first().waitFor({ timeout: 15000 });
+    const personal = await A.page.locator('[data-sbx-personal]').count(), disk = await A.page.locator('[data-sbx-disk-person]').count();
+    check(personal >= 1 && disk >= 1 && (await A.page.locator('[data-sbx-personal]').first().innerText()).includes("a person's session"),
+      `the sandboxes view: a person's partition backend (user:dev1), a person's session (${personal}), a person's terminal layer (${disk})`);
+    await shot(A.page, 'admin-sandboxes-partitions');
+    await A.page.unroute('**/api/xbin/sandboxes', sbxStub);
+    const bkStub = (r) => (r.request().method() === 'POST'
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, partitions: { archived: 1, failed: ['user:sales1: the archiver refused the upload'] } }) })
+      : r.fallback());
+    const archStub = async (r) => { // an archiver to back up to (the harness installs none)
+      if (r.request().method() !== 'GET') return r.fallback();
+      const res = await r.fetch();
+      const j = await res.json();
+      j.components = [...(j.components || []), { component: 'apps/fixture-archiver', provides: { archive: { kind: 'archive' } } }];
+      return r.fulfill({ response: res, json: j });
+    };
+    await A.page.route('**/api/xbin/backup', bkStub);
+    await A.page.route('**/api/xbin/bindings', archStub);
+    await gotoTab(A.page, 'backup', 'Default archiver');
+    await A.page.locator('tr').filter({ has: A.page.locator('td.mono', { hasText: new RegExp(`^${T}$`) }) }).locator('a.link', { hasText: 'back up' }).click();
+    await until(async () => (await err.count()) && /wasn't archived/.test(await err.innerText()), "the back up's partition failure shows");
+    check((await err.innerText()).includes(`${T}: a person's partition wasn't archived — user:sales1: the archiver refused the upload`),
+      `the Backup tab: a person's partition that wasn't archived is said (${(await err.innerText()).slice(0, 160)})`);
+    await A.page.unroute('**/api/xbin/backup', bkStub);
+    await A.page.unroute('**/api/xbin/bindings', archStub);
 
     // ---- an older xbind; the older scaffold ----
     await A.page.route('**/api/xbin/partitions', (r) => r.fulfill({ status: 404, contentType: 'text/plain', body: '404 page not found' }));
@@ -229,13 +340,19 @@ async function adminPartitions(browser) {
       const e = await O.page.locator('bx-admin').locator('.body > .err').count();
       check(e === 0 && served.has('admin.js'), `the old admin scaffold (${old.base}) renders ${tab} over partitioned tiles, no error`);
     }
-    check(!(await O.page.evaluate(() => customElements.get('bx-admin')?.tabsFlat?.().some((t) => t.id === 'partitions'))), 'the old scaffold has no partitions tab');
+    const oldTabs = await O.page.evaluate(() => { const c = customElements.get('bx-admin'); return typeof c?.tabsFlat === 'function' ? c.tabsFlat().map((t) => t.id) : null; });
+    check(Array.isArray(oldTabs) && oldTabs.includes('sandboxes') && !oldTabs.includes('partitions'), `the old scaffold has no partitions tab (${JSON.stringify(oldTabs)})`);
     await shot(O.page, 'admin-partitions-old-scaffold');
     await O.ctx.close();
   } finally {
     for (const P of people) await P.ctx.close().catch(() => {});
     await api(A.ctx, 'DELETE', '/users/porphan').catch(() => {});
     await api(A.ctx, 'POST', '/partitions/limits', { tile: T, maxRunning: 0 }).catch(() => {});
+    // the non-admin people's access goes: no trust warning (their saves run
+    // on everyone's data) follows into later passes' screenshots
+    for (const [tile, who] of [[T, 'dev1'], [T, 'sales1'], ['tiles/admin', 'dev1']]) {
+      await api(A.ctx, 'PUT', '/access', { tile, kind: 'user', id: who, level: '' }).catch(() => {});
+    }
     write(KEEP, {}); // withdrawn (it was kept: unpartitioned)
     await A.ctx.close();
   }

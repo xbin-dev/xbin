@@ -9,10 +9,16 @@
 //      the log it names, nothing of the others;
 //   3. dev1's panel offers their own and the global instance's, not the
 //      admin's (a person sees no one else's), and shows their own;
-//   4. an unpartitioned tile's panel is as it always was: no switcher, the
+//   4. sales1, a writer (not terminal): the global instance's log isn't
+//      theirs to read (today's gate), so it isn't offered — no switcher;
+//   5. infra1, the tile's owner (a manager, no admin): their listing names
+//      who shares (logShares), so dev1's shared log is offered and shows;
+//   6. an unpartitioned tile's panel is as it always was: no switcher, the
 //      plain badge.
 // The logs are written straight into the workspace (the harness runs no
-// person's instance without --isolate); the tile stays.
+// person's instance without --isolate); the tile stays, back with the
+// workspace and without its non-admin people (no trust warning follows
+// into later passes' screenshots).
 const path = require('path');
 const crypto = require('crypto');
 const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, sh, fr, settle, shotEl, checker, sleep } = require('../lib');
@@ -89,7 +95,7 @@ async function partitionLogs(browser) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><h1>partition logs</h1>\n');
   fs.writeFileSync(path.join(dir, 'xbin.json'), JSON.stringify({ title: 'Partition logs', partition: ['user', 'global'] }));
-  let D;
+  let D, S, I;
   try {
     await until(async () => ((await (await api(A.ctx, 'GET', `/components/${T}`)).json().catch(() => ({}))).component?.partition?.state === 'partitioned'), 'apps/plogs partitioned');
     const acc = await api(A.ctx, 'PUT', '/access', { tile: T, kind: 'user', id: 'dev1', level: 'terminal' });
@@ -131,6 +137,28 @@ async function partitionLogs(browser) {
       `dev1's panel: their own and global's, no one else's (${JSON.stringify({ ...v, text: undefined })})`);
     await winShot(D.page, 'partition-logs-person');
 
+    // sales1 writes but has no terminal access: the global instance's log isn't offered
+    const wr = await api(A.ctx, 'PUT', '/access', { tile: T, kind: 'user', id: 'sales1', level: 'write' });
+    S = await login(browser, 'sales1', 'salespass123');
+    await openLogs(S.page, T);
+    v = await until(async () => { const x = await logs(S.page, T); return x?.choices.length && x; }, "sales1's panel learned the tile");
+    await sleep(500);
+    v = await logs(S.page, T);
+    check(wr.status() === 200 && JSON.stringify(v.choices) === JSON.stringify(['']) && !v.switcher,
+      `sales1 (a writer): no global instance's log to pick, no switcher (${JSON.stringify({ ...v, text: undefined })})`);
+
+    // infra1 owns the tile (a manager, no admin): dev1's shared log is offered
+    const own = await api(A.ctx, 'POST', '/owner', { tile: T, to: 'user:infra1' });
+    check(own.status() === 200, `infra1 owns ${T} (${own.status()})`);
+    I = await login(browser, 'infra1', 'infrapass123');
+    await openLogs(I.page, T);
+    v = await until(async () => { const x = await logs(I.page, T); return x?.choices.includes('user:dev1') && x; }, "infra1's panel offers dev1's shared log");
+    check(v.labels.includes("dev1's log (shared with you)"), `the manager's panel: dev1's shared log (${JSON.stringify({ ...v, text: undefined })})`);
+    await I.page.locator(`bx-frame[src="${T}"] bx-logs select.part`).selectOption('user:dev1');
+    v = await until(async () => { const x = await logs(I.page, T); return x?.text.includes('DEV1-PARTITION-LINE') && x; }, "dev1's log in the manager's panel");
+    check(v.partition === 'user:dev1' && !v.text.includes('ADMIN-PARTITION-LINE'), `the manager reads dev1's shared log (${v.partition})`);
+    await winShot(I.page, 'partition-logs-manager');
+
     // an unpartitioned tile: as it always was
     await openLogs(A.page, PLAIN);
     v = await until(async () => { const x = await logs(A.page, PLAIN); return x?.text.includes('PLAIN-TILE-LINE') && x; }, "the unpartitioned tile's log");
@@ -138,7 +166,9 @@ async function partitionLogs(browser) {
     v = await logs(A.page, PLAIN);
     check(v.choices.length === 0 && !v.switcher && v.badge === 'read-only logs' && v.def === '', `an unpartitioned tile: no switcher, the plain badge (${JSON.stringify({ ...v, text: undefined })})`);
   } finally {
-    if (D) await closeCtx(D.ctx, D.page);
+    for (const X of [D, S, I]) if (X) await closeCtx(X.ctx, X.page);
+    await api(A.ctx, 'POST', '/owner', { tile: T, to: '' }).catch(() => {}); // back to the workspace
+    for (const who of ['dev1', 'sales1']) await api(A.ctx, 'PUT', '/access', { tile: T, kind: 'user', id: who, level: '' }).catch(() => {});
     await closeCtx(A.ctx, A.page);
   }
   done();

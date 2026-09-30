@@ -550,15 +550,21 @@ is `tabs/partitions.js` (the list, a `PLAIN_TABS` entry), its tile view
 (`hack/ui-harness/passes/adminpartitions.js`) drives it: people's rows
 (each person gets a partition by opening a terminal), a personal bind
 removed, the limits, reviewed code only refused with its reason, a reset
-behind the typed text, a restore with no backup, Keep and Switch… on two
-pending tiles, the orphans' purge, an xbind without partitions (the route
-stubbed 404) and the admin scaffold from before the tab (read from git)
-over the same tiles. The logs panel's partition switcher is
-`web/logs-partition.js` (tested in `hack/logs-partition.test.mjs`) inside
-`web/bx-logs.js`; the `partitionLogs` pass
-(`hack/ui-harness/passes/partitionlogs.js`) writes each partition's log
-into the workspace and checks what the admin and a person may pick, and
-that an unpartitioned tile's panel is unchanged.
+behind the typed text, a restore with no backup, a stop (the listing
+stubbed running), the untracked check asked once, the console opened by a
+person who isn't an admin, Keep and Switch… on two pending tiles, the
+orphans' purge (one request per listed row), the sandboxes tab's labels
+and the Backup tab's partition failure (both stubbed), an xbind without
+partitions (the route stubbed 404) and the admin scaffold from before the
+tab (read from git) over the same tiles. The logs panel's partition
+switcher is `web/logs-partition.js` (tested in
+`hack/logs-partition.test.mjs`) inside `web/bx-logs.js`; the
+`partitionLogs` pass (`hack/ui-harness/passes/partitionlogs.js`) writes
+each partition's log into the workspace and checks what the admin, a
+person, a writer (no global instance's log) and the tile's owner (a
+shared log) may pick, and that an unpartitioned tile's panel is
+unchanged. Both passes take their non-admin people's access away at the
+end.
 
 ## The shell (`workspace-template/shell`)
 
