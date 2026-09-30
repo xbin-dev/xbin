@@ -399,7 +399,6 @@ async function reloadFocus(browser) {
   await sh(page, (t) => { t.setFloat('apps/crawler', { z: 200 }); t.setFloat('apps/focusy', { z: 100 }); });
   await focusTerm('apps/crawler');
   await settle(page);
-
   // Fix: the same focus-into-iframe DURING a reload must not front the float,
   // and the focus the reload stole goes back to the terminal.
   await fr(page, 'apps/focusy', (f, t) => {
@@ -854,6 +853,7 @@ const PASSES = {
   netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, personalBinds,
 };
 PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
+PASSES.agentHomes = require('./passes/agenthomes').agentHomes; // B2b: a partitioned agent's two homes (HARNESS_AGENT_PARTITION=1)
 
 (async () => {
   const args = process.argv.slice(2);

@@ -14,7 +14,7 @@ import { mainMenu } from './home.js';
 import { classSectionTpl } from './classes.js';
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
-// no Shared view in a person's own partition (model/partition.js)
+// the Shared view — in a person's partition, the shared space's (model/partition.js, model/homes.js)
 const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }]
   .filter((s) => s.value !== 'shared' || sharing());
 const EMPTY_SHARED = 'nothing shared yet — share a conversation from its menu, and whatever others share with you shows here too';

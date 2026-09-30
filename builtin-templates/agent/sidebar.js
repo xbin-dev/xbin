@@ -9,7 +9,7 @@
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { groupRows } from './model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
-import { sharing } from './model/partition.js'; // no Shared view in a person's own partition
+import { sharing } from './model/partition.js'; // the Shared view (in a person's partition: the shared space's)
 import * as actions from './model/actions.js';
 
 /**
