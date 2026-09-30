@@ -15,11 +15,14 @@ package isolated
 //     before, so the doorbell starts it) → her partition answers → an
 //     outbox/add mail → global posts it to the bridge's outbox — and the
 //     bridge posts it into the chat. The conversation is in alice's
-//     partition, not in the global instance's list.
+//     partition, not in the global instance's list; no first-DM notice
+//     (her partition said hello when it started).
 //   - An outbox/add naming alice's handoff mailed by bob's frame is refused
 //     (nothing posted); the same from alice's own frame is posted.
 //   - alice's private webhook trigger: registered at global with a prefix
-//     (an empty one, and bob's overlapping one, refused); a delivery through
+//     (an empty one, and bob's overlapping one, refused — and bob's frame
+//     calling the global instance itself makes no private trigger or
+//     schedule there, 409); a delivery through
 //     the ingress runs it in her partition and announces into her DM; the
 //     same delivery again runs nothing more; her egress ledger counts it.
 //
@@ -235,6 +238,11 @@ func TestPartitionsAgentChannels(t *testing.T) {
 		xbindtest.Eventually(t, 4*time.Minute, "the answer from alice's partition", func() (bool, string) {
 			return len(outs(func(l pcLine) bool { return strings.Contains(l.Text, "Hello from the fake model") })) > 0, fmt.Sprint(transcript())
 		})
+		// her partition has run (it said hello to the global instance): no
+		// "open the agent once" notice
+		if n := outs(func(l pcLine) bool { return strings.Contains(l.Text, "open the agent once") }); len(n) != 0 {
+			t.Errorf("a first-DM notice for alice, whose partition ran: %+v", n)
+		}
 		// the conversation is hers, in her partition — not global's
 		var list struct {
 			Items []struct {
@@ -321,6 +329,21 @@ func TestPartitionsAgentChannels(t *testing.T) {
 		}
 		if r := trig("bob", "alice-deploys", "bob/"); r.Status != 409 {
 			t.Errorf("bob's trigger with alice's name: %d %s", r.Status, r)
+		}
+		// bob's frame calling the global instance itself can't make a
+		// private trigger there — past the registry's rules — nor a private
+		// schedule: they are made in his own space
+		for name, c := range map[string]struct {
+			path string
+			body map[string]any
+		}{
+			"a catch-all push trigger": {"/triggers?xbin-partition=global", map[string]any{"name": "bob-all", "source": "push", "sourceRef": pcHooks,
+				"match": "", "goal": "read {{topic}}", "toolset": "web", "dataClass": "public"}},
+			"a private schedule": {"/schedules?xbin-partition=global", map[string]any{"name": "bob-s", "cron": "@every 1h", "goal": "g"}},
+		} {
+			if r := ag("bob", "POST", c.path, c.body); r.Status != 409 || !strings.Contains(string(r.Body), "own space") {
+				t.Errorf("bob's frame at the global instance, %s: %d %s", name, r.Status, r)
+			}
 		}
 		var hook struct {
 			Hook   struct{ ID string }
