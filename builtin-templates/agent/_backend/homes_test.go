@@ -50,19 +50,30 @@ func globalAgent(t *testing.T) (*Agent, http.Handler) {
 	return ag, h
 }
 
-// homeAgent is partAgent whose background titles end before the test's
-// mode is restored (a title reads the mode's LLM slots).
+// homeAgent is partAgent whose passes and background titles end before the
+// test's mode is restored (a pass reads confIn, a title the mode's LLM slots).
 func homeAgent(t *testing.T) (*Agent, http.Handler) {
 	t.Helper()
 	ag, h := partAgent(t)
-	t.Cleanup(func() {
-		waitFor(t, "the titles to end", func() bool {
-			ag.eng.titleMu.Lock()
-			defer ag.eng.titleMu.Unlock()
-			return len(ag.eng.titling) == 0
-		})
-	})
+	t.Cleanup(func() { quiet(t, ag) })
 	return ag, h
+}
+
+// quiet waits until ag's engine runs no pass and no title — nothing of it
+// still reads the mode or confIn a test is about to change. A title starts
+// inside a pass (registered before the pass ends), so no pass running and
+// then no title running means none is left to start.
+func quiet(t *testing.T, ag *Agent) {
+	t.Helper()
+	waitFor(t, "the engine to go quiet", func() bool {
+		ag.eng.mu.Lock()
+		n := len(ag.eng.actors)
+		ag.eng.mu.Unlock()
+		ag.eng.titleMu.Lock()
+		n += len(ag.eng.titling)
+		ag.eng.titleMu.Unlock()
+		return n == 0
+	})
 }
 
 func homeConvIDs(t *testing.T, h http.Handler, hdr map[string]string, scope string) []int64 {
@@ -141,6 +152,7 @@ func TestSharedAskAtGlobal(t *testing.T) {
 	serveJSON(t, h, as("POST", fmt.Sprintf("/runs/%d/members", people.ID), `{"user":"dave"}`, f5("bob", "read")), 403, nil)
 
 	// a person's partition: a new conversation there is theirs alone
+	quiet(t, ag) // the runs above are done before the subtests change the mode
 	t.Run("partition", func(t *testing.T) {
 		setMode(t, modeUser, "alice")
 		kv := newMemKV()
@@ -384,6 +396,7 @@ func TestPublishAndCopy(t *testing.T) {
 	t.Cleanup(func() { exportAtGlobal = oldExport })
 
 	// global takes it: a shared conversation of alice's, with the transcript
+	quiet(t, ag) // the partition's runs are done before the subtest changes the mode
 	t.Run("import", func(t *testing.T) {
 		ag, h := globalAgent(t)
 		b, _ := json.Marshal(importBody{Conversation: bundle})

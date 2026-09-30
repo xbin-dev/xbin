@@ -85,6 +85,7 @@ func TestImportTakesOnlyTheCallersWord(t *testing.T) {
 	}
 
 	// POST /copy: the bundle is the global instance's own export — its senders stand
+	quiet(t, ag)
 	t.Run("copy", func(t *testing.T) {
 		ag, h := userAgent(t)
 		stubGlobalCalls(t, func(method, path string, _ []byte) (int, string) {
@@ -158,6 +159,7 @@ func TestCopyKeepsTheLedgerAndMasks(t *testing.T) {
 	}
 	bundle := sent.Conversation
 
+	quiet(t, ag)
 	t.Run("import", func(t *testing.T) {
 		ag, h := globalAgent(t)
 		body, _ := json.Marshal(importBody{Conversation: bundle, Share: &shareSpec{Visibility: visTeam}})
@@ -220,6 +222,7 @@ func TestCopyTooLarge(t *testing.T) {
 	}
 	serveJSON(t, h, as("GET", fmt.Sprintf("/runs/%d/export", mine.ID), "", alicesFrame("read")), 413, nil)
 
+	quiet(t, ag)
 	t.Run("import", func(t *testing.T) {
 		_, h := globalAgent(t)
 		maxBundleBytes = 1024
