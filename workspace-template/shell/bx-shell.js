@@ -39,6 +39,7 @@ import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
 import './bx-tile-admin.js';
+import './bx-part-consent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { loadBrand, applyFavicon, brandLogo } from './shell-brand.js';
@@ -1848,10 +1849,10 @@ export class BxShell extends LitElement {
               @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, bx-canvas, .grants, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
               @pointermove=${(e) => this._pressMove(e)}
               @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
-          <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
+          <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings><bx-part-consent .components=${this._components} .who=${this._who}></bx-part-consent></div>
           <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs}
             .canMutate=${this._canMutate} .personal=${!this._activeOrgScreen} .mobile=${this._mobile} .menuOpen=${!!this._menu} .scale=${this._gridScale}
-            .canAdminTile=${(p) => this._canAdminTile(p)} .alerts=${this._alerts} .reload=${() => { this._load(); this._loadAlerts(); }}
+            .canAdminTile=${(p) => this._canAdminTile(p)} .who=${this._who} .alerts=${this._alerts} .reload=${() => { this._load(); this._loadAlerts(); }}
             .emptyText=${this._activeOrgScreen && !this._canMutate ? 'empty shared screen' : 'empty screen — open a tile from the sidebar'}
             @bx-tiles=${(e) => this._mutateTiles(() => e.detail)}
             @bx-toggle-tile=${(e) => this._toggle(e.detail)}

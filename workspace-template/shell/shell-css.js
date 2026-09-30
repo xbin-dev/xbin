@@ -478,11 +478,15 @@ export const partCss = css`
     .pbox button:hover:not(:disabled) { border-color: var(--bx-muted, #868f9a); }
     .pbox button:disabled { opacity: .55; cursor: default; }
     .pbox button.pdel { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent); }
-    /* a window on a deployment of a partitioned tile: no marker, and this
-       chip — that deployment's one instance is its writers' shared one */
-    .dshare { flex: none; padding: 0 5px; border-radius: 8px; cursor: default;
-      font: 600 10px/13px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a);
-      border: 1px solid var(--bx-border, #363c45); }
+    /* the partition chip (owner ruling I3): whose partition a partitioned
+       tile's window shows — yours, shared (a deployment's one instance, no
+       marker there), global — in the marker's hue; status, not a button:
+       no border, no hover state. "no partition" (view-as, the workspace
+       token on a tile without a global instance) is muted */
+    .pchip { flex: none; padding: 0 5px; border-radius: 8px; cursor: default; user-select: none;
+      font: 600 10px/15px var(--bx-mono, ui-monospace, monospace); color: var(--bx-part-c); border: 0;
+      background: color-mix(in srgb, var(--bx-part-c) 14%, transparent); }
+    .pchip[data-chip="none"] { color: var(--bx-muted, #868f9a); background: color-mix(in srgb, var(--bx-muted, #868f9a) 14%, transparent); }
 `;
 
 // bx-side: the sidebar's tree, filter, folders, footers — and its mobile rows.

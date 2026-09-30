@@ -1,19 +1,18 @@
 // shell/partition-mode.js — partitioned tiles as the shell shows them
 // (docs/partitions.md; the marker is PD-53, design A):
-// what a /components row's `partition` says, the marker's words, the text
-// of a pending tile's card, and a tile manager's decision through POST
+// what a /components row's `partition` says, the marker's words, the
+// partition chip a window's head carries (whose partition it shows), the
+// text of a pending tile's card, a tile manager's decision through POST
 // /api/xbin/partitions/mode — keep, or switch after a dry run and a typed
-// confirmation. Pure and lit-free, so hack/partition-mode.test.mjs runs it
-// in node; shell-kit.js draws the marker, bx-canvas.js the card overlay.
+// confirmation — and the consent prompts' words and calls (the end of this
+// file). Pure and lit-free, so hack/partition-mode.test.mjs runs it in node;
+// shell-kit.js draws the marker, bx-canvas.js the chip and the card
+// overlay, bx-part-consent.js the prompts.
 //
 // Optional (docs/compat.md rule 3): a row without `partition` — every tile
 // of an xbind older than partitioned tiles, and every tile that never
 // asked for a mode — reads as null here, and the shell draws what it always
 // drew.
-//
-// TODO(consent prompts): shown only while the partitionConsent policy is
-// on, they need the partition consents API, which this xbind doesn't serve
-// yet; they belong beside the card overlay once it does.
 
 // The marker's words.
 export const MARK_TITLE = 'Partitioned: each person here has their own data';
@@ -67,6 +66,38 @@ export function pruneDecisions(part, rowOf) {
 export const DEP_SHARED = 'Not partitioned: a deployment runs one instance that every writer of the tile shares '
   + '(its global instance, when its code asks for partitions), not each person\'s own partition';
 export const depShared = (v) => !!v?.user;
+
+// The partition chip (owner ruling I3): every window of a tile whose
+// recorded mode has user partitions says in its head, after the path,
+// whose partition it shows — `yours`: the viewer's own (a person on the
+// primary); `shared`: a non-primary deployment's one instance (DEP_SHARED);
+// `global`: the tile's global instance, which a window with no person
+// behind it reaches (the workspace token, --no-auth). A window that reaches
+// no partition says so: view-as never opens a person's partition, and the
+// workspace token has none of its own on a tile without a global instance
+// (docs/partitions.md §Who reaches which partition).
+export const CHIP_YOURS = 'Your partition: this window shows your own data in this tile — everyone who uses it has their own, '
+  + 'and nobody else\'s shows here';
+export const CHIP_GLOBAL = 'The global instance: this window shows the tile\'s one instance for what isn\'t a person\'s, '
+  + 'not anyone\'s partition (the workspace token has none of its own)';
+export const CHIP_NONE_ROOT = 'No partition: the workspace token has none of its own, and this tile has no global instance, '
+  + 'so it refuses this window\'s calls — sign in as a person to use it';
+export const chipNoneViewAs = (id) => `No partition: viewing the workspace as ${id || 'someone'} never opens their partition, `
+  + 'so this tile refuses this window\'s calls';
+
+// partitionChip(view, {shown, who}) → null, or {kind, text, title}: the
+// chip of a window on the tile view reads (partitionView) that shows
+// deployment `shown` ('' the primary), for the viewer `who` (/whoami: kind,
+// id, impersonatedBy). Nothing on a tile without user partitions, nor on
+// the primary while who is unknown — never a guess.
+export function partitionChip(v, { shown = '', who = null } = {}) {
+  if (!v?.user) return null;
+  if (who?.impersonatedBy) return { kind: 'none', text: 'no partition', title: chipNoneViewAs(who.id) };
+  if (shown) return { kind: 'shared', text: 'shared', title: DEP_SHARED };
+  if (who?.kind === 'user') return { kind: 'yours', text: 'yours', title: CHIP_YOURS };
+  if (who?.kind !== 'root') return null;
+  return v.global ? { kind: 'global', text: 'global', title: CHIP_GLOBAL } : { kind: 'none', text: 'no partition', title: CHIP_NONE_ROOT };
+}
 
 // markTitle(view) → the marker's tooltip, '' when the tile has no user
 // partitions (no marker). The marker follows the recorded mode: a pending
@@ -133,10 +164,15 @@ export function modeBody(path, act, v, extra = {}) {
 // postMode(fetchFn, body) → {ok, status, body}: the call as the signed-in
 // person (a raw fetch: xbin.fetch would act as the shell tile, which never
 // decides). A network failure is status 0.
-export async function postMode(fetchFn, body) {
+export const postMode = (fetchFn, body) => personCall(fetchFn, '/api/xbin/partitions/mode', 'POST', body);
+
+// personCall(fetchFn, url, method, body) → {ok, status, body}: one JSON
+// call of the partitions API as the signed-in person (no body for GET).
+async function personCall(fetchFn, url, method, body) {
   let r;
   try {
-    r = await fetchFn('/api/xbin/partitions/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    r = await fetchFn(url, body === undefined ? { method }
+      : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   } catch (e) {
     return { ok: false, status: 0, body: { error: `xbind can't be reached (${e?.message || e}): try again` } };
   }
@@ -240,3 +276,84 @@ export function switchResolve(path, detail, dry = {}) {
   if ((dry.managers?.length ?? 0) > 0 && !yes) return { again: 'Tick "Switch anyway" to switch with those sandbox managers bound.', typed, yes };
   return { extra: yes ? { confirm: path, yes: true } : { confirm: path }, typed, yes };
 }
+
+// ---- consent prompts (docs/partitions.md §Calls between partitioned tiles) ----
+// With the workspace policy partitionConsent on, a partitioned tile's call
+// into the same person's partition of another partitioned tile needs that
+// person's consent: xbind refuses it ("<id> hasn't let <from> use their
+// <to> data") and asks them — a `partitions` event, op consent-needed
+// {from, to}, to their own sockets only (the page's /ws/events socket,
+// /vendor/events-socket.js, is the signed-in person's), at most once a day
+// per edge, and only for an edge an admin approved. The shell shows the
+// asks GET /partitions/consents lists (`asked`) and answers as the person:
+// a raw fetch, since xbin.fetch would act as the shell tile, and xbind
+// takes consents from a person's own sign-in only (PersonOnly). Allow
+// POSTs {from, to}; Don't allow stores nothing — the calls stay refused,
+// and this browser stops showing that ask (xbind asks again, at most once
+// a day, when the tile tries again).
+export const CONSENTS_API = '/api/xbin/partitions/consents';
+// PARTITIONS_PAGE: the person's partitions page, where a consent is taken
+// back — '' while this xbind doesn't serve one; set, the words name it
+// instead of the bx command.
+export const PARTITIONS_PAGE = '';
+export const CONSENT_HEAD = 'Partitioned tiles ask for your data';
+export const CONSENT_DENY_TITLE = 'Nothing is stored: its calls stay refused, and xbind asks again, at most once a day, when it tries again';
+
+export const consentKey = (e) => `${e?.from ?? ''}→${e?.to ?? ''}`;
+export const consentAsk = (from, to) => `${from} asks to use your data in ${to}`;
+export const consentWhy = (from, to) => `Your workspace asks you first. Allowing lets ${from}'s code — and everyone who can `
+  + `change it — reach your ${to} data whenever it acts for you. You can take it back at any time.`;
+export const consentAllowTitle = (from, to) => `let ${from} use your ${to} data from its next call`;
+const revokeHint = (from, to) => (PARTITIONS_PAGE ? `on your partitions page (${PARTITIONS_PAGE})` : `with bx partition consent ${from} ${to} --revoke`);
+export const allowedText = (from, to) => `Allowed: ${from} can use your ${to} data from its next call. Take it back ${revokeHint(from, to)}.`;
+export const declinedText = (from, to) => `Not allowed: ${from}'s calls into your ${to} data stay refused. `
+  + 'xbind asks again, at most once a day, when it tries again.';
+
+// consentWatch(components, who) → whether the shell reads the person's
+// consents at all: a signed-in person (not view-as, not the workspace
+// token) who sees a partitioned tile. A consent event makes it look anyway.
+export function consentWatch(components, who) {
+  if (who?.kind !== 'user' || who.impersonatedBy) return false;
+  return (Array.isArray(components) ? components : []).some((c) => partitionView(c)?.user);
+}
+
+// consentPrompts(view, {dismissed, paths}) → the asks to show, from GET
+// /partitions/consents' answer: none unless the policy is on; each asked
+// edge once — unless this browser dismissed that very ask (dismissed[key]
+// is its `at`) — and, given paths (the tiles the shell knows), only while
+// both tiles are still there (an ask outlives a removed tile for its day).
+export function consentPrompts(view, { dismissed = {}, paths = null } = {}) {
+  if (!view?.policy?.partitionConsent) return [];
+  const seen = new Set(), out = [];
+  for (const a of Array.isArray(view.asked) ? view.asked : []) {
+    if (typeof a?.from !== 'string' || typeof a?.to !== 'string' || !a.from || !a.to) continue;
+    const key = consentKey(a), at = String(a.at ?? '');
+    if (seen.has(key) || dismissed?.[key] === at || (paths && !(paths.has(a.from) && paths.has(a.to)))) continue;
+    seen.add(key);
+    out.push({ key, from: a.from, to: a.to, at });
+  }
+  return out;
+}
+
+// keepDismissed(dismissed, view) → the dismissals that still name an ask
+// the view lists (the others expired or were answered): the same object
+// when none goes.
+export function keepDismissed(dismissed, view) {
+  const live = new Set((Array.isArray(view?.asked) ? view.asked : []).map((a) => `${consentKey(a)}\n${a?.at ?? ''}`));
+  let out = dismissed;
+  for (const [k, at] of Object.entries(dismissed ?? {})) {
+    if (live.has(`${k}\n${at}`)) continue;
+    if (out === dismissed) out = { ...dismissed };
+    delete out[k];
+  }
+  return out;
+}
+
+// consentEventOp(e) → a /ws/events frame's consent op ('consent-needed',
+// 'consent'), else ''.
+export const consentEventOp = (e) => (e?.type === 'partitions' && ['consent-needed', 'consent'].includes(e?.data?.op) ? e.data.op : '');
+
+// consentCall(fetchFn, method, edge) → {ok, status, body}: GET the
+// person's consents view, POST an edge (allow) or DELETE it (take back).
+export const consentCall = (fetchFn, method = 'GET', edge) => personCall(fetchFn, CONSENTS_API, method,
+  method === 'GET' ? undefined : { from: edge?.from, to: edge?.to });

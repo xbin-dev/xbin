@@ -4,14 +4,17 @@
 // marker's tooltip, the pending card's text, the switch's words (in step
 // with xbind's registry.SwitchDeletes), the POST /partitions/mode bodies,
 // the typed confirmation's spec and answers, what the card says after a
-// decision, and how long a card's decision state lives. A row without
-// `partition` (an older xbind, a tile that never asked) reads as nothing at
-// all.
+// decision, how long a card's decision state lives, the partition chip a
+// window's head carries, and the consent prompts (what they show, when the
+// shell reads them, the calls). A row without `partition` (an older xbind,
+// a tile that never asked) reads as nothing at all.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { partitionView, markTitle, MARK_TITLE, modeName, switchDeletes, switchLabel, pendingText, requestKey,
   modeBody, postMode, errorText, bytesText, wipedText, switchSpec, switchResolve, DELETES_ALL,
-  pruneDecisions, whoDecides, noteText, staleRefusal, deletesNothing, keptText, switchedText, depShared, DEP_SHARED } from '../workspace-template/shell/partition-mode.js';
+  pruneDecisions, whoDecides, noteText, staleRefusal, deletesNothing, keptText, switchedText, depShared, DEP_SHARED,
+  partitionChip, CHIP_YOURS, CHIP_GLOBAL, CHIP_NONE_ROOT, consentWatch, consentPrompts, keepDismissed, consentEventOp,
+  consentCall, consentKey, consentAsk, consentWhy, allowedText, declinedText, CONSENTS_API, PARTITIONS_PAGE } from '../workspace-template/shell/partition-mode.js';
 
 const row = (partition) => ({ path: 'apps/p', partition });
 
@@ -202,4 +205,116 @@ test('a switch that deletes nothing says so; the answers after a decision', () =
   assert.equal(staleRefusal({ status: 409, body: { error: 'already running' } }), true);
   assert.equal(staleRefusal({ status: 409, body: { error: 'managers', managers: ['sbx/a'] } }), false);
   assert.equal(staleRefusal({ status: 500, body: { error: 'part-way' } }), false);
+});
+
+test('the partition chip says whose partition a window shows (I3)', () => {
+  const u = partitionView(row({ state: 'partitioned', user: true, global: false }));
+  const ug = partitionView(row({ state: 'partitioned', user: true, global: true }));
+  const person = { kind: 'user', id: 'alice' }, root = { kind: 'root', id: 'root' };
+  const viewAs = { kind: 'user', id: 'alice', impersonatedBy: 'owner', readOnly: true };
+  // not partitioned (recorded mode), or an older xbind's row: no chip, whoever looks
+  for (const v of [null, partitionView(row({ state: 'unpartitioned', user: false, global: true })),
+    partitionView(row({ state: 'pending', user: false, global: false, request: { user: true, global: false } }))]) {
+    for (const who of [person, root, viewAs, null]) assert.equal(partitionChip(v, { who }), null);
+  }
+  assert.deepEqual(partitionChip(u, { who: person }), { kind: 'yours', text: 'yours', title: CHIP_YOURS });
+  assert.deepEqual(partitionChip(ug, { who: person }), { kind: 'yours', text: 'yours', title: CHIP_YOURS });
+  // a pending switch out of partitions: still the person's own partition (R)
+  const out = partitionView(row({ state: 'pending', user: true, global: false, request: { user: false, global: false } }));
+  assert.equal(partitionChip(out, { who: person }).kind, 'yours');
+  // a deployment's one instance: shared, in F14's words
+  for (const who of [person, root, null]) assert.deepEqual(partitionChip(ug, { shown: 'dev', who }), { kind: 'shared', text: 'shared', title: DEP_SHARED });
+  // the workspace token: the global instance, or none without one
+  assert.deepEqual(partitionChip(ug, { who: root }), { kind: 'global', text: 'global', title: CHIP_GLOBAL });
+  assert.deepEqual(partitionChip(u, { who: root }), { kind: 'none', text: 'no partition', title: CHIP_NONE_ROOT });
+  // view-as never opens a person's partition — on a deployment neither
+  for (const shown of ['', 'dev']) {
+    const c = partitionChip(ug, { shown, who: viewAs });
+    assert.equal(c.kind, 'none');
+    assert.match(c.title, /^No partition: viewing the workspace as alice never opens their partition/);
+  }
+  // who unknown (whoami not read yet, or an element): no guess on the primary
+  assert.equal(partitionChip(ug, { who: null }), null);
+  assert.equal(partitionChip(ug, { who: { kind: 'element' } }), null);
+  assert.match(CHIP_YOURS, /^Your partition: /);
+  assert.match(CHIP_GLOBAL, /^The global instance: /);
+});
+
+test('the shell reads consents only for a person who sees a partitioned tile', () => {
+  const comps = [{ path: 'apps/a' }, { path: 'apps/p', partition: { state: 'partitioned', user: true, global: false } }];
+  assert.equal(consentWatch(comps, { kind: 'user', id: 'alice' }), true);
+  assert.equal(consentWatch([{ path: 'apps/a' }], { kind: 'user', id: 'alice' }), false);
+  assert.equal(consentWatch([{ path: 'apps/g', partition: { state: 'partitioned', user: false, global: true } }], { kind: 'user' }), false);
+  assert.equal(consentWatch(comps, { kind: 'root', id: 'root' }), false); // the workspace token has no consents (PersonOnly)
+  assert.equal(consentWatch(comps, { kind: 'user', id: 'alice', impersonatedBy: 'owner' }), false); // view-as
+  assert.equal(consentWatch(comps, null), false);
+  assert.equal(consentWatch(null, { kind: 'user' }), false);
+});
+
+test('consent prompts: the asks, only with the policy on', () => {
+  const asked = [{ from: 'apps/z', to: 'apps/x', at: '2026-09-30T10:00:00Z' }, { from: 'apps/w', to: 'apps/x', at: '2026-09-30T11:00:00Z' }];
+  const on = { policy: { partitionConsent: true }, consents: [], asked };
+  // policy off (or an older xbind, or not read): nothing, even with asks listed
+  for (const v of [null, undefined, {}, { policy: { partitionConsent: false }, asked }, { asked }]) assert.deepEqual(consentPrompts(v), []);
+  assert.deepEqual(consentPrompts(on), [
+    { key: 'apps/z→apps/x', from: 'apps/z', to: 'apps/x', at: '2026-09-30T10:00:00Z' },
+    { key: 'apps/w→apps/x', from: 'apps/w', to: 'apps/x', at: '2026-09-30T11:00:00Z' }]);
+  assert.equal(consentKey(asked[0]), 'apps/z→apps/x');
+  // dismissed in this browser: that very ask stays hidden; a later ask (another day) shows again
+  assert.deepEqual(consentPrompts(on, { dismissed: { 'apps/z→apps/x': '2026-09-30T10:00:00Z' } }).map((a) => a.from), ['apps/w']);
+  assert.deepEqual(consentPrompts(on, { dismissed: { 'apps/z→apps/x': '2026-09-29T09:00:00Z' } }).map((a) => a.from), ['apps/z', 'apps/w']);
+  // a tile that went (the ask outlives it for a day): not shown when the shell knows the tiles
+  assert.deepEqual(consentPrompts(on, { paths: new Set(['apps/z', 'apps/x']) }).map((a) => a.from), ['apps/z']);
+  // malformed and repeated rows
+  const odd = { policy: { partitionConsent: true }, asked: [null, { from: 'apps/z' }, { from: 1, to: 'apps/x' }, { from: '', to: 'apps/x' }, asked[0], asked[0]] };
+  assert.deepEqual(consentPrompts(odd).map((a) => a.key), ['apps/z→apps/x']);
+  assert.deepEqual(consentPrompts({ policy: { partitionConsent: true }, asked: 'nope' }), []);
+});
+
+test('dismissals are kept only while their ask is listed', () => {
+  const view = { policy: { partitionConsent: true }, asked: [{ from: 'apps/z', to: 'apps/x', at: 't1' }] };
+  const d = { 'apps/z→apps/x': 't1' };
+  assert.equal(keepDismissed(d, view), d);
+  assert.deepEqual(keepDismissed({ ...d, 'apps/w→apps/x': 't0' }, view), d);
+  assert.deepEqual(keepDismissed({ 'apps/z→apps/x': 't0' }, view), {}); // an older ask of the same edge
+  assert.deepEqual(keepDismissed(d, { asked: [] }), {});
+  const empty = {};
+  assert.equal(keepDismissed(empty, view), empty);
+});
+
+test('consent events: consent-needed and consent, nothing else', () => {
+  assert.equal(consentEventOp({ type: 'partitions', component: 'apps/x', partition: 'user:alice', data: { op: 'consent-needed', from: 'apps/z', to: 'apps/x' } }), 'consent-needed');
+  assert.equal(consentEventOp({ type: 'partitions', data: { op: 'consent', from: 'apps/z', to: 'apps/x', allowed: true } }), 'consent');
+  for (const e of [null, {}, { type: 'partitions' }, { type: 'partitions', data: { op: 'mode' } }, { type: 'partitions', data: { op: 'notice' } },
+    { type: 'policies' }, { type: 'grants', data: { op: 'consent' } }]) assert.equal(consentEventOp(e), '');
+});
+
+test('consent calls are the person\'s own: GET the view, POST allows, DELETE takes back', async () => {
+  const calls = [];
+  const f = async (u, i) => { calls.push([u, i]); return { ok: true, status: 200, json: async () => ({ policy: { partitionConsent: true }, asked: [] }) }; };
+  const g = await consentCall(f);
+  assert.deepEqual(g, { ok: true, status: 200, body: { policy: { partitionConsent: true }, asked: [] } });
+  assert.deepEqual(calls[0], ['/api/xbin/partitions/consents', { method: 'GET' }]);
+  assert.equal(CONSENTS_API, '/api/xbin/partitions/consents');
+  await consentCall(f, 'POST', { from: 'apps/z', to: 'apps/x', at: 't1', key: 'apps/z→apps/x' });
+  assert.equal(calls[1][1].method, 'POST');
+  assert.equal(calls[1][1].body, '{"from":"apps/z","to":"apps/x"}');
+  assert.equal(calls[1][1].headers['Content-Type'], 'application/json');
+  await consentCall(f, 'DELETE', { from: 'apps/z', to: 'apps/x' });
+  assert.equal(calls[2][1].method, 'DELETE');
+  const no = await consentCall(async () => ({ ok: false, status: 409, json: async () => ({ error: 'the workspace policy partitionConsent is off' }) }), 'POST', { from: 'a', to: 'b' });
+  assert.equal(no.ok, false);
+  assert.equal(errorText(no), 'the workspace policy partitionConsent is off');
+  const old = await consentCall(async () => ({ ok: false, status: 404, json: async () => { throw new Error('html'); } }));
+  assert.deepEqual(old, { ok: false, status: 404, body: {} });
+  assert.equal((await consentCall(async () => { throw new Error('offline'); })).status, 0);
+});
+
+test('the consent prompt\'s words name both tiles and what answering does', () => {
+  assert.equal(consentAsk('apps/z', 'apps/x'), 'apps/z asks to use your data in apps/x');
+  assert.match(consentWhy('apps/z', 'apps/x'), /^Your workspace asks you first\. Allowing lets apps\/z's code — and everyone who can change it — reach your apps\/x data/);
+  assert.equal(PARTITIONS_PAGE, ''); // no partitions page served yet: the words name bx
+  assert.equal(allowedText('apps/z', 'apps/x'),
+    'Allowed: apps/z can use your apps/x data from its next call. Take it back with bx partition consent apps/z apps/x --revoke.');
+  assert.match(declinedText('apps/z', 'apps/x'), /^Not allowed: apps\/z's calls into your apps\/x data stay refused\./);
 });
