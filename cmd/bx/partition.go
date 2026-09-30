@@ -75,7 +75,7 @@ func cmdPartition(args []string) error {
 
 func partitionCmd(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage:\n" + partitionUsage + partitionConsentUsage + partitionOpsUsage)
+		return errors.New("usage:\n" + partitionUsage + partitionConsentUsage + partitionOpsUsage + partitionMailUsage)
 	}
 	switch args[0] {
 	case "mail": // partitionmail.go
@@ -90,7 +90,7 @@ func partitionCmd(args []string) error {
 	if f, ok := partitionOpCmds[args[0]]; ok { // partitionops.go
 		return f(args[1:])
 	}
-	return fmt.Errorf("bx partition: unknown subcommand %q (ls, switch, keep, stop, reset, purge, limits, share-log, credential, consent, ledger)", args[0])
+	return fmt.Errorf("bx partition: unknown subcommand %q (ls, switch, keep, stop, reset, purge, limits, share-log, credential, reviewed, consent, ledger, mail)", args[0])
 }
 
 // partitionRow is the partition part of a /components row.
