@@ -6258,4 +6258,5 @@ Deviations and refinements made while implementing; all deliberate:
     choice is the setting, made before the upgrade); a 409 on turning the
     setting off while layers on missing bases exist (moot once the boot
     stopped refusing them).
-  - Numbered D174, not D173: deflake/livereload-pause took D173 in flight.
+  - Numbered D174: the number before it went to deflake/livereload-pause,
+    in flight at the same time.
