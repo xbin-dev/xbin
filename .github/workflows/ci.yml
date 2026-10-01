@@ -75,9 +75,11 @@ jobs:
             go-${{ matrix.cache }}-
       # The containerfs suites mount FUSE filesystems inside unprivileged
       # user namespaces; Ubuntu 24.04 runners gate those behind an AppArmor
-      # knob. They also need xattr/fscap tooling; the guards shellcheck.
+      # knob. They also need xattr/fscap tooling (attr: only the integration
+      # suite's containerfs tests use it, and the image lacks it — an
+      # install costs 5–20 s); the guards shellcheck.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      - run: hack/ci-apt.sh attr libcap2-bin fuse3 shellcheck zstd
+      - run: hack/ci-apt.sh libcap2-bin fuse3 shellcheck zstd ${{ matrix.integration && 'attr' || '' }}
       # The native helpers (docs/maintenance.md → "Prebuilt helpers"):
       # `make helpers` downloads the prebuilt sets hack/helpers.sha256 pins
       # for the current build-input keys and verifies every file; a PR that
@@ -146,7 +148,7 @@ jobs:
             go-vm-${{ hashFiles('go.sum', 'go.work.sum', 'sdk/go.sum', 'relay/go.sum') }}-
             go-vm-
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      - run: hack/ci-apt.sh attr libcap2-bin fuse3 zstd
+      - run: hack/ci-apt.sh libcap2-bin fuse3 zstd
       - uses: actions/cache@v6
         with:
           path: |
