@@ -266,6 +266,27 @@ func TestGuidedSignin(t *testing.T) {
 	}
 }
 
+// A guided sign-in waiting for its person's code holds the person's
+// partition up (it lives in this process only); once it is over the hold
+// goes with it.
+func TestGuidedHoldsPartition(t *testing.T) {
+	testClaude(t)
+	ag, h, box, _, _, _ := harnessPartitionG(t, "--require-login")
+	run := askIn(t, h, box, "whoami")
+	parkOf(t, ag, run.ID, "login")
+	open := holdCounter(ag.eng)
+	hwait(t, "no hold while it waits on its person", func() bool { return open.Load() == 0 })
+	path := fmt.Sprintf("/runs/%d/harness/authenticate", run.ID)
+	if code, body := aliceCall(t, h, "POST", path, map[string]any{"method": "guided"}); code != 202 {
+		t.Fatalf("the start: %d %s", code, body)
+	}
+	hwait(t, "the hold while the sign-in waits for the code", func() bool { return open.Load() == 1 })
+	if code, body := aliceCall(t, h, "POST", path, map[string]any{"method": "guided", "code": "bad#x"}); code != 502 {
+		t.Fatalf("a refused code: %d %s", code, body)
+	}
+	hwait(t, "the hold let go with it", func() bool { return open.Load() == 0 && ag.eng.guidedOf(run.ID) == nil })
+}
+
 // Remember: `claude setup-token` on a terminal (the manager's tty), its
 // token scraped by the backend and kept as the person's saved sign-in in
 // their vault — never in an answer, a row, a log line — named, the

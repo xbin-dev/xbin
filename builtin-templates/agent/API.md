@@ -2572,8 +2572,10 @@ loop answers they are **409** `not a coding-agent conversation`.
   its sign-in link` (30 s) / `didn't answer the code`. The exec is always
   deleted once it is over; one guided sign-in per conversation, bounded at
   15 minutes (the exec's own timeout too), and one a save or restart of
-  the agent cuts off is gone (start again). A sandbox others may use takes
-  `confirm: true`, as above — the sign-in lands in its HOME. **With
+  the agent cuts off is gone (start again); while it waits for your code
+  it holds your partition up, as a sign-in the agent awaits does. A
+  sandbox others may use takes `confirm: true`, as above — the sign-in
+  lands in its HOME. **With
   `remember: true`** (and `name`, default `Personal` for a coding agent's
   first, else `Sign-in ‹n›`) it runs the provider's `Mint` instead —
   Claude Code's `claude setup-token`, on a terminal (a manager without
@@ -2631,9 +2633,11 @@ loop answers they are **409** `not a coding-agent conversation`.
   its own `~/.codex/auth.json` in that (private) sandbox, which Forget
   doesn't reach — `codex logout` there does. A saved sign-in warns from
   14 days before it expires (`expiring`). A sandbox shared while an
-  adapter holds one stops that adapter at the next re-check (before every
-  message, and at most every minute while it works) — the next message
-  starts it with the sandbox's own sign-in. A person's removal or purge
+  adapter holds one stops that adapter — at once when shared through this
+  agent (`PATCH /sandboxes/{ref}`), else at the next re-check (before
+  every message, and at most every minute while it works; an idle one at
+  the latest at its idle stop) — and the next message starts it with the
+  sandbox's own sign-in. A person's removal or purge
   deletes the vault with their partition.
 
   | Method & path | Who | Body | Answer |

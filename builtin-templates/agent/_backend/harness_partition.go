@@ -291,12 +291,16 @@ func (s *hsess) toRest() {
 // harnessHoldsLocked (e.mu held): a coding agent this process drives keeps
 // the hold — any, unpartitioned and at the global instance; in a person's
 // partition only one at work, or one AgTT is signing in (its authenticate
-// awaits the adapter's answer here — at most hDeviceFor). A stopped
-// partition's `wake` brings it back for a resting one's reclaim
-// (resume_mode.go).
+// awaits the adapter's answer here — at most hDeviceFor), or a guided
+// sign-in waiting for its person's code (harness_guided.go — at most gsFor:
+// it lives in this process only). A stopped partition's `wake` brings it
+// back for a resting one's reclaim (resume_mode.go).
 func (e *Engine) harnessHoldsLocked() bool {
 	if !userMode() {
-		return len(e.harness) > 0
+		return len(e.harness) > 0 || len(e.guided) > 0
+	}
+	if len(e.guided) > 0 {
+		return true
 	}
 	for _, s := range e.harness {
 		if !s.rest.Load() || s.signing.Load() {

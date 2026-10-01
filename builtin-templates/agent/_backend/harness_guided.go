@@ -86,6 +86,7 @@ func (e *Engine) endGuided(g *hGuided) {
 	e.mu.Lock()
 	if e.guided[g.run] == g {
 		delete(e.guided, g.run)
+		e.updateHoldLocked() // a person's partition: no longer held up for it
 	}
 	e.mu.Unlock()
 	g.mu.Lock()
@@ -185,6 +186,7 @@ func (e *Engine) guidedStart(ctx context.Context, run *Run, prov acp.Provider, c
 		return nil, &hAuthErr{409, "a sign-in to " + prov.Name + " is already under way"}
 	}
 	e.guided[run.ID] = g
+	e.updateHoldLocked() // waiting for its person holds a person's partition up (harness_partition.go)
 	e.mu.Unlock()
 	g.mu.Lock()
 	defer g.mu.Unlock()

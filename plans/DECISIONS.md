@@ -9920,8 +9920,10 @@ Deviations and refinements made while implementing; all deliberate:
     exec is deleted at every end; one per conversation, bounded at 15
     minutes (also the exec's own `timeoutMs`, so a process that dies
     leaves nothing waiting), dropped on a handoff (`letHarnessesGo`: a
-    successor knows none, the person starts over). Remember is refused
-    unless the gate below holds for the run's sandbox: while the exec
+    successor knows none, the person starts over); while it waits it holds
+    a person's partition up (`harnessHoldsLocked`), as D172's awaited
+    sign-in does. Remember is refused unless the gate below holds for the
+    run's sandbox: while the exec
     lives its output (the token) is readable by whoever may use the
     sandbox (the manager's exec routes). A minted token goes straight into
     the vault; a saved sign-in of the same name is replaced (its id, and
@@ -9953,7 +9955,11 @@ Deviations and refinements made while implementing; all deliberate:
     which credential the generation started with, its id only. Re-checked
     with the sandbox's use (before every prompt, at most every minute on
     durable events, at a takeover): a sandbox shared mid-run stops the
-    adapter (`hstop`), and the next start leaves the credential out.
+    adapter (`hstop`), and the next start leaves the credential out; a
+    share through the agent's own `PATCH /sandboxes/{ref}` stops it at
+    once. Left: a share made at the manager while an adapter idles is seen
+    at its next message or its idle stop (≤ `harnessIdleMin`), its
+    environment readable meanwhile — nothing tells the agent of it.
   - **Refusals and false refusals.** With a credential in, only the
     adapter's own refusal counts — a -32000 on a prompt (the client's
     `AuthHint` marks it) or on opening a session: it sets `refusedAt` and
