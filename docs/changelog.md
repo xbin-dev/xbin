@@ -10,6 +10,29 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-01
+
+- **BREAKING: terminals move to a new base image by themselves — base
+  auto-update, a workspace setting, on by default**
+  ([changes/2026-10-01-base-auto-update.md](/docs/changes/2026-10-01-base-auto-update.md),
+  [09-terminals.md](/docs/overview/09-terminals.md) §Base images, D173).
+  A tile's terminal layer built on an older base image now moves to the
+  current base at its next session start: it is reset as **⬆ base
+  update** resets it (apt installs and `/etc` changes go; files and
+  `$HOME` stay), and the shell's first line says so, in grey. A running
+  terminal keeps its base until it ends. A layer whose base isn't
+  installed any more moves the same way, where xbind refused to boot. The
+  terminal window's chooser says the next session moves instead of
+  offering the button. Turn it off to keep today's behaviour: the admin
+  console's new workspace → **terminals** tab, the new **`bx settings`**
+  (`set --base-auto-update=false`), or the new `GET`/`PUT
+  /api/xbin/workspace-settings` (`{baseAutoUpdate}`, admin to change; kept
+  in `data/workspace-settings.json`, whose other keys a write keeps).
+  `GET /ws/term/env` gains `baseAutoUpdate`. Tile sandboxes are not
+  touched. This release's base ships Go 1.26.3, so with the setting on a
+  terminal no longer needs **⬆ base update** for the builtins' `go
+  1.26.0` ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+
 ## 2026-09-30
 
 - **BREAKING (security): each Go tile builds with a `go.work` of its

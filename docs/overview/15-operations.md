@@ -407,6 +407,9 @@ untouched — but for a VM policy nobody ever set, which it writes (above).
 When the base-image version
 changes, the old `rootfs` is preserved as `rootfs-<ver>` so pinned terminal
 layers and tile sandboxes keep working until they upgrade (then GC'd by xbind).
+Terminal layers upgrade at their next session start while the workspace's
+base auto-update is on, the default ([09-terminals.md](09-terminals.md)
+§Base images, D173).
 
 Two operator contracts around an upgrade:
 

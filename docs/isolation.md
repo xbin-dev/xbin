@@ -351,6 +351,21 @@ replaces it — in a confined run (§Confined tool runs, above) with only the
 file capabilities, so files an `apt install` left owned by other users
 inside the sandbox go too.
 
+**A newer base image.** A layer only makes sense on the base image it was
+built on, so it stays pinned to that base when xbin ships a newer one (a
+newer Go, say). With the workspace's **base auto-update** on — the default
+(D173; the admin console → workspace → terminals, `bx settings`) — the
+next session that opens a layer built on an older base moves it to the
+current base first: the layer is removed as a reset removes it, and the
+shell's first line, in grey, says so. A running session is never moved; it
+keeps its base until it ends. With the setting off the layer stays on its
+base and the terminal window offers **⬆ base update**, which does the same
+reset on request. Either way your files and `$HOME` are kept; what goes is
+what the layer holds. This is the terminal dev layer only: the component
+env layer below is rebuilt for a new base by itself, and a tile sandbox's
+state is its manager's to reset or rebase (`base.outdated`;
+[protocol.md](/docs/protocol.md) §Reset and rebase).
+
 Keep two "layers" straight — they are deliberately separate:
 
 - **The terminal dev layer** (`.xbin/term/…`, above) is for *interactive* work:

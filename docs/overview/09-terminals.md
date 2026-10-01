@@ -408,6 +408,33 @@ for terminals):
 A terminal whose layer's base is older than the current rootfs reports
 `baseOutdated` on attach, so the UI can offer a reset-to-upgrade.
 
+**Base auto-update (D173).** A workspace setting, **on by default**
+(admin console → workspace → terminals; `bx settings`; `GET`/`PUT
+/api/xbin/workspace-settings`, kept in `data/workspace-settings.json`).
+While it is on, a session's start that takes a tile's layer — no other
+session holding it — and finds it built on another base than the current
+rootfs moves it there first: the layer (upper, and a VM terminal's disk) is
+removed in a confined run, exactly as the reset removes it, and stamped
+with the current base; the shell's first output is one grey line, `xbin:
+this tile's terminal layer moved to the new base image — system changes
+(apt installs, /etc) were reset; your files and $HOME are kept`. An agent
+session moves the same way (no terminal to print in: its title bar stops
+offering the update). Nothing is yanked: a running session keeps its base
+until it ends or restarts, and a second session meanwhile gets an
+ephemeral upper (above). A removal that fails fails the start, and the
+next start tries again — half a layer is never mounted. A layer whose
+base isn't installed any more moves the same way, and the boot gate lets
+it through (logged) instead of refusing to start; once moved it pins its
+old base no longer, so the next boot's GC releases that base. A layer a
+restore brought back from an older base moves at its next start too.
+Terminals run no `setup`: the component env layer is rebuilt for a new
+base by itself. With the setting **off**, layers stay pinned as above and
+the window's chooser and title bar offer **⬆ base update**; with it on,
+the chooser says the next session moves instead (`GET /ws/term/env` →
+`baseAutoUpdate`), and the title bar keeps the button for a running
+session. The setting covers terminal layers only — a tile sandbox's state
+is its manager's to reset or rebase.
+
 ## VM terminals (D89)
 
 The title bar's **⧉ VM** toggle (`?vm=1`) restarts a session inside a
