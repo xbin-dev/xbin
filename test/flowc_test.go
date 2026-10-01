@@ -37,6 +37,7 @@ import (
 // plain live reload); --json prints one JSON object.
 func TestAgentBxLiveReload(t *testing.T) {
 	t.Parallel()
+	isolationOrSkip(t) // before building bx: skip at once without a rootfs
 	bxDir := buildBx(t)
 	d := startIsolatedDaemon(t, isoOpts{Env: []string{"XBIN_BIN=" + bxDir}})
 	a := d.dl()
@@ -318,6 +319,7 @@ func (s *termSession) installBx(t *testing.T, bxDir string) string {
 // nothing changed.
 func TestAgentFlowCWithBxOnly(t *testing.T) {
 	t.Parallel()
+	isolationOrSkip(t) // before building bx: skip at once without a rootfs
 	bxDir := buildBx(t)
 	d := startIsolatedDaemon(t, isoOpts{Auth: true, Env: []string{"XBIN_BIN=" + bxDir}})
 	a := d.dl()
@@ -565,6 +567,7 @@ func pfLimits(t *testing.T, a dlAPI, tile string) map[string]struct{ MemMiB, Pid
 // order (non-primary namespaces write-blocked first) isn't run end to end.
 func TestPrimaryFirstUnderPressure(t *testing.T) {
 	t.Parallel()
+	isolationOrSkip(t)  // before building bx: skip at once without a rootfs
 	bxDir := buildBx(t) // a VM guest's host side is bx (__vm-host)
 	d := startIsolatedDaemon(t, isoOpts{Env: []string{"XBIN_BIN=" + bxDir}})
 	a := d.dl()
