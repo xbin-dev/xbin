@@ -364,10 +364,11 @@ func cmdDoctor() error {
 // goBuildVersions is GET /go-build-versions (docs/protocol.md): the Go
 // tiles whose own go.mod links older versions than the shared go.work did.
 type goBuildVersions struct {
-	Since   string `json:"since"`
-	Done    bool   `json:"done"`
-	Running bool   `json:"running"`
-	Tiles   []struct {
+	Since          string `json:"since"`
+	Done           bool   `json:"done"`
+	Running        bool   `json:"running"`
+	WorkspaceError string `json:"workspaceError"`
+	Tiles          []struct {
 		Tile    string   `json:"tile"`
 		Require []string `json:"require"`
 		Minimal bool     `json:"minimal"`
@@ -386,7 +387,8 @@ type goBuildVersions struct {
 
 // doctorGoBuildVersions renders the D166 upgrade check: each tile still
 // linking older versions is a problem with the lines to add (a dismissed
-// one a note), a tile it couldn't compare a note.
+// one a note), a tile it couldn't compare a note, and a shared go.work the
+// go command refused one note for the workspace.
 func doctorGoBuildVersions(gv goBuildVersions, warn func(string, ...any)) {
 	since := gv.Since
 	if since == "" {
@@ -394,6 +396,10 @@ func doctorGoBuildVersions(gv goBuildVersions, warn func(string, ...any)) {
 	}
 	if gv.Running {
 		fmt.Println("  · the Go build versions check is running (D166; GET /api/xbin/go-build-versions)")
+	}
+	if gv.WorkspaceError != "" {
+		first, _, _ := strings.Cut(strings.TrimSpace(gv.WorkspaceError), "\n")
+		fmt.Printf("  · the Go build versions check couldn't compare the tiles it has no baseline of: %s (POST /api/xbin/go-build-versions/check once that is fixed)\n", first)
 	}
 	for _, t := range gv.Tiles {
 		var lines, changes []string
