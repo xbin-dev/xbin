@@ -6156,3 +6156,62 @@ Deviations and refinements made while implementing; all deliberate:
       after the delay (an admin's pass may have completed it); Stop (at
       shutdown) cancels the lists' context and waits, recording nothing a
       stopped list left half done.
+- **D173 — Base auto-update: a tile's terminal layer built on an older
+  base image moves to the current base at its next session start; a
+  workspace setting, on by default (2026-10-01).** internal/term/base.go
+  (claimLayer), internal/wssettings, internal/server/wssettings.go, the
+  admin tile's workspace → terminals tab, `bx settings`. The owner: "For Go
+  versions in bases lets have a knob in admin workspace settings on base
+  auto-updates, default to true." A terminal's layer (.xbin/term/<key>:
+  the overlay upper, a VM terminal's disk) is pinned to the base it was
+  built on (component-env.md §Base images): a newer xbind's base reached
+  it only when someone pressed the window's "⬆ base update". Once D166's
+  builtins said `go 1.26.0`, a terminal on the old base (Go 1.24.0)
+  downloaded a toolchain for every `go` command, or failed where its
+  network scope couldn't reach proxy.golang.org.
+  - **Chosen: the move happens when a session claims the layer.** A
+    session's start takes the layer (acquireEnv: one live holder) before
+    anything mounts it; if its stamp isn't the current base and the
+    setting is on, the layer is removed — confined, exactly as the reset
+    removes it — and stamped afresh, and the session runs on the current
+    base. The shell's first output is one grey line saying so; an agent
+    session (no terminal) logs it to its host log, and the window's bar
+    stops offering the update. A running session is never touched: a
+    second session on the tile while one holds the layer gets an
+    ephemeral upper (as always), and the holder keeps its base until it
+    ends or restarts. Files and $HOME are bind mounts, not the layer, so
+    what is lost is what the reset loses: apt installs, /etc changes.
+    Terminals run no `setup`: the backend's env layer (setup's) is keyed
+    by the rootfs already (runner.setupHash) and rebuilds by itself.
+  - **A removal that fails fails the start** (the error says to open it
+    again or reset it): `find -delete` may have stopped halfway, and half a
+    layer is never mounted, on either base. The next start tries again.
+  - **A base that isn't installed any more** (GC released it, or it was
+    deleted by hand). With the setting on, such a layer moves like any
+    other, and the boot gate (CheckBaseImages) lets it through, logged —
+    its next session discards it rather than stack it on another base, so
+    the gate's reason doesn't hold. Off, both refuse as before. A moved
+    layer no longer pins its old base, so the next boot's GC releases it.
+  - **The setting** lives in data/workspace-settings.json (internal/
+    wssettings): an xbind-owned JSON object, each key with a default for
+    when it is absent (a missing file is every default: on); a write sets
+    its keys and keeps every other key the file holds (a newer xbind's);
+    an older xbind never reads the file, so a downgrade ignores it and the
+    upgrade back finds it. A file that can't be read turns base
+    auto-update off (a guess must not discard anything) and a PUT refuses
+    to overwrite it. Not users.json, where the native-runtime switch is:
+    its rewrite drops keys it doesn't know (a downgrade's first write
+    would turn an admin's "off" back on), and it is the identity store.
+    Not branding.json: branding's. GET /api/xbin/workspace-settings
+    (authenticated), PUT (admin, audited, primary-only); /ws/term/env
+    gains baseAutoUpdate so the window's chooser says what the next
+    session does instead of offering the button.
+  - **Not chosen:** moving every outdated layer at boot (no session to
+    tell, and a layer nobody opens again would lose its installs for
+    nothing); rebasing (re-stamping the kept upper: dpkg's status from the
+    old base over the new base's files — what the pin exists to prevent);
+    tile sandboxes (internal/tilesbx): their cur/ is the whole sandbox
+    state a manager tile keeps — work, not only installs — and the
+    sandbox-manager contract gives the manager the choice (`base.outdated`,
+    reset, rebase), so the setting doesn't touch them; a per-tile switch
+    (the owner asked for one workspace knob).

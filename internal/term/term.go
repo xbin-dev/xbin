@@ -96,6 +96,11 @@ type Manager struct {
 	Isolate    bool
 	Rootfs     string
 	ExtraBinds []sandbox.Bind
+	// BaseAutoUpdate is the workspace's base auto-update setting (D173,
+	// base.go): a tile's layer built on an older base moves to the current
+	// one at its next session start. nil ⇒ off: a layer stays pinned to its
+	// base until it is reset.
+	BaseAutoUpdate func() bool
 
 	// SeedHome populates a freshly created per-user home with the template
 	// skeleton dotfiles (.zshrc/.bashrc/…); wired by main (which holds the
@@ -411,6 +416,9 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
 		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
+	if o.launch.baseMoved != "" { // before the PTY's first byte: pump hasn't started
+		s.hub.Output([]byte(baseMovedLine))
+	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -603,19 +611,17 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 
 	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.
 	// A VM terminal keeps its changes on a disk image in the same layer (vm.go).
+	// The layer is pinned to the base it was built on, or moved to the
+	// current one first (base auto-update, D173; claimLayer).
 	envKey, vmDisk := termKey(rel), ""
-	if m.acquireEnv(envKey) {
-		layer := filepath.Join(m.Root, ".xbin", "term", envKey)
-		ver := m.ensureLayerBase(layer)        // stamp on first use (new→current, legacy→v0)
-		base, ok := resolveBase(m.Rootfs, ver) // pin the upper to the base it was built on
+	if lc, held, err := m.claimLayer(envKey); err != nil {
+		dropView()
+		return nil, nil, nil, "", nil, err
+	} else if !held {
+		layer, base := lc.dir, lc.base
 		up, work := filepath.Join(layer, "upper"), filepath.Join(layer, "work")
-		if !ok {
-			// The base this layer was built on isn't installed — refuse rather
-			// than corrupt its apt/dpkg state on a different base (the startup
-			// gate normally prevents reaching here). Reset the terminal to upgrade.
-			m.releaseEnv(envKey)
-			dropView()
-			return nil, nil, nil, "", nil, fmt.Errorf("this terminal's base image %q is not installed — reset the terminal to rebuild on the current base", ver)
+		if o.launch != nil {
+			o.launch.baseMoved = lc.moved
 		}
 		if o.vm {
 			if vmDisk = m.vmDisk(layer); vmDisk != "" {

@@ -16,12 +16,13 @@ import (
 	"github.com/xbin-dev/xbin/internal/sbx"
 )
 
-// sbxLaunch is what a VM session's setup learnt (applyVM fills it; the
+// sbxLaunch is what a session's setup learnt (applyVM fills a VM's; the
 // session's openOpts carries it back).
 type sbxLaunch struct {
 	memMiB, vcpus int
 	emulated      bool
 	disk          string
+	baseMoved     string // the base the tile's layer moved off at this start ("" = none; claimLayer, D173)
 }
 
 func sbxKind(kind string) sbx.Kind {

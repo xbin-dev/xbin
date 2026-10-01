@@ -316,6 +316,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
+	if o.launch.baseMoved != "" { // the host's text log; the window's bar drops the base update offer
+		st.logf(baseMovedNote)
+	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
 	drv := acp.New()
 	st.drv = drv // before the session is visible: info() and the API read it

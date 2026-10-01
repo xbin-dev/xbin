@@ -187,3 +187,8 @@ Lifecycle:
   pins a base that isn't installed, rather than corrupt it on a different base.
 - **release** — `GCBaseImages` removes preserved `rootfs-<version>` siblings once
   no terminal pins them (i.e. everyone has upgraded).
+- **auto-update (D173)** — with the workspace setting on (the default), a
+  session's start that takes a layer built on another base discards it first
+  (the reset, confined) and runs on the current base, printing one grey line;
+  a running session is never touched. The safety gate then lets a layer on a
+  missing base through: its next session discards it rather than stack it.
