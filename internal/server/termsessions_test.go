@@ -57,6 +57,15 @@ func TestTermSessionsRoutes(t *testing.T) {
 	if w.Code != 404 {
 		t.Fatalf("rename unknown: %d %s", w.Code, w.Body.String())
 	}
+	// the sign-in's reserved name is xbind's to give, in any case (D178
+	// review L11; renaming a sign-in session: term's TestSigninSession)
+	for _, name := range []string{"xbin:sign-in", " XBIN:Sign-In "} {
+		w = httptest.NewRecorder()
+		h.ServeHTTP(w, withCookie("PATCH", "/api/xbin/term/sessions/nope", `{"name":"`+name+`"}`, alice))
+		if w.Code != 400 || !strings.Contains(w.Body.String(), "xbin:sign-in") {
+			t.Fatalf("rename to %q: %d %s", name, w.Code, w.Body.String())
+		}
+	}
 	// the list is readable in a view-as session, the rename is not
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, withCookie("POST", "/api/xbin/impersonate", `{"user":"bob"}`, alice))

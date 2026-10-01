@@ -5,7 +5,8 @@
 // login` draws the URL as Ink does (broken over 60-column rows, each an OSC
 // 8 link to the whole URL) and takes a code. What this checks: (a) a
 // signed-out agent shows the strip, and Sign in runs the CLI in a terminal
-// session that is no tab (named xbin:sign-in in the listing); (b) the strip
+// session that is no tab (purpose signin in the listing, set by xbind:
+// renaming it, or naming another session xbin:sign-in, is refused); (b) the strip
 // offers the whole URL — the link and the field — rejoined from the rows;
 // (c) a code without '#' is refused and asked again; Finish sends the right
 // one, the strip reports signed in and goes, and its session ends with the
@@ -58,7 +59,12 @@ async function agentSignin(browser) {
   check(href === FAKE_URL && field === FAKE_URL, `"Open sign-in page" and the link field carry it (${href === FAKE_URL}, ${field === FAKE_URL})`);
   const rows = await listed();
   const row = rows.find((r) => r.id === s.session);
-  check(!!row && row.name === 'xbin:sign-in', `the CLI runs in a terminal session named for the sign-in (${JSON.stringify(row)})`);
+  check(!!row && row.purpose === 'signin' && row.name === 'xbin:sign-in' && row.kind === 'shell', `the CLI runs in a shell session xbind marks as the sign-in's (${JSON.stringify(row)})`);
+  // the mark is xbind's: no rename touches the session, and no session takes its name
+  const renamed = await ctx.request.patch(`${URL}/api/xbin/term/sessions/${encodeURIComponent(s.session)}`, { data: { name: 'mine' } });
+  const agentId = await fr(page, TILE, (f, t, i) => f.agent(i).sessionId, idx);
+  const reserved = await ctx.request.patch(`${URL}/api/xbin/term/sessions/${encodeURIComponent(agentId)}`, { data: { name: 'xbin:sign-in' } });
+  check(renamed.status() === 409 && reserved.status() === 400, `a sign-in's session is not renamed (${renamed.status()}), nor another given its name (${reserved.status()})`);
   const tabs = await fr(page, TILE, (f) => f.tabs);
   check(tabs.length === nTabs && !tabs.some((x) => x.id === s.session), `…which is no tab (${tabs.length} tabs, as before)`);
   await shotEl(page, `bx-frame[src="${TILE}"] .pop`, 'agent-signin-waiting');

@@ -1432,16 +1432,25 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    in); in an admin's ?user= listing, and
                                    in an admin's view as its person, a
                                    person's session there has an empty
-                                   name. A shell named xbin:sign-in is the
-                                   Agent tab's guided sign-in running a
-                                   CLI's login (D178): it is no tab — a
-                                   client that makes tabs of this list
-                                   skips it
+                                   name. A row with purpose:"signin" (set
+                                   by xbind only, on a shell opened with
+                                   /ws/term?purpose=signin; absent on
+                                   every other row) is the Agent tab's
+                                   guided sign-in running a CLI's login
+                                   (D178): it is no tab — a client that
+                                   makes tabs of this list skips a shell
+                                   row with that purpose (never an agent
+                                   row, and never by its name). Such a
+                                   session is named xbin:sign-in and ends
+                                   15 minutes after it opened
 PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
                                    the creator only: 403 for an admin on
                                    another person's session). {name}: name
                                    the tab (empty clears; lives on the
-                                   session → follows the user) → ok
+                                   session → follows the user) → ok. 400
+                                   the name xbin:sign-in (any case:
+                                   xbind's, for a guided sign-in); 409 a
+                                   session with purpose signin
 GET    /agent/providers           authenticated. the coding agents this daemon
                                    runs: [{id,name,modes:[{id,name,explicit?}],
                                    defaultMode,login,signin?}] (D74; explicit
@@ -6170,6 +6179,12 @@ query params (all optional):
 
 - `?api=0` — mint **no** terminal token: the shell sees code but every tile/xbin
   API call is unauthorized (default `1`).
+- `?purpose=signin` — a **guided sign-in's shell** (D178: the Agent tab runs
+  a CLI's login in it): the session directory lists it with
+  `purpose:"signin"` and the name `xbin:sign-in`, clients make no tab of it,
+  no rename touches it, and xbind ends it 15 minutes after it opened. Any
+  other `purpose` (on a new session or a reattach) is 400; only xbind sets a
+  row's purpose.
 - `?net=<scope>` (absent = the tile's default: `org` where it exists, else
   `internet` where allowed, else `none` — `GET /term-net?tile=` lists them):
 
@@ -6517,7 +6532,8 @@ A `bus` event of a deployment's data beyond `main` carries `deployment`
 (`{"type":"bus","topic":…,"deployment":"dev","data":…}`) and reaches admins
 and the credentials bound to that deployment's data only — never a
 primary-bound principal of the same scope. `term` events (open, rename) of a
-session with a named target carry `deployment` in `data`.
+session with a named target carry `deployment` in `data`, and those of a
+guided sign-in's shell carry `purpose: "signin"` (`/ws/term`, above).
 `deployments` events are filtered by the tile and the deployment they name,
 at your current level on each delivery. A fact about the tile's primary
 reaches everyone who may read the tile: ops `record` and `deploy` (onto the

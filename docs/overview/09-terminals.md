@@ -591,7 +591,7 @@ What the agent gets:
   When the agent reports it is signed out (or a turn hits auth-required), the
   Agent tab shows a sign-in. For Claude Code it is **guided** (D178): **Sign
   in** runs `claude auth login` in a terminal session of its own on the
-  tile — one no tab shows — and the tab turns what it prints into **Open
+  tile — one no tab shows, which xbind ends after 15 minutes — and the tab turns what it prints into **Open
   sign-in page ↗** and **Copy link** (the whole link, however the CLI drew
   it), a field for the code the sign-in page shows you (**Finish** hands it
   to the CLI) and a line saying how it went: signed in — send your message

@@ -540,8 +540,8 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 		st.mu.Unlock()
 		// the agent's own title (most adapters generate one after the first
 		// turn) names a tab the user has not named — it follows the user like
-		// any name (D73)
-		if d.Title != "" {
+		// any name (D73) — never the sign-in's reserved one (purpose.go)
+		if d.Title != "" && !ReservedName(d.Title) {
 			s.mu.Lock()
 			if s.name == "" {
 				s.name, renamed = d.Title, true
