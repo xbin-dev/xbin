@@ -21,7 +21,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a link to open and the code it shows pasted back — where `claude /login`
   signed a fresh home in twice (its onboarding, then the command). When a
   Claude Code agent is signed out, the Agent tab's **Sign in** runs it in a
-  terminal session of its own that no tab shows and offers **Open sign-in
+  terminal session of its own (named `xbin:sign-in`) that no tab shows —
+  in the browser, and in the xbin app's session lists, which skip it too —
+  and offers **Open sign-in
   page ↗**, **Copy link**, a code field with **Finish**, and the CLI's own
   word on how it went; **Use a terminal instead** opens the shell tab as
   before (codex, gemini and opencode sign in that way still). `GET

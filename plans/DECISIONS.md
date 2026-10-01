@@ -6470,10 +6470,12 @@ Deviations and refinements made while implementing; all deliberate:
     `xbin:sign-in` (the existing rename) the moment it learns the id, and
     `visibleRows` drops that name; in this browser rows are also dropped
     by id, and while one is opening on the tile a shell row no tab holds
-    waits for the next listing (the rename's `term` event brings it). A
-    `name` on `/ws/term` would close the last window — another browser
-    can show a "Bash" tab for the instant between open and rename — but
-    the brief was no new server surface.
+    waits for the next listing (the rename's `term` event brings it). The
+    xbin app's directory (XbinTerm `TermDirectory.decode`) drops the name
+    too, so no tab, badge or inbox row there either. A `name` on
+    `/ws/term` would close the last window — another browser can show a
+    "Bash" tab for the instant between open and rename — but the brief was
+    no new server surface.
   - **Terminal links** (term-links.js, every `<bx-terminal>` and
     `<bx-logs>`): xterm's `linkHandler` opens OSC 8 targets (http/https,
     `noopener`, no `confirm()` — xterm's default asks "This link could

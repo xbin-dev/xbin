@@ -53,6 +53,23 @@ import Testing
         } == ["idle", "idle", "error", "ended", "stopping", "starting", "future"])
     }
 
+    /// The web Agent tab's guided sign-in runs a CLI's login in a terminal
+    /// session named xbin:sign-in (D178): it is no tab, badge or inbox row
+    /// here either — the web's visibleRows drops it the same way.
+    @Test func guidedSigninSessionsAreNotListed() {
+        let json = #"""
+        [{"id":"s1","cwd":"apps/x","kind":"shell","name":"build"},
+         {"id":"g1","cwd":"apps/x","kind":"shell","name":"xbin:sign-in","clients":1},
+         {"id":"a1","cwd":"apps/x","kind":"agent","provider":"claude","status":"error"},
+         {"id":"s2","cwd":"apps/x","kind":"shell","name":"xbin:sign-in (mine)"}]
+        """#
+        let list = TermDirectory.decode(Data(json.utf8))
+        #expect(TermDirectory.signinName == "xbin:sign-in")
+        #expect(list.map(\.id) == ["s1", "a1", "s2"])                   // only the exact name
+        #expect(TermDirectory.byTile(list)["apps/x"] == TileSessions(shells: 2, agents: 1))
+        #expect(TermDirectory.forTile(list, cwd: "apps/x").map(\.id).contains("g1") == false)
+    }
+
     /// A session waiting only on a question (an elicitation) needs the user
     /// too: the server's row carries `questions` (internal/term/sessions.go).
     @Test func questionsCountAsNeedingYou() throws {
