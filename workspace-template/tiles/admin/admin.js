@@ -39,7 +39,7 @@ import './tabs/sandboxes.js';
 import './tabs/deployments.js';
 import './tabs/branding.js';
 import './tabs/nativeapp.js';
-import { targetOptions, serviceOptions, WithDrafts } from './shared.js';
+import { targetOptions, serviceOptions, WithDrafts, alertBar } from './shared.js';
 
 export class BxAdmin extends WithDrafts(LitElement) {
   static properties = {
@@ -229,10 +229,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
     const tab = this._tab;
     const grp = this._grpOf(tab);
     return html`
-      ${(this._alerts || []).length ? html`<div class="alertbar">
-        ${this._alerts.map((a) => html`<div class="al ${a.level}">
-          <b>${a.level === 'crit' ? '\u26A0' : '\u26A1'}</b> ${a.message}</div>`)}
-      </div>` : nothing}
+      ${alertBar(this._alerts, (e) => (e ? (this._err = e.message) : this._refresh()))}
       <div class="groups">
         ${BxAdmin.GROUPS.map((g) => html`
           <button class=${g.id === grp.id ? 'on' : ''} @click=${() => this._setGroup(g)}>${g.label}</button>`)}

@@ -281,7 +281,12 @@ sets (unknown attachments, rules that can't parse, orgs granted HOST
 networking, inert net bindings); chrome requests no admin approved (those
 tiles run sandboxed) and approvals naming no component; tiles whose name
 holds `+` (which can't get deployments; no new name may hold one); go.work
-ownership; strict tile asset gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
+ownership; Go tiles that build with older dependency versions since each
+builds with its own `go.mod` (D166), with the `require` lines that keep what
+each had and what changed (admin credentials: `GET
+/api/xbin/go-build-versions`; a dismissed one is a note, as is a tile the
+check couldn't compare — [the migration
+note](/docs/changes/2026-09-30-go-build-workspace.md)); strict tile asset gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
 the strict modes refuse — from `GET /api/xbin/tile-assets`; under the
 default legacy mode these are what the coming enforcement will refuse);
 host inotify budget; toolchains present for the runtimes in use.

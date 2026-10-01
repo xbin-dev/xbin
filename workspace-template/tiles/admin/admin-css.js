@@ -31,6 +31,8 @@ export const base = [scrollCss, css`
     .al b { margin-right: 4px; }
     .al.warn { background: #b7791f; }
     .al.crit { background: #c53030; }
+    .al-x { margin-left: 8px; font: inherit; background: none; color: inherit;
+      border: 1px solid rgba(255,255,255,.5); border-radius: 4px; cursor: pointer; }
     .denied { padding: 20px 14px; }
     .denied code { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
       border-radius: 4px; padding: 0 4px; font: 11.5px var(--bx-mono); }

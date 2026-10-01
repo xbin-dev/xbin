@@ -165,6 +165,7 @@ func (r *Runner) buildCheckpointGoIn(c *registry.Component, tree, root string, p
 		}
 	}
 	placed = true
+	r.GoVersions.Built(c.Path) // a pinned primary redeployed: the D166 alert re-checks the tile's go.mod
 	return final, nil
 }
 
