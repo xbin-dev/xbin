@@ -177,7 +177,7 @@ integration:
 	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
 	# whole on a reset and an offload-full (WP-9b), its mount points are
 	# never followed through it (WP-2b), and one on an older base moves to
-	# the current one at a start with base auto-update on (D173): only these
+	# the current one at a start with base auto-update on (D174): only these
 	# tests of this unit-heavy package (the broker's run whole above); skip
 	# without .rootfs/userns
 	go test -tags=integration -count=1 -v -run '^(TestConfined|TestTermMountPoints)' ./internal/term/

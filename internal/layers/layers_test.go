@@ -144,3 +144,64 @@ func TestPin(t *testing.T) {
 		t.Fatal("a pin without a rootfs")
 	}
 }
+
+// ReadBaseVersion tells an unstamped base (no file, an empty one, none at
+// all: Legacy) from a version file that is there but can't be read (an
+// error) — which BaseVersion reads as Legacy too.
+func TestReadBaseVersion(t *testing.T) {
+	root := t.TempDir()
+	cur := filepath.Join(root, "rootfs")
+	stampBase(t, cur, "abc123")
+	if v, err := ReadBaseVersion(cur); v != "abc123" || err != nil {
+		t.Fatalf("stamped: %q %v", v, err)
+	}
+	for _, dir := range []string{"", mkdir(t, filepath.Join(root, "unstamped"))} {
+		if v, err := ReadBaseVersion(dir); v != Legacy || err != nil {
+			t.Fatalf("unstamped %q: %q %v", dir, v, err)
+		}
+	}
+	empty := filepath.Join(root, "empty")
+	stampBase(t, empty, "")
+	if v, err := ReadBaseVersion(empty); v != Legacy || err != nil {
+		t.Fatalf("empty: %q %v", v, err)
+	}
+	bad := filepath.Join(root, "bad")
+	mkdir(t, filepath.Join(bad, VersionFile)) // a dir where the file goes: EISDIR
+	if v, err := ReadBaseVersion(bad); err == nil || v != Legacy {
+		t.Fatalf("unreadable: %q %v", v, err)
+	}
+	if v := BaseVersion(bad); v != Legacy {
+		t.Fatalf("BaseVersion of an unreadable one: %q", v)
+	}
+}
+
+// ReadBase reads the base stamp alone: "" for none, the stamp whatever the
+// overlay stamp holds, an error for one that is there but isn't a regular
+// file it can read.
+func TestReadBase(t *testing.T) {
+	dir := mkdir(t, filepath.Join(t.TempDir(), "layer"))
+	if v, err := ReadBase(dir); v != "" || err != nil {
+		t.Fatalf("none: %q %v", v, err)
+	}
+	if v, err := ReadBase(filepath.Join(dir, "missing")); v != "" || err != nil {
+		t.Fatalf("no dir: %q %v", v, err)
+	}
+	if err := Stamp(dir, Stamps{Base: "b1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/hostname", filepath.Join(dir, OverlayFile)); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := ReadBase(dir); v != "b1" || err != nil {
+		t.Fatalf("beside a bad overlay stamp: %q %v", v, err)
+	}
+	if err := os.Remove(filepath.Join(dir, BaseFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/hostname", filepath.Join(dir, BaseFile)); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := ReadBase(dir); v != "" || err == nil {
+		t.Fatalf("a link: %q %v", v, err)
+	}
+}

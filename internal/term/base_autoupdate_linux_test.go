@@ -8,11 +8,13 @@ package term
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,28 +23,36 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/layers"
+	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
-// Real terminals on the real rootfs (D173). Three tiles, each with a layer
-// that has a file in its upper (an apt install) and is stamped with an
-// older base than the rootfs's: with base auto-update off, the session runs
-// on that base — its file there, its stamp kept; with it on, the session's
-// start moves the layer to the current base — the file gone, the stamp the
-// rootfs's, and the shell's first output the grey line; and with it on, a
-// layer whose base isn't installed at all moves the same way. The "older
-// base" is the same rootfs under a second name, `<rootfs>-old1` beside a
-// `<rootfs>` link (ResolveBase only looks for the dir), so the test needs
-// no second image.
+// Real terminals on the real rootfs (D174). Each tile's layer is stamped
+// with an older base than the rootfs's, and a first session — base
+// auto-update off, so it runs on that base — installs something the way
+// apt does: a tree root owns in the sandbox, chowned to sub-uid 1000 in
+// range mode (which xbind can't unlink) with a mode-000 dir in it (which
+// xbind can't list). Then:
 //
-// Nothing here waits on time: each step reads the terminal until a marker
-// only the command's output holds, and each session's end is the layer's
-// release (the condition the next start needs), polled with a generous
-// bound for a loaded machine.
+//   - apps/on: a session with the setting still off finds it kept — no
+//     line, the stamp the old base's; a session with it on moves the layer:
+//     its first output the grey line, the install gone, the stamp the
+//     rootfs's, and the old layer, put aside, removed by the confined
+//     remover.
+//   - apps/gone: the old base then disappears (the layer restamped with a
+//     base that isn't installed): off, the terminal refuses to open; on, it
+//     moves like the other.
+//
+// The "older base" is the same rootfs under a second name, `<rootfs>-old1`
+// beside a `<rootfs>` link (ResolveBase only looks for the dir), so the
+// test needs no second image. Nothing here waits on time: each step reads
+// the terminal until a marker only the command's output holds, and each
+// session's end is the layer's release (the condition the next start
+// needs), polled with a generous bound for a loaded machine.
 func TestConfinedBaseAutoUpdate(t *testing.T) {
 	real := layerRootfs(t)
 	cur := layers.BaseVersion(real)
-	if cur == "old1" || cur == "gone" {
-		t.Skip("the rootfs is stamped with one of the test's names")
+	if cur == "old1" || cur == "gone" || cur == layers.Legacy {
+		t.Skip("the rootfs is unstamped, or stamped with one of the test's names")
 	}
 	root, bases := t.TempDir(), t.TempDir()
 	rootfs := filepath.Join(bases, "rootfs")
@@ -57,94 +67,148 @@ func TestConfinedBaseAutoUpdate(t *testing.T) {
 		confine.Configure("")
 	})
 
-	type tile struct {
-		rel, base string
-		auto      bool
-		wantMoved bool
-	}
-	tiles := []tile{
-		{rel: "apps/off", base: "old1", auto: false},
-		{rel: "apps/on", base: "old1", auto: true, wantMoved: true},
-		{rel: "apps/gone", base: "gone", auto: true, wantMoved: true},
-	}
-	auto := map[string]bool{}
-	for _, tl := range tiles {
-		auto[termKey(tl.rel)] = tl.auto
-	}
 	m := NewManager(root, nil)
 	m.Isolate, m.Rootfs = true, rootfs
-	// The setting is the workspace's; per tile here only so one manager
-	// serves both answers (the start reads it for the layer it claims).
-	var claiming string
-	m.BaseAutoUpdate = func() bool { return auto[claiming] }
+	var auto atomic.Bool // the workspace setting; sessions open one at a time
+	m.BaseAutoUpdate = auto.Load
+	t.Cleanup(m.waitMoved)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.ServeWS(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{Owner: true})))
 	}))
 	t.Cleanup(srv.Close)
 
-	for _, tl := range tiles {
-		t.Run(tl.rel, func(t *testing.T) {
-			key := termKey(tl.rel)
-			layer := filepath.Join(root, ".xbin", "term", key)
-			if err := os.MkdirAll(filepath.Join(root, tl.rel), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			installed := filepath.Join(layer, "upper", "opt", "installed")
-			if err := os.MkdirAll(filepath.Dir(installed), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(installed, []byte("x\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if err := layers.Stamp(layer, layers.Stamps{Base: tl.base}); err != nil {
-				t.Fatal(err)
-			}
-
-			claiming = key // sessions open one at a time: the hook answers for this tile
-			c := dialTerm(t, srv.URL, tl.rel)
-			out := runInTerm(t, c, "test -e /opt/installed && echo LAYER-''KEPT || echo LAYER-''FRESH", "LAYER-KEPT", "LAYER-FRESH")
-			moved := strings.Contains(out, "terminal layer moved to the new base image")
-			fresh := strings.Contains(out, "LAYER-FRESH")
-			if moved != tl.wantMoved || fresh != tl.wantMoved {
-				t.Fatalf("moved line %v, fresh layer %v; want both %v — output:\n%s", moved, fresh, tl.wantMoved, out)
-			}
-			if tl.wantMoved && strings.Index(out, "terminal layer moved") > strings.Index(out, "LAYER-FRESH") {
-				t.Fatalf("the grey line isn't the session's first output:\n%s", out)
-			}
-			if !tl.wantMoved {
-				if _, err := os.Stat(installed); err != nil {
-					t.Fatalf("the kept layer lost its file: %v", err)
-				}
-			}
-			want := tl.base
-			if tl.wantMoved {
-				want = cur
-			}
-			if s, err := layers.Read(layer); err != nil || s.Base != want {
-				t.Fatalf("the layer is stamped %q (%v), want %q", s.Base, err, want)
-			}
-			endTerm(t, m, c, key)
-		})
+	ranged, _ := sandbox.IDMapStatus(os.Getuid(), os.Getgid())
+	install := "mkdir -p /opt/installed/sub && echo x > /opt/installed/sub/f"
+	if ranged {
+		install += " && chown -R 1000:1000 /opt/installed"
 	}
+	install += " && chmod 000 /opt/installed/sub && echo INSTALL-''DONE"
+	const probe = "test -e /opt/installed/sub && echo LAYER-''KEPT || echo LAYER-''FRESH"
+	const line = "terminal moved to the new base image"
+
+	// setup: the tile's layer on old1, with an install a first session made
+	setup := func(t *testing.T, rel string) (key, layer string) {
+		t.Helper()
+		key = termKey(rel)
+		layer = filepath.Join(root, ".xbin", "term", key)
+		for _, d := range []string{filepath.Join(root, rel), layer} {
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := layers.Stamp(layer, layers.Stamps{Base: "old1"}); err != nil {
+			t.Fatal(err)
+		}
+		auto.Store(false)
+		c := dialTerm(t, srv.URL, rel)
+		runInTerm(t, c, install, "INSTALL-DONE")
+		endTerm(t, m, c, key)
+		if _, err := os.Lstat(filepath.Join(layer, "upper", "opt", "installed", "sub")); err != nil {
+			t.Fatalf("the install isn't in the layer's upper: %v", err)
+		}
+		if ranged {
+			if err := os.RemoveAll(filepath.Join(layer, "upper", "opt", "installed")); err == nil {
+				t.Fatal("xbind removed the sub-uid's install itself: the test proves nothing")
+			}
+		}
+		return key, layer
+	}
+	stampOf := func(t *testing.T, layer string) string {
+		t.Helper()
+		s, err := layers.Read(layer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.Base
+	}
+	// moves opens a session with the setting on and checks the move
+	moves := func(t *testing.T, rel, key, layer string) {
+		t.Helper()
+		auto.Store(true)
+		c := dialTerm(t, srv.URL, rel)
+		out := runInTerm(t, c, probe, "LAYER-KEPT", "LAYER-FRESH")
+		if !strings.Contains(out, "LAYER-FRESH") || !strings.Contains(out, line) {
+			t.Fatalf("on: no move — output:\n%s", out)
+		}
+		if strings.Index(out, line) > strings.Index(out, "LAYER-FRESH") {
+			t.Fatalf("the grey line isn't the session's first output:\n%s", out)
+		}
+		if s := stampOf(t, layer); s != cur {
+			t.Fatalf("the moved layer is stamped %q, want %q", s, cur)
+		}
+		endTerm(t, m, c, key)
+		m.waitMoved() // the confined remover's run on the put-aside layer
+		ents, err := os.ReadDir(m.movedRoot())
+		if err != nil || len(ents) != 0 {
+			t.Fatalf("the old layer wasn't removed: %v %v", ents, err)
+		}
+	}
+
+	t.Run("on", func(t *testing.T) {
+		rel := "apps/on"
+		key, layer := setup(t, rel)
+		auto.Store(false) // kept, on its base
+		c := dialTerm(t, srv.URL, rel)
+		out := runInTerm(t, c, probe, "LAYER-KEPT", "LAYER-FRESH")
+		if !strings.Contains(out, "LAYER-KEPT") || strings.Contains(out, line) {
+			t.Fatalf("off: the layer moved — output:\n%s", out)
+		}
+		endTerm(t, m, c, key)
+		if s := stampOf(t, layer); s != "old1" {
+			t.Fatalf("off: stamped %q", s)
+		}
+		moves(t, rel, key, layer)
+	})
+
+	t.Run("gone", func(t *testing.T) {
+		rel := "apps/gone"
+		key, layer := setup(t, rel)
+		if err := layers.Stamp(layer, layers.Stamps{Base: "gone"}); err != nil {
+			t.Fatal(err)
+		}
+		auto.Store(false) // refused: its base isn't installed
+		if msg := dialRefused(t, srv.URL, rel); !strings.Contains(msg, "not installed") {
+			t.Fatalf("off: %q", msg)
+		}
+		if s := stampOf(t, layer); s != "gone" {
+			t.Fatalf("off: stamped %q", s)
+		}
+		moves(t, rel, key, layer)
+	})
 }
 
 // dialTerm opens a terminal on rel as the owner, offline.
 func dialTerm(t *testing.T, base, rel string) *websocket.Conn {
 	t.Helper()
-	d := websocket.Dialer{HandshakeTimeout: 2 * time.Minute}
+	d := websocket.Dialer{HandshakeTimeout: 3 * time.Minute} // a bound for a stuck start, not a timing
 	c, resp, err := d.Dial("ws"+strings.TrimPrefix(base, "http")+"/ws/term?net=none&cwd="+rel, nil)
 	if err != nil {
 		body := ""
 		if resp != nil {
-			b := make([]byte, 512)
-			n, _ := resp.Body.Read(b)
-			body = string(b[:n])
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			body = string(b)
 		}
 		t.Fatalf("open a terminal on %s: %v %s", rel, err, body)
 	}
 	t.Cleanup(func() { c.Close() })
 	return c
+}
+
+// dialRefused opens a terminal on rel that must be refused, and returns why.
+func dialRefused(t *testing.T, base, rel string) string {
+	t.Helper()
+	d := websocket.Dialer{HandshakeTimeout: 3 * time.Minute}
+	c, resp, err := d.Dial("ws"+strings.TrimPrefix(base, "http")+"/ws/term?net=none&cwd="+rel, nil)
+	if err == nil {
+		c.Close()
+		t.Fatalf("a terminal on %s opened", rel)
+	}
+	if resp == nil {
+		t.Fatalf("no answer: %v", err)
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	return string(b)
 }
 
 // runInTerm types line and reads the terminal until one of the markers
@@ -191,7 +255,7 @@ func endTerm(t *testing.T, m *Manager, c *websocket.Conn, key string) {
 			break
 		}
 	}
-	deadline := time.Now().Add(3 * time.Minute)
+	deadline := time.Now().Add(3 * time.Minute) // a bound for a stuck teardown, not a timing
 	for !m.acquireEnv(key) {
 		if time.Now().After(deadline) {
 			t.Fatal("the ended session never let its layer go")

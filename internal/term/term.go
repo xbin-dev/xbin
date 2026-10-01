@@ -30,6 +30,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/gpu"
+	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 	"github.com/xbin-dev/xbin/internal/sbx"
@@ -96,7 +97,7 @@ type Manager struct {
 	Isolate    bool
 	Rootfs     string
 	ExtraBinds []sandbox.Bind
-	// BaseAutoUpdate is the workspace's base auto-update setting (D173,
+	// BaseAutoUpdate is the workspace's base auto-update setting (D174,
 	// base.go): a tile's layer built on an older base moves to the current
 	// one at its next session start. nil ⇒ off: a layer stays pinned to its
 	// base until it is reset.
@@ -181,6 +182,9 @@ type Manager struct {
 	sessions map[string]*Session
 	envHeld  map[string]bool        // component key → a live session holds its persistent layer
 	rmTree   func(dir string) error // tests: stands in for removeLayer's confined removal
+
+	base      baseState                               // base auto-update: the current base, the remover, notes (basemove.go)
+	stampHook func(dir string, s layers.Stamps) error // tests: stands in for layers.Stamp (Manager.stamp)
 
 	viewMu sync.Mutex          // views, and writes into a live view dir (RefreshViews, dropView)
 	views  map[string][]string // live restricted views (D40): view dir → the components it binds
@@ -416,8 +420,11 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
 		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
-	if o.launch.baseMoved != "" { // before the PTY's first byte: pump hasn't started
-		s.hub.Output([]byte(baseMovedLine))
+	// before the PTY's first byte (pump hasn't started): this start moved the
+	// tile's layer to the current base, or an agent session's start did and
+	// no shell has said so yet (D174) — an ephemeral session too
+	if note := m.takeMoveNote(termKey(rel), o.launch.baseMoved != ""); m.Isolate && note != "" {
+		s.hub.Output([]byte(note))
 	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
@@ -612,7 +619,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	// Persistent per-component upper (if we can claim it), else ephemeral tmpfs.
 	// A VM terminal keeps its changes on a disk image in the same layer (vm.go).
 	// The layer is pinned to the base it was built on, or moved to the
-	// current one first (base auto-update, D173; claimLayer).
+	// current one first (base auto-update, D174; claimLayer).
 	envKey, vmDisk := termKey(rel), ""
 	lc, held, err := m.claimLayer(envKey)
 	if err != nil {

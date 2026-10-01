@@ -22,7 +22,17 @@ type sbxLaunch struct {
 	memMiB, vcpus int
 	emulated      bool
 	disk          string
-	baseMoved     string // the base the tile's layer moved off at this start ("" = none; claimLayer, D173)
+	baseMoved     string // the base the tile's layer moved off at this start ("" = none; claimLayer, D174)
+}
+
+// setVM records a VM session's sizes and disk (applyVM), field by field:
+// what the setup learnt before it — a base move — stays (it once replaced
+// the whole struct, and a VM terminal's move went unsaid). nil-safe.
+func (l *sbxLaunch) setVM(memMiB, vcpus int, emulated bool, disk string) {
+	if l == nil {
+		return
+	}
+	l.memMiB, l.vcpus, l.emulated, l.disk = memMiB, vcpus, emulated, disk
 }
 
 func sbxKind(kind string) sbx.Kind {

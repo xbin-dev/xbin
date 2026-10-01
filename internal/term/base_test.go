@@ -53,14 +53,14 @@ func TestEnsureLayerBaseAndGate(t *testing.T) {
 
 	// Brand-new layer stamps the current base.
 	newLayer := filepath.Join(root, ".xbin", "term", "apps~a")
-	if v := m.ensureLayerBase(newLayer); v != "cur1" {
-		t.Fatalf("new layer base: %q", v)
+	if v, err := m.layerBase(newLayer, "cur1"); err != nil || v != "cur1" {
+		t.Fatalf("new layer base: %q %v", v, err)
 	}
 	// Pre-existing unstamped layer → v0 (legacy migration).
 	legacy := filepath.Join(root, ".xbin", "term", "apps~b")
 	os.MkdirAll(filepath.Join(legacy, "upper"), 0o755)
-	if v := m.ensureLayerBase(legacy); v != "v0" {
-		t.Fatalf("legacy layer base: %q", v)
+	if v, err := m.layerBase(legacy, "cur1"); err != nil || v != "v0" {
+		t.Fatalf("legacy layer base: %q %v", v, err)
 	}
 	// layerOutdated: the legacy (v0) layer is older than cur1.
 	if !m.layerOutdated("apps~b") {
@@ -69,13 +69,14 @@ func TestEnsureLayerBaseAndGate(t *testing.T) {
 	if m.layerOutdated("apps~a") {
 		t.Fatal("current layer should not be outdated")
 	}
-	// Safety gate: apps~b pins v0 which isn't installed → error.
-	if err := m.CheckBaseImages(); err == nil {
-		t.Fatal("gate should fail when a pinned base is missing")
+	// The boot's look: apps~b pins v0, which isn't installed — listed
+	// (each start refuses it; the boot no longer does, D174).
+	if missing := m.CheckBaseImages(); len(missing) != 1 || missing[0] != "apps~b→v0" {
+		t.Fatalf("missing bases: %v", missing)
 	}
-	// Preserve the v0 base → gate passes.
+	// Preserve the v0 base → nothing missing.
 	stampBase(t, cur+"-v0", "v0")
-	if err := m.CheckBaseImages(); err != nil {
-		t.Fatalf("gate should pass once bases exist: %v", err)
+	if missing := m.CheckBaseImages(); len(missing) != 0 {
+		t.Fatalf("missing bases once they exist: %v", missing)
 	}
 }

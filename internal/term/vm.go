@@ -98,9 +98,9 @@ func (m *Manager) applyVM(spec *sandbox.Spec, rel string, o openOpts, disk strin
 		release()
 		return nil, err
 	}
-	if o.launch != nil { // sbx.go: the registry entry and the leaf's size
-		*o.launch = sbxLaunch{memMiB: p.MemMiB, vcpus: p.VCPUs, emulated: spec.VM != nil && spec.VM.QEMU != "", disk: disk}
-	}
+	// sbx.go: the registry entry and the leaf's size; what the setup learnt
+	// before (a base move) stays
+	o.launch.setVM(p.MemMiB, p.VCPUs, spec.VM != nil && spec.VM.QEMU != "", disk)
 	return release, nil
 }
 

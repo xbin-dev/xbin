@@ -316,9 +316,6 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
-	if o.launch.baseMoved != "" { // the host's text log; the window's bar drops the base update offer
-		st.logf(baseMovedNote)
-	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
 	drv := acp.New()
 	st.drv = drv // before the session is visible: info() and the API read it
@@ -327,6 +324,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	m.mu.Unlock()
 	m.changed("open", s)
 	unlist := m.register(s, o, leaf)
+	if o.launch.baseMoved != "" { // D174: this start moved the tile's layer to the current base
+		s.sayBaseMoved(m, termKey(rel))
+	}
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
 	// its login from) plus the provider's own non-secret knobs. No API keys —
