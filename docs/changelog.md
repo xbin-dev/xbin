@@ -37,6 +37,37 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   fixes a new Go tile's first build failing with `go: no modules were found
   in the current workspace` when it ran before the root `go.work` listed
   the tile.
+- **Security fixes in the builtins' Go dependencies — update them from the
+  Tile Manager.** Each tile now builds with its own `go.mod` (above), so a
+  builtin no longer picks up newer versions another tile's `go.mod`
+  required: these are the fixed versions, in the builtins themselves.
+  - **`sandbox-terminal` v6**: its SSH server runs on
+    `golang.org/x/crypto` v0.57.0 (was v0.48.0), fixing ten advisories its
+    code reaches (GO-2026-5013, -5014, -5017, -5018, -5019, -5020, -5023,
+    -6303, -6354, -6355: certificate, FIDO-key and source-address
+    restrictions not enforced, panics, deadlocks and loops a client can
+    cause). Tile Manager → Updates.
+  - **Agent template**: `golang.org/x/text` v0.42.0 (was v0.3.8: an
+    infinite loop on invalid input, GO-2026-5970, reached through the JS
+    engine), `golang.org/x/sys` v0.48.0, `modernc.org/sqlite` v1.60.1 (was
+    v1.39.1). **Coding-sandbox template**: `golang.org/x/sys` v0.48.0,
+    `modernc.org/sqlite` v1.60.1. An instance takes them as any template
+    update — `git fetch template && git merge` in it (the Tile Manager and
+    `bx template updates` list the instances behind); a stock instance's
+    `go.mod` and `go.sum` merge cleanly.
+  - Their `go.mod` files now say `go 1.26.0` (x/crypto needs it since
+    v0.56.0). The host's Go builds them (the installer's is ≥ 1.26.3); the
+    base rootfs now ships Go 1.26.3 (was 1.24.0) for terminals; and the
+    workspace's generated `go.work` now states the highest `go` line of its
+    modules instead of always `go 1.24` — which the go command refused for
+    every command in a terminal as soon as any tile said `go 1.24.0` or
+    later (what `go mod init` writes). A terminal on an older base runs Go
+    1.24.0 and fetches go1.26.0 on its first `go` command there
+    (`GOTOOLCHAIN=auto`, network needed) — or upgrade its base
+    ([elements.md](/docs/elements.md) §Cross-component code access).
+  - Every release now passes a vulnerability gate: no known vulnerability
+    that xbind's programs or a builtin's code reaches ships unless the
+    release says why.
 - **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
   OpenCode answer a conversation, or work for the agent, in a coding
   sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A
