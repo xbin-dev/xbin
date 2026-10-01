@@ -40,6 +40,7 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 			if err := r.buildConfined(c, entry, out); err != nil {
 				return "", err
 			}
+			r.GoVersions.Built(c.Path)
 			return out, nil
 		}
 		// the build's own workspace here too (D166): the same module graph
@@ -62,6 +63,7 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 		if outp, err := cmd.CombinedOutput(); err != nil {
 			return "", &BuildError{Output: withHint(string(outp), work)}
 		}
+		r.GoVersions.Built(c.Path)
 		return out, nil
 	case "node", "python":
 		entry := interpEntry(c.Manifest)
