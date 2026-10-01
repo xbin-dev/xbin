@@ -117,29 +117,47 @@ func (f *opsFx) must(pr auth.Principal, op Op, req any) Answer {
 	return a
 }
 
-// settle waits for an answer's deploy when it is still queued or running.
+// settle waits for an answer's deploy to be done. One the answer reports
+// finished may not be yet: finish sets the result, then logs the attempt,
+// then closes done, and a backend's lane can finish it while the operation
+// builds its answer; settling on the result alone lets the next deploy's
+// log entry land first.
 func (f *opsFx) settle(tile string, a Answer) {
 	f.t.Helper()
-	if a.Deploy != nil && (a.Deploy.Result == resultQueued || a.Deploy.Result == resultRunning) {
+	switch {
+	case a.Deploy == nil:
+	case a.Deploy.Result == resultQueued || a.Deploy.Result == resultRunning:
 		f.wait(tile, a.Deploy.ID)
+	default:
+		if at, err := f.p.findAttempt(context.Background(), tile, a.Deploy.ID); err == nil {
+			f.waitDone(tile, at)
+		}
 	}
 }
 
-// wait waits for attempt id of tile to finish and returns its entry: Entry's
-// long poll, again until the attempt finishes (hangGuard only ends a hang).
+// wait waits for attempt id of tile to be done (finished, its log entry
+// written) and returns its entry.
 func (f *opsFx) wait(tile string, id int64) DeployEntry {
 	f.t.Helper()
-	deadline := time.Now().Add(hangGuard)
-	for {
-		e, err := f.p.Entry(context.Background(), tile, id, 10*time.Second)
-		switch {
-		case err != nil:
-			f.t.Fatalf("Entry(%s, %d): %v", tile, id, err)
-		case e.Result != resultQueued && e.Result != resultRunning:
-			return e
-		case time.Now().After(deadline):
-			f.t.Fatalf("deploy %d of %s still %s after %v", id, tile, e.Result, hangGuard)
-		}
+	a, err := f.p.findAttempt(context.Background(), tile, id)
+	if err != nil {
+		f.t.Fatalf("deploy %d of %s: %v", id, tile, err)
+	}
+	f.waitDone(tile, a)
+	return f.p.entryOf(context.Background(), a)
+}
+
+// waitDone waits for a's done to close (an attempt read back from the log has
+// none: it is done); hangGuard only ends a hang.
+func (f *opsFx) waitDone(tile string, a *attempt) {
+	f.t.Helper()
+	if a.done == nil {
+		return
+	}
+	select {
+	case <-a.done:
+	case <-time.After(hangGuard):
+		f.t.Fatalf("deploy %d of %s (%s %s) wasn't done in %v", a.ID, tile, a.How, a.Deployment, hangGuard)
 	}
 }
 
@@ -158,8 +176,6 @@ const hangGuard = 2 * time.Minute
 // the clock.
 func (f *opsFx) drained(tile string) {
 	f.t.Helper()
-	guard := time.NewTimer(hangGuard)
-	defer guard.Stop()
 	for {
 		var next *attempt
 		f.p.q.mu.Lock()
@@ -175,11 +191,7 @@ func (f *opsFx) drained(tile string) {
 		if next == nil {
 			return
 		}
-		select {
-		case <-next.done:
-		case <-guard.C:
-			f.t.Fatalf("%s's deploy %d (%s %s) didn't finish in %v", tile, next.ID, next.How, next.Deployment, hangGuard)
-		}
+		f.waitDone(tile, next)
 	}
 }
 
