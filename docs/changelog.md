@@ -10,6 +10,105 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-01
+
+- **Sandbox managers: a user partition's person on terminals and stdio
+  sockets, and what one shared sandbox shares**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned consumers,
+  §Terminals, §stdio, §hello). The contract now says what its partitions
+  rule already meant for the routes coding agents added: from a
+  partitioned consumer's user partition the person is the partition's and
+  verified on the `tty` and `stdio` routes too — a manager with
+  `partitions` applies the person rules itself, and an `Sbx-User` naming
+  anyone else is `403 not-allowed`; "asserted, the consumer's to check" is
+  an unpartitioned consumer's backend call (or a global instance's).
+  A partition id alone names no consumer — one person's partitions of two
+  consumers may carry the same id — so a manager keys on both.
+  `sdk/sandboxcontract`'s `user-partitions` section gains `sockets` (run
+  where hello offers `tty` or `stdio`): another partition, the same
+  person's partition of another consumer, the consumer's global instance
+  and a person it names get `404` on a partition-homed sandbox's terminals
+  and stdio sockets, the partition naming someone else `403`, a refused
+  dial takes no stdin, and a partition's exec named under a sandbox the
+  caller does see is `404`; `apart` checks the other consumer's partition
+  of the same person on the HTTP routes. `hack/fakesandbox` and
+  `coding-sandbox` pass. §Partitioned consumers names two more things the
+  partitions that see one sandbox share: an exec's stdio socket, whose
+  attach takes over its stdin (a coding agent's), and the sandbox's home
+  directory, where a coding agent's sign-in serves whoever runs that agent
+  there afterwards; hello's `harnesses[].login` adds that a partitioned
+  consumer should offer the sign-in only in a sandbox homed in the
+  person's own partition (the manager can't tell a sign-in from another
+  terminal), and that whoever sets `argv`/`login` is in its users' trust
+  base. `ManagerTTYOptions.User` and `ManagerStdioOptions.User` say the
+  same, for a manager with `partitions` (a partitioned tile uses no other
+  from a person's partition: one without it takes the call as the tile's,
+  the person asserted). Nothing changes for an unpartitioned consumer or a
+  manager without `partitions`.
+- **The agent template: coding agents only in your own conversations**
+  (the template's API.md "Partitioned instances" → "Coding agents only in
+  your own conversations", and "Coding agents" → "In a partitioned
+  instance (the UI)"). In a partitioned agent a coding agent (Claude Code,
+  Codex, Gemini CLI, opencode) signs in inside its sandbox, so it works
+  only where that sign-in stays its person's: their own conversations, in
+  a sandbox homed in their partition.
+  - The global instance never starts, drives or signs one in: `POST /ask`
+    and `POST /runs` with `harness`, `POST /runs/{id}/harness/authenticate`
+    and the run terminal's `login=1` answer 409 there, its catalog lists
+    each coding agent unavailable (`reason: "shared-space"`), its agent's
+    `subagent_spawn` has no `harness` — so a shared conversation, a
+    channel, a trigger or a schedule never reaches one. Its page offers no
+    "Who answers", and a new chat shared with others is the built-in
+    agent's.
+  - A non-secure (hosted) conversation has none, one a coding agent
+    answers can't be hosted, and a hosted conversation doesn't work in a
+    sandbox of its host's where a coding agent of theirs signed in or
+    worked.
+  - A coding agent's conversation — or one where a coding agent it started
+    is still at work or still running — can't be published, copied, hosted
+    or moved to another space (409 `{error, runs}`, the runs it waits on);
+    the page offers none of those on one. Its owner's un-share of one at
+    the shared instance answers 409 (it would move it); a member may still
+    leave it. One already in the shared space (from before this rule) is
+    read, not driven: no Retry, no message, its mode and options not
+    switched.
+  - In your own partition a coding agent starts only in a sandbox of your
+    own space: `GET /sandboxes` says of each sandbox there whether it is
+    `homed` (and `why` not), the catalog keeps only yours, the pickers show
+    the team's sandboxes as not fitting with the reason — the built-in
+    agent's too — and offer Create; its terminal, sign-in and log are
+    refused for a sandbox not homed there (403) or a manager that can't
+    keep people apart (409). A sign-in is offered only there; elsewhere its
+    card says why. A shared conversation's coding agent is reached at the
+    shared instance (its buttons, the app's terminal).
+  - Only a coding agent at work (a turn, or a sign-in the agent waits on)
+    keeps your partition running — never one idle or waiting for you. An
+    idle one is stopped at its idle time: while your partition idles it
+    keeps a `wake` cron job registered for that minute (never an
+    every-minute `resume`), which brings a stopped partition back to stop
+    it, also under a halt. A manager's halt reaches a coding agent's turn
+    at its next step, or within a few seconds when it says nothing, and
+    one waiting for the settings to be read doesn't start. `GET /usage`
+    adds each person's coding-agent sessions (`harnessSessions`).
+  - Fixed: a person's partition now lists the team's sandboxes (those it
+    may use at the shared instance, read-only there: their terminal opens,
+    conversations there don't use them) — they were missing, and a shared
+    conversation's sandbox terminal from your own partition didn't open;
+    and a person's partition's `resume`/`wake` jobs are kept registered
+    while it idles rather than left at its exit, which xbind refused (its
+    token is revoked before it stops), so a sleeping run's wake-up or a
+    coding agent's idle stop was lost when the partition stopped.
+
+  Unpartitioned instances change nothing. Nothing to change.
+- **Partitioned tiles: a stopping partition's token goes before its
+  process** ([partitions.md](/docs/partitions.md) §How people's partitions
+  run). Said now, as it always was: every stop of a person's partition —
+  idle, its person's own, a switch, their removal — revokes its instance
+  token first, so its backend's calls to xbind while it exits (a cron job
+  registered at SIGTERM) are refused; register what should bring it back
+  while it runs. Nothing to change unless your partitioned backend does
+  that at its exit.
+
 ## 2026-09-30
 
 - **The agent template: non-secure (hosted) conversations and "Add a copy of
@@ -1076,8 +1175,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     `tty` routes (and attaches to tty execs it started) with its instance
     credential, naming its person in `Sbx-User` — asserted, as on every
     backend call — to drive a terminal or relay it to its own page or app;
-    the consumer checks that person first, the manager keeps its
-    partitions. Every manager serves this (a cloud one: `ssh -t`). A `tty`
+    the consumer checks that person first, the manager keeps consumers apart (from a partitioned consumer's user partition the person is the partition's, verified: the manager checks them). Every manager serves this (a cloud one: `ssh -t`). A `tty`
     command gets `TERM`, `COLORTERM` and `LANG` unless its env names them.
   - **`stdio`** (optional; `hello.caps`, `sandbox.caps`). `POST …/execs
     {split: true}` keeps a non-tty exec's stderr apart
@@ -1386,11 +1484,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `bx builtin update scaffold:tiles/admin` (the API works without it).
   Nothing to change.
 - **Sandbox managers key partitioned consumers per person**
-  ([sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned consumers, D140).
-  A manager whose `hello.caps` carry the new `partitions` capability (the
-  manager's own — never in a sandbox's `caps`) takes a partitioned
-  consumer's calls as (`X-XBin-From`, `X-XBin-Partition-Id`): a sandbox
-  made in a person's user partition is homed there (`owner.partitionId`,
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned consumers,
+  D140). A manager whose `hello.caps` carry the new `partitions` capability
+  (the manager's own — never in a sandbox's `caps`) takes a partitioned
+  consumer's calls as (`X-XBin-From`, `X-XBin-Partition-Id`): a sandbox made
+  in a person's user partition is homed there (`owner.partitionId`,
   `owner.partition`) and invisible to the consumer's global instance, its
   other partitions and every other consumer unless shared (`shares` gain an
   optional `partitionId`; the person rules still apply to the partition's
@@ -1401,20 +1499,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   every existing sandbox stays with its consumer's global instance.
   `clientId`s are per partition; quotas per consumer count all its
   partitions. Isolation stops at the sandbox: partitions that see one
-  sandbox share its execs and terminals. The builtin **coding-sandbox**
-  template does all of it, tells the runtime the partition as the label
+  sandbox share its execs, terminals and stdio sockets, and what its home
+  holds (a coding agent's sign-in). The builtin **coding-sandbox** template
+  does all of it, tells the runtime the partition as the label
   `coding-sandbox/partition`, and shows its operators a user partition's
   sandbox as `<consumer>/<partition id, 8> #<n>`, without labels and with
   its snapshots named `snapshot #<n>`, unless it is shared with them. The
   conformance suite (`sdk/sandboxcontract`) gains a `user-partitions`
   section (run when hello offers `partitions`), `Target.Partition`, and
   `Caller.InPartition`/`Global`; `hack/fakesandbox` follows (without
-  `partitions` in its `Caps` it behaves as a manager from before them).
-  The contract's "Partitions, sharing and people" section is now
-  "Consumers, sharing and people" (the same rules; the suite's
-  `partitions` section keeps its name). Nothing changes for an
-  unpartitioned consumer; existing copies of the template take it with a
-  template update.
+  `partitions` in its `Caps` it behaves as a manager from before them). The
+  contract's "Partitions, sharing and people" section is now "Consumers,
+  sharing and people" (the same rules; the suite's `partitions` section
+  keeps its name). Nothing changes for an unpartitioned consumer; existing
+  copies of the template take it with a template update.
 - **BREAKING — backups are sealed** ([migration note](/docs/changes/2026-09-29-sealed-backups.md);
   [14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives). In a
   workspace with a vault barrier every archive xbind writes is encrypted by

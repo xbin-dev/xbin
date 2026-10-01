@@ -6772,6 +6772,13 @@ Deviations and refinements made while implementing; all deliberate:
     only warns (skips, saying why) this release; **the next release makes
     it fail** (docs/changes/2026-09-30-manager-terminals-for-backends.md;
     `Target.Strict` holds the reference managers to it now).
+  *Amended 2026-10-01 (D172): in a partitioned agent (D158) coding
+  agents work only in a person's own conversations, in a sandbox homed in
+  their partition — the global instance, shared and hosted conversations
+  never start, drive or sign one in, and a coding agent's conversation
+  never moves between homes (plans/partitions/90-decisions.md §I15); from
+  a person's partition the relays' `Sbx-User` is the partition's verified
+  person (D140), not asserted.*
 
 - **D148 — Partitioned tiles, F5: people's partitions' vaults,
   registrations and records (2026-09-30).** Implements the vault,
@@ -8997,3 +9004,86 @@ Deviations and refinements made while implementing; all deliberate:
     upstream adds `partition` (the embedded builtins can't be made to
     differ in an e2e; `TestBuiltinUpdatePROnlyPartition` and
     `TestUpdaterReadsRecordedPartition` cover it in-process).
+
+- **D172 — Coding agents under partitions: only in a person's own
+  conversations (2026-10-01).** The owner's ruling
+  plans/partitions/90-decisions.md §I15 built into the agent template and
+  the sandbox contract (plans/partitions/96-agtt-merge.md, W6: records
+  W6-F, W6-A, W6-U, W6-wire); amends D147 (coding agents) for partitioned
+  instances (D158). The template's API.md "Partitioned instances" →
+  "Coding agents only in your own conversations" and "Coding agents" →
+  "In a partitioned instance (the UI)"; docs/sandbox-manager.md
+  §Partitioned consumers, §Terminals, §stdio, §hello.
+  - **Chosen.**
+    - **A coding agent works only where its sign-in stays its person's**:
+      a conversation of their own partition, in a sandbox homed there (a
+      sign-in lives in the sandbox's `$HOME`). One predicate,
+      `harnessBarred(run)` (the global instance, or a hosted run), checked
+      at every door (`/ask`, `/runs`, the spawn tool's schema and call,
+      sign-in and the login terminal, the catalog: `shared-space`) and in
+      the engine (`harnessUse`: every spawn, attach and re-check), so no
+      route or run — a channel's, a trigger's, a schedule's, a planted one
+      — reaches an adapter at the global instance.
+    - **No hosted coding agent**: a hosted run spawns none, one a coding
+      agent answers can't be hosted, and a hosted conversation keeps off
+      its host's sandboxes where a coding agent of theirs signed in or
+      worked.
+    - **No moves**: `exportConv`, which every copy between homes uses,
+      refuses a coding agent's root and a tree whose coding agent is at
+      work or still up (409 `{error, runs}`); the owner's un-share is
+      refused inside its transaction; a member's own leave goes (it stays
+      at the global instance with its owner).
+    - **A partition's lifetime follows work**: only a coding agent at work
+      (or a sign-in the agent awaits) holds a person's partition; an idle
+      one leaves one `wake` at its idle stop, and the woken takeover counts
+      from its last activity. **The wake-up is kept registered while the
+      partition idles** — not only left at its exit — because xbind
+      revokes a stopping partition's token before its process stops
+      (D143): the exit's cron calls were refused (the e2e's bug), for every
+      kind of wake-up of the partition, not only coding agents'.
+    - **The brake by reading**, as a built-in turn does: the harness
+      pass's halt branch is `onBrake`, a live turn looks at the cached conf
+      at each event, and one engine timer looks every confTTL while a
+      coding agent works.
+    - **Sandboxes by home**: the relays (terminal, sign-in, log) check the
+      hello and the home like every use; `GET /sandboxes` in a partition
+      says `homed`/`why` and the pickers — the coding agent's and the
+      built-in agent's — grey what isn't; the catalog keeps and probes
+      homed ones only; the team's sandboxes are listed in a person's
+      partition (the manager shows them `shared`), read-only there.
+    - **The page follows one pure model file** (`model/harness-homes.js`):
+      where one starts, whose sandbox fits, where a sign-in is offered
+      (read-only elsewhere), a shared new chat's "Who answers" (the
+      built-in agent), a shared-space run read not driven, no share-a-copy,
+      copy or hosting on a coding agent's root; its calls follow the run's
+      home.
+    - **The contract, unchanged in rule** (W6-F): from a partitioned
+      consumer's user partition the person is the partition's and verified
+      on every route, the `tty` and `stdio` sockets included (D140);
+      D147's "asserted, the consumer's to check" is an unpartitioned
+      consumer's, or a global instance's. The consumer is the pair
+      (`X-XBin-From`, partition id). `sdk/sandboxcontract` checks it
+      (`user-partitions/sockets`, `apart`).
+    - **AR-23 grows** (W6-F): partitions that see one sandbox share its
+      stdio sockets (an attach takes over a coding agent's stdin) and its
+      `$HOME` (a sign-in serves whoever runs the agent there, and its
+      clones); a partitioned consumer should offer sign-ins only in
+      sandboxes homed in the person's partition — the agent does — and
+      whoever sets an image's `harnesses` commands is in its users' trust
+      base.
+    - **Usage**: coding agents' sessions counted per day, no content.
+  - **Not chosen:** a harness check in every route alone (the engine guard
+    is still needed; one predicate covers both); emptying the catalog at
+    the global instance (its managers set coding agents and classes up
+    there); moving a coding agent's conversation without its session (its
+    sign-in and sandbox are its person's); refusing every tree that ever
+    had a coding agent (a stopped one's answer is plain transcript);
+    holding a partition while a coding agent waits for its person (C4);
+    keeping the brake off the idle reclaim; refusing a member's leave;
+    hiding the team's sandboxes in a person's partition (their terminals
+    open there; `homed` says why a conversation can't use one); relying on
+    the partition's exit for its wake-up (refused after the revoke), or
+    changing the runner to revoke after a graceful stop's exit (the
+    agent's own fix needs no platform change; the owner's question);
+    keying `prefs/harness-sandbox` by home (a remembered sandbox that
+    isn't the person's own doesn't fit, and is replaced).
