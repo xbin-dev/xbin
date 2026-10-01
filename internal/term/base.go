@@ -20,7 +20,7 @@ import (
 // that base and PINNED to it; "upgrading" a terminal to a newer base means
 // discarding the upper (the existing reset action) — safe, because tile code
 // and $HOME are bind mounts, not the overlay. With the workspace's base
-// auto-update on (D174, Manager.BaseAutoUpdate) a session's start does that
+// auto-update on (D175, Manager.BaseAutoUpdate) a session's start does that
 // itself, for a layer it holds that was built on another base (claimLayer;
 // basemove.go). Releasing the bases nothing pins is the boot's
 // (internal/boot: layers.GC over layers.Pinned).
@@ -73,7 +73,7 @@ func (m *Manager) layerBase(layer, cur string) (string, error) {
 	return ver, nil
 }
 
-// baseAutoUpdate is the workspace setting (D174): false when it isn't wired.
+// baseAutoUpdate is the workspace setting (D175): false when it isn't wired.
 func (m *Manager) baseAutoUpdate() bool { return m.BaseAutoUpdate != nil && m.BaseAutoUpdate() }
 
 // BaseAutoUpdateOn reports the workspace's base auto-update setting as the
@@ -199,7 +199,7 @@ func (m *Manager) layerOutdated(envKey string) bool {
 // it sweeps what a restart left — D40's staged views, layers moved off their
 // base that the remover hadn't finished (basemove.go) — and logs every
 // layer pinned to a base image that isn't installed, returning them
-// ("key→base"). It no longer refuses to boot over one (D174): each session
+// ("key→base"). It no longer refuses to boot over one (D175): each session
 // start refuses such a layer by itself (claimLayer: "not installed — reset"),
 // or moves it to the current base while base auto-update is on, so no
 // layer is ever stacked on another base, and a stale layer — a host move, a

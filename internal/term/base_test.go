@@ -70,7 +70,7 @@ func TestEnsureLayerBaseAndGate(t *testing.T) {
 		t.Fatal("current layer should not be outdated")
 	}
 	// The boot's look: apps~b pins v0, which isn't installed — listed
-	// (each start refuses it; the boot no longer does, D174).
+	// (each start refuses it; the boot no longer does, D175).
 	if missing := m.CheckBaseImages(); len(missing) != 1 || missing[0] != "apps~b→v0" {
 		t.Fatalf("missing bases: %v", missing)
 	}

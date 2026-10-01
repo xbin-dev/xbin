@@ -1,7 +1,7 @@
 package server
 
 // The workspace settings an admin sets from the admin console's workspace
-// tab that have no store of their own (D174): GET/PUT
+// tab that have no store of their own (D175): GET/PUT
 // /api/xbin/workspace-settings, held by internal/wssettings in
 // data/workspace-settings.json. Today one: baseAutoUpdate — a tile's
 // terminal layer built on an older base image moves to the current base at

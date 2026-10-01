@@ -26,7 +26,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
-// Real terminals on the real rootfs (D174). Each tile's layer is stamped
+// Real terminals on the real rootfs (D175). Each tile's layer is stamped
 // with an older base than the rootfs's, and a first session — base
 // auto-update off, so it runs on that base — installs something the way
 // apt does: a tree root owns in the sandbox, chowned to sub-uid 1000 in

@@ -354,7 +354,7 @@ inside the sandbox go too.
 **A newer base image.** A layer only makes sense on the base image it was
 built on, so it stays pinned to that base when xbin ships a newer one (a
 newer Go, say). With the workspace's **base auto-update** on — the default
-(D174; the admin console → workspace → terminals, `bx settings`) — the
+(D175; the admin console → workspace → terminals, `bx settings`) — the
 next session that opens a layer built on an older base moves it to the
 current base first: the layer is put aside and removed as a reset removes
 it, and the shell's first line, in grey, says so (an agent session's

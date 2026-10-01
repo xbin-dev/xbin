@@ -34,7 +34,7 @@ export function loadHistory(f) { agentHistory(f.src).then((h) => { if (f.isConne
 // older base image — the chooser and the title bar offer the base update
 // before any terminal is open (GET /ws/term/env); f._envAuto when the
 // workspace's base auto-update is on, so the chooser says the next session
-// moves to it instead (D174). With the history, the tile state the window
+// moves to it instead (D175). With the history, the tile state the window
 // refreshes on open and on every directory change; the layer's state alone
 // again on a `workspace-settings` event (an admin turned it on or off).
 export const envStatus = (cwd) => fetch(`/ws/term/env?cwd=${encodeURIComponent(cwd)}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));

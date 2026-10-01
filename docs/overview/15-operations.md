@@ -269,7 +269,7 @@ nothing else.
     exists — a base upgrade must preserve old bases (the installer does);
     such a terminal refuses to start until it is reset (or moves to the
     current base, with base auto-update on), so its dev layer never
-    corrupts. It used to abort startup (until D174). It also has the
+    corrupts. It used to abort startup (until D175). It also has the
     background remover finish the layers a move put aside
     (`.xbin/term-moved/`) that a restart cut short.
 11. **HTTP wiring**: the server + broker APIs; the **gateway unix socket**
@@ -413,7 +413,7 @@ changes, the old `rootfs` is preserved as `rootfs-<ver>` so pinned terminal
 layers and tile sandboxes keep working until they upgrade (then GC'd by xbind).
 Terminal layers upgrade at their next session start while the workspace's
 base auto-update is on, the default ([09-terminals.md](09-terminals.md)
-§Base images, D174).
+§Base images, D175).
 
 Two operator contracts around an upgrade:
 

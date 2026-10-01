@@ -71,4 +71,4 @@ ships Go 1.26.3, and the builtins' modules now say `go 1.26.0`: a terminal
 left on the old base (Go 1.24.0) downloads a Go toolchain for every `go`
 command, or fails where its network can't reach `proxy.golang.org`. So
 terminals now keep up with the base by default, and one workspace switch
-keeps the old behaviour (D174).
+keeps the old behaviour (D175).

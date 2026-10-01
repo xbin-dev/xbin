@@ -11,7 +11,7 @@ import (
 // The boot's look at missing bases covers .xbin/term only: a tile sandbox
 // (or one of its snapshots) pinned to a base that isn't installed fails its
 // own start (plans/tile-sandbox-runtime.md §7 step 3). Neither keeps xbind
-// from booting any more (D174): a terminal layer's start refuses it too.
+// from booting any more (D175): a terminal layer's start refuses it too.
 func TestCheckBaseImagesIgnoresTileSandboxes(t *testing.T) {
 	root := t.TempDir()
 	cur := filepath.Join(root, "rootfs")

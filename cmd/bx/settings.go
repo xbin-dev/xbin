@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// bx settings — the workspace settings an admin sets (docs/bx.md, D174):
+// bx settings — the workspace settings an admin sets (docs/bx.md, D175):
 // GET/PUT /api/xbin/workspace-settings. Today one: base auto-update, a
 // tile's terminal layer built on an older base image moving to the current
 // base at its next session start.

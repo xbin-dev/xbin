@@ -12,7 +12,7 @@ import (
 )
 
 // GET /workspace-settings is for every signed-in principal, PUT for
-// admins (D174): base auto-update defaults to on, a PUT persists and keeps
+// admins (D175): base auto-update defaults to on, a PUT persists and keeps
 // the file's other keys, a bad body is 400, and /ws/term/env says what the
 // terminals apply.
 func TestWorkspaceSettingsRoutes(t *testing.T) {

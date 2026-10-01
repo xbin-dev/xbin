@@ -14,7 +14,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/termwire"
 )
 
-// The decision a session's start makes for the layer it holds (D174).
+// The decision a session's start makes for the layer it holds (D175).
 func TestMoveBaseDecision(t *testing.T) {
 	for _, c := range []struct {
 		auto       bool
@@ -214,7 +214,7 @@ func TestClaimLayerBaseAutoUpdate(t *testing.T) {
 // A layer whose old base is no longer installed (layers.GC released it, or
 // it was deleted): with auto-update on it moves to the current base like any
 // other; off, its start fails as it always has. Either way the boot only
-// lists it (D174: it no longer refuses to boot — turning the setting off
+// lists it (D175: it no longer refuses to boot — turning the setting off
 // with such a layer around must not keep xbind down).
 func TestClaimLayerOldBaseGone(t *testing.T) {
 	r := newAutoRig(t, "gone")

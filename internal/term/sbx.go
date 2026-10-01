@@ -22,7 +22,7 @@ type sbxLaunch struct {
 	memMiB, vcpus int
 	emulated      bool
 	disk          string
-	baseMoved     string // the base the tile's layer moved off at this start ("" = none; claimLayer, D174)
+	baseMoved     string // the base the tile's layer moved off at this start ("" = none; claimLayer, D175)
 }
 
 // setVM records a VM session's sizes and disk (applyVM), field by field:

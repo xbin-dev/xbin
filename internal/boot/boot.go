@@ -79,7 +79,7 @@ type State struct {
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)
 	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
 	uidRangeNote     string // why not
-	// settings is the workspace settings file (D174): the terminals read
+	// settings is the workspace settings file (D175): the terminals read
 	// base auto-update from it, the server serves it (stepServer).
 	settings *wssettings.Store
 	// sandboxBasePins is the base of every tile-sandbox definition, archived
@@ -327,7 +327,7 @@ func (st *State) stepTerminals() error {
 		tm.BxPath = filepath.Join(bxDir, "bx")
 	}
 	// A tile's layer built on an older base moves to the current one at its
-	// next session start, while the workspace setting is on (D174).
+	// next session start, while the workspace setting is on (D175).
 	st.settings = wssettings.New(filepath.Join(ws, "data", "workspace-settings.json"))
 	tm.BaseAutoUpdate = st.settings.BaseAutoUpdate
 	term.Version = st.Cfg.Version
@@ -705,7 +705,7 @@ func (st *State) stepServer() error {
 		TileAssets:     st.Cfg.TileAssets, // --tile-assets (validated); docs/auth.md §Tile asset gating
 		TilesDomain:    st.Cfg.tilesDomain(),
 		Brand:          branding.New(filepath.Join(st.WS, "data", "branding.json")), // the workspace's title + icon (D76)
-		Settings:       st.settings,                                                 // workspace settings (D174)
+		Settings:       st.settings,                                                 // workspace settings (D175)
 	}
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)

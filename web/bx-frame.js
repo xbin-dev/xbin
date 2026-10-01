@@ -386,7 +386,7 @@ export class BxFrame extends LitElement {
 
   _event(e) {
     if (e.type === 'deployments') return onDeployEvent(this, e); // every one: a frame of <tile>+<name> hears its tile's (frame-deploy.js)
-    if (e.type === 'workspace-settings') return loadEnvStatus(this); // base auto-update on/off: what the chooser says (D174)
+    if (e.type === 'workspace-settings') return loadEnvStatus(this); // base auto-update on/off: what the chooser says (D175)
     if (!e.component) return;
     const mine = e.component === this.src || e.component.startsWith(this.src + '/');
     if (!mine) return;

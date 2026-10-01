@@ -6156,7 +6156,96 @@ Deviations and refinements made while implementing; all deliberate:
       after the delay (an admin's pass may have completed it); Stop (at
       shutdown) cancels the lists' context and waits, recording nothing a
       stopped list left half done.
-- **D174 — Base auto-update: a tile's terminal layer built on an older
+- **D173 — A request a swap cut off goes to the generation that replaced
+  it, when resending it is safe (2026-10-01).** internal/proxy/reroute.go,
+  internal/runner/{runner.go (Gen), engine.go (stopGen)}. (The six numbers
+  before it are the unmerged partitions branch's.) The owner: "Those tests
+  should not be flaky / load/timing related".
+  TestLiveReloadPauseRace/backends/runs/python failed under load: a GET
+  13 µs to 180 ms after the pause's answer got `502 backend error: read unix
+  …/g13.sock: read: connection reset by peer` (or EOF). The proxy had taken
+  g13 from EnsureDeployment; the pause's deploy then installed g14 and
+  SIGTERMed g13 (`go stopGen(old)`), and g13 ended with the request in its
+  listen backlog. Not the fixture's alone: a request routed to a
+  generation before a swap that reaches it after the SIGTERM finds a
+  draining backend's listener closed (the SDK's Shutdown closes it first:
+  the backlog is reset, a later dial refused), and a backend that exits at
+  once drops what it holds too. D8's drain covers the requests the old
+  generation took, not the ones still on their way to it. Three python
+  clients requesting without pause across 20 save-driven swaps, on a box
+  at load 300–480: master failed 30 of 81,551 requests over 40 swaps
+  (resets, an EOF, a refused dial, each from a generation the swap had
+  just retired); with this change 0 of 246,372 over 120 swaps.
+  - **Now.** stopGen marks the generation retired before it signals —
+    every stop xbind makes (a swap's old generation, a reap, Stop,
+    StopAll), never the process's own exit. The proxy's transport for
+    /api and for ingress (rerouting) sends a request its generation failed
+    before any answer to the deployment's generation now (EnsureGen /
+    EnsureDeploymentGen: the same routing again, never another
+    deployment) when that generation was retired and resending is safe:
+    no body, and an idempotent method (GET, HEAD, OPTIONS, TRACE, or an
+    Idempotency-Key header: net/http's own retry rule) or a failed dial
+    (nothing was sent). At most three times: each needs another swap
+    during the request's own flight.
+  - **Not chosen:** holding the SIGTERM until the requests routed to the
+    old generation are answered (a request held open — the agent engine's
+    keep-alive to itself, a long poll — would keep the old code running
+    to the drain deadline, where the engine hands over on SIGTERM in
+    milliseconds); holding it until they were taken (accept isn't visible
+    from the client end of a unix socket); a delay before the SIGTERM (a
+    time, not a condition); resending a body or a POST that reached the
+    old generation (it may have acted on it).
+  - **The test.** Its node and python fixtures exited at once on SIGTERM,
+    against elements.md's graceful stop: an answer cut between its headers
+    and its body was possible too. They drain now. Its waits that a
+    condition ends have one hang guard (raceGuard, 3 min), the failed
+    pause waits for the broken save's build-error event rather than four
+    debounces, and the harness's xbind start and stop (60 s, 20 s, the
+    shared daemon's 10 s) wait on the same conditions bounded by a 3-minute
+    guard: a loaded boot took 63 s.
+  - **Left, seen only at load ~300–480 on 192 cores:** the runner's 5 s
+    health timeout (pinned, TestSeamKeepsConstants; protocol.md's
+    "health-checked by socket-connect within 5 s") failed a python start in
+    3 of 36 runs, failing that pause's deploy. Not changed here: it is a
+    contract. The go subtest's failure under the same load is D174's.
+- **D174 — A generation built from the work tree serves only if live reload
+  still drives its deployment once a pause in progress ends (2026-10-01).**
+  internal/runner/{runner.go (buildAndStart), deploy.go (workTreeLeft,
+  SettledCodeFor)}, internal/deployments/plane.go (overlay.settle,
+  SettledCodeFor). TestLiveReloadPauseRace/backends/runs/go under `-race`
+  at load ~380 failed every execution (8 of 8; 1–2 of 10 pause runs each):
+  after the pause's answer the code answered a save newer than the
+  checkpoint (`r003-000285` against `r003-000149`) until the pause's deploy
+  swapped. A work-tree build reads the record only when it starts
+  (runCurrent) and reads the work tree as it builds: one started before a
+  pause — here a second build queued behind the resume's, when the watcher
+  flushed the run's first save after the resume committed — compiled saves
+  made after the pause took its checkpoint, and swapped in, as 07-runtime
+  §8.6 allowed ("the in-flight build finishes and swaps"). A slower build
+  could read saves made after the pause's answer: a leak by
+  SC-LIVE-RELOAD-PAUSE's own words, and a pinned deployment running its
+  work tree, which runCurrent exists to prevent.
+  - **Now.** Before a generation built from the work tree is installed
+    (buildAndStart: the save, grant, crash and reap path), the runner asks
+    SettledCodeFor: the plane waits out an operation detaching the tile's
+    live reload (the pausing overlay, held from its request to its commit
+    or catch-up), then answers from the record. Pinned meanwhile: the
+    generation stops unserved, and the current one serves until the
+    operation's queued deploy swaps the checkpoint in (with none current,
+    the next request builds the checkpoint). Still the work tree (the
+    operation failed and caught up, or attached live reload here): it
+    serves as before. What it serves was read before the check, and the
+    check precedes any later operation's mark, so it predates that
+    operation's checkpoint.
+  - **Not chosen:** reading the record without waiting (an install between
+    a pause's capture and its commit still serves code newer than the
+    checkpoint, and one racing the commit serves it after the answer); the
+    plane's LiveReload (false while any operation holds the overlay, which
+    would also drop the first build of the deployment an attach makes
+    follow the work tree); cancelling the build when the pause begins (its
+    build turn is the pause's deploy's next anyway).
+
+- **D175 — Base auto-update: a tile's terminal layer built on an older
   base image moves to the current base at its next session start; a
   workspace setting, on by default (2026-10-01).** internal/term/base.go
   (claimLayer), internal/wssettings, internal/server/wssettings.go, the
@@ -6258,93 +6347,5 @@ Deviations and refinements made while implementing; all deliberate:
     choice is the setting, made before the upgrade); a 409 on turning the
     setting off while layers on missing bases exist (moot once the boot
     stopped refusing them).
-  - Numbered D174: the number before it went to deflake/livereload-pause,
+  - Numbered D175: D173 and D174 went to deflake/livereload-pause,
     in flight at the same time.
-- **D173 — A request a swap cut off goes to the generation that replaced
-  it, when resending it is safe (2026-10-01).** internal/proxy/reroute.go,
-  internal/runner/{runner.go (Gen), engine.go (stopGen)}. (The six numbers
-  before it are the unmerged partitions branch's.) The owner: "Those tests
-  should not be flaky / load/timing related".
-  TestLiveReloadPauseRace/backends/runs/python failed under load: a GET
-  13 µs to 180 ms after the pause's answer got `502 backend error: read unix
-  …/g13.sock: read: connection reset by peer` (or EOF). The proxy had taken
-  g13 from EnsureDeployment; the pause's deploy then installed g14 and
-  SIGTERMed g13 (`go stopGen(old)`), and g13 ended with the request in its
-  listen backlog. Not the fixture's alone: a request routed to a
-  generation before a swap that reaches it after the SIGTERM finds a
-  draining backend's listener closed (the SDK's Shutdown closes it first:
-  the backlog is reset, a later dial refused), and a backend that exits at
-  once drops what it holds too. D8's drain covers the requests the old
-  generation took, not the ones still on their way to it. Three python
-  clients requesting without pause across 20 save-driven swaps, on a box
-  at load 300–480: master failed 30 of 81,551 requests over 40 swaps
-  (resets, an EOF, a refused dial, each from a generation the swap had
-  just retired); with this change 0 of 246,372 over 120 swaps.
-  - **Now.** stopGen marks the generation retired before it signals —
-    every stop xbind makes (a swap's old generation, a reap, Stop,
-    StopAll), never the process's own exit. The proxy's transport for
-    /api and for ingress (rerouting) sends a request its generation failed
-    before any answer to the deployment's generation now (EnsureGen /
-    EnsureDeploymentGen: the same routing again, never another
-    deployment) when that generation was retired and resending is safe:
-    no body, and an idempotent method (GET, HEAD, OPTIONS, TRACE, or an
-    Idempotency-Key header: net/http's own retry rule) or a failed dial
-    (nothing was sent). At most three times: each needs another swap
-    during the request's own flight.
-  - **Not chosen:** holding the SIGTERM until the requests routed to the
-    old generation are answered (a request held open — the agent engine's
-    keep-alive to itself, a long poll — would keep the old code running
-    to the drain deadline, where the engine hands over on SIGTERM in
-    milliseconds); holding it until they were taken (accept isn't visible
-    from the client end of a unix socket); a delay before the SIGTERM (a
-    time, not a condition); resending a body or a POST that reached the
-    old generation (it may have acted on it).
-  - **The test.** Its node and python fixtures exited at once on SIGTERM,
-    against elements.md's graceful stop: an answer cut between its headers
-    and its body was possible too. They drain now. Its waits that a
-    condition ends have one hang guard (raceGuard, 3 min), the failed
-    pause waits for the broken save's build-error event rather than four
-    debounces, and the harness's xbind start and stop (60 s, 20 s, the
-    shared daemon's 10 s) wait on the same conditions bounded by a 3-minute
-    guard: a loaded boot took 63 s.
-  - **Left, seen only at load ~300–480 on 192 cores:** the runner's 5 s
-    health timeout (pinned, TestSeamKeepsConstants; protocol.md's
-    "health-checked by socket-connect within 5 s") failed a python start in
-    3 of 36 runs, failing that pause's deploy. Not changed here: it is a
-    contract. The go subtest's failure under the same load is D174's.
-- **D174 — A generation built from the work tree serves only if live reload
-  still drives its deployment once a pause in progress ends (2026-10-01).**
-  internal/runner/{runner.go (buildAndStart), deploy.go (workTreeLeft,
-  SettledCodeFor)}, internal/deployments/plane.go (overlay.settle,
-  SettledCodeFor). TestLiveReloadPauseRace/backends/runs/go under `-race`
-  at load ~380 failed every execution (8 of 8; 1–2 of 10 pause runs each):
-  after the pause's answer the code answered a save newer than the
-  checkpoint (`r003-000285` against `r003-000149`) until the pause's deploy
-  swapped. A work-tree build reads the record only when it starts
-  (runCurrent) and reads the work tree as it builds: one started before a
-  pause — here a second build queued behind the resume's, when the watcher
-  flushed the run's first save after the resume committed — compiled saves
-  made after the pause took its checkpoint, and swapped in, as 07-runtime
-  §8.6 allowed ("the in-flight build finishes and swaps"). A slower build
-  could read saves made after the pause's answer: a leak by
-  SC-LIVE-RELOAD-PAUSE's own words, and a pinned deployment running its
-  work tree, which runCurrent exists to prevent.
-  - **Now.** Before a generation built from the work tree is installed
-    (buildAndStart: the save, grant, crash and reap path), the runner asks
-    SettledCodeFor: the plane waits out an operation detaching the tile's
-    live reload (the pausing overlay, held from its request to its commit
-    or catch-up), then answers from the record. Pinned meanwhile: the
-    generation stops unserved, and the current one serves until the
-    operation's queued deploy swaps the checkpoint in (with none current,
-    the next request builds the checkpoint). Still the work tree (the
-    operation failed and caught up, or attached live reload here): it
-    serves as before. What it serves was read before the check, and the
-    check precedes any later operation's mark, so it predates that
-    operation's checkpoint.
-  - **Not chosen:** reading the record without waiting (an install between
-    a pause's capture and its commit still serves code newer than the
-    checkpoint, and one racing the commit serves it after the answer); the
-    plane's LiveReload (false while any operation holds the overlay, which
-    would also drop the first build of the deployment an attach makes
-    follow the work tree); cancelling the build when the pause begins (its
-    build turn is the pause's deploy's next anyway).

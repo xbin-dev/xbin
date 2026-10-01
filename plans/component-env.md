@@ -185,12 +185,12 @@ Lifecycle:
   first sight and stamped; it keeps running on the preserved `rootfs-v0`.
 - **safety gate** — a session's start refuses a layer that pins a base that
   isn't installed, rather than corrupt it on a different base. (At startup
-  xbind used to abort over one, `CheckBaseImages`; since D174 it logs them —
+  xbind used to abort over one, `CheckBaseImages`; since D175 it logs them —
   the per-start refusal is the gate.) A stamp or base version that can't be
   read fails the start too, never read as "unstamped".
 - **release** — `GCBaseImages` removes preserved `rootfs-<version>` siblings once
   no terminal pins them (i.e. everyone has upgraded).
-- **auto-update (D174)** — with the workspace setting on (the default), a
+- **auto-update (D175)** — with the workspace setting on (the default), a
   session's start that takes a layer built on another base puts it aside
   (removed in the background, confined, as the reset removes it) and runs on
   a fresh layer on the current base, printing one grey line; a running

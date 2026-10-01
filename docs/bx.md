@@ -86,7 +86,7 @@ bx chrome [ls] | approve <tile> | revoke <tile>
                                        trusted chrome (admin, D118): tiles whose
                                        xbin.json asks for chrome, and approvals
 bx settings [ls] | set --base-auto-update[=true|false]
-                                       workspace settings (set: admin, D174):
+                                       workspace settings (set: admin, D175):
                                        base auto-update, terminals moving to a
                                        new base image at their next start
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
@@ -306,7 +306,7 @@ approval (also a removed tile's). Admin credentials (`GET`/`PUT
 /api/xbin/chrome`). Approving a tile trusts every writer of it — its
 terminal users and their coding agents — as much as the shell.
 
-**`bx settings`** — the workspace settings an admin sets (D174; the admin
+**`bx settings`** — the workspace settings an admin sets (D175; the admin
 console's workspace → terminals tab sets the same). `bx settings` shows
 them; `bx settings set --base-auto-update=false` (or `--no-base-auto-update`)
 turns base auto-update off, `--base-auto-update` back on. On — the default —

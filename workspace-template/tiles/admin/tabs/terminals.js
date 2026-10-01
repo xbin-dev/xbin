@@ -1,6 +1,6 @@
 /**
  * <bx-admin-terminals> — the admin console's "terminals" tab under
- * workspace: base auto-update (D174). On (the default), a tile's terminal
+ * workspace: base auto-update (D175). On (the default), a tile's terminal
  * layer built on an older base image moves to the current base at its next
  * session start — everything outside the workspace files and $HOME is reset
  * (installed packages, /etc, /var, /opt…, a VM terminal's disk); a running

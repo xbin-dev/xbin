@@ -40,7 +40,7 @@ The router (`admin.js`, `GROUPS`) and one element per tab under `tabs/`
   binding wiring.
 - **ingress** — endpoints, services / expose.
 - **workspace** — branding; the xbin app's native-runtime switch;
-  terminals: base auto-update (D174).
+  terminals: base auto-update (D175).
 
 ## Endpoints used
 

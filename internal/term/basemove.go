@@ -1,6 +1,6 @@
 package term
 
-// basemove.go — the moving parts of base auto-update (D174; the decision is
+// basemove.go — the moving parts of base auto-update (D175; the decision is
 // claimLayer's, base.go).
 //
 //   - The current base's version is read once (currentBase): the installer
@@ -34,7 +34,7 @@ import (
 
 // EvNotice is an agent session event xbin itself logs, not the agent: a line
 // the session's clients show muted ({text}; docs/protocol.md). Today one: the
-// session's start moved the tile's layer to a new base (D174).
+// session's start moved the tile's layer to a new base (D175).
 const EvNotice = "notice"
 
 // noticeData is EvNotice's payload.

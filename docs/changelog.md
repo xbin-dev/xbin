@@ -15,7 +15,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **BREAKING: terminals move to a new base image by themselves — base
   auto-update, a workspace setting, on by default**
   ([changes/2026-10-01-base-auto-update.md](/docs/changes/2026-10-01-base-auto-update.md),
-  [09-terminals.md](/docs/overview/09-terminals.md) §Base images, D174).
+  [09-terminals.md](/docs/overview/09-terminals.md) §Base images, D175).
   A tile's terminal layer built on an older base image now moves to the
   current base at its next session start: it is reset as **⬆ base
   update** resets it — everything outside the workspace files and `$HOME`
@@ -39,7 +39,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
 - **xbind no longer refuses to start over a terminal layer pinned to a
   base image that isn't installed** ([09-terminals.md](/docs/overview/09-terminals.md)
-  §Base images, D174). It logs the layer; the layer's sessions refuse to
+  §Base images, D175). It logs the layer; the layer's sessions refuse to
   start until it is reset, as they did behind the boot gate (or move, with
   base auto-update on). A layer stamp or base version that can't be read
   now fails a session's start, the layer untouched, instead of being read

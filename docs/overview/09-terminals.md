@@ -397,7 +397,7 @@ for terminals):
   `<rootfs>-<version>` siblings (`deploy/install.sh` does this on upgrade);
   the fix for a refused terminal is to restore the base or reset it. At boot
   **`CheckBaseImages`** logs every such layer; it no longer refuses to start
-  over one (D174 — the per-start refusal is what keeps a layer off another
+  over one (D175 — the per-start refusal is what keeps a layer off another
   base, and one stale layer, or an admin turning auto-update off, must not
   keep the whole workspace down). (A tile sandbox whose base is gone fails
   its own start too.)
@@ -420,7 +420,7 @@ for terminals):
 A terminal whose layer's base is older than the current rootfs reports
 `baseOutdated` on attach, so the UI can offer a reset-to-upgrade.
 
-**Base auto-update (D174).** A workspace setting, **on by default**
+**Base auto-update (D175).** A workspace setting, **on by default**
 (admin console → workspace → terminals; `bx settings`; `GET`/`PUT
 /api/xbin/workspace-settings`, kept in `data/workspace-settings.json`).
 While it is on, a session's start that takes a tile's layer — no other

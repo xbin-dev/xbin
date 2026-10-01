@@ -85,7 +85,7 @@ func (st *State) stepIsolation() error {
 	// Never stack an existing terminal upper on a base image different from
 	// the one it was built on (corrupts apt/dpkg state): a session's start
 	// refuses a layer whose base is missing, or moves it to the current base
-	// (base auto-update) — the boot only logs them (D174; it used to refuse
+	// (base auto-update) — the boot only logs them (D175; it used to refuse
 	// to start), reads the current base's version once, and has the remover
 	// finish what a restart left of layers moved off their base.
 	tm.CheckBaseImages()

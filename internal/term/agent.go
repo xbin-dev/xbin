@@ -324,7 +324,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	m.mu.Unlock()
 	m.changed("open", s)
 	unlist := m.register(s, o, leaf)
-	if o.launch.baseMoved != "" { // D174: this start moved the tile's layer to the current base
+	if o.launch.baseMoved != "" { // D175: this start moved the tile's layer to the current base
 		s.sayBaseMoved(m, termKey(rel))
 	}
 
