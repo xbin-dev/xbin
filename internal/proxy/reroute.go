@@ -35,7 +35,19 @@ type rerouting struct {
 	// again is the deployment's generation now: the same routing that chose
 	// gen, asked again.
 	again func() (generation, error)
+	// d is the decision that routed the request (ensureTarget): a failed
+	// again answers as that decision's first ensure would (ensureFailed).
+	d Decision
 }
+
+// ensureError is why the instance a rerouted request follows has no
+// generation to answer it now: again's error, which forward answers as
+// ServeHTTP answers the same error from the first ensure — a refused
+// partition admission is its 503, not a transport's 502.
+type ensureError struct{ err error }
+
+func (e *ensureError) Error() string { return e.err.Error() }
+func (e *ensureError) Unwrap() error { return e.err }
 
 func (t *rerouting) RoundTrip(req *http.Request) (*http.Response, error) {
 	for n := 0; ; n++ {
@@ -45,7 +57,7 @@ func (t *rerouting) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		gen, gerr := t.again()
 		if gerr != nil {
-			return nil, gerr // why the deployment has no generation to answer now
+			return nil, &ensureError{gerr} // why the deployment has no generation to answer now
 		}
 		t.gen = gen
 	}

@@ -345,7 +345,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	m.changed("open", s)
 	unlist := m.register(s, o, leaf)
 	if o.launch.baseMoved != "" { // D175: this start moved the tile's layer to the current base
-		s.sayBaseMoved(m, o.layerKey(rel)) // the layer it moved: on a partitioned tile its person's (partition.go)
+		s.sayBaseMoved(m, o.layerKey(rel), o.movedLayer()) // the layer it moved: on a partitioned tile its person's (partition.go)
 	}
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads

@@ -488,7 +488,11 @@ each person's layer (`.xbin/term-part/<TileKey>/<pkey>`,
 [partitions.md](../partitions.md) §Terminals and agent sessions) moves the
 same way, on its own: at that person's next session start, never under
 one of their running sessions, and neither the tile's layer nor another
-person's with it; the window's status is the person's own layer's.
+person's with it; the window's status is the person's own layer's, and
+its lines name it so: `xbin: your terminal on <tile> moved to the new base
+image — …` (an agent session's move: `xbin: an agent session's start moved
+your terminal on <tile> to the new base image — …`, to that person's next
+shell only).
 
 ## VM terminals (D89)
 

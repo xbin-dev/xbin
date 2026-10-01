@@ -123,18 +123,30 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   too: a request routed to a partition's old generation just as a swap
   stopped it, which it never answered, goes to the partition's new
   generation when sending it again is safe — the same partition, through the
-  same admission; and a partition's work-tree build waits for a live-reload
-  pause in progress, and never serves once the pause pinned the tile — its
+  same admission, whose refusal answers 503 with its reason as a first
+  request's does (fix below); and a partition's work-tree build waits for a
+  live-reload pause in progress, and never serves once the pause pinned the tile — its
   token revoked before it stops, as every partition's stop does. Base
   auto-update moves each person's terminal layer on its own, at the start of
   that person's next session, never under a running one of theirs, and
-  nobody else's layer with it; `GET /ws/term/env` and the terminal window's
+  nobody else's layer with it, and its lines name it as theirs (`xbin: your
+  terminal on <tile> moved to the new base image — …`, where a tile's
+  layer says `this tile's terminal`); `GET /ws/term/env` and the terminal window's
   base-update offer are that person's layer's. The admin console's workspace
   tab has both the terminals (base auto-update) and the policies sub-tabs;
   `bx settings` and `bx policies` are separate commands. `sandbox-terminal`
   is v8: v6 and v7 (below) plus its tests' fake manager following the
   contract's partitioned consumers. Nothing changes for a workspace without
   a partitioned tile. Nothing to change.
+- **Fix: a request a swap cut off, sent again where nothing can serve it,
+  answers as a request arriving then would**
+  ([elements.md](/docs/elements.md) §Runtimes & backend lifecycle). When
+  the generation a request was sent again to (after its old one was
+  swapped out under it) can't be had, the answer was always a 502 naming
+  the failure; now it is what the same request gets when it arrives after
+  the swap: a deployment removed meanwhile 404, a person's partition refused
+  at its cap 503 with the reason, a failed build 502 `backend build failed`
+  with the build output. Nothing to change.
 - **Fix: the agent template's engine no longer stops on a failed read of
   its epoch** (the template's API.md is unchanged). Every write the agent
   engine makes first reads the engine epoch, the fence that keeps a

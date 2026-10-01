@@ -9864,6 +9864,36 @@ Deviations and refinements made while implementing; all deliberate:
     (no request), manifestmerge's TestKeptKeysConflict and
     TestOldInstanceTakesRequestedPartition (the driver);
     docs/changes/2026-10-01-agent-instances-partitioned.md.
+  - **Follow-up: a refused reroute is the first refusal's 503.** A rerouted
+    request whose second EnsurePartition was refused (the caps met during
+    the swap) answered the transport's 502 "backend error: …"; rerouting
+    now hands again's error to forward as an ensureError, answered by
+    ServeHTTP's own ensureFailed under the same Decision — 503 and the
+    reason (the first path sets no Retry-After, so neither does this).
+    Shared with deployments, as D173's error path is: a reroute finding the
+    deployment removed is the first ensure's 404, a failed build its 502
+    with the output. TestPartitionProxyRerouteRefused (the same status,
+    body and headers as a first refusal), TestRerouteRetiredGeneration's
+    404 case.
+  - **Follow-up: a person's layer's move line is theirs.** The base-move
+    lines said "this tile's terminal" for a person's own layer too
+    (`.xbin/term-part`); they now name the layer as the session's person
+    knows it (openOpts.movedLayer, the same test as layerKey: a partition
+    key): "your terminal on <tile>" — the shell's own line, the line an
+    agent's move leaves that person's next shell, the agent's notice — and
+    "this tile's terminal" for the tile's layer, unchanged. Only that
+    person's sessions claim the layer, so only they read it (PD-09).
+    TestPartitionMoveLines (both cases, all three lines),
+    TestPartitionLayerBaseMoveIsolated (the line in a real sandbox).
+  - **Follow-up: the ci shard profile knows the partitions tests.** It had
+    no time for any of them (they hashed into shards), and CI's integration
+    shards ran 144/155/102/145 s of suites (run 36909713832, master
+    f6f0ba71). `testshard timings -profile ci` over that run's shard and
+    unit job logs, one file per job (the run's one log interleaves jobs, and
+    a job that isn't a shard's must not feed the suite a shard's last
+    header names): 1067 times, 221 of them new (153 partition tests), none
+    dropped; a cached unit package keeps its old time. The plan now expects
+    ~171 s for each of the 4 shards and both unit shards.
 
 - **D178 — Coding-agent sign-in: Claude Code signs in with `claude auth
   login`, guided in the Agent tab; terminal links open whole; no

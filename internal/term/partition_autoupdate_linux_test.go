@@ -85,14 +85,15 @@ func TestPartitionLayerBaseMoveIsolated(t *testing.T) {
 	}
 	const install = "mkdir -p /opt/mark && echo x > /opt/mark/f"
 	const probe = "test -e /opt/mark/f && echo LAYER-''KEPT || echo LAYER-''FRESH"
-	const line = "terminal moved to the new base image"
+	// a move's line, any wording; and the one a person's own layer says
+	const moved, line = "moved to the new base image", "xbin: your terminal on apps/p moved to the new base image"
 	ana, bob := termAdmin("ana"), termAdmin("bob")
 
 	// off: both install on old1, and keep their layers
 	runIn(t, m, ana, "apps/p", install)
 	runIn(t, m, bob, "apps/p", install)
 	stop()
-	if out := runIn(t, m, ana, "apps/p", probe); !strings.Contains(out, "LAYER-KEPT") || strings.Contains(out, line) {
+	if out := runIn(t, m, ana, "apps/p", probe); !strings.Contains(out, "LAYER-KEPT") || strings.Contains(out, moved) {
 		t.Fatalf("off: ana's layer moved: %q", out)
 	}
 	stop()
@@ -104,7 +105,7 @@ func TestPartitionLayerBaseMoveIsolated(t *testing.T) {
 	// setting turns on
 	runIn(t, m, bob, "apps/p", "true")
 	auto.Store(true)
-	if out := runIn(t, m, bob, "apps/p", probe); strings.Contains(out, line) {
+	if out := runIn(t, m, bob, "apps/p", probe); strings.Contains(out, moved) {
 		t.Fatalf("bob's second window moved the layer his running terminal holds: %q", out)
 	}
 	if stampOf(bobLayer) != "old1" {
@@ -113,8 +114,8 @@ func TestPartitionLayerBaseMoveIsolated(t *testing.T) {
 
 	// ana's next terminal moves hers: the line first, the install gone
 	out := runIn(t, m, ana, "apps/p", probe)
-	if !strings.Contains(out, line) || !strings.Contains(out, "LAYER-FRESH") || strings.Index(out, line) > strings.Index(out, "LAYER-FRESH") {
-		t.Fatalf("on: ana's layer didn't move first: %q", out)
+	if !strings.Contains(out, line) || !strings.Contains(out, "LAYER-FRESH") || strings.Index(out, line) > strings.Index(out, "LAYER-FRESH") || strings.Contains(out, "this tile's terminal") {
+		t.Fatalf("on: ana's layer didn't move first, said as hers: %q", out)
 	}
 	if stampOf(anaLayer) != cur || stampOf(bobLayer) != "old1" || stampOf(tileLayer) != "old1" {
 		t.Fatalf("on: stamps ana %q bob %q tile %q", stampOf(anaLayer), stampOf(bobLayer), stampOf(tileLayer))

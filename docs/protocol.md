@@ -6339,7 +6339,9 @@ and `$HOME`), and the shell's first output is one grey line saying so
 outside the workspace files and $HOME was reset (…)`); an agent session
 logs a `notice` event instead, and the tile's next shell prints `xbin: an
 agent session's start moved this tile's terminal to the new base image —
-…` once. A running session is never moved. A layer whose base isn't
+…` once; a person's own layer on a partitioned tile is named `your
+terminal on <tile>` in both lines and the notice. A running session is
+never moved. A layer whose base isn't
 installed any more moves the same way; with the setting off, such a layer
 fails to open (reset it). Neither keeps xbind from booting any more (it
 used to refuse to start over such a layer, D175). A layer stamp or base

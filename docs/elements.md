@@ -724,7 +724,10 @@ Lifecycle facts that matter when writing backends:
   (its SIGTERM closed the socket first), goes to the new generation when
   sending it again is safe: it has no body and is a `GET`, `HEAD`,
   `OPTIONS` or `TRACE` (or carries an `Idempotency-Key` header), or nothing
-  of it reached the old one. Any other such request answers 502.
+  of it reached the old one. Any other such request answers 502. One sent
+  again whose new generation can't serve it answers as a request arriving
+  then would: a failed build's 502, a removed deployment's 404, a person's
+  partition refused at its cap 503 ([partitions.md](partitions.md)).
 - **Statelessness pays**: a swap is a new process — keep state in resources
   (kv, sqlite), not memory. Long-lived connections (WS/SSE) to an old
   generation are killed at the 30 s drain deadline; reconnect.

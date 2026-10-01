@@ -285,18 +285,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// deployment: the target Route returned.
 	tr, hold, err := px.ensureTarget(ctx, comp, target, d)
 	if err != nil {
-		var be *runner.BuildError
-		code, partErr := ensureStatus(d, err)
-		switch {
-		case partErr:
-			jsonErr(w, code, err.Error(), "")
-		case errors.As(err, &be):
-			jsonErr(w, http.StatusBadGateway, "backend build failed", be.Output)
-		case errors.Is(err, util.ErrNoDeployment):
-			jsonErr(w, http.StatusNotFound, err.Error(), "") // removed since Route answered
-		default:
-			jsonErr(w, http.StatusBadGateway, err.Error(), "")
-		}
+		ensureFailed(w, d, err)
 		return
 	}
 
@@ -313,6 +302,25 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// the same instance has now — the same deployment, and on a partitioned
 	// tile the same partition, never another (rerouting, ensureTarget).
 	px.forward(w, r, tr, endpoint, answering, hold.onResponse)
+}
+
+// ensureFailed answers a call whose instance under decision d has no
+// generation for it: the first ensure's error, or the ensure a rerouted
+// request asked again (rerouting) — answered alike, so a request a swap cut
+// off answers as one sent just after the swap would.
+func ensureFailed(w http.ResponseWriter, d Decision, err error) {
+	var be *runner.BuildError
+	code, partErr := ensureStatus(d, err)
+	switch {
+	case partErr:
+		jsonErr(w, code, err.Error(), "")
+	case errors.As(err, &be):
+		jsonErr(w, http.StatusBadGateway, "backend build failed", be.Output)
+	case errors.Is(err, util.ErrNoDeployment):
+		jsonErr(w, http.StatusNotFound, err.Error(), "") // removed since Route answered
+	default:
+		jsonErr(w, http.StatusBadGateway, err.Error(), "")
+	}
 }
 
 // forward proxies r to the backend generation tr sends it to (rerouting),
@@ -361,6 +369,10 @@ func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, tr *rerouting, 
 		Transport:     tr,
 		FlushInterval: -1, // stream (SSE etc.)
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if ee := (*ensureError)(nil); errors.As(err, &ee) {
+				ensureFailed(w, tr.d, ee.err) // the reroute's ensure: as the first one's
+				return
+			}
 			jsonErr(w, http.StatusBadGateway, "backend error: "+err.Error(), "")
 		},
 	}
