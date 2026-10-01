@@ -32,6 +32,7 @@ func (st *State) wirePartitionRunner() {
 	run.PartitionEvent = brk.PublishPartitionState
 	run.PartitionExit = brk.NotePartitionExit // partition.json's crash metadata (F5)
 	run.PartitionCapsFor = brk.PartitionCaps
+	run.PartitionTurnedAway = brk.IdlePartitionVolumes // the hold check above mounted them for a start admission refused (I2)
 	brk.SetPartitionCapDefaults(run.DefaultPartitionCaps)
 	brk.SetPartitionRunner(run.PartitionRunning, run.StopPartitions, st.Auth.RevokePartitionInstances)
 	// one person's instance stopped: a revoked consent stops the caller's

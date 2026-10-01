@@ -1117,7 +1117,9 @@ the machine's MemTotal, or xbind's own memory limit when it runs in a
 cgroup (a container) that caps it lower. At the cap, a person's start stops the least recently used partition
 that isn't in use (no request in the last 2 minutes and no held
 connection); with none to stop, it answers **503** `too many people's
-instances of <tile> are running; try again shortly`. A cron, bus or mail
+instances of <tile> are running; try again shortly`, and the volumes
+xbind mounted for that start unmount within a minute rather than after
+the idle hour ([resources.md](resources.md)). A cron, bus or mail
 start never stops a partition that is in use or streaming, runs at most 4
 at once in the workspace (mail: 6 a minute per tile), and otherwise waits
 and retries. An admin sets the caps, and each person's byte ceiling on a

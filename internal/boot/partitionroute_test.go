@@ -222,7 +222,7 @@ func TestPartitionWiring(t *testing.T) {
 	// the runner's people's-partitions hooks this plane fills are installed
 	// once the runner has them (records/F2.md)
 	rv := reflect.ValueOf(d.st.Run).Elem()
-	for _, hook := range []string{"PartitionIdent", "ShouldRunPartition", "RegisterPartitionInstance", "PartitionEvent", "PartitionExit"} {
+	for _, hook := range []string{"PartitionIdent", "ShouldRunPartition", "RegisterPartitionInstance", "PartitionEvent", "PartitionExit", "PartitionTurnedAway"} {
 		if f := rv.FieldByName(hook); f.IsValid() && f.Kind() == reflect.Func && f.IsNil() {
 			t.Errorf("the runner's %s hook isn't installed (plans/partitions/records/F2.md, Seams)", hook)
 		}

@@ -123,6 +123,14 @@ type PartitionHooks struct {
 	// /partitions/limits); 0 = the default derived from memory
 	// (DefaultPartitionCaps). nil: the defaults.
 	PartitionCapsFor func(tile string) (perTile, workspace int)
+	// PartitionTurnedAway is told that admission turned away a cold start
+	// of partition part of deployment dep of tile — refused past the caps,
+	// or a background start deferred. ShouldRunPartition's encryption check
+	// mounted the person's volumes for that start, and nothing of theirs
+	// runs to use them: the data plane lets them go idle at once instead
+	// of keeping them mounted for the idle unmount's hour (I2). Called
+	// outside every runner lock. nil: they idle out as usual.
+	PartitionTurnedAway func(tile, dep, part string)
 }
 
 // partInfo is a user partition's side of a runner state.
@@ -281,6 +289,9 @@ func (r *Runner) ensurePartition(ctx context.Context, c *registry.Component, dep
 	if err != nil {
 		if class == StartInteractive { // a deferred delivery retries; a refused person is an admin's metadata
 			r.sbxFail(partitionView(c, part, pkey), sbx.Start, err)
+		}
+		if f := r.PartitionTurnedAway; f != nil { // the gate mounted their volumes for a start that won't run
+			f(c.Path, dep, part)
 		}
 		return nil, err
 	}

@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **Fix: partitioned tiles — a start turned away at the running caps no
+  longer leaves the person's volumes mounted**
+  ([partitions.md](/docs/partitions.md) §How people's partitions run,
+  [resources.md](/docs/resources.md)). The 503 `too many people's
+  instances of <tile> are running`, or a cron, bus or mail start
+  deferred, kept the encrypted volumes xbind had mounted for that start —
+  two gocryptfs processes per person — for the idle hour, exactly while
+  the caps were full; they now unmount at the disk monitor's next pass,
+  within a minute, unless an instance of the person runs by then. Nothing
+  to change.
+
 - **xbin app: partitioned tiles** ([partitions.md](/docs/partitions.md)
   §Your partitions page; D181). A partitioned tile's row and card carry
   the web shell's marker, the half-split teal disc (VoiceOver reads its
