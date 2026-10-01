@@ -53,8 +53,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   to keep what it had``. It can be dismissed (the shell's and the admin
   tile's banners gain a dismiss button for an alert that carries
   `dismiss`), and a tile leaves it once its `go.mod` caught up (checked
-  after each of its builds). `bx doctor` lists the tiles with every module
-  that changed; `POST /go-build-versions/check` runs the check again.
+  after a build of it that changed its `go.mod`). `bx doctor` lists the
+  tiles with every module that changed; `POST /go-build-versions/check`
+  compares them again with what each linked then (a tile added after the
+  upgrade is never compared).
 - **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
   OpenCode answer a conversation, or work for the agent, in a coding
   sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A

@@ -634,9 +634,9 @@ GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    name,node}]}
 GET    /go-build-versions          admin. the D166 upgrade check's latest
                                    result → {since?, done, fresh?, running,
-                                   checkedAt?, tiles:[{tile, require:
-                                   ["<module> <version>"], minimal, changes:
-                                   [{module, had?, now?}], dismissed,
+                                   checkedAt?, workspaceError?, tiles:[{tile,
+                                   require:["<module> <version>"], minimal,
+                                   changes:[{module, had?, now?}], dismissed,
                                    checkedAt}], errors:[{tile, error}]}.
                                    tiles: each Go tile whose own build (its
                                    go.mod's versions) links a module lower
@@ -648,22 +648,45 @@ GET    /go-build-versions          admin. the D166 upgrade check's latest
                                    linked, one without had newly linked.
                                    errors: tiles it couldn't compare (their
                                    build fails one way or the other).
-                                   since: the xbind version the change came
-                                   with; done: the first pass completed;
-                                   fresh: no Go build of an earlier xbind was
-                                   found, nothing compared. It runs once on
-                                   its own, in the background after the
-                                   first boot of an xbind with it on a
-                                   workspace an earlier xbind built Go tiles
-                                   in (marker: data/go-build-versions.json);
-                                   a tile it names is listed again after
-                                   each of its builds, and leaves once its
-                                   go.mod caught up. `bx doctor` renders it
-POST   /go-build-versions/check    admin. compare every Go tile again, in the
-                                   background, a few at a time → 202
+                                   workspaceError: the shared go.work itself
+                                   doesn't load (`go list -m` refuses it),
+                                   said once for every tile it left
+                                   uncompared. since: the xbind version the
+                                   change came with; done: the first pass
+                                   completed; fresh: no Go build of an
+                                   earlier xbind was found, nothing
+                                   compared. It runs once on its own, in the
+                                   background after the first boot of an
+                                   xbind with it on a workspace an earlier
+                                   xbind built Go tiles in (a work-tree
+                                   binary, or a checkpoint artifact whose
+                                   build.json records the shared go.work;
+                                   marker: data/go-build-versions.json),
+                                   over the Go tiles the workspace has then,
+                                   keeping what each linked under the shared
+                                   go.work (its baseline). A tile it names is
+                                   listed again after a build of it (work
+                                   tree or checkpoint) once its go.mod, or
+                                   another go.mod or the go.work its build
+                                   uses, changed — and leaves once its
+                                   go.mod caught up. Only tiles the
+                                   workspace still has as Go tiles are
+                                   listed. `bx doctor` renders it
+POST   /go-build-versions/check    admin. compare the check's tiles again, in
+                                   the background, a few at a time → 202
                                    {running:true, started} (started false: a
                                    pass is already running; GET shows
-                                   running until it is done)
+                                   running until it is done). Each tile is
+                                   compared with its baseline — only the
+                                   modules it links both ways count — and
+                                   the shared go.work is listed only for a
+                                   tile that has none yet; a tile added
+                                   since the upgrade is not compared (it
+                                   never built with the shared go.work).
+                                   200 {running:false, started:false,
+                                   reason} when no tile has anything to
+                                   compare (a fresh workspace); 503 while
+                                   xbind stops
 POST   /go-build-versions/dismiss  admin. body {tile?} (none: every tile the
                                    alert names) → the GET report. Hides the
                                    alert's line for the tile until its lines

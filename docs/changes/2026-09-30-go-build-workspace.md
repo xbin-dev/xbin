@@ -134,15 +134,29 @@ in a shell, node and python tiles.
 
    xbind finds them on its own: once, in the background a little after the
    first start of an xbind with this check on a workspace an earlier xbind
-   built Go tiles in, a few tiles at a time, it lists what each Go tile's
-   entry links under the workspace's shared `go.work` and under its own
-   (`go list -deps`, confined like a build, with the build's caches and
-   settings), and where its own is lower, finds the fewest `require` lines
-   that restore the rest (trying the tile's own direct requirements first,
-   checking each by listing again). Its state lives in
-   `data/go-build-versions.json`; an admin runs it again with `POST
-   /api/xbin/go-build-versions/check`. A tile it couldn't compare (its build
-   fails one way or the other) is a note in `bx doctor`.
+   built Go tiles in (a tile's binary, or a pinned deployment's artifact
+   built with the shared `go.work`), a few tiles at a time, it lists what
+   each Go tile's entry links under the workspace's shared `go.work` and
+   under its own (`go list -deps`, confined like a build, with the build's
+   caches and settings), and where its own is lower, finds the fewest
+   `require` lines that restore the rest (trying the tile's own direct
+   requirements first, checking each by listing again). What each tile
+   linked under the shared `go.work` is kept: the tiles the check knows
+   are the Go tiles the workspace had then (a tile added later never built
+   with the shared `go.work`, so it never appears), and a tile's line is
+   re-checked against what it had — after a build of the tile (its work
+   tree, or a deployment's checkpoint) that changed its `go.mod`, or a
+   `go.mod` or the `go.work` its build uses, and when an admin runs the
+   check again with `POST /api/xbin/go-build-versions/check`. A pinned
+   primary's line is about its work tree's `go.mod`, which its next
+   deployment builds. Its state lives in `data/go-build-versions.json`. A
+   tile it couldn't compare (its build fails one way or the other) is a
+   note in `bx doctor`; so, once, is a shared `go.work` the go command
+   refuses as a whole (`workspaceError`) — on a workspace that, since the
+   upgrade, gained a shape the shared `go.work` couldn't hold. Two such
+   shapes are handled: a module at a newer `go` line than 1.24 (as `go mod
+   init` writes it) raises the shared `go.work`'s, and of two tiles
+   declaring one module path (a copied tile) only one is used.
 
 ## Why
 
