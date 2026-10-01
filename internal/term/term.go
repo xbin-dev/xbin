@@ -134,6 +134,12 @@ type Manager struct {
 	// real root files (the full grants/bindings topology) never enter the
 	// sandbox. nil ⇒ the old deny-list masking via HiddenTiles.
 	TermView func(p auth.Principal) (readable []string, rootFiles map[string][]byte)
+	// ViewGoWork renders a restricted view's go.work over the components
+	// it binds (readable, as TermView listed them at open), "" when there
+	// is nothing Go: RefreshViews re-renders each live view's with it, as
+	// the workspace changes (its go line follows the modules', D166). nil ⇒
+	// a view's go.work stays as staged.
+	ViewGoWork func(readable []string) string
 
 	// BxPath is the daemon's own bx binary (located at boot): an agent
 	// session binds it read-only into its sandbox as the entry (`bx
@@ -170,6 +176,9 @@ type Manager struct {
 	sessions map[string]*Session
 	envHeld  map[string]bool        // component key → a live session holds its persistent layer
 	rmTree   func(dir string) error // tests: stands in for removeLayer's confined removal
+
+	viewMu sync.Mutex          // views, and writes into a live view dir (RefreshViews, dropView)
+	views  map[string][]string // live restricted views (D40): view dir → the components it binds
 }
 
 func NewManager(root string, env func() []string) *Manager {
@@ -534,6 +543,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 			return nil, nil, nil, "", nil, fmt.Errorf("stage terminal view: %w", err)
 		}
 		viewDir = vd
+		m.trackView(viewDir, o.readable) // its go.work follows the workspace (RefreshViews)
 		binds = scopedBindsView(m.Root, rel, homeDir, viewDir, o.readable, m.ExtraBinds)
 	}
 	if o.kind == KindAgent { // the daemon's own bx, read-only, is the entry (agent.go)
@@ -541,7 +551,7 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	}
 	dropView := func() {
 		if viewDir != "" {
-			_ = os.RemoveAll(viewDir)
+			m.dropView(viewDir)
 		}
 	}
 	env := m.sessionEnv(rel, !o.netHost && o.net != NetNone, homeDir, token, o)
