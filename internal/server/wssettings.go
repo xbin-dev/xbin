@@ -69,7 +69,7 @@ func settingsView(cur wssettings.Settings, probs wssettings.Problems, partitions
 		v[st.Key] = st.Of(cur)
 		if why, bad := probs[st.Key]; bad {
 			if !admin {
-				why = "can't be read; an admin must fix data/workspace-settings.json"
+				why = "can't be read; an admin must fix it (the admins' alerts say how)"
 			}
 			errs[st.Key] = why
 		}
@@ -178,7 +178,7 @@ func (s *Server) apiWorkspacePoliciesGet(w http.ResponseWriter, r *http.Request)
 	}
 	cur, probs := s.Settings.Load()
 	if err := probs.Of(wssettings.Keys(wssettings.GroupPartitions)...); err != nil {
-		msg := "the workspace policies can't be read; an admin must fix data/workspace-settings.json"
+		msg := "the workspace policies can't be read; an admin must fix them (the admins' alerts say how)"
 		if s.settingsAdmin(r) {
 			msg = err.Error() + " — fix or remove the file by hand"
 		}
