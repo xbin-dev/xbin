@@ -37,6 +37,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   fixes a new Go tile's first build failing with `go: no modules were found
   in the current workspace` when it ran before the root `go.work` listed
   the tile.
+- **Admins are told which Go tiles now link older dependency versions,
+  and what to add to keep them** (D166, [changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md)
+  §How to migrate, [protocol.md](/docs/protocol.md) `GET
+  /go-build-versions`, [bx.md](/docs/bx.md) `bx doctor`). Under the shared
+  `go.work` a tile linked the highest version any tile's graph reached;
+  with its own `go.mod` it links its own, which builds fine and runs older
+  code. Once, in the background after the first start of this xbind on a
+  workspace an earlier one built Go tiles in, xbind lists what each Go
+  tile's entry links both ways (confined, like a build) and finds the
+  fewest `require` lines that keep what it had. An admin-only alert (kind
+  `go-build-versions`) names each tile: ``<tile> builds with older
+  dependency versions since <version> (each Go tile now builds with its own
+  go.mod's versions): add `require <module> <version>` to <tile>'s go.mod
+  to keep what it had``. It can be dismissed (the shell's and the admin
+  tile's banners gain a dismiss button for an alert that carries
+  `dismiss`), and a tile leaves it once its `go.mod` caught up (checked
+  after each of its builds). `bx doctor` lists the tiles with every module
+  that changed; `POST /go-build-versions/check` runs the check again.
 - **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
   OpenCode answer a conversation, or work for the agent, in a coding
   sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A

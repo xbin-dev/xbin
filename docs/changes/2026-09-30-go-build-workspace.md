@@ -70,14 +70,29 @@ or because every tile's module was in one `go.work`:
 - **A tile importing a package beneath its own module path from a module
   elsewhere** (module `suite` importing `suite/admin` from a tile outside
   `suite`'s directory) with no `require`. The build fails with a hint.
+- **A tile whose binary linked a higher version of a dependency than its
+  own `go.mod` selects** — because another tile's graph reached it. Under
+  the shared `go.work` the go command picked each module's version over
+  every tile's `go.mod` at once, so every tile linked the highest version
+  any tile's graph reached (sometimes by accident: one tile's `// indirect`
+  line could pull in a module's newer dependencies for everyone). Now each
+  links what its own `go.mod` selects. **Nothing fails**: the build
+  succeeds and the backend runs with older code — older fixes, and
+  possibly known vulnerabilities fixed in the versions it had. On one
+  workspace of 66 Go tiles, 25 were in this class, 20 of them for one
+  line (`modernc.org/sqlite v1.39.1`, which lifts its `libc`, `mathutil`,
+  `memory`, `x/sys` and `x/exp`); the rest for `golang.org/x/crypto`,
+  `x/text`, `x/net`, `x/sys` and `github.com/coder/websocket`. xbind finds
+  these tiles itself and tells admins (below).
 - **A protected deployment's primary whose artifact is lost** (`.xbin/`
   lost or wiped) after this upgrade: its `build.json` from before records
   the workspace's `go.work`, so the restart is held for a tile manager to
   redeploy instead of silently rebuilding with a different module graph
   ([isolation.md](/docs/isolation.md)).
 
-Unaffected: tiles whose `go.mod` names what they use (every builtin tile
-and template, and every scaffold `bx new` writes), tiles importing other
+Builds unaffected (though any Go tile may link older versions, above):
+tiles whose `go.mod` names what they use (every builtin tile and template,
+and every scaffold `bx new` writes), tiles importing other
 tiles' dotless modules (`module calendar`) with or without a `require`
 (unless two modules could provide the package), tiles using another
 tile's module through a `replace` with its directory, Go tiles with no
@@ -103,6 +118,31 @@ in a shell, node and python tiles.
 4. For an API newer than your requirement: raise the version in `go.mod`
    to the one the other tile requires.
 5. For a held protected primary: redeploy it from its tile manager.
+6. For a tile that now links older versions: admins get an alert (kind
+   `go-build-versions`, in the shell, the admin tile and `GET
+   /api/xbin/alerts`) naming each such tile with the fewest lines that keep
+   what it had, e.g. ``apps/notes builds with older dependency versions
+   since v0.3.65 (each Go tile now builds with its own go.mod's versions):
+   add `require modernc.org/sqlite v1.39.1` to apps/notes's go.mod to keep
+   what it had``. `bx doctor` lists the same with each module that changed
+   (`GET /api/xbin/go-build-versions`). Add the lines to the tile's
+   `go.mod` and keep its other lines — or raise the existing `require` of
+   that module to the version (the go command takes the higher of two).
+   The tile rebuilds; once its own build links what it had, its line
+   leaves the alert. To keep the older versions instead, dismiss the alert
+   (its line comes back only if the lines it needs change).
+
+   xbind finds them on its own: once, in the background a little after the
+   first start of an xbind with this check on a workspace an earlier xbind
+   built Go tiles in, a few tiles at a time, it lists what each Go tile's
+   entry links under the workspace's shared `go.work` and under its own
+   (`go list -deps`, confined like a build, with the build's caches and
+   settings), and where its own is lower, finds the fewest `require` lines
+   that restore the rest (trying the tile's own direct requirements first,
+   checking each by listing again). Its state lives in
+   `data/go-build-versions.json`; an admin runs it again with `POST
+   /api/xbin/go-build-versions/check`. A tile it couldn't compare (its build
+   fails one way or the other) is a note in `bx doctor`.
 
 ## Why
 

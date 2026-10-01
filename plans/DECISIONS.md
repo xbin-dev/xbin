@@ -5941,3 +5941,75 @@ Deviations and refinements made while implementing; all deliberate:
     that import a dotless module today); crediting an import to the longest
     module path any go.mod names, or telling published paths from what
     other go.mods require (the first cut; review above).
+  - **Amended 2026-10-01: the silent downgrades, and the alert that names
+    them (G1).** internal/runner/{goversions.go, goversionscheck.go},
+    internal/deps/sharedwork.go, internal/boot/goversions.go. Measured on
+    the owner's workspace (66 Go tiles): no build broke and no
+    vulnerability became reachable, but 25 tiles silently link older
+    dependency versions — under the shared go.work MVS lifted every tile to
+    the highest version any tile's graph reached; per tile each falls back
+    to its own go.mod. 20 of the 25 are one pattern (modernc.org/sqlite
+    v1.39.1→v1.34.5 with libc, mathutil, memory, x/sys, x/exp); the rest
+    x/crypto, x/text, x/net, x/sys, coder/websocket. The shared versions
+    were partly accidental: one tile's indirect x/tools line un-pruned
+    libc's x/tools→x/net→x/crypto chain in the shared graph. The minimal
+    require set restoring each tile's old list was 31 lines for 25 tiles
+    (one line, sqlite's, covers 20). The owner: ship isolation, and an admin
+    alert telling owners exactly what to add (G1); fix the builtins' own
+    stale deps at the source with a vulnerability release gate (G2, apart).
+    - **Chosen: compute it, per tile, with the go command, confined.** For
+      each Go tile, `go list -deps` of its entry (listFormat: each
+      package's module, version and replacement) twice: with the shared
+      go.work (deps.SharedWork: the root go.work as builds used it — xbind's
+      rendered from the registry, or a hand-managed one's lines — paths made
+      absolute) and with its own build workspace (BuildWork, as the build
+      renders it). Each runs as the tile's build does (goBuildCmd's binds,
+      per-tile caches, network, CGO_ENABLED=0, GOFLAGS with -mod=readonly
+      added unless it sets -mod; isolation off: as that build runs), with
+      its go.work and go.work.sum in the tile's cache dir, versions/, made
+      and written without following links (openArtifacts, writeAt) and
+      bound into no build. A change is a module linked lower, no longer, or
+      newly; a workspace module, a replaced one (another tile's replace is
+      the hole) and a higher version are not.
+    - **The fewest lines, greedily, verified.** Candidates are the raw
+      differing lines (each module linked lower or no longer, at the
+      version it had), the tile's go.mod's direct requirements first. Each
+      round lists the build with each candidate added to the lines chosen
+      so far — through a module of its own the go.work uses
+      (deps.PinGoMod: in workspace mode every used module's requirements
+      are roots, so it builds as if the tile's go.mod had the line; checked
+      with the go command: the same list as adding the line to a tidy
+      go.mod, or raising the existing one) — keeps the one leaving the
+      fewest changes (one leaving none ends the round), and repeats until
+      every module it had is back; then drops a chosen line the others make
+      redundant. 24 lists at most per tile; when they run out or no line
+      changes anything, the answer is the raw differing lines (minimal:
+      false). The sqlite pattern takes one list (sqlite is the tile's own
+      direct requirement), the un-pruned chain one line (x/net's).
+    - **When.** Once on its own: Boot (the registry step, before any
+      build) finds data/go-build-versions.json absent and a Go tile's
+      .xbin/build/<key>/bin — a build of an earlier xbind — and starts the
+      pass in the background after the boot (30 s later, two tiles at a
+      time), recording each checked tile so a restart resumes; done is the
+      marker. A workspace with no such build gets the marker at once (since
+      = the running version either way: the alert's "since <version>").
+      Again on an admin's POST /go-build-versions/check. And a tile the
+      alert names is listed again after each successful work-tree build of
+      it, against what it had (stored): only modules linked both ways
+      count then (its code may have changed); its line goes once none is
+      lower, or narrows to what is left.
+    - **The surface.** One admin-only alert (kind go-build-versions, warn;
+      Broker.AdminAlerts, never a tile reader's: it names tiles and their
+      dependency sets, D40) naming every tile not dismissed with its lines
+      — tiles needing the same lines named together, since one alert per
+      tile would put 25 banners in the shell — with dismiss, the route that
+      dismisses it (POST /go-build-versions/dismiss {tile?}; a tile comes
+      back when its lines change); GET /go-build-versions for `bx doctor`
+      (each tile, its lines, every change, the tiles it couldn't compare).
+    - **Not chosen:** editing tiles' go.mods (a tile's code is its writers';
+      the alert says what to add); the synthetic bridge module (above:
+      keeps the influence D166 removes); `go mod graph` to predict which
+      line lifts what (its pruned graph doesn't hold the higher versions'
+      edges, and the list with the line is the proof anyway); comparing
+      the whole build lists including drops and adds on a re-check (a
+      code change drops modules no line brings back).
