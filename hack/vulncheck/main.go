@@ -1,26 +1,37 @@
 // vulncheck is the release's vulnerability gate (`make vulncheck`;
-// hack/release.sh runs it before tagging): govulncheck over every Go module
-// a release ships, failing on any known vulnerability their code reaches
-// that hack/vulncheck-allow.txt doesn't list.
+// hack/release.sh runs it before tagging): govulncheck, in source mode, over
+// the Go modules a release builds from this checkout, failing on any known
+// vulnerability their code reaches that hack/vulncheck-allow.txt doesn't
+// list.
 //
 // The modules it checks ("targets", named as the allow file names them):
 //
-//   - xbind: the programs a release bundle carries (./cmd/...: xbind, bx,
-//     xbin-vmagent), with the repo's go.work, as `make build` builds them;
+//   - xbind, xbind/arm64: the programs a release bundle carries (./cmd/...:
+//     xbind, bx, xbin-vmagent), with the repo's go.work, as `make build`
+//     builds them (CGO_ENABLED=0) for each bundle's platform (linux/amd64,
+//     linux/arm64);
 //   - relay: the push relay (relay/), deployed on its own;
 //   - sdk: the Go SDK every Go tile compiles in;
 //   - every Go module in the embedded trees — each builtin tile's and
 //     template's backend (builtin-tiles/<name>, builtin-templates/<name>),
 //     and any under workspace-template/ — against its own go.mod.tile (or
-//     go.mod), with the sdk replaced by this checkout: what a workspace
-//     builds (hack/tile-check.sh does the same).
+//     go.mod) and go.sum, read-only, through a go.work like the one xbind
+//     builds it with (D166) with the sdk replaced by this checkout: the
+//     versions a workspace builds (hack/tile-check.sh does the same).
+//
+// Not checked: Go programs a bundle carries prebuilt rather than built here
+// (bin/gocryptfs, a pinned helper: hack/helpers.sha256) and the tools the
+// base rootfs installs (gopls, dlv: docker/rootfs.Dockerfile).
 //
 // Reachable means govulncheck found a call path from the module's code to a
 // vulnerable symbol; a vulnerable module only required, or a package only
 // imported, is counted and reported but never gates. Standard-library
 // findings are the toolchain's: they gate xbind and the relay (the go running
 // this builds them), never the sdk or a tile (a workspace builds those with
-// its host's Go), so a run with an outdated go fails once, on xbind.
+// its host's Go), so a run with an outdated go fails once, on xbind. The
+// standard library's version is the go's release (releaseVersion): one
+// naming no release (a devel build) fails the gate rather than match no
+// advisory.
 //
 //	go run ./hack/vulncheck [-allow FILE] [-govulncheck PKG@VERSION] [target...]
 package main
@@ -32,6 +43,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/version"
 	"io"
 	"io/fs"
 	"os"
@@ -40,6 +52,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -56,6 +69,12 @@ type target struct {
 	env      []string // added to the environment
 	stdlib   bool     // standard-library findings gate it
 	src      string   // a shipped tile's directory: dir is a copy made from it
+}
+
+// releaseEnv is xbind's programs' build environment for a bundle's arch:
+// what `make build` and deploy/publish-release.sh set.
+func releaseEnv(arch string) []string {
+	return []string{"GOOS=linux", "GOARCH=" + arch, "CGO_ENABLED=0"}
 }
 
 func main() {
@@ -109,6 +128,7 @@ func run(allowPath, tool string, only []string) int {
 				return fail(fmt.Errorf("%s: %w", t.name, err))
 			}
 			t.dir = filepath.Join(scratch, "m", t.name)
+			t.env = append(t.env[:len(t.env):len(t.env)], "GOWORK="+filepath.Join(t.dir, "go.work"))
 			if t.patterns, err = packageDirs(t.dir); err != nil {
 				return fail(fmt.Errorf("%s: %w", t.name, err))
 			}
@@ -116,13 +136,31 @@ func run(allowPath, tool string, only []string) int {
 				continue // a module with no Go code: nothing to reach
 			}
 		}
+		// the standard library govulncheck judges is the go's release:
+		// passed explicitly, since it reads only a bare one and finds no
+		// standard-library advisory at all for "go1.27.0-X:nodwarf5" (a
+		// GOEXPERIMENT baked in) or a devel build
+		gover, err := goVersion(t)
+		if err != nil {
+			return fail(fmt.Errorf("%s: %w", t.name, err))
+		}
+		env := t.env
+		if rel, ok := releaseVersion(gover); ok {
+			env = append(env[:len(env):len(env)], "GOVERSION="+rel)
+		} else if t.stdlib {
+			return fail(fmt.Errorf("%s: the go running this is %q, which names no Go release: govulncheck can't match its standard library against any advisory and would report none — run the gate with a released go, the one that builds the release", t.name, gover))
+		}
 		cmd := exec.Command(vc, append([]string{"-format", "json"}, t.patterns...)...)
-		cmd.Dir, cmd.Env = t.dir, append(os.Environ(), t.env...)
+		cmd.Dir, cmd.Env = t.dir, append(os.Environ(), env...)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			return fail(fmt.Errorf("govulncheck %s (%s): %v\n%s", t.name, strings.Join(t.patterns, " "), err, stderr.String()))
+			hint := ""
+			if t.src != "" {
+				hint = fmt.Sprintf("\n(checked read-only against its go.mod.tile and go.sum, as xbind builds it: a go.mod or go.sum error means they don't match its code — tidy them: hack/tile-check.sh %s says how)", path.Base(t.name))
+			}
+			return fail(fmt.Errorf("govulncheck %s (%s): %v\n%s%s", t.name, strings.Join(t.patterns, " "), err, stderr.String(), hint))
 		}
 		r, err := parse(bytes.NewReader(out), t.stdlib)
 		if err != nil {
@@ -130,7 +168,11 @@ func run(allowPath, tool string, only []string) int {
 		}
 		if !header {
 			header = true
-			fmt.Printf("vulncheck: govulncheck %s, %s, vulnerability database of %s\n", r.scanner, r.goVersion, r.dbDate())
+			goNote := r.goVersion
+			if gover != r.goVersion {
+				goNote += " (the go running this: " + gover + ")"
+			}
+			fmt.Printf("vulncheck: govulncheck %s, the standard library of %s, vulnerability database of %s\n", r.scanner, goNote, r.dbDate())
 		}
 		gating := report(os.Stdout, t, r, allow, allowPath)
 		if gating > 0 {
@@ -197,10 +239,46 @@ func goCmd(dir string, env []string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// goVersion is the GOVERSION of the go that govulncheck's package loading
+// runs for t (in its directory, with its environment: a go.mod's toolchain
+// line may pick another).
+func goVersion(t target) (string, error) {
+	out, err := goCmd(t.dir, t.env, "env", "GOVERSION").Output()
+	if err != nil {
+		return "", fmt.Errorf("go env GOVERSION: %v", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// goRelease is a Go release version as govulncheck v1.8.0 reads one
+// (internal/semver.GoTagToSemver): anything else, it treats every
+// standard-library advisory as not affecting the code.
+var (
+	goRelease       = regexp.MustCompile(`^go\d+\.\d+(\.\d+)?((beta|rc)\d+)?$`)
+	goReleasePrefix = regexp.MustCompile(`^go\d+\.\d+(\.\d+)?((beta|rc)\d+)?`)
+)
+
+// releaseVersion is the Go release a GOVERSION names, whose standard library
+// the toolchain's is: "go1.27.0-X:nodwarf5" (a GOEXPERIMENT baked in) and
+// "go1.27.0 X:nodwarf5" are go1.27.0. ok is false for one naming no release
+// ("devel go1.28-abc…", "go1.27.0abc").
+func releaseVersion(gover string) (string, bool) {
+	gover = strings.TrimSpace(gover)
+	rel := goReleasePrefix.FindString(gover)
+	if rel == "" {
+		return "", false
+	}
+	if rest := gover[len(rel):]; rest != "" && rest[0] != '-' && rest[0] != ' ' {
+		return "", false
+	}
+	return rel, true
+}
+
 // discover lists the targets, in the order they print.
 func discover(repo string) ([]target, error) {
 	ts := []target{
-		{name: "xbind", dir: repo, patterns: []string{"./cmd/..."}, stdlib: true},
+		{name: "xbind", dir: repo, patterns: []string{"./cmd/..."}, env: releaseEnv("amd64"), stdlib: true},
+		{name: "xbind/arm64", dir: repo, patterns: []string{"./cmd/..."}, env: releaseEnv("arm64"), stdlib: true},
 		{name: "relay", dir: filepath.Join(repo, "relay"), patterns: []string{"./..."}, stdlib: true},
 		{name: "sdk", dir: filepath.Join(repo, "sdk"), patterns: []string{"./..."}},
 	}
@@ -218,7 +296,10 @@ func discover(repo string) ([]target, error) {
 			}
 			rel, _ := filepath.Rel(repo, filepath.Dir(p))
 			tiles = append(tiles, target{name: filepath.ToSlash(rel), src: filepath.Dir(p),
-				env: []string{"GOWORK=off", "GOFLAGS=" + strings.TrimSpace(os.Getenv("GOFLAGS")+" -mod=mod")}})
+				// read-only (and through its own go.work, run adds): the
+				// versions it ships, or an error — never ones the go command
+				// would fetch or add to make it build
+				env: []string{"GOFLAGS=" + strings.TrimSpace(os.Getenv("GOFLAGS")+" -mod=readonly")}})
 			return nil
 		})
 		if err != nil {
@@ -252,9 +333,13 @@ func selectTargets(all []target, only []string) ([]target, error) {
 	return out, nil
 }
 
-// copyTile makes t's module buildable in dst: its tree (regular files
-// only), go.mod.tile restored to go.mod and go.sum.tile to go.sum, the sdk
-// replaced by this checkout's — what a workspace's build resolves it to.
+// copyTile makes t's module buildable in dst as a workspace builds it: its
+// tree (regular files only), go.mod.tile restored to go.mod and go.sum.tile
+// to go.sum, beside a go.work shaped as xbind's build renders one (D166,
+// internal/deps renderBuildWork): the module, the sdk replaced by this
+// checkout's, the go line the highest of 1.24 and the module's. Its go.mod
+// and go.sum are used as they are: workspace mode never edits them, so a
+// mismatch with its code is an error, as in the build.
 func copyTile(t target, repo, dst string) error {
 	err := filepath.WalkDir(t.src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -283,10 +368,31 @@ func copyTile(t target, repo, dst string) error {
 	if err != nil {
 		return err
 	}
-	if out, err := goCmd(dst, []string{"GOWORK=off"}, "mod", "edit", "-replace", sdkModule+"="+filepath.Join(repo, "sdk")).CombinedOutput(); err != nil {
-		return fmt.Errorf("go mod edit: %v\n%s", err, out)
+	mod, err := os.ReadFile(filepath.Join(dst, "go.mod"))
+	if err != nil {
+		return err
 	}
-	return nil
+	return os.WriteFile(filepath.Join(dst, "go.work"), []byte(tileGoWork(mod, filepath.Join(repo, "sdk"))), 0o644)
+}
+
+// buildGo is the lowest go line of a go.work xbind renders (internal/deps).
+const buildGo = "1.24"
+
+var goLineRE = regexp.MustCompile(`(?m)^go[ \t]+([^ \t\r\n/]+)`)
+
+// tileGoWork is the go.work a build of the module whose go.mod is mod gets
+// from xbind (D166): itself, the sdk at sdkDir. The go command refuses a
+// go.work whose go line is below a module it uses; one that isn't a Go
+// version never raises it.
+func tileGoWork(mod []byte, sdkDir string) string {
+	goLine := buildGo
+	if m := goLineRE.FindSubmatch(mod); m != nil && version.Compare("go"+string(m[1]), "go"+goLine) > 0 {
+		goLine = string(m[1])
+	}
+	if strings.ContainsAny(sdkDir, " \t\"'`\\") {
+		sdkDir = strconv.Quote(sdkDir)
+	}
+	return fmt.Sprintf("go %s\n\nuse .\n\nreplace %s => %s\n", goLine, sdkModule, sdkDir)
 }
 
 // packageDirs lists dir's package directories as patterns: every directory
@@ -410,6 +516,11 @@ func parse(rd io.Reader, stdlib bool) (result, error) {
 				reach[f.OSV] = &finding{ID: f.OSV, Module: top.Module, Version: top.Version, Fixed: f.FixedVersion, Trace: traceLine(f.Trace)}
 			}
 		}
+	}
+	if stdlib && !goRelease.MatchString(r.goVersion) {
+		// govulncheck found no standard-library advisory because it could
+		// read no version, not because there is none: never a pass
+		return r, fmt.Errorf("govulncheck judged the standard library of go version %q, which it can't match against any advisory (it reads only a release: go1.N.P)", r.goVersion)
 	}
 	for id, f := range reach {
 		f.Summary = summaries[id]

@@ -55,6 +55,48 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// govulncheck v1.8.0 reads only a bare release as the standard library's
+// version; for any other it reports no standard-library finding at all. So
+// the go's GOVERSION is reduced to its release before govulncheck sees it,
+// or refused; and a go_version govulncheck can't read never passes a target
+// the standard library gates (a tile's isn't judged on it).
+func TestGoVersion(t *testing.T) {
+	for in, want := range map[string]string{
+		"go1.26.3":                        "go1.26.3",
+		"go1.27.0-X:nodwarf5":             "go1.27.0",
+		"go1.27.0 X:nodwarf5,jsonv2":      "go1.27.0",
+		"go1.27.0 (Red Hat 1.27.0-1.el9)": "go1.27.0",
+		"go1.27rc2":                       "go1.27rc2",
+		"go1.27rc2-X:foo":                 "go1.27rc2",
+		"go1.21":                          "go1.21",
+		"  go1.26.3\n":                    "go1.26.3",
+		"devel go1.28-abc123 Tue Sep 1":   "",
+		"go1.27.0abc":                     "",
+		"gccgo":                           "",
+		"":                                "",
+	} {
+		got, ok := releaseVersion(in)
+		switch {
+		case want == "" && ok:
+			t.Errorf("releaseVersion(%q) = %q: it names no release", in, got)
+		case want != "" && (!ok || got != want):
+			t.Errorf("releaseVersion(%q) = %q %v, want %q", in, got, ok, want)
+		case ok && !goRelease.MatchString(got):
+			t.Errorf("releaseVersion(%q) = %q, which govulncheck can't read", in, got)
+		}
+	}
+
+	for _, gv := range []string{"go1.27.0-X:nodwarf5", "devel go1.28-abc123 Tue Sep 1", ""} {
+		odd := strings.Replace(stream, `"go_version":"go1.26.3"`, `"go_version":"`+gv+`"`, 1)
+		if _, err := parse(strings.NewReader(odd), true); err == nil {
+			t.Errorf("go_version %q passed a target the standard library gates", gv)
+		}
+		if _, err := parse(strings.NewReader(odd), false); err != nil {
+			t.Errorf("go_version %q, a tile: %v", gv, err)
+		}
+	}
+}
+
 func TestAllow(t *testing.T) {
 	src := `# comment
 
@@ -136,11 +178,19 @@ func TestDiscover(t *testing.T) {
 			t.Errorf("no target %s in %v", want, names)
 		}
 	}
-	if !names["xbind"].stdlib || names["sdk"].stdlib || names["builtin-templates/agent"].stdlib {
+	if !names["xbind"].stdlib || !names["xbind/arm64"].stdlib || names["sdk"].stdlib || names["builtin-templates/agent"].stdlib {
 		t.Error("the standard library gates xbind only (and the relay)")
 	}
+	for _, x := range []string{"xbind", "xbind/arm64"} {
+		if env := strings.Join(names[x].env, " "); !strings.Contains(env, "CGO_ENABLED=0") || !strings.Contains(env, "GOOS=linux") {
+			t.Errorf("%s is scanned as a bundle builds it (CGO_ENABLED=0, linux): %s", x, env)
+		}
+	}
+	if env := strings.Join(names["builtin-tiles/sandbox-terminal"].env, " "); !strings.Contains(env, "-mod=readonly") {
+		t.Errorf("a builtin is scanned read-only, at the versions it ships: %s", env)
+	}
 	tiles, _ := filepath.Glob(filepath.Join(repo, "builtin-*", "*", "go.mod.tile"))
-	if got := len(ts) - 3; got != len(tiles) {
+	if got := len(ts) - 4; got != len(tiles) {
 		t.Errorf("%d builtin targets, %d go.mod.tile files", got, len(tiles))
 	}
 
@@ -173,7 +223,31 @@ func TestDiscover(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(dst, "go.mod"))
-	if err != nil || !strings.Contains(string(b), "replace "+sdkModule+" => "+filepath.Join(repo, "sdk")) {
-		t.Errorf("go.mod (%v):\n%s", err, b)
+	if err != nil || string(b) != "module tpl\n\ngo 1.24\n" {
+		t.Errorf("go.mod, as shipped (%v):\n%s", err, b)
+	}
+	b, err = os.ReadFile(filepath.Join(dst, "go.work"))
+	if want := "go 1.24\n\nuse .\n\nreplace " + sdkModule + " => " + filepath.Join(repo, "sdk") + "\n"; err != nil || string(b) != want {
+		t.Errorf("go.work (%v):\n%s\nwant:\n%s", err, b, want)
+	}
+}
+
+// A builtin's go.work is shaped as xbind's build renders one (D166): its go
+// line the highest of 1.24 and the module's, which the go command requires.
+func TestTileGoWork(t *testing.T) {
+	for mod, want := range map[string]string{
+		"module a\n\ngo 1.22\n":                                "go 1.24\n",
+		"module a\n\ngo 1.24\n":                                "go 1.24\n",
+		"module a\n\ngo 1.24.0\n":                              "go 1.24.0\n",
+		"module a\n\ngo 1.26.0 // why\n\ntoolchain go1.27.0\n": "go 1.26.0\n",
+		"module a\n\ngo 9.x\n":                                 "go 1.24\n",
+		"module a\n":                                           "go 1.24\n",
+	} {
+		if got := tileGoWork([]byte(mod), "/opt/sdk"); !strings.HasPrefix(got, want) || !strings.HasSuffix(got, "\nuse .\n\nreplace "+sdkModule+" => /opt/sdk\n") {
+			t.Errorf("%q: go.work\n%s", mod, got)
+		}
+	}
+	if got := tileGoWork([]byte("module a\n"), "/opt/my sdk"); !strings.HasSuffix(got, ` => "/opt/my sdk"`+"\n") {
+		t.Errorf("a path with a space is quoted:\n%s", got)
 	}
 }
