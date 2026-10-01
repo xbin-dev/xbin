@@ -275,7 +275,7 @@ func (s *session) run() error {
 			return fmt.Errorf("gateway %s: %w", ex.Gateway, err)
 		}
 	}
-	proc, done, err := s.c.o.Spawn.Start(argv0, ex.Argv, attr)
+	proc, done, err := s.c.spawnSession(s.id, argv0, ex.Argv, attr) // procattr_linux.go
 	pipes.started()
 	if err != nil {
 		s.closePipes(pipes)
@@ -284,7 +284,6 @@ func (s *session) run() error {
 	s.mu.Lock()
 	s.proc, s.pid = proc, proc.Pid
 	s.mu.Unlock()
-	s.c.adjustOOM(s.id, proc.Pid) // procattr_linux.go
 	pipes.copy()
 	s.c.send(proto.Msg{Op: "started", Session: s.id, Pid: proc.Pid})
 	stop := make(chan struct{})

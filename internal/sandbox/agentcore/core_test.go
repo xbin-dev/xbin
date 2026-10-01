@@ -161,6 +161,21 @@ func (h *harness) wait(session int, ops ...string) proto.Msg {
 		h.mu.Unlock()
 		select {
 		case <-h.more:
+		case <-h.ctlGone:
+			// The agent ended the control connection (it exited?): no event
+			// comes after those the reader stored before it closed ctlGone,
+			// so waiting on is pointless.
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			for i, m := range h.events {
+				for _, op := range ops {
+					if m.Op == op && m.Session == session {
+						h.events = append(h.events[:i:i], h.events[i+1:]...)
+						return m
+					}
+				}
+			}
+			h.t.Fatalf("no %v for session %d: the agent closed the control connection; events: %+v", ops, session, h.events)
 		case <-deadline:
 			h.mu.Lock()
 			defer h.mu.Unlock()

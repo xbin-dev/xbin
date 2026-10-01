@@ -6,6 +6,7 @@
 //	read <file>      its content
 //	ln <target> <link>
 //	sleeper          start a child in this process group, print its pid, wait
+//	                 for a signal (the child's end doesn't end it)
 //	alive <pid>      "alive" or "gone"
 //	stop <comm>      SIGSTOP the processes named comm
 //	tty              the tty's size, a line read, the size again
@@ -69,6 +70,12 @@ func main() {
 		check(c.Start())
 		fmt.Println(c.Process.Pid)
 		_ = c.Wait()
+		// Only a signal ends the sleeper: a group signal that ends its child
+		// first must not let it return from main (exit 0) before the
+		// signal sent to it too gets to act, however late it runs.
+		for {
+			time.Sleep(time.Hour)
+		}
 	case "alive":
 		pid, _ := strconv.Atoi(args[0])
 		if unix.Kill(pid, 0) == nil {

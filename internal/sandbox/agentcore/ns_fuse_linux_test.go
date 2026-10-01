@@ -156,7 +156,10 @@ func testOOMScores(t *testing.T, sb *nsSandbox) {
 	if got := sb.probe("read", "/proc/self/oom_score_adj"); got != "500\n" {
 		t.Errorf("a session's oom_score_adj: %q, want 500", got)
 	}
-	if got := sb.probe("read", "/proc/1/oom_score_adj"); got != own+"\n" {
+	// The agent's, read from here with no session starting: it carries a
+	// session's score while it clones one (spawnSession), so a session
+	// reading /proc/1 would race the agent going back to its own.
+	if got, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(sb.cmd.Process.Pid), "oom_score_adj")); string(got) != own+"\n" {
 		t.Errorf("the agent's oom_score_adj: %q, want %s (inherited)", got, own)
 	}
 	uid := uint32(1000)
