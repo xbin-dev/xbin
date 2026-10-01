@@ -511,35 +511,41 @@ func TestLaunchSetVMKeepsBaseMoved(t *testing.T) {
 	none.setVM(1, 1, false, "") // nil-safe
 }
 
+// The tile's own layer's lines, as a shell prints them (grey).
+const (
+	tileMovedLine        = "\x1b[90mxbin: this tile's terminal moved to the new base image — " + baseMovedWhat + "\x1b[0m\r\n"
+	tileMovedByAgentLine = "\x1b[90mxbin: an agent session's start moved this tile's terminal to the new base image — " + baseMovedWhat + "\x1b[0m\r\n"
+)
+
 // What the tile's shells say: their own move's line; an agent session's
 // move once, to the next shell; nothing after.
 func TestMoveNotes(t *testing.T) {
 	m := &Manager{}
-	k := termKey("apps/x")
-	if n := m.takeMoveNote(k, false); n != "" {
+	k, tl := termKey("apps/x"), openOpts{}.movedLayer()
+	if n := m.takeMoveNote(k, tl, false); n != "" {
 		t.Fatalf("no move: %q", n)
 	}
-	if n := m.takeMoveNote(k, true); n != baseMovedLine {
+	if n := m.takeMoveNote(k, tl, true); n != tileMovedLine {
 		t.Fatalf("own move: %q", n)
 	}
-	m.noteMove(k)
-	if n := m.takeMoveNote(termKey("apps/y"), false); n != "" {
+	m.noteMove(k, tl)
+	if n := m.takeMoveNote(termKey("apps/y"), tl, false); n != "" {
 		t.Fatalf("another tile: %q", n)
 	}
-	if n := m.takeMoveNote(k, false); n != baseMovedByAgentLine {
+	if n := m.takeMoveNote(k, tl, false); n != tileMovedByAgentLine {
 		t.Fatalf("after an agent's move: %q", n)
 	}
-	if n := m.takeMoveNote(k, false); n != "" {
+	if n := m.takeMoveNote(k, tl, false); n != "" {
 		t.Fatalf("told twice: %q", n)
 	}
-	m.noteMove(k)
-	if n := m.takeMoveNote(k, true); n != baseMovedLine {
+	m.noteMove(k, tl)
+	if n := m.takeMoveNote(k, tl, true); n != tileMovedLine {
 		t.Fatalf("own move after an agent's: %q", n)
 	}
-	if n := m.takeMoveNote(k, false); n != "" {
+	if n := m.takeMoveNote(k, tl, false); n != "" {
 		t.Fatalf("the agent's told after the shell's own: %q", n)
 	}
-	for _, line := range []string{baseMovedLine, baseMovedByAgentLine} {
+	for _, line := range []string{tileMovedLine, tileMovedByAgentLine} {
 		for _, what := range []string{"$HOME", "installed packages", "/etc", "/var", "/opt", "VM terminal's whole disk"} {
 			if !strings.Contains(line, what) {
 				t.Errorf("the line doesn't say %q: %q", what, line)
@@ -555,19 +561,21 @@ func TestAgentSaysBaseMoved(t *testing.T) {
 	var got []SessionEvent
 	m := &Manager{OnEvent: func(cwd string, ev SessionEvent) { got = append(got, ev) }}
 	s := &Session{ID: "s1", Cwd: "apps/x", kind: KindAgent, hub: termwire.NewHub(0), agent: &agentState{log: agent.NewLog(0, 0)}}
-	s.sayBaseMoved(m, termKey("apps/x"))
+	tl := openOpts{}.movedLayer()
+	s.sayBaseMoved(m, termKey("apps/x"), tl)
 	evs, _ := s.agent.log.Since(0)
 	if len(evs) != 1 || evs[0].Type != EvNotice || len(got) != 1 || got[0].Type != EvNotice {
 		t.Fatalf("log %+v, published %+v", evs, got)
 	}
+	note := "xbin: this tile's terminal moved to the new base image — " + baseMovedWhat
 	var d noticeData
-	if err := json.Unmarshal(evs[0].Data, &d); err != nil || d.Text != baseMovedNote {
+	if err := json.Unmarshal(evs[0].Data, &d); err != nil || d.Text != note {
 		t.Fatalf("notice %s: %v", evs[0].Data, err)
 	}
-	if !strings.Contains(string(s.agent.text), baseMovedNote) {
+	if !strings.Contains(string(s.agent.text), note) {
 		t.Fatal("not in the host's text log")
 	}
-	if n := m.takeMoveNote(termKey("apps/x"), false); n != baseMovedByAgentLine {
+	if n := m.takeMoveNote(termKey("apps/x"), tl, false); n != tileMovedByAgentLine {
 		t.Fatalf("the next shell: %q", n)
 	}
 }

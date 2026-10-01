@@ -191,17 +191,20 @@ mode" made true; PD-52 (amended), PD-44 and PD-35 noted.
 - `bx policies` / `/workspace-policies` and `bx settings` /
   `/workspace-settings` stay two admin switch sets (above): the owner's
   call whether to fold them.
-- A rerouted partition request whose second `EnsurePartition` is refused
+- ~~A rerouted partition request whose second `EnsurePartition` is refused
   (the caps met during the swap) answers the transport's 502 with the
   refusal's text, where a first ensure answers 503 — rerouting's error
-  path is the deployments' too (D173).
-- The base-move line says "this tile's terminal moved…" also for a
-  person's own layer; a move note left for a person whose layer a switch
-  then wiped is still said once. Wording only.
-- CI's timing profile has no entries for the partitions tests; they hash
+  path is the deployments' too (D173).~~ Done (land/followups, D177): the
+  first ensure's answer, on both paths.
+- ~~The base-move line says "this tile's terminal moved…" also for a
+  person's own layer~~ Done (land/followups, D177): "your terminal on
+  <tile>". A move note left for a person whose layer a switch then wiped
+  is still said once.
+- ~~CI's timing profile has no entries for the partitions tests; they hash
   into shards, and the isolated ones skip there (no rootfs) — refresh the
   `ci` profile from a CI run's logs when convenient
-  (`testshard timings -profile ci`).
+  (`testshard timings -profile ci`).~~ Done (land/followups, D177): from
+  run 36909713832.
 - The downgrade tests stay pinned to v0.3.61 (CI's choice: the last
   release before tile deployments); a v0.3.65 binary speaks deployments,
   which makes them skip by design.
