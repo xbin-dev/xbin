@@ -614,10 +614,12 @@ func (m *Manager) sandboxShell(dir, rel, homeDir, token string, o openOpts) (*ex
 	// The layer is pinned to the base it was built on, or moved to the
 	// current one first (base auto-update, D173; claimLayer).
 	envKey, vmDisk := termKey(rel), ""
-	if lc, held, err := m.claimLayer(envKey); err != nil {
+	lc, held, err := m.claimLayer(envKey)
+	if err != nil {
 		dropView()
 		return nil, nil, nil, "", nil, err
-	} else if !held {
+	}
+	if !held {
 		layer, base := lc.dir, lc.base
 		up, work := filepath.Join(layer, "upper"), filepath.Join(layer, "work")
 		if o.launch != nil {
