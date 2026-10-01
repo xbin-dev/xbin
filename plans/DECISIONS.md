@@ -6408,3 +6408,104 @@ Deviations and refinements made while implementing; all deliberate:
     them. Taken: its reliability traps (xbindtest's boot-failure deadlock,
     the tilesbx fd settle; the PauseRace fixtures are another agent's
     deflake), and keeping going after a failure.
+
+- **D178 — Coding-agent sign-in: Claude Code signs in with `claude auth
+  login`, guided in the Agent tab; terminal links open whole; no
+  CLAUDE_CODE_REMOTE (2026-10-01).** sdk/acp signin.go, providers.go;
+  web/signin-scan.js, agent-signin.js, term-links.js, term-sessions.js;
+  docs/protocol.md `GET /agent/providers`. The owner: the sign-in should
+  run something like `claude /exit` — which prompts for the login and
+  then exits, which we catch — because `/login` "just prompts for login
+  twice"; and the login link "renders really jank" in the terminal.
+  - **`claude auth login`, not `/login` or `/exit`.** On a fresh `$HOME`
+    Claude Code's onboarding signs in, then the `/login` command signs in
+    again. `claude auth login` (2.1.41+; a pasted code since 2.1.126; one
+    line of link since 2.1.202) skips onboarding, the theme picker and
+    the REPL, works without a TTY, prints `If the browser didn't open,
+    visit: <URL>` (OSC 8 on a terminal, plain on pipes) and `Paste code
+    here if prompted > `, then `Login successful.` and exit 0, or `Login
+    failed: …` and exit 1; a malformed code prints `Invalid code…` and is
+    asked again. `claude /exit` works too, but walks the theme,
+    login-method and trust screens — it is the **fallback**, for a CLI
+    without `auth`: the command carries `--claudeai` (the subscription
+    sign-in, its default anyway) so such a CLI fails at once on an
+    unknown option instead of starting a session, and a run that ends
+    without a link offers `claude /exit` in a terminal. Rejected: version
+    detection in a shell line (long, and shown to whoever opens the
+    terminal), and `/exit` for everyone (three screens to click through).
+  - **The spec is data, the reader pure, twice.** `Provider.Signin`
+    {command, argv, env, tty, fallback, url (a regexp RE2 and JS agree
+    on), hosts, code/invalid/done/fail markers} rides `GET
+    /agent/providers` as `signin` (additive; claude only — codex's device
+    code, gemini's and opencode's terminal flows keep today's terminal).
+    `Signin.Scan` (Go) and `scanSignin` (web/signin-scan.js) strip
+    CSI/OSC, take an OSC 8 target first (Ink draws a long URL as one link
+    per row, each pointing at the whole URL), else rejoin a URL
+    hard-wrapped over equal-width rows, and offer only an https URL on the
+    provider's hosts (subdomains count; no user part). Both are tested on
+    the same captures of Claude Code 2.1.280 (sdk/acp/testdata/signin).
+    Nothing is saved or minted here: the CLI keeps the login in `$HOME` as
+    it always did — saved per-person sign-ins wait on the owner's policy.
+  - **The guided strip** (`<bx-agent-signin>`): **Sign in** opens a
+    terminal session over the existing `/ws/term` wire (cwd the tile, gpu
+    none, api 0, net the tile's default — the agent's), sends
+    `{op:"resize",cols:1000}` so nothing wraps, and types ` <command>;
+    exit` (the leading space keeps it out of an ignorespace history; the
+    `exit` ends the session when the CLI does, even when the CLI is
+    missing). It shows **Open sign-in page ↗** (a real link: no popup
+    blocker), **Copy link**, the link itself, a code field and
+    **Finish** (the cleaned code and Enter, once the CLI asked), and a
+    status line. The CLI's words decide, not the exit frame: `/ws/term`'s
+    exit frame for a shell carries no code (it is sent before the reap),
+    so `Login successful` is signed in, `Login failed` the reason and
+    **Try again**, a new `Invalid code` paste-again; an exit with none of
+    them shows the last line. Signed in, the prompt stays down until a
+    turn fails again (the agent keeps reporting signed-out until a turn
+    succeeds) and the tab says to send the message again — as before, the
+    person re-sends. **Use a terminal instead** is today's shell tab
+    running the login; the strip's session ends then.
+  - **No tab for it, without new server surface.** The session directory
+    lists every session of the user's on the tile, and bx-frame makes a
+    tab of each — in every browser. The strip names its session
+    `xbin:sign-in` (the existing rename) the moment it learns the id, and
+    `visibleRows` drops that name; in this browser rows are also dropped
+    by id, and while one is opening on the tile a shell row no tab holds
+    waits for the next listing (the rename's `term` event brings it). A
+    `name` on `/ws/term` would close the last window — another browser
+    can show a "Bash" tab for the instant between open and rename — but
+    the brief was no new server surface.
+  - **Terminal links** (term-links.js, every `<bx-terminal>` and
+    `<bx-logs>`): xterm's `linkHandler` opens OSC 8 targets (http/https,
+    `noopener`, no `confirm()` — xterm's default asks "This link could
+    potentially be dangerous"), so any row of Ink's wrapped link opens
+    the whole URL; a link provider registered before the web-links addon
+    joins a URL that reaches the right edge with the following rows made
+    only of URL characters (the addon joins soft wraps only — a fragment
+    gave a truncated URL); `@xterm/addon-clipboard` 0.1.0 (the one built
+    for xterm 5.5, a single-file UMD like the other addons; vendored and
+    pinned) answers OSC 52 so Claude Code's "c to copy" works — writes
+    only, while that terminal has the focus, never a read (a sandboxed
+    program must not read the person's clipboard). Its constructor takes
+    (base64, provider), not what its typings say.
+  - **CLAUDE_CODE_REMOTE=1 is gone from the adapter's env.** Added in D75
+    for the sign-in only: under it claude-agent-acp advertises its
+    full-screen `--cli` login (`claude-login`) instead of `auth login
+    --claudeai|--console`, and D-harness A11 kept it believing `auth
+    login` needs a localhost redirect — true before 2.1.126, not since.
+    But Claude Code itself inherits the adapter's env, and to 2.1.280 the
+    variable means Anthropic's own remote sessions: auto memory off, a
+    2-minute API timeout instead of 5, a settings `defaultMode` of
+    `bypassPermissions` refused ("only acceptEdits, plan, default, and
+    auto are allowed"), git-status prefetch off, its own "Authentication
+    error" wording. Nothing else needs it: the rootfs probe
+    (claude-agent-acp 0.81.1, signed out) opens the session with the same
+    modes and options either way; only the advertised auth methods differ.
+  - **The AgTT side follows separately**, after the partitions merge: the
+    agent template's guided method (it still runs the adapter's terminal
+    method, now `auth login`, or the catalog's `LoginCmd` — left as
+    `CLAUDE_CODE_REMOTE=1 claude /login` for it to replace with
+    `Signin`), the gemini `_meta["api-key"]` shape bug, and saved
+    per-person sign-ins (the policy ruling first). When it moves to
+    `Signin`, a sandbox manager's advertised login must win over the
+    catalog default, so an older coding-sandbox manager's `claude /login`
+    keeps working; a new one advertises `claude auth login`.
