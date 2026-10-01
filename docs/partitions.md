@@ -243,7 +243,8 @@ a terminal or agent session of theirs opened on the tile), its mail or a
 personal bind.
 Volumes that are provisioned but empty don't count.
 
-Templates and updates never switch a mode:
+Templates and updates never switch a mode — with one exception, the agent
+template's update (below):
 
 - **A template** asks for the mode of **new** instances in its `template`
   block (`"template": {"partition": […]}`), never at its top level.
@@ -267,7 +268,16 @@ Templates and updates never switch a mode:
   keeps the block it has. An upstream change to the default is therefore
   no conflict: the merge leaves your `xbin.json` and its mode as they are,
   and the snapshot's commit message says, for your information, that the
-  block changed and what new instances now start with.
+  block changed and what new instances now start with. The one exception
+  is a builtin template whose block sets `"partitionOnUpdate": true` — the
+  agent template's (below): under `--isolate` its served repository asks
+  every instance for the block's `partition`, as its own top-level
+  `partition` on the line after the opening brace, so a merge brings that
+  line in (the merge driver takes it by keys too, where neither the base
+  nor your manifest names a mode; a mode you named stays yours, and
+  upstream's ask is then a conflict). Once served the ask never changes or
+  goes away, whatever a later template or an xbind without `--isolate`
+  says.
 - **`bx builtin update`** (replace, merge or a proposal) keeps each
   `xbin.json`'s **installed** `partition` — present, absent or its list, in
   whatever case you wrote the key — and changes nothing else about it.
@@ -280,13 +290,24 @@ Templates and updates never switch a mode:
   something else, it prints `partition kept as installed (…; upstream asks
   …): edit it deliberately to request a switch`. A proposal whose only
   change would be the partition has nothing to propose: the version is
-  recorded instead.
+  recorded instead. It never reaches a template's instances (an agent's):
+  they take their template's update by the merge above.
 
 The builtin agent template asks for `["user", "global"]`: a new agent
 instance keeps each person's conversations in their own partition, unless
-you opt out as above (or xbind lacks `--isolate`). Existing agent instances
-keep their mode — they run unpartitioned, as before, until a manager
-switches them, which deletes their conversations, memory and schedules. The
+you opt out as above (or xbind lacks `--isolate`). **Every existing agent
+instance becomes partitioned too** (the owner's ruling, D177): its
+template's update asks for it (`partitionOnUpdate`), so when the instance
+merges the update (`git fetch template && git merge template/main`) its
+`xbin.json` gains `"partition": ["user", "global"]`. An instance that holds
+data then sits in the mode-switch request above — paused, nothing deleted
+— until a manager **switches** it, which deletes its conversations, memory
+and schedules (no migration carries them over; its `partitionNote` says
+so), or **keeps the current mode**, after which it runs unpartitioned as
+before (taking the line out of `xbin.json` keeps it so for good). An empty
+instance simply switches. Without `xbind --isolate` nothing asks: the agent
+stays one instance, as before. No other builtin template's update asks for
+a mode ([changes/2026-10-01-agent-instances-partitioned.md](changes/2026-10-01-agent-instances-partitioned.md)). The
 template's API.md ("Partitioned instances") says what runs where; update
 the sandbox managers an agent uses before you create or switch one (a
 manager whose `hello.caps` lack `partitions` isn't used in people's

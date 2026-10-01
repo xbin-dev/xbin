@@ -347,8 +347,11 @@ and arrays element by element (a `uses` entry is known by its `target`).
 Some changes are never taken, and conflict instead: upstream changing the
 top-level `partition` or `template` (the mode changes only by your own
 edit; upstream's change to a block your manifest doesn't carry is nothing
-to it), upstream's changes to comments in a manifest that has comments (a
-merge by keys can't carry them; one without comments takes none), and
+to it — except that a `partition` upstream adds where neither the base nor
+your manifest names one is taken: the agent template's update asks every
+instance for its mode, D177 and [partitions](../partitions.md)),
+upstream's changes to comments in a manifest that has comments (a merge
+by keys can't carry them; one without comments takes none), and
 upstream adding references to the template's own path when your
 manifest doesn't name the path the driver renames them to (a copy whose
 driver is out of date). An instance made at another path keeps its own

@@ -52,6 +52,12 @@ func stripTemplateBlock(data []byte, opts InstanceOpts) []byte {
 	return out
 }
 
+// PartitionOnTop is partitionOnTop: the served template repo puts the mode a
+// template's update requests of its instances where instantiation puts an
+// instance's own (D177; internal/broker templaterepo_block.go), so the two
+// lines meet as one in a merge.
+func PartitionOnTop(doc, def []byte) ([]byte, error) { return partitionOnTop(doc, def) }
+
 // partitionOnTop is doc with `"partition": def` as its first member, on a
 // line of its own right after the opening brace at the next line's indent —
 // or, when the brace's line holds more than a comment, before the first

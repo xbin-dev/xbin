@@ -13,8 +13,13 @@
     // instances"). Instantiating writes this as the copy's own "partition";
     // untick "Keep each person's data apart" (or --no-partition) for one
     // unpartitioned instance, which is also what xbind without --isolate
-    // makes. Existing instances keep their mode.
-    "partition": ["user", "global"]
+    // makes. And every existing instance asks for it too once it merges
+    // this template's update (`git merge template/main`; partitionOnUpdate,
+    // D177): one holding data pauses until a manager switches it — which
+    // deletes its data — or keeps its current mode; an empty one switches.
+    // Under --isolate only.
+    "partition": ["user", "global"],
+    "partitionOnUpdate": true
   },
 
   // Where xbind rings the partition-mail doorbell (a partitioned instance

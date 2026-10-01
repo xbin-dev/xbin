@@ -125,6 +125,34 @@ func TestOldInstanceTakesTemplateManifest(t *testing.T) {
 	})
 }
 
+// covers D177 — the served repo of a template whose update requests its
+// instances' partition carries it on top: an old instance (re-marshalled,
+// so git's line merge conflicts) takes it by keys with the rest of
+// today's manifest, its own path kept; one whose builder named a mode keeps
+// theirs, and upstream's ask is a conflict for them.
+func TestOldInstanceTakesRequestedPartition(t *testing.T) {
+	old, cur := agentManifests(t)
+	theirs, err := jsonc.SetTopLevel(served(t, cur, old), "partition", []byte(`["user", "global"]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{"apps/agent", "apps/my-agent"} {
+		ours := marshalled(t, old, "apps/agent", to)
+		r := mustMerge(t, old, ours, theirs, Options{From: "apps/agent", To: to})
+		if got, has := top(t, r.Out, "partition"); !has || got != `["user","global"]` {
+			t.Errorf("%s: merged partition %q:\n%s", to, got, r.Out)
+		}
+		if _, has := top(t, r.Out, "partitionMail"); !has || strings.Contains(to, "my") && strings.Contains(string(r.Out), "res:apps/agent/") {
+			t.Errorf("%s: the rest of today's manifest, its own path kept:\n%s", to, r.Out)
+		}
+	}
+	ownMode, err := jsonc.SetTopLevel(marshalled(t, old), "partition", []byte(`["user"]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustConflict(t, string(old), string(ownMode), string(theirs), Options{From: "apps/agent", To: "apps/agent"}, "partition")
+}
+
 // covers T1 — an old instance its builder built up: their grants, their
 // interface and their key stay, upstream's new uses land after the entry
 // they follow upstream, in the instance's form; a value both changed is a

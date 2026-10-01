@@ -62,7 +62,7 @@ func materializeTemplateRepo(root string, tfs fs.FS, name string) error {
 	// The manifest the repo carries now (nil: a new repo): its "template"
 	// block is the one every later snapshot keeps (templaterepo_block.go).
 	carried, _ := os.ReadFile(filepath.Join(dir, "xbin.json"))
-	var manifest []byte
+	var manifest, served []byte // the embedded manifest, and as the repo serves it
 	// Mirror the embedded files into the working tree.
 	err := fs.WalkDir(tfs, name, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -76,6 +76,7 @@ func materializeTemplateRepo(root string, tfs fs.FS, name string) error {
 		if rel == "xbin.json" {
 			manifest = data
 			data = repoManifest(data, carried)
+			served = data
 		}
 		out := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
@@ -107,7 +108,11 @@ func materializeTemplateRepo(root string, tfs fs.FS, name string) error {
 	args := []string{"-c", "user.email=xbin@localhost", "-c", "user.name=xbin", "commit", "-q", "-m", "template snapshot"}
 	changed := last != "" && cur != last
 	if changed {
-		args = append(args, "-m", templateBlockNote(manifest))
+		args = append(args, "-m", templateBlockNote(manifest, servedPartition(served)))
+	}
+	if req := servedPartition(served); req != "" && servedPartition(carried) == "" {
+		args = append(args, "-m", templateRequestNote(req)) // the first snapshot that asks (D177)
+		changed = true
 	}
 	if cur != "" {
 		args = append(args, "-m", templateBlockTrailer+cur)

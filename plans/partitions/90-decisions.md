@@ -62,7 +62,9 @@ questions they raised.
     recorded, the tile runs its recorded mode again, and nothing is deleted;
   - builtin template updates never add or remove `partition` in an existing
     instance's manifest, so an update can never trigger a wipe prompt
-    (PD-52).
+    (PD-52) — except the agent template's, which asks every instance for
+    its mode (PD-52's amendment, the owner 2026-10-01, D177): the prompt is
+    then this rule's, confirm or keep.
 - Where it is designed:
   - states (recorded / requested / pending / declined / invalid), the
     audit trail and the grey-out surfaces: 01 §2;
@@ -112,6 +114,27 @@ questions they raised.
     `partition: false` is sent or xbind lacks `--isolate`;
   - a D127 promote/rollback preflight warns when the target code asks for a
     different mode (01 §2.7).
+- **Amended for the agent template (owner, 2026-10-01; D177).** The
+  owner: "After this update all AgTT instances should become partitioned,
+  no migration from legacy needed." So the agent template's update
+  requests the switch:
+  - its block sets `"partitionOnUpdate": true`; under `--isolate` the served
+    repo then carries `"partition": ["user","global"]` as its top-level key
+    (the line after the opening brace, where a new instance has it), so an
+    instance that merges the update gains it — and the merge driver takes
+    it by keys where neither the base nor the instance names a mode (a mode
+    the builder wrote stays theirs: a conflict);
+  - PD-44 is unchanged: on an instance holding data that is a switch
+    request — the tile pauses, a manager switches (which deletes its data;
+    no legacy→partition migration is built) or keeps the current mode (the
+    unpartitioned legacy path, the escape hatch); an empty instance simply
+    switches;
+  - without `--isolate` nothing asks (no person's partition can run): the
+    agent stays one instance; once a served repo asks, the ask never
+    changes or goes away (a removal or narrowing would ask partitioned
+    instances for another switch);
+  - every other builtin keeps PD-52 as above; `bx builtin update` never
+    reaches template instances; the U-M4 sign-in rule is unchanged.
 
 **PD-57 — `partitionNote`.** DEFAULT (new).
 - Rec: an optional manifest string (≤ 280 chars, code kind) shown on the
@@ -478,6 +501,8 @@ questions they raised.
     instantiation, which is off without `--isolate`;
   - caps and idle-stop are checked for this load (03 §A.5, PD-18);
   - viewers signing in with the owner token get the global view (08 §11).
+- Extended (owner, 2026-10-01; D177): existing instances too — the
+  template's update asks each for the mode (PD-52's amendment).
 
 **PD-36 — LLM concurrency across partitions.** DEFAULT (C18).
 - Rec: a tile-wide cap, on by default at today's limit (4), as a flock

@@ -19,7 +19,10 @@
 //     upstream: an instance never carries the template block, and its
 //     partition mode changes only by a deliberate edit (docs/partitions.md).
 //     Upstream changing one is a conflict — unless it is a block ours
-//     doesn't carry (the base had it and ours dropped it, as instances do);
+//     doesn't carry (the base had it and ours dropped it, as instances do),
+//     or upstream adds a "partition" where neither the base nor ours names
+//     one: the served repo of a template whose update requests its
+//     instances' mode (D177) — taken, as git's line merge would;
 //   - an object merges member by member, an array element by element — an
 //     element is known by its "target" when it is an object with one (a
 //     `uses` entry), else by its whole value — and a value both sides
@@ -180,6 +183,17 @@ func (m *merger) merge(path string, b, o, t *node, root bool) (string, bool) {
 		}
 		p := label(path, id)
 		if root && isKept(id) {
+			if strings.EqualFold(id, "k:"+kept[1]) && tok && !hasKey(bIdx, kept[1]) && !hasKey(oIdx, kept[1]) {
+				// upstream asks every instance for a mode, and neither the
+				// base nor ours names one: a template whose update requests
+				// its instances' partition (D177) — taken, as git's line
+				// merge takes it. Once ours names a mode (or the base did,
+				// and ours took it out) it is ours alone again.
+				m.took = append(m.took, p)
+				changed = true
+				inserts = append(inserts, ti)
+				continue
+			}
 			// upstream's change to a block ours doesn't carry is nothing to ours
 			if !(strings.EqualFold(id, "k:"+kept[0]) && bok && !ook) {
 				m.notes = append(m.notes, "upstream changes "+p+", which a merge never takes from upstream (only your own edit changes it)")
@@ -237,6 +251,17 @@ func isKept(id string) bool {
 	}
 	for _, key := range kept {
 		if strings.EqualFold(k, key) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasKey reports whether a container's ids name key, in any case (as xbind
+// reads a manifest's keys).
+func hasKey(idx map[string]int, key string) bool {
+	for id := range idx {
+		if strings.EqualFold(id, "k:"+key) {
 			return true
 		}
 	}

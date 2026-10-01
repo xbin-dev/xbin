@@ -9760,3 +9760,101 @@ Deviations and refinements made while implementing; all deliberate:
     them. Taken: its reliability traps (xbindtest's boot-failure deadlock,
     the tilesbx fd settle; the PauseRace fixtures are another agent's
     deflake), and keeping going after a failure.
+
+- **D177 — Landing partitioned tiles on v0.3.65: a person's partition
+  takes master's runtime fixes as a deployment does; every agent instance
+  becomes partitioned (2026-10-01).**
+  plans/partitions/records/LAND.md (every conflict and its resolution).
+  The owner: "Main thing to do now: land all of the partitions work."
+  Master (bb16fded, v0.3.65) merged into `partitions` (94d061d3); what
+  master's D166/D173–D176 do for a tile's instance, a person's partition
+  of a partitioned tile (D148ff) now gets too, and nothing changes for a
+  workspace without a partitioned tile (TestNoPartitionGolden,
+  TestZeroStateRoute).
+  - **D173 for partitions: rerouting, not "explicitly not needed".** A
+    person's partition swaps (a save restarts every live partition onto
+    the new build; stopGen retires the old generation), so a request
+    routed to it just before meets the same closed socket D173 fixed. The
+    proxy's partition path now answers a `rerouting` transport like the
+    deployment path: again() is the same EnsurePartition — the same
+    partition, the same start class, through partitionGate and admission
+    again, never Route again (as D173 never re-asks Route). The call's
+    one hold spans both attempts: TrackPartition holds the partition's
+    state, not a generation. proxy.PartitionRunner answers a PartitionGen
+    (Sock, Retired) — runner.Gen via boot's adapter over
+    EnsurePartitionGen; EnsurePartition (the socket) stays for the
+    runner's own callers. Rejected: leaving partitions on the socket-only
+    path (a partitioned agent's GETs during a save would 502 where the
+    same unpartitioned tile's don't).
+  - **D174 for partitions: already asked; its discard fixed.** A
+    partition's generations go through buildAndStart, so a work-tree
+    build asks SettledCodeFor before it serves. But D174's discard
+    stopped the generation as a primary's — while partSpawned had made it
+    the partition's `starting` generation with a registered token: a
+    stop and the running count kept seeing a dead generation, and its
+    token lived until the process exited. discardGen stops it as install
+    stops one whose state went: token revoked first, `starting` cleared.
+  - **D175 for people's layers.** claimLayer finds a layer by its key
+    (layerDir: `.xbin/term/<key>` or `.xbin/term-part/<TK>/<pkey>`), so
+    a person's layer is pinned, refused or moved exactly as a tile's: at
+    that person's next session start, never under a session of theirs
+    that holds it (held → ephemeral), never the tile's or another
+    person's. The boot lists a missing person layer by its layer key. A
+    base-move note (an agent's start moved the layer) is keyed by the
+    claimed layer, not the tile — ana's agent's move told bob's next
+    shell, and that someone's agent ran (PD-09). The switch's wipe and
+    the move don't meet: a switch waits for opens in flight before its
+    wipe (partitionhold.go), the move happens inside an open, and what a
+    move puts aside is in `.xbin/term-moved/`, the remover's alone.
+  - **D166 G1:** keyed by registry path; a partition's view keeps the
+    tile's path, and a partitioned tile builds once per change — one
+    baseline entry, one alert line (tested).
+  - **Kept apart, not unified:** `bx policies` / `/workspace-policies`
+    (PD-55, the branch's, `data/workspace-policies.json`) and `bx
+    settings` / `/workspace-settings` (D175, released in v0.3.65,
+    `data/workspace-settings.json`) are two admin switch sets with two
+    files and two console tabs. Folding them is a compat question (the
+    released route and file can't move) left to the owner.
+  - **Fixed on the way: the agent engine's false takeover.** Engine.fenced
+    scanned the engine epoch with its error dropped; a failed read was 0,
+    "another engine took over this database", and the sole engine stopped
+    (CI, TestHarnessQueuedPark). readEpoch answers 0 only for a missing
+    row; fenced and takeOver try the transaction again (5 tries, 20–80 ms
+    apart; fn not yet run) and return what keeps failing with nothing
+    written, the engine still the owner; the harness pipe's guard refuses
+    that one write instead of answering errFenced. Rejected: treating a
+    failed read as "still mine" (it may not be: the write must not go).
+  - **Numbering:** sandbox-terminal is v8 — master released v6 (x/crypto)
+    and v7 (SSH start) while the branch's fake-manager change was its v6.
+  - **Every agent instance becomes partitioned (the owner, 2026-10-01).**
+    "After this update all AgTT instances should become partitioned, no
+    migration from legacy needed." This amends PD-52 for the agent
+    template only (plans/partitions/90-decisions.md). What reaches an
+    agent instance is its template's update by `git merge template/main`
+    (D50; `bx builtin update` never touches template instances), so that is
+    where the request comes from: the template block's new
+    `"partitionOnUpdate": true` makes the served repo — under `--isolate`
+    — carry `"partition": ["user","global"]` as its top-level key on the
+    line after the opening brace, where a new instance already has it (the
+    two merge as one line). The manifest merge driver takes an upstream
+    `partition` where neither the base nor ours names one (as git's line
+    merge does); a mode the builder wrote stays theirs, upstream's ask a
+    conflict. PD-44 does the rest, unchanged: an instance holding data
+    pauses for a manager — switch (deleting its data; no migration is
+    built; the agent's `partitionNote` names what goes) or **Keep the
+    current mode** (the legacy, unpartitioned path, kept) — and an empty
+    one switches. Without `--isolate` no request is served (people's
+    partitions can't run there; the agent stays one instance). Once a
+    served repo asks it never changes or withdraws the ask, whatever a
+    later template or a non-isolated restart says: a removal or a narrower
+    mode would ask already partitioned instances for another switch.
+    Rejected: an xbind-side rewrite of every instance's manifest at boot
+    (it would edit tiles' code behind their builders and bypass the merge
+    they control); writing the ask without the isolation check (a request
+    no non-isolated xbind can carry out, pausing the agent for nothing).
+    Tests: TestAgentTemplateUpdateRequestsPartition (with data: pending,
+    untouched, keep declines; empty: switches; opted-out and new instances
+    alike; the ask stays as served), TestAgentTemplateUpdateWithoutIsolation
+    (no request), manifestmerge's TestKeptKeysConflict and
+    TestOldInstanceTakesRequestedPartition (the driver);
+    docs/changes/2026-10-01-agent-instances-partitioned.md.

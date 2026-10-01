@@ -11,7 +11,10 @@ package builtins
 //     instantiation strips; the copy gets it as its top-level key unless the
 //     request opted out or xbind runs without isolation (InstanceOpts). A
 //     template's top level never carries it (TestTemplatesNoTopLevelPartition),
-//     so `git merge template/main` can't bring one in;
+//     so `git merge template/main` can't bring one in — unless the block
+//     sets "partitionOnUpdate" (the agent template's, D177): then, under
+//     isolation, the served repo asks every instance for the block's mode
+//     (internal/broker templaterepo_block.go);
 //   - a builtin replace writes each manifest with the installed copy's
 //     "partition" — present, absent or its list — as one JSONC-aware splice
 //     (jsonc.SetTopLevelLike/DeleteTopLevel), read from the file, from its

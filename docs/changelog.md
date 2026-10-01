@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **BREAKING: existing agent instances ask to become partitioned when they
+  take the template's update**
+  ([changes/2026-10-01-agent-instances-partitioned.md](/docs/changes/2026-10-01-agent-instances-partitioned.md);
+  [partitions.md](/docs/partitions.md) §The mode, the agent template's
+  API.md "Partitioned instances"). On an xbind with `--isolate`, the agent
+  template's served repository now asks every instance for `"partition":
+  ["user", "global"]` (its block's new `"partitionOnUpdate": true`), so an
+  instance made before the partitioned default — or opted out of it — gains
+  that line when it merges the update (`git fetch template && git merge
+  template/main`). One that holds data then pauses for a tile manager:
+  **switch** deletes its conversations, memory and schedules (nothing is
+  migrated) and starts it partitioned; **Keep the current mode** runs it
+  unpartitioned again, deleting nothing. An empty one switches at once.
+  Without `--isolate` nothing asks. The template merge driver takes an
+  upstream `partition` where neither the base nor your manifest names one;
+  a mode you wrote stays yours. Other builtins and `bx builtin update` are
+  unchanged.
 - **Partitioned tiles: people's partitions swap, and their terminal layers
   move base, like a tile's** ([partitions.md](/docs/partitions.md) §How
   people's partitions run, §Terminals and agent sessions;
@@ -429,8 +446,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - each partition mails the global instance its daily usage totals
     (conversations started, model calls and tokens spent per day — never
     content), and managers read them per person with `GET /usage`.
-  Unpartitioned agents — every existing instance that keeps its mode —
-  change nothing (three new routes answer 404 there). Nothing to change.
+  Unpartitioned agents — an instance on an xbind without `--isolate`, or
+  one whose managers kept its mode — change nothing (three new routes answer 404 there). Nothing to change.
 - **The partitions page: `/xbin/partitions`**
   ([partitions.md](/docs/partitions.md) §Your partitions page,
   [protocol.md](/docs/protocol.md)). xbind now serves one page, with the
@@ -620,7 +637,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   brace — so later changes merge line by line too (where the template
   repo is one this xbind created). Nothing to change: `git fetch template
   && git merge template/main` in an existing agent instance now merges
-  cleanly and keeps its mode.
+  cleanly — and, under `--isolate`, asks it for the partitioned mode (the
+  BREAKING entry above).
 - **Partitioned tiles: partition mail — in development**
   ([partitions.md](/docs/partitions.md) §Partition mail,
   [protocol.md](/docs/protocol.md) `/partitions/mail` and §Partition mail
@@ -775,9 +793,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   global instance for the tile-wide settings, chat channels, event triggers
   and other tiles' calls. Untick **Keep each person's data apart** (or
   `--no-partition`) for an unpartitioned instance; without `xbind --isolate`
-  it is unpartitioned anyway. **Existing instances keep their mode** and run
-  exactly as before; switching one deletes its conversations, memory and
-  schedules (its `partitionNote` says so). In a partitioned instance: a
+  it is unpartitioned anyway. **Existing instances run exactly as before
+  until they take the template's update**, which asks them for the same
+  mode (the BREAKING entry above); switching one deletes its conversations,
+  memory and schedules (its `partitionNote` says so). In a partitioned instance: a
   person's conversation ids start at 2^40 (the global instance's, like an
   unpartitioned instance's, at 1); the config, classes, halt switch and
   shared skills are the global instance's, mirrored into a new `conf`

@@ -143,10 +143,17 @@ its own `db`, `files` and `events` — and one **global** instance for
 everything that doesn't act for a person. Opt out when you create it ("Keep
 each person's data apart" on the template card, `bx template new agent
 --no-partition`); without `xbind --isolate` it is unpartitioned anyway. An
-instance made before keeps its mode: unpartitioned, exactly as described in
-the rest of this page, until a manager switches it — which deletes every
-conversation, all memory and every schedule (`partitionNote`). The code is
-the same in all three modes; `xbin.Partition()` picks one at start:
+instance made before (or opted out) is asked to become partitioned too
+when it takes this template's update (`git fetch template && git merge
+template/main` brings `"partition": ["user", "global"]` into its
+`xbin.json`; the block's `"partitionOnUpdate": true`, under `--isolate`
+only): holding data, it pauses until a manager switches it — which deletes
+every conversation, all memory and every schedule (`partitionNote`); there
+is no migration — or keeps its current mode, after which it runs
+unpartitioned, exactly as described in the rest of this page; empty, it
+switches at once ([/docs/changes/2026-10-01-agent-instances-partitioned.md](/docs/changes/2026-10-01-agent-instances-partitioned.md)).
+The code is the same in all three modes; `xbin.Partition()` picks one at
+start:
 
 | `XBIN_PARTITION` | Mode | Serves |
 |---|---|---|
