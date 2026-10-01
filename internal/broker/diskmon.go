@@ -234,9 +234,12 @@ func (d *diskMon) scan() {
 			continue
 		}
 		a.Tile, a.Deployment = bk.tile, bk.alertDep
-		if bk.nonPrimary {
+		switch {
+		case bk.nonPrimary:
 			firsts = append(firsts, a) // the alert names non-primary namespaces first (08-data §12)
-		} else {
+		case bk.partition: // one person's: admins' alert only, never in the count every tile shows (PD-46)
+			alerts = append(alerts, a)
+		default:
 			primaryBlocked++
 			alerts = append(alerts, a)
 		}
@@ -377,8 +380,17 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 			out = append(out, a)
 		}
 	}
-	if admin && b.AdminAlerts != nil {
-		out = append(out, b.AdminAlerts()...)
+	out = append(out, b.partitionAlerts(p, admin)...)      // switch requests: admins and the tile's readers (partitionswitch.go)
+	out = append(out, b.partitionTrustAlerts(p, admin)...) // who can change a partitioned tile's code (partitiontrust.go)
+	if admin {
+		if a, bad := b.policiesAlert(); bad { // an unreadable data/workspace-policies.json (PD-55)
+			out = append(out, a)
+		}
+		out = append(out, b.backupKeyAlerts()...) // keys no export holds yet: admins only (backupkeys_status.go)
+		out = append(out, b.consentAlerts()...)   // consent files this xbind can't read (partitionconsent.go)
+		if b.AdminAlerts != nil {
+			out = append(out, b.AdminAlerts()...) // the Go build versions alert (D166)
+		}
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})
 }
@@ -418,6 +430,7 @@ type nsBucket struct {
 	label      string // how messages name it
 	tile       string // the alert's tile: beyond main its quota key, which no component path equals; "" for a non-primary main
 	alertDep   string // the alert's deployment: set for every namespace but the primary's main
+	partition  bool   // a user partition's namespace (diskpart.go)
 }
 
 // deployFacts is what a scan measures beyond today's: usage of every
@@ -471,6 +484,7 @@ func (b *Broker) deployFacts(d *diskMon, records func(string) deployments.Found,
 			fx.buckets[k.Quota] = b.bucketOf(id, limits[id])
 		}
 	})
+	b.partitionFacts(fx, limits) // each user partition's namespace, a bucket of its own (diskpart.go)
 	for scope := range b.scopesAndWorkspace() {
 		id := nsOf(scope, util.MainDeployment)
 		if bk := b.bucketOf(id, limits[id]); bk.limit > 0 || bk.nonPrimary {

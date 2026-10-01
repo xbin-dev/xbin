@@ -7,15 +7,19 @@
 // over the kit's api() (xbin.fetch in a tile frame); no lit, no DOM, no
 // dialogs — a view asks "are you sure?" itself, then calls these. The
 // Session (session.js) keeps the calls that act on the open conversation's
-// own state (send, stop, take back a queued message, approve).
-import { selfApi as api, jbody, sandboxed } from '/vendor/bx-kit.js';
+// own state (send, stop, take back a queued message, approve). A call about
+// a conversation goes to its home (model/homes.js: in a person's partition,
+// a shared one is the global instance's).
+import { jbody, sandboxed } from '/vendor/bx-kit.js';
+import { at, homeOf, runOfPath, twoHomes } from './homes.js';
+import { runApi as api, homeApi, homeFetch } from './home-api.js';
 
 // refusing: the kit's selfApi() with the refusal kept — e.status, and a
 // sandbox manager's e.refusal (API.md "Coding sandboxes") beside e.message.
-async function refusing(path, opts) {
+async function refusing(path, opts, home = homeOf(runOfPath(path))) {
   const x = globalThis.xbin;
   const f = sandboxed() && x && x.fetch ? x.fetch : fetch;
-  const r = await f(`/api/${x?.self ?? ''}${path}`, opts);
+  const r = await f(`/api/${x?.self ?? ''}${path}`, at(home, opts));
   const text = await r.text();
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
@@ -35,8 +39,10 @@ async function refusing(path, opts) {
 // without a message or a drive (attachments upload into it first).
 // {draft, files} sends the draft the app uploaded into at home instead
 // (PUT /ask/upload?draft=<key>, API.md "Attachments"). A refusal carries
-// e.status (and e.refusal when the sandbox's manager refused).
-export const ask = (body) => refusing('/ask', jbody(body, 'POST'));
+// e.status (and e.refusal when the sandbox's manager refused). With `share`
+// ({visibility: 'team', teamRole} and/or {members: [{user, role}]}) it is
+// shared at once — in a person's partition, made in the shared space.
+export const ask = (body) => refusing('/ask', at(body && body.share && twoHomes() ? 'global' : '', jbody(body, 'POST')));
 
 // draftKey names a new ask's draft: where the app uploads what is picked at
 // home before there is a conversation (8–64 of A–Z a–z 0–9 _ -).
@@ -78,7 +84,12 @@ export const cancelTree = (rootId) => api(`/runs/${rootId}/cancel`, jbody({ scop
 // --- who you are, what needs you, the brake ---------------------------------
 
 export const me = () => api('/me');
-export const needs = async () => (await api('/needs')).items || [];
+// needs: what waits for you — in a person's partition, in both homes.
+export async function needs() {
+  const own = (await api('/needs')).items || [];
+  if (!twoHomes()) return own;
+  return [...own, ...await homeApi('global', '/needs').then((r) => (r && r.items) || [], () => [])];
+}
 export const getHalt = () => api('/halt');
 export const setHalt = (on) => api('/halt', jbody({ on }, 'PUT'));
 
@@ -163,6 +174,13 @@ export async function joinFrom(text) {
   return api('/join', jbody({ token: m[1] }, 'POST'));
 }
 
+// publish (a person's own conversation, in their partition): a copy goes to
+// the shared space as a new conversation of theirs — {share, files?, keep?};
+// the original is deleted unless keep. → {run: the shared copy, deleted, left}.
+export const publish = (runId, body) => api(`/runs/${runId}/publish`, jbody(body, 'POST'));
+// copyToMine: a private copy of a shared conversation, in your own space → the new run.
+export const copyToMine = (runId, files = false) => homeApi('', '/copy', jbody({ from: runId, files }, 'POST'));
+
 // --- settings (managers) ------------------------------------------------------------
 
 // The tile-wide config: {models, system, tokenBudget, maxIters, toolTimeout,
@@ -197,22 +215,24 @@ export async function setFeature(key, on) {
 // A sandbox reference (<provider>[#inst]|<id>) in a route's path: its
 // slashes as they are, the rest percent-encoded (# and | never go raw).
 export const sbxPath = (ref) => '/sandboxes/' + String(ref).split('/').map(encodeURIComponent).join('/');
+// The sandbox calls take `home` (model/homes.js; '' = this page's own
+// backend): a shared conversation's sandboxes are the global instance's.
 // sandboxes: {sandboxes, managers} — what you may see across the bound managers.
-export const sandboxes = (fresh) => api('/sandboxes' + (fresh ? '?fresh=1' : ''));
+export const sandboxes = (fresh, home = '') => homeApi(home, '/sandboxes' + (fresh ? '?fresh=1' : ''));
 // createSandbox: {name, provider?, image?, size?, egress?, visibility?,
 // conversation?, bind?, cwd?, clientId?} → the sandbox (+ binding).
-export const createSandbox = (body) => api('/sandboxes', jbody(body, 'POST'));
+export const createSandbox = (body, home = '') => homeApi(home, '/sandboxes', jbody(body, 'POST'));
 // getSandbox: one sandbox, fresh from its manager. patchSandbox: {name?,
 // visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?,
 // version?} — with version, a change made since it was read is refused
 // (e.status 412, e.refusal 'precondition') rather than overwritten.
-export const getSandbox = (ref) => refusing(sbxPath(ref));
-export const patchSandbox = (ref, body) => refusing(sbxPath(ref), jbody(body, 'PATCH'));
-export const deleteSandbox = (ref) => api(sbxPath(ref), { method: 'DELETE' });
+export const getSandbox = (ref, home = '') => refusing(sbxPath(ref), undefined, home);
+export const patchSandbox = (ref, body, home = '') => refusing(sbxPath(ref), jbody(body, 'PATCH'), home);
+export const deleteSandbox = (ref, home = '') => homeApi(home, sbxPath(ref), { method: 'DELETE' });
 // sandboxAction: start | stop | archive | thaw, waiting up to `wait` s for it
 // to settle; `conversation`: acting as a participant of one it is bound to.
-export const sandboxAction = (ref, action, { wait = 20, conversation } = {}) =>
-  api(`${sbxPath(ref)}/${action}?wait=${wait}${conversation != null ? `&conversation=${conversation}` : ''}`, jbody({}, 'POST'));
+export const sandboxAction = (ref, action, { wait = 20, conversation, home = '' } = {}) =>
+  homeApi(home, `${sbxPath(ref)}/${action}?wait=${wait}${conversation != null ? `&conversation=${conversation}` : ''}`, jbody({}, 'POST'));
 // setRunSandbox: a conversation's binding — {sandbox: {ref, cwd?} | null, detach?: <ref>}.
 export const setRunSandbox = (id, body) => api(`/runs/${id}`, jbody(body, 'PATCH'));
 // endManagerExec: DELETE a sandbox manager's exec route (url: …/sbx/sandboxes/
@@ -251,7 +271,7 @@ export const deleteFile = (runId, path) => api(`/runs/${runId}/file?path=${encod
 // Raw bytes go through xbin.fetch — the kit's api() parses JSON — so it
 // takes this backend's prefix.
 export async function rawFile(base, runId, path) {
-  const r = await xbin.fetch(`${base}/runs/${runId}/raw?path=${encodeURIComponent(path)}`);
+  const r = await homeFetch(`${base}/runs/${runId}/raw?path=${encodeURIComponent(path)}`);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.blob();
 }
@@ -328,7 +348,7 @@ export class Attachments {
     for (const a of items) {
       if (a.path) continue;
       a.state = 'up'; a.err = ''; this.changed();
-      const r = await xbin.fetch(`${base}/runs/${id}/upload?name=${encodeURIComponent(a.name)}`, {
+      const r = await homeFetch(`${base}/runs/${id}/upload?name=${encodeURIComponent(a.name)}`, {
         method: 'PUT', headers: { 'Content-Type': a.type || 'application/octet-stream' }, body: a.file,
       });
       const d = await r.json().catch(() => ({}));

@@ -20,11 +20,28 @@
 //	deployments/checkpoints/…        its checkpoint store's git data: packed-refs, refs/…, objects/…
 //	deployments/registrations/<d>/…  deployment d's registration files (d is never main)
 //
-// That is a main archive: schema 1, whatever the tile has. A deployment
+// That is a main archive: schema 1, whatever the tile has — or, in a
+// workspace with a vault barrier, schema 3 (SchemaSplit): the same without
+// its data/ members, which a data archive of their own holds (Kind "data",
+// named by the main manifest's Data), each archive sealed (seal.go). A deployment
 // archive holds one deployment's data namespace beyond main and nothing
 // else — no source, no terminal layer, no registrations in its manifest —
 // under the same data/ layout, with Deployment naming it and schema 2, so an
 // older xbind refuses it instead of restoring it into main's keys.
+//
+// A partition archive (Kind "partition", schema 3, always sealed) holds one
+// person's partition of a tile (plans/partitions/11-backup-encryption.md
+// §2): its namespace's data under the same data/ layout — when the tile
+// roots its scope — and its own records under partition/, named by the
+// manifest's Partition:
+//
+//	partition/partition.json         the partition's record, verbatim
+//	partition/ns.json                its namespace's identity and history
+//	partition/vault.json             its vault file, its values still sealed by the vault
+//	partition/registrations/<file>   its registration files (cron, bus, …)
+//
+// It is restored only into that person's partition of the tile, never as a
+// tile or into a data namespace.
 package backup
 
 import (
@@ -51,8 +68,17 @@ const Schema = 1
 // keys.
 const SchemaDeployment = 2
 
+// SchemaSplit is the schema of a sealed workspace's main archive, whose
+// scope data went to a data archive of its own (Data names it), and of that
+// data archive (Kind "data"): each object is sealed under one subkey, so
+// erasing the data's leaves the source restorable
+// (plans/partitions/11-backup-encryption.md §4). An older reader refuses
+// both. A workspace without a vault barrier keeps writing schema 1, its
+// data inline.
+const SchemaSplit = 3
+
 // MaxSchema is the newest schema this xbind reads.
-const MaxSchema = SchemaDeployment
+const MaxSchema = SchemaSplit
 
 // Logical path prefixes inside the tar.
 const (
@@ -75,6 +101,15 @@ const (
 	RecordName          = "deployments/record.json"    // the tile's deployment record, verbatim
 	CheckpointsPrefix   = "deployments/checkpoints/"   // its checkpoint store, by its path in the bare repository
 	RegistrationsPrefix = "deployments/registrations/" // <deployment>/<file>: a deployment's registration files
+)
+
+// A partition archive's own members (Kind "partition").
+const (
+	PartitionPrefix = "partition/"
+	PartRecordName  = "partition/partition.json"
+	PartNSName      = "partition/ns.json"
+	PartVaultName   = "partition/vault.json"
+	PartRegsPrefix  = "partition/registrations/"
 )
 
 // Manifest is the self-describing header. Everything needed to place the tar's
@@ -101,6 +136,41 @@ type Manifest struct {
 	// deployment record, so a tile without one — one that opted out and
 	// kept its checkpoint store included — gets today's manifest.
 	Deployments *Deployments `json:"deployments,omitempty"`
+	// Data, in a schema-3 main archive, names the data archive the same
+	// backup wrote the scope's main data into: restored with this one.
+	Data *DataRef `json:"data,omitempty"`
+	// Kind is "data" for a data archive (schema 3): the main namespace's
+	// data of the scope Component roots, and nothing else. Absent
+	// otherwise.
+	Kind string `json:"kind,omitempty"`
+	// BackupID is a random id one backup's schema-3 main archive and the
+	// data archive it names share: a restore pairs them only when the ids
+	// match, so no data archive of another backup of the tile is ever
+	// restored with this one. Absent otherwise.
+	BackupID string `json:"backupId,omitempty"`
+	// Partition, in a partition archive (Kind "partition"), names whose
+	// partition of Component it holds. Absent otherwise.
+	Partition *PartitionRef `json:"partition,omitempty"`
+}
+
+// PartitionRef is whose partition a partition archive holds: the partition
+// id (u-<32 hex>, the person's user id and uid hashed), the person, the uid
+// they had when it was written, and the deployment the partition ran in.
+type PartitionRef struct {
+	ID         string `json:"id"`
+	User       string `json:"user"`
+	UID        string `json:"uid"`
+	Deployment string `json:"deployment"`
+}
+
+// DataRef names a data archive: its archiver key and version, and the
+// subkey it is sealed under — so a restore can tell a data archive whose
+// key was erased (and whose versions the archiver then deleted) from one
+// that is missing.
+type DataRef struct {
+	Key     string `json:"key"`
+	Version string `json:"version"`
+	Subkey  string `json:"subkey,omitempty"`
 }
 
 // Deployments is the manifest's deployment section: what of the tile's
@@ -118,8 +188,18 @@ type Deployments struct {
 // DeploymentArchive reports whether m is a deployment archive's: one
 // deployment's data, restored only into a data namespace, never as a tile.
 func (m Manifest) DeploymentArchive() bool {
-	return m.Schema >= SchemaDeployment || m.Deployment != ""
+	return m.Schema == SchemaDeployment || m.Deployment != ""
 }
+
+// DataArchive reports whether m is a data archive's (schema 3): the main
+// namespace's data, restored with its main archive or into main's
+// namespace, never as a tile.
+func (m Manifest) DataArchive() bool { return m.Kind == KindData }
+
+// PartitionArchive reports whether m is a partition archive's: one person's
+// partition, restored only into that person's partition, never as a tile or
+// into a data namespace.
+func (m Manifest) PartitionArchive() bool { return m.Kind == KindPartition || m.Partition != nil }
 
 func (m Manifest) Has(part string) bool {
 	for _, p := range m.Includes {

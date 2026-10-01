@@ -8,20 +8,30 @@ import (
 // cmdTemplate manages template components (plans/templates.md):
 //
 //	bx template ls                          list templates (builtin + workspace)
-//	bx template new <source> [as <path>]    instantiate one into a named copy
+//	bx template new <source> [as <path>] [--no-partition]
+//	                                        instantiate one into a named copy
 //	bx template updates                     instances behind their builtin template
+//	bx template merge-manifest …            the merge driver for an instance's
+//	                                        xbin.json (templatemerge.go)
+//
+// --no-partition: the copy doesn't start in the template's partition mode
+// (docs/partitions.md; PD-35's opt-out) — it runs one backend for everyone.
 func cmdTemplate(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx template ls | new <source> [as <path>] | updates")
+		return fmt.Errorf("usage: bx template ls | new <source> [as <path>] [--no-partition] | updates")
 	}
 	switch args[0] {
+	case "merge-manifest":
+		return cmdTemplateMergeManifest(args[1:])
 	case "ls":
 		var tpls []struct {
-			ID          string `json:"id"`
-			Source      string `json:"source"`
-			Title       string `json:"title"`
-			Description string `json:"description"`
-			DefaultName string `json:"defaultName"`
+			ID               string   `json:"id"`
+			Source           string   `json:"source"`
+			Title            string   `json:"title"`
+			Description      string   `json:"description"`
+			DefaultName      string   `json:"defaultName"`
+			Partition        []string `json:"partition"`
+			PartitionSkipped string   `json:"partitionSkipped"`
 		}
 		if err := apiJSON("GET", "/api/xbin/templates", nil, &tpls); err != nil {
 			return err
@@ -31,9 +41,17 @@ func cmdTemplate(args []string) error {
 			return nil
 		}
 		for _, t := range tpls {
-			fmt.Printf("%-10s %-20s %s\n", t.Source, t.ID, t.Title)
+			mode := ""
+			if len(t.Partition) > 0 {
+				mode = "  [partitioned: " + strings.Join(t.Partition, "+")
+				if t.PartitionSkipped != "" {
+					mode += ", " + t.PartitionSkipped
+				}
+				mode += "]"
+			}
+			fmt.Printf("%-10s %-20s %s%s\n", t.Source, t.ID, t.Title, mode)
 		}
-		fmt.Println("\ninstantiate: bx template new <source> [as <path>]")
+		fmt.Println("\ninstantiate: bx template new <source> [as <path>] [--no-partition]")
 		return nil
 
 	case "updates":
@@ -60,11 +78,24 @@ func cmdTemplate(args []string) error {
 			fmt.Printf("%-24s behind template %q (%s)%s\n", i.Path, i.Template, i.Head, note)
 		}
 		fmt.Println("\napply in the instance's terminal (you pick what to adopt — it's a fork):\n  git fetch template && git merge template/main    # or cherry-pick")
+		fmt.Println("(xbin.json merges by keys: /docs/overview/03-components.md §Templates)")
 		return nil
 
 	case "new":
+		// --no-partition goes wherever it stands; everything else parses by
+		// position exactly as before it existed (compat: never break users).
+		noPartition := false
+		rest := []string{}
+		for _, a := range args {
+			if a == "--no-partition" {
+				noPartition = true
+			} else {
+				rest = append(rest, a)
+			}
+		}
+		args = rest
 		if len(args) < 2 {
-			return fmt.Errorf("usage: bx template new <source> [as <path>]")
+			return fmt.Errorf("usage: bx template new <source> [as <path>] [--no-partition]")
 		}
 		source := args[1]
 		path := ""
@@ -78,15 +109,29 @@ func cmdTemplate(args []string) error {
 			PendingGrants []struct {
 				From, Target, Role string
 			} `json:"pendingGrants"`
+			Partition        []string `json:"partition"`
+			PartitionSkipped string   `json:"partitionSkipped"`
 		}
-		body := map[string]string{"source": source}
+		body := map[string]any{"source": source}
 		if path != "" {
 			body["path"] = path
 		}
+		if noPartition {
+			body["partition"] = false
+		}
 		if err := apiJSON("POST", "/api/xbin/templates/new", body, &out); err != nil {
+			if noPartition && strings.Contains(err.Error(), "need {source, path?, owner?}") {
+				return fmt.Errorf("%w — this xbind predates partitioned tiles (docs/partitions.md), so its instances never start partitioned: run it without --no-partition", err)
+			}
 			return err
 		}
 		fmt.Printf("created %s\nframe it:  <bx-frame src=%q></bx-frame>\n", out.Path, out.Path)
+		switch {
+		case len(out.Partition) > 0:
+			fmt.Printf("partitioned (%s): each person gets their own backend and data (docs/partitions.md); --no-partition opts out\n", strings.Join(out.Partition, "+"))
+		case out.PartitionSkipped == "needs --isolate":
+			fmt.Println("not partitioned: the template keeps each person's data apart, which needs xbind --isolate")
+		}
 		if len(out.PendingGrants) > 0 {
 			fmt.Println("\nthis component needs grants (approve them, or it 403s):")
 			for _, g := range out.PendingGrants {

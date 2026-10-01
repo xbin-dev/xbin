@@ -418,6 +418,12 @@ func handleNewSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Visibility != visTeam {
 		s.Visibility = st.Visibility
+	} else if sharesInPartition(&s.Visibility, nil) { // partition_routes.go
+		xbin.WriteError(w, http.StatusConflict, noShareWords)
+		return
+	}
+	if refusePrivateAtGlobal(w, r, s.Visibility) { // trigger_registry.go
+		return
 	}
 	if s.Watcher && !parseConfig(agent.db.getSetting("config")).feature("watcher") {
 		xbin.WriteError(w, 400, "watcher mode is disabled in the agent's Features")
@@ -488,6 +494,15 @@ func handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	if cur.Visibility != visTeam {
 		cur.Visibility = visPrivate
+	} else if keep.Visibility != visTeam && sharesInPartition(&cur.Visibility, nil) { // partition_routes.go
+		xbin.WriteError(w, http.StatusConflict, noShareWords)
+		return
+	}
+	// what the edit changes besides switching it
+	beyond := *cur
+	beyond.Enabled = keep.Enabled
+	if beyond != keep && refusePrivateAtGlobal(w, r, cur.Visibility) { // trigger_registry.go
+		return
 	}
 	if cur.Visibility != keep.Visibility && cur.Owner != "" {
 		// its runs follow: sharing an automation shares what it did

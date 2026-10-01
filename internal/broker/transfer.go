@@ -333,6 +333,7 @@ func (b *Broker) executeTransferEffects(tile string, rep transferReport) []strin
 	if b.hasSandboxNet(tile) {
 		b.sandboxNetChanged(tile)
 	}
+	b.personalBindsProviderMoved(tile) // its former owner's personal binds to it go (personalbind.go)
 	b.Hub.Publish(events.Event{Type: "grants", Component: tile})
 	b.usersEvent()
 	return unbound

@@ -8,6 +8,7 @@ import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, guard } from './ui.js';
 import { groupRows } from '../model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from '../model/rules.js';
+import { sharing } from '../model/partition.js';
 import { summaryCount } from '../model/auto.js';
 import { mainMenu } from './home.js';
 import { classSectionTpl } from './classes.js';
@@ -15,7 +16,9 @@ import { kindOf } from '../model/harness-start.js';
 import { kidsWords } from '../model/harness-child.js';
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
-const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }];
+// the Shared view — in a person's partition, the shared space's (model/partition.js, model/homes.js)
+const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }]
+  .filter((s) => s.value !== 'shared' || sharing());
 const EMPTY_SHARED = 'nothing shared yet — share a conversation from its menu, and whatever others share with you shows here too';
 
 const close = () => { ui.drawer = false; ctx.paint(); };
@@ -87,7 +90,9 @@ function rowTpl(r, withMatch) {
   const shared = rowShared(r);
   const kind = kindOf(r); // a coding agent answers it (D147): its name first
   const kids = kidsWords(r); // coding agents at work below it (D147 §4.3.8)
-  const sub = [kind ? kind.name : '', kids ? `⧉ ${kids.label}` : '', withMatch && r.match ? r.match.snippet : shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : ''].filter(Boolean).join(' · ');
+  const sub = [kind ? kind.name : '', kids ? `⧉ ${kids.label}` : '',
+    ...(withMatch && r.match ? [r.match.snippet] : [r.hosted ? '⚠ not private' : '', // a non-secure conversation (native/hosted.js)
+      shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : ''])].filter(Boolean).join(' · ');
   const sel = app.root === r.id;
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}
       badge=${g ? g[0] : nothing} tone=${g ? g[1] : r.unread ? 'accent' : nothing} ?selected=${sel}
@@ -102,7 +107,7 @@ function itemTpl(i, r) {
   switch (i.action) {
     case 'rename': return html`<button icon="pencil" @tap=${() => { ui.rename = { id: r.id, title: r.title || '' }; close(); }}>${i.label}</button>`;
     case 'pin': return html`<button icon="pin" @tap=${guard(() => app.actions.pin(app.convs, r))}>${i.label}</button>`;
-    case 'share': return html`<button icon="people" @tap=${() => { ui.share = { run: { id: r.id, title: r.title } }; close(); }}>${i.label}</button>`;
+    case 'share': return html`<button icon="people" @tap=${() => { ui.share = { run: { id: r.id, title: r.title, engine: r.engine, parentId: r.parentId } }; close(); }}>${i.label}</button>`;
     case 'archive': return html`<button icon="archive" @tap=${guard(() => app.actions.archive(app.convs, r))}>${i.label}</button>`;
     case 'delete': return html`<button icon="trash" role="destructive" confirm=${{ title: `Delete "${title}" and its history?`, label: 'Delete', destructive: true }}
       @tap=${guard(async () => { await app.actions.deleteRun(r.id); app.convs.remove(r.id); if (app.root === r.id) app.home(); })}>${i.label}</button>`;

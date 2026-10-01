@@ -69,7 +69,7 @@ function parkTpl(b, run, c, w) {
     const si = signIn(held ? { ...held, run: { ...held.run, ...run } } : { run, access: w.access, config: {} },
       { list: app.sbx.list, entry: findHarness(app.harness.catalog, c.provider), me: app.me });
     if (si) app.sbx.ensure(si.sandbox.ref); // one the list read before lacks: read again, not "gone"
-    if (si) return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${si.title} ${si.goneText || si.ask || 'Open it (↗) and tap Sign in.'}`}/>`;
+    if (si) return html`<notice tone="warn" title=${`Sign in to ${c.name}`} text=${`${si.title} ${si.view || si.goneText || si.ask || 'Open it (↗) and tap Sign in.'}`}/>`;
   }
   return c.park ? html`<notice tone="warn" title=${c.name} text=${`${c.status} — open it (↗) to answer.`}/>` : nothing;
 }

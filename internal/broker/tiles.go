@@ -175,23 +175,30 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 	// Mode "pr" writes nothing to the workspace: the update is filed as a
 	// change proposal against the tile (D49); its own plane applies it.
 	if body.Mode == "pr" {
-		m, perr := b.ProposeBuiltinPR(body.ID, auth.PrincipalOf(r))
-		if perr != nil {
+		m, notes, perr := b.ProposeBuiltinPR(body.ID, auth.PrincipalOf(r))
+		switch {
+		case perr != nil:
 			server.WriteError(w, http.StatusBadRequest, perr.Error())
-			return
+		case m == nil: // upstream changed only a partition: recorded, nothing to propose (PD-52)
+			out := map[string]any{"files": []string{}}
+			if len(notes) > 0 {
+				out["notes"] = notes
+			}
+			server.WriteJSON(w, http.StatusOK, out)
+		default:
+			server.WriteJSON(w, http.StatusOK, map[string]any{"pr": m})
 		}
-		server.WriteJSON(w, http.StatusOK, map[string]any{"pr": m})
 		return
 	}
 	var (
-		files []string
-		err   error
+		applied builtins.Applied // Notes: a manifest's "partition" kept as installed (PD-52)
+		err     error
 	)
 	switch body.Mode {
 	case "replace":
-		files, err = b.updater.ApplyReplace(body.ID)
+		applied, err = b.updater.ApplyReplace(body.ID)
 	case "merge":
-		files, err = b.updater.ApplyMerge(body.ID)
+		applied, err = b.updater.ApplyMerge(body.ID)
 	case "pin":
 		err = b.updater.Pin(body.ID, true)
 	case "unpin":
@@ -213,7 +220,11 @@ func (b *Broker) apiBuiltinsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		b.Provision()
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"files": files})
+	out := map[string]any{"files": applied.Files}
+	if len(applied.Notes) > 0 {
+		out["notes"] = applied.Notes
+	}
+	server.WriteJSON(w, http.StatusOK, out)
 }
 
 type registryGrantLite struct {

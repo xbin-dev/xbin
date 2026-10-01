@@ -1,11 +1,12 @@
 package runner
 
-// gen.go — the generation a request is sent to (Ensure, EnsureGen, Gen):
-// moved out of runner.go (its size budget); D173 is why the proxy needs
-// the generation itself, not just its socket.
+// gen.go — the generation a request is sent to (Ensure, EnsureGen, Gen,
+// ensurePrimary): moved out of runner.go (its size budget); D173 is why the
+// proxy needs the generation itself, not just its socket.
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/xbin-dev/xbin/internal/registry"
 )
@@ -23,6 +24,33 @@ func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, err
 func (r *Runner) EnsureGen(ctx context.Context, c *registry.Component) (Gen, error) {
 	inst, err := r.ensurePrimary(ctx, c, r.primary(c.Path))
 	return Gen{inst}, err
+}
+
+// ensurePrimary is Ensure for deployment dep, c's primary, whose code the
+// registry's component describes (07-runtime §5.1).
+func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep string) (*instance, error) {
+	if err := registry.ValidateRuntime(c.Manifest); err != nil {
+		return nil, fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
+	}
+	if c.Manifest.Runtime == "" || c.Manifest.Runtime == "static" {
+		return nil, fmt.Errorf("component %s has no long-running backend", c.Path)
+	}
+	// Lifecycle gate (plans/lifecycle.md): a disabled/offloaded component never
+	// spawns — enforced here so no path (proxy, watcher rebuild, grant change)
+	// can start it. The proxy still 409s earlier for a nicer message.
+	if r.ShouldRun != nil && !r.ShouldRun(c.Path) {
+		why := "is not enabled"
+		if r.HoldReason != nil {
+			if w := r.HoldReason(c.Path); w != "" {
+				why = w
+			}
+		}
+		return nil, fmt.Errorf("component %s %s", c.Path, why)
+	}
+	if r.noGlobal(c.Path, dep) { // only people's partitions run (partitions.go)
+		return nil, globalRefusal(c.Path)
+	}
+	return r.ensureState(ctx, c, r.stateOf(c.Path, dep))
 }
 
 // Gen is one backend generation a request is sent to: its socket, and

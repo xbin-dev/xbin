@@ -104,7 +104,10 @@ func setupConsumers(t *testing.T, vm bool) (*csEnv, string) {
 	d.WaitComponent(t, gwTile)
 	d.Bind(t, gwTile, "net", "host")
 	ok("PUT", "/api/xbin/vault/"+gwTile+"/api-token-fake", map[string]string{"value": "sk-fake"})
-	ok("POST", "/api/xbin/templates/new", map[string]string{"source": "agent", "path": agTile})
+	// unpartitioned (the opt-out): these cases share conversations and their
+	// sandboxes between people in one instance, which a partitioned agent
+	// keeps apart (partitions_agent_test.go drives that one)
+	ok("POST", "/api/xbin/templates/new", map[string]any{"source": "agent", "path": agTile, "partition": false})
 	d.WaitComponent(t, agTile)
 	ok("POST", "/api/xbin/bindings", map[string]any{"component": agTile, "slot": "llm", "providers": []string{gwTile}})
 	ok("POST", "/api/xbin/bindings", map[string]any{"component": agTile, "slot": "sandboxes", "providers": []string{csTile}})

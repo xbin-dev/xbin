@@ -33,6 +33,7 @@ export default function setup({ data, touch: t }) {
   // what the worker's own stub has that STUB lacks (native, events, dialogs)
   globalThis.xbin = Object.assign(keep, {
     self: stub.self, iface: data.seed.iface ? (slot) => data.seed.iface[slot] ?? null : stub.iface, download: stub.download,
+    partition: data.seed.partition, // a partitioned instance's page (model/partition.js); unset: today's
     fetch: async (u, o) => { touch(); const r = await stub.fetch(u, o); touch(); return r; },
   });
 }

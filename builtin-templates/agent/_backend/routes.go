@@ -122,8 +122,14 @@ func routeTable() []routeDef {
 		{"DELETE /triggers/{id}", needAutomation, handleDeleteTrigger},
 		{"POST /triggers/{id}/test", needAutomation, handleTestTrigger},
 		{"GET /triggers/{id}/events", needAutomation, handleTriggerEvents},
+		// A partitioned agent's global instance: people's private triggers
+		// (trigger_registry.go) and their usage totals (usage.go).
+		{"POST /triggers/registry", needUser, handleRegistryPut},
+		{"DELETE /triggers/registry/{name}", needUser, handleRegistryDelete},
+		{"GET /usage", needManager, handleUsage},
 		{"POST /tick", needCron, handleTick},
 		{"GET /engine/hold", needSelf, handleHold},
+		{"GET /health", needAny, handleHealth}, // partition_routes.go
 	}
 }
 
@@ -131,10 +137,20 @@ func routeTable() []routeDef {
 // level (the tile itself and its owner); who the human behind a call is, and
 // what they may do with a run, is decided here.
 func routes(mux *http.ServeMux) {
+	homeRoutes(mux)   // a partitioned agent's copies between homes (homes.go); none unpartitioned
+	hostedRoutes(mux) // non-secure (hosted) conversations and copies into shared ones (hosted.go); none unpartitioned
+	// a partitioned agent's global instance only: moves out of the shared
+	// space (homes_move.go), a handoff's files too large for its mail
+	// (handoff_fetch.go)
+	moveRoutes(mux)
+	fetchRoutes(mux)
 	for _, rt := range append(append(append(append(append(append(routeTable(), sandboxRoutes()...), liveRoutes()...), probeRoutes()...), harnessRoutes()...),
 		harnessRelayRoutes()...), harnessAPIRoutes()...) {
-		mux.Handle(rt.pattern, xbin.RoleFunc("admin", guard(rt.need, rt.h)))
+		// agentRole is RoleFunc("admin") unless partitioned (partition_routes.go);
+		// hostedRoute serves a hosted conversation's routes from team at global (hosted_serve.go)
+		mux.Handle(rt.pattern, agentRole(hostedRoute(rt.pattern, rt.need, guard(rt.need, partitionRoute(rt.pattern, rt.h)))))
 	}
+	mailboxRoutes(mux) // partition mail's doorbell (mailbox.go)
 }
 
 type ctxKey int
@@ -150,6 +166,7 @@ const (
 // is nobody else's business; one they see but may not change is a 403.
 func guard(n need, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		notePartitionID(r) // a person's partition learns its id (mode.go)
 		c := principal(r)
 		deny := func(msg string) { xbin.WriteError(w, http.StatusForbidden, msg) }
 		switch {

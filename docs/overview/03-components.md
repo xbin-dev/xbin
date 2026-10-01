@@ -308,10 +308,68 @@ an openable tile, and exists to be copied. Instantiating (Tile Manager →
 *New from template*, `bx template new`, `POST /api/xbin/templates/new`)
 copies the files to a new path, strips the `template` block, and yields an
 independent component — same capability gate as creating any component.
+A `partition` in the block is the mode new instances start in: the copy
+gets it as its own top-level key unless the creator opts out or xbind runs
+without `--isolate` ([partitions](../partitions.md)).
 Sources are the embedded builtin catalog and any workspace component
 carrying the block. Instances get a read-only `template` git remote pointing
 at the blueprint's repo, so upstream fixes can be pulled deliberately
 (D50).
+
+The instance's `xbin.json` is the template's own, comments and key order
+kept: only the `template` block goes, with the comment lines right above
+it (they are about the template), and the instance's `partition`, when one
+is written, is the line after the opening brace. In a workspace whose
+template repos this xbind created, that is the served repo's manifest plus
+that line, so a later `git fetch template && git merge template/main` meets
+upstream's manifest changes line for line. A template repo an older xbind
+created keeps the block it has, and the comment lines above it: there an
+instance's manifest also lacks those lines, and an upstream change next to
+them conflicts by lines — the merge driver below takes it.
+
+**The manifest merges by keys.** xbind names a merge driver for the
+instance's root `xbin.json` in every builtin template instance's own
+repository — `merge.xbin-manifest` in `.git/config` and `/xbin.json
+merge=xbin-manifest` in `.git/info/attributes`, nothing tracked — when the
+instance is made, when one is cloned (the copy's own path), and, for
+instances older xbinds made, at start. git runs it (`bx template
+merge-manifest`) for every merge in which both sides changed the manifest.
+git's own line merge comes first and stands when clean. Only where it
+conflicts, and only when the other side is the template — the merge's base
+and theirs both versions of `xbin.json` in the history of the `template`
+remote, as in `git merge template/main` or a cherry-pick of a template
+commit — does it merge by keys; a branch of yours, a rebase onto the
+template, a `stash pop` keep git's line merge and its markers. By keys, a
+value upstream changed and you didn't is upstream's, one you changed and
+upstream didn't is yours, one both changed differently stays a conflict
+(git's markers, labelled `ours`/`theirs`). Objects merge member by member
+and arrays element by element (a `uses` entry is known by its `target`).
+Some changes are never taken, and conflict instead: upstream changing the
+top-level `partition` or `template` (the mode changes only by your own
+edit; upstream's change to a block your manifest doesn't carry is nothing
+to it — except that a `partition` upstream adds where neither the base nor
+your manifest names one is taken: the agent template's update asks every
+instance for its mode, D177 and [partitions](../partitions.md)),
+upstream's changes to comments in a manifest that has comments (a merge
+by keys can't carry them; one without comments takes none), and
+upstream adding references to the template's own path when your
+manifest doesn't name the path the driver renames them to (a copy whose
+driver is out of date). An instance made at another path keeps its own
+resource names. Instances older xbinds made carry a re-marshalled manifest
+(no comments, keys sorted), so every upstream manifest change used to
+conflict there: they now merge by keys and keep their form — an unedited
+one ends up exactly as the new template instantiated that way. The driver
+needs `bx` on `PATH`, as terminals have it; without it the merge is git's
+own.
+
+The repository stays yours: with `git config xbin.manifestDriver false`
+xbind leaves the driver as it is (it sets the key to `true` when it names
+the driver), and it doesn't write the attributes line again once you
+removed it, nor the driver over a command of your own under that name.
+Where your repository already gives `xbin.json` a merge attribute (in
+`.gitattributes` or `.git/info/attributes`) the line isn't added; once
+added it overrides a `.gitattributes` rule (git reads
+`.git/info/attributes` last) — remove it to let yours apply.
 
 ## Creating components
 

@@ -41,7 +41,7 @@ func TestRestoreRebuildsStoreConfig(t *testing.T) {
 		t.Skip("no rootfs with git, or no user namespaces")
 	}
 	needStoreGit(t) // the fixtures' checkpoint store is built in direct mode
-	checkHostileRestore(t, zeroDataBroker(t), func() {
+	checkHostileRestore(t, plaintextVault(zeroDataBroker(t)), func() {
 		confine.Configure(fs)
 		t.Cleanup(func() { confine.Configure("") })
 		if !confine.Isolated() {

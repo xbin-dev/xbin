@@ -37,7 +37,8 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
 ### Callers and roles
 
 ```go
-c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Deployment}
+c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Deployment,
+                             //            Partition, PartitionID}
 c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // level (D29) — frame calls from your own UI run
                              // at full role even for read-level viewers
@@ -57,6 +58,16 @@ c.Deployment                 // the calling tile's deployment when the call
                              // comes from one of its non-primary deployments
                              // (X-XBin-Deployment); "" otherwise. c.From
                              // stays the bare tile path
+c.Partition                  // X-XBin-Partition: the partition the call acts
+                             // in, "user:<id>" | "global" — from a partitioned
+                             // tile's principals, and on calls into a
+                             // partitioned tile for a partition (a person, the
+                             // root token at global, and at global a user
+                             // partition's own call: From == Self(), still a
+                             // person — partitions.md); "" otherwise. A
+                             // display name
+c.PartitionID                // X-XBin-Partition-Id: key per-caller state on
+                             // (From, Deployment, PartitionID) — partitions.md
 ```
 
 Headers are trustworthy: xbind strips inbound `X-XBin-*` and injects
@@ -387,7 +398,10 @@ mux.HandleFunc("POST /on-deploy", func(w http.ResponseWriter, r *http.Request) {
 ```
 
 `xbin.Unsubscribe(name)` removes it; `GET /api/xbin/bus/subscriptions`
-lists yours with delivered/dropped/failed counters.
+lists yours with delivered/dropped/failed counters. One exception to
+"starting an idle backend": a user partition of a partitioned tile
+([partitions.md](/docs/partitions.md), in development) gets events of a
+shared resource or another tile's bus only while it runs.
 
 ### Your code in a tile deployment
 
@@ -421,6 +435,76 @@ primary.
 - **Callers can tell.** A call from another tile's non-primary deployment
   carries `Caller(r).Deployment`; a provider that must refuse test traffic
   checks it.
+
+### Partitioned tiles (in development)
+
+A tile that declares `"partition"` runs one backend instance per person who
+uses it, plus an optional global instance
+([partitions.md](/docs/partitions.md) — in development; on an xbind that
+doesn't partition, these read nothing and the tile runs as one instance):
+
+```go
+xbin.Partition()        // "user:<id>" | "global" | "" — $XBIN_PARTITION
+xbin.PartitionUser()    // the person of a user partition, "" otherwise
+xbin.RequirePartition() // first thing in main: exit 3 unless xbind runs this
+                        // as a partition — an older xbind, which ignores
+                        // "partition", then runs no backend instead of one
+                        // shared by everybody
+xbin.GlobalURL("runs/42") // http://xbin/api/<self>/runs/42?xbin-partition=global
+                        // from a user partition (the call arrives at global
+                        // as the partition's person); the plain URL elsewhere
+```
+
+Your code needs nothing else: `Resource(name)`, the vault and registrations
+are the partition's own. `RequirePartition` returns in `global` too, and
+`global` is one instance for everyone who reaches it — other tiles, the root
+token, every person's `GlobalURL` calls, and every writer of a non-primary
+deployment whose code asks for partitions: serve per-person data only where
+`PartitionUser() != ""`.
+
+**Partition mail** carries an item between the global instance and one
+person's partition ([partitions.md](/docs/partitions.md) §Partition mail):
+
+```go
+id, err := xbin.Mail("user:alice", "handoff/dm", v) // global → a person; a partition mails "global" only
+id, err = xbin.MailWith("user:alice", "handoff/event", v,
+	xbin.MailOptions{TTL: 24 * time.Hour, Source: "apps/webhooks"}) // expiry; a private trigger's source
+pg, err := xbin.InboxPage(after, 100) // this partition's own unacked items, oldest first
+err = xbin.Ack(ids...)                 // done with them: they are gone
+```
+
+`MailItem.From` is stamped by xbind (`global` or `user:<id>`): trust it,
+never a person named in `Data`. Delivery is at-least-once, so dedupe by
+`ID`. A page stops at its limit or at about 8 MiB of data, so a short page
+isn't the end: read on with the last item's `ID` while `MailPage.More`
+(`Inbox` is `InboxPage` without it). With `"partitionMail": "/mailbox"` in
+`xbin.json` (beside `"global"`), xbind POSTs a `MailBell` (`{partition,
+pending}`, `From: xbin/mail`) to that path while the inbox holds items;
+without it, poll `InboxPage`. On an xbind without partition mail they
+return an error naming `partition-mail/1`.
+
+Each call has a `…Context` variant that gives up when its context ends —
+`MailContext`, `MailWithContext`, `InboxPageContext`, `InboxContext`,
+`AckContext` — with an error wrapping the context's. The plain calls wait
+for xbind however long it takes; a doorbell handler, which xbind rings again
+later anyway, bounds its reads:
+
+```go
+ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+defer cancel()
+pg, err := xbin.InboxPageContext(ctx, after, 100)
+err = xbin.AckContext(ctx, ids...)
+```
+
+A read that gives up loses nothing: an item stays until it is
+acknowledged. An ack that gives up may have taken effect; acknowledging
+again is nothing to do. A **send** that gives up — or fails without
+xbind's answer — may or may not have made its item, and the sender never
+learns the id: sending again makes a second item with a new `ID`, which
+dedupe by `ID` doesn't catch (that catches the same item delivered again).
+A sender that retries puts its own key in `data` — the id of the event it
+passes on, say — and the addressee dedupes by that key too; otherwise,
+don't retry.
 
 ### Notifying a person on their phone
 
@@ -607,8 +691,10 @@ snaps, err := sb.Snapshots(ctx)                                             // S
 A **consumer** of the sandbox-manager contract (a tile bound to managers,
 [sandbox-manager.md](sandbox-manager.md) §Wiring) opens terminals in their
 sandboxes from its backend — through xbind, with its instance credential,
-naming the person it acts for (`Sbx-User`: asserted, not verified) — and
-either relays one to its own page or app, or drives it itself:
+naming the person it acts for (`Sbx-User`: asserted, not verified —
+except in a person's partition of a partitioned tile, whose person a
+manager with `partitions` knows, verified; below) — and either relays one
+to its own page or app, or drives it itself:
 
 ```go
 // your page's (or the app's) terminal WebSocket, relayed
@@ -631,8 +717,8 @@ c, err := xbin.DialManagerTTY(ctx, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{
   `ManagerTTYOptions{ExecID}` attaches to a tty exec (one you started with
   `POST …/execs {"tty": true}`, or a terminal's session id); without it
   `Cmd` (the login shell when empty), `Cwd`, `Rows` and `Cols` start one.
-  `User` is the person (`""`: the consumer itself); `Client` is nil for
-  `xbin.Client()`.
+  `User` is the person (`""`: the consumer itself — in a person's
+  partition, that person); `Client` is nil for `xbin.Client()`.
 - **Typed routes only.** `xbin.ManagerTTYURL` builds the contract's route
   and nothing else: a sandbox id outside the contract's grammar, an exec id
   that isn't one path segment, an attach given `Cmd`/`Cwd`/`Rows`/`Cols`,
@@ -661,13 +747,23 @@ c, err := xbin.DialManagerTTY(ctx, sb.ManagerURL, sb.ID, xbin.ManagerTTYOptions{
   id) can end it when the answer says it didn't exit — the agent template
   does, unless a client attached to it again meanwhile
   (`builtin-templates/agent/API.md` §Coding agents).
-- **Your checks are the only ones about the person.** The manager treats
-  them as asserted: it keeps the partitions (your sandboxes and those
-  shared with you) but not who among your people may use one — apply its
-  rules ([sandbox-manager.md](sandbox-manager.md) §Partitions, sharing and
+- **Your checks come first.** The manager treats the person as asserted:
+  it keeps consumers apart (your sandboxes and those shared with you) but
+  not who among your people may use one — apply its rules
+  ([sandbox-manager.md](sandbox-manager.md) §Consumers, sharing and
   people: owner, members, `team`, a share's `users`) yourself, and whether
-  they may have a terminal at all, before the relay. A manager on xbind's runtime still refuses a person with
-  `noTerminal`.
+  they may have a terminal at all, before the relay. A manager on xbind's
+  runtime still refuses a person with `noTerminal`. **In a person's
+  partition** of a partitioned tile ([partitions.md](partitions.md)) the
+  person is the partition's, and verified: a manager whose hello offers
+  `partitions` applies those rules itself, and a `User` naming anyone
+  else is `403 not-allowed` ([sandbox-manager.md](sandbox-manager.md)
+  §Partitioned consumers) — whether they may have a terminal at all is
+  still yours to check. That holds only for such a manager, and a
+  partitioned tile uses no other from a person's partition
+  ([sandbox-manager.md](sandbox-manager.md) §Partitioned consumers): one
+  without `partitions` would take the partition's call as your tile's, its
+  `User` asserted and unchecked. Check `hello.caps` first.
 
 **A program's stdio** (where the manager's `hello.caps` has `stdio`,
 [sandbox-manager.md](sandbox-manager.md) §stdio): start it as a non-tty
@@ -691,7 +787,10 @@ The offsets are the exec's `…/output` offsets, so a consumer that
 restarts resumes where it read to, and attaching again replaces the socket
 before. `xbin.ManagerStdioURL` builds the route (typed parts only, as
 `ManagerTTYURL`). Without `stdio` the exec's `…/output` and `…/stdin`
-routes do the same by polling.
+routes do the same by polling. Who may attach is as for a terminal
+(above): the person rules are yours to apply before you dial, except in a
+person's partition, where the manager applies them to that person — and
+attaching takes the exec's stdin from whoever held it.
 
 ## node backend (no SDK needed)
 
@@ -712,7 +811,10 @@ process.on('SIGTERM', () => srv.close(() => process.exit(0)));
 
 `process.env.XBIN_DEPLOYMENT` is the tile deployment's name in a non-primary
 deployment (absent for the primary), and the `x-xbin-deployment` header names
-a calling tile's non-primary deployment, as in Go.
+a calling tile's non-primary deployment, as in Go. Likewise
+`process.env.XBIN_PARTITION` and the `x-xbin-partition` /
+`x-xbin-partition-id` headers on partitioned tiles
+([partitions.md](/docs/partitions.md)).
 
 Calling out through the gateway:
 
@@ -726,13 +828,115 @@ const req = request({
 req.end();
 ```
 
+**Partition mail** ([partitions.md](/docs/partitions.md) §Partition mail)
+is three routes of xbind's own API, called the same way. A helper that
+answers the JSON, and the two things a partitioned tile does with it —
+hand an item to someone, and drain its own inbox when the doorbell
+(`partitionMail`) rings:
+
+```js
+const http = require('http');
+
+// one call of xbind's API through the gateway; it gives up after a silent minute
+function xbind(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      socketPath: process.env.XBIN_GATEWAY, method, path,
+      headers: { authorization: `Bearer ${process.env.XBIN_TOKEN}`, 'content-type': 'application/json' },
+    }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { text += chunk; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return reject(new Error(`${method} ${path}: ${res.statusCode} ${text}`));
+        try { resolve(JSON.parse(text)); } catch (e) { reject(e); } // a cut-off answer: an error, never a crash
+      });
+    });
+    req.setTimeout(60_000, () => req.destroy(new Error(`${method} ${path}: no answer`)));
+    req.on('error', reject);
+    req.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+}
+
+// the global instance hands alice an item (in an async function); a
+// person's partition mails 'global' only
+const { id } = await xbind('POST', '/api/xbin/partitions/mail', { to: 'user:alice', topic: 'handoff/dm', data: dm });
+
+// POST /mailbox (x-xbin-from: xbin/mail): read page by page, handle, ack.
+// it.from is xbind's ('global' | 'user:<id>'); dedupe by it.id
+async function drain(handle) {
+  let after = '';
+  for (;;) {
+    const q = after ? `?limit=100&after=${encodeURIComponent(after)}` : '?limit=100';
+    const page = await xbind('GET', `/api/xbin/partitions/mail${q}`);
+    for (const it of page.items) { await handle(it); after = it.id; }
+    if (page.items.length) await xbind('POST', '/api/xbin/partitions/mail/ack', { ids: page.items.map((it) => it.id) });
+    if (!page.more) return; // a short page isn't the end; more is
+  }
+}
+```
+
+A handler that throws leaves its page unacknowledged, so it comes again at
+the next ring. The routes' bodies and refusals are in
+[protocol.md](/docs/protocol.md) (`POST /partitions/mail`).
+
 ## python backend
 
 `bx new --runtime python` scaffolds a `UnixStreamServer` +
 `BaseHTTPRequestHandler` skeleton. Gateway calls: any HTTP client that
 supports unix sockets (`requests` + `requests-unixsocket`, or raw
 `http.client.HTTPConnection` with a connected `socket`), bearer token from
-`XBIN_TOKEN`.
+`XBIN_TOKEN`. On partitioned tiles, `os.environ.get("XBIN_PARTITION")`
+and the `X-XBin-Partition` / `X-XBin-Partition-Id` request headers are as
+in node. Partition mail, with the standard library alone:
+
+```python
+import http.client, json, os, socket, urllib.parse
+
+class Gateway(http.client.HTTPConnection):
+    """HTTP to xbind through the gateway socket."""
+    def __init__(self, timeout=60):
+        super().__init__("xbin", timeout=timeout)
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(os.environ["XBIN_GATEWAY"])
+
+def xbind(method, path, body=None):
+    """One call of xbind's API; its JSON answer."""
+    conn = Gateway()
+    try:
+        conn.request(method, path, body=None if body is None else json.dumps(body),
+                     headers={"Authorization": "Bearer " + os.environ["XBIN_TOKEN"],
+                              "Content-Type": "application/json"})
+        resp = conn.getresponse()
+        text = resp.read().decode()
+        if resp.status != 200:
+            raise RuntimeError(f"{method} {path}: {resp.status} {text}")
+        return json.loads(text)
+    finally:
+        conn.close()
+
+# the global instance hands alice an item; a person's partition mails "global" only
+item_id = xbind("POST", "/api/xbin/partitions/mail",
+                {"to": "user:alice", "topic": "handoff/dm", "data": dm})["id"]
+
+# POST /mailbox (X-XBin-From: xbin/mail): read page by page, handle, ack.
+# it["from"] is xbind's ("global" | "user:<id>"); dedupe by it["id"]
+def drain(handle):
+    after = ""
+    while True:
+        q = {"limit": 100, **({"after": after} if after else {})}
+        page = xbind("GET", "/api/xbin/partitions/mail?" + urllib.parse.urlencode(q))
+        for it in page["items"]:
+            handle(it)
+            after = it["id"]
+        if page["items"]:
+            xbind("POST", "/api/xbin/partitions/mail/ack", {"ids": [it["id"] for it in page["items"]]})
+        if not page["more"]:  # a short page isn't the end; more is
+            return
+```
 
 A shell-script endpoint (what the removed `cgi` runtime was for) is a few
 lines of any of these backends running the script per request — see
@@ -751,6 +955,9 @@ xbin.deployment                 // "dev" — only in a document of a tile deploy
                                 // xbin.self stays the tile path, and
                                 // xbin.fetch(`/api/${xbin.self}/…`) reaches this
                                 // document's own deployment
+xbin.partition                  // "user:alice" | "global" — only in a partitioned
+                                // tile's document (partitions.md, in development):
+                                // the partition the viewer reaches
 
 // a bound http interface (docs/overview/11-interfaces.md): { url, service } or null. Call a
 // typed, swappable dependency instead of hard-coding a path — the owner binds
@@ -766,6 +973,11 @@ if (llm) await xbin.fetch(`${llm.url}/v1/chat/completions`, { method: 'POST', �
 // grant, so always use xbin.fetch (auth.md). Streaming (SSE) works.
 const r = await xbin.fetch(`/api/${xbin.self}/events`);
 const r2 = await xbin.fetch('/api/apps/calendar/events'); // needs a grant
+// from a user partition's document: the tile's global instance, as the viewer
+// (partitions.md). The option is stripped, and changes nothing in any other
+// document; it takes 'global' (falsy = own partition) on this tile's own
+// /api/<self>/… only — anything else rejects with a TypeError, everywhere
+const r3 = await xbin.fetch(`/api/${xbin.self}/shared/42`, { partition: 'global' });
 
 // attributed WebSocket to an element API (browsers can't set WS headers,
 // so the frame token rides a query param xbind consumes — the callee

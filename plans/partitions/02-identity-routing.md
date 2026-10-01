@@ -196,9 +196,11 @@ if a := d.Attribute; a != nil {                        // F5 from a user partiti
   header.
 - **`X-XBin-Partition-Id`** (new, C11): the caller's pkey, for user
   partitions only — opaque, stable for the person's incarnation. Providers
-  key per-caller state on (`X-XBin-From`, `X-XBin-Deployment`,
-  `X-XBin-Partition-Id`) and show `X-XBin-Partition` as the display name, so
-  a deleted-then-recreated `alice` never inherits the old alice's records.
+  key per-caller state on (`X-XBin-From`, `X-XBin-Partition-Id`) — plus
+  `X-XBin-Deployment` where they already key on it: user partitions run
+  only on the primary (PD-17), so the id never spans deployments — and show
+  `X-XBin-Partition` as the display name, so a deleted-then-recreated
+  `alice` never inherits the old alice's partition's records.
 - **F5 attribution (S3):** an F5 request from a user partition — whatever
   the credential (frame, terminal, instance token) — reaches global as its
   **person**: `X-XBin-User=<id>`, `X-XBin-User-Level=<the person's level on
@@ -260,6 +262,12 @@ without a row (C10/S12). Initial classes:
 | GlobalOnlyRefused | every `/sandboxes…` route (PD-28), `POST /code/pr/state`, everything D127r made primary-only, and the data-namespace acts of the deployments API: `POST /deployments/{seed,reset,vault-copy,backup,restore,backup-schedule,run-now}`, `GET /deployments/backups` (S12) |
 | PersonOnly → only a person's own session/app/device credential, never a tile principal of any partition (tile code must not be able to perform them) | `GET/POST/DELETE /partitions/consents`, `POST/DELETE /partitions/share-log`, `POST/DELETE /partitions/binds` (personal binds, 05 §3), `POST /partitions/credential-confirm` (06 §9) |
 | Neutral | reads of workspace facts, `whoami`, `components`, `GET /workspace-policies`, the person's own account routes, and the read/admin-judged `/deployments/*` routes not listed above (their handlers already refuse instance and frame principals, `deployclass.go:167-168`). Also the governance acts: `POST /partitions/{mode,limits,purge}` (`mode` = keep/switch, 01 §2.5), `PUT /workspace-policies`, `/backup-keys/*`, and a manager's `stop`/`reset` of another person's partition. Their handlers judge the person (`mayManageTile` or admin) and refuse instance and frame principals of every tile **and the target tile's own terminals and agent sessions**, so a partitioned tile's code can never decide its own mode switch |
+
+`PUT /workspace-policies` is the one governance act without a target tile:
+its handler judges `Broker.IsAdmin`, as every governance write does, so the
+admin tile's frame with `xbin:admin` passes (06 §12.3 needs it) and so would
+any other principal holding `xbin:admin`; F1 refuses `xbin:*` to partitioned
+tiles, so no partitioned tile's code reaches it (F16).
 
 ### 9. Events (`/ws/events`)
 

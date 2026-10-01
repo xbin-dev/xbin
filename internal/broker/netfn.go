@@ -309,6 +309,9 @@ type IfaceEndpoint struct {
 	Provider string `json:"provider"`
 	Instance string `json:"instance,omitempty"`
 	URL      string `json:"url"`
+	// Personal: the viewer's own personal bind, in a partition's view only
+	// (HTTPInterfacesIn, plans/partitions/05 §3).
+	Personal bool `json:"personal,omitempty"`
 }
 
 // ResolvedIface is one requested http slot with its resolved endpoints.
@@ -441,6 +444,9 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		Component string                    `json:"component"`
 		Interface map[string]registry.Iface `json:"interfaces,omitempty"`
 		Provides  map[string]registry.Iface `json:"provides,omitempty"`
+		// Partitioned: its bindings are global binds; its people add personal
+		// ones (plans/partitions/05 §3)
+		Partitioned bool `json:"partitioned,omitempty"`
 	}
 	var comps []ifaceInfo
 	for _, c := range b.Reg.Components() {
@@ -450,7 +456,8 @@ func (b *Broker) apiBindingsList(w http.ResponseWriter, r *http.Request) {
 		if scoped && !inScope(c.Path) {
 			continue
 		}
-		comps = append(comps, ifaceInfo{Component: c.Path, Interface: c.Manifest.Interfaces, Provides: c.Manifest.Provides})
+		_, part, _ := b.tilePartitioning(c.Path)
+		comps = append(comps, ifaceInfo{Component: c.Path, Interface: c.Manifest.Interfaces, Provides: c.Manifest.Provides, Partitioned: part})
 	}
 	bindings := b.Reg.Workspace().Bindings
 	pending := b.pendingBindings(!scoped)
@@ -695,6 +702,7 @@ func (b *Broker) bindOptions(comp string, req registry.Iface, wsAdmin bool) []bi
 			}
 			tiles = append(tiles, bindOption{ID: p.Path, Label: p.Path + " — " + def.Service + " (grants " + provideRole(def) + ")"})
 		}
+		b.blockPartitionedProviders(comp, tiles) // POST's 409 for everyone (personalbind_api.go)
 	}
 	sort.Slice(tiles, func(i, j int) bool { return tiles[i].ID < tiles[j].ID })
 	return append(builtins, tiles...)
@@ -794,7 +802,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	}
 	if !del {
 		if err := b.validateBinding(body.Component, body.Slot, next); err != nil {
-			server.WriteError(w, http.StatusBadRequest, err.Error())
+			server.WriteError(w, bindingStatus(err), err.Error()) // 409: a bindConflict (personalbind_api.go)
 			return
 		}
 	}
@@ -849,7 +857,7 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	if b.OnIngressChange != nil {
 		b.OnIngressChange() // stream listeners / forward sockets may have changed
 	}
-	server.WriteOK(w)
+	b.writeBindOK(w, body.Component, body.Slot, delta, del) // + the approval warning (partitionconsent.go)
 }
 
 // validateBinding checks a binding set before it lands: slot exists (except
@@ -966,7 +974,13 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 			case inst != "":
 				return fmt.Errorf("%s has no instances (bind it plain)", prov)
 			}
+			if err := b.partitionedProviderRefusal(comp, slot, ref); err != nil {
+				return err // 409: no call of it would reach a partitioned provider (plans/partitions/05 §1)
+			}
 		}
+	}
+	if err := b.reviewedOnlyBindRefusal(comp, binding); err != nil {
+		return err // 409: the tile runs reviewed code only (partitionreviewed.go)
 	}
 	// Organisation network sets are the ceiling on an org-owned tile's net
 	// reach (D54) — for workspace admins too (they widen the set instead).

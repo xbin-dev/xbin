@@ -3,6 +3,7 @@ package broker
 import (
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -58,6 +59,10 @@ func materializeTemplateRepo(root string, tfs fs.FS, name string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	// The manifest the repo carries now (nil: a new repo): its "template"
+	// block is the one every later snapshot keeps (templaterepo_block.go).
+	carried, _ := os.ReadFile(filepath.Join(dir, "xbin.json"))
+	var manifest, served []byte // the embedded manifest, and as the repo serves it
 	// Mirror the embedded files into the working tree.
 	err := fs.WalkDir(tfs, name, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -67,6 +72,11 @@ func materializeTemplateRepo(root string, tfs fs.FS, name string) error {
 		data, rerr := fs.ReadFile(tfs, p)
 		if rerr != nil {
 			return rerr
+		}
+		if rel == "xbin.json" {
+			manifest = data
+			data = repoManifest(data, carried)
+			served = data
 		}
 		out := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
@@ -86,10 +96,30 @@ func materializeTemplateRepo(root string, tfs fs.FS, name string) error {
 		return err
 	}
 	// Commit only when something is staged ("nothing to commit" exits non-zero
-	// and is ignored) — so the repo accrues a snapshot per version.
-	_, _ = runGitIn(dir,
-		"-c", "user.email=xbin@localhost", "-c", "user.name=xbin",
-		"commit", "-q", "-m", "template snapshot")
+	// and is ignored) — so the repo accrues a snapshot per version — or when
+	// the template block changed, which no file shows: then the snapshot
+	// says so, empty if need be (templaterepo_block.go).
+	last := ""
+	if isRepo(dir) {
+		msg, _ := runGitIn(dir, "log", "-1", "--format=%B")
+		last = lastBlockHash(msg, carried)
+	}
+	cur := templateBlockHash(manifest)
+	args := []string{"-c", "user.email=xbin@localhost", "-c", "user.name=xbin", "commit", "-q", "-m", "template snapshot"}
+	changed := last != "" && cur != last
+	if changed {
+		args = append(args, "-m", templateBlockNote(manifest, servedPartition(served)))
+	}
+	if req := servedPartition(served); req != "" && servedPartition(carried) == "" {
+		args = append(args, "-m", templateRequestNote(req)) // the first snapshot that asks (D177)
+		changed = true
+	}
+	if cur != "" {
+		args = append(args, "-m", templateBlockTrailer+cur)
+	}
+	if _, err := runGitIn(dir, args...); err != nil && changed {
+		_, _ = runGitIn(dir, append(args, "--allow-empty")...)
+	}
 	_, _ = runGitIn(dir, "update-server-info") // enable dumb-HTTP fetch
 	return nil
 }
@@ -137,17 +167,23 @@ func (b *Broker) SeedInstanceRepo(instanceDir, name string) error {
 }
 
 // AddTemplateRemote points an instance's repo at its builtin template's served
-// repo as the `template` remote (idempotent). No-op if the instance isn't a repo.
+// repo as the `template` remote (idempotent), and names the manifest's merge
+// driver there (templaterepo_driver.go). No-op if the instance isn't a repo.
 func (b *Broker) AddTemplateRemote(instanceDir, name string) {
 	if !templateNameOK(name) || !isRepo(instanceDir) {
 		return
 	}
-	url := "http://xbin/api/xbin/templates/" + name + ".git"
+	url := templateRemoteURL(name)
 	if _, err := runGitIn(instanceDir, "remote", "get-url", "template"); err == nil {
 		_, _ = runGitIn(instanceDir, "remote", "set-url", "template", url)
-		return
+	} else {
+		_, _ = runGitIn(instanceDir, "remote", "add", "template", url)
 	}
-	_, _ = runGitIn(instanceDir, "remote", "add", "template", url)
+	if tile, err := filepath.Rel(b.Reg.Root, instanceDir); err == nil {
+		if err := b.ensureTemplateMergeDriver(instanceDir, filepath.ToSlash(tile)); err != nil {
+			slog.Warn("template instance: the manifest's merge driver couldn't be set", "instance", tile, "err", err)
+		}
+	}
 }
 
 // TemplateInstanceUpdate is one instance whose builtin template has snapshots

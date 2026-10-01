@@ -27,6 +27,7 @@ import {
   permission, question, nativeSchema, nativeContent, patchOf, controls, settingOf, slashCommands,
   steerWords, steerTrack, ownerOf, modeConfirm, optionConfirm,
 } from '../model/harness-ask.js';
+import { barredWhy } from '../model/harness-homes.js';
 
 const confirming = new Map(); // park → the explicit option picked, until confirmed or not
 const track = steerTrack();
@@ -153,7 +154,8 @@ function questionTpl(r, q, w) {
 function controlsTpl(v, h) {
   const app = ctx.app;
   const entry = app.harness.find(h.provider);
-  const c = controls(h, entry, who(v));
+  const w = who(v);
+  const c = controls(h, entry, { ...w, talk: w.talk && !barredWhy(v.run) }); // one in the shared space: shown, not switched (model/harness-homes.js)
   const id = v.run.id;
   const s = entry ? settingOf(entry, app.harness.setting(entry.id)) : null;
   const set = (o, value) => (value !== o.value ? app.harness.setOptionOf(id, o.id, value) : null);

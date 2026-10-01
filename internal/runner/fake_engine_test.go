@@ -22,9 +22,18 @@ import (
 
 // fakeGen is what the fake knows about a generation it started.
 type fakeGen struct {
-	tile   string
+	tile   string // the tile, and " <partition>" for a person's partition's
 	gen    int
 	closed bool // its waitCh is closed: stopped, or crashed
+}
+
+// fakeKey is what the fake keys a generation of view c by: its tile, and
+// its partition for a person's partition's ("apps/x user:alice").
+func fakeKey(c *registry.Component) string {
+	if c.Partition != "" {
+		return c.Path + " " + c.Partition
+	}
+	return c.Path
 }
 
 // fakeEngine records every effect the runner asks for, in order:
@@ -166,11 +175,11 @@ func (f *fakeEngine) start(c *registry.Component, bin string, gen int) (*instanc
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	inst := &instance{
-		gen: gen, sock: fmt.Sprintf("fake-run/%s/g%d.sock", c.Path, gen),
+		gen: gen, sock: fmt.Sprintf("fake-run/%s/g%d.sock", fakeKey(c), gen),
 		cmd: &exec.Cmd{}, started: f.clock, waitCh: make(chan struct{}),
 	}
-	f.gens[inst] = &fakeGen{tile: c.Path, gen: gen}
-	f.log = append(f.log, fmt.Sprintf("start %s main g%d", c.Path, gen))
+	f.gens[inst] = &fakeGen{tile: fakeKey(c), gen: gen}
+	f.log = append(f.log, fmt.Sprintf("start %s main g%d", fakeKey(c), gen))
 	return inst, nil
 }
 
@@ -180,7 +189,7 @@ func (f *fakeEngine) healthy(c *registry.Component, inst *instance) error {
 	if f.failing("health " + c.Path + " main") {
 		return fmt.Errorf("fake: never answered")
 	}
-	f.cur[c.Path] = inst
+	f.cur[fakeKey(c)] = inst
 	return nil
 }
 

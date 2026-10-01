@@ -142,6 +142,10 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 			"-c", "user.email=xbin@localhost", "-c", "user.name=xbin",
 			"commit", "-q", "-m", "fork from "+from)
 	}
+	// a copy of a template instance: its manifest's merge driver renames to the copy's path (templaterepo_driver.go)
+	if err := b.ensureTemplateMergeDriver(target, to); err != nil {
+		slog.Warn("clone: the manifest's merge driver couldn't be set", "tile", to, "err", err)
+	}
 
 	if b.OnStructureChange != nil {
 		b.OnStructureChange()

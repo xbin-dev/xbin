@@ -204,7 +204,7 @@ var createdField = regexp.MustCompile(`"created": "[^"]*"`)
 // names.
 func TestBackupCoversDeployments(t *testing.T) {
 	needStoreGit(t)
-	b := zeroDataBroker(t)
+	b := plaintextVault(zeroDataBroker(t))
 	b.Version = "test"
 	root := b.Reg.Root
 	arch := &zeroDataArchiver{}
@@ -598,5 +598,5 @@ func checkHostileRestore(t *testing.T, b *Broker, isolate func()) {
 // TestRestoreRebuildsStoreConfig runs the same under isolation.
 func TestRestoreStagesStoreDataOnly(t *testing.T) {
 	needStoreGit(t)
-	checkHostileRestore(t, zeroDataBroker(t), func() {})
+	checkHostileRestore(t, plaintextVault(zeroDataBroker(t)), func() {})
 }

@@ -21,6 +21,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
     ov: { attribute: false },      // /auth-overview (components, grants, pending) for grants + roles
     orgs: { attribute: false },    // the org list (which org owns a tile — net rows)
     _ifaces: { state: true },      // /bindings
+    _personal: { state: true },    // /partitions/binds: people's personal binds (partitioned tiles)
     _drafts: { state: true },      // bindcustom:<comp>:<slot> free-text refs
     _q: { state: true },
     _cats: { state: true },
@@ -39,6 +40,8 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
   refresh() { return this.load(); }
   async load() {
     try { this._ifaces = await api('/bindings'); this._ok(); } catch (e) { this._fail(e); }
+    // an xbind without partitioned tiles has no such route: no personal binds
+    try { this._personal = (await api('/partitions/binds')).binds ?? []; } catch { this._personal = []; }
   }
   testApi() { return this.draftApi(); }
 
@@ -78,7 +81,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
           <td style="text-align:right">${g.blocked
             ? html`<span class="err-pill" title=${g.blocked}>⛔ blocked by policy</span>`
             : html`<button class="act go" @click=${() => this._grant(g.from, g.target, g.role)}>approve</button>`}</td>
-        </tr>`)}</table>` : nothing}
+        </tr>${g.warning ? html`<tr><td colspan="3" class="warn-line" data-grant-warning=${g.from + ' ' + g.target}>⚠ ${g.warning}</td></tr>` : nothing}`)}</table>` : nothing}
 
       <h4>active grants</h4>
       <table>${grants.length ? grants.map((g) => html`<tr>
@@ -244,11 +247,32 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
       </table>`;
   }
 
+  // A partitioned tile's bindings are global binds (seen by every person's
+  // partition and its global instance); its people may add personal binds
+  // to tiles they own, each seen by their own partition only
+  // (docs/partitions.md §Bind types). Admins remove those, never add them.
+  _bindTypes(r, partitioned) {
+    if (!partitioned.has(r.comp)) return nothing;
+    const mine = (this._personal ?? []).filter((b) => b.requester === r.comp && b.slot === r.slot);
+    return html`<span class="pill" title="a global bind: every person's partition and the global instance see it">global</span>
+      ${mine.map((b) => html`<span class="pill" title=${b.live ? `${b.user}'s personal bind: only their partition sees it` : `inert: ${b.why}`}>
+        personal · ${b.user} → ${b.provider}${b.live ? '' : ' (inert)'}
+        <a class="link" title="remove this personal bind" @click=${() => this._dropPersonal(b)}>✕</a></span>`)}`;
+  }
+  async _dropPersonal(b) {
+    try {
+      await api('/partitions/binds', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.id, user: b.user }) });
+      await this.load();
+    } catch (e) { this._fail(e); }
+  }
+
   // ---- binding → binding: wire each requested slot to a provider ----
   _bindingView() {
     if (!this._ifaces) return html`<div class="muted">loading…</div>`;
     const { d, providersByKind, builtins, requests } = this._ifaceModel();
     const rows = requests.filter((r) => this._match(r.comp, r.slot, r.def.kind, r.def.service));
+    const partitioned = new Set((d.components ?? []).filter((c) => c.partitioned).map((c) => c.component));
     return html`
       <p class="muted">Each component <b>requests</b> typed interface slots; you <b>bind</b> each to a
         provider. The binding is the authorization — unbound means no capability. Public exposure is
@@ -271,14 +295,15 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
             return html`<tr>
               <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
               <td><bx-multiselect .options=${opts} .selected=${bound} placeholder="— unbound —"
-                  @change=${(e) => this._bindSetMulti(r.comp, r.slot, e.detail.selected)}></bx-multiselect></td></tr>`;
+                  @change=${(e) => this._bindSetMulti(r.comp, r.slot, e.detail.selected)}></bx-multiselect>
+                ${this._bindTypes(r, partitioned)}</td></tr>`;
           }
           return html`<tr>
             <td class="mono">${r.comp}</td><td>${r.slot}</td><td>${kind}</td>
             <td><select @change=${(e) => this._bindSet(r.comp, r.slot, e.target.value)}>
               <option value="" ?selected=${bound.length === 0}>— unbound —</option>
               ${opts.map((p) => html`<option value=${p} ?selected=${bound[0] === p}>${p}</option>`)}
-            </select></td></tr>`;
+            </select> ${this._bindTypes(r, partitioned)}</td></tr>`;
         })}
         ${rows.length === 0 ? html`<tr><td class="muted" colspan="4">no components request interfaces${this._q ? ' match' : ''}</td></tr>` : nothing}
       </table>`;

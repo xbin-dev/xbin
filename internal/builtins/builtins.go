@@ -100,6 +100,9 @@ type TemplateEntry struct {
 	Description string `json:"description"` //
 	DefaultName string `json:"defaultName"` // suggested instance basename
 	DefaultPath string `json:"-"`           // the template's authored path (for rewrite)
+	// Partition is the mode new instances start in (template.partition,
+	// partition.go); nil when the template names none.
+	Partition []string `json:"partition,omitempty"`
 }
 
 // TemplateSet is the embedded builtin template catalog.
@@ -126,9 +129,10 @@ func LoadTemplates(fsys fs.FS) (*TemplateSet, error) {
 		}
 		var man struct {
 			Template *struct {
-				Title       string `json:"title"`
-				Description string `json:"description"`
-				DefaultName string `json:"defaultName"`
+				Title       string          `json:"title"`
+				Description string          `json:"description"`
+				DefaultName string          `json:"defaultName"`
+				Partition   json.RawMessage `json:"partition"`
 			} `json:"template"`
 		}
 		if err := jsonc.Unmarshal(b, &man); err != nil {
@@ -147,6 +151,7 @@ func LoadTemplates(fsys fs.FS) (*TemplateSet, error) {
 			Description: man.Template.Description,
 			DefaultName: name,
 			DefaultPath: "apps/" + name,
+			Partition:   partitionWords(man.Template.Partition),
 		}
 	}
 	return s, nil
@@ -169,8 +174,9 @@ func (s *TemplateSet) Get(name string) (TemplateEntry, bool) {
 
 // Instantiate copies builtin template `name` into workspaceRoot at targetPath
 // (empty = "apps/"+DefaultName), stripping the template marker so the copy is
-// a normal, plugged-in component. Returns the installed path and files written.
-func (s *TemplateSet) Instantiate(workspaceRoot, name, targetPath string) (string, []string, error) {
+// a normal, plugged-in component that starts in the partition mode opts
+// allows (partition.go). Returns the installed path and files written.
+func (s *TemplateSet) Instantiate(workspaceRoot, name, targetPath string, opts InstanceOpts) (string, []string, error) {
 	t, ok := s.templates[name]
 	if !ok {
 		return "", nil, fmt.Errorf("no builtin template %q", name)
@@ -179,7 +185,7 @@ func (s *TemplateSet) Instantiate(workspaceRoot, name, targetPath string) (strin
 	if targetPath == "" {
 		targetPath = t.DefaultPath
 	}
-	written, err := CopyTree(s.fsys, name, workspaceRoot, targetPath, t.DefaultPath, true)
+	written, err := CopyTree(s.fsys, name, workspaceRoot, targetPath, t.DefaultPath, &opts)
 	if err != nil {
 		return "", written, err
 	}
@@ -261,7 +267,7 @@ func (s *Set) Import(workspaceRoot, name, targetPath string) (string, []string, 
 	if targetPath == "" {
 		targetPath = m.DefaultPath
 	}
-	written, err := CopyTree(s.fsys, name, workspaceRoot, targetPath, m.DefaultPath, false)
+	written, err := CopyTree(s.fsys, name, workspaceRoot, targetPath, m.DefaultPath, nil)
 	if err != nil {
 		return "", written, err
 	}
@@ -277,10 +283,11 @@ func (s *Set) Import(workspaceRoot, name, targetPath string) (string, []string, 
 // ids) point at the new location; cross-component references are left intact.
 // A Go backend's manifest, shipped as go.mod.tile so go:embed bundles it (or a
 // plain go.mod for a workspace source), is restored/rewritten with the unique
-// target module path so two instances coexist in go.work. When stripTemplate
-// is set, the xbin.json "template" block is removed so the copy is a normal,
-// plugged-in component. Never overwrites an existing component.
-func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath string, stripTemplate bool) ([]string, error) {
+// target module path so two instances coexist in go.work. A template's copy
+// (tpl set) has its xbin.json "template" block removed so it is a normal,
+// plugged-in component, starting in the partition mode tpl allows. Never
+// overwrites an existing component.
+func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath string, tpl *InstanceOpts) ([]string, error) {
 	targetPath = strings.Trim(strings.TrimSpace(targetPath), "/")
 	if !util.ComponentPathOK(targetPath) {
 		return nil, fmt.Errorf("invalid target path %q", targetPath)
@@ -292,7 +299,7 @@ func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath strin
 	if _, err := os.Stat(filepath.Join(dstRoot, "xbin.json")); err == nil {
 		return nil, fmt.Errorf("%s already exists", targetPath)
 	}
-	files, err := RenderTree(srcFS, srcRoot, targetPath, defaultPath, stripTemplate)
+	files, err := RenderTree(srcFS, srcRoot, targetPath, defaultPath, tpl)
 	if err != nil {
 		return nil, err
 	}
@@ -302,10 +309,11 @@ func CopyTree(srcFS fs.FS, srcRoot, workspaceRoot, targetPath, defaultPath strin
 
 // RenderTree produces the *installed form* of a component tree from srcFS
 // (rooted at srcRoot): rel path → bytes, with the same transforms CopyTree
-// applies (go.mod.tile→go.mod + module path, own-path rewrite, optional
-// template-block strip). Sharing this with the writer lets update detection
-// compare the embedded source against a workspace copy byte-for-byte.
-func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, stripTemplate bool) (map[string][]byte, error) {
+// applies (go.mod.tile→go.mod + module path, own-path rewrite, the
+// template-block strip of a template's copy). Sharing this with the writer
+// lets update detection compare the embedded source against a workspace copy
+// byte-for-byte.
+func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, tpl *InstanceOpts) (map[string][]byte, error) {
 	rename := defaultPath != "" && targetPath != defaultPath
 	out := map[string][]byte{}
 	err := fs.WalkDir(srcFS, srcRoot, func(p string, d fs.DirEntry, err error) error {
@@ -331,8 +339,8 @@ func RenderTree(srcFS fs.FS, srcRoot, targetPath, defaultPath string, stripTempl
 		case rel == "go.mod":
 			data = setModulePath(data, targetPath)
 		case rel == "xbin.json":
-			if stripTemplate {
-				data = stripTemplateBlock(data)
+			if tpl != nil {
+				data = stripTemplateBlock(data, *tpl)
 			}
 			if rename {
 				data = []byte(strings.ReplaceAll(string(data), defaultPath, targetPath))
@@ -368,23 +376,4 @@ func WriteTree(dstRoot, targetPath string, files map[string][]byte) ([]string, e
 		written = append(written, targetPath+"/"+rel)
 	}
 	return written, nil
-}
-
-// stripTemplateBlock removes the top-level "template" key from a xbin.json so
-// an instantiated copy is a normal, plugged-in component. Best-effort: on any
-// parse failure the original bytes are returned unchanged.
-func stripTemplateBlock(data []byte) []byte {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(jsonc.Strip(data), &m) != nil {
-		return data
-	}
-	if _, ok := m["template"]; !ok {
-		return data
-	}
-	delete(m, "template")
-	out, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return data
-	}
-	return append(out, '\n')
 }

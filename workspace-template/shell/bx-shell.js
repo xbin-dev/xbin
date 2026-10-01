@@ -39,10 +39,12 @@ import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
 import './bx-tile-admin.js';
+import './bx-part-consent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { loadBrand, applyFavicon, brandLogo } from './shell-brand.js';
 import { openDevices } from './bx-devices.js';
+import { accountMenu } from './shell-account.js'; // my account: password, devices…, your partitions
 
 const LAYOUT_PREF = 'layout';
 const SETTINGS_PREF = 'settings'; // per-user workspace settings (font size, …)
@@ -59,10 +61,10 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 
 // deepActive: the focused element through open shadow roots.
 import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
-import { shellCss, statusCss } from './shell-css.js';
+import { shellCss, statusCss, partCss } from './shell-css.js';
 import './bx-canvas.js';
 import './bx-side.js';
-import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus } from './shell-kit.js';
+import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus, spawnTitle } from './shell-kit.js';
 import { overlaps, spotNear } from './grid-layout.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
@@ -134,7 +136,7 @@ export class BxShell extends LitElement {
     _shareOrg: { state: true },   // settings menu: org chosen for "share screen to org"
   };
 
-  static styles = [shellCss, statusCss];
+  static styles = [shellCss, statusCss, partCss]; // partCss: a pop-out's marker and partition chip
 
   constructor() {
     super();
@@ -785,7 +787,7 @@ export class BxShell extends LitElement {
       <div class="spawn" style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
            @pointerdown=${() => this._spawnFront(w.id)}>
         <div class="shead" @pointerdown=${(e) => this._spawnDragStart(e, w.id)}>
-          <span class="stitle">${w.title}</span>
+          ${spawnTitle(w.title, w.src, this._components, this._who)}
           <span class="sfrom">${w.from}</span>
           <button title="close" @click=${() => this._closeSpawn(w.id)}>✕</button>
         </div>
@@ -1476,46 +1478,6 @@ export class BxShell extends LitElement {
     setTimeout(() => { this._menuMsg = null; }, 4000);
   }
 
-  // My account (D38): identity + self-service password change; devices…
-  // opens the xbin app's device list (bx-devices.js).
-  _accountMenu() {
-    if (this._who?.kind !== 'user') return nothing;
-    const w = this._who;
-    return html`
-      <div class="hd" style="margin-top:10px">my account — ${w.id}${w.name && w.name !== w.id ? ` (${w.name})` : ''} · ${w.role}</div>
-      <form style="display:flex; flex-direction:column; gap:4px"
-            @submit=${(e) => this._changePassword(e)}>
-        <input name="cur" type="password" placeholder="current password" autocomplete="current-password" required>
-        <input name="nw" type="password" placeholder="new password (min 8)" minlength="8" autocomplete="new-password" required>
-        <input name="nw2" type="password" placeholder="repeat new password" minlength="8" autocomplete="new-password" required>
-        <label style="font-size:11px; display:flex; gap:5px; align-items:center" title="the xbin app on your phones signs in with its own key — a new password alone doesn't sign it out"><input type="checkbox" name="rmdev" style="margin:0">and remove my app devices</label>
-        <button class="act" type="submit">change password</button>
-      </form>
-      <button class="act" style="margin-top:6px; width:100%" title="the xbin app on your phones and tablets — add one with a QR code, or remove one"
-              @click=${() => { this._settingsOpen = false; openDevices(); }}>devices…</button>`;
-  }
-
-  async _changePassword(e) {
-    e.preventDefault();
-    const f = e.target;
-    if (f.nw.value !== f.nw2.value) {
-      this._menuMsg = { ok: false, text: "new passwords don't match" };
-      setTimeout(() => { this._menuMsg = null; }, 4000);
-      return;
-    }
-    try {
-      const r = await fetch('/api/xbin/account/password', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current: f.cur.value, new: f.nw.value, ...(f.rmdev.checked ? { removeDevices: true } : {}) }),
-      });
-      const d = await r.json().catch(() => ({}));
-      this._menuMsg = r.ok ? { ok: true, text: `password changed${d.devicesRemoved ? ` · ${d.devicesRemoved} device(s) removed` : ''}` }
-        : { ok: false, text: d.error ?? `failed (${r.status})` };
-      if (r.ok) f.reset();
-    } catch { this._menuMsg = { ok: false, text: 'offline — try again' }; }
-    setTimeout(() => { this._menuMsg = null; }, 4000);
-  }
-
   _sideResizeStart(e) {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -1793,7 +1755,7 @@ export class BxShell extends LitElement {
               </span></div>
             <div class="gshint">per browser: the layout stays the same for everyone</div>
             ${this._screenShareMenu()}
-            ${this._accountMenu()}
+            ${accountMenu(this)}
             ${this._menuMsg ? html`<div class="menu-msg ${this._menuMsg.ok ? 'ok' : 'bad'}" style="margin-top:6px">${this._menuMsg.text}</div>` : nothing}
           </div>` : nothing}
         <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green, #4caf50)"></span>docs</a>
@@ -1849,10 +1811,10 @@ export class BxShell extends LitElement {
               @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, bx-canvas, .grants, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
               @pointermove=${(e) => this._pressMove(e)}
               @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
-          <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings></div>
+          <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings><bx-part-consent .components=${this._components} .who=${this._who}></bx-part-consent></div>
           <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs}
             .canMutate=${this._canMutate} .personal=${!this._activeOrgScreen} .mobile=${this._mobile} .menuOpen=${!!this._menu} .scale=${this._gridScale}
-            .canAdminTile=${(p) => this._canAdminTile(p)}
+            .canAdminTile=${(p) => this._canAdminTile(p)} .who=${this._who} .alerts=${this._alerts} .reload=${() => { this._load(); this._loadAlerts(); }}
             .emptyText=${this._activeOrgScreen && !this._canMutate ? 'empty shared screen' : 'empty screen — open a tile from the sidebar'}
             @bx-tiles=${(e) => this._mutateTiles(() => e.detail)}
             @bx-toggle-tile=${(e) => this._toggle(e.detail)}

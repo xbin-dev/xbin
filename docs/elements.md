@@ -73,6 +73,38 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // backend fails with the reason (never a silent fallback). Not with "setup".
   "vm": false,
 
+  // A partitioned tile (optional): ["user"] asks for one backend per person
+  // who uses the tile, ["user", "global"] for one more, background instance
+  // that callers who aren't a person (other tiles, ingress, webhooks) reach.
+  // It is a request: xbind records the mode it runs, and follows this key
+  // by itself only while the tile holds no data (no kv key, volume file,
+  // vault key, cron job, bus subscription or other registration). On a tile
+  // that holds data, adding, removing or changing it — an edit, a rollback
+  // or a promote — pauses the tile: its API answers 409, its backend
+  // doesn't run (cron ticks are missed, bus deliveries dropped), and a tile
+  // manager either switches, which deletes all the tile's data, or keeps
+  // the current mode. Any other value ([], ["global"] alone, an unknown
+  // word, a value that isn't a list) is invalid: the backend never runs,
+  // and the manifest error says why. A tile with a recorded mode whose
+  // xbin.json doesn't parse (or whose pinned checkpoint can't be read)
+  // waits the same way until it can be read: a typo is never a switch
+  // request. Not with chrome, vm, or an xbin, xbin:*,
+  // cap:sandboxes, cap:net-admin or cap:containers grant; every tile of a
+  // scope asks alike, and a tile that uses its scope's resources must root
+  // that scope. /components reports the mode as partition. A template sets
+  // its instances' mode in its "template" block instead (below).
+  "partition": ["user", "global"],
+  // Where xbind rings the partition mail doorbell on the addressee's
+  // instance, global's or a person's partition's (docs/partitions.md
+  // §Partition mail; an absolute path without a query; read only beside
+  // "global"), and a
+  // note of at most 280 characters shown, after xbind's own text, when a
+  // mode switch is requested (read only beside "partition"). Where they are
+  // read, a malformed partitionMail or a longer note makes the request
+  // invalid, as above.
+  "partitionMail": "/mailbox",
+  "partitionNote": "Switching deletes every conversation, memory and schedule.",
+
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), reserved capabilities
   // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",
@@ -131,6 +163,9 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   //                          url: "http://xbin/api/…", service}]
   //   frontend (both):       xbin.iface(slot) urls are same-origin PATHS
   //                          ("/api/…") — fetch them directly.
+  //   a partitioned tile:    a person's partition (and their frames) also
+  //                          lists their personal binds on multi slots, each
+  //                          with personal: true (/docs/partitions.md)
   // "http://xbin" is the gateway pseudo-host (backends dial the unix socket).
   // Rebinding a slot (or an instance re-registration) RESTARTS the requester
   // backend — the env is captured at spawn.
@@ -204,7 +239,18 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   "template": {
     "title": "AI Agent",
     "description": "A blank-slate agentic loop you clone and build up.",
-    "defaultName": "agent"   // suggested instance basename (under apps/)
+    "defaultName": "agent",  // suggested instance basename (under apps/)
+    // Optional: the mode new instances start in, written as the copy's own
+    // top-level "partition" unless the creator opts out (--no-partition)
+    // or xbind runs without --isolate (docs/partitions.md). Never put the
+    // key at a template's top level.
+    "partition": ["user", "global"],
+    // Builtin templates only, optional: under --isolate the template's
+    // update asks every EXISTING instance for that mode too — a merge of
+    // its served repo adds the "partition" line, which on an instance
+    // holding data is a switch request a manager decides (the agent
+    // template's, D177; docs/partitions.md).
+    "partitionOnUpdate": true
   }
 }
 ```
@@ -690,6 +736,7 @@ Env every backend instance gets:
 | `XBIN_SOCKET` | unix socket to listen on |
 | `XBIN_COMPONENT` | own path (identity) — the same in every tile deployment |
 | `XBIN_DEPLOYMENT` | only in a tile deployment that isn't the tile's primary: its name (`dev`); absent for the primary ([tile-deployments.md](/docs/tile-deployments.md)) |
+| `XBIN_PARTITION` | only in a partitioned tile (in development): `user:<id>` in a person's own instance, `global` in the global instance (and in a non-primary deployment whose code asks for partitions); absent in every tile that isn't partitioned ([partitions.md](/docs/partitions.md)) |
 | `XBIN_GATEWAY`, `XBIN_TOKEN` | how to call other elements / xbin APIs (this generation's credential — dies at swap) |
 | `XBIN_RES_<NAME>` | each granted resource ([resources.md](/docs/resources.md)) |
 

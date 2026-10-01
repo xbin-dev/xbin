@@ -84,7 +84,7 @@ func TestRestoreRemovesOldLayersConfined(t *testing.T) {
 // offloadRig is a tile with a terminal layer and an archiver bound.
 func offloadRig(t *testing.T) (*Broker, string, *[]string) {
 	t.Helper()
-	b := testBroker(t)
+	b := plaintextVault(testBroker(t))
 	b.ProxyHandler = &fakeArchiver{}
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
 		ws.Bindings = map[string]map[string]registry.Binding{"*": {archiveSlot: {{Ref: "apps/archiver"}}}}
@@ -220,7 +220,7 @@ func TestRestoreKeepsPermissionBits(t *testing.T) {
 	c, _ := b.Reg.Component(comp)
 	buf.Reset()
 	bw := backup.NewWriter(&buf)
-	if err := b.writeBackup(bw, c, nil); err != nil {
+	if err := b.writeBackup(bw, c, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := bw.Close(); err != nil {

@@ -842,6 +842,7 @@ func (s *hsess) onTurnEnd(ev acp.Event) {
 	signedOut := d.StopReason == "error" && s.c != nil && s.c.State().AuthNeeded
 	detached := s.isDetached()
 	rests := false
+	mark := s.workMark() // the end's poke may send a queued prompt before the rest (harness_partition.go)
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
 		if err := s.flushAllTx(t); err != nil {
 			return err
@@ -875,7 +876,7 @@ func (s *hsess) onTurnEnd(ev acp.Event) {
 	s.activity("idle", "")
 	s.publishSummary()
 	if rests {
-		s.armIdle()
+		s.armIdleFrom(time.Time{}, mark)
 	}
 }
 

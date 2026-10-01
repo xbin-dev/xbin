@@ -513,7 +513,7 @@ func TestAgentHistoryAndResume(t *testing.T) {
 		return e.Type == agent.EvStatus && edata(e.Event)["status"] == agent.StatusIdle
 	})
 	// a session that never took a prompt is not history
-	if m.FlushAgents(); len(m.ListHistory("owner", "apps/x", nil)) != 0 {
+	if m.FlushAgents(); len(m.ListHistory(OwnHistory("owner"), "apps/x", nil)) != 0 {
 		t.Fatal("an unprompted session must not be kept")
 	}
 	if _, err := m.AgentPrompt(ctx, id, "remember this"); err != nil {
@@ -522,7 +522,7 @@ func TestAgentHistoryAndResume(t *testing.T) {
 	r.until(t, ofType(agent.EvTurnEnd))
 	// a live session flushes (shutdown): the entry exists while it still runs
 	m.FlushAgents()
-	hist := m.ListHistory("owner", "apps/x", nil)
+	hist := m.ListHistory(OwnHistory("owner"), "apps/x", nil)
 	if len(hist) != 1 || hist[0].ID != id || hist[0].Turns != 1 || hist[0].Preview != "remember this" || hist[0].Provider != "fake" ||
 		hist[0].Name != "first" || !hist[0].Loadable || hist[0].ACPSessionID != "fake-1" {
 		t.Fatalf("history after flush: %+v", hist)
@@ -531,17 +531,17 @@ func TestAgentHistoryAndResume(t *testing.T) {
 	m.Kill(id)
 	for op := ""; op != "close:"+id; op = <-r.change {
 	}
-	meta, evs, err := m.ReadHistory("owner", id)
+	meta, evs, err := m.ReadHistory(OwnHistory("owner"), id)
 	if err != nil || meta.ID != id || len(evs) == 0 {
 		t.Fatalf("read: %v %+v %d events", err, meta, len(evs))
 	}
 	if rows := m.ListFor("owner", "apps/x", nil); len(rows) != 0 {
 		t.Fatalf("ended, yet still live: %+v", rows)
 	}
-	if len(m.ListHistory("bob", "", nil)) != 0 {
+	if len(m.ListHistory(OwnHistory("bob"), "", nil)) != 0 {
 		t.Fatal("history is per user")
 	}
-	if _, _, err := m.ReadHistory("owner", "nope"); !errors.Is(err, ErrNoSession) {
+	if _, _, err := m.ReadHistory(OwnHistory("owner"), "nope"); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("unknown id: %v", err)
 	}
 
@@ -600,11 +600,11 @@ func TestAgentHistoryAndResume(t *testing.T) {
 	m.Kill(info2.ID)
 	for op := ""; op != "close:"+info2.ID; op = <-r.change {
 	}
-	hist = m.ListHistory("owner", "apps/x", nil)
+	hist = m.ListHistory(OwnHistory("owner"), "apps/x", nil)
 	if len(hist) != 1 || hist[0].ID != info2.ID {
 		t.Fatalf("the continuation supersedes the original: %+v", hist)
 	}
-	if err := m.DeleteHistory("owner", info2.ID); err != nil || len(m.ListHistory("owner", "", nil)) != 0 {
+	if err := m.DeleteHistory(OwnHistory("owner"), info2.ID); err != nil || len(m.ListHistory(OwnHistory("owner"), "", nil)) != 0 {
 		t.Fatalf("delete: %v", err)
 	}
 }
@@ -623,7 +623,7 @@ func TestHistoryPrune(t *testing.T) {
 		}
 	}
 	m.pruneHistory(dir)
-	hist := m.ListHistory("owner", "apps/x", nil)
+	hist := m.ListHistory(OwnHistory("owner"), "apps/x", nil)
 	if len(hist) != historyKeep || hist[0].ID != fmt.Sprintf("s%02d", historyKeep+4) || hist[len(hist)-1].ID != "s05" {
 		t.Fatalf("prune keeps the newest %d: got %d, first %s, last %s", historyKeep, len(hist), hist[0].ID, hist[len(hist)-1].ID)
 	}

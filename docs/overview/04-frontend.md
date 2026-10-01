@@ -66,7 +66,8 @@ against the module):
 |--------|--------------|
 | `xbin.self` | this component's path (from the injected meta) |
 | `xbin.deployment` | only in a document of a tile deployment other than the primary (`/c/<tile>+<name>/`): its name; absent means the primary ([tile-deployments.md](../tile-deployments.md)) |
-| `xbin.fetch(url, opts)` | `fetch` with the frame token attached — **required for calling any other element's API**; streams (SSE/chunked) work |
+| `xbin.partition` | only in a partitioned tile's document: the partition the viewer reaches, `user:<id>` or `global`; absent otherwise ([partitions.md](../partitions.md), in development) |
+| `xbin.fetch(url, opts)` | `fetch` with the frame token attached — **required for calling any other element's API**; streams (SSE/chunked) work. `opts.partition: 'global'` calls the tile's global instance from a user partition's document, on the tile's own `/api/<self>/…` only ([partitions.md](../partitions.md)) |
 | `xbin.ws(path)` | attributed WebSocket — browsers can't set WS headers, so the token rides a `?frame=` query param that xbind *consumes* (never forwarded to the callee) |
 | `xbin.iface(slot)` | a bound http interface: `{url, service}` (or `{service, multi, endpoints}` for a `multi:true` slot) — call a typed, swappable dependency instead of a hard-coded path ([11-interfaces.md](11-interfaces.md)) |
 | `xbin.bus.on(prefix, cb)` / `xbin.bus.publish(res, topic, data)` | pub/sub on granted bus resources ([10-resources.md](10-resources.md)) |

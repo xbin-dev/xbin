@@ -443,7 +443,9 @@ export class BxOrganisations extends LitElement {
           <span style="flex:1"></span>
           <button class="go" @click=${() => this._do(() =>
             api('/grants', jbody({ from: p.from, target: p.target, role: p.role }, 'POST')), 'approved')}>approve</button>
-        </div>`)}
+        </div>
+        ${p.warning ? html`<div class="muted" style="font-size:11px; margin:0 0 4px; color:var(--bx-amber,#f2a71b)"
+          data-grant-warning=${p.from + ' ' + p.target}>⚠ ${p.warning}</div>` : nothing}`)}
       </div>` : nothing}
       ${mine.length ? html`<div class="card">
         ${mine.map((p) => html`<div class="row" style="margin:3px 0">

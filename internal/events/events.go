@@ -9,7 +9,7 @@ import (
 
 // Event is one message on the hub. JSON-encoded on the wire.
 type Event struct {
-	Type      string `json:"type"`                // reload|build-start|build-error|build-ok|backend|log|bus|grants|status|pr|users|term|session|branding|native|deployments|prefs
+	Type      string `json:"type"`                // reload|build-start|build-error|build-ok|backend|log|bus|grants|status|pr|users|term|session|branding|native|deployments|prefs|policies
 	Component string `json:"component,omitempty"` // workspace-relative path; always the bare tile path, never "<tile>+<name>"
 	Text      string `json:"text,omitempty"`      // human text (compiler output, log line)
 	Topic     string `json:"topic,omitempty"`     // bus: resource-qualified topic "res:scope/name/topic"
@@ -19,7 +19,18 @@ type Event struct {
 	// non-primary deployment's activity rides the "deployments" type, which
 	// names it in Data.
 	Deployment string `json:"deployment,omitempty"`
-	Data       any    `json:"data,omitempty"` // bus payload / structured extras
+	// Partition names the user partition ("user:<id>") of a partitioned
+	// tile an event belongs to: a bus event in that partition's namespace,
+	// or that partition's status, runner or partitions event. Such an event
+	// reaches only that partition's principals and its person's own
+	// sockets — admins get no blanket pass (plans/partitions/02 §9). A bus
+	// event on a partitioned scope's own (not shared) bus is stamped
+	// "global" when the global instance published it, and reaches only
+	// subscribers acting in global there (04 §2). Empty for everything
+	// else — every event of a tile that isn't partitioned, and the global
+	// instance's other events: today's bytes.
+	Partition string `json:"partition,omitempty"`
+	Data      any    `json:"data,omitempty"` // bus payload / structured extras
 }
 
 // Filter decides whether a subscriber receives an event. Most events are

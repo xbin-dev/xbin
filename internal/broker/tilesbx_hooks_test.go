@@ -93,7 +93,7 @@ func backupOf(t *testing.T, b *Broker, comp string) []byte {
 	c, _ := b.Reg.Component(comp)
 	var buf bytes.Buffer
 	bw := backup.NewWriter(&buf)
-	if err := b.writeBackup(bw, c, nil); err != nil {
+	if err := b.writeBackup(bw, c, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := bw.Close(); err != nil {
@@ -110,7 +110,7 @@ func backupOf(t *testing.T, b *Broker, comp string) []byte {
 // skipped.
 func TestBackupCarriesSandboxDefinitions(t *testing.T) {
 	const comp = "apps/calendar"
-	b := testBroker(t)
+	b := plaintextVault(testBroker(t))
 	before := backupOf(t, b, comp)
 	f := &fakeTileSbx{defs: map[string][]json.RawMessage{"apps/other": {json.RawMessage(`{"name":"x"}`)}}}
 	b.SetTileSandboxes(f)
@@ -156,7 +156,7 @@ func TestBackupCarriesSandboxDefinitions(t *testing.T) {
 // stops its sandboxes.
 func TestLifecycleAndTileSandboxes(t *testing.T) {
 	const comp = "apps/calendar"
-	b := testBroker(t)
+	b := plaintextVault(testBroker(t))
 	a := archived(t, b)
 	f := &fakeTileSbx{state: map[string][2]int64{comp: {2, 3 << 30}}}
 	b.SetTileSandboxes(f)

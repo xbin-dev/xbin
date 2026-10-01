@@ -122,7 +122,7 @@ func TestRerouteRetiredGeneration(t *testing.T) {
 				body = strings.NewReader(tc.body)
 			}
 			w := httptest.NewRecorder()
-			px.forward(w, httptest.NewRequest(tc.method, "/api/apps/x/v", body), tr, "v", "")
+			px.forward(w, httptest.NewRequest(tc.method, "/api/apps/x/v", body), tr, "v", "", nil)
 			got := w.Body.String()
 			if w.Code != http.StatusOK {
 				got = fmt.Sprint(w.Code) + " " + got

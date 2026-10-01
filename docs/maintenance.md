@@ -556,7 +556,9 @@ words and confirmations imported from `/vendor/deploy-state.js` and
 `backup`, `binding` for grants/roles/providers/wiring, `ingress` for
 expose/endpoints, `orgs` for the org list, one org's page (`#orgs/<id>`
 — the router passes the hash's `sub` down), policy ceilings and the
-workspace defaults, `users`, `signin`, `sessions`); the
+workspace defaults, `users`, `signin`, `sessions`, and the workspace
+group's `branding`, `nativeapp` and `policies` — the workspace policies for
+partitioned tiles, PD-55); the
 router renders it with its inputs as properties and imports it
 **relatively** (`./tabs/map.js`) — a sandboxed tile may import its own
 siblings, and `bx builtin update` delivers new files inside the unit, so an
@@ -589,7 +591,9 @@ older workspace's monolith keeps working while a fresh one gets the split
   (`permset:`, `netset:`, `bindcustom:`, `orgallow:`/`ws:`, `user:`).
 
 Adding a tab: the element under `tabs/`, an entry in `GROUPS`, one arm in
-`render()`, and the `adminTabs` harness pass opens every id in `GROUPS`
+`render()` — or, for a tab that takes no inputs (sandboxes, deployments,
+branding, nativeapp, policies), its import and one line in
+`plain-tabs.js`'s `PLAIN_TABS` instead — and the `adminTabs` harness pass opens every id in `GROUPS`
 (it reads them from `BxAdmin.tabsFlat()`) and fails on an empty or `.err`
 body (`hack/ui-harness/shots.js`). The `sandboxes` pass
 (`hack/ui-harness/passes/sandboxes.js`) checks the sandboxes tab live —
@@ -598,7 +602,40 @@ refused VMs — and against a routed VM-capable host. The `adminDeployments`
 pass (`hack/ui-harness/passes/admindeploy.js`) drives the deployments tab
 inside the shell on the deployments pass's fixture: protect, deliveries,
 unprotect and the reassign confirmation, each through the admin tile's
-frame, and the link to the tile's Deployments panel.
+frame, and the link to the tile's Deployments panel. `adminTabs` also
+counts the policies tab's two switches; the `adminPolicies` pass
+(`hack/ui-harness/passes/policies.js`) drives it: the confirmation before
+"ask each person" turns on (cancel, then Turn on), the credential-reset
+switch saving at once, a second console following the `policies` event,
+and a user's read-only access. The `personalBinds` pass
+(`hack/ui-harness/passes/personalbinds.js`) checks bind types on a
+partitioned tile: an admin refused a personal bind of someone else's tile,
+the person's own bind, their document's `xbin-interfaces` meta (the global
+row, then theirs with `personal: true`) against the admin's (the global row
+alone), and the binding → wiring view's `global` and `personal · <user> →
+<provider>` labels, whose ✕ removes the bind. The runtime → partitions tab
+is `tabs/partitions.js` (the list, a `PLAIN_TABS` entry), its tile view
+`tabs/partition-tile.js`, and their words and request bodies
+`tabs/partitions-view.js` — lit-free, tested in
+`hack/admin-partitions.test.mjs`; the `adminPartitions` pass
+(`hack/ui-harness/passes/adminpartitions.js`) drives it: people's rows
+(each person gets a partition by opening a terminal), a personal bind
+removed, the limits, reviewed code only refused with its reason, a reset
+behind the typed text, a restore with no backup, a stop (the listing
+stubbed running), the untracked check asked once, the console opened by a
+person who isn't an admin, Keep and Switch… on two pending tiles, the
+orphans' purge (one request per listed row), the sandboxes tab's labels
+and the Backup tab's partition failure (both stubbed), an xbind without
+partitions (the route stubbed 404) and the admin scaffold from before the
+tab (read from git) over the same tiles. The logs panel's partition
+switcher is `web/logs-partition.js` (tested in
+`hack/logs-partition.test.mjs`) inside `web/bx-logs.js`; the
+`partitionLogs` pass (`hack/ui-harness/passes/partitionlogs.js`) writes
+each partition's log into the workspace and checks what the admin, a
+person, a writer (no global instance's log) and the tile's owner (a
+shared log) may pick, and that an unpartitioned tile's panel is
+unchanged. Both passes take their non-admin people's access away at the
+end.
 
 ## The shell (`workspace-template/shell`)
 
@@ -622,7 +659,36 @@ layout math — `overlaps()` and `pushLayout()`, the push a dragged or
 resized tile performs on its neighbours (D66) — lit-free, tested in
 `hack/grid-layout.test.mjs`; `shell-kit.js` re-exports the constants and
 holds the rest of what the shell and its children share: `RUNTIME_COLOR`,
-the `LongPress` gesture, `selectedText()` and the `prBadge()` template.
+the partitioned marker (`partitionMark(c)`), the partition chip's tag
+(`chipTag`) and a pop-out window's head (`spawnTitle`: the framed tile's
+marker, the title and its chip), the `LongPress` gesture,
+`selectedText()` and the `prBadge()` template. `partition-mode.js` is
+partitioned tiles' words and decisions, lit-free: what a row's `partition`
+reads as, the marker's tooltip, the window's partition chip
+(`partitionChip`: yours / shared / global / no partition, from the row,
+the deployment shown and `/whoami`; `framedTile` finds the tile a
+pop-out frames), a pending card's text, the POST
+`/partitions/mode` bodies and the typed confirmation's spec, and the
+consent prompts' words, what they show (`consentPrompts`) and their
+calls — tested in `hack/partition-mode.test.mjs` (xbind's switch words are
+pinned against it by the registry's `TestShellSwitchWords`), end to end by
+the harness's `partitionMark` pass (the marker on row and head, none on a
+deployment's window; the chip on a person's, a deployment's and the
+workspace token's windows and on pop-outs; Keep, and Switch… through the
+confirmation, on pending cards). `bx-part-consent.js` is the consent
+prompts' panel in the shell's decision strip (beside `<bx-grants>`,
+`hidden` while there is nothing to answer): it reads `GET
+/partitions/consents` as the person (never view-as or the workspace
+token), follows the `partitions` consent ops and `policies` on the page's
+own events socket (the person's, never the shell tile's), keeps a
+person's "Don't allow" in `localStorage` under a key of their own, and
+keeps Allow disabled while anything covers an ask (a timer hit-tests it;
+`coverPoints`); the harness's `partitionConsent` pass drives it over a
+real refused cross-partition kv read. The `partitionSwitch` pass is the old-shell
+check: its browsers load the shell
+from before partitioned tiles out of git (the parent of the commit that
+added `partition-mode.js`) over the dev overlay, so it needs the repo's
+history.
 `layout-sync.js` is how an open shell follows a layout another client (the
 app, another tab) saved: `follow(shell, event, key)` on a `prefs` event —
 skip our own writes (`X-Prefs-Writer`), hold the reload while `editing()`
@@ -697,7 +763,14 @@ back, set an edge, read registrations and "would notify", protect the
 primary, and restore the zero state at the end — a part this xbind can't
 exercise prints `SKIP` with what it got. The
 agent passes don't run under `HARNESS_ISOLATE`: their scripted fake agent is
-a host path the tile sandbox can't see.
+a host path the tile sandbox can't see. The harness xbind serves the source
+tree's scaffold over the workspace's copies (`--dev-overlay`);
+`HARNESS_NO_OVERLAY=1` serves the workspace's own, which `oldScaffold` needs:
+it swaps `shell/` and `tiles/admin/` for the last release's
+(`HARNESS_OLD_SCAFFOLD`, a git tag), checks them against partitioned and
+pending tiles, and puts the workspace's back byte for byte. Under the overlay
+— the default run — it `SKIP`s, said so, so only a run with the switch covers
+it (give a `--shots` run against that instance the switch too).
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop
@@ -705,6 +778,7 @@ hack/ui-harness/run.sh --keep             # …and leave xbind up on $PORT
 hack/ui-harness/run.sh --shots windows    # one pass against the running instance
 hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every pass
 HARNESS_ISOLATE=1 hack/ui-harness/run.sh --keep livereload   # xbind with --isolate on $XBIN_TEST_ROOTFS
+HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold  # no --dev-overlay: the workspace's own scaffold (below)
 hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)
 ```

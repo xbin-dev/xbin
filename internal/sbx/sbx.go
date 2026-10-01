@@ -50,7 +50,9 @@ const (
 type Entry struct {
 	// ID is "backend:<key>:g<gen>" for a backend of main, the tile's only
 	// deployment until it has others; "backend+<name>:<key>:g<gen>" for
-	// another deployment's (a name holds no ':'); a session's id.
+	// another deployment's (a name holds no ':'); "backend@<pkey>:<key>:g<gen>"
+	// for a person's partition of main ("backend+<name>@<pkey>:…" of
+	// another deployment); a session's id.
 	ID   string `json:"id"`
 	Kind Kind   `json:"kind"`
 	Tile string `json:"tile"` // the component it belongs to (workspace-relative)
@@ -58,6 +60,10 @@ type Entry struct {
 	// main, so main's entries stay as they were before deployments (D119c).
 	// Tile is the tile's path whatever the deployment.
 	Deployment string `json:"deployment,omitempty"`
+	// Partition is the person's partition ("user:<id>") a backend runs for,
+	// set only for one: metadata — who has an instance, never what it holds
+	// (plans/partitions/03 §A.9). The global instance's entries leave it out.
+	Partition string `json:"partition,omitempty"`
 	// Parent is the entry a sub-sandbox belongs to (reserved for tile-managed
 	// sandboxes, which nest under their owner).
 	Parent string `json:"parent,omitempty"`
@@ -122,6 +128,7 @@ type Failure struct {
 	Kind       Kind      `json:"kind"`
 	Tile       string    `json:"tile"`
 	Deployment string    `json:"deployment,omitempty"` // as on the entry: never set for main
+	Partition  string    `json:"partition,omitempty"`  // as on the entry
 	User       string    `json:"user,omitempty"`
 	Mode       Mode      `json:"mode"`
 	Stage      Stage     `json:"stage"`
@@ -226,10 +233,11 @@ func (r *Registry) List(f Filter) []Entry {
 	return out
 }
 
-// Fail records a failure. The same failure (kind, tile, deployment, user,
-// mode, stage and message) within ten minutes of the last is counted, not
-// repeated — a crash loop is one row, and one deployment's never merges into
-// another's — and the ring keeps the newest 64.
+// Fail records a failure. The same failure (kind, tile, deployment,
+// partition, user, mode, stage and message) within ten minutes of the last
+// is counted, not repeated — a crash loop is one row, and one deployment's
+// or partition's never merges into another's — and the ring keeps the
+// newest 64.
 func (r *Registry) Fail(f Failure) {
 	if r == nil {
 		return
@@ -245,7 +253,7 @@ func (r *Registry) Fail(f Failure) {
 	defer r.mu.Unlock()
 	r.counts[f.Stage]++
 	for i, x := range r.ring {
-		if x.Kind == f.Kind && x.Tile == f.Tile && x.Deployment == f.Deployment && x.User == f.User && x.Mode == f.Mode &&
+		if x.Kind == f.Kind && x.Tile == f.Tile && x.Deployment == f.Deployment && x.Partition == f.Partition && x.User == f.User && x.Mode == f.Mode &&
 			x.Stage == f.Stage && x.Error == f.Error && f.Time.Sub(x.Time) < coalesce {
 			f.Count = x.Count + 1
 			r.ring = append(r.ring[:i], r.ring[i+1:]...)

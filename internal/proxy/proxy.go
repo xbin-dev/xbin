@@ -87,6 +87,16 @@ type Decision struct {
 	// Deny is non-nil when the call is refused: util.ErrNoDeployment is a
 	// 404, anything else a 403 whose text is the answer's error.
 	Deny error
+
+	// Partitioned tiles (partitionroute.go): the target's partition the
+	// call reaches, the one the caller acts in and its id, the F5
+	// attribution, and the delivery ("cron", "bus", "mail") a start it
+	// causes is for — a background start — "" for everything else.
+	Partition         util.Partition
+	CallerPartition   util.Partition
+	CallerPartitionID string
+	Attribute         *auth.Attribution
+	Delivery          string
 }
 
 type Proxy struct {
@@ -102,10 +112,18 @@ type Proxy struct {
 	// at which role, or why it is refused. qualifier is the deployment the
 	// URL names, "" for the bare URL.
 	Route func(p auth.Principal, target *registry.Component, qualifier string) Decision
+	// RouteGlobal is the broker's routing function for a call that
+	// addresses a partitioned target's global instance
+	// (?xbin-partition=global, consumed here; globaladdress.go), installed
+	// at boot beside Route. nil = such a call is refused.
+	RouteGlobal func(p auth.Principal, target *registry.Component, qualifier string) Decision
 	// Deployments answers what a qualified URL and the role rule ask about a
 	// tile's deployments (a record, its deployments, its primary): the
 	// deployments plane. nil = no tile has a record.
 	Deployments registry.DeploymentLookup
+	// Partitions starts and holds user partitions (partitionroute.go); nil
+	// = none runs here.
+	Partitions PartitionRunner
 
 	// UserLevel resolves the attributed user's access level on a tile for
 	// the X-XBin-User-Level header (D29). Installed by main from the user
@@ -185,12 +203,14 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// The decision is taken here and acted on in the order the gates have
 	// always run: the tile-level gates answer first, the refusal after them.
-	d := px.decide(p, comp, qualifier)
+	// A partitioned target's ?xbin-partition=global is consumed here and
+	// decided by RouteGlobal (globaladdress.go).
+	d := px.decideAddressed(r, p, comp, qualifier)
 	if rerr != nil {
 		// An unknown deployment, or a nested tile under a qualifier: a caller
 		// who may not know the tile's deployments gets the gate's refusal,
 		// whether or not the name exists (11-contract §2.2, §2.4).
-		if d.Deny != nil && !errors.Is(d.Deny, util.ErrNoDeployment) {
+		if d.Deny != nil && denyStatus(d.Deny) == http.StatusForbidden {
 			jsonErr(w, http.StatusForbidden, d.Deny.Error(), "")
 		} else {
 			jsonErr(w, http.StatusNotFound, rerr.Error(), "")
@@ -241,26 +261,35 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if d.Deny != nil {
-		code := http.StatusForbidden
-		if errors.Is(d.Deny, util.ErrNoDeployment) {
-			code = http.StatusNotFound // a bound deployment that no longer exists (09-fabric §3.1)
-		}
-		jsonErr(w, code, d.Deny.Error(), "")
+		// 404 for a bound deployment that no longer exists (09-fabric §3.1)
+		// or a global instance the tile doesn't have; else 403
+		jsonErr(w, denyStatus(d.Deny), d.Deny.Error(), "")
+		return
+	}
+	// The partition gate (partition.go): a pending or invalid mode runs no
+	// instance of the primary; the caller learns why, never the runner.
+	if msg, body, paused := PartitionPaused(comp); paused && target == primary {
+		writePartitionPaused(w, msg, body)
 		return
 	}
 
 	px.identify(r, p, d.Role, comp.Path)
+	px.identifyPartition(r, d)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
 	// Route's answer, and never another (09-fabric §4.1): the primary for a
 	// bare URL from anyone but the tile itself, the caller's own on a
-	// self-call, the named one on a qualified URL.
+	// self-call, the named one on a qualified URL; and, on a partitioned
+	// tile, the partition it reached (partitionroute.go).
 	// deployment: the target Route returned.
-	gen, err := px.Runner.EnsureDeploymentGen(ctx, comp, target)
+	tr, hold, err := px.ensureTarget(ctx, comp, target, d)
 	if err != nil {
 		var be *runner.BuildError
+		code, partErr := ensureStatus(d, err)
 		switch {
+		case partErr:
+			jsonErr(w, code, err.Error(), "")
 		case errors.As(err, &be):
 			jsonErr(w, http.StatusBadGateway, "backend build failed", be.Output)
 		case errors.Is(err, util.ErrNoDeployment):
@@ -273,21 +302,17 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Hold the backend for the whole connection: SSE and WebSocket streams
 	// block in forward below, and the idle reaper must not stop a backend
-	// that is mid-stream.
-	release := px.Runner.TrackDeployment(comp.Path, target)
-	defer release()
+	// that is mid-stream (ensureTarget took the hold).
+	defer hold.done()
 
 	answering := ""
 	if target != primary {
 		answering = target
 	}
-	// A request the generation's retirement cut off goes to the target's
-	// generation now: the same deployment, never another (rerouting).
-	again := func() (generation, error) {
-		// deployment: the target Route returned, as above.
-		return px.Runner.EnsureDeploymentGen(ctx, comp, target)
-	}
-	px.forward(w, r, &rerouting{px: px, gen: gen, again: again}, endpoint, answering)
+	// A request the generation's retirement cut off goes to the generation
+	// the same instance has now — the same deployment, and on a partitioned
+	// tile the same partition, never another (rerouting, ensureTarget).
+	px.forward(w, r, tr, endpoint, answering, hold.onResponse)
 }
 
 // forward proxies r to the backend generation tr sends it to (rerouting),
@@ -295,8 +320,9 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // answering names the deployment that answers when it isn't the target's
 // primary: the response then carries X-XBin-Deployment, set over any value
 // the backend set (NP-11-12). A primary's responses pass as they always
-// have.
-func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, tr *rerouting, endpoint, answering string) {
+// have. onResponse, when set, sees the backend's response before it is
+// copied back (a user partition's hold, partitionroute.go).
+func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, tr *rerouting, endpoint, answering string, onResponse func(*http.Response)) {
 	// The ?frame= auth credential (browser WS attribution) is consumed
 	// here; never forward it — the callee could replay it as the caller.
 	outQuery := r.URL.Query()
@@ -326,6 +352,9 @@ func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, tr *rerouting, 
 			}
 			if answering != "" {
 				res.Header.Set(HeaderDeployment, answering)
+			}
+			if onResponse != nil {
+				onResponse(res)
 			}
 			return nil
 		},
@@ -432,6 +461,7 @@ func (px *Proxy) identify(r *http.Request, p auth.Principal, role, tile string) 
 	}
 	r.Header.Set(HeaderFrom, p.From())
 	r.Header.Set(HeaderRole, role)
+	setBackupSubkey(r) // xbind's own archive PUTs only: from the context, never the request
 	// The role rule (11-contract §4) (D127j): a tile's own principal bound to
 	// a deployment that isn't its primary names that deployment, on its
 	// self-calls and on its calls to other tiles; X-XBin-From stays the

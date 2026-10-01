@@ -194,10 +194,15 @@ func (b *Broker) defaultOrgOwner(userID, why string) (ref, msg string) {
 // tile: a deployment record and view repository a removed tile left there
 // never apply to the new one, which starts in the zero state. The
 // checkpoint store stays, a leftover (pathLeftovers).
+//
+// People's personal binds naming the path go as well (a person's consent to
+// wire the removed tile, never the new one's; personalbind.go).
 func (b *Broker) assignOwner(path, ref string) {
 	if n := b.cron.forget(path) + b.bus.forget(path) + b.dropDormantAt(path); n > 0 {
 		slog.Info("dropped a removed tile's cron jobs and bus subscriptions", "tile", path, "count", n)
 	}
+	b.personalBindsTileCreated(path)
+	b.mailTileCreated(path) // a removed tile's partition mail there (partitionmail_bell.go)
 	if err := b.resetDeploymentState(path); err != nil {
 		slog.Error("a removed tile's deployment record couldn't be reset for the new tile", "tile", path, "err", err)
 	}

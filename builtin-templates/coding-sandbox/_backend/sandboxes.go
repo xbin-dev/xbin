@@ -37,6 +37,10 @@ func (m *Manager) contractHandler() http.Handler {
 			fail(w, http.StatusForbidden, "not-allowed", "no consumer: calls come from a tile (X-XBin-From, set by xbind)")
 			return
 		}
+		if why := partitionCheck(r); why != "" { // a user partition's call is its person's
+			fail(w, http.StatusForbidden, "not-allowed", why)
+			return
+		}
 		if m.pageReader(r) { // this tile's own page, a person who may only look
 			if mutates(r) {
 				c := xbin.Caller(r)
@@ -291,6 +295,9 @@ func (m *Manager) patchSandbox(ctx context.Context, id string, q patchReq) (*xbi
 			if s.Consumer == "" {
 				return nil, errf(http.StatusBadRequest, "invalid", "a share names its consumer")
 			}
+			if len(s.PartitionID) > 128 || strings.ContainsFunc(s.PartitionID, func(r rune) bool { return r <= ' ' || r >= 0x7f }) {
+				return nil, errf(http.StatusBadRequest, "invalid", "a share's partitionId is up to 128 printable characters")
+			}
 		}
 	}
 	if q.Members != nil {
@@ -370,7 +377,7 @@ func (m *Manager) del(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if rec.Owner.Via != c.from {
+	if !rec.home(c) {
 		fail(w, http.StatusForbidden, "not-allowed", "only its home consumer deletes a sandbox")
 		return
 	}

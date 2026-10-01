@@ -368,6 +368,10 @@ type fakeStore struct {
 	failMaterialize error
 	noLog           bool
 	captures        int
+	// diff, when set, answers Diff (a test's summary of two trees).
+	diff func(req checkpoint.DiffRequest) (checkpoint.DiffResult, error)
+	// extracted counts each tree's Materialize calls.
+	extracted map[string]int
 }
 
 func newFakeStore(root string) *fakeStore {
@@ -506,6 +510,10 @@ func (s *fakeStore) Get(ctx context.Context, tile, tree string) (checkpoint.Chec
 func (s *fakeStore) Materialize(tile, tree string) (string, error) {
 	s.mu.Lock()
 	fail, files := s.failMaterialize, s.files[tree]
+	if s.extracted == nil {
+		s.extracted = map[string]int{}
+	}
+	s.extracted[tree]++
 	s.mu.Unlock()
 	if fail != nil {
 		return "", fail
@@ -568,6 +576,12 @@ func (s *fakeStore) RemoveView(ctx context.Context, tile string) error {
 
 // Diff and ServeFetch are the real store's, for the unit-git tests.
 func (s *fakeStore) Diff(ctx context.Context, req checkpoint.DiffRequest) (checkpoint.DiffResult, error) {
+	s.mu.Lock()
+	diff := s.diff
+	s.mu.Unlock()
+	if diff != nil {
+		return diff(req)
+	}
 	if s.real == nil {
 		return checkpoint.DiffResult{}, errNotBuilt("the fake store's diff")
 	}

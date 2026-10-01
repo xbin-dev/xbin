@@ -62,7 +62,7 @@ const (
 )
 
 // LogHows are the operations an entry names (11-contract §1.1's how).
-var LogHows = []string{"deploy", "promote", "rollback", "reload-now", "resume", "pause", "attach", "add", "protect", "reassign", "restart"}
+var LogHows = []string{"deploy", "promote", "rollback", "reload-now", "resume", "pause", "attach", "add", "protect", "reassign", "restart", "partition-switch"}
 
 // MaxLogError bounds an entry's error text: its first line, in bytes.
 const MaxLogError = 500

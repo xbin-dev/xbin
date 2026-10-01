@@ -143,13 +143,13 @@ func TestTerminatorDoorPrimaryOnly(t *testing.T) {
 		t.Errorf("a non-primary's forwards: %v, want %v", got, want)
 	}
 
-	conn, err := r.hostDialFor("apps/x", "main", io.Discard)("unix:" + door)
+	conn, err := r.hostDialFor("apps/x", "main", false, io.Discard)("unix:" + door)
 	if err != nil {
 		t.Fatalf("the primary's door: %v", err)
 	}
 	conn.Close()
 	var devLog bytes.Buffer
-	if _, err := r.hostDialFor("apps/x", "dev", &devLog)("unix:" + door); err == nil {
+	if _, err := r.hostDialFor("apps/x", "dev", false, &devLog)("unix:" + door); err == nil {
 		t.Error("a non-primary generation dialled the door")
 	}
 	if got := devLog.String(); got != "the ingress forward door serves the tile's primary only\n" {
@@ -160,7 +160,7 @@ func TestTerminatorDoorPrimaryOnly(t *testing.T) {
 	primary = "dev" // reassigned: main's generation drains until it restarts
 	mu.Unlock()
 	var mainLog bytes.Buffer
-	if _, err := r.hostDialFor("apps/x", "main", &mainLog)("unix:" + door); err == nil || strings.Count(mainLog.String(), "\n") != 1 {
+	if _, err := r.hostDialFor("apps/x", "main", false, &mainLog)("unix:" + door); err == nil || strings.Count(mainLog.String(), "\n") != 1 {
 		t.Errorf("the former primary's door dial: %v, log %q; want refused, one line", err, mainLog.String())
 	}
 }
@@ -211,7 +211,7 @@ func TestEdgeStreamDial(t *testing.T) {
 	slot := "stream:apps/db:" + strconv.Itoa(port)
 
 	var devLog bytes.Buffer
-	if _, err := f.r.hostDialFor("apps/x", "dev", &devLog)(slot); err == nil {
+	if _, err := f.r.hostDialFor("apps/x", "dev", false, &devLog)(slot); err == nil {
 		t.Fatal("a non-primary generation dialled a stream slot")
 	}
 	want := "stream slot to apps/db:" + strconv.Itoa(port) + " blocked by edge policy (a non-primary deployment reaches no stream slot)\n"
@@ -222,7 +222,7 @@ func TestEdgeStreamDial(t *testing.T) {
 		t.Errorf("a refused dial woke the provider: %q", got)
 	}
 
-	conn, err := f.r.hostDialFor("apps/x", "main", io.Discard)(slot)
+	conn, err := f.r.hostDialFor("apps/x", "main", false, io.Discard)(slot)
 	if err != nil {
 		t.Fatalf("the primary's stream slot: %v", err)
 	}

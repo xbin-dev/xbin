@@ -132,6 +132,11 @@ type Config struct {
 	// once per conversation tree (0 = 3). Tile-wide, from the global config.
 	HarnessIdleMin *int `json:"harnessIdleMin,omitempty"`
 	MaxHarness     int  `json:"maxHarness,omitempty"`
+
+	// noHarness: no coding agent may start in this turn's run — the global
+	// instance's, a hosted conversation's (harness_partition.go):
+	// subagent_spawn offers none. Set per turn (runToolSpecs), never stored.
+	noHarness bool
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.
@@ -395,7 +400,7 @@ func preferredModel(ctx context.Context, use string) string {
 	// ever made — which is indistinguishable from a hung agent.
 	ctx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
 	defer cancel()
-	provs := llmProviders()
+	provs := llmProvidersIn(context.Background()) // the tile's providers: a person's own never set the default
 	model := ""
 	for _, p := range provs {
 		if m := askPreferred(ctx, p, use); m != "" {

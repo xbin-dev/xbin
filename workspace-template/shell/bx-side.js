@@ -17,10 +17,10 @@
 import { LitElement, html, nothing } from 'lit';
 import { pathHas } from '/vendor/bx-kit.js';
 import { LongPress, prBadge, isScreenItem, isOrgScreenItem, screenIdOf, scopeOf, ownerKeyOf, worstStatus,
-  followDeployments, wantDeployState } from './shell-kit.js';
+  followDeployments, wantDeployState, partitionMark } from './shell-kit.js';
 import { offloaded, hidden } from './menus.js';
 import { ago } from './rev-draft.js';
-import { sideCss, statusCss, prbCss } from './shell-css.js';
+import { sideCss, statusCss, prbCss, partCss } from './shell-css.js';
 
 // The tree's row icons — drawn, not emoji or font glyphs, so they look the
 // same everywhere: a tile is an app (a window), a screen a grid of cards.
@@ -38,7 +38,7 @@ export class BxSide extends LitElement {
     _dropBefore: { state: true },  // row hovered as a drop target
     _dropFolder: { state: true },  // folder hovered as a drop target
   };
-  static styles = [sideCss, statusCss, prbCss];
+  static styles = [sideCss, statusCss, prbCss, partCss];
 
   constructor() {
     super();
@@ -283,7 +283,8 @@ export class BxSide extends LitElement {
   }
 
   // One sidebar row for a component — used by folders and section roots alike.
-  // ctxKey names the folder context a drop on this row acts in.
+  // ctxKey names the folder context a drop on this row acts in. A partitioned
+  // tile's marker sits at the row's right end, before ⋯ (PD-53).
   _itemTemplate(c, folderId = null, label = null, depth = 0, ctxKey = null) {
     if (!c) return nothing;
     const st = this._statusOf(c.path);
@@ -312,6 +313,7 @@ export class BxSide extends LitElement {
         ${st ? html`<span class="stdot"></span>` : nothing}
         ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
         ${hidden(c) ? html`<span class="hidb">hidden</span>` : nothing}
+        ${partitionMark(c)}
         <button class="more" title="tile menu" @pointerdown=${(e) => e.stopPropagation()}
                 @click=${(e) => { e.stopPropagation(); this._a.tileMenu?.(e, c.path, e.currentTarget.getBoundingClientRect()); }}>⋯</button>
       </div>`;

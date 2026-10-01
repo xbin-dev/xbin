@@ -22,6 +22,19 @@
 #                       the livereload, deployments and sandboxes passes drive
 #                       them; the other passes are written for the default,
 #                       unisolated harness
+#   HARNESS_NO_OVERLAY=1 ./run.sh --keep oldScaffold   serve the workspace's
+#                       own scaffold copies (no --dev-overlay): the oldScaffold
+#                       pass swaps shell/ and tiles/admin/ for the last
+#                       release's (HARNESS_OLD_SCAFFOLD, a git tag) and puts
+#                       them back; under the overlay it SKIPs, said so
+#   HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1 ./run.sh …   seed apps/agent
+#                       partitioned (the template's default for new
+#                       instances; otherwise it is seeded unpartitioned, as
+#                       every other agent pass and the isolated sandbox
+#                       passes expect): the admin's page is their own
+#                       partition — the agentTemplate pass runs against it,
+#                       and agentHomes (shared chats, two homes) needs it,
+#                       as does agentHosted (non-secure, hosted chats)
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"
@@ -92,6 +105,10 @@ stop() {
     fusermount3 -uz "$m" 2>/dev/null || fusermount -uz "$m" 2>/dev/null || true
   done
 }
+# HARNESS_NO_OVERLAY=1: no --dev-overlay — the workspace's own scaffold copies
+# are served (the oldScaffold pass swaps them for the last release's)
+overlay_flags=(--dev-overlay "$REPO/workspace-template")
+[[ -n "${HARNESS_NO_OVERLAY:-}" ]] && overlay_flags=()
 # A workspace holds its own copies of the scaffold (xbind init); --dev-overlay
 # serves the repo's workspace-template/ over them, so the shell and tiles
 # under test are always the source tree (web/ is served from source by --dev).
@@ -110,7 +127,7 @@ start() {
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
   (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
       FSB_HARNESS_FAKE="$REPO/bin/fakeacp --steer --auto-mode --require-login --persist" \
-      nohup bin/xbind --dev --dev-overlay "$REPO/workspace-template" --workspace "$WS" --listen "127.0.0.1:$PORT" \
+      nohup bin/xbind --dev "${overlay_flags[@]}" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${iso_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1

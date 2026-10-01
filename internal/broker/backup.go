@@ -1,9 +1,9 @@
 package broker
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -68,13 +69,18 @@ func (b *Broker) termDir(comp string) string {
 // + the terminal env layer. Excludes the env layer (rebuilt), logs, and vault.
 // Its data is main's namespace, as main's code declares it, whichever
 // deployment is the primary; archives lists the deployment archives written
-// before it, which a tile with a record names in its manifest.
-func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives map[string]string) error {
+// before it, which a tile with a record names in its manifest. A split
+// archive (a sealed workspace's, schema 3; split non-nil) holds no data: it
+// names the data archive written before it, if any (backup_seal.go).
+func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives map[string]string, split *splitBackup) error {
 	scope, isRoot := b.Reg.Scopes()[c.Path]
 	includes := []string{"source"}
 	m := backup.Manifest{
 		Component: c.Path, Scope: c.Path, ScopeRoot: isRoot,
 		XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339),
+	}
+	if split != nil {
+		m.Schema, m.Data, m.BackupID = backup.SchemaSplit, split.data, split.id
 	}
 	if isRoot {
 		scope = b.mainDeclared(c.Path, scope)
@@ -119,8 +125,9 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	if err := bw.TreeIn(backup.SourcePrefix, b.Reg.Root, c.Path, skipSource); err != nil {
 		return err
 	}
-	// Resource data (only when this component roots its scope).
-	if isRoot {
+	// Resource data (only when this component roots its scope, and inline
+	// only in a plaintext workspace's archive).
+	if isRoot && split == nil {
 		if err := b.writeScopeData(bw, c.Path, scope); err != nil {
 			return err
 		}
@@ -145,8 +152,8 @@ func skipSource(rel string) bool {
 }
 
 func (b *Broker) writeScopeData(bw *backup.Writer, scopePath string, scope *registry.ScopeManifest) error {
-	// Backups are plaintext (encryption is the archiver's job — plans/vault-data.md),
-	// so we read through the decrypted view; that needs the vault unsealed.
+	// Data is read through the decrypted view (the archive is sealed under a
+	// backup key instead, backup_seal.go); that needs the vault unsealed.
 	if b.vaultSealed() {
 		return fmt.Errorf("vault sealed — unseal before backing up encrypted resources")
 	}
@@ -214,8 +221,8 @@ func (b *Broker) dumpKV(rk resKeys) map[string]string {
 			return nil
 		}
 		return bk.ForEach(func(k, v []byte) error {
-			// Store decrypted values so the tar is plaintext (constraint: the
-			// archiver, not the tar, is responsible for encryption).
+			// Store decrypted values: the tar holds them plain, and the
+			// archive is sealed under a backup key (backup_seal.go).
 			pv, err := b.decodeKV(rk.KVLabel, append([]byte(nil), v...))
 			if err != nil {
 				return err // sealed / undecodable — abort the backup
@@ -270,48 +277,61 @@ func (b *Broker) doBackup(comp string) (string, error) {
 
 // backupTile archives comp (08-data §11.1): first the deployment archives —
 // the primary's when it isn't main, and with every (an offload) each other
-// deployment's whose namespace holds data — then the main archive, which
-// lists them. It answers the main archive's version and theirs; a failed PUT
-// fails it before anything later is written.
+// deployment's whose namespace holds data — then, in a sealed workspace, the
+// data archive of a scope root's main data (when its scope declares any
+// resource), then the main archive, which lists them. It answers the main
+// archive's version and the deployment archives'; a failed PUT fails it
+// before anything later is written. It holds comp's backup lock
+// (backup_prune.go).
 func (b *Broker) backupTile(comp string, every bool) (string, map[string]string, error) {
-	c, ok := b.Reg.Component(comp)
-	if !ok {
-		return "", nil, fmt.Errorf("no such component %q", comp)
-	}
-	provider := b.archiveProvider(comp)
-	if provider == "" {
-		return "", nil, fmt.Errorf("no archiver bound — set one: bx bind %q %s=<archiver> (or bind '*' for a default)", comp, archiveSlot)
-	}
-	archives, err := b.putDeploymentArchives(c, provider, every)
-	if err != nil {
-		return "", nil, err
-	}
-	v, err := b.putArchive(provider, backupKey(comp), func(bw *backup.Writer) error { return b.writeBackup(bw, c, archives) })
+	defer b.holdBackups(comp)()
+	return b.backupTileHeld(comp, every)
+}
+
+// backupTileHeld is backupTile for a caller holding comp's backup lock. A
+// data archive whose main archive fails stays: the archiver may have
+// stored the main archive all the same, and a retention run deletes it
+// when no kept main archive names it (pruneData).
+func (b *Broker) backupTileHeld(comp string, every bool) (string, map[string]string, error) {
+	v, archives, _, err := b.backupTileWith(comp, every)
 	return v, archives, err
 }
 
-// putArchive streams the tar write builds to provider under key, answering
-// the version the archiver assigned.
-func (b *Broker) putArchive(provider, key string, write func(*backup.Writer) error) (string, error) {
-	pr, pw := io.Pipe()
-	go func() {
-		bw := backup.NewWriter(pw)
-		err := write(bw)
-		if err == nil {
-			err = bw.Close()
-		}
-		pw.CloseWithError(err)
-	}()
-	code, resp, err := b.archiveDo("PUT", provider, "/archive/"+key, pr)
+// backupTileWith is backupTileHeld, also answering what became of the
+// tile's people's partitions: each is archived after the main archive,
+// under a key of its own (backup_partition.go).
+func (b *Broker) backupTileWith(comp string, every bool) (string, map[string]string, partitionBackups, error) {
+	var parts partitionBackups
+	c, ok := b.Reg.Component(comp)
+	if !ok {
+		return "", nil, parts, fmt.Errorf("no such component %q", comp)
+	}
+	provider := b.archiveProvider(comp)
+	if provider == "" {
+		return "", nil, parts, fmt.Errorf("no archiver bound — set one: bx bind %q %s=<archiver> (or bind '*' for a default)", comp, archiveSlot)
+	}
+	split, err := b.sealing() // a sealed vault fails the backup before anything is written
 	if err != nil {
-		return "", err
+		return "", nil, parts, err
 	}
-	if code >= 400 {
-		return "", fmt.Errorf("archiver %s: %s", provider, firstLine(string(resp)))
+	archives, err := b.putDeploymentArchives(c, provider, every)
+	if err != nil {
+		return "", nil, parts, err
 	}
-	var out struct{ Version string }
-	_ = json.Unmarshal(resp, &out)
-	return out.Version, nil
+	var sp *splitBackup
+	if split {
+		if sp, err = b.putDataArchive(c, provider); err != nil {
+			return "", nil, parts, err
+		}
+	}
+	v, err := b.putArchive(provider, backupKey(comp), mainSeal(comp), func(bw *backup.Writer) error { return b.writeBackup(bw, c, archives, sp) })
+	if err == nil && sp != nil && archiveVersion.MatchString(v) {
+		b.noteDataRef(provider, comp, v, dataRefOf(sp.data))
+	}
+	if err == nil {
+		parts = b.backupPartitions(c, provider, split)
+	}
+	return v, archives, parts, err
 }
 
 // restored is what a restore brought back: the archive's manifest, and the
@@ -319,6 +339,8 @@ func (b *Broker) putArchive(provider, key string, write func(*backup.Writer) err
 type restored struct {
 	backup.Manifest
 	SandboxesSkipped []string
+	DataErased       string // why a split archive's data isn't restored: its key was erased
+	DataMissing      string // why it isn't: its data archive is gone, its key not erased
 }
 
 // doRestore fetches a version's tar from the archiver and unpacks it. version ""
@@ -332,6 +354,13 @@ func (b *Broker) doRestore(comp, version string) (restored, error) {
 // restoreTile is doRestore, then the deployment archives the main archive
 // lists, each into its deployment when that exists (listedRestore).
 func (b *Broker) restoreTile(comp, version string) (restored, *listedRestore, error) {
+	return b.restoreTileConfirmed(comp, version, "")
+}
+
+// restoreTileConfirmed is restoreTile of an archive that may predate the
+// tile's last partition mode switch, which confirm must then name
+// (preSwitchRestore, backup_partition_restore.go).
+func (b *Broker) restoreTileConfirmed(comp, version, confirm string) (restored, *listedRestore, error) {
 	provider := b.archiveProvider(comp)
 	if provider == "" {
 		return restored{}, nil, fmt.Errorf("no archiver bound for %q", comp)
@@ -339,24 +368,47 @@ func (b *Broker) restoreTile(comp, version string) (restored, *listedRestore, er
 	if version == "" {
 		version = "latest"
 	}
-	code, body, err := b.archiveDo("GET", provider, "/archive/"+backupKey(comp)+"/versions/"+version, nil)
+	body, err := b.fetchArchive(provider, backupKey(comp), version)
 	if err != nil {
 		return restored{}, nil, err
 	}
-	if code >= 400 {
-		return restored{}, nil, fmt.Errorf("archiver %s: %s", provider, firstLine(string(body)))
+	// Both archives are opened — a sealed one authenticated whole — before
+	// anything stops or is written.
+	br, err := b.openArchive(body)
+	if err != nil {
+		return restored{}, nil, err
+	}
+	if err := b.preSwitchRestore(comp, br.M, util.MainDeployment, confirm); err != nil {
+		return restored{Manifest: br.M}, nil, err
+	}
+	var data *backup.Reader
+	var gone error
+	if br.M.Data != nil && !br.M.DataArchive() {
+		if data, gone, err = b.openDataArchive(provider, comp, br.M); err != nil {
+			return restored{Manifest: br.M}, nil, err
+		}
 	}
 	b.StopBackendSafe(comp)
 	b.stopTileSandboxes(comp, "its tile was restored from a backup: stopped, state kept")
-	m, err := b.restore(comp, bytes.NewReader(body), b.deploymentStateRestorer())
+	m, err := b.restoreFrom(comp, br, data, b.deploymentStateRestorer())
 	if err != nil {
 		return restored{Manifest: m}, nil, err
 	}
 	r := restored{Manifest: m, SandboxesSkipped: b.restoreSandboxes(m)}
+	if gone != nil {
+		why := gone.Error() + ": its source and terminal layer were restored, its data wasn't"
+		if errors.As(gone, new(erasedError)) {
+			r.DataErased = why
+		} else {
+			r.DataMissing = why
+		}
+		r.Includes = slices.DeleteFunc(slices.Clone(r.Includes), func(p string) bool { return p == "data" })
+		slog.Warn("restore: the archive's data is erased or missing; source and terminal layer restored", "component", comp, "why", gone)
+	}
 	if m.Deployments == nil || len(m.Deployments.Archives) == 0 {
 		return r, nil, nil
 	}
-	return r, b.restoreListed(comp, m.Deployments.Archives), nil
+	return r, b.restoreListed(comp, m.Deployments.Archives), nil // judged with main (preSwitchRestore)
 }
 
 // restoreSandboxes merges a restored tile's sandbox definitions by uid
@@ -395,7 +447,7 @@ func (b *Broker) StopBackendSafe(comp string) {
 // nothing removed — then removes it in a confined run (removeTree, WP-9b). A
 // layer that removal leaves behind is replaced whole by the restore.
 func (b *Broker) offload(comp string, full bool) error {
-	if err := b.sandboxOffloadCheck(comp); err != nil {
+	if err := cmpErr(b.partitionOffloadCheck(comp), b.sandboxOffloadCheck(comp)); err != nil { // partitioned tiles (partitionops.go)
 		return err // nothing archived, nothing stopped (tilesbx_hooks.go)
 	}
 	b.StopBackendSafe(comp)
@@ -498,12 +550,18 @@ func (b *Broker) apiBackupNow(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {component}")
 		return
 	}
-	version, err := b.doBackup(body.Component)
+	release := b.holdBackups(body.Component)
+	version, _, parts, err := b.backupTileWith(body.Component, false)
+	release()
 	if err != nil {
 		server.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "version": version})
+	if !parts.any() {
+		server.WriteJSON(w, http.StatusOK, map[string]string{"ok": "true", "version": version}) // today's answer
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]any{"ok": "true", "version": version, "partitions": parts})
 }
 
 func (b *Broker) apiBackupList(w http.ResponseWriter, r *http.Request) {
@@ -529,28 +587,33 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	if !b.requireAdmin(w, r) {
 		return
 	}
-	var body struct{ Component, Version, File string }
+	var body struct{ Component, Version, File, Confirm string }
 	if err := server.DecodeJSON(r, &body); err != nil || body.Component == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {component, version?, file?}")
+		server.WriteError(w, http.StatusBadRequest, "need {component, version?, file?, confirm?}")
 		return
 	}
 	// Restore a single file: stream it back without touching live state.
+	// xbind extracts it (an archiver can't read a sealed archive).
 	if body.File != "" {
-		provider := b.archiveProvider(body.Component)
 		ver := body.Version
 		if ver == "" {
 			ver = "latest"
 		}
-		code, data, err := b.archiveDo("GET", provider, "/archive/"+backupKey(body.Component)+"/versions/"+ver+"/file?path="+body.File, nil)
-		if err != nil || code >= 400 {
-			server.WriteError(w, http.StatusBadGateway, "archiver: "+firstLine(string(data)))
+		data, code, err := b.extractMember(body.Component, ver, body.File)
+		if err != nil {
+			server.WriteError(w, code, err.Error())
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(data)
 		return
 	}
-	m, listed, err := b.restoreTile(body.Component, body.Version)
+	m, listed, err := b.restoreTileConfirmed(body.Component, body.Version, body.Confirm)
+	var pre preSwitchError
+	if errors.As(err, &pre) { // it predates the tile's partition mode switch: confirm names it
+		server.WriteJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "docs": "/docs/partitions.md", "switch": pre.answer()})
+		return
+	}
 	if err != nil {
 		server.WriteError(w, http.StatusBadGateway, err.Error())
 		return
@@ -566,8 +629,20 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	if listed != nil { // the deployment archives the main archive lists: restored, or why not
 		out["deployments"] = listed
 	}
-	if len(m.SandboxesSkipped) > 0 {
-		out["sandboxesSkipped"] = m.SandboxesSkipped
-	}
+	m.answer(out)
 	server.WriteJSON(w, http.StatusOK, out)
+}
+
+// answer adds what a restore left out to its answer: sandboxesSkipped,
+// dataErased, dataMissing (POST /restore, POST /lifecycle's enable).
+func (r restored) answer(out map[string]any) {
+	if len(r.SandboxesSkipped) > 0 {
+		out["sandboxesSkipped"] = r.SandboxesSkipped
+	}
+	if r.DataErased != "" {
+		out["dataErased"] = r.DataErased
+	}
+	if r.DataMissing != "" {
+		out["dataMissing"] = r.DataMissing
+	}
 }

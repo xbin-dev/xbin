@@ -35,6 +35,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
@@ -92,6 +93,15 @@ type hsess struct {
 	endLost   bool              // … and the session is lost, not stopped
 	newSess   bool              // spawned to open a new session (not session/load): its first mode is the adapter's own
 	steerOut  json.RawMessage   // the request id of the steer frame last put on stdin (harness_steer.go)
+	braked    bool              // a halt conf says is on was seen at an event (harness_partition.go brakeSoon)
+	work      uint64            // how many times it went to work (toWork): a rest after a turn's end checks it (harness_partition.go)
+
+	// rest: no turn at work — idle, or parked on a person. In a person's
+	// partition only a working session keeps the hold, or one AgTT is
+	// signing in (signing: a sign-in it started, awaiting the adapter's
+	// answer) (harness_partition.go).
+	rest    atomic.Bool
+	signing atomic.Bool
 }
 
 // newHsess is a session of run at generation gen, started (or attached)
@@ -216,8 +226,10 @@ func (s *hsess) guard() error {
 	case s.isHalted():
 		return errHarnessGone
 	}
-	var cur int64
-	_ = e.db.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k='engine_epoch'`).Scan(&cur)
+	cur, err := e.epochNow() // a read that fails refuses this write, and is no takeover (epoch.go)
+	if err != nil {
+		return err
+	}
 	if cur != ep {
 		return errFenced
 	}
@@ -338,6 +350,9 @@ func (e *Engine) failHarness(run *Run, err error) error {
 // harnessUse is the sandbox a harness run works in, checked as every
 // sandbox tool checks it (sandboxUse), plus what a coding agent needs of it.
 func (e *Engine) harnessUse(ctx context.Context, run *Run, cfg Config) (*sbxUse, acp.Provider, error) {
+	if why := harnessBarred(run); why != "" { // the global instance, a hosted conversation (harness_partition.go)
+		return nil, acp.Provider{}, &harnessFail{why}
+	}
 	h := cfg.Harness
 	b, ok := cfg.sandboxBinding(h.Ref)
 	if !ok {
@@ -465,6 +480,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		hs.ReadOff, hs.ErrOff, hs.Draft, hs.Answers = 0, 0, "", "" // a new adapter: no request of the old one's to answer
 		hs.Shared, hs.Name = sandboxShared(u.Box), prov.Name
 		hs.LastActiveMs, hs.StartedMs = nowMs(), nowMs()
+		t.harnessUsageTx() // a person's partition's usage totals (harness_partition.go)
 		return t.putHarnessSession(hs)
 	})
 	if err != nil {
@@ -758,7 +774,19 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 		// adapter is quiet, or interrupted
 		s.followDetached()
 	case hs.PromptState == "" && run.Status != statusWaiting && run.Status != statusRunning && hs.State == hsLive:
-		s.armIdle()
+		if userMode() && hs.LastActiveMs > 0 {
+			// a person's partition: its predecessor stopped with it resting,
+			// and the wake-up it left came back for this reclaim
+			// (harness_partition.go) — due at its last activity plus the
+			// idle time, not a whole idle time from now
+			s.armIdleFrom(time.UnixMilli(hs.LastActiveMs), nil)
+		} else {
+			s.armIdle()
+		}
+	case run.Status == statusWaiting:
+		s.toRest() // parked on a person: their answer moves it (harness_partition.go)
+	case userMode():
+		e.brakeLook() // a turn taken over mid-way: the halt looked at while it works (harness_partition.go)
 	}
 	return s, nil
 }
@@ -911,6 +939,7 @@ func (s *hsess) consume() {
 		if ev.Type != acp.EvMessageDelta && ev.Type != acp.EvThoughtDelta {
 			s.recheckSoon()
 		}
+		s.brakeSoon() // a person's partition: a halt read from conf, at any event (harness_partition.go)
 	}
 	s.ended()
 }

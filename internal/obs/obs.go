@@ -31,9 +31,17 @@ type Plane struct {
 	// a tile without a record.
 	Primary   func(tile string) string
 	Addressed func(p auth.Principal, tile string) (string, error)
+	// PartitionID is a user partition's id (its pkey, the broker's), which
+	// keys its stored status (partitionstatus.go); nil: the wire key.
+	PartitionID func(part util.Partition) (string, error)
+	// PartitionLog answers which log GET /logs on a partitioned tile reads
+	// (partitionlogs.go); nil: every tile's logs as before partitions.
+	PartitionLog PartitionLogFunc
 
 	statusMu sync.Mutex
 	statuses map[string]statusRec // component → last reported status
+	// a person's partition's status (partitionstatus.go): tile\0pkey → last
+	partStatuses map[string]partStatus
 
 	prefsMu    sync.Mutex
 	prefsLocks map[string]*sync.Mutex // bucket file → its read-modify-write lock

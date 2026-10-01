@@ -38,7 +38,7 @@ func (e *Engine) autoTitle(runID int64) {
 	if err != nil || !cfg.feature("titles") {
 		return
 	}
-	release := e.gate.tryBackground()
+	release := e.tryBackgroundLLM()
 	if release == nil {
 		return // busy: the next answer tries again
 	}
@@ -59,6 +59,7 @@ func (e *Engine) autoTitle(runID int64) {
 	}
 	ctx, cancel := context.WithTimeout(e.base, 60*time.Second)
 	defer cancel()
+	ctx = e.ag.personalCtx(ctx, run) // iface_personal.go
 	reply, err := e.llm.Chat(ctx, LLMRequest{
 		Run: runID, Purpose: "title", Model: modelFor(ctx, cfg, "memory"), Wire: cfg.Wire,
 		Msgs: []wireMsg{{Role: "system", Content: titlePrompt},

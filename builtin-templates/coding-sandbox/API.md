@@ -39,14 +39,20 @@ bx bind apps/coding-sandbox open=lan:10.42.0.0/16      # …and, as `open`, a ne
 
 As the contract says: the consumer is `X-XBin-From`; a person is verified
 (`X-XBin-User`, a page's call) or asserted (`Sbx-User`, a backend's call).
+A **partitioned** consumer's user partition is a consumer of its own —
+(`X-XBin-From`, `X-XBin-Partition-Id`), its person verified — and its
+global instance is the consumer as before (hello's caps say `partitions`;
+the contract's §Partitioned consumers). A call whose partition headers
+don't agree, or that names a person other than its user partition's, is
+`403 not-allowed`.
 `/sbx/*` admits the `consumer` role and the tile itself (its own page is a
-consumer with a partition of its own). **Operators** — the tile's owner and
+consumer of its own). **Operators** — the tile's owner and
 the people with write access to it — use `/ops/*`: they see every
 sandbox's metadata and run its lifecycle (start, stop, delete, snapshots)
 within the quotas they set. They never change who may use a sandbox: its
 `visibility`, `members` and `shares` change only through its home consumer
 (that consumer's backend, or its verified owner there). No route reads or
-writes a sandbox's contents except through a consumer's own partition.
+writes a sandbox's contents except as a consumer that may use it.
 
 **The tile's own page** is a consumer like any other, with one more rule
 (docs/auth.md, D29's rule for mutating endpoints): its calls run at the
@@ -76,7 +82,8 @@ trusts its consumers.
   name, image, size, egress asked, owner, visibility, members, shares,
   labels, layout, version and an overlay state (`creating`, `deleting`,
   `error`); create and snapshot `clientId`s (per consumer; per consumer and
-  sandbox); the built images; the config. Execs and their output are the
+  sandbox — a user partition is a consumer of its own); the built images;
+  the config. Execs and their output are the
   substrate's; exec `clientId`s are deduped in memory, and passed to the
   substrate prefixed with the consumer, so two consumers of a shared
   sandbox never collide.
@@ -107,22 +114,23 @@ trusts its consumers.
   root at `/root`.
 - **`caps`** are the substrate's (`exec`, `files`, `tar`, `tty`,
   `snapshots`, `clone`, and `ports` and `stdio` where xbind serves them);
-  `archive` isn't offered yet (its routes answer 501).
+  `archive` isn't offered yet (its routes answer 501). Hello's also carry
+  `partitions`, the manager's own (a sandbox's `caps` never do).
 - **stdio** (docs/sandbox-manager.md §stdio): `POST …/execs {split: true}`
   keeps a non-tty exec's stderr apart (`…/output?stream=stderr`, the
   exec's `errTotal`), and `GET …/execs/{eid}/stdio?since=&errSince=` is a
   relay of the runtime's stdio WebSocket, checked as an exec is — the
-  partition, the person rules — its frames as the runtime sends them (the
-  exec ids are the runtime's). Offered while the runtime's `caps` carry
-  `stdio` and the backend serves it (`StdioBox`); otherwise `split` and
-  `stream` are ignored, as by any manager without it, and the route
-  answers 501.
+  consumer (a user partition is its own), the person rules — its frames as
+  the runtime sends them (the exec ids are the runtime's). Offered while
+  the runtime's `caps` carry `stdio` and the backend serves it
+  (`StdioBox`); otherwise `split` and `stream` are ignored, as by any
+  manager without it, and the route answers 501.
 - **Ports** (D135): `ANY /sbx/sandboxes/{id}/ports/{port}/{path…}` is
-  checked as an exec is — the partition, the person rules; this page's
-  readers get `403 not-allowed`, whatever the method — then forwarded
-  to the runtime's ports route (the SDK's `PortRoute`), the consumer's
-  escaped path and query unchanged. A stopped sandbox is 409 `state`,
-  never started for it. Offered while the runtime's `caps` carry `ports`
+  checked as an exec is — the consumer (a user partition is its own), the
+  person rules; this page's readers get `403 not-allowed`, whatever the
+  method — then forwarded to the runtime's ports route (the SDK's
+  `PortRoute`), the consumer's escaped path and query unchanged. A
+  stopped sandbox is 409 `state`, never started for it. Offered while the runtime's `caps` carry `ports`
   (an xbind from before D135 doesn't: the route answers 501). A sandbox
   whose in-box agent predates ports (it started under an older xbind, or
   from a VM image from before them) makes the runtime answer 501
@@ -168,6 +176,11 @@ made before 2026-09-30 advertised `claude /login`). A saved config keeps
 the harnesses it was saved with, logins included: one saved before them lists none (a consumer
 then probes for the agents it knows), until an operator adds them. The
 page's image editor keeps an image's harnesses; `PUT /ops/config` sets them.
+A sign-in's credentials stay in the sandbox's home, for everyone the
+sandbox serves and its clones (docs/sandbox-manager.md §hello,
+§Partitioned consumers), and `argv` and `login` run beside them: the
+operators who set them are in the trust base of every person who uses
+these agents.
 
 The first sandbox of an image builds it: a template sandbox of its own is
 made and prepared, the script runs in it **as root** in the workdir (with
@@ -201,8 +214,10 @@ Set by operators (`config.quotas`), each field 0 for no limit:
 }
 ```
 
-A consumer's quota counts the sandboxes whose home it is; a person's, those
-they own (`owner.user`, verified or asserted) across consumers. `sandboxes`
+A consumer's quota counts the sandboxes whose home it is — a partitioned
+consumer's, those of all its partitions together (quotas name tiles); a
+person's, those they own (`owner.user`, verified or asserted) across
+consumers. `sandboxes`
 and `diskGiB` are checked when a sandbox is made (and a size change for
 disk); `running`, `memMiB` and `vcpus` when one starts. The substrate's own
 limits for the whole tile bind too.
@@ -243,6 +258,17 @@ the tile): `403 not-allowed` otherwise. Errors are the contract's shape.
 | `DELETE /ops/sandboxes/{id}/snapshots/{sid}` | 204 |
 | `POST /ops/images/{id}/build` | 202 — (re)build an image now |
 | `DELETE /ops/orphans/{name}` | 204 — a substrate sandbox the manager doesn't know (a creation cut short before it was written down) |
+
+Every sandbox these routes answer is as its home consumer sees it, with one
+exception: a sandbox homed in a partitioned consumer's **user partition**
+(`owner.partitionId`) is named `<consumer>/<partition id, first 8> #<n>`
+(`n` its place among that partition's sandboxes, oldest first) and has no
+`labels`, and `GET /ops/sandboxes/{id}/snapshots` names its snapshots
+`snapshot #<n>` (oldest first) — a person's agent may have named them
+after their work — unless it is shared with the operator asking (they
+could use it as a consumer). Its owner, consumer, state, sizes, usage and
+snapshot ids are shown as for any other. A call to `/ops/*` whose
+partition headers don't agree is `403 not-allowed`, as on `/sbx/*`.
 
 ### Ports rows (both pages)
 
@@ -290,8 +316,8 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
     defaults and each override), the layout, the idle stop and mounts.
   - **Yours** — below.
 - **People with write access** get **their own sandboxes** (the operators'
-  Yours tab): the page calls `/sbx/*` as a consumer of its own (its
-  partition is this tile's path; the person is verified), within the
+  Yours tab): the page calls `/sbx/*` as a consumer of its own (the
+  consumer is this tile's path; the person is verified), within the
   per-person quota. Create
   (name, image, size, network, who may use it), start, stop, delete,
   visibility and shares; a **file browser** (list, view the first 256 KiB of
@@ -341,8 +367,12 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
   `class:open`, `defaults` (the layout: cwd, uid/gid, shell, `HOME`, `USER`,
   `IN_SANDBOX`, `IS_SANDBOX`, `SANDBOX_ID`, `SANDBOX_NAME`), the operators' `mounts`,
   `idleStopMin` (`autoStopMin`), `for`/`forUser` (the consumer and the
-  person, as claims), `labels` `{coding-sandbox/id}` (never the consumer's
-  own), `clientId` = the runtime name, and `from` for clones and images;
+  person, as claims — `for` the consumer tile, whichever partition of it),
+  `labels` `{coding-sandbox/id}`, plus `coding-sandbox/partition` for a
+  sandbox homed in a user partition (never the consumer's own labels; the
+  runtime keeps them with the definition — the admin's sandbox registry
+  lists `for`/`forUser`, not labels),
+  `clientId` = the runtime name, and `from` for clones and images;
 - **PATCH**: `net`, the sizes, `idleStopMin`, and `defaults` on a rename;
 - **commands**: `uid`/`gid` the layout's (the first start's prepare runs as
   root), `forUser` the person, exec `clientId`s prefixed per consumer;
@@ -403,7 +433,8 @@ notes have the commands):
    Binding another consumer doesn't restart the manager: calls in flight
    (relayed terminals, long polls) carry on.
 2. Hello: `caps` are the runtime's (`exec files tar tty stdio snapshots
-   clone ports`), `egress` `none internet`, no `notes` but the missing ones.
+   clone ports`) and the manager's `partitions`, `egress` `none
+   internet`, no `notes` but the missing ones.
 3. The conformance suite through xbind's proxy, every section but
    `archive`: each consumer the suite names (`apps/ct-…`) is a tile bound
    to `apps/cs`, calling with its page's frame token (xbind sets
@@ -412,6 +443,13 @@ notes have the commands):
    `--no-auth` xbind there are no verified people: the checks that act as
    them (`people/visibility`, `people/owners`, `partitions/shares`,
    `tty/refusals`, `stdio/refusals`) go in `Target.Skip`, saying so.
+   `user-partitions` needs a partitioned consumer's calls, which xbind
+   makes (and strips from anyone else): its consumers are partitioned
+   tiles, and a person's partition is their page of one. Its checks that
+   need a caller xbind never makes, or the suite's own partition ids
+   (`apart`, `shares`, `person`, `recreated`), are skipped, saying so, and
+   run in-process (`_backend/contract_test.go`); `global`, `global-home`
+   and `sockets` run through xbind.
 4. `mode`: `auto` gives `vm` with KVM (the sandbox's `isolation` `vm`),
    `namespace` without; `vm` on a host without VMs refuses the create with
    the runtime's reason.

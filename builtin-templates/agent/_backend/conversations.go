@@ -343,6 +343,10 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only the conversation's owner can rename or share it")
 		return
 	}
+	if sharesInPartition(body.Visibility, body.TeamRole) { // partition_routes.go
+		xbin.WriteError(w, http.StatusConflict, noShareWords)
+		return
+	}
 	if body.Model != nil && (lv < lvParticipant || !validPick(*body.Model)) {
 		if lv < lvParticipant {
 			xbin.WriteError(w, 403, "only someone who may talk in it can pick its model")
@@ -396,12 +400,16 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 			if (vis != visPrivate && vis != visTeam) || (role != roleViewer && role != roleParticipant) {
 				return errBadRequest("visibility is private|team, teamRole viewer|participant")
 			}
+			was := t.sharedAtGlobal(root) // homes_move.go
 			// An unowned (legacy) run made private becomes the claimer's.
 			if _, err := t.q.Exec(`UPDATE runs SET owner=CASE WHEN owner='' AND ?<>'' THEN ? ELSE owner END,
 				visibility=?, team_role=? WHERE root_id=? OR id=?`, c.tag(), c.tag(), vis, role, root, root); err != nil {
 				return err
 			}
 			changedACL = true
+			if err := t.moveIfUnshared(root, was); err != nil { // homes_move.go: a partitioned agent's global instance keeps shared ones only
+				return err
+			}
 		}
 		if body.Model != nil {
 			cfg, err := t.runConfig(root)
@@ -572,6 +580,9 @@ func errBadRequest(msg string) error { return badRequest(msg) }
 func writeTxErr(w http.ResponseWriter, err error) {
 	if b, ok := err.(badRequest); ok {
 		xbin.WriteError(w, 400, string(b))
+		return
+	}
+	if writeHarnessMoveErr(w, err) { // un-sharing a coding agent's conversation (harness_partition.go)
 		return
 	}
 	if err == sql.ErrNoRows {

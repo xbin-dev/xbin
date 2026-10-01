@@ -149,7 +149,7 @@ type execView struct {
 }
 
 // clientPrefix is how a consumer's exec clientIds are told apart at the
-// backend.
+// backend (consumer: caller.key, so each user partition's apart too).
 func clientPrefix(consumer string) string { return "c" + hashOf(consumer)[:8] + ":" }
 
 // execOut is x as consumer sees it: its own clientId, nobody else's.
@@ -183,7 +183,7 @@ func (m *Manager) execStart(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	key, h := c.from+"\x00"+rec.ID+"\x00"+q.ClientID, hashOf(q)
+	key, h := c.key()+"\x00"+rec.ID+"\x00"+q.ClientID, hashOf(q)
 	if q.ClientID != "" {
 		defer m.lock("exec\x00" + key)()
 		m.mu.Lock()
@@ -195,7 +195,7 @@ func (m *Manager) execStart(w http.ResponseWriter, r *http.Request) {
 		}
 		if seen {
 			if x, err := m.box(rec).GetExec(r.Context(), prev.id); err == nil {
-				writeJSON(w, http.StatusOK, execOut(*x, c.from))
+				writeJSON(w, http.StatusOK, execOut(*x, c.key()))
 				return
 			}
 		}
@@ -208,7 +208,7 @@ func (m *Manager) execStart(w http.ResponseWriter, r *http.Request) {
 	req := xbin.ExecRequest{Cmd: q.Cmd, Argv: q.Argv, Cwd: q.Cwd, Env: q.Env, TTY: q.TTY, Rows: q.Rows, Cols: q.Cols,
 		Stdin: q.Stdin, Split: q.Split && m.offers(r, "stdio"), TimeoutMs: q.TimeoutMs, Label: q.Label, UID: &uid, GID: &gid, ForUser: c.user}
 	if q.ClientID != "" {
-		req.ClientID = clientPrefix(c.from) + q.ClientID
+		req.ClientID = clientPrefix(c.key()) + q.ClientID
 	}
 	x, err := m.box(rec).Exec(r.Context(), req)
 	if err != nil {
@@ -220,7 +220,7 @@ func (m *Manager) execStart(w http.ResponseWriter, r *http.Request) {
 		m.execIdem[key] = execIdem{id: x.ID, hash: h}
 		m.mu.Unlock()
 	}
-	writeJSON(w, http.StatusCreated, execOut(*x, c.from))
+	writeJSON(w, http.StatusCreated, execOut(*x, c.key()))
 }
 
 func (m *Manager) execList(w http.ResponseWriter, r *http.Request) {
@@ -235,7 +235,7 @@ func (m *Manager) execList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []execView{}
 	for _, x := range xs {
-		out = append(out, execOut(x, c.from))
+		out = append(out, execOut(x, c.key()))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"execs": out})
 }
@@ -250,7 +250,7 @@ func (m *Manager) execGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err, &rec)
 		return
 	}
-	writeJSON(w, http.StatusOK, execOut(*x, c.from))
+	writeJSON(w, http.StatusOK, execOut(*x, c.key()))
 }
 
 func (m *Manager) execDelete(w http.ResponseWriter, r *http.Request) {

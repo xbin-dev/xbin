@@ -143,7 +143,10 @@ async function agentTemplate(browser) {
   await answered(page, 'Quick answer.', 15000);
   const quickMs = Date.now() - t0;
   const busyKids = (await requests()).filter((r) => r.sub && /slow job/.test(r.last) && (!r.end || r.end > t0)).length;
-  check(quickMs < 4000 && busyKids === 3, `a new chat answered in ${quickMs} ms while ${busyKids} subagents held the model`);
+  // a person's partition of a partitioned agent (HARNESS_ISOLATE=1) gates at
+  // 2 model calls, so its subagents hold at most one (API.md "Partitioned instances")
+  const kids = (await page.evaluate(() => (window.xbin && window.xbin.partition) || '')).startsWith('user:') ? 1 : 3;
+  check(quickMs < 4000 && busyKids === kids, `a new chat answered in ${quickMs} ms while ${busyKids} subagents held the model (want ${kids})`);
   await page.click('#runs .run:has-text("fan out")');
   await until(page, () => document.querySelector('#top .title')?.textContent === 'fan out');
   await until(page, () => document.querySelector('.notice'), null, 20000);

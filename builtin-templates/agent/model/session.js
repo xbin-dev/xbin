@@ -2,8 +2,14 @@
 // (the run and any subagent whose card is open), the model calls in flight,
 // and the run list — all kept current by ONE live stream (stream.js), never
 // polled. No lit, no DOM: shown() is what a view draws (chat-view.js adds the
-// web's template(); a native view draws the same blocks).
-import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+// web's template(); a native view draws the same blocks). In a person's
+// partition a conversation has one of two homes (model/homes.js): every call
+// about it goes to its own, and so does the stream following it; the other
+// home's stream follows the run list only — the person's own always, the
+// shared space's while the list wants it (wantGlobalList).
+import { jbody } from '/vendor/bx-kit.js';
+import { homeOf, twoHomes } from './homes.js';
+import { runApi as api, homeFetch } from './home-api.js';
 import { fold, activity, busy, FoldCache } from './fold.js';
 import { Live } from './stream.js';
 
@@ -15,7 +21,7 @@ const nextFrame = (f) => (typeof requestAnimationFrame === 'function' ? requestA
 export class Session {
   /**
    * @param {string} base  this backend's prefix (/api/<self>)
-   * @param {object} on    {change(), runs(), gone(id), event(ev), reset(), frame?(fn)} — the
+   * @param {object} on    {change(), runs(), gone(id, movedTo?, row?), event(ev), reset(), frame?(fn)} — the
    *                       page repaints on change; the conversation list takes every event
    * @param {object} opts  {deltas, page}: stream drafts as deltas (API.md "Deltas"), and
    *                       read the open conversation's view in pages of `page` messages
@@ -41,11 +47,14 @@ export class Session {
     this.version = 0;        // moves on every change: a view drawing a window knows it is stale
     this.following = true;   // the reader is at the open conversation's end (the view says: follow())
     this.conn = 'live';
-    this.live = new Live(base, {
+    const feed = (home) => ({
       event: (ev) => this.apply(ev),
       reset: () => this.reload(),
-      state: (s) => { if (s !== this.conn) { this.conn = s; this.changed(); } },
-    }, { deltas: this.deltas });
+      state: (s) => { if (home === homeOf(this.sel) && s !== this.conn) { this.conn = s; this.changed(); } },
+    });
+    this.live = new Live(base, feed(''), { deltas: this.deltas });
+    this.liveG = twoHomes() ? new Live(base, feed('global'), { deltas: this.deltas, home: 'global' }) : null;
+    this.wantGlobalList = () => false; // the app's: does the list need the shared space's rows live
     this.ui = {
       isOpen: (id, dflt) => (this.open.has(id) ? this.open.get(id) : dflt),
       toggle: (id, dflt) => { this.open.set(id, !this.ui.isOpen(id, dflt)); this.changed(); },
@@ -68,22 +77,46 @@ export class Session {
 
   // start opens the stream; the conversation list (conv-list.js) loads itself.
   async start() {
-    this.live.follow(null, '');
+    this.stream(null, '');
   }
 
   async select(id) {
     this.sel = id;
     this.following = true;
     if (id == null) {
-      this.live.follow(null, '');
+      this.stream(null, '');
       this.changed();
       return;
     }
     let v;
     try { v = await this.fetchView(id); } catch (e) { this.sel = null; throw e; }
     if (this.sel !== id) return;
-    this.live.follow(id, v.cursor);
+    this.stream(id, v.cursor);
     this.changed();
+  }
+
+  // liveOf: the stream of the home run id lives in.
+  liveOf(id) { return this.liveG && homeOf(id) === 'global' ? this.liveG : this.live; }
+
+  // stream follows run id's tree (null: the run list) at its home; the
+  // other home's stream follows the list only (homes()).
+  stream(id, cursor) {
+    this.liveOf(id).follow(id, cursor);
+    this.homes();
+  }
+
+  // homes: the stream not following the open conversation follows the run
+  // list — the person's own always, the shared space's while the list wants
+  // it, else it is closed (a background home isn't kept running).
+  homes() {
+    if (!this.liveG) return;
+    const busy = this.liveOf(this.sel);
+    for (const lv of [this.live, this.liveG]) {
+      if (lv === busy) continue;
+      if (lv === this.live || this.wantGlobalList()) {
+        if (!lv.following || lv.run != null) lv.follow(null, '');
+      } else if (lv.following) lv.close();
+    }
   }
 
   // fetchView reads a run's view (paged: its newest page — the open
@@ -329,9 +362,10 @@ export class Session {
     switch (ev.type) {
       case 'run':
         if (d.deleted) {
+          const was = this.runs.get(ev.run);
           this.runs.delete(ev.run);
           this.views.delete(ev.run);
-          if (this.sel === ev.run) this.on.gone?.(ev.run);
+          if (this.sel === ev.run) this.on.gone?.(ev.run, d.movedTo, was); // movedTo: it moved to its owner's own space (model/moves.js)
           this.on.runs?.();
           break;
         }
@@ -443,7 +477,7 @@ export class Session {
     if (ev.type === 'tool.delta') {
       const d = this.drafts.get(ev.run);
       const t = d && d.tools[x.index];
-      if (!t || (t.args || '').length !== x.at) { this.live.resync(); return; }
+      if (!t || (t.args || '').length !== x.at) { this.liveOf(ev.run).resync(); return; }
       d.tools[x.index] = { ...t, args: (t.args || '') + (x.delta || '') };
       if (d.thinkStart && !d.thinkEnd) d.thinkEnd = ev.ts;
       return;
@@ -451,7 +485,7 @@ export class Session {
     const field = ev.type === 'text.delta' ? 'text' : 'thinking';
     let d = this.drafts.get(ev.run);
     if (!d && x.at === 0) d = { text: '', thinking: '', tools: {}, thinkStart: 0, thinkEnd: 0 };
-    if (!d || d[field].length !== x.at) { this.live.resync(); return; }
+    if (!d || d[field].length !== x.at) { this.liveOf(ev.run).resync(); return; }
     d[field] += x.delta || '';
     if (field === 'thinking') { if (!d.thinkStart) d.thinkStart = ev.ts; }
     else if (d.thinkStart && !d.thinkEnd && x.delta) d.thinkEnd = ev.ts;
@@ -521,7 +555,7 @@ export class Session {
     const key = `${v.run.id}:${f.path}`;
     if (!this.thumbs.has(key)) {
       this.thumbs.set(key, '');
-      xbin.fetch(`${this.base}/runs/${v.run.id}/raw?path=${encodeURIComponent(f.path)}`)
+      homeFetch(`${this.base}/runs/${v.run.id}/raw?path=${encodeURIComponent(f.path)}`)
         .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(r.status))))
         .then((b) => { this.thumbs.set(key, URL.createObjectURL(b)); this.changed(); })
         .catch(() => {});

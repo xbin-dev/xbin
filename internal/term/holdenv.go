@@ -3,10 +3,10 @@ package term
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/confine"
 )
 
@@ -20,7 +20,12 @@ var holdEnvWait = 5 * time.Second
 // once they have torn down (their overlay unmounted), the layer is held until
 // release, so a session opened meanwhile gets an ephemeral upper instead.
 func (m *Manager) HoldEnv(rel string) (release func(), err error) {
-	key := termKey(rel)
+	return m.holdLayer(termKey(rel), rel)
+}
+
+// holdLayer is HoldEnv for layer key (a tile's, or a person's on a
+// partitioned tile); rel names it in the refusal.
+func (m *Manager) holdLayer(key, rel string) (release func(), err error) {
 	killed := map[*Session]bool{}
 	deadline := time.Now().Add(holdEnvWait)
 	for {
@@ -53,12 +58,56 @@ func (m *Manager) HoldEnv(rel string) (release func(), err error) {
 // removed (removeLayer) and released. A session that won't let go fails the
 // reset with the layer untouched.
 func (m *Manager) ResetEnv(rel string) error {
-	release, err := m.HoldEnv(rel)
+	return m.resetLayer(termKey(rel), rel)
+}
+
+// resetLayer is ResetEnv for layer key.
+func (m *Manager) resetLayer(key, rel string) error {
+	release, err := m.holdLayer(key, rel)
 	if err != nil {
 		return err
 	}
 	defer release()
-	return m.removeLayer(filepath.Join(m.Root, ".xbin", "term", termKey(rel)))
+	return m.removeLayer(m.layerDir(key))
+}
+
+// callerLayer is the layer p's sessions on rel mount: on a partitioned
+// tile a person's own (PD-22), else the tile's (termKey). A person without
+// a partition id yet has no layer there: "".
+func (m *Manager) callerLayer(p auth.Principal, rel string) string {
+	if m.TilePartitioned == nil || p.UserID == "" {
+		return termKey(rel)
+	}
+	tile, on := m.TilePartitioned(rel)
+	if !on {
+		return termKey(rel)
+	}
+	if m.PersonPartitionKey == nil {
+		return ""
+	}
+	if key := m.PersonPartitionKey(p.UserID); key != "" {
+		return partLayerKey(tile, key)
+	}
+	return ""
+}
+
+// ResetEnvFor is ResetEnv for the layer p's sessions on rel mount: p's own
+// on a partitioned tile (the tile's stays), else the tile's.
+func (m *Manager) ResetEnvFor(p auth.Principal, rel string) error {
+	key := m.callerLayer(p, rel)
+	if key == "" {
+		return nil // no layer of p's there yet: nothing to reset
+	}
+	return m.resetLayer(key, rel)
+}
+
+// EnvStatusFor is EnvStatus for the layer p's sessions on rel mount.
+func (m *Manager) EnvStatusFor(p auth.Principal, rel string) (exists, outdated bool) {
+	key := m.callerLayer(p, rel)
+	if key == "" {
+		return false, false
+	}
+	return m.envStatusOf(key)
 }
 
 // removeLayer removes a terminal layer — a tree the sandbox wrote, whose

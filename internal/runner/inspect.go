@@ -71,6 +71,9 @@ type Backend struct {
 	// Deployment names the deployment of a row InspectDeployments gives;
 	// Inspect's rows, the primaries', leave it empty.
 	Deployment string `json:"deployment,omitempty"`
+	// Partition names the person's partition of a row InspectPartitions
+	// gives ("user:<id>"): metadata, never what it holds.
+	Partition string `json:"partition,omitempty"`
 }
 
 // Inspect returns the runtime picture of every known component backend: one
@@ -86,15 +89,26 @@ func (r *Runner) InspectDeployments() []Backend {
 	return r.inspect(false)
 }
 
+// InspectPartitions returns the runtime picture of every person's
+// partition instance, each row naming its partition — the admin's metadata
+// rows (plans/partitions/06 §5); empty while no tile runs one.
+func (r *Runner) InspectPartitions() []Backend {
+	return r.inspectStates(r.partStates(""), false)
+}
+
 func (r *Runner) inspect(primaries bool) []Backend {
-	self := selfNS()
 	var states []*state
 	for _, s := range r.allStates("") {
 		if (s.dep == r.primary(s.comp)) == primaries {
 			states = append(states, s)
 		}
 	}
+	return r.inspectStates(states, !primaries)
+}
 
+// inspectStates is the rows of states; named: each names its deployment.
+func (r *Runner) inspectStates(states []*state, named bool) []Backend {
+	self := selfNS()
 	out := make([]Backend, 0, len(states))
 	for _, s := range states {
 		s.mu.Lock()
@@ -102,8 +116,11 @@ func (r *Runner) inspect(primaries bool) []Backend {
 			Path: s.comp, State: stateName(s), Gen: s.gen, Restarts: len(s.crashes),
 			ActiveConns: s.active,
 		}
-		if !primaries {
+		if named {
 			b.Deployment = s.dep
+		}
+		if s.pt != nil {
+			b.Partition = s.pt.part
 		}
 		c, known := r.Reg.Component(s.comp)
 		if known {
@@ -158,7 +175,10 @@ func (r *Runner) inspect(primaries bool) []Backend {
 		if out[i].Path != out[j].Path {
 			return out[i].Path < out[j].Path
 		}
-		return out[i].Deployment < out[j].Deployment
+		if out[i].Deployment != out[j].Deployment {
+			return out[i].Deployment < out[j].Deployment
+		}
+		return out[i].Partition < out[j].Partition
 	})
 	return out
 }
@@ -285,7 +305,7 @@ func (r *Runner) resolveGenFor(c *registry.Component, dep string, code Code) (ge
 				return genPlan{}, err
 			}
 		}
-		bin, err := r.buildGen(v)
+		bin, err := r.buildWorkTree(c, dep, v) // once per change for a partitioned tile (partadmit.go)
 		return genPlan{view: v, bin: bin, release: func() {}}, err
 	}
 	switch {

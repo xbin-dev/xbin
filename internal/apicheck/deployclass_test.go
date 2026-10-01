@@ -235,6 +235,11 @@ func classRefusals(t *testing.T, inv map[string]string) {
 		unclassifiedText = "this route isn't available to a non-primary deployment's credentials yet"
 		primaryOnlyText  = "this route is the primary's alone: a non-primary deployment's credentials can't use it"
 		prText           = "deciding a PR is the primary's act"
+		// a PersonOnly route (the partition table, 02 §8) takes a person's
+		// own credential only: every credential here is a tile's or the
+		// owner token, refused by the partition gate once the deployment
+		// gate lets it through
+		personOnlyText = "this is a person's own act"
 	)
 	// check drives every stub and probe, and every core route a credential
 	// bound elsewhere than the primary is refused on (a refused call runs no
@@ -256,8 +261,11 @@ func classRefusals(t *testing.T, inv map[string]string) {
 					continue
 				}
 				code, body := call(c, pattern)
+				personOnly := !refused && server.PartitionClassOf(pattern) == server.PersonOnly
 				var want string
 				switch {
+				case personOnly:
+					want = personOnlyText
 				case !refused:
 					want = `"ran":"` + pattern + `"`
 				case c.dep == "gone":
@@ -273,7 +281,7 @@ func classRefusals(t *testing.T, inv map[string]string) {
 				switch {
 				case refused && c.dep == "gone":
 					wantCode = http.StatusNotFound
-				case refused:
+				case refused, personOnly:
 					wantCode = http.StatusForbidden
 				}
 				if code != wantCode || !strings.Contains(body, want) {

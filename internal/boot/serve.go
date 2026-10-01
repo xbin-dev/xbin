@@ -57,6 +57,7 @@ func (st *State) serve(ctx context.Context) error {
 	// Boot reconcile: stand up stream listeners + forward doors for existing
 	// bindings before traffic arrives.
 	st.reconcileIngress()
+	go st.lapseHeldCredentials(ctx) // held credentials take effect after 24 h (partitionops.go)
 
 	// The builtin HTTP terminator (plans/ingress.md ING-3): a SECOND listener
 	// — public, unauthenticated traffic never shares the console socket. It

@@ -76,11 +76,17 @@ from `user:A` of Z into `user:A` of X needs:
   separate from `data/users.json`, because an older xbind that rewrites the
   users store would drop an unknown key (precedent: `data/branding.json`,
   `internal/boot/boot.go:680`).
-- API: `GET /api/xbin/workspace-policies` (any signed-in person; tile
-  principals get 403) and `PUT` (admin only). The PUT has deployment class
-  PrimaryOnly, like `PUT /native-runtime` (`internal/server/deployclass.go:308`),
-  and partition class Neutral (02 §8). A change publishes a `policies`
-  event. `bx policies [set partition-consent on|off]`.
+- API: `GET /api/xbin/workspace-policies` (any signed-in person, through
+  their session or device or a terminal or agent session they drive —
+  `bx policies` runs in one; admins, the admin tile through `xbin:admin`
+  included; other tile principals get 403; deployment class Neutral, like
+  `GET /branding`) and `PUT` (admin only: `Broker.IsAdmin`, as for every
+  governance write, so the admin tile's frame passes, 06 §12.3). The PUT has
+  deployment class PrimaryOnly, like `PUT /native-runtime`
+  (`internal/server/deployclass.go:308`), and partition class Neutral
+  (02 §8). A change publishes a `policies`
+  event. `bx policies [set partition-consent on|off]`. A switch xbind can't
+  read from the file keeps its last value, or is on (fail closed; F16).
 - UI: a new **workspace → policies** tab in the admin tile (06 §12.3).
 - **Off** (the default): nothing is prompted and no consent records are
   written. The approval warning (below) and the ledger still apply.
@@ -130,13 +136,13 @@ has two kinds:
 | | **Global bind** | **Personal bind** (new) |
 |---|---|---|
 | Record | today's `bindings` in the workspace `xbin.json` (`registry.go:300`), unchanged shape | xbind state `data/partitions/binds/<uid>.json`: `{schema: 1, user, uid, binds: [{id, requester, slot, provider, at}]}` |
-| Who creates it | **admins only** when the requester is partitioned (`Broker.IsAdmin`). The delegated paths (org admins D26/D33, personal owners D88) answer 403. Unpartitioned requesters keep today's rules | the **owner of a user-owned provider** (`Owner(provider) == "user:<id>"`), for **their own** partition of a partitioned requester they can read, with their own credential (PersonOnly). Admins may list and delete, never create: an admin's bind is always global |
+| Who creates it | **today's bind authority** (PD-54, owner 2026-09-29): workspace admins, org admins within their org (D26/D33), personal owners (D88) — partitioned requester or not | the **owner of a user-owned provider** (`Owner(provider) == "user:<id>"`), for **their own** partition of a partitioned requester they can read, with their own credential (PersonOnly). Admins may list and delete, never create: an admin's bind is always global |
 | Provider | any tile (shared, or partitioned, per §1) | a user-owned (personal) tile, not partitioned |
 | Slot | any http/net/stream slot, as today | multi http slots (v1) whose service the provider provides (`validateBinding`'s http checks, `netfn.go:947-968`); the ceiling rules apply |
 | Seen in `XBIN_IFACE_*` / `xbin-interfaces` by | the global instance and every user partition (as today) | only `user:<id>`'s partition instance and that person's frames |
 | Counts as the call grant for | every instance of the requester | a call from the requester acting in `user:<id>` whose uid matches, while `<id>` still owns the provider |
 | Routing | the edge matrix (§1) | the provider's primary, with `X-XBin-From: <requester>`, `X-XBin-Partition: user:<id>`, `X-XBin-Partition-Id` |
-| Removed by | admins | the person, an admin, a provider transfer (the owner changes), user delete (uid), the requester's mode switch (01 §2.6) |
+| Removed by | today's bind authority, as it creates | the person, an admin, a provider transfer (the owner changes), user delete (uid), the requester's mode switch (01 §2.6) |
 
 **Who may create a global bind** (owner ruling, 2026-09-29): **today's
 bind authority, unchanged by partitioning** — whoever may manage the
@@ -197,12 +203,17 @@ caller tile is calling, and `X-XBin-Partition-Id` gives a stable key. The
 rule for providers (docs/partitions.md, docs/sandbox-manager.md,
 docs/agent-inbox.md) is:
 - **a provider that keeps per-caller state keys it on (`X-XBin-From`,
-  `X-XBin-Deployment`, `X-XBin-Partition-Id`);**
+  `X-XBin-Partition-Id`)** — plus `X-XBin-Deployment` where it already keys
+  on it: user partitions run only on the primary (PD-17), so the id never
+  spans deployments, and a consumer's non-primary deployments keep calling
+  as its non-personal identity (the sandbox-manager contract keys the pair,
+  B1);
 - it treats an absent partition and `global` as the same consumer;
 - it uses `X-XBin-Partition` for display only.
 
 Enforcement is on the **consumer** side for the contracts xbin ships. The
-sandbox-manager contract gains `caps.partitions: 1` (07 §4). The agent's
+sandbox-manager contract gains the capability `partitions` in
+`hello.caps` (a word, like every capability; 07 §4). The agent's
 user partitions don't use a manager without it; they degrade instead
 (C12, 08 §6).
 
@@ -301,12 +312,14 @@ principals never satisfy a governance check.
   - the file survives an older-format rewrite of `users.json`;
   - an off → on → off cycle keeps the records.
 - broker bind types:
-  - on a partitioned requester, an org admin's or personal owner's global
-    bind gives 403 and an admin's succeeds; the same for `uses` approval of
-    a non-partitioned target;
+  - on a partitioned requester, global binds follow today's bind authority
+    (PD-54, owner 2026-09-29): an admin's, an org admin's within their org
+    (D26), a provider org admin's (D33) and a personal owner's (D88)
+    succeed, anyone else's 403; the same for `uses` approval;
   - an unpartitioned requester keeps today's rules (golden);
   - a personal bind by the provider's owner succeeds, by anyone else 403,
-    by an admin for someone else 403, and on a non-multi slot 409;
+    by an admin 403 (even of a tile they own: an admin's bind is always
+    global), and on a non-multi slot 409;
   - env: alice's partition sees her entry, while bob's partition and
     global don't;
   - calls: alice's partition → her tile passes; bob's partition, global

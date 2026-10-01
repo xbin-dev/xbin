@@ -16,8 +16,7 @@ const {
 const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
 const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions'), { vmToggle } = require('./passes/vmtoggle');
-const { viewAs } = require('./passes/viewas');
-const { windows } = require('./passes/windows');
+const { viewAs } = require('./passes/viewas'), { windows } = require('./passes/windows');
 const { agentTab } = require('./passes/agenttab');
 const { ingressMulti } = require('./passes/ingressmulti');
 const { menuOpen } = require('./passes/menuopen');
@@ -35,7 +34,9 @@ const { tabStrip } = require('./passes/tabstrip'), { sandboxes } = require('./pa
 const { sandboxTerminal } = require('./passes/sandboxterminal'), { codingSandbox } = require('./passes/codingsandbox'), { livereload } = require('./passes/livereload'), { deployments } = require('./passes/deployments'), { adminDeployments } = require('./passes/admindeploy');
 const { layoutSync } = require('./passes/layoutsync'), { deployBranches } = require('./passes/deploybranches');
 const { scrollbars } = require('./passes/scrollbars'), { agentLong } = require('./passes/agentlong'), { agentLongPerf } = require('./passes/agentlongperf'), { agentTemplateLong } = require('./passes/agenttemplatelong');
-const { agentTask } = require('./passes/agenttask'), { agentHarness } = require('./passes/agentharness');
+const { agentTask } = require('./passes/agenttask'), { adminPolicies } = require('./passes/policies'), { templateCard } = require('./passes/templatecard'), { partitionSwitch } = require('./passes/partitionswitch');
+const { personalBinds } = require('./passes/personalbinds'), { personPage } = require('./passes/personpage');
+const { adminMap } = require('./passes/adminmap'); // moved out of this file (its size budget)
 
 // Screenshots of the admin console's D54 surfaces, the tile popover and a
 // terminal on an org tile.
@@ -398,7 +399,6 @@ async function reloadFocus(browser) {
   await sh(page, (t) => { t.setFloat('apps/crawler', { z: 200 }); t.setFloat('apps/focusy', { z: 100 }); });
   await focusTerm('apps/crawler');
   await settle(page);
-
   // Fix: the same focus-into-iframe DURING a reload must not front the float,
   // and the focus the reload stole goes back to the terminal.
   await fr(page, 'apps/focusy', (f, t) => {
@@ -776,39 +776,6 @@ async function netPickers(browser) {
   done();
 }
 
-// The access map tab (the first admin tab split into its own element): the
-// structure + matrix render from /access-matrix, a cell click opens the
-// derivation panel, the owner-transfer editor previews before it commits.
-async function adminMap(browser) {
-  const { check, done } = checker('admin-map');
-  const { ctx, page } = await login(browser, 'admin', 'admin');
-  await gotoTab(page, 'map', 'effective access');
-  await waitSel(page, '.mcell.has, .maprow', { timeout: 15000 });
-  const cells = await page.locator('.mcell.has').count();
-  check(cells > 0, `matrix renders ${cells} access cells`);
-  check((await page.locator('.snode.org').count()) >= 3, 'structure lists the seeded orgs');
-  await page.locator('.mcell.has').first().click();
-  await waitSel(page, 'text=effective (highest wins)');
-  check(true, 'a cell click opens the derivation panel');
-  await shot(page, 'admin-map');
-  // transfer: pick a different owner → preview → the commit button appears → cancel
-  const row = page.locator('tr', { has: page.locator('td.mtile', { hasText: 'apps/pinned' }) }).first();
-  await row.locator('button', { hasText: 'transfer' }).click();
-  await waitSel(page, 'button:has-text("preview")');
-  const sel = page.locator('select', { has: page.locator('option[value=""]') }).last();
-  await sel.selectOption('');
-  await page.locator('button', { hasText: 'preview' }).click();
-  await waitSel(page, 'button.go:has-text("transfer")');
-  check(true, 'preview yields the transfer button (no commit made)');
-  await shot(page, 'admin-map-transfer');
-  await page.locator('button', { hasText: 'cancel' }).last().click();
-  await waitSel(page, 'button:has-text("preview")', { state: 'detached' });
-  const owner = (await ctx.request.get(`${URL}/api/xbin/owner?tile=apps/pinned`).then((r) => r.json())).owner;
-  check(owner === 'org:devs', `cancel left apps/pinned with its owner (${owner})`);
-  await closeCtx(ctx, page);
-  done();
-}
-
 // Every admin tab opens by hash, renders a body and reports no error — the
 // smoke gate for splitting the console into tab elements: a tab whose module
 // fails to load, or whose data props the router forgot to pass, shows up
@@ -839,18 +806,30 @@ async function adminTabs(browser) {
       return { err: body.querySelector(':scope > .err')?.textContent?.trim() ?? '', len: ${deepText}(body).trim().length, denied: !!a.renderRoot.querySelector('.denied') };
     })()`);
     check(!st.denied && !st.err && st.len > 10, `${id}: renders (${st.len} chars${st.err ? ', error: ' + st.err : ''})`);
+    if (id === 'policies') check(await page.locator('bx-admin-policies input[data-policy]').count() === 2, 'policies: both switches (PD-55)');
     await shot(page, `admin-tab-${id}`);
   }
   await ctx.close();
   done();
 }
-
 // ---- pass registry + CLI ----
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, agentHarness,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, personalBinds, personPage,
 };
+PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
+PASSES.adminPartitions = require('./passes/adminpartitions').adminPartitions; // F12, on its own line
+PASSES.partitionLogs = require('./passes/partitionlogs').partitionLogs; // F12, on its own line
+PASSES.partitionConsent = require('./passes/partitionconsent').partitionConsent;
+PASSES.agentHomes = require('./passes/agenthomes').agentHomes; // B2b: a partitioned agent's two homes (HARNESS_AGENT_PARTITION=1)
+PASSES.channelsPartitioned = require('./passes/channelspartitioned').channelsPartitioned; // B2c: HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
+PASSES.partitionsEntry = require('./passes/partitionsentry').partitionsEntry; // SH: the settings menu's "your partitions" (I13)
+PASSES.oldScaffold = require('./passes/oldscaffold').oldScaffold; // I1: the last release's shell and admin console meet partitioned and pending tiles
+PASSES.personPageAsked = require('./passes/personpageasked').personPageAsked; // I1: F11's asked consents, allowed on the page
+PASSES.agentMoves = require('./passes/agentmoves').agentMoves; // AF: an un-shared conversation moves home (HARNESS_AGENT_PARTITION=1)
+PASSES.agentHosted = require('./passes/agenthosted').agentHosted; // B2d: non-secure (hosted) chats, HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
+PASSES.agentHarness = require('./passes/agentharness').agentHarness; // D147: coding agents in the agent template (not under HARNESS_ISOLATE: its fake adapter is a host path)
 
 (async () => {
   const args = process.argv.slice(2);

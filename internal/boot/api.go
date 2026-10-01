@@ -24,7 +24,7 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 	run, brk, userStore := st.Run, st.Broker, st.Users
 	rd := runtimeReads{run: run, dp: st.Deployments, isAdmin: brk.IsAdmin, disk: brk.TileDiskStatus,
 		alerts: func(tile string) any { return brk.TileAlerts(tile) },
-		net:    func(tile string) any { return brk.NetLabel(tile) }}
+		net:    func(tile string) any { return brk.NetLabel(tile) }, parts: st.partitionReads()}
 	srv.RegisterAPI("GET /backends", rd.backends)
 	// Full runtime visibility for the admin console: host + per-backend process,
 	// namespaces, and egress/network activity (plans/isolation.md).
@@ -136,6 +136,7 @@ type runtimeReads struct {
 	disk    func(tile string) (usage, quota int64, blocked bool)
 	alerts  func(tile string) any
 	net     func(tile string) any
+	parts   partitionReads // people's partitions' rows (partitionstatus.go); zero: none
 }
 
 // record reports whether a deployment record governs tile.
@@ -199,6 +200,7 @@ func (rd runtimeReads) backends(w http.ResponseWriter, r *http.Request) {
 	if rd.dp != nil {
 		rd.nestDeployments(p, out)
 	}
+	rd.parts.nest(out) // people's partition instances, nested in their tile's row (partitionstatus.go)
 	server.WriteJSON(w, http.StatusOK, out)
 }
 
@@ -308,6 +310,7 @@ func (rd runtimeReads) tileStatus(w http.ResponseWriter, r *http.Request) {
 	if record && rd.audience(p, comp) == deployments.AudienceWrite {
 		out["deployments"] = rd.statusSummary(r.Context(), comp)
 	}
+	rd.parts.status(p, comp, out) // a person's partition reads its own (partitionstatus.go)
 	server.WriteJSON(w, http.StatusOK, out)
 }
 

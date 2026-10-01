@@ -130,8 +130,12 @@ What the plan rests on (verified in the code and in the adapters in
 - **An idle harness is reclaimed** after 15 min (tile config
   `harnessIdleMin`), with a one-shot timer — no tickers.
 - **D-numbers:** none for WP-R; D147 for the rest (numbered at the docs
-  pass: master was at D136, and the partitions branch holds the ten after
-  it).
+  pass: master was at D136, and the partitions branch then held the ten
+  after it; its later ones start at D148). Under partitions (the owner's
+  ruling plans/partitions/90-decisions.md §I15: coding agents only in a
+  person's own conversations) the W6 wave's decision amends D147 for
+  partitioned instances — plans/partitions/96-agtt-merge.md and
+  plans/partitions/records/W6-wire.md.
 
 ### 2.3 Not in v1
 
@@ -970,9 +974,10 @@ runtime routes), `docs/sdk.md`, a changelog entry.
 - The `tty` routes (`GET …/tty`, `GET …/execs/{eid}/tty`) serve a consumer's
   **backend** as well as its pages: a backend dials with its own credential
   and `Sbx-User: <person>` (asserted). The person rules are **unchanged**
-  (§Who is asking, §Partitions): on a backend call the manager records the
-  asserted person (as for `execs`: the runtime's `forUser`) and does not
-  police it — the consumer checks its own rules before it dials (AgTT:
+  (§Who is asking, §Consumers, sharing and people): on a backend call the
+  manager records the asserted person (as for `execs`: the runtime's
+  `forUser`) and does not police it — the consumer checks its own rules
+  before it dials (AgTT:
   `sandboxAccess(caller).Use`, fresh from the manager, §4.2.8); a verified
   `X-XBin-User` wins over the header. The backend relays the socket to its
   page or app byte for byte. Every manager implements it (a cloud manager:

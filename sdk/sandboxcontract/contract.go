@@ -21,7 +21,10 @@
 // so the checks run in parallel against one manager and see only their own
 // sandboxes; each sandbox a check creates is deleted when it ends. The
 // manager is called directly: the suite sets the headers xbind would
-// (X-XBin-From, X-XBin-User) and Sbx-User — Target's hooks change how.
+// (X-XBin-From, X-XBin-User, and on a partitioned consumer's calls
+// X-XBin-Partition and X-XBin-Partition-Id) and Sbx-User — Target's hooks
+// change how. The user-partitions section runs when hello's caps carry
+// "partitions".
 //
 // Standard library and sdk/ws only.
 package sandboxcontract
@@ -56,6 +59,11 @@ type Target struct {
 	Consumer func(r *http.Request, consumer string)
 	Verified func(r *http.Request, user string)
 	Asserted func(r *http.Request, user string)
+	// Partition makes a request come from a partition of a partitioned
+	// consumer: partition is "user:<id>" or "global", partitionID the user
+	// partition's stable id ("" for global). Nil: the X-XBin-Partition and
+	// X-XBin-Partition-Id headers xbind sets.
+	Partition func(r *http.Request, partition, partitionID string)
 	// Caps, when set, are capabilities hello must offer. Either way the
 	// suite checks every capability hello offers and skips the sections of
 	// the ones it doesn't.
@@ -127,6 +135,7 @@ func sections() []section {
 		{name: "hello", checks: helloChecks},
 		{name: "sandboxes", checks: sandboxChecks},
 		{name: "partitions", checks: partitionChecks},
+		{name: "user-partitions", cap: "partitions", checks: userPartitionChecks},
 		{name: "people", checks: peopleChecks},
 		{name: "lifecycle", checks: lifecycleChecks},
 		{name: "run", checks: runChecks},
@@ -207,6 +216,9 @@ func (e *env) fresh(k Knobs) (*env, bool) {
 	if f.Asserted == nil {
 		f.Asserted = e.tg.Asserted
 	}
+	if f.Partition == nil {
+		f.Partition = e.tg.Partition
+	}
 	if f.Grace == 0 {
 		f.Grace = e.tg.Grace
 	}
@@ -229,6 +241,7 @@ type Caller struct {
 	tg             *Target
 	from           string
 	user, asserted string
+	part, partID   string // the consumer's partition: "user:<id>" and its id, or "global" and ""
 }
 
 // As is a caller from consumer (a tile's path).
@@ -243,10 +256,25 @@ func (c Caller) Verified(user string) Caller { c.user = user; return c }
 // Asserting is c naming a person it acts for (a backend's call).
 func (c Caller) Asserting(user string) Caller { c.asserted = user; return c }
 
+// InPartition is c from user's partition of a partitioned consumer, whose
+// stable id is id (X-XBin-Partition: user:<user>, X-XBin-Partition-Id: id):
+// the partition's backend — add Verified(user) for its page.
+func (c Caller) InPartition(user, id string) Caller { c.part, c.partID = "user:"+user, id; return c }
+
+// Global is c from a partitioned consumer's global instance
+// (X-XBin-Partition: global): the same consumer as c without a partition.
+func (c Caller) Global() Caller { c.part, c.partID = "global", ""; return c }
+
 // Consumer is c's consumer.
 func (c Caller) Consumer() string { return c.from }
 
-func (c Caller) who() string { return c.from + "/" + c.user + c.asserted }
+func (c Caller) who() string {
+	w := c.from
+	if c.part != "" {
+		w += "[" + c.part + "]"
+	}
+	return w + "/" + c.user + c.asserted
+}
 
 // decorate sets who is asking on r.
 func (c Caller) decorate(r *http.Request) {
@@ -267,6 +295,16 @@ func (c Caller) decorate(r *http.Request) {
 			c.tg.Asserted(r, c.asserted)
 		} else {
 			r.Header.Set("Sbx-User", c.asserted)
+		}
+	}
+	if c.part != "" {
+		if c.tg.Partition != nil {
+			c.tg.Partition(r, c.part, c.partID)
+		} else {
+			r.Header.Set("X-XBin-Partition", c.part)
+			if c.partID != "" {
+				r.Header.Set("X-XBin-Partition-Id", c.partID)
+			}
 		}
 	}
 }
@@ -414,6 +452,9 @@ type Sandbox struct {
 	Owner                                                       struct {
 		User, Via string
 		Asserted  bool
+		// a sandbox homed in a partitioned consumer's user partition: that
+		// partition's id, and "user:<id>" for display (absent otherwise)
+		PartitionID, Partition string
 	}
 	Members             []string
 	Shares              []json.RawMessage
@@ -486,7 +527,7 @@ func (c Caller) Create(body map[string]any) Sandbox {
 	}
 	var sb Sandbox
 	c.Call("POST", "/sandboxes", full, http.StatusCreated, &sb)
-	home := Caller{t: c.t, tg: c.tg, from: c.from}
+	home := Caller{t: c.t, tg: c.tg, from: c.from, part: c.part, partID: c.partID}
 	c.t.Cleanup(func() { _, _, _ = home.Do(context.Background(), "DELETE", "/sandboxes/"+sb.ID, nil) })
 	return sb
 }

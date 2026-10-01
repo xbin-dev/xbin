@@ -95,7 +95,7 @@ func moveBase(auto bool, layerBase, current string) bool {
 
 // layerClaim is what a session's start made of its tile's persistent layer.
 type layerClaim struct {
-	dir   string // .xbin/term/<key>
+	dir   string // .xbin/term/<key> (a person's: .xbin/term-part/<TK>/<pkey>)
 	base  string // the rootfs dir to stack it on
 	moved string // the base it was moved off ("" = it stayed)
 }
@@ -122,7 +122,7 @@ func (m *Manager) claimLayer(envKey string) (c layerClaim, held bool, err error)
 			slog.Error("terminal layer: the session can't use it", "layer", envKey, "err", err)
 		}
 	}()
-	c.dir = filepath.Join(m.Root, ".xbin", "term", envKey)
+	c.dir = m.layerDir(envKey) // .xbin/term/<key>, or a person's .xbin/term-part/<TK>/<pkey>
 	cur, err := m.currentBase()
 	if err != nil {
 		return layerClaim{}, false, fmt.Errorf("this terminal's layer can't be pinned: %w", err)
@@ -175,8 +175,12 @@ const (
 // terminal is open: whether one exists, and whether it was built on an older
 // base image than the current rootfs (the terminal window's "base update").
 func (m *Manager) EnvStatus(rel string) (exists, outdated bool) {
-	key := termKey(rel)
-	_, err := os.Stat(filepath.Join(m.Root, ".xbin", "term", key))
+	return m.envStatusOf(termKey(rel))
+}
+
+// envStatusOf is EnvStatus for layer key.
+func (m *Manager) envStatusOf(key string) (exists, outdated bool) {
+	_, err := os.Stat(m.layerDir(key))
 	return err == nil, m.layerOutdated(key)
 }
 
@@ -191,7 +195,7 @@ func (m *Manager) layerOutdated(envKey string) bool {
 	if err != nil {
 		return false
 	}
-	ver, err := layers.ReadBase(filepath.Join(m.Root, ".xbin", "term", envKey))
+	ver, err := layers.ReadBase(m.layerDir(envKey))
 	return err == nil && ver != "" && ver != cur
 }
 
@@ -204,7 +208,9 @@ func (m *Manager) layerOutdated(envKey string) bool {
 // or moves it to the current base while base auto-update is on, so no
 // layer is ever stacked on another base, and a stale layer — a host move, a
 // restore, a base deleted by hand — or turning auto-update off can't keep
-// the whole workspace down. It looks at .xbin/term only: a tile sandbox
+// the whole workspace down. It looks at the terminal layers only — a tile's
+// (.xbin/term) and a person's on a partitioned tile (.xbin/term-part,
+// PD-22), which a session's start claims and moves alike: a tile sandbox
 // whose base is gone fails its own start (plans/tile-sandbox-runtime.md §7).
 func (m *Manager) CheckBaseImages() (missing []string) {
 	if m.Rootfs == "" {
@@ -230,16 +236,20 @@ func (m *Manager) CheckBaseImages() (missing []string) {
 	auto := m.baseAutoUpdate()
 	ls, _ := layers.Check(m.Root, m.Rootfs)
 	for _, l := range ls {
-		if l.Tree != layers.TreeTerm || !l.Missing {
+		if (l.Tree != layers.TreeTerm && l.Tree != layers.TreeTermPart) || !l.Missing {
 			continue
 		}
-		missing = append(missing, l.Key+"→"+l.Base)
+		key := l.Key
+		if l.Tree == layers.TreeTermPart {
+			key = partLayerDir + "/" + key // a person's layer: its layer key (partLayerKey)
+		}
+		missing = append(missing, key+"→"+l.Base)
 		if cerr == nil && moveBase(auto, l.Base, cur) {
-			slog.Warn("a terminal layer's base image isn't installed: its next session moves it to the current base (base auto-update)", "layer", l.Key, "base", l.Base)
+			slog.Warn("a terminal layer's base image isn't installed: its next session moves it to the current base (base auto-update)", "layer", key, "base", l.Base)
 			continue
 		}
 		slog.Warn("a terminal layer's base image isn't installed: its sessions refuse to start until it is reset (or base auto-update is on), or the base restored as "+m.Rootfs+"-<version>",
-			"layer", l.Key, "base", l.Base)
+			"layer", key, "base", l.Base)
 	}
 	return missing
 }

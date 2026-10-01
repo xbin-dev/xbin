@@ -9,7 +9,6 @@ package broker
 // registration files a main archive carries, validated row by row.
 
 import (
-	"bytes"
 	"cmp"
 	"encoding/base64"
 	"encoding/json"
@@ -54,7 +53,7 @@ func (b *Broker) restoreListed(comp string, archives map[string]string) *listedR
 		case !b.hasDeployment(comp, dep):
 			err = util.NoDeployment(comp, dep)
 		default:
-			_, _, _, err = b.restoreData(comp, dataRestore{from: dep, version: archives[dep], into: dep, confirmed: true,
+			_, _, _, err = b.restoreData(comp, dataRestore{from: dep, version: archives[dep], into: dep, confirmed: true, tileRestore: true,
 				authorize: func(string) error { return nil }, stop: func(t, _ string) { b.StopBackendSafe(t) }})
 		}
 		if err != nil {
@@ -72,6 +71,7 @@ type dataRestore struct {
 	from, version, into string // whose archive, which version ("" = the latest), the target deployment
 	replace             bool   // main: empty each archived resource first; beyond main always
 	confirmed           bool   // confirm:"erase-data" was sent (or the act is POST /restore's)
+	tileRestore         bool   // POST /restore's (listedRestore): the main archive that lists it passed preSwitchRestore
 	dryRun              bool
 	by                  string
 	authorize           func(tile string) error
@@ -161,9 +161,25 @@ func (b *Broker) restoreData(tile string, r dataRestore) (string, []string, []st
 	case code >= 400:
 		return "", nil, nil, nsErr(http.StatusBadGateway, "", fmt.Sprintf("archiver %s: %s", provider, firstLine(string(body))))
 	}
-	br, err := backup.NewReader(bytes.NewReader(body))
+	br, err := b.openArchive(body) // a sealed archive is authenticated whole first
+	if err == nil && r.from == util.MainDeployment && br.M.Data != nil && !br.M.DataArchive() {
+		// a split main archive: main's data is in the data archive it names
+		if err = archivedDataOK(br.M, tile, r.from); err == nil {
+			var gone error
+			if br, gone, err = b.openDataArchive(provider, tile, br.M); gone != nil {
+				err = gone
+			}
+		}
+	}
 	if err == nil {
 		err = archivedDataOK(br.M, tile, r.from)
+	}
+	if err == nil && !r.tileRestore { // POST /deployments/restore: no confirmation (backup_preswitch.go)
+		err = b.preSwitchRestore(tile, br.M, r.from, "")
+		if pre, ok := err.(preSwitchError); ok {
+			pre.deployments = true
+			err = pre
+		}
 	}
 	if err != nil {
 		return "", nil, nil, nsErr(http.StatusConflict, deployments.KindState, "the archive can't be restored: "+err.Error()+"; nothing was restored")
@@ -207,16 +223,21 @@ func (b *Broker) restoreData(tile string, r dataRestore) (string, []string, []st
 
 // archivedDataOK checks an archive's manifest before anything is written
 // (05-model §11; 06-security T11.5): it must be tile's, hold data of the
-// scope tile roots, and be from's — a main archive for main, else from's
-// deployment archive at a schema this xbind reads.
+// scope tile roots, and be from's — a main archive (or the data archive a
+// split one names) for main, else from's deployment archive at a schema
+// this xbind reads.
 func archivedDataOK(m backup.Manifest, tile, from string) error {
 	switch {
+	case m.PartitionArchive():
+		return errors.New("it is a person's partition archive, restored only into that person's partition (POST /partitions/restore)")
 	case m.Component != tile:
 		return fmt.Errorf("it belongs to %s, not %s", m.Component, tile)
 	case !m.ScopeRoot || m.Scope != tile:
 		return errors.New("it holds no data of the scope " + tile + " roots")
 	case from == util.MainDeployment && m.DeploymentArchive():
 		return fmt.Errorf("it is deployment %q's, not the main archive", m.Deployment)
+	case from != util.MainDeployment && m.DataArchive():
+		return fmt.Errorf("it is main's data archive, not %s's deployment archive", from)
 	case from != util.MainDeployment && (m.Schema != backup.SchemaDeployment || m.Deployment != from):
 		return fmt.Errorf("it isn't %s's deployment archive (schema %d, deployment %q)", from, m.Schema, m.Deployment)
 	}
@@ -257,6 +278,7 @@ func (b *Broker) nsHasData(id nsID, declared map[string]registry.Resource) bool 
 type nsRestorer struct {
 	b          *Broker
 	scope, dep string
+	pkey       string // a person's partition's namespace (backup_partition_restore.go); "" for today's
 	replace    bool
 	declared   map[string]registry.Resource
 	dirs       map[string]string    // a volume's mount, once readied
@@ -299,7 +321,7 @@ func (n *nsRestorer) run(br *backup.Reader) (string, error) {
 // key is the target's keys of an archived resource, or false (skipped) when
 // the target doesn't declare it with that type.
 func (n *nsRestorer) key(name, typ string) (resKeys, bool) {
-	k, err := n.b.resKeys(resTarget{Scope: n.scope, Name: name}, n.dep)
+	k, err := n.b.resKeysIn(resTarget{Scope: n.scope, Name: name}, n.dep, n.pkey)
 	if res, ok := n.declared[name]; !ok || res.Type != typ || err != nil || !registry.ValidResourceName(name) {
 		n.skipped[name] = true
 		return resKeys{}, false
@@ -321,7 +343,7 @@ func (n *nsRestorer) kv(rd io.Reader) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	db, err := n.b.scopeKV(n.scope, n.dep, true)
+	db, err := n.b.scopeKVIn(n.scope, n.dep, n.pkey, true)
 	if err != nil {
 		return err
 	}

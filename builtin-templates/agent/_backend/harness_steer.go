@@ -247,6 +247,7 @@ func (s *hsess) followDetached() {
 	s.detached = true
 	s.quietLocked()
 	s.mu.Unlock()
+	s.toWork(false) // at work: it keeps a person's partition up (harness_partition.go)
 	s.activity("thinking", "")
 }
 
@@ -308,6 +309,7 @@ func (s *hsess) endDetached(why string) {
 	}
 	s.mu.Unlock()
 	rests := false
+	mark := s.workMark() // the end's poke may send a queued prompt before the rest (harness_partition.go)
 	_ = s.commit(nil, func(t *DB, hs *harnessSession) error {
 		if err := s.flushAllTx(t); err != nil {
 			return err
@@ -322,7 +324,7 @@ func (s *hsess) endDetached(why string) {
 	s.activity("idle", "")
 	s.publishSummary()
 	if rests {
-		s.armIdle()
+		s.armIdleFrom(time.Time{}, mark)
 	}
 }
 

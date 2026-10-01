@@ -136,7 +136,10 @@ func setupHarness(t *testing.T, vm bool) (*csEnv, string, []byte) {
 		{"id": "coder", "title": "Coder", "memMiB": 3072, "vcpus": 2, "diskGiB": 8}}
 	e.ops(t, "PUT", "/config", map[string]any{"images": []any{im}, "sizes": sizes}, 200, nil)
 
-	d.Must(t, "POST", "/api/xbin/templates/new", map[string]string{"source": "agent", "path": agTile}, 200)
+	// unpartitioned (the opt-out): the agent as every instance made before
+	// partitions runs, and as master's AgTT built it; a partitioned one's
+	// coding agents are partitions_agent_harness_test.go's
+	d.Must(t, "POST", "/api/xbin/templates/new", map[string]any{"source": "agent", "path": agTile, "partition": false}, 200)
 	d.WaitComponent(t, agTile)
 	d.Must(t, "POST", "/api/xbin/bindings", map[string]any{"component": agTile, "slot": "sandboxes", "providers": []string{csTile}}, 200)
 	d.Bind(t, agTile, "net", "none")

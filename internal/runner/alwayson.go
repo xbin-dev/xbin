@@ -73,9 +73,16 @@ func (r *Runner) switched(tile string) []string {
 // which is asked before any view is. A deployment that can't start — no
 // such name, a held record, a pinned backend without isolation (C7), a
 // non-primary one without isolation (D119h) — isn't kept up either.
+//
+// A partitioned tile's alwaysOn is its global instance's alone: without
+// one, nothing is kept up, and a person's partition never is (never at
+// boot either: plans/partitions/03 §A.6).
 func (r *Runner) alwaysOnView(c *registry.Component, dep string) *registry.Component {
 	primary := dep == r.primary(c.Path)
 	if !primary && (!r.Isolate || !slices.Contains(r.switched(c.Path), dep)) {
+		return nil
+	}
+	if r.noGlobal(c.Path, dep) {
 		return nil
 	}
 	code, err := r.codeFor(c.Path, dep)

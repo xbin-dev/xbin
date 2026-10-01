@@ -236,7 +236,7 @@ func (m *Manager) snapCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	box := m.box(rec)
-	key, h := "snap\x00"+c.from+"\x00"+rec.ID+"\x00"+q.ClientID, hashOf(q)
+	key, h := "snap\x00"+c.key()+"\x00"+rec.ID+"\x00"+q.ClientID, hashOf(q)
 	if q.ClientID != "" {
 		defer m.lock(key)()
 		target, prev, found, err := m.st.idem(key)
@@ -264,7 +264,7 @@ func (m *Manager) snapCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	cid := ""
 	if q.ClientID != "" {
-		cid = clientPrefix(c.from) + q.ClientID
+		cid = clientPrefix(c.key()) + q.ClientID
 	}
 	s, err := m.snapshot(r.Context(), rec, q.Name, cid)
 	if err != nil {

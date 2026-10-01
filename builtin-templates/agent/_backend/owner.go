@@ -91,10 +91,14 @@ type holder struct {
 }
 
 // updateHoldLocked (e.mu held) wants the hold while any actor runs, any
-// timer is armed or any coding agent is driven (its idle reclaim is ours).
+// timer is armed or any coding agent is driven (its idle reclaim is ours;
+// in a person's partition only one at work: harness_partition.go).
 func (e *Engine) updateHoldLocked() {
-	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0 || len(e.harness) > 0)
+	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0 || e.harnessHoldsLocked())
 	e.hold.set(want)
+	if !want && !e.closing {
+		e.keep.keepWakeUpSoon() // a person's partition: its way back, while it can (resume_keep.go)
+	}
 }
 
 func (h *holder) set(want bool) {
@@ -235,4 +239,7 @@ func (ag *Agent) clearWakeJobs() {
 	}
 	ag.cronDelete("resume")
 	ag.cronDelete("heartbeat")
+	if userMode() {
+		ag.cronDelete("wake") // a person's partition's sleeping-run wake (resume_mode.go)
+	}
 }

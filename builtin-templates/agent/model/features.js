@@ -212,6 +212,19 @@ export const FEATURES = {
   // States
   'state.halted': 'halted: the switch says so',
   'state.errors': 'a failed action tells the person why',
+  'state.partition.share': 'in a person\'s own partition (a partitioned instance) the Shared view and a shared conversation\'s Share are the shared space\'s (the global instance); one of their own conversations has no Share there — only a copy shares it (state.partition.publish)',
+  'state.partition.homes': 'in a person\'s partition a conversation has one of two homes, told by its id (from 2^40: their own; below: the shared space): the list merges both, an address (#c=) opens each at its home, and the stream follows it there (model/homes.js)',
+  'state.partition.publish': 'in a person\'s partition, Share a copy… of one of their own conversations: who can see the copy, its session files or not, the original kept or deleted; the copy opens (POST /runs/{id}/publish)',
+  'state.partition.copy': 'in a person\'s partition, a shared conversation\'s share dialog makes a private copy in their own space (POST /copy)',
+  'state.partition.newShared': 'in a person\'s partition, New chat with options asks who can see it: only you (your own space), or the team or people you name (made in the shared space)',
+  'state.partition.global': 'at a partitioned instance\'s global instance (the owner token), a note to sign in as a person for private conversations',
+  'state.partition.sandboxes': 'in a person\'s partition, a notice naming a bound sandbox manager that can\'t keep people apart, and how to update it',
+  'state.partition.hidden': 'in a partitioned instance the live stream closes while the page is hidden and resumes from its cursor when it shows (model/stream.js)',
+  'state.partition.mcp': 'in a partitioned instance the settings\' MCP list shows the config\'s static servers, marking one with headers as working in shared (global) conversations only — bind it as a tile or a personal bind for your own (model/partition.js staticMcp)',
+  'state.partition.hosted': 'in a person\'s partition, a non-secure (hosted) conversation: a ⚠ not private chip (header, row); the warning — whose private resources it uses, who can read it — every time it is opened into a page session, and the composer locked until it is started; locked for everyone while a wider audience waits for its host, who confirms or declines; once hosting ended, continue it without the host (model/hosted.js)',
+  'state.partition.host': 'in a person\'s partition, a shared conversation\'s share dialog lets it use their private resources (the warning first; POST /hosting), and its host takes them back',
+  'state.partition.copyIn': 'in a person\'s partition, a shared conversation\'s share dialog adds copies of their own session files (POST /copyin), saying who can read the copies; the originals stay private',
+  'state.partition.harness': 'in a partitioned instance a coding agent works only in a person\'s own conversations (model/harness-homes.js): the global instance\'s page offers none ("Who answers" isn\'t shown); in a person\'s partition its sandbox is one of their own space (the team\'s and ones shared with them disabled, saying why; Create offered), New chat with options offers their own sandboxes whatever conversation is open, a new chat shared with others is the built-in agent\'s and takes no sandbox of theirs along, its sign-in is offered only for their own conversations (elsewhere a read-only card says why), its conversation offers no Share a copy, Copy to my own space or hosting and one in the shared space isn\'t left shared with no one (that would move it), its calls and the app\'s run terminal go to the run\'s home, and one in the shared space (from before this rule) is read, not driven — no message, Retry, mode or options',
 
   // Deep links
   'link.conv': 'an address opens a conversation (#c=<id>)',
@@ -258,6 +271,11 @@ export const DIFFERENCES = {
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
     'chat.jumpLatest': 'the native view never lets the live end go: the app\'s transcript keeps a row still only at its bottom, so letting go below the reader would move what they read — until the renderer anchors a row across a trim (D130 E3/E4), and the app scrolls to the end itself',
     'tools.live.ports': 'the ▣ popover is the web\'s; on the app a live preview\'s screen has its own Check (tools.live.check), which probes what the Ports section would',
+    'state.partition.publish': 'the native view shows a person\'s shared conversations and shares them, but publishing a copy of one of their own is the web\'s for now: the app\'s share sheet has no form for its choices yet',
+    'state.partition.copy': 'as state.partition.publish: the app\'s share sheet shares a shared conversation; a private copy of one is made on the web for now',
+    'state.partition.newShared': 'the app\'s new chat sheet makes a chat in the person\'s own space; a shared one is started on the web for now (or shared by a copy there)',
+    'state.partition.host': 'as state.partition.publish: letting a shared conversation use one\'s private resources needs the warning\'s form, which the app\'s share sheet hasn\'t yet — it is done on the web; a hosted one is shown, warned about and locked in the app (state.partition.hosted)',
+    'state.partition.copyIn': 'as state.partition.publish: the app\'s share sheet has no picker of one\'s own files yet — copies are added on the web',
     'tools.terminal.tabs': 'the app\'s terminal primitive closes its socket when its screen goes and names no session to attach again, so a native terminal is one pushed screen at a time (going back ends its shell: the relay ends a terminal it started once its client goes, D147 §4.2.8); the web\'s dock keeps several running',
   },
 };

@@ -152,6 +152,9 @@ func (r *Runner) deploy(ctx context.Context, c *registry.Component, dep string, 
 	if err != nil {
 		return err
 	}
+	if p.code.WorkTree {
+		r.nextBuild(c.Path) // a partitioned tile's shared build is a new one (partadmit.go)
+	}
 	if commit == nil {
 		commit = func() error { return nil }
 	}
@@ -184,10 +187,11 @@ func (r *Runner) deploy(ctx context.Context, c *registry.Component, dep string, 
 		}
 		rep.ok()
 		return nil
-	case !p.restart && old == nil && !failing:
-		return r.deployIdle(c, s, p, commit, rep, changed)
+	case !p.restart && old == nil && !failing, r.noGlobal(c.Path, dep):
+		// no global instance: prepared for people's partitions, which move with it (partadmit.go)
+		return r.followPrimary(c, p, r.deployIdle(c, s, p, commit, rep, changed))
 	}
-	return r.deploySwap(c, s, p, commit, rep, changed)
+	return r.followPrimary(c, p, r.deploySwap(c, s, p, commit, rep, changed))
 }
 
 // deployReport feeds a deploy's progress callback.

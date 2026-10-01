@@ -40,6 +40,40 @@ with this tile doesn't exist here.
   records it, and trusts this tile to have checked the rules above). No xbin
   identity reaches a sandbox; only a terminal's bytes cross.
 
+## Sandboxes of a partitioned agent
+
+An agent may be partitioned — one instance per person, plus a global one;
+new copies of the agent template are, by default
+([/docs/partitions.md](/docs/partitions.md)). A manager that knows it
+(`partitions` in its `hello.caps`) keeps each person's partition apart
+([/docs/sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned
+consumers): a sandbox made in alice's private conversation is homed in her
+partition, and nothing else sees it. This tile isn't partitioned — one SSH
+port, one key store keyed by person — and is one consumer,
+`apps/sandbox-terminal`, as before:
+
+- **Such a sandbox reaches this tile only when it is shared with it**, for
+  its person: the agent's **Share with a terminal tile…** on it shares it
+  `{"consumer": "apps/sandbox-terminal", "users": ["alice"]}` from her
+  partition. Then alice (its owner) opens it here, in the browser and over
+  SSH, as ever; nobody else does — the person rules above still apply. Her
+  partition can take the share away again.
+- **The global instance's sandboxes** (shared conversations, team
+  sandboxes) are shared as before, `"*"` for a team sandbox.
+- **Keys stay per person**, as they already were: a key logs in only its
+  own person, and only while xbind says they may use this tile.
+- **Who is in whose trust base.** This tile's backend reaches every sandbox
+  shared with it, for SSH, as an asserted person the manager trusts it to
+  have checked. So its writers — who can change its code — and admins are
+  in the trust base of every person who shares a sandbox with it: sharing
+  is that person's choice. A manager of the tile sees key metadata
+  (names, fingerprints, last use) and live sessions, never a terminal.
+- **Binding** it to managers (`bx bind apps/sandbox-terminal
+  sandboxes=…`) is an ordinary bind, made by whoever may bind today — an
+  admin, an org admin within their org, a personal tile's owner to what
+  they own. A personal bind doesn't apply: this tile isn't partitioned, so
+  it has one wiring for everyone.
+
 ## The page
 
 - **Sandboxes**, grouped by the manager they are on (a manager that didn't

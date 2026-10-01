@@ -174,6 +174,11 @@ func openDB(path string) (*DB, error) {
 	if err := d.migrate(); err != nil {
 		return nil, err
 	}
+	if userMode() { // a person's partition numbers its conversations from 2^40 (partition_start.go)
+		if err := d.seedPartitionIDs(); err != nil {
+			return nil, err
+		}
+	}
 	return d, nil
 }
 
@@ -397,6 +402,7 @@ func (d *DB) addRunCost(id int64, prompt, completion int) {
 	_, _ = d.q.Exec(
 		`UPDATE runs SET llm_calls=llm_calls+1, prompt_tokens=prompt_tokens+?, completion_tokens=completion_tokens+? WHERE id=?`,
 		prompt, completion, id)
+	d.addUsageDay(prompt, completion) // usage.go: a person's partition's daily totals (nothing elsewhere)
 }
 
 // setPromptTokens records the provider-reported prompt size of the latest LLM
@@ -849,14 +855,23 @@ func (d *DB) memory(runID int64) (map[string]string, error) {
 // --- settings -----------------------------------------------------------
 
 func (d *DB) getSetting(k string) string {
+	if v, ok := confSetting(k, d.tx != nil); ok { // a person's partition reads the tile-wide ones from conf (conf.go)
+		return v
+	}
 	var v string
 	_ = d.q.QueryRow(`SELECT v FROM settings WHERE k=?`, k).Scan(&v)
 	return v
 }
 
 func (d *DB) putSetting(k, v string) error {
+	if err := confRefuses(k); err != nil { // conf.go: a person's partition writes no tile-wide one
+		return err
+	}
 	_, err := d.q.Exec(
 		`INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, k, v)
+	if err == nil {
+		confWrote(d, k) // …and global mirrors one once it commits
+	}
 	return err
 }
 

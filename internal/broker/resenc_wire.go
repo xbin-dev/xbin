@@ -121,6 +121,7 @@ func (b *Broker) ensureVolume(k resKeys, scope, rtype string) bool {
 		return false
 	}
 	if volumeMounted(b.resenc, k) {
+		b.resenc.Touch(k.DirKey, k.Name) // a use: a partition's idle clock restarts
 		return true
 	}
 	if _, err := b.resenc.Ensure(k.FSLabel, k.DirKey, k.Name, b.resSingleTenant(scope, rtype)); err != nil {
@@ -178,13 +179,23 @@ func (b *Broker) DeploymentEncryptionHold(tile, dep string) bool {
 // deploymentHoldReason is why DeploymentEncryptionHold holds deployment dep
 // of tile ("" when it doesn't).
 func (b *Broker) deploymentHoldReason(tile, dep string) string {
+	return b.holdReasonIn(tile, dep, "", nil)
+}
+
+// holdReasonIn is deploymentHoldReason for user partition pkey of dep ("" is
+// the deployment's own): its own scope's resources that aren't shared are in
+// the partition's namespace (plans/partitions/03 §B.6).
+func (b *Broker) holdReasonIn(tile, dep, pkey string, who *nsPartition) string {
 	c, ok := b.Reg.Component(tile)
 	if !ok {
 		return ""
 	}
 	dep = cmp.Or(dep, util.MainDeployment)
-	if b.nsHeld(tile, c.Scope, dep) {
-		// a data act holds dep's own namespace, or left it partial: nothing mounts
+	if pkey == "" && b.nsHeld(tile, c.Scope, dep) || pkey != "" && c.Scope != "" &&
+		(b.nsStartBlockedID(partNS(c.Scope, dep, pkey)) != nil || b.nsStartBlocked(c.Scope, dep) != nil) {
+		// a data act holds dep's own namespace, or left it partial: nothing
+		// mounts. A person's partition also waits for one on the namespace
+		// its shared resources are in (dep's own, at today's keys).
 		return "is held: a data operation on its deployment's data namespace is under way or didn't finish"
 	}
 	sealedVault := b.barrier != nil && b.barrier.Initialized() && b.barrier.Sealed()
@@ -195,13 +206,18 @@ func (b *Broker) deploymentHoldReason(tile, dep string) string {
 		}
 		switch {
 		case fileBackedType(res.Type):
-			ns := dep
+			ns, pk := dep, ""
 			if rt.Scope == "" || rt.Scope != c.Scope {
 				ns = b.scopePrimary(rt.Scope)
+			} else if res.Shared != registry.SharedAll && res.Shared != registry.SharedRead {
+				pk = pkey // shared: today's volume
 			}
-			k, err := b.resKeys(rt, ns)
+			k, err := b.resKeysIn(rt, ns, pk)
 			if err != nil {
 				return "is held: it uses the encrypted resource " + u.Target + ", whose name is refused" // never mounted
+			}
+			if pk != "" && who != nil && b.notePartitionNS(partNS(rt.Scope, ns, pk), *who) != nil {
+				return "is held: its partition's data namespace can't be recorded (xbind's log says why)"
 			}
 			if k.NS != "" && b.ensureVolume(k, rt.Scope, res.Type) || k.NS == "" && b.fsReady(k) {
 				continue

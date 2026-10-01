@@ -42,11 +42,20 @@ type Agent struct {
 	acl aclCache
 	// needs pushes "Needs you" to people's phones (needs_push.go); nil: off.
 	needs *needsPusher
+	// wakeKeep: a person's partition's way back, kept while it idles
+	// (resume_keep.go).
+	wakeKeep wakeKeeper
 }
 
 var agent *Agent
 
 func main() {
+	// legacy, global or one person's partition (mode.go); an unknown kind of
+	// partition serves no one rather than everyone from one instance
+	if err := detectMode(); err != nil {
+		log.Printf("xbin: %s: %v — refusing to serve (/docs/partitions.md)", xbin.Self(), err)
+		os.Exit(3)
+	}
 	dbPath := xbin.Resource("db")
 	if dbPath == "" {
 		log.Fatal("no db resource (grant res:<self>/db writer) — see scope.json")
@@ -57,7 +66,10 @@ func main() {
 	}
 	agent = &Agent{db: db, repl: newReplRegistry(), toolSem: make(chan struct{}, maxToolsGlobal),
 		blobs: gatewayBlobs{}, blobCache: newBlobCache(48 << 20), needs: newNeedsPusher(xbin.NotifyUserWith)}
-	if db.getSetting("config") == "" {
+	// partition_start.go (nothing when unpartitioned); a person's partition
+	// reads the config global keeps (conf.go), so it writes no default
+	startMode(db)
+	if !userMode() && db.getSetting("config") == "" {
 		b, _ := json.Marshal(defaultConfig())
 		_ = db.putSetting("config", string(b))
 	}
@@ -67,6 +79,9 @@ func main() {
 	eng.Start()
 	go agent.reRegisterSchedules()
 	go agent.reRegisterTriggers()
+	go agent.pullMailAtStart() // mail that waited (mailbox.go; nothing unpartitioned)
+	go agent.startPartitionMail()
+	go startHosting() // a host's engine over team (hosted_engine.go; nothing unless this partition hosts)
 
 	// SIGTERM (a save's blue/green swap, a stop, an idle reap): stop driving
 	// at once so the successor — already booted and waiting on the engine
@@ -76,6 +91,7 @@ func main() {
 	go func() {
 		<-sig
 		eng.BeginShutdown()
+		stopHosting(0)
 	}()
 
 	mux := http.NewServeMux()
@@ -86,4 +102,5 @@ func main() {
 	// Serve returns at SIGTERM without waiting for anything; the engine gets
 	// a bounded moment to unwind and hand over.
 	eng.Shutdown(2 * time.Second)
+	stopHosting(2 * time.Second)
 }

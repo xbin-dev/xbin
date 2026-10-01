@@ -62,7 +62,9 @@ questions they raised.
     recorded, the tile runs its recorded mode again, and nothing is deleted;
   - builtin template updates never add or remove `partition` in an existing
     instance's manifest, so an update can never trigger a wipe prompt
-    (PD-52).
+    (PD-52) — except the agent template's, which asks every instance for
+    its mode (PD-52's amendment, the owner 2026-10-01, D177): the prompt is
+    then this rule's, confirm or keep.
 - Where it is designed:
   - states (recorded / requested / pending / declined / invalid), the
     audit trail and the grey-out surfaces: 01 §2;
@@ -112,6 +114,27 @@ questions they raised.
     `partition: false` is sent or xbind lacks `--isolate`;
   - a D127 promote/rollback preflight warns when the target code asks for a
     different mode (01 §2.7).
+- **Amended for the agent template (owner, 2026-10-01; D177).** The
+  owner: "After this update all AgTT instances should become partitioned,
+  no migration from legacy needed." So the agent template's update
+  requests the switch:
+  - its block sets `"partitionOnUpdate": true`; under `--isolate` the served
+    repo then carries `"partition": ["user","global"]` as its top-level key
+    (the line after the opening brace, where a new instance has it), so an
+    instance that merges the update gains it — and the merge driver takes
+    it by keys where neither the base nor the instance names a mode (a mode
+    the builder wrote stays theirs: a conflict);
+  - PD-44 is unchanged: on an instance holding data that is a switch
+    request — the tile pauses, a manager switches (which deletes its data;
+    no legacy→partition migration is built) or keeps the current mode (the
+    unpartitioned legacy path, the escape hatch); an empty instance simply
+    switches;
+  - without `--isolate` nothing asks (no person's partition can run): the
+    agent stays one instance; once a served repo asks, the ask never
+    changes or goes away (a removal or narrowing would ask partitioned
+    instances for another switch);
+  - every other builtin keeps PD-52 as above; `bx builtin update` never
+    reaches template instances; the U-M4 sign-in rule is unchanged.
 
 **PD-57 — `partitionNote`.** DEFAULT (new).
 - Rec: an optional manifest string (≤ 280 chars, code kind) shown on the
@@ -207,8 +230,10 @@ questions they raised.
 **PD-14 — Partitioned caller → non-partitioned provider.** DEFAULT.
 - Rec: allowed through a global bind (PD-16) or grant. xbind sends
   `X-XBin-Partition` (display) and `X-XBin-Partition-Id` (key). Providers
-  key on (From, Deployment, Partition-Id), with `""` ≡ `global`, and there
-  is a consumer-side degrade for sandbox managers without `caps.partitions`.
+  key on (From, Partition-Id) — plus Deployment where they already key on
+  it (user partitions are primary-only, PD-17) — with `""` ≡ `global`, and
+  there is a consumer-side degrade for sandbox managers whose `hello.caps`
+  lack `partitions`.
 
 **PD-16 — User partitions → global things.** **DECIDED (owner, 2026-09-29).**
 - Ruling: yes, modelled as **bind types**.
@@ -476,6 +501,8 @@ questions they raised.
     instantiation, which is off without `--isolate`;
   - caps and idle-stop are checked for this load (03 §A.5, PD-18);
   - viewers signing in with the owner token get the global view (08 §11).
+- Extended (owner, 2026-10-01; D177): existing instances too — the
+  template's update asks each for the mode (PD-52's amendment).
 
 **PD-36 — LLM concurrency across partitions.** DEFAULT (C18).
 - Rec: a tile-wide cap, on by default at today's limit (4), as a flock
@@ -505,7 +532,7 @@ questions they raised.
   - global-home records are visible to the same consumer's partitions when
     `personOK` passes;
   - operator names are redacted;
-  - `caps.partitions`, and the agent degrades with old managers.
+  - `partitions` in `hello.caps`, and the agent degrades with old managers.
 
 ## E. Accepted risks (why each is acceptable)
 
@@ -532,6 +559,8 @@ questions they raised.
 | AR-19 | With consent off (the default, PD-13), an admin-approved grant lets partitioned Z's code read every person's X data that they can read | the owner's default; the approval warning, the ledger and the Policies switch exist |
 | AR-20 | Archives made before sealing, and key bundles exported before an erase, still hold erased data | plaintext archives can't be erased by key; the switch confirmation counts them; docs say to delete them and re-export bundles |
 | AR-21 | A mode switch doesn't delete provider-held records (sandboxes at a manager) | xbind can't reach into a provider; the confirmation names bound providers |
+| AR-22 | A recreated person's new partition sees the sandbox-manager records their old self owned or was a member of at the consumer's non-personal identity (global-home records match people by user id) | global's person rules predate partitions and a manager can't tell two people of one id apart there (like AR-16); the partition-homed records — a private conversation's — don't carry over (C11); documented in sandbox-manager.md (B1) |
+| AR-23 | Partitions that see one sandbox (global-home team sandboxes, shares) share its files, execs and terminals: any of them can read another's exec output or attach to its terminal | isolation is per sandbox by design; documented in sandbox-manager.md; B2a keeps private conversations' work in partition-homed sandboxes (B1) |
 
 ## F. Contradictions resolved (summary)
 
@@ -609,6 +638,87 @@ questions they raised.
   (11).
 - **Grant rule (PD-54): today's bind authority**, not a new admin-only rule
   — see PD-54.
+
+## I. Questions raised while building — answered (owner, 2026-09-30)
+
+- **I1 — personal binds and G1:** admins **list and delete** other people's
+  personal-bind records (PD-54 as built, D152); 00 §3's G1 names the
+  exception. Never the data behind a bind.
+- **I2 — D33 on partitioned requesters:** keep **today's bind authority**
+  — a provider org's admin may bind their provider into a partitioned
+  consumer's slot, as on any tile; the trust panel lists the bind.
+- **I3 — the partition chip (06 §12.3):** a chip on **every** partitioned
+  tile's window saying whose partition it shows (`yours` / `shared` /
+  `global`), beside F14's marker (D153); built with F14b.
+- **I4 — realtime between partitions: global is the hub.** Three patterns,
+  each for its job, named in the builder docs (F8 finalization):
+  tile-wide live state = a shared resource plus the shared bus (reaches
+  every reader of the tile); member-scoped live state = the global instance
+  as hub (people's browsers attach to global's stream via F5, and a
+  partition streams to global via `GlobalURL`); a partition that must be
+  woken = partition mail (durable, rings a doorbell). Hosted (non-secure)
+  agent conversations stream live to every member through global (08 §4,
+  B2d); no new xbind primitive ("rooms") now.
+- **I5 — logs on partitioned tiles:** a plain `GET /logs` / `bx logs` acts
+  in the caller's own partition (06 §5, as built in F7b); the logs tab gets a
+  partition switcher (own partition / global, and for admins what they may
+  see) — F12 / the shell's logs panel.
+- **I6 — the global inbox:** readable (and ackable) by the tile's
+  principals acting as global — the global instance's backend, the owner
+  token's frames and the tile's root/owner terminals and agent sessions
+  (04 §3's "the addressee's principals"); view-as, other tiles and people's
+  partitions stay refused.
+- **I7 — static MCP servers with auth headers** in a partitioned agent stay
+  global-only (their headers never reach the conf mirror); people bind such
+  a server as a tile or a personal bind; the settings UI says so.
+- **I8 — partition archive restore by an admin:** allowed (11 §4 as built,
+  D-F17b), audited, recorded in history, pushed to the person.
+- **I9 — "reviewed code only":** refuses unprotecting a primary and binding
+  an unprotected provider in; other gaps are trust warnings (F7b as built).
+- **I10 — un-sharing a shared agent chat:** allowed; under the hood the
+  conversation moves to the person's own partition (copy there, then delete
+  at global — safely, so it exists in exactly one home at every moment) —
+  no private conversation stays in the shared space (B2b follow-up).
+- **I11 — big files through a channel handoff:** staged (08 §5): files over
+  the mail budget wait in global's storage and the partition fetches them
+  over F5, deleted on ack (B2c follow-up).
+- **I12 — no first-DM notice:** a DM for a person whose partition never ran
+  waits in its inbox like an unread message; notifications, if added, wake
+  whatever backends need to know — an inbox-level thing (the doorbell), not
+  a reply to the sender. The notice B2c built goes (wave 5).
+- **I13 — the shell gets a "Your partitions" user-menu entry** (shown when
+  the workspace has a partitioned tile) to `/xbin/partitions`.
+- **I14 — the logs switcher lives in the shell's logs panel only;** no new
+  admin read path for the admin console (F12 as built).
+- **Built as recommended (no ruling needed unless the owner objects):**
+  credentials held under `credentialResetConfirm` stay held when the policy
+  is turned off; an unreadable notices file lets an SSO sign-in through
+  with a log line; mail's optional `source` counts `LedgerTrigger`; a
+  per-sender share of the global inbox (100 items / 8 MiB, 507); sealed
+  pre-switch main archives also need the typed confirmation; the pre-switch
+  restore guard doesn't outlive a removed tile; `bx backup` exits 1 when a
+  person's partition archive fails; a person's partition's model-call gate
+  is 2 (PD-36); the partitions branch holds back from master and releases
+  until B2b and B2c land (the agent's sharing answers 409 in a partition
+  until then); an existing agent instance's merge of the template's
+  `template` block resolves automatically (W3b).
+- **I15 — coding agents (harnesses) in a partitioned agent (owner,
+  2026-09-30): only in a person's own conversations.** Shared chats, hosted
+  chats and the global instance's channels and triggers never start or
+  spawn a harness, and there's no harness sign-in at global. A harness
+  conversation can't be moved between homes: publish, copy and un-share
+  answer 409. This keeps "global holds no person's credentials", since a
+  sign-in lives in the sandbox's `$HOME`. Plan: 96-agtt-merge.md (W6).
+- **Wave 4, built as recommended:** the chip's fourth word `no partition`
+  (view-as; the workspace token on a tile without a global instance) and
+  its place after the window's path; llm-gw's per-caller rows for
+  partitioned callers only (byte-identical elsewhere), no token budget yet;
+  no admin flag toward tiles yet; private push triggers fail closed against
+  a team catch-all on the same source; the switch and wipe pushes open the
+  partitions page; the trust panel lists used edges only; `?next=` carries
+  only `/xbin/partitions`; T1's merge driver is configured in every builtin
+  template instance (untracked `.git` config) and renamed instances' other
+  files keep git's line merge.
 
 The questions as they were raised:
 

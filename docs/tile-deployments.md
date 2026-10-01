@@ -420,7 +420,13 @@ curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/api/xbin/deployments/d
 - The log lists every attempt newest first — queued and running ones, and
   failed ones, included — with who, when, how (`pause`, `reload-now`, `resume`, `attach`, `add`,
   `deploy`, `promote` with its `from`, `rollback`, `restart`, `reassign`,
-  `protect`), from which session, and the checkpoint before and after.
+  `protect`, and `partition-switch` — a tile manager switched the tile's
+  partition mode, deleting its data, with no checkpoint; see
+  [partitions.md](partitions.md)), from which session, and the checkpoint
+  before and after. A deploy, roll back or promote onto the primary of code
+  that asks for another `partition` says so in its dry run
+  (`impact.partition`): on a tile that holds data, its primary doesn't run
+  until a tile manager switches or keeps the current mode.
   `?id=<id>&wait=<s>` waits (up to 25 s) for one attempt to finish.
 - The diff compares two of `c:<id>`, a deployment and `work-tree`
   (default: what the primary runs → the work tree); `path=<file>` narrows it

@@ -206,6 +206,7 @@ func printStatusDeployments(s *tileStatus, tile string, st *deployState) {
 
 type tileStatus struct {
 	Component string `json:"component"`
+	Partition string `json:"partition"` // a person's partition's own answer (user:<id>)
 	// A tile with a record (11-contract §8): the deployment reported, and
 	// for admins and terminal tokens the summary of every deployment.
 	Deployment  string `json:"deployment"`
@@ -252,6 +253,9 @@ type tileStatus struct {
 
 func printTileStatus(s *tileStatus) {
 	fmt.Println(s.Component)
+	if s.Partition != "" { // the person's partition this terminal acts in (docs/partitions.md)
+		fmt.Printf("  partition  %s\n", s.Partition)
+	}
 	if b := s.Backend; b != nil {
 		up := ""
 		if b.UptimeSec > 0 {
@@ -328,6 +332,10 @@ func humanBytesBx(n int64) string {
 }
 
 func cmdLogs(args []string) error {
+	args, pq, err := takePartitionLogFlags(args) // --global, --user <id> (logs_partition.go)
+	if err != nil {
+		return err
+	}
 	args, dep, given, err := takeDeployment("logs", args)
 	if err != nil {
 		return dcCommand(func([]string) error { return err })(nil)
@@ -353,7 +361,10 @@ func cmdLogs(args []string) error {
 		return dcCommand(func([]string) error { return logsOf(comp, dep, follow) })(nil)
 	}
 	if comp == "" {
-		return fmt.Errorf("usage: bx logs [-f] <component>")
+		return fmt.Errorf("usage: bx logs [-f] [--global | --user <id>] <component>")
+	}
+	if len(pq) > 0 { // a partitioned tile's global instance's, or a shared person's: xbind decides
+		return logsFromAPI(comp, follow, pq)
 	}
 	ws := workspaceRoot()
 	if ws == "" {
@@ -362,7 +373,7 @@ func cmdLogs(args []string) error {
 	if fi, err := os.Stat(filepath.Join(ws, ".xbin", "log")); err != nil || !fi.IsDir() {
 		// .xbin is masked in an isolated terminal (internal/term/binds.go),
 		// so the file can't answer: xbind serves the same log (16-open-questions Q23).
-		return logsFromAPI(comp, follow)
+		return logsFromAPI(comp, follow, nil)
 	}
 	path := filepath.Join(ws, ".xbin", "log", util.CompKey(comp)+".log")
 	f, err := os.Open(path)
@@ -388,8 +399,11 @@ func cmdLogs(args []string) error {
 // logsFromAPI streams a backend's log from GET /logs, what `bx logs` does
 // where it can't read .xbin/log itself: the whole log up to the route's
 // 1 MiB tail, or with -f the last 64 KiB and then everything appended.
-func logsFromAPI(comp string, follow bool) error {
+func logsFromAPI(comp string, follow bool, extra url.Values) error {
 	q := url.Values{"component": {comp}}
+	for k, v := range extra {
+		q[k] = v
+	}
 	if follow {
 		q.Set("follow", "1")
 	} else {

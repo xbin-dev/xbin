@@ -189,6 +189,19 @@ export const IMPLEMENTS = {
   // States
   'state.halted': 'agent.js — syncHalt',
   'state.errors': 'agent.js — app.on(\'error\') and the controls\' alerts',
+  'state.partition.share': 'sidebar.js (row menu, views), agent.js top bar — model/partition.js sharing, model/rules.js',
+  'state.partition.homes': 'model/homes.js, model/home-api.js — model/conv-list.js, model/session.js',
+  'state.partition.publish': 'homes-ui.js — openPublish (share.js openShare, sidebar.js row menu)',
+  'state.partition.copy': 'homes-ui.js — copyTpl in share.js',
+  'state.partition.newShared': 'homes-ui.js — mountNewShare in agent.js',
+  'state.partition.global': 'partition-ui.js — the notice above the main pane',
+  'state.partition.sandboxes': 'partition-ui.js — the notice above the main pane',
+  'state.partition.hidden': 'model/stream.js — Live.visibility',
+  'state.partition.mcp': 'partition-ui.js — mountStaticMcp in agent.js tabMcp',
+  'state.partition.hosted': 'hosted-ui.js — hostedChipTpl (agent.js top bar), hostedRowChip (sidebar.js), hostedPaint (agent.js paint) — model/hosted.js',
+  'state.partition.host': 'hosted-ui.js — hostTpl in share.js',
+  'state.partition.copyIn': 'hosted-ui.js — hostTpl in share.js (Add a copy of my files…)',
+  'state.partition.harness': 'model/harness-homes.js — harness-start.js (#apick, #n-agent-shared, #n-sandbox, #hsetup: model/harness-start.js, model/harness.js sandboxFits), signin.js #hl-view (model/terminals.js signIn away), share.js (no copyTpl, hostTpl without host; #sh-stays: unshareWhy), sidebar.js row menu and agent.js top bar and composer (model/rules.js: keepsHome, barredWhy), harness-controls.js (barredWhy), model/harness-store.js call',
 
   // Deep links
   'link.conv': 'agent.js — followHash (model/router.js)',

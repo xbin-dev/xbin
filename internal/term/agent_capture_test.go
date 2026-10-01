@@ -70,8 +70,8 @@ func (c *captureRun) finish(dir string) {
 	c.out["events"] = evs
 	c.r.m.Kill(c.id)
 	waitClose(c.t, c.r.change, "close:"+c.id)
-	if hs := c.r.m.ListHistory("owner", "apps/x", nil); len(hs) > 0 {
-		meta, hev, err := c.r.m.ReadHistory("owner", hs[0].ID)
+	if hs := c.r.m.ListHistory(OwnHistory("owner"), "apps/x", nil); len(hs) > 0 {
+		meta, hev, err := c.r.m.ReadHistory(OwnHistory("owner"), hs[0].ID)
 		if err == nil {
 			c.out["history"] = map[string]any{"meta": meta, "events": hev}
 			c.out["historyList"] = hs

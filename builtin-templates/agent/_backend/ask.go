@@ -58,11 +58,17 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		// without it the legacy Toolset names a built-in, else the
 		// caller's default.
 		Class string
+		// Share shares it at once (homes.go): at a partitioned agent's
+		// global instance a person's new conversation must name someone.
+		Share *shareSpec
 		// Harness: a coding agent answers the conversation (D147
 		// §4.2.3) — in the body's sandbox, which it needs.
 		Harness *harnessReq `json:"harness"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	if !askShareOK(w, r, body.Share, body.Draft) {
+		return
+	}
 	if !validPick(body.Model) {
 		xbin.WriteError(w, 400, "model: a model id from GET /models (up to 200 characters)")
 		return
@@ -113,6 +119,7 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	w0 := callerOf(r)
 	st := w0.stamp("chat")
+	body.Share.stamp(&st)
 	title := strings.TrimSpace(body.Title)
 	if st.TitleSrc = "user"; title == "" {
 		title, st.TitleSrc = clip(body.Text, 60), "clip"
@@ -121,6 +128,9 @@ func handleAsk(w http.ResponseWriter, r *http.Request) {
 		Note: note, Stamp: st, Sender: w0.user})
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
+		return
+	}
+	if !shareNew(w, run, body.Share, w0) {
 		return
 	}
 	xbin.WriteJSON(w, 200, runAnswer(run))
@@ -156,8 +166,8 @@ func handleAskUpload(w http.ResponseWriter, r *http.Request) {
 		if id = heldDraft(t, c, key); id != 0 {
 			return nil
 		}
-		stale = scanIDs(t.q.Query(`SELECT id FROM runs WHERE origin=? AND owner=? AND parent_id=0 AND created<?`,
-			heldOrigin, c.tag(), time.Now().Add(-heldTTL).Unix()))
+		stale = scanIDs(t.q.Query(`SELECT id FROM runs WHERE origin=? AND owner=? AND parent_id=0 AND created<? AND session_key LIKE 'held:%'`,
+			heldOrigin, c.tag(), time.Now().Add(-heldTTL).Unix())) // a draft's; a moving conversation is held too (homes_move_user.go)
 		st := c.stamp("chat")
 		st.Origin, st.SessionKey, st.TitleSrc = heldOrigin, "held:"+key, "clip"
 		var err error

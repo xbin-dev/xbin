@@ -53,8 +53,14 @@ type Broker struct {
 	Users     *users.Store          // human users (nil = single-user/root-only)
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
 	tileSbx   tileSbxSlot           // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
+	pol       policiesStore         // data/workspace-policies.json, cached (policies.go, PD-55)
+	plim      partitionLimits       // data/partition-limits.json (partitionlimits.go, PD-18)
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
+
+	partitionSlot                  // each tile's recorded partition mode (partitionmode.go)
+	partRun       partitionRunSlot // the runner's side of people's partitions (partitionwire.go)
+	pbind         personalBindSlot // people's personal binds (personalbind.go, PD-54)
 
 	// edgeTallies: (tile, deployment, edge) → *edgeTally, refused and clamped calls (edgepolicy.go).
 	edgeTallies sync.Map
@@ -181,19 +187,9 @@ func (b *Broker) Close() {
 	if b.kv != nil {
 		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
+	b.flushLedgers() // counts not yet saved (partitionledger.go)
+	b.closeMail()    // partition mail's doorbells and sweep (partitionmail_bell.go)
 }
-
-// SetBuiltins installs the embedded builtin tile catalog (from main, which
-// owns the embedded FS). Call before Register.
-func (b *Broker) SetBuiltins(s *builtins.Set) { b.tiles = s }
-
-// SetBuiltinTemplates installs the embedded builtin template catalog. Call
-// before Register.
-func (b *Broker) SetBuiltinTemplates(s *builtins.TemplateSet) { b.templates = s }
-
-// SetUpdater installs the builtin update tracker (plans/builtin-updates.md).
-// Call before Register.
-func (b *Broker) SetUpdater(u *builtins.Updater) { b.updater = u }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
 	b := &Broker{Reg: reg, Hub: hub}
@@ -215,6 +211,7 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 	b.disk = newDiskMon(reg.Root, envQuota(), b.scopeDiskUsage)
 	b.disk.sbxUsage, b.disk.onLow = b.sandboxUsage, b.sandboxesLowDisk // disk pressure only (tilesbx_hooks.go)
 	go b.disk.run()
+	b.initPartitionModes() // before the first Provision: a pending tile's mode is known
 	b.Provision()
 	return b, nil
 }
@@ -242,17 +239,6 @@ func (b *Broker) scopeDiskUsage() map[string]int64 {
 	return out
 }
 
-// DiskAlerts returns the current workspace disk/limit alerts.
-func (b *Broker) DiskAlerts() []Alert { return b.disk.Alerts() }
-
-// SetLimitAlerts injects extra alert sources (e.g. cgroup at-limit events)
-// that the monitor folds into DiskAlerts. Called from main after wiring.
-func (b *Broker) SetLimitAlerts(fn func() []Alert) {
-	if b.disk != nil {
-		b.disk.extra = fn
-	}
-}
-
 // UnsealOrInit brings the vault barrier online with a passphrase: initializes
 // it on first use (migrating any legacy plaintext), or unseals an existing
 // one. Called at boot from XBIN_VAULT_PASSPHRASE, and by the unseal API.
@@ -262,6 +248,7 @@ func (b *Broker) UnsealOrInit(passphrase string) error {
 			return err
 		}
 		b.MountEncrypted()
+		b.resettleAfterUnseal() // a tile a sealed vault paused (partitionmode.go)
 		b.wakeBackends()
 		return nil
 	}
@@ -270,6 +257,7 @@ func (b *Broker) UnsealOrInit(passphrase string) error {
 	}
 	b.migrateVaults()
 	b.MountEncrypted() // default-on: encrypt file-backed resources from now on
+	b.resettleAfterUnseal()
 	b.wakeBackends()
 	return nil
 }
@@ -296,6 +284,8 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("GET /bindings", b.apiBindingsList)
 	srv.RegisterAPI("POST /bindings", b.apiBindingSet)
 	srv.RegisterAPI("DELETE /bindings", b.apiBindingSet)
+	b.registerPersonalBinds(srv) // GET/POST/DELETE /partitions/binds (personalbind_api.go)
+	b.registerPartitionMail(srv) // POST/GET /partitions/mail, POST /partitions/mail/ack (partitionmail_api.go)
 	srv.RegisterAPI("PUT /iface-instances", b.apiIfaceInstancesSet)
 	srv.RegisterAPI("PUT /ingress-hosts", b.apiIngressHosts)
 	srv.RegisterAPI("GET /ingress-routes", b.apiIngressRoutes)
@@ -306,6 +296,7 @@ func (b *Broker) Register(srv *server.Server) {
 	srv.RegisterAPI("GET /backup-schedule", b.apiBackupScheduleList)
 	srv.RegisterAPI("POST /backup-schedule", b.apiBackupScheduleSet)
 	srv.RegisterAPI("DELETE /backup-schedule", b.apiBackupScheduleDelete)
+	b.registerBackupKeys(srv) // backup key bundles, export status, erase (backupkeys_api.go)
 	srv.RegisterAPI("GET /vault-status", b.apiVaultStatus)
 	srv.RegisterAPI("POST /vault-unseal", b.apiVaultUnseal)
 	srv.RegisterAPI("POST /vault-seal", b.apiVaultSeal)
@@ -333,9 +324,11 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerTemplates(srv)
 	b.registerUsers(srv)
 	b.registerScreens(srv)
+	b.registerPolicies(srv)
+	b.registerPartitionLimits(srv)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
-		Primary:      b.primaryOf, Addressed: b.addressed}
+		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID, PartitionLog: b.PartitionLog}
 	b.obs.Register(srv)
 	srv.InstallPolicy(brokerPolicy{b})
 }
@@ -564,6 +557,7 @@ type PendingGrant struct {
 	// entries and/or "workspace-admin" — so a pending request never renders
 	// as a dead end.
 	Approvers []string `json:"approvers,omitempty"`
+	Warning   string   `json:"warning,omitempty"` // a partitioned tile on another's people's data (partitionconsent.go)
 }
 
 // RefreshPending recomputes the pending set and publishes a `grants` event
@@ -610,6 +604,7 @@ func (b *Broker) Pending() []PendingGrant {
 			out = append(out, PendingGrant{
 				Grant:   registry.Grant{From: c.Path, Target: u.Target, Role: u.Role},
 				Blocked: b.ceilingBlockMsg(c.Path, u.Target),
+				Warning: b.partitionGrantWarning(c.Path, u.Target),
 			})
 		}
 	}
@@ -743,7 +738,7 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 			server.WriteError(w, http.StatusBadRequest, msg)
 			return registry.Grant{}, false
 		}
-		if err := b.xbinGrantRefusal(g); err != nil { // D127k
+		if err := b.grantRefusal(g); err != nil { // D127k, PD-28 (partitionmode.go)
 			server.WriteError(w, http.StatusConflict, err.Error())
 			return registry.Grant{}, false
 		}
@@ -767,29 +762,6 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return registry.Grant{}, false
 	}
-	server.WriteOK(w)
+	b.writeGrantOK(w, r, g) // + the approval warning (partitionconsent.go)
 	return g, true
-}
-
-// TileDiskStatus resolves a component to its scope's disk footprint/quota/block
-// state (for the tile status API).
-func (b *Broker) TileDiskStatus(component string) (usage, quota int64, blocked bool) {
-	scope := ""
-	if c, ok := b.Reg.Component(component); ok {
-		scope = c.Scope
-	}
-	k, _ := scopeKeys(scope, util.MainDeployment)
-	return b.disk.Status(k.Quota)
-}
-
-// TileAlerts returns the alerts relevant to one component (its own tile-scoped
-// alerts plus any workspace-wide/system alerts).
-func (b *Broker) TileAlerts(component string) []Alert {
-	var out []Alert
-	for _, a := range b.DiskAlerts() {
-		if a.System || a.Tile == component {
-			out = append(out, a)
-		}
-	}
-	return out
 }

@@ -56,6 +56,10 @@ func handleRunTerminal(w http.ResponseWriter, r *http.Request) {
 	if notTerminalUpgrade(w, r) {
 		return
 	}
+	if globalMode() && r.URL.Query().Get("login") == "1" { // no sign-in at the global instance (harness_partition.go)
+		xbin.WriteError(w, http.StatusConflict, harnessNotAtGlobal)
+		return
+	}
 	c := callerOf(r)
 	if sbxUserOf(c) == "" {
 		xbin.WriteError(w, http.StatusForbidden, "only a person can open a terminal")
@@ -178,15 +182,26 @@ func harnessRunOf(id int64) (Config, error) {
 
 // personSandbox is sandbox ref fresh from its manager, asked as person c,
 // when c may use it themself (sandboxAccess(c).Use) — else a 403 in
-// denied's words. The manager's refusals (not-found, …) pass through.
+// denied's words. The manager's refusals (not-found, …) pass through. In a
+// person's partition it is a coding agent's sandbox as every use checks it
+// (sandbox_partition.go): a manager that can't keep people apart is refused
+// (409), and so is a sandbox that isn't homed there (403).
 func personSandbox(ctx context.Context, c who, ref string, denied func(*sbxSandbox) string) (*sbxConn, string, *sbxSandbox, error) {
 	conn, id, err := sbxDialRef(ref, sbxUserOf(c))
 	if err != nil {
 		return nil, "", nil, err
 	}
+	if userMode() {
+		if _, err := managerHello(ctx, conn.M); err != nil {
+			return nil, "", nil, err
+		}
+	}
 	box, err := conn.Get(ctx, id)
 	if err != nil {
 		return nil, "", nil, err
+	}
+	if why := partitionBoxRefusal(box); why != "" {
+		return nil, "", nil, &sbxError{Provider: conn.M.Provider, Refusal: "not-allowed", Msg: why}
 	}
 	if !sandboxAccess(c, box).Use {
 		return nil, "", nil, refuse(http.StatusForbidden, "%s", denied(box))

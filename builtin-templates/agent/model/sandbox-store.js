@@ -12,20 +12,33 @@
 //
 // Every change emits 'sandboxes' on the app. Calls throw as the backend
 // refuses (e.message says why).
+//
+// In a person's partition the list is read where you are (model/homes.js):
+// a shared conversation's sandboxes are the global instance's — it made
+// them and binds them — so while one is open the list, and every call about
+// a sandbox, is the global instance's; anywhere else (home, one of your own)
+// your partition's. Each home's list is kept apart. Elsewhere there is one.
 import * as actions from './actions.js';
 import * as S from './sandboxes.js';
 import * as classes from './classes.js';
+import { homeOf } from './homes.js';
+import { hostedId } from './hosted.js';
 import { fitsWhy, createPrefill } from './harness-start.js';
 import { isHarness, harnessOf, nameOf } from './harness.js';
 
 const cid = () => 's' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 export function createSandboxStore(app) {
-  let loadedAt = 0;
-  let inflight = null;
   const emit = () => app.emit('sandboxes');
   const conv = () => app.session.current();
   const rootOf = (v) => (v ? v.run.rootId || v.run.id : null);
+  // here: the home the open conversation lives in ('' at home, and unpartitioned)
+  const here = () => homeOf(rootOf(conv()));
+  const homes = new Map(); // home → {list, error, loadedAt, inflight}
+  const at = (home = here()) => {
+    if (!homes.has(home)) homes.set(home, { list: S.listOf(null), error: '', loadedAt: 0, inflight: null });
+    return homes.get(home);
+  };
   const find = (ref) => sbx.list.sandboxes.find((s) => s.ref === ref) || null;
   // put takes a sandbox a call answered into the list (replacing it, or first)
   const put = (s) => {
@@ -39,7 +52,7 @@ export function createSandboxStore(app) {
   // again (fresh, once per ref) rather than shown as gone.
   const checked = new Set();
   const recheckRefs = (refs) => {
-    if (!loadedAt || inflight) return;
+    if (!at().loadedAt || at().inflight) return;
     const missing = refs.filter((ref) => ref && !find(ref) && !checked.has(ref));
     if (!missing.length) return;
     missing.forEach((ref) => checked.add(ref));
@@ -56,21 +69,27 @@ export function createSandboxStore(app) {
     let s = find(ref);
     for (let tries = 0; ; tries++) {
       try {
-        put(await actions.patchSandbox(ref, bodyOf(s)));
+        put(await actions.patchSandbox(ref, bodyOf(s), here()));
         return;
       } catch (e) {
         if (e.status !== 412 || tries) throw e;
       }
-      s = await actions.getSandbox(ref);
+      s = await actions.getSandbox(ref, here());
       put(s);
       s = find(ref);
     }
   };
 
   const sbx = {
-    list: S.listOf(null), // GET /sandboxes (model/sandboxes.js listOf); loaded once read
+    // list: GET /sandboxes where you are (model/sandboxes.js listOf); loaded once read
+    get list() { return at().list; },
+    set list(l) { at().list = l; },
+    // listAt: a home's list ('': your own partition's — the old-manager banner reads it)
+    listAt(home) { return at(home).list; },
     pick: null,           // the next new chat's sandbox: {ref, cwd, name} (sent while its class has the sandbox toolset)
-    error: '',            // why the list could not be read
+    // error: why the list could not be read
+    get error() { return at().error; },
+    set error(e) { at().error = e; },
     // the page's endpoints for its `sandboxes` slot (xbin.iface) — set by a
     // view that opens terminals (the web's); S.RELAY: through the tile's own
     // relay (the native view: the app's terminal dials only the tile's own
@@ -84,29 +103,40 @@ export function createSandboxStore(app) {
     coding() { return conv() ? null : app.harness.picked(); },
 
     // load reads the list (fresh: past the backend's 15 s cache); one read at a time.
-    load(fresh = false) {
-      if (inflight) return inflight;
-      inflight = actions.sandboxes(fresh)
-        .then((r) => { sbx.list = S.listOf(r); sbx.error = ''; }, (e) => { sbx.error = e.message; })
-        .finally(() => { inflight = null; loadedAt = Date.now(); emit(); });
-      return inflight;
+    load(fresh = false, home = here()) {
+      const h = at(home);
+      if (h.inflight) return h.inflight;
+      h.inflight = actions.sandboxes(fresh, home)
+        .then((r) => { h.list = S.listOf(r); h.error = ''; }, (e) => { h.error = e.message; })
+        .finally(() => { h.inflight = null; h.loadedAt = Date.now(); emit(); });
+      return h.inflight;
     },
     // ensure reads it once a view needs it; refresh again when it is older than 15 s.
     // ref: a sandbox the view names (a sign-in card's) that the list read
     // before lacks is read again, fresh, once (recheck) — not shown as gone.
-    ensure(ref) { if (!loadedAt && !inflight) sbx.load().catch(() => {}); else if (ref) recheckRefs([ref]); },
-    refresh() { if (Date.now() - loadedAt > 15e3) sbx.load().catch(() => {}); },
+    // home: whose list ('' your own partition's; default where you are).
+    ensure(ref = '', home = here()) {
+      if (!at(home).loadedAt && !at(home).inflight) sbx.load(false, home).catch(() => {});
+      else if (ref) recheckRefs([ref]);
+    },
+    refresh() { if (Date.now() - at().loadedAt > 15e3) sbx.load().catch(() => {}); },
 
     // What the views draw (model/sandboxes.js), for where you are. rows:
     // order — the refs as the view shows them (kept while its list is open).
+    // A hosted (non-secure) conversation shows neither: the sandboxes its
+    // run uses are its host's partition's, and binding one there answers 409.
     picker() {
       const h = sbx.coding(), v = conv();
       const p = S.sandboxPicker(sbx.list, v, app.me, { cls: classes.find(app.classes, app.newClassId()), pick: sbx.pick, fits: h ? fitsWhy(h) : null });
       // a coding agent's conversation keeps the sandbox it started in (D147 §2.2): no picker
-      return v && isHarness(v.run) ? { ...p, shown: false } : p;
+      return hostedId(rootOf(v)) || (v && isHarness(v.run)) ? { ...p, shown: false } : p;
     },
     // a coding agent's conversation keeps its sandbox and cwd (D147 §2.2): the badge offers no change
-    badge(v = conv()) { recheck(v); return S.sandboxBadge(v, sbx.list, undefined, { fixed: v && isHarness(v.run) ? nameOf(harnessOf(v)) : '' }); },
+    badge(v = conv()) {
+      if (hostedId(rootOf(v))) return null;
+      recheck(v);
+      return S.sandboxBadge(v, sbx.list, undefined, { fixed: v && isHarness(v.run) ? nameOf(harnessOf(v)) : '' });
+    },
     rows(order) { const v = conv(); return S.sandboxRows(sbx.list, app.me, { conv: v, cls: sbx.cls(), pick: sbx.pick, order, tty: sbx.tty }); },
     // terminal: "Open terminal" for ref at cwd, running cmd ('' = the login
     // shell) (model/sandboxes.js terminal): {shown, why, src, …} — src is
@@ -188,7 +218,7 @@ export function createSandboxStore(app) {
       const why = S.createWhy(null, v);
       if (why) throw new Error(S.sentence(why));
       const body = S.createBody(f, { conversation: v ? rootOf(v) : undefined, bind, clientId: cid() });
-      const s = await actions.createSandbox(body);
+      const s = await actions.createSandbox(body, here());
       put(s);
       if (v && bind) await sbx.reread(rootOf(v));
       else if (!v && bind) sbx.pick = { ref: s.ref, cwd: body.cwd || '', name: s.name };
@@ -200,14 +230,14 @@ export function createSandboxStore(app) {
     // model/sandboxes.js viaConv).
     async act(ref, action) {
       const via = action === 'archive' ? undefined : S.viaConv(find(ref), conv());
-      const r = await actions.sandboxAction(ref, action, { conversation: via });
+      const r = await actions.sandboxAction(ref, action, { conversation: via, home: here() });
       put(r);
       emit();
       return r;
     },
     // share: 'team' | 'private' (its owner).
     async share(ref, visibility) {
-      put(await actions.patchSandbox(ref, { visibility }));
+      put(await actions.patchSandbox(ref, { visibility }, here()));
       emit();
     },
     // shareForm: "Share with a terminal tile…" for ref (model/sandboxes.js
@@ -251,7 +281,7 @@ export function createSandboxStore(app) {
     },
     // remove deletes it; every conversation that had it loses it.
     async remove(ref) {
-      await actions.deleteSandbox(ref);
+      await actions.deleteSandbox(ref, here());
       sbx.list = { ...sbx.list, sandboxes: sbx.list.sandboxes.filter((s) => s.ref !== ref) };
       if (sbx.pick && sbx.pick.ref === ref) sbx.pick = null;
       const v = conv();

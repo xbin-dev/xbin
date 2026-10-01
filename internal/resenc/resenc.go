@@ -20,6 +20,7 @@ package resenc
 import (
 	"bufio"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,9 +28,16 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Manager owns the gocryptfs mounts for one workspace. Safe for concurrent use.
+//
+// Each volume, (scopeKey, name), has a lock of its own, held across its
+// gocryptfs -init and mount, so N people's cold starts don't queue behind
+// one another (PD-48); mu guards the maps only, never a gocryptfs run. A
+// volume's users may hold it (Hold): a user partition's volume nobody held
+// for a while is unmounted by UnmountIdle.
 type Manager struct {
 	root   string                             // workspace root
 	bin    string                             // gocryptfs binary ("" = unavailable)
@@ -38,16 +46,51 @@ type Manager struct {
 	mu     sync.Mutex
 	mounts map[string]string // key(scopeKey,name) → mount dir
 	modes  map[string]bool   // key → mounted in single-tenant mode
+	locks  map[string]*keyLock
+	refs   map[string]int       // key → Holds not yet released
+	used   map[string]time.Time // key → when it was mounted or last released
+	// epoch counts UnmountAll/Close: an Ensure that began before one doesn't
+	// record, and takes down, the mount it made meanwhile (a seal).
+	epoch uint64
 	// stSupport caches whether the binary understands -xbin-single-tenant
 	// (our patched build does; a stock/distro gocryptfs does not).
-	stSupport *bool
+	stOnce    sync.Once
+	stSupport bool
+}
+
+// keyLock is one volume's lock and how many wait on or hold it.
+type keyLock struct {
+	mu    sync.Mutex
+	users int
 }
 
 // New builds a Manager. bin is the gocryptfs path (see Resolve); derive is the
 // barrier's DeriveKey (returns ErrSealed when sealed).
 func New(root, bin string, derive func(string) ([]byte, error)) *Manager {
 	return &Manager{root: root, bin: bin, derive: derive,
-		mounts: map[string]string{}, modes: map[string]bool{}}
+		mounts: map[string]string{}, modes: map[string]bool{}, locks: map[string]*keyLock{},
+		refs: map[string]int{}, used: map[string]time.Time{}}
+}
+
+// lockKey takes volume k's lock; the answer releases it.
+func (m *Manager) lockKey(k string) (unlock func()) {
+	m.mu.Lock()
+	l := m.locks[k]
+	if l == nil {
+		l = &keyLock{}
+		m.locks[k] = l
+	}
+	l.users++
+	m.mu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		m.mu.Lock()
+		if l.users--; l.users == 0 {
+			delete(m.locks, k)
+		}
+		m.mu.Unlock()
+	}
 }
 
 // Resolve finds the gocryptfs binary: $XBIN_GOCRYPTFS, a copy bundled next to
@@ -88,23 +131,52 @@ func plainSegment(s string) bool {
 }
 
 // deploymentsLevel is the directory level, inside data/resources-enc and
-// .xbin/resenc, that holds the volumes of every tile deployment but main.
-const deploymentsLevel = ".deployments"
+// .xbin/resenc, that holds the volumes of every tile deployment but main;
+// partitionsLevel the one that holds user partitions' volumes
+// (plans/partitions/03 §B.1).
+const (
+	deploymentsLevel = ".deployments"
+	partitionsLevel  = ".partitions"
+)
 
-// dirKeyOK: scopeKey is one of the two shapes a resource's directory key
+// dirKeyOK: scopeKey is one of the three shapes a resource's directory key
 // takes. main's is one plain segment, a scope key, which never starts with
-// "." (no scope directory does), so it can't reach the deployments level.
-// Every other deployment's is exactly ".deployments/<scope>/<deployment>/fs",
-// each middle part a plain segment that doesn't start with "." either: the
-// broker's encoded scope and a deployment name.
+// "." (no scope directory does), so it can't reach the other levels. Every
+// other deployment's is exactly ".deployments/<scope>/<deployment>/fs", and
+// a user partition's ".partitions/<scope>/<deployment>/<partition>/fs", each
+// middle part a plain segment that doesn't start with "." either: the
+// broker's encoded scope, a deployment name, a partition key.
 func dirKeyOK(scopeKey string) bool {
 	if plainSegment(scopeKey) {
 		return scopeKey[0] != '.'
 	}
 	parts := strings.Split(scopeKey, "/")
-	return len(parts) == 4 && parts[0] == deploymentsLevel && parts[3] == "fs" &&
-		plainSegment(parts[1]) && parts[1][0] != '.' && plainSegment(parts[2]) && parts[2][0] != '.'
+	switch {
+	case len(parts) == 4 && parts[0] == deploymentsLevel,
+		len(parts) == 5 && parts[0] == partitionsLevel:
+	default:
+		return false
+	}
+	for _, p := range parts[1 : len(parts)-1] {
+		if !plainSegment(p) || p[0] == '.' {
+			return false
+		}
+	}
+	return parts[len(parts)-1] == "fs"
 }
+
+// PartitionVolume reports whether scopeKey is a user partition's directory
+// key: its new volumes take a cheap scrypt cost, and it is unmounted when
+// idle (PD-48).
+func PartitionVolume(scopeKey string) bool {
+	return strings.HasPrefix(scopeKey, partitionsLevel+"/") && dirKeyOK(scopeKey)
+}
+
+// partitionScryptN is the scrypt cost (log2 N) of a new user partition's
+// volume (PD-48): its password is already a 256-bit HKDF subkey of the
+// vault DEK, so stretching it buys nothing, while the default (16) costs
+// ~0.3 s and 64 MiB on every init and mount. Existing volumes keep theirs.
+const partitionScryptN = "10"
 
 // CipherDir is the on-disk ciphertext directory for a resource.
 func (m *Manager) CipherDir(scopeKey, name string) string {
@@ -112,8 +184,13 @@ func (m *Manager) CipherDir(scopeKey, name string) string {
 }
 
 // MountDir is the (runtime) decrypted mountpoint bound into sandboxes.
-func (m *Manager) MountDir(scopeKey, name string) string {
-	return filepath.Join(m.root, ".xbin", "resenc", scopeKey, name)
+func (m *Manager) MountDir(scopeKey, name string) string { return MountPath(m.root, scopeKey, name) }
+
+// MountPath is the decrypted mountpoint of a resource of the workspace at
+// root, as a Manager on it mounts it: the canonical path the runner
+// re-derives for a shared resource of a partitioned scope.
+func MountPath(root, scopeKey, name string) string {
+	return filepath.Join(root, ".xbin", "resenc", scopeKey, name)
 }
 
 // Encrypted reports whether a resource is stored encrypted (its cipherdir has
@@ -166,16 +243,17 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 	if m.bin == "" {
 		return "", fmt.Errorf("gocryptfs not available")
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	k := mkey(scopeKey, name)
+	defer m.lockKey(k)()
+	m.mu.Lock()
+	epoch, mode := m.epoch, m.modes[k]
+	m.mu.Unlock()
+
 	cipher := m.CipherDir(scopeKey, name)
 	mount := m.MountDir(scopeKey, name)
 	if isMounted(mount) {
-		if m.modes[k] == singleTenant {
-			m.mounts[k] = mount
-			return mount, nil
+		if mode == singleTenant {
+			return mount, m.record(k, mount, singleTenant, epoch)
 		}
 		// Mounted in the other mode (cap:containers granted/revoked since):
 		// remount. The broker stops the scope's backends around cap changes,
@@ -183,8 +261,7 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 		if err := fusermountU(mount, false); err != nil {
 			return "", fmt.Errorf("remount %s for mode change: %w", resID, err)
 		}
-		delete(m.mounts, k)
-		delete(m.modes, k)
+		m.forget(k)
 	}
 	if err := os.MkdirAll(cipher, 0o700); err != nil {
 		return "", err
@@ -203,7 +280,11 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 	}
 
 	if _, err := os.Stat(filepath.Join(cipher, "gocryptfs.conf")); err != nil {
-		if err := m.run(pw, "-init", "-q", "-passfile", "/dev/stdin", cipher); err != nil {
+		args := []string{"-init", "-q", "-passfile", "/dev/stdin"}
+		if PartitionVolume(scopeKey) {
+			args = append(args, "-scryptn", partitionScryptN)
+		}
+		if err := m.run(pw, append(args, cipher)...); err != nil {
 			return "", fmt.Errorf("gocryptfs init %s: %w", resID, err)
 		}
 	}
@@ -224,9 +305,37 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 		}
 		return "", fmt.Errorf("gocryptfs mount %s: %w", resID, err)
 	}
+	return mount, m.record(k, mount, singleTenant, epoch)
+}
+
+// errUnmountedMeanwhile: every view was unmounted (a seal, a shutdown) while
+// an Ensure mounted one; the Ensure takes its mount down again.
+var errUnmountedMeanwhile = errors.New("the resource views were unmounted meanwhile (the vault was sealed or xbind is stopping)")
+
+// record notes k's mount, made under its lock, unless an UnmountAll or a
+// Close ran since epoch: then it takes the mount down instead.
+func (m *Manager) record(k, mount string, singleTenant bool, epoch uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.epoch != epoch {
+		if isMounted(mount) {
+			_ = fusermountU(mount, false)
+		}
+		return errUnmountedMeanwhile
+	}
+	m.used[k] = time.Now() // every Ensure is a use: the idle clock restarts
 	m.mounts[k] = mount
 	m.modes[k] = singleTenant
-	return mount, nil
+	return nil
+}
+
+// forget drops k from the maps (its view is unmounted).
+func (m *Manager) forget(k string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.mounts, k)
+	delete(m.modes, k)
+	delete(m.used, k)
 }
 
 // apparmorProfile is where Ubuntu keeps AppArmor's profile for fusermount3
@@ -264,25 +373,111 @@ func (m *Manager) SupportsSingleTenant() bool {
 	if m.bin == "" {
 		return false
 	}
-	if m.stSupport == nil {
+	m.stOnce.Do(func() {
 		out, _ := exec.Command(m.bin, "-hh").CombinedOutput() // exec-ok: gocryptfs's own help, no workspace input
-		ok := strings.Contains(string(out), "xbin-single-tenant")
-		m.stSupport = &ok
-	}
-	return *m.stSupport
+		m.stSupport = strings.Contains(string(out), "xbin-single-tenant")
+	})
+	return m.stSupport
 }
 
 // Unmount unmounts one resource's decrypted view (the ciphertext stays).
 func (m *Manager) Unmount(scopeKey, name string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.mounts, mkey(scopeKey, name))
-	delete(m.modes, mkey(scopeKey, name))
+	k := mkey(scopeKey, name)
+	defer m.lockKey(k)()
+	m.forget(k)
 	mount := m.MountDir(scopeKey, name)
 	if !isMounted(mount) {
 		return nil
 	}
 	return fusermountU(mount, false)
+}
+
+// Hold takes a reference on a resource's view for one of its users (a
+// backend instance, a blob request, a backup, a reset) until release: a
+// user partition's view isn't unmounted for idleness while held (PD-48).
+// It mounts nothing; the holder then Ensures it. release is idempotent.
+func (m *Manager) Hold(scopeKey, name string) (release func()) {
+	k := mkey(scopeKey, name)
+	m.mu.Lock()
+	m.refs[k]++
+	m.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			if m.refs[k]--; m.refs[k] <= 0 {
+				delete(m.refs, k)
+				if _, ok := m.mounts[k]; ok {
+					m.used[k] = time.Now()
+				}
+			}
+			m.mu.Unlock()
+		})
+	}
+}
+
+// Touch restarts a mounted view's idle clock: a use that found it already
+// mounted (the broker's Ensure short-circuit). A no-op for a view this
+// Manager doesn't hold.
+func (m *Manager) Touch(scopeKey, name string) {
+	k := mkey(scopeKey, name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.mounts[k]; ok {
+		m.used[k] = time.Now()
+	}
+}
+
+// Expire ends a mounted view's idle clock at once, unless something holds
+// it: a view mounted for one pass only (a backup reading a person's
+// partition) is then due at the next UnmountIdle — which still leaves it
+// while it is held or its instance runs — rather than an idle time later.
+// A no-op for a view this Manager doesn't hold mounted.
+func (m *Manager) Expire(scopeKey, name string) {
+	k := mkey(scopeKey, name)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.mounts[k]; ok && m.refs[k] == 0 {
+		m.used[k] = time.Time{}
+	}
+}
+
+// UnmountIdle unmounts every user partition's view (PartitionVolume) that
+// nobody holds and nobody used since before now-idle, and for which keep
+// (nil: none) doesn't answer true — the broker's word that its partition's
+// instance runs, which restarts its idle clock at now (so it runs from when
+// the instance stopped). A view something still has open stays mounted
+// (fusermount refuses it) and is tried again at the next call. Other views
+// stay mounted until seal, as always. It answers the views it unmounted.
+func (m *Manager) UnmountIdle(now time.Time, idle time.Duration, keep func(scopeKey, name string) bool) []Mount {
+	var out []Mount
+	for _, mt := range m.Mounts() {
+		k := mkey(mt.ScopeKey, mt.Name)
+		if !PartitionVolume(mt.ScopeKey) {
+			continue
+		}
+		if keep != nil && keep(mt.ScopeKey, mt.Name) {
+			m.mu.Lock()
+			if _, ok := m.mounts[k]; ok {
+				m.used[k] = now
+			}
+			m.mu.Unlock()
+			continue
+		}
+		unlock := m.lockKey(k)
+		m.mu.Lock()
+		_, still := m.mounts[k]
+		due := still && m.refs[k] == 0 && now.Sub(m.used[k]) >= idle
+		m.mu.Unlock()
+		if due {
+			if mount := m.MountDir(mt.ScopeKey, mt.Name); !isMounted(mount) || fusermountU(mount, false) == nil {
+				m.forget(k)
+				out = append(out, mt)
+			}
+		}
+		unlock()
+	}
+	return out
 }
 
 // Mount is one decrypted view a Manager holds: the directory key and name it
@@ -311,16 +506,19 @@ func (m *Manager) Mounts() []Mount {
 	return out
 }
 
-// UnmountAll unmounts every mount this Manager holds (seal / shutdown).
+// UnmountAll unmounts every mount this Manager holds (seal / shutdown). An
+// Ensure under way meanwhile takes its own mount down (record).
 func (m *Manager) UnmountAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.epoch++
 	for k, mount := range m.mounts {
 		if isMounted(mount) {
 			_ = fusermountU(mount, false)
 		}
 		delete(m.mounts, k)
 		delete(m.modes, k)
+		delete(m.used, k)
 	}
 }
 
@@ -332,6 +530,7 @@ func (m *Manager) UnmountAll() {
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.epoch++
 	for k, mount := range m.mounts {
 		if isMounted(mount) && fusermountU(mount, false) != nil {
 			_ = fusermountU(mount, true)
@@ -366,6 +565,11 @@ func (m *Manager) run(pw string, args ...string) error {
 }
 
 // isMounted reports whether dir is a mount point (scans mountinfo).
+// IsMountPoint reports whether dir is itself a mount point (an encrypted
+// view is up there), not the bare directory under it: the runner's check
+// before it binds a user partition's volume into a sandbox.
+func IsMountPoint(dir string) bool { return isMounted(dir) }
+
 func isMounted(dir string) bool {
 	abs, err := filepath.Abs(dir)
 	if err != nil {

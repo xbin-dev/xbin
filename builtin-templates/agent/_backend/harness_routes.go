@@ -444,6 +444,10 @@ func handleHarnessAnswer(w http.ResponseWriter, r *http.Request) {
 // The device code is the caller's alone (harness.login.device says only
 // {by}); asking again for the one they started answers it again.
 func handleHarnessAuthenticate(w http.ResponseWriter, r *http.Request) {
+	if globalMode() { // no sign-in at the global instance (harness_partition.go)
+		xbin.WriteError(w, http.StatusConflict, harnessNotAtGlobal)
+		return
+	}
 	id := pathID(r)
 	run, cfg, sum, ok := harnessRoute(w, id)
 	if !ok {

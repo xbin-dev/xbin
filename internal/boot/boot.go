@@ -499,7 +499,11 @@ func (st *State) stepBroker() error {
 		brk.EnsureComponentRepos() // new/imported components get their own git repo
 	}
 	brk.EnsureComponentRepos() // migrate existing components to per-component repos
+	// builtin template instances merge xbin.json by keys (templaterepo_driver.go); off the boot path
+	go brk.EnsureTemplateMergeDrivers()
 	brk.Users = userStore
+	// a person's partition token authenticates only while covered (plans/partitions/02 §2)
+	st.Auth.SetPartitionCoverage(brk.PartitionCovered)
 	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
@@ -518,7 +522,8 @@ func (st *State) stepBroker() error {
 // installed). Sessions with a leaf of their own — a VM's, a restricted
 // user's — are watched too. Every leaf of a tile counts (runner.AtLimitTile):
 // the flat one, or one per deployment; a non-primary deployment's hit names
-// it and reaches admins only (D127h).
+// it and reaches admins only (D127h), as does a person's partition's, which
+// names neither the person nor the partition (plans/partitions/03 §A.9).
 func (st *State) stepLimitAlerts() error {
 	run, reg, brk, dp := st.Run, st.Reg, st.Broker, st.Deployments
 	if run.Cgroup != nil && run.Cgroup.Enabled() {
@@ -529,7 +534,10 @@ func (st *State) stepLimitAlerts() error {
 			for _, c := range reg.Components() {
 				for _, h := range run.AtLimitTile(c.Path) {
 					who, tile := c.Path, c.Path
-					if h.Deployment != "" && h.Deployment != dp.Primary(c.Path) {
+					switch {
+					case h.Partition:
+						who, tile = "a person's partition of "+c.Path, ""
+					case h.Deployment != "" && h.Deployment != dp.Primary(c.Path):
 						who, tile = c.Path+"'s deployment "+h.Deployment, ""
 					}
 					if h.Mem > lastMem[h.Leaf] {
@@ -586,7 +594,13 @@ func (st *State) stepProxy() error {
 	px.Route = func(p auth.Principal, c *registry.Component, q string) proxy.Decision {
 		return proxy.Decision(brk.Route(p, c, q))
 	}
+	// …and one that addresses a partitioned tile's global instance
+	// (?xbin-partition=global, plans/partitions/05 §6).
+	px.RouteGlobal = func(p auth.Principal, c *registry.Component, q string) proxy.Decision {
+		return proxy.Decision(brk.RouteGlobal(p, c, q))
+	}
 	px.Deployments = st.Deployments
+	st.wirePartitionProxy(px) // user partitions start through the runner's adapter (partitionroute.go)
 	// D29: backends get the driving user attributed (X-XBin-User[-Level]).
 	px.UserLevel = func(uid, tile string) string {
 		acc, ok := userStore.Access(uid)
@@ -619,18 +633,29 @@ func (st *State) stepProxy() error {
 	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
 	brk.WakeBackends = run.WakeAlwaysOn
 	// A component may spawn only if enabled AND its encrypted tile state is
-	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md.
+	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md
+	// — and its primary isn't paused by its partition mode (pending or
+	// invalid, plans/partitions/01 §2.3).
 	run.HoldReason = func(comp string) string {
 		if s := reg.LifecycleState(comp); s != registry.StateEnabled {
 			return "is " + s
 		}
+		if why := brk.PartitionHoldReason(comp); why != "" {
+			return why
+		}
 		return brk.EncryptionHoldReason(comp)
 	}
 	run.ShouldRun = func(comp string) bool { return run.HoldReason(comp) == "" }
-	// ...per deployment: the hold of the namespaces that deployment reaches.
+	// ...per deployment: the hold of the namespaces that deployment reaches;
+	// the partition hold is the primary's alone (non-primary deployments keep
+	// running while a mode switch is pending).
 	run.ShouldRunDeployment = func(tile, dep string) bool {
-		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep)
+		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep) &&
+			(dep != st.Deployments.Primary(tile) || brk.PartitionHoldReason(tile) == "")
 	}
+	brk.SetPartitionStop(func(tile string) { run.StopDeployment(tile, st.Deployments.Primary(tile)) })
+	st.wirePartitionRunner()  // people's partitions: caps and mode transitions (partitionrunner.go)
+	st.wirePartitionTerm(brk) // people's terminals and agent sessions (partitionterm.go)
 	brk.Version = st.Cfg.Version
 	brk.ProxyHandler = px // internal archiver calls for backup/restore
 	st.Proxy = px

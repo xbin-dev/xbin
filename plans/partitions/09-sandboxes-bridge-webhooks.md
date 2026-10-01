@@ -49,15 +49,22 @@ partitions that call it send.
   conversations. Never the converse.
 - **Quotas:** per consumer keeps summing by tile (all partitions of
   `apps/agent` share its consumer quota); per person as today.
-- **`hello`:** `caps.partitions: 1`.
-- **Runtime labels:** `For` stays the tile; a new `ForPartition` label (the
-  partition id) is passed to tilesbx for the admin sandbox registry
-  (metadata).
+- **`hello`:** `caps` carry the word `partitions` (a capability like every
+  other; the manager's own, never a sandbox's).
+- **Runtime labels:** `For` stays the tile; the partition id goes to tilesbx
+  as the runtime label `coding-sandbox/partition` (metadata). The admin
+  sandbox registry (`AdminRow`, `sbx.Entry`) shows no labels: surfacing the
+  partition there (a `forPartition` in `SandboxSpec` → the defs →
+  `AdminRow`/`sbx.Entry`, a protocol.md row) is an xbind follow-up.
 - **Operators (S19):** unchanged (metadata only); names of records homed in a
   user partition are shown as `<consumer>/<partition id, 8> #<n>` unless the
   record is shared with the viewer — model-generated names can carry content;
   labels likewise (the agent's `xbin.agent/home`/`conversation` labels are
-  ids, not content).
+  ids, not content), and their snapshots' names as `snapshot #<n>`.
+- **Isolation stops at the sandbox:** every partition that sees a sandbox
+  shares its execs and terminals (list, output, attach, stdin, kill), so a
+  private conversation's work never goes into a global-home or shared
+  sandbox (B2a).
 - **Trust base:** the manager's writers (and admins) reach every private
   sandbox; `bx doctor` and the partitioned consumer's trust panel list it
   (06 §4). The "reviewed code only" switch (PD-23, decided) requires its
@@ -168,7 +175,7 @@ bound as `openai` providers (roles reader/writer).
 | Tile | Partitioned? | Code change | Contract/doc change |
 |---|---|---|---|
 | agent template | yes, by default for new instances (`user`,`global`, PD-35); existing instances keep their mode | large (08) | agent-inbox: adapters reach global |
-| coding-sandbox | no | consumer = (From, partition id), `""` ≡ global; person from partition; global-home visible by person; operator redaction; `caps.partitions` | sandbox-manager.md |
+| coding-sandbox | no | consumer = (From, partition id), `""` ≡ global; person from partition; global-home visible by person; operator redaction; `partitions` in `hello.caps` | sandbox-manager.md |
 | sandbox-terminal | no | none (verify shares) | note; trust base |
 | messaging bridge | no | none | AGENTS.md note; binding needs global; first-DM notice |
 | webhooks | no | none | API.md note on answer semantics and private-trigger rules |

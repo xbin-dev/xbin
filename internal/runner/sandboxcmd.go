@@ -129,7 +129,9 @@ func (r *Runner) launchSpecWith(c *registry.Component, bin, dir string, env []st
 	// Interface wiring (plans/interfaces.md): a net-provider tile gets one TUN per
 	// bound client; a component's `net` interface resolves to host-share, a splice
 	// through a provider tile, or the relay under a builtin (internet/lan) policy.
-	primary := c.Deployment == "" // the rest is the primary's wiring alone (07-runtime §10.4)
+	// the rest is the primary's wiring alone (07-runtime §10.4), never a
+	// person's partition's (plans/partitions/03 §A.4, S5)
+	primary := c.Deployment == "" && !c.UserPartition()
 	if primary && r.NetRoster != nil {
 		spec.NetClients = r.NetRoster(c)
 	}
@@ -172,10 +174,20 @@ func (r *Runner) launchSpecWith(c *registry.Component, bin, dir string, env []st
 // never read as main's for another deployment: it binds no path, and a
 // path-valued resource then fails the start. main never asks the hook here,
 // so a zero-state start calls it no more than before.
+//
+// A person's partition's binds come from its PartitionEnv remap, on main
+// as anywhere: never a path at itself, which is the tile's (global's) data.
 func (r *Runner) dataBinds(c *registry.Component, env []string) ([]sandbox.Bind, error) {
 	dep := r.viewDeployment(c)
-	if dep == util.MainDeployment {
+	if dep == util.MainDeployment && c.Partition == "" {
 		return resourceBinds(env, r.Root), nil
+	}
+	if c.Partition != "" { // a person's partition: its own volumes, and its scope's shared ones (03 §B.4)
+		var remap map[string]ResBind
+		if r.PartitionEnv != nil {
+			_, remap = r.PartitionEnv(c, dep, c.Partition)
+		}
+		return partitionBindsFor(env, r.Root, c.Path+":"+c.Partition, remap, r.sharedResources(c)) // a nil remap is refused
 	}
 	var remap map[string]ResBind
 	if r.EnvFor != nil {

@@ -19,12 +19,24 @@ bx new <path> [--runtime R] [--expose] [--title "Pretty Name"] [--owner user:U|o
                                        scopes (org-owned needs the org's
                                        Create knob; D25, D82)
 bx tile ls | import <name> [as <path>] list/install builtin tiles
-bx template ls | new <source> [as <path>] | updates
-                                       list/instantiate template components (blueprints)
+bx template ls | new <source> [as <path>] [--no-partition] | updates
+                                       list/instantiate template components (blueprints);
+                                       --no-partition: the copy doesn't start in
+                                       the template's partition mode (docs/partitions.md)
+bx template merge-manifest [--marker-size N] [--rename FROM=TO] BASE OURS THEIRS
+                                       git's merge driver for a template instance's
+                                       xbin.json, which xbind names in the
+                                       instance's repo — git runs it, you don't:
+                                       where the line merge of the template's
+                                       change conflicts, merges by keys
+                                       (docs/overview/03-components.md §Templates)
 bx builtin updates | update <id> [--replace|--merge|--pr]
                                        offer/apply newer embedded scaffold + tiles;
                                        also lists/installs MISSING essential tiles
-                                       (upgraded workspaces predating them, D41)
+                                       (upgraded workspaces predating them, D41);
+                                       every mode keeps each xbin.json's installed
+                                       "partition" and prints a note when upstream
+                                       asks otherwise (docs/partitions.md)
 bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> [--devices] | rm <id>
                                        manage users (admin/xbin:users); add with
                                        an empty password (or --invite) prints a
@@ -85,6 +97,37 @@ bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)
 bx chrome [ls] | approve <tile> | revoke <tile>
                                        trusted chrome (admin, D118): tiles whose
                                        xbin.json asks for chrome, and approvals
+bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
+                                       workspace policies for partitioned tiles
+                                       (PD-55): read (anyone signed in), set
+                                       (admin)
+bx partition switch <tile> [--dry-run] [--confirm <tile>] [--yes] [--json]
+bx partition keep <tile> [--json]     decide a tile's partition mode switch
+                                       request (a tile manager): switch deletes
+                                       all its data, keep deletes nothing
+bx partition mail ls [--after <id>] [--limit n] [--json] | mail ack <id>...
+                                       the partition mail inbox of the
+                                       partition bx runs in (a person's
+                                       terminal on a partitioned tile; its
+                                       root terminal reads global's)
+bx partition consent <from> <to> [--revoke] | consent ls [--json]
+                                       let partitioned tile <from> use your data
+                                       in <to> (while the workspace asks people
+                                       first), or take it back
+bx partition ledger [<tile>] [--days n] [--json]
+                                       your partitions' egress ledger (counts)
+bx partition ls [<tile>] [--json]      partitioned tiles, or one tile's partitions
+bx partition stop|reset <tile> [--user <id>] [--yes]
+                                       stop a partition's instance, or delete its data
+bx partition purge [<tile>] [--partition <id>] [--yes]
+                                       delete orphaned partitions now (admin);
+                                       without --yes, list what it would delete
+bx partition limits [<tile>] [--max-running n] [--partition-bytes n]
+bx partition share-log <tile> [--days n] [--stop]
+                                       share your partition's log with its managers
+bx partition credential <id> allow|refuse
+                                       answer a credential an admin made for you
+bx partition reviewed <tile> on|off    run reviewed code only (admin)
 bx settings [ls] | set --base-auto-update[=true|false]
                                        workspace settings (set: admin, D175):
                                        base auto-update, terminals moving to a
@@ -99,7 +142,9 @@ bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <use
                                        plain listing)
 bx logs [-f] <component>               backend logs (tail -f style with -f);
                                        <tile>+<name> or --deployment <name>: a
-                                       tile deployment's log
+                                       tile deployment's log; on a partitioned
+                                       tile --global (the global instance's) or
+                                       --user <id> (a person's shared log)
 bx live-reload [<tile>] [--json]       where saves go: live reload's target or
                                        paused (by whom, when), what each
                                        deployment runs (docs/tile-deployments.md)
@@ -131,12 +176,17 @@ bx code pr show|fetch|comment|close <n> [<component>] [flags]
                                        review · fetch the series · discuss ·
                                        close (--merged|--rejected|--withdrawn)
 bx api <component>                     roles + API.md — how to integrate with it
-bx grants                              grant table + pending requests
+bx grants                              grant table + pending requests (a
+                                       partitioned tile's on another's people's
+                                       data: whose data it would reach)
 bx grant <caller> <target>:<role>      approve/add a grant
 bx grant --revoke <caller> <target>:<role>
 bx iface                               interface requests, providers, bindings
 bx bind <comp> <slot>=<p> | <slot>+=<p[#i]> | <slot>-=<p[#i]>
                                        wire interface slots (# = provider instance)
+bx bind --personal [--unset] <tile> <slot>=<your tile> [--json]
+                                       wire a tile you own into your own partition
+                                       of a partitioned tile; alone: list them
 bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P] [--add]
                                        publish an exposed endpoint (docs/ingress.md);
                                        --add adds a route (another hostname or
@@ -173,12 +223,62 @@ bx enable | disable <component>        lifecycle: pause/resume a tile (docs/over
                                        — not live reload: see bx live-reload
 bx hide | unhide <component>           hidden = disabled + out of sidebars (D42)
 bx offload <component> [--full]        archive + free local bytes (--full incl. source)
-bx backup <component>                  snapshot to the bound @archive provider
+bx backup <component>                  snapshot to the bound @archive provider;
+                                       a partitioned tile's people's
+                                       partitions too — exits 1 when one
+                                       isn't backed up (the tile's own
+                                       archive is), warns when none can be
+                                       (plaintext-vault mode)
 bx backups <component>                 list archived versions
-bx restore <component> [--version V] [--file PATH]
-                                       restore a whole version, or one file
+bx restore <component> [--version V] [--file PATH] [--confirm DATE]
+                                       restore a whole version, or one file;
+                                       a backup older than the tile's last
+                                       partition mode switch restores only
+                                       with --confirm <the switch's date>
+                                       (docs/partitions.md §Backups); an
+                                       xbind without partitions refuses
+                                       --confirm (run it without)
+bx backups <tile> --partition [--user ID] [--partition-id u-…]
+                                       a person's partition's archived
+                                       versions: your own (your id now), or
+                                       (an admin) anyone's, an earlier
+                                       holder's included
+bx restore <tile> --partition [--user ID] [--version V] [--partition-id u-…]
+           [--to ID] [--dry-run] [--yes] [--json]
+                                       replace a person's partition — its
+                                       data, vault and registrations — with
+                                       its backup; asks you to type
+                                       "<tile> user:<id>" unless --yes; your
+                                       own from your own session, anyone's
+                                       as an admin; an earlier holder's
+                                       (--partition-id, the id deleted and
+                                       recreated since) only an admin, with
+                                       --to <the id>; exits 6 against an
+                                       xbind without it
 bx backup-schedule [<component> --every 24h|--cron "…" [--keep N]|--rm]
                                        owner-scheduled backups
+bx backup keys status                  are archives sealed; keys in no export
+                                       yet; the last export; erasures since
+bx backup keys export > keys.xbk       the disaster-recovery key bundle
+                                       (an admin in their own session):
+                                       useless without the vault
+                                       passphrase, the workspace's data key
+                                       with the passphrase in force now —
+                                       keep them apart; re-export after
+                                       erasures and passphrase changes, and
+                                       destroy older bundles
+bx backup keys import keys.xbk         another workspace's backup keys, so
+                                       this one restores its sealed archives
+                                       (prompts for that workspace's vault
+                                       passphrase; piped: one line on stdin)
+bx backup erase <tile> --data|--all [--yes]
+                                       crypto-erase a tile's backups in every
+                                       archive: --data its data keys (source
+                                       stays restorable), --all every key;
+                                       asks for the tile's path unless --yes;
+                                       says what no key erases (plain
+                                       archives made before sealing, a
+                                       non-root tile's data: its root's)
 bx doctor                              workspace health checks
 bx fix assets [<tile>] [--write] [--dir PATH]
                                        rewrite a tile's absolute /c/ asset URLs
@@ -219,6 +319,10 @@ After scaffolding, frame it somewhere:
 **`bx grant`** — the role goes after the *last* colon, so resource targets
 read naturally: `bx grant apps/email res:apps/calendar/bus:reader`.
 Grants are rows in the workspace `xbin.json`; revoking is deleting the row.
+Approving a partitioned tile's grant on another partitioned tile's people's
+data prints, on stderr, whose data its code will now reach
+([partitions.md](/docs/partitions.md)); so does `bx bind` wiring a
+partitioned tile's http slot to another partitioned tile.
 
 **`bx bind`** — wires a component's interface slots (docs/overview/11-interfaces.md).
 Net slots take the builtin refs `internet`, `host`, `lan:<cidr>` — or the
@@ -235,6 +339,12 @@ that a later set edit or transfer leaves outside the sets goes **inert**
 `slot=provider` replaces; on a `multi:true` http slot `slot+=ref` adds and
 `slot-=ref` removes, where a ref is `provider[#instance]` — instances are the
 runtime-registered sub-slots of a provider (`bx iface` lists them).
+`bx bind --personal <tile> <slot>=<provider>` makes a **personal bind**
+([partitions.md §Bind types](/docs/partitions.md)): a tile you own
+personally, wired into your own partition of a partitioned tile only — run
+it with your own sign-in, not from a tile's terminal; an admin can't (an
+admin's bind is always global: `bx bind`). `--unset` removes it;
+`bx bind --personal` alone lists yours (an admin's: everyone's).
 
 **`bx code pr`** — the cross-tile suggestion channel (D48).
 You can *read* sibling tiles but write only your own, so changes to another
@@ -293,6 +403,9 @@ check couldn't compare — [the migration
 note](/docs/changes/2026-09-30-go-build-workspace.md)); strict tile asset gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
 the strict modes refuse — from `GET /api/xbin/tile-assets`; under the
 default legacy mode these are what the coming enforcement will refuse);
+partitioned tiles holding a grant on another partitioned tile's people's
+data, with whose data their code reaches and how many people used each edge
+in 30 days (admin credentials; [partitions.md](/docs/partitions.md));
 host inotify budget; toolchains present for the runtimes in use.
 Run it first when something "doesn't reload".
 
@@ -305,6 +418,103 @@ only once a workspace admin approves it; until then it runs sandboxed.
 approval (also a removed tile's). Admin credentials (`GET`/`PUT
 /api/xbin/chrome`). Approving a tile trusts every writer of it — its
 terminal users and their coding agents — as much as the shell.
+
+**`bx policies`** — the workspace policies for partitioned tiles (tiles
+where each person has their own data; PD-55), the same two switches as the
+admin console's workspace → policies tab, both off by default:
+`partition-consent` (ask each person before another partitioned tile uses
+their data) and `credential-reset-confirm` (a sign-in link, password or SSO
+email an admin sets for someone who holds partitions works only after they
+confirm, or 24 h after they're notified). `bx policies` prints them (`--json`:
+the `GET /api/xbin/workspace-policies` answer; a person's session, or a
+terminal or agent session they drive, or an admin); `bx policies set <switch> on|off` changes one (admin,
+`PUT`). Neither changes anything for tiles that aren't partitioned.
+
+**`bx partition switch|keep <tile>`** — decide a partition mode switch
+request ([partitions.md §The mode](/docs/partitions.md)): a tile that holds
+data whose code asks for another `partition` is paused until a tile manager
+— the tile's owner, an admin of its owning org, or a workspace admin, with
+bx on the root token or their own login (a tile's terminal can't decide) —
+does one of two things. `keep` records "keep the current mode": the tile
+runs again at once and nothing is deleted (the code keeps asking, and
+`switch` stays possible). `switch` first shows what it deletes — data
+namespaces, people's partitions, vault keys, registrations, bytes and backup
+keys — and what it keeps, then asks for the tile's path (`--confirm <tile>`
+answers without asking; `--dry-run` only shows). It then deletes the tile's
+data and takes the mode the code asks for; everyone whose partition was
+deleted is told. Adding `"global"` to a partitioned tile deletes nothing;
+removing it deletes only the global instance's data and the shared
+resources. A switch to user partitions needs xbind's `--isolate`; if the
+tile binds sandbox managers that don't keep people apart (their hello lacks
+`partitions`), it is refused unless `--yes`. Both read the request from the
+tile's `/components` row and send it back, so a request that changed
+meanwhile is refused rather than decided blind. They exit 6 against an
+xbind without partitioned tiles (one older than them: its rows carry no
+partition and it lacks the route). The typed confirmation's prompt goes to
+stderr, so `--json` keeps stdout to the JSON answer.
+
+**`bx partition mail ls|ack`** — partition mail
+([partitions.md §Partition mail](/docs/partitions.md)) from where it is
+read: in your terminal on a partitioned tile, your partition's inbox (the
+terminal's credential is your partition's); in the tile's root terminal
+(or an agent session acting as global), or with the global instance's
+backend token, the global instance's. `ls` lists the waiting items, oldest
+first, one row each (`--limit`, default 100; when more wait it prints the
+`--after <id>` to read on with; `--json` prints the answer); `ack <id>…`
+removes items. Nobody else reads an inbox: an admin's login or the root
+token gets 403. It exits 6 against an xbind without partition mail.
+
+**`bx partition consent|ledger`** — calls between partitioned tiles
+([partitions.md §Calls between partitioned tiles](/docs/partitions.md)).
+While the workspace policy `partition-consent` is on (`bx policies`), a
+partitioned tile reaches your data in another partitioned tile only once
+you allow it: `bx partition consent <from> <to>` does, `--revoke` takes it
+back (at once: `<from>`'s backend instance of you is stopped; it says so
+when there was nothing to take back), and `consent ls` lists your consents
+and the edges you were asked about. Both are your own acts: bx with your
+login, never a tile's terminal. `bx partition ledger` prints your
+partitions' egress ledger — per day, how often each of your partitions
+called or reached another tile, never what it sent — for one tile or all
+(`--days`, default 30); with a tile, its managers also get its totals
+(personal tiles unnamed), and admins every person's totals. Both exit 6
+against an xbind without them, naming the route it lacks.
+
+**`bx partition ls|stop|reset|purge|limits|share-log|credential|reviewed`** —
+operating people's partitions ([partitions.md §Operating people's
+partitions](/docs/partitions.md)). `ls` lists the partitioned tiles (and
+your partition of each), or one tile's partitions: yours; totals for its
+writers and managers; every person's metadata for admins (never what a
+partition holds), its orphans and its trust warnings. `stop` stops a
+partition's instance — yours by default, anyone's (`--user`) for a tile
+manager or admin; its data stays. `reset` deletes a partition's data —
+yours, or anyone's for an admin, who tells them — after you type
+`<tile> user:<id>` (`--yes` answers for you); its backup keys are erased.
+`purge` (admin) deletes orphaned partitions — their person deleted, their
+tile removed — now instead of 30 days later: without `--yes` it lists what
+it would delete (and exits 1), `--partition <id>` picks one. `limits` shows or sets the
+running cap and each partition's byte ceiling (admins; a tile manager may
+lower their tile's). `share-log` lets the tile's managers and admins read
+your partition's backend log for `--days` (1–14, default 7; they read it
+with `GET /api/xbin/logs?component=<tile>&user=<id>`), `--stop` ends it. `credential` answers a
+sign-in link, password or SSO email an admin made for you while the
+workspace asks people first (`bx policies`: credential-reset-confirm);
+`bx partition ls` prints the ones waiting; a link already used answers
+"already effective". `reviewed <tile> on|off` (admins) sets the tile to run
+reviewed code only: its primary and every provider bound to it must be
+protected, and stay so while it is on. All are your own acts — bx with
+your login or the root token, never a tile's terminal — and exit 6 against
+an xbind without them. In a partition's terminal, `bx status` prints
+`partition: user:<id>` and `bx logs` reads your partition's own log;
+elsewhere `bx logs <tile> --global` reads a partitioned tile's global
+instance's log and `--user <id>` a person's partition's log while they
+share it (both from xbind).
+`bx doctor` reports tiles waiting for a mode decision, partitioned tiles
+without `--isolate`, who can change a partitioned tile's code while it runs
+live, its global binds, tiles bound to one without a global instance,
+sandbox managers that don't keep people apart, files the tile's own
+repository doesn't track (xbind lists them, with a confined git), caps its
+people's partitions met in the last day, and orphaned partitions (with the
+`bx partition purge … --partition <id> --yes` that deletes each).
 
 **`bx settings`** — the workspace settings an admin sets (D175; the admin
 console's workspace → terminals tab sets the same). `bx settings` shows

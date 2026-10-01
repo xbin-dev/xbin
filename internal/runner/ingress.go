@@ -152,7 +152,7 @@ func (r *Runner) ingressFwd(c *registry.Component) map[int]string {
 		return nil
 	}
 	m := r.IngressFwd(c)
-	if c.Deployment == "" {
+	if c.Deployment == "" && !c.UserPartition() {
 		return m
 	}
 	var out map[int]string
@@ -175,10 +175,11 @@ func (r *Runner) ingressFwd(c *registry.Component) map[int]string {
 // another tile's primary as raw L4 traffic the read clamp can't narrow, so
 // v1 blocks it with no override (D127o), and a forward door is the primary's.
 // A generation that stopped being the primary loses its forwards the same
-// way until it restarts.
-func (r *Runner) hostDialFor(tile, dep string, log io.Writer) func(dst string) (net.Conn, error) {
+// way until it restarts. A person's partition (part) is never the primary's
+// generation: its dials are refused as a non-primary deployment's.
+func (r *Runner) hostDialFor(tile, dep string, part bool, log io.Writer) func(dst string) (net.Conn, error) {
 	return func(dst string) (net.Conn, error) {
-		if dep == r.primary(tile) {
+		if !part && dep == r.primary(tile) {
 			return r.hostDial(dst)
 		}
 		err := errors.New("the ingress forward door serves the tile's primary only")

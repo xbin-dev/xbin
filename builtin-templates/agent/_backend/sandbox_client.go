@@ -290,6 +290,11 @@ type sbxSandbox struct {
 		User     string `json:"user"`
 		Via      string `json:"via"`
 		Asserted bool   `json:"asserted"`
+		// PartitionID and Partition: the user partition of a partitioned
+		// consumer the sandbox is homed in (absent: the consumer's
+		// non-personal identity) — sandbox_partition.go.
+		PartitionID string `json:"partitionId,omitempty"`
+		Partition   string `json:"partition,omitempty"`
 	} `json:"owner"`
 	Visibility    string            `json:"visibility"`
 	Members       []string          `json:"members"`
@@ -419,6 +424,7 @@ func (c *sbxConn) List(ctx context.Context) ([]*sbxSandbox, error) {
 }
 
 func (c *sbxConn) Create(ctx context.Context, req sbxCreate) (*sbxSandbox, error) {
+	req.Labels = withHomeLabel(req.Labels) // sandbox_partition.go
 	var out sbxSandbox
 	return &out, c.call(ctx, "POST", "/sandboxes", nil, req, &out, sbxCallTimeout)
 }

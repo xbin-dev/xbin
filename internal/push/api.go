@@ -283,13 +283,19 @@ func (s *Service) APITest(w http.ResponseWriter, r *http.Request) {
 // token) notifies any reader of the tile; its frontend (frame token) or a
 // shell in it (terminal token) acts for the person using it and may notify
 // only them — else any reader could send pushes "from the tile" to anyone.
-// self is that person ("" for a backend).
+// A person's partition of a partitioned tile acts for its person, so its
+// backend notifies only them too (plans/partitions/06 §8, PD-27); the
+// global instance keeps the backend's rule. self is that person ("" for a
+// backend).
 func notifier(p auth.Principal) (tile, self string, ok bool) {
 	if p.Component == "" {
 		return "", "", false
 	}
 	switch {
 	case p.Via == "instance":
+		if id, isUser := p.Partition.User(); isUser {
+			return p.Component, id, true
+		}
 		return p.Component, "", true
 	case p.UserID != "":
 		return p.Component, p.UserID, true
@@ -343,6 +349,9 @@ func (s *Service) notify(w http.ResponseWriter, r *http.Request, h *Holder) {
 		return
 	case body.CollapseID != "" && !collapseRe.MatchString(body.CollapseID):
 		fail(w, http.StatusBadRequest, "collapseId: 1–64 of A–Z a–z 0–9 . _ : -")
+		return
+	case self != "" && user != self && p.Partition.IsUser() && p.Via == "instance":
+		fail(w, http.StatusForbidden, "a person's partition notifies only its person ("+self+"); notify others from the tile's global instance")
 		return
 	case self != "" && user != self:
 		fail(w, http.StatusForbidden, "a tile's frontend can notify only the person using it; notify others from the tile's backend")

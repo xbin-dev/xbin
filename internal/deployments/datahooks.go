@@ -65,4 +65,16 @@ type DataHooks struct {
 	// notifications of a non-primary deployment, oldest first (09-fabric
 	// §6), installed with POST /notify; nil: none held.
 	WouldNotify func(tile, dep string) []WouldNotify
+
+	// PartitionHolds answers whether tile holds data now, as its partition
+	// mode's "holds data" (plans/partitions/01 §2.2): a move onto the
+	// primary of code asking for another mode warns that the tile will
+	// pause (partition.go). nil: it is taken to hold data.
+	PartitionHolds func(tile string) bool
+
+	// ProtectRequired answers, before tile's primary is unprotected, why it
+	// must stay protected ("" — it needn't): a partitioned tile set to run
+	// reviewed code only, which tile is or is bound into
+	// (plans/partitions/06 §4). nil: never.
+	ProtectRequired func(tile string) string
 }

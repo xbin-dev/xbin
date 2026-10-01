@@ -65,7 +65,7 @@ func TestSuitesList(t *testing.T) {
 		t.Fatal("suite term lists nothing")
 	} else {
 		for _, n := range got {
-			if !strings.HasPrefix(n, "TestConfined") && !strings.HasPrefix(n, "TestTermMountPoints") {
+			if !strings.HasPrefix(n, "TestConfined") && !strings.HasPrefix(n, "TestTermMountPoints") && !strings.HasPrefix(n, "TestPartitionLayer") {
 				t.Errorf("suite term holds %s, which its run filter excludes", n)
 			}
 		}

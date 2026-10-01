@@ -170,6 +170,7 @@ type ssoState struct {
 	// redirected to xbin://sso instead of a cookie.
 	App       bool   `json:"a,omitempty"`
 	Challenge string `json:"c,omitempty"`
+	Next      string `json:"x,omitempty"` // where the browser lands (GET /login/sso?next=, loginnext.go)
 }
 
 func (s *Server) ssoKey() []byte {
@@ -241,6 +242,9 @@ func (s *Server) handleSSOStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ssoAppStart(w, r, &st) {
 		return
+	}
+	if n := loginNext(r.URL.Query().Get("next")); n != "/" && !st.App {
+		st.Next = n
 	}
 	payload, _ := json.Marshal(st)
 	http.SetCookie(w, &http.Cookie{
@@ -347,6 +351,10 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		fail("disabled", "account disabled", nil)
 		return
 	}
+	if err := s.Auth.Users.SSOSignInHeld(u); err != nil { // a provider change its person hasn't confirmed (plans/partitions/06 §9)
+		fail("held", "sign-in held for its person to confirm a provider change", err)
+		return
+	}
 	s.syncGroups(u.ID, ident, wantGroups)
 	if err := s.Auth.Users.TouchLogin(u.ID, "sso"); err != nil {
 		slog.Warn("sso: last-login stamp failed", "user", u.ID, "err", err)
@@ -358,7 +366,7 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, ip))
 	slog.Info("audit", "who", "user:"+u.ID, "method", "SSO", "path", "/login/sso/callback", "status", 200)
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, loginNext(st.Next), http.StatusFound)
 }
 
 // syncGroups reconciles the user's memberships/admin role with the groups
@@ -780,6 +788,8 @@ func ssoErrText(code string) string {
 		return "That account is disabled — ask a workspace admin."
 	case "failed":
 		return "Single sign-on failed — try again."
+	case "held":
+		return "The workspace's single sign-on provider changed: signing in through it waits until you confirm the change from a device you're signed in on (/xbin/partitions), or 24 hours."
 	}
 	return ""
 }

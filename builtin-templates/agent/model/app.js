@@ -38,6 +38,8 @@ import * as router from './router.js';
 import { HOME } from './home.js';
 import * as classes from './classes.js';
 import { createSandboxStore } from './sandbox-store.js';
+import { homeOf } from './homes.js';
+import { movedTo, followsMove } from './moves.js';
 import { createHarnessStore } from './harness-store.js';
 import { resolveClass } from './harness.js';
 import { wireStart } from './harness-start.js';
@@ -102,9 +104,12 @@ export function createApp(opts = {}) {
 
     // uploadTarget is where an app that uploads a picked file itself puts it
     // ({method, path}, {name} its name): into the open run, or at home into
-    // the new ask's draft, which Send then sends (a held ask).
+    // the new ask's draft, which Send then sends (a held ask). A shared
+    // conversation in a person's partition is the global instance's
+    // (model/homes.js): its path asks xbind for it.
     uploadTarget() {
-      return { method: 'PUT', path: app.sel == null ? `${base}/ask/upload?draft=${app.draft}&name={name}` : `${base}/runs/${app.sel}/upload?name={name}` };
+      const at = homeOf(app.sel) === 'global' ? '&xbin-partition=global' : '';
+      return { method: 'PUT', path: app.sel == null ? `${base}/ask/upload?draft=${app.draft}&name={name}` : `${base}/runs/${app.sel}/upload?name={name}${at}` };
     },
 
     // --- start ------------------------------------------------------------
@@ -205,7 +210,12 @@ export function createApp(opts = {}) {
       app.sel = +id;
       app.page = null;
       emit('select', app.sel);
-      try { await app.session.select(app.sel); } catch (e) { app.fail(e); return app.home(); }
+      try { await app.session.select(app.sel); } catch (e) {
+        const to = await movedTo(app.sel); // a shared one that moved to your own space since (model/moves.js)
+        if (to) return app.select(to);
+        app.fail(e);
+        return app.home();
+      }
       route(router.convHash(app.sel));
       const root = app.root;
       if (root != null) app.convs.read(root);
@@ -367,7 +377,7 @@ export function createApp(opts = {}) {
   app.session = new S(base, {
     change: () => emit('change'),
     runs: () => emit('runs'),
-    gone: () => app.home(),
+    gone: (id, to, row) => (followsMove(id, to, row, app.me?.user) ? app.select(to) : app.home()), // yours, moved to your own space: followed there (model/moves.js)
     event: (ev) => app.event(ev),
     reset: () => { app.convs.load().catch(() => {}); app.loadNeeds(); app.board.reset(); },
     frame: opts.frame,
@@ -392,7 +402,8 @@ export function createApp(opts = {}) {
     const c = classes.find(app.classes, id);
     return c ? { class: c.id, toolset: classes.laneOf(c) } : {};
   };
-  app.convs = new ConvList({ change: () => emit('list'), epoch: () => app.me.epochMs || 0 });
+  app.convs = new ConvList({ change: () => { app.session.homes?.(); emit('list'); }, epoch: () => app.me.epochMs || 0 });
+  app.session.wantGlobalList = () => app.convs.wantsGlobal(); // model/homes.js: the shared space's stream, while the list shows its rows
   // The Automations page; its route() keeps the address of what is open there.
   app.autos = new A({
     change: () => emit('autos'),

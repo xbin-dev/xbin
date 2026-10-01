@@ -21,6 +21,7 @@ import { ext, ctx } from './web-ext.js';
 import { harnessOf, nameOf } from './model/harness.js';
 import { controls, settingOf, slashCommands, slashMatches, slashText, steerWords, steerTrack, ownerOf, modeConfirm } from './model/harness-ask.js';
 import { access } from './model/rules.js';
+import { barredWhy } from './model/harness-homes.js'; // one in the shared space isn't driven: its mode and options are shown, not switched
 
 const $ = (id) => document.getElementById(id);
 const st = { open: false, busy: false, err: '', sel: 0, dismissed: null, shown: null, timer: 0 };
@@ -68,7 +69,7 @@ ext.register({
   },
 });
 
-const who = (v) => ({ owner: ownerOf(v, ctx.app.me), talk: access(v).talk });
+const who = (v) => ({ owner: ownerOf(v, ctx.app.me), talk: access(v).talk && !barredWhy(v.run) });
 
 // --- #hctl ------------------------------------------------------------------------------
 

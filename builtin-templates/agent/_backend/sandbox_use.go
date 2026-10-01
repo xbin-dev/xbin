@@ -97,6 +97,12 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 		}
 		return nil, err
 	}
+	if why := partitionBoxRefusal(box); why != "" { // at every use, not only when bound (sandbox_partition.go)
+		return nil, &sbxError{Provider: provider, Refusal: "not-allowed", Msg: why}
+	}
+	if why := hostedHarnessRefusal(root, b.Ref, box.Name); why != "" { // a coding agent's sign-in stays its person's (harness_partition.go)
+		return nil, &sbxError{Provider: provider, Refusal: "not-allowed", Msg: why}
+	}
 	live := box.effectiveEgress()
 	if why := sandboxClassAllows(cfg, provider, live); why != "" {
 		return nil, &sbxError{Provider: provider, Refusal: "not-allowed", Msg: why + " (it has changed since it was bound)"}

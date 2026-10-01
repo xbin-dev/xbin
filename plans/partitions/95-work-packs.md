@@ -242,18 +242,17 @@ file and the split are named under "Merge contention".
     partitioned requester keeps today's authority checks; the `validateBinding` 409 for a
     non-partitioned requester → a partitioned provider without global;
     per-partition `HTTPSlots`/`HTTPInterfaces` (`:325-392`);
-  - `internal/broker/delegated.go`/`personal.go` (delegated paths refused
-    for partitioned requesters);
-  - `internal/broker/broker.go` (`grantMutation` `:710-764`, the same rule
-    for `uses` on non-partitioned targets; `grantedRole` `:452-484` →
-    `grantedRoleIn` with the caller's partition);
+  - `internal/broker/delegated.go`/`personal.go`/`grantMutation`:
+    unchanged — today's bind authority (PD-54, owner 2026-09-29);
+  - `grantedRole` (`broker.go:452-484`) stays resolveTarget's; the
+    personal half of `grantedRoleIn` rides F2's `personalBindGrant` seam;
   - new `internal/broker/personalbind.go` (`data/partitions/binds/<uid>.json`,
     routes, validation, lifecycle hooks: transfer, user delete, the switch
     wipe);
   - the `PartitionEnv` personal-bind hook (F4's slot) and a restart of the
     one partition;
   - `bx bind --personal`;
-  - the Interfaces panel's "global/personal" labels.
+  - the "global/personal" labels in the admin console's wiring view.
 - Depends on: F2 (caller partition), F4 (`PartitionEnv`); PD-16, PD-54.
 - Accept: 05 §Tests "bind types" (who may create, env visibility per
   partition, the call filter, the lifecycle); unpartitioned-requester
@@ -317,6 +316,10 @@ file and the split are named under "Merge contention".
   `ns:`/`part:`, not `tile:`".
 
 ### F8 — SDK, JS client, docs (07) — M
+- **Finalization adds (90 §I4):** a "realtime between partitions" section in
+  docs/partitions.md naming the three patterns (shared resource + shared
+  bus; global as hub via `GlobalURL` and F5 streams; partition mail for
+  wake-ups), with a worked example each, and the Node/Python mail snippets.
 - Files:
   - `sdk/xbin.go` + tests: `Partition`, `PartitionUser`,
     `RequirePartition`, `CallerInfo.Partition/PartitionID`, mail helpers,
@@ -351,6 +354,8 @@ file and the split are named under "Merge contention".
   top-level only.
 
 ### F12 — Admin tile: Partitions section (06 §12.3) — S/M
+- **Owner, 90 §I5:** the tile logs tab (shell and admin views) gets a
+  partition switcher: own partition / global (and what an admin may see).
 - Files: `workspace-template/tiles/admin`, a runtime → partitions section:
   - per tile: mode, request/decline, Switch/Keep, and "reviewed code
     only";
@@ -368,13 +373,41 @@ file and the split are named under "Merge contention".
     the pending card overlay with Keep/Switch… for managers);
   - `shell-kit.js` (`partitionMark`) and `shell-css.js` (the `--bx-part`
     token, marker CSS);
-  - the partition chip, and consent prompts (with the policy on).
+  - the partition chip, and consent prompts (with the policy on) — the
+    consent prompts moved to F14b (F10's API isn't there in wave 2).
 
   Design A unless the owner picks B or C (PD-53).
 - Depends on: F1 (the components row), F13a (the mode API).
 - Accept: a ui-harness pass (the marker on row and head with its tooltip;
   the overlay on a pending tile: Keep → runs, Switch → typed confirmation);
   the old-shell pass unchanged.
+
+### F14b — Shell: consent prompts and the partition chip (06 §12.3) — S ∥
+- **The partition chip (owner, 90 §I3):** a chip on every partitioned
+  tile's window head, beside the marker, saying whose partition the window
+  shows — `yours` (the viewer's own user partition), `shared` (a
+  non-primary deployment's one instance) or `global` (a window addressing
+  the global instance) — with a tooltip; `bx-canvas.js _cardTemplate`, the
+  marker's hue, quiet (not a button); the `partitionMark` harness pass
+  extended.
+- Files: `workspace-template/shell/partition-mode.js` (the prompt's words
+  and bodies, beside the card overlay's; `hack/partition-mode.test.mjs`),
+  `bx-canvas.js` or `bx-shell.js` (a prompt when a partitioned tile's call
+  into another person-scoped tile needs the person's consent — **only with
+  the `partitionConsent` policy on**), and a ui-harness pass; the
+  `TODO(consent prompts)` in `partition-mode.js` and docs/partitions.md's
+  "Not documented yet" line go.
+- Built against F10's contract: the `partitions` op `consent-needed` event
+  (to the person's own sessions) and `GET/POST/DELETE
+  /api/xbin/partitions/consents {from, to}` (PersonOnly — the shell calls
+  it as the signed-in person, never through `xbin.fetch`); F16's policy.
+- Depends on: F10, F14, F16.
+- Wave 4, beside F11/F12 (W2-wire: F10's API is merged, but the prompt is
+  more than an integration's wiring — `bx-shell.js` and `shots.js` sit at
+  their size budgets, so it brings a module and a pass of its own).
+- Accept: a ui-harness pass (policy on: a refused cross-partition call
+  prompts, consenting lets the retry through, declining keeps the 403;
+  policy off: no prompt); the old-shell pass unchanged.
 
 ## Builtin tiles
 
@@ -424,6 +457,10 @@ file and the split are named under "Merge contention".
   retries.
 
 ### B2d — Agent: non-secure conversations and "share a copy" (08 §4) — L
+- **Owner, 90 §I4:** hosted conversations stream live to every member
+  through global (the host's engine streams deltas to its global instance
+  over F5; global fans out); mail only for the wake-up and the durable
+  `hosted/changed`.
 - Files: `_backend` (the `team` schema, the `hosted` table, the host engine
   scope, widening pause/re-confirm, share-link refusal, mail doorbells,
   **share-a-copy** via F5); the frontend's modal, ⚠ chip, composer lock and
@@ -456,7 +493,11 @@ file and the split are named under "Merge contention".
   - cron, bus, mail, ingress → global;
   - the consent policy off and on;
   - personal binds.
-- `test/isolated`: partition binds, `"read"` read-only, host-net isolation.
+- `test/isolated`: partition binds, `"read"` read-only, host-net isolation;
+  the sandbox-manager suite's `user-partitions` section through xbind (a
+  partitioned fixture consumer bound to the coding-sandbox copy, so the
+  manager's parser meets F2's real headers; drop its skip in
+  `codingsandbox_test.go`, B1).
 - `test/downgrade_test.go`: the previous release's xbind, uid re-adoption,
   a plaintext archive restored by the old release, and a sealed one
   refused.
@@ -482,7 +523,7 @@ file and the split are named under "Merge contention".
 | 1 | ∥**F2** ∥**F3** ∥**F4** ∥**F13a** ∥**F13b** | F2/F3/F4 merged, zero-state goldens green |
 | 2 | ∥**F5** ∥**F7a** ∥**F9** ∥**F10** ∥**F15** ∥**F14** | F5 merged |
 | 3 | ∥**F6** ∥**F7b** ∥**F17b** ∥**B2a** | B2a merged |
-| 4 | ∥**B2b** ∥**B2c** ∥**F11** ∥**F12** ∥B3 docs | B2b, B2c merged |
+| 4 | ∥**B2b** ∥**B2c** ∥**F11** ∥**F12** ∥**F14b** ∥B3 docs | B2b, B2c merged |
 | 5 | ∥**B2d** ∥**I1**, F8 finalization | all green |
 | 6 | **I2** | — |
 
@@ -495,6 +536,7 @@ file and the split are named under "Merge contention".
 - F16 → F10, F7b, F11;
 - F17a → F17b;
 - F15, F10 → F11;
+- F10, F14, F16 → F14b;
 - F1–F6, F13b, B1 → B2a → B2b, B2c → B2d;
 - B2c → B3.
 
@@ -509,6 +551,9 @@ file and the split are named under "Merge contention".
 | `internal/broker/backup.go` | F17a, F17b | sequential; F5 no longer touches it |
 | `workspace-template/tiles/admin/admin.js` (`GROUPS`, `render()`) | F16, F12, F17a | append-style edits; resolve line-anchored |
 | `internal/broker/usersapi.go` | F7b only | — |
+| `internal/broker/partitionrecords.go` (`sweepPartitionRecords`), `partitionns.go` (the namespace sweep) | F5, F7b, F17b | one deletion path: take F7b's sweep line (`dropOnePartition`), delete F17b's `dropSweptPartition`, and make F7b's `erasePartitionKeysHeld` call F17b's `erasePartitionBackupsHeld([]string{tile}, dep, pkey, …)` per deployment — the tile's own keys only, never the scope root's (records/F7b.md "Merge with F17b"); `partitionns.go`'s two edits are separate hunks |
+| `internal/server/partitionclass.go` (`partitionUnconverted`) | F5, F7a, F7b | each pack removes only its own rows; gofmt realigns the whole map, so resolve by taking the union of the removals, never one side: after F5 and F7a only `GET /logs` and `GET /tile-status` stay (F7b's); tests probe a synthetic unconverted row, never a real one |
+| `hack/ui-harness/shots.js` (the `require` lines, `PASSES`) | every pack adding a harness pass (F14, F15, …) | the union; F14 registers its pass on a line of its own after `PASSES` (`PASSES.partitionMark = …`), so it merges with the others' edits; the file sits at its size budget |
 
 New code goes in new files (`partitionmode.go`, `partitionroute.go`,
 `partitionrecords.go`, `partitionmail.go`, `partitionconsent.go`,
@@ -542,8 +587,9 @@ independent and can ship first.
 - **gocryptfs process count and cold-start latency** with the default-
   partitioned agent (I2).
 - **Build stampede** on save for tiles with many live partitions (03 §A.3/7).
-- **Global-bind narrowing (F15)** changes who can wire a partitioned agent
-  (org admins and personal owners can't). Docs and the refusal text must
-  point people to admins and to personal binds.
+- **Global binds (F15)** keep today's bind authority (PD-54, owner
+  2026-09-29): no narrowing. What remains is the trust base — every global
+  bind, a provider org admin's (D33) included, reaches every person's
+  partition; the trust panel lists them.
 - **The agent's per-host engine scope (B2d)** touches D81 fencing. Keep it
   behind the non-secure feature.

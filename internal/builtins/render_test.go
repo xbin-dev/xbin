@@ -20,7 +20,7 @@ func TestRenderTreeSkipsStrayBuildOutput(t *testing.T) {
 		"t/backend/backend.go": {Data: []byte("package main\n")},
 		"t/bin/tool":           {Data: []byte("#!/bin/sh\necho hi\n")},
 	}
-	files, err := RenderTree(src, "t", "apps/t", "apps/t", false)
+	files, err := RenderTree(src, "t", "apps/t", "apps/t", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

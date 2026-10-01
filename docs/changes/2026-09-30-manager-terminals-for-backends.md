@@ -4,12 +4,15 @@
 
 A consumer's backend calls a sandbox manager with its own credential and
 names the person it acts for in `Sbx-User`: an **asserted** person, whom
-the manager records and does not verify. The manager keeps its partitions
-— the consumer's own sandboxes and those shared with it — and leaves who
+the manager records and does not verify. The manager keeps consumers apart
+— each sees its own sandboxes and those shared with it — and leaves who
 among the consumer's people may use one to the consumer
 ([sandbox-manager.md](/docs/sandbox-manager.md) §Who is asking,
-§Partitions, sharing and people). The conformance suite checked that for
-reads and `run`, not for terminals.
+§Consumers, sharing and people). The conformance suite checked that for
+reads and `run`, not for terminals. (A partitioned consumer's user
+partition is the exception, on terminals as everywhere: its person is the
+partition's and verified, and a manager with the `partitions` capability
+applies the person rules itself — §Partitioned consumers.)
 
 Terminals are now part of every manager's interface for a consumer's
 backend as well as its pages ([sandbox-manager.md](/docs/sandbox-manager.md)
@@ -56,10 +59,15 @@ Treat `Sbx-User` on the `tty` routes as you treat it on every other route:
 
 - record the asserted person (pass it on as the exec's person — `forUser`
   on xbind's runtime), and let a verified `X-XBin-User` win over it;
-- apply your partitions: the calling consumer's sandboxes and those shared
+- keep consumers apart: the calling consumer's sandboxes and those shared
   with it, `404 not-found` otherwise;
 - leave owner, members, `team` and a share's `users` to the consumer for a
-  backend call — it checks its person before it dials;
+  backend call — it checks its person before it dials. Not so where your
+  hello offers `partitions` and the call comes from a partitioned
+  consumer's user partition: its person is the partition's, verified —
+  apply those rules as on a page's call, on the terminal and stdio routes
+  too, and refuse an `Sbx-User` naming anyone else (`403 not-allowed`; the
+  suite's `user-partitions/person` and `user-partitions/sockets`);
 - if your substrate asks about the person (xbind refuses a person with
   `noTerminal`, through `forUser`), ask about the asserted one.
 

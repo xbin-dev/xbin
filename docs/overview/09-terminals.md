@@ -259,6 +259,22 @@ per tile. A session's own calls can't reach another deployment of its tile
 — switching is a restart, a terminal-level act
 ([/docs/tile-deployments.md](/docs/tile-deployments.md)).
 
+**On a partitioned tile** ([/docs/partitions.md](/docs/partitions.md), in
+development) a terminal or agent session belongs to the person who opened
+it. Its token needs nothing new: xbind puts a person's terminal in their
+own partition (`user:<id>`), so its API calls and `bx` reach that
+partition's instance and data only — an admin's too, never someone else's.
+The session gets `XBIN_PARTITION=user:<id>` (after `XBIN_COMPONENT`, and
+after `XBIN_DEPLOYMENT` when that is set; a session targeting a non-primary
+deployment says `global`), starts in `$HOME` rather than the tile directory
+— which is code every partition shares, so keep your own files in `$HOME` —
+and prints a grey line saying so. A session without a person (the owner
+token) acts in the tile's global instance, or, on a tile without one, opens
+with the tile API off. Admins can end other people's sessions there but not
+reattach to, drive, rename or read them — nor read them viewing as the
+person — and listings leave their names out. (Without `--isolate` a terminal
+is a host shell that can read every partition, and its grey line says so.)
+
 Two user flags gate what the token can do (D17 b/c; clamped, never rejected, so
 an ungranted user still gets a working shell):
 
@@ -304,6 +320,13 @@ terminal to try things; move anything the backend needs into `setup`.
 > overlay mounts of one upperdir would corrupt it). A second concurrent terminal
 > on the same tile falls back to an **ephemeral** upper — functional, but its
 > system changes don't persist that session.
+
+On a **partitioned tile** each person's layer is their own
+(`.xbin/term-part/<tile-key>/<partition-id>/`, their VM disk inside it): one
+person's `apt install` never shows in another's terminal. Reset and the base
+status act on the caller's own layer there; the tile's own layer is what a
+session without a person uses. People's layers aren't backed up, and a
+partition mode switch deletes them.
 
 **Reset** (`DELETE /ws/term/env?cwd=<tile>`, the terminal's ⟲ button) kills any
 live session on the layer and wipes the upper back to a clean base — safe,
@@ -460,7 +483,12 @@ bar offer **⬆ base update**; with it on, the chooser says the next session
 moves instead (`GET /ws/term/env` → `baseAutoUpdate`; open windows re-read
 it on the `workspace-settings` event), and the title bar keeps the button
 for a running session. The setting covers terminal layers only — a tile
-sandbox's state is its manager's to reset or rebase.
+sandbox's state is its manager's to reset or rebase. On a partitioned tile
+each person's layer (`.xbin/term-part/<TileKey>/<pkey>`,
+[partitions.md](../partitions.md) §Terminals and agent sessions) moves the
+same way, on its own: at that person's next session start, never under
+one of their running sessions, and neither the tile's layer nor another
+person's with it; the window's status is the person's own layer's.
 
 ## VM terminals (D89)
 
@@ -527,7 +555,9 @@ per tile, the newest 20; `GET /api/xbin/agent/history`), so a finished
 conversation can be read back, and **resumed** where the agent can reopen its
 own session (it replays the earlier turns, then continues — all four bundled
 agents advertise it, and Claude Code and OpenCode are verified end to end; an
-agent that cannot offers a fresh start instead).
+agent that cannot offers a fresh start instead). On a partitioned tile the
+transcript is kept with the person's partition instead (the same listing
+shows it), and goes when a partition mode switch deletes the tile's data.
 
 A long conversation stays quick (D124, D130): the Agent tab reads only the
 tail of the log when it opens, folds what arrives, renders at most once a

@@ -226,6 +226,7 @@ var routeClasses = map[string]RouteClass{
 	"POST /builtins/import": PrimaryOnly,
 	"POST /builtins/update": PrimaryOnly,
 	"POST /lifecycle":       PrimaryOnly,
+	"POST /partitions/mode": PrimaryOnly, // a tile manager's keep/switch, a person's act (plans/partitions/01 §2.5)
 
 	// ---- grants, bindings, ownership and access ----
 	"GET /grants":                   Neutral,
@@ -234,6 +235,9 @@ var routeClasses = map[string]RouteClass{
 	"GET /bindings":                 Neutral,
 	"POST /bindings":                PrimaryOnly,
 	"DELETE /bindings":              PrimaryOnly,
+	"GET /partitions/binds":         Neutral,     // a person's own, or every one for admins; the handler refuses tile code (plans/partitions/05 §3)
+	"POST /partitions/binds":        PrimaryOnly, // a person's own act (PersonOnly)
+	"DELETE /partitions/binds":      PrimaryOnly, // the person, or an admin
 	"GET /owner":                    Neutral,
 	"GET /owner/preview":            PrimaryOnly,
 	"POST /owner":                   PrimaryOnly,
@@ -291,6 +295,12 @@ var routeClasses = map[string]RouteClass{
 	"GET /backup-schedule":                   PrimaryOnly,
 	"POST /backup-schedule":                  PrimaryOnly,
 	"DELETE /backup-schedule":                PrimaryOnly,
+	"GET /backup-keys":                       PrimaryOnly,
+	"POST /backup-keys/export":               PrimaryOnly,
+	"POST /backup-keys/import":               PrimaryOnly,
+	"POST /backup/erase":                     PrimaryOnly,
+	"GET /partitions/backups":                PrimaryOnly, // a person's partition's archives: the person or an admin (plans/partitions/11 §4)
+	"POST /partitions/restore":               PrimaryOnly, // … restored into their partition: a person's act, never tile code
 	"GET /vault-status":                      PrimaryOnly,
 	"POST /vault-unseal":                     PrimaryOnly,
 	"POST /vault-seal":                       PrimaryOnly,
@@ -312,6 +322,8 @@ var routeClasses = map[string]RouteClass{
 	"PUT /native-runtime":                    PrimaryOnly,
 	"PUT /chrome":                            PrimaryOnly,
 	"PUT /branding":                          PrimaryOnly,
+	"PUT /workspace-policies":                PrimaryOnly,
+	"POST /partitions/limits":                PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
 	"PUT /workspace-settings":                PrimaryOnly,
 	"GET /push/config":                       PrimaryOnly,
 	"PUT /push/config":                       PrimaryOnly,
@@ -333,6 +345,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /native-runtime":       Neutral,
 	"GET /chrome":               Neutral,
 	"GET /branding":             Neutral,
+	"GET /workspace-policies":   Neutral, // people and admins; the handler refuses tile code (PD-55)
 	"GET /workspace-settings":   Neutral,
 
 	// ---- a person's own sign-in, account, devices and sessions ----
@@ -370,6 +383,34 @@ var routeClasses = map[string]RouteClass{
 	"GET /agent/history":                          Neutral,
 	"GET /agent/history/{id}/events":              Neutral,
 	"DELETE /agent/history/{id}":                  Neutral,
+
+	// ---- cross-tile partition edges (plans/partitions 05 §2, 06 §6.1): a
+	// person's own consents and ledger — people are bound to no deployment,
+	// and the handlers refuse every tile credential — and the admin's view
+	// of the edges ----
+	"GET /partitions/consents":    PrimaryOnly,
+	"POST /partitions/consents":   PrimaryOnly,
+	"DELETE /partitions/consents": PrimaryOnly,
+	"GET /partitions/ledger":      PrimaryOnly,
+	"GET /partitions/edges":       PrimaryOnly,
+
+	// ---- partitions' operations (plans/partitions 06 §5-§9): the listing is
+	// a read of workspace facts (tile code gets the tile-level fields only);
+	// the acts are a person's, never a tile credential's ----
+	"GET /partitions":                     Neutral,
+	"POST /partitions/stop":               PrimaryOnly,
+	"POST /partitions/reset":              PrimaryOnly,
+	"POST /partitions/purge":              PrimaryOnly,
+	"POST /partitions/share-log":          PrimaryOnly,
+	"DELETE /partitions/share-log":        PrimaryOnly,
+	"POST /partitions/credential-confirm": PrimaryOnly,
+	"POST /partitions/reviewed":           PrimaryOnly,
+
+	// ---- partition mail (plans/partitions 04 §3): people's partitions run
+	// on the primary only, and so does its mail ----
+	"POST /partitions/mail":     PrimaryOnly,
+	"GET /partitions/mail":      PrimaryOnly,
+	"POST /partitions/mail/ack": PrimaryOnly,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

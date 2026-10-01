@@ -95,9 +95,14 @@ a passphrase / manual unseal in production, or a built-in dev key under a bare
 
   then restart xbind (`sudo systemctl restart xbin`) so it mounts them now
   rather than at its next reprovision.
-- **Backups are plaintext.** `bx backup` and the archive interface stream
-  *decrypted* data — encrypting the archive is the archiver tile's job
-  (see *Encryption at rest* above).
+- **Backups are sealed.** `bx backup` reads the *decrypted* data and xbind
+  seals every archive itself under a backup key the vault's data key wraps
+  (AES-256-GCM), so the archiver tile only ever holds ciphertext; a plain
+  archive made before sealing still restores. Restoring on a new machine
+  needs the exported key bundle (`bx backup keys export`) and the vault
+  passphrase; `bx backup erase` crypto-erases a tile's backups
+  ([14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives). No
+  backup runs while the vault is sealed or not set up yet.
 
 Only an explicit `--insecure-vault` (or `--no-auth`) stores resource data
 plaintext, for throwaway/inspection setups.
@@ -196,6 +201,15 @@ PUT /api/xbin/bus/subscriptions
   and receives nothing. A subscription on the tile's own bus receives only
   events published in its deployment's data; one on another scope's bus
   receives that scope's primary's, under the edge policy.
+- In a partitioned tile ([partitions.md](/docs/partitions.md)) each
+  person's partition subscribes for itself (at most 16): it receives its
+  own partition's events on its scope's bus — which start it only when its
+  own tile published them — and a shared bus's, or one another tile
+  published for the person, only while it runs (counted as `dormantDrops`
+  otherwise) — never the global instance's. Another partitioned tile's bus
+  needs the person to be able to read that tile (and, with the
+  `partitionConsent` policy on, their consent, unless the bus is shared):
+  403 otherwise.
 
 Document your topics in your `API.md` — they're part of your contract.
 
@@ -222,7 +236,11 @@ component log); there are no retries — make handlers idempotent and let the
 next tick catch up. In a tile deployment that isn't the primary a job ticks
 that deployment (§Tile deployments below); while a tile manager has its
 deliveries off it is dormant — registered (`"dormant": true`), never
-ticking.
+ticking. In a partitioned tile ([partitions.md](/docs/partitions.md)) each
+person's partition schedules its own jobs — at most 16, none more often than
+once a minute — which tick that partition while its person can use the
+tile; a tick whose start is deferred (too many people's instances starting)
+is tried again before the next one is due.
 
 ## filesystem — a persistent read-write directory
 
@@ -387,6 +405,54 @@ own, so testing against it never touches what everyone else sees.
   (its `kv.db`, and `fs/<resource>/` per volume), apart from the primary's;
   a scope whose data key is longer than 200 bytes can't have deployments
   beyond `main`.
+
+## Partitioned tiles: `shared`
+
+A tile whose `xbin.json` asks for `"partition"` ([elements.md](/docs/elements.md)
+§Manifest) keeps its scope's data per partition. A resource of that scope
+opts out with `"shared"`, keeping one copy:
+
+```jsonc
+{ "resources": {
+    "db":   { "type": "sqlite" },                     // per partition (the default)
+    "conf": { "type": "kv",     "shared": "read" },   // the global instance writes, people's partitions read
+    "team": { "type": "sqlite", "shared": true } } }  // every partition reads and writes one copy
+```
+
+`shared` is ignored in a scope no tile partitions, so a template can ship it
+ready, and on a `cron` resource. In a partitioned scope any other value, and
+`"read"` on a `sqlite` resource (its readers write its journal), make the
+tile's partition request invalid: its backend doesn't run, and the manifest
+error names the resource.
+
+What each partition sees:
+
+- **The same names and paths.** `XBIN_RES_<NAME>` and `res:` ids are the
+  same in every partition, so the code doesn't change: xbind binds each
+  partition's own volume at the canonical path, and a shared one's single
+  copy there. A `"read"` directory is mounted read-only in people's
+  partitions; a `"read"` kv, blob or bus answers their writes 403
+  `res:<scope>/<name> is read-only for people's partitions`.
+- **Its own disk ceiling.** A person's partition is measured on its own
+  (by default at the tile's per-namespace quota): when it is full, that
+  person's kv and blob writes answer 507 — nobody else's.
+- **On disk** a person's partition sits under
+  `data/resources-enc/.partitions/<scope>/<deployment>/<partition id>/`
+  (its `kv.db`, `fs/<resource>/` per volume and `ns.json`, which names
+  the person), beside the tile's own data, which keeps today's keys and is
+  the global instance's. Its volumes mount on first use and unmount once
+  nobody has used them for an hour while none of that person's instances
+  runs (and, like every volume, when the vault is sealed).
+- **Other tiles' access** is today's grants: an unpartitioned tile, or the
+  global instance of a partitioned one, reaches the tile's own (global's)
+  data; a person's partition of another partitioned tile reaches that same
+  person's partition here, and only when they can read this tile (and, if
+  the workspace's `partitionConsent` policy is on, have allowed it).
+
+A partition's data is deleted 30 days after its person is deleted (or
+their id is given to someone new) or its tile is removed (unless the tile
+comes back), and at once when a tile manager switches the tile's partition
+mode or the partition is reset ([partitions.md](/docs/partitions.md)).
 
 ## Choosing
 

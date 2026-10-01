@@ -28,6 +28,7 @@ import { homeScreen } from './native/home.js';
 import { drawerSheet, newChatSheet, renameSheet } from './native/convs.js';
 import { shareSheet } from './native/share.js';
 import { sandboxAskSheet } from './native/sandboxes.js';
+import { hostedWarnSheet } from './native/hosted.js';
 import { toolScreens, treeDirty, openRender, openLive } from './native/tools.js';
 import { autoScreens } from './native/auto.js';
 import './native/harness-all.js'; // the coding harnesses' modules (their hooks on ctx.ext, native/ext.js)
@@ -66,7 +67,7 @@ function draw() {
     ...toolScreens(),
   ];
   render(html`<nav @pop=${pop}>${repeat(screens, (s) => s.key, (s) => s.tpl())}</nav>
-    ${drawerSheet()}${newChatSheet()}${renameSheet()}${shareSheet()}${sandboxAskSheet()}`);
+    ${drawerSheet()}${newChatSheet()}${renameSheet()}${shareSheet()}${sandboxAskSheet()}${hostedWarnSheet()}`);
   // the tile's title and badge in the app's navigator and switcher
   const v = app.session.current();
   const m = { title: v ? app.rules.topBar(v).title : app.HOME.title, badge: app.needs.length ? String(app.needs.length) : null };

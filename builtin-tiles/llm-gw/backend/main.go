@@ -53,22 +53,14 @@ type gwConfig struct {
 	Preferred map[string]string `json:"preferred"`
 	// Pricing maps an upstream model id to its cost, for the cost counters.
 	Pricing map[string]price `json:"pricing"`
-}
-
-type stats struct {
-	Reqs   int64   `json:"reqs"`
-	TokIn  int64   `json:"tokIn"`
-	TokOut int64   `json:"tokOut"`
-	Cost   float64 `json:"cost"`
+	// PartitionLimit caps the calls one person's partition of a calling
+	// tile may have in flight (0: off, the default; callers.go).
+	PartitionLimit int `json:"partitionLimit,omitempty"`
 }
 
 var (
 	kv    = xbin.KV(xbin.Resource("state"))
 	cfgMu sync.Mutex
-
-	statsMu sync.Mutex
-	statsBy map[string]*stats // backend -> persisted counters
-	active  = map[string]int{}
 
 	// No overall timeout: chat completions can stream for a long time.
 	// Bound by the inbound request's context (client disconnect cancels it).
@@ -126,32 +118,6 @@ func tokenFor(name string) string {
 	return tok
 }
 
-func loadStats() {
-	statsMu.Lock()
-	defer statsMu.Unlock()
-	if statsBy == nil {
-		statsBy = map[string]*stats{}
-		_ = kv.GetJSON("stats", &statsBy)
-	}
-}
-
-func bumpStats(name string, tokIn, tokOut int64, cost float64) {
-	loadStats()
-	statsMu.Lock()
-	s := statsBy[name]
-	if s == nil {
-		s = &stats{}
-		statsBy[name] = s
-	}
-	s.Reqs++
-	s.TokIn += tokIn
-	s.TokOut += tokOut
-	s.Cost += cost
-	snapshot := statsBy
-	statsMu.Unlock()
-	_ = kv.PutJSON("stats", snapshot)
-}
-
 const maxRetries = 3 // up to maxRetries+1 upstream attempts
 
 func retryableStatus(code int) bool {
@@ -188,15 +154,6 @@ func sleepBackoff(ctx context.Context, attempt int, retryAfter string) bool {
 	case <-t.C:
 		return true
 	}
-}
-
-func setActive(name string, d int) {
-	statsMu.Lock()
-	active[name] += d
-	if active[name] < 0 {
-		active[name] = 0
-	}
-	statsMu.Unlock()
 }
 
 // upstreamURL joins a configured base URL with a /v1/... request path.
@@ -289,10 +246,14 @@ func handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	for _, n := range backendNames(c) {
 		out = append(out, beOut{Name: n, BaseURL: c.Backends[n].BaseURL, HasToken: tokenFor(n) != ""})
 	}
-	xbin.WriteJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"backends": out, "aliases": c.Aliases,
 		"preferred": c.Preferred, "pricing": c.Pricing, "useTypes": useTypes,
-	})
+	}
+	if c.PartitionLimit > 0 {
+		resp["partitionLimit"] = c.PartitionLimit
+	}
+	xbin.WriteJSON(w, http.StatusOK, resp)
 }
 
 // handlePreferred returns the workspace's preferred model per use-type (or one
@@ -333,34 +294,6 @@ func handlePutPreferred(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"preferred": c.Preferred})
-}
-
-// handleMetrics renders per-backend counters in Prometheus text format.
-func handleMetrics(w http.ResponseWriter, r *http.Request) {
-	loadStats()
-	c := loadConfig()
-	names := backendNames(c)
-	statsMu.Lock()
-	defer statsMu.Unlock()
-	var b strings.Builder
-	series := func(name, help, typ string, val func(*stats, string) any) {
-		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, typ)
-		for _, n := range names {
-			s := statsBy[n]
-			if s == nil {
-				s = &stats{}
-			}
-			fmt.Fprintf(&b, "%s{backend=%q} %v\n", name, n, val(s, n))
-		}
-	}
-	series("llmgw_requests_total", "Requests proxied per backend.", "counter", func(s *stats, n string) any { return s.Reqs })
-	series("llmgw_tokens_in_total", "Prompt tokens per backend.", "counter", func(s *stats, n string) any { return s.TokIn })
-	series("llmgw_tokens_out_total", "Completion tokens per backend.", "counter", func(s *stats, n string) any { return s.TokOut })
-	series("llmgw_cost_usd_total", "Estimated USD cost per backend.", "counter", func(s *stats, n string) any { return strconv.FormatFloat(s.Cost, 'f', 6, 64) })
-	series("llmgw_active_requests", "In-flight requests per backend.", "gauge", func(s *stats, n string) any { return active[n] })
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, b.String())
 }
 
 var backendNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -470,10 +403,16 @@ func handleDelBackend(w http.ResponseWriter, r *http.Request) {
 
 func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Aliases map[string]string `json:"aliases"`
+		Aliases        map[string]string `json:"aliases"`
+		PartitionLimit json.RawMessage   `json:"partitionLimit"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		xbin.WriteError(w, http.StatusBadRequest, "need JSON body: {aliases?}")
+		xbin.WriteError(w, http.StatusBadRequest, "need JSON body: {aliases?, partitionLimit?}")
+		return
+	}
+	limit, why, code := partitionLimitIn(r, body.PartitionLimit)
+	if why != "" {
+		xbin.WriteError(w, code, why)
 		return
 	}
 	cfgMu.Lock()
@@ -490,30 +429,19 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		c.Aliases = aliases
 	}
+	if limit != nil {
+		c.PartitionLimit = *limit
+	}
 	if err := saveConfig(c); err != nil {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	xbin.WriteJSON(w, http.StatusOK, map[string]any{"aliases": c.Aliases})
-}
-
-func handleStats(w http.ResponseWriter, r *http.Request) {
-	loadStats()
-	c := loadConfig()
-	statsMu.Lock()
-	out := map[string]any{}
-	for _, n := range backendNames(c) {
-		s := statsBy[n]
-		if s == nil {
-			s = &stats{}
-		}
-		out[n] = map[string]any{
-			"reqs": s.Reqs, "tokIn": s.TokIn, "tokOut": s.TokOut,
-			"active": int64(active[n]), "cost": s.Cost,
-		}
+	resp := map[string]any{"aliases": c.Aliases}
+	if limit != nil {
+		setPartitionLimit(c.PartitionLimit)
+		resp["partitionLimit"] = c.PartitionLimit
 	}
-	statsMu.Unlock()
-	xbin.WriteJSON(w, http.StatusOK, map[string]any{"backends": out})
+	xbin.WriteJSON(w, http.StatusOK, resp)
 }
 
 // ---- OpenAI-compatible surface ----
@@ -614,31 +542,18 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 	xbin.WriteJSON(w, http.StatusOK, resp)
 }
 
-// Usage is read from the tail of the response body. Chat Completions reports
-// prompt_tokens/completion_tokens; the Responses API (/v1/responses) reports
-// input_tokens/output_tokens. The LAST match wins: a Responses stream carries
-// a usage block only on its final event, and earlier events may mention usage
-// as null.
-var (
-	usageRe     = regexp.MustCompile(`"prompt_tokens"\s*:\s*(\d+)[\s\S]*?"completion_tokens"\s*:\s*(\d+)`)
-	usageRespRe = regexp.MustCompile(`"input_tokens"\s*:\s*(\d+)[\s\S]*?"output_tokens"\s*:\s*(\d+)`)
-)
-
-// usageOf extracts (tokens in, tokens out) from a response tail.
-func usageOf(tail []byte) (in, out int64) {
-	for _, re := range []*regexp.Regexp{usageRe, usageRespRe} {
-		if all := re.FindAllSubmatch(tail, -1); len(all) > 0 {
-			m := all[len(all)-1]
-			fmt.Sscan(string(m[1]), &in)
-			fmt.Sscan(string(m[2]), &out)
-			return in, out
-		}
-	}
-	return 0, 0
-}
-
 func handleProxy(w http.ResponseWriter, r *http.Request) {
 	c := loadConfig()
+	caller := callerOf(r) // a partitioned tile's partition, else nil (callers.go)
+	release, adm := admitCaller(r, caller, c.PartitionLimit)
+	switch adm {
+	case callerGone:
+		return // it went away while waiting under the fairness limit
+	case limitBusy:
+		writeLimitBusy(w, c.PartitionLimit) // fairness.go
+		return
+	}
+	defer release()
 
 	ct := r.Header.Get("Content-Type")
 	var body io.Reader = r.Body
@@ -721,6 +636,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			bumpStats(beName, 0, 0, 0)
+			countCaller(caller, 0, 0, 0)
 			xbin.WriteError(w, http.StatusBadGateway, fmt.Sprintf("%s %s: %s", r.Method, target, derr.Error()))
 			return
 		}
@@ -772,6 +688,9 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	release() // the call ended: its partition's slot is free before any counting
 	tokIn, tokOut := usageOf(tail)
-	bumpStats(beName, tokIn, tokOut, costOf(c, reqModel, tokIn, tokOut))
+	cost := costOf(c, reqModel, tokIn, tokOut)
+	bumpStats(beName, tokIn, tokOut, cost)
+	countCaller(caller, tokIn, tokOut, cost)
 }

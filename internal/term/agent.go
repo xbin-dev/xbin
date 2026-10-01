@@ -146,8 +146,10 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	// (history.go) — its provider, mode and name carry over; the agent must
 	// have advertised loadSession, else 409 and the UI offers a fresh start
 	var resumeID string
+	var fromPart bool // the entry is partition history (resumeHere)
 	if resume != "" {
-		meta, err := m.HistoryMeta(HomeKey(p), resume)
+		var meta HistoryMeta
+		meta, fromPart, err = m.historyMetaFrom(HistoryOf(p), resume)
 		if err != nil {
 			return SessionInfo{}, 404, fmt.Errorf("no such past session %q", resume)
 		}
@@ -180,7 +182,15 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
+	if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go
+		return SessionInfo{}, code, err
+	}
+	if code, err := m.resumeHere(resume, fromPart, o); err != nil { // partition.go
+		m.partOpened(&o)
+		return SessionInfo{}, code, err
+	}
 	s, err := m.createAgent(o, prov, mode, options, resumeID, resume)
+	m.partOpened(&o) // registered or failed: a stop sees it now (partitionhold.go)
 	if err != nil {
 		if errors.Is(err, errLimit) {
 			return SessionInfo{}, 409, err
@@ -205,8 +215,11 @@ func (m *Manager) Info(id string) (SessionInfo, bool) {
 }
 
 // MayDrive is the gate on the per-session API routes: the creator (while
-// still terminal-level on the tile — the reattach rule) or an admin.
-// ErrNoSession for an unknown id, ErrForbidden otherwise.
+// still terminal-level on the tile — the reattach rule) or an admin — but
+// on a partitioned tile never an admin in another person's session, nor an
+// admin viewing as its person (PD-09: their agent's sandbox holds that
+// person's terminal token). ErrNoSession for an unknown id, ErrForbidden
+// otherwise.
 func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	m.mu.Lock()
 	s := m.sessions[id]
@@ -214,10 +227,16 @@ func (m *Manager) MayDrive(id string, p auth.Principal) error {
 	if s == nil {
 		return ErrNoSession
 	}
-	if p.IsAdmin() {
+	if why := m.viewAsBarred(s, p); why != "" {
+		return fmt.Errorf("%w: %s", ErrForbidden, why)
+	}
+	if m.adminPass(s, p) {
 		return nil
 	}
 	if s.homeKey != HomeKey(p) {
+		if p.IsAdmin() {
+			return fmt.Errorf("%w: %s", ErrForbidden, notYours(s.Cwd))
+		}
 		return fmt.Errorf("%w: session belongs to another user", ErrForbidden)
 	}
 	if !p.CanTerminalTileVia(s.Cwd) {
@@ -255,7 +274,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
-	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(dir, rel, homeDir, token, o)
+	start := o.startDir(dir, homeDir) // $HOME on a partitioned tile (partition.go)
+	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(start, rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
 		m.sbxFail(o, rel, err)
@@ -313,7 +333,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
-		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target,
+		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
@@ -325,7 +345,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	m.changed("open", s)
 	unlist := m.register(s, o, leaf)
 	if o.launch.baseMoved != "" { // D175: this start moved the tile's layer to the current base
-		s.sayBaseMoved(m, termKey(rel))
+		s.sayBaseMoved(m, o.layerKey(rel)) // the layer it moved: on a partitioned tile its person's (partition.go)
 	}
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
@@ -336,13 +356,13 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		agentEnv = append(agentEnv, k+"="+prov.Env[k])
 	}
 	spawn := func(ctx context.Context, cfg agent.Config) (*agent.Process, error) {
-		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: dir, AttachDir: attachDir})
+		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir})
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
 		}
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
-	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: dir, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
+	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: start, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
 		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
 	go s.agentPump(m, func() {
 		unlist()

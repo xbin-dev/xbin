@@ -55,6 +55,12 @@ so `bx-frame`'s attribute matches) and framed sandboxed by `bx-frame`
 (plus `credentialless` where supported) — an opaque origin with no DOM access
 either way, no storage, no ambient cookie. Served HTML also carries
 `<meta name="xbin-sandbox">` with the full token list (absent on chrome).
+A partitioned tile's documents carry `<meta name="xbin-partition"
+content="user:<id>">` naming the partition the viewer reaches (`global` for
+the owner token and `--no-auth`, and in a non-primary deployment's document,
+`/c/<tile>+<name>/`, whose one instance every writer shares; none when the
+viewer reaches none), which the client exposes as `xbin.partition`; an
+admin viewing as someone gets the document without a frame token.
 Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
 (or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
@@ -72,7 +78,7 @@ Identity headers **injected by xbind** on proxied component requests
 (inbound values are stripped — receiving them means they're verified):
 
 ```
-X-XBin-From: owner | <component-path> | xbin/cron | xbin/bus | ingress
+X-XBin-From: owner | <component-path> | xbin/cron | xbin/bus | xbin/mail | ingress
 X-XBin-Role: <role granted on the callee>
 X-XBin-User: <user id>                   (the signed-in HUMAN driving the
                                           call, when there is one — direct,
@@ -97,11 +103,53 @@ X-XBin-Deployment: <name>                (the calling tile's deployment, when
                                           people, the owner, xbin/cron,
                                           xbin/bus and ingress. X-XBin-From
                                           stays the tile path)
+X-XBin-Partition: user:<id> | global    (partitioned tiles: the partition
+                                          the caller acts in — its own
+                                          partition for a partitioned tile's
+                                          credentials and deliveries, on
+                                          every call, to tiles that aren't
+                                          partitioned too; user:<id> for a
+                                          person calling a partitioned tile;
+                                          global for a global instance's
+                                          calls and the owner token reaching
+                                          one. Absent for everything else, so
+                                          a tile that isn't partitioned
+                                          calling in sends none. A display
+                                          name: key state on the id below)
+X-XBin-Partition-Id: u-<32 hex>          (with X-XBin-Partition: user:<id>
+                                          only: the partition's opaque id,
+                                          stable for the person and never
+                                          reused by a person later created
+                                          under the same id. Providers key
+                                          per-caller state on (X-XBin-From,
+                                          X-XBin-Partition-Id); absent means
+                                          the caller's one non-personal
+                                          identity, global included)
+X-XBin-Backup-Subkey: bk-<32 hex>        (only on xbind's own archive PUT
+                                          of a sealed archive to an
+                                          archiver: the opaque id of the
+                                          backup key it is sealed under —
+                                          §Backup; never on anything else)
 ```
 
 A proxied response from a non-primary deployment carries
 `X-XBin-Deployment: <name>`, set by xbind over any value the backend set; a
 primary's responses are unchanged (§Tile deployments).
+
+A partitioned tile's own call **addressing its global instance**
+(`?xbin-partition=global`, §HTTP routes › Core) arrives there as the
+partition's **person**, whatever the credential — a user partition's
+backend's instance token included, and any value the caller sent
+stripped: `X-XBin-User` is the person, `X-XBin-User-Level` their level on
+the tile (read live), `X-XBin-Role` `reader` for read or `writer` for write
+and terminal — never the self-call's `admin` — `X-XBin-From` the tile
+itself, and `X-XBin-Partition: user:<id>` with its `X-XBin-Partition-Id`. A
+global instance must never treat a call carrying `X-XBin-Partition:
+user:…` as the tile itself. A view-as credential's call is `reader` there
+whatever the viewed person's level, with `X-XBin-Viewed-By`. An admin
+calling the tile directly — the only person who can call `/api/<tile>/…`
+by themselves; everyone else comes in through the tile's frame — keeps
+their own identity and role there.
 
 xbind's own credentials never reach a backend: the session cookie
 (`xbin_session` / `__Host-xbin_session`), the tile-origin cookie, an
@@ -130,14 +178,74 @@ deployment-scoped (it acts on the caller's own deployment), primary-only
 class refuses it too, reads included (§Tile deployments, *Which deployment
 a call acts on*).
 
+**A partitioned tile's credentials act in a partition**
+([partitions.md](/docs/partitions.md), in development). On a tile whose
+recorded mode has user partitions, xbind decides the partition from the
+credential, never from the URL or a header:
+
+- the tile's frames, terminals, agent sessions and path tickets, and a
+  person calling it directly (an admin included), act in **their person's
+  partition**, `user:<id>`, while that person exists, is enabled and can
+  read the tile; the owner token's (no person) in `global`, or nowhere
+  (`403 sign in as a person: <tile> keeps each person's data apart`) when
+  the tile has no global instance; a view-as session in none (`403 <tile>
+  keeps <user>'s data private: view-as can't open it`);
+- a backend's instance token in the partition its generation was started
+  for. A user partition's token authenticates only while that partition
+  is covered — the tile is still partitioned and its person still exists
+  (the same incarnation), is enabled and can read the tile: otherwise it is
+  a **401**, at once;
+- cron and bus deliveries in their registration's partition, and a
+  partition mail doorbell (`xbin/mail`) in its addressee's, refused (403)
+  while its person is gone, disabled or can't read the tile;
+- another tile's credentials in their own partition, mapped onto the
+  callee (§Providers in partitions.md): a partitioned caller's user
+  partition reaches the same person's partition of a partitioned callee
+  when the grant allows and the person can read the callee (and, with the
+  workspace policy `partitionConsent` on, consented: `403 <id> hasn't let
+  <caller> use their <tile> data (they allow it at /xbin/partitions)`);
+  anything else reaches the callee's
+  global instance, or `403 <tile> is partitioned: only partitioned tiles
+  reach its people's data, and it has no global instance`;
+- a non-primary deployment of a partitioned tile has one instance,
+  `global`;
+- the one way out of a partition by the URL: the tile's own frames,
+  terminals, agent sessions and user-partition backends — and an admin
+  calling it directly — reach its **global instance** with
+  `?xbin-partition=global` (§HTTP routes › Core), attributed to the person.
+  Nothing addresses a user partition by the URL.
+
+A user partition's credential is default-deny on `/api/xbin/*`, like a
+non-primary deployment's: every route has a partition class too —
+partition-scoped (the handler acts on the caller's partition: its own vault,
+cron jobs and bus subscriptions among them), dormant (the global instance's
+registrations — interface instances and ingress hosts: a person's partition's
+are stored for it and answered with success and `dormant:true`, and never
+route), global-only (refused: `403 this route is
+the global instance's alone: a person's partition (user:<id>) can't use
+it`), person-only (a person's own session, app or device credential only:
+`403 this is a person's own act …` for every tile credential, partitioned
+or not, the owner token and view-as) or neutral — and a route without one,
+or whose handler doesn't act per partition yet, answers `403 this route
+isn't available to a partition's credentials yet`. The `/prefs` routes keep
+a person's own bucket, so a user partition's frames, terminals and agent
+sessions use them, while its instance token, which names no person, is
+refused them (`403 … that name no person yet`). The global instance, and
+every credential of a tile that isn't partitioned, meet none of this.
+
 ## HTTP routes
 
 ### Core
 
 ```
 GET  /healthz                    200 "ok", unauthenticated (liveness)
-GET  /login                      login page; ?token=<root> sets the admin cookie
-POST /login                      {username,password} form → session cookie (throttled)
+GET  /login                      login page; ?token=<root> sets the admin cookie.
+                                 ?next=<path>: where the sign-in lands — a
+                                 same-origin path, not a sign-in route
+                                 (else ignored); the form and the single
+                                 sign-on link carry it on
+POST /login                      {username,password[,next]} form → session
+                                 cookie, 302 next (or /) (throttled)
 GET  /login?invite=<tok>         invite set-password page (D22; single-use link)
 GET  /login?impersonate=<tok>    redeems a view-as ticket (POST /api/xbin/
                                  impersonate): the signed-in minting admin's
@@ -182,7 +290,9 @@ POST /login/invite               {invite,password,password2} form → redeems th
 GET  /login/sso                  SSO sign-in start (docs/auth.md §SSO; 404 when
                                  not configured): redirects to the IdP with
                                  PKCE + state + nonce, carried in a signed
-                                 short-TTL cookie (throttled)
+                                 short-TTL cookie (throttled); ?next=<path>
+                                 rides that cookie, and the callback lands
+                                 there (the same rule as GET /login's)
 GET  /login/sso/callback         the IdP's return leg: verifies state and the
                                  ID token (or fetches GitHub's verified
                                  primary email), resolves the email to a user
@@ -190,7 +300,10 @@ GET  /login/sso/callback         the IdP's return leg: verifies state and the
                                  allow-rule JIT-provisions), then mints the
                                  same session cookie as password login.
                                  Errors land back on /login as fixed
-                                 ?sso_err= codes (throttled; audit-logged)
+                                 ?sso_err= codes (throttled; audit-logged);
+                                 held: a change of the provider its person
+                                 hasn't confirmed (docs/partitions.md
+                                 §Credential resets)
 GET  /login/sso?app=1&challenge=<c>
                                  the native app's SSO sign-in (in
                                  ASWebAuthenticationSession): c =
@@ -492,6 +605,21 @@ GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
                                  sandboxed tile frames load it credential-less
 GET  /docs/<file>.md             these docs (HTML viewer for browsers; ?raw=1
                                  or non-HTML Accept for plain markdown)
+GET  /xbin/partitions            the partitions page (docs/partitions.md
+                                 §Your partitions page): xbind's own static
+                                 page — web/partitions.html as shipped, no
+                                 HTML transform, the same bytes for
+                                 everyone — that reads and acts through
+                                 /api/xbin/partitions… with the signed-in
+                                 person's session. Any principal; signed
+                                 out, a browser → /login?next=/xbin/
+                                 partitions (it lands back here after
+                                 signing in). Top-level only:
+                                 X-Frame-Options DENY, CSP frame-ancestors
+                                 'none' (with default-src and script-src
+                                 'self', no inline script), COOP
+                                 same-origin. /vendor/partitions.html is
+                                 404: the page has no other copy
 ANY  /api/<component-path>/<p>   → component backend (see below)
 ANY  /api/xbin/<p>              → xbind's own API (below)
 ANY  /api/~<ticket>/<p>         → a path ticket's prefix of one tile's API
@@ -543,6 +671,77 @@ Errors are JSON:
 404 unknown component, 403 no grant, 410 a tile whose manifest declares the
 removed runtime `cgi` (the error says so; its code never runs — D117), 502
 build/backend failure (build failures carry compiler output in `detail`).
+409 for a call that would reach the primary of a tile paused by its
+partition mode — its code asks for another `partition` than the one
+recorded, on a tile that holds data, or for an invalid one: no instance of
+the primary runs until a tile manager decides (§Manifest "partition" in
+[elements.md](/docs/elements.md)). The body adds `partition`:
+`{"error": "<tile> is paused: a partition mode switch is requested (<R> →
+<Q>); a manager of <tile> must switch (deleting all its data) or keep the
+current mode", "docs": …, "partition": {"state": "pending", "from":
+{user, global}, "to": {user, global}}}`, or for an invalid request
+`{"error": "<tile> doesn't run: partition: <why>", "docs": …,
+"partition": {"state": "invalid", "error": "partition: <why>"}}`. A caller
+the tile refuses gets its 403 first; public ingress to such a tile answers
+503 as for a disabled one. The clause after "must switch" says what the
+switch deletes: `deleting all its data` between user partitions and
+unpartitioned, otherwise `deleting nothing (…)` when `"global"` comes or
+`deleting the global instance's data …` when it goes. While a switch is
+pending, a document load of the tile is xbind's own page instead of the
+tile's — 409, `Cache-Control: no-store`, a `sandbox` CSP with no scripts —
+saying a switch is requested (R → Q), what it deletes (all data in the
+tile will be deleted for it to happen, or, when `"global"` comes or goes,
+nothing or the global instance's data), the tile's `partitionNote` (as
+text), and who decides where (`POST /api/xbin/partitions/mode`, `bx
+partition switch|keep`). A document load is a request with `Sec-Fetch-Dest`
+`document`, `iframe`, `frame`, `embed` or `object`, or — without Fetch
+Metadata — a GET of `/c/<tile>/…/`, an `.html` file or `?native=1` under a
+login session or by the tile's own frame (the app). Any other read (a
+fetch, a script, a bearer token, another tile's code grant) and the tile's
+other files are served as before. The primary's deployment URL
+(`/c/<tile>+<primary>/`, and a deployment origin's bare URL) shows the page
+too; another deployment's URL isn't paused.
+On a partitioned tile a call reaches the
+partition §Authentication names (403 with the reason when it reaches none),
+and a person's partition that can't start now answers 503 with why;
+public ingress reaches only the tile's global instance, and a tile without
+one answers 503 `this site is not being served right now`.
+**`?xbin-partition=global`** on a call to a partitioned tile addresses the
+tile's global instance instead of the caller's partition
+([partitions.md](/docs/partitions.md) §The global instance and people's
+partitions). xbind consumes it — the backend never sees it; the rest of
+the query passes — on partitioned tiles only (their recorded mode has user
+partitions, or can't be read), public ingress to one included (which
+reaches global anyway); on every other tile it reaches the backend as any
+query parameter, as it always has. It is honoured for the tile's own
+frames, terminals, agent sessions and user-partition backends, whose call
+reaches the global instance attributed to the partition's person
+(§Authentication, after the identity headers), and for an admin calling
+the tile directly, who keeps their own role (a reader or writer calling
+`/api/<tile>/…` by themselves is refused with or without it, `403 user:<id>
+is not granted access to <tile>`: their way in is the tile's frame). A
+view-as frame reaches it as the viewed person with `X-XBin-Role: reader`,
+whatever their level, and `X-XBin-Viewed-By`; its writes are refused (403
+`read-only: …`) as everywhere. For credentials already in `global` — the global
+instance, the owner token and its frames and terminals, a non-primary
+deployment's credentials (whose one instance is `global`) — it changes
+nothing. Refused: a value other than one `global` (400 `?xbin-partition
+addresses a partitioned tile's global instance: its one value is global`);
+another tile's credentials (`403 ?xbin-partition=global addresses a tile's
+own global instance: <caller> can't use it on <tile>`); cron, bus and mail
+deliveries (`403 a <cron|bus|mail> delivery acts in the partition it was
+registered for: …` — and a partitioned tile's `PUT /cron/jobs` or `PUT
+/bus/subscriptions` whose `path` carries the parameter answers 400 with
+those words when it is registered); a path ticket (`403 a path ticket reaches its own
+partition only: ?xbin-partition=global needs the page's own frame
+token`); a tile without a global instance (`404 <tile> has no global
+instance` — the one 404 with that text: the same words as a 403 are the
+refusal of a credential whose own partition is `global`, such as the
+global instance's token or a global cron job, on a tile without one); and
+a person who can't read the tile, is disabled or deleted
+(the partition refusals of §Authentication). The client's
+`xbin.fetch(url, {partition: 'global'})` and the Go SDK's
+`xbin.GlobalURL(path)` add it, from a user partition only.
 
 ### xbind API (`/api/xbin/…`)
 
@@ -561,7 +760,11 @@ GET    /status                     admin. terminals ({id,cwd,net,kind,vm,user,
                                    delta two polls for rates), and version (the
                                    running xbind build commit). A terminal
                                    whose session targets a named deployment
-                                   carries deployment
+                                   carries deployment; a person's session
+                                   on a partitioned tile carries partition
+                                   ("user:<id>", or "global" when it
+                                   targets a non-primary deployment) and
+                                   an empty name
 GET    /backends                   admin. per-component backend state
                                    {<path>: {state, gen, error?}}. The row
                                    stays the primary's; a tile with
@@ -573,7 +776,16 @@ GET    /backends                   admin. per-component backend state
                                    deployment shows the primary's idle row
                                    {state: idle, gen: 0}. Other tiles'
                                    credentials an xbin grant makes admin get
-                                   the primary rows only
+                                   the primary rows only. A partitioned
+                                   tile's row adds partitions: [{partition,
+                                   state, gen, uptimeSec, rssKb, restarts,
+                                   crashLoop?, lastExit?, lastStarted?,
+                                   errorClass?}] — its people's running
+                                   instances, metadata only (errorClass:
+                                   crash-loop | build | start | exit |
+                                   other, never the text); a tile whose
+                                   global instance isn't running gets the
+                                   idle row to hold them
 GET    /runtime                    admin. full runtime visibility →
                                    {host:{version,kernel,pid,uid,numCPU,goroutines,
                                    heapMB,uptimeSec,isolate,rootfs,scopeUids,
@@ -628,7 +840,12 @@ GET    /runtime                    admin. full runtime visibility →
                                    main ("main" for main's), and a scope's
                                    data beyond main has rows of its own (kv,
                                    blob, sqlite, filesystem), one per
-                                   deployment's data
+                                   deployment's data. A partitioned scope's
+                                   people's partitions have rows of their own
+                                   too, one per partition and resource that
+                                   isn't shared, with deployment and
+                                   partition ("user:<id>"; the partition id
+                                   when its record can't be read)
 GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
@@ -737,15 +954,20 @@ PUT    /vm/policy                  admin. body: any of {terminals,backends,
 GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    {sandboxes:[{id,kind (backend|terminal|
                                    agent|tile),tile,parent?,user?,label?,
-                                   for?,forUser?,mode
+                                   for?,forUser?,partition? (a person's
+                                   partition's backend: user:<id>),mode
                                    (vm|namespace|host),accel? (kvm|emulate),
                                    memMiB?,vcpus?,pid,gen?,started,leaf?,
                                    disk?,net?,restricted?,owner?,name?,
-                                   status?,uptimeSec,stats?:{cpu,mem,pids,
-                                   scope}}], disks:[{kind (terminal|tile),
+                                   status?,personal? (a person's terminal
+                                   or agent session on a partitioned tile,
+                                   listed without its name),uptimeSec,
+                                   stats?:{cpu,mem,pids,
+                                   scope}}], disks:[{kind (terminal|tile|
+                                   person-terminal),
                                    key,sandbox?,sandboxUid?,path,tile?,
                                    apparentBytes,allocatedBytes,inUse}],
-                                   failures:[{time,kind,tile,user?,mode,stage
+                                   failures:[{time,kind,tile,partition?,user?,mode,stage
                                    (refused|start|health|exit),error,count}],
                                    failureCounts:{<stage>:n}, cgroup,
                                    intervalSec, health:{isolation:{tier,
@@ -768,9 +990,15 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    the VM policy as set (0 = default) — what
                                    an editor PUTs back. disks: the VM disks
                                    on the host — a tile's terminal layer's
-                                   (kind terminal) and its tile sandboxes'
+                                   (kind terminal), its tile sandboxes'
                                    (kind tile, with the sandbox's name and
-                                   uid). A running tile sandbox (D120) is a
+                                   uid) and, on a partitioned tile, each
+                                   person's terminal layer's (kind
+                                   person-terminal: key is the tile's
+                                   storage key, the person unnamed). A
+                                   person's terminal or agent session on a
+                                   partitioned tile is listed without its
+                                   name. A running tile sandbox (D120) is a
                                    kind tile row: its name, its manager's
                                    claims for/forUser, stats from its own
                                    leaf. health.tileSandboxes: why tile
@@ -806,7 +1034,13 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    tile's rows sum per leaf. leaf is the
                                    generation's own: the flat <key> while main
                                    runs alone, tile-<key>/d-<name>/backend
-                                   otherwise. failures[] of another deployment
+                                   otherwise. A person's partition's backend
+                                   (docs/partitions.md) has the id
+                                   backend@<pkey>:<key>:g<gen>, partition
+                                   (user:<id>), its own leaf
+                                   tile-<key>/p-<hash>/backend and stats
+                                   scope "partition"; metadata only.
+                                   failures[] of another deployment
                                    carry deployment? (a start past the caps
                                    or the VM room of §Tile deployments shows
                                    here, stage refused).
@@ -863,7 +1097,14 @@ GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    terminal/agent tokens whose user writes it
                                    deployments: {primary, liveReload,
                                    items:[{name, state, gen, checkpoint?}]}
-                                   (checkpoint: the pinned id)
+                                   (checkpoint: the pinned id). A person's
+                                   partition's own credential (its backend,
+                                   the person's frames, terminals, agent
+                                   sessions) gets its partition's: backend
+                                   (its instance, or null), disk (the
+                                   partition's bytes and ceiling) and
+                                   partition: "user:<id>" — never the
+                                   global instance's
 GET    /term-net?tile=<p>          terminal access on the tile. the network
                                    scopes a terminal there may take for the
                                    caller (D54): {tile, scopes:[{id,label,
@@ -913,12 +1154,41 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    answer). A deployment beyond main keeps
                                    its log inside xbind's state
                                    (.xbin/deploy/<tile-key>/d/<name>/
-                                   backend.log), with its setup output
+                                   backend.log), with its setup output.
+                                   A partitioned tile (docs/partitions.md
+                                   §Logs and status): the caller's own
+                                   partition's log at any level — a
+                                   person's session, their frames,
+                                   terminals and agent sessions, the
+                                   partition's backend
+                                   (.xbin/partition/<tile-key>/<dep>/<pkey>/
+                                   backend.log); &user=<id>: that person's,
+                                   for them, or for an admin or a tile
+                                   manager in their own session while the
+                                   person shares it (POST
+                                   /partitions/share-log; else 403);
+                                   &xbin-partition=global: the global
+                                   instance's under the rule above (a
+                                   person's partition 403); a credential
+                                   acting in no person's partition (the
+                                   root token, another tile) reads the
+                                   global instance's as before;
+                                   &partition= 400. X-XBin-Partition names
+                                   the partition served. A follow of a
+                                   partition's log asks again every few
+                                   seconds and ends (with a closing line)
+                                   once the reader may no longer read it —
+                                   a share that ended or was revoked
 GET    /auth-overview              admin. components(+roles/uses/vault, vm?:
                                    {memMiB?,vcpus?} when the manifest asks for
                                    a VM), grants, pending, counts — powers the
                                    admin console
-GET    /vaults                     admin. [{component, keys}] across all vaults
+GET    /vaults                     admin. [{component, keys}] across all vaults.
+                                   A partitioned tile's row is its global
+                                   instance's keys plus partitions: how many
+                                   people's partitions keep a vault — a
+                                   count, never their key names (absent when
+                                   none)
 GET    /resources                  admin. declared resources [{id,scope,name,type}]
 GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    state? (lifecycle; absent = enabled),
@@ -956,7 +1226,29 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    code (its checkpoint while pinned), roles,
                                    uses, deps and manifestError the work
                                    tree, and origin is the primary's.
-                                   Deployments are never rows
+                                   Deployments are never rows.
+                                   The entry of a tile whose primary's code
+                                   asks for a "partition", or whose
+                                   recorded partition mode has one, gains
+                                   partition: {state: partitioned |
+                                   unpartitioned | pending | invalid, user,
+                                   global (the recorded mode), request?:
+                                   {user, global, declined} (what the code
+                                   asks when it differs: pending, or kept
+                                   by a tile manager — declined), note?
+                                   (while pending: the code's
+                                   partitionNote, trimmed — the tile's own
+                                   words, sandbox-writable: show it as
+                                   text, attributed to the tile)} and, for
+                                   an invalid request, partitionError (also
+                                   in manifestError). A tile with a
+                                   recorded mode whose code's xbin.json, or
+                                   whose mode record, can't be read is
+                                   invalid too, with partitionError saying
+                                   so (user and global: the recorded mode,
+                                   both false when the record can't be
+                                   read). Both are absent for every other
+                                   tile
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
                                    (component as above, native included)
 GET    /tile-assets                any (read-filtered); ?component=<p> for one.
@@ -1018,13 +1310,16 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system,dismiss?}]} — disk
                                    quota / low disk / cgroup at-limit; system
                                    alerts to all, tile alerts to admins +
-                                   that tile's users. Admins also get kind
-                                   go-build-versions (warn): Go tiles that
-                                   build with older dependency versions since
-                                   each builds with its own go.mod (D166),
-                                   and the require lines that keep what each
-                                   had (GET /go-build-versions). dismiss: the
-                                   route a POST to which dismisses the alert
+                                   that tile's users. An unreadable
+                                   data/workspace-policies.json is kind
+                                   `policies`, admins only. Admins also get
+                                   kind go-build-versions (warn): Go tiles
+                                   that build with older dependency versions
+                                   since each builds with its own go.mod
+                                   (D166), and the require lines that keep
+                                   what each had (GET /go-build-versions).
+                                   dismiss: the route a POST to which
+                                   dismisses the alert
                                    (/go-build-versions/dismiss).
                                    An alert about a deployment's data beyond
                                    the primary's main carries deployment (the
@@ -1033,7 +1328,30 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    the primary): admins only. A limit alert
                                    names the deployment whose cgroup leaf hit
                                    its cap; a tile's checkpoint and build
-                                   storage warns at 90% of its quota
+                                   storage warns at 90% of its quota. Kind
+                                   backup-keys (admins only, warn): N backup
+                                   keys aren't in any exported key bundle
+                                   yet, or the vault passphrase changed
+                                   after the last export (GET /backup-keys;
+                                   cleared by POST /backup-keys/export).
+                                   Kind partition-switch (warn, tile): a
+                                   partition mode switch is requested for
+                                   the tile, which doesn't run until a tile
+                                   manager switches or keeps the current
+                                   mode (POST /partitions/mode; the message
+                                   names bx partition switch|keep and
+                                   /xbin/partitions) — admins and
+                                   the tile's readers; it goes when the
+                                   request is decided or withdrawn. Kind
+                                   partition-invalid (warn, tile): the
+                                   tile's partition request can't run (or
+                                   its mode record can't be read), so its
+                                   primary doesn't — same audience. Kind
+                                   partition-consents (warn, admins only):
+                                   person consent records in
+                                   data/partitions/consents this xbind
+                                   can't read (each named; POST /partitions/
+                                   consents)
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin,suspended?,via?,viaGroups?}]
@@ -1108,10 +1426,18 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    tabs (the shell's <bx-frame> lists them here,
                                    not in the browser). A row whose session
                                    targets a named deployment carries
-                                   deployment
-PATCH  /term/sessions/<id>        creator or admin. {name}: name the tab (empty
-                                   clears; lives on the session → follows the
-                                   user) → ok
+                                   deployment. A row of a session on a
+                                   partitioned tile carries partition
+                                   ("user:<id>" | "global": what it acts
+                                   in); in an admin's ?user= listing, and
+                                   in an admin's view as its person, a
+                                   person's session there has an empty
+                                   name
+PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
+                                   the creator only: 403 for an admin on
+                                   another person's session). {name}: name
+                                   the tab (empty clears; lives on the
+                                   session → follows the user) → ok
 GET    /agent/providers           authenticated. the coding agents this daemon
                                    runs: [{id,name,modes:[{id,name,explicit?}],
                                    defaultMode,login}] (D74; explicit modes are
@@ -1272,6 +1598,35 @@ GET    /term/sessions/<id>/diff   creator or admin. ?toolCallId=<id> |
                                    itself, not through a sibling either; a
                                    shell's token on the tile still does,
                                    as `bx agent` there)
+                                  (on a partitioned tile — docs/partitions.md
+                                   §Terminals and agent sessions — "or
+                                   admin" holds for the admin's own
+                                   sessions only: on another person's
+                                   session every route above but DELETE
+                                   answers 403 `session belongs to another
+                                   user: <tile> keeps each person's data
+                                   apart, so an admin can't open other
+                                   people's sessions there (ending one is
+                                   allowed)`, and an admin viewing as a
+                                   person gets 403 `viewing as someone
+                                   opens no session on <tile>: it keeps
+                                   each person's data apart` on every GET
+                                   above, the person's own sessions
+                                   included. A new session there acts in
+                                   its opener's partition — SessionInfo
+                                   carries partition — or, without a
+                                   person, in global (api false when the
+                                   tile has none); 409 while the tile's
+                                   partition mode switches or the
+                                   opener's partition of it is being
+                                   reset or removed. resume answers 409
+                                   for a past session of the other store:
+                                   a partition's entry continues only in
+                                   its person's session on the
+                                   partitioned tile, a person's own entry
+                                   only outside one. A person's terminal
+                                   on the tile may open and drive its own
+                                   agent sessions)
 GET    /agent/history             terminal-level. Your past agent sessions,
                                    newest first: [{id, cwd, provider, mode,
                                    name, created, ended, turns, preview,
@@ -1282,7 +1637,12 @@ GET    /agent/history             terminal-level. Your past agent sessions,
                                    ?cwd= narrows to a tile. loadable: the
                                    agent can reopen it (resume). An entry of
                                    a session that had a named target carries
-                                   deployment
+                                   deployment. A session on a partitioned
+                                   tile's entry is kept with its person's
+                                   partition, and listed, read and deleted
+                                   here the same way — never by a person
+                                   recreated under the same id, nor by an
+                                   admin viewing as the person (404)
 GET    /agent/history/<id>/events terminal-level (own). {meta, events} — the
                                    persisted transcript in the live /events
                                    shape; 404 when not yours or gone.
@@ -1409,7 +1769,12 @@ POST   /invite/redeem             none — the invite is the credential.
                                    audit-logged). 400 {error}: the password
                                    fails the policy (min 8 characters) —
                                    the invite is NOT spent; 403 as above;
-                                   429 throttled
+                                   409 {error: "waiting for <person> to
+                                   confirm…"}: a link held for its person
+                                   (docs/partitions.md §Credential resets;
+                                   stored held, so an xbind without the
+                                   check never redeems it),
+                                   not spent; 429 throttled
 POST   /devices/enroll-code       a signed-in user (browser or app
                                    session), [{password}]. → {code, url:
                                    "xbin://enroll?u=<origin>&c=<code>",
@@ -1509,7 +1874,18 @@ POST   /users/<id>/invite         admin/xbin:users — or an ORG ADMIN for a
                                    keeps working until redemption. → {invite,
                                    inviteUrl, inviteLink (absolute, from the
                                    request host), inviteExpires}. 409 for a
-                                   non-admin under SSO-only mode (D53)
+                                   non-admin under SSO-only mode (D53).
+                                   For a person who holds partitions
+                                   (docs/partitions.md §Credential resets)
+                                   the link is audited and the person told
+                                   (push account.credential, a notice);
+                                   with the workspace policy
+                                   credentialResetConfirm on it is minted
+                                   held — the answer adds held: true,
+                                   heldUntil — and its redemption answers
+                                   409 "waiting for <person> to confirm…"
+                                   (the web form shows it) until the person
+                                   allows it or 24 h after they were told
 PATCH  /users/<id>                admin/xbin:users. update — present fields
                                    overlay (+password reset). {disabled:
                                    bool} suspends/restores the account
@@ -1522,11 +1898,27 @@ PATCH  /users/<id>                admin/xbin:users. update — present fields
                                    noPersonalTiles, noTerminal (switching
                                    it on ends the user's live terminal and
                                    agent sessions), sets, netSets (a change
-                                   restarts their net tiles)
+                                   restarts their net tiles). A password or
+                                   SSO email set for someone else who holds
+                                   partitions is audited and they are told;
+                                   with credentialResetConfirm on it is held
+                                   instead of applied (the old one keeps
+                                   working) and the answer carries
+                                   X-XBin-Credential-Held: password,email
+                                   (docs/partitions.md §Credential resets).
+                                   Disabling a person (or a change that
+                                   takes their read on a tile) stops their
+                                   running partition instances
 DELETE /users/<id>                admin/xbin:users. remove (revokes
                                    sessions) → {ok, orphanedTiles: […]} —
                                    tiles that fell to workspace-owned, so
-                                   the handover is explicit
+                                   the handover is explicit. A partition
+                                   holder's instances stop and their
+                                   partitions are orphaned (swept after 30
+                                   days, or purged); their personal binds,
+                                   consents, notices and held credentials
+                                   go; homes/<id> and data/agent-history/<id>
+                                   move to data/orphans/<id>-<uid8>/
 DELETE /users/<id>/sessions       admin/xbin:users. "sign out everywhere"
                                    (D53): ends every browser and app
                                    session, terminal token and frame token
@@ -1591,7 +1983,15 @@ PATCH  /auth-settings             admin/xbin:users. {tokenLoginDisabled?:
                                    clientSecret keeps the stored one), null
                                    clears it; passwordLoginDisabled = SSO-
                                    only mode for non-admins — enabling
-                                   needs a READY provider (409 otherwise)
+                                   needs a READY provider (409 otherwise).
+                                   A new provider identity (kind, issuer,
+                                   client id) is a credential for every
+                                   partition holder bound by email: audited
+                                   naming them, each told; with
+                                   credentialResetConfirm their SSO sign-ins
+                                   are held (?sso_err=held) until they allow
+                                   it or 24 hours pass (docs/partitions.md
+                                   §Credential resets)
 POST   /auth-settings/sso/test    admin/xbin:users. probe the provider
                                    without a user (D53): OIDC discovery +
                                    JWKS, or GitHub API reachability. Body
@@ -1829,6 +2229,72 @@ PUT    /native-runtime            admin. {enabled: bool} → the same view.
                                    answers 410 with the reason (&preview=1
                                    still served). Kept in users.json;
                                    publishes `native`; audited
+GET    /workspace-policies        a person (session, device, or a
+                                   terminal or agent session they drive,
+                                   any deployment) or admin; other tile
+                                   principals (frames, instances, cron, bus)
+                                   403.
+                                   {schema: 1, partitionConsent,
+                                   credentialResetConfirm} — the workspace
+                                   policies for partitioned tiles (PD-55),
+                                   both off by default. partitionConsent: a
+                                   partitioned tile uses another partitioned
+                                   tile's data of a person only with that
+                                   person's consent; credentialResetConfirm:
+                                   an admin-set sign-in link, password or SSO
+                                   email for someone holding partitions waits
+                                   for them to confirm, or 24 h after they
+                                   are notified. Kept in
+                                   data/workspace-policies.json (not
+                                   users.json, which an older xbind rewrites
+                                   without keys it doesn't know), each
+                                   switch by its exact key. A file xbind
+                                   can't read (not a JSON object, a value
+                                   not true or false, a mis-cased key) never
+                                   turns a switch off: one it can't read
+                                   keeps the last value xbind read, or is
+                                   on; GET answers 500 (admins get the
+                                   reason) and admins see a `policies`
+                                   alert until the file is fixed by hand
+PUT    /workspace-policies        admin. {partitionConsent?,
+                                   credentialResetConfirm?}: each present key
+                                   replaces that switch, an absent one is
+                                   left alone (at least one; any other key is
+                                   400) → the full view; keeps every other
+                                   key of the file; 500 without writing on a
+                                   file it can't read; publishes `policies`;
+                                   audited with each switch's old→new
+POST   /partitions/limits         admin (the admin console: when the
+                                   person driving it is one); a tile
+                                   manager (with their own session, app or
+                                   device) may lower their own tile's. {tile?, maxRunning?,
+                                   partitionBytes?}: without tile, the
+                                   workspace's cap on people's partition
+                                   instances running at once (maxRunning,
+                                   admin only; partitionBytes 400); with
+                                   tile, that tile's cap and the byte ceiling
+                                   of each person's partition of it — an
+                                   admin's values, or a manager's lower ones
+                                   (above the admin's value or the default:
+                                   403). 0 clears a value; maxRunning is
+                                   ≤ 4096, partitionBytes ≥ 1 MiB. The caps
+                                   default from host memory M (per tile
+                                   clamp(M/4 ÷ E, 4, 32), workspace
+                                   clamp(M/2 ÷ E, 8, 128), E ≈ 160 MiB; M
+                                   is MemTotal, or xbind's own cgroup
+                                   memory limit when lower), the ceiling
+                                   to the tile's per-namespace one. →
+                                   {tile?, limits?:
+                                   {maxRunning, partitionBytes}, workspace:
+                                   {maxRunning}, defaults: {maxRunning,
+                                   workspaceMaxRunning}} (effective values;
+                                   partitionBytes 0 = the default). The
+                                   tile's own credentials 403, an unknown
+                                   tile 404. Kept in
+                                   data/partition-limits.json (a file xbind
+                                   can't read: the defaults apply and POST
+                                   answers 500); applies at the next start;
+                                   audited (docs/partitions.md)
 GET    /workspace-settings        authenticated. {baseAutoUpdate, error?} —
                                    the workspace settings an admin sets
                                    (D175). baseAutoUpdate (default true): a
@@ -1921,7 +2387,9 @@ POST   /create                     owner/admin, a user creating a tile
                                    entries, a deployment record or
                                    checkpoint store; and, at the path or
                                    under it, a deployment's vault,
-                                   registrations or data — listed in the
+                                   registrations or data, a partitioned
+                                   tile's partition mode record or its
+                                   people's partition data — listed in the
                                    error; the path's owner is exempt);
                                    creation by anyone drops a deployment
                                    record left at the path, so the new
@@ -1962,7 +2430,10 @@ POST   /clone                      same authority as /create (the
                                    → {path, from, rewritten, pendingGrants}.
                                    Forks a component: copies it (git history
                                    included), rewrites old-path references
-                                   across its files, registers it fresh.
+                                   across its files, registers it fresh; a
+                                   template instance's copy gets its
+                                   manifest's merge driver for its own path
+                                   (docs/overview/03-components.md §Templates).
                                    Secrets/resource data are NOT copied;
                                    unresolvable uses reject the clone.
 GET    /builtins                   any. optional tile catalog
@@ -1982,26 +2453,74 @@ GET    /builtins/updates            any. builtins (scaffold + imported tiles) wi
 POST   /builtins/update             xbin:writer. body {id, mode:
                                    replace|merge|pr|pin|unpin}. replace
                                    overwrites, merge 3-way-merges (git merge-file);
-                                   both → {files} and re-record provenance
-                                   eagerly. mode "pr" (D49) writes NOTHING:
+                                   both → {files, notes?} and re-record provenance
+                                   eagerly. No mode adds, removes or changes a
+                                   tile's mode request, each xbin.json's
+                                   top-level "partition" (any key case, as
+                                   xbind reads it — docs/partitions.md):
+                                   replace writes the INSTALLED value (present,
+                                   absent or its list, spliced where the
+                                   installed file has it; from the builder's
+                                   own side of conflict markers an earlier
+                                   merge left; for a file that doesn't parse,
+                                   the mode xbind last read from the tile —
+                                   and when even that is unknown the manifest
+                                   is left as it is and the update stays
+                                   offered); merge and "pr" undo upstream's own
+                                   change to the key before git sees it, so
+                                   the builder's line merges untouched. notes
+                                   (absent when empty) name each manifest
+                                   where upstream asks otherwise ("…/xbin.json:
+                                   partition kept as installed (<ours>; upstream
+                                   asks <theirs>): edit it deliberately to
+                                   request a switch") — replace whenever it
+                                   does, merge and "pr" when upstream changed
+                                   the key — and a "pr" proposal's message
+                                   says so too. mode "pr" (D49) writes NOTHING:
                                    the update is filed as a change proposal
                                    against the tile → {pr:{target,number,…}} —
                                    the tile's own plane reviews and `git am`s
                                    it, and provenance refreshes only when the
-                                   PR closes merged. Idempotent per embed
+                                   PR closes merged. When upstream changed
+                                   nothing but a partition there is nothing to
+                                   propose: "pr" answers {files: [], notes}
+                                   instead and records the version as applied
+                                   (the tile's files are what a merge would
+                                   leave). Idempotent per embed
                                    version; a newer embed auto-withdraws the
                                    stale open proposal. Such PRs carry
                                    kind:"builtin-update" + builtin/toVersion/
                                    toHash in their meta. Never touches
                                    template instances.
 GET    /templates                   any. template blueprints (builtin ∪ workspace).
-                                   [{id,source,title,description,defaultName}]
+                                   [{id,source,title,description,defaultName,
+                                   partition?,partitionSkipped?}] — partition:
+                                   the mode new instances start in (the
+                                   template block's "partition", e.g.
+                                   ["user","global"]); partitionSkipped:
+                                   "needs --isolate" when this xbind runs
+                                   without isolation and won't write it. Both
+                                   absent for a template that names no mode.
 POST   /templates/new               same authority as /create on the
                                    resolved target; a workspace-template
                                    source also needs READ. body {source,
-                                   path?, owner?} → {path,
-                                   files, pendingGrants} — instantiates a template
-                                   into a named copy (docs/overview/03-components.md §Templates). A
+                                   path?, owner?, partition?} → {path,
+                                   files, pendingGrants, partition?,
+                                   partitionSkipped?} — instantiates a template
+                                   into a named copy (docs/overview/03-components.md §Templates).
+                                   The copy's top-level "partition" is the
+                                   template block's (docs/partitions.md) unless
+                                   the body says "partition": false or xbind
+                                   runs without --isolate; the answer carries
+                                   partition (the mode written) or
+                                   partitionSkipped ("opted out" | "needs
+                                   --isolate"), both absent when the template
+                                   names no mode. Without the default the copy
+                                   asks for no mode at all. An xbind older
+                                   than partitioned tiles refuses the
+                                   partition field (400 "need {source, path?,
+                                   owner?}"); it never writes a mode, so send
+                                   the field only when opting out. A
                                    builtin-template instance gets a read-only
                                    `template` git remote (below), and its repo
                                    is SEEDED from the template's repo (D50):
@@ -2010,6 +2529,17 @@ POST   /templates/new               same authority as /create on the
                                    template && git merge template/main` applies
                                    upstream template fixes cleanly (shared
                                    ancestry; the builder picks what to adopt).
+                                   The instance's xbin.json is the template's
+                                   JSONC without the block (and the comment
+                                   lines above it), its partition the line
+                                   after "{" — in a workspace whose template
+                                   repo this xbind created, the served one
+                                   plus that line. Its repo names the merge
+                                   driver for it (merge.xbin-manifest, bx
+                                   template merge-manifest: where the line
+                                   merge of the template's change conflicts,
+                                   xbin.json merges by keys;
+                                   docs/overview/03-components.md §Templates).
 GET    /templates/updates           authenticated. → {instances:[{path,
                                    template, head, legacy}]} — instances whose
                                    builtin template gained snapshots they
@@ -2024,7 +2554,14 @@ GET    /templates/{repo}/{rest...}  authenticated. Read-only dumb-HTTP git serve
                                    /templates/agent.git/info/refs. Each instance
                                    has it as its `template` remote, so a builder
                                    pulls upstream fixes: git fetch template &&
-                                   git merge template/main.
+                                   git merge template/main. Its xbin.json never
+                                   changes the "template" block (instances never
+                                   carry it): a repo xbind creates has none (nor
+                                   the comment lines above it), one
+                                   an older xbind created keeps its own; a
+                                   change to the block is a snapshot whose
+                                   message says so (an empty commit when nothing
+                                   else changed; trailer Xbin-Template-Block).
 
 GET    /code/tree                  admin OR code[:<component>]. ?component=<path> → {component, files:
                                    [{path,size}]} — a component's files.
@@ -2109,9 +2646,15 @@ GET    /grants                     admin — full table {grants, pending}.
                                    {grants: [{from,target,role,approvedBy?,
                                    approvedAt?,direction?}], pending:
                                    [{from,target,role,blocked?,approvable?,
-                                   direction?,approvers?}], scope:
+                                   direction?,approvers?,warning?}], scope:
                                    "org"|"mine"} — blocked names the policy
                                    row that makes a request unapprovable;
+                                   warning, on a partitioned tile's request
+                                   on another partitioned tile's people's
+                                   data, says whose data its code will reach
+                                   ("…of every person who can read <x>", or
+                                   "…who allows it" with partitionConsent
+                                   on; docs/partitions.md);
                                    approvers hints who could (["org:<id>",
                                    "workspace-admin"], plus
                                    "transfer:org:<id>" when transferring a
@@ -2133,13 +2676,24 @@ POST   /grants                     admin — any. An org admin may approve on
                                    delegable (D120). body
                                    {from,target,role} — approve/add; the
                                    stored row records approvedBy/approvedAt.
+                                   → {ok, warning?}: warning is the pending
+                                   row's approval warning (GET /grants) when
+                                   a partitioned tile's grant reaches
+                                   another partitioned tile's people's data.
                                    Approving a res:* / gpu:* grant restarts the
                                    caller's backend (that env/devices are captured
                                    at spawn) so it takes effect at once.
                                    Granting xbin or an xbin:* target to a tile
                                    that has non-primary deployments answers
                                    409 "<tile> has non-primary deployments:
-                                   remove them before granting it <target>"
+                                   remove them before granting it <target>".
+                                   Granting xbin, xbin:*, cap:sandboxes,
+                                   cap:net-admin or cap:containers to a
+                                   tile whose recorded partition mode, or
+                                   whose code's request, has user
+                                   partitions answers 409 "<tile> is
+                                   partitioned (or asks to be): a
+                                   partitioned tile can't hold <target> …"
 DELETE /grants                     admin; also both D26/D33 edges (an org
                                    admin may always revoke their org's or
                                    their property's rows, a personal
@@ -2156,7 +2710,8 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                    docs/elements.md).
                                    {bindings: {comp: {slot: provider|{ref,host,
                                     zone,listen}|[…]}},
-                                    components: [{component, interfaces, provides}],
+                                    components: [{component, interfaces, provides,
+                                                  partitioned?}],
                                     pending: [{component, slot, kind, service,
                                               expose?, default?, approvable,
                                               options: [{id, label, blocked?}]}],
@@ -2194,8 +2749,16 @@ GET    /bindings                   admin; signed-in users get a scoped view
                                    the owning org's network sets — for
                                    everyone; outside a personal tile
                                    owner's allowance — for them, labelled
-                                   "outside your network allowance");
-                                   pickers grey it out.
+                                   "outside your network allowance"; an
+                                   http provider that is partitioned without
+                                   a global instance, on an unpartitioned
+                                   component's slot — for everyone, 409,
+                                   labelled "partitioned, no global
+                                   instance"); pickers grey it out.
+                                   `partitioned` (components rows) is true
+                                   for a tile whose recorded mode has user
+                                   partitions: its bindings are global binds
+                                   (docs/partitions.md §Bind types).
                                    default:"org" marks an unbound net slot on
                                    an org-owned tile with network sets — it
                                    is already satisfied (D54); binding only
@@ -2285,6 +2848,23 @@ POST   /bindings                   admin; an org admin within D26 (their
                                    admin's rights are judged on the route
                                    added. A stream INTERFACE slot binds
                                    "provider#expose-slot".
+                                   A new ref of an unpartitioned component's
+                                   http slot to a tile whose partition mode
+                                   has user partitions and no global
+                                   instance is 409: no call of it would
+                                   reach that tile (docs/partitions.md); a
+                                   ref the slot already holds isn't judged
+                                   again. A partitioned
+                                   component binds under the same rules as
+                                   any other: its bindings are global binds,
+                                   seen by every person's partition; binding
+                                   its http slot to another partitioned tile
+                                   answers {ok, warning} — the approval
+                                   warning of POST /grants. Into a tile
+                                   that runs reviewed code only (POST
+                                   /partitions/reviewed), a provider that
+                                   isn't partitioned and whose primary
+                                   isn't protected is 409.
 DELETE /bindings                   admin / owning-org admin (always) /
                                    provider-org admin (withdrawing
                                    service). body {component, slot} — clear a binding
@@ -2315,7 +2895,11 @@ PUT    /iface-instances            self or admin. body {component?, instances:
                                    no grants event, no re-wiring, not even
                                    with its deliveries on. provider#id always
                                    resolves against the provider primary's
-                                   map
+                                   map. From a person's partition of a
+                                   partitioned tile the same: 200 with
+                                   dormant:true, stored for that partition
+                                   and never routed (instances are the
+                                   global instance's, docs/partitions.md)
 
 PUT    /ingress-hosts              self or admin. body {component?, hosts:[…]}
                                    — a tile with a DELEGATED-ZONE http expose
@@ -2335,15 +2919,19 @@ PUT    /ingress-hosts              self or admin. body {component?, hosts:[…]}
                                    dormant:true; the set is stored for that
                                    deployment, zone-validated but not
                                    conflict-checked, and never routed — no
-                                   reconcile, not even with its deliveries on
+                                   reconcile, not even with its deliveries on.
+                                   A person's partition of a partitioned tile
+                                   likewise: 200 dormant:true, stored for it,
+                                   never routed
 GET    /ingress-routes             terminator tiles + admin. {routes: [{host,
                                    component, slot, paths, source, zone?}]} —
                                    the concrete host→tile routes. A tile with
                                    provides {kind:"ingress"} sees the routes
                                    bound THROUGH IT (its proxy/ACME config
                                    input); admins see all; others 403. A
-                                   non-primary deployment of a terminator
-                                   reads {"routes":[]}.
+                                   non-primary deployment of a terminator,
+                                   and a person's partition of one, reads
+                                   {"routes":[]}.
 GET    /ingress                    admin. The whole ingress picture: {exposes:
                                    [{component, slot, kind, paths|proto+port,
                                    source, host|zone|listen, routes:[{source,
@@ -2371,7 +2959,10 @@ POST   /lifecycle                  admin, the tile's user-owner, or an
                                    source/term-env for -full, which ends the
                                    tile's terminal sessions first — 502, nothing
                                    removed, if one won't end); enabling an
-                                   offloaded component restores it. State is in the
+                                   offloaded component restores it. Offloading
+                                   a partitioned tile is refused (409 "can't
+                                   offload …", nothing archived or stopped;
+                                   docs/partitions.md). State is in the
                                    overview's component list (state field).
                                    Lifecycle is the tile's: disabling, hiding
                                    or offloading stops every deployment;
@@ -2392,6 +2983,503 @@ POST   /lifecycle                  admin, the tile's user-owner, or an
                                    an offload is refused 409 — nothing archived
                                    — while any of them holds state (an upper, a
                                    disk, a snapshot): offload can't carry it yet.
+                                   {ok, state}; enabling an offloaded tile adds
+                                   what its restore answers (POST /restore):
+                                   deployments, sandboxesSkipped?, and
+                                   dataErased? / dataMissing? when a sealed
+                                   backup's data couldn't come back.
+
+POST   /partitions/mode            a tile manager (the tile's user-owner, an
+                                   admin of its owning org, or a workspace
+                                   admin) acting as a person: their own
+                                   session, app, device or the root token, or
+                                   the admin tile's frame under their login;
+                                   every other tile principal (instance,
+                                   frame, terminal, agent session) 403.
+                                   body {tile, act: "keep"|"switch", from, to,
+                                   confirm?, yes?, dryRun?} — decide a
+                                   partition mode switch request R → Q
+                                   (docs/partitions.md §The mode).
+                                   from/to are {user, global} (null:
+                                   unpartitioned) and must still be the
+                                   request's R and Q, else 409 with the
+                                   current partition {state, from, to?,
+                                   declined?}; 409 too for an invalid request
+                                   or an unreadable mode record. keep answers
+                                   an open request: R runs again at once,
+                                   nothing is deleted — {ok, tile, act, mode,
+                                   declined}. switch answers an open or a
+                                   declined request; confirm must be the tile
+                                   path (400); user partitions need xbind's
+                                   --isolate (409); an offloaded tile is 409;
+                                   when to has user partitions and the tile
+                                   binds sandbox managers whose GET
+                                   /sbx/hello caps lack "partitions", 409
+                                   {managers} unless yes. It stops every
+                                   instance, deletes the tile's data — from
+                                   or to unpartitioned: every namespace
+                                   (main's and every deployment's), vault file
+                                   and registration (cron, bus, interface
+                                   instances, ingress hosts; people's
+                                   personal binds on the tile, counted with
+                                   the registrations), and erases its
+                                   ns: backup keys (tile: stays); removing
+                                   "global": global's namespace, vault and
+                                   registrations and global's ns: key only;
+                                   adding "global": nothing — then records R
+                                   := Q and tells each person whose partition
+                                   went (push kind tile.partition-deleted).
+                                   → {ok, tile, act, from, to, deletes,
+                                   wiped: {namespaces, partitions, vaultKeys,
+                                   registrations, bytes, subkeys,
+                                   keyFilesLeft?}, keeps: [text], people?,
+                                   managers?, archiver?, eraseError?}
+                                   (eraseError, keyFilesLeft: keys erased
+                                   whose files aren't removed yet — refused
+                                   everywhere all the same). A wipe that
+                                   fails part-way, or an erase of the backup
+                                   keys that fails, is 500 with wiped:
+                                   nothing is recorded, the request stays
+                                   open, a retry finishes it. A tile at the
+                                   path "workspace" never counts or deletes
+                                   the workspace-level resources. dryRun
+                                   counts the same, deletes nothing and needs
+                                   no confirm. Audited. A request opening
+                                   pushes to the tile's managers (kind
+                                   tile.partition-switch; at most one per
+                                   tile every 15 minutes), and every mode
+                                   change reloads the tile's frames (event
+                                   reload).
+GET    /partitions/binds           a person (their own personal binds), or
+                                   admin — an admin person, the root token or
+                                   a tile holding xbin:admin; its frame
+                                   under a person's login (the admin
+                                   console) only when that person is an
+                                   admin — every living person's; every
+                                   other tile principal 403.
+                                   → {binds: [{id, user, requester, slot,
+                                   provider, at, live, why?}]} — live: the
+                                   bind holds now; why: why not (the provider
+                                   changed owner, the requester no longer
+                                   partitions, …). A deleted person's rows,
+                                   or an earlier incarnation's under the same
+                                   id, are never listed (docs/partitions.md
+                                   §Bind types).
+POST   /partitions/binds           a person's own act: their session, app or
+                                   device (never a tile principal, view-as or
+                                   the root token — 403), and never an
+                                   admin's (403: an admin's bind is always a
+                                   global bind, POST /bindings). body
+                                   {requester, slot, provider} — wire
+                                   provider into the caller's OWN partition
+                                   of requester. 403 unless the caller owns
+                                   provider personally (user:<id>) and can
+                                   read requester, or when the policy
+                                   ceiling denies the edge; 404 an unknown
+                                   tile, answered only past those checks (a
+                                   tile you own, a path you may read); 409
+                                   when requester isn't partitioned or is
+                                   paused, slot isn't a multi:true http slot,
+                                   provider is partitioned, doesn't provide
+                                   the slot's service or exposes instances,
+                                   or is already bound on the slot for
+                                   everyone. Only that person's partition
+                                   instance gets the row in
+                                   XBIN_IFACE_<SLOT> (restarted: its env is
+                                   captured at spawn) and only their frames'
+                                   xbin-interfaces meta lists it, each with
+                                   personal: true; it lets a call through
+                                   only from requester acting in their
+                                   partition, while they still own provider
+                                   (every other caller: today's 403). Adding
+                                   the same bind again answers the existing
+                                   one. → {ok, bind: {id, user, requester,
+                                   slot, provider, at, live}}; publishes
+                                   grants for requester to that person's
+                                   sockets and frames only.
+DELETE /partitions/binds           the bind's person, or admin (as for GET).
+                                   body {id} or {requester, slot, provider[,
+                                   user]} (user: whose, default the caller's
+                                   own; an admin's {id} matches anyone's) →
+                                   {ok, removed: [{id, user, requester, slot,
+                                   provider, at}]}; 404 when nothing matches
+                                   — a deleted person's rows, or an earlier
+                                   incarnation's, never do. Restarts that
+                                   person's partition instance of requester.
+                                   A personal bind also goes when its
+                                   provider changes owner, its person is
+                                   deleted, requester switches between user
+                                   partitions and unpartitioned, or a tile is
+                                   created at its requester's or provider's
+                                   path (a removed tile's binds never reach
+                                   the new one).
+
+GET    /partitions/consents        a person's own session, app or device
+                                   (PersonOnly: tile code — frames,
+                                   instances, terminals, agent sessions —,
+                                   view-as and the root token 403). →
+                                   {policy: {partitionConsent}, consents:
+                                   [{from, to, at, via}], asked: [{from, to,
+                                   at}]}: the person's consents to
+                                   cross-tile partition edges (kept while
+                                   the policy is off; they apply again when
+                                   it returns) and the edges they were asked
+                                   about in the last day and haven't allowed
+                                   since (an allow answers the ask: taking
+                                   the consent back doesn't list it again;
+                                   a tile deleted or moved, or switched to
+                                   or from unpartitioned, takes the asks
+                                   naming it)
+                                   (docs/partitions.md §Calls between
+                                   partitioned tiles)
+POST   /partitions/consents        PersonOnly, as above. {from, to}: let
+                                   partitioned tile from use the person's
+                                   data in partitioned tile to. Only while
+                                   the workspace policy partitionConsent is
+                                   on (else 409); both tiles partitioned
+                                   (409), existing (404) and readable by the
+                                   person (403); a path holding "→" 400.
+                                   Kept in
+                                   data/partitions/consents/<uid>.json (a
+                                   person recreated under the same id
+                                   inherits none; a tile deleted, moved or
+                                   switching mode takes every consent
+                                   naming it). A record this xbind can't
+                                   read is kept as it is: 409 (/alerts kind
+                                   partition-consents). → the GET view;
+                                   audited; publishes `partitions` op
+                                   consent
+DELETE /partitions/consents        PersonOnly, as above; either setting.
+                                   {from, to} (body, or ?from=&to=): take a
+                                   consent back. With the policy on, the
+                                   next call and data reach are refused, and
+                                   from's backend instance of the person
+                                   stops (it starts again on the next
+                                   request; a proxied stream a page,
+                                   terminal or agent session of from opened
+                                   before lasts until it closes). → the GET
+                                   view plus revoked: whether there was a
+                                   consent to take back; audited; 409 as
+                                   for POST
+GET    /partitions/ledger          PersonOnly, as above. ?tile= ?days=1-90
+                                   (30). The egress ledger (counts per day,
+                                   never contents): kind edge — an allowed
+                                   call or data reach into the same person's
+                                   partition of another partitioned tile, a
+                                   bus subscription there once when made
+                                   and once per delivery —,
+                                   provider — a call to a tile that isn't
+                                   partitioned (a global or a personal
+                                   bind), or to a partitioned tile's
+                                   deployment beyond its primary, target
+                                   <tile>+<name> —, bus and trigger (a
+                                   shared resource's reach isn't counted).
+                                   → {days, rows:
+                                   [{tile, day, kind, target, count}] (the
+                                   person's own), totals?: [{kind, target,
+                                   count, people}] (with tile: the tile's
+                                   writers, managers and admins; for all but
+                                   admins every personal tile's target is
+                                   "(a personal tile)"), people?:
+                                   [{user, tile, kind, target, count}]
+                                   (admins)}. Kept 90 days in
+                                   data/partitions/<tile-key>/<dep>/<pkey>/
+                                   ledger.json; both consent settings
+GET    /partitions/edges           admin. ?days=1-90 (30). → {days, policy:
+                                   {partitionConsent}, edges: [{from, to,
+                                   granted, people, calls, consented}]}: the
+                                   edges from a partitioned tile into
+                                   another's people's data — granted now, or
+                                   counted in people's ledgers in the window
+                                   — with how many people used and allowed
+                                   each: what turning partitionConsent on
+                                   starts asking about (the admin tile's
+                                   Policies tab shows it first)
+GET    /partitions                 anyone; what it answers depends on who
+                                   asks (docs/partitions.md §Operating
+                                   people's partitions). → {features:
+                                   ["partitions/1", "mode-switch/1",
+                                   "consents/1", "personal-binds/1",
+                                   "global-address/1", "partition-ops/1",
+                                   "log-share/1", "credential-confirm/1",
+                                   "partition-mail/1", "partitions-page/1"
+                                   (GET /xbin/partitions is served), …]
+                                   (what this xbind
+                                   serves; a 404 is an
+                                   xbind without partitions), policies?:
+                                   {partitionConsent,
+                                   credentialResetConfirm} (people and
+                                   admins, never tile code), …}.
+                                   ?tile=<t> (one the caller can read, else
+                                   404): tile, state (partitioned |
+                                   unpartitioned | pending | invalid), spec
+                                   {user, global}, request {spec, since,
+                                   declined} | null, error?, limits
+                                   {maxRunning, partitionBytes},
+                                   reviewedOnly {on, by?, at?,
+                                   unprotected?} (POST
+                                   /partitions/reviewed); partitions: the
+                                   caller's own row {user, partition,
+                                   partitionId, state (active | dormant |
+                                   orphaned), why?, running, instance?:
+                                   {tile, deployment, partition, state,
+                                   gen, uptimeSec, rssKb, restarts,
+                                   error? (their own row only),
+                                   errorClass?}, lastStarted?,
+                                   created, lastExit?, restarts?,
+                                   crashLoop?, bytes, registrations:
+                                   {cronJobs, busSubscriptions,
+                                   ifaceInstances, ingressHosts,
+                                   missedTicks, dormantDrops, vaultKeys},
+                                   logShare?: {until}, ledger?: [{kind,
+                                   target, count}] (30 days), mail?:
+                                   {pending, bytes, expired,
+                                   undeliverable?} (their inbox's counts,
+                                   once it has held an item)} — for admins
+                                   every person's metadata row (never
+                                   content, vault key names, log lines or
+                                   mail: its counts only; logShare, no ledger;
+                                   instance.errorClass, never the error's
+                                   text), orphaned ones included; bytes are
+                                   measured at most once a minute; totals
+                                   {people, running, bytes, cron, bus} (the
+                                   tile's writers, managers, admins); trust
+                                   {writers, admins, liveReload, protected,
+                                   lastCodeChange? {at, by, how, result}
+                                   (the primary's last code move, for a
+                                   tile with deployments), reviewedOnly,
+                                   providers: [{tile, writers, liveReload,
+                                   protected, lastCodeChange?}], warnings}
+                                   (its people);
+                                   consents (the person's, policy on);
+                                   binds (GET /partitions/binds' rows whose
+                                   requester is the tile, in its order: the
+                                   person's own, every live one for admins;
+                                   removed with DELETE /partitions/binds);
+                                   orphans (admins);
+                                   notices (the person's); for admins also
+                                   history (the tile's mode history, newest
+                                   first, at most 50: [{op (auto | request
+                                   | switch | keep | withdrawn |
+                                   backup-erase | partition-restore), from,
+                                   to, by?, at, wiped?, reason?,
+                                   partition?}]), lastWipe? {from, to, at}
+                                   (the last switch that deleted data) and
+                                   globalMail? {pending, bytes, expired,
+                                   undeliverable?} (the global instance's
+                                   inbox: counts only, once it held an
+                                   item); for a tile manager who isn't an
+                                   admin, in their own session, logShares?
+                                   [{user, until}] (who shares their
+                                   partition's log now, the manager's own
+                                   left out: the logs panel offers each).
+                                   A tile's own
+                                   credentials (its frames, backend,
+                                   terminals) get the tile-level fields and
+                                   features only — except the admin tile's
+                                   frame under an admin's login (the admin
+                                   console driven by an admin), which reads
+                                   as an admin, with and without tile;
+                                   driven by anyone else it is tile code
+                                   here. Without tile: tiles:
+                                   [{tile, state, spec, request, error?,
+                                   mine?: {partition, state, running,
+                                   bytes}, totals? (admins), trust?
+                                   (admins: the warnings), globalBinds?,
+                                   reviewedOnly?, capsHit? {at, kind
+                                   (evicted | refused | deferred), count}
+                                   (the last 24 hours), and with
+                                   ?untracked=1 untracked? (files the
+                                   tile's own repository doesn't track, at
+                                   most 20), untrackedCount?,
+                                   untrackedError? (admins)}] — the tiles
+                                   that are or ask
+                                   to be partitioned, that the caller can
+                                   read — and for admins isolated, orphans
+                                   [{tile, deployment, partition, user,
+                                   reason, since}] and now; for a person
+                                   credentials [{id, kind (invite |
+                                   password | email | sso-provider), by,
+                                   at, until, email?, issuer?}]
+                                   (credentials an admin made for
+                                   them, waiting for their answer) and
+                                   notices [{id, at, kind, tile?, text,
+                                   hold?}]. Cache-Control: no-store
+POST   /partitions/stop            a person's act: their own session, app or
+                                   device, the root token, or the admin
+                                   tile's frame driven by one (anything
+                                   else 403). {tile, partition: "user:<id>"}:
+                                   stop that partition's instance — the
+                                   person their own, a tile manager or an
+                                   admin anyone's. Its token is revoked
+                                   first; its data stays and the next
+                                   request starts it again. In order: a
+                                   partition that isn't user:<id> 400; a
+                                   tile the caller can't read 404 as a
+                                   missing one (unless they name their own
+                                   partition of it); someone else's
+                                   partition 403, before anything of it is
+                                   said; a tile that isn't partitioned 409;
+                                   a person without a partition of the
+                                   tile 404. → {ok, tile, partition};
+                                   audited
+POST   /partitions/reset           as for stop: the person their own, an
+                                   admin anyone's. {tile, partition,
+                                   confirm: "<tile> <partition>"} (else
+                                   409 {error, confirm}). Stops the
+                                   instance, ends the person's terminal and
+                                   agent sessions on the tile (a new one
+                                   answers 409 until the reset is done),
+                                   deletes — in every deployment it has
+                                   data in — the partition's namespaces
+                                   (only when the tile roots its scope: a
+                                   partitioned tile in another's scope
+                                   uses none), vault, registrations,
+                                   records, ledger, log share, backend log,
+                                   terminal layers and agent-session
+                                   history, and erases the tile's own
+                                   backup keys of it
+                                   (part:<tile>/<deployment>/<partition
+                                   id>; its archives become unreadable —
+                                   never the scope root's). The refusals
+                                   in stop's order. 409 while the tile is
+                                   paused. → {ok, tile, partition, deleted:
+                                   {namespaces, layers, histories, subkeys,
+                                   bytes}}; audited; an admin's reset tells
+                                   the person (push tile.partition-reset
+                                   and a notice)
+POST   /partitions/purge           admin (as for stop). {tile?,
+                                   partition?} (partition: the partition id
+                                   u-<32 hex>, or user:<id> of the person it
+                                   was): delete orphaned partitions — their
+                                   person deleted (or the id someone else's
+                                   now), their tile removed — now instead
+                                   of 30 days after, as reset deletes one,
+                                   subkey erased. A live person's
+                                   partition 409 (reset it), none 404; a
+                                   paused tile's orphans are skipped with
+                                   an error. A removed tile left with
+                                   nothing loses its mode record. → {ok,
+                                   purged: [{tile, deployment, partition,
+                                   user, reason, since, deleted, error?}]};
+                                   audited
+POST   /partitions/share-log       PersonOnly (as for /partitions/consents).
+                                   {tile, days?: 1-14 (7)}: share the
+                                   person's partition's backend log of the
+                                   tile with its managers and admins until
+                                   then (GET /logs?user=). Kept in the
+                                   partition's directory (a reset, a purge
+                                   or a switch takes it). 404 without a
+                                   partition of the tile. → {ok, tile,
+                                   shared, until}; audited
+DELETE /partitions/share-log       PersonOnly. {tile}: end the share now. →
+                                   {ok, tile, shared: false}
+POST   /partitions/credential-confirm
+                                   PersonOnly. {id, allow: bool}: the
+                                   person allows (it takes effect) or
+                                   refuses (a link stops working; a
+                                   password or email is dropped; a
+                                   provider change unbinds their SSO
+                                   email) a credential an admin made for
+                                   them while the workspace policy
+                                   credentialResetConfirm was on (GET
+                                   /partitions' credentials). Unanswered,
+                                   it takes effect 24 hours after they were
+                                   told; a refusal still revokes one that
+                                   is unused. 409 {error, decision:
+                                   "already-effective"}: a link no longer
+                                   pending (redeemed, replaced or expired)
+                                   — change the password and sign out
+                                   everywhere. 404 for one that isn't
+                                   waiting. → {ok, id, kind, decision:
+                                   allowed|refused}; audited; a notice
+POST   /partitions/reviewed        admin (as for stop). {tile, on: bool}:
+                                   the tile's "reviewed code only" switch
+                                   (docs/partitions.md §Reviewed code
+                                   only). on needs the tile partitioned
+                                   (409) and the primary of the tile and of
+                                   every non-partitioned provider bound to
+                                   it protected (409 {error,
+                                   unprotected}); while on, unprotecting
+                                   any of them (POST /deployments/protect
+                                   {on: false}) and binding into the tile
+                                   a provider that isn't partitioned and
+                                   whose primary isn't protected answer
+                                   409. off always succeeds. → {ok, tile,
+                                   reviewedOnly: {on, by?, at?,
+                                   unprotected?}}; audited
+
+POST   /partitions/mail            a partitioned tile's global instance (its
+                                   instance token, on the primary) or a
+                                   person's partition of it (its backend,
+                                   that person's frames, terminals and agent
+                                   sessions); everyone else 403 — people
+                                   outside the tile's credentials (admins
+                                   included), the root token, frames and
+                                   terminals acting in no person's
+                                   partition (they read global's inbox,
+                                   below, but send nothing), view-as, other
+                                   tiles, a non-primary deployment and every
+                                   delivery principal. {to, topic, data?, ttl?,
+                                   source?} → {ok, id}. The global instance
+                                   mails "user:<id>" — a person who exists,
+                                   is enabled and can read the tile, else
+                                   404 "no such person here: user:<id>",
+                                   whatever the reason — or "global"; a
+                                   person's partition mails "global" only
+                                   (403 otherwise, and on a tile without a
+                                   global instance). from is stamped by
+                                   xbind — global or user:<id> — never read
+                                   from the body (a from field is ignored).
+                                   Limits: topic ≤ 256 bytes, topic + data
+                                   ≤ 1 MiB (413); an inbox holds ≤ 1000
+                                   items and ≤ 64 MiB (507 to the sender);
+                                   in the global instance's inbox each
+                                   sender (global, each person) has ≤ 100
+                                   items and ≤ 8 MiB waiting (507 "your
+                                   share … is full" to that sender only).
+                                   ttl: seconds, 1–2592000 (default 7 days;
+                                   400 outside). source (the global instance
+                                   to a person only): a private trigger's
+                                   source, counted as kind trigger in that
+                                   person's egress ledger — never the
+                                   content. 409 while the tile is paused (a
+                                   mode switch pending or deleting); 503
+                                   while the vault is sealed. Stored in
+                                   data/partitions/<tile-key>/<dep>/mail.db,
+                                   sealed with the vault barrier; not backed
+                                   up; not in the audit stream (data plane).
+                                   Rings the addressee's doorbell (below)
+GET    /partitions/mail            the callers of POST (403 and 409
+                                   alike), and — the global instance's
+                                   inbox only — the tile's frames, terminals
+                                   and agent sessions acting as global (the
+                                   owner token's frames, root terminals; on
+                                   the primary; never view-as), reading the
+                                   caller's OWN inbox only — its person's
+                                   partition's, or the global instance's; no
+                                   parameter names another, and admins see
+                                   counts only (GET /partitions).
+                                   ?after=<id> ?limit=1-1000
+                                   (100) → {items: [{id, from, topic, data,
+                                   at, expires}], more}: oldest first. A
+                                   page stops at limit or past ~8 MiB of
+                                   data (at least one item): only more
+                                   false ends the inbox. Expired items are
+                                   dropped (counted as expired); an item
+                                   that can't be opened (sealed under
+                                   another key, damaged) is dropped
+                                   (counted as undeliverable) and never
+                                   stops the page. 503 while the vault is
+                                   sealed and the page would hold items (an
+                                   empty inbox answers 200)
+POST   /partitions/mail/ack        the same callers as GET. {ids} (≤ 1000)
+                                   → {ok}: removes those items of the
+                                   caller's own inbox; ids acked or expired
+                                   already are nothing to do. It never
+                                   opens an item: it works while the vault
+                                   is sealed. Delivery is at-least-once
+                                   until acked or expired: dedupe by id
 
 POST   /backup                     admin. body {component} — build a self-
                                    describing tar (source + scope data + terminal
@@ -2418,16 +3506,114 @@ POST   /backup                     admin. body {component} — build a self-
                                    deployment's schedule), under its own key,
                                    so it never uses the tile's retention.
                                    Readers take schema 1 and 2; an older
-                                   xbind refuses a deployment archive
+                                   xbind refuses a deployment archive.
+                                   Sealed backups (docs/overview/14-
+                                   lifecycle.md §Sealed archives): with a
+                                   vault barrier every archive is sealed —
+                                   XBINSEAL, a cleartext header naming the
+                                   backup subkey's id, then AES-256-GCM in
+                                   64 KiB chunks over the same tar — under
+                                   its subject's key (the main archive:
+                                   tile:, the data: ns:<namespace>), and the
+                                   PUT carries X-XBin-Backup-Subkey: bk-….
+                                   A scope root's main data goes to a data
+                                   archive of its own (key .data.<tile-key>,
+                                   schema 3, kind "data"), written before
+                                   the main archive, whose manifest (schema
+                                   3) names it: data {key, version, subkey}.
+                                   Both manifests carry the same random
+                                   backupId, and a restore pairs them only
+                                   when it and the key match. A scope that
+                                   declares no resource gets no data
+                                   archive. The data PUT must answer a
+                                   version of [A-Za-z0-9][A-Za-z0-9._:-]
+                                   (≤ 128), or the backup fails before the
+                                   main archive is written. The plaintext-
+                                   vault mode (--insecure-vault, --no-auth)
+                                   writes today's plain tars. 502 while the
+                                   vault is sealed, and while it isn't set
+                                   up yet (no barrier, not the plaintext-
+                                   vault mode): no archive is written.
+                                   Readers take schema 1-3 and plaintext
+                                   archives of any age; an older xbind
+                                   refuses a sealed archive.
+                                   A partitioned tile's people's partitions
+                                   (docs/partitions.md §Backups) are
+                                   archived after the main archive, each
+                                   under a key of its own
+                                   (.partitions.<tile-key>.<dep>.<partition
+                                   id>, schema 3, kind "partition"), sealed
+                                   under that partition's own backup key
+                                   (part:<tile-key>/<dep>/<partition id>);
+                                   the main, data and deployment archives
+                                   hold none of it (the main manifest lists
+                                   the global instance's cron jobs and bus
+                                   subscriptions only). A partition that
+                                   can't be archived doesn't fail the
+                                   backup; in the plaintext-vault mode none
+                                   is archived. The answer then gains
+                                   partitions: {archived, failed?:
+                                   ["user:<id> (<partition id>): <why>"],
+                                   skipped?: "<why none>"}; a tile without
+                                   people's partitions answers as before
 GET    /backups?component=…         admin. the archiver's version list passed
                                    through: {versions:[{version,time,size}]}
-POST   /restore                    admin. body {component, version?, file?}.
+POST   /restore                    admin. body {component, version?, file?,
+                                   confirm?}. An archive made before the
+                                   tile's last partition mode switch that
+                                   deleted data (docs/partitions.md
+                                   §Backups) restores only with confirm set
+                                   to that switch's date (YYYY-MM-DD) —
+                                   into the global instance's namespace, at
+                                   today's keys, never a person's partition
+                                   — else 409 {error: "this backup (made …)
+                                   is older than <tile>'s partition mode
+                                   switch on <date> (<from> → <to>):
+                                   restoring it brings back data the switch
+                                   deleted …", switch: {at, from, to,
+                                   confirm}}, before anything stops; the
+                                   deployment archives it lists go with it.
+                                   The switch is remembered apart from the
+                                   tile's mode history (whose trimming never
+                                   drops it). While the tile's mode record
+                                   can't be read, every archive asks, with
+                                   its own creation date (switch: {unknown:
+                                   true, error, confirm}).
+                                   A person's partition archive is never a
+                                   tile (409; POST /partitions/restore), and
+                                   no single file of one is ever served.
                                    No file → restore the whole version (stops the
                                    component, replaces its data/source from the
                                    archive; version defaults to latest). With file
                                    → stream one member back (recover without a full
-                                   rollback). Restore is fully archive-driven — no
+                                   rollback): xbind fetches the version and
+                                   extracts it itself (data/… of a split
+                                   archive from its data archive); 404 for
+                                   a member it doesn't hold, 409 when a key
+                                   is erased or unknown. Restore is fully archive-driven — no
                                    local metadata needed (docs/overview/14-lifecycle.md).
+                                   A sealed archive is authenticated whole
+                                   before anything stops or is written
+                                   (a damaged or tampered one: 502, "the
+                                   sealed archive is damaged or was
+                                   tampered with"). Its key erased: "this
+                                   backup's data was erased on <date>
+                                   (<reason>)" — a split main archive whose
+                                   data key alone was erased restores its
+                                   source and terminal layer, and the answer
+                                   gains dataErased: "<why>", without "data"
+                                   in restored. One whose data archive is
+                                   gone though its key isn't erased (the
+                                   archiver lost it), or that names a
+                                   version no URL can, restores the same
+                                   way and answers dataMissing: "<why>" (a
+                                   data file of it: 404). A data archive of
+                                   another backup, or sealed under another
+                                   key, in its place is refused (502,
+                                   nothing written). A key this workspace
+                                   never had: "this backup was sealed by
+                                   another workspace: import its keys (bx
+                                   backup keys import)".
                                    {ok, component, restored:[parts],
                                    sandboxesSkipped?:[…]} — a manager's sandbox
                                    definitions come back by uid, stopped (§Tile
@@ -2454,7 +3640,170 @@ GET    /backup-schedule            admin. {schedules:[{component,schedule,retent
 POST   /backup-schedule            admin. body {component, schedule, retention} —
                                    owner-scheduled backup on the cron engine;
                                    retention prunes to N newest versions per run.
+                                   A sealed workspace's data archives go with
+                                   the main archives that name them: each run
+                                   deletes the data versions no kept main
+                                   archive names (never a count of their own).
+                                   Each person's partition's archive keeps
+                                   its own newest N; one of a partition
+                                   that is gone (swept, reset, purged,
+                                   switched away) loses every version once
+                                   its key is erased — at an archiver
+                                   without POST /archive/erase too (xbind
+                                   keeps an index of the partition archives
+                                   it wrote: data/backup-refs/partitions/).
 DELETE /backup-schedule?component= admin. remove a component's schedule
+GET    /backup-keys                admin. {mode, keys, unexported, lastExport?,
+                                   exports, erased, erasedSinceExport,
+                                   passphraseChanged?} — mode sealed |
+                                   plaintext (the plaintext-vault mode:
+                                   archives are plain tars) | vault-sealed
+                                   (no backup until unsealed) | vault-locked
+                                   (no vault set up yet: no backup until it
+                                   is); unexported counts the backup keys no
+                                   exported bundle since the last passphrase
+                                   change holds; passphraseChanged is when
+                                   the passphrase changed after the last
+                                   export (POST /vault-rekey): every bundle
+                                   before it is stale. The /alerts kind
+                                   backup-keys, bx doctor and the admin
+                                   console's Backup tab nudge on both.
+POST   /backup-keys/export         admin, as a person: their own session or
+                                   the admin tile's frame under their login
+                                   (a tile's backend, terminal or agent:
+                                   403, whatever its tile holds). The
+                                   disaster-recovery key bundle {schema:1,
+                                   workspace, created, barrier, keys:[…],
+                                   erased:[…]}: the vault's barrier
+                                   descriptor (the data key wrapped under
+                                   the passphrase), every backup key file
+                                   (wrapped under the data key) and every
+                                   erase tombstone. Nothing without the
+                                   vault passphrase; with the passphrase in
+                                   force at export it opens the data key
+                                   itself — every vault secret and all data
+                                   at rest, not only the backups — and a
+                                   later passphrase change doesn't take
+                                   that back. Recorded as an export when
+                                   answered, whether or not the client
+                                   saves it. 409 without a vault barrier.
+POST   /backup-keys/import         admin, as a person (as export). body
+                                   {bundle, passphrase} — the bundle another
+                                   workspace exported, and that workspace's
+                                   vault passphrase: its data key is
+                                   unwrapped in memory only, each backup key
+                                   re-wrapped under this vault (never used
+                                   to seal new archives), and its tombstones
+                                   taken (a previously imported key they
+                                   name is erased; this workspace's own keys
+                                   never are). {imported, present, erased}.
+                                   400 for a wrong passphrase or a bad
+                                   bundle (nothing is imported; a
+                                   descriptor over 1 GiB, 16 threads or 64
+                                   passes is refused); needs this vault
+                                   unsealed.
+POST   /backup/erase               admin, as a person (as export). body
+                                   {component, what: "data"|"all"} —
+                                   crypto-erase a tile's backups: data
+                                   deletes its data keys (main's and every
+                                   deployment's namespace: the source stays
+                                   restorable), all every key of the tile.
+                                   It waits for the tile's backups in
+                                   flight. Each key is tombstoned first (a
+                                   restore then says why), then its file
+                                   deleted; the subject gets a new key at
+                                   its next backup, and the archiver is
+                                   asked to delete the versions sealed under
+                                   them (POST /archive/erase; an archiver
+                                   without it keeps them, unreadable, until
+                                   retention prunes them). {ok, component,
+                                   erased:[{id, subject, gen}], archiver:
+                                   "<what the archiver did>", note: "<what
+                                   no key erases: plain archives made before
+                                   sealing; a tile that doesn't root its
+                                   scope names the root holding its data>",
+                                   error?: "<a key file not removed yet —
+                                   erased all the same>"}. data takes
+                                   people's partitions' keys (part:) too.
+                                   A tile with a partition mode record gets
+                                   a history entry {op: "backup-erase", by,
+                                   at, reason, wiped: {subkeys}}, as does
+                                   every erase of a person's partition's key
+                                   (its partition id in partition): its
+                                   sweep, reset or purge. Of the history's
+                                   200 entries backup ones (backup-erase,
+                                   partition-restore) take 100 at most, the
+                                   oldest going first: they never push a
+                                   manager's act out.
+GET    /partitions/backups?tile=…  the person (their own partition), in
+       [&user=…][&partitionId=…]   their own session, app or device; an
+                                   admin (anyone's: the root token, or the
+                                   admin tile's frame under their login).
+                                   Every tile principal else — a partition's
+                                   own code, frames, terminals, agent
+                                   sessions — and view-as: 403. The
+                                   archiver's versions of user's (default:
+                                   the caller) partition archive of tile
+                                   (.partitions.<tile-key>.<dep>.<partition
+                                   id>, dep the primary); partitionId
+                                   (u-<32 hex>) names an earlier holder's
+                                   (the id deleted and recreated since),
+                                   default the person's current one. A
+                                   person names only their own current id:
+                                   any other 403, before the archiver is
+                                   asked, never saying whose it is.
+                                   {tile, partition: "user:<id>",
+                                   partitionId, deployment, partitioned,
+                                   archiver, versions:[{version,time,size}]};
+                                   404 for no such person or tile.
+POST   /partitions/restore         the person (their own partition) or an
+                                   admin, as GET /partitions/backups. body
+                                   {tile, user?, partitionId?, version?,
+                                   confirm, to?, dryRun?} — replace user's
+                                   partition of tile (its namespace's data,
+                                   vault and registrations; its record stays
+                                   the person's current one) with a version
+                                   of its archive (default the latest),
+                                   after confirm: "<tile> user:<id>", typed
+                                   (400 {error, confirm} otherwise). Its
+                                   instance stops and its namespace is held
+                                   meanwhile; it starts again on next use.
+                                   Only a sealed partition archive sealed
+                                   under that partition's own backup key, of
+                                   the same tile and user id, restores (409
+                                   otherwise, nothing written). The same
+                                   incarnation (the archive's uid is the
+                                   person's now) restores by the person or
+                                   an admin; an earlier holder's
+                                   (partitionId) only by an admin with to:
+                                   "<id>" (the same id again: audited, the
+                                   person is told — push kind
+                                   tile.partition-restored) — a person 403,
+                                   without to 400; never into another id
+                                   (403, and 400 for a to naming another).
+                                   409 while the tile isn't partitioned
+                                   now, while it is paused, for a key
+                                   erased ("this backup's data was erased
+                                   on <date> (<reason>)") or another
+                                   workspace's ("… import its keys").
+                                   Everything is judged again under the
+                                   tile's backup lock: a switch, reset,
+                                   purge, sweep or erase that ran while the
+                                   restore waited wins (409 "… it changed
+                                   while this restore waited; nothing was
+                                   restored"). →
+                                   {ok, tile, partition, partitionId, from,
+                                   version, resources, earlierHolder, data,
+                                   vault, registrations:[files], skipped?,
+                                   vaultSkipped?} — skipped: archived
+                                   resources the tile no longer keeps per
+                                   person; vaultSkipped: a vault another
+                                   vault sealed (another workspace's
+                                   archive), left out. dryRun checks it all
+                                   and writes nothing (no confirm). The
+                                   tile's history gains {op:
+                                   "partition-restore", by, at, reason,
+                                   partition}. Audited.
 
 Tile deployments: pausing live reload, a tile's deployments, promotion
 (docs/tile-deployments.md; conventions and texts: §Tile deployments below
@@ -2470,7 +3819,12 @@ parameter: a tile's path, never a ref — a deployment is named with
 `deployment=` (D127j; §Tile deployments, *Tile refs in a query string*). Each
 body takes dryRun:true (judged as for real, refusals included, nothing
 changes → {state, impact}) and seq (the record's sequence the caller acted
-on: 409 when it moved; optional everywhere). confirm tokens guard data: remove "erase", reset and a restore into data "erase-data", seed
+on: 409 when it moved; optional everywhere). A dry run of a deploy, roll
+back or promote onto the primary whose code asks for another partition
+mode than the tile records carries impact.partition, a warning: the tile
+will pause for a partition-mode decision (it holds data), the mode follows
+at once (it holds none), or a manager declined that mode (docs/partitions.md
+§The mode). confirm tokens guard data: remove "erase", reset and a restore into data "erase-data", seed
 and add with data:"seed" "copy-data", primary "data-stays" — a missing one
 is 400 naming it. An operation answers {state, deploy?, …} (each row names
 its answer) once the record change is committed; deploys are asynchronous
@@ -2704,7 +4058,11 @@ POST   /deployments/primary        tile manager. {tile, deployment,
                                    "reassigning the primary of <tile> would
                                    split <scope>'s data: …" unless the tile
                                    is in the workspace scope or alone in the
-                                   scope it roots
+                                   scope it roots; "<tile> is partitioned:
+                                   switching the primary would leave every
+                                   person's data with <primary>: promote
+                                   instead" when its recorded partition
+                                   mode has user partitions
 POST   /deployments/protect        tile manager. {tile, on, expect?} →
                                    {state, deploy?, nested?, warnings?}: on
                                    pins the primary in place (while live
@@ -2721,7 +4079,11 @@ POST   /deployments/protect        tile manager. {tile, on, expect?} →
                                    code its writers change; warnings: one
                                    per unprotected nested component, and
                                    "not enforced: authentication is off"
-                                   under --no-auth. An opt-in. Idempotent
+                                   under --no-auth. An opt-in. Idempotent.
+                                   off answers 409 (kind policy) while the
+                                   tile, or a partitioned tile it is bound
+                                   into, runs reviewed code only (POST
+                                   /partitions/reviewed)
 POST   /deployments/edge           tile manager. {tile, edge:
                                    slot:<slot>|grant:<target>, policy: read|
                                    block|inherit|default} → {state}: that
@@ -2821,7 +4183,11 @@ POST   /deployments/restore        admin (as above), and the reset level on
                                    into, restored, skipped}: data only,
                                    never the work tree (POST /restore is
                                    unchanged). deployment: whose archive
-                                   (main: the data part of the tile's);
+                                   (main: the data part of the tile's — of
+                                   a sealed workspace's, the data archive
+                                   its main archive names; its key erased:
+                                   409 "this backup's data was erased on
+                                   <date> (<reason>)");
                                    version: default latest; into: the
                                    target, default the archive's own.
                                    Beyond main each archived resource is
@@ -2833,7 +4199,16 @@ POST   /deployments/restore        admin (as above), and the reset level on
                                    using the target's data; data.state
                                    becomes restored. 409 when the target
                                    doesn't exist (the answer lists the
-                                   choices) or its data is busy
+                                   choices) or its data is busy, and for an
+                                   archive older than the tile's last
+                                   partition mode switch that deleted its
+                                   data (main's; a deployment's after one
+                                   that deleted everything,
+                                   docs/partitions.md §Backups): this route
+                                   can't confirm it — only POST /restore,
+                                   the whole tile's (its source and every
+                                   deployment's data that backup lists),
+                                   takes the switch's date
 POST   /deployments/backup-schedule
                                    admin (as above). {tile, deployment,
                                    schedule, retention?} → {state}: a
@@ -2900,7 +4275,10 @@ GET    /vault-status              admin. {initialized, sealed, mode, insecure}
                                    mode: unsealed|sealed|unconfigured|plaintext
 POST   /vault-rekey               admin. body {current, new} — change the
                                    passphrase (re-wraps the data key; needs
-                                   unsealed + the current passphrase)
+                                   unsealed + the current passphrase).
+                                   Every backup key bundle exported before
+                                   is stale from then on (GET /backup-keys
+                                   passphraseChanged, the backup-keys alert)
 POST   /vault-unseal              admin. body {passphrase} — unseal (or init
                                    the barrier on first use). {created}
 POST   /vault-seal                admin. drop the key from memory
@@ -2941,7 +4319,24 @@ DELETE /vault/<component>/<key>    backend/terminal self, or admin.
                                    of the deployment whose vault it is. While
                                    the primary is protected its vault is
                                    written only by its own backend and by
-                                   tile managers in their own session
+                                   tile managers in their own session.
+                                   A partitioned tile's (docs/partitions.md
+                                   §Vault and registrations): its own
+                                   credentials acting in a person's
+                                   partition — that partition's backend, the
+                                   person's terminals and agent sessions —
+                                   reach that partition's own vault (values:
+                                   its backend only); everyone else, admins
+                                   included, reaches the global instance's.
+                                   ?partition= on a partitioned tile's vault,
+                                   cron and bus-subscription routes → 400 "a
+                                   partition's vault and registrations are
+                                   reached only from inside it: …", for
+                                   everyone; ignored on other tiles. While
+                                   the tile is paused (its partition mode
+                                   pending or invalid, or a switch deleting
+                                   its data) a partition's vault writes →
+                                   409
 
 GET    /kv/res:<scope>/<name>/?prefix=   reader. {keys}
 GET    /kv/res:<scope>/<name>/<key>      reader. raw bytes
@@ -2955,6 +4350,55 @@ DELETE /blob/res:<scope>/<name>/<path>   writer.
 
 POST   /bus/publish                      writer on the resource.
                                          body {resource, topic, data?}
+                                         Partitioned tiles (partitions.md):
+                                         in a partitioned scope these kv,
+                                         blob and bus routes reach the
+                                         namespace the caller's partition
+                                         holds: a person's own partition
+                                         (their session, and the tile's
+                                         frames, terminals and backend in
+                                         their partition), the global
+                                         instance's at today's keys, and a
+                                         shared resource's ("shared": true |
+                                         "read") at today's keys for
+                                         everyone. An event on a partitioned
+                                         scope's own (not shared) bus carries
+                                         "partition" — the publisher's,
+                                         "global" or "user:<id>" — and
+                                         reaches only subscribers acting in
+                                         that partition; a shared bus's
+                                         carries none. Their answers add:
+                                         403 "res:<scope>/<name> is
+                                         read-only for people's partitions"
+                                         on a write (kv PUT/DELETE, blob
+                                         PUT/DELETE, bus publish) by a user
+                                         partition to a "shared": "read"
+                                         resource; 403 when the caller
+                                         reaches no partition of the scope
+                                         (view-as; a credential without a
+                                         person on a tile without a global
+                                         instance; an unpartitioned tile
+                                         when the scope has no global
+                                         instance), and, from a user
+                                         partition of another partitioned
+                                         tile holding the grant, "<id> can't
+                                         read <tile>: …" when the person
+                                         can't read the tile, or "<id>
+                                         hasn't let <caller> use their
+                                         <tile> data (they allow it at
+                                         /xbin/partitions)" while the workspace's
+                                         partitionConsent policy is on and
+                                         they haven't consented; 409 while
+                                         the scope's tile is paused (a
+                                         pending or invalid partition mode)
+                                         or its mode record can't be read —
+                                         the data isn't reached through
+                                         today's keys meanwhile; 507 when
+                                         the partition is over its own disk
+                                         ceiling (by default the tile's
+                                         per-namespace one): one person's
+                                         data is write-blocked, not the
+                                         tile's.
 GET    /bus/subscriptions                own push subscriptions (admin: all),
                                          with counters since the daemon started.
                                          {subscriptions:[{name, resource, prefix,
@@ -2986,6 +4430,21 @@ PUT    /bus/subscriptions                reader on the bus resource (the
 DELETE /bus/subscriptions/<name>[?component=]  element: own; admin: any.
                                          ?deployment=<name> (admin): that
                                          deployment's
+                                         On a partitioned tile its credentials
+                                         acting in a person's partition list,
+                                         subscribe and delete that partition's
+                                         own (≤16, the 17th: 409; rows gain
+                                         dormantDrops); on a partitioned
+                                         scope's bus the partition must reach
+                                         that scope — its person can read it
+                                         and, with partitionConsent on,
+                                         consented — else 403, and deliveries
+                                         stop while it doesn't (the row is
+                                         dormant); while the tile is paused
+                                         (pending, invalid, switching) → 409;
+                                         admins reach the global instance's
+                                         only; ?partition= → 400 (the vault
+                                         rows above)
 
 GET    /tile-report                      any signed-in user (read-filtered).
                                          {statuses:{<component>:{level,message,ts}}}
@@ -3011,7 +4470,20 @@ POST   /tile-report                      element (self) or owner (?component=).
                                          /tile-report never lists it. It clears
                                          when that deployment rebuilds or a
                                          deploy swaps onto it; a reassignment
-                                         exchanges it with the primary's
+                                         exchanges it with the primary's.
+                                         From a user partition's credentials
+                                         (partitioned tiles, §Authentication):
+                                         kept for that partition, never the
+                                         tile's status; its `status` event
+                                         carries partition and reaches only
+                                         that person (§/ws/events); GET
+                                         /tile-report answers such a caller
+                                         its partition's own record for its
+                                         tile (none: no entry), and never a
+                                         deleted person's to one created
+                                         later under the same id. Cleared when
+                                         that partition's instance restarts
+                                         or the tile's code rebuilds
 
 POST   /notify                           element: a tile's backend (instance
                                          token). body {user, title, body?, link?,
@@ -3025,7 +4497,12 @@ POST   /notify                           element: a tile's backend (instance
                                          users. A tile's frontend (frame token)
                                          or a shell in it (terminal token) may
                                          notify only the person using it (403
-                                         for anyone else). link is relative to
+                                         for anyone else), and so may the
+                                         backend of a person's partition of a
+                                         partitioned tile (403 "a person's
+                                         partition notifies only its person
+                                         (<id>); …"); its global instance
+                                         notifies any reader. link is relative to
                                          the tile (#fragment, ?query or a path
                                          inside it; no dot segments, encoded or
                                          not). kind (a–z 0–9 -) makes the push
@@ -3200,6 +4677,16 @@ PUT    /cron/jobs                        writer on the cron resource.
 DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
                                          ?deployment=<name> (admin): that
                                          deployment's
+                                         On a partitioned tile its credentials
+                                         acting in a person's partition list,
+                                         schedule and delete that partition's
+                                         own jobs (≤16, the 17th: 409; none
+                                         more often than once a minute: 400;
+                                         while the tile is paused — pending,
+                                         invalid, switching — 409); admins
+                                         reach the global instance's only;
+                                         ?partition= → 400 (the vault rows
+                                         above)
 ```
 
 ¹ `component` is owner-only; elements always schedule (and subscribe)
@@ -3234,6 +4721,51 @@ own bus receives only events published in its deployment's data; one on
 another scope's bus receives that scope's primary's, re-checked against its
 edge at every delivery.
 
+A person's partition's cron jobs and subscriptions (docs/partitions.md) are
+kept in files of its own, never in `data/cron-jobs.json` or
+`data/bus-subscriptions.json`, and a backup of the tile carries the global
+instance's only. Their ticks and deliveries carry the partition
+(`X-XBin-Partition: user:<id>`) and reach it while its person exists (the
+same incarnation), is enabled and can read the tile — asked at every tick
+and delivery, so regaining access resumes them. A tick whose start the
+runner defers is tried again with jitter until the next tick is due. A
+subscription receives its own partition's events (a partitioned scope's own
+bus, its person's namespace) — which start the partition only when its own
+tile published them — and a shared bus's, an unpartitioned scope's or one
+another tile published for the person only while the partition runs
+(skipped ones count as `dormantDrops`); never the global instance's. On a
+partitioned scope's bus it is registered, and each event delivered, only
+while the partition reaches that scope as a call of it would: its person can
+read the scope's tile and, with the `partitionConsent` policy on, consented
+— a shared bus needs the read access alone (403 at registration; a delivery refused meanwhile counts as
+`dormantEvents`, its reason in `lastError`). A failed tick or delivery logs
+its status, never the partition's answer.
+
+**Partition mail doorbell** (docs/partitions.md §Partition mail). While an
+inbox of a partitioned tile holds unacked items (`POST /partitions/mail`),
+xbind POSTs to the tile's `partitionMail` path — declared beside `"global"`
+in `xbin.json` — on the addressee's instance, through the proxy, as
+`X-XBin-From: xbin/mail`, `X-XBin-Role: writer` and `X-XBin-Partition: <the
+addressee>` (`global`, or `user:<id>` with its `X-XBin-Partition-Id`):
+
+```
+{"partition":"user:<id>" | "global","pending":<unacked items>}
+```
+
+The handler reads with `GET /partitions/mail` and acks; the answer's status
+only is logged. A new item rings at once and starts the steps over; the
+addressee's start (whatever starts it) rings again unless a ring was in
+flight at it or came after it (the doorbell's own ring often started it);
+and while items remain it rings after 1 min, 5 min, 30 min, 2 h, then every
+6 h — a start doesn't shorten the steps. A person's stopped partition is started for it
+— a background start that counts against the tile's mail starts (6 a
+minute) — only when it has run before, and only while its person exists (the
+same incarnation), is enabled and can read the tile; otherwise its items wait
+for its next start. Nothing rings while the tile is paused, disabled or
+declares no `partitionMail` (its code polls `GET`). A restart of xbind loses
+no mail: boot rings every inbox holding items. The feature word is
+`partition-mail/1`.
+
 **Push notifications** (D94). The xbin app receives pushes through a push relay
 (the repo's `relay/`, relay/README.md): it holds the APNs key, maps an opaque
 handle to the device, and never sees content. An admin turns push on per
@@ -3246,12 +4778,26 @@ title, body, link, collapseId}`; the relay forwards the envelope `{v:1, epk,
 n, ct}` inside a generic "New activity" alert and the app's extension shows
 the real text (the exact format and test vectors: native/spec/push.md in
 the repository). `link` is relative to the workspace: `c/<tile>/…` for a
-tile, `agent/<session>` for an agent session.
+tile, `agent/<session>` for an agent session, `xbin/<page>` for one of
+xbind's own pages.
 
 Sources: `POST /notify` (kind `tile` or `tile.<kind>`), and the agent
 sessions of the device's user — a `permission.request` (`agent.permission`)
 or `elicitation.request` (`agent.question`) still unanswered 3 s later, and
-a `turn.end` that the user did not cancel (`agent.turn`). Limits (token
+a `turn.end` that the user did not cancel (`agent.turn`), and xbind's own
+partition notices: a tile's partition mode switch request to its managers
+(`tile.partition-switch`, collapse per tile, at most one per tile every
+15 minutes) and, after a switch, to each
+person whose partition was deleted (`tile.partition-deleted`), and — with
+the workspace policy partitionConsent on — to a
+person whose data in a partitioned tile another one's call was refused for
+want of their consent (`tile.partition-consent`, at most one a day per
+edge, collapse `partition-consent:<from>→<to>`), all linking
+`xbin/partitions` — the partitions page, `GET /xbin/partitions`, where
+managers decide and people consent (an app that doesn't know the link
+opens the workspace; `tile.partition-reset` and `account.credential` link
+it too), all spending the person's budget and ignoring tile
+mutes. Limits (token
 buckets): 120/hour per tile (burst 20) — a tile's frontend and terminals
 have a bucket per tile and person, apart from its backend's; 240/hour per
 user from all tiles together (burst 40); agent sessions have their own
@@ -3521,7 +5067,9 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   writes, and every admin API (backups, the vault barrier, vaults,
   resources, auth-overview, backends, runtime, ingress, gpus, the VM policy,
   token rotation, view-as, the native-runtime, chrome, branding and
-  workspace-settings writes, push config and devices). Deciding a PR (`POST /code/pr/state`) is
+  workspace-policies and workspace-settings writes, push config and
+  devices), and partition mode decisions (`POST /partitions/mode`). Deciding
+  a PR (`POST /code/pr/state`) is
   primary-only for backends: 403 `deciding a PR is the primary's act: a
   non-primary deployment's backend can't do it (<deployment>)`.
 - **Audit.** A tile credential acting in a deployment other than `main`
@@ -4556,6 +6104,7 @@ GET    /ws/term?cwd=<p>|session=<id>   WebSocket upgrade → a terminal session 
 DELETE /ws/term?session=<id>       end a session now (creator or admin) → 204
 DELETE /ws/term/env?cwd=<p>        terminal level on the tile: wipe its persistent
                                    terminal layer back to the base rootfs → 204
+                                   (on a partitioned tile: the caller's own)
 GET    /ws/term/env?cwd=<p>        that layer's state → {exists, baseOutdated,
                                    baseAutoUpdate,
                                    vm:{available,reason,memMiB,vcpus}}
@@ -4675,7 +6224,14 @@ The frames are [the terminal wire](#the-terminal-wire) (below), with
     session asked for or was given a target but has no tile API (the
     protected-primary fallback, or a user without the `termApi` grant). All
     three are absent for a session that sent no `deployment` and follows the
-    primary; a tile sandbox's TTY, which speaks this wire too, adds
+    primary. On a partitioned tile only, the frame adds `partition`
+    (`user:<id>` | `global`: what the session acts in), `partitionNote` (a
+    line to print like `netNote`: `partition: yours (user:<id>) · the tile
+    directory is shared code — keep your own files in $HOME`; `partition:
+    user:<id> · no isolation: this shell runs on the host and can read every
+    partition's data` on an xbind without `--isolate`; or `tile API off:
+    <why>`) and `api:false` when the session has no person and the tile
+    no global instance; a tile sandbox's TTY, which speaks this wire too, adds
     `sandbox` — the sandbox's id — so ignore fields you don't know),
     `{"op":"exit"}` — the process ended (here, the shell), and the socket
     closes after it. It may carry `"code":N`, or `"code":null` with
@@ -4696,6 +6252,27 @@ The frames are [the terminal wire](#the-terminal-wire) (below), with
 
 `DELETE /ws/term?session=<id>` ends a session immediately (creator or admin;
 used by the UI to restart under a new scope); `204` on success, `404` unknown.
+
+**On a partitioned tile** ([partitions.md](/docs/partitions.md) §Terminals and
+agent sessions) a new session belongs to its opener's partition: its
+`XBIN_TOKEN` acts there (§Authentication), `XBIN_PARTITION=user:<id>` is set
+right after `XBIN_COMPONENT` (after `XBIN_DEPLOYMENT` when that is set;
+`global` for a session targeting a non-primary deployment), it starts in its
+`$HOME` instead of the tile directory, and its persistent layer is the
+person's own (`.xbin/term-part/<tile-key>/<partition-id>/`, never backed up;
+`/ws/term/env` resets and reports that one). A session without a person (the
+owner token) acts in the global instance, or opens with no tile API when the
+tile has none (the session frame's `api:false`). An admin reattaching to
+another person's session there gets 403 `session belongs to another user:
+<tile> keeps each person's data apart, so an admin can't open other
+people's sessions there (ending one is allowed)`; ending it stays allowed. A
+session asked for while the tile's partition mode switches answers 409 (as
+does a person's while their partition of the tile is being reset or
+removed); a switch that deletes the tile's data ends its sessions first —
+those opened on a sub-path of the tile too — and deletes the person layers,
+and a tile whose recorded mode gains or loses user partitions ends the
+sessions opened under the other mode. Every other tile's sessions are
+unchanged.
 
 `DELETE /ws/term/env?cwd=<component-path>` (terminal level on that tile; the
 root layer — `cwd` empty — admin-only) wipes that component's
@@ -4788,6 +6365,18 @@ required). JSON text frames:
 {"type":"grants"}                                    // grant table changed
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
 {"type":"native"}                                    // the native-runtime switch changed (D101): re-read whoami (native.runtime)
+{"type":"policies"}                                  // a workspace policy changed (PD-55): re-read GET /workspace-policies
+{"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets (never apps/x's frames,
+ "data":{"op":"consent-needed","from":"apps/z","to":"apps/x"}}     //   terminals or instance): apps/z's call into their apps/x data was refused (partitionConsent on; once a day)
+{"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets, likewise: their consent changed
+ "data":{"op":"consent","from":"apps/z","to":"apps/x","allowed":true}} //   (POST/DELETE /partitions/consents)
+{"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's sockets and apps/x's credentials acting in their partition:
+ "data":{"op":"state","partition":"user:<id>","event":"build-ok"}} //   their instance's build-start|build-ok|build-error|reload (text?: the detail)
+{"type":"partitions","component":"apps/x",                         // to apps/x's readers (and admins, and apps/x's own credentials):
+ "data":{"op":"mode","tile":"apps/x","state":"pending","spec":{"user":false,"global":false},
+         "request":{"spec":{"user":true,"global":true},"since":"…","declined":false}}} // its mode changed; re-read GET /partitions?tile=
+{"type":"partitions","component":"apps/x",                         // to the person's own session, app or device only:
+ "data":{"op":"notice","notice":{"id":"…","at":"…","kind":"partition-deleted|partition-reset|credential","tile":"apps/x","text":"…","hold":"…"}}}
 {"type":"workspace-settings","data":{"baseAutoUpdate":false}} // an admin changed the workspace settings (D175): the new view; a terminal window re-reads GET /ws/term/env
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
@@ -4918,6 +6507,23 @@ it shows; the `GET /tile-report` snapshot below is read-filtered per caller).
 Slow consumers are disconnected; reconnect with backoff (the bundled clients
 do).
 
+**Partitioned tiles** ([partitions.md](/docs/partitions.md)). An event that
+belongs to a person's partition carries `"partition":"user:<id>"` — a `bus`
+event in that partition's data, that partition's `status`, runner and
+partitions events — and reaches only that partition: the person's own
+sockets and the tile's credentials acting in it, never admins' (there is no
+blanket admin pass for them), another person, another tile or view-as. A
+`bus` one still needs the reader grant. A `bus` event on a partitioned
+scope's own (not shared) bus that the global instance published carries
+`"partition":"global"` and likewise reaches only subscribers acting in the
+global instance there, with no admin pass. `term` and `session` events of
+a partitioned tile reach only the session's person (their browsers, and
+their terminal on the tile): admins don't receive them there. Events
+without `partition` — every event of a tile that isn't partitioned, a
+shared bus's, and the global instance's others — are delivered as above;
+a partitioned scope's shared bus reaches another tile's credential acting
+in a person's partition only while that person can read the scope.
+
 ### Agent session events
 
 An agent session's log (`GET /term/sessions/<id>/events`) and its live
@@ -4981,7 +6587,8 @@ The live log is in memory; an `exited` or `error` status is final and the
 session leaves the directory (`term` event `close`). Its transcript does not
 die with it: when a session ends — or the daemon stops — the log and a little
 metadata are written to `data/agent-history/` (per user × tile, the newest 20
-per tile; a session that never took a prompt is not kept). `GET
+per tile — on a partitioned tile per person's partition × tile, deleted by a
+partition mode switch; a session that never took a prompt is not kept). `GET
 /agent/history` lists them and `GET /agent/history/<id>/events` serves one in
 this same shape, read-only; where the agent advertised `loadSession`, `POST
 /term/sessions {resume:<id>}` reopens it (the agent replays the earlier turns
@@ -5062,6 +6669,19 @@ a time, sub-paths traversal-stripped. The native runtime document
   checkpoint instead of the work tree — read-only at the tile's own path,
   restarted from its kept build on every restart — and a save doesn't reach
   you: a crash loop clears with a deploy or a restart. Your env is the same.
+- A partitioned tile (in development, docs/partitions.md) runs one process per person who
+  uses it, `XBIN_PARTITION=user:<id>`, beside its optional global instance
+  (`XBIN_PARTITION=global`, today's process at today's keys): started on
+  the person's first use, never at boot, stopped 10 min after its last
+  use (an open SSE stream isn't use), capped per tile and workspace (503
+  `too many people's instances of <tile> are running; try again shortly`),
+  and wired as a non-primary deployment is: relayed egress under the tile's
+  policy, no host network, splice, roster, lan-ingress legs, ingress or
+  stream-slot dials. Its socket, token, log and cgroup are its own; its code
+  and build are the tile's. `XBIN_PARTITION` is set after
+  `XBIN_COMPONENT` (after `XBIN_DEPLOYMENT` when that is set, for a
+  non-primary deployment whose code asks for partitions: `global`) and
+  never on an unpartitioned tile.
 - A tile may run several deployments, each its own process with its own
   code, manifest, data, vault and log. A deployment that isn't the tile's
   primary needs `--isolate`; it starts on its first request and is reaped
@@ -5087,7 +6707,15 @@ a time, sub-paths traversal-stripped. The native runtime document
   reassignment of the primary restarts both backends, the new primary first,
   so it holds for a process's life. `XBIN_COMPONENT` stays the tile path and
   `XBIN_RES_*` are the same in every deployment (their paths are bound to the
-  deployment's own data).
+  deployment's own data). `XBIN_PARTITION=user:<id> | global` is set for a
+  partitioned tile's instances ([partitions.md](/docs/partitions.md), in
+  development): the person's partition the instance serves, or its global
+  instance (a non-primary deployment's included); absent for every tile that
+  isn't partitioned. `XBIN_RES_*` then name the partition's own data. A
+  person's partition's multi-slot `XBIN_IFACE_<slot>` also lists their
+  personal binds, each `{provider, url, service, personal: true}` after the
+  global rows (`POST /api/xbin/partitions/binds`); the global instance's
+  never does.
 
 ## Filesystem contract
 

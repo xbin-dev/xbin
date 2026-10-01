@@ -150,16 +150,126 @@ backup runs is left out too, never read through. A tile whose own directory
 has turned into a symlink (a nested tile its parent replaced) fails the
 backup instead of archiving wherever the link points.
 
-Two honesty notes. **Backups are plaintext tars**: xbind reads resources
-through the decrypted view and re-encrypts on restore, so backing up (and
-restoring) **requires the vault to be unsealed** when encrypted resources
-are involved — encryption-at-rest is the *archiver's* responsibility, not
-the tar's (docs/resources.md §Encryption at rest). And **sqlite is copied as files** (the db
+Two honesty notes. **Backups need the vault unsealed**: xbind reads
+resources through the decrypted view and re-encrypts on restore, and it
+seals every archive itself (§Sealed archives below), which needs the
+vault's data key. And **sqlite is copied as files** (the db
 plus its `-wal`/`-shm` sidecars), not `VACUUM INTO`-checkpointed yet: the
 copy is guaranteed-consistent when the backend is stopped — which is what
 the disable-first offload gate above ensures — while a backup of a live,
 mid-write component is best-effort (the design record lists a checkpoint
 driver as a drop-in hardening).
+
+## Sealed archives
+
+In a workspace with a vault barrier, **every archive xbind writes is
+sealed** — main archives, data archives and deployment archives alike —
+and an archiver only ever holds ciphertext (decisions PD-25, PD-56):
+
+```
+vault passphrase ─Argon2id→ KEK ─wraps→ data key (DEK)
+DEK ─wraps→ backup key       data/vault/.backup-keys/bk-<32 hex>.json
+backup key ─HKDF(salt of the archive)→ archive key ─AES-256-GCM→ the archive
+```
+
+- **One backup key per subject, one archive object per key.** A tile's
+  main archive (source, terminal layer, deployment records) is sealed under
+  its `tile:` key; a scope root's main data now goes to a **data archive**
+  of its own, `.data.<tile-key>`, under the namespace's `ns:` key, written
+  just before the main archive, whose manifest (schema 3) names it
+  (`data: {key, version, subkey}`); a deployment archive is sealed under its
+  namespace's `ns:` key. Keys are random, not derived, so deleting one
+  **crypto-erases** that data in every archive ever sealed under it.
+- **The format.** `XBINSEAL`, a 4-byte header length, a cleartext JSON
+  header (`{"v":1, "subkey":"bk-…", "salt", "chunk":65536, "kind":
+  "main|data|deployment|partition", "created"}`), then the same tar as
+  before, in 64 KiB chunks, each AES-256-GCM-sealed with its index and a
+  last-chunk flag in the nonce and the header bound to the first — so a
+  chunk changed, reordered, dropped or appended, or a header edited, fails
+  to open. A restore authenticates the whole archive before it writes
+  anything.
+- **What an archiver sees:** the object key (as before), the backup key's
+  opaque id (on the PUT, `X-XBin-Backup-Subkey`, which it may store to
+  delete by key), sizes, times and the cleartext header. Never plaintext,
+  never key material.
+- **Where keys live:** only in `data/vault/.backup-keys/`, wrapped under
+  the vault's data key — never in an archive, at an archiver, in an API
+  answer or in a sandbox. A key is unwrapped only for one backup or
+  restore. A **sealed vault stops every backup** (none can be sealed
+  without the data key), and so does a vault **not set up yet** — a
+  production workspace before its first `bx vault unseal` (`GET
+  /api/xbin/backup-keys` says `vault-locked`); a scheduled run logs and
+  skips.
+- **Plaintext archives still restore.** Every restore sniffs the magic: an
+  archive made before sealing — or in the plaintext-vault mode
+  (`--insecure-vault`, `--no-auth`, which keeps writing today's schema-1
+  tars, data inline) — restores exactly as it always did.
+- **A main archive and its data archive are one backup.** Both carry the
+  same random `backupId`, and the data archive must be sealed under the key
+  the main archive's pointer names: a restore never pairs a main archive
+  with another backup's data. A scope that declares no resource gets no
+  data archive. Retention deletes a data archive when no kept main archive
+  names it — never by a count of its own — so a data archive a failed main
+  PUT left behind goes at the next scheduled run, and the oldest kept
+  backup keeps its data. A main archive whose data archive is **missing**
+  (the archiver lost it; its key isn't erased) restores its source and
+  terminal layer and says so (`dataMissing`), as one whose data was erased
+  does (`dataErased`).
+- **People's partitions have archives of their own.** On a partitioned
+  tile each person's partition is archived after the main archive, under
+  `.partitions.<tile-key>.<deployment>.<partition id>` and a `part:` key of
+  its own (kind `partition`): its data, its vault file (values still sealed
+  by the vault), its registrations and records. The tile's main, data and
+  deployment archives hold none of it, and only the person (or an admin)
+  restores it, into that person's partition only
+  ([partitions](../partitions.md) §Backups). The plaintext-vault mode
+  archives no partition.
+
+**Erase.** `bx backup erase <tile> --data` deletes the tile's data keys
+(main's namespace, every deployment's and every person's partition's);
+`--all` also its `tile:` key
+(`POST /api/xbin/backup/erase`, an admin in their own session — never a
+tile's backend, terminal or agent). The erase waits for the tile's backups
+in flight. Each key is first **tombstoned** — metadata only, and the
+erase's commit point — then its file deleted (the directory fsynced), so a
+restore says why an archive is unreadable: `this backup's data was erased
+on <date> (<reason>)`. A main archive whose data key alone was erased
+restores its source and terminal layer, and says so (`dataErased`). The
+subject gets a new key at its next backup. xbind then asks the archiver to
+delete the dead versions (`POST /archive/erase`, below); one that can't
+keeps them, unreadable, until retention prunes them. **Plain archives made
+before sealing are no key's**: they hold the data until deleted at the
+archiver, and the erase's answer says so. A tile that doesn't root its
+scope has no data keys of its own — its scope root's archives hold its
+data.
+
+**Disaster recovery.** The keys aren't in any archive, so a new machine
+needs them: `bx backup keys export > keys.xbk` (an admin in their own
+session; or *export key bundle* on the admin console's Backup tab) writes
+the vault's barrier descriptor (the data key wrapped under the
+passphrase), every backup key (wrapped under the data key) and the
+tombstones. Without the vault passphrase it opens nothing; **with the
+passphrase in force when it was exported it opens the workspace's data key
+itself** — every vault secret and all resource data at rest, not only the
+backups — and the data key never rotates. Keep it apart from the
+passphrase. On the new workspace, `bx backup keys import keys.xbk` asks for
+the *old* vault passphrase, unwraps the old data key in memory, re-wraps
+each backup key under the new vault, and takes the tombstones; it never
+adopts the old key or passphrase. An archive sealed by a workspace whose
+keys were never imported is refused: `this backup was sealed by another
+workspace: import its keys (bx backup keys import)`. Until the first
+export, admins see an alert (`/alerts` kind `backup-keys`: "N backup keys
+aren't in any export yet"), and `bx doctor` says so. A bundle exported
+before an erase still holds the erased key, and one exported before a
+passphrase change still opens with the old passphrase (the alert says so
+after `POST /vault-rekey`, until a fresh export): **export again after
+erasing or changing the passphrase, and destroy older bundles.** The
+export is recorded when xbind answers it, whether or not the bundle was
+saved.
+
+**Downgrades.** An older xbind can't read a sealed archive (it finds no
+`backup.json` and refuses it, writing nothing); it writes plaintext
+archives of its own, which the newer one restores.
 
 ## The archiver is an interface (LC-3)
 
@@ -172,15 +282,24 @@ internally *as the owner* through the same proxy every element call uses
 principals).
 
 ```
-PUT    /archive/<key>                        tar stream in → {version, size}
-GET    /archive/<key>/versions               → {versions: [{version, time, size}]}  (newest first)
-GET    /archive/<key>/versions/<v>           tar stream out ("latest" accepted)
-GET    /archive/<key>/versions/<v>/file?path=…   one member's bytes
+PUT    /archive/<key>                        archive stream in → {version, size}; version is
+                                             [A-Za-z0-9][A-Za-z0-9._:-]{0,127}, and an error
+                                             answer means nothing was kept
+                                             (sealed: X-XBin-Backup-Subkey: bk-…, which it MAY store)
+GET    /archive/<key>/versions               → {versions: [{version, time, size, subkey?}]}  (newest first)
+GET    /archive/<key>/versions/<v>           archive stream out ("latest" accepted)
+GET    /archive/<key>/versions/<v>/file?path=…   one member's bytes (older xbinds only; a
+                                             sealed archive can't be read: xbind extracts it)
 DELETE /archive/<key>/versions/<v>           prune (retention)
+POST   /archive/erase {"subkeys": ["bk-…"]}  OPTIONAL → {deleted}: every version sealed under
+                                             those keys, across keys; 404/405 = unsupported
 ```
 
-`<key>` is the component's stable hashed key. What the archiver does behind
-the contract — S3 objects, dedupe, compression — is its business.
+`<key>` is the component's stable hashed key (`.deployments.<tile-key>.<name>`
+and `.data.<tile-key>` for the other archives). What the archiver does behind
+the contract — S3 objects, dedupe, compression — is its business: it stores
+opaque bytes, so an older archiver keeps working with sealed archives, only
+without deleting by key.
 
 **Binding is the authorization.** The component being backed up declares
 nothing; the *owner* binds an archiver under the reserved pseudo-slot
@@ -192,13 +311,18 @@ bx bind apps/crm @archive=apps/other-arch    # per-component override
 ```
 
 Unbound means no backups, loudly, on the first attempt. That's deliberate:
-an archiver is a **privileged tap** — it receives a component's entire
-plaintext state — so pointing one at your data is an explicit owner
-decision, exactly like binding a `net` provider.
+an archiver is a **privileged tap** — it holds a component's entire state
+(sealed, in a workspace with a vault; in the clear without one) and decides
+what survives — so pointing one at your data is an explicit owner decision,
+exactly like binding a `net` provider.
 
 The worked example is the **s3-archiver builtin**: SigV4-signed, path-style,
 dependency-free S3 client (works against AWS, MinIO, R2, B2), storing
-`<prefix>/<key>/<version>.tar`. Its endpoint/region/bucket/prefix are
+`<prefix>/<key>/<version>.tar`, plus an empty marker
+`<prefix>/.subkeys/<id>/<key>/<version>` per sealed version, which its
+`POST /archive/erase` follows (a PUT whose marker fails keeps nothing, and a
+pruned version takes its marker with it; `bx builtin update s3-archiver`
+brings it to an existing workspace). Its endpoint/region/bucket/prefix are
 configured on its own page; **credentials live in its vault**, never in a
 resource; and it declares a `net` interface the owner must bind
 (`net=internet` for a public bucket, a `lan:` or provider tile for a LAN
@@ -238,8 +362,9 @@ fully **archive-driven**: the tar's manifest says where everything goes.
   planted in the source, the terminal layer or a resource — is replaced by
   the real directory or file, never followed, and a tile directory reached
   through a symlink refuses the restore.
-- **Single file** (`file` set): the archiver streams one member back and
-  xbind hands you the bytes — a download for recovering a clobbered config
+- **Single file** (`file` set): xbind fetches the version, extracts the
+  member itself (from the data archive for a split archive's `data/…`) and
+  hands you the bytes — a download for recovering a clobbered config
   or database *without* rolling the whole component back. It does not write
   into the live tree; putting the file back where you want it is your move.
 
@@ -274,8 +399,9 @@ after the archive, with nothing removed — and the source subtree — keeping
 just `xbin.json`/`scope.json` so the tile stays
 listed, renders its "offloaded — restore to use" placeholder, and remains
 restorable from the admin tile. Re-enabling an offloaded component *is* a
-restore of the latest version (LC-4: one archive path for everything).
-Offloading a tile with tile deployments archives every deployment's data
+restore of the latest version (LC-4: one archive path for everything), and
+answers what that restore left out, as `POST /restore` does (`dataErased`,
+`dataMissing`, the deployments restored or skipped). Offloading a tile with tile deployments archives every deployment's data
 before removing anything; beyond `main` it frees the kv data, and file
 resources stay on disk.
 
@@ -287,7 +413,8 @@ five-field cron or `@every 24h` syntax (`bx backup-schedule apps/crm --every
 24h --keep 7`). Each tick runs the standard backup, then prunes the
 archiver's version list down to the retention count (the list is
 newest-first; everything past `keep` is deleted through the same contract).
-Retention `0` keeps everything. A tile deployment beyond the primary has
+Retention `0` keeps everything. A sealed workspace's data archives go with
+the main archives that name them (§Sealed archives). A tile deployment beyond the primary has
 schedules of its own (`POST /api/xbin/deployments/backup-schedule`, admin,
 stored with the deployment's files under `data/deployments/`), keeping the
 last 3 archives unless told.
@@ -302,9 +429,10 @@ Two rules connect this system to the vault barrier
   lifecycle state: a sealed vault (kv values undecodable) or an unmounted
   encrypted file resource holds the backend rather than letting it run
   against missing or ciphertext data.
-- **Backups and restores refuse while sealed** — the tar is plaintext by
-  contract, so both directions need the decrypted view. Unseal first; the
-  error says exactly that.
+- **Backups and restores refuse while sealed** — both directions need the
+  decrypted view, and every archive is sealed under a backup key the vault's
+  data key wraps (§Sealed archives). Unseal first; the error says exactly
+  that.
 
 ## Getting code in
 
@@ -322,7 +450,7 @@ for the owner to approve — imported code never arrives pre-authorized.
 | **Builtin tiles** (`bx tile import`, Tile Manager) | A curated catalog embedded in the xbind binary (`tile.json` metadata: title, default path, version, changelog) — trusted like the binary itself, but *not* auto-installed (rung 1 of the sharing ladder). Import copies the files; installing under a non-default path rewrites the tile's *own* authored path in its text files (self-references, its scope's `res:` ids) and sets a unique Go module path — a Go backend ships as `go.mod.tile` (restored to `go.mod` on import) because `go:embed` skips nested modules. Cross-tile references stay intact. Never overwrites an existing component. |
 | **Git import** (`POST /git/import`, Tile Manager "from git") | Any https/ssh/scp-style remote (local paths, `file://`, and git's `ext::` transports are rejected; URLs are option-injection-guarded). The UI first inspects the remote (default branch + version-sorted tags) so you can pick a ref. The clone keeps its `origin`, so updating later is `git pull`. A repo that isn't a component (no `xbin.json`/`index.html`) — or whose `uses` reference resources/components that don't exist — is **removed again and rejected**, not half-installed. |
 | **Clone** (`POST /clone`, `bx`/manager) | Fork an existing component: copies the directory *including `.git`* (the fork stays related to its source history), rewrites whole-word occurrences of the old path (so `apps/x` never corrupts `apps/x2`), and commits the rewrite. Requires **read on the source** — attributed through element principals, so a manager-style tile can't be driven into source exfiltration. Vault secrets and resource *data* are deliberately not copied: a fork is a new app. |
-| **Templates** (`POST /templates/new`, `bx template new`) | A template is a component carrying a `template` block in its manifest — a blueprint that never runs. Instantiation copies it (builtin or workspace template) and **strips the block**, producing a normal, independent component. Builtin templates are additionally materialized as read-only git repos under `.xbin/template-repos/` and served over dumb HTTP; each instance gets that repo as a **`template` remote**, so a builder pulls upstream fixes with `git fetch template && git merge` — the fork-upstream model, with the builder in control (D50). |
+| **Templates** (`POST /templates/new`, `bx template new`) | A template is a component carrying a `template` block in its manifest — a blueprint that never runs. Instantiation copies it (builtin or workspace template) and **strips the block**, producing a normal, independent component. Builtin templates are additionally materialized as read-only git repos under `.xbin/template-repos/` and served over dumb HTTP; each instance gets that repo as a **`template` remote**, so a builder pulls upstream fixes with `git fetch template && git merge` — the fork-upstream model, with the builder in control (D50); the instance's `xbin.json` merges by keys, through a merge driver xbind names in its repo ([03-components](03-components.md#templates-blueprint-components)). |
 
 ## Keeping code fresh
 
@@ -346,8 +474,11 @@ Apply modes: **replace** (take upstream wholesale, discarding local edits)
 or **merge** (per-file three-way); **pin** mutes offers for a unit. A tile
 that exists at a builtin's path *without* recorded provenance is "adopted" —
 no trustworthy base, so any divergence is a conflict and merge is refused in
-favor of replace-or-hand-diff. Template *instances* are deliberately never
-tracked here: they're forks meant to diverge, served by the `template`
+favor of replace-or-hand-diff. No mode touches a manifest's `partition`:
+each `xbin.json` keeps its installed value (present, absent or its list),
+and the answer notes where upstream asks otherwise — only a deliberate
+edit requests a partition mode switch ([partitions](../partitions.md)).
+Template *instances* are deliberately never tracked here: they're forks meant to diverge, served by the `template`
 remote instead. A builtin xbind stops shipping is **retired** (`devbox`,
 2026-09-27): copies already imported are left alone and no longer offered
 updates, and importing it again answers 410 with what replaces it.
@@ -379,7 +510,7 @@ thing to read (or have an agent read) after upgrading the daemon.
 | archiver binding | `POST /api/xbin/bindings` (`@archive`) | `bx bind '*' @archive=<tile>` |
 | catalog / import | `GET /api/xbin/builtins`, `POST /builtins/import` | `bx tile ls`, `bx tile import <name> [as <path>]` |
 | updates | `GET /builtins/updates`, `POST /builtins/update {id, mode}` | `bx builtin updates`, `bx builtin update <id> [--replace\|--merge]` |
-| templates | `GET /templates`, `POST /templates/new` | `bx template ls`, `bx template new <source> [as <path>]` |
+| templates | `GET /templates`, `POST /templates/new` | `bx template ls`, `bx template new <source> [as <path>] [--no-partition]` |
 | fork / git | `POST /clone`, `GET /git/remote-info`, `POST /git/import` | Tile Manager UI |
 
 Everything above is admin-gated except catalog/template *listing* (any

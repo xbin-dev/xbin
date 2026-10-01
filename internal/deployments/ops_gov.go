@@ -218,6 +218,9 @@ func runPrimary(ctx context.Context, p *Plane, g Grant, r *PrimaryRequest) (any,
 	if y == x { // already the primary
 		return p.answer(ctx, r.DryRun, nil, Impact{}, true)
 	}
+	if err := partitionedPrimary(o.c, x); err != nil { // partition.go (PD-17)
+		return nil, err
+	}
 	err = confirmed(r.Confirm, ConfirmDataStays, "making "+y+" the primary sends everyone to "+y+"'s data, and "+x+"'s data stays behind")
 	if err == nil && protected && (r.Expect == "" || r.Seq == nil) {
 		err = unreviewed(o.tile, "expect")
@@ -433,6 +436,8 @@ func runProtect(ctx context.Context, p *Plane, g Grant, r *ProtectRequest) (any,
 		return nil, err
 	case o.rec.ProtectedPrimary == on:
 		return reply(p.answer(ctx, r.DryRun, nil, Impact{}, true))
+	case !on && p.ProtectRequired != nil && p.ProtectRequired(o.tile) != "": // reviewed code only (plans/partitions/06 §4)
+		return nil, &Error{Status: http.StatusConflict, Kind: KindPolicy, Msg: p.ProtectRequired(o.tile)}
 	case !on || cur != nil: // x stays where it is
 		if on && prefix != "" && !strings.HasPrefix(*cur, prefix) {
 			return nil, expectMismatch(r.Expect, p.shortOf(ctx, o.tile, *cur))

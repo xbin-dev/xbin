@@ -30,13 +30,16 @@ func init() {
 }
 
 func triggerItems(w who) []AutomationItem {
-	var out []AutomationItem
+	out := globalTriggerOversight(w) // a manager's own partition: others' rows at the global instance (trigger_registry.go)
 	for _, tr := range agent.db.listTriggers(``) {
 		it := AutomationItem{Kind: "trigger", ID: tr.ID, Name: tr.Name, Owner: tr.Owner, Visibility: tr.Visibility, Enabled: tr.Enabled,
 			Mode: tr.Mode, TargetRun: tr.TargetRun, LastRunID: tr.LastRunID, LastRunAt: tr.LastEvent, LastStatus: tr.Status,
 			Summary: triggerSummary(tr), Config: tr}
 		if tr.Mode == "persistent" {
 			it.CurrentRun, _ = agent.db.sessionRun(trigKey(tr.ID))
+		}
+		if hostedHere(agent.db, tr) { // a person's trigger runs in their partition: no activity of it here (trigger_registry.go)
+			it.LastRunAt, it.LastStatus, it.LastRunID = 0, "", 0
 		}
 		switch lv := tr.access(w); {
 		case lv >= lvOwner:
@@ -69,6 +72,9 @@ func triggerSummary(tr *Trigger) string {
 }
 
 func triggerFor(w http.ResponseWriter, r *http.Request) (*Trigger, who, level, bool) {
+	if forwardGlobalTrigger(w, r) { // a registry row at the global instance (trigger_registry.go)
+		return nil, who{}, lvNone, false
+	}
 	c := callerOf(r)
 	tr, err := agent.db.getTrigger(pathID(r))
 	if err != nil || (tr.access(c) == lvNone && !c.manager()) {
@@ -83,6 +89,9 @@ func triggerFor(w http.ResponseWriter, r *http.Request) (*Trigger, who, level, b
 func deliverOK(c who, key string) string {
 	if key == "" {
 		return ""
+	}
+	if userMode() { // a person's partition: their own chats (trigger_registry.go)
+		return deliverInPartition(key)
 	}
 	var chID int64
 	if err := agent.db.q.QueryRow(`SELECT origin_id FROM sessions WHERE key=? AND origin='channel'`, key).Scan(&chID); err != nil {
@@ -136,6 +145,16 @@ func handleNewTrigger(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, trigHarnessTarget)
 		return
 	}
+	if sharesInPartition(&tr.Visibility, nil) {
+		xbin.WriteError(w, http.StatusConflict, noShareWords)
+		return
+	}
+	if refusePrivateAtGlobal(w, r, tr.Visibility) { // a person's own is made in their partition (trigger_registry.go)
+		return
+	}
+	if !registerPrivate(w, r, &tr, "") { // a person's partition: the name and match at global's registry (trigger_registry.go)
+		return
+	}
 	if err := agent.db.saveTrigger(&tr); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			xbin.WriteError(w, 409, "a trigger with that name exists")
@@ -168,6 +187,9 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "triggers run the built-in agent")
 		return
 	}
+	if hostedEditRefused(w, tr, patch) { // a registry row at global (trigger_registry.go)
+		return
+	}
 	if lv < lvOwner {
 		if _, onlyEnabled := patch["enabled"]; !c.manager() || !onlyEnabled || len(patch) != 1 {
 			xbin.WriteError(w, 403, "only its owner can change it (a manager may switch it on or off)")
@@ -195,6 +217,9 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 			xbin.WriteError(w, 400, msg)
 			return
 		}
+		if refusePrivateAtGlobal(w, r, next.Visibility) { // trigger_registry.go
+			return
+		}
 	}
 	if next.Class != tr.Class {
 		if _, err := requestedClass(c, next.Class, ""); err != nil {
@@ -211,6 +236,16 @@ func handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 	if next.Mode == "conversation" && next.TargetRun != tr.TargetRun && isHarnessRun(next.TargetRun) {
 		xbin.WriteError(w, 400, trigHarnessTarget)
 		return
+	}
+	if sharesInPartition(&next.Visibility, nil) {
+		xbin.WriteError(w, http.StatusConflict, noShareWords)
+		return
+	}
+	if next.Name != tr.Name || next.Source != tr.Source || next.SourceRef != tr.SourceRef || next.Match != tr.Match ||
+		next.Enabled != tr.Enabled || next.MaxPerHour != tr.MaxPerHour {
+		if !registerPrivate(w, r, &next, tr.Name) { // trigger_registry.go
+			return
+		}
 	}
 	if err := agent.db.saveTrigger(&next); err != nil {
 		xbin.WriteError(w, 500, err.Error())
@@ -240,6 +275,9 @@ func handleDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only its owner or a manager can remove it")
 		return
 	}
+	if !unregisterPrivate(w, r, tr) { // trigger_registry.go
+		return
+	}
 	if tr.Source == "bus" && !agent.noGateway {
 		_ = xbin.Unsubscribe(trigSubName(tr.ID))
 	}
@@ -255,7 +293,7 @@ func handleDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 //	POST /triggers/{id}/test {topic?, text?, data?}
 func handleTestTrigger(w http.ResponseWriter, r *http.Request) {
 	tr, _, lv, ok := triggerFor(w, r)
-	if !ok {
+	if !ok || hostedElsewhere(w, tr) { // trigger_registry.go
 		return
 	}
 	if lv < lvOwner {
@@ -280,7 +318,7 @@ func handleTestTrigger(w http.ResponseWriter, r *http.Request) {
 // handleTriggerEvents: the last events it saw, newest first.
 func handleTriggerEvents(w http.ResponseWriter, r *http.Request) {
 	tr, _, lv, ok := triggerFor(w, r)
-	if !ok {
+	if !ok || hostedElsewhere(w, tr) { // trigger_registry.go
 		return
 	}
 	if lv < lvViewer {

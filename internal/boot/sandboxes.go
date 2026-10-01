@@ -72,9 +72,12 @@ func (st *State) registerSandboxAPI(srv *server.Server) {
 // sandboxRow is a registry entry as the admin sees it.
 type sandboxRow struct {
 	sbx.Entry
-	Owner     string        `json:"owner,omitempty"`  // the tile's owner (users store)
-	Name      string        `json:"name,omitempty"`   // a session's tab name
-	Status    string        `json:"status,omitempty"` // an agent session's
+	Owner  string `json:"owner,omitempty"`  // the tile's owner (users store)
+	Name   string `json:"name,omitempty"`   // a session's tab name
+	Status string `json:"status,omitempty"` // an agent session's
+	// Personal: a person's terminal or agent session on a partitioned tile
+	// (listed without its name, PD-09); the admin console labels it.
+	Personal  bool          `json:"personal,omitempty"`
 	UptimeSec int64         `json:"uptimeSec"`
 	Stats     *sandboxStats `json:"stats,omitempty"`
 }
@@ -103,9 +106,10 @@ type vmView struct {
 }
 
 // sandboxDisk is a VM disk on the host: a tile's terminal layer's (kind
-// terminal) or a tile sandbox's (kind tile, with its sandbox's name and uid,
-// from its state dir's `<name>.<uid>`). Both carry the tile's key, so both
-// map to their tile the same way.
+// terminal), a tile sandbox's (kind tile, with its sandbox's name and uid,
+// from its state dir's `<name>.<uid>`) — both carry the tile's CompKey — or
+// a person's terminal layer on a partitioned tile (kind person-terminal,
+// carrying the tile's TileKey and no person id).
 type sandboxDisk struct {
 	vm.Disk
 	Tile  string `json:"tile,omitempty"` // "" = no tile has that key now
@@ -158,6 +162,9 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 		default:
 			if info, ok := st.Term.Info(e.ID); ok {
 				row.Name, row.Status = info.Name, info.Status
+				if info.Personal() {
+					row.Name, row.Personal = "", true // a person's session on a partitioned tile: no name in the admin's view (PD-09)
+				}
 			}
 			if p, ok := bySandbox[e.ID]; ok {
 				row.Stats = &sandboxStats{CPU: p.CPU, Mem: p.Mem, Pids: p.Pids, Scope: "sandbox"}
@@ -165,13 +172,18 @@ func (st *State) sandboxesView(sc sandboxScope) map[string]any {
 		}
 		rows = append(rows, row)
 	}
-	tiles := map[string]string{} // layer key → tile
+	tiles := map[string]string{}  // layer key → tile
+	people := map[string]string{} // a person layer's tile key (vm.DiskPersonTerminal) → tile
 	for _, c := range st.Reg.Components() {
 		tiles[util.CompKey(c.Path)] = c.Path
+		people[util.TileKey(c.Path)] = c.Path
 	}
 	disks := []sandboxDisk{}
 	for _, d := range st.listDisks() {
 		t := tiles[d.Key]
+		if d.Kind == vm.DiskPersonTerminal {
+			t = people[d.Key]
+		}
 		if sc.tile != "" && t != sc.tile {
 			continue
 		}
@@ -208,7 +220,7 @@ func (st *State) deploymentStats(tile string) (split map[string]bool, byGen map[
 	backends := st.Sbx.List(sbx.Filter{Tile: tile, Kind: sbx.Backend})
 	split = map[string]bool{}
 	for _, e := range backends {
-		if e.Deployment != "" {
+		if e.Deployment != "" || e.Partition != "" { // a person's partition's leaf is its own too
 			split[e.Tile] = true
 		}
 	}
@@ -225,9 +237,13 @@ func (st *State) deploymentStats(tile string) (split map[string]bool, byGen map[
 	now := time.Now()
 	scopes := map[string]string{}
 	for _, e := range gens {
-		scopes[genStatsKey(e)] = "tile"
-		if e.Deployment != "" {
+		switch {
+		case e.Partition != "":
+			scopes[genStatsKey(e)] = "partition"
+		case e.Deployment != "":
 			scopes[genStatsKey(e)] = "deployment"
+		default:
+			scopes[genStatsKey(e)] = "tile"
 		}
 	}
 	for k, u := range st.Run.GenUsage(gens, genStatsKey) {
@@ -238,7 +254,9 @@ func (st *State) deploymentStats(tile string) (split map[string]bool, byGen map[
 
 // genStatsKey groups a backend generation with the others of its deployment
 // that share its leaf.
-func genStatsKey(e sbx.Entry) string { return e.Tile + "\x00" + e.Deployment + "\x00" + e.Leaf }
+func genStatsKey(e sbx.Entry) string {
+	return e.Tile + "\x00" + e.Deployment + "\x00" + e.Partition + "\x00" + e.Leaf
+}
 
 // genCPU keeps each deployment stats group's last CPU reading: its rate is
 // taken between two polls (the tab polls every intervalSec), and a poll

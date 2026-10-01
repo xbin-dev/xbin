@@ -15,6 +15,8 @@ import { HOME } from './home.js';
 import { splitRef, classAllows, taintWhy, firewallEgress, STATES as SBX_STATES, ICON as SBX } from './sandboxes.js';
 import * as classes from './classes.js';
 import { AGENT } from './harness-store.js'; // "Who answers": the built-in agent (prefs/agent)
+import { harnessesHere, homedWhy, keepsHome, KEEPS_HOME, sharedSees } from './harness-homes.js'; // a partitioned agent's rules
+import { twoHomes, publishes } from './homes.js';
 
 export { AGENT };
 
@@ -32,16 +34,20 @@ const usable = (list) => ((list && list.sandboxes) || []).filter((s) => s.canUse
  * @param pick  'agent' or a harness id (prefs/agent)
  * @param o     {classes: GET /classes (model/classes.js listOf), classId: your
  *              class for new chats, remembered: {provider: ref}, list: GET
- *              /sandboxes (model/sandboxes.js listOf), manager: you manage the tile}
+ *              /sandboxes (model/sandboxes.js listOf), manager: you manage the
+ *              tile, state: partitionState() (default: this page's)}
  * → {shown, value, harness, name, mono, label, title, rows, empty, header}:
  * value is who answers ('agent' while the pick isn't available); rows are the
  * built-in agent, then each coding agent (an unavailable one disabled, why);
  * empty is what to do when none is available ('' when one is); shown: there
- * is a choice to make (a coding agent is available, or picked).
+ * is a choice to make (a coding agent is available, or picked). The global
+ * instance's own page lists no coding agent (model/harness-homes.js
+ * harnessesHere): the built-in agent answers there, and nothing is shown.
  */
 export function agentPicker(cat, pick, o = {}) {
-  const hs = (cat && cat.harnesses) || [];
-  const cur = pick && pick !== AGENT ? findHarness(cat, pick) : null;
+  const here = harnessesHere(o.state);
+  const hs = here ? (cat && cat.harnesses) || [] : [];
+  const cur = here && pick && pick !== AGENT ? findHarness(cat, pick) : null;
   const h = cur && cur.available ? cur : null;
   const sandboxes = (o.list && o.list.sandboxes) || [];
   const seenOn = (x) => {
@@ -49,6 +55,7 @@ export function agentPicker(cat, pick, o = {}) {
     const seen = ref && x.sandboxes && x.sandboxes[ref];
     if (!seen || seen.signedIn == null) return '';
     const s = sandboxes.find((y) => y.ref === ref);
+    if (s && homedWhy(s, o.state)) return ''; // one it can't start in here (a person's partition: not their own)
     return `${seen.signedIn ? 'signed in' : 'not signed in'} on ${sbxName(s || { ref })}`;
   };
   const rows = [
@@ -145,8 +152,10 @@ export function createPrefill(h, list, cls) {
  * setupOf: the home's setup card for a new chat with h — or null when there
  * is nothing to set up (or the sandbox list isn't read yet).
  *   {kind: 'create', title, text, create: {label, form} | null, why}
- *     no sandbox you may use fits: Create opens the create form prefilled
- *     (createPrefill; it becomes the next chat's pick); why: when none can be made
+ *     no sandbox you may use fits (in a person's partition: none of their
+ *     own — the text says why the team's don't): Create opens the create
+ *     form prefilled (createPrefill; it becomes the next chat's pick, made
+ *     in their own space); why: when none can be made
  *   {kind: 'signin', title, text, use: {label, ref} | null}
  *     the picked sandbox fits but the catalog says h isn't signed in there:
  *     the first message asks to sign in; use: another one where it is
@@ -158,8 +167,12 @@ export function setupOf(h, list, pick, cls) {
   const fits = opts.filter((r) => !r.disabled);
   if (!fits.length) {
     const form = createPrefill(h, list, cls);
-    return { kind: 'create', title: `${name} needs a coding sandbox`,
-      text: `${name} needs a coding sandbox with internet access. Its sign-in is kept in that sandbox — reuse one to stay signed in.`,
+    // a person's partition: only a sandbox of their own space fits (model/harness-homes.js homedWhy)
+    const own = twoHomes() ? ' of your own' : '';
+    const others = own && usable(list).some((x) => homedWhy(x));
+    return { kind: 'create', title: `${name} needs a coding sandbox${own}`,
+      text: `${name} needs a coding sandbox${own} with internet access. Its sign-in is kept in that sandbox — reuse one to stay signed in.` +
+        (others ? ' The team\'s sandboxes, and ones shared with you, are for shared chats: a sign-in there would serve everyone who uses them.' : ''),
       create: form ? { label: `Create ${form.name}`, form } : null,
       why: form ? '' : `no bound sandbox manager can make one for ${name} — ask a manager of this agent` };
   }
@@ -189,7 +202,9 @@ export function kindOf(r) {
 
 // topChip: the open conversation's coding agent for its top bar —
 // {mono, name, state, word, tone, label, title, shared} — else null. shared says
-// who can read what it does (§2.2 Privacy: its sandbox's co-users).
+// who can read what it does (§2.2 Privacy: its sandbox's co-users). In a
+// person's partition its title also says that it stays in their own space
+// (it has no Share there: model/rules.js topBar).
 export function topChip(v) {
   const h = harnessOf(v);
   if (!h) return null;
@@ -200,7 +215,7 @@ export function topChip(v) {
   const shared = sb.shared ? `${where} is shared — the people who may use it can read what ${name} does here` : '';
   return { mono: monogram(h.provider), name, state: st.state, word: st.word, tone: st.tone, label: `${name} · ${st.word}`,
     title: [`${name} answers this conversation${where ? ` in ${SBX} ${where}${sb.cwd ? ' at ' + sb.cwd : ''}` : ''} — fixed for its life`,
-      st.title, shared].filter(Boolean).join('\n'), shared };
+      st.title, shared, keepsHome(v && v.run) && publishes(v.run.id) ? KEEPS_HOME : ''].filter(Boolean).join('\n'), shared };
 }
 
 // --- with the app ---------------------------------------------------------------------
@@ -236,13 +251,26 @@ export function chooseAgent(app, id) {
   keepSandbox(app);
 }
 
+// newChatList: the sandboxes a new chat's coding agent picks from (the
+// new-chat dialog and sheet) — your own partition's, whatever conversation
+// is open: a coding agent's chat is always made there (model/harness-homes.js).
+// At home, and on a page with one home, that is the list as ever.
+export const newChatList = (app) => (app.sbx.listAt ? app.sbx.listAt('') : app.sbx.list);
+
 // newChatPick: the new-chat dialog's choice as its ask's part — {harness,
 // class, sandbox} for a coding agent (system and the built-in model don't
 // go: a coding agent keeps its own instructions, its model is an option),
-// else the built-in agent's (no harness, the model you picked).
-export function newChatPick(app, agent, ref, cwd = '') {
-  const h = agent && agent !== AGENT ? app.harness.find(agent) : null;
-  if (!h || !h.available) return { harness: undefined, ...(app.model ? { model: app.model } : {}) };
+// else the built-in agent's (no harness, the model you picked). shared: a
+// chat shared with others (model/harness-homes.js sharedNewChat) — the
+// built-in agent's, made at the global instance, which the next new chat's
+// sandbox pick goes to only when the shared space sees it too (sharedSees).
+export function newChatPick(app, agent, ref, cwd = '', { shared = false } = {}) {
+  const h = agent && agent !== AGENT && harnessesHere() && !shared ? app.harness.find(agent) : null;
+  if (!h || !h.available) {
+    const p = shared && app.sbx.pick;
+    const stays = p && !sharedSees(usable(newChatList(app)).find((s) => s.ref === p.ref));
+    return { harness: undefined, ...(app.model ? { model: app.model } : {}), ...(stays ? { sandbox: undefined } : {}) };
+  }
   const options = app.harness.options[h.id];
   return {
     harness: { provider: h.id, ...(options && Object.keys(options).length ? { options } : {}) },

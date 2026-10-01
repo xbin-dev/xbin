@@ -12,6 +12,7 @@ import (
 // The trees of layers under a workspace:
 //
 //	.xbin/term/<key>/                             a tile's terminal layer (and VM disk)
+//	.xbin/term-part/<TK>/<pkey>/                  a person's terminal layer on a partitioned tile (PD-22)
 //	.xbin/sbx/<CK>/<name>.<uid>/cur/              a tile sandbox's state (its stamps)
 //	.xbin/sbx/<CK>/<name>.<uid>/snapshots/<sid>/  one of its snapshots
 //
@@ -25,8 +26,9 @@ import (
 // isn't a layer and pins nothing. (A non-main deployment's
 // `.xbin/deploy/<TK>/d/<d>/sbx/` joins here when its keys exist; §1.4.)
 const (
-	TreeTerm = "term"
-	TreeSbx  = "sbx"
+	TreeTerm     = "term"
+	TreeTermPart = "term-part" // people's terminal layers: Key is "<TK>/<pkey>", pinned like a tile's
+	TreeSbx      = "sbx"
 )
 
 // CurDir is the dir in a tile sandbox's state dir that holds its state and
@@ -51,9 +53,9 @@ func SplitStateDir(dir string) (name, uid string, ok bool) {
 
 // Layer is one layer dir and what it pins.
 type Layer struct {
-	Tree     string `json:"tree"`               // TreeTerm | TreeSbx
+	Tree     string `json:"tree"`               // TreeTerm | TreeTermPart | TreeSbx
 	Dir      string `json:"dir"`                // the dir holding its stamps (a sandbox's cur/), absolute
-	Key      string `json:"key"`                // the terminal key, or the tile's CK
+	Key      string `json:"key"`                // the terminal key, "<TK>/<pkey>" (TreeTermPart), or the tile's CK
 	Sandbox  string `json:"sandbox,omitempty"`  // TreeSbx: the sandbox's name
 	UID      string `json:"uid,omitempty"`      // TreeSbx: the sandbox's uid
 	Snapshot string `json:"snapshot,omitempty"` // TreeSbx: a snapshot's id
@@ -88,6 +90,27 @@ func List(ws string) ([]Layer, error) {
 			l.Base = Legacy
 		}
 		out = append(out, l)
+	}
+	// people's layers on partitioned tiles (PD-22): stamped like a tile's
+	// (ensureLayerBase), so the same pins — a GC that missed them would
+	// release the base every person layer was built on
+	part := filepath.Join(ws, ".xbin", TreeTermPart)
+	tks, err := subdirs(part)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	for _, tk := range tks {
+		pkeys, err := subdirs(filepath.Join(part, tk))
+		if err != nil {
+			errs = append(errs, err)
+		}
+		for _, pk := range pkeys {
+			l := read(Layer{Tree: TreeTermPart, Dir: filepath.Join(part, tk, pk), Key: tk + "/" + pk})
+			if l.Base == "" {
+				l.Base = Legacy
+			}
+			out = append(out, l)
+		}
 	}
 	sbx := filepath.Join(ws, ".xbin", "sbx")
 	cks, err := subdirs(sbx)

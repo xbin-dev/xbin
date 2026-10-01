@@ -65,6 +65,9 @@ func (d *DB) upsertSkill(s *Skill) error {
 		 ON CONFLICT(name) DO UPDATE SET description=excluded.description, content=excluded.content, updated=excluded.updated,
 		   owner=excluded.owner, lane=excluded.lane`,
 		s.Name, s.Description, s.Content, t, t, s.Owner, s.Lane)
+	if err == nil {
+		confSkillsChanged(d)
+	}
 	return err
 }
 
@@ -76,10 +79,25 @@ func scanSkill(scan func(dest ...any) error) (*Skill, error) {
 }
 
 func (d *DB) getSkill(name string) (*Skill, error) {
-	return scanSkill(d.q.QueryRow(`SELECT `+skillCols+` FROM skills WHERE name=?`, name).Scan)
+	s, err := scanSkill(d.q.QueryRow(`SELECT `+skillCols+` FROM skills WHERE name=?`, name).Scan)
+	if err != nil && confIn != nil {
+		return sharedSkill(name, d.tx == nil, err) // a person's partition: the shared ones are in conf
+	}
+	return s, err
 }
 
+// listSkills is every skill: in a person's partition its own and the shared
+// ones from conf (conf.go), else the db's.
 func (d *DB) listSkills() ([]*Skill, error) {
+	out, err := d.localSkills()
+	if err != nil || confIn == nil {
+		return out, err
+	}
+	return withShared(out, confIn.sharedSkills(d.tx == nil)), nil
+}
+
+// localSkills is the skills in this db.
+func (d *DB) localSkills() ([]*Skill, error) {
 	rows, err := d.q.Query(`SELECT ` + skillCols + ` FROM skills ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -110,6 +128,9 @@ func (d *DB) visibleSkills(sc skillScope) []*Skill {
 
 func (d *DB) deleteSkill(name string) error {
 	_, err := d.q.Exec(`DELETE FROM skills WHERE name=?`, name)
+	if err == nil {
+		confSkillsChanged(d)
+	}
 	return err
 }
 
@@ -222,6 +243,10 @@ func handleSaveSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Lane != "" && s.Lane != "private" && s.Lane != "web" {
 		xbin.WriteError(w, 400, "lane is private, web or empty")
+		return
+	}
+	if raw, _ := json.Marshal(s); s.Owner == "" && confTooBig(raw) { // conf.go: a shared skill is mirrored into a kv value
+		xbin.WriteError(w, 400, "the skill is too big to share in a partitioned agent (900 KiB at most)")
 		return
 	}
 	if err := agent.db.upsertSkill(&s); err != nil {

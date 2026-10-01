@@ -163,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	// theme.css as bare subresources, which carry no credentials by design.
 	handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
 	handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
+	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage))) // the partitions page, top-level only (personpage.go)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 
@@ -222,7 +223,7 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		p, ok := s.Auth.FromRequest(r)
 		if !ok {
 			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
-				http.Redirect(w, r, "/login", http.StatusFound)
+				http.Redirect(w, r, loginURLFor(r), http.StatusFound) // a deep-link page carries ?next= (loginnext.go)
 				return
 			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
@@ -308,54 +309,6 @@ func (s *Server) handleTermKill(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleTermReset wipes a component's persistent terminal layer (?cwd=<path>)
-// back to the base rootfs, killing any live session on it first
-// (DELETE /ws/term/env). The UI's "reset sandbox" action calls this.
-func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
-	cwd, ok := termEnvGate(w, r)
-	if !ok {
-		return
-	}
-	if err := s.Term.ResetEnv(cwd); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// handleTermEnv reports a component's persistent terminal layer (?cwd=):
-// {exists, baseOutdated, baseAutoUpdate} — so the terminal window can offer
-// the base update, or say the next session moves to it (D175), before any
-// terminal is open (GET /ws/term/env) — and whether a VM terminal
-// can open ({vm: {available, reason}}, plans/vm-sandbox.md).
-func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {
-	cwd, ok := termEnvGate(w, r)
-	if !ok {
-		return
-	}
-	exists, old := s.Term.EnvStatus(cwd)
-	WriteJSON(w, http.StatusOK, map[string]any{"exists": exists, "baseOutdated": old, "baseAutoUpdate": s.Term.BaseAutoUpdateOn(), "vm": s.Term.VMStatus()})
-}
-
-// termEnvGate: a tile's dev layer is the terminal plane (it IS the terminal's
-// overlay), so reading or resetting it needs terminal level on that tile
-// (admins: any); the legacy root layer ("" — root terminals are disabled) is
-// admin-only.
-func termEnvGate(w http.ResponseWriter, r *http.Request) (string, bool) {
-	cwd := r.URL.Query().Get("cwd")
-	p := auth.PrincipalOf(r)
-	if cwd == "" {
-		if !p.IsAdmin() {
-			http.Error(w, "the root layer is admin-only", http.StatusForbidden)
-			return "", false
-		}
-	} else if !p.CanTerminalTile(strings.Trim(cwd, "/")) {
-		http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
-		return "", false
-	}
-	return cwd, true
-}
-
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, value string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: s.Auth.SessionCookieName(r), Value: value, Path: "/", // __Host- in origins mode (auth/tilebinding.go)
@@ -411,7 +364,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// set). Label is admin-config, HTML-escaped.
 	sso := ""
 	if s.SSOReady() {
-		sso = `<a class="sso" href="/login/sso">` + html.EscapeString(SSOButtonLabel(s.ssoConfig())) +
+		sso = `<a class="sso" href="` + html.EscapeString(ssoStartURL(r)) + `">` + html.EscapeString(SSOButtonLabel(s.ssoConfig())) +
 			`</a><div class="or">or</div>`
 	}
 	page = strings.ReplaceAll(page, "{{SSO}}", sso)
@@ -429,7 +382,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		note = `<div class="warn">Password sign-in is reserved for workspace admins — everyone else uses ` +
 			html.EscapeString(SSOButtonLabel(s.ssoConfig())) + `.</div>`
 	}
-	page = strings.ReplaceAll(page, "{{PWNOTE}}", note)
+	page = strings.ReplaceAll(page, "{{PWNOTE}}", note+loginNextField(r)) // ?next= rides the form (loginnext.go)
 	_, _ = w.Write([]byte(page))
 }
 
@@ -539,7 +492,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	s.loginThrottle.ok(s.ClientIP(r))
 	s.touchLogin(u.ID, "password")
 	s.setSessionCookie(w, r, s.Auth.NewSession(u.ID, s.ClientIP(r)))
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, loginNext(r.FormValue("next")), http.StatusFound)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -582,6 +535,9 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		var h http.Handler = s.apiMux
 		dep, deny := s.classGate(r2) // non-primary principals: default-deny (deployclass.go)
+		if deny == nil {
+			r2, deny = s.partitionGate(r2) // a person's partition: default-deny too (partitionclass.go)
+		}
 		if deny != nil {
 			h = deny
 		}
@@ -664,25 +620,29 @@ func (s *Server) handleEventsWS(w http.ResponseWriter, r *http.Request) {
 func (s *Server) eventFilter(p auth.Principal) events.Filter {
 	tile := s.credentialTile(p) // once, outside the hub's lock (deployaudience.go)
 	return func(e events.Event) bool {
+		if e.Partition != "" && e.Type != "bus" && !s.partitionEventFor(p, tile, e) {
+			return false // a person's partition's own (partitionevents.go); then the type's rules
+		}
 		// pr events name a component that has PR activity — D40 visibility:
 		// only subscribers who can read that tile see them.
 		if e.Type == "pr" {
 			return p.IsAdmin() || p.CanReadTile(e.Component)
 		}
 		if e.Type == "term" || e.Type == "session" { // per-user: the owner's browsers, and admins (D73/D74)
-			return termEventFor(p, e)
+			return s.termEventVisible(p, e)
 		}
 		if e.Type == "deployments" {
 			return s.deploymentsEventFor(p, tile, e)
 		}
-		if e.Type == "prefs" { // per-user, not even admins: the bucket owner's own clients
-			v, ok := e.Data.(interface{ VisibleTo(auth.Principal) bool })
+		// prefs: per-user, not even admins — the bucket owner's own clients; and
+		// any event whose data names its audience (the partitions event's ops)
+		if v, ok := e.Data.(interface{ VisibleTo(auth.Principal) bool }); ok || e.Type == "prefs" {
 			return ok && v.VisibleTo(p)
 		}
 		if e.Type != "bus" {
 			return true
 		}
-		if p.IsAdmin() {
+		if p.IsAdmin() && e.Partition == "" { // a partition's bus: no blanket pass (G2)
 			return true
 		}
 		return s.policy().BusAllows(p, e)
@@ -729,9 +689,10 @@ func auditable(method, path string) bool {
 	default:
 		return false
 	}
-	// The element data plane (prefs/kv/blob/bus) is high-frequency and not
-	// governance — exclude it so the audit stream stays signal.
-	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/"} {
+	// The element data plane (prefs/kv/blob/bus, partition mail) is
+	// high-frequency and not governance — exclude it so the audit stream
+	// stays signal.
+	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/", "/partitions/mail"} {
 		if strings.HasPrefix(path, dp) {
 			return false
 		}

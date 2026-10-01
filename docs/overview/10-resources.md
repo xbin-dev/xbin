@@ -262,8 +262,12 @@ calls return 503, and a component that `uses` an affected resource is
 lifecycle state, so no spawn path can start it). Everything resumes on
 unseal; stale mounts from a crashed daemon are lazily recovered at boot.
 Per-label subkeys mean a leaked per-resource key never crosses resources.
-Note the deliberate trade (VD-4): **backups stream decrypted data** — archive
-encryption is the archiver tile's job ([14-lifecycle.md](14-lifecycle.md)).
+Backups read the decrypted data and **seal every archive** under a backup
+key the vault's data key wraps, so archivers hold ciphertext only, and
+deleting a key crypto-erases that data in every archive (PD-56, superseding
+VD-4's plaintext archives; [14-lifecycle.md](14-lifecycle.md) §Sealed
+archives). Only the plaintext-vault mode (`--insecure-vault`, `--no-auth`)
+keeps plain archives; a vault not set up yet backs nothing up.
 
 ## Disk governance
 

@@ -43,7 +43,12 @@ tile). Absent for automation, cron, and the bootstrap owner token. This is
 how a backend tells *who clicked*: a frame call from the tile's own UI runs
 at the tile's full self-role, so an app with mixed-trust viewers should gate
 mutating endpoints on the attributed level — the SDK's
-`xbin.Caller(r).UserCanWrite()` does exactly that. A credential the tile
+`xbin.Caller(r).UserCanWrite()` does exactly that. One exception, on
+partitioned tiles only ([partitions.md](/docs/partitions.md)): a call from
+one of a person's partition's credentials to the tile's own global instance
+(`?xbin-partition=global`) carries that person — the partition's backend's
+calls included — and its `X-XBin-Role` is clamped to their level (`reader`
+or `writer`), never the self-role. A credential the tile
 keeps past the call (an SSH key a person registered on its page) is checked
 again at each use: the tile's backend asks `GET /api/xbin/access/<user>`
 (`xbin.AccessOf`) for that person's level on **itself** now — none once
@@ -475,6 +480,27 @@ Only the **wrapped** DEK and the KDF salt sit on disk (`data/vault/.barrier.json
 without the passphrase they yield nothing. So a stolen workspace dir, backup,
 or disk snapshot is just ciphertext.
 
+**Backups** are sealed under the same hierarchy: the DEK wraps a random
+**backup key** per subject (a tile's source, a namespace's data) in
+`data/vault/.backup-keys/`, and each archive is AES-256-GCM-sealed under a
+key derived from one — archivers see only the key's opaque id. Deleting a
+backup key crypto-erases that data in every archive (`bx backup erase`).
+The keys never leave the workspace except in an exported **key bundle**
+(`bx backup keys export`: the barrier descriptor plus the wrapped keys),
+which a new machine needs to restore sealed backups (`bx backup keys
+import`, prompting for the old passphrase; the new vault keeps its own).
+A bundle opens nothing without the passphrase — but **a bundle plus the
+passphrase in force when it was exported opens the DEK itself**: every
+vault secret and all resource data at rest, wherever a copy of them is
+found, not only the backups. Changing the passphrase doesn't take that back
+(the DEK never rotates), so after a rekey — above all one after a suspected
+passphrase leak — destroy every earlier bundle and export a fresh one (the
+admin alert and `bx doctor` ask for it), as after an erase. Exporting,
+importing and erasing are a person's acts: an admin in their own session
+(or the admin tile's frame under their login), never a tile's backend,
+terminal or agent on its tile's `xbin` admin grant. See
+[14-lifecycle.md](/docs/overview/14-lifecycle.md) §Sealed archives.
+
 **Seal / unseal**, like Vault:
 
 - Sealed → the DEK isn't in memory; vault reads/writes return `503 sealed`.
@@ -838,8 +864,10 @@ creation (clone, workspace-template instantiate) additionally requires
   deployment state (a deployment record, a checkpoint store:
   [tile-deployments.md](/docs/tile-deployments.md)) — and, at the path and under
   it, what its deployments beyond `main` left: their vaults,
-  registrations and data. The refusal lists them; pick another path or have
-  an admin clear them. Re-creating a path you already own is fine (the
+  registrations and data, and a partitioned tile's recorded partition mode
+  and its people's partition data ([partitions.md](/docs/partitions.md)).
+  The refusal lists them; pick another path or have an admin clear them.
+  Re-creating a path you already own is fine (the
   path's owner is exempt). Whoever creates the tile, admins included, the
   path's deployment record is dropped first, so the new tile starts with
   plain live reload; a checkpoint store left there stays on disk, unread;

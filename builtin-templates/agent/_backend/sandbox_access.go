@@ -67,6 +67,13 @@ func sandboxAccess(w who, b *sbxSandbox) sbxAccess {
 		if w.viewedBy != "" {
 			return sbxAccess{} // an admin viewing as someone acts for nobody
 		}
+		if b.Shared && homedAtOwnGlobal(b) {
+			// a person's partition sees the team's sandboxes (sandbox_partition.go):
+			// used by the rules below, changed and deleted only there
+			a := sandboxAccess(w, &sbxSandbox{Owner: b.Owner, Visibility: b.Visibility, Members: b.Members})
+			a.Manage, a.Edit = false, false
+			return a
+		}
 		if b.Shared && !b.shareAllows(w.user) {
 			return sbxAccess{} // shared with this tile, but not for them
 		}

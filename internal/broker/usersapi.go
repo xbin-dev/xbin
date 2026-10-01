@@ -347,7 +347,7 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	tok, err := st.CreateInvite(r.PathValue("id"), 0)
+	tok, told, err := b.mintInvite(r, st, r.PathValue("id")) // a partition holder's is told, held with credentialResetConfirm (partitioncreds.go)
 	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
@@ -359,6 +359,10 @@ func (b *Broker) apiUsersInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	if l := b.inviteLink(r, tok); l != "" {
 		out["inviteLink"] = l
+	}
+	if err := told(out); err != nil {
+		server.WriteError(w, http.StatusInternalServerError, err.Error(), "/docs/partitions.md")
+		return
 	}
 	server.WriteJSON(w, http.StatusOK, out)
 }
@@ -467,8 +471,10 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	credDone := b.credentialChange(w, r, cur, &nu, &body.Password) // told, or held for a partition holder (partitioncreds.go)
 	u, err := st.Upsert(nu, body.Password)
 	if err == nil {
+		credDone()
 		u, err = b.applyPersonal(srv, st, u, body.personalBody, false)
 	}
 	if err != nil {
@@ -493,11 +499,13 @@ func (b *Broker) apiUsersDelete(srv *server.Server, w http.ResponseWriter, r *ht
 	if st == nil {
 		return
 	}
+	uid := b.storedPartitionUID(r.PathValue("id")) // their incarnation, gone with the record
 	orphaned, err := st.Delete(r.PathValue("id"))
 	if err != nil {
 		server.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	b.PartitionPersonDeleted(r.PathValue("id"), uid) // stops, orphans, binds, consents, homes (partitionpeople.go)
 	if srv != nil && srv.Auth != nil {
 		srv.Auth.DropUserSessions(r.PathValue("id"))
 	}
@@ -673,6 +681,8 @@ func (b *Broker) apiAuthSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	// one), an explicit null clears SSO entirely. Same capability gate as the
 	// rest of sign-in policy.
 	if body.SSO != nil {
+		old := st.SSO()
+		defer func() { b.CredentialSSOChanged(r, old, st.SSO()) }() // partition holders told; held with credentialResetConfirm (partitioncreds_sso.go)
 		if string(body.SSO) == "null" {
 			if err := st.SetSSO(nil); err != nil {
 				server.WriteError(w, http.StatusBadRequest, err.Error())
@@ -775,11 +785,4 @@ func (b *Broker) apiSessions(srv *server.Server, w http.ResponseWriter, r *http.
 		out = append(out, row)
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"sessions": out})
-}
-
-func firstNonEmpty(a, b string) string {
-	if strings.TrimSpace(a) != "" {
-		return a
-	}
-	return b
 }

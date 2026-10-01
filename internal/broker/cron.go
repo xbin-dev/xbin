@@ -61,6 +61,9 @@ type cronRunner struct {
 	dep     map[string]*depJob
 	running map[string]bool
 	fileMu  sync.Mutex
+	// part are the jobs of people's partitions, kept in their own files and
+	// keyed by partKey (partitionregs.go).
+	part map[string]*partJob
 }
 
 func newCronRunner(b *Broker) *cronRunner {
@@ -68,7 +71,7 @@ func newCronRunner(b *Broker) *cronRunner {
 		b: b, sched: cron.New(),
 		entries: map[string]cron.EntryID{}, jobs: map[string]cronJob{},
 		backups: map[string]backupSchedule{}, backupEntries: map[string]cron.EntryID{},
-		dep: map[string]*depJob{}, running: map[string]bool{},
+		dep: map[string]*depJob{}, running: map[string]bool{}, part: map[string]*partJob{},
 	}
 	cr.load()
 	cr.loadBackups()
@@ -85,6 +88,7 @@ func (b *Broker) SetDispatch(fn func(p auth.Principal, comp, path string) (int, 
 	b.cron.dispatch = fn
 	b.cron.mu.Unlock()
 	b.cron.loadDeps()
+	b.loadParts(true, false) // people's partitions' jobs (partitionregs.go)
 }
 
 func (cr *cronRunner) storePath() string {
@@ -185,6 +189,11 @@ func (cr *cronRunner) fire(j cronJob) {
 	if j.Component != "" && cr.b.Reg.LifecycleState(j.Component) != registry.StateEnabled {
 		return
 	}
+	// A primary its partition mode pauses (pending or invalid) misses its
+	// ticks quietly, as a disabled one does (plans/partitions/01 §2.3).
+	if j.Component != "" && cr.b.partitionPaused(j.Component, "") {
+		return
+	}
 	// main's jobs fire while main's registrations are active: always without
 	// a deployment record; with one, unless main isn't the primary and a
 	// tile manager switched its deliveries off (the active set, dormant.go)
@@ -232,6 +241,15 @@ func DispatchViaProxy(h http.Handler) func(p auth.Principal, comp, path string) 
 
 func (b *Broker) apiCronList(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
+	if b.partitionParamRefused(w, r, cmp.Or(p.Component, r.URL.Query().Get("component"))) {
+		return
+	}
+	if t, isPart, ok := b.partOf(w, p, p.Component); isPart { // a person's partition: its own (partitionregs.go)
+		if ok {
+			b.partCronList(w, t)
+		}
+		return
+	}
 	admin := b.IsAdmin(p)
 	// the deployment listed: a tile principal's own, else ?deployment= or main
 	dep, code, err := b.listDeployment(r, p)
@@ -268,6 +286,13 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "owner-registered jobs need \"component\"")
 		return
 	}
+	if b.partitionParamRefused(w, r, j.Component) || b.globalAddressRegRefused(w, j.Component, j.Path, "cron") {
+		return
+	}
+	t, isPart, ok := b.partOf(w, p, j.Component)
+	if !ok {
+		return
+	}
 	// the deployment it registers for: a tile's own, else ?deployment= or main
 	dep, code, err := b.regDeployment(r, p, j.Component)
 	if err != nil {
@@ -279,7 +304,11 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusNotFound, "no such cron resource (declare one in scope.json)", "/docs/resources.md")
 		return
 	}
-	if dep != util.MainDeployment {
+	switch {
+	case isPart:
+		b.putPartCron(w, r, p, t, j, rt) // a person's partition's own file (partitionregs.go)
+		return
+	case dep != util.MainDeployment:
 		b.putDepCron(w, r, dep, j, rt) // its own file (dormant.go)
 		return
 	}
@@ -308,6 +337,15 @@ func (b *Broker) apiCronDelete(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	if !b.IsAdmin(p) {
 		comp = p.Component // unprivileged callers can only delete their own
+	}
+	if b.partitionParamRefused(w, r, comp) {
+		return
+	}
+	if t, isPart, ok := b.partOf(w, p, comp); isPart { // a person's partition: its own (partitionregs.go)
+		if ok {
+			b.deletePartCron(w, r, t, name)
+		}
+		return
 	}
 	dep, code, err := b.regDeployment(r, p, comp)
 	if err != nil {

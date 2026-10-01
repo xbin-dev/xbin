@@ -40,7 +40,7 @@ func TestHarnessDeviceCodeIsTheRequesters(t *testing.T) {
 	}
 	// stored nowhere: no table's cell (the client's snapshot, which keeps
 	// the accepted url question for a successor, included)
-	for _, tbl := range scanStrings(t, ag.db, `SELECT name FROM sqlite_master WHERE type='table'`) {
+	for _, tbl := range dbStrings(t, ag.db, `SELECT name FROM sqlite_master WHERE type='table'`) {
 		rows, err := ag.db.sql.Query(`SELECT * FROM "` + tbl + `"`)
 		if err != nil {
 			t.Fatal(err)

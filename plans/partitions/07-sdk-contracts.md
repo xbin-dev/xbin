@@ -44,7 +44,8 @@ func RequirePartition()
 // CallerInfo.Partition is X-XBin-Partition: the partition the caller acts in
 // ("" when none) — a display name. CallerInfo.PartitionID is
 // X-XBin-Partition-Id: the stable key of a caller's user partition. Providers
-// that keep per-caller state key it on (From, Deployment, PartitionID) and
+// that keep per-caller state key it on (From, PartitionID) — plus Deployment
+// where they already key on it (user partitions are primary-only) — and
 // treat "" and "global" alike (docs/partitions.md §Providers).
 Partition, PartitionID string
 
@@ -146,7 +147,9 @@ mail routes.
 - **Shares:** `shares: [{consumer, partitionId?, users}]`; a share naming
   `consumer` without `partitionId` means that consumer's non-personal
   identity (today's meaning).
-- **Negotiation:** `hello` answers `caps.partitions: 1`. A consumer calling
+- **Negotiation:** `hello.caps` carry the word `partitions` (a capability
+  like every other — `caps` is a list of words in protocol 1; the
+  manager's own, never in a sandbox's `caps`). A consumer calling
   from a user partition doesn't use a manager without it (it degrades, 05 §4,
   08 §6): otherwise every person's sandboxes would merge under one consumer.
 - **Quotas:** per consumer = per tile (all partitions summed); per person as
@@ -185,5 +188,7 @@ mail routes.
   sees a global-home team record and a member record, not a private one of
   another person; a share to (consumer, partitionId) works; a mismatched
   `Sbx-User` from a partition is refused; a recreated user (new partition id)
-  sees none of the old records; operator names redacted;
-  `hello.caps.partitions`.
+  sees none of the old partition's records (global-home records follow the
+  person rules by user id); a private record shared with a partition still
+  needs its person as owner or member; operator names, labels and snapshot
+  names redacted; `partitions` in `hello.caps`.

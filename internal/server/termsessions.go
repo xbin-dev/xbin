@@ -97,7 +97,10 @@ func termEventFor(p auth.Principal, e events.Event) bool {
 
 // apiTermSessions lists the caller's live sessions (?cwd= narrows to one
 // tile). A principal that may not open terminals has none. An admin may
-// pass ?user= for another user's — the same visibility GET /status gives.
+// pass ?user= for another user's — the same visibility GET /status gives,
+// which leaves out the names of a person's sessions on a partitioned tile
+// (PD-09: an agent names its tab after the conversation); so does an
+// admin's view as that person.
 func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	if u := r.URL.Query().Get("user"); u != "" && !p.IsAdmin() {
@@ -114,14 +117,23 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 	} else if p.IsAdmin() {
 		may = nil
 	}
-	WriteJSON(w, http.StatusOK, s.Term.ListFor(homeKey, r.URL.Query().Get("cwd"), may))
+	rows := s.Term.ListFor(homeKey, r.URL.Query().Get("cwd"), may)
+	if homeKey != term.HomeKey(p) || p.ReadOnly() {
+		for i := range rows {
+			if rows[i].Personal() {
+				rows[i].Name = ""
+			}
+		}
+	}
+	WriteJSON(w, http.StatusOK, rows)
 }
 
-// apiTermRename names a tab: {name}. The session's creator or an admin.
+// apiTermRename names a tab: {name}. The session's creator or an admin —
+// not an admin in another person's session on a partitioned tile (PD-09).
 func (s *Server) apiTermRename(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	id := r.PathValue("id")
-	if s.Term == nil || !s.Term.CanTouch(id, p) {
+	if s.Term == nil || !s.Term.MayRename(id, p) {
 		apiErr(w, http.StatusForbidden, "session belongs to another user")
 		return
 	}

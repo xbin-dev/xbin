@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/checkpoint"
@@ -368,6 +369,7 @@ type Impact struct {
 	Joins            *Joins        `json:"joins,omitempty"`        // add: the existing namespace joined (m2types.go)
 	Placeholders     []string      `json:"placeholders,omitempty"` // a new primary's vault keys with no value (D127i)
 	Branch           *BranchImpact `json:"branch,omitempty"`       // the target's assigned branch and the work tree's (D131)
+	Partition        string        `json:"partition,omitempty"`    // code onto the primary asking for another partition mode (partition.go)
 	PausesLiveReload bool          `json:"pausesLiveReload"`
 	Stops            []string      `json:"stops"`
 	Affects          string        `json:"affects"`
@@ -392,7 +394,10 @@ type CodeImpact struct {
 // measure fills code's counts from a stat diff of tile c from → to (full
 // tree ids; "" is the work tree, which the diff captures as by), best
 // effort: a diff that can't run (busy, too slow, refused) leaves them 0.
-func (p *Plane) measure(ctx context.Context, c *registry.Component, code *CodeImpact, by, from, to string) {
+// It also answers whether both sides' manifests are the same file: the diff
+// was summarised whole and names no xbin.json (a move's partition preflight
+// then reads the manifest from the side that runs, partition.go).
+func (p *Plane) measure(ctx context.Context, c *registry.Component, code *CodeImpact, by, from, to string) (sameManifest bool) {
 	side := func(t string) checkpoint.DiffSide {
 		if t == "" {
 			return checkpoint.DiffSide{WorkTree: true}
@@ -401,13 +406,18 @@ func (p *Plane) measure(ctx context.Context, c *registry.Component, code *CodeIm
 	}
 	res, err := p.store().Diff(ctx, checkpoint.DiffRequest{Source: p.source(c), From: side(from), To: side(to), By: by, Stat: true})
 	if err != nil {
-		return
+		return false
 	}
 	code.Files = len(res.Files)
+	sameManifest = !res.Truncated
 	for _, f := range res.Files {
 		code.Added += f.Added
 		code.Removed += f.Removed
+		if strings.Contains(f.Path, "xbin.json") { // a rename's "old => new" too
+			sameManifest = false
+		}
 	}
+	return sameManifest
 }
 
 // ---- answers and errors ----

@@ -226,11 +226,12 @@ func (b *Broker) scopeOwnedBy(scope, ownerRef string) bool {
 // either side, interface bindings / instances / ingress hosts, its vault,
 // the identity store's entries (Store.PathLeftovers), its deployment state
 // (a record, a checkpoint store; beyond main, vaults, registrations and data
-// namespaces; D119i), and the tile sandboxes a manager tile there defined
-// (their state included; D85's forgetting doesn't reach them). Nothing
-// prunes these when a tile's directory disappears. A path whose owner entry is
-// already ownerRef is the owner re-creating their own tile — nothing to
-// take over.
+// namespaces; D119i), a removed partitioned tile's mode record and its
+// people's partition namespaces, and the tile sandboxes a manager tile there
+// defined (their state included; D85's forgetting doesn't reach them).
+// Nothing prunes these when a tile's directory disappears. A path whose
+// owner entry is already ownerRef is the owner re-creating their own tile —
+// nothing to take over.
 func (b *Broker) pathLeftovers(path, ownerRef string) []string {
 	if b.Users != nil && b.Users.Owner(path) == ownerRef {
 		return nil
@@ -271,7 +272,8 @@ func (b *Broker) pathLeftovers(path, ownerRef string) []string {
 	}
 	out = append(out, b.deploymentLeftovers(path)...)
 	out = append(out, b.deploymentDataLeftovers(path, under)...)
-	out = append(out, b.sandboxLeftovers(path)...) // kept for an admin to delete (tilesbx_hooks.go)
+	out = append(out, b.partitionLeftovers(path, under)...) // a partitioned tile's mode record and people's data (partitionwire.go)
+	out = append(out, b.sandboxLeftovers(path)...)          // kept for an admin to delete (tilesbx_hooks.go)
 	sort.Strings(out)
 	return out
 }

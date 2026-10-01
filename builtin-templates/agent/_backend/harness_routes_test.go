@@ -299,7 +299,7 @@ func TestHarnessRouteAuthenticate(t *testing.T) {
 	})
 
 	// the key: in no row of any table, in no log line
-	tables := scanStrings(t, ag.db, `SELECT name FROM sqlite_master WHERE type='table'`)
+	tables := dbStrings(t, ag.db, `SELECT name FROM sqlite_master WHERE type='table'`)
 	for _, tbl := range tables {
 		rows, err := ag.db.q.Query(`SELECT * FROM "` + tbl + `"`)
 		if err != nil {
@@ -327,7 +327,7 @@ func TestHarnessRouteAuthenticate(t *testing.T) {
 	}
 }
 
-func scanStrings(t *testing.T, db *DB, q string, args ...any) []string {
+func dbStrings(t *testing.T, db *DB, q string, args ...any) []string {
 	t.Helper()
 	rows, err := db.q.Query(q, args...)
 	if err != nil {

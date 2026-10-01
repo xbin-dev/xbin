@@ -29,6 +29,9 @@ type MCPServer struct {
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers,omitempty"`
 	gateway bool              // reach via the xbin gateway (a bound component) vs. directly
+	// personal: a person's own server, bound into their partition only
+	// (iface_personal.go: offered in their own conversations only).
+	personal bool
 }
 
 // httpClient reaches a bound provider through the xbin gateway (so the binding
@@ -52,6 +55,7 @@ func boundMCPServers() []MCPServer {
 		Provider string `json:"provider"`
 		Instance string `json:"instance"`
 		URL      string `json:"url"`
+		Personal bool   `json:"personal"`
 	}
 	if json.Unmarshal([]byte(raw), &eps) != nil {
 		return nil
@@ -62,7 +66,7 @@ func boundMCPServers() []MCPServer {
 		if e.Instance != "" {
 			name += "#" + e.Instance
 		}
-		out = append(out, MCPServer{Name: name, URL: strings.TrimRight(e.URL, "/") + "/mcp", gateway: true})
+		out = append(out, MCPServer{Name: name, URL: strings.TrimRight(e.URL, "/") + "/mcp", gateway: true, personal: e.Personal})
 	}
 	return out
 }
@@ -193,7 +197,7 @@ func (ag *Agent) mcpTools(ctx context.Context, cfg Config) []toolSpec {
 		return nil // a class without internal reach gets no MCP tools, so don't wake the servers
 	}
 	var servers []MCPServer
-	for _, srv := range allMCPServers(cfg) {
+	for _, srv := range allMCPServersIn(ctx, cfg) {
 		if cls.allowsMCP(srv.Name) { // only the class's servers (D116)
 			servers = append(servers, srv)
 		}
@@ -312,7 +316,7 @@ func (ag *Agent) mcpCall(ctx context.Context, cfg Config, name string, args map[
 		return "", fmt.Errorf("bad mcp tool name %q", name)
 	}
 	var srv *MCPServer
-	servers := allMCPServers(cfg)
+	servers := allMCPServersIn(ctx, cfg)
 	for i := range servers {
 		if servers[i].Name == server {
 			srv = &servers[i]

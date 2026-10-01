@@ -47,8 +47,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -418,7 +416,7 @@ func (cr *cronRunner) rewriteDep(tile, dep string, change func([]depCronRow) ([]
 // enabled and the deployment's registrations fire now (the active set).
 func (cr *cronRunner) fireDep(dep string, j cronJob) {
 	b := cr.b
-	if b.Reg.LifecycleState(j.Component) != registry.StateEnabled || !b.firing(j.Component, dep) {
+	if b.Reg.LifecycleState(j.Component) != registry.StateEnabled || !b.firing(j.Component, dep) || b.partitionPaused(j.Component, dep) {
 		return
 	}
 	cr.mu.Lock()
@@ -771,22 +769,13 @@ func (b *Broker) dropDormantAt(path string) int {
 			}
 		}
 	}
-	return n
+	return n + b.dropPartitionRegistrationsAt(path) // people's partitions' (partitionregs.go)
 }
 
 // deploymentDirs lists the deployment directories data/deployments keeps
-// beside tile's record, whatever the record says.
+// beside tile's record, whatever the record says; none when the directory
+// can't be read (partitiondata.go's deploymentDirsErr tells).
 func (b *Broker) deploymentDirs(tile string) []string {
-	dir := filepath.Join(b.Reg.Root, "data", "deployments", util.TileKey(tile))
-	entries, err := os.ReadDir(dir) // walk-ok: data/deployments is xbind's own; no tile writes there
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		if e.IsDir() && e.Name() != util.MainDeployment && util.DeploymentNameOK(e.Name()) {
-			out = append(out, e.Name())
-		}
-	}
+	out, _ := b.deploymentDirsErr(tile)
 	return out
 }

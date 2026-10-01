@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ func main() {
 	case "grants":
 		err = cmdGrants()
 	case "bind":
-		err = cmdBind(os.Args[2:])
+		err = cmdBindAny(os.Args[2:]) // --personal: personalbind.go
 	case "expose":
 		err = cmdExpose(os.Args[2:])
 	case "unexpose":
@@ -115,7 +116,7 @@ func usage() {
                                         scaffold a component
   bx tile ls | import <name> [as <path>]
                                         list/install builtin tiles
-  bx template ls | new <source> [as <path>]
+  bx template ls | new <source> [as <path>] [--no-partition]
                                         list/instantiate template components
   bx builtin updates | update <id> [--replace|--merge]
                                         update copied builtins (scaffold, tiles)
@@ -149,7 +150,7 @@ func usage() {
                                         internet:<spec>|<provider tile>)
   bx bind <component> <slot>+=<p[#i]> | <slot>-=<p[#i]>
                                         add/remove on a multi slot (# = instance)
-  bx bind --unset <component> <slot>
+  bx bind --unset <component> <slot>   (--personal [--unset] <tile> <slot>=<your tile>: your partition only)
   bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P] [--add]
                                         publish an exposed endpoint (--add: one more route)
   bx unexpose <tile> <slot> [--host H|--zone '*.Z'|--listen :P]  a route, or all
@@ -158,9 +159,14 @@ func usage() {
   bx hide|unhide <component>            hidden = disabled + out of sidebars (D42)
   bx offload <component> [--full]       archive + free local bytes
   bx backup <component>                 back up now to the bound archiver
+  bx backup keys status|export|import <file>
+                                        sealed backups' keys: export for disaster recovery
+  bx backup erase <tile> --data|--all   crypto-erase a tile's backups (every archive)
   bx backups <component>                list archived versions
-  bx restore <component> [--version v] [--file path]
+  bx restore <component> [--version v] [--file path] [--confirm <date>]
                                         restore a version, or one file to stdout
+  bx backups|restore <tile> --partition [--user <id>] …
+                                        a person's partition's backups (docs/partitions.md)
   bx backup-schedule [<component> --every 24h|--cron "expr" [--keep N] | --rm]   scheduled backups
   bx vault status|unseal|seal|rekey     encryption-at-rest barrier
   bx vault ls|get|set|rm <component> [key] [value]
@@ -168,7 +174,7 @@ func usage() {
                                         drive a coding agent in a tile's sandbox
   bx cron ls                            scheduled jobs
   bx doctor | bx fix assets <tile> [--write]   workspace problems | absolute /c/ URLs → relative
-`+nativeUsage+chromeUsage+settingsUsage+deployUsage)
+`+nativeUsage+chromeUsage+policiesUsage+partitionUsage+settingsUsage+deployUsage)
 	os.Exit(2)
 }
 
@@ -579,18 +585,30 @@ func cmdOffload(args []string) error {
 }
 
 func cmdBackup(args []string) error {
+	if len(args) >= 2 && args[0] == "keys" {
+		return cmdBackupKeys(args[1:]) // sealed backups' keys (backupkeys.go)
+	}
+	if len(args) >= 2 && args[0] == "erase" {
+		return cmdBackupErase(args[1:])
+	}
 	if len(args) != 1 {
 		return fmt.Errorf("usage: bx backup <component>")
 	}
-	var out struct{ Version string }
+	var out struct {
+		Version    string
+		Partitions *partitionBackupsAnswer `json:"partitions"` // partitionbackup.go
+	}
 	if err := apiJSON("POST", "/api/xbin/backup", map[string]string{"component": args[0]}, &out); err != nil {
 		return err
 	}
 	fmt.Printf("backed up %s → version %s\n", args[0], out.Version)
-	return nil
+	return out.Partitions.report(args[0])
 }
 
 func cmdBackups(args []string) error {
+	if hasFlag(args, "--partition") {
+		return cmdBackupsPartition(args) // a person's partition's (partitionbackup.go)
+	}
 	if len(args) != 1 {
 		return fmt.Errorf("usage: bx backups <component>")
 	}
@@ -616,10 +634,17 @@ func cmdBackups(args []string) error {
 
 // cmdRestore restores a whole version or a single file (--file):
 //
-//	bx restore <component> [--version v]
+//	bx restore <component> [--version v] [--confirm <date>]
 //	bx restore <component> --file <path> [--version v]   (streams the file to stdout)
+//	bx restore <tile> --partition …                       a person's partition (partitionbackup.go)
+//
+// --confirm names the tile's last partition mode switch (its date) when
+// the backup is older than it (docs/partitions.md §Backups).
 func cmdRestore(args []string) error {
-	var comp, version, file string
+	if hasFlag(args, "--partition") {
+		return cmdRestorePartition(args)
+	}
+	var comp, version, file, confirm string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--version":
@@ -632,6 +657,11 @@ func cmdRestore(args []string) error {
 			if i < len(args) {
 				file = args[i]
 			}
+		case "--confirm":
+			var err error
+			if confirm, err = nextArg(args, &i); err != nil {
+				return fmt.Errorf("--confirm needs the date of the tile's partition mode switch (YYYY-MM-DD), as the refusal names it")
+			}
 		default:
 			if isFlag(args[i]) {
 				if err := unknownFlag("restore", args[i], true); err != nil {
@@ -643,9 +673,12 @@ func cmdRestore(args []string) error {
 		}
 	}
 	if comp == "" {
-		return fmt.Errorf("usage: bx restore <component> [--version v] [--file path]")
+		return fmt.Errorf("usage: bx restore <component> [--version v] [--file path] [--confirm <date>]")
 	}
 	body := map[string]string{"component": comp, "version": version, "file": file}
+	if confirm != "" {
+		body["confirm"] = confirm // an xbind without partitions refuses the field (400): predatesConfirm
+	}
 	if file != "" {
 		resp, err := api("POST", "/api/xbin/restore", body)
 		if err != nil {
@@ -659,7 +692,7 @@ func cmdRestore(args []string) error {
 		return err
 	}
 	if err := apiJSON("POST", "/api/xbin/restore", body, nil); err != nil {
-		return err
+		return predatesConfirm(err, confirm)
 	}
 	fmt.Printf("restored %s\n", comp)
 	return nil
@@ -690,7 +723,15 @@ func cmdBind(args []string) error {
 		return fmt.Errorf("usage: bx bind <component> <slot>=<provider> | <slot>+=<ref> | <slot>-=<ref> …  |  bx bind --unset <component> <slot>")
 	}
 	comp := args[0]
+	var ans struct {
+		Warning string `json:"warning"` // partitioned tiles (docs/partitions.md)
+	}
+	var warnings []string // printed on stderr once every pair is bound
 	for _, pair := range args[1:] {
+		if ans.Warning != "" && !slices.Contains(warnings, ans.Warning) {
+			warnings = append(warnings, ans.Warning)
+		}
+		ans.Warning = ""
 		// <slot>=<ref> replaces; <slot>+=<ref> adds to and <slot>-=<ref> removes
 		// from a multi slot's set. Refs are "<provider>[#<instance>]".
 		var op byte
@@ -703,7 +744,7 @@ func cmdBind(args []string) error {
 		}
 		if op == 0 {
 			body := map[string]string{"component": comp, "slot": slot, "provider": ref}
-			if err := apiJSON("POST", "/api/xbin/bindings", body, nil); err != nil {
+			if err := apiJSON("POST", "/api/xbin/bindings", body, &ans); err != nil {
 				if strings.Contains(err.Error(), "not covered") {
 					// The org's network sets are the ceiling (D54).
 					return fmt.Errorf("%w\nhint: bx org ls shows the org's reach; bx netset set <set> --add <rule> widens it, or bind net=org (the org network) / net=none", err)
@@ -745,32 +786,42 @@ func cmdBind(args []string) error {
 		if len(set) == 0 {
 			method, body = "DELETE", map[string]any{"component": comp, "slot": slot}
 		}
-		if err := apiJSON(method, "/api/xbin/bindings", body, nil); err != nil {
+		if err := apiJSON(method, "/api/xbin/bindings", body, &ans); err != nil {
 			return err
 		}
 	}
+	if ans.Warning != "" && !slices.Contains(warnings, ans.Warning) {
+		warnings = append(warnings, ans.Warning)
+	}
 	fmt.Println("ok")
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "⚠ "+w)
+	}
 	return nil
 }
 
 func cmdGrants() error {
+	type row struct{ From, Target, Role, Blocked, Warning string } // pending rows carry approvers[] too
 	var out struct {
-		Grants  []map[string]string `json:"grants"`
-		Pending []map[string]string `json:"pending"`
+		Grants  []row `json:"grants"`
+		Pending []row `json:"pending"`
 	}
 	if err := apiJSON("GET", "/api/xbin/grants", nil, &out); err != nil {
 		return err
 	}
 	fmt.Println("granted:")
 	for _, g := range out.Grants {
-		fmt.Printf("  %-30s → %s : %s\n", g["from"], g["target"], g["role"])
+		fmt.Printf("  %-30s → %s : %s\n", g.From, g.Target, g.Role)
 	}
 	if len(out.Pending) > 0 {
 		fmt.Println("pending (approve with bx grant <caller> <target>:<role>):")
 		for _, g := range out.Pending {
-			fmt.Printf("  %-30s → %s : %s", g["from"], g["target"], g["role"])
-			if g["blocked"] != "" {
-				fmt.Printf("   ⛔ %s", g["blocked"])
+			fmt.Printf("  %-30s → %s : %s", g.From, g.Target, g.Role)
+			if g.Blocked != "" {
+				fmt.Printf("   ⛔ %s", g.Blocked)
+			}
+			if g.Warning != "" { // a partitioned tile on another's people's data
+				fmt.Printf("\n      ⚠ %s", g.Warning)
 			}
 			fmt.Println()
 		}
@@ -801,10 +852,16 @@ func cmdGrant(args []string) error {
 	if revoke {
 		method = "DELETE"
 	}
-	if err := apiJSON(method, "/api/xbin/grants", body, nil); err != nil {
+	var out struct {
+		Warning string `json:"warning"` // partitioned tiles (docs/partitions.md)
+	}
+	if err := apiJSON(method, "/api/xbin/grants", body, &out); err != nil {
 		return err
 	}
 	fmt.Println("ok")
+	if out.Warning != "" {
+		fmt.Fprintln(os.Stderr, "⚠ "+out.Warning)
+	}
 	return nil
 }
 

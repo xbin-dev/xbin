@@ -1,9 +1,10 @@
-// manager.go — the contract layer's core: who is asking, what they may see,
-// the errors, hello, and the sandbox resource as each caller sees it
-// (docs/sandbox-manager.md). The routes are in sandboxes.go (list, get,
-// PATCH, DELETE), create.go, lifecycle.go (start, stop, ready), commands.go
-// (run, execs, terminals) and files.go (files, trees, snapshots); the
-// operators' own routes in operator.go.
+// manager.go — the contract layer's core: the substrate's offer, the
+// errors, hello, and the sandbox resource as each caller sees it
+// (docs/sandbox-manager.md); who is asking and what they may see are in
+// access.go. The routes are in sandboxes.go (list, get, PATCH, DELETE),
+// create.go, lifecycle.go (start, stop, ready), commands.go (run, execs,
+// terminals) and files.go (files, trees, snapshots); the operators' own
+// routes in operator.go.
 package main
 
 import (
@@ -254,97 +255,6 @@ func offeredEgress(rt *xbin.SandboxRuntime) []string {
 		}
 	}
 	return out
-}
-
-// --- who is asking ---------------------------------------------------------------------
-
-// caller is a request's consumer and person.
-type caller struct {
-	from     string // the consumer tile (X-XBin-From, set by xbind)
-	user     string // the person: verified (X-XBin-User) or asserted (Sbx-User)
-	verified bool
-	// lookOnly: a person on this tile's own page with less than write access
-	// to it (pageReader). They look and never change: contractHandler refuses
-	// their changes before routing, and a read never starts a stopped sandbox
-	// for them.
-	lookOnly bool
-}
-
-// lookOnlyKey marks a pageReader's request (its context).
-type lookOnlyKey struct{}
-
-func callerOf(r *http.Request) caller {
-	from := r.Header.Get("X-XBin-From")
-	if u := r.Header.Get("X-XBin-User"); u != "" {
-		return caller{from: from, user: u, verified: true, lookOnly: r.Context().Value(lookOnlyKey{}) != nil}
-	}
-	return caller{from: from, user: strings.TrimSpace(r.Header.Get("Sbx-User"))}
-}
-
-// pageReader: r comes from this tile's own page (the frame, so the person
-// is verified), and that person has less than write access to the tile.
-// docs/auth.md D29: a frame call runs at the tile's full self-role, so a
-// mutating endpoint gates on the person's level. Such a person gets a
-// read-only view. Other consumers' calls are never gated here: the contract
-// trusts consumers.
-func (m *Manager) pageReader(r *http.Request) bool {
-	c := xbin.Caller(r)
-	return m.self != "" && c.From == m.self && !c.UserCanWrite()
-}
-
-// mutates: r changes something. That is every method but GET and HEAD, and
-// every GET that upgrades: a terminal (it starts a shell or types into
-// one), a stdio socket (it writes an exec's stdin, and takes it from the
-// socket attached before), a port's socket — and any socket added later,
-// until it is shown to only read. The two socket routes count by their
-// path too, so the refusal never depends on how complete a handshake is.
-func mutates(r *http.Request) bool {
-	p := r.URL.Path
-	return r.Method != http.MethodGet && r.Method != http.MethodHead || r.Header.Get("Upgrade") != "" ||
-		strings.HasSuffix(p, "/tty") || strings.HasSuffix(p, "/stdio")
-}
-
-func (r *record) share(consumer string) (share, bool) {
-	for _, s := range r.Shares {
-		if s.Consumer == consumer {
-			return s, true
-		}
-	}
-	return share{}, false
-}
-
-// visible: the caller's consumer is the sandbox's home, or it was shared
-// with it.
-func (r *record) visible(c caller) bool {
-	if r.Owner.Via == c.from {
-		return true
-	}
-	_, ok := r.share(c.from)
-	return ok
-}
-
-// personOK: on a verified call the person must be the owner or a member, or
-// the sandbox team — and a shared consumer's share must include them. A
-// backend's call is its consumer's to police.
-func (r *record) personOK(c caller) bool {
-	if !c.verified {
-		return true
-	}
-	if r.Owner.Via != c.from {
-		if s, _ := r.share(c.from); !s.Users.has(c.user) {
-			return false
-		}
-	}
-	if r.Owner.User == c.user && r.Owner.User != "" || r.Visibility == "team" {
-		return true
-	}
-	return slices.Contains(r.Members, c.user)
-}
-
-// canAdmin: who changes visibility, members and shares — the home
-// consumer's backend, or its verified owner.
-func (r *record) canAdmin(c caller) bool {
-	return r.Owner.Via == c.from && (!c.verified || c.user == r.Owner.User)
 }
 
 // --- errors ------------------------------------------------------------------------------
@@ -614,7 +524,10 @@ func (m *Manager) hello(w http.ResponseWriter, r *http.Request) {
 	h := map[string]any{
 		"protocol": 1, "protocols": []int{1},
 		"manager": map[string]string{"name": "coding-sandbox", "title": "Coding sandboxes", "version": managerVersion},
-		"caps":    o.caps, "egress": o.egress, "images": images, "sizes": sizes,
+		// partitions: this manager keys consumers on their user partitions
+		// (the contract's §Partitioned consumers) — the manager's, never a
+		// sandbox's capability
+		"caps": append(slices.Clone(o.caps), "partitions"), "egress": o.egress, "images": images, "sizes": sizes,
 		"limits": map[string]int64{
 			"sandboxes":       int64(q.Sandboxes),
 			"runTimeoutMaxMs": or64(lim.RunTimeoutMaxMs, 600000),
@@ -700,7 +613,7 @@ type sandboxView struct {
 func (m *Manager) view(rec record, info *xbin.SandboxInfo, c caller, caps []string) sandboxView {
 	cfg := m.config()
 	v := sandboxView{ID: rec.ID, Name: rec.Name, Image: imageRef{ID: rec.Image}, Owner: rec.Owner, Visibility: rec.Visibility,
-		Members: rec.Members, Shares: rec.Shares, Shared: rec.Owner.Via != c.from, Labels: rec.Labels,
+		Members: rec.Members, Shares: rec.Shares, Shared: !rec.home(c), Labels: rec.Labels,
 		Workdir: rec.Workdir, Home: rec.Home, User: rec.User, Shell: rec.Shell, Caps: caps,
 		Created: rec.Created, LastActive: rec.Created, Version: rec.Version, Egress: orStr(rec.Egress, "none"), Isolation: "other"}
 	if im, ok := cfg.image(rec.Image); ok {

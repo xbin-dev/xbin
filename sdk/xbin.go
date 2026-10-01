@@ -15,7 +15,9 @@
 // XBIN_COMPONENT (own path), XBIN_GATEWAY + XBIN_TOKEN (how to call other
 // elements and xbin APIs), XBIN_RES_* (granted resources), and
 // XBIN_DEPLOYMENT (the tile deployment, only when it is not the tile's
-// primary). Full builder docs: /docs/sdk.md in any xbin workspace.
+// primary) and XBIN_PARTITION (the partition of a partitioned tile this
+// instance runs, partition.go). Full builder docs: /docs/sdk.md in any xbin
+// workspace.
 package xbin
 
 import (
@@ -111,6 +113,24 @@ type CallerInfo struct {
 	// of its non-primary deployments (X-XBin-Deployment); "" otherwise. From
 	// stays the bare tile path.
 	Deployment string
+	// Partition is the partition the call acts in (X-XBin-Partition,
+	// docs/partitions.md): "user:<id>" or "global". xbind sets it on calls
+	// from a partitioned tile's principals — its instances, frames,
+	// terminals, … — to any tile, and on calls into a partitioned tile that
+	// act for a partition: a person reaching their own ("user:<id>"), the
+	// root token reaching the global instance ("global"), and a user
+	// partition calling its own global instance ("user:<id>" of that person,
+	// although From is this tile — never treat such a call as the tile
+	// itself). "" otherwise, e.g. for a tile that isn't partitioned calling
+	// in. A display name: key per-caller state on PartitionID.
+	Partition string
+	// PartitionID is X-XBin-Partition-Id: the stable, opaque key of the
+	// caller's user partition ("" for a global instance and for callers that
+	// aren't partitioned). A provider that keeps per-caller state keys it on
+	// (From, Deployment, PartitionID) — so "" and "global" are one consumer,
+	// and a person deleted and recreated under the same id never inherits the
+	// old person's records.
+	PartitionID string
 }
 
 // Caller returns the verified caller of an inbound request. Trustworthy
@@ -121,6 +141,7 @@ func Caller(r *http.Request) CallerInfo {
 		From: from, Role: r.Header.Get("X-XBin-Role"), Owner: from == "owner",
 		User: r.Header.Get("X-XBin-User"), UserLevel: r.Header.Get("X-XBin-User-Level"),
 		ViewedBy: r.Header.Get("X-XBin-Viewed-By"), Deployment: r.Header.Get("X-XBin-Deployment"),
+		Partition: r.Header.Get("X-XBin-Partition"), PartitionID: r.Header.Get("X-XBin-Partition-Id"),
 	}
 }
 
@@ -362,7 +383,10 @@ type BusEvent struct {
 // starts with prefix ("" = all) to path on this backend, as a BusEvent. The
 // component needs `reader` on the bus (declare it in "uses"). Subscriptions
 // persist and are idempotent by name — calling it at every start is fine. An
-// idle backend is started for a delivery; delivery is at-most-once.
+// idle backend is started for a delivery; delivery is at-most-once. The one
+// exception is a user partition of a partitioned tile (docs/partitions.md,
+// in development): events of a shared bus or another tile's bus reach it
+// only while it runs and never start it.
 func Subscribe(name, resource, prefix, path string) error {
 	body, err := json.Marshal(map[string]string{"name": name, "resource": resource, "prefix": prefix, "path": path})
 	if err != nil {

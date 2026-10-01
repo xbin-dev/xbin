@@ -42,6 +42,9 @@ import { liveURL, liveFrame, liveLabel } from './live.js';
 import { mountLive, unmountLive } from './live-status.js';
 import { makePorts } from './ports.js';
 import { tabFiles, selectFile } from './settings-files.js';
+import { mountPartitionUI, mountStaticMcp } from './partition-ui.js';
+import { mountNewShare } from './homes-ui.js'; // a person's partition: who can see a new chat (two homes)
+import { hostedChipTpl, hostedPaint } from './hosted-ui.js'; // non-secure (hosted) conversations: the chip, the warning, the lock
 import { makeWorkflow } from './workflow.js';
 import { ext, ctx as extCtx } from './web-ext.js';
 import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
@@ -189,6 +192,7 @@ function topTpl(v) {
   return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge clsbadge" title=${t.cls.title}>${t.cls.label}</span>
+    ${hostedChipTpl(v)}
     ${t.cls.warn ? html`<span class="badge clswarn" title=${t.cls.warnTitle}>${t.cls.warn}</span>` : nothing}
     ${sbxUI.badgeTpl(v)}
     ${t.model ? html`<span class="badge" title="the model this conversation was switched to (the composer's picker)">✦ ${t.model}</span>` : nothing}
@@ -201,8 +205,8 @@ function topTpl(v) {
     <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
     ${ext.top(v) || nothing}
-    <button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
-      title=${t.share.title}>${t.share.icon} ${t.share.label}</button>
+    ${t.sharing || t.publish ? html`<button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
+      title=${t.share.title}>${t.share.icon} ${t.share.label}</button>` : nothing}
     ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
       ? html`<button class="linkbtn" title="stop it now" @click=${() => session.revokeGrant(g.run, g.cap).catch((e) => alert(e.message))}>revoke</button>` : nothing}</span>`)}
     ${t.del ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}
@@ -265,6 +269,7 @@ function paint() {
   $('stop').hidden = !c.stop;
   $('msg').disabled = c.disabled;
   $('msg').placeholder = c.placeholder;
+  hostedPaint(v, app); // a hosted conversation's lock and warning (hosted-ui.js); nothing elsewhere
   if (v) syncPreview(v);
   if (wf.shown) wf.dirty();
   ext.paint(v);
@@ -635,12 +640,14 @@ $('newopts').onclick = () => {
   drawNewExt();
   $('newdlg').showModal();
 };
+const newShare = mountNewShare(document.querySelector('#newdlg .dlg-bd')); // {} unless a person's partition
 $('n-create').onclick = async (e) => {
   const text = $('n-goal').value.trim();
-  if (!text) { e.preventDefault(); return; }
+  const share = text ? newShare() : {}; // null: people chosen, none named (the dialog says so and stays)
+  if (!text || !share) { e.preventDefault(); return; }
   try {
     await app.ask(Object.assign({ text, title: $('n-title').value.trim(), system: $('n-system').value.trim(), class: $('n-class').value },
-      ...newExt.map((x) => (x.body ? x.body() : {}))));
+      ...newExt.map((x) => (x.body ? x.body() : {})), share));
   } catch (err) { alert(err.message); }
 };
 let searchT = null;
@@ -857,12 +864,14 @@ function tabMcp(bd) {
          component's <b>Interfaces</b> tab (slot <span class="mono">mcp</span>); their tools then become
          available to the agent.</div>`}
   </div>`;
+  mountStaticMcp(bd, actions.getConfig); // a partitioned instance's static servers (partition-ui.js); nothing unpartitioned
 }
 
 // --- start ------------------------------------------------------------------
 
 paint();
 app.start();
+mountPartitionUI(app); // a partitioned instance's notices (partition-ui.js); nothing unpartitioned
 // A link to a conversation (#c=<id>) opens it; an invite (#join=…) joins it;
 // #auto[=kind:id] opens the Automations page — on load, and when the address
 // changes while the tile is open (model/router.js).

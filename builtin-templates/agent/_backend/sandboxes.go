@@ -295,6 +295,9 @@ func fetchHello(ctx context.Context, m sbxManager) (*sbxHello, error) {
 		return nil, &sbxError{Provider: m.Provider, Refusal: "unsupported",
 			Msg: "it lacks the exec and files capabilities protocol 1 requires"}
 	}
+	if err := partitionManagerRefusal(m.Provider, &h); err != nil {
+		return nil, err // a person's partition and a manager that can't keep people apart (sandbox_partition.go)
+	}
 	return &h, nil
 }
 

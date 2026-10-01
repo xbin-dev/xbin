@@ -7,6 +7,7 @@
 // are harness-heads.js's; the state and calls are harness-store.js's.
 // Pure (no DOM): node-tested in hack/agent-template-harness.test.mjs.
 import { firewallEgress } from './sandboxes.js';
+import { homedWhy } from './harness-homes.js';
 
 // The harnesses the sdk's catalog knows: a name before the catalog is read,
 // a text monogram (never a vendor's logo), the native icon.
@@ -186,15 +187,19 @@ export function providerMode(h, setting) {
 }
 
 // sandboxFits: may a harness conversation run in sandbox s (a GET /sandboxes
-// row)? {ok, why, signedIn} — its (manager, image) must list the harness, its
-// egress (the less restrictive of egress/egressNext) must not be none, and a
-// probe must not have found it missing.
+// row)? {ok, why, signedIn} — in a person's partition it must be homed there
+// (model/harness-homes.js homedWhy: not the team's, not one shared with
+// them), its (manager, image) must list the harness, its egress (the less
+// restrictive of egress/egressNext) must not be none, and a probe must not
+// have found it missing.
 export function sandboxFits(h, s) {
   if (!h || !s) return { ok: false, why: 'no sandbox', signedIn: false };
   const name = nameOf(h), sname = s.name || s.id || s.ref;
   const image = (s.image && s.image.id) || s.image || '';
   const seen = h.sandboxes && h.sandboxes[s.ref];
   const out = (why) => ({ ok: !why, why, signedIn: !!(seen && seen.signedIn) });
+  const home = homedWhy(s);
+  if (home) return { ok: false, why: home, signedIn: false };
   if (!(h.images || []).some((i) => i.provider === s.provider && i.image === image)) return out(`${sname}'s image doesn't have ${name}`);
   if (firewallEgress(s) === 'none') return out(`${name} must reach its provider — ${sname}'s egress is none`);
   if (seen && seen.installed === false) return out(`${sname} doesn't have ${name}`);

@@ -199,7 +199,10 @@ func (f *fakeCgroup) TileLeaves(key string) []cgroup.Leaf {
 	for _, l := range f.tileLeaves(key) {
 		lf := cgroup.Leaf{Name: l}
 		if parts := strings.Split(l, "/"); len(parts) > 1 {
-			lf.Deployment = strings.TrimPrefix(parts[1], "d-")
+			lf.Deployment, _ = strings.CutPrefix(parts[1], "d-") // as cgroup's: a "p-" node names none
+			if strings.HasPrefix(parts[1], "p-") {
+				lf.Deployment = ""
+			}
 		}
 		out = append(out, lf)
 	}
@@ -387,6 +390,16 @@ func TestLimitAlertsNestedLeaves(t *testing.T) {
 	cg.Remove(ckX)
 	if hits := r.AtLimitTile("apps/x"); len(hits) != 2 || hits[0].Deployment != "dev" || hits[1].Deployment != "main" {
 		t.Errorf("after the drain: %+v, want dev's and main's leaves", hits)
+	}
+
+	// a person's partition's leaf (plans/partitions/03 §A.4): marked, naming
+	// no deployment, so its alert reaches admins without the person
+	pl := partitionLeaf("apps/x", "main", "u-0123456789abcdef0123456789abcdef")
+	cg.join("add", pl, fakePid+3, tileCaps, 0)
+	cg.hits[pl] = [2]int64{1, 0}
+	hits := r.AtLimitTile("apps/x")
+	if last := hits[len(hits)-1]; len(hits) != 3 || last.Leaf != pl || !last.Partition || last.Deployment != "" || hits[0].Partition {
+		t.Errorf("with a partition's leaf: %+v", hits)
 	}
 }
 

@@ -9,7 +9,9 @@
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { groupRows } from './model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
+import { sharing } from './model/partition.js'; // the Shared view (in a person's partition: the shared space's)
 import * as actions from './model/actions.js';
+import { hostedRowChip } from './hosted-ui.js'; // a non-secure conversation's ⚠ chip
 import { kindOf } from './model/harness-start.js';
 import { kidsWords } from './model/harness-child.js';
 
@@ -63,6 +65,7 @@ function rowTpl(r, ui, withMatch) {
       @click=${() => ui.select(r.id)} @contextmenu=${(e) => { e.preventDefault(); ui.openMenu(r.id, e); }}>
     ${kind ? html`<span class="kind" data-kind=${kind.provider} title=${kind.title}>${kind.mono}</span>` : nothing}
     <div class="t">${r.title || 'run ' + r.id}</div>
+    ${hostedRowChip(r)}
     ${kids ? html`<span class="kids" title=${kids.title}>${kids.text}</span>` : nothing}
     ${glyph}
     <button class="rmenu" title="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}>⋯</button>
@@ -79,7 +82,7 @@ function menuTpl(list, ui) {
   const item = (label, action, cls = '') => html`<div class="mi ${cls}" @click=${() => { ui.closeMenu(); ui.act(action, r); }}>${label}</div>`;
   return html`<div class="mback" @click=${() => ui.closeMenu()} @contextmenu=${(e) => { e.preventDefault(); ui.closeMenu(); }}></div>
     <div class="rowmenu" style="left:${m.x}px;top:${m.y}px">
-      ${rowMenu(r).map((i) => item(i.label, i.action, i.cls))}
+      ${rowMenu(r, { publish: true }).map((i) => item(i.label, i.action, i.cls))}
     </div>`;
 }
 
@@ -89,7 +92,7 @@ export function viewsTpl(list, ui) {
   const at = (scope, archived) => list.scope === scope && list.archived === archived && !list.results;
   const seg = (label, scope, archived, title) => html`<button class=${'seg' + (at(scope, archived) ? ' on' : '')} title=${title}
       aria-pressed=${at(scope, archived) ? 'true' : 'false'} @click=${() => ui.view(scope, archived)}>${label}</button>`;
-  return html`${seg('Mine', 'mine', false, 'your conversations')}${seg('Shared', 'shared', false, 'what you shared, and what others shared with you')}${seg('Archived', 'mine', true, 'your archive')}`;
+  return html`${seg('Mine', 'mine', false, 'your conversations')}${sharing() ? seg('Shared', 'shared', false, 'what you shared, and what others shared with you') : nothing}${seg('Archived', 'mine', true, 'your archive')}`;
 }
 
 // makeSideUI is the list's behaviour: selection, the row menu, inline rename

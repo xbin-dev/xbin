@@ -464,7 +464,7 @@ func TestSessionTarget(t *testing.T) {
 			r.until(t, func(e SessionEvent) bool { return e.ID == info.ID && e.Type == agent.EvTurnEnd })
 			r.m.Kill(info.ID)
 			waitClose(t, r.change, "close:"+info.ID)
-			meta, _, err := r.m.ReadHistory("owner", info.ID)
+			meta, _, err := r.m.ReadHistory(OwnHistory("owner"), info.ID)
 			if err != nil || meta.Deployment != c.want {
 				t.Fatalf("history of a session requested %q: %+v %v", c.requested, meta, err)
 			}

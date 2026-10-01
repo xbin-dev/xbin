@@ -655,6 +655,11 @@ func (s *Server) serveQualified(w http.ResponseWriter, r *http.Request, cleaned 
 	if q.dep == q.primary && s.tileReadRefused(w, r, p, owner) {
 		return true
 	}
+	// the primary's own URL is the tile's: paused while a partition mode
+	// switch is pending (partitionpage.go)
+	if q.dep == q.primary && q.err == nil && s.servePartitionSwitchPage(w, r, owner, path.Join(owner, q.rest)) {
+		return true
+	}
 	if q.err != nil {
 		http.Error(w, q.err.Error(), http.StatusNotFound)
 		return true

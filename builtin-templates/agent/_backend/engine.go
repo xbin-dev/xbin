@@ -77,11 +77,30 @@ type Engine struct {
 	idleCh   chan struct{}         // closed when the last actor exits during shutdown
 
 	legacyTimer *time.Timer
+	hbrake      *time.Timer // a person's partition: the look at the halt while a coding agent works (harness_partition.go)
 	hold        holder
 
+	// A host's engine over team (hosted_engine.go): its own epoch key, the
+	// conversations it may drive, its own wake-up at exit. Zero on every
+	// other engine, which then behaves exactly as before.
+	epochKey string                               // "" = "engine_epoch"
+	scope    func(id int64) bool                  // nil = every run
+	wake     func()                               // nil = ag.leaveWakeUp(db)
+	keep     *Agent                               // whose way back the hold and takeover keep (resume_keep.go): ag; a host engine's, the partition's
+	decorate func(r *Run, summary map[string]any) // nil = a run's summary as it is (publishRun)
+
 	// Test seams.
-	now      func() time.Time
-	onTakeup func() // called after takeover (tests)
+	now       func() time.Time
+	onTakeup  func()                                     // called after takeover (tests)
+	readEpoch func(q queryer, key string) (int64, error) // nil = readEpoch (epoch.go)
+}
+
+// epochName is the settings key of this engine's epoch.
+func (e *Engine) epochName() string {
+	if e.epochKey != "" {
+		return e.epochKey
+	}
+	return "engine_epoch"
 }
 
 func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
@@ -94,8 +113,9 @@ func newEngine(db *DB, ag *Agent, llm LLM, lockPath string) *Engine {
 		delivery: map[int64][]chan struct{}{}, drafts: map[int64]*draft{}, harness: map[int64]*hsess{},
 		titling: map[int64]bool{},
 		now:     time.Now,
+		keep:    ag,
 	}
-	e.gate = newLLMGate(parseConfig(db.getSetting("config")).maxActiveRuns())
+	e.gate = newLLMGate(gateLimit(parseConfig(db.getSetting("config"))))
 	e.hub = newEventHub(e.gen)
 	if ag != nil {
 		ag.eng = e
@@ -126,10 +146,15 @@ func (e *Engine) takeOver() {
 	}
 	e.mu.Unlock()
 	var epoch int64
-	err := e.db.Tx(func(t *DB) error {
-		_ = t.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k='engine_epoch'`).Scan(&epoch)
-		epoch++
-		return t.putSetting("engine_epoch", itoa(epoch))
+	err := retryEpochRead(func() error { // a failed read is tried again, never taken for 0 (epoch.go)
+		return e.db.Tx(func(t *DB) error {
+			ep, err := e.epochIn(t.q)
+			if err != nil {
+				return err
+			}
+			epoch = ep + 1
+			return t.putSetting(e.epochName(), itoa(epoch))
+		})
 	})
 	if err != nil {
 		logf("engine takeover failed: %v", err)
@@ -139,7 +164,10 @@ func (e *Engine) takeOver() {
 	e.owned, e.epoch = true, epoch
 	e.mu.Unlock()
 	if e.ag != nil {
-		go e.ag.clearWakeJobs()
+		go func() {
+			e.ag.clearWakeJobs()
+			e.keep.wakeKeepReady() // a person's partition keeps them from now on (resume_keep.go)
+		}()
 	}
 	e.recover()
 	outboxKick() // replies the previous owner wrote after our streams connected
@@ -225,7 +253,9 @@ func (e *Engine) runActor(a *actor) {
 			e.mu.Unlock()
 		}
 	}()
-	e.markDriving(a.id)
+	if e.scope == nil || e.scope(a.id) { // a host's engine marks only what it may drive (pass checks each time)
+		e.markDriving(a.id)
+	}
 	for {
 		e.mu.Lock()
 		if !a.dirty || e.closing {
@@ -281,20 +311,31 @@ func (e *Engine) Signal(id int64, cause error) {
 
 // fenced runs fn in one transaction that first proves this engine still owns
 // the database. With _txlock=immediate the check and the writes are atomic
-// against any other process.
+// against any other process. Only an epoch that was read and differs fences
+// this engine out: a read that fails tries the transaction again (fn hasn't
+// run), and one that keeps failing is returned, nothing written (epoch.go).
 func (e *Engine) fenced(fn func(t *DB) error) error {
-	return e.db.Tx(func(t *DB) error {
-		var ep int64
-		_ = t.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k='engine_epoch'`).Scan(&ep)
-		e.mu.Lock()
-		mine := e.epoch
-		e.mu.Unlock()
-		if ep != mine {
-			e.lostOwnership()
-			return errFenced
-		}
-		return fn(t)
+	err := retryEpochRead(func() error {
+		return e.db.Tx(func(t *DB) error {
+			ep, err := e.epochIn(t.q)
+			if err != nil {
+				return err
+			}
+			e.mu.Lock()
+			mine := e.epoch
+			e.mu.Unlock()
+			if ep != mine {
+				e.lostOwnership()
+				return errFenced
+			}
+			return fn(t)
+		})
 	})
+	var re *epochReadError
+	if errors.As(err, &re) {
+		logf("an engine write was dropped: %v (tried %d times; this engine still owns the database)", err, epochReadTries)
+	}
+	return err
 }
 
 // lostOwnership stops this engine: another one bumped the epoch, so the lock
@@ -428,8 +469,10 @@ func (e *Engine) Shutdown(wait time.Duration) {
 		}
 		t.Stop()
 	}
-	if owned && e.ag != nil && e.db.hasWork() {
-		e.ag.registerResumeJob()
+	if owned && e.wake != nil {
+		e.wake() // a host's engine (hosted_engine.go)
+	} else if owned && e.ag != nil {
+		e.ag.leaveWakeUp(e.db) // resume_mode.go: today's rule, or a person's partition's
 	}
 	e.releaseLock()
 }

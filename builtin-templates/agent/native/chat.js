@@ -15,6 +15,7 @@ import { argsShown } from '../model/tool-heads.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
+import { hostedNoticeTpl, hostedComposer, hostedButtonsTpl } from './hosted.js'; // a non-secure conversation's warning and lock
 import { steerWords } from '../model/harness-ask.js'; // a coding harness's queued chips
 import { activityStill } from '../model/harness.js'; // …and its activity line
 
@@ -358,6 +359,7 @@ export function chatScreen(v) {
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
     </toolbar>
     <transcript follow ?older=${w.start > 0 || s.hasOlder} @more=${more} @scrolled=${scrolled}>
+      ${hostedNoticeTpl(v)}
       ${s.olderHidden && !w.start && !s.hasOlder ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
       ${repeat(w.start ? s.blocks.slice(w.start) : s.blocks, (b) => b.id, rowTpl)}
       ${tail || nothing}
@@ -400,7 +402,7 @@ function runMenu(v, t) {
     <button icon="folder" @tap=${() => push({ kind: 'files', run: id })}>${`Files (${t.files})`}</button>
     ${sandboxMenuTpl(v)}
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}
-    <button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>
+    ${t.sharing ? html`<button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>` : nothing}
     ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label.replace(/^🔓 /, '')}`}</button>`)}
     ${t.crumb ? html`<button icon="clock" @tap=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
     ${ctx.ext.menu(v, t) || nothing}
@@ -424,7 +426,7 @@ export function modelPickerTpl(v) {
 
 export function composerTpl(v, t) {
   const app = ctx.app;
-  const c = app.rules.composer(v, app.HOME);
+  const c = v ? hostedComposer(app.rules.composer(v, app.HOME), v) : app.rules.composer(v, app.HOME);
   // the seams' part (ext.composer): the last placeholder given, every slash command, their buttons
   const xs = ctx.ext.composer(v, t) || [];
   const placeholder = xs.reduce((p, x) => x.placeholder || p, c.placeholder);
@@ -447,6 +449,7 @@ export function composerTpl(v, t) {
       @uploaded=${uploaded(place)}
       @remove=${(e) => app.attach.remove(+e.id)}>
     ${t && t.retry ? html`<button icon="refresh" role="primary" @tap=${guard(() => app.actions.control(v.run.id, 'resume'))}>Retry</button>` : nothing}
+    ${v ? hostedButtonsTpl(v) : nothing}
     ${repeat(queued, (q) => q.id, (q) => html`<button icon="xmark"
       @tap=${guard(() => app.session.removeQueued(q.id))}>${(qw ? qw.label : 'queued') + ': ' + clip(q.text || '(files)', 40)}</button>`)}
     ${xs.map((x) => (x.tpl ? x.tpl() : nothing))}

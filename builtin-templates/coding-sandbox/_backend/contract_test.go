@@ -74,7 +74,7 @@ func freshTarget(t *testing.T, k sandboxcontract.Knobs) sandboxcontract.Target {
 func TestContract(t *testing.T) {
 	tg := freshTarget(t, sandboxcontract.Knobs{})
 	tg.Strict = true // a reference manager: what the suite only warns about fails here
-	tg.Caps = []string{"exec", "files", "tar", "stdio", "snapshots", "clone"}
+	tg.Caps = []string{"exec", "files", "tar", "stdio", "snapshots", "clone", "partitions"}
 	if fkHasPTY() {
 		tg.Caps = append(tg.Caps, "tty")
 	}

@@ -1,11 +1,13 @@
 // shell/shell-kit.js — what the shell and its child elements share: the
 // grid module the layout is measured in, the runtime colour dots, the
-// touch long-press gesture, the shell-text selection check, the ⇄
+// partitioned marker and partition chip (a card's head and a pop-out's),
+// the touch long-press gesture, the shell-text selection check, the ⇄
 // change-proposal badge and the tile deployments store behind the ⇈
-// badges. Imported relatively by bx-shell.js and its child elements;
-// nothing here touches element state.
+// badges. Imported relatively by bx-shell.js and its
+// child elements; nothing here touches element state.
 import { html, nothing } from 'lit';
-import { useDeployLookup, deploySummary, deployHint, deployFailed, deployNames } from './menus.js';
+import { useDeployLookup, deploySummary, deployHint, deployFailed, deployNames, shownDeployment } from './menus.js';
+import { partitionView, markTitle, partitionChip, framedTile } from './partition-mode.js';
 
 // The grid module lives in grid-layout.js (lit-free, so its layout math is
 // node-testable); re-exported here for the shell's existing imports.
@@ -19,6 +21,44 @@ export const RUNTIME_COLOR = {
   node: 'var(--bx-green, #4caf50)',
   python: 'var(--bx-amber, #f2a71b)',
 };
+
+// The partitioned marker (PD-53, design A): an 8px ring with its left half
+// filled — "divided" by its shape, not by its hue alone — in a calm teal
+// (--bx-part; shell-css.js partCss). Status, not a button: no border, no
+// hover, cursor default, role img with the tooltip as its name. On a tile
+// whose recorded mode has user partitions (a pending switch doesn't change
+// it) it replaces the window head's runtime dot and sits before a sidebar
+// row's ⋯; null for every other tile, and for every row of an xbind that
+// doesn't partition, so the caller draws what it always drew.
+export function partitionMark(c) {
+  const t = markTitle(partitionView(c));
+  if (!t) return null;
+  return html`<span class="pm" role="img" aria-label=${t} title=${t}>${markShape}</span>`;
+}
+// markShape: the marker's drawing alone (the settings menu's "your
+// partitions" entry carries it too, shell-account.js).
+export const markShape = html`<svg viewBox="0 0 8 8" aria-hidden="true">
+    <circle cx="4" cy="4" r="3.35" fill="none" stroke="currentColor" stroke-width="1.1"/>
+    <path d="M4 .65a3.35 3.35 0 0 0 0 6.7z" fill="currentColor"/></svg>`;
+
+// The partition chip (owner ruling I3; partition-mode.js partitionChip):
+// whose partition a partitioned tile's window shows — quiet, in the
+// marker's hue (shell-css.js partCss .pchip); a deployment's `shared` chip
+// keeps F14's .dshare class. nothing for no chip.
+export const chipTag = (chip) => (chip
+  ? html`<span class=${chip.kind === 'shared' ? 'pchip dshare' : 'pchip'} data-chip=${chip.kind} title=${chip.title}>${chip.text}</span>`
+  : nothing);
+
+// spawnTitle(title, src, components, who) → the start of a tile's pop-out
+// window's head (bx-shell _spawnTemplate; xbin.window): the framed tile's
+// marker, the window's title and its partition chip — a pop-out framing a
+// partitioned tile (a sub-path of its own, or spec.src) is a window of it
+// too, so it says whose partition it shows, as the tile's card does.
+export function spawnTitle(title, src, components, who) {
+  const { row, shown: want } = framedTile(src, components);
+  const shown = row ? shownDeployment(want, deployState(row.path)) : '';
+  return html`${shown ? nothing : partitionMark(row)}<span class="stitle">${title}</span>${chipTag(partitionChip(partitionView(row), { shown, who }))}`;
+}
 
 // Long-press (touch/pen, phones only — the mouse keeps right-click): hold
 // ~450 ms without moving 8px to open the menu the right-click would. A

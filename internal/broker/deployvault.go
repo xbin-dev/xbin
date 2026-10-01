@@ -48,10 +48,13 @@ type depVaultDoc struct {
 
 // vaultCall is what a vault route acts on: the tile, the deployment whose
 // vault it reaches, the key ("" lists), and whether the caller named the
-// deployment, whose answer then echoes it (11-contract §8, the echo rule).
+// deployment, whose answer then echoes it (11-contract §8, the echo rule);
+// part, when set, is the person's partition whose own vault it reaches
+// instead (partitionvault.go).
 type vaultCall struct {
 	comp, dep, key string
 	named          bool
+	part           *partTarget
 }
 
 // isMain reports whether dep names main ("" is main, the name rule).
@@ -261,8 +264,13 @@ func vaultOK(w http.ResponseWriter, c vaultCall) {
 // construction, since a tile principal reaches only its own deployment; it
 // is checked again all the same.
 func valueRefused(p auth.Principal, c vaultCall) bool {
+	part := util.Partition("")
+	if c.part != nil {
+		part = c.part.part
+	}
 	return p.Component != c.comp || p.Via != "instance" ||
-		cmp.Or(p.Deployment, util.MainDeployment) != cmp.Or(c.dep, util.MainDeployment)
+		cmp.Or(p.Deployment, util.MainDeployment) != cmp.Or(c.dep, util.MainDeployment) ||
+		p.Partition.IsUser() != part.IsUser() || part.IsUser() && p.Partition != part
 }
 
 // ---- placeholders (D127i) ----

@@ -141,8 +141,12 @@ func (e *csEnv) consumer(t *testing.T, tile string) {
 }
 
 func (e *csEnv) makeConsumer(tile string) error {
+	part := "" // the user-partitions section's consumers are partitioned (csPartitioned)
+	if csPartitioned(tile) {
+		part = `"partition": ["user", "global"], `
+	}
 	if err := e.d.WriteFiles(tile, map[string]string{
-		"xbin.json":  `{"interfaces": {"sandboxes": {"kind": "http", "service": "sandbox-manager", "multi": true}}}`,
+		"xbin.json":  `{` + part + `"interfaces": {"sandboxes": {"kind": "http", "service": "sandbox-manager", "multi": true}}}`,
 		"index.html": "<!doctype html><title>a consumer</title>",
 	}); err != nil {
 		return err
@@ -246,11 +250,20 @@ func (e *csEnv) pageTok(t *testing.T, tile, person string) string {
 // calling from its page; a verified person is that page's token minted by
 // their session; an asserted one is Sbx-User, as the suite sets it.
 func (e *csEnv) target() sandboxcontract.Target {
-	var skip map[string]string
+	// A user partition's call is a partitioned consumer's: its consumers
+	// are partitioned tiles (csPartitioned), a person's partition is their
+	// page of it, and xbind sets X-XBin-Partition and -Id from that
+	// credential (the partitioned-tiles plan's I1). The checks that need a
+	// caller xbind never makes are skipped, said so (csPartitionSkips).
+	skip := csPartitionSkips(e.people)
+	if why := e.partitionsSkip(); why != "" { // a remote xbind before partitions, or without --isolate
+		skip["user-partitions"] = why
+	}
 	if !e.people { // the checks that act as verified people
 		why := "no verified people: this xbind runs --no-auth"
-		skip = map[string]string{"people/visibility": why, "people/owners": why, "partitions/shares": why, "tty/refusals": why,
-			"stdio/refusals": why}
+		for _, k := range []string{"people/visibility", "people/owners", "partitions/shares", "tty/refusals", "stdio/refusals"} {
+			skip[k] = why
+		}
 	}
 	caps := []string{"exec", "files", "tar", "tty", "snapshots", "clone"}
 	if !e.d.IsRemote() { // this tree's xbind has stdio sockets; a remote one's release may predate them
@@ -262,9 +275,12 @@ func (e *csEnv) target() sandboxcontract.Target {
 		Client:   &http.Client{Transport: csTransport{e}},
 		Consumer: func(r *http.Request, consumer string) { r.Header.Set("X-Csenv-From", consumer) },
 		Verified: func(r *http.Request, user string) { r.Header.Set("X-Csenv-User", user) },
-		Caps:     caps,
-		Grace:    5 * time.Second,
-		Strict:   !e.d.IsRemote(), // this tree's coding-sandbox passes what the suite only warns about
+		// a partition is the person's page of a partitioned consumer: the
+		// id xbind derives, never the suite's (csTransport maps them)
+		Partition: func(r *http.Request, part, _ string) { r.Header.Set("X-Csenv-Part", part) },
+		Caps:      caps,
+		Grace:     5 * time.Second,
+		Strict:    !e.d.IsRemote(), // this tree's coding-sandbox passes what the suite only warns about
 	}
 }
 
@@ -273,10 +289,19 @@ func (e *csEnv) target() sandboxcontract.Target {
 type csTransport struct{ e *csEnv }
 
 func (tr csTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	tile, person := r.Header.Get("X-Csenv-From"), r.Header.Get("X-Csenv-User")
+	tile, person, part := r.Header.Get("X-Csenv-From"), r.Header.Get("X-Csenv-User"), r.Header.Get("X-Csenv-Part")
 	r = r.Clone(r.Context())
 	r.Header.Del("X-Csenv-From")
 	r.Header.Del("X-Csenv-User")
+	r.Header.Del("X-Csenv-Part")
+	if csPartitioned(tile) { // csPartitionPage: the page that is this caller, or why xbind never makes it
+		var err error
+		if person, err = csPartitionPage(person, part); err != nil {
+			return nil, fmt.Errorf("%s: %w", tile, err)
+		}
+	} else if part != "" {
+		return nil, fmt.Errorf("the contract names a partition of %s, which isn't a partitioned consumer here", tile)
+	}
 	if tile != "" {
 		if _, ok := tr.e.sess[person]; person != "" && !ok {
 			return nil, fmt.Errorf("the contract names a person with no account here: %s", person)
@@ -298,6 +323,7 @@ func (tr csTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestCodingSandboxContract(t *testing.T) {
 	e, _ := setupCS(t, false)
 	sandboxcontract.Run(t, e.target())
+	t.Run("user-partitions-xbind", func(t *testing.T) { t.Parallel(); testCSPartitionIDs(t, e) }) // codingsandbox_partitions_test.go
 }
 
 // TestCodingSandboxContractVM is the same with VM sandboxes (the manager's
@@ -396,9 +422,9 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 		cons(t).Call("GET", "/hello?protocol=1", nil, 200, &h)
 		// stdio: this tree's runtime has the sockets; a remote release may
 		// predate them
-		caps := "[exec files tar tty snapshots clone ports stdio]"
+		caps := "[exec files tar tty snapshots clone ports stdio partitions]"
 		if d.IsRemote() && !slices.Contains(h.Caps, "stdio") {
-			caps = "[exec files tar tty snapshots clone ports]"
+			caps = "[exec files tar tty snapshots clone ports partitions]"
 		}
 		if fmt.Sprint(h.Caps) != caps || fmt.Sprint(h.Egress) != "[none internet]" || len(h.Notes) != 0 {
 			t.Errorf("hello: %+v", h)
