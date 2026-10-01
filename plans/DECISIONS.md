@@ -9967,6 +9967,41 @@ Deviations and refinements made while implementing; all deliberate:
     `Signin`, a sandbox manager's advertised login must win over the
     catalog default, so an older coding-sandbox manager's `claude /login`
     keeps working; a new one advertises `claude auth login`.
+  - **Amended 2026-10-01 (security review).** Four of the choices above
+    were holes; none had shipped.
+    *Links (M4):* dropping xterm's `confirm()` let any program in a
+    terminal — or a request path a backend logs into `<bx-logs>` — draw
+    an OSC 8 link showing `https://login.xbin.dev/…` that opens another
+    site. `linkHandler` now reads the cells the link covers and opens at
+    once only when that text is part of the target and any host it names
+    is the target's (Ink's per-row pieces of its own URL still open in one
+    click); anything else asks first, naming the host and the whole URL.
+    `openLink` refuses a user part, so rows joined across a hard break
+    (`https://claude.ai` + `@evil.com/x`) never open.
+    *OSC 52 (N15):* `@xterm/addon-clipboard` answered a `?` read into the
+    program's input. Our own handler (`parseOsc52`) writes the clipboard
+    only for the `c` selection, only while that terminal has the focus,
+    at most 1 MiB of UTF-8, and swallows reads; the addon is no longer
+    vendored.
+    *No tab (L11):* hiding by the name `xbin:sign-in` let anyone who may
+    rename a session (a terminal token included) or an agent's own title
+    hide any session from every tab bar. The "no new server surface"
+    brief gives way: `/ws/term?purpose=signin` opens a shell xbind marks
+    (`SessionInfo.purpose`, omitempty, also on `term` open events; any
+    other purpose is 400), clients hide shell rows with that purpose only
+    — never an agent row, never by name — and the browser's id/opening
+    bookkeeping is gone (the mark is there from the first listing). xbind
+    still names the session `xbin:sign-in`, but nothing else can: a
+    rename to that name (any case) is 400, renaming a sign-in session
+    409, an agent's open/restart name and its own title skip it. A
+    sign-in session ends 15 minutes after it opened (`Manager.SigninLife`,
+    a timer armed at creation).
+    *Allow-list (N16):* "subdomains count" and `\S+/oauth/authorize\?`
+    passed a redirect-style path (`https://claude.ai/x?u=/oauth/authorize?…`)
+    and any subdomain. The URL is anchored —
+    `https://(claude.com/cai|claude.ai)/oauth/authorize?…` — and hosts
+    match exactly, in Go and web/signin-scan.js; the JS test reads the
+    spec from the server's golden, so the twins can't drift.
 
 - **D179 — Coding-agent sign-ins in the agent template: the guided sign-in,
   saved sign-ins (several per coding agent, a person's own partition only)
