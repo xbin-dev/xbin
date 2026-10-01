@@ -12,6 +12,41 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **One set of workspace settings: base auto-update and the partitioned
+  tiles' switches together** ([bx.md](/docs/bx.md) §bx settings,
+  [protocol.md](/docs/protocol.md) `/workspace-settings`,
+  [partitions.md](/docs/partitions.md); D180). The two admin switch sets —
+  `bx settings` / `/workspace-settings` (base auto-update, D175) and `bx
+  policies` / `/workspace-policies` (`partitionConsent`,
+  `credentialResetConfirm`, v0.3.66) — are one: the **workspace
+  settings**, kept in `data/workspace-settings.json`, with one admin
+  console tab (workspace → **settings**, grouped as Terminals and
+  Partitioned tiles; the terminals and policies tabs are gone, their links
+  open it) and one event. `GET /workspace-settings` now also carries
+  `partitionConsent` and `credentialResetConfirm` (for people and admins;
+  other tile code gets base auto-update alone, as before), and `errors`
+  (why a setting can't be read); `PUT` takes all three; the
+  `workspace-settings` event says which keys a write set (`changed`) and
+  carries no partitioned tiles' switch. `bx settings` prints every
+  setting by topic (`--json` too) and sets any of them — `bx settings set
+  partition-consent on`, `set base-auto-update off`, or D175's
+  `--base-auto-update[=…]` flag form, now for every name. Each switch
+  keeps its default, who may read and set it, its fail-safe value when the
+  file can't be read (base auto-update off, a partitioned tiles' switch
+  its last value or on), its audit line and its timing (a credential reset
+  waits for the person to confirm, or 24 h after they're notified).
+  **Nothing breaks:** `bx policies` works as before (with a one-line note
+  pointing to `bx settings`); `GET/PUT /workspace-policies` answer as
+  before from the same store, and a change of a partitioned tiles' switch
+  still publishes `policies`, so an older admin console, shell or bx keeps
+  working; a new admin console against an older xbind reads what it has.
+  The first read after the upgrade imports `data/workspace-policies.json`
+  into the settings file, once; that file stays, and every change of
+  either switch is written there too, so a downgrade to v0.3.66 keeps them
+  (and what it changes there is imported again on the upgrade back). The
+  admins' alert for a setting xbind can't read is kind
+  `workspace-settings` (it was `policies`), now for base auto-update too.
+  Nothing to change.
 - **Agent template: coding agents sign in with a link and a code, and a
   person keeps saved sign-ins — several per coding agent — in their own
   partition** (the template's API.md §Coding agents → "Signing in", "Saved

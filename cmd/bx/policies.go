@@ -7,15 +7,25 @@ import (
 	"os"
 )
 
-// bx policies — the workspace policies for partitioned tiles (PD-55,
-// docs/bx.md): GET /api/xbin/workspace-policies for a person or admin, PUT
-// (admin) to turn one switch on or off.
+// bx policies — the partitioned tiles' switches (PD-55, docs/bx.md), as
+// v0.3.66 shipped them: GET /api/xbin/workspace-policies for a person or
+// admin, PUT (admin) to turn one switch on or off. Since D180 they are
+// workspace settings (`bx settings`, settings.go); this stays an alias —
+// the same invocations, routes and output — with a note on stderr.
 
 const policiesUsage = `  bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
-                                        workspace policies for partitioned tiles
+                                        alias of bx settings (the partitioned tiles' switches)
 `
 
-func init() { moreCmds["policies"] = cmdPolicies }
+// policiesNote is the alias's one line, on stderr (stdout stays the answer).
+const policiesNote = "bx: `bx policies` is part of `bx settings` now (bx settings set partition-consent|credential-reset-confirm on|off); this alias keeps working"
+
+func init() {
+	moreCmds["policies"] = func(args []string) error {
+		fmt.Fprintln(os.Stderr, policiesNote)
+		return cmdPolicies(args)
+	}
+}
 
 // policySwitches maps each switch's CLI name to its wire key and line.
 var policySwitches = []struct{ name, key, line string }{

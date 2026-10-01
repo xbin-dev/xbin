@@ -3,8 +3,8 @@ package main
 // bx partition consent|ledger — cross-tile partition edges
 // (docs/partitions.md §Calls between partitioned tiles, docs/bx.md): a
 // person's consent that one partitioned tile may use their data in another
-// (asked only while the workspace policy partitionConsent is on — bx
-// policies), and their partitions' egress ledger. Both are a person's own
+// (asked only while the workspace setting partitionConsent is on — bx
+// settings), and their partitions' egress ledger. Both are a person's own
 // acts and reads (PersonOnly): from bx with a login or the root token's
 // person, never from a tile's terminal. Against an xbind without them both
 // exit 6. bx doctor lists the edges between partitioned tiles for review
@@ -25,7 +25,7 @@ import (
 const partitionConsentUsage = `  bx partition consent <from> <to> [--revoke]
                                         let partitioned tile <from> use your data in
                                         <to> (only while the workspace asks people
-                                        first: bx policies); --revoke takes it back
+                                        first: bx settings); --revoke takes it back
   bx partition consent ls [--json]      your consents, and the edges you were asked about
   bx partition ledger [<tile>] [--days n] [--json]
                                         your partitions' egress ledger: counts, never contents
@@ -234,7 +234,7 @@ func doctorPartitionEdges() {
 		if !e.Granted {
 			continue
 		}
-		who := "every person who can read " + e.To + " (partitionConsent is off — bx policies)"
+		who := "every person who can read " + e.To + " (partitionConsent is off — bx settings)"
 		if out.Policy.PartitionConsent {
 			who = fmt.Sprintf("each person who allows it (%d did)", e.Consented)
 		}

@@ -11,10 +11,10 @@ func partitionConsentEndpoints() []ep {
 	view := "{policy: {partitionConsent}, consents: [{from, to, at, via}], asked: [{from, to, at}]}"
 	return []ep{
 		{"GET", "/partitions/consents", partModeTag, "A person's consents to cross-tile partition edges", person,
-			"The workspace policy partitionConsent, the person's recorded consents (kept while the policy is off, applied again when it returns) and the edges they were asked about within the last day and haven't allowed.",
+			"The workspace setting partitionConsent, the person's recorded consents (kept while the policy is off, applied again when it returns) and the edges they were asked about within the last day and haven't allowed.",
 			nil, nil, view},
 		{"POST", "/partitions/consents", partModeTag, "Let a partitioned tile use your data in another", person,
-			"Only while the workspace policy partitionConsent is on (else 409): from and to must both be partitioned (409), exist (404) and be readable by the person (403); a path holding the arrow → is refused (400). Recorded in data/partitions/consents/<uid>.json — a person recreated under the same id inherits none; a tile deleted, moved or switching mode takes every consent naming it. A record this xbind can't read is kept as it is: 409 (/alerts kind partition-consents). Audited; publishes `partitions` op consent to the person's own sockets.",
+			"Only while the workspace setting partitionConsent is on (else 409): from and to must both be partitioned (409), exist (404) and be readable by the person (403); a path holding the arrow → is refused (400). Recorded in data/partitions/consents/<uid>.json — a person recreated under the same id inherits none; a tile deleted, moved or switching mode takes every consent naming it. A record this xbind can't read is kept as it is: 409 (/alerts kind partition-consents). Audited; publishes `partitions` op consent to the person's own sockets.",
 			nil, edge, view},
 		{"DELETE", "/partitions/consents", partModeTag, "Take a consent back", person,
 			"In either setting. {from, to} in the body or as ?from=&to=. The next call and data reach from from's partition of the person into to is refused (with the policy on), and from's backend instance of the person is stopped (a proxied stream a page, terminal or agent session of from opened before lasts until it closes). The answer adds revoked: whether there was a consent to take back. Audited; 409 as for POST.",

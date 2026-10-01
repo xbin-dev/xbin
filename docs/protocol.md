@@ -202,7 +202,7 @@ credential, never from the URL or a header:
   callee (§Providers in partitions.md): a partitioned caller's user
   partition reaches the same person's partition of a partitioned callee
   when the grant allows and the person can read the callee (and, with the
-  workspace policy `partitionConsent` on, consented: `403 <id> hasn't let
+  workspace setting `partitionConsent` on, consented: `403 <id> hasn't let
   <caller> use their <tile> data (they allow it at /xbin/partitions)`);
   anything else reaches the callee's
   global instance, or `403 <tile> is partitioned: only partitioned tiles
@@ -1310,9 +1310,12 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    tile?,message,system,dismiss?}]} — disk
                                    quota / low disk / cgroup at-limit; system
                                    alerts to all, tile alerts to admins +
-                                   that tile's users. An unreadable
-                                   data/workspace-policies.json is kind
-                                   `policies`, admins only. Admins also get
+                                   that tile's users. A workspace setting
+                                   xbind can't read is kind
+                                   `workspace-settings`, admins only: crit
+                                   while a partitioned tiles' switch can't
+                                   be read, warn for base auto-update alone
+                                   (`policies` before D180). Admins also get
                                    kind go-build-versions (warn): Go tiles
                                    that build with older dependency versions
                                    since each builds with its own go.mod
@@ -2267,41 +2270,25 @@ PUT    /native-runtime            admin. {enabled: bool} → the same view.
                                    answers 410 with the reason (&preview=1
                                    still served). Kept in users.json;
                                    publishes `native`; audited
-GET    /workspace-policies        a person (session, device, or a
-                                   terminal or agent session they drive,
-                                   any deployment) or admin; other tile
+GET    /workspace-policies        an alias (v0.3.66's route, D180): the
+                                   partitioned tiles' two switches of GET
+                                   /workspace-settings, from the same store.
+                                   A person (session, device, or a terminal
+                                   or agent session they drive, any
+                                   deployment) or admin; other tile
                                    principals (frames, instances, cron, bus)
-                                   403.
-                                   {schema: 1, partitionConsent,
-                                   credentialResetConfirm} — the workspace
-                                   policies for partitioned tiles (PD-55),
-                                   both off by default. partitionConsent: a
-                                   partitioned tile uses another partitioned
-                                   tile's data of a person only with that
-                                   person's consent; credentialResetConfirm:
-                                   an admin-set sign-in link, password or SSO
-                                   email for someone holding partitions waits
-                                   for them to confirm, or 24 h after they
-                                   are notified. Kept in
-                                   data/workspace-policies.json (not
-                                   users.json, which an older xbind rewrites
-                                   without keys it doesn't know), each
-                                   switch by its exact key. A file xbind
-                                   can't read (not a JSON object, a value
-                                   not true or false, a mis-cased key) never
-                                   turns a switch off: one it can't read
-                                   keeps the last value xbind read, or is
-                                   on; GET answers 500 (admins get the
-                                   reason) and admins see a `policies`
-                                   alert until the file is fixed by hand
-PUT    /workspace-policies        admin. {partitionConsent?,
-                                   credentialResetConfirm?}: each present key
-                                   replaces that switch, an absent one is
-                                   left alone (at least one; any other key is
-                                   400) → the full view; keeps every other
-                                   key of the file; 500 without writing on a
-                                   file it can't read; publishes `policies`;
-                                   audited with each switch's old→new
+                                   403. {schema: 1, partitionConsent,
+                                   credentialResetConfirm}; while one can't
+                                   be read, 500 (admins get the reason)
+PUT    /workspace-policies        an alias (D180): admin.
+                                   {partitionConsent?,
+                                   credentialResetConfirm?} — PUT
+                                   /workspace-settings with those keys only
+                                   (at least one; any other key, base
+                                   auto-update's included, is 400) → the
+                                   alias's view; publishes
+                                   `workspace-settings` and `policies`;
+                                   audited with each setting's old→new
 POST   /partitions/limits         admin (the admin console: when the
                                    person driving it is one); a tile
                                    manager (with their own session, app or
@@ -2333,10 +2320,16 @@ POST   /partitions/limits         admin (the admin console: when the
                                    can't read: the defaults apply and POST
                                    answers 500); applies at the next start;
                                    audited (docs/partitions.md)
-GET    /workspace-settings        authenticated. {baseAutoUpdate, error?} —
-                                   the workspace settings an admin sets
-                                   (D175). baseAutoUpdate (default true): a
-                                   tile's terminal layer built on an older
+GET    /workspace-settings        authenticated; the partitioned tiles'
+                                   keys only for a person (session, device,
+                                   or a terminal or agent session they
+                                   drive) or admin — other tile principals
+                                   get the rest. {baseAutoUpdate,
+                                   partitionConsent?, credentialResetConfirm?,
+                                   errors?, error?} — the workspace settings
+                                   (D175, D180), by topic.
+                                   Terminals: baseAutoUpdate (default true):
+                                   a tile's terminal layer built on an older
                                    base image moves to the current base at
                                    its next session start (everything
                                    outside the workspace files and $HOME is
@@ -2344,19 +2337,53 @@ GET    /workspace-settings        authenticated. {baseAutoUpdate, error?} —
                                    /opt…, a VM terminal's disk; a running
                                    session keeps its base until it ends);
                                    false: it stays, and the terminal window
-                                   offers the base update. error: the file
-                                   can't be read — base auto-update is off
-                                   until it is fixed
-PUT    /workspace-settings        admin. {baseAutoUpdate?: bool}: each
+                                   offers the base update.
+                                   Partitioned tiles (PD-55), both default
+                                   false: partitionConsent — a partitioned
+                                   tile uses another partitioned tile's
+                                   data of a person only with that person's
+                                   consent; credentialResetConfirm — an
+                                   admin-set sign-in link, password or SSO
+                                   email for someone holding partitions
+                                   waits for them to confirm, or 24 h after
+                                   they are notified.
+                                   errors: {key: why} for each setting xbind
+                                   can't read (the file not a JSON object, a
+                                   value not true or false, a partitioned
+                                   tiles' key spelled in another case) —
+                                   people get a generic reason, admins the
+                                   file's; such a setting takes its
+                                   fail-safe value: base auto-update off, a
+                                   partitioned tiles' switch the last value
+                                   xbind read, or on. error: base
+                                   auto-update's, as D175 gave it. Admins
+                                   see a `workspace-settings` alert until
+                                   the file is fixed by hand
+PUT    /workspace-settings        admin. {baseAutoUpdate?, partitionConsent?,
+                                   credentialResetConfirm?: bool}: each
                                    present key replaces its setting, an
                                    absent one is left alone; an unknown key
-                                   or no key is 400 → the full view, which
-                                   a `workspace-settings` event carries too
-                                   (open terminal windows re-read GET
-                                   /ws/term/env on it); audited.
+                                   or no key is 400 → the full view; 500
+                                   without writing while a setting can't be
+                                   read. Publishes `workspace-settings`
+                                   {baseAutoUpdate, changed: [keys]} (open
+                                   terminal windows re-read GET /ws/term/env
+                                   on it; a console re-reads GET) and, when
+                                   a partitioned tiles' switch is set,
+                                   `policies` (what clients before D180
+                                   follow); audited with each setting's
+                                   old→new.
                                    Kept in data/workspace-settings.json,
-                                   whose other keys (a newer xbind's) are
-                                   kept; an older xbind ignores the file
+                                   each setting by its exact key, whose
+                                   other keys (a newer xbind's) are kept;
+                                   an older xbind ignores the keys it
+                                   doesn't know. The partitioned tiles'
+                                   switches were v0.3.66's
+                                   data/workspace-policies.json: imported on
+                                   the first read after the upgrade, and
+                                   written there too at each change, for a
+                                   downgrade (one that file gets from an
+                                   older xbind is imported again)
 GET    /chrome                    admin. {tiles: [{path, requested,
                                    approved, shipped?, chrome, missing?}]} —
                                    every component whose xbin.json says
@@ -3173,7 +3200,7 @@ GET    /partitions/consents        a person's own session, app or device
 POST   /partitions/consents        PersonOnly, as above. {from, to}: let
                                    partitioned tile from use the person's
                                    data in partitioned tile to. Only while
-                                   the workspace policy partitionConsent is
+                                   the workspace setting partitionConsent is
                                    on (else 409); both tiles partitioned
                                    (409), existing (404) and readable by the
                                    person (403); a path holding "→" 400.
@@ -4827,7 +4854,7 @@ partition notices: a tile's partition mode switch request to its managers
 (`tile.partition-switch`, collapse per tile, at most one per tile every
 15 minutes) and, after a switch, to each
 person whose partition was deleted (`tile.partition-deleted`), and — with
-the workspace policy partitionConsent on — to a
+the workspace setting partitionConsent on — to a
 person whose data in a partitioned tile another one's call was refused for
 want of their consent (`tile.partition-consent`, at most one a day per
 edge, collapse `partition-consent:<from>→<to>`), all linking
@@ -6409,7 +6436,7 @@ required). JSON text frames:
 {"type":"grants"}                                    // grant table changed
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
 {"type":"native"}                                    // the native-runtime switch changed (D101): re-read whoami (native.runtime)
-{"type":"policies"}                                  // a workspace policy changed (PD-55): re-read GET /workspace-policies
+{"type":"policies"}                                  // a partitioned tiles' switch changed (PD-55; kept for clients before D180, beside workspace-settings): re-read GET /workspace-policies
 {"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets (never apps/x's frames,
  "data":{"op":"consent-needed","from":"apps/z","to":"apps/x"}}     //   terminals or instance): apps/z's call into their apps/x data was refused (partitionConsent on; once a day)
 {"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets, likewise: their consent changed
@@ -6421,7 +6448,7 @@ required). JSON text frames:
          "request":{"spec":{"user":true,"global":true},"since":"…","declined":false}}} // its mode changed; re-read GET /partitions?tile=
 {"type":"partitions","component":"apps/x",                         // to the person's own session, app or device only:
  "data":{"op":"notice","notice":{"id":"…","at":"…","kind":"partition-deleted|partition-reset|credential","tile":"apps/x","text":"…","hold":"…"}}}
-{"type":"workspace-settings","data":{"baseAutoUpdate":false}} // an admin changed the workspace settings (D175): the new view; a terminal window re-reads GET /ws/term/env
+{"type":"workspace-settings","data":{"baseAutoUpdate":false,"changed":["baseAutoUpdate"]}} // an admin changed workspace settings (D175, D180): base auto-update as it applies and the keys the write set (every socket hears it: no partitioned tiles' switch rides it — re-read GET /workspace-settings); a terminal window re-reads GET /ws/term/env
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}

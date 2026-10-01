@@ -98,9 +98,8 @@ bx chrome [ls] | approve <tile> | revoke <tile>
                                        trusted chrome (admin, D118): tiles whose
                                        xbin.json asks for chrome, and approvals
 bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
-                                       workspace policies for partitioned tiles
-                                       (PD-55): read (anyone signed in), set
-                                       (admin)
+                                       alias of bx settings for the partitioned
+                                       tiles' two switches (v0.3.66's; D180)
 bx partition switch <tile> [--dry-run] [--confirm <tile>] [--yes] [--json]
 bx partition keep <tile> [--json]     decide a tile's partition mode switch
                                        request (a tile manager): switch deletes
@@ -128,10 +127,11 @@ bx partition share-log <tile> [--days n] [--stop]
 bx partition credential <id> allow|refuse
                                        answer a credential an admin made for you
 bx partition reviewed <tile> on|off    run reviewed code only (admin)
-bx settings [ls] | set --base-auto-update[=true|false]
-                                       workspace settings (set: admin, D175):
-                                       base auto-update, terminals moving to a
-                                       new base image at their next start
+bx settings [ls] [--json] | set <name> on|off… | set --<name>[=true|false]…
+                                       the workspace settings (D175, D180), by
+                                       topic: terminals (base-auto-update),
+                                       partitioned tiles (partition-consent,
+                                       credential-reset-confirm); set: admin
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
 bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <user> [level]]
                                        per-tile access entries — exact entries
@@ -419,16 +419,13 @@ approval (also a removed tile's). Admin credentials (`GET`/`PUT
 /api/xbin/chrome`). Approving a tile trusts every writer of it — its
 terminal users and their coding agents — as much as the shell.
 
-**`bx policies`** — the workspace policies for partitioned tiles (tiles
-where each person has their own data; PD-55), the same two switches as the
-admin console's workspace → policies tab, both off by default:
-`partition-consent` (ask each person before another partitioned tile uses
-their data) and `credential-reset-confirm` (a sign-in link, password or SSO
-email an admin sets for someone who holds partitions works only after they
-confirm, or 24 h after they're notified). `bx policies` prints them (`--json`:
-the `GET /api/xbin/workspace-policies` answer; a person's session, or a
-terminal or agent session they drive, or an admin); `bx policies set <switch> on|off` changes one (admin,
-`PUT`). Neither changes anything for tiles that aren't partitioned.
+**`bx policies`** — an alias, kept from v0.3.66: the partitioned tiles'
+two switches are workspace settings since D180 (**`bx settings`**, below).
+Every invocation it took still works the same — `bx policies` prints the
+two switches (`--json`: the `GET /api/xbin/workspace-policies` answer, the
+alias route), `bx policies set partition-consent|credential-reset-confirm
+on|off` changes one (admin) — and each prints one line on stderr pointing
+to `bx settings`.
 
 **`bx partition switch|keep <tile>`** — decide a partition mode switch
 request ([partitions.md §The mode](/docs/partitions.md)): a tile that holds
@@ -466,7 +463,7 @@ token gets 403. It exits 6 against an xbind without partition mail.
 
 **`bx partition consent|ledger`** — calls between partitioned tiles
 ([partitions.md §Calls between partitioned tiles](/docs/partitions.md)).
-While the workspace policy `partition-consent` is on (`bx policies`), a
+While the workspace setting `partition-consent` is on (`bx settings`), a
 partitioned tile reaches your data in another partitioned tile only once
 you allow it: `bx partition consent <from> <to>` does, `--revoke` takes it
 back (at once: `<from>`'s backend instance of you is stopped; it says so
@@ -497,7 +494,7 @@ lower their tile's). `share-log` lets the tile's managers and admins read
 your partition's backend log for `--days` (1–14, default 7; they read it
 with `GET /api/xbin/logs?component=<tile>&user=<id>`), `--stop` ends it. `credential` answers a
 sign-in link, password or SSO email an admin made for you while the
-workspace asks people first (`bx policies`: credential-reset-confirm);
+workspace asks people first (`bx settings`: credential-reset-confirm);
 `bx partition ls` prints the ones waiting; a link already used answers
 "already effective". `reviewed <tile> on|off` (admins) sets the tile to run
 reviewed code only: its primary and every provider bound to it must be
@@ -516,18 +513,37 @@ repository doesn't track (xbind lists them, with a confined git), caps its
 people's partitions met in the last day, and orphaned partitions (with the
 `bx partition purge … --partition <id> --yes` that deletes each).
 
-**`bx settings`** — the workspace settings an admin sets (D175; the admin
-console's workspace → terminals tab sets the same). `bx settings` shows
-them; `bx settings set --base-auto-update=false` (or `--no-base-auto-update`)
-turns base auto-update off, `--base-auto-update` back on. On — the default —
-a tile's terminal layer built on an older base image moves to the current
-base at its next session start: everything outside the workspace files and
-`$HOME` is reset, for good (installed packages, `/etc`, `/var`, `/opt`…, a
-VM terminal's disk), and a running terminal keeps its base until it ends
-([09-terminals.md](/docs/overview/09-terminals.md) §Base images).
-Off, a layer stays on its base and the terminal window offers the update.
-Reads need any credential, the change an admin's (`GET`/`PUT
-/api/xbin/workspace-settings`); an xbind without the setting answers 404.
+**`bx settings`** — the workspace settings (D175, D180): every
+workspace-wide switch an admin sets, the same ones as the admin console's
+workspace → settings tab, grouped by topic. `bx settings` prints them
+(`--json`: the `GET /api/xbin/workspace-settings` answer); `bx settings
+set <name> on|off` changes one (`true|false` too; several pairs set
+several at once), and so does the flag form `--<name>[=true|false]` /
+`--no-<name>` (`--base-auto-update=false`, `--no-base-auto-update`, as
+before). Reads need any credential — the partitioned tiles' switches a
+person's (their session, or a terminal or agent session they drive) or an
+admin's; other tile code doesn't see them — and a change is an admin's.
+
+- **Terminals — `base-auto-update`**, on by default: a tile's terminal
+  layer built on an older base image moves to the current base at its next
+  session start: everything outside the workspace files and `$HOME` is
+  reset, for good (installed packages, `/etc`, `/var`, `/opt`…, a VM
+  terminal's disk), and a running terminal keeps its base until it ends
+  ([09-terminals.md](/docs/overview/09-terminals.md) §Base images). Off, a
+  layer stays on its base and the terminal window offers the update.
+- **Partitioned tiles** (tiles where each person has their own data;
+  PD-55), both off by default, changing nothing for tiles that aren't
+  partitioned: **`partition-consent`** — ask each person before another
+  partitioned tile uses their data ([partitions.md §Calls between
+  partitioned tiles](/docs/partitions.md)); **`credential-reset-confirm`**
+  — a sign-in link, password or SSO email an admin sets for someone who
+  holds partitions works only after they confirm, or 24 h after they're
+  notified.
+
+Against an older xbind bx reads what it has: v0.3.66 keeps the partitioned
+tiles' switches at `/workspace-policies` (bx reads and sets them there),
+an xbind before partitions has none, one before D175 no settings at all —
+each group says so.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset

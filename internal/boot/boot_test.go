@@ -56,7 +56,8 @@ func TestStepsOrder(t *testing.T) {
 		{"registry", "broker"},      // the essential-tile backfill rescans the registry
 		{"confine", "registry"},     // D78: git on tiles (repo init, template repos) is confined from the first run
 		{"confine", "broker"},
-		{"broker", "vault"}, // the vault is the broker's barrier
+		{"terminals", "broker"}, // the settings store the terminals step opens is the broker's too (D180)
+		{"broker", "vault"},     // the vault is the broker's barrier
 		{"broker", "proxy"},
 		{"proxy", "ingress"},
 		{"ingress", "server"},

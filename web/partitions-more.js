@@ -27,7 +27,7 @@ export function consentsSection(host, m) {
     return html`<section id="consents"><h2>Consents</h2>
       <p class="lead small">Your workspace doesn't ask you: a partitioned tile holding a grant on another uses the data of everyone
         who can read both, and its code — and whoever can change it — reads and writes yours there. An admin can make the
-        workspace ask each person first (the workspace policy <i>partitionConsent</i>).</p>
+        workspace ask each person first (the workspace setting <i>partitionConsent</i>).</p>
       ${kept.length ? html`<p class="small muted">Your consents are kept, unused, until the policy is back on:</p>
         ${consentTable(host, kept, off)}` : nothing}
     </section>`;
