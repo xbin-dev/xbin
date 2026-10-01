@@ -5,6 +5,7 @@ package main
 // its SSH server on a loopback port, and an x/crypto/ssh client.
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ed25519"
@@ -173,6 +174,40 @@ func (r *rig) holdStarts(sb string) (started <-chan string, answer func()) {
 		})
 	})
 	return ids, answer
+}
+
+// holdTerminals holds back the manager's answers to terminal starts (the
+// tty route) in sandbox sb: each command starts, started says so, and the
+// WebSocket upgrade goes out once answer is called (at the latest when the
+// test ends).
+func (r *rig) holdTerminals(sb string) (started <-chan struct{}, answer func()) {
+	route := "/sbx/sandboxes/" + sb + "/tty"
+	starts := make(chan struct{}, 16)
+	hold := make(chan struct{})
+	answer = sync.OnceFunc(func() { close(hold) })
+	r.t.Cleanup(answer)
+	r.front.use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+			if q.URL.Path != route {
+				next.ServeHTTP(w, q)
+				return
+			}
+			next.ServeHTTP(heldUpgrade{w, func() { starts <- struct{}{}; <-hold }}, q)
+		})
+	})
+	return starts, answer
+}
+
+// heldUpgrade runs wait before a WebSocket upgrade takes the connection
+// over: the manager has started the command by then.
+type heldUpgrade struct {
+	http.ResponseWriter
+	wait func()
+}
+
+func (h heldUpgrade) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h.wait()
+	return http.NewResponseController(h.ResponseWriter).Hijack()
 }
 
 // execs lists sandbox sb's execs at the manager, as person.

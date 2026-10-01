@@ -15,15 +15,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **`sandbox-terminal` v7: an SSH client that disconnects while its
   command is still starting no longer leaves the command running**
   ([sandbox-manager.md](/docs/sandbox-manager.md) §People's terminals).
-  The tile gave up on the manager's answer to the exec's start when the
-  client left — but the manager started the command anyway, and without
-  its id nothing ended it: `ssh box@host cmd` interrupted while a stopped
-  sandbox booted ran `cmd` to the end. The tile now waits for that answer
-  (up to two minutes after the client left) and ends the command as for a
-  client that leaves while it runs: `HUP`, then `DELETE` if it still
-  runs. A manager sees its exec start completed instead of abandoned,
-  then the `HUP` and `DELETE`. `GET /sessions` stops listing a connection
-  as soon as its client has gone. Tile Manager → Updates.
+  The tile gave up on the manager's answer to the command's start when
+  the client left — but the manager started the command anyway, and
+  without its id nothing ended it: `ssh box@host cmd` interrupted while a
+  stopped sandbox booted ran `cmd` to the end, and a terminal whose
+  client left while it opened kept its shell. The tile now waits for that
+  answer (up to two minutes after the client left; for a terminal, the
+  `tty` route's upgrade and its `session` frame) and ends the command as
+  for a client that leaves while it runs: `HUP`, then `DELETE` if it
+  still runs. A manager sees its exec start or terminal upgrade completed
+  instead of abandoned, then the `HUP` and `DELETE`. `GET /sessions`
+  stops listing a connection as soon as its client has gone. Tile Manager
+  → Updates.
 
 ## 2026-09-30
 

@@ -170,6 +170,50 @@ func TestSSHClientLeavesWhileStarting(t *testing.T) {
 	r.endedByDelete("alice", sb.ID, id)
 }
 
+// A terminal's too: one whose client leaves while the manager opens it is
+// ended once the terminal's first frame names its command.
+func TestSSHTerminalClientLeavesWhileStarting(t *testing.T) {
+	t.Parallel()
+	if !fsbHasPTY() {
+		t.Skip("no pseudo-terminals on this host")
+	}
+	r := newRig(t)
+	sb := r.sandbox("alice", "api-dev", shared("*"))
+	key := r.register("alice")
+	deleted := r.deletes(sb.ID)
+	started, answer := r.holdTerminals(sb.ID)
+	c := r.mustDial("api-dev", key)
+	s, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RequestPty("xterm", 24, 80, ssh.TerminalModes{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(deafCmd); err != nil {
+		t.Fatal(err)
+	}
+	recv(t, started, "the manager starts the terminal")
+	id := ""
+	for _, x := range r.execs("alice", sb.ID) {
+		if x.TTY && x.State == "running" {
+			id = x.ID
+		}
+	}
+	if id == "" {
+		t.Fatalf("no terminal runs: %+v", r.execs("alice", sb.ID))
+	}
+	r.awaitOutput("alice", sb.ID, id, "deaf\r\n") // deaf to HUP from here on
+	c.Close()
+	// the tile has seen the client go before the terminal is answered
+	eventually(t, hangGuard, "the tile sees the client gone", func() bool { return len(r.tile.sessions("")) == 0 })
+	answer()
+	if got := recv(t, deleted, "the tile ends the terminal's command"); got != id {
+		t.Fatalf("the tile ended %s, not the terminal it opened (%s)", got, id)
+	}
+	r.endedByDelete("alice", sb.ID, id)
+}
+
 // An unregistered key logs nobody in.
 func TestSSHRefusedKey(t *testing.T) {
 	t.Parallel()

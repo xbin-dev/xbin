@@ -330,11 +330,19 @@ func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyR
 	}
 	hdr := http.Header{}
 	hdr.Set("Sbx-User", person)
-	dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	if ctx.Err() != nil {
+		return exitInfo{} // the client left already: nothing to start
+	}
+	sctx, started := starting(ctx) // the dial starts the command
+	dctx, cancel := context.WithTimeout(sctx, 30*time.Second)
 	conn, resp, err := ws.Dial(dctx, u, hdr, &ws.DialOptions{Client: t.hc, MaxMessageSize: 4 << 20})
 	cancel()
+	started()
 	if err != nil {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil { // the client left while it started
+			if errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("ssh: %s's terminal in %s may run on: it didn't open within 30s, its client gone", person, e.SB.ID)
+			}
 			return exitInfo{}
 		}
 		if resp != nil && resp.StatusCode >= 300 {
@@ -373,6 +381,8 @@ func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyR
 		execID string
 		ex     *exitInfo
 	)
+	known := make(chan struct{}) // closed once execID is set
+	var knownOnce sync.Once
 	done := make(chan error, 1)
 	go func() { // output, then how it ended
 		for {
@@ -402,6 +412,9 @@ func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyR
 				mu.Lock()
 				execID = m.ID
 				mu.Unlock()
+				if m.ID != "" {
+					knownOnce.Do(func() { close(known) })
+				}
 			case "exit":
 				mu.Lock()
 				ex = &exitInfo{code: m.Code, signal: m.Signal}
@@ -415,6 +428,15 @@ func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyR
 	select {
 	case err2 = <-done:
 	case <-ctx.Done():
+		// the client left: the session frame, the first, says which
+		// command to end — wait for it if it hasn't come
+		grace := time.NewTimer(leftStartGrace)
+		select {
+		case <-known:
+		case err2 = <-done:
+		case <-grace.C:
+		}
+		grace.Stop()
 		_ = conn.Close()
 	}
 	mu.Lock()
