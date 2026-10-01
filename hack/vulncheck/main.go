@@ -74,7 +74,11 @@ func run(allowPath, tool string, only []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	allow, err := readAllow(filepath.Join(repo, allowPath))
+	file := allowPath // as given, for the messages
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(repo, file)
+	}
+	allow, err := readAllow(file)
 	if err != nil {
 		return fail(err)
 	}
