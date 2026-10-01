@@ -125,17 +125,71 @@ func (f *opsFx) settle(tile string, a Answer) {
 	}
 }
 
-// wait waits for attempt id of tile to finish and returns its entry.
+// wait waits for attempt id of tile to finish and returns its entry: Entry's
+// long poll, again until the attempt finishes (hangGuard only ends a hang).
 func (f *opsFx) wait(tile string, id int64) DeployEntry {
 	f.t.Helper()
-	e, err := f.p.Entry(context.Background(), tile, id, 10*time.Second)
-	if err != nil {
-		f.t.Fatalf("Entry(%s, %d): %v", tile, id, err)
+	deadline := time.Now().Add(hangGuard)
+	for {
+		e, err := f.p.Entry(context.Background(), tile, id, 10*time.Second)
+		switch {
+		case err != nil:
+			f.t.Fatalf("Entry(%s, %d): %v", tile, id, err)
+		case e.Result != resultQueued && e.Result != resultRunning:
+			return e
+		case time.Now().After(deadline):
+			f.t.Fatalf("deploy %d of %s still %s after %v", id, tile, e.Result, hangGuard)
+		}
 	}
-	if e.Result == resultQueued || e.Result == resultRunning {
-		f.t.Fatalf("deploy %d of %s still %s", id, tile, e.Result)
+}
+
+// hangGuard bounds a wait on an event that must come: it only turns a hang
+// into a failure, and no test's outcome depends on it.
+const hangGuard = 2 * time.Minute
+
+// drained waits for every deploy of tile the plane accepted to finish: the
+// pins an operation queues beside the deploy its answer names included,
+// which settle doesn't see. A backend's attempts run on their lane's
+// goroutine, so an operation's queued pin may not have reached the runner
+// when the operation answers; the next operation can then cancel it (an
+// attach onto its deployment, rightly: live reload drives it again). An
+// accepted attempt is in the journal until it is logged and among the recent
+// ones from its finish on, and done closes last; it waits on done, never on
+// the clock.
+func (f *opsFx) drained(tile string) {
+	f.t.Helper()
+	guard := time.NewTimer(hangGuard)
+	defer guard.Stop()
+	for {
+		var next *attempt
+		f.p.q.mu.Lock()
+		if t := f.p.q.tiles[tile]; t != nil {
+			for _, a := range append(append([]*attempt(nil), t.open...), t.recent...) {
+				if a.done != nil && !isClosed(a.done) {
+					next = a
+					break
+				}
+			}
+		}
+		f.p.q.mu.Unlock()
+		if next == nil {
+			return
+		}
+		select {
+		case <-next.done:
+		case <-guard.C:
+			f.t.Fatalf("%s's deploy %d (%s %s) didn't finish in %v", tile, next.ID, next.How, next.Deployment, hangGuard)
+		}
 	}
-	return e
+}
+
+func isClosed(ch chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }
 
 // rec is tile's record as the index holds it; nil in the zero state.
@@ -177,7 +231,11 @@ func terminalP(id, tile, level string) auth.Principal {
 
 // ---- the event tape ----
 
-// eventTape records every event the hub publishes.
+// eventTape records every event the hub publishes, as Publish runs: its
+// filter, which the hub calls in the publisher's goroutine, records the event
+// and delivers nothing, so an event published before a take is on the tape
+// (no delivery goroutine to wait for, no buffer to fall behind and be
+// evicted from).
 type eventTape struct {
 	mu  sync.Mutex
 	evs []events.Event
@@ -185,18 +243,18 @@ type eventTape struct {
 
 func tapeOf(h *events.Hub) *eventTape {
 	t := &eventTape{}
-	ch, _ := h.Subscribe(nil)
-	go func() {
-		for e := range ch {
-			t.mu.Lock()
-			t.evs = append(t.evs, e)
-			t.mu.Unlock()
-		}
-	}()
+	h.Subscribe(func(e events.Event) bool {
+		t.mu.Lock()
+		t.evs = append(t.evs, e)
+		t.mu.Unlock()
+		return false
+	})
 	return t
 }
 
-// settle waits for the hub to deliver what was published so far.
+// settle gives what runs off the operation's goroutine (a backend's deploy
+// lane) a moment to publish; what an operation publishes before it answers
+// needs no settling.
 func (t *eventTape) settle() { time.Sleep(20 * time.Millisecond) }
 
 func (t *eventTape) take() []events.Event {
