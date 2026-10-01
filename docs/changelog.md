@@ -27,6 +27,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   instead of abandoned, then the `HUP` and `DELETE`. `GET /sessions`
   stops listing a connection as soon as its client has gone. Tile Manager
   → Updates.
+- **Fix: a sandbox's network relay sends nothing after it is closed.**
+  When a sandboxed backend, terminal or tool run stopped, a flow still
+  finishing (the reset of a connection that was being dialed, say) could
+  write its packet after the relay had closed its TUN, into whatever file
+  xbind had opened under the same number by then. The relay now stops its
+  writers before it closes the TUN. Nothing to change.
+- **Fix: sandbox file operations through `../` symlinks on a busy host.**
+  Reading, writing, listing or tarring a path whose symlink climbs with
+  `..` could fail with `resource temporarily unavailable` while the host
+  was busy renaming files elsewhere. The sandbox agent now retries longer,
+  with a short backoff (about half a second at most). Nothing to change.
 
 ## 2026-09-30
 

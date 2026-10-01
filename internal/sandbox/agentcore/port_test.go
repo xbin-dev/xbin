@@ -40,7 +40,7 @@ func TestPortBridge(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	reply := func(c net.Conn) (proto.PortReply, *bufio.Reader) {
 		t.Helper()
-		_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+		_ = c.SetReadDeadline(time.Now().Add(hangGuard))
 		br := bufio.NewReader(c)
 		line, err := br.ReadBytes('\n')
 		if err != nil {

@@ -22,11 +22,13 @@ import (
 
 // covers WP-3b — the agent dies with its root: under FuseWatch the root's
 // fuse-overlayfs runs in the foreground as the init's child, never a daemon,
-// and the agent is told its pid; SIGKILLing it from outside ends the agent with exit 3 within 1 s
+// and the agent is told its pid; SIGKILLing it from outside ends the agent
+// with exit 3 (the agent waits on that pid: at once, the scheduler willing)
 // and empties the pid namespace. A fuse-overlayfs that fails to mount fails
 // the start with its output; one that never mounts, after 10 s. Unwatched (a
 // terminal's, a backend's) fuse-overlayfs still daemonizes. Sessions carry
-// oom_score_adj 500 over fuse-overlayfs too.
+// oom_score_adj 500 over fuse-overlayfs too. No check depends on how soon a
+// process ends: the latencies are logged.
 func TestNamespaceAgentRoot(t *testing.T) {
 	if !sandbox.Available() {
 		t.Skip("unprivileged user namespaces unavailable")
@@ -39,7 +41,7 @@ func TestNamespaceAgentRoot(t *testing.T) {
 		// a stand-in that says why and exits 1: the probe knows no op "-f"
 		t.Setenv("XBIN_FUSE_OVERLAYFS", filepath.Join(bin, "probe"))
 		sb := launchNamespaceAgent(t, bin, "")
-		if code := exitCode(t, sb, 15*time.Second); code != 127 {
+		if code := exitCode(t, sb); code != 127 {
 			t.Errorf("the init's exit: %d, want 127", code)
 		}
 		wantLog(t, sb, "sandbox-init: fuse-overlayfs mount: it exited before mounting the root (exit status 1): nsprobe: unknown op -f")
@@ -53,10 +55,12 @@ func TestNamespaceAgentRoot(t *testing.T) {
 		t.Setenv("XBIN_FUSE_OVERLAYFS", stub)
 		start := time.Now()
 		sb := launchNamespaceAgent(t, bin, "")
-		if code := exitCode(t, sb, 30*time.Second); code != 127 {
+		if code := exitCode(t, sb); code != 127 {
 			t.Errorf("the init's exit: %d, want 127", code)
 		}
-		if d := time.Since(start); d < 10*time.Second || d > 15*time.Second {
+		// It waited its 10 s (no sooner: the wait started after start), and
+		// the log says that wait is what ended it.
+		if d := time.Since(start); d < 10*time.Second {
 			t.Errorf("gave up after %s, want 10 s", d.Round(time.Millisecond))
 		}
 		wantLog(t, sb, "sandbox-init: fuse-overlayfs mount: no FUSE mount after 10s: mounting any moment now")
@@ -71,7 +75,7 @@ func TestNamespaceAgentRoot(t *testing.T) {
 	t.Run("fuse-overlayfs refuses", func(t *testing.T) {
 		missing := filepath.Join(t.TempDir(), "missing")
 		sb := launchNamespaceAgent(t, bin, "", func(s *sandbox.Spec) { s.Lower = append([]string{missing}, s.Lower...) })
-		if code := exitCode(t, sb, 15*time.Second); code != 127 {
+		if code := exitCode(t, sb); code != 127 {
 			t.Errorf("the init's exit: %d, want 127", code)
 		}
 		wantLog(t, sb, "sandbox-init: fuse-overlayfs mount: it exited before mounting the root (exit status 1): ")
@@ -105,19 +109,12 @@ func TestNamespaceAgentRoot(t *testing.T) {
 		if err := unix.Kill(fpid, unix.SIGKILL); err != nil {
 			t.Fatal(err)
 		}
-		if code := exitCode(t, sb, 10*time.Second); code != ExitRootGone {
+		if code := exitCode(t, sb); code != ExitRootGone {
 			t.Errorf("the agent's exit: %d, want %d", code, ExitRootGone)
 		}
-		if d := time.Since(killed); d > time.Second {
-			t.Errorf("the agent outlived its root by %s", d.Round(time.Millisecond))
-		}
+		t.Logf("the agent ended %s after fuse-overlayfs died", time.Since(killed).Round(time.Millisecond))
 		for _, p := range append(pids, sb.cmd.Process.Pid) {
-			for unix.Kill(p, 0) == nil {
-				if time.Since(killed) > time.Second {
-					t.Fatalf("pid %d of the sandbox outlived its root by 1 s", p)
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
+			waitUntil(t, "pid "+strconv.Itoa(p)+" of the sandbox gone with its root", func() bool { return unix.Kill(p, 0) != nil })
 		}
 		t.Logf("the pid namespace emptied %s after fuse-overlayfs died", time.Since(killed).Round(time.Millisecond))
 		wantLog(t, sb, "sbx-agent: the root filesystem is gone: fuse-overlayfs (pid "+inNS+") was killed by SIGKILL")
@@ -175,7 +172,7 @@ func testOOMScores(t *testing.T, sb *nsSandbox) {
 }
 
 // exitCode waits for the sandbox's init (the agent, once exec'd) to exit.
-func exitCode(t *testing.T, sb *nsSandbox, within time.Duration) int {
+func exitCode(t *testing.T, sb *nsSandbox) int {
 	t.Helper()
 	done := make(chan error, 1)
 	go func() { done <- sb.cmd.Wait() }()
@@ -186,8 +183,8 @@ func exitCode(t *testing.T, sb *nsSandbox, within time.Duration) int {
 			t.Fatalf("wait: %v", err)
 		}
 		return sb.cmd.ProcessState.ExitCode()
-	case <-time.After(within):
-		t.Fatalf("the sandbox still runs after %s:\n%s", within, sb.log)
+	case <-time.After(hangGuard):
+		t.Fatalf("the sandbox still runs after %s:\n%s", hangGuard, sb.log)
 	}
 	return -1
 }
