@@ -141,6 +141,7 @@ func (st *State) serve(ctx context.Context) error {
 	if st.Term != nil {
 		st.Term.FlushAgents() // open agent conversations become history, not losses (term/history.go)
 	}
+	run.GoVersions.Stop() // the D166 check's lists end with xbind; a first pass resumes on the next boot
 	run.StopAll()
 	if st.TileSbx != nil {
 		st.TileSbx.StopAll("xbind shut down") // synced, 15 s in all; its exit would end them unsynced

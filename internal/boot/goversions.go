@@ -23,6 +23,7 @@ import (
 
 // goVersionsDelay is how long after boot the first pass waits: the boot's
 // own builds (always-on backends, the first requests) go first.
+// Config.GoVersionsDelay overrides it.
 const goVersionsDelay = 30 * time.Second
 
 const goVersionsDocs = "/docs/changes/2026-09-30-go-build-workspace.md"
@@ -30,8 +31,12 @@ const goVersionsDocs = "/docs/changes/2026-09-30-go-build-workspace.md"
 // bootGoVersions reads the check's state and decides whether its first pass
 // is due, before any build runs (stepRegistry).
 func (st *State) bootGoVersions() {
+	delay := st.Cfg.GoVersionsDelay
+	if delay <= 0 {
+		delay = goVersionsDelay
+	}
 	gv := &runner.GoVersions{Run: st.Run, Path: filepath.Join(st.WS, "data", "go-build-versions.json"),
-		Version: st.Cfg.Version, Delay: goVersionsDelay}
+		Version: st.Cfg.Version, Delay: delay}
 	if err := gv.Boot(); err != nil {
 		slog.Warn("go build versions: the check's state", "err", err)
 	}
@@ -72,8 +77,15 @@ func (st *State) registerGoVersionsAPI(srv *server.Server) {
 		}
 	})
 	srv.RegisterAPI("POST /go-build-versions/check", func(w http.ResponseWriter, r *http.Request) {
-		if admin(w, r) {
-			started := gv.CheckAll()
+		if !admin(w, r) {
+			return
+		}
+		switch started, err := gv.CheckAll(); {
+		case errors.Is(err, runner.ErrGoVersionsNothing):
+			server.WriteJSON(w, http.StatusOK, map[string]any{"running": false, "started": false, "reason": err.Error()})
+		case err != nil:
+			server.WriteError(w, http.StatusServiceUnavailable, err.Error())
+		default:
 			server.WriteJSON(w, http.StatusAccepted, map[string]any{"running": true, "started": started})
 		}
 	})

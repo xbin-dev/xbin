@@ -74,6 +74,12 @@ func zsWorkspace(t *testing.T) string {
 // test holds the State — and serves until the test ends.
 func zsBoot(t *testing.T, ws string) *zsDaemon {
 	t.Helper()
+	return zsBootWith(t, ws, nil)
+}
+
+// zsBootWith is zsBoot with the config adjusted by tune first.
+func zsBootWith(t *testing.T, ws string, tune func(*Config)) *zsDaemon {
+	t.Helper()
 	quiet(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -81,6 +87,9 @@ func zsBoot(t *testing.T, ws string) *zsDaemon {
 	}
 	cfg := &Config{Workspace: ws, Listener: ln, Listen: ln.Addr().String(), InsecureVault: true,
 		Privileges: NoPrivileges{}, Stdout: io.Discard, Version: "test", LimitMem: "2G"}
+	if tune != nil {
+		tune(cfg)
+	}
 	if sdk, err := filepath.Abs("../../sdk"); err == nil {
 		t.Setenv("XBIN_SDK_PATH", sdk)
 	}
