@@ -151,6 +151,7 @@ async function agentSignin(browser) {
   // ---- (f) an OSC 8 link that shows one URL and goes to another asks first ----
   await page.evaluate(() => { window.__opened = []; window.__asked = []; window.confirm = (m) => { window.__asked.push(String(m)); return false; }; });
   const printLink = `printf '\\033]8;;${DECEPTIVE.to}\\007${DECEPTIVE.shows}\\033]8;;\\007\\n'`;
+  await fr(page, TILE, (f) => f.open('term')); // (e) closed every tab, and the window with them
   await fr(page, TILE, (f, t, run) => f.startKind('shell', null, { run }), printLink);
   await waitSel(page, `${TERM} textarea`, { timeout: 20000 });
   const dat = await page.locator(TERM).last().evaluate(async (el, shows) => {
