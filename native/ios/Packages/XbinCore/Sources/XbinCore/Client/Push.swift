@@ -43,7 +43,15 @@ public struct PushEnvelope: Sendable, Equatable {
 /// The decrypted payload.
 public struct PushPayload: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
-        case agentPermission, agentQuestion, agentTurn, tile(String?), test, other(String)
+        /// `tile` and `tile.<kind>` — a tile's (`POST /api/xbin/notify`) and
+        /// xbind's partition notices (`tile.partition-switch`, …), which a
+        /// tile can name too: what tells them apart is the link (an xbind
+        /// page's is xbind's alone, ``PushPayload/page``). `account` and
+        /// `account.<kind>`: xbind's notices about the person's account
+        /// (`account.credential`: a sign-in someone else made for them,
+        /// perhaps held until they allow or refuse it on the partitions
+        /// page). Anything else shows like a tile's.
+        case agentPermission, agentQuestion, agentTurn, tile(String?), account(String?), test, other(String)
 
         public init(_ raw: String) {
             switch raw {
@@ -52,20 +60,34 @@ public struct PushPayload: Sendable, Equatable {
             case "agent.turn": self = .agentTurn
             case "test": self = .test
             case "tile": self = .tile(nil)
+            case "account": self = .account(nil)
             default:
-                if raw.hasPrefix("tile.") { self = .tile(String(raw.dropFirst(5))) } else { self = .other(raw) }
+                if raw.hasPrefix("tile.") { self = .tile(String(raw.dropFirst(5))) }
+                else if raw.hasPrefix("account.") { self = .account(String(raw.dropFirst(8))) }
+                else { self = .other(raw) }
             }
         }
 
-        /// The notification category (actions per kind).
+        /// The notification category (actions per kind; the payload's
+        /// ``PushPayload/category`` also reads the link).
         public var category: String {
             switch self {
             case .agentPermission, .agentQuestion: return "xbin.agent.needs-you"
             case .agentTurn: return "xbin.agent.turn"
             case .tile, .other: return "xbin.tile"
+            case .account: return Self.accountCategory
             case .test: return "xbin.test"
             }
         }
+
+        /// xbind's notices about the person's account: Review… (the page
+        /// the link names, after the device is unlocked).
+        public static let accountCategory = "xbin.account"
+
+        /// xbind's notices that link one of its pages (D181): open that
+        /// page — never "Mute this tile" (a tile's mute doesn't hold them
+        /// back).
+        public static func pageCategory(_ page: XbindPage) -> String { "xbin.page.\(page.rawValue)" }
 
         /// Needs the user's answer (goes to the Needs-you inbox).
         public var needsYou: Bool { self == .agentPermission || self == .agentQuestion }
@@ -109,6 +131,33 @@ public struct PushPayload: Sendable, Equatable {
 
     /// `userInfo` the extension attaches for the app (`{ws, kind, link}`).
     public var userInfo: [String: String] { ["ws": ws, "kind": kind, "link": link] }
+
+    /// The xbind page the link names (`xbin/<page>`, D181), if it names
+    /// one this app knows. Only xbind links its own pages: a tile's links
+    /// are always under its own `c/<tile>/`, an agent's `agent/<id>`.
+    public var page: XbindPage? {
+        if case .page(_, let p) = deepLink(appWorkspace: "w") { return p }
+        return nil
+    }
+
+    /// The notification's category — its actions (push.md §4): an
+    /// `account` notice's Review…; xbind's notices linking one of its pages
+    /// (`tile.partition-switch`, `-deleted`, `-consent`, `-reset`) Open,
+    /// without "Mute this tile"; everything else by its kind (a tile's —
+    /// `tile.partition-…` from a tile included, whose link is its own —
+    /// and unknown kinds: `xbin.tile`).
+    public var category: String {
+        let k = typedKind
+        if case .account = k { return Kind.accountCategory }
+        if let page { return Kind.pageCategory(page) }
+        return k.category
+    }
+
+    /// The notification's group (`threadIdentifier`): the workspace (`ws`),
+    /// and xbind's notices linking one of its pages a group of their own
+    /// per page — what the person decides there stays together, apart from
+    /// the tiles' and agents' notifications.
+    public var threadID: String { page.map { "\(ws)/\($0.link)" } ?? ws }
 }
 
 /// A registration as xbind reports it (`GET/POST /api/xbin/devices/push`).
@@ -238,6 +287,21 @@ public enum PushRelayAPI {
 
 /// xbind's push routes for the device (a signed-in human only).
 public enum PushAPI {
+    /// The kinds this app registers for (a kind matches itself and every
+    /// kind under it; none = all): agents, tiles (xbind's partition notices
+    /// sit under `tile`), the person's account (`account.credential`, D181)
+    /// and the test push. A kind the app doesn't register for never
+    /// reaches it — `account` was missing before D181, and an older xbind
+    /// accepts any well-formed kind.
+    public static let appKinds = ["agent", "tile", "account", "test"]
+
+    /// Whether `kinds` (a registration's) receive `kind` — xbind's rule
+    /// (internal/push kindAllowed): `test` always, no kinds = everything.
+    public static func receives(_ kinds: [String], _ kind: String) -> Bool {
+        if kind == "test" || kinds.isEmpty { return true }
+        return kinds.contains { kind == $0 || kind.hasPrefix($0 + ".") }
+    }
+
     public static let registrations = "/api/xbin/devices/push"
     public static let prefs = "/api/xbin/push/prefs"
     public static let test = "/api/xbin/push/test"

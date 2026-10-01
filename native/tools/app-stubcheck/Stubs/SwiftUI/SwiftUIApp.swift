@@ -215,3 +215,15 @@ extension View {
 extension ContentUnavailableView where Label == SwiftUI.Label<Text, Image>, Description == Text?, Actions == EmptyView {
     @_disfavoredOverload public init<S: StringProtocol>(_ title: S, systemImage name: String, description: Text? = nil) {}
 }
+
+// xbind's partitions page (Shell/XbindPageScreen.swift, D181): its load
+// progress as a bar, as a tile page's (Tiles/TileScreens.swift).
+public protocol ProgressViewStyle {}
+public struct _ProgressViewStyle: ProgressViewStyle {}
+extension ProgressViewStyle where Self == _ProgressViewStyle {
+    public static var linear: _ProgressViewStyle { .init() }
+    public static var circular: _ProgressViewStyle { .init() }
+}
+extension View {
+    public func progressViewStyle<S: ProgressViewStyle>(_ style: S) -> some View { _V(self) }
+}

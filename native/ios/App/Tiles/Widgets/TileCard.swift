@@ -46,15 +46,25 @@ struct TileCard: View {
             }
         }
         // What runs on the tile (D128), in the card's corner — over the
-        // widget, never inside its tree; it takes no taps (the card's do).
+        // widget, never inside its tree; it takes no taps (the card's do) —
+        // after the partitioned marker (D181), the web sidebar's order.
         .overlay(alignment: .bottomTrailing) {
-            if let s = workspace.tileSessions[tile.path], !s.isEmpty {
-                SessionsBadge(sessions: s).padding(8).allowsHitTesting(false)
+            let s = workspace.tileSessions[tile.path]
+            if tile.isPartitioned || s?.isEmpty == false {
+                HStack(spacing: 6) {
+                    if tile.isPartitioned { PartitionMark(size: 9, label: tile.partition?.markTitle) }
+                    if let s, !s.isEmpty { SessionsBadge(sessions: s) }
+                }
+                .padding(8).allowsHitTesting(false)
             }
         }
         .onAppear { setShown(native) }
         .onDisappear { setShown(false) }
         .onScrollVisibilityChange(threshold: 0.2) { setShown($0 && native) }
+        // Paused (a partition mode switch waiting for a manager, D181): the
+        // standard card, and the widget's runtime goes; it comes back when
+        // the card next scrolls into view.
+        .onChange(of: native) { _, now in if !now { setShown(false) } }
         .onChange(of: size) { if shown { pool.resize(workspace, tile.path, size: size) } }
     }
 

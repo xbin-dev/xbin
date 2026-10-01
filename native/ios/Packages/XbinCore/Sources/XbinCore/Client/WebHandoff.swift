@@ -136,13 +136,22 @@ public enum HandoffLink {
         .terminal(workspace: origin.authority, session: session)
     }
 
+    /// One of xbind's own pages (D181): its URL in the browser, and the link
+    /// another device's app opens (feature-detected there, as every
+    /// `xbin/<page>` link is).
+    public static func page(origin: ServerOrigin, page: XbindPage) -> DeepLink {
+        .page(workspace: origin.authority, page: page)
+    }
+
+    public static func pageURL(origin: ServerOrigin, page: XbindPage) -> URL? { origin.url(path: page.path) }
+
     public static func userInfo(_ link: DeepLink) -> [String: String] { [linkKey: link.string] }
 
     /// The link a continued activity carries (nil: none, or not ours).
     public static func link(fromUserInfo info: [AnyHashable: Any]?) -> DeepLink? {
         guard let s = info?[linkKey] as? String, let l = try? DeepLink(string: s) else { return nil }
         switch l {
-        case .tile, .agent, .terminal, .workspace: return l
+        case .tile, .agent, .terminal, .workspace, .page: return l
         case .enroll, .sso, .ssoError: return nil // never from an activity
         }
     }

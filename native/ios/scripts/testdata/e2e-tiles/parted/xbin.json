@@ -1,0 +1,9 @@
+{
+  // A partitioned tile for the UI tests (XbinPartitionsTests, D181): static,
+  // so xbind records its mode at once (it holds no data) and warns that it
+  // has no backend to partition. Its /components row carries `partition`,
+  // so the app draws the partitioned marker on its row and links the
+  // account's partitions page from Settings.
+  "partition": ["user"],
+  "partitionNote": "Each person keeps their own notes here."
+}

@@ -87,6 +87,21 @@ struct SettingsView: View {
                         LabeledContent("Signed in as") { Text(verbatim: w.userLabel) }
                         LabeledContent("Server") { Text(verbatim: w.origin.origin).font(.callout.monospaced()) }
                         LabeledContent("Sign-in") { Text(w.canResign ? "This device (Face ID)" : "Token (not renewed)") }
+                        // xbind's partitions page (I13, D181): only where the
+                        // workspace serves it and you see a partitioned tile.
+                        if w.showsPartitionsEntry {
+                            Button {
+                                dismiss()
+                                w.openPage(.partitions, in: scene.nav(for: w))
+                            } label: {
+                                Label {
+                                    Text(verbatim: XbindPage.partitions.title)
+                                } icon: {
+                                    PartitionMark(size: 14)
+                                }
+                            }
+                            .accessibilityHint("Your own data in each partitioned tile, the consents and personal binds you gave, sign-ins waiting for you and the switches you decide")
+                        }
                     } header: { Text(verbatim: w.title) }
 
                     Section {
@@ -128,7 +143,7 @@ struct SettingsView: View {
                     } header: { Text("Notifications") } footer: {
                         Text(PushManager.shared.relay == nil
                              ? "No push relay is configured for this build (set one below)."
-                             : "Agent permissions, questions and finished turns, and tiles that notify you.")
+                             : "Agent permissions, questions and finished turns, tiles that notify you, and the workspace's notices about your partitions and your account.")
                     }
 
                     Section {
@@ -174,7 +189,12 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .task { if let w = scene.selected { await loadDevices(w) } }
+            .task {
+                if let w = scene.selected {
+                    await loadDevices(w)
+                    await w.probePartitionsPage()
+                }
+            }
             .sheet(isPresented: $addingDevice, onDismiss: { if let w = scene.selected { Task { await loadDevices(w) } } }) {
                 if let w = scene.selected { AddDeviceView(workspace: w) }
             }

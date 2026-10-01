@@ -47,6 +47,66 @@ import Testing
         #expect(PushPayload.Kind("agent.newthing") == .other("agent.newthing"))
     }
 
+    /// push.md §2's xbind-raised kinds (D181): decoded, grouped and given
+    /// the right actions, and their `xbin/partitions` link opens the page.
+    @Test(arguments: ["tile.partition-switch", "tile.partition-deleted", "tile.partition-consent", "tile.partition-reset"])
+    func partitionNotices(_ kind: String) throws {
+        let plain = #"{"v":1,"ws":"pw","kind":"\#(kind)","title":"apps/x is paused","body":"b","link":"xbin/partitions","collapseId":"xbin:partition-switch:apps/x"}"#
+        let p = try #require(PushPayload(plaintext: Data(plain.utf8)))
+        #expect(p.typedKind == .tile(String(kind.dropFirst(5))))
+        #expect(p.collapseID == "xbin:partition-switch:apps/x")
+        #expect(p.page == .partitions)
+        #expect(p.deepLink(appWorkspace: "w-1") == .page(workspace: "w-1", page: .partitions))
+        // Open, never "Mute this tile"; a group of their own per workspace.
+        #expect(p.category == "xbin.page.partitions" && p.category == PushPayload.Kind.pageCategory(.partitions))
+        #expect(p.threadID == "pw/xbin/partitions")
+        #expect(p.userInfo == ["ws": "pw", "kind": kind, "link": "xbin/partitions"])
+    }
+
+    @Test func accountCredential() throws {
+        let plain = #"{"v":1,"ws":"pw","kind":"account.credential","title":"A sign-in link for your account","body":"Made by admin at 2026-10-01 10:00 UTC. It works only once you allow it…","link":"xbin/partitions","collapseId":"xbin:credential:h1"}"#
+        let p = try #require(PushPayload(plaintext: Data(plain.utf8)))
+        #expect(p.typedKind == .account("credential"))
+        #expect(p.typedKind.category == "xbin.account" && p.category == "xbin.account")
+        #expect(p.deepLink(appWorkspace: "w") == .page(workspace: "w", page: .partitions))
+        #expect(p.threadID == "pw/xbin/partitions")
+        #expect(PushPayload.Kind("account") == .account(nil))
+        // Without a page link (a future one): still the account's actions,
+        // and the workspace opens.
+        let bare = PushPayload(ws: "pw", kind: "account.other", title: "t")
+        #expect(bare.category == "xbin.account" && bare.threadID == "pw" && bare.deepLink(appWorkspace: "w") == .workspace("w"))
+    }
+
+    /// A tile can name a `partition-…` kind (`POST /api/xbin/notify`), but
+    /// its link is always its own: it shows as the tile's, Mute included.
+    /// xbind's own `tile.partition-restored` links the tile, likewise.
+    @Test func tileNamedPartitionKindsStayTiles() {
+        let spoof = PushPayload(ws: "pw", kind: "tile.partition-switch", title: "t", link: "c/apps/evil/")
+        #expect(spoof.page == nil && spoof.category == "xbin.tile" && spoof.threadID == "pw")
+        #expect(spoof.deepLink(appWorkspace: "w") == .tile(workspace: "w", tile: "apps/evil", fragment: nil))
+        let restored = PushPayload(ws: "pw", kind: "tile.partition-restored", title: "t", link: "c/apps/notes/")
+        #expect(restored.category == "xbin.tile")
+        // Unknown kinds still show like a tile's.
+        #expect(PushPayload(ws: "pw", kind: "brand.new", title: "t").category == "xbin.tile")
+        // An xbind page this app doesn't know: the workspace, a tile's actions.
+        let unknownPage = PushPayload(ws: "pw", kind: "tile.partition-switch", title: "t", link: "xbin/consents")
+        #expect(unknownPage.page == nil && unknownPage.deepLink(appWorkspace: "w") == .workspace("w"))
+        #expect(unknownPage.category == "xbin.tile" && unknownPage.threadID == "pw")
+    }
+
+    /// The app registers for every kind push.md §2 lists (xbind's
+    /// kindAllowed): `account` was missing before D181.
+    @Test func appKindsReceiveEveryKind() {
+        for k in ["agent.permission", "agent.question", "agent.turn", "tile", "tile.alert", "tile.partition-switch",
+                  "tile.partition-deleted", "tile.partition-consent", "tile.partition-reset", "tile.partition-restored",
+                  "account.credential", "test"] {
+            #expect(PushAPI.receives(PushAPI.appKinds, k), "\(k)")
+        }
+        #expect(!PushAPI.receives(["agent", "tile", "test"], "account.credential"))
+        #expect(!PushAPI.receives(["tile"], "tiles.x") && !PushAPI.receives(["agent"], "agentx"))
+        #expect(PushAPI.receives([], "anything") && PushAPI.receives(["agent"], "test"))
+    }
+
     @Test func openerPicksTheRightWorkspace() {
         let env = PushEnvelope(epk: Data(count: 32), nonce: Data(count: 12), sealed: Data(count: 16))
         let good = Data(#"{"v":1,"ws":"push-B","kind":"test","title":"hi"}"#.utf8)

@@ -20,8 +20,11 @@ final class NotificationService: UNNotificationServiceExtension {
             let p = opened.payload
             content.title = p.title
             content.body = p.body
-            content.threadIdentifier = p.ws
-            content.categoryIdentifier = p.typedKind.category
+            // Per workspace; xbind's notices linking one of its pages (the
+            // partitions page, D181) in a group of their own, with that
+            // page's actions (PushPayload.threadID, .category).
+            content.threadIdentifier = p.threadID
+            content.categoryIdentifier = p.category
             if let t = opened.title, !t.isEmpty { content.subtitle = t }
             var info = p.userInfo
             info["app"] = opened.appWorkspace

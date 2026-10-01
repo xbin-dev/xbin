@@ -177,6 +177,9 @@ struct WorkspaceView: View {
         case .sessions(let tile, let show):
             TileWorkspaceScreen(workspace: workspace, tile: tile, focus: show)
                 .id("sessions|" + tile)
+        case .page(let page):
+            XbindPageScreen(workspace: workspace, page: page)
+                .id("page|" + page.rawValue)
         }
     }
 }

@@ -99,12 +99,16 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
     /// A blueprint, not a live tile (`template`): instantiated through the
     /// Tile Manager, never opened.
     public var template: Bool
+    /// `partition`: the tile keeps people's data apart, or its code asks to
+    /// (partitioned tiles, D181); nil on every other row, and on every row
+    /// of an xbind older than partitions.
+    public var partition: TilePartition?
 
     public var id: String { path }
 
     public init(path: String, scope: String = "", runtime: String = "", hasIndex: Bool = true, state: String = "",
                 owner: String = "", chrome: Bool = false, sandbox: [String] = [], nativeEntry: String? = nil,
-                manifestError: String = "", template: Bool = false) {
+                manifestError: String = "", template: Bool = false, partition: TilePartition? = nil) {
         self.path = path
         self.scope = scope
         self.runtime = runtime
@@ -116,6 +120,7 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
         self.nativeEntry = nativeEntry
         self.manifestError = manifestError
         self.template = template
+        self.partition = partition
     }
 
     public init?(json: JSONValue) {
@@ -129,7 +134,8 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
                   hasIndex: json["hasIndex"]?.boolValue ?? true, state: json["state"]?.stringValue ?? "",
                   owner: json["owner"]?.stringValue ?? "", chrome: json["chrome"]?.boolValue ?? false,
                   sandbox: (json["sandbox"]?.arrayValue ?? []).compactMap(\.stringValue), nativeEntry: entry,
-                  manifestError: json["manifestError"]?.stringValue ?? "", template: json["template"]?.boolValue ?? false)
+                  manifestError: json["manifestError"]?.stringValue ?? "", template: json["template"]?.boolValue ?? false,
+                  partition: json["partition"].flatMap(TilePartition.init(json:)))
     }
 
     /// The last path segment, made readable: `apps/egress-approver` →
@@ -143,6 +149,13 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
 
     /// Opens as a native view (it has a native entry and isn't chrome).
     public var opensNatively: Bool { nativeEntry != nil && !chrome }
+    /// Carries the partitioned marker: its recorded mode has user
+    /// partitions (a pending switch doesn't change it).
+    public var isPartitioned: Bool { partition?.isPartitioned ?? false }
+    /// Paused: a partition mode switch waits for a tile manager, and
+    /// nothing of the tile's primary runs — its documents are xbind's
+    /// switch page.
+    public var isPaused: Bool { partition?.isPaused ?? false }
     /// May open links in the browser (`cap:open-links`, ND11).
     public var canOpenLinks: Bool { sandbox.contains("allow-popups") }
     /// The shell itself, the root page, and tiles nothing can open.
@@ -171,6 +184,80 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
     }
 }
 
+/// A `/components` row's `partition` (docs/protocol.md `GET /components`;
+/// docs/partitions.md): the settled state, the recorded mode (`user`,
+/// `global`) and, when the tile's code asks for another, the request — and,
+/// while that request waits for a tile manager, the tile's `partitionNote`
+/// (its code's own words: text, attributed to the tile). Read the way the
+/// web shell reads it (shell/partition-mode.js `partitionView`): leniently,
+/// a state this app doesn't know kept as it came.
+public struct TilePartition: Sendable, Hashable {
+    /// `partitioned` | `unpartitioned` | `pending` | `invalid` (or a newer
+    /// xbind's word).
+    public var state: String
+    /// The recorded mode.
+    public var user: Bool
+    public var global: Bool
+    /// What the code asks for when it differs from the recorded mode.
+    public var request: Request?
+    /// The tile's `partitionNote` while the switch is pending ("" when none).
+    public var note: String
+
+    public struct Request: Sendable, Hashable {
+        public var user: Bool
+        public var global: Bool
+        /// A tile manager kept the current mode; the code still asks.
+        public var declined: Bool
+
+        public init(user: Bool, global: Bool, declined: Bool = false) {
+            self.user = user
+            self.global = global
+            self.declined = declined
+        }
+    }
+
+    public init(state: String, user: Bool, global: Bool = false, request: Request? = nil, note: String = "") {
+        self.state = state
+        self.user = user
+        self.global = global
+        self.request = request
+        self.note = note
+    }
+
+    /// nil unless `json` is an object.
+    public init?(json: JSONValue) {
+        guard json.objectValue != nil else { return nil }
+        let q = json["request"].flatMap { $0.objectValue != nil ? $0 : nil }
+        self.init(state: json["state"]?.stringValue ?? "", user: json["user"]?.boolValue ?? false,
+                  global: json["global"]?.boolValue ?? false,
+                  request: q.map { Request(user: $0["user"]?.boolValue ?? false, global: $0["global"]?.boolValue ?? false,
+                                           declined: $0["declined"]?.boolValue ?? false) },
+                  note: (json["note"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The marker's rule: the recorded mode has user partitions.
+    public var isPartitioned: Bool { user }
+    /// A switch waits for a tile manager (`pending`, with a request).
+    public var isPaused: Bool { state == "pending" && request != nil }
+
+    /// The marker's words (the web shell's `markTitle`, PD-53), "" when the
+    /// tile has no user partitions.
+    public var markTitle: String {
+        guard user else { return "" }
+        return global ? "\(Self.markText); \(Self.markGlobalText)" : Self.markText
+    }
+
+    public static let markText = "Partitioned: each person here has their own data"
+    public static let markGlobalText = "one shared global instance also runs, for what isn't a person's"
+    /// A paused tile's badge, spoken (its page says the rest).
+    public static let pausedText = "Paused: a partition mode switch waits for a tile manager"
+
+    /// The marker's colour (`--bx-part`, shell-css.js `partCss`): a calm
+    /// teal, deeper on light backgrounds so the ring keeps its contrast.
+    public static let markColorDark: UInt32 = 0x3FB5A3
+    public static let markColorLight: UInt32 = 0x1F8778
+}
+
 /// The components a user can see.
 public struct Catalog: Sendable, Equatable {
     public var tiles: [TileInfo]
@@ -185,6 +272,10 @@ public struct Catalog: Sendable, Equatable {
 
     /// What the navigator lists (no shell internals, nothing offloaded).
     public var listed: [TileInfo] { tiles.filter(\.isListed).sorted { $0.path < $1.path } }
+
+    /// A tile with the partitioned marker is among them (the web shell's
+    /// `anyPartitioned`: a pending switch into partitions isn't one yet).
+    public var hasPartitionedTile: Bool { tiles.contains(where: \.isPartitioned) }
 
     /// Search over path and title: prefix of the title, then prefix of any
     /// path segment, then substring; ties by path. Every word must match.

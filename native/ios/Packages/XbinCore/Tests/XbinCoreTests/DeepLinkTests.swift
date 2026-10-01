@@ -22,6 +22,28 @@ import Testing
         #expect(try DeepLink(string: "xbin://ws1/term/s1").workspace == "ws1")
     }
 
+    /// `xbin/<page>`: one of xbind's own pages (D181). Only pages this app
+    /// knows parse; anything else under `xbin/` is refused, so a push
+    /// linking it opens the workspace.
+    @Test func pageLinks() throws {
+        #expect(try DeepLink(string: "xbin://ws1/xbin/partitions") == .page(workspace: "ws1", page: .partitions))
+        #expect(try DeepLink(string: "xbin://ws1/xbin/partitions/") == .page(workspace: "ws1", page: .partitions))
+        #expect(try DeepLink(string: "xbin://xbin.example.com:8443/xbin/partitions")
+            == .page(workspace: "xbin.example.com:8443", page: .partitions))
+        // Query and fragment aren't the page's: dropped.
+        #expect(try DeepLink(string: "xbin://ws1/xbin/partitions?x=1#y") == .page(workspace: "ws1", page: .partitions))
+        #expect(try DeepLink(string: "xbin://ws1/xbin/partitions").workspace == "ws1")
+        #expect(DeepLink.page(workspace: "ws1", page: .partitions).string == "xbin://ws1/xbin/partitions")
+        // A tile whose path starts with xbin is still a tile.
+        #expect(try DeepLink(string: "xbin://ws1/c/xbin/partitions") == .tile(workspace: "ws1", tile: "xbin/partitions", fragment: nil))
+    }
+
+    @Test(arguments: ["xbin://ws1/xbin", "xbin://ws1/xbin/", "xbin://ws1/xbin/consents", "xbin://ws1/xbin/Partitions",
+                      "xbin://ws1/xbin/partitions/x", "xbin://ws1/xbin/..", "xbin://ws1/xbin/partitions%2Fx"])
+    func rejectsUnknownPages(_ s: String) {
+        #expect(throws: DeepLink.Invalid.self) { try DeepLink(string: s) }
+    }
+
     @Test func enrollAndSSO() throws {
         let e = try DeepLink(string: "xbin://enroll?u=https%3A%2F%2FXbin.Example.com%2F&c=K7QX-22PM")
         #expect(e == .enroll(server: try ServerOrigin(string: "https://xbin.example.com"), code: "K7QX-22PM"))
@@ -58,6 +80,8 @@ import Testing
             .tile(workspace: "ws1", tile: "apps/my tile+ü", fragment: "join=t%20k"),
             .terminal(workspace: "ws1", session: "s 1?#%"),
             .agent(workspace: "ws1", session: "a1"),
+            .page(workspace: "ws1", page: .partitions),
+            .page(workspace: "xbin.example.com:8443", page: .partitions),
             .enroll(server: try ServerOrigin(string: "https://xbin.example.com:8443"), code: "a&b=c d+e"),
             .enroll(server: try ServerOrigin(string: "http://[::1]:9000"), code: "x"),
             .sso(ticket: "t+/=?&#"),

@@ -82,6 +82,10 @@ import Testing
         #expect(HandoffLink.link(fromUserInfo: info) == .agent(workspace: "192.168.1.4:9461", session: "s-1"))
         #expect(HandoffLink.link(fromUserInfo: HandoffLink.userInfo(HandoffLink.terminal(origin: origin, session: "t")))
             == .terminal(workspace: "ws.example.com", session: "t"))
+        // The partitions page (D181): the browser's page and the app's link.
+        #expect(HandoffLink.pageURL(origin: origin, page: .partitions)?.absoluteString == "https://ws.example.com/xbin/partitions")
+        #expect(HandoffLink.link(fromUserInfo: HandoffLink.userInfo(HandoffLink.page(origin: lan, page: .partitions)))
+            == .page(workspace: "192.168.1.4:9461", page: .partitions))
         // Never an enrollment or SSO link from an activity; junk is nothing.
         #expect(HandoffLink.link(fromUserInfo: ["link": "xbin://enroll?u=https%3A%2F%2Fa.b&c=AAAA"]) == nil)
         #expect(HandoffLink.link(fromUserInfo: ["link": "xbin://sso?ticket=t"]) == nil)

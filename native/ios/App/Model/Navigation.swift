@@ -32,6 +32,9 @@ enum Surface: Hashable, Codable {
     /// tabs, the launcher, live reload and deployments — the web terminal
     /// window's counterpart (TileWorkspaceScreen).
     case sessions(tile: String, show: SessionsFocus)
+    /// One of xbind's own pages (D181): the partitions page, in a web view
+    /// of its own, signed in (XbindPageScreen) — never a tile's frame.
+    case page(XbindPage)
 
     var title: String {
         switch self {
@@ -39,6 +42,7 @@ enum Surface: Hashable, Codable {
         case .terminal(let cwd, _): return "Terminal · \(TileInfo.humanize(cwd))"
         case .agent(let cwd, _): return "Agent" + (cwd.map { " · \(TileInfo.humanize($0))" } ?? "")
         case .sessions(let t, _): return "Sessions · \(TileInfo.humanize(t))"
+        case .page(let p): return p.title
         }
     }
 
@@ -48,6 +52,7 @@ enum Surface: Hashable, Codable {
         case .tile(let t, _, _), .build(let t), .sessions(let t, _): return t
         case .terminal(let cwd, _): return cwd
         case .agent(let cwd, _): return cwd
+        case .page: return nil
         }
     }
 }
@@ -259,12 +264,13 @@ final class WorkspaceNav {
     /// The screen back goes to from `s`: the screen the tile sits on
     /// (`containing`: Home's lookup, preferring `current`); a terminal or
     /// agent on a tile no screen has stays over the current screen; a tile
-    /// no screen has goes back to Home.
+    /// no screen has goes back to Home; one of xbind's pages stays over the
+    /// current screen.
     static func screen(for s: Surface, current: String?, containing: (String, String?) -> String?) -> String? {
         let found = s.tilePath.flatMap { containing($0, current) }
         switch s {
         case .tile, .build: return found
-        case .terminal, .agent, .sessions: return found ?? current
+        case .terminal, .agent, .sessions, .page: return found ?? current
         }
     }
 

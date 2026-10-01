@@ -9,6 +9,7 @@ import Foundation
 /// | `xbin://<ws>/c/<tile>[#fragment]` | ``tile(workspace:tile:fragment:)`` |
 /// | `xbin://<ws>/term/<session>` | ``terminal(workspace:session:)`` |
 /// | `xbin://<ws>/agent/<session>` | ``agent(workspace:session:)`` |
+/// | `xbin://<ws>/xbin/<page>` | ``page(workspace:page:)`` |
 /// | `xbin://enroll?u=<server>&c=<code>` | ``enroll(server:code:)`` |
 /// | `xbin://sso?ticket=<ticket>` | ``sso(ticket:)`` |
 /// | `xbin://sso?error=<code>` | ``ssoError(code:)`` |
@@ -17,12 +18,18 @@ import Foundation
 /// `host[:port]` (``WorkspaceRecord/matches(linkWorkspace:)``); it is
 /// lowercased. `enroll` and `sso` are reserved and never name a workspace.
 /// A tile id keeps its slashes (`apps/devbox`); the fragment is kept
-/// percent-encoded, exactly as it goes onto the tile page's URL.
+/// percent-encoded, exactly as it goes onto the tile page's URL. An
+/// `xbin/<page>` names one of xbind's own pages (``XbindPage``); a page this
+/// app doesn't know is refused, so a push linking one opens the workspace
+/// (``PushPayload/deepLink(appWorkspace:)``), as an older app does.
 public enum DeepLink: Sendable, Hashable {
     case workspace(String)
     case tile(workspace: String, tile: String, fragment: String?)
     case terminal(workspace: String, session: String)
     case agent(workspace: String, session: String)
+    /// One of xbind's own pages (D181): the app opens it in a web view of
+    /// its own, signed in, once the workspace says it serves it.
+    case page(workspace: String, page: XbindPage)
     /// A device enrollment QR code from a signed-in browser (§5).
     case enroll(server: ServerOrigin, code: String)
     /// The end of an SSO sign-in (`ASWebAuthenticationSession` callback):
@@ -46,7 +53,7 @@ public enum DeepLink: Sendable, Hashable {
     /// The workspace the link targets, when it targets one.
     public var workspace: String? {
         switch self {
-        case .workspace(let w), .tile(let w, _, _), .terminal(let w, _), .agent(let w, _): return w
+        case .workspace(let w), .tile(let w, _, _), .terminal(let w, _), .agent(let w, _), .page(let w, _): return w
         case .enroll, .sso, .ssoError: return nil
         }
     }
@@ -99,6 +106,10 @@ public enum DeepLink: Sendable, Hashable {
         case "term", "agent":
             guard rest.count == 1 else { throw Invalid(reason: "\(kind): expected one session id") }
             self = kind == "term" ? .terminal(workspace: ws, session: rest[0]) : .agent(workspace: ws, session: rest[0])
+        case "xbin":
+            guard rest.count == 1 else { throw Invalid(reason: "xbin: expected one page") }
+            guard let page = XbindPage(linkName: rest[0]) else { throw Invalid(reason: "unknown xbind page \(rest[0])") }
+            self = .page(workspace: ws, page: page)
         default:
             throw Invalid(reason: "unknown link kind \(kind)")
         }
@@ -140,6 +151,8 @@ public enum DeepLink: Sendable, Hashable {
             return "xbin://\(w)/term/\(Self.encodeSegment(s))"
         case .agent(let w, let s):
             return "xbin://\(w)/agent/\(Self.encodeSegment(s))"
+        case .page(let w, let page):
+            return "xbin://\(w)/\(page.link)"
         case .enroll(let server, let code):
             return "xbin://enroll?u=\(Self.encodeQueryValue(server.origin))&c=\(Self.encodeQueryValue(code))"
         case .sso(let t):
