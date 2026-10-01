@@ -20,7 +20,7 @@ const ciFile = ".github/workflows/ci.yml"
 // mistake, not an empty suite). It recomputes the shards from scratch, as
 // a CI shard does.
 func checkPartition(root string, p *plan, t timings, profile string, n int) error {
-	shards, lists, err := integrationShards(root, p, t, profile, n)
+	shards, _, lists, err := integrationShards(root, p, t, profile, n, true)
 	if err != nil {
 		return err
 	}
@@ -57,22 +57,23 @@ func checkPartition(root string, p *plan, t timings, profile string, n int) erro
 }
 
 // checkAlone: each of the plan's alone patterns names a sharded suite's
-// test, and a local run of every shard at once (which moves those tests
-// after the shards) still runs every sharded test exactly once.
+// test, and a local run of every shard at once (the alone tests split off
+// before the shards share the rest, run after them) still runs every
+// sharded test exactly once.
 func checkAlone(root string, p *plan, t timings, profile string) error {
-	shards, _, err := integrationShards(root, p, t, profile, p.Shards)
+	shards, alone, lists, err := integrationShards(root, p, t, profile, p.Shards, false)
 	if err != nil {
 		return err
 	}
 	var problems []string
 	seen := map[string]int{}
-	var alone []unit
 	matched := make([]bool, len(p.Alone))
 	for _, sh := range shards {
-		var keep []unit
-		keep, alone = splitAlone(p, sh, alone)
-		for _, u := range keep {
+		for _, u := range sh {
 			seen[u.key()]++
+			if p.alone(u.key()) {
+				problems = append(problems, u.key()+" is alone but in a shard")
+			}
 		}
 	}
 	for _, u := range alone {
@@ -83,10 +84,13 @@ func checkAlone(root string, p *plan, t timings, profile string) error {
 			}
 		}
 	}
-	for _, sh := range shards {
-		for _, u := range sh {
-			if seen[u.key()] != 1 {
-				problems = append(problems, fmt.Sprintf("%s runs %d times", u.key(), seen[u.key()]))
+	for _, s := range p.Suites {
+		if s.Job != "" {
+			continue
+		}
+		for _, name := range lists[s.Name] {
+			if k := s.Name + "/" + name; seen[k] != 1 {
+				problems = append(problems, fmt.Sprintf("%s runs %d times", k, seen[k]))
 			}
 		}
 	}

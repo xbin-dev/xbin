@@ -176,8 +176,9 @@ func parseShardFlags(name string, args []string) (shardFlags, error) {
 }
 
 // planned is every shard's and job's steps: "1/N"…"N/N", then each job.
-// Without -shard (every shard at once) the plan's alone tests leave their
-// shards for after: the steps run once the shards are done.
+// Without -shard (every shard at once) the plan's alone tests are split
+// from the rest, which the shards share: their steps run once the shards
+// are done.
 func planned(root string, p *plan, t timings, f shardFlags) ([]string, map[string][]step, []step, error) {
 	n := p.Shards
 	if f.shard != "" && strings.Contains(f.shard, "/") {
@@ -186,27 +187,17 @@ func planned(root string, p *plan, t timings, f shardFlags) ([]string, map[strin
 			return nil, nil, nil, err
 		}
 	}
-	shards, _, err := integrationShards(root, p, t, f.profile, n)
+	shards, alone, lists, err := integrationShards(root, p, t, f.profile, n, f.shard != "")
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	w := floor(t[f.profile])
-	var (
-		names []string
-		alone []unit
-	)
+	var names []string
 	out := map[string][]step{}
 	for i, sh := range shards {
 		k := fmt.Sprintf("%d/%d", i+1, n)
 		names = append(names, k)
-		if f.shard == "" {
-			sh, alone = splitAlone(p, sh, alone)
-		}
 		out[k] = suiteSteps(p, sh, w, f.execWrap)
-	}
-	lists, err := listSuites(root, p)
-	if err != nil {
-		return nil, nil, nil, err
 	}
 	for _, j := range p.jobs() {
 		var units []unit
@@ -226,21 +217,7 @@ func planned(root string, p *plan, t timings, f shardFlags) ([]string, map[strin
 		}
 		return []string{f.shard}, out, nil, nil
 	}
-	sort.Slice(alone, func(i, j int) bool { return alone[i].key() < alone[j].key() })
 	return names, out, suiteSteps(p, alone, w, f.execWrap), nil
-}
-
-// splitAlone moves sh's alone units onto alone; returns the rest of sh.
-func splitAlone(p *plan, sh, alone []unit) ([]unit, []unit) {
-	var keep []unit
-	for _, u := range sh {
-		if p.alone(u.key()) {
-			alone = append(alone, u)
-		} else {
-			keep = append(keep, u)
-		}
-	}
-	return keep, alone
 }
 
 func cmdList(root string, args []string) error {

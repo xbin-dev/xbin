@@ -382,13 +382,15 @@ func assign(units []unit, n int, weight map[string]float64, overhead map[string]
 }
 
 // integrationShards lists the plan's sharded suites (those without a job)
-// and splits them into the plan's shards by profile's timings.
-func integrationShards(root string, p *plan, t timings, profile string, n int) ([][]unit, map[string][]string, error) {
+// and splits them into n shards by profile's timings. Without withAlone the
+// plan's alone tests are left out of the split and returned on their own
+// (every shard at once on one host: they run after the shards).
+func integrationShards(root string, p *plan, t timings, profile string, n int, withAlone bool) ([][]unit, []unit, map[string][]string, error) {
 	lists, err := listSuites(root, p)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	var units []unit
+	var units, alone []unit
 	overhead := map[string]float64{}
 	for _, s := range p.Suites {
 		overhead[s.Name] = s.Overhead
@@ -396,7 +398,12 @@ func integrationShards(root string, p *plan, t timings, profile string, n int) (
 			continue
 		}
 		for _, n := range lists[s.Name] {
-			units = append(units, unit{s.Name, n})
+			u := unit{s.Name, n}
+			if !withAlone && p.alone(u.key()) {
+				alone = append(alone, u)
+			} else {
+				units = append(units, u)
+			}
 		}
 	}
 	shards := assign(units, n, floor(t[profile]), overhead)
@@ -412,7 +419,7 @@ func integrationShards(root string, p *plan, t timings, profile string, n int) (
 			return sh[i].test < sh[j].test
 		})
 	}
-	return shards, lists, nil
+	return shards, alone, lists, nil
 }
 
 // floor gives every measured weight a small minimum, so tests measured at
