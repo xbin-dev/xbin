@@ -24,7 +24,7 @@ export class BxAdminTerminals extends WithRouter(LitElement) {
     label.sw { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; margin-top: 8px; }
     .hint { color: var(--bx-muted, #868f9a); font-size: 12px; }
     .state { margin-top: 8px; font-size: 12px; }
-    .bad { color: var(--bx-red, #e5534b); font-size: 12px; margin-top: 8px; }
+    .bad { color: var(--bx-red, #ef5350); font-size: 12px; margin-top: 8px; }
   `];
 
   constructor() { super(); this._state = null; this._busy = false; }
