@@ -190,8 +190,20 @@ also signs Claude Code in without a terminal (its guided sign-in, D179):
 sign-in — this manager sees those as any exec, deleted once the sign-in is
 over. A saved sign-in reaches a coding agent as an `env` entry of its
 exec request (`CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_API_KEY`, …), only in a
-sandbox the person owns and shares with no one: the manager passes it to
-the process and keeps it nowhere (an exec's record lists no `env`).
+sandbox the person owns and shares with no one (visibility unset or
+`private`, no members, no shares) and no hosted conversation used: the
+manager passes it to the process and keeps it nowhere (an exec's record
+lists no `env`). The agent's `setup-token` runs the image's own `claude`
+(found on the image's directories, not the sandbox's `PATH`) with an
+empty environment and a throwaway `HOME`. When codex is handed a key
+(it writes `~/.codex/auth.json`), the agent removes that file with a
+`/run` whose `stdin` carries the key to match — never its argv. **The
+trust base** (D179): this manager receives each saved secret in an
+exec request and can read a running process's environment, so its
+operators — like xbind's admins — are trusted by every person whose
+saved sign-in reaches a sandbox here; and a same-user process in the
+person's own sandbox can read the agent's environment (the agent template
+redacts what the agent prints, not what such a process does).
 
 The first sandbox of an image builds it: a template sandbox of its own is
 made and prepared, the script runs in it **as root** in the workdir (with

@@ -31,12 +31,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   ("Personal", "Work"), one per coding agent the default, and go into a
   coding agent's environment — winning over the sandbox's own sign-in —
   only in the person's own conversation, in a sandbox of theirs no one
-  else uses; never copied into a sandbox's home. A conversation shows
+  else uses and no hosted conversation ever worked in; never copied into
+  a sandbox's home (Codex, which writes a key it is handed to its
+  `auth.json`, has that file removed at once, before a switch, a share
+  and at Forget). Whatever a coding agent prints is redacted before it
+  is kept or shown: its secret, and anything shaped like an Anthropic
+  token, become `[redacted]`. `setup-token` runs the image's own `claude`
+  with an empty environment and a throwaway home. Sharing a sandbox
+  through the agent first stops the coding agents holding a saved
+  sign-in there (or refuses: 502); a new secret stops the ones on the
+  old one. A conversation shows
   `· using Work` on its coding agent's ▾ and switches account there (`PUT
   /runs/{id}/harness/signin`): the adapter restarts with the other sign-in
   and resumes the same session. A refused one is marked and left out
   until signed in again; it warns 14 days before it expires; Forget stops
-  the coding agents using it. Unpartitioned agents keep the per-sandbox
+  the coding agents using it, and a conversation that had picked it uses
+  the sandbox's own sign-in (never the default) until another is picked.
+  A person's space stopping stops their resting coding agents that hold
+  one. Residual risk, in the template's API.md: a process of the person's
+  own in their sandbox can read the coding agent's environment; the
+  coding-sandbox's operators and xbind's admins are in the trust base.
+  Unpartitioned agents keep the per-sandbox
   sign-in (and the guided one); the shared space has none. Also: an API
   key now reaches Gemini CLI's `authenticate` in the shape it reads (the
   key itself — it read the object it was sent as no key), and a sandbox

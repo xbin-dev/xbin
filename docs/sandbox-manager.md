@@ -258,7 +258,9 @@ consumer runs one as a non-`tty` exec with `stdin: true`. Each is
   setup-token` as a `tty` exec, for a person's saved sign-in) and reads
   its link from the output — and may hand a person's saved credential to
   a coding agent as an exec's `env`, never into `home`: to the manager
-  these are execs like any other.
+  these are execs like any other. A manager receives such a credential
+  and can read a running process's environment, so its operators are in
+  the trust base of every person whose saved sign-in reaches it.
 
 The list is the manager's word about the image, not a probe (an image's
 installs can fail): a consumer may check with `command -v <argv[0]>` through

@@ -239,12 +239,20 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   variables the CLI reads a credential from (`CLAUDE_CODE_OAUTH_TOKEN` or
   `ANTHROPIC_API_KEY`, `CODEX_API_KEY`, `GEMINI_API_KEY`, opencode's
   provider keys) and `p.KeyFor(value)` the one a pasted value goes to, by
-  its prefix (D179). `acp.Fake(argv)` is the scripted test agent
+  its prefix (D179); `p.AuthFile` (codex's
+  `${CODEX_HOME:-$HOME/.codex}/auth.json`, a shell word) is where the CLI
+  writes a key handed to its `authenticate` — a consumer that hands one
+  over removes it from there (the agent template: right after, before a
+  start with another sign-in, before a share, at Forget). `acp.Fake(argv)`
+  is the scripted test agent
   (`hack/fakeacp`) as a provider, id `fake`; it is never in the catalog.
   With `--require-login` it counts a credential in its environment as
   Claude Code does (`CLAUDE_CODE_OAUTH_TOKEN`, else `ANTHROPIC_API_KEY`:
-  over `$HOME`'s; one holding `refused` fails every prompt) and `whoami`
-  says which sign-in a turn used.
+  over `$HOME`'s; one holding `refused` fails every prompt, its error
+  echoing it) and `whoami` says which sign-in a turn used; with
+  `--codex-auth` it signs in as codex does (a key through `authenticate`,
+  kept in `auth.json` and in memory); `printenv N` prints its own
+  environment variable N as Claude Code's Bash tool would.
 - **Prompts with files.** `acp.PrepareAttachments` checks and normalises
   them (limits: `acp.Max*`). Each file is first dropped where the agent
   runs — `ClientOptions.Drop` returns the path — then an image goes inline

@@ -10114,9 +10114,8 @@ Deviations and refinements made while implementing; all deliberate:
     (`credAuthenticate`). Codex then keeps it in its own
     `~/.codex/auth.json` (its file store; `-c
     cli_auth_credentials_store="ephemeral"` would keep it in memory, but
-    codex-acp passes no flags to its app-server): in a private sandbox of
-    the person's only, by the gate, and Forget doesn't reach it there —
-    said in API.md.
+    codex-acp passes no flags to its app-server) — removed by the agent
+    since the security review (the amendment below).
   - **Switching accounts within a session resumes the same session.**
     `PUT …/harness/signin` stores the pick and, for an adapter at rest,
     an `hswitch` inbox row stops it (state stopped, the session id and
@@ -10168,6 +10167,90 @@ Deviations and refinements made while implementing; all deliberate:
   - **Open:** Remember mints Claude Code only (the others have no mint:
     paste a key); a live check of setup-token's success lines (the
     capture ends at the code prompt — success is the token itself, a
-    refusal "OAuth error"); codex's own copy of a saved key in its
-    `auth.json` (above); a partition's purge takes the vault — a person's
-    saved sign-ins go with their removal, as everything of theirs does.
+    refusal "OAuth error"); a partition's purge takes the vault — a
+    person's saved sign-ins go with their removal, as everything of
+    theirs does.
+  - **Amended 2026-10-01 (the security review of f41f94ec).** Every
+    finding checked against the code held; each fix has its regression
+    test (harness_signin_review_test.go; TestCredGate,
+    TestGuidedRemember, TestSavedSigninRefused).
+    - *M1 — a hosted conversation could plant a reader for the host's
+      token.* `hostedHarnessRefusal` is one-way (a hosted conversation is
+      kept out of a sandbox only after the host's coding agent worked
+      there). Now every use of a sandbox by a hosted (non-secure)
+      conversation is recorded first, for good (`sandboxUse` →
+      `hosted_sandboxes`), and the gate gains (e): no hosted conversation
+      ever worked in the sandbox — a saved sign-in never goes in, nor
+      does Remember mint there, with a note saying why (create another
+      sandbox). The other direction stood: a hosted conversation is
+      refused a sandbox any coding agent of the host's ran in.
+    - *M2 — codex kept the key.* codex 0.156 offers no ephemeral store
+      a consumer can reach (no env override; codex-acp passes no flags),
+      so the agent removes `${CODEX_HOME:-~/.codex}/auth.json`
+      (`Provider.AuthFile`, a field of the catalog) when it holds the key
+      — matched by the key itself, sent on the `/run`'s stdin, never in
+      an argv — right after the hand-over (codex keeps the key in
+      memory: probed, it stays signed in with the file gone), before
+      every start with another sign-in or the sandbox's own (so a switch
+      switches: codex would otherwise start signed in by the file and
+      the chip name the wrong account), before a share through the
+      agent, and at Forget in every sandbox codex ran in. A failed
+      removal is kept (`harness_sessions.scrub`) and refuses the next
+      start until it's done; a pending one is matched by the file's
+      API-key mode (the secret may be gone). Codex signed in on its own
+      in a sandbox is left alone, the saved sign-in not named as in use,
+      a note saying so. Gemini 0.60 keeps a key handed to `authenticate`
+      in memory only (`saveApiKey` is the interactive CLI's).
+    - *M3 — anything the agent starts can print the secret.* The
+      adapter's stdout is redacted before the client reads it
+      (harness_redact.go): the generation's exact secret, and any
+      Anthropic-token-shaped string, become `[redacted]***…` of the same
+      length — whole lines (an ACP frame is one; a partial line waits for
+      its newline), so `read_off` stays the adapter's and a successor
+      resumes where it should; a ring gap goes on once, after the bytes
+      before it. So the rows, events, an AgTT parent's context and notes
+      never hold it; `/harness/log`, the log lines and a refusal's stored
+      words (`refused_why`, N18) are redacted too. Claude Code 2.1.280's
+      `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` was checked and not used: it is
+      a GitHub-Actions isolation mode that needs bubblewrap (none in the
+      rootfs; it throws without it) and writes stub dotfiles into HOME.
+      codex's default shell environment policy already leaves out
+      `*KEY*`/`*TOKEN*`/`*SECRET*`.
+    - *L5* — Remember's gate is checked again, on the sandbox as it is
+      now, before the code goes in; a share through the agent ends the
+      guided sign-ins there first. *L6, N19* — a sign-in's exec is
+      recorded (`harness_signin_execs`, by clientId) before `ExecStart`
+      until the manager took its delete, which is retried with backoff
+      and swept at the next takeover (only rows from before it);
+      `ExecStart` and the code exchange run on contexts of their own.
+      *L7* — a Mint's errors never show the CLI's last line (a token in a
+      format the scan doesn't know would be it); refusal lines are
+      token-masked. *L8* — a share through `PATCH /sandboxes/{ref}`
+      first ends the sign-ins there, kills (and waits for) the adapters
+      holding a saved sign-in and removes codex's file — or refuses the
+      share (502). *L9* — `sandboxPrivate` is an allow-list: visibility
+      "" or `private`, not seen through a share, no members, no shares.
+      *L10* — a forgotten pick falls back to the sandbox's own sign-in
+      with a note, never to the default (another account). *L12* — the
+      Mint runs the image's own CLI (found on the rootfs's directories,
+      never the sandbox's `PATH`) under `env -i` (PATH, HOME, TERM, LANG
+      only) with a throwaway HOME, removed after: a shim in
+      `~/.local/bin`, `NODE_OPTIONS` or a settings hook can't see the
+      token; an image whose own directories were altered is out of scope.
+      *L13* — verified: xbind gives a partition no hook before a purge.
+      A person's partition stopping (idle, an update) now kills, waiting
+      for the manager, each adapter of theirs that rests with a saved
+      sign-in (the next message starts it again with `session/load`); one
+      at work when a person is deleted runs on until it ends or its
+      sandbox stops. *N14* — a new secret (a paste over it, a paste or
+      Remember under its name) stops the coding agents on the old one.
+      *N17* — the saved name comes back in `guidedCode`'s result.
+      `cleanSecret` refuses `" \ < > &` (a key file holds the key
+      verbatim, so its removal can find it). `hsess.cred` became atomic.
+    - *Residual risk (N20).* A same-user process in the person's own
+      private sandbox — anything they or a coding agent of theirs started
+      there — can read the adapter's environment; the gate keeps everyone
+      else's out. The coding-sandbox's operators (they receive the secret
+      in the exec request and can read a process's environment) and
+      xbind's admins are in the trust base; so is the image. Said in both
+      API.md files.
