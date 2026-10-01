@@ -3,7 +3,7 @@
 # files change without a version bump; regenerate with UPDATE_TILE_VERSIONS=1 (see the test).
 chat 3 sha256:aab975239e32b82042bf97811111ee9fdd666a8e8c9ee89c090ed08152354750
 egress-approver 3 sha256:c17bc58fd10fd89205a5917521b6242ae6dd66bb0095767abf87bfd3d06090a7
-llm-gw 8 sha256:7e7d1876f2ca4c3d87bacd0171faa3add4b0778a88c55977e8ab741e43ee5c2a
+llm-gw 9 sha256:696047f4a765f55d97d56a7137486ba0d4d5133fab8c37231ccfe7d308d09a57
 prometheus-viewer 3 sha256:e3a9eb24f0c6eebfda499ce63dd2fe8f98a26a6b5cd8d1823f0019b9f0cfe542
 s3-archiver 3 sha256:f4f855f11e487539b7e3a16b094d5394287b4f684607ff4a5ae16fb607091a6b
 sandbox-terminal 8 sha256:a3f09268a60cd9080cb3f40afa050fcb96735cff4be2d896dcf047491add1246
