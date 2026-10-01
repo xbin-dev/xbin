@@ -1829,6 +1829,25 @@ PUT    /native-runtime            admin. {enabled: bool} → the same view.
                                    answers 410 with the reason (&preview=1
                                    still served). Kept in users.json;
                                    publishes `native`; audited
+GET    /workspace-settings        authenticated. {baseAutoUpdate, error?} —
+                                   the workspace settings an admin sets
+                                   (D173). baseAutoUpdate (default true): a
+                                   tile's terminal layer built on an older
+                                   base image moves to the current base at
+                                   its next session start (its apt installs
+                                   and /etc changes are reset; files and
+                                   $HOME kept; a running session keeps its
+                                   base until it ends); false: it stays, and
+                                   the terminal window offers the base
+                                   update. error: the file can't be read —
+                                   base auto-update is off until it is fixed
+PUT    /workspace-settings        admin. {baseAutoUpdate?: bool}: each
+                                   present key replaces its setting, an
+                                   absent one is left alone; an unknown key
+                                   or no key is 400 → the full view; audited.
+                                   Kept in data/workspace-settings.json,
+                                   whose other keys (a newer xbind's) are
+                                   kept; an older xbind ignores the file
 GET    /chrome                    admin. {tiles: [{path, requested,
                                    approved, shipped?, chrome, missing?}]} —
                                    every component whose xbin.json says
@@ -3496,8 +3515,8 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   its impact report, access, users, orgs, sets, policy, defaults, screen
   writes, and every admin API (backups, the vault barrier, vaults,
   resources, auth-overview, backends, runtime, ingress, gpus, the VM policy,
-  token rotation, view-as, the native-runtime, chrome and branding writes,
-  push config and devices). Deciding a PR (`POST /code/pr/state`) is
+  token rotation, view-as, the native-runtime, chrome, branding and
+  workspace-settings writes, push config and devices). Deciding a PR (`POST /code/pr/state`) is
   primary-only for backends: 403 `deciding a PR is the primary's act: a
   non-primary deployment's backend can't do it (<deployment>)`.
 - **Audit.** A tile credential acting in a deployment other than `main`
@@ -4533,6 +4552,7 @@ DELETE /ws/term?session=<id>       end a session now (creator or admin) → 204
 DELETE /ws/term/env?cwd=<p>        terminal level on the tile: wipe its persistent
                                    terminal layer back to the base rootfs → 204
 GET    /ws/term/env?cwd=<p>        that layer's state → {exists, baseOutdated,
+                                   baseAutoUpdate,
                                    vm:{available,reason,memMiB,vcpus}}
 ```
 
@@ -4640,7 +4660,8 @@ The frames are [the terminal wire](#the-terminal-wire) (below), with
     pick on this tile, `label` names the effective scope, `netNote` explains a
     clamp; `baseOutdated:true` ⇒ this terminal's persistent layer was built on
     an older base image — reset it via `/ws/term/env` to rebuild on the
-    current base; `echoAck:true` ⇒ this xbind sends the `ack` and `pong`
+    current base (with the workspace's base auto-update on, the session's
+    next start does that by itself, D173); `echoAck:true` ⇒ this xbind sends the `ack` and `pong`
     frames below; `deployment` = the named target, or the current primary's
     name for a session that asked for the primary by name — the echo a client
     checks, since an older xbind ignores `?deployment=`; `targetNote` = a line
@@ -4680,9 +4701,17 @@ component's terminal has its own persistent overlay layer (`.xbin/term/<key>/`)
 so system-level changes survive across sessions — a resettable dev sandbox
 (`docs/isolation.md` §The dev layer). Workspace files and `$HOME` persist independently.
 `GET /ws/term/env?cwd=<component-path>` (same gate) reports that layer
-without opening a terminal: `{"exists":bool,"baseOutdated":bool}` —
+without opening a terminal: `{"exists":bool,"baseOutdated":bool,"baseAutoUpdate":bool}` —
 `baseOutdated` as on the session frame, so the terminal window offers the
-base update on its session chooser too.
+base update on its session chooser too; `baseAutoUpdate` is the
+workspace's setting (`GET /api/xbin/workspace-settings`, D173): while it is
+on, the next session that opens the layer — no other session holding it —
+moves it to the current base first (its upper and VM disk removed as the
+reset removes them), and the shell's first output is one grey line saying
+so (`xbin: this tile's terminal layer moved to the new base image — …`).
+A running session is never moved. A layer whose base isn't installed any
+more moves the same way; with the setting off, such a layer fails to open
+(reset it) and keeps xbind from booting, as before.
 
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 xbind restart kills them (run `tmux` inside if you care).

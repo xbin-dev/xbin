@@ -26,6 +26,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/util"
+	"github.com/xbin-dev/xbin/internal/wssettings"
 )
 
 type Server struct {
@@ -41,6 +42,8 @@ type Server struct {
 	// set from the admin tile, shown by the shell and the sign-in pages. nil
 	// (tests) = xbin's own.
 	Brand *branding.Store
+	// Settings is the workspace settings file (D173, wssettings.go); nil = none.
+	Settings *wssettings.Store
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
@@ -321,8 +324,9 @@ func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleTermEnv reports a component's persistent terminal layer (?cwd=):
-// {exists, baseOutdated} — so the terminal window can offer the base update
-// before any terminal is open (GET /ws/term/env) — and whether a VM terminal
+// {exists, baseOutdated, baseAutoUpdate} — so the terminal window can offer
+// the base update, or say the next session moves to it (D173), before any
+// terminal is open (GET /ws/term/env) — and whether a VM terminal
 // can open ({vm: {available, reason}}, plans/vm-sandbox.md).
 func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {
 	cwd, ok := termEnvGate(w, r)
@@ -330,7 +334,7 @@ func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exists, old := s.Term.EnvStatus(cwd)
-	WriteJSON(w, http.StatusOK, map[string]any{"exists": exists, "baseOutdated": old, "vm": s.Term.VMStatus()})
+	WriteJSON(w, http.StatusOK, map[string]any{"exists": exists, "baseOutdated": old, "baseAutoUpdate": s.Term.BaseAutoUpdateOn(), "vm": s.Term.VMStatus()})
 }
 
 // termEnvGate: a tile's dev layer is the terminal plane (it IS the terminal's
