@@ -6785,6 +6785,22 @@ Deviations and refinements made while implementing; all deliberate:
   — kept in their vault, handed to the CLI in its environment only in a
   sandbox of theirs no one else uses — win over the sandbox HOME's; an
   API key reaches each adapter's `authenticate` in its own shape.*
+  *Noted 2026-10-02 (deflake/harness-pipe-lost): TestHarnessPipeLost/stdio_drop
+  failed on CI (job 110604971403) when its prompt, sent the moment the
+  test cut the stdio socket, beat the pipe's reader to the drop: it went
+  on the dead socket, the pipe gave it up by the at-most-once rule above
+  ("may not have reached the command — not sent again"), and the test,
+  with no `Dropped` wired, waited on a turn nothing would end — every time
+  with one P (`-cpu 1`), 12 of 80 under load. The test's race, not the
+  product's: in AgTT `Dropped` abandons the call and the turn ends "send it
+  again" (TestHarnessStdioDropNoDoubleSend). The subtest now prompts once
+  the pipe has attached again; the other order is a subtest of its own,
+  made certain (the manager swallows the prompt, then the socket drops):
+  `Dropped` hears of it once and it is never sent twice. ACCEPTED: a
+  message sent in the instant a socket drops fails "send it again" even
+  when the drop came first — the client can't tell a frame written after
+  the manager closed from one it read before closing, and the contract has
+  no stdin offset to ask on the next attach.*
 
 - **D148 — Partitioned tiles, F5: people's partitions' vaults,
   registrations and records (2026-09-30).** Implements the vault,

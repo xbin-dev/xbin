@@ -159,12 +159,18 @@ func evIs(typ, key, contains string) func(acp.Event) bool {
 // running session when st is given — and waits for it to be ready.
 func pipeClient(t *testing.T, p *harnessPipe, prefix string, st *acp.SessionState) (*acp.Client, *hpEvents) {
 	t.Helper()
+	return pipeClientOf(t, p.Process(), prefix, st)
+}
+
+// pipeClientOf is pipeClient over a pipe's process as the test shaped it.
+func pipeClientOf(t *testing.T, proc *acp.Process, prefix string, st *acp.SessionState) (*acp.Client, *hpEvents) {
+	t.Helper()
 	caps := acp.ClientCapabilities{Meta: map[string]any{"terminal_output": true}, Elicitation: &acp.ElicitationCaps{Form: &struct{}{}}}
 	c := acp.NewWith(acp.ClientOptions{Caps: &caps, IDPrefix: prefix, Attach: st})
 	argv := acptest.Command()
 	ev := watchEvents(c)
 	cfg := acp.Config{Provider: acp.Fake(argv), Argv: argv, Perms: acp.NewPermissions(), Log: func(s string) { t.Log("acp:", s) },
-		Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return p.Process(), nil }}
+		Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return proc, nil }}
 	if err := c.Start(context.Background(), cfg); err != nil {
 		t.Fatalf("start: %v%s", err, ev.dump())
 	}
@@ -483,6 +489,31 @@ func TestHarnessPipeGap(t *testing.T) {
 type hpCutter struct {
 	mu    sync.Mutex
 	conns []net.Conn
+	n     int           // sockets served in all
+	ch    chan struct{} // closed at the next one served (nil: nobody waits)
+}
+
+// attached waits until the manager has served n stdio sockets in all.
+func (k *hpCutter) attached(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.After(20 * time.Second)
+	for {
+		k.mu.Lock()
+		got := k.n
+		if k.ch == nil {
+			k.ch = make(chan struct{})
+		}
+		ch := k.ch
+		k.mu.Unlock()
+		if got >= n {
+			return
+		}
+		select {
+		case <-ch:
+		case <-deadline:
+			t.Fatalf("%d stdio sockets served in 20 s, not %d", got, n)
+		}
+	}
 }
 
 func (k *hpCutter) wrap(h http.Handler) http.Handler {
@@ -515,14 +546,38 @@ func (h *hpHijack) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if err == nil {
 		h.k.mu.Lock()
 		h.k.conns = append(h.k.conns, c)
+		h.k.n++
+		if h.k.ch != nil {
+			close(h.k.ch)
+			h.k.ch = nil
+		}
 		h.k.mu.Unlock()
 	}
 	return c, rw, err
 }
 
+// hpWrites is a process's stdin that says when a frame of a request of
+// method has been written (the client writes one frame per Write, on a
+// goroutine of its own).
+type hpWrites struct {
+	io.WriteCloser
+	method string
+	done   chan error
+}
+
+func (w *hpWrites) Write(b []byte) (int, error) {
+	n, err := w.WriteCloser.Write(b)
+	if f := frameOf(b); f != nil && f.method == w.method {
+		w.done <- err
+	}
+	return n, err
+}
+
 // An exec that is gone — the manager says lost (410), or doesn't know it
 // (an attach after it was forgotten) — ends the stream with Lost; a stdio
-// socket that drops is attached again from where reading got.
+// socket that drops is attached again from where reading got, and a
+// request that was on its way when it dropped is given up on, never sent
+// twice.
 func TestHarnessPipeLost(t *testing.T) {
 	t.Run("410", func(t *testing.T) {
 		tg, m := pipeSandbox(t, nil, false, nil)
@@ -553,6 +608,12 @@ func TestHarnessPipeLost(t *testing.T) {
 		})
 	})
 	t.Run("stdio drop", func(t *testing.T) {
+		// the socket drops while the session is idle: the next turn goes on
+		// the socket attached again. The prompt waits for that attach: one
+		// written before the pipe has seen the drop rides the dead socket
+		// and is given up on (at most once — the next subtest's case). Sent
+		// at once, which case this was was the scheduler's pick (with one
+		// P always the other: the reader runs only once the test blocks)
 		k := &hpCutter{}
 		tg, m := pipeSandbox(t, k.wrap, true, nil)
 		ctx := context.Background()
@@ -561,9 +622,13 @@ func TestHarnessPipeLost(t *testing.T) {
 			t.Fatal(err)
 		}
 		c, ev := pipeClient(t, p, "h7.1", nil)
+		if !p.delivered(20 * time.Second) { // nothing on its way when it drops
+			t.Fatal("the session's frames were never acknowledged")
+		}
 		if n := k.cut(); n != 1 {
 			t.Fatalf("%d sockets", n)
 		}
+		k.attached(t, 2) // the pipe let the dead one go before it dialed again
 		if err := c.Send(ctx, "after the drop"); err != nil {
 			t.Fatal(err)
 		}
@@ -578,6 +643,76 @@ func TestHarnessPipeLost(t *testing.T) {
 		}
 		c.Close()
 		_ = tg.Conn.ExecDelete(ctx, tg.ID, p.ExecID())
+	})
+	t.Run("stdio drop under a prompt", func(t *testing.T) {
+		// the other order, made certain: the prompt goes on a socket that is
+		// dead before a pong acknowledged it — the manager swallows what the
+		// client sends — and then it drops (as when a prompt beats the reader
+		// to a socket the manager closed). The command may or may not have
+		// it, so it is given up on, never sent again: Dropped hears of it
+		// once — the engine ends its turn there, "send it again" — and the
+		// next prompt goes on the socket attached again
+		d := &hDropper{}
+		tg, _ := pipeSandbox(t, d.wrap, true, nil)
+		dropped := make(chan string, 4)
+		tg.Dropped = func(id json.RawMessage, method string) { dropped <- method + " " + string(id) }
+		ctx := context.Background()
+		p, err := startHarnessPipe(ctx, tg, fakeSpawn(7, 1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		proc := p.Process()
+		wrote := &hpWrites{WriteCloser: proc.Stdin, method: acp.MSessionPrompt, done: make(chan error, 4)}
+		proc.Stdin = wrote
+		c, ev := pipeClientOf(t, proc, "h7.1", nil)
+		if !p.delivered(20 * time.Second) { // session/new's pong in: only the prompt goes unacknowledged
+			t.Fatal("the session's frames were never acknowledged")
+		}
+		if n := d.each(func(c *hDropConn) { c.hole.Store(true) }); n != 1 {
+			t.Fatalf("%d sockets", n)
+		}
+		if err := c.Send(ctx, "lost on its way"); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-wrote.done: // the pipe has put it on the (dead) socket
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("the prompt was never written")
+		}
+		id := c.State().PromptRPC
+		d.cut()
+		select {
+		case got := <-dropped:
+			if want := acp.MSessionPrompt + " " + string(id); got != want {
+				t.Fatalf("dropped %q, not %q", got, want)
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatalf("Dropped never heard of the prompt:%s", ev.dump())
+		}
+		if !c.Abandon(id, "it dropped on its way") {
+			t.Fatal("nothing waited on the prompt")
+		}
+		ev.wait(t, "the failed turn", evIs(acp.EvTurnEnd, "stopReason", "error"))
+		if err := c.Send(ctx, "after the drop"); err != nil {
+			t.Fatal(err)
+		}
+		ev.wait(t, "the next turn", evIs(acp.EvMessageDelta, "text", "echo: after the drop"))
+		ev.wait(t, "its end", evIs(acp.EvTurnEnd, "stopReason", "end_turn"))
+		for _, e := range ev.all() { // in order on stdin: sent again, it would have come first
+			if evIs(acp.EvMessageDelta, "text", "echo: lost on its way")(e) {
+				t.Fatalf("the dropped prompt was sent again:%s", ev.dump())
+			}
+		}
+		select {
+		case more := <-dropped:
+			t.Fatalf("dropped again: %s", more)
+		default:
+		}
+		c.Close()
+		hpWaitDone(t, p, "close")
 	})
 	t.Run("stdio drop after a handoff", func(t *testing.T) {
 		// the session is another process's now (Guard): attaching again would
