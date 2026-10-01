@@ -263,11 +263,15 @@ nothing else.
    | no barrier, no env | starts **locked** — refused until an admin sets it up |
 
 10. **Isolation wiring** (`--isolate` + `--rootfs`): egress/GPU/net-provider/
-    ingress hooks into the runner; terminal sandboxes get the same base. Two
-    hard gates here: unprivileged userns must work, and **`CheckBaseImages`
-    aborts startup** if a terminal's persistent layer pins a base-image
-    version that no longer exists — a base upgrade must preserve old bases
-    (the installer does), or dev layers would corrupt.
+    ingress hooks into the runner; terminal sandboxes get the same base. One
+    hard gate here: unprivileged userns must work. **`CheckBaseImages`** logs
+    every terminal layer that pins a base-image version that no longer
+    exists — a base upgrade must preserve old bases (the installer does);
+    such a terminal refuses to start until it is reset (or moves to the
+    current base, with base auto-update on), so its dev layer never
+    corrupts. It used to abort startup (until D174). It also has the
+    background remover finish the layers a move put aside
+    (`.xbin/term-moved/`) that a restart cut short.
 11. **HTTP wiring**: the server + broker APIs; the **gateway unix socket**
     (components' API door) serving the same handler; ingress stream
     listeners/forward sockets reconciled; the optional ingress HTTP listener;
@@ -409,7 +413,7 @@ changes, the old `rootfs` is preserved as `rootfs-<ver>` so pinned terminal
 layers and tile sandboxes keep working until they upgrade (then GC'd by xbind).
 Terminal layers upgrade at their next session start while the workspace's
 base auto-update is on, the default ([09-terminals.md](09-terminals.md)
-§Base images, D173).
+§Base images, D174).
 
 Two operator contracts around an upgrade:
 

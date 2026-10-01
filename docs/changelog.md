@@ -15,23 +15,35 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **BREAKING: terminals move to a new base image by themselves — base
   auto-update, a workspace setting, on by default**
   ([changes/2026-10-01-base-auto-update.md](/docs/changes/2026-10-01-base-auto-update.md),
-  [09-terminals.md](/docs/overview/09-terminals.md) §Base images, D173).
+  [09-terminals.md](/docs/overview/09-terminals.md) §Base images, D174).
   A tile's terminal layer built on an older base image now moves to the
   current base at its next session start: it is reset as **⬆ base
-  update** resets it (apt installs and `/etc` changes go; files and
-  `$HOME` stay), and the shell's first line says so, in grey. A running
-  terminal keeps its base until it ends. A layer whose base isn't
-  installed any more moves the same way, where xbind refused to boot. The
-  terminal window's chooser says the next session moves instead of
-  offering the button. Turn it off to keep today's behaviour: the admin
-  console's new workspace → **terminals** tab, the new **`bx settings`**
-  (`set --base-auto-update=false`), or the new `GET`/`PUT
-  /api/xbin/workspace-settings` (`{baseAutoUpdate}`, admin to change; kept
-  in `data/workspace-settings.json`, whose other keys a write keeps).
-  `GET /ws/term/env` gains `baseAutoUpdate`. Tile sandboxes are not
-  touched. This release's base ships Go 1.26.3, so with the setting on a
-  terminal no longer needs **⬆ base update** for the builtins' `go
-  1.26.0` ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+  update** resets it — everything outside the workspace files and `$HOME`
+  goes, for good (installed packages, `/etc`, `/var`, `/opt`…, a VM
+  terminal's whole disk) — and the shell's first line says so, in grey.
+  An agent session's move shows in its Agent tab (a new `notice` agent
+  event) and in the tile's next shell, once. A running terminal keeps its
+  base until it ends. The old layer is put aside and removed in the
+  background, so the session starts at once. A layer whose base isn't
+  installed any more moves the same way. The terminal window's chooser
+  says the next session moves instead of offering the button. Turn it off
+  to keep today's behaviour — before upgrading, to keep what the layers
+  hold: the admin console's new workspace → **terminals** tab, the new
+  **`bx settings`** (`set --base-auto-update=false`), or the new
+  `GET`/`PUT /api/xbin/workspace-settings` (`{baseAutoUpdate}`, admin to
+  change, publishing a `workspace-settings` event; kept in
+  `data/workspace-settings.json`, whose other keys a write keeps). `GET
+  /ws/term/env` gains `baseAutoUpdate`. Tile sandboxes are not touched.
+  This release's base ships Go 1.26.3, so with the setting on a terminal
+  no longer needs **⬆ base update** for the builtins' `go 1.26.0`
+  ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+- **xbind no longer refuses to start over a terminal layer pinned to a
+  base image that isn't installed** ([09-terminals.md](/docs/overview/09-terminals.md)
+  §Base images, D174). It logs the layer; the layer's sessions refuse to
+  start until it is reset, as they did behind the boot gate (or move, with
+  base auto-update on). A layer stamp or base version that can't be read
+  now fails a session's start, the layer untouched, instead of being read
+  as an unstamped one.
 
 ## 2026-09-30
 
