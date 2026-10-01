@@ -169,7 +169,8 @@ func (f *fake) requireLogin() *acp.Error {
 	switch tok := f.envToken(); {
 	case strings.Contains(tok, "refused"): // a credential in the env outranks $HOME, refused or not
 		_ = f.conn.Notify(acp.MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
-		return &acp.Error{Code: acp.CodeAuthRequired, Message: "Authentication required: OAuth token has been revoked"}
+		// the token echoed, as a careless adapter's error might: a consumer's redaction is tested on it
+		return &acp.Error{Code: acp.CodeAuthRequired, Message: "Authentication required: OAuth token has been revoked (" + tok + ")"}
 	case tok != "":
 		return nil
 	}
@@ -280,8 +281,9 @@ func (f *fake) codexSignIn(key string) error {
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return err
 	}
-	b, _ := json.Marshal(map[string]string{"auth_mode": "apikey", "OPENAI_API_KEY": key})
-	if err := os.WriteFile(file, b, 0o600); err != nil {
+	// as codex writes it: pretty-printed, so `"auth_mode": "apikey"` with its space
+	b, _ := json.MarshalIndent(map[string]any{"auth_mode": "apikey", "OPENAI_API_KEY": key, "tokens": nil}, "", "  ")
+	if err := os.WriteFile(file, append(b, '\n'), 0o600); err != nil {
 		return err
 	}
 	f.mu.Lock()

@@ -68,6 +68,10 @@
 //	            terminal_exit (failed on a non-zero exit)
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
 //	            wait, output → a chunk "term: <output>"
+//	printenv N  (a prefix) the agent's own environment variable N, as
+//	            Claude Code's Bash tool (a child of the agent) prints it: an
+//	            execute tool_call completed with the value as its text, the
+//	            line "hook: N=<value>" on stderr, then a chunk "printenv: <value>"
 //	whoami…     (a prefix) a chunk "account: <token …last4 | home | none>":
 //	            the sign-in a turn uses (--require-login's rules below)
 //	env         a chunk "HOME=<home> key=<yes|no> settings=<~/.claude/settings.json
@@ -109,7 +113,8 @@
 //	                 credential in the environment outranks $HOME's:
 //	                 CLAUDE_CODE_OAUTH_TOKEN (else ANTHROPIC_API_KEY) signs
 //	                 every prompt in, and one holding "refused" fails every
-//	                 prompt (-32000, the sign-out status first); with an
+//	                 prompt (-32000, the sign-out status first; its message
+//	                 echoes the token, as a careless adapter's might); with an
 //	                 OAuth token, session/new and session/load are followed by
 //	                 _auth/status_update{kind:none}, as claude-agent-acp
 //	                 0.81's `claude auth status` probe reports one
