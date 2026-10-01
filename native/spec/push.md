@@ -54,6 +54,9 @@ Three parties:
       "workspace": "<ws id>", "enabled": true|false}
    ```
 
+   The app registers `["agent", "tile", "account", "test"]` (`account` since
+   D181: without it `account.credential` never reaches the device; an older
+   xbind accepts any well-formed kind and simply never sends it).
    Keep `workspace`: every payload of this workspace carries it as `ws`.
    `enabled` false = the admin has not turned push on yet (registration still
    succeeds and starts working when they do). Re-register on every launch that
@@ -118,6 +121,32 @@ manager's switch decisions. It opens only top-level — never in a frame —
 with the person's own sign-in: an app shows it in a browser view of its own
 (signed in with a one-shot `POST /api/xbin/web-ticket`), and an app that
 doesn't know the link opens the workspace.
+
+What the iOS app does with it (D181): it parses `xbin/<page>` for the pages
+it knows (`partitions`; any other page is refused, so the notification opens
+the workspace), asks `GET /api/xbin/partitions` whether the feature is
+listed — not listed (a 404 included) or no answer: it opens the workspace —
+and only then shows the page full screen in a web view with no tile bridge
+and the chrome cookie store, loading the ticket's URL with `next`
+`/xbin/partitions`. A refused or failed ticket is an error with Try again;
+the app never loads the plain page (a password form) and never frames it.
+Only xbind links its own pages: a tile's notification link is always under
+its `c/<tile>/` and an agent's `agent/<id>`, so a tile that names a
+`partition-…` kind still shows as that tile's (its actions, Mute included).
+
+The kinds' categories and groups (§4):
+
+| payload | category (actions) | `threadIdentifier` |
+|---|---|---|
+| `account`, `account.<kind>` | `xbin.account` — Review… (foreground, after the device is unlocked) | `<ws>/xbin/partitions` when it links the page, else `<ws>` |
+| any other kind linking `xbin/partitions` | `xbin.page.partitions` — Open your partitions (no Mute this tile) | `<ws>/xbin/partitions` |
+| `tile`, `tile.<kind>` (a tile's link), unknown kinds | `xbin.tile` — Open, Mute this tile | `<ws>` |
+| `agent.permission`, `agent.question` / `agent.turn` / `test` | as before | `<ws>` |
+
+`collapseId` collapses through the relay (APNs' collapse id) as for every
+kind. Once the partitions page has loaded, the app removes the delivered
+notifications of that workspace that link it: the page lists what they
+said (its notices, the credentials waiting, the consents asked).
 
 The deep link the app opens is `xbin://<app's workspace id>/<link>`
 (plans/native.md §4). Decoders ignore unknown fields; new kinds may appear
@@ -187,11 +216,14 @@ The Notification Service Extension:
    right one) — none opens it → leave "New activity";
 3. checks the payload's `v` = 1 and `ws` = the workspace whose key opened it
    (else treat as unopened);
-4. sets `title`, `body`, `threadIdentifier` = `ws` (grouping per workspace),
-   `userInfo` = `{ws, kind, link}`, and a category per kind (actions such as
-   "Mute this tile" call `PUT /api/xbin/push/prefs` from the app);
-5. delivers. The app, when foregrounded on the very surface the link names,
-   suppresses the banner (`willPresent`).
+4. sets `title`, `body`, `threadIdentifier` = `ws` (grouping per workspace;
+   xbind's notices linking one of its pages: `ws/xbin/<page>`, a group of
+   their own, §2), `userInfo` = `{ws, kind, link}`, and a category per kind
+   and link (§2's table; actions such as "Mute this tile" call `PUT
+   /api/xbin/push/prefs` from the app);
+5. delivers. The app, when foregrounded on the very surface the link names
+   (the partitions page included: it updates itself), suppresses the banner
+   (`willPresent`).
 
 Live Activity updates cannot be decrypted by an extension, so they carry only
 generic state (running, waiting, elapsed): §7.

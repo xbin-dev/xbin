@@ -923,7 +923,14 @@ reload paused — the "Keep dev on <branch> this time" offer confirmed from
 its dry run; the test puts the tile back in the zero state; then on
 `apps/counter` Tools → Code opens `xbin.json`, Logs shows the backend's
 log, and PRs opens a proposal the test files through the API and rejects
-it through its confirmation. Every test launches with `-XbinUITesting
+it through its confirmation.
+`XbinPartitionsTests` (D181) use the workspace's `apps/parted`, a static
+tile declaring `"partition": ["user"]` (`scripts/testdata/e2e-tiles/`):
+its row's accessibility value carries the partitioned marker's words (and
+`apps/welcome`'s doesn't), Settings → Your partitions and the push link
+`xbin://<host:port>/xbin/partitions` each open xbind's partitions page in
+the app's web view through the web ticket's "Continue as" page, with no
+password form and no page-back onto the spent ticket. Every test launches with `-XbinUITesting
 YES` (Debug builds): UIKit animations are off and the terminal's cursor
 doesn't blink, so the app idles between steps — XCUITest otherwise waited
 60 s for "animations complete" after each step with a terminal on screen

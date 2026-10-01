@@ -10382,3 +10382,106 @@ Deviations and refinements made while implementing; all deliberate:
     older xbind, the alias's note), hack/admin-settings.test.mjs (the
     console's detection), the `adminSettings` harness pass (the tab, an
     older xbind's answers, the console from before the tab).
+
+- **D181 — Partitioned tiles in the iOS app: the marker, a paused tile's
+  page, the `xbin/partitions` link and "Your partitions" (2026-10-01).**
+  native/ios: XbinCore's Client/XbindPages.swift (the page, its feature
+  gate, its ticket, the settings entry), Catalog.swift (`TilePartition`),
+  DeepLink.swift, Push.swift, Events.swift, TileLoading.swift; the app's
+  Shell/XbindPageScreen.swift, Shell/Screens/PartitionMark.swift,
+  WorkspaceModel, WebTileController's page mode, PushManager and the
+  Notification Service Extension; native/spec/push.md. Server-side the app
+  needed nothing for a tile to reach the viewer's partition (its frames and
+  native.js run with the viewer's credential, plans/partitions/10 A.4), but
+  what the plans and push.md give the app was never built: xbind's pushes
+  linking `xbin/partitions` opened the workspace, `account.credential` never
+  reached the app (it registered `agent`, `tile`, `test`), and rows had no
+  marker (06 §12.2 "the iOS app shows the same marker on tile rows").
+  - **`xbin://<ws>/xbin/<page>` names one of xbind's pages, and only the
+    pages the app knows parse** (`XbindPage`: `partitions`). An unknown
+    page is refused, so its push falls back to the workspace — what an
+    older app does with any of these links (push.md §2). The link opens
+    the page only after `GET /api/xbin/partitions` lists
+    `partitions-page/1`; not listed, a 404 (no partitions) or no answer
+    opens the workspace. Strict: no guessing from the version, no opening
+    "to see".
+  - **The page opens as a panel of the window, in a web view of its own**
+    (`Surface.page`, XbindPageScreen): top level on the workspace's origin,
+    no tile bridge, the chrome cookie store (D125: the person's own cookie
+    session, never next to a tile page), signed in by a one-shot `POST
+    /api/xbin/web-ticket {next: "/xbin/partitions"}` redeemed in that view
+    ("Continue as …" once). Unlike a chrome tile there is no fallback to the
+    plain page: a refused or failed ticket is an error with Try again (a
+    password form inside the app is the convenience fallback the owner's
+    direction rules out), and a reload mints a new ticket rather than
+    reloading a page whose cookie session may have ended. Never a tile
+    frame (xbind refuses frames anyway), never Safari: its one
+    `target=_blank` link (the docs) loads in the same view, and its
+    "← workspace" link (`/`) goes to the app's Home rather than loading the
+    web shell. A panel rather than a sheet: Settings, a notification tap
+    and a link all land the same way, back returns to where the window
+    was, a window restores onto it (asking the gate again), Handoff gives a
+    browser `/xbin/partitions`, and the banner of a notification linking
+    the page is suppressed while it is shown (it updates itself). *Amended
+    (the Mac mini's first run):* the page keeps its own theme whatever the
+    phone's appearance — xbind's dark one in a light-mode app drew the
+    bar's black title on the dark page. As under a tile page its colour
+    runs up under the bar, and the bar now follows it: that colour as a
+    visible bar background, the scheme a title reads on
+    (`toolbarColorScheme`; `PageBarScheme`: WCAG contrast, white text below
+    relative luminance ≈ 0.179) and the title drawn in that scheme's colour
+    as the bar's principal item, legible even where the scheme isn't
+    applied. Tile pages and chrome tiles show no title (only glass items,
+    which adapt), so they are left as they were.
+  - **Push kinds.** The app registers `account` too (`PushAPI.appKinds`;
+    a registration without it is renewed by the kinds check; an older
+    xbind accepts any well-formed kind — checked against v0.3.61). The
+    NSE's category and thread read the kind *and the link*: only xbind
+    links its own pages (a tile's notify link is always `c/<tile>/…`), so
+    `tile.partition-…` from a tile stays a tile's notification with "Mute
+    this tile", while xbind's notices linking the page get "Open your
+    partitions" without Mute (a tile's mute doesn't hold them back) and
+    `account.*` gets "Review…" (foreground, after the device is unlocked:
+    allowing a held sign-in is what lets someone else in). Grouping: per
+    workspace as before, and the page's notices a thread of their own
+    (`<ws>/xbin/partitions`) so a held credential isn't buried under agent
+    turns. Collapse stays the relay's `collapseId`; in addition the app
+    removes the workspace's delivered notifications linking the page once
+    it has loaded — the page lists everything they said. Unknown kinds
+    still show like `tile`.
+  - **The marker is the web shell's design A** (shell-kit.js
+    `partitionMark`): the ring of radius 3.35 stroked 1.1 with the left half
+    of the disc filled, teal `#3fb5a3` in dark mode and `#1f8778` in light
+    (shell-css.js's light-dark pair), 9 pt on rows and cards (the row's
+    status dot's size), last in a row's trailing badges (the sidebar has it
+    before its ⋯) and in a card's corner before its sessions badge, so
+    widget cards carry it too; its words are the web tooltip's, in the
+    row's accessibility value. Rule: the recorded mode has user partitions
+    (a pending switch doesn't change it). A **paused** tile (`state`
+    `pending` with a request) gets a quiet "paused" badge and opens its
+    page — xbind's switch page — never its native view: xbind answers the
+    runtime document with that page (409), so the native view would only
+    fail into it with a misleading banner; the native view returns with the
+    catalog that says the tile runs. The catalog is re-read on a
+    `partitions` event with op `mode` (and after an events gap, only where
+    a row carries `partition`), so both follow a switch live.
+  - **"Your partitions" in Settings follows I13 and the web's
+    `pageEntry`:** the page served, a signed-in person (not view-as, not a
+    token), and a partitioned tile in sight. The feature is probed only
+    where the entry could show, so an xbind whose rows never carry
+    `partition` is never asked.
+  - **Left out:** the partition chip (I3, `yours`/`shared`/`global` on a
+    window's head) — the plans assign it to the shell, and a phone shows
+    only the viewer's own partition; consent prompts in the app (the push
+    links the page, where consents are given).
+  - **Compat.** An older xbind: no `partition` in rows, no probe, the link
+    opens the workspace, `account` registered and never sent. An older
+    app on this xbind: as before (its links open the workspace).
+  - **Verified:** XbinCore's tests (deep links, kinds, categories and
+    threads, catalog old/new JSON, the gate, the ticket, the entry, the
+    event), app-check (navigation), app-stubcheck and widget-stubcheck,
+    uitest-stubcheck, and app-live against real xbinds (this one: the
+    page through its ticket and "Continue as", served top level only;
+    v0.3.61: not served, `account` accepted). The app target, the UI tests
+    (XbinPartitionsTests, on the e2e workspace's new `apps/parted`) and the
+    look of the marker need the Apple CI / Mac mini.

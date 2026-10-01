@@ -30,6 +30,9 @@ final class WorkspaceModel: Identifiable {
     var mobile = MobileScreens()
     /// What tiles report about themselves (the cards' status dots).
     var statuses = TileStatuses()
+    /// Which of xbind's own pages this workspace serves (D181), as far as
+    /// its feature list said; absent = not asked yet.
+    private(set) var pages: [XbindPage: XbindPageAvailability] = [:]
     /// Home has loaded once (screens can say "gone" rather than "loading").
     var homeLoaded = false
     var sessions: [TermDirectoryEntry] = [] {
@@ -61,6 +64,7 @@ final class WorkspaceModel: Identifiable {
     /// window shows the workspace.
     @ObservationIgnored private(set) lazy var events: WorkspaceEvents = makeEvents()
     @ObservationIgnored private var relist: Task<Void, Never>?
+    @ObservationIgnored private var recatalog: Task<Void, Never>?
 
     init(record: WorkspaceRecord, transport: AppTransport = .shared, keys: any DeviceKeyStore = EnclaveKeyStore(),
          sessions: any SessionStore = KeychainSessionStore()) {
@@ -149,6 +153,7 @@ final class WorkspaceModel: Identifiable {
             rebuildHome()
             await refreshBranding()
             await refreshSessions()
+            await probePartitionsPage()
             lastActivity = Date()
         } catch let e as SignInError {
             signInProblem = e
@@ -289,6 +294,10 @@ final class WorkspaceModel: Identifiable {
                 // layout or the phone arrangement: Home and the screens follow.
                 guard LayoutPref.concernsHome(component: component, key: key, writer: writer, me: AppSettings.installID) else { return }
                 Task { await self?.reloadScreens(key: key) }
+            case .partitions(_, "mode"):
+                // A tile's partition mode or switch request changed (D181):
+                // its row's marker, and whether it is paused, did too.
+                self?.scheduleCatalog()
             default:
                 break
             }
@@ -299,6 +308,9 @@ final class WorkspaceModel: Identifiable {
         e.onResync = { [weak self] in
             self?.scheduleRelist()
             Task { await self?.refreshWhoami() }
+            // …and a partition mode change (D181) — only where a row
+            // carries `partition`: an older xbind's catalog isn't re-read.
+            if self?.catalog.tiles.contains(where: { $0.partition != nil }) == true { self?.scheduleCatalog() }
             // …and a layout or arrangement written meanwhile (a `prefs`).
             Task {
                 await self?.reloadScreens(key: "layout")
@@ -340,6 +352,26 @@ final class WorkspaceModel: Identifiable {
         case .failed?: Haptics.failed()
         case nil: break
         }
+    }
+
+    /// Re-reads the catalog once for a burst of changes (`partitions` mode
+    /// events, D181), then Home and whether the partitions page is linked.
+    func scheduleCatalog() {
+        guard recatalog == nil else { return }
+        recatalog = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            await self?.reloadCatalog()
+            self?.recatalog = nil
+        }
+    }
+
+    private func reloadCatalog() async {
+        guard let j = try? await auth.json(APIRequest("GET", "/api/xbin/components")) else { return }
+        let next = Catalog(json: j)
+        guard next != catalog else { return }
+        catalog = next
+        rebuildHome()
+        await probePartitionsPage()
     }
 
     /// Re-reads the session directory once for a burst of changes.
@@ -393,7 +425,60 @@ final class WorkspaceModel: Identifiable {
         case .terminal(_, let session):
             open(.terminal(cwd: sessions.first { $0.id == session }?.cwd ?? "", session: session), in: nav)
         case .agent(_, let session): open(.agent(cwd: nil, session: session), in: nav)
+        case .page(_, let page): openPage(page, in: nav)
         default: nav.goHome()
+        }
+    }
+
+    // MARK: xbind's pages (D181)
+
+    /// Opens one of xbind's own pages in `nav` — in a web view of its own,
+    /// signed in (XbindPageScreen) — once the workspace says it serves it.
+    /// One that doesn't (an older xbind) or can't say now opens the
+    /// workspace, as an app that doesn't know the link does.
+    func openPage(_ page: XbindPage, in nav: WorkspaceNav) {
+        Task {
+            if await availability(of: page) == .served {
+                open(.page(page), in: nav)
+            } else {
+                nav.goHome()
+            }
+        }
+    }
+
+    /// Whether the workspace serves `page`: asked once it said so (a
+    /// feature xbind lists doesn't go away), asked again otherwise.
+    func availability(of page: XbindPage) async -> XbindPageAvailability {
+        if pages[page] == .served { return .served }
+        let r = try? await auth.send(page.featuresRequest)
+        let a = XbindPageAvailability.from(r, page: page)
+        pages[page] = a
+        return a
+    }
+
+    /// Asks for the partitions page's feature where the settings entry
+    /// could show (a person who sees a partitioned tile): an older xbind,
+    /// whose rows never carry `partition`, is never asked.
+    func probePartitionsPage() async {
+        guard pages[.partitions] != .served, PartitionsEntry.worthProbing(catalog: catalog, whoami: whoami) else { return }
+        _ = await availability(of: .partitions)
+    }
+
+    /// Settings links "Your partitions" (I13): the page served, a person,
+    /// a partitioned tile in sight.
+    var showsPartitionsEntry: Bool {
+        PartitionsEntry.shown(availability: pages[.partitions] ?? .unknown, catalog: catalog, whoami: whoami)
+    }
+
+    /// Where a page's web view goes: its one-shot web ticket, redeemed in
+    /// that view (the chrome store, D125) — or why it can't open. Never
+    /// the plain page (XbindPageTicket).
+    func pageDestination(_ page: XbindPage) async -> XbindPageTicket.Outcome {
+        do {
+            let r = try await auth.send(WebTicket.request(next: page.path))
+            return XbindPageTicket.outcome(r, origin: origin, signedOrigin: record.signedOrigin, page: page)
+        } catch {
+            return .failed(describe(error))
         }
     }
 

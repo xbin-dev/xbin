@@ -257,6 +257,8 @@ final class AppModel {
             case .tile(_, let t, _): if case .tile(let p, _, _) = surface, p == t { return true }
             case .agent(_, let id): if case .agent(_, let sid) = surface, sid == id { return true }
             case .terminal(_, let id): if case .terminal(_, let sid) = surface, sid == id { return true }
+            // The partitions page shows its notices and holds live itself.
+            case .page(_, let page): if case .page(let p) = surface, p == page { return true }
             default: break
             }
         }

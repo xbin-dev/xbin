@@ -50,6 +50,7 @@ extension Color { static let xbinAmber = Color(uiColor: .systemOrange) }
     func maintainAll() async {}
     func start() async {}
     func sendTest(_ w: WorkspaceModel) async -> String { "" }
+    func clearDelivered(workspace: String, link: String) {}
 }
 @MainActor final class LiveActivities {
     static let shared = LiveActivities()
@@ -129,12 +130,18 @@ final class WebTileController: NSObject {
     var jsDialog: JSDialog?
     var tileDialog: TileDialog?
     var shareItems: [Any]?
+    var canGoBack = false
+    var pageBackground: UIColor?
     @ObservationIgnored weak var nav: WorkspaceNav?
     convenience init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, subpath: String = "", query: String? = nil,
                      fragment: String? = nil) {
         self.init(workspace: workspace, tile: tile, canOpenLinks: canOpenLinks, url: nil)
     }
-    init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, url: URL?, island: Bool = false) {
+    convenience init(page: XbindPage, workspace: WorkspaceModel) {
+        self.init(workspace: workspace, tile: "", canOpenLinks: true, url: nil, page: page)
+    }
+    init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, url: URL?, island: Bool = false, chromePath: String? = nil,
+         page: XbindPage? = nil) {
         self.workspace = workspace
         self.tile = tile
         self.canOpenLinks = canOpenLinks
@@ -142,6 +149,8 @@ final class WebTileController: NSObject {
     }
     func load() {}
     func reload() {}
+    func goBack() {}
+    func reopen() {}
     func close() {}
     func resolveDialog(_ id: String, button: XbinCore.JSONValue?, values: [String: XbinCore.JSONValue]) {}
 }

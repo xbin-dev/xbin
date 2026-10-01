@@ -333,12 +333,19 @@ struct TileRow: View {
                     Text("native").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.xbinAmber.opacity(0.25), in: Capsule())
                 }
+                // Partitioned tiles (D181): paused while a mode switch waits
+                // for a manager; the marker last, as the web sidebar has it
+                // before its ⋯.
+                if tile.isPaused { PausedBadge() }
+                if tile.isPartitioned { PartitionMark(size: 9) }
             }
         }
         .compactRow()
         .accessibilityLabel(Text(verbatim: "\(label ?? tile.title), \(tile.path)"))
         .accessibilityValue(Text(verbatim: [sessions?.spoken ?? "", status.map { $0.message.isEmpty ? $0.level : "\($0.level): \($0.message)" } ?? "",
-                                            meta?.badge ?? "", native ? "native" : ""].filter { !$0.isEmpty }.joined(separator: ", ")))
+                                            meta?.badge ?? "", native ? "native" : "",
+                                            tile.isPaused ? TilePartition.pausedText : "",
+                                            tile.partition?.markTitle ?? ""].filter { !$0.isEmpty }.joined(separator: ", ")))
         .onDrag { TileMenu.dragItem(workspace, tile) }
         .contextMenu { TileMenu(workspace: workspace, tile: tile, pick: pick) }
     }

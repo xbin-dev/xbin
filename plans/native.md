@@ -149,6 +149,10 @@ natively (`native` in `/components`, §11) or as web.
 `xbin://…/term/<session>`, `xbin://…/agent/<session>`, `xbin://enroll?…`
 (§5). Universal links can't cover self-hosted domains, so the custom scheme is
 the contract; the web shell gains "Open in app" where the app is installed.
+`xbin://…/xbin/<page>` names one of xbind's own pages (D181: `partitions`,
+the push link `xbin/partitions`): the app opens it once the workspace lists
+the page's feature, top level in a web view of its own signed in by a web
+ticket, and refuses a page it doesn't know (the workspace opens instead).
 
 ## 5. Device login (Secure Enclave, Face ID)
 

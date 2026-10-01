@@ -1539,7 +1539,11 @@ shell's card of a paused tile and its answer to an allowed consent link it
 partitioned tile. It opens only on its own, top-level (never inside a tile or
 another page), with your own sign-in — signed out, you sign in and land
 back on it — and acts through the same API as `bx partition`: xbind judges
-each act again. Times show in your browser's zone, named (xbind's notices
+each act again. The xbin app opens it from those pushes and from its
+Settings (**Your partitions**, for a person who sees a partitioned tile) in
+a view of its own, signed in through a one-shot web ticket; its tile rows
+carry the partitioned marker, and a paused tile shows **paused** and opens
+the switch page. Times show in your browser's zone, named (xbind's notices
 say UTC), as in the admin console's partitions view and the logs panel.
 
 - **Credentials waiting for you** — a sign-in link, password or single

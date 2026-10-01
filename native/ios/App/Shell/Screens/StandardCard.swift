@@ -51,9 +51,13 @@ struct StandardCard: View {
         }
     }
 
-    /// Bottom left (the card's bottom right holds its sessions).
+    /// Bottom left (the card's bottom right holds its sessions). A paused
+    /// tile (a partition mode switch waiting for a manager, D181) says so
+    /// here: nothing of it runs until then.
     @ViewBuilder private var marker: some View {
-        if workspace.surfaceKind(for: tile) == .native {
+        if tile.isPaused {
+            PausedBadge()
+        } else if workspace.surfaceKind(for: tile) == .native {
             Text("native").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Color.xbinAmber.opacity(0.25), in: Capsule())
         } else if !tile.runtime.isEmpty, tile.runtime != "static" {

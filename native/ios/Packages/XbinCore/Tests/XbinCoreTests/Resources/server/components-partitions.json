@@ -1,0 +1,94 @@
+[
+ {
+  "path": "apps/welcome",
+  "hasIndex": true,
+  "sandbox": [
+   "allow-popups",
+   "allow-popups-to-escape-sandbox"
+  ]
+ },
+ {
+  "path": "apps/notes",
+  "runtime": "go",
+  "hasIndex": true,
+  "native": {
+   "entry": "native.js"
+  },
+  "partition": {
+   "state": "partitioned",
+   "user": true,
+   "global": false
+  }
+ },
+ {
+  "path": "apps/agent",
+  "runtime": "go",
+  "hasIndex": true,
+  "partition": {
+   "state": "partitioned",
+   "user": true,
+   "global": true
+  }
+ },
+ {
+  "path": "apps/ledger",
+  "runtime": "go",
+  "hasIndex": true,
+  "native": {
+   "entry": "native.js"
+  },
+  "partition": {
+   "state": "pending",
+   "user": false,
+   "global": false,
+   "request": {
+    "user": true,
+    "global": false,
+    "declined": false
+   },
+   "note": "  Each person keeps their own ledger now.  "
+  }
+ },
+ {
+  "path": "apps/board",
+  "runtime": "go",
+  "hasIndex": true,
+  "partition": {
+   "state": "partitioned",
+   "user": true,
+   "global": false,
+   "request": {
+    "user": false,
+    "global": false,
+    "declined": true
+   }
+  }
+ },
+ {
+  "path": "apps/broken",
+  "runtime": "go",
+  "hasIndex": true,
+  "manifestError": "partition: \"user\" or \"user+global\", got \"people\"",
+  "partition": {
+   "state": "invalid",
+   "user": false,
+   "global": false
+  },
+  "partitionError": "partition: \"user\" or \"user+global\", got \"people\""
+ },
+ {
+  "path": "apps/future",
+  "hasIndex": true,
+  "partition": {
+   "state": "sharded",
+   "user": true,
+   "global": false,
+   "shards": 4
+  }
+ },
+ {
+  "path": "root",
+  "hasIndex": true,
+  "chrome": true
+ }
+]

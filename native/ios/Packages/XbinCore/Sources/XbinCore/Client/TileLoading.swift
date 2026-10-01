@@ -18,10 +18,15 @@ public enum TileSurface: Sendable, Equatable {
 
     /// `forceWeb`: the user chose "open as web page" for this tile, or the
     /// native view failed this session; `runtimeOff`: the remote kill switch
-    /// or an xbind without runtime documents.
+    /// or an xbind without runtime documents. A paused tile (a partition
+    /// mode switch waiting for a tile manager, ``TileInfo/isPaused``) opens
+    /// its page: xbind answers its documents — the runtime document too —
+    /// with the switch page, which says what is asked and who decides
+    /// (D181); its native view comes back with the catalog that says the
+    /// tile runs again.
     public static func pick(_ tile: TileInfo, serverRuntime: Int?, forceWeb: Bool = false,
                             runtimeOff: Bool = false) -> TileSurface {
-        guard tile.opensNatively, let v = serverRuntime, v >= 1, !forceWeb, !runtimeOff else { return .web }
+        guard tile.opensNatively, !tile.isPaused, let v = serverRuntime, v >= 1, !forceWeb, !runtimeOff else { return .web }
         return .native
     }
 }

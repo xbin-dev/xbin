@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **xbin app: partitioned tiles** ([partitions.md](/docs/partitions.md)
+  §Your partitions page; D181). A partitioned tile's row and card carry
+  the web shell's marker, the half-split teal disc (VoiceOver reads its
+  words); a tile whose partition mode switch waits for a manager says
+  **paused** and opens xbind's switch page, never its native view, until
+  the switch is decided. The pushes that link the partitions page
+  (`tile.partition-switch`, `-deleted`, `-consent`, `-reset`,
+  `account.credential` — which the app now registers for) open it in the
+  app, top level in a web view of its own signed in through a one-shot web
+  ticket (“Continue as …” once), grouped apart from the tiles' and agents'
+  notifications and offering no “Mute this tile”; Settings links it as
+  **Your partitions** while you see a partitioned tile. Feature-detected:
+  on an xbind without the page (`partitions-page/1`) the link opens the
+  workspace and Settings shows no entry. Nothing to change.
 - **One set of workspace settings: base auto-update and the partitioned
   tiles' switches together** ([bx.md](/docs/bx.md) §bx settings,
   [protocol.md](/docs/protocol.md) `/workspace-settings`,

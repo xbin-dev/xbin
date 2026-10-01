@@ -322,6 +322,61 @@ if let tile = catalog.listed.first(where: { !$0.chrome }) {
     }
 }
 
+// 2c'. xbind's partitions page (D181): the app opens `xbin/partitions`
+// (a push's link, Settings → Your partitions) only where GET
+// /api/xbin/partitions lists `partitions-page/1`, top level in a web view
+// of its own, signed in by its one-shot ticket — never the plain page.
+// The catalog's rows carry `partition` on such an xbind (an older one's
+// never do, and it is never asked: PartitionsEntry.worthProbing).
+do {
+    let page = XbindPage.partitions
+    let avail = XbindPageAvailability.from(try? await auth.send(page.featuresRequest), page: page)
+    let partitioned = catalog.tiles.filter(\.isPartitioned).map(\.path)
+    say("  …  partitioned tiles in the catalog: \(partitioned.isEmpty ? "none" : partitioned.joined(separator: ", "))")
+    if avail != .served {
+        check(avail == .notServed, "partitions page: this xbind doesn't serve it (\(avail)) → its link opens the workspace")
+        check(partitioned.isEmpty, "…and no row says partitioned")
+    } else {
+        check(true, "partitions page: \(page.feature) listed")
+        let who = Whoami(json: try await auth.json(APIRequest("GET", "/api/xbin/whoami")))
+        check(PartitionsEntry.shown(availability: avail, catalog: catalog, whoami: who) == !partitioned.isEmpty,
+              "…Settings → Your partitions \(partitioned.isEmpty ? "hidden: no partitioned tile in sight" : "shown")")
+        let outcome = XbindPageTicket.outcome(try? await auth.send(WebTicket.request(next: page.path)), origin: origin,
+                                              signedOrigin: record.signedOrigin, page: page)
+        guard case .open(let u) = outcome else {
+            check(false, "…its web ticket: \(outcome)")
+            exit(1)
+        }
+        check(u.absoluteString.hasPrefix(origin.origin + "/login?ticket="), "…its one-shot ticket: \(u.path)")
+        let ticketPath = String(u.absoluteString.dropFirst(origin.origin.count))
+        let opened = ["Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "Accept": "text/html"]
+        let confirmPage = try await transport.send(APIRequest("GET", ticketPath, headers: opened), to: origin)
+        let html = String(decoding: confirmPage.body, as: UTF8.self)
+        if let nonce = WebConfirmPage.nonce(html), let cookie = WebConfirmPage.cookie(confirmPage.header("set-cookie") ?? "") {
+            let confirm = try await transport.send(APIRequest("POST", "/login/web-ticket", headers: [
+                "Content-Type": "application/x-www-form-urlencoded", "Cookie": "\(cookie.name)=\(cookie.value)",
+                "Origin": origin.origin, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "navigate",
+            ], body: Data(("confirm=" + URLComponent.encode(nonce)).utf8)), to: origin)
+            check(confirm.status == 303 && confirm.header("location") == page.path,
+                  "…“Continue as” lands on the page: \(confirm.status) → \(confirm.header("location") ?? "-")")
+            if let session = WebConfirmPage.cookie(confirm.header("set-cookie") ?? "", named: "xbin_session") {
+                let cookieHeader = "\(session.name)=\(session.value)"
+                let top = try await transport.send(APIRequest("GET", page.path, headers: opened.merging(["Cookie": cookieHeader]) { $1 }),
+                                                   to: origin)
+                check(top.status == 200 && String(decoding: top.body, as: UTF8.self).contains("bx-partitions-page"),
+                      "…which the web view's cookie session opens, top level (\(top.status))")
+                let xfo = top.header("x-frame-options") ?? "", csp = top.header("content-security-policy") ?? ""
+                check(xfo.uppercased() == "DENY" && csp.contains("frame-ancestors 'none'"),
+                      "…and never in a frame (X-Frame-Options \(xfo), frame-ancestors 'none')")
+            } else {
+                check(false, "…“Continue as” gave no session cookie (\(confirm.status))")
+            }
+        } else {
+            check(false, "…the ticket's page (\(confirmPage.status)) has no “Continue as”")
+        }
+    }
+}
+
 // 2d. Add another device: the device session mints a code (a password
 // step-up if xbind asks for one), and the link the QR code shows enrolls a
 // second device.
@@ -459,13 +514,15 @@ let devices = DeviceInfo.list(json: try await auth.json(APIRequest("GET", AppAut
 check(devices.contains { $0.id == record.deviceId && $0.current }, "GET /devices lists this device as current")
 let pushKey = PushCrypto.newKeyPair()
 let reg = try await auth.send(PushAPI.register(deviceId: record.deviceId!, handle: Base64URL.encode(Data((0..<24).map { UInt8($0) })),
-                                               publicKey: Base64URL.encode(pushKey.publicKey), kinds: ["agent", "tile"]))
-check(reg.status == 200, "POST /devices/push registers (\(reg.status))")
+                                               publicKey: Base64URL.encode(pushKey.publicKey), kinds: PushAPI.appKinds))
+check(reg.status == 200, "POST /devices/push registers the app's kinds \(PushAPI.appKinds) (\(reg.status))")
 let status = PushStatus(json: try await auth.json(APIRequest("GET", PushAPI.registrations)))
 check(status.devices.contains { $0.deviceId == record.deviceId }, "GET /devices/push lists it (workspace \(status.workspace), enabled \(status.enabled))")
+check(Set(status.devices.first { $0.deviceId == record.deviceId }?.kinds ?? []) == Set(PushAPI.appKinds),
+      "…with every kind the app asked for, account (D181) included")
 let st = PushState(handle: Base64URL.encode(Data((0..<24).map { UInt8($0) })), relay: "https://relay.test", apnsToken: "aa",
-                   pushWorkspace: status.workspace, publicKey: Base64URL.encode(pushKey.publicKey), kinds: ["agent", "tile"])
-check(PushMaintenance.plan(state: st, apnsToken: "aa", relay: "https://relay.test", publicKey: st.publicKey!, kinds: ["agent", "tile"],
+                   pushWorkspace: status.workspace, publicKey: Base64URL.encode(pushKey.publicKey), kinds: PushAPI.appKinds)
+check(PushMaintenance.plan(state: st, apnsToken: "aa", relay: "https://relay.test", publicKey: st.publicKey!, kinds: PushAPI.appKinds,
                            deviceId: record.deviceId!, server: status) == .none, "push maintenance: nothing to do")
 let unreg = try await auth.send(PushAPI.unregister(deviceId: record.deviceId!))
 check(unreg.status == 204 || unreg.status == 200, "DELETE /devices/push/<id> (\(unreg.status))")

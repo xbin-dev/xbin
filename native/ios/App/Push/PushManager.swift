@@ -12,8 +12,10 @@ import XbinCore
 final class PushManager {
     static let shared = PushManager()
 
-    /// The kinds this app asks for (registration `kinds`; none = all).
-    static let kinds = ["agent", "tile", "test"]
+    /// The kinds this app asks for (registration `kinds`; none = all):
+    /// PushAPI.appKinds — `account` since D181 (a registration made without
+    /// it is renewed by maintain's kinds check).
+    static let kinds = PushAPI.appKinds
 
     private(set) var apnsToken: String?
     /// ActivityKit's push-to-start token (hex), once it gives one
@@ -50,12 +52,34 @@ final class PushManager {
     static var categories: Set<UNNotificationCategory> {
         let open = UNNotificationAction(identifier: "open", title: "Open", options: [.foreground])
         let mute = UNNotificationAction(identifier: "mute", title: "Mute this tile", options: [.destructive])
+        // xbind's notices that link its partitions page (D181): the page,
+        // and no Mute — a tile's mute doesn't hold them back.
+        let partitions = UNNotificationAction(identifier: "open", title: "Open your partitions", options: [.foreground])
+        // A sign-in someone else made for the account: decided on the
+        // partitions page, after the device is unlocked.
+        let review = UNNotificationAction(identifier: "open", title: "Review…", options: [.foreground, .authenticationRequired])
         return [
             UNNotificationCategory(identifier: "xbin.agent.needs-you", actions: [open], intentIdentifiers: []),
             UNNotificationCategory(identifier: "xbin.agent.turn", actions: [open], intentIdentifiers: []),
             UNNotificationCategory(identifier: "xbin.tile", actions: [open, mute], intentIdentifiers: []),
+            UNNotificationCategory(identifier: PushPayload.Kind.pageCategory(.partitions), actions: [partitions], intentIdentifiers: []),
+            UNNotificationCategory(identifier: PushPayload.Kind.accountCategory, actions: [review], intentIdentifiers: []),
             UNNotificationCategory(identifier: "xbin.test", actions: [], intentIdentifiers: []),
         ]
+    }
+
+    /// The notifications of `workspace` (the app's id) that link `link`
+    /// go from Notification Center: the page they link is showing what
+    /// they said (D181: the partitions page lists its notices, holds and
+    /// asks itself).
+    nonisolated func clearDelivered(workspace: String, link: String) {
+        UNUserNotificationCenter.current().getDeliveredNotifications { notes in
+            let ids = notes.filter {
+                let info = $0.request.content.userInfo
+                return info["app"] as? String == workspace && info["link"] as? String == link
+            }.map(\.request.identifier)
+            if !ids.isEmpty { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids) }
+        }
     }
 
     // MARK: Per workspace

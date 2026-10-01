@@ -78,6 +78,13 @@ import XbinCore
         }
         #expect(Surface.sessions(tile: "apps/crm", show: .first).tilePath == "apps/crm")
         #expect(Surface.agent(cwd: "apps/my-tile", session: nil).title.hasPrefix("Agent · "))
+        // xbind's partitions page (D181): restored as it was, about no tile.
+        let page = WindowTarget(workspace: "w1", screen: "s1", surface: .page(.partitions))
+        #expect(WindowTarget(encoded: page.encoded) == page)
+        #expect(Surface.page(.partitions).title == "Your partitions" && Surface.page(.partitions).tilePath == nil)
+        // A page this build doesn't know (a newer build's place): the
+        // window comes back on its workspace (RootView's restore).
+        #expect(WindowTarget(encoded: #"{"workspace":"w1","surface":{"page":{"_0":"someday"}}}"#) == nil)
     }
 
     /// A tile (or a canvas island in a native one) pushes `xbin.window`:
@@ -161,6 +168,9 @@ import XbinCore
         // A tile's sessions screen (D132) goes back as a terminal does.
         #expect(WorkspaceNav.screen(for: .sessions(tile: "apps/b", show: .launcher), current: "s1", containing: containing) == "s2")
         #expect(WorkspaceNav.screen(for: .sessions(tile: "apps/z", show: .first), current: "s1", containing: containing) == "s1")
+        // xbind's partitions page (D181) stays over the screen shown.
+        #expect(WorkspaceNav.screen(for: .page(.partitions), current: "s1", containing: containing) == "s1")
+        #expect(WorkspaceNav.screen(for: .page(.partitions), current: nil, containing: containing) == nil)
         let nav = WorkspaceNav(workspaceID: "w1")
         nav.open(.tile("apps/z"), on: nil)                      // from Home's search: back is Home
         #expect(nav.entries.map(\.panel) == [.home, .surface(.tile("apps/z"))] && nav.below == .home)

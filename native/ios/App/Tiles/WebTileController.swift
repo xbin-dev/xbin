@@ -75,22 +75,34 @@ final class WebTileController: NSObject {
         self.init(workspace: workspace, tile: tile.path, canOpenLinks: true, url: nil, chromePath: path)
     }
 
+    /// One of xbind's own pages (D181; XbindPageScreen): top level on the
+    /// workspace's origin, as chrome is — the chrome store, no bridge —
+    /// signed in by its one-shot web ticket or not shown at all (no plain
+    /// page to sign in on, unlike a chrome tile on an older xbind).
+    convenience init(page: XbindPage, workspace: WorkspaceModel) {
+        self.init(workspace: workspace, tile: "", canOpenLinks: true, url: nil, page: page)
+    }
+
     @ObservationIgnored private var chromePath: String?
+    @ObservationIgnored private(set) var page: XbindPage?
 
     /// A page of `tile` by its scheme URL. An `island` (a native tile's
     /// `canvas src`, TileHatches) sits inside a native screen: no pull to
     /// refresh. No page swipes back and forward anywhere: the edges are the
     /// window's panels' (PanelStack); a page with history gets a page-back
     /// item in the bar instead.
-    init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, url: URL?, island: Bool = false, chromePath: String? = nil) {
+    init(workspace: WorkspaceModel, tile: String, canOpenLinks: Bool, url: URL?, island: Bool = false, chromePath: String? = nil,
+         page: XbindPage? = nil) {
+        let chromeAt = chromePath ?? page?.path
         self.workspace = workspace
         self.tile = tile
         self.canOpenLinks = canOpenLinks
-        chrome = chromePath != nil
-        self.chromePath = chromePath
+        chrome = chromeAt != nil
+        self.chromePath = chromeAt
+        self.page = page
         initialURL = url
-        webView = WKWebView(frame: .zero, configuration: Self.configuration(for: workspace, bridge: chromePath == nil,
-                                                                            chrome: chromePath != nil))
+        webView = WKWebView(frame: .zero, configuration: Self.configuration(for: workspace, bridge: chromeAt == nil,
+                                                                            chrome: chromeAt != nil))
         super.init()
         if !chrome {
             webView.configuration.userContentController.add(WeakScriptHandler(self), contentWorld: .page, name: TileBridge.handlerName)
@@ -160,6 +172,15 @@ final class WebTileController: NSObject {
 
     func load() {
         loadError = nil
+        if let page {
+            Task {
+                switch await workspace.pageDestination(page) {
+                case .open(let u): webView.load(URLRequest(url: u))
+                case .failed(let why): loadError = why
+                }
+            }
+            return
+        }
         if let chromePath {
             Task {
                 guard let u = await workspace.chromeURL(path: chromePath) else { loadError = "Bad tile path"; return }
@@ -173,7 +194,10 @@ final class WebTileController: NSObject {
 
     func reload() {
         loadError = nil
-        if webView.url == nil { load() } else { webView.reload() }
+        // One of xbind's pages reloads through a fresh ticket: its cookie
+        // session may have ended, and a plain reload would then land on the
+        // password form rather than the page.
+        if webView.url == nil || page != nil { load() } else { webView.reload() }
     }
 
     @objc private func pulled(_ sender: UIRefreshControl) {
@@ -296,6 +320,13 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
     /// with cap:open-links (ND11), as the browser sandbox allows.
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         guard let url = navigationAction.request.url else { return .cancel }
+        // One of xbind's pages linking the workspace itself ("← workspace",
+        // `/`): the app's own Home, not the web shell in this view.
+        if page != nil, navigationAction.navigationType == .linkActivated,
+           TileScheme.allowsRedirect(to: url, origin: workspace.origin), url.path.isEmpty || url.path == "/" {
+            nav?.goHome()
+            return .cancel
+        }
         if chrome, TileScheme.allowsRedirect(to: url, origin: workspace.origin) { return .allow }
         if url.scheme?.lowercased() == TileScheme.scheme {
             return !chrome && url.host?.lowercased() == workspace.id ? .allow : .cancel
@@ -325,8 +356,14 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
     }
 
     /// `window.open` / `target=_blank`: the browser, only with cap:open-links.
+    /// One of xbind's pages opens the workspace's own (its "how partitions
+    /// work" docs link) in place, in this view — not in Safari.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if page != nil, let url = navigationAction.request.url, TileScheme.allowsRedirect(to: url, origin: workspace.origin) {
+            webView.load(URLRequest(url: url))
+            return nil
+        }
         if canOpenLinks, let url = navigationAction.request.url, ["http", "https"].contains(url.scheme ?? "") {
             UIApplication.shared.open(url)
         }

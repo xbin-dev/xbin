@@ -34,6 +34,9 @@ enum HandoffActivity {
         case .terminal(let cwd, let session):
             if let session { return (s.title, HandoffLink.shell(origin: o), HandoffLink.terminal(origin: o, session: session)) }
             return (s.title, HandoffLink.tilePage(origin: o, tile: cwd), HandoffLink.tile(origin: o, tile: cwd))
+        case .page(let p):
+            // xbind's page in the browser (it signs in there as usual).
+            return (p.title, HandoffLink.pageURL(origin: o, page: p), HandoffLink.page(origin: o, page: p))
         }
     }
 
