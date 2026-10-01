@@ -38,5 +38,6 @@
 // are set up with; client.go, handshake.go, updates.go, status.go,
 // prompt.go, elicit.go, toolmeta.go, commands.go the client itself;
 // state.go taking a session over; steer.go steering a running turn;
-// auth.go signing the agent in.
+// auth.go signing the agent in; signin.go a CLI's own sign-in driven for a
+// person (a provider's Signin, and reading what it prints).
 package acp

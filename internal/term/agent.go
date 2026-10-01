@@ -12,7 +12,7 @@ package term
 // permission answers come through the Manager from the API; any client may
 // answer a permission — the first wins. The agent authenticates from the
 // session's per-user $HOME (D6) — the same home a shell terminal gets, so a
-// `claude /login` / `codex login` / … done once in a terminal serves the
+// `claude auth login` / `codex login` / … done once in a terminal serves the
 // agent on every tile. There are no provider keys in the tile vault.
 
 import (

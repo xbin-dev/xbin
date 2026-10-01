@@ -4,10 +4,10 @@ import "strings"
 
 // Provider is one coding-agent CLI a client can drive through its ACP
 // adapter. Auth is the CLI's own: the adapter signs in from the $HOME it
-// runs with, so a login done once in a terminal there (LoginCmd) serves
-// every session with that $HOME. The JSON form is what xbind's GET
-// /agent/providers serves (id, name, login, modes, defaultMode); the rest is
-// the runner's.
+// runs with, so a login done once there (LoginCmd in a terminal, or Signin
+// driven for a person) serves every session with that $HOME. The JSON form
+// is what xbind's GET /agent/providers serves (id, name, login, modes,
+// defaultMode, signin); the rest is the runner's.
 type Provider struct {
 	ID     string   `json:"id"`
 	Name   string   `json:"name"`
@@ -26,6 +26,11 @@ type Provider struct {
 	// terminal where the agent runs (its $HOME keeps the login); it prints a
 	// URL or a code rather than opening a browser.
 	LoginCmd string `json:"-"`
+	// Signin is the sign-in a client can drive for a person without showing
+	// them a terminal (signin.go): the command and how to read its output.
+	// nil: none — the person signs in at a terminal (Login). Shared:
+	// read-only.
+	Signin *Signin `json:"signin,omitempty"`
 	// Bins are the executables the provider needs on PATH: the adapter
 	// first, then the CLI LoginCmd runs when that is another one.
 	Bins []string `json:"-"`
@@ -60,14 +65,20 @@ type Mode struct {
 }
 
 var catalog = []Provider{
-	{ID: "claude", Name: "Claude Code", Driver: "acp", Argv: []string{"claude-agent-acp"}, Login: "claude /login",
+	// No CLAUDE_CODE_REMOTE in Env (D178): it made the adapter offer its
+	// full-screen `--cli` sign-in, and it puts Claude Code itself — which
+	// inherits the adapter's env — in Anthropic's own remote-session mode
+	// (auto memory off, a 2-minute API timeout, a settings defaultMode of
+	// bypassPermissions refused). Without it the adapter offers `auth login`.
+	{ID: "claude", Name: "Claude Code", Driver: "acp", Argv: []string{"claude-agent-acp"}, Login: "claude auth login",
 		Modes: []Mode{{ID: "default", Name: "Ask before acting"}, {ID: "acceptEdits", Name: "Accept edits"}, {ID: "plan", Name: "Plan"},
 			{ID: "auto", Name: "Auto"}, {ID: "bypassPermissions", Name: "Bypass permissions", Explicit: true}},
-		DefaultMode: "default", Env: map[string]string{"CLAUDE_CODE_REMOTE": "1"},
+		DefaultMode: "default", Signin: claudeSignin,
 		// recent models default thinking.display to "omitted" (signature-only
 		// blocks, no text → no thought chunks); summarized makes it stream
 		SessionMeta: map[string]any{"claudeCode": map[string]any{"options": map[string]any{
 			"thinking": map[string]any{"type": "adaptive", "display": "summarized"}}}},
+		// the agent template's terminal sign-in until it moves to Signin (D178)
 		LoginCmd: "CLAUDE_CODE_REMOTE=1 claude /login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits",
 		ApproveMode: "default", PlanMode: "plan",
 		// its ExitPlanMode approval's options (claude-agent-acp 0.81)

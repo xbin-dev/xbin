@@ -10,9 +10,11 @@ import (
 // Provider is one coding-agent CLI the daemon can drive: sdk/acp's catalog
 // entry. Auth is the CLI's own: an agent session runs with the same
 // per-user $HOME a shell terminal gets (D6), so a login done once in a
-// terminal (claude /login, codex login, …) serves every agent session on
-// every tile. There are no provider keys in the tile vault — the home is
-// the single source of credentials, exactly as for a shell.
+// terminal (claude auth login, codex login, …) — or through the Agent tab's
+// guided sign-in, which runs the provider's Signin in a terminal session of
+// its own (D178) — serves every agent session on every tile. There are no
+// provider keys in the tile vault — the home is the single source of
+// credentials, exactly as for a shell.
 type Provider = acp.Provider
 
 // Mode is one of a provider's session modes.
@@ -24,12 +26,15 @@ const FakeEnv = "XBIN_AGENT_FAKE"
 
 // Providers lists the providers this daemon offers — sdk/acp's catalog —
 // fake included when FakeEnv is set (its command may carry arguments,
-// space-separated).
+// space-separated). The fake signs in the way Claude Code does (claude's
+// Signin), so the UI harness drives the guided sign-in against a scripted
+// `claude` on the PATH.
 func Providers() []Provider {
 	out := acp.Providers()
 	if cmd := os.Getenv(FakeEnv); cmd != "" {
+		c, _ := acp.Lookup("claude")
 		out = append(out, Provider{ID: "fake", Name: "Fake agent (tests)", Driver: "acp", Argv: strings.Fields(cmd), Login: "the fake needs no login",
-			Modes: []Mode{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo", Explicit: true}}, DefaultMode: "ask"})
+			Modes: []Mode{{ID: "ask", Name: "Ask"}, {ID: "yolo", Name: "Yolo", Explicit: true}}, DefaultMode: "ask", Signin: c.Signin})
 	}
 	return out
 }
