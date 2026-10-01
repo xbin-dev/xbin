@@ -1,6 +1,6 @@
 // harness_partition.go — coding agents (harnesses, D147) in a partitioned
-// agent (the owner's ruling, plans/partitions/90-decisions.md §I15; API.md
-// "Partitioned instances" → "Coding agents"): **only in a person's own
+// agent (D158; the owner's ruling on partitions, §I15, which amends D147;
+// API.md "Partitioned instances" → "Coding agents"): **only in a person's own
 // conversations**. A sign-in lives in the sandbox's $HOME, so a coding agent
 // started anywhere else would put a person's credentials where others reach
 // them, and "the global instance holds no person's credentials" would fail.
