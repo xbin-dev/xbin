@@ -16,5 +16,10 @@ if [ ${#need[@]} -eq 0 ]; then
   exit 0
 fi
 echo "ci-apt: installing ${need[*]}"
-sudo apt-get update
-sudo apt-get install -y "${need[@]}"
+# The image's package lists usually still name a current version: try them
+# first (a couple of seconds), update only when that fails (a stale list
+# 404s).
+if ! sudo apt-get install -y "${need[@]}"; then
+  sudo apt-get update
+  sudo apt-get install -y "${need[@]}"
+fi

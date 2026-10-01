@@ -154,8 +154,8 @@ func suiteSteps(p *plan, units []unit, weight map[string]float64, execWrap strin
 // shardFlags are run's and list's: which shard, the profile, the
 // delegating -exec.
 type shardFlags struct {
-	shard, profile, execWrap string
-	unit                     bool
+	shard, profile, execWrap, logs string
+	unit                           bool
 }
 
 func parseShardFlags(name string, args []string) (shardFlags, error) {
@@ -165,6 +165,7 @@ func parseShardFlags(name string, args []string) (shardFlags, error) {
 	fs.StringVar(&f.profile, "profile", defaultProfile(), "timing profile")
 	fs.StringVar(&f.execWrap, "exec", "", "go test -exec for the delegated suites (empty: none; they skip)")
 	fs.BoolVar(&f.unit, "unit", false, "list: the unit shards")
+	fs.StringVar(&f.logs, "logs", "", "run without -shard: the shards' logs go here and stay (default: a temp dir, removed when green)")
 	if err := fs.Parse(args); err != nil {
 		return f, err
 	}
@@ -352,14 +353,20 @@ func cmdRun(root string, args []string) error {
 		}
 		return nil
 	}
-	return runAll(root, names, steps)
+	return runAll(root, names, steps, f.logs)
 }
 
-// runAll runs every shard and job at once, each into a log file of its own,
-// and reports each as it ends; the failures' FAIL lines and tails at the
-// end.
-func runAll(root string, names []string, steps map[string][]step) error {
-	dir, err := os.MkdirTemp("", "xbin-integration-")
+// runAll runs every shard and job at once, each into a log file of its own
+// (in logs, kept; else a temp dir, removed when all pass), and reports each
+// as it ends; the failures' FAIL lines and tails at the end.
+func runAll(root string, names []string, steps map[string][]step, logs string) error {
+	dir, keep := logs, logs != ""
+	var err error
+	if keep {
+		err = os.MkdirAll(dir, 0o755)
+	} else {
+		dir, err = os.MkdirTemp("", "xbin-integration-")
+	}
 	if err != nil {
 		return err
 	}
@@ -397,7 +404,9 @@ func runAll(root string, names []string, steps map[string][]step) error {
 	wg.Wait()
 	if len(bad) == 0 {
 		fmt.Printf("make integration: green in %.0fs\n", time.Since(start).Seconds())
-		_ = os.RemoveAll(dir)
+		if !keep {
+			_ = os.RemoveAll(dir)
+		}
 		return nil
 	}
 	sort.Strings(bad)

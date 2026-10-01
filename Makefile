@@ -174,10 +174,11 @@ endif
 # its own under $TMPDIR, and the failures are summarised at the end; SHARD
 # runs one in the foreground (CI's jobs: SHARD=i/N, SHARD=vm). Integration
 # needs a lot of $TMPDIR inodes at once: TMPDIR=… where /tmp is a small
-# tmpfs. `go run ./hack/testshard list [-shard …]` prints the go test
+# tmpfs. LOGS=dir keeps the logs there, green or not (testshard timings
+# reads them). `go run ./hack/testshard list [-shard …]` prints the go test
 # commands without running them.
 integration:
-	@go run ./hack/testshard run $(if $(SHARD),-shard $(SHARD)) -exec "$(DELEGATE)"
+	@go run ./hack/testshard run $(if $(SHARD),-shard $(SHARD)) $(if $(LOGS),-logs $(LOGS)) -exec "$(DELEGATE)"
 
 vet:
 	go vet ./...
