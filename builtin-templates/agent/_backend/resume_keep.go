@@ -47,7 +47,7 @@ type wakeKeeper struct {
 // the partition's agent for both) — so from now on this process keeps them,
 // starting from none.
 func (ag *Agent) wakeKeepReady() {
-	if ag == nil || !userMode() || ag.noGateway {
+	if ag == nil || ag.noGateway || !userMode() { // noGateway first: tests switch the mode under a settling engine
 		return
 	}
 	k := &ag.wakeKeep
@@ -60,7 +60,7 @@ func (ag *Agent) wakeKeepReady() {
 // keepWakeUpSoon schedules one look (coalesced): a person's partition only,
 // once its takeover is done.
 func (ag *Agent) keepWakeUpSoon() {
-	if ag == nil || !userMode() || ag.noGateway {
+	if ag == nil || ag.noGateway || !userMode() { // noGateway first: tests switch the mode under a settling engine
 		return
 	}
 	k := &ag.wakeKeep
@@ -83,7 +83,7 @@ func (ag *Agent) keepWakeUpSoon() {
 // deletes what it wouldn't — unless an engine holds the partition or is
 // shutting down.
 func (ag *Agent) keepWakeUp(now time.Time) {
-	if !userMode() || ag.noGateway {
+	if ag.noGateway || !userMode() {
 		return
 	}
 	k := &ag.wakeKeep
