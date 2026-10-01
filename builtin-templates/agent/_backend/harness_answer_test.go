@@ -393,7 +393,9 @@ func TestHarnessCompactAndStray(t *testing.T) {
 
 // codex's detached turn (a steer answered startedNewTurn, whose end no
 // session/prompt reports): the run follows it as working and ends it once
-// the adapter goes quiet, its text the answer.
+// the adapter goes quiet, its text the answer. The client runs no prompt
+// meanwhile, so what it restates (usage, commands, title) says idle: that
+// never rests what the agent is doing.
 func TestHarnessDetachedTurn(t *testing.T) {
 	old := hDetachedQuiet
 	hDetachedQuiet = 300 * time.Millisecond
@@ -402,13 +404,23 @@ func TestHarnessDetachedTurn(t *testing.T) {
 	run := askHarness(t, mux, box, "echo one")
 	hwait(t, "the turn", turnOver(ag, run.ID))
 	s := ag.eng.harnessOf(run.ID)
+	hwait(t, "the turn's end applied", func() bool { return s.activityNow().Kind == "idle" })
 	if _, err := ag.db.q.Exec(`UPDATE runs SET status='running' WHERE id=?`, run.ID); err != nil {
 		t.Fatal(err)
 	}
+	apply := func(ev acp.Event) { // as the consumer applies one
+		s.applyMu.Lock()
+		defer s.applyMu.Unlock()
+		s.apply(ev)
+	}
 	s.followDetached()
-	s.apply(acp.NewEvent(acp.EvMessageDelta, map[string]any{"role": "agent", "text": "on my own"}))
+	apply(acp.NewEvent(acp.EvMessageDelta, map[string]any{"role": "agent", "text": "on my own"}))
 	if statusOf(ag.db, run.ID) != statusRunning {
 		t.Fatal("the detached turn isn't followed")
+	}
+	apply(acp.NewEvent(acp.EvStatus, map[string]any{"status": acp.StatusIdle, "usage": map[string]any{"used": 50, "size": 1000}}))
+	if a := s.activityNow(); a.Kind != "writing" {
+		t.Fatalf("a usage update rested the detached turn's activity: %+v", a)
 	}
 	hwait(t, "the quiet end", func() bool { return statusOf(ag.db, run.ID) == statusIdle })
 	if !strings.Contains(transcript(ag.db, run.ID), "A:on my own") || s.isDetached() {

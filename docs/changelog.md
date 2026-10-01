@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **Agent template: a coding agent's `activity` no longer reads `idle`
+  while it works.** The summary's `activity` (the `harness` event,
+  `/tree`, `/needs`) went to `idle` on every status update that said the
+  adapter ran no prompt — its usage, slash commands, mode, options or
+  title. During a turn the agent started by itself (Codex, answering a
+  message that came as a turn ended) each such update said so mid-turn,
+  and one handled just after a message went (the commands an adapter
+  lists as it starts, say) showed it idle until its first words. Only a
+  turn's end rests it now. Nothing to change.
 - **SDK: `acptest` plays `perm2…`** ([sdk.md](/docs/sdk.md) §Testing an
   ACP client): two tool calls that ask at once, as Claude's parallel
   calls do — the second `session/request_permission` sent before the

@@ -268,7 +268,12 @@ func TestHarnessShapes(t *testing.T) {
 	}
 	hwait(t, "its commands", func() bool { r, _ := ag.db.getRun(cards); return harnessHasCommand(r, "compact") })
 	add("patch", call("PATCH", fmt.Sprintf("/runs/%d/harness", cards), map[string]any{"mode": "ask", "option": map[string]string{"id": "model", "value": "fake-fast"}}))
-	ag.eng.harnessOf(cards).activity("tool", "Run go vet ./...")
+	// a call in progress (its title), set once the last turn's end is
+	// applied in full — it rests the activity last, and no later event of
+	// an idle session sets it (not the PATCH's mode and options updates)
+	cs := ag.eng.harnessOf(cards)
+	hwait(t, "the last turn's end applied", func() bool { return cs.activityNow().Kind == "idle" })
+	cs.activity("tool", "Run go vet ./...")
 	add("harnessGet", call("GET", fmt.Sprintf("/runs/%d/harness", cards), nil))
 	for _, n := range call("GET", fmt.Sprintf("/runs/%d/tree", cards), nil)["nodes"].([]any) {
 		add("treeNode", n)
