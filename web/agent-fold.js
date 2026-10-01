@@ -163,6 +163,9 @@ export class Fold {
         this.cur = null;
         this.blocks.push(this._new({ kind: 'gap' }));
         break;
+      case 'notice': // a line xbin says, not the agent (D174: the start moved the layer to a new base)
+        this.blocks.push(this._new({ kind: 'notice', text: d.text || '' }));
+        break;
     }
     return this;
   }

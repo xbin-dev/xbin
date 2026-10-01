@@ -455,3 +455,33 @@ func TestWorkTreeCountConcurrent(t *testing.T) {
 		t.Errorf("State.workTree %+v, want 2 files since %s", d, treeA)
 	}
 }
+
+// xbind's shutdown: StopWorkTrees returns once the count in flight is done,
+// and none starts after it — not the "one more" a notice during that count
+// asked for, not a trailing count's timer, not a later notice. So no count
+// touches the workspace once xbind has stopped (a boot test's TempDir
+// cleanup once found a file appearing in the workspace it was emptying).
+func TestWorkTreesStop(t *testing.T) {
+	f := newWTFixture(t)
+	f.save("index.html", `<p>v2</p>`)
+	started, release := make(chan struct{}), make(chan struct{})
+	f.w.spawn = func(run func()) { go run() }
+	f.counter.during = func() { close(started); <-release }
+	f.p.WorkTreeMoved(wtTile) // a count starts, held in the counter
+	<-started
+	f.p.WorkTreeMoved(wtTile) // during it: asks for one more
+	stopped := make(chan struct{})
+	go func() { f.p.StopWorkTrees(); close(stopped) }()
+	select {
+	case <-stopped:
+		t.Fatal("StopWorkTrees returned with a count in flight")
+	default:
+	}
+	close(release)
+	<-stopped
+	f.p.WorkTreeMoved(wtTile)        // after the stop
+	f.clock.advance(10 * driftEvery) // any trailing count's timer
+	if n := len(f.counter.calls); n != 1 {
+		t.Fatalf("%d counts, want the one in flight only", n)
+	}
+}

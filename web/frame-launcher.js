@@ -32,13 +32,21 @@ export function loadHistory(f) { agentHistory(f.src).then((h) => { if (f.isConne
 
 // The tile's persistent terminal layer: f._envOld when it was built on an
 // older base image — the chooser and the title bar offer the base update
-// before any terminal is open (GET /ws/term/env). With the history, the
-// tile state the window refreshes on open and on every directory change.
+// before any terminal is open (GET /ws/term/env); f._envAuto when the
+// workspace's base auto-update is on, so the chooser says the next session
+// moves to it instead (D174). With the history, the tile state the window
+// refreshes on open and on every directory change; the layer's state alone
+// again on a `workspace-settings` event (an admin turned it on or off).
 export const envStatus = (cwd) => fetch(`/ws/term/env?cwd=${encodeURIComponent(cwd)}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+export function loadEnvStatus(f) {
+  // vm: whether a VM terminal can open here, and why not (the title bar's toggle)
+  envStatus(f.src).then((s) => {
+    if (f.isConnected) { f._vmStatus = s.vm || null; f._envOld = !!s.baseOutdated; f._envAuto = !!s.baseAutoUpdate; f.requestUpdate(); }
+  });
+}
 export function loadTileState(f) {
   loadHistory(f);
-  // vm: whether a VM terminal can open here, and why not (the title bar's toggle)
-  envStatus(f.src).then((s) => { if (f.isConnected) { f._vmStatus = s.vm || null; f._envOld = !!s.baseOutdated; f.requestUpdate(); } });
+  loadEnvStatus(f);
   prefs.loadVM(f.src).then((on) => { if (f.isConnected) { f._vmPref = on; f.requestUpdate(); } });
   loadDeployIfShown(f); // the live reload state: the chip, the offer, the banner below
 }
@@ -166,7 +174,9 @@ export function launcher(f) {
   const target = launchTarget(f) ? ` ${launchTarget(f)}` : ''; // what a new session calls (10-ux §2.7); '' in the zero state
   return html`<div class="launcher">
     <div class="lhead">Start a session in ${f.src}</div>
-    ${f._envOld ? html`<div class="lbase">
+    ${f._envOld && f._envAuto ? html`<div class="lbase auto">
+      <span>A newer base image is installed: the next session here starts on it, and everything outside your files &amp; $HOME is reset (installed packages, /etc, /var, /opt…, a VM terminal's disk).</span>
+    </div>` : f._envOld ? html`<div class="lbase">
       <span>This tile's terminals still run on an older base image.</span>
       <button class="lupdate" title="rebuild this tile's terminal layer on the newer base (installed packages are wiped; your files & $HOME are kept)"
               @click=${() => f._resetEnv(true)}>⬆ base update</button>
@@ -229,6 +239,7 @@ export const launcherCss = css`
   .launcher .lbase { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 460px;
     padding: 8px 10px; border: 1px solid var(--bx-amber, #f2a71b); border-radius: 6px; background: var(--bx-panel-2, #2b3038);
     color: var(--bx-text, #d4d9e0); font-size: 12px; }
+  .launcher .lbase.auto { border-color: var(--bx-border, #363c45); color: var(--bx-muted, #868f9a); }
   .launcher .lupdate { border: 1px solid var(--bx-amber, #f2a71b); background: var(--bx-amber, #f2a71b); color: #23272e;
     border-radius: 5px; padding: 4px 10px; cursor: pointer; font: 12px var(--bx-sans, system-ui); font-weight: 700; white-space: nowrap; }
   .launcher .lupdate:hover { filter: brightness(1.06); }

@@ -39,7 +39,8 @@ The router (`admin.js`, `GROUPS`) and one element per tab under `tabs/`
 - **binding** — roles, grants (approve/revoke/add), interface providers,
   binding wiring.
 - **ingress** — endpoints, services / expose.
-- **workspace** — branding; the xbin app's native-runtime switch.
+- **workspace** — branding; the xbin app's native-runtime switch;
+  terminals: base auto-update (D174).
 
 ## Endpoints used
 
@@ -54,8 +55,9 @@ All under `/api/xbin`, gated by owner-or-`xbin:admin` unless
 `/permission-sets`, `/net-sets`, `/vaults`, `/vault/<c>/<k>`,
 `/vault-status`, `/vault-seal`, `/vault-unseal`, `/vault-rekey`,
 `/grants`, `/bindings`, `/ingress`, `/branding`, `/native-runtime`,
-`/deployments`, `/deployments/protect`, `/deployments/primary`,
-`/deployments/deliveries`, `/deployments/always-on`.
+`/workspace-settings`, `/deployments`, `/deployments/protect`,
+`/deployments/primary`, `/deployments/deliveries`,
+`/deployments/always-on`.
 
 ## Tile managers' acts (the deployments tab)
 

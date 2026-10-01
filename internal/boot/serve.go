@@ -138,6 +138,7 @@ func (st *State) serve(ctx context.Context) error {
 		_ = httpSrv.Close()
 	}()
 	err = httpSrv.Serve(ln)
+	st.stopWatch() // first: a save's batch would otherwise rebuild what StopAll stops, or write after it
 	if st.Term != nil {
 		st.Term.FlushAgents() // open agent conversations become history, not losses (term/history.go)
 	}
@@ -150,7 +151,6 @@ func (st *State) serve(ctx context.Context) error {
 	if iSrv != nil {
 		_ = iSrv.Close()
 	}
-	_ = st.watcher.Close()
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).
 	st.Auth.FlushGens()
@@ -161,6 +161,26 @@ func (st *State) serve(ctx context.Context) error {
 		return nil
 	}
 	return err
+}
+
+// stopWatch ends what workspace changes drive, at shutdown: the watcher
+// closes — a debounced batch still pending is dropped — and the watch loop
+// finishes the batch it holds (rescan, provisioning, go.work…) and returns;
+// then the drift counts that batch may have started for paused tiles end
+// (deployments.StopWorkTrees). After it nothing of theirs writes into the
+// workspace: a boot test's TempDir cleanup once found the workspace filling
+// again as it emptied it.
+func (st *State) stopWatch() {
+	if st.watcher == nil {
+		return
+	}
+	_ = st.watcher.Close()
+	if st.watchDone != nil {
+		<-st.watchDone
+	}
+	if st.Deployments != nil {
+		st.Deployments.StopWorkTrees()
+	}
 }
 
 // watchLoop reacts to each batch of workspace changes: the tile-level work

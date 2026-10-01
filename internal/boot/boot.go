@@ -33,6 +33,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/vm"
 	"github.com/xbin-dev/xbin/internal/watch"
+	"github.com/xbin-dev/xbin/internal/wssettings"
 )
 
 // watchDebounce coalesces editor save bursts (plans/implementation.md phase 1).
@@ -73,10 +74,14 @@ type State struct {
 	reconcileIngress func()
 	onVMPolicy       func(old, cur vm.Policy) // a VM policy change, for the tile-sandbox runtime (stepTileSandboxes)
 	watcher          *watch.Watcher
+	watchDone        chan struct{} // closed when the watch loop has returned (stepWatch, serve's stopWatch)
 	priv             Privileges
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)
 	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
 	uidRangeNote     string // why not
+	// settings is the workspace settings file (D174): the terminals read
+	// base auto-update from it, the server serves it (stepServer).
+	settings *wssettings.Store
 	// sandboxBasePins is the base of every tile-sandbox definition, archived
 	// ones included (plans/tile-sandbox-runtime.md §9) — one of the pin
 	// sources the boot's base-image GC passes keep (pinnedBases). An error
@@ -321,6 +326,10 @@ func (st *State) stepTerminals() error {
 	if bxDir != "" {               // the agent host bound into agent sandboxes (D74)
 		tm.BxPath = filepath.Join(bxDir, "bx")
 	}
+	// A tile's layer built on an older base moves to the current one at its
+	// next session start, while the workspace setting is on (D174).
+	st.settings = wssettings.New(filepath.Join(ws, "data", "workspace-settings.json"))
+	tm.BaseAutoUpdate = st.settings.BaseAutoUpdate
 	term.Version = st.Cfg.Version
 	// D17a: a non-admin's terminal masks out the source of every tile below
 	// their read level — the mount-level half of the same visibility rule the
@@ -696,6 +705,7 @@ func (st *State) stepServer() error {
 		TileAssets:     st.Cfg.TileAssets, // --tile-assets (validated); docs/auth.md §Tile asset gating
 		TilesDomain:    st.Cfg.tilesDomain(),
 		Brand:          branding.New(filepath.Join(st.WS, "data", "branding.json")), // the workspace's title + icon (D76)
+		Settings:       st.settings,                                                 // workspace settings (D174)
 	}
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)
@@ -742,12 +752,17 @@ func (st *State) stepWatch() error {
 	if st.Term != nil {
 		refreshViews = st.Term.RefreshViews
 	}
-	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
-		st.reconcileIngress()
-		if st.TileSbx != nil {
-			st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
-		}
-	}, refreshViews)
+	done := make(chan struct{})
+	st.watchDone = done
+	go func() {
+		defer close(done) // the loop ends when the watcher closes (serve's stopWatch)
+		watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
+			st.reconcileIngress()
+			if st.TileSbx != nil {
+				st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
+			}
+		}, refreshViews)
+	}()
 	return nil
 }
 

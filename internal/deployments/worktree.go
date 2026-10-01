@@ -126,8 +126,23 @@ type workTrees struct {
 	after func(time.Duration, func()) // runs f once d has passed: time.AfterFunc
 	spawn func(func())                // runs f off the caller: a goroutine
 
-	mu    sync.Mutex
-	tiles map[string]*tileDrift
+	mu      sync.Mutex
+	tiles   map[string]*tileDrift
+	stopped bool           // xbind shuts down: no count starts (stop)
+	runs    sync.WaitGroup // the counts started (added under mu, while not stopped)
+}
+
+// StopWorkTrees ends the drift counts at xbind's shutdown: none starts after
+// it — a notice, a trailing count's timer, a count's "one more" — and it
+// returns once the one in flight is done, so no count's run (its scratch
+// index and quarantine) touches the workspace after xbind stopped.
+func (p *Plane) StopWorkTrees() { p.workTrees().stop() }
+
+func (w *workTrees) stop() {
+	w.mu.Lock()
+	w.stopped = true
+	w.mu.Unlock()
+	w.runs.Wait()
 }
 
 // tileDrift is one paused tile's count and its debounce.
@@ -167,6 +182,10 @@ func (w *workTrees) notice(tile string) {
 		return
 	}
 	w.mu.Lock()
+	if w.stopped {
+		w.mu.Unlock()
+		return
+	}
 	t := w.tiles[tile]
 	if t == nil {
 		t = &tileDrift{}
@@ -187,14 +206,18 @@ func (w *workTrees) notice(tile string) {
 
 // scheduleLocked plans tile's next count: it reports true when the count
 // starts now (the caller runs it once the lock is released), or sets a
-// timer for when the debounce allows it.
+// timer for when the debounce allows it. Nothing once stopped.
 func (w *workTrees) scheduleLocked(tile string, t *tileDrift) bool {
+	if w.stopped {
+		return false
+	}
 	if wait := t.last.Add(driftEvery).Sub(w.now()); !t.last.IsZero() && wait > 0 {
 		t.due = true
 		w.after(wait, func() { w.start(tile) })
 		return false
 	}
 	t.running, t.last = true, w.now()
+	w.runs.Add(1)
 	return true
 }
 
@@ -202,19 +225,22 @@ func (w *workTrees) scheduleLocked(tile string, t *tileDrift) bool {
 func (w *workTrees) start(tile string) {
 	w.mu.Lock()
 	t := w.tiles[tile]
-	if t == nil || !t.due {
+	if w.stopped || t == nil || !t.due {
 		w.mu.Unlock()
 		return
 	}
 	t.due, t.running, t.last = false, true, w.now()
+	w.runs.Add(1)
 	w.mu.Unlock()
 	w.run(tile)
 }
 
 // run counts tile once, keeps the count, and announces it when it moved:
 // the first count against a checkpoint moves from 0, the drift right after
-// the pause that captured it.
+// the pause that captured it. Every run was added to runs when it was
+// decided (scheduleLocked, start).
 func (w *workTrees) run(tile string) {
+	defer w.runs.Done()
 	since, n, ok, err := w.measure(tile)
 	w.mu.Lock()
 	t := w.tiles[tile]

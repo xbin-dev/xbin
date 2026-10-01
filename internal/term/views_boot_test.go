@@ -23,8 +23,8 @@ func TestCheckBaseImagesSweepsOrphanedViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &Manager{Root: root, Rootfs: rootfs}
-	if err := m.CheckBaseImages(); err != nil {
-		t.Fatalf("orphaned views must not fail the boot gate: %v", err)
+	if missing := m.CheckBaseImages(); len(missing) != 0 {
+		t.Fatalf("orphaned views taken for layers on a missing base: %v", missing)
 	}
 	if _, err := os.Stat(view); !os.IsNotExist(err) {
 		t.Fatal("orphaned view dir must be swept at boot")

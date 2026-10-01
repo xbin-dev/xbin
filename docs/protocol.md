@@ -1829,6 +1829,30 @@ PUT    /native-runtime            admin. {enabled: bool} → the same view.
                                    answers 410 with the reason (&preview=1
                                    still served). Kept in users.json;
                                    publishes `native`; audited
+GET    /workspace-settings        authenticated. {baseAutoUpdate, error?} —
+                                   the workspace settings an admin sets
+                                   (D174). baseAutoUpdate (default true): a
+                                   tile's terminal layer built on an older
+                                   base image moves to the current base at
+                                   its next session start (everything
+                                   outside the workspace files and $HOME is
+                                   reset: installed packages, /etc, /var,
+                                   /opt…, a VM terminal's disk; a running
+                                   session keeps its base until it ends);
+                                   false: it stays, and the terminal window
+                                   offers the base update. error: the file
+                                   can't be read — base auto-update is off
+                                   until it is fixed
+PUT    /workspace-settings        admin. {baseAutoUpdate?: bool}: each
+                                   present key replaces its setting, an
+                                   absent one is left alone; an unknown key
+                                   or no key is 400 → the full view, which
+                                   a `workspace-settings` event carries too
+                                   (open terminal windows re-read GET
+                                   /ws/term/env on it); audited.
+                                   Kept in data/workspace-settings.json,
+                                   whose other keys (a newer xbind's) are
+                                   kept; an older xbind ignores the file
 GET    /chrome                    admin. {tiles: [{path, requested,
                                    approved, shipped?, chrome, missing?}]} —
                                    every component whose xbin.json says
@@ -3496,8 +3520,8 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   its impact report, access, users, orgs, sets, policy, defaults, screen
   writes, and every admin API (backups, the vault barrier, vaults,
   resources, auth-overview, backends, runtime, ingress, gpus, the VM policy,
-  token rotation, view-as, the native-runtime, chrome and branding writes,
-  push config and devices). Deciding a PR (`POST /code/pr/state`) is
+  token rotation, view-as, the native-runtime, chrome, branding and
+  workspace-settings writes, push config and devices). Deciding a PR (`POST /code/pr/state`) is
   primary-only for backends: 403 `deciding a PR is the primary's act: a
   non-primary deployment's backend can't do it (<deployment>)`.
 - **Audit.** A tile credential acting in a deployment other than `main`
@@ -4533,6 +4557,7 @@ DELETE /ws/term?session=<id>       end a session now (creator or admin) → 204
 DELETE /ws/term/env?cwd=<p>        terminal level on the tile: wipe its persistent
                                    terminal layer back to the base rootfs → 204
 GET    /ws/term/env?cwd=<p>        that layer's state → {exists, baseOutdated,
+                                   baseAutoUpdate,
                                    vm:{available,reason,memMiB,vcpus}}
 ```
 
@@ -4640,7 +4665,8 @@ The frames are [the terminal wire](#the-terminal-wire) (below), with
     pick on this tile, `label` names the effective scope, `netNote` explains a
     clamp; `baseOutdated:true` ⇒ this terminal's persistent layer was built on
     an older base image — reset it via `/ws/term/env` to rebuild on the
-    current base; `echoAck:true` ⇒ this xbind sends the `ack` and `pong`
+    current base (with the workspace's base auto-update on, the session's
+    next start does that by itself, D174); `echoAck:true` ⇒ this xbind sends the `ack` and `pong`
     frames below; `deployment` = the named target, or the current primary's
     name for a session that asked for the primary by name — the echo a client
     checks, since an older xbind ignores `?deployment=`; `targetNote` = a line
@@ -4680,9 +4706,23 @@ component's terminal has its own persistent overlay layer (`.xbin/term/<key>/`)
 so system-level changes survive across sessions — a resettable dev sandbox
 (`docs/isolation.md` §The dev layer). Workspace files and `$HOME` persist independently.
 `GET /ws/term/env?cwd=<component-path>` (same gate) reports that layer
-without opening a terminal: `{"exists":bool,"baseOutdated":bool}` —
+without opening a terminal: `{"exists":bool,"baseOutdated":bool,"baseAutoUpdate":bool}` —
 `baseOutdated` as on the session frame, so the terminal window offers the
-base update on its session chooser too.
+base update on its session chooser too; `baseAutoUpdate` is the
+workspace's setting (`GET /api/xbin/workspace-settings`, D174): while it is
+on, the next session that opens the layer — no other session holding it —
+moves it to the current base first (its upper and VM disk put aside and
+removed as the reset removes them: everything outside the workspace files
+and `$HOME`), and the shell's first output is one grey line saying so
+(`xbin: this tile's terminal moved to the new base image — everything
+outside the workspace files and $HOME was reset (…)`); an agent session
+logs a `notice` event instead, and the tile's next shell prints `xbin: an
+agent session's start moved this tile's terminal to the new base image —
+…` once. A running session is never moved. A layer whose base isn't
+installed any more moves the same way; with the setting off, such a layer
+fails to open (reset it). Neither keeps xbind from booting any more (it
+used to refuse to start over such a layer, D174). A layer stamp or base
+version that can't be read fails the open, the layer untouched.
 
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 xbind restart kills them (run `tmux` inside if you care).
@@ -4748,6 +4788,7 @@ required). JSON text frames:
 {"type":"grants"}                                    // grant table changed
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
 {"type":"native"}                                    // the native-runtime switch changed (D101): re-read whoami (native.runtime)
+{"type":"workspace-settings","data":{"baseAutoUpdate":false}} // an admin changed the workspace settings (D174): the new view; a terminal window re-reads GET /ws/term/env
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}
@@ -4934,6 +4975,7 @@ them apart by `hasOlder`.
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
 | `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a one-click sign-in that runs `command` in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
+| `notice` | `{text}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today one: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D174; the event is the session's first) |
 
 The live log is in memory; an `exited` or `error` status is final and the
 session leaves the directory (`term` event `close`). Its transcript does not

@@ -6156,3 +6156,107 @@ Deviations and refinements made while implementing; all deliberate:
       after the delay (an admin's pass may have completed it); Stop (at
       shutdown) cancels the lists' context and waits, recording nothing a
       stopped list left half done.
+- **D174 — Base auto-update: a tile's terminal layer built on an older
+  base image moves to the current base at its next session start; a
+  workspace setting, on by default (2026-10-01).** internal/term/base.go
+  (claimLayer), internal/wssettings, internal/server/wssettings.go, the
+  admin tile's workspace → terminals tab, `bx settings`. The owner: "For Go
+  versions in bases lets have a knob in admin workspace settings on base
+  auto-updates, default to true." A terminal's layer (.xbin/term/<key>:
+  the overlay upper, a VM terminal's disk) is pinned to the base it was
+  built on (component-env.md §Base images): a newer xbind's base reached
+  it only when someone pressed the window's "⬆ base update". Once D166's
+  builtins said `go 1.26.0`, a terminal on the old base (Go 1.24.0)
+  downloaded a toolchain for every `go` command, or failed where its
+  network scope couldn't reach proxy.golang.org.
+  - **Chosen: the move happens when a session claims the layer.** A
+    session's start takes the layer (acquireEnv: one live holder) before
+    anything mounts it; if its stamp isn't the current base and the
+    setting is on, the layer is moved off — put aside (one rename into
+    .xbin/term-moved/, which no layer scan, VM disk scan or backup reads)
+    for a background remover that removes it confined, exactly as the
+    reset removes it — and a fresh layer stamped with the current base,
+    and the session runs there. Put aside, not removed inline: a VM disk
+    or a big upper is minutes of confined `find -delete`, and the start
+    is the WebSocket's open. The shell's first output is one grey line
+    saying so; an agent session logs a `notice` event its Agent tab shows
+    (and its host log), and the tile's next shell says the agent's move
+    once (an automation's agent session may be the first after an
+    upgrade, and the packages were perhaps a shell user's). A running
+    session is never touched: a second session on the tile while one
+    holds the layer gets an ephemeral upper (as always), and the holder
+    keeps its base until it ends or restarts. Files and $HOME are bind
+    mounts, not the layer, so what is lost is what the reset loses — and
+    the line says what that is: everything outside the workspace files
+    and $HOME (installed packages, /etc, /var, /opt…, a VM terminal's
+    whole disk with its docker images and volumes, none of it in a
+    backup). Terminals run no `setup`: the backend's env layer (setup's)
+    is keyed by the rootfs already (runner.setupHash) and rebuilds by
+    itself.
+  - **A move that can't complete fails the start** (the error says to
+    open it again or reset it), and the next start tries again: the old
+    layer can't be put aside and its removal in place fails (`find
+    -delete` may have stopped halfway — half a layer is never mounted, on
+    either base), or the fresh layer can't be stamped (its empty dir goes
+    again, so the next start makes a new layer on the current base rather
+    than read an unstamped one as legacy). What the background remover
+    can't remove stays in term-moved for the next boot's sweep.
+  - **Unreadable is never "missing" (review).** A layer stamp that is
+    there but can't be read (EIO — containerfs has an unresolved one —
+    EACCES, EMFILE, a link) used to read as no stamp: re-stamped `v0`
+    (legacy), it would have been discarded as outdated while it was on
+    the current base. A rootfs version file that can't be read used to
+    read as `v0` too: every layer on the current base outdated, and the
+    fresh one stamped `v0`, to be discarded again at the next start.
+    Now: only a stamp that is absent (ENOENT) on an existing layer is
+    legacy; an unreadable one fails the start, the layer untouched (as an
+    unreadable stamp failed it before the move existed: "not installed").
+    The current base's version is read once per xbind run (the installer
+    stops xbind before it swaps the rootfs), a failed read is an error
+    and isn't kept, and no start, stamp or move happens on it. Every
+    stamp write is checked. An unstamped rootfs (current = `v0`, a dev
+    one) is no base to move to.
+  - **A base that isn't installed any more** (GC released it, a host move
+    or DR onto a fresh install, a restore, a base deleted by hand). With
+    the setting on, such a layer moves like any other; off, its start
+    refuses it, as before. **The boot no longer refuses to start over one,
+    either way** (CheckBaseImages logs them): the per-start refusal is what
+    keeps a layer off another base, and claimLayer is the only path that
+    mounts a terminal layer — so the boot gate guarded nothing the start
+    doesn't, and with the setting it would have turned "admin turns
+    auto-update off" into "xbind won't boot" wherever such a layer had
+    been let through. Tile sandboxes were already this way (a missing
+    pinned base puts that sandbox in error, never gates the boot). A
+    moved layer no longer pins its old base, so the next boot's GC
+    releases it.
+  - **The setting** lives in data/workspace-settings.json (internal/
+    wssettings): an xbind-owned JSON object, each key with a default for
+    when it is absent (a missing file is every default: on); a write sets
+    its keys and keeps every other key the file holds (a newer xbind's);
+    an older xbind never reads the file, so a downgrade ignores it and the
+    upgrade back finds it. A file that can't be read turns base
+    auto-update off (a guess must not discard anything) and a PUT refuses
+    to overwrite it. Not users.json, where the native-runtime switch is:
+    its rewrite drops keys it doesn't know (a downgrade's first write
+    would turn an admin's "off" back on), and it is the identity store.
+    Not branding.json: branding's. GET /api/xbin/workspace-settings
+    (authenticated), PUT (admin, audited, primary-only, publishing a
+    `workspace-settings` event so open windows re-read); /ws/term/env
+    gains baseAutoUpdate so the window's chooser says what the next
+    session does instead of offering the button.
+  - **Not chosen:** moving every outdated layer at boot (no session to
+    tell, and a layer nobody opens again would lose its installs for
+    nothing); rebasing (re-stamping the kept upper: dpkg's status from the
+    old base over the new base's files — what the pin exists to prevent);
+    tile sandboxes (internal/tilesbx): their cur/ is the whole sandbox
+    state a manager tile keeps — work, not only installs — and the
+    sandbox-manager contract gives the manager the choice (`base.outdated`,
+    reset, rebase), so the setting doesn't touch them; a per-tile switch
+    (the owner asked for one workspace knob); keeping a moved-off layer
+    for a grace period to undo the move (a VM disk is tens of GB and the
+    fresh layer grows beside it; nothing would offer the undo — the
+    choice is the setting, made before the upgrade); a 409 on turning the
+    setting off while layers on missing bases exist (moot once the boot
+    stopped refusing them).
+  - Numbered D174: the number before it went to deflake/livereload-pause,
+    in flight at the same time.

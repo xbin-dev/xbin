@@ -44,6 +44,8 @@ func cmdExtra(cmd string, args []string) error {
 		return cmdFix(args) // fixassets.go
 	case "chrome":
 		return cmdChrome(args) // chrome.go
+	case "settings":
+		return cmdSettings(args) // settings.go
 	}
 	usage()
 	return nil

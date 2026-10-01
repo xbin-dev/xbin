@@ -167,8 +167,9 @@ func TestTermEventFilterElements(t *testing.T) {
 	}
 }
 
-// GET /ws/term/env reports a tile's terminal layer — whether it exists and
-// whether its base image is older than the current rootfs — under the same
+// GET /ws/term/env reports a tile's terminal layer — whether it exists,
+// whether its base image is older than the current rootfs, and whether the
+// next session moves it (the workspace's base auto-update) — under the same
 // gate as the reset: terminal level on the tile, the root layer admin-only.
 func TestTermEnvStatus(t *testing.T) {
 	h, s := termServer(t)
@@ -186,7 +187,7 @@ func TestTermEnvStatus(t *testing.T) {
 		b, _ := json.Marshal(body)
 		return w.Code, string(b)
 	}
-	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseOutdated":false,"exists":false}` {
+	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseAutoUpdate":false,"baseOutdated":false,"exists":false}` {
 		t.Fatalf("no layer yet: %d %s", c, b)
 	}
 	if c, _ := get(bob, "apps/x"); c != 403 {
@@ -200,11 +201,16 @@ func TestTermEnvStatus(t *testing.T) {
 	layer := filepath.Join(s.Term.Root, ".xbin", "term", util.CompKey("apps/x"))
 	_ = os.MkdirAll(layer, 0o755)
 	_ = os.WriteFile(filepath.Join(layer, "base"), []byte("v1\n"), 0o644)
-	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseOutdated":true,"exists":true}` {
+	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseAutoUpdate":false,"baseOutdated":true,"exists":true}` {
 		t.Fatalf("an old-base layer: %d %s", c, b)
 	}
 	_ = os.WriteFile(filepath.Join(layer, "base"), []byte("v2\n"), 0o644)
-	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseOutdated":false,"exists":true}` {
+	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseAutoUpdate":false,"baseOutdated":false,"exists":true}` {
 		t.Fatalf("a current layer: %d %s", c, b)
+	}
+	// the workspace's base auto-update, as the terminals apply it (D174)
+	s.Term.BaseAutoUpdate = func() bool { return true }
+	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseAutoUpdate":true,"baseOutdated":false,"exists":true}` {
+		t.Fatalf("auto-update on: %d %s", c, b)
 	}
 }
