@@ -602,10 +602,12 @@ What the agent gets:
   and the tab offers its fallback in a terminal instead: `claude /exit`,
   whose first-run screens ask for the sign-in, then exit. Links in any
   terminal open whole, too: an OSC 8 link (what Claude Code prints) opens
-  its target from any row it spans, with no "dangerous link" confirm, a URL
-  a program broke over rows is joined back, and a program's OSC 52 copy
-  (Claude Code's "c to copy") reaches your clipboard while that terminal
-  has the focus. The first turn on a home with no
+  its target from any row it spans — at once when the row shows part of
+  that target, after a confirm naming the real host when it shows
+  something else — a URL a program broke over rows is joined back (never
+  opened with a user part), and a program's OSC 52 copy (Claude Code's
+  "c to copy") reaches your clipboard while that terminal has the focus;
+  a program's OSC 52 read gets no answer. The first turn on a home with no
   login also ends with a `status error` naming the command — never a vault
   command.
 - **its own settings, live.** The agent advertises what it can change —

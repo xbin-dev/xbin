@@ -11,8 +11,6 @@ LIT=3.3.1
 XTERM=5.5.0
 XTERM_FIT=0.10.0
 XTERM_WEBLINKS=0.11.0
-# addon-clipboard 0.1.0 shipped with xterm 5.5.0 (peer ^5.4.0); 0.2.0 is for xterm 6
-XTERM_CLIPBOARD=0.1.0
 MARKED=15.0.12
 HLJS=11.11.1
 QRCODE=2.0.4
@@ -23,9 +21,6 @@ curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/xterm@${XTERM}/lib/xterm.js" -o 
 curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/xterm@${XTERM}/css/xterm.css" -o "$V/xterm.css"
 curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@${XTERM_FIT}/lib/addon-fit.js" -o "$V/addon-fit.js"
 curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@${XTERM_WEBLINKS}/lib/addon-web-links.js" -o "$V/addon-web-links.js"
-# OSC 52 copy from a terminal program (Claude Code's "c to copy"); a single-file
-# UMD like the other addons (js-base64 bundled in)
-curl -fsSL "https://cdn.jsdelivr.net/npm/@xterm/addon-clipboard@${XTERM_CLIPBOARD}/lib/addon-clipboard.js" -o "$V/addon-clipboard.js"
 curl -fsSL "https://cdn.jsdelivr.net/npm/marked@${MARKED}/lib/marked.esm.js" -o "$V/marked.esm.js"
 # highlight.js: single-file ESM with the ~36 common languages bundled
 # (syntax highlighting in the Admin code/diff viewer).
@@ -40,4 +35,4 @@ curl -fsSL "https://cdn.jsdelivr.net/npm/qrcode-generator@${QRCODE}/dist/qrcode.
 # the same version, fails the release preflight).
 (cd "$V" && sha256sum ./*) | sed 's| \./| |' > hack/vendor.sha256
 
-echo "vendored: lit@$LIT xterm@$XTERM addon-fit@$XTERM_FIT addon-web-links@$XTERM_WEBLINKS addon-clipboard@$XTERM_CLIPBOARD marked@$MARKED highlight.js@$HLJS qrcode-generator@$QRCODE"
+echo "vendored: lit@$LIT xterm@$XTERM addon-fit@$XTERM_FIT addon-web-links@$XTERM_WEBLINKS marked@$MARKED highlight.js@$HLJS qrcode-generator@$QRCODE"

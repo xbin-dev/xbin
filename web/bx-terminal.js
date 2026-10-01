@@ -116,7 +116,6 @@ function loadXterm() {
     await scriptOnce('/vendor/xterm.js');
     await scriptOnce('/vendor/addon-fit.js');
     await scriptOnce('/vendor/addon-web-links.js');
-    await scriptOnce('/vendor/addon-clipboard.js');
   })();
   return xtermReady;
 }
