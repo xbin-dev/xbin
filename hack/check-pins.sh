@@ -16,7 +16,8 @@
 #   2. Go versions agree: go.mod == install.sh XBIN_GO_VERSION; ci.yml's
 #      go-version is go.mod's major.minor; the rootfs-baked toolchain
 #      (docker/rootfs.Dockerfile) satisfies every go.mod.tile / sdk / example
-#      `go` directive, since terminals build tiles with it
+#      `go` directive, since terminals build tiles with it, and is no newer
+#      than install.sh's GO_MIN, since hosts build what terminals made
 #   3. alpine pins agree across hack/build-*.sh and deploy/install.sh
 #   4. prebuilt helpers: hack/helpers.sha256 is well-formed, and each helper
 #      group's current key is published for amd64 (the CI arch) — WARN when
@@ -122,7 +123,7 @@ fi
 # The rootfs toolchain is what terminals (and agents in them) build tiles
 # with: it must satisfy every shipped tile's / the sdk's `go` directive.
 need=""
-for f in "$repo"/sdk/go.mod "$repo"/builtin-tiles/*/go.mod.tile "$repo"/builtin-templates/*/*/go.mod.tile "$repo"/examples/*/go.mod; do
+for f in "$repo"/sdk/go.mod "$repo"/builtin-tiles/*/go.mod.tile "$repo"/builtin-templates/*/go.mod.tile "$repo"/examples/*/go.mod; do
   [ -f "$f" ] || continue
   v=$(sed -n 's/^go \([0-9.]*\).*/\1/p' "$f" | head -1)
   [ -n "$v" ] || continue
@@ -134,6 +135,16 @@ elif vge "$rootfs_go" "$need"; then
   ok "rootfs toolchain Go $rootfs_go satisfies every shipped go directive (max go $need)"
 else
   fail "rootfs toolchain Go $rootfs_go is older than a shipped go directive (go $need) — tiles won't build in terminals; bump ARG GO_VERSION in docker/rootfs.Dockerfile"
+fi
+# ...and no newer than the host Go the installer guarantees: `go mod init` in
+# a terminal writes the rootfs's version as a new tile's go line, and xbind
+# builds tiles with the host's Go — a newer line makes each such build fetch
+# a toolchain (or fail with GOTOOLCHAIN=local).
+inst_min=$(sed -n 's/^GO_MIN="\([0-9.]*\)".*/\1/p' "$repo/deploy/install.sh" | head -1)
+if [ -n "$rootfs_go" ] && [ -n "$inst_min" ] && [ "$rootfs_go" != "$inst_min" ] && vge "$rootfs_go" "$inst_min"; then
+  fail "rootfs toolchain Go $rootfs_go is newer than deploy/install.sh's GO_MIN $inst_min — a tile made in a terminal would need a newer Go than hosts have; raise GO_MIN (and go.mod, XBIN_GO_VERSION) with it"
+elif [ -n "$rootfs_go" ] && [ -n "$inst_min" ]; then
+  ok "rootfs toolchain Go $rootfs_go is within the hosts' Go floor (GO_MIN $inst_min)"
 fi
 
 # --- 3. Alpine pin agreement -----------------------------------------------
