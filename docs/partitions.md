@@ -1,13 +1,10 @@
 # Partitioned tiles: one instance per person
 
-> **Status: in development until the release notes say otherwise.** This
-> page describes partitioned tiles as built; no release carries them yet.
-> Until one does, don't rely on a tile being partitioned: an xbind that
-> doesn't run partitioned tiles treats `"partition"` like any manifest key
-> it doesn't know and runs the tile as one ordinary instance
-> ([§Older xbinds](#older-xbinds)), and the Go SDK's partition functions and
-> `xbin.partition` in the in-frame client ([§In your code](#in-your-code))
-> read nothing there.
+> **Status: released in v0.3.66.** An older xbind doesn't run partitioned
+> tiles: it treats `"partition"` like any manifest key it doesn't know and
+> runs the tile as one ordinary instance ([§Older xbinds](#older-xbinds)),
+> and the Go SDK's partition functions and `xbin.partition` in the
+> in-frame client ([§In your code](#in-your-code)) read nothing there.
 
 A **partitioned tile** keeps the people who use it apart. It declares, in
 its `xbin.json`:
