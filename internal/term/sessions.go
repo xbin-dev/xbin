@@ -113,6 +113,33 @@ func (m *Manager) ListFor(homeKey, cwd string, may func(rel string) bool) []Sess
 	return out
 }
 
+// List returns session metadata for the status API, ordered by creation time
+// (m.sessions is a map, so without sorting the admin view would reshuffle).
+func (m *Manager) List() []map[string]any {
+	out := []map[string]any{}
+	for _, s := range m.sorted() {
+		s.mu.Lock()
+		row := map[string]any{
+			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": s.hub.Clients(),
+			"user": s.homeKey, "kind": s.kind, "vm": s.vm,
+			"created": s.born.UTC().Format(time.RFC3339),
+			"label":   s.Label, "scopes": s.Scopes, "name": s.name,
+		}
+		s.mu.Unlock()
+		if s.purpose != "" { // a guided sign-in's shell (purpose.go)
+			row["purpose"] = s.purpose
+		}
+		if d := m.echoOf(s); d != "" { // the session's target (target.go)
+			row["deployment"] = d
+		}
+		if s.part.personal() { // a person's session on a partitioned tile: no name in an admin's listing (PD-09)
+			row["partition"], row["name"] = s.part.part, ""
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 // Rename sets a session's tab name. false = no such session. Empty clears.
 // The reserved name, and a guided sign-in's session, are left as they are
 // (RenameRefused says why, purpose.go).
