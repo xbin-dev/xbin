@@ -1,0 +1,89 @@
+// What `make integration` runs (hack/testshard, docs/maintenance.md →
+// "Integration shards"): every suite is one `go test -tags=integration
+// -count=1 -v` over one package, and its top-level tests are split into
+// `shards` shards, balanced by hack/integration-timings.json (a test it
+// doesn't know yet goes to the shard its name hashes to). A suite with a
+// "job" runs whole in that CI job instead (`make integration SHARD=<job>`).
+// Every test runs exactly once across the shards and jobs: hack/testshard's
+// tests check that, and that ci.yml runs each shard and job;
+// internal/confine's TestIntegrationPackagesListed that every package with
+// integration-tagged tests is here.
+//
+// A suite: name (unique; the timing file's keys are <name>/<Test>), pkg,
+// env (added to the environment), run (a top-level -run filter: only the
+// tests it matches belong to the suite), skip (passed to -skip as is),
+// timeout (-timeout), delegated (run under the delegating -exec, below),
+// job, overhead (seconds a shard pays before the suite's first test: its
+// build and TestMain, so balancing counts it once per shard).
+//
+// unit_shards splits `make test` (go test ./... and the sdk and relay
+// modules) by package the same way, for CI's unit jobs
+// (`make test SHARD=i/N`); a bare `make test` runs it whole.
+{
+  "shards": 4,
+  "unit_shards": 2,
+  "suites": [
+    // the end-to-end suite over a real xbind (TestMain builds one and boots
+    // a shared daemon; tests with a daemon of their own start more), Go
+    // tile backends compiled for real
+    { "name": "test", "pkg": "./test/", "overhead": 25 },
+
+    // the confined tool runs (D78), the sandbox init and a tile sandbox's
+    // `bx __sbx-agent` (a minimal lower built in the test) in real
+    // sandboxes, the relay's per-flow host locality in a netns of its own,
+    // confined checkpoint builds and the broker's confined runs. Skip
+    // without .rootfs/userns
+    { "name": "confine", "pkg": "./internal/confine/", "overhead": 3 },
+    { "name": "runner", "pkg": "./internal/runner/", "overhead": 4 },
+    { "name": "sandbox", "pkg": "./internal/sandbox/", "overhead": 3 },
+    { "name": "agentcore", "pkg": "./internal/sandbox/agentcore/", "overhead": 3 },
+    { "name": "relay", "pkg": "./internal/sandbox/relay/", "overhead": 3 },
+    { "name": "checkpoint", "pkg": "./internal/checkpoint/", "overhead": 3 },
+    { "name": "broker", "pkg": "./internal/broker/", "overhead": 6 },
+
+    // the cgroup leaves on the real cgroupfs, in a delegated scope where
+    // the user's systemd manager makes one (they skip elsewhere)
+    { "name": "cgroup", "pkg": "./internal/cgroup/", "delegated": true, "overhead": 2 },
+
+    // tile sandboxes (D120) started, driven and ended through the
+    // runtime's routes: over a minimal lower (kernel overlay, then
+    // fuse-overlayfs when bin/ has it) and over .rootfs when present; skip
+    // without userns. VM mode (TestLiveVM, and the exec and file suites'
+    // vm cases) needs .rootfs, the vm-assets and KVM, then runs again under
+    // QEMU's emulation; their cgroup leaves and memory.max kills need the
+    // delegated scope (skip without)
+    { "name": "tilesbx", "pkg": "./internal/tilesbx/", "delegated": true, "overhead": 4 },
+    { "name": "tilesbx-emulate", "pkg": "./internal/tilesbx/", "delegated": true, "overhead": 4,
+      "env": ["XBIN_VM_ACCEL=emulate"], "run": "^TestLive(VM|Execs|Files)$",
+      "skip": "^(TestLiveExecs|TestLiveFiles)$/^(minimal|rootfs|namespace)$" },
+
+    // a live terminal's layer — a sub-uid's files in it, in range mode —
+    // goes whole on a reset and an offload-full (WP-9b), its mount points
+    // are never followed through it (WP-2b), and one on an older base moves
+    // to the current one at a start with base auto-update on (D175): only
+    // these tests of this unit-heavy package (the broker's run whole
+    // above); skip without .rootfs/userns
+    { "name": "term", "pkg": "./internal/term/", "run": "^(TestConfined|TestTermMountPoints)", "overhead": 3 },
+
+    // VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then
+    // again under QEMU's emulation (skips without its assets). CI's vm job
+    // gives them KVM, the assets and a guest rootfs (XBIN_ROOTFS)
+    { "name": "vm", "pkg": "./internal/vm/", "job": "vm", "overhead": 3 },
+    { "name": "vm-emulate", "pkg": "./internal/vm/", "job": "vm", "overhead": 3, "env": ["XBIN_VM_ACCEL=emulate"] },
+
+    // tile sandboxes end to end (WP-21, test/isolated over test/xbindtest):
+    // examples/sandbox-go on an `xbind --isolate` built from this tree,
+    // driven through the proxy by two consumers — commands, Forward routes,
+    // relayed terminals, files, snapshots, crafted ids, an xbind restart,
+    // range mode where a sub-uid range is delegated, and the boot's base GC
+    // over a copy of the rootfs (XBIN_ITEST_DIR: a dir on the rootfs's
+    // filesystem, for reflinks) — then VM mode (KVM) and again emulated.
+    // Skips without .rootfs/userns (VM mode: without the vm-assets). The
+    // same package runs the coding-sandbox manager's walk, contract and
+    // consumers in both modes (minutes each: past go test's 10-minute
+    // default when a slow host runs them in one shard)
+    { "name": "isolated", "pkg": "./test/isolated/", "timeout": "30m", "overhead": 8 },
+    { "name": "isolated-emulate", "pkg": "./test/isolated/", "overhead": 8,
+      "env": ["XBIN_VM_ACCEL=emulate"], "run": "^TestVM$" }
+  ]
+}

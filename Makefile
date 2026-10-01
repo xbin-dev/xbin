@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
+.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -25,12 +25,18 @@ VHOST_VSOCK ?= $(CURDIR)/bin/vhost-device-vsock
 -include $(CURDIR)/.dev.mk
 GOFMT ?= gofmt
 
-# DELEGATED: go test's -exec, running each test binary alone in a
-# Delegate=yes scope of the user's systemd manager — what the cgroup tests
-# (internal/cgroup's leaves, the tile sandboxes' leaves and memory.max kills)
-# need to make their own leaves; empty where no user manager can make one
-# (CI, a sandboxed shell), and those tests skip there.
-DELEGATED = $(shell systemd-run --user --scope -p Delegate=yes --quiet -- true >/dev/null 2>&1 && echo "-exec 'systemd-run --user --scope -p Delegate=yes --quiet --'")
+# DELEGATE: the go test -exec the delegated integration suites run under
+# (hack/integration.jsonc): each test binary alone in a Delegate=yes scope of
+# the user's systemd manager — what the cgroup tests (internal/cgroup's
+# leaves, the tile sandboxes' leaves and memory.max kills) need to make
+# their own leaves; empty where no user manager can make one (a sandboxed
+# shell), and those tests skip there.
+DELEGATE = $(shell systemd-run --user --scope -p Delegate=yes --quiet -- true >/dev/null 2>&1 && echo "systemd-run --user --scope -p Delegate=yes --quiet --")
+
+# SHARD: one shard of `make test` (i/N: its packages) or of `make
+# integration` (i/N: its tests; or a job's name, e.g. vm), as a CI job runs
+# it (.github/workflows/ci.yml, hack/testshard). Unset: everything.
+SHARD ?=
 
 # Build the dev/base rootfs (docker → unpacked dir). Rebuilds when the
 # Dockerfile or build script change; otherwise cached.
@@ -150,53 +156,28 @@ build: $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
 
 test:
+ifeq ($(SHARD),)
 	go test ./...
 	# the sdk and the push relay are their own modules (go.work)
 	go test ./sdk/... ./relay/...
+else
+	@go run ./hack/testshard unit -shard $(SHARD)
+endif
 
+# The integration suites (hack/integration.jsonc says what each covers and
+# what it skips without): the end-to-end suite over a real xbind, the
+# confined tool runs and sandboxes, the cgroup leaves (under $(DELEGATE)),
+# tile sandboxes over each lower and in VM mode, a live terminal's layer, VM
+# sandboxes, and tile sandboxes end to end over an isolated xbind — split
+# into shards by test (hack/testshard; every test runs exactly once across
+# them). Without SHARD every shard and job runs at once, each into a log of
+# its own under $TMPDIR, and the failures are summarised at the end; SHARD
+# runs one in the foreground (CI's jobs: SHARD=i/N, SHARD=vm). Integration
+# needs a lot of $TMPDIR inodes at once: TMPDIR=… where /tmp is a small
+# tmpfs. `go run ./hack/testshard list [-shard …]` prints the go test
+# commands without running them.
 integration:
-	go test -tags=integration -count=1 -v ./test/
-	# the confined tool runs (D78), the sandbox init and a tile sandbox's
-	# `bx __sbx-agent` (a minimal lower built in the test) in real sandboxes,
-	# the relay's per-flow host locality in a netns of its own, confined
-	# checkpoint builds and the broker's confined runs. Skip without
-	# .rootfs/userns (TestIntegrationPackagesListed keeps this list whole)
-	go test -tags=integration -count=1 -v ./internal/confine/ ./internal/runner/ ./internal/sandbox/ ./internal/sandbox/agentcore/ ./internal/sandbox/relay/ ./internal/checkpoint/ ./internal/broker/
-	# the cgroup leaves on the real cgroupfs, in a delegated scope where the
-	# user's systemd manager makes one (DELEGATED; they skip elsewhere)
-	go test -tags=integration -count=1 -v $(DELEGATED) ./internal/cgroup/
-	# tile sandboxes (D120) started, driven and ended through the runtime's
-	# routes: over a minimal lower (kernel overlay, then fuse-overlayfs when
-	# bin/ has it) and over .rootfs when present; skip without userns. VM
-	# mode (TestLiveVM, and the exec and file suites' vm cases) needs
-	# .rootfs, the vm-assets and KVM, then runs again under QEMU's emulation;
-	# their cgroup leaves and memory.max kills need DELEGATED (skip without)
-	go test -tags=integration -count=1 -v $(DELEGATED) ./internal/tilesbx/
-	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v $(DELEGATED) -run '^TestLive(VM|Execs|Files)$$' \
-		-skip '^(TestLiveExecs|TestLiveFiles)$$/^(minimal|rootfs|namespace)$$' ./internal/tilesbx/
-	# a live terminal's layer — a sub-uid's files in it, in range mode — goes
-	# whole on a reset and an offload-full (WP-9b), its mount points are
-	# never followed through it (WP-2b), and one on an older base moves to
-	# the current one at a start with base auto-update on (D174): only these
-	# tests of this unit-heavy package (the broker's run whole above); skip
-	# without .rootfs/userns
-	go test -tags=integration -count=1 -v -run '^(TestConfined|TestTermMountPoints)' ./internal/term/
-	# VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then again
-	# under QEMU's emulation (skips without its assets)
-	go test -tags=integration -count=1 -v ./internal/vm/
-	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v ./internal/vm/
-	# tile sandboxes end to end (WP-21, test/isolated over test/xbindtest):
-	# examples/sandbox-go on an `xbind --isolate` built from this tree, driven
-	# through the proxy by two consumers — commands, Forward routes, relayed
-	# terminals, files, snapshots, crafted ids, an xbind restart, range mode
-	# where a sub-uid range is delegated, and the boot's base GC over a copy of
-	# the rootfs (XBIN_ITEST_DIR: a dir on the rootfs's filesystem, for
-	# reflinks) — then VM mode (KVM) and again emulated. Skips without
-	# .rootfs/userns (VM mode: without the vm-assets). The same package runs
-	# the coding-sandbox manager's walk, contract and consumers in both modes
-	# (8 min on this box: a slower host would hit go test's 10-minute default)
-	go test -tags=integration -count=1 -v -timeout 30m ./test/isolated/
-	XBIN_VM_ACCEL=emulate go test -tags=integration -count=1 -v -run '^TestVM$$' ./test/isolated/
+	@go run ./hack/testshard run $(if $(SHARD),-shard $(SHARD)) -exec "$(DELEGATE)"
 
 vet:
 	go vet ./...
@@ -213,9 +194,13 @@ fmt-check:
 fmt:
 	gofmt -w $(GOFMT_DIRS)
 
-# The definition of done (docs/maintenance.md). CI runs this, then
-# `make integration`. Each guard is its own target so a failure names itself.
-check: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files test
+# The definition of done (docs/maintenance.md): the guards, then the unit
+# tests. CI runs the same split over parallel jobs (`make guards`, `make test
+# SHARD=i/N`), and `make integration`'s shards. Each guard is its own target
+# so a failure names itself.
+GUARDS := fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files
+guards: $(GUARDS)
+check: $(GUARDS) test
 	@echo ">> make check: green"
 
 # Unit tests for pure frontend modules (node's built-in runner, no deps):

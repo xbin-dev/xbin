@@ -9,6 +9,7 @@ package test
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -54,6 +55,10 @@ func startDaemon(t *testing.T, cmd *exec.Cmd, ws string) {
 }
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if l := flag.Lookup("test.list"); l != nil && l.Value.String() != "" {
+		os.Exit(m.Run()) // only listing (hack/testshard verify): no xbind to build, no daemon
+	}
 	var err error
 	repo, err = filepath.Abs("..")
 	if err != nil {
