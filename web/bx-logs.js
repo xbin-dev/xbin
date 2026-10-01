@@ -24,6 +24,7 @@
  */
 
 import { scrollCssText } from '/vendor/bx-scroll.js';
+import { wireLinks } from '/vendor/term-links.js';
 
 // Same loader as bx-terminal: the tag is shared by id, so wait for ITS load
 // rather than resolving because it already exists (the terminal and this
@@ -125,7 +126,8 @@ export class BxLogs extends HTMLElement {
     });
     this.#fit = new window.FitAddon.FitAddon();
     this.#term.loadAddon(this.#fit);
-    if (window.WebLinksAddon) this.#term.loadAddon(new window.WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, '_blank', 'noopener,noreferrer')));
+    // links as in a terminal (term-links.js; a log never writes the clipboard)
+    wireLinks(this.#term, { focused: () => false });
     this.#term.open(this.#host);
     this.#host.style.background = termBg();
     try { this.#fit.fit(); } catch { }
