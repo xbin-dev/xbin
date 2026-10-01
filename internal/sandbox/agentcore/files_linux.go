@@ -11,6 +11,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -114,6 +115,19 @@ func relPath(p string) (string, error) {
 	return ".", nil
 }
 
+// openTries bounds open's retries of the in-root walk. The kernel answers
+// EAGAIN when a rename or mount anywhere on the host raced one of the
+// walk's ".." steps (openat2(2)), and on a loaded host a walk preempted
+// midway meets one often: 16 back-to-back retries failed a read through a
+// "../" symlink about once in 200 under load. After a few quick retries
+// each one waits a moment first (backoff up to openBackoffMax), so it
+// starts on a fresh time slice; a rename storm (a sandbox's own, say) still
+// ends the op with EAGAIN, after about half a second.
+const (
+	openTries      = 64
+	openBackoffMax = 10 * time.Millisecond
+)
+
 // open resolves rel inside the root (a final symlink is followed, inside it).
 func (f *files) open(rel string, flags int, mode uint32) (int, error) {
 	how := unix.OpenHow{Flags: uint64(flags | unix.O_CLOEXEC), Resolve: unix.RESOLVE_IN_ROOT | unix.RESOLVE_NO_MAGICLINKS}
@@ -122,8 +136,10 @@ func (f *files) open(rel string, flags int, mode uint32) (int, error) {
 	}
 	for tries := 0; ; tries++ {
 		fd, err := unix.Openat2(f.root, rel, &how)
-		// EAGAIN: a rename or mount raced the in-root walk
-		if (err == unix.EINTR || err == unix.EAGAIN) && tries < 16 {
+		if (err == unix.EINTR || err == unix.EAGAIN) && tries < openTries {
+			if err == unix.EAGAIN && tries >= 4 {
+				time.Sleep(min(50*time.Microsecond<<min(tries-4, 8), openBackoffMax))
+			}
 			continue
 		}
 		if err == unix.ENOSYS && f.c.o.Root == "/" {
