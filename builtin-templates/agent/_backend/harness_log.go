@@ -141,6 +141,13 @@ func handleHarnessLog(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	// the saved sign-in it started with, and anything token-shaped, masked
+	// (a hook or a tool may print the environment: harness_redact.go)
+	var secrets []string
+	if s.Cred != "" {
+		secrets = append(secrets, credSecret(agent.db.signin(s.Cred)))
+	}
+	data = newRedactor(secrets...).apply(data)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)

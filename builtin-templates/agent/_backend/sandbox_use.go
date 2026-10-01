@@ -103,6 +103,9 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 	if why := hostedHarnessRefusal(root, b.Ref, box.Name); why != "" { // a coding agent's sign-in stays its person's (harness_partition.go)
 		return nil, &sbxError{Provider: provider, Refusal: "not-allowed", Msg: why}
 	}
+	if userMode() && hostedID(root) { // before it does a thing there: no saved sign-in goes into it from now (harness_creds.go credWhy)
+		ag.db.noteHostedUse(b.Ref)
+	}
 	live := box.effectiveEgress()
 	if why := sandboxClassAllows(cfg, provider, live); why != "" {
 		return nil, &sbxError{Provider: provider, Refusal: "not-allowed", Msg: why + " (it has changed since it was bound)"}

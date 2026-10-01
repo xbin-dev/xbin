@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS harness_sessions (
   turn_seq INTEGER NOT NULL DEFAULT 0,
   answers TEXT NOT NULL DEFAULT '',
   steer_row INTEGER NOT NULL DEFAULT 0,
-  cred TEXT NOT NULL DEFAULT ''
+  cred TEXT NOT NULL DEFAULT '',
+  scrub TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_harness_sessions_root ON harness_sessions(root_id);
 CREATE INDEX IF NOT EXISTS idx_harness_sessions_state ON harness_sessions(state);
@@ -122,6 +123,9 @@ func (d *DB) addHarnessSchema() error {
 	// saved sign-ins (D179): the one the current generation was started
 	// with — its id, never the secret (harness_creds.go)
 	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN cred TEXT NOT NULL DEFAULT ''`)
+	// the review's M2: a key a CLI kept in a file (codex's auth.json) that
+	// couldn't be removed yet — the saved sign-in's id, never the key
+	_, _ = d.q.Exec(`ALTER TABLE harness_sessions ADD COLUMN scrub TEXT NOT NULL DEFAULT ''`)
 	if _, err := d.q.Exec(harnessSigninSQL); err != nil {
 		return err
 	}
@@ -253,11 +257,12 @@ type harnessSession struct {
 	Answers            string
 	SteerRow           int64
 	Cred               string
+	Scrub              string
 }
 
 const harnessSessionCols = `run_id, root_id, ref, cwd, provider, argv, exec_id, client_id, gen, state, acp_session, loadable,
   steering, read_off, err_off, prompt_rpc, prompt_state, turn, snapshot, rules, plan, usage, counts, login, queue, held,
-  error, last_active_ms, created_ms, updated_ms, title, shared, draft, name, started_ms, start_mode, turn_seq, answers, steer_row, cred`
+  error, last_active_ms, created_ms, updated_ms, title, shared, draft, name, started_ms, start_mode, turn_seq, answers, steer_row, cred, scrub`
 
 // harnessSession is run's session row (nil: it has none).
 func (d *DB) harnessSession(run int64) (*harnessSession, error) {
@@ -268,7 +273,7 @@ func (d *DB) harnessSession(run int64) (*harnessSession, error) {
 		&s.RunID, &s.RootID, &s.Ref, &s.Cwd, &s.Provider, &argv, &s.ExecID, &s.ClientID, &s.Gen, &s.State, &s.ACPSession,
 		&loadable, &steering, &s.ReadOff, &s.ErrOff, &s.PromptRPC, &s.PromptState, &s.Turn, &s.Snapshot, &s.Rules,
 		&s.Plan, &s.Usage, &s.Counts, &s.Login, &s.Queue, &s.Held, &s.Error, &s.LastActiveMs, &s.CreatedMs, &s.UpdatedMs,
-		&s.Title, &shared, &s.Draft, &s.Name, &s.StartedMs, &s.StartMode, &s.TurnSeq, &s.Answers, &s.SteerRow, &s.Cred)
+		&s.Title, &shared, &s.Draft, &s.Name, &s.StartedMs, &s.StartMode, &s.TurnSeq, &s.Answers, &s.SteerRow, &s.Cred, &s.Scrub)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -299,7 +304,7 @@ func (d *DB) putHarnessSession(s *harnessSession) error {
 		argv = string(b)
 	}
 	_, err := d.q.Exec(`INSERT INTO harness_sessions (`+harnessSessionCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(run_id) DO UPDATE SET root_id=excluded.root_id, ref=excluded.ref, cwd=excluded.cwd,
 		  provider=excluded.provider, argv=excluded.argv, exec_id=excluded.exec_id, client_id=excluded.client_id,
 		  gen=excluded.gen, state=excluded.state, acp_session=excluded.acp_session, loadable=excluded.loadable,
@@ -310,11 +315,11 @@ func (d *DB) putHarnessSession(s *harnessSession) error {
 		  error=excluded.error, last_active_ms=excluded.last_active_ms, updated_ms=excluded.updated_ms,
 		  title=excluded.title, shared=excluded.shared, draft=excluded.draft, name=excluded.name,
 		  started_ms=excluded.started_ms, start_mode=excluded.start_mode, turn_seq=excluded.turn_seq,
-		  answers=excluded.answers, steer_row=excluded.steer_row, cred=excluded.cred`,
+		  answers=excluded.answers, steer_row=excluded.steer_row, cred=excluded.cred, scrub=excluded.scrub`,
 		s.RunID, s.RootID, s.Ref, s.Cwd, s.Provider, argv, s.ExecID, s.ClientID, s.Gen, s.State, s.ACPSession,
 		b2i(s.Loadable), b2i(s.Steering), s.ReadOff, s.ErrOff, s.PromptRPC, s.PromptState, s.Turn, s.Snapshot, s.Rules,
 		s.Plan, s.Usage, s.Counts, s.Login, s.Queue, s.Held, s.Error, s.LastActiveMs, s.CreatedMs, s.UpdatedMs,
-		s.Title, b2i(s.Shared), s.Draft, s.Name, s.StartedMs, s.StartMode, s.TurnSeq, s.Answers, s.SteerRow, s.Cred)
+		s.Title, b2i(s.Shared), s.Draft, s.Name, s.StartedMs, s.StartMode, s.TurnSeq, s.Answers, s.SteerRow, s.Cred, s.Scrub)
 	return err
 }
 

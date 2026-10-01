@@ -169,6 +169,7 @@ func (e *Engine) takeOver() {
 			e.ag.clearWakeJobs()
 			e.keep.wakeKeepReady() // a person's partition keeps them from now on (resume_keep.go)
 		}()
+		go e.sweepSigninExecs(nowMs()) // sign-in execs an earlier process left (harness_guided.go)
 	}
 	e.recover()
 	outboxKick() // replies the previous owner wrote after our streams connected
@@ -447,7 +448,8 @@ func (e *Engine) BeginShutdown() {
 		e.idleCh = make(chan struct{})
 	}
 	e.mu.Unlock()
-	e.letHarnessesGo() // the successor attaches to them: never killed here
+	e.stopRestingCreds() // a person's partition: none resting with a saved sign-in outlives it (harness_engine.go)
+	e.letHarnessesGo()   // the successor attaches to the rest: never killed here
 	e.cancelBase(errHandoff)
 	e.hub.closeAll()
 	e.hold.stop()

@@ -37,7 +37,10 @@ const testClaudeURL = "https://claude.com/cai/oauth/authorize?code=true&client_i
 //     "Login failed: …", exit 1;
 //   - `claude setup-token` on a terminal only: the link as Ink draws it (an
 //     OSC 8 link), the prompt, then good-XXXX#… prints a one-year token
-//     ending in XXXX (exit 0, $HOME untouched); refuse… is its OAuth error.
+//     ending in XXXX (exit 0, $HOME untouched); newformat… prints a token in
+//     a format the scan doesn't know; refuse… is its OAuth error. It refuses
+//     to run with anything of the sandbox's environment (IN_SANDBOX) or a
+//     HOME that isn't empty (the mint runs clean: mintArgv).
 const testClaudeScript = `#!/bin/sh
 URL='` + testClaudeURL + `'
 code() {
@@ -61,6 +64,8 @@ auth)
   printf 'Login failed: Request failed with status code 400\n'; exit 1 ;;
 setup-token)
   [ -t 0 ] || { printf 'Error: Raw mode is not supported on the current process.stdin\n'; exit 2; }
+  [ -z "$IN_SANDBOX" ] || { printf 'OAuth error: the sandbox environment leaked into the mint\n'; exit 1; }
+  [ -d "$HOME" ] && [ -z "$(ls -A "$HOME")" ] || { printf 'OAuth error: the mint runs in a HOME of the sandbox (%s)\n' "$HOME"; exit 1; }
   printf '\033[2G\033[1mThis\033[7Gwill\033[12Gguide\033[18Gyou\033[22Gthrough\033[30Glong-lived\033[41G(1-year)\033[50Gauth\033[55Gtoken\033[61Gsetup\033[22m\n'
   printf "\033]8;id=t;%s\007\033[38;5;246m%s\033[39m\033]8;;\007\n" "$URL" "$URL"
   printf '\n\033[2GPaste\033[8Gcode\033[13Ghere\033[18Gif\033[21Gprompted\033[30G>\n'
@@ -69,6 +74,7 @@ setup-token)
   good-*) s=${c%%#*}; s=${s#good-}
     printf '\033[32m✓\033[39m Long-lived authentication token created successfully!\n\nYour OAuth token (valid for 1 year):\n\n'
     printf '\033[38;5;220msk-ant-oat01-0123456789abcdefghijABCDEFGHIJ-%s\033[39m\n\nStore this token securely.\n' "$s"; exit 0 ;;
+  newformat*) printf 'Your OAuth token (valid for 1 year):\n\nsk-ant-oat09-NEWFORMATNEWFORMATNEWFORMAT-zz\n'; exit 0 ;;
   esac
   printf 'OAuth error: Request failed with status code 400\n'; exit 1 ;;
 esac
@@ -79,11 +85,27 @@ printf 'error: unknown command %s\n' "$1"; exit 2
 func testToken(s string) string { return "sk-ant-oat01-0123456789abcdefghijABCDEFGHIJ-" + s }
 
 // testClaude puts the scripted claude first on the PATH the fake manager's
-// commands get.
+// commands get, and first among the image's directories a mint looks in
+// (mintPath).
 func testClaude(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(testClaudeScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	old := mintPath
+	mintPath = dir + ":" + old
+	t.Cleanup(func() { mintPath = old })
+}
+
+// testClaudeShim puts a claude of the sandbox's own first on its PATH (a
+// shim in ~/.local/bin, say) — one that would see the token a mint prints.
+func testClaudeShim(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	shim := "#!/bin/sh\nprintf 'OAuth error: the shim on the sandbox PATH ran\\n'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(shim), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -296,6 +318,7 @@ func TestGuidedHoldsPartition(t *testing.T) {
 // "none" parks nothing.
 func TestGuidedRemember(t *testing.T) {
 	testClaude(t)
+	testClaudeShim(t) // the sandbox's PATH finds a shim first: the mint never runs it (L12)
 	vault := memVault(t)
 	logs := captureLog(t)
 	ag, h, box, _, _, _ := harnessPartitionG(t, "--require-login")
@@ -386,29 +409,44 @@ func TestCredGate(t *testing.T) {
 	refused := mk("Old", false, func(s *hSignin) { s.RefusedAt = nowMs() })
 	expired := mk("Gone", false, func(s *hSignin) { s.ExpiresAt = nowMs() - 1 })
 	cfg := func(pick string) Config { return Config{Harness: &HarnessConfig{Provider: "fake", Signin: pick}} }
+	ref := sandboxRef("apps/cs", box.ID)
 	shared := *box
 	shared.Members = []string{"bob"}
 	bobs := *box
 	bobs.Owner.User = "bob"
 	team := atGlobal(t, global, "apps/cs", "alice", "team")
+	org := *box // a visibility a newer manager adds: shared (L9 — an allow-list)
+	org.Visibility = "org"
+	hostedRef := sandboxRef("apps/cs", "sb-hosted")
+	ag.db.noteHostedUse(hostedRef)
+	gone := mk("Gone-soon", false, nil)
+	if err := ag.db.dropSignin(gone.ID); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		what string
 		run  *Run
 		cfg  Config
+		ref  string
 		box  *sbxSandbox
 		want string // the saved sign-in's name, "" none
 		why  string
 	}{
-		{"her default, her own sandbox", own, cfg(""), box, "Work", ""},
-		{"the sandbox's own, picked", own, cfg(pickSandbox), box, "", ""},
-		{"a refused pick", own, cfg(refused.ID), box, "", "it was refused"},
-		{"an expired pick", own, cfg(expired.ID), box, "", "it has expired"},
-		{"a shared sandbox", own, cfg(""), &shared, "", credNotOwnBox},
-		{"someone else's sandbox", own, cfg(""), &bobs, "", credNotOwnBox},
-		{"a sandbox shared with the agent", own, cfg(""), team, "", credNotOwnBox},
-		{"bob's conversation", &Run{ID: partitionIDBase + 9, Owner: "bob", Engine: engineHarness}, cfg(""), box, "", credNotOwnRun},
+		{"her default, her own sandbox", own, cfg(""), ref, box, "Work", ""},
+		{"the sandbox's own, picked", own, cfg(pickSandbox), ref, box, "", ""},
+		{"a refused pick", own, cfg(refused.ID), ref, box, "", "it was refused"},
+		{"an expired pick", own, cfg(expired.ID), ref, box, "", "it has expired"},
+		// L10: a forgotten pick is never the default (another account): the sandbox's own, said so
+		{"a forgotten pick", own, cfg(gone.ID), ref, box, "", "picked is gone (forgotten)"},
+		{"a shared sandbox", own, cfg(""), ref, &shared, "", credNotOwnBox},
+		{"someone else's sandbox", own, cfg(""), ref, &bobs, "", credNotOwnBox},
+		{"a sandbox shared with the agent", own, cfg(""), ref, team, "", credNotOwnBox},
+		{"a visibility it doesn't know", own, cfg(""), ref, &org, "", credNotOwnBox},
+		// M1: a sandbox a hosted conversation used never gets one
+		{"a sandbox a hosted conversation used", own, cfg(""), hostedRef, box, "", "a non-secure (hosted) conversation has worked in"},
+		{"bob's conversation", &Run{ID: partitionIDBase + 9, Owner: "bob", Engine: engineHarness}, cfg(""), ref, box, "", credNotOwnRun},
 	} {
-		s, why := ag.db.credPick(c.run, c.cfg, c.box)
+		s, why := ag.db.credPick(c.run, c.cfg, c.ref, c.box)
 		name := ""
 		if s != nil {
 			name = s.Name
@@ -417,16 +455,19 @@ func TestCredGate(t *testing.T) {
 			t.Errorf("%s: %q (%q), want %q (%q)", c.what, name, why, c.want, c.why)
 		}
 	}
-	if _, why := ag.db.credPick(own, cfg(work.ID), box); why != "" {
+	if _, why := ag.db.credPick(own, cfg(work.ID), ref, box); why != "" {
 		t.Errorf("her pick: %s", why)
 	}
+	if !sandboxShared(&org) || sandboxShared(box) {
+		t.Errorf("sandboxShared: an unknown visibility %v, her own %v", sandboxShared(&org), sandboxShared(box))
+	}
 	setMode(t, modeGlobal, "")
-	if s, _ := ag.db.credPick(own, cfg(""), box); s != nil || credWhy(own, box) != signinsAtGlobal {
-		t.Errorf("at the global instance: %+v %q", s, credWhy(own, box))
+	if s, _ := ag.db.credPick(own, cfg(""), ref, box); s != nil || credWhy(own, ref, box) != signinsAtGlobal {
+		t.Errorf("at the global instance: %+v %q", s, credWhy(own, ref, box))
 	}
 	setMode(t, modeLegacy, "")
-	if s, _ := ag.db.credPick(own, cfg(""), box); s != nil || credWhy(own, box) != signinsLegacy {
-		t.Errorf("unpartitioned: %+v %q", s, credWhy(own, box))
+	if s, _ := ag.db.credPick(own, cfg(""), ref, box); s != nil || credWhy(own, ref, box) != signinsLegacy {
+		t.Errorf("unpartitioned: %+v %q", s, credWhy(own, ref, box))
 	}
 }
 
@@ -502,6 +543,13 @@ func TestSavedSigninRefused(t *testing.T) {
 	_ = json.Unmarshal([]byte(body), &l)
 	if len(l.Signins) != 1 || l.Signins[0].RefusedAt == 0 || !strings.Contains(l.Signins[0].Refused, "revoked") {
 		t.Fatalf("the refused sign-in: %s", body)
+	}
+	// the adapter's words echoed the token: kept masked (N18, M3)
+	if strings.Contains(body, "refused-0001") || !strings.Contains(l.Signins[0].Refused, redactMark) {
+		t.Fatalf("the refusal's words hold the token: %s", body)
+	}
+	if at := dbHolds(t, ag.db, "refused-0001"); at != "" {
+		t.Fatalf("the token is stored in %s", at)
 	}
 	serveJSON(t, h, as("POST", fmt.Sprintf("/runs/%d/resume", run.ID), `{}`, alicesFrame("read")), 200, nil)
 	hwait(t, "a new generation without it", func() bool {

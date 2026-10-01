@@ -21,12 +21,17 @@
 //     person's saved sign-in (harness_creds.go) — it never reaches the page
 //     — in a sandbox of their own that no one else uses only (the exec's
 //     output is readable by everyone who may use the sandbox while it
-//     lives), in their own partition only.
+//     lives), in their own partition only; the gate checked again before
+//     the code goes in. The Mint runs clean: the image's CLI, an empty
+//     environment, a throwaway HOME (mintArgv) — and its errors never show
+//     the CLI's last line (a token in a format the scan doesn't know).
 //
 // The exec is always deleted once the sign-in is over (signed in, refused,
-// ended); one per conversation, bounded at 15 minutes (the manager's own
-// timeout too), dropped on a handoff (the successor knows none: the person
-// starts over).
+// ended, its sandbox shared through the agent); one per conversation,
+// bounded at 15 minutes (the manager's own timeout too), dropped on a
+// handoff (the successor knows none: the person starts over). It is
+// recorded before it starts (harness_signin_execs) until its delete is
+// done — retried, and swept by the next start.
 package main
 
 import (
@@ -54,15 +59,17 @@ const (
 
 // hGuided is a guided sign-in under way on a run (this process's).
 type hGuided struct {
-	run  int64
-	by   string // who started it: the only one who drives it
-	mint bool   // Remember: the provider's Mint, its token kept
-	name string // the saved sign-in's name (mint)
-	prov acp.Provider
-	spec acp.Signin
-	conn *sbxConn
-	box  string // the sandbox's id at its manager
-	exec string
+	run    int64
+	by     string // who started it: the only one who drives it
+	mint   bool   // Remember: the provider's Mint, its token kept
+	name   string // the saved sign-in's name (mint)
+	prov   acp.Provider
+	spec   acp.Signin
+	conn   *sbxConn
+	ref    string // the sandbox (provider:id)
+	box    string // the sandbox's id at its manager
+	exec   string
+	client string // the exec's clientId (harness_signin_execs)
 
 	mu     sync.Mutex // one request at a time drives it; the rest below under it
 	off    int64
@@ -81,8 +88,27 @@ func (e *Engine) guidedOf(run int64) *hGuided {
 	return e.guided[run]
 }
 
-// endGuided ends g: its exec deleted, the run's slot freed.
+// endGuided ends g: the run's slot freed, its exec deleted — retried in the
+// background when the manager doesn't answer (its output may hold a minted
+// token), and recorded until it is (harness_signin_execs: a later start
+// sweeps what is left; the review's L6).
 func (e *Engine) endGuided(g *hGuided) {
+	if g.close(e) {
+		_ = deleteSigninExec(g.conn, g.client, g.box, g.exec, true)
+	}
+}
+
+// endGuidedNow is endGuided waiting for the delete (a share: no exec of a
+// sign-in left in a sandbox others may read) — its error.
+func (e *Engine) endGuidedNow(g *hGuided) error {
+	if g.close(e) {
+		return deleteSigninExec(g.conn, g.client, g.box, g.exec, true)
+	}
+	return nil
+}
+
+// close frees g's slot and drops what it read (false: closed already).
+func (g *hGuided) close(e *Engine) bool {
 	e.mu.Lock()
 	if e.guided[g.run] == g {
 		delete(e.guided, g.run)
@@ -90,23 +116,138 @@ func (e *Engine) endGuided(g *hGuided) {
 	}
 	e.mu.Unlock()
 	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.closed {
-		g.mu.Unlock()
-		return
+		return false
 	}
 	g.closed = true
 	if g.timer != nil {
 		g.timer.Stop()
 	}
 	g.out, g.st.Token = nil, "" // nothing of it outlives the sign-in
-	g.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), sbxCallTimeout)
-	defer cancel()
-	if err := g.conn.ExecDelete(ctx, g.box, g.exec); err != nil {
-		if r := sbxRefusal(err); r != "not-found" && r != "lost" {
-			logf("run #%d: ending its sign-in (exec %s): %v", g.run, g.exec, err)
+	return true
+}
+
+// signinExecRetry is how long the retries of a failed delete wait between
+// tries (doubling, six of them; then the next start's sweep).
+var signinExecRetry = time.Second
+
+// noteSigninExec records a sign-in's exec before it starts (client: its
+// clientId; the manager's id once known) — until it is deleted.
+func noteSigninExec(client, ref, exec, user string) {
+	if agent == nil || agent.db == nil {
+		return
+	}
+	if _, err := agent.db.q.Exec(`INSERT INTO harness_signin_execs (client, ref, exec, user, created_ms) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(client) DO UPDATE SET exec=excluded.exec`, client, ref, exec, user, nowMs()); err != nil {
+		logf("recording a sign-in's exec in %s: %v", ref, err)
+	}
+}
+
+// deleteSigninExec deletes a sign-in's exec (exec "": the one of clientId
+// client, if the manager started it) and forgets its record — retrying in
+// the background, when retry, if the manager didn't take it. The first
+// try's error.
+func deleteSigninExec(conn *sbxConn, client, box, exec string, retry bool) error {
+	try := func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), sbxCallTimeout)
+		defer cancel()
+		ids := []string{exec}
+		if exec == "" { // it may have started: the manager knows it by its clientId
+			all, err := conn.ExecList(ctx, box)
+			if err != nil && sbxRefusal(err) != "not-found" {
+				return err
+			}
+			ids = nil
+			for _, x := range all {
+				if x.ClientID == client {
+					ids = append(ids, x.ID)
+				}
+			}
+		}
+		for _, id := range ids {
+			if err := conn.ExecDelete(ctx, box, id); err != nil {
+				if r := sbxRefusal(err); r != "not-found" && r != "lost" {
+					return err
+				}
+			}
+		}
+		if agent != nil && agent.db != nil {
+			_, _ = agent.db.q.Exec(`DELETE FROM harness_signin_execs WHERE client=?`, client)
+		}
+		return nil
+	}
+	err := try()
+	if err != nil && retry {
+		logf("ending a sign-in (%s): %v — trying again", client, err)
+		go func() {
+			d := signinExecRetry
+			for i := 0; i < 6; i++ {
+				time.Sleep(d)
+				if try() == nil {
+					return
+				}
+				d *= 2
+			}
+			logf("ending a sign-in (%s): gave up — the next start sweeps it", client)
+		}()
+	}
+	return err
+}
+
+// sweepSigninExecs deletes the sign-in execs an earlier process left (a
+// crash, a manager that was down, a request gone before its exec started):
+// as their person, at the engine's start (takeOver) — those recorded before
+// it (before ms), never one this process is running.
+func (e *Engine) sweepSigninExecs(before int64) {
+	rows, err := e.db.q.Query(`SELECT client, ref, exec, user FROM harness_signin_execs WHERE created_ms < ?`, before)
+	if err != nil {
+		return
+	}
+	type left struct{ client, ref, exec, user string }
+	var all []left
+	for rows.Next() {
+		var l left
+		if rows.Scan(&l.client, &l.ref, &l.exec, &l.user) == nil {
+			all = append(all, l)
 		}
 	}
+	rows.Close()
+	for _, l := range all {
+		provider, id, ok := splitSandboxRef(l.ref)
+		if !ok {
+			_, _ = e.db.q.Exec(`DELETE FROM harness_signin_execs WHERE client=?`, l.client)
+			continue
+		}
+		conn, err := sbxDial(provider, l.user)
+		if err != nil {
+			logf("sweeping a sign-in's exec (%s): %v", l.client, err)
+			continue
+		}
+		if err := deleteSigninExec(conn, l.client, id, l.exec, false); err != nil {
+			logf("sweeping a sign-in's exec (%s): %v", l.client, err)
+		}
+	}
+}
+
+// endGuidedIn ends every guided sign-in under way in sandbox ref, waiting
+// for each exec's delete (a share: the error of the first that failed).
+func (e *Engine) endGuidedIn(ref string) error {
+	e.mu.Lock()
+	var in []*hGuided
+	for _, g := range e.guided {
+		if g.ref == ref {
+			in = append(in, g)
+		}
+	}
+	e.mu.Unlock()
+	var first error
+	for _, g := range in {
+		if err := e.endGuidedNow(g); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 // dropGuided ends every guided sign-in here (a handoff: the successor
@@ -168,14 +309,26 @@ func (e *Engine) guidedStart(ctx context.Context, run *Run, prov acp.Provider, c
 	}
 	req := sbxExecReq{Argv: spec.Argv, Cwd: cwd, Env: spec.Env, TTY: spec.TTY, Stdin: true, TimeoutMs: int(gsFor / time.Millisecond),
 		Label: fmt.Sprintf("sign-in %s · #%d", prov.ID, rootOf(run)), ClientID: fmt.Sprintf("signin:%d:%d", run.ID, nowMs())}
+	if mint { // the image's CLI, a clean environment, a throwaway HOME (the review's L12)
+		req.Argv, req.Env = mintArgv(spec), nil
+	}
 	if spec.TTY {
 		req.Rows, req.Cols = 50, gsCols
 	}
-	ex, err := conn.ExecStart(ctx, box.ID, req)
+	ref := sandboxRef(conn.M.Provider, box.ID)
+	// recorded before it starts, and started on a context of its own: a
+	// request gone mid-call never leaves an exec no one ends (N19, L6)
+	noteSigninExec(req.ClientID, ref, "", conn.User)
+	sctx, scancel := context.WithTimeout(context.Background(), sbxCallTimeout)
+	ex, err := conn.ExecStart(sctx, box.ID, req)
+	scancel()
 	if err != nil {
+		_ = deleteSigninExec(conn, req.ClientID, box.ID, "", true) // it may have started all the same
 		return nil, &hAuthErr{502, fmt.Sprintf("couldn't start %s's sign-in in %s: %v", prov.Name, sbxLabel(box), err)}
 	}
-	g := &hGuided{run: run.ID, by: by, mint: mint, name: name, prov: prov, spec: spec, conn: conn, box: box.ID, exec: ex.ID, state: "running"}
+	noteSigninExec(req.ClientID, ref, ex.ID, conn.User)
+	g := &hGuided{run: run.ID, by: by, mint: mint, name: name, prov: prov, spec: spec, conn: conn, ref: ref, box: box.ID,
+		exec: ex.ID, client: req.ClientID, state: "running"}
 	e.mu.Lock()
 	if e.guided == nil {
 		e.guided = map[int64]*hGuided{}
@@ -201,11 +354,11 @@ func (e *Engine) guidedStart(ctx context.Context, run *Run, prov acp.Provider, c
 		}
 	}
 	if g.st.URL == "" {
-		last := g.st.Last
+		last := g.lastWords()
 		go e.endGuided(g)
 		if g.state != "running" {
 			hint := ""
-			if spec.Fallback != "" {
+			if spec.Fallback != "" && !mint {
 				hint = " — this CLI may be too old for it: sign in in a terminal (" + spec.Fallback + ")"
 			}
 			return nil, &hAuthErr{502, fmt.Sprintf("%s's sign-in ended without a link: %s%s", prov.Name, orStr(last, "it printed nothing"), hint)}
@@ -214,6 +367,57 @@ func (e *Engine) guidedStart(ctx context.Context, run *Run, prov acp.Provider, c
 	}
 	return &gsAnswer{URL: g.st.URL, Paste: g.st.Code}, nil
 }
+
+// lastWords is the CLI's last line as an error may show it (g.mu held): a
+// mint's never — a token in a format the scan doesn't know would be that
+// line (the review's L7) — and anything token-shaped masked.
+func (g *hGuided) lastWords() string {
+	if g.mint {
+		return ""
+	}
+	return redactText(g.st.Last)
+}
+
+// failWords is the CLI's refusal line (its Fail marker's) as an error shows
+// it: token-shaped strings masked.
+func (g *hGuided) failWords() string {
+	return redactText(g.st.Failed)
+}
+
+// mintPath is where a mint finds its CLI: the image's own directories (the
+// rootfs's PATH), never the sandbox's — a shim in ~/.local/bin, ~/.bun/bin
+// or a project's node_modules/.bin would see the token it prints. A
+// variable for tests.
+var mintPath = "/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+// mintScript runs a mint clean ($1 the PATH, $2 the CLI, the rest its
+// arguments): the CLI found on $1 only, run by its absolute path in an
+// environment of PATH, HOME, TERM and LANG alone — no NODE_OPTIONS, no
+// LD_PRELOAD, nothing a profile or the sandbox's environment set — and a
+// throwaway HOME (none of the sandbox's settings, hooks or plugins), removed
+// after. What it can't help: an image whose own directories were altered
+// (API.md: a compromised image is out of scope).
+const mintScript = `p=$1; shift
+b=$(PATH=$p; command -v "$1") || { printf 'OAuth error: %%s is not installed in the image (%%s)\n' "$1" "$p"; exit 127; }
+shift
+h=$(mktemp -d) || exit 1
+env -i PATH="$p" HOME="$h" TERM="${TERM:-xterm-256color}" LANG="${LANG:-C.UTF-8}" %s"$b" "$@"
+c=$?
+rm -rf -- "$h"
+exit $c`
+
+// mintArgv is spec's argv wrapped in mintScript (spec.Env passed through
+// env -i, quoted).
+func mintArgv(spec acp.Signin) []string {
+	env := ""
+	for _, k := range sortedKeys(spec.Env) {
+		env += shQuote(k+"="+spec.Env[k]) + " "
+	}
+	return append([]string{"sh", "-c", fmt.Sprintf(mintScript, env), "mint", mintPath}, spec.Argv...)
+}
+
+// shQuote is s as one shell word.
+func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // read takes the exec's output on (long-polling until more, its end, or
 // dl) and reads it again (g.mu held).
@@ -242,8 +446,13 @@ func (g *hGuided) read(ctx context.Context, dl time.Time) error {
 }
 
 // guidedCode writes code to by's guided sign-in on run and waits for the
-// CLI's word on it.
-func (e *Engine) guidedCode(ctx context.Context, run *Run, by, code string) (*gsAnswer, *gsResult, error) {
+// CLI's word on it — on a context of its own, bounded by gsCodeFor: a
+// request gone mid-way doesn't leave a minted token in the exec's output
+// until the 15-minute bound (the review's L6); the caller still keeps it.
+// ref is the conversation's sandbox now and gate credWhy for it as it is
+// now: a mint whose sandbox was shared (or swapped) since it started ends
+// here, before the code goes in (L5). The result names the sign-in (N17).
+func (e *Engine) guidedCode(run *Run, by, code, ref, gate string) (*gsAnswer, *gsResult, error) {
 	g := e.guidedOf(run.ID)
 	if g == nil || g.by != by {
 		return nil, nil, &hAuthErr{409, "no sign-in of yours is under way here — start one"}
@@ -253,6 +462,15 @@ func (e *Engine) guidedCode(ctx context.Context, run *Run, by, code string) (*gs
 	if g.closed {
 		return nil, nil, &hAuthErr{409, "that sign-in is over — start one"}
 	}
+	if g.mint && (g.ref != ref || gate != "") {
+		go e.endGuided(g)
+		if g.ref != ref {
+			gate = "this conversation's sandbox changed since it started"
+		}
+		return nil, nil, &hAuthErr{409, "that sign-in was ended: Remember works only in a sandbox of your own that no one else uses — " + gate}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gsCodeFor+sbxSlack)
+	defer cancel()
 	invalid := g.st.Invalid
 	enter := "\n"
 	if g.spec.TTY {
@@ -267,7 +485,7 @@ func (e *Engine) guidedCode(ctx context.Context, run *Run, by, code string) (*gs
 		st := g.st
 		switch {
 		case g.mint && st.Token != "":
-			res := &gsResult{token: st.Token}
+			res := &gsResult{token: st.Token, name: g.name}
 			g.st.Token = ""
 			go e.endGuided(g)
 			return &gsAnswer{Done: true}, res, nil
@@ -278,7 +496,7 @@ func (e *Engine) guidedCode(ctx context.Context, run *Run, by, code string) (*gs
 			return nil, nil, &hAuthErr{409, fmt.Sprintf("%s says that isn't the whole code — copy it again from the sign-in page and paste it", g.prov.Name)}
 		case st.Failed != "":
 			go e.endGuided(g)
-			return nil, nil, &hAuthErr{502, st.Failed}
+			return nil, nil, &hAuthErr{502, g.failWords()}
 		case g.state != "running":
 			go e.endGuided(g)
 			if !g.mint && g.exit != nil && *g.exit == 0 {
@@ -288,12 +506,9 @@ func (e *Engine) guidedCode(ctx context.Context, run *Run, by, code string) (*gs
 			if g.mint {
 				what = "it ended without a token"
 			}
-			return nil, nil, &hAuthErr{502, fmt.Sprintf("%s's sign-in didn't finish: %s (%s)", g.prov.Name, orStr(st.Last, "no word from it"), what)}
+			return nil, nil, &hAuthErr{502, fmt.Sprintf("%s's sign-in didn't finish: %s (%s)", g.prov.Name, orStr(g.lastWords(), "no word from it"), what)}
 		}
 		if err := g.read(ctx, dl); err != nil {
-			if ctx.Err() != nil {
-				return nil, nil, ctx.Err()
-			}
 			go e.endGuided(g)
 			if errors.Is(err, context.DeadlineExceeded) {
 				return nil, nil, &hAuthErr{504, g.prov.Name + " didn't answer the code"}
@@ -339,11 +554,13 @@ func handleGuided(w http.ResponseWriter, r *http.Request, run *Run, cfg Config, 
 		return
 	}
 	e := agent.eng
+	ref := cfg.Harness.Ref
+	gate := credWhy(run, ref, box)
 	if b.code == "" { // start it (or hand back the link of the one this person started)
 		switch {
-		case b.remember && credWhy(run, box) != "":
+		case b.remember && gate != "":
 			xbin.WriteError(w, http.StatusConflict, "Remember works only in a sandbox of your own that no one else uses, "+
-				"in your own conversation — "+credWhy(run, box))
+				"in your own conversation — "+gate)
 			return
 		case !b.remember && sandboxShared(box) && !b.confirm:
 			xbin.WriteJSON(w, http.StatusConflict, map[string]any{"confirm": true,
@@ -370,19 +587,21 @@ func handleGuided(w http.ResponseWriter, r *http.Request, run *Run, cfg Config, 
 		xbin.WriteError(w, http.StatusBadRequest, "code: the code the sign-in page showed")
 		return
 	}
-	g := e.guidedOf(run.ID)
-	_, res, err := e.guidedCode(r.Context(), run, sbxUserOf(c), code)
+	_, res, err := e.guidedCode(run, sbxUserOf(c), code, ref, gate)
 	if writeGuidedErr(w, err, name) {
 		return
 	}
 	out := map[string]any{"ok": "true", "state": "ready"}
 	if res.token != "" { // Remember: the token, straight into the person's vault — never answered, logged or stored here
 		key, _ := prov.KeyFor(res.token)
-		s, err := agent.db.saveSignin(c.user, prov.ID, g.name, key, res.token, time.Now())
+		s, err := agent.db.saveSignin(c.user, prov.ID, res.name, key, res.token, time.Now())
 		res.token = ""
 		if err != nil {
 			xbin.WriteError(w, http.StatusBadGateway, err.Error())
 			return
+		}
+		if s.replaced { // a sign-in of that name re-minted: what runs on the old token stops (N14)
+			stopCredUsers(s, fmt.Sprintf("your saved sign-in %s was replaced — the next message starts it with the new one", s.Name), run.ID)
 		}
 		if !s.IsDefault { // this conversation picks it: its sandbox's own sign-in is still out
 			_ = e.fenced(func(t *DB) error {
@@ -424,7 +643,7 @@ func writeGuidedErr(w http.ResponseWriter, err error, name string) bool {
 
 // gsResult is what a finished guided sign-in left: a minted token (a
 // secret: kept in the vault at once, then dropped).
-type gsResult struct{ token string }
+type gsResult struct{ token, name string }
 
 // cleanCode is a pasted code as a CLI reads it: one line, nothing but what a
 // code is made of (a paste may carry spaces, a newline, a control char).

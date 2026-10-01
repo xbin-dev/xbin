@@ -167,7 +167,7 @@ func (e *Engine) harnessRights(ctx context.Context, run *Run, s *hsess) error {
 	}
 	u, _, err := e.harnessUse(ctx, run, cfg)
 	if err == nil {
-		if why := s.credStillFits(run, u.Box); why != "" { // shared since it started with a saved sign-in (harness_creds.go)
+		if why := s.credStillFits(run, cfg.Harness.Ref, u.Box); why != "" { // shared since it started with a saved sign-in (harness_creds.go)
 			err = &harnessFail{why}
 		}
 	}
@@ -201,7 +201,7 @@ func (s *hsess) recheckSoon() {
 				u, _, ferr = e.harnessUse(ctx, run, cfg)
 				cancel()
 				if ferr == nil {
-					if why := s.credStillFits(run, u.Box); why != "" {
+					if why := s.credStillFits(run, cfg.Harness.Ref, u.Box); why != "" {
 						ferr = &harnessFail{why}
 					}
 				}

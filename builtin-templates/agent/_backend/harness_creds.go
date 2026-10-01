@@ -19,17 +19,25 @@
 //     when minted, when it expires, when refused, default).
 //   - The gate (credWhy): spawnHarness puts it in the adapter's environment
 //     only for the person's own conversation, in a sandbox that is theirs
-//     and no one else's (not shared: its co-users could read the process's
-//     environment), in their partition, and not refused. It wins over the
-//     sandbox's own $HOME login (Claude Code: CLAUDE_CODE_OAUTH_TOKEN
-//     outranks /login). harness_sessions.cred says which one the current
-//     generation got.
+//     and no one else's (private, an allow-list: its co-users could read the
+//     process's environment) that no hosted conversation ever worked in
+//     (hosted_sandboxes: its members could have left a reader there), in
+//     their partition, and not refused. It wins over the sandbox's own $HOME
+//     login (Claude Code: CLAUDE_CODE_OAUTH_TOKEN outranks /login).
+//     harness_sessions.cred says which one the current generation got.
+//   - What prints it (a tool, a hook): the adapter's output is redacted
+//     before it becomes anything here (harness_redact.go). A CLI that keeps
+//     a key it is handed in a file (codex's auth.json) has it removed at
+//     once, before a start with another sign-in, before a share, and at
+//     Forget (scrubKeyFile).
 //   - Its life: a warning from 14 days before it expires; an auth failure
 //     while it is in use marks it refused (the run parks on its sign-in,
-//     saying so) and the gate leaves it out until it is replaced; Forget
-//     deletes it and stops the coding agents using it; a sandbox shared
-//     mid-run stops the ones it went into; the partition's purge (a
-//     person's removal) takes the vault with it.
+//     saying so) and the gate leaves it out until it is replaced; a new
+//     secret, or Forget, stops the coding agents using it; a sandbox shared
+//     through the agent stops the ones it went into first (readyForShare),
+//     one shared elsewhere at the next re-check; a person's partition
+//     stopping stops the ones that rest (stopRestingCreds); the partition's
+//     purge (a person's removal) takes the vault with it.
 package main
 
 import (
@@ -66,6 +74,14 @@ CREATE TABLE IF NOT EXISTS harness_signins (
   updated_ms INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_harness_signins_user ON harness_signins(user, harness);
+CREATE TABLE IF NOT EXISTS hosted_sandboxes (ref TEXT PRIMARY KEY, at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS harness_signin_execs (
+  client TEXT PRIMARY KEY,
+  ref TEXT NOT NULL,
+  exec TEXT NOT NULL DEFAULT '',
+  user TEXT NOT NULL DEFAULT '',
+  created_ms INTEGER NOT NULL DEFAULT 0
+);
 `
 
 // A conversation's pick (HarnessConfig.Signin) besides a saved sign-in's id.
@@ -122,6 +138,7 @@ type hSignin struct {
 	CreatedAt int64  `json:"createdAt"`
 	UpdatedAt int64  `json:"updatedAt"`
 	user      string
+	replaced  bool // saveSignin: an existing one's secret was replaced
 }
 
 func (s *hSignin) view(now time.Time) *hSignin {
@@ -263,14 +280,16 @@ func newSigninID() string {
 func signinProvider(id string) acp.Provider { return harnessProvider(id, nil) }
 
 // cleanSecret is a pasted secret as the CLI reads it: one line, nothing but
-// what a key is made of ("" when it holds anything else).
+// what a key is made of ("" when it holds anything else) — no character a
+// JSON file escapes either (" \ < > &): a CLI's key file holds it verbatim,
+// so its removal (scrubKeyFile) finds it.
 func cleanSecret(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" || len(v) > signinMax {
 		return ""
 	}
 	for _, r := range v {
-		if r <= ' ' || r == 0x7f || r >= utf8.RuneSelf {
+		if r <= ' ' || r == 0x7f || r >= utf8.RuneSelf || strings.ContainsRune(`"\<>&`, r) {
 			return ""
 		}
 	}
@@ -309,6 +328,8 @@ func (d *DB) saveSignin(user, harness, name string, key acp.Key, secret string, 
 	s := d.signinNamed(user, harness, name)
 	if s == nil {
 		s = &hSignin{ID: newSigninID(), user: user, Harness: harness, Name: name, IsDefault: len(d.signins(user, harness)) == 0}
+	} else {
+		s.replaced = true
 	}
 	s.Kind, s.Env, s.RefusedAt, s.Refused, s.MintedAt, s.ExpiresAt = key.Kind, key.Env, 0, "", 0, 0
 	if !minted.IsZero() {
@@ -326,10 +347,13 @@ func (d *DB) saveSignin(user, harness, name string, key acp.Key, secret string, 
 // --- the gate ----------------------------------------------------------------------------
 
 // credWhy is why no saved sign-in may go into run's coding agent in sandbox
-// box ("" = one may): only in a person's own partition, for their own
+// box, ref ("" = one may): only in a person's own partition, for their own
 // conversation (no hosted one: harnessBarred), in a sandbox that is theirs
-// and no one else's — its co-users could read the adapter's environment.
-func credWhy(run *Run, box *sbxSandbox) string {
+// and no one else's — its co-users could read the adapter's environment —
+// and that no hosted (non-secure) conversation ever used: its members could
+// have left something there that reads the next process's environment (a
+// hook, a PATH shim, a poller: the review's M1).
+func credWhy(run *Run, ref string, box *sbxSandbox) string {
 	if why := signinsWhy(); why != "" {
 		return why
 	}
@@ -342,27 +366,55 @@ func credWhy(run *Run, box *sbxSandbox) string {
 	if root := rootRunOf(run); root.Owner != runUser {
 		return credNotOwnRun
 	}
-	if box == nil || sandboxShared(box) || box.Owner.User != runUser {
+	if box == nil || !sandboxPrivate(box) || box.Owner.User != runUser {
 		return credNotOwnBox
+	}
+	if agent != nil && agent.db != nil && agent.db.hostedUsed(ref) {
+		return fmt.Sprintf(credHostedBox, sbxLabel(box))
 	}
 	return ""
 }
 
+// credHostedBox: a non-secure conversation worked in the sandbox.
+const credHostedBox = "a non-secure (hosted) conversation has worked in %s, and its members could have left something there " +
+	"that reads a coding agent's environment — a saved sign-in goes only into a sandbox no hosted conversation used: create another"
+
+// --- sandboxes a hosted conversation used ------------------------------------------
+
+// noteHostedUse records that a hosted (non-secure) conversation uses sandbox
+// ref — at every use (sandboxUse), before it does anything there: the
+// sandbox never gets a saved sign-in from then on (credWhy). Never undone.
+func (d *DB) noteHostedUse(ref string) {
+	if _, err := d.q.Exec(`INSERT INTO hosted_sandboxes (ref, at) VALUES (?, ?) ON CONFLICT(ref) DO NOTHING`, ref, nowMs()); err != nil {
+		logf("noting a hosted conversation's use of %s: %v", ref, err)
+	}
+}
+
+// hostedUsed: a hosted conversation used sandbox ref (or the record can't be
+// read: fail closed).
+func (d *DB) hostedUsed(ref string) bool {
+	var n int
+	err := d.q.QueryRow(`SELECT EXISTS(SELECT 1 FROM hosted_sandboxes WHERE ref=?)`, ref).Scan(&n)
+	return err != nil || n != 0
+}
+
 // credPick is the saved sign-in run's coding agent starts with (nil: the
 // sandbox's own sign-in) — the conversation's pick, else the person's
-// default for the harness — and, when there is one it can't use, why.
-func (d *DB) credPick(run *Run, cfg Config, box *sbxSandbox) (*hSignin, string) {
+// default for the harness — and, when there is one it can't use, why. A
+// pick that is gone (forgotten) is never replaced by the default — that
+// could be another account (a conversation pinned to Work must not run on
+// Personal): the sandbox's own sign-in, with a note (the review's L10).
+func (d *DB) credPick(run *Run, cfg Config, ref string, box *sbxSandbox) (*hSignin, string) {
 	h := cfg.Harness
 	if h == nil || h.Signin == pickSandbox || !userMode() {
 		return nil, ""
 	}
 	var s *hSignin
 	if h.Signin != pickDefault {
-		if s = d.signin(h.Signin); s != nil && (s.user != runUser || s.Harness != h.Provider) {
-			s = nil
+		if s = d.signin(h.Signin); s == nil || s.user != runUser || s.Harness != h.Provider {
+			return nil, "the saved sign-in this conversation picked is gone (forgotten) — it uses the sandbox's own sign-in until you pick another"
 		}
-	}
-	if s == nil { // the default (a pick forgotten since falls back to it)
+	} else {
 		for _, x := range d.signins(runUser, h.Provider) {
 			if x.IsDefault {
 				s = x
@@ -379,7 +431,7 @@ func (d *DB) credPick(run *Run, cfg Config, box *sbxSandbox) (*hSignin, string) 
 		}
 		return nil, fmt.Sprintf("your saved sign-in %s isn't used: %s", s.Name, why)
 	}
-	if why := credWhy(run, box); why != "" {
+	if why := credWhy(run, ref, box); why != "" {
 		return nil, fmt.Sprintf("your saved sign-in %s isn't used: %s", s.Name, why)
 	}
 	return s, ""
@@ -387,24 +439,24 @@ func (d *DB) credPick(run *Run, cfg Config, box *sbxSandbox) (*hSignin, string) 
 
 // credEnv is the environment the adapter starts with: the provider's, plus
 // the saved sign-in's secret when there is one (a fresh map — the
-// catalog's is shared).
-func credEnv(base map[string]string, cred *hSignin) (map[string]string, error) {
+// catalog's is shared) — and the secret, for the session's redaction.
+func credEnv(base map[string]string, cred *hSignin) (map[string]string, string, error) {
 	env := map[string]string{}
 	for k, v := range base {
 		env[k] = v
 	}
 	if cred == nil {
-		return env, nil
+		return env, "", nil
 	}
 	secret, err := signinVault.get(signinKey(cred.ID))
 	if err != nil || secret == "" {
 		if err == nil {
 			err = errors.New("it is gone from your vault")
 		}
-		return nil, fmt.Errorf("couldn't read your saved sign-in %s: %v", cred.Name, err)
+		return nil, "", fmt.Errorf("couldn't read your saved sign-in %s: %v", cred.Name, err)
 	}
 	env[cred.Env] = secret
-	return env, nil
+	return env, secret, nil
 }
 
 // credSecret is saved sign-in s's secret ("" when it can't be read).
@@ -433,7 +485,7 @@ func (s *hsess) refuseCredTx(t *DB, hs *harnessSession, why string) {
 	if hs.Cred == "" {
 		return
 	}
-	sg, now := t.refuseSigninTx(hs.Cred, why)
+	sg, now := t.refuseSigninTx(hs.Cred, s.redactor().text(why)) // the adapter's words, never the secret (N18)
 	if sg == nil || !now {
 		return
 	}
@@ -455,16 +507,16 @@ func (s *hsess) authHint(cfg acp.Config, msg string) string {
 // update alone doesn't count: claude-agent-acp 0.81 reports an env token's
 // sign-in as "none").
 func (s *hsess) signedOutNow(st acp.SessionState) bool {
-	return st.AuthNeeded && (s.cred == "" || s.authRefused.Load())
+	return st.AuthNeeded && (s.credID() == "" || s.authRefused.Load())
 }
 
 // credAuthenticate signs an adapter that refused its session signed out in
 // with the saved API key it was started with, through its own API-key
 // method — for an adapter that reads no key from its environment at start
 // (codex-acp; gemini with another sign-in selected). The key rides
-// authenticate's _meta once (apiKeyMeta), never logged. codex keeps it in
-// its own ~/.codex/auth.json then (its store): a sandbox of the person's
-// own only, the gate says. false: not that kind, no such method, refused.
+// authenticate's _meta once (apiKeyMeta), never logged. false: not that
+// kind, no such method, refused. codex writes it to its auth.json then
+// (Provider.AuthFile): the caller removes it (scrubKeyFile).
 func (s *hsess) credAuthenticate(ctx context.Context, cred *hSignin) bool {
 	if cred.Kind != "api-key" {
 		return false
@@ -476,15 +528,82 @@ func (s *hsess) credAuthenticate(ctx context.Context, cred *hSignin) bool {
 			break
 		}
 	}
-	secret := credSecret(cred)
-	if method == "" || secret == "" {
+	if method == "" || s.secret == "" {
 		return false
 	}
 	actx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	err := s.c.Authenticate(actx, method, apiKeyMeta(s.prov.ID, secret))
+	err := s.c.Authenticate(actx, method, apiKeyMeta(s.prov.ID, s.secret))
 	return err == nil
 }
+
+// --- a key a CLI keeps in a file (codex's auth.json; the review's M2) ----------------
+
+// scrubKeyScript removes the CLI's key file when it holds the key read from
+// stdin (never in argv: an exec's argv is listed to the sandbox's users).
+// $1 is the file, a shell word from the sdk catalog (Provider.AuthFile —
+// never a manager's). Exit 0: gone, or not that key's; 1: it could not be
+// removed.
+const scrubKeyScript = `k=$(cat); f=$(eval "printf '%s' \"$1\""); [ -f "$f" ] || exit 0; grep -qF -- "$k" "$f" || exit 0; rm -f -- "$f" || exit 1; [ ! -e "$f" ]`
+
+// scrubKeyFile removes prov's key file in sandbox id at conn when it holds
+// secret — once the adapter took the key (codex keeps it in memory: removing
+// the file doesn't sign the running adapter out), before a start with
+// another sign-in (the switch: codex would start signed in by the file), and
+// before a share. Nothing to do for a CLI that keeps no file.
+func scrubKeyFile(ctx context.Context, conn *sbxConn, id string, prov acp.Provider, secret string) error {
+	if prov.AuthFile == "" || secret == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	res, err := conn.Run(ctx, id, sbxRunReq{Argv: []string{"sh", "-c", scrubKeyScript, "scrub", prov.AuthFile}, Stdin: secret,
+		TimeoutMs: 10000, MaxOutput: 4096})
+	switch {
+	case err != nil:
+		return err
+	case res.ExitCode == nil || *res.ExitCode != 0:
+		why := "it exited " + orStr(res.Signal, "non-zero")
+		if res.Stderr != nil && res.Stderr.Head != "" {
+			why = clip(res.Stderr.Head, 200)
+		}
+		return fmt.Errorf("removing %s's saved key from %s: %s", prov.Name, prov.AuthFile, why)
+	}
+	return nil
+}
+
+// scrubPrevious removes the key the previous generation handed prov's CLI
+// (hs.Scrub: one whose removal failed; hs.Cred: the one it started with)
+// before a start with sign-in next ("" the sandbox's own) — so a switch
+// really switches. An error refuses the start: the CLI would sign in as the
+// previous account. The secret comes from the vault; a pending removal (its
+// secret may have been replaced or forgotten since) or a vault that can't
+// say is matched by the file's API-key mode instead (codexAPIKeyMode). A
+// saved sign-in forgotten since has nothing left: Forget removed it
+// (scrubForgotten).
+func (e *Engine) scrubPrevious(ctx context.Context, u *sbxUse, prov acp.Provider, hs *harnessSession, next string) error {
+	if prov.AuthFile == "" || hs == nil {
+		return nil
+	}
+	prev := orStr(hs.Scrub, hs.Cred)
+	if prev == "" || (prev == next && hs.Scrub == "") {
+		return nil
+	}
+	secret := codexAPIKeyMode
+	if hs.Scrub == "" {
+		sg := e.db.signin(prev)
+		if sg == nil {
+			return nil
+		}
+		secret = orStr(credSecret(sg), codexAPIKeyMode)
+	}
+	return scrubKeyFile(ctx, u.Conn, u.ID, prov, secret)
+}
+
+// codexAPIKeyMode is how codex 0.156 marks an API-key sign-in in auth.json
+// (pretty-printed): a key AgTT handed over — codex's own `codex login
+// --with-api-key` writes the same, which a pending removal also removes.
+const codexAPIKeyMode = `"auth_mode": "apikey"`
 
 // signinSummary is a coding agent's summary's `signin` (a person's
 // partition): pick — "default", "sandbox" or a saved sign-in's id — and
@@ -670,6 +789,9 @@ func handleNewSignin(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	if s.replaced { // what runs on the old secret stops (N14)
+		stopCredUsers(s, fmt.Sprintf("your saved sign-in %s was replaced — the next message starts it with the new one", s.Name), 0)
+	}
 	if b.Default != nil && *b.Default {
 		_ = agent.db.setDefaultSignin(c.user, s.Harness, s.ID)
 		s.IsDefault = true
@@ -756,6 +878,9 @@ func handlePutSignin(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if secret != "" { // what runs on the old secret stops (N14)
+		stopCredUsers(s, fmt.Sprintf("your saved sign-in %s was replaced — the next message starts it with the new one", s.Name), 0)
+	}
 	if b.Default != nil {
 		id := ""
 		if *b.Default {
@@ -794,6 +919,13 @@ func handleForgetSignin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// a key a CLI kept in a file (codex) is removed while the vault still
+	// says which key it is: Forget reaches it (the review's M2)
+	if err := scrubForgotten(r.Context(), s); err != nil {
+		xbin.WriteError(w, http.StatusBadGateway, "removing it from a sandbox where "+signinProvider(s.Harness).Name+
+			" keeps it: "+err.Error()+" — try again")
+		return
+	}
 	if err := signinVault.del(signinKey(s.ID)); err != nil {
 		xbin.WriteError(w, http.StatusBadGateway, "taking it out of your vault: "+err.Error())
 		return
@@ -802,14 +934,59 @@ func handleForgetSignin(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	n := stopCredUsers(s, fmt.Sprintf("your saved sign-in %s was forgotten — the next message starts it again without it", s.Name))
+	n := stopCredUsers(s, fmt.Sprintf("your saved sign-in %s was forgotten — the next message starts it again without it", s.Name), 0)
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": "true", "stopped": n})
+}
+
+// scrubForgotten removes saved sign-in s's key from the files its CLI keeps
+// it in (Provider.AuthFile), in every sandbox a coding agent of its harness
+// ran in — before the vault forgets which key it is (a file holding another
+// key stays). A sandbox that is gone has nothing left to remove.
+func scrubForgotten(ctx context.Context, s *hSignin) error {
+	prov := signinProvider(s.Harness)
+	if prov.AuthFile == "" {
+		return nil
+	}
+	secret := credSecret(s)
+	if secret == "" {
+		return nil
+	}
+	refs := map[string]bool{} // every sandbox one of its harness's ran in: a session's row names its latest start only
+	rows, err := agent.db.q.Query(`SELECT DISTINCT ref FROM harness_sessions WHERE provider=? AND ref<>''`, s.Harness)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var ref string
+		if rows.Scan(&ref) == nil {
+			refs[ref] = true
+		}
+	}
+	rows.Close()
+	for ref := range refs {
+		provider, id, ok := splitSandboxRef(ref)
+		if !ok {
+			continue
+		}
+		conn, err := sbxDial(provider, s.user)
+		if err != nil {
+			return err
+		}
+		if err := scrubKeyFile(ctx, conn, id, prov, secret); err != nil {
+			if r := sbxRefusal(err); r == "not-found" || r == "lost" {
+				continue
+			}
+			return err
+		}
+		_, _ = agent.db.q.Exec(`UPDATE harness_sessions SET scrub='' WHERE ref=? AND scrub=?`, ref, s.ID)
+	}
+	return nil
 }
 
 // stopCredUsers stops every coding agent whose generation started with
 // saved sign-in s (an hstop each, applied by its pass: a turn in flight
-// ends with why) and answers how many.
-func stopCredUsers(s *hSignin, why string) int {
+// ends with why) but run except, and answers how many.
+func stopCredUsers(s *hSignin, why string, except int64) int {
 	rows, err := agent.db.q.Query(`SELECT run_id, state FROM harness_sessions WHERE cred=?`, s.ID)
 	if err != nil {
 		return 0
@@ -818,7 +995,7 @@ func stopCredUsers(s *hSignin, why string) int {
 	for rows.Next() {
 		var id int64
 		var st string
-		if rows.Scan(&id, &st) == nil && hsExecMayRun(st) {
+		if rows.Scan(&id, &st) == nil && hsExecMayRun(st) && id != except {
 			runs = append(runs, id)
 		}
 	}
@@ -829,6 +1006,77 @@ func stopCredUsers(s *hSignin, why string) int {
 		}
 	}
 	return len(runs)
+}
+
+// readyForShare readies sandbox ref (id at conn, the owner's) for the PATCH
+// that shares it, before it goes out — waiting for each step, an error
+// refusing the share (the review's L8, L5, M2):
+//
+//   - every guided sign-in under way there ends, its exec deleted (its
+//     output may hold a minted token: L5, L6),
+//   - every coding agent that started there with a saved sign-in is killed
+//     at the manager (its environment holds the secret) and stopped (an
+//     hstop: the next message starts it with the sandbox's own sign-in),
+//   - a key a CLI kept in a file there (codex's auth.json) is removed.
+//
+// A start in the moment between this and the PATCH is caught after it
+// (stopCredsIn) and by the next re-check.
+func readyForShare(ctx context.Context, conn *sbxConn, id, ref, what string) error {
+	if agent == nil || agent.db == nil {
+		return nil
+	}
+	if agent.eng != nil {
+		if err := agent.eng.endGuidedIn(ref); err != nil {
+			return fmt.Errorf("ending a sign-in under way there: %w", err)
+		}
+	}
+	type row struct {
+		run                                int64
+		provider, exec, state, cred, scrub string
+	}
+	rs, err := agent.db.q.Query(`SELECT run_id, provider, exec_id, state, cred, scrub FROM harness_sessions
+		WHERE ref=? AND (cred<>'' OR scrub<>'')`, ref)
+	if err != nil {
+		return err
+	}
+	var all []row
+	for rs.Next() {
+		var x row
+		if rs.Scan(&x.run, &x.provider, &x.exec, &x.state, &x.cred, &x.scrub) == nil {
+			all = append(all, x)
+		}
+	}
+	rs.Close()
+	for _, x := range all {
+		if x.cred == "" || x.exec == "" || !hsExecMayRun(x.state) {
+			continue
+		}
+		dctx, cancel := context.WithTimeout(ctx, sbxCallTimeout)
+		err := conn.ExecDelete(dctx, id, x.exec)
+		cancel()
+		if r := sbxRefusal(err); err != nil && r != "not-found" && r != "lost" {
+			return fmt.Errorf("stopping the coding agent of run #%d, which holds a saved sign-in: %w", x.run, err)
+		}
+		why := fmt.Sprintf("the coding agent was stopped: %s — %s; the next message starts it with the sandbox's own sign-in", what, credNotOwnBox)
+		if _, _, err := agent.queue(x.run, inboxHStop, inboxBody{Reason: why}, ""); err != nil {
+			logf("run #%d: stopping its coding agent (sandbox shared): %v", x.run, err)
+		}
+	}
+	for _, x := range all {
+		prov := signinProvider(x.provider)
+		if prov.AuthFile == "" {
+			continue
+		}
+		secret := codexAPIKeyMode
+		if sg := agent.db.signin(x.cred); x.scrub == "" && sg != nil {
+			secret = orStr(credSecret(sg), codexAPIKeyMode)
+		}
+		if err := scrubKeyFile(ctx, conn, id, prov, secret); err != nil {
+			return err
+		}
+		_, _ = agent.db.q.Exec(`UPDATE harness_sessions SET scrub='' WHERE run_id=? AND scrub=?`, x.run, x.scrub)
+	}
+	return nil
 }
 
 // stopCredsIn stops at once the coding agents that started with a saved
@@ -989,11 +1237,11 @@ func (e *Engine) harnessSwitch(ctx context.Context, run *Run, rows []*InboxRow) 
 // credStillFits re-checks, as the sandbox's use is re-checked, that the
 // saved sign-in s started with may stay in its adapter: the sandbox shared
 // since (or the run no longer the person's own) stops it ("" = it may).
-func (s *hsess) credStillFits(run *Run, box *sbxSandbox) string {
-	if s.cred == "" {
+func (s *hsess) credStillFits(run *Run, ref string, box *sbxSandbox) string {
+	if s.credID() == "" {
 		return ""
 	}
-	if why := credWhy(run, box); why != "" {
+	if why := credWhy(run, ref, box); why != "" {
 		where := "its sandbox"
 		if box != nil {
 			where = sbxLabel(box)

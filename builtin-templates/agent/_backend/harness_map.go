@@ -795,7 +795,7 @@ func (s *hsess) onStatus(ev acp.Event) {
 	}
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
 		if d.Login != nil && d.Login.Needed && hs.State == hsLive && hs.PromptState == "" && s.auth() == nil &&
-			(s.cred == "" || s.authRefused.Load()) { // with a saved sign-in in, the adapter's own refusal only (harness_creds.go)
+			(s.credID() == "" || s.authRefused.Load()) { // with a saved sign-in in, the adapter's own refusal only (harness_creds.go)
 			// signed out (_auth/status_update) with no turn: park on the
 			// sign-in now (mid-turn, the prompt's failure does)
 			if run, err := t.getRun(s.run); err == nil && run.Status != statusRunning && run.Status != statusWaiting {
