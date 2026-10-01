@@ -191,7 +191,10 @@ user can `read` (read-only), their own component (read-write), and their own
   is the workspace's entire topology — grant edges, wiring, public
   hostnames — and never enters the sandbox.
 - **`go.work` is filtered** to readable modules (so `go build` never chases
-  directories that aren't there), and `AGENTS.md`/`.gitignore` are copies.
+  directories that aren't there). It is kept current while the terminal is
+  open: its `go` line follows the modules' as their `go.mod` files change,
+  because the go command refuses a `go.work` whose `go` line is below a
+  module it uses. `AGENTS.md`/`.gitignore` are copies.
 - `.xbin/`, `data/`, other homes: simply **not mounted** (an empty `.xbin`
   marker exists so `bx` can locate the workspace root), and the resenc
   mount-table names the recursive bind used to carry are gone with it.

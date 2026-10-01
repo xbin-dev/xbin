@@ -3,9 +3,13 @@
 #
 #   <OSV id> <target> # <why it may ship, and what removes it>
 #
-# target is a name make vulncheck prints (xbind, relay, sdk,
+# target is a name make vulncheck prints (xbind, xbind/arm64, relay, sdk,
 # builtin-tiles/<name>, builtin-templates/<name>) or * for every one. An entry
 # matching nothing any more is reported: remove it. Empty today — a release
 # fixes what its code reaches (update the dependency, or the go building it)
 # rather than adding a line here; an entry is for an advisory with no fix yet
 # or a finding shown not to apply, with the reason on the line.
+#
+# The gate scans the Go this checkout builds; Go a bundle carries prebuilt
+# (bin/gocryptfs, hack/helpers.sha256) or the rootfs installs (gopls, dlv)
+# isn't scanned, so nothing here can speak for it.

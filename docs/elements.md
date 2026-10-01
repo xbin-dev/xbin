@@ -795,9 +795,12 @@ Keep it truthful over pretty — it's a contract, not marketing.
   the listed modules' (the go command refuses a `go.work` older than a
   module it uses): one tile at `go 1.26.0` makes it `go 1.26.0`, and a
   terminal whose Go is older fetches that toolchain (`GOTOOLCHAIN=auto`,
-  the default; the base rootfs ships Go 1.26.3, older bases 1.24.0). If
-  you hand-edit `go.work`, remove the generated-marker line and xbind will
-  leave it alone.
+  the default; network needed). The base rootfs ships Go 1.26.3; older
+  bases have 1.24.0, and **⬆ base update** moves a terminal to the
+  current one
+  ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+  If you hand-edit `go.work`, remove the generated-marker line and xbind
+  will leave it alone.
 - Go, **your tile's build** (D166): xbind builds your backend with a
   `go.work` of its own, made from your `go.mod` at each build — never the
   root one, whose single module graph let every tile's `go.mod` change what

@@ -5955,10 +5955,11 @@ Deviations and refinements made while implementing; all deliberate:
     sandbox-terminal's x/crypto v0.48.0 (ten in x/crypto/ssh, fixed by
     v0.52.0–v0.56.0) and the agent template's x/text v0.3.8 (GO-2026-5970,
     through goja); none in xbind's programs built with the release
-    toolchain (go1.27.0). Bumped: sandbox-terminal (v6) to x/crypto
-    v0.57.0, both Go templates to x/sys v0.48.0 and modernc.org/sqlite
-    v1.60.1 (the agent's x/text to v0.42.0), xbind's own go.mod to x/crypto
-    v0.57.0 (the root module vets sandbox-terminal's backend). Every fix
+    toolchain (go1.27.0, its standard library judged — see the review
+    below). Bumped: sandbox-terminal (v6) to x/crypto v0.57.0, the agent
+    template to x/text v0.42.0 (with x/sys v0.48.0 and modernc.org/sqlite
+    v1.60.1), xbind's own go.mod to x/crypto v0.57.0 (the root module vets
+    sandbox-terminal's backend). Every fix
     needs a go line above 1.24 (x/text ≥ v0.39.0: go 1.25.0; x/crypto ≥
     v0.56.0: go 1.26.0), so those go.mod files say go 1.26.0, with three
     consequences:
@@ -5980,14 +5981,16 @@ Deviations and refinements made while implementing; all deliberate:
       base (1.24.0) switches toolchains through GOTOOLCHAIN=auto (checked:
       go1.24.0 with a `go 1.26.0` go.work builds both a go 1.24 and a go
       1.26.0 module; with `go 1.24` it refuses both).
-    - **Template instances take it by the D50 merge**: a stock instance's
+    - **Agent instances take it by the D50 merge**: a stock instance's
       go.mod (go.mod.tile renamed, its module line its own) and go.sum
       merge cleanly from master's embed to this one (checked).
     The gate: `make vulncheck` (hack/vulncheck) runs govulncheck over
     xbind's ./cmd/... with the repo's go.work (as `make build` builds
-    them), the relay, the sdk, and every module in the embedded trees
-    against its own go.mod.tile with the sdk replaced by the checkout; it
-    fails on a reachable finding hack/vulncheck-allow.txt doesn't list
+    them: CGO_ENABLED=0, linux/amd64 and, as target xbind/arm64,
+    linux/arm64), the relay, the sdk, and every module in the embedded
+    trees against its own go.mod.tile and go.sum, read-only, through a
+    go.work shaped as the D166 build's (the sdk replaced by the checkout);
+    it fails on a reachable finding hack/vulncheck-allow.txt doesn't list
     (`<id> <target> # why`, empty). `make release` runs it before the tag,
     --no-check or not; not in `make check` (network). Standard-library
     findings gate xbind's programs and the relay only — judged against the
@@ -6003,3 +6006,44 @@ Deviations and refinements made while implementing; all deliberate:
     os.Root escape, among them) — what a from-source install builds xbind
     and every tile with; raising GO_MIN, go.mod and the rootfs to 1.26.8
     together is the owner's call.
+    Review (2026-10-01), fixed:
+    - **The stdlib half of the gate was off on the release machine.**
+      govulncheck v1.8.0 reads the standard library's version only from a
+      bare release GOVERSION; for `go1.27.0-X:nodwarf5` (the owner's
+      /usr/bin/go) or a devel build it matches no standard-library
+      advisory and reports none. The gate now passes each target
+      GOVERSION=<the go's release> and fails (exit 2) on a go naming no
+      release; parse refuses an unreadable go_version for a target the
+      standard library gates. Re-run so: xbind and xbind/arm64 clean under
+      go1.27.0; under CI's go1.26.3, 9 (xbind) and 8 (relay) — the open
+      item above.
+    - **Builtins scanned read-only, as built.** -mod=mod could scan versions
+      the go command fetched or added instead of the shipped ones. Each is
+      now scanned and tile-checked (hack/tile-check.sh too, which ran `go mod
+      tidy || true`) through its own D166-shaped go.work, -mod=readonly: a
+      missing requirement or checksum fails. Module mode was not chosen: it
+      refuses master's coding-sandbox go.mod (`go 1.24` over go-1.24.0
+      dependencies), which the real workspace-mode build accepts.
+    - **coding-sandbox keeps master's dependencies.** Its only finding,
+      GO-2026-5024, is in x/sys/windows and never called; the bump bought
+      nothing and put every coding-sandbox instance at go 1.26.0 (below).
+      Tidying its go line to 1.24.0 would hit the same downgrade break.
+    - **BREAKING, with a migration note**
+      (docs/changes/2026-09-30-builtins-go-1-26.md). Once any module says go
+      1.26.0, every `go` in a terminal on an old base (Go 1.24.0) downloads
+      go1.26.0 first — or fails where its network can't reach
+      proxy.golang.org — and a downgrade to v0.3.64 or older fails every Go
+      tile's build (its root go.work says `go 1.24`, checked with the go
+      command). Remedies: ⬆ base update; setting those go lines to `go
+      1.24` before a downgrade (checked: a read-only workspace build with
+      host go1.26.3 accepts sandbox-terminal at go 1.24 over x/crypto
+      v0.57.0). docs/compat.md names the downgrade limit.
+    - **An open restricted terminal's go.work follows the workspace**
+      (term.RefreshViews, from the watch loop and structure changes): its
+      view is staged once at open, and a stale `go 1.24` would refuse every
+      go command after a builtin update or a raised go.mod. Rewritten in
+      xbind's view dir (temp + rename) under the lock dropView takes.
+    Not done: a binary-mode scan of prebuilt helpers (bin/gocryptfs,
+    x/crypto v0.33.0, 21 imprecise advisories on a stripped binary) and the
+    rootfs's gopls/dlv — the docs and the allow file now say they aren't
+    scanned.

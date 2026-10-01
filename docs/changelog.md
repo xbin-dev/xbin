@@ -33,41 +33,53 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   what to add (module paths and versions, never another tile); a dotted
   tile module required at a published version now builds from the
   published module unless `deps` names the tile. The root `go.work` is
-  unchanged for terminals and gopls, and is now written atomically. Also
+  still the one terminals, editors and gopls use, and is now written
+  atomically; its `go` line now follows its modules' (next entry). Also
   fixes a new Go tile's first build failing with `go: no modules were found
   in the current workspace` when it ran before the root `go.work` listed
   the tile.
-- **Security fixes in the builtins' Go dependencies — update them from the
-  Tile Manager.** Each tile now builds with its own `go.mod` (above), so a
-  builtin no longer picks up newer versions another tile's `go.mod`
-  required: these are the fixed versions, in the builtins themselves.
+- **BREAKING (security): the builtins' Go dependencies carry their own
+  security fixes; their `go.mod` files and the workspace `go.work` now say
+  `go 1.26.0`. Update them from the Tile Manager**
+  ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+  Each tile now builds with its own `go.mod` (above), so a builtin no
+  longer picks up newer versions another tile's `go.mod` required. These
+  are the fixed versions, in the builtins themselves:
   - **`sandbox-terminal` v6**: its SSH server runs on
-    `golang.org/x/crypto` v0.57.0 (was v0.48.0), fixing ten advisories its
-    code reaches (GO-2026-5013, -5014, -5017, -5018, -5019, -5020, -5023,
-    -6303, -6354, -6355: certificate, FIDO-key and source-address
-    restrictions not enforced, panics, deadlocks and loops a client can
-    cause). Tile Manager → Updates.
-  - **Agent template**: `golang.org/x/text` v0.42.0 (was v0.3.8: an
-    infinite loop on invalid input, GO-2026-5970, reached through the JS
-    engine), `golang.org/x/sys` v0.48.0, `modernc.org/sqlite` v1.60.1 (was
-    v1.39.1). **Coding-sandbox template**: `golang.org/x/sys` v0.48.0,
-    `modernc.org/sqlite` v1.60.1. An instance takes them as any template
-    update — `git fetch template && git merge` in it (the Tile Manager and
-    `bx template updates` list the instances behind); a stock instance's
-    `go.mod` and `go.sum` merge cleanly.
-  - Their `go.mod` files now say `go 1.26.0` (x/crypto needs it since
-    v0.56.0). The host's Go builds them (the installer's is ≥ 1.26.3); the
-    base rootfs now ships Go 1.26.3 (was 1.24.0) for terminals; and the
-    workspace's generated `go.work` now states the highest `go` line of its
-    modules instead of always `go 1.24` — which the go command refused for
-    every command in a terminal as soon as any tile said `go 1.24.0` or
-    later (what `go mod init` writes). A terminal on an older base runs Go
-    1.24.0 and fetches go1.26.0 on its first `go` command there
-    (`GOTOOLCHAIN=auto`, network needed) — or upgrade its base
-    ([elements.md](/docs/elements.md) §Cross-component code access).
-  - Every release now passes a vulnerability gate: no known vulnerability
-    that xbind's programs or a builtin's code reaches ships unless the
-    release says why.
+    `golang.org/x/crypto` v0.57.0 (was v0.48.0). That fixes ten advisories
+    its code reaches: GO-2026-5013, -5014, -5017, -5018, -5019, -5020,
+    -5023, -6303, -6354, -6355. They cover certificate, FIDO-key and
+    source-address restrictions that weren't enforced, and panics,
+    deadlocks and loops a client can cause. Tile Manager → Updates.
+  - **Agent template**: `golang.org/x/text` v0.42.0 (was v0.3.8, which has
+    an infinite loop on invalid input, GO-2026-5970, reached through the
+    JS engine), `golang.org/x/sys` v0.48.0, and `modernc.org/sqlite`
+    v1.60.1 (was v1.39.1). An instance takes them like any template
+    update: `git fetch template && git merge` in it. The Tile Manager and
+    `bx template updates` list the instances that are behind. A stock
+    instance's `go.mod` and `go.sum` merge cleanly. The coding-sandbox
+    template reaches no vulnerability and is unchanged.
+  - Those versions need Go 1.26, so both `go.mod` files now say
+    `go 1.26.0`. The host's Go builds them; the installer's is 1.26.3 or
+    newer. The base rootfs now ships Go 1.26.3 (was 1.24.0). The
+    workspace's generated `go.work` now says the highest `go` line of its
+    modules instead of always `go 1.24`. The go command refused `go 1.24`
+    for every command in every terminal as soon as any tile said
+    `go 1.24.0` or later, which is what `go mod init` writes. An open
+    restricted terminal's `go.work` now follows changes too
+    ([isolation.md](/docs/isolation.md)).
+  - **What breaks:** once a module says `go 1.26.0`, every `go` command in
+    a terminal on an older base (Go 1.24.0) first downloads go1.26.0
+    (`go: downloading go1.26.0`). A terminal whose network can't reach
+    `proxy.golang.org` fails with `toolchain not available`. Fix it with
+    **⬆ base update**, which wipes apt-installed packages, or by allowing
+    the proxy. A downgrade to v0.3.64 or older fails every Go tile's build
+    (`go.work file requires go >= 1.26.0, but go.work lists go 1.24`)
+    unless those `go.mod` files say `go 1.24` again first. The migration
+    note has the details.
+  - Every release now passes a vulnerability gate. No known vulnerability
+    that the code of xbind's programs, the sdk or a builtin reaches ships
+    unless the release says why.
 - **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
   OpenCode answer a conversation, or work for the agent, in a coding
   sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A

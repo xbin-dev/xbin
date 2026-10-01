@@ -3,8 +3,8 @@
 #
 #   1. preflight: tag shape, clean tree, on master, gh authenticated
 #   2. make check (skip with --no-check), then make vulncheck — the
-#      vulnerability gate (hack/vulncheck): no known vulnerability the
-#      shipped Go code reaches unless hack/vulncheck-allow.txt says why.
+#      vulnerability gate (hack/vulncheck): no known vulnerability the Go
+#      code this checkout builds reaches unless hack/vulncheck-allow.txt says why.
 #      Never skipped; it needs network, as the rest of a release does
 #   3. annotated tag (or verify an existing one points at HEAD), push the
 #      branch and the tag

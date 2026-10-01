@@ -30,8 +30,11 @@ requirements, not its `replace` lines, and not a module path it declares
 (a tile declaring `golang.org/x/sys/unix`, an SDK sub-package's path or
 `calendar/store` never stands in for what another tile imports). The
 build's `go` line is the highest of `1.24`, a hand-managed root's and the
-used modules' (`go 1.24.0` modules build). The root `go.work` is unchanged
-and still what terminals, editors and gopls use. A Go tile with no module
+used modules' (`go 1.24.0` modules build). The root `go.work` is still
+what terminals, editors and gopls use. Its `go` line is now the highest of
+`1.24` and its modules', where it used to be always `go 1.24`
+([2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+A Go tile with no module
 builds with `GOWORK=off`. Workspaces without `--isolate` get the same.
 
 A failed build whose error is `no required module provides package …` or
