@@ -176,6 +176,10 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 		if !f.plan() {
 			return
 		}
+	case strings.HasPrefix(text, "perm2"):
+		if !f.permPair(mode) {
+			return
+		}
 	case strings.Contains(text, "perm"):
 		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "t1", "title": "run ls", "kind": "execute", "rawInput": map[string]string{"cmd": "ls"}})
 		if mode != "yolo" {

@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **SDK: `acptest` plays `perm2…`** ([sdk.md](/docs/sdk.md) §Testing an
+  ACP client): two tool calls that ask at once, as Claude's parallel
+  calls do — the second `session/request_permission` sent before the
+  first is answered, the turn waiting for both, then "perm2: ‹option›
+  ‹option›" — to test how a client queues permission requests. Every
+  other script plays as before.
 - **BREAKING: terminals move to a new base image by themselves — base
   auto-update, a workspace setting, on by default**
   ([changes/2026-10-01-base-auto-update.md](/docs/changes/2026-10-01-base-auto-update.md),

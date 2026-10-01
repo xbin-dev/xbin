@@ -1183,6 +1183,7 @@ New prompt scripts:
 | `stall` | a chunk "stalling", then nothing until `session/cancel` (handoff and reattach tests) |
 | `cards` | one completed call of each kind — read, edit (a `diff` for `hello.txt`), delete, move, search, execute (terminal output + exit 0), fetch, think, other — then "cards done" |
 | `perm-edit` | an edit tool_call + `request_permission` (skipped in `auto` and `yolo`); matched before `perm`, which the dispatch finds by substring |
+| `perm2…` | (a prefix) two calls that ask at once, as Claude's parallel tool calls do: both `request_permission`s out before either is answered, the turn waiting for both, then "perm2: ‹option› ‹option›" — the park queue (§4.3.4) exercised as an adapter drives it; matched before `perm` |
 | `steer…` | (a prefix) a `slow` turn that reports each steer it received |
 
 ### 7.2 `hack/fakeopenai` keywords

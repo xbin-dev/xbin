@@ -51,6 +51,14 @@
 //	            a request_permission with its mode options (two allow_always)
 //	            and _meta.permission.title "Ready to code?"; approve →
 //	            "plan approved: <option>", reject → the turn ends cancelled
+//	perm2…      (a prefix) two calls that ask at once, as Claude's parallel
+//	            tool calls do: tool_calls t1 (run ls, execute) and t2 (rm -rf
+//	            build, delete), then both session/request_permission
+//	            (once/always/no; ids "perm2-<n>"), the second sent before the
+//	            first is answered; the turn waits for both — an allow
+//	            completes its call, no fails it, then "perm2: ‹t1's option›
+//	            ‹t2's option›"; a cancelled one fails both and ends the turn
+//	            cancelled; mode yolo skips the requests ("perm2: yolo yolo")
 //	perm        a tool_call + session/request_permission (once/always/no);
 //	            selected → the tool completes, cancelled → the turn ends
 //	            cancelled; mode yolo skips the request

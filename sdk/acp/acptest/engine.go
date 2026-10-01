@@ -42,6 +42,7 @@ type fake struct {
 	signedIn  bool            // --require-login
 	elicitURL bool            // the client takes URL elicitation (device code)
 	termAuth  bool            // the client takes _meta terminal-auth
+	asks      int             // perm2's requests so far (their ids: "perm2-<n>")
 }
 
 func newFake(o Options) *fake {
