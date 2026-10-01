@@ -439,7 +439,7 @@ func TestReadRootWork(t *testing.T) {
 	if rw, err := ReadRootWork(root); rw != nil || err != nil {
 		t.Fatalf("no go.work: %+v %v", rw, err)
 	}
-	wsFiles(t, root, map[string]string{"go.work": renderGoWork([]string{"./apps/a"}, "/opt/xbin/sdk")})
+	wsFiles(t, root, map[string]string{"go.work": renderGoWork([]string{"./apps/a"}, buildGo, "/opt/xbin/sdk")})
 	if rw, err := ReadRootWork(root); rw != nil || err != nil {
 		t.Fatalf("xbind's go.work: %+v %v", rw, err)
 	}

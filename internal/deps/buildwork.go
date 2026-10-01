@@ -37,8 +37,8 @@ import (
 // resolves to the SDK's directory.
 const SDKModule = "github.com/xbin-dev/xbin/sdk"
 
-// buildGo is the lowest go line of a generated build go.work: the root
-// go.work's (renderGoWork). A module the build uses whose go line is higher
+// buildGo is the lowest go line of a generated go.work, a build's and the
+// root's (goModules). A module the go.work uses whose go line is higher
 // raises it — the go command refuses a go.work older than a module it uses.
 const buildGo = "1.24"
 

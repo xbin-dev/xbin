@@ -791,8 +791,13 @@ Keep it truthful over pretty — it's a contract, not marketing.
   against them.
 - Go: xbind maintains a generated `go.work` at the workspace root listing
   every Go component and the xbin SDK — any shell can `go build`/`gopls`
-  across the whole workspace. If you hand-edit `go.work`, remove the
-  generated-marker line and xbind will leave it alone.
+  across the whole workspace. Its `go` line is the highest of `1.24` and
+  the listed modules' (the go command refuses a `go.work` older than a
+  module it uses): one tile at `go 1.26.0` makes it `go 1.26.0`, and a
+  terminal whose Go is older fetches that toolchain (`GOTOOLCHAIN=auto`,
+  the default; the base rootfs ships Go 1.26.3, older bases 1.24.0). If
+  you hand-edit `go.work`, remove the generated-marker line and xbind will
+  leave it alone.
 - Go, **your tile's build** (D166): xbind builds your backend with a
   `go.work` of its own, made from your `go.mod` at each build — never the
   root one, whose single module graph let every tile's `go.mod` change what
@@ -835,14 +840,15 @@ Keep it truthful over pretty — it's a contract, not marketing.
     packages elsewhere (a module beneath your module path counts only
     nested in your directory, or named in `deps`). A dotted path at a
     **published** version
-    (`golang.org/x/crypto v0.48.0`) resolves as a normal module even when a
+    (`golang.org/x/crypto v0.57.0`) resolves as a normal module even when a
     tile declares that path — unless you name that tile in `deps`. A
     module your build uses brings its `go.mod`'s `replace` lines along (in
     workspace mode they apply to the whole build): you chose to build with
     its code;
   - with a hand-managed root `go.work`, its `go`, `toolchain`, `godebug`
     and `replace` lines. The build's `go` line is the highest of `1.24`,
-    that one and your modules' (`go mod init` writes `go 1.24.0`).
+    that one and your modules' (`go mod init` in a terminal writes its
+    Go's version: `go 1.26.3`).
 
   So **require what you import**, and to build against another tile's
   module, name the tile in `deps` — or `require` it with a `replace` to its
