@@ -422,6 +422,52 @@ func TestNewScripts(t *testing.T) {
 	d.finish()
 }
 
+// perm2: both requests are out before either is answered, each answer
+// goes to its own call whatever the order, and a cancel fails both.
+func TestPermPair(t *testing.T) {
+	d, _ := start(t, Options{wait: quick})
+	d.handshake()
+	d.call(3, "session/prompt", promptParams("perm2"))
+	r1 := d.request("session/request_permission") // the second comes unanswered first's way
+	r2 := d.request("session/request_permission")
+	if get(r1, "params", "toolCall", "toolCallId") != "t1" || get(r2, "params", "toolCall", "toolCallId") != "t2" ||
+		get(r2, "params", "toolCall", "title") != "rm -rf build" || string(r1.ID) != `"perm2-1"` || string(r2.ID) != `"perm2-2"` {
+		t.Fatalf("the two requests:\n%s\n%s", r1.raw, r2.raw)
+	}
+	d.reply(r2, selected("no")) // answered out of order
+	d.reply(r1, selected("once"))
+	status := map[string]string{}
+	d.until("both answered", func(f *frame) bool {
+		if f.Params.Update.Kind == "tool_call_update" {
+			status[str(get(f, "params", "update", "toolCallId"))] = f.Params.Update.Status
+		}
+		return f.text() == "perm2: once no"
+	})
+	if r := d.response(3); get(r, "result", "stopReason") != "end_turn" || status["t1"] != "completed" || status["t2"] != "failed" {
+		t.Fatalf("the pair's end: %s, calls %v", r.raw, status)
+	}
+
+	d.call(4, "session/prompt", promptParams("perm2 again"))
+	r1, r2 = d.request("session/request_permission"), d.request("session/request_permission")
+	if string(r1.ID) != `"perm2-3"` || string(r2.ID) != `"perm2-4"` {
+		t.Fatalf("a request id used again: %s %s", r1.ID, r2.ID)
+	}
+	d.notify("session/cancel", `{"sessionId":"fake-1"}`)
+	if r := d.response(4); get(r, "result", "stopReason") != "cancelled" {
+		t.Fatalf("a cancelled pair: %s", r.raw)
+	}
+	d.reply(r1, cancelledOutcome)
+	d.reply(r2, cancelledOutcome)
+	failed := map[string]bool{}
+	d.until("both calls failed", func(f *frame) bool {
+		if f.Params.Update.Status == "failed" {
+			failed[str(get(f, "params", "update", "toolCallId"))] = true
+		}
+		return failed["t1"] && failed["t2"]
+	})
+	d.finish()
+}
+
 func sorted(s []string) []string {
 	out := append([]string(nil), s...)
 	for i := range out {

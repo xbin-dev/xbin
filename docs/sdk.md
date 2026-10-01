@@ -321,11 +321,11 @@ adapter, a model or a network — the one xbind's own tests and the `fake`
 provider (`XBIN_AGENT_FAKE`) run. It answers the handshake the way
 claude-agent-acp and codex-acp do and plays a script chosen by words in the
 prompt: `echo` by default, `perm` and `perm-edit` (a permission request),
-`plan…` (a plan approval), `ask…` (a form question), `subagent…`, `think…`,
-`todo` (plan updates), `cards` (one tool call of every kind), `run: <cmd>`
-(a `terminal/*` round trip), `slow`, `stall` (nothing until
-`session/cancel`), `fail` (signed out), `crash`, and more — the package
-doc lists every script and what it sends.
+`perm2…` (two at once), `plan…` (a plan approval), `ask…` (a form
+question), `subagent…`, `think…`, `todo` (plan updates), `cards` (one tool
+call of every kind), `run: <cmd>` (a `terminal/*` round trip), `slow`,
+`stall` (nothing until `session/cancel`), `fail` (signed out), `crash`, and
+more — the package doc lists every script and what it sends.
 
 ```go
 import "github.com/xbin-dev/xbin/sdk/acp/acptest"

@@ -160,26 +160,23 @@ func TestHarnessExplicitOption(t *testing.T) {
 	hwait(t, "the turn", func() bool { return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "listed") })
 }
 
-// At most one park: a second request while one is parked waits in the
-// queue and becomes the park once the first is answered.
+// At most one park: of two requests the adapter has out at once (acptest's
+// perm2, as Claude's parallel tool calls), the second waits in the queue and
+// becomes the park once the first is answered — and stays it until it is
+// answered, as the adapter's turn waits for both.
 func TestHarnessQueuedPark(t *testing.T) {
 	ag, mux, box := harnessFixture(t, false)
-	run := askHarness(t, mux, box, "perm")
+	run := askHarness(t, mux, box, "perm2")
 	first := parkOf(t, ag, run.ID, "approval")
-	s := ag.eng.harnessOf(run.ID)
-	// a second request the adapter sends meanwhile (the fake asks one at a time)
-	second := acp.Pending{PID: "p99", ToolCall: acp.ToolCallRef{ID: "t9", Title: "rm -rf build", Kind: "delete"},
-		Options: []acp.PermissionOption{{OptionID: "y", Name: "Yes", Kind: acp.AllowOnce}, {OptionID: "n", Name: "No", Kind: acp.RejectOnce}}}
-	s.perms.Restore(second, json.RawMessage(`"x9"`))
-	ev := acp.NewEvent(acp.EvPermissionRequest, map[string]any{"pid": "p99", "toolCall": second.ToolCall, "options": second.Options,
-		"rule": map[string]any{"kind": "delete", "title": "rm -rf build"}})
-	ev.Wire = &acp.Wire{RPCID: json.RawMessage(`"x9"`)}
-	s.apply(ev)
+	if first.Harness.Tool == nil || first.Harness.Tool.Title != "run ls" {
+		t.Fatalf("the first park: %+v", first.Harness)
+	}
+	hwait(t, "the second request queued", func() bool {
+		hs, _ := ag.db.harnessSession(run.ID)
+		return hs != nil && strings.Contains(hs.Queue, "rm -rf build")
+	})
 	if p := parsePending(mustRun(t, ag, run.ID).Pending); p.Park != first.Park {
 		t.Fatalf("the second request took the park: %+v", p)
-	}
-	if hs, _ := ag.db.harnessSession(run.ID); !strings.Contains(hs.Queue, "p99") {
-		t.Fatalf("the queue: %q", hs.Queue)
 	}
 	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", run.ID), map[string]any{"approve": true, "park": first.Park}); w.Code != 200 {
 		t.Fatalf("approve: %d %s", w.Code, w.Body)
@@ -189,13 +186,20 @@ func TestHarnessQueuedPark(t *testing.T) {
 		next = parsePending(mustRun(t, ag, run.ID).Pending)
 		return next.Harness != nil && next.Park != first.Park
 	})
-	if next.Kind != "approval" || next.Park == first.Park || next.Harness.PID != "p99" || next.Harness.Tool.Title != "rm -rf build" {
+	if next.Kind != "approval" || next.Harness.PID == first.Harness.PID || next.Harness.Tool == nil ||
+		next.Harness.Tool.Title != "rm -rf build" || next.Harness.Tool.Kind != "delete" {
 		t.Fatalf("the queued park: %+v", next.Harness)
+	}
+	if hs, _ := ag.db.harnessSession(run.ID); hs.Queue != "" {
+		t.Fatalf("the queue once its request is the park: %q", hs.Queue)
 	}
 	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", run.ID), map[string]any{"approve": false, "park": next.Park}); w.Code != 200 {
 		t.Fatalf("deny: %d %s", w.Code, w.Body)
 	}
-	hwait(t, "the turn", func() bool { return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "listed") })
+	// each answer reached its own request: ls allowed once, the rm rejected
+	hwait(t, "the turn", func() bool {
+		return turnOver(ag, run.ID)() && strings.Contains(fullText(ag.db, run.ID), "perm2: once no")
+	})
 	if hs, _ := ag.db.harnessSession(run.ID); hs.Queue != "" {
 		t.Fatalf("the queue after: %q", hs.Queue)
 	}
@@ -389,7 +393,9 @@ func TestHarnessCompactAndStray(t *testing.T) {
 
 // codex's detached turn (a steer answered startedNewTurn, whose end no
 // session/prompt reports): the run follows it as working and ends it once
-// the adapter goes quiet, its text the answer.
+// the adapter goes quiet, its text the answer. The client runs no prompt
+// meanwhile, so what it restates (usage, commands, title) says idle: that
+// never rests what the agent is doing.
 func TestHarnessDetachedTurn(t *testing.T) {
 	old := hDetachedQuiet
 	hDetachedQuiet = 300 * time.Millisecond
@@ -398,13 +404,23 @@ func TestHarnessDetachedTurn(t *testing.T) {
 	run := askHarness(t, mux, box, "echo one")
 	hwait(t, "the turn", turnOver(ag, run.ID))
 	s := ag.eng.harnessOf(run.ID)
+	hwait(t, "the turn's end applied", func() bool { return s.activityNow().Kind == "idle" })
 	if _, err := ag.db.q.Exec(`UPDATE runs SET status='running' WHERE id=?`, run.ID); err != nil {
 		t.Fatal(err)
 	}
+	apply := func(ev acp.Event) { // as the consumer applies one
+		s.applyMu.Lock()
+		defer s.applyMu.Unlock()
+		s.apply(ev)
+	}
 	s.followDetached()
-	s.apply(acp.NewEvent(acp.EvMessageDelta, map[string]any{"role": "agent", "text": "on my own"}))
+	apply(acp.NewEvent(acp.EvMessageDelta, map[string]any{"role": "agent", "text": "on my own"}))
 	if statusOf(ag.db, run.ID) != statusRunning {
 		t.Fatal("the detached turn isn't followed")
+	}
+	apply(acp.NewEvent(acp.EvStatus, map[string]any{"status": acp.StatusIdle, "usage": map[string]any{"used": 50, "size": 1000}}))
+	if a := s.activityNow(); a.Kind != "writing" {
+		t.Fatalf("a usage update rested the detached turn's activity: %+v", a)
 	}
 	hwait(t, "the quiet end", func() bool { return statusOf(ag.db, run.ID) == statusIdle })
 	if !strings.Contains(transcript(ag.db, run.ID), "A:on my own") || s.isDetached() {

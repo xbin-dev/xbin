@@ -772,6 +772,14 @@ func tailOf(s string, n int) string {
 
 // --- status, title, the turn's end ------------------------------------------------
 
+// onStatus stores what a status says of the session (usage, options,
+// title, a sign-out). It never sets the activity: the turn's own events
+// do, and its end (onTurnEnd, endDetached) is what makes it idle. A status
+// says "idle" whenever the client runs no prompt of its own — the
+// commands, usage, mode, options and title updates restate it — and one
+// applied after the pass started the next prompt ("thinking"), or during a
+// turn the adapter started itself (detached: the client isn't busy), would
+// say the agent rests while it works.
 func (s *hsess) onStatus(ev acp.Event) {
 	var d struct {
 		Status  string          `json:"status"`
@@ -811,9 +819,6 @@ func (s *hsess) onStatus(ev acp.Event) {
 		}
 		return nil
 	})
-	if d.Status == acp.StatusIdle {
-		s.activity("idle", "")
-	}
 	s.publishSummary()
 }
 

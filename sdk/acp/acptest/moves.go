@@ -1,8 +1,8 @@
 package acptest
 
 // The scripts and methods added when the engine left hack/fakeacp: the
-// steering extension, perm-edit, todo, cards, steer (stall is inline in
-// turn). None of them changes what an existing script plays.
+// steering extension, perm-edit, perm2, todo, cards, steer (stall is
+// inline in turn). None of them changes what an existing script plays.
 
 import (
 	"encoding/json"
@@ -149,6 +149,62 @@ func (f *fake) permEdit(mode, cwd string) bool {
 	}
 	f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "edit1", "status": "completed"})
 	f.say("edited hello.txt")
+	return true
+}
+
+// permPair is two calls that ask at once, as Claude's parallel tool calls
+// do: both requests are out before either is answered, and the turn waits
+// for both. Each allow completes its call, "no" fails it; a request that
+// is cancelled (or fails) fails both calls and ends the turn cancelled —
+// false then.
+func (f *fake) permPair(mode string) bool {
+	calls := []struct{ id, title, kind string }{{"t1", "run ls", "execute"}, {"t2", "rm -rf build", "delete"}}
+	for _, c := range calls {
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": c.id, "title": c.title, "kind": c.kind, "status": "pending"})
+	}
+	answers := []string{"yolo", "yolo"}
+	if mode != "yolo" {
+		opts := []acp.PermissionOption{{OptionID: "once", Name: "Allow once", Kind: "allow_once"},
+			{OptionID: "always", Name: "Allow always", Kind: "allow_always"}, {OptionID: "no", Name: "Reject", Kind: "reject_once"}}
+		// sent as an adapter with requests in flight sends them: each
+		// awaited by its id, the second written before the first's answer
+		var waits []<-chan *acp.Message
+		for _, c := range calls {
+			f.mu.Lock()
+			f.asks++
+			id, _ := json.Marshal("perm2-" + strconv.Itoa(f.asks))
+			f.mu.Unlock()
+			params, _ := json.Marshal(acp.RequestPermissionParams{SessionID: f.session(),
+				ToolCall: acp.ToolCallUpdate{ToolCallID: c.id, Title: strp(c.title), Kind: strp(c.kind)}, Options: opts})
+			waits = append(waits, f.conn.Expect(id))
+			_ = f.conn.Send(&acp.Message{ID: id, Method: acp.MRequestPermission, Params: params})
+		}
+		ok := true
+		for i, ch := range waits {
+			var res acp.RequestPermissionResult
+			m := <-ch // closed when Serve returns
+			if m == nil || m.Error != nil || json.Unmarshal(m.Result, &res) != nil || res.Outcome.Outcome != "selected" {
+				answers[i], ok = "cancelled", false
+				continue
+			}
+			answers[i] = res.Outcome.OptionID
+		}
+		if !ok {
+			for _, c := range calls {
+				f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": c.id, "status": "failed"})
+			}
+			f.end("cancelled")
+			return false
+		}
+	}
+	for i, c := range calls {
+		status := "completed"
+		if answers[i] == "no" {
+			status = "failed"
+		}
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": c.id, "status": status})
+	}
+	f.say("perm2: " + strings.Join(answers, " "))
 	return true
 }
 
