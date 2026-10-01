@@ -14,6 +14,7 @@ type signinCase struct {
 	File    string `json:"file"`
 	About   string `json:"about"`
 	URL     string `json:"url"`
+	Link    bool   `json:"link"`
 	Code    bool   `json:"code"`
 	Invalid int    `json:"invalid"`
 	Done    bool   `json:"done"`
@@ -52,14 +53,14 @@ func TestSigninScanCaptures(t *testing.T) {
 			t.Fatal(err)
 		}
 		st := s.Scan(out)
-		if st.URL != c.URL || st.Code != c.Code || st.Invalid != c.Invalid || st.Done != c.Done || st.Failed != c.Failed {
-			t.Errorf("%s (%s):\n got %+v\nwant url=%s code=%v invalid=%d done=%v failed=%q", c.File, c.About, st, c.URL, c.Code, c.Invalid, c.Done, c.Failed)
+		if st.URL != c.URL || st.Link != c.Link || st.Code != c.Code || st.Invalid != c.Invalid || st.Done != c.Done || st.Failed != c.Failed {
+			t.Errorf("%s (%s):\n got %+v\nwant url=%s link=%v code=%v invalid=%d done=%v failed=%q", c.File, c.About, st, c.URL, c.Link, c.Code, c.Invalid, c.Done, c.Failed)
 		}
-		// output cut short mid-way never yields a partial URL: what it gives
-		// is a whole one or none
+		// output cut short gives the URL, none, or — text still arriving, not
+		// an OSC 8 link — the part of it printed so far; never another
 		for n := 0; n < len(out); n += 97 {
-			if u := s.Scan(out[:n]).URL; u != "" && u != c.URL && !strings.HasPrefix(c.URL, u) {
-				t.Errorf("%s: a prefix of %d bytes gave %q", c.File, n, u)
+			if st := s.Scan(out[:n]); st.URL != "" && st.URL != c.URL && (st.Link || !strings.HasPrefix(c.URL, st.URL)) {
+				t.Errorf("%s: a prefix of %d bytes gave %+v", c.File, n, st)
 			}
 		}
 	}

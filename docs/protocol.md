@@ -1108,7 +1108,11 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    tabs (the shell's <bx-frame> lists them here,
                                    not in the browser). A row whose session
                                    targets a named deployment carries
-                                   deployment
+                                   deployment. A shell named xbin:sign-in
+                                   is the Agent tab's guided sign-in
+                                   running a CLI's login (D178): it is no
+                                   tab — a client that makes tabs of this
+                                   list skips it
 PATCH  /term/sessions/<id>        creator or admin. {name}: name the tab (empty
                                    clears; lives on the session → follows the
                                    user) → ok

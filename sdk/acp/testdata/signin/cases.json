@@ -1,20 +1,20 @@
 [
   {"file": "authlogin-tty.raw", "about": "claude auth login on an 80-column terminal: the URL one OSC 8 link, a malformed code, then a refused one",
    "url": "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload+user%3Aplugins&code_challenge=5nEoG-JJOuD-yn7y2n9tAbwdsBkDaCF4Hd_SyuookWQ&code_challenge_method=S256&state=b6rEVGXn9e8AEpe6ES0OD4PyzKOun5q4myx2ZxEKkdw",
-   "code": true, "invalid": 1, "done": false, "failed": "Login failed: Request failed with status code 400"},
+   "link": true, "code": true, "invalid": 1, "done": false, "failed": "Login failed: Request failed with status code 400"},
   {"file": "authlogin-pipe.txt", "about": "claude auth login over pipes (stdout, then stderr): the URL on one plain line, a refused code",
    "url": "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload+user%3Aplugins&code_challenge=MeSIjWKx-HM1bDAw36n-0HF3Q2AJ1mS0rvtMA_onpdM&code_challenge_method=S256&state=Qbzm18YpekioHGaCvrm4bkmKdberh3NtC8T0G0kbKr4",
-   "code": true, "invalid": 0, "done": false, "failed": "Login failed: Request failed with status code 400"},
+   "link": false, "code": true, "invalid": 0, "done": false, "failed": "Login failed: Request failed with status code 400"},
   {"file": "authlogin-pipe-invalid.txt", "about": "claude auth login over pipes: a malformed code (it asks again)",
    "url": "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload+user%3Aplugins&code_challenge=GSzbee9-e2ZBwCG2ez82d5W2bc-uXkanPPHz-Ug32zk&code_challenge_method=S256&state=NCVPhSBqe7dENAlh6J2BIGGMM-seYb9VAGUKRSO-Oqs",
-   "code": true, "invalid": 1, "done": false, "failed": ""},
+   "link": false, "code": true, "invalid": 1, "done": false, "failed": ""},
   {"file": "exit-tty.raw", "about": "claude /exit on a fresh $HOME, 80 columns (theme and sign-in method picked): Ink wraps the URL with real line breaks, each row an OSC 8 link to the whole URL",
    "url": "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload+user%3Aplugins&code_challenge=oD9T6NvJ5nzVywmyI0tuwIs44H-a_xxnKILV6de226k&code_challenge_method=S256&state=zd8RCVtMKiPp8QiQsh3RJhyBcQFo_8JTTYYeP6VjojY",
-   "code": true, "invalid": 0, "done": false, "failed": ""},
+   "link": true, "code": true, "invalid": 0, "done": false, "failed": ""},
   {"file": "exit-tty-plain.raw", "about": "the same with FORCE_HYPERLINK=0: the wrapped rows as plain text, rejoined",
    "url": "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload+user%3Aplugins&code_challenge=_dxP_9KclimhB_WiS3l-0shLFEpxKjwGW1f9DOTCQLg&code_challenge_method=S256&state=yGcCHu1DdC2siGliiS8hFcGW5TERPraDtBBePigEVi8",
-   "code": true, "invalid": 0, "done": false, "failed": ""},
+   "link": false, "code": true, "invalid": 0, "done": false, "failed": ""},
   {"file": "setup-token-tty.raw", "about": "claude setup-token, 80 columns: Ink's wrapped OSC 8 rows again",
    "url": "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=48JjC6rXYg4Eb3BhRCABRJgukp9xZLltDEPhVxPGzQI&code_challenge_method=S256&state=uAm9cA2Cb8PYSBVQGiZnxuva9C6DHdbuhmboMCVt9DE",
-   "code": true, "invalid": 0, "done": false, "failed": ""}
+   "link": true, "code": true, "invalid": 0, "done": false, "failed": ""}
 ]

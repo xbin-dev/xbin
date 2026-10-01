@@ -355,8 +355,9 @@ planning"), so answer with an option id (`a` / `d` still work); it is never
 remembered for the session. A **question** from the agent (Claude's
 AskUserQuestion) prints with its fields; it is answered in the Agent tab (or
 `POST …/elicitations/<eid>`, docs/protocol.md). The agent authenticates from its `$HOME` — the same
-per-user home a shell terminal gets — so a `claude /login` (or `codex
-login`, `opencode auth login`, …) done once in a shell terminal signs the
+per-user home a shell terminal gets — so a `claude auth login` (or `codex
+login`, `opencode auth login`, …) done once in a shell terminal, or the
+Agent tab's guided sign-in (a link and a pasted code, D178), signs the
 agent in on every tile; no per-tile API key, no vault. Bypass modes
 (`bypassPermissions`, `agent-full-access`, `yolo`) are never defaults: pass
 `--mode` explicitly. The agent's own settings — the model, the reasoning

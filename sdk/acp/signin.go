@@ -54,6 +54,7 @@ type Signin struct {
 // SigninState is what a sign-in has printed so far (Signin.Scan).
 type SigninState struct {
 	URL     string // the sign-in page ("" until printed); an https URL on Hosts
+	Link    bool   // URL is an OSC 8 link's target: whole as printed (text may still be arriving)
 	Code    bool   // the CLI asked for the code
 	Invalid int    // codes it refused as malformed
 	Done    bool   // it said it signed in
@@ -107,7 +108,7 @@ func (s Signin) Scan(out []byte) SigninState {
 	var st SigninState
 	for i := len(links) - 1; i >= 0 && st.URL == ""; i-- {
 		if s.Allowed(links[i]) {
-			st.URL = links[i]
+			st.URL, st.Link = links[i], true
 		}
 	}
 	if st.URL == "" {

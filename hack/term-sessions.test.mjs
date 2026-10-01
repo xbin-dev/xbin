@@ -4,7 +4,7 @@
 // tab list, and how the legacy browser record is adopted once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey, vmPrefKey, layoutFromPref, layoutToPref, windowPref } from '../web/term-sessions.js';
+import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey, vmPrefKey, layoutFromPref, layoutToPref, windowPref, visibleRows, signinOpening, SIGNIN } from '../web/term-sessions.js';
 
 // a fetch that records calls and answers from a table
 function fakeFetch(answers = {}) {
@@ -192,4 +192,20 @@ test('the window pref: layouts, beside the terminal, the width', () => {
     assert.deepEqual(layoutFromPref(layoutToPref(w)), w, `${w.layout}${w.beside ? ' beside' : ''} round-trips`);
   }
   assert.deepEqual(windowPref({ open: true, layout: 'deployments', beside: true, paneW: 50 }), { open: true, layout: 'term', paneW: 50 }, 'the pref never records Deployments, alone or beside');
+});
+
+test('a guided sign-in\'s session is never a tab (D178)', () => {
+  const ids = (rows) => rows.map((r) => r.id);
+  const rows = [{ id: 'a', kind: 'shell' }, { id: 'g', kind: 'agent' }, { id: 's', kind: 'shell', name: SIGNIN }];
+  assert.deepEqual(ids(visibleRows(rows, 'apps/x')), ['a', 'g'], 'named: skipped in every browser');
+  const done = signinOpening('apps/x');
+  const fresh = [...rows, { id: 'n', kind: 'shell' }];
+  assert.deepEqual(ids(visibleRows(fresh, 'apps/x', [{ id: 'a' }])), ['a', 'g'], 'while one opens here: a shell row no tab holds waits');
+  assert.deepEqual(ids(visibleRows(fresh, 'apps/x')), ['g'], 'every unknown shell row waits');
+  assert.deepEqual(ids(visibleRows(fresh, 'apps/y')), ['a', 'g', 'n'], 'another tile is untouched');
+  done('n');
+  done('a'); // once only
+  assert.deepEqual(ids(visibleRows(fresh, 'apps/x')), ['a', 'g'], 'its id, reported, stays skipped; the rest is back');
+  signinOpening('apps/z')();
+  assert.deepEqual(ids(visibleRows([{ id: 'q', kind: 'shell' }], 'apps/z')), ['q'], 'one that never opened leaves nothing behind');
 });
