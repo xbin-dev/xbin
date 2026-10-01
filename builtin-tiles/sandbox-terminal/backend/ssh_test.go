@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -107,37 +108,66 @@ func TestSSHTerminal(t *testing.T) {
 	}
 }
 
+// deafCmd turns a deaf ear to HUP, then says so: only a DELETE ends it.
+const deafCmd = "trap '' HUP; echo deaf; exec sleep 600"
+
 // A client that leaves while its command runs ends it (HUP, then DELETE).
 func TestSSHClientLeaves(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	sb := r.sandbox("alice", "api-dev", shared("*"))
 	key := r.register("alice")
-	c, err := r.dial("api-dev", key)
+	deleted := r.deletes(sb.ID)
+	c := r.mustDial("api-dev", key)
+	s, err := c.NewSession()
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, _ := c.NewSession()
-	if err := s.Start("trap '' HUP; sleep 60"); err != nil { // deaf to HUP: only the DELETE ends it
+	stdout, _ := s.StdoutPipe()
+	if err := s.Start(deafCmd); err != nil {
 		t.Fatal(err)
 	}
-	me := r.tg.As(t, self).Asserting("alice")
-	running := func() int {
-		var l struct {
-			Execs []struct{ State string }
-		}
-		me.Call("GET", "/sandboxes/"+sb.ID+"/execs", nil, 200, &l)
-		n := 0
-		for _, x := range l.Execs {
-			if x.State == "running" {
-				n++
-			}
-		}
-		return n
+	// its output reaching the client: it runs, deaf to HUP, and the tile
+	// bridges it
+	line := make(chan string, 1)
+	go func() {
+		l, err := bufio.NewReader(stdout).ReadString('\n')
+		line <- fmt.Sprintf("%q %v", l, err)
+	}()
+	if got := recv(t, line, "the command's output"); got != `"deaf\n" <nil>` {
+		t.Fatalf("the command's output: %s", got)
 	}
-	eventually(t, 10*time.Second, "the command runs", func() bool { return running() == 1 })
 	c.Close()
-	eventually(t, 10*time.Second, "the command is ended", func() bool { return running() == 0 })
+	r.endedByDelete("alice", sb.ID, recv(t, deleted, "the tile ends the command"))
+}
+
+// One that leaves while the manager is still starting it, too: the tile
+// waits for the command's id, then ends it — the manager runs it either way.
+func TestSSHClientLeavesWhileStarting(t *testing.T) {
+	t.Parallel()
+	r := newRig(t)
+	sb := r.sandbox("alice", "api-dev", shared("*"))
+	key := r.register("alice")
+	deleted := r.deletes(sb.ID)
+	started, answer := r.holdStarts(sb.ID)
+	c := r.mustDial("api-dev", key)
+	s, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(deafCmd); err != nil {
+		t.Fatal(err)
+	}
+	id := recv(t, started, "the manager starts the command")
+	r.awaitOutput("alice", sb.ID, id, "deaf\n") // deaf to HUP from here on
+	c.Close()
+	// the tile has seen the client go before the start is answered
+	eventually(t, hangGuard, "the tile sees the client gone", func() bool { return len(r.tile.sessions("")) == 0 })
+	answer()
+	if got := recv(t, deleted, "the tile ends the command"); got != id {
+		t.Fatalf("the tile ended %s, not the command it started (%s)", got, id)
+	}
+	r.endedByDelete("alice", sb.ID, id)
 }
 
 // An unregistered key logs nobody in.

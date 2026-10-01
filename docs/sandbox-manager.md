@@ -535,7 +535,9 @@ opens which:
   then your `tty` route for a session with a terminal, or a background exec
   with `stdin` for one without (`ssh host cmd`: stdout and stderr arrive
   together). A client that leaves gets its command a `HUP`, then a
-  `DELETE` if it still runs.
+  `DELETE` if it still runs — one that leaves while you start its exec
+  too: the tile still waits for your answer (up to two minutes) to learn
+  which command to end.
   The SSH user name is the sandbox's name in lower case (runs of other
   characters `-`), `<name>~<n>` when several share it, or its id.
   No port or agent forwarding, no X11, no sftp in v1.
