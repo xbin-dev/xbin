@@ -19,7 +19,7 @@ func mustConflict(t *testing.T, base, ours, theirs string, o Options, want strin
 	}
 }
 
-// covers T1 (review) — upstream's change to a top-level partition or
+// covers T1 (review) D177 — upstream's change to a top-level partition or
 // template is a conflict, never taken and never dropped silently (a merge
 // in the other direction — a builder's branch, a rebase — would otherwise
 // lose the builder's partition); upstream's change to a block ours doesn't
@@ -28,7 +28,20 @@ func TestKeptKeysConflict(t *testing.T) {
 	base := "{\n  \"runtime\": \"go\"\n}\n"
 	withPartition := "{\n  \"partition\": [\"user\"],\n  \"runtime\": \"go\"\n}\n"
 	withBlock := "{\n  \"template\": { \"defaultName\": \"x\" },\n  \"runtime\": \"go\"\n}\n"
-	mustConflict(t, base, base, withPartition, Options{}, "partition")
+	// D177: upstream adding a mode where neither the base nor ours names one
+	// is taken (a template whose update requests its instances' partition);
+	// once ours names one, in any case, upstream's add is a conflict again
+	if r := mustMerge(t, []byte(base), []byte(base), []byte(withPartition), Options{}); strings.Join(r.Took, " ") != "partition" {
+		t.Errorf("an added partition: merged %q, took %q", r.Out, r.Took)
+	} else if got, has := top(t, r.Out, "partition"); !has || got != `["user"]` {
+		t.Errorf("an added partition: merged %q", r.Out)
+	}
+	mustConflict(t, base, strings.Replace(withPartition, `"partition": ["user"]`, `"Partition": ["global"]`, 1), withPartition, Options{}, "partition")
+	// ours took the mode out after the base had it (the builder's escape
+	// hatch): upstream asking for it unchanged is nothing to ours
+	if r := mustMerge(t, []byte(withPartition), []byte(base), []byte(withPartition), Options{}); string(r.Out) != base {
+		t.Errorf("a removed partition: merged %q", r.Out)
+	}
 	mustConflict(t, withPartition, withPartition, base, Options{}, "partition")                                                    // upstream drops it
 	mustConflict(t, withPartition, withPartition, strings.Replace(withPartition, `"user"`, `"global"`, 1), Options{}, "partition") // upstream changes it
 	mustConflict(t, base, base, withBlock, Options{}, "template")

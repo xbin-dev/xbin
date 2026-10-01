@@ -35,8 +35,12 @@ func partitionedPrimary(c *registry.Component, primary string) error {
 }
 
 // partitionPreflight is a move's dry-run warning (plans/partitions/01 §2.7):
-// tree, put on o's primary, asks for another partition mode than the one
-// the tile records. On a tile that holds data that pauses it for a tile
+// the code moving onto o's primary asks for another partition mode than the
+// one the tile records. tree is where its manifest is read: the moving tree,
+// or — when the move's diff shows the manifest unchanged — the tree the
+// primary runs, already extracted, so a dry run whose manifest stays as it
+// is extracts nothing (the latency budget of a dry run's checkpoint,
+// plans/dev-flow.md). On a tile that holds data that pauses it for a tile
 // manager's decision (switch, deleting what it deletes, or keep); on one that
 // holds none the mode follows at once. "" when the move changes nothing of
 // the mode: another deployment, the same request, or a tile without a

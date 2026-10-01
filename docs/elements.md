@@ -244,7 +244,13 @@ JSONC (comments and trailing commas allowed). Everything is optional.
     // top-level "partition" unless the creator opts out (--no-partition)
     // or xbind runs without --isolate (docs/partitions.md). Never put the
     // key at a template's top level.
-    "partition": ["user", "global"]
+    "partition": ["user", "global"],
+    // Builtin templates only, optional: under --isolate the template's
+    // update asks every EXISTING instance for that mode too — a merge of
+    // its served repo adds the "partition" line, which on an instance
+    // holding data is a switch request a manager decides (the agent
+    // template's, D177; docs/partitions.md).
+    "partitionOnUpdate": true
   }
 }
 ```

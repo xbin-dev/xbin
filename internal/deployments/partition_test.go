@@ -1,10 +1,12 @@
 package deployments
 
 import (
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/checkpoint"
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
@@ -124,5 +126,63 @@ func TestPartitionPreflightAndLog(t *testing.T) {
 	if last.How != "partition-switch" || last.By != "user:ana" || last.Via != "session" || last.Result != resultOK ||
 		last.Tree != "" || last.Deployment != "main" {
 		t.Errorf("the switch's entry: %+v", last)
+	}
+}
+
+// covers PD-44 01§2.7 (LAND: the latency budget) — a dry run's partition
+// preflight reads the moving code's manifest without extracting its tree
+// when the move's diff shows xbin.json unchanged: from the tree the primary
+// runs, the same file. Its answer is the one the moving tree gives. A diff
+// that names the manifest, or is cut short, reads the moving tree as before
+// — and a manifest asking for a mode then warns.
+func TestPartitionPreflightReadsNoNewTree(t *testing.T) {
+	f := newOpsFx(t, true)
+	f.settle(opAPI, f.must(ownerP, OpPause, &PauseRequest{Tile: opAPI}))
+	running := *f.rec(opAPI).Deployments["main"].Checkpoint
+	f.p.PartitionHolds = func(string) bool { return true }
+	var files []checkpoint.DiffFile
+	truncated := false
+	f.st.set(func(s *fakeStore) {
+		s.diff = func(checkpoint.DiffRequest) (checkpoint.DiffResult, error) {
+			return checkpoint.DiffResult{Files: files, Truncated: truncated}, nil
+		}
+	})
+	extracted := func() map[string]int {
+		f.st.mu.Lock()
+		defer f.st.mu.Unlock()
+		return maps.Clone(f.st.extracted)
+	}
+	dry := func() (warning string, newTrees int) {
+		t.Helper()
+		before := extracted()
+		res, err := f.do(ownerP, OpDeploy, &DeployRequest{Tile: opAPI, DryRun: true})
+		dr, ok := res.(DryRunAnswer)
+		if err != nil || !ok {
+			t.Fatalf("dry deploy: %#v %v", res, err)
+		}
+		for tree, n := range extracted() {
+			if tree != running && n > before[tree] {
+				newTrees++
+			}
+		}
+		return dr.Impact.Partition, newTrees
+	}
+
+	f.write(opAPI+"/main.go", "package main // v2\n")
+	files = []checkpoint.DiffFile{{Path: "main.go", Status: "M", Added: 1, Removed: 1}}
+	if w, n := dry(); w != "" || n != 0 {
+		t.Errorf("code whose manifest stays: warning %q, %d new trees extracted (want none)", w, n)
+	}
+	// the manifest asks for a mode: the diff names it, the new tree is read
+	f.write(opAPI+"/xbin.json", `{"runtime":"go","partition":["user"]}`)
+	files = append(files, checkpoint.DiffFile{Path: "xbin.json", Status: "M", Added: 1, Removed: 1})
+	if w, n := dry(); !strings.Contains(w, "will pause for a partition-mode decision") || n != 1 {
+		t.Errorf("code asking for a mode: warning %q, %d new trees extracted", w, n)
+	}
+	// a summary cut short can't tell: the new tree is read
+	files, truncated = files[:1], true
+	f.write(opAPI+"/main.go", "package main // v3\n")
+	if w, n := dry(); !strings.Contains(w, "will pause") || n != 1 {
+		t.Errorf("a truncated diff: warning %q, %d new trees extracted", w, n)
 	}
 }

@@ -17,9 +17,13 @@ package isolated
 //     repository gets the manifest's merge driver.
 //   - The builder's `git fetch template && git merge template/main` (the
 //     served repository over HTTP, bx on PATH as in a terminal) is clean in
-//     both: the manifest is today's, merged by keys, with no partition and no
-//     template block; the tile stays unpartitioned, and apps/agent's backend
-//     — today's code now — builds and answers, in its legacy mode.
+//     both: the manifest is today's, merged by keys, with no template block
+//     — and, the owner's ruling (D177), the partition the template's update
+//     asks every instance for under --isolate. apps/agent, which holds data
+//     (it ran), then sits in a mode-switch request, nothing deleted;
+//     apps/my-agent, empty, takes the mode. "Keep the current mode" brings
+//     apps/agent back unpartitioned: today's code builds and answers, in its
+//     legacy mode, with its data.
 //   - A new instance keeps the template's comments, starts partitioned, has
 //     the driver, and is up to date with its template.
 //
@@ -153,11 +157,12 @@ func TestPartitionsTemplateMerge(t *testing.T) {
 
 	// the upgrade
 	d.Restart(t)
-	if log := tmGitMust(t, repo, "log", "--format=%s%n%b", "-1"); !strings.Contains(log, `"template" block changed`) {
+	if log := tmGitMust(t, repo, "log", "--format=%s%n%b", "-1"); !strings.Contains(log, `"template" block changed`) ||
+		!strings.Contains(log, `asks every instance of the template for partition ["user","global"]`) {
 		t.Errorf("the served repository's new snapshot: %s", log)
 	}
 	if kept, _ := os.ReadFile(filepath.Join(repo, "xbin.json")); !strings.Contains(string(kept), `"defaultName": "agent"`+"\n  },") ||
-		!strings.Contains(string(kept), "partitionMail") {
+		!strings.Contains(string(kept), "partitionMail") || !strings.HasPrefix(string(kept), "{\n  \"partition\": [\"user\", \"global\"],\n") {
 		t.Errorf("the served manifest keeps its old block and has today's keys:\n%s", cut(string(kept), 1500))
 	}
 	for _, tile := range []string{"apps/agent", "apps/my-agent"} {
@@ -198,8 +203,8 @@ func TestPartitionsTemplateMerge(t *testing.T) {
 			t.Errorf("%s: bx didn't merge the manifest:\n%s", tile, out)
 		}
 		man, _ := os.ReadFile(filepath.Join(dir, "xbin.json"))
-		if _, has, _ := jsonc.TopLevel(man, "partition"); has {
-			t.Errorf("%s: the merge made it partitioned:\n%s", tile, man)
+		if raw, has, _ := jsonc.TopLevel(man, "partition"); !has || strings.Join(strings.Fields(string(raw)), "") != `["user","global"]` {
+			t.Errorf("%s: the merge didn't bring the partition the update asks for (D177):\n%s", tile, man)
 		}
 		if _, has, _ := jsonc.TopLevel(man, "template"); has {
 			t.Errorf("%s: the merge brought the template block:\n%s", tile, man)
@@ -215,7 +220,22 @@ func TestPartitionsTemplateMerge(t *testing.T) {
 		if st := tmGitMust(t, dir, "status", "--porcelain"); st != "" {
 			t.Errorf("%s: after the merge: %s", tile, st)
 		}
-		e.waitState(t, tile, "")
+	}
+	// apps/agent holds data: a request, the tile held, nothing deleted;
+	// apps/my-agent never ran: empty, it takes the mode
+	if row := e.waitState(t, "apps/agent", "pending"); row.Request == nil || !row.Request.User || !row.Request.Global || row.Request.Declined {
+		t.Errorf("apps/agent after the merge: %+v", row)
+	}
+	e.waitState(t, "apps/my-agent", "partitioned")
+	if r := d.Call(t, "GET", "/api/apps/agent/config", nil); r.Status != 409 {
+		t.Errorf("apps/agent while its switch is requested: %d %s", r.Status, cut(string(r.Body), 300))
+	}
+	// "Keep the current mode": unpartitioned again, the request declined
+	if r := d.Call(t, "POST", "/api/xbin/partitions/mode", map[string]any{"tile": "apps/agent", "act": "keep", "from": nil, "to": psBoth}); r.Status != 200 {
+		t.Fatalf("keep: %d %s", r.Status, cut(string(r.Body), 300))
+	}
+	if row := e.waitState(t, "apps/agent", "unpartitioned"); row.User || row.Request == nil || !row.Request.Declined {
+		t.Errorf("apps/agent after keep: %+v", row)
 	}
 	// today's code builds and runs, unpartitioned (/health is today's)
 	xbindtest.Eventually(t, 8*time.Minute, "the merged instance's backend answers", func() (bool, string) {

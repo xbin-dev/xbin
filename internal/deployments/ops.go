@@ -740,11 +740,12 @@ func (p *Plane) moveCode(ctx context.Context, o *op, seq *int64, dry bool, dep, 
 		}
 		im := Impact{Data: "none", PausesLiveReload: d.Checkpoint == nil, Affects: affects(o.rec, dep),
 			Code: &CodeImpact{Deployment: dep, From: from, To: p.shortOf(ctx, o.tile, tree)}, Branch: branch}
-		if d.Checkpoint != nil {
-			p.measure(ctx, o.c, im.Code, o.by, *d.Checkpoint, tree)
+		manifestAt := tree // where the preflight reads tree's manifest from
+		if d.Checkpoint != nil && p.measure(ctx, o.c, im.Code, o.by, *d.Checkpoint, tree) {
+			manifestAt = *d.Checkpoint // the same file, in the tree dep runs (no extraction)
 		}
 		if !unchanged {
-			im.Reloads, im.Partition = []string{dep}, p.partitionPreflight(o, dep, tree)
+			im.Reloads, im.Partition = []string{dep}, p.partitionPreflight(o, dep, manifestAt)
 		}
 		return p.answer(ctx, true, nil, im, false)
 	}
