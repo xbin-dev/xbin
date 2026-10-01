@@ -1,0 +1,50 @@
+#!/bin/sh
+# hack/ui-harness/fakebin/claude — a scripted Claude Code sign-in for the UI
+# harness (run.sh puts this directory first on xbind's PATH, so the
+# workspace's shells — host shells: the harness runs unisolated — find it).
+# `claude auth login [--claudeai]` signs in the way Claude Code 2.1.280 does
+# (D178; sdk/acp/testdata/signin): a line, the URL, "Paste code here if
+# prompted > ", then a code per line — one without a '#' is "Invalid code"
+# and asked again, harness-code#harness-state signs in ("Login successful.",
+# exit 0), any other "Login failed: …" (exit 1). The URL is drawn as Ink
+# draws a long one: broken over 60-column rows with real line breaks, each
+# row an OSC 8 link to the whole URL; FAKE_CLAUDE_PLAIN=1 breaks it at the
+# terminal's own width instead, as plain text (a TUI without hyperlinks).
+# Anything else: exit 2.
+URL='https://claude.com/cai/oauth/authorize?code=true&client_id=harness-client-0123456789abcdef&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=harnessChallenge0123456789&code_challenge_method=S256&state=harness-state'
+if [ "$1" != auth ] || [ "$2" != login ]; then
+  echo "fake claude: only 'auth login' here" >&2
+  exit 2
+fi
+width=60
+if [ -n "${FAKE_CLAUDE_PLAIN:-}" ]; then
+  width=$(stty size 2>/dev/null </dev/tty | cut -d' ' -f2)
+  [ -n "$width" ] && [ "$width" -gt 10 ] 2>/dev/null || width=80
+fi
+printf 'Opening browser to sign in…\r\n'
+printf "Browser didn't open? Use the url below to sign in (c to copy)\r\n\r\n"
+rest=$URL
+while [ -n "$rest" ]; do
+  row=$(printf '%s' "$rest" | cut -c1-"$width")
+  rest=$(printf '%s' "$rest" | cut -c$((width + 1))-)
+  if [ -n "${FAKE_CLAUDE_PLAIN:-}" ]; then
+    printf '%s\r\n' "$row"
+  else
+    printf '\033]8;id=harness;%s\007\033[38;5;246m%s\033[39m\033]8;;\007\r\n' "$URL" "$row"
+  fi
+done
+printf '\r\nPaste code here if prompted > '
+while IFS= read -r code; do
+  code=$(printf '%s' "$code" | tr -d '\r')
+  case "$code" in
+    *'#'*) ;;
+    *) printf 'Invalid code. Please make sure the full code was copied.\r\n' >&2; continue ;;
+  esac
+  if [ "$code" = 'harness-code#harness-state' ]; then
+    printf 'Login successful.\r\n'
+    exit 0
+  fi
+  printf 'Login failed: Request failed with status code 400\r\n' >&2
+  exit 1
+done
+exit 1
