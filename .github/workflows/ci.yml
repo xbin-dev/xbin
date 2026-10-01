@@ -4,29 +4,80 @@ on:
     branches: [master]
     tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 
+# A newer push to a pull request cancels the run it supersedes; master and
+# tag runs always finish (the run id keeps each one its own group).
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+# What CI runs and how it is split (docs/maintenance.md → "CI"): `make
+# check`'s guards and its unit tests, the builtin tiles, the integration
+# suites and the native client, on parallel GitHub-hosted runners — never a
+# self-hosted one: this workflow runs for pull requests. The unit packages
+# and the integration tests are split into shards by hack/testshard
+# (hack/integration.jsonc, balanced by hack/integration-timings.json); every
+# test runs exactly once across them, which hack/testshard's tests (in a
+# unit shard) and the shards job check, together with this file's list of
+# shards.
 jobs:
   test:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the definition of done (docs/maintenance.md) without its unit
+          # tests: fmt-check, vet, js-check, js-test, native-check,
+          # theme-check, shellcheck, pins-offline, large-files
+          - { name: check, run: make -j4 -O guards, cache: check }
+          - { name: unit 1/2, run: make test SHARD=1/2, cache: unit, helpers: true }
+          - { name: unit 2/2, run: make test SHARD=2/2, cache: unit, helpers: true }
+          # the builtin tiles' and templates' backends against their own
+          # go.mod.tile (network: their deps)
+          - { name: tile-check, run: make tile-check, cache: tile }
+          - { name: integration 1/4, run: make integration SHARD=1/4, cache: integration, helpers: true, integration: true }
+          - { name: integration 2/4, run: make integration SHARD=2/4, cache: integration, helpers: true, integration: true }
+          - { name: integration 3/4, run: make integration SHARD=3/4, cache: integration, helpers: true, integration: true }
+          - { name: integration 4/4, run: make integration SHARD=4/4, cache: integration, helpers: true, integration: true }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           # Keep in step with go.mod's directive: fmt-check runs THIS
           # install's gofmt, and gofmt output differs across versions
           # (1.26 accepts formatting 1.25 rejects — bit two releases).
           go-version: "1.26"
+          cache: false
       # js-test and native-check run native tile code in node workers through
-      # module hooks (hack/xbn) and compare Intl output in the fixtures: pin a
-      # current LTS rather than whatever the runner image ships.
-      - uses: actions/setup-node@v4
+      # module hooks (hack/xbn) and compare Intl output in the fixtures; the
+      # integration tests run node backends: pin a current LTS rather than
+      # whatever the runner image ships.
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
-      # The containerfs integration suite mounts FUSE filesystems inside
-      # unprivileged user namespaces; Ubuntu 24.04 runners gate those behind
-      # an AppArmor knob. It also needs xattr/fscap tooling.
+      # The module and build caches, one per kind of job (they compile
+      # different things). Restored from the newest master run's; saved only
+      # by master runs (below), so pull requests share master's and the
+      # repository's 10 GB cache budget isn't spent per branch.
+      - id: gocache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ matrix.cache }}-${{ hashFiles('go.sum', 'go.work.sum', 'sdk/go.sum', 'relay/go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ matrix.cache }}-${{ hashFiles('go.sum', 'go.work.sum', 'sdk/go.sum', 'relay/go.sum') }}-
+            go-${{ matrix.cache }}-
+      # The containerfs suites mount FUSE filesystems inside unprivileged
+      # user namespaces; Ubuntu 24.04 runners gate those behind an AppArmor
+      # knob. They also need xattr/fscap tooling; the guards shellcheck.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      - run: sudo apt-get update && sudo apt-get install -y attr libcap2-bin fuse3 shellcheck zstd
+      - run: hack/ci-apt.sh attr libcap2-bin fuse3 shellcheck zstd
       # The native helpers (docs/maintenance.md → "Prebuilt helpers"):
       # `make helpers` downloads the prebuilt sets hack/helpers.sha256 pins
       # for the current build-input keys and verifies every file; a PR that
@@ -34,7 +85,69 @@ jobs:
       # gets a warning to publish. Cached on the manifest + those inputs, so
       # a repeat run doesn't even download; the stamps (bin/.helpers-*)
       # carry the key, so a fresh checkout's mtimes don't matter.
-      - uses: actions/cache@v4
+      - if: matrix.helpers
+        uses: actions/cache@v6
+        with:
+          path: |
+            bin/.helpers-containerfs
+            bin/gocryptfs
+            bin/fuse-overlayfs
+          key: helpers-containerfs-${{ runner.arch }}-${{ hashFiles('hack/helpers.sha256', 'hack/helpers-lib.sh', 'hack/fetch-helpers.sh', 'hack/build-gocryptfs.sh', 'hack/gocryptfs-patches/*.patch', 'hack/gofuse-patches/*.patch', 'hack/build-fuse-overlayfs.sh') }}
+      - if: matrix.helpers
+        run: make helpers HELPERS=containerfs
+      # The downgrade tests (test/downgrade_test.go) run the previous
+      # release's xbind on a workspace this tree left tile-deployment state
+      # in. Pinned to the last release before tile deployments, the older
+      # xbind 12-compat §5's promises are about: one that speaks them makes
+      # the tests skip. The bundle is ~2 GB; bin/ comes first and tar stops
+      # at bin/xbind, so only its head is downloaded (curl then exits on the
+      # closed pipe, hence the check of the file instead).
+      - if: matrix.integration
+        run: |
+          prev=v0.3.61
+          mkdir -p "$RUNNER_TEMP/prev"
+          curl -fsSL "https://github.com/xbin-dev/xbin/releases/download/$prev/xbin-$prev-linux-amd64.tar.zst" \
+            | zstd -dc | tar -x --occurrence=1 -C "$RUNNER_TEMP/prev" bin/xbind || true
+          test -x "$RUNNER_TEMP/prev/bin/xbind"
+          echo "XBIN_DOWNGRADE_BIN=$RUNNER_TEMP/prev/bin/xbind" >> "$GITHUB_ENV"
+      - run: ${{ matrix.run }}
+      - if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master' && steps.gocache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.gocache.outputs.cache-primary-key }}
+
+  # VM sandboxes (D89): KVM for the runner user, the pinned Firecracker,
+  # the vm helpers — guest kernel, static mkfs.erofs, and QEMU +
+  # vhost-device-vsock for emulated VMs (prebuilt, or built when their
+  # inputs changed; cached) — and a small Ubuntu rootfs for the guests (the
+  # tests use bash, curl, ip, mkfs.ext4 from it). The plan's vm job: the
+  # suite on KVM, then emulated.
+  vm:
+    name: vm
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: false
+      - id: gocache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-vm-${{ hashFiles('go.sum', 'go.work.sum', 'sdk/go.sum', 'relay/go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-vm-${{ hashFiles('go.sum', 'go.work.sum', 'sdk/go.sum', 'relay/go.sum') }}-
+            go-vm-
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: hack/ci-apt.sh attr libcap2-bin fuse3 zstd
+      - uses: actions/cache@v6
         with:
           path: |
             bin/.helpers-*
@@ -48,56 +161,65 @@ jobs:
             bin/qemu-pvh.bin
             bin/vhost-device-vsock
           key: helpers-${{ runner.arch }}-${{ hashFiles('hack/helpers.sha256', 'hack/helpers-lib.sh', 'hack/fetch-helpers.sh', 'hack/fetch-firecracker.sh', 'hack/build-gocryptfs.sh', 'hack/gocryptfs-patches/*.patch', 'hack/gofuse-patches/*.patch', 'hack/build-fuse-overlayfs.sh', 'hack/build-vmkernel.sh', 'hack/vmkernel/xbin.config', 'hack/build-mkfs-erofs.sh', 'hack/build-qemu.sh', 'hack/build-vhost-vsock.sh') }}
-      - run: make helpers HELPERS=containerfs
-      # The definition of done (docs/maintenance.md): fmt-check, vet,
-      # js-check, shellcheck, pins-offline, test — then the end-to-end suite.
-      - run: make check
-      - run: make tile-check
-      # The downgrade tests (test/downgrade_test.go) run the previous
-      # release's xbind on a workspace this tree left tile-deployment state
-      # in. Pinned to the last release before tile deployments, the older
-      # xbind 12-compat §5's promises are about: one that speaks them makes
-      # the tests skip. The bundle is ~2 GB; bin/ comes first and tar stops
-      # at bin/xbind, so only its head is downloaded (curl then exits on the
-      # closed pipe, hence the check of the file instead).
-      - run: |
-          prev=v0.3.61
-          mkdir -p "$RUNNER_TEMP/prev"
-          curl -fsSL "https://github.com/xbin-dev/xbin/releases/download/$prev/xbin-$prev-linux-amd64.tar.zst" \
-            | zstd -dc | tar -x --occurrence=1 -C "$RUNNER_TEMP/prev" bin/xbind || true
-          test -x "$RUNNER_TEMP/prev/bin/xbind"
-          echo "XBIN_DOWNGRADE_BIN=$RUNNER_TEMP/prev/bin/xbind" >> "$GITHUB_ENV"
-      - run: make integration
-      # VM sandboxes (D89): KVM for the runner user, the pinned Firecracker,
-      # the vm helpers — guest kernel, static mkfs.erofs, and QEMU +
-      # vhost-device-vsock for emulated VMs (prebuilt, or built when their
-      # inputs changed; cached above) — and a small Ubuntu rootfs for the
-      # guests (the tests use bash, curl, ip, mkfs.ext4 from it). The suite
-      # runs twice: on KVM, then emulated.
       - run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - run: '[ -x bin/firecracker ] || ./hack/fetch-firecracker.sh bin'
-      - run: make helpers HELPERS=vm
+      - run: make helpers HELPERS="containerfs vm"
       - run: |
           printf 'FROM docker.io/library/ubuntu:26.04\nRUN apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates e2fsprogs iproute2 util-linux && rm -rf /var/lib/apt/lists/*\n' | docker build -t xbin-vmtest-rootfs -
           mkdir -p "$RUNNER_TEMP/vmrootfs"
           docker export "$(docker create xbin-vmtest-rootfs)" | tar -C "$RUNNER_TEMP/vmrootfs" -x
+          echo "XBIN_ROOTFS=$RUNNER_TEMP/vmrootfs" >> "$GITHUB_ENV"
+      - run: |
           CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
           CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
-          XBIN_ROOTFS="$RUNNER_TEMP/vmrootfs" go test -tags=integration -count=1 -v ./internal/vm/
-          XBIN_VM_ACCEL=emulate XBIN_ROOTFS="$RUNNER_TEMP/vmrootfs" go test -tags=integration -count=1 -v ./internal/vm/
+      - run: make integration SHARD=vm
+      - if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master' && steps.gocache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.gocache.outputs.cache-primary-key }}
+
+  # The split's own guard: hack/testshard verify recomputes every shard
+  # from scratch and checks that each integration test and unit package
+  # runs exactly once, that this file runs every shard and job, and that
+  # its source listing of each suite's tests is what `go test -list` prints.
+  shards:
+    name: shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: false
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-integration-${{ hashFiles('go.sum', 'go.work.sum', 'sdk/go.sum', 'relay/go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            go-integration-${{ hashFiles('go.sum', 'go.work.sum', 'sdk/go.sum', 'relay/go.sum') }}-
+            go-integration-
+      - run: go run ./hack/testshard verify
 
   # The native client on Linux (native/AGENTS.md): its Swift packages under the
   # Swift the Apple CI's Xcode carries, with 512 KiB test stacks (make
   # swift-test; swiftly, the toolchain cached on the install script's pins),
-  # the fixture contract (make native-check), and the iOS CI's own guard —
+  # the fixture contract (make native-check), the app's SwiftUI/UIKit code
+  # against SDK stubs (make swift-stubcheck), and the iOS CI's own guard —
   # ios.yml's shape, actionlint, shellcheck and the dry runs of
   # native/ios/scripts against fake Apple tools, under bash 5 and macOS's
-  # bash 3.2 (ci-local-check.sh). A job of its own: `test` stays as it is.
+  # bash 3.2 (ci-local-check.sh). Four jobs, so none waits on another.
   # GitHub-hosted only — this workflow runs for pull requests.
   native:
+    name: native swift-test
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -113,12 +235,51 @@ jobs:
       - name: Swift (swiftly)
         run: native/ios/scripts/ci-linux-swift.sh
       - run: make swift-test
+      - run: make native-check
+
+  native-stubcheck:
+    name: native stubcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: cache the Swift toolchain
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/swiftly
+          key: swiftly-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/ios/scripts/ci-linux-swift.sh') }}
+      - name: Swift (swiftly)
+        run: native/ios/scripts/ci-linux-swift.sh
       - name: the app's SwiftUI/UIKit code against SDK stubs
         run: make swift-stubcheck
-      - run: make native-check
-      - run: sudo apt-get update && sudo apt-get install -y shellcheck python3-yaml
-      - name: ci-local-check.sh (the iOS CI scripts, also under bash 3.2)
+
+  native-ci:
+    name: native ci-local-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: cache the Swift toolchain
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/swiftly
+          key: swiftly-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/ios/scripts/ci-linux-swift.sh') }}
+      # the UI tests' stub check needs swift
+      - name: Swift (swiftly)
+        run: native/ios/scripts/ci-linux-swift.sh
+      - run: hack/ci-apt.sh shellcheck python3-yaml
+      - name: ci-local-check.sh (the iOS CI scripts)
         env:
-          CI_LOCAL_BASH32: "1"
           CI_LOCAL_FETCH_ACTIONLINT: "1"
+        run: native/ios/scripts/ci-local-check.sh
+
+  native-bash32:
+    name: native bash 3.2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: the iOS CI scripts' dry tests under bash 3.2 (ci-local-check.sh's container)
+        env:
+          CI_LOCAL_BASH32: only
         run: native/ios/scripts/ci-local-check.sh

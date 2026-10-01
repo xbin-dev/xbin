@@ -13,8 +13,9 @@
 #      ones the job's scripts build into; actions/cache only in actions
 #      mode), current action majors, the artifact names and paths the
 #      scripts write to, no secrets, every script it runs exists and is
-#      executable; ci.yml keeps its test job, has the native job, and no
-#      job of it can land on a self-hosted runner. These catch OUR mistakes
+#      executable; ci.yml keeps its test job, its native jobs run the
+#      native checks, and no job of it can land on a self-hosted runner.
+#      These catch OUR mistakes
 #      only: a fork's pull request runs its own copy of the workflows (and of
 #      this script), so it could add a job for the Mac — the Mac's runner job
 #      hook (mac-cleanup.sh --job-hook) is what refuses that
@@ -27,7 +28,9 @@
 #      Apple and Mac tools
 #   5. with CI_LOCAL_BASH32=1: both dry tests again under bash 3.2 — the
 #      bash macOS runs them with — in the bash:3.2 container (docker or
-#      podman; it installs python3, git and rsync, so it needs the network)
+#      podman; it installs python3, git and rsync, so it needs the network);
+#      CI_LOCAL_BASH32=only runs this step alone (ci.yml's native-bash32
+#      job, beside the native-ci job that runs the rest)
 #   6. with swift on PATH: native/ios/UITests type-checked against stubs of
 #      the XCUITest API (native/tools/uitest-stubcheck)
 #   7. with XCODEGEN=/path/to/xcodegen (it builds on Linux: swift build in
@@ -54,6 +57,32 @@ fail() {
   failed="$failed
   - $*"
 }
+
+# Step 5: both dry tests in the bash:3.2 container.
+bash32_dry_tests() {
+  step "the dry tests under bash 3.2"
+  engine=""
+  for e in podman docker; do
+    if command -v "$e" >/dev/null 2>&1; then engine=$e; break; fi
+  done
+  if [ -z "$engine" ]; then
+    fail "CI_LOCAL_BASH32 needs docker or podman"
+  else
+    "$engine" run --rm -v "$repo:/w:ro" -w /w docker.io/library/bash:3.2 \
+      sh -c 'apk add --no-cache python3 git rsync >/dev/null && bash native/ios/scripts/ci-dry-test.sh && bash native/ios/scripts/mac-dry-test.sh' ||
+      fail "the dry tests under bash 3.2"
+  fi
+}
+
+if [ "${CI_LOCAL_BASH32:-0}" = only ]; then
+  bash32_dry_tests
+  if [ -n "$failed" ]; then
+    printf '\nci-local-check (bash 3.2 only): FAILED%s\n' "$failed" >&2
+    exit 1
+  fi
+  printf '\nci-local-check (bash 3.2 only): ok\n'
+  exit 0
+fi
 
 # ---- 1. the workflow files -----------------------------------------------
 step "workflows: parse and shape ($wf, $ciwf)"
@@ -221,17 +250,25 @@ cjobs = ci.get("jobs") or {}
 check("test" in cjobs, "ci.yml: the test job stays")
 check("XBIN_IOS_RUNNER" not in ctext and "self-hosted" not in json.dumps([j.get("runs-on") for j in cjobs.values()]),
       "ci.yml runs for pull requests: none of its jobs may name a self-hosted runner (the Mac's job hook refuses them anyway)")
-nat = cjobs.get("native") or {}
-check(str(nat.get("runs-on", "")).startswith("ubuntu-"), "ci.yml: the native job runs on a GitHub-hosted Ubuntu runner")
-nruns = "\n".join(runs(s) for s in nat.get("steps", []))
-for want in ("native/ios/scripts/ci-linux-swift.sh", "make swift-test", "make native-check", "native/ios/scripts/ci-local-check.sh"):
-    check(want in nruns, "ci.yml native job runs %s" % want)
-for st in nat.get("steps", []):
-    action, major = uses_major(st)
-    if action in MAJORS:
-        check(major >= MAJORS[action], "ci.yml native job: %s — the current major is v%d" % (st.get("uses"), MAJORS[action]))
-    if action == "actions/cache":
-        check("ci-linux-swift.sh" in str((st.get("with") or {}).get("key", "")), "ci.yml native job: the swiftly cache is keyed on ci-linux-swift.sh (its pins)")
+# The native checks run in ci.yml's native* jobs, side by side.
+natives = {n: j for n, j in cjobs.items() if n == "native" or n.startswith("native-")}
+check("native" in natives, "ci.yml: the native job stays")
+nruns = ""
+for n, nat in sorted(natives.items()):
+    check(str(nat.get("runs-on", "")).startswith("ubuntu-"), "ci.yml: the %s job runs on a GitHub-hosted Ubuntu runner" % n)
+    nruns += "\n".join(runs(s) for s in nat.get("steps", [])) + "\n"
+    for st in nat.get("steps", []):
+        action, major = uses_major(st)
+        if action in MAJORS:
+            check(major >= MAJORS[action], "ci.yml %s job: %s — the current major is v%d" % (n, st.get("uses"), MAJORS[action]))
+        if action == "actions/cache":
+            check("ci-linux-swift.sh" in str((st.get("with") or {}).get("key", "")), "ci.yml %s job: the swiftly cache is keyed on ci-linux-swift.sh (its pins)" % n)
+    if "make swift-test" in json.dumps(nat) or "make swift-stubcheck" in json.dumps(nat):
+        check("native/ios/scripts/ci-linux-swift.sh" in "\n".join(runs(s) for s in nat.get("steps", [])), "ci.yml %s job: Swift (ci-linux-swift.sh) before the swift checks" % n)
+for want in ("native/ios/scripts/ci-linux-swift.sh", "make swift-test", "make swift-stubcheck", "make native-check", "native/ios/scripts/ci-local-check.sh"):
+    check(want in nruns, "ci.yml's native jobs run %s" % want)
+bash32 = [n for n, j in natives.items() for s in j.get("steps", []) if str((s.get("env") or {}).get("CI_LOCAL_BASH32", "")) in ("1", "only")]
+check(len(bash32) >= 1, "ci.yml's native jobs run ci-local-check.sh's bash 3.2 dry tests (CI_LOCAL_BASH32)")
 
 if errs:
     for e in errs:
@@ -302,18 +339,7 @@ for t in ci-dry-test.sh mac-dry-test.sh; do
 done
 
 if [ "${CI_LOCAL_BASH32:-0}" = 1 ]; then
-  step "the dry tests under bash 3.2"
-  engine=""
-  for e in podman docker; do
-    if command -v "$e" >/dev/null 2>&1; then engine=$e; break; fi
-  done
-  if [ -z "$engine" ]; then
-    fail "CI_LOCAL_BASH32=1 needs docker or podman"
-  else
-    "$engine" run --rm -v "$repo:/w:ro" -w /w docker.io/library/bash:3.2 \
-      sh -c 'apk add --no-cache python3 git rsync >/dev/null && bash native/ios/scripts/ci-dry-test.sh && bash native/ios/scripts/mac-dry-test.sh' ||
-      fail "the dry tests under bash 3.2"
-  fi
+  bash32_dry_tests
 fi
 
 step "UI tests against the XCUITest stubs"
