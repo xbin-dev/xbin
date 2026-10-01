@@ -310,10 +310,17 @@ func TestHarnessShapes(t *testing.T) {
 	done := harnessChild(t, ag, root, cards, "echo kid")
 	parkOf(t, ag, kid, "approval")
 	answered(done, "echo: echo kid")
-	hwait(t, "the done child's link", func() bool {
-		var st string
-		_ = ag.db.q.QueryRow(`SELECT state FROM links WHERE child_id=?`, done).Scan(&st)
-		return st != linkRunning
+	// the done child's link settled, as its event says it: the one link
+	// event the test can count on (the parent's delivery of it may come or
+	// not), published after the settle commits — a read of the row could
+	// beat it — and taken off the stream by evs' own goroutine
+	hwait(t, "the done child's link event", func() bool {
+		for _, ev := range evs.of(evLink) {
+			if d, _ := ev.Data.(map[string]any); d["childId"] == done && d["state"] != linkRunning {
+				return true
+			}
+		}
+		return false
 	})
 	for _, n := range call("GET", fmt.Sprintf("/runs/%d/tree", root), nil)["nodes"].([]any) {
 		add("treeNode", n)
