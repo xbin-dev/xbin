@@ -157,10 +157,16 @@ public enum TermDirectory {
         return (try? JSONEncoder().encode(["name": clean])) ?? Data("{\"name\":\"\"}".utf8)
     }
 
-    /// Decodes the list; rows without an id are skipped, unknown fields ignored.
+    /// The name the web Agent tab's guided sign-in gives its terminal
+    /// session (D178, docs/protocol.md): a CLI's login running for that tab,
+    /// never a session of the person's — no tab, no badge, no inbox row.
+    public static let signinName = "xbin:sign-in"
+
+    /// Decodes the list; rows without an id are skipped, as are guided
+    /// sign-ins' sessions (``signinName``); unknown fields ignored.
     public static func decode(_ data: Data) -> [TermDirectoryEntry] {
         guard let rows = try? JSONDecoder().decode([Lenient].self, from: data) else { return [] }
-        return rows.compactMap(\.entry)
+        return rows.compactMap(\.entry).filter { $0.name != signinName }
     }
 
     /// One row, every field optional and type-tolerant.
