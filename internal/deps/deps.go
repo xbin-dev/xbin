@@ -121,12 +121,12 @@ func cleanStale(c *registry.Component, want map[string]string) {
 // is stale and would break builds, so we reclaim it. This keeps go.work
 // self-healing against the toolchain editing it out from under us.
 func GoWork(reg *registry.Registry, sdkPath string) error {
-	mods := goModules(reg, nil)
+	mods, goLine := goModules(reg, nil)
 	workPath := filepath.Join(reg.Root, "go.work")
 	if len(mods) == 0 && sdkPath == "" {
 		return nil // nothing Go in the workspace; leave whatever exists alone
 	}
-	desired := renderGoWork(mods, sdkPath)
+	desired := renderGoWork(mods, goLine, sdkPath)
 
 	cur, err := os.ReadFile(workPath)
 	if err != nil {
@@ -148,23 +148,37 @@ func GoWork(reg *registry.Registry, sdkPath string) error {
 	return fsutil.WriteFileAtomic(workPath, []byte(desired), 0o644)
 }
 
-// goModules lists the workspace's Go module use-paths, sorted; include
-// (nil = all) filters by component path.
-func goModules(reg *registry.Registry, include func(path string) bool) []string {
+// goModules lists the workspace's Go module use-paths, sorted, and the go
+// line a go.work using them states: the highest of 1.24 and their go.mod
+// files' — the go command refuses a go.work whose go line is below a module
+// it uses, for every command run with it (D166: a builtin needing go 1.26.0
+// must not stop `go build` in every terminal). include (nil = all) filters
+// by component path.
+func goModules(reg *registry.Registry, include func(path string) bool) ([]string, string) {
 	var mods []string
+	goLine := buildGo
 	for _, c := range reg.Components() {
 		if include != nil && !include(c.Path) {
 			continue
 		}
+		var rel string
 		switch {
 		case fileExists(filepath.Join(c.Dir, "go.mod")):
-			mods = append(mods, "./"+c.Path) // canonical: module at the component root
+			rel = c.Path // canonical: module at the component root
 		case fileExists(filepath.Join(c.Dir, "backend", "go.mod")):
-			mods = append(mods, "./"+c.Path+"/backend") // module in backend/ (also supported)
+			rel = c.Path + "/backend" // module in backend/ (also supported)
+		default:
+			continue
+		}
+		mods = append(mods, "./"+rel)
+		// read beneath the root, never through a symlink; a go line that
+		// isn't a Go version never raises it
+		if m, ok := readGoModIn(Module{Root: reg.Root, Rel: rel}); ok && goVersionLess(goLine, m.Go) {
+			goLine = m.Go
 		}
 	}
 	sort.Strings(mods)
-	return mods
+	return mods, goLine
 }
 
 // GoWorkFor renders a go.work covering only the components include admits —
@@ -173,16 +187,16 @@ func goModules(reg *registry.Registry, include func(path string) bool) []string 
 // that don't exist in the allow-list mount. "" when there is nothing Go to
 // declare.
 func GoWorkFor(reg *registry.Registry, sdkPath string, include func(path string) bool) string {
-	mods := goModules(reg, include)
+	mods, goLine := goModules(reg, include)
 	if len(mods) == 0 && sdkPath == "" {
 		return ""
 	}
-	return renderGoWork(mods, sdkPath)
+	return renderGoWork(mods, goLine, sdkPath)
 }
 
-func renderGoWork(mods []string, sdkPath string) string {
+func renderGoWork(mods []string, goLine, sdkPath string) string {
 	var sb strings.Builder
-	sb.WriteString(workMarker + "\n\ngo 1.24\n\nuse (\n")
+	sb.WriteString(workMarker + "\n\ngo " + modToken(goLine) + "\n\nuse (\n")
 	for _, m := range mods {
 		fmt.Fprintf(&sb, "\t%s\n", m)
 	}

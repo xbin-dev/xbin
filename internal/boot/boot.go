@@ -335,6 +335,16 @@ func (st *State) stepTerminals() error {
 	// redacted copies (xbin.json filtered to readable rows — the full file
 	// is the whole grants/bindings topology incl. public hostnames; go.work
 	// covering only readable modules so builds don't chase absent dirs).
+	// A view's go.work covers the components it binds — readable at open —
+	// and is re-rendered as the workspace changes (term.RefreshViews, from
+	// the watch loop): its go line follows the modules' (D166).
+	tm.ViewGoWork = func(readable []string) string {
+		in := make(map[string]bool, len(readable))
+		for _, r := range readable {
+			in[r] = true
+		}
+		return deps.GoWorkFor(reg, deps.SDKPath(), func(path string) bool { return in[path] })
+	}
 	tm.TermView = func(p auth.Principal) ([]string, map[string][]byte) {
 		var readable []string
 		for _, c := range reg.Components() {
@@ -346,7 +356,7 @@ func (st *State) stepTerminals() error {
 		files := map[string][]byte{
 			"xbin.json": registry.RedactedManifestJSON(reg.Workspace(), canRead),
 		}
-		if gw := deps.GoWorkFor(reg, deps.SDKPath(), canRead); gw != "" {
+		if gw := tm.ViewGoWork(readable); gw != "" {
 			files["go.work"] = []byte(gw)
 		}
 		for _, name := range []string{"AGENTS.md", ".gitignore"} {
@@ -468,6 +478,9 @@ func (st *State) stepBroker() error {
 		deps.Reconcile(reg)
 		if err := deps.GoWork(reg, deps.SDKPath()); err != nil {
 			slog.Warn("go.work", "err", err)
+		}
+		if st.Term != nil {
+			st.Term.RefreshViews() // open restricted terminals' go.work too
 		}
 		brk.EnsureComponentRepos() // new/imported components get their own git repo
 	}
@@ -719,12 +732,16 @@ func (st *State) stepWatch() error {
 		return err
 	}
 	st.watcher = w
+	refreshViews := func() {}
+	if st.Term != nil {
+		refreshViews = st.Term.RefreshViews
+	}
 	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
 		st.reconcileIngress()
 		if st.TileSbx != nil {
 			st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
 		}
-	})
+	}, refreshViews)
 	return nil
 }
 

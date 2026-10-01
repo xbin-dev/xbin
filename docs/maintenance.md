@@ -161,13 +161,44 @@ make release TAG=v0.3.44 RELEASE_FLAGS=--dry-run
 ```
 
 The script: preflight (tag shape, clean tree, on master, `gh` authenticated)
-→ `make check` → annotated tag + push of the branch and the tag → build and
-publish from a **detached worktree of the tag** (`deploy/publish-release.sh`
-builds whatever checkout it runs in; an edit on master during the build must
-not leak into the bundles) → watch the commit's CI runs → `gh release view`
-→ prune `dist/` to the two newest tags' bundles. `--no-check`, `--arch`,
-`--no-watch`, `--keep N`, `--allow-branch` exist for the unusual day; the
-release notes and the changelog entry are still yours to write.
+→ `make check` → `make vulncheck` (below) → annotated tag + push of the
+branch and the tag → build and publish from a **detached worktree of the
+tag** (`deploy/publish-release.sh` builds whatever checkout it runs in; an
+edit on master during the build must not leak into the bundles) → watch the
+commit's CI runs → `gh release view` → prune `dist/` to the two newest
+tags' bundles. `--no-check`, `--arch`, `--no-watch`, `--keep N`,
+`--allow-branch` exist for the unusual day; the release notes and the
+changelog entry are still yours to write.
+
+**The vulnerability gate** (`make vulncheck`, `hack/vulncheck`) runs
+govulncheck, in source mode, over the Go a release builds from this
+checkout. It scans these targets:
+
+- `xbind` and `xbind/arm64`: xbind's programs (`./cmd/...` with the repo's
+  `go.work`), as `make build` builds them for each bundle (CGO_ENABLED=0,
+  linux/amd64 and linux/arm64);
+- `relay` and `sdk`;
+- each builtin tile's and template's backend, against its own
+  `go.mod.tile` and `go.sum`, read-only, through a `go.work` shaped as the
+  one xbind builds it with (the sdk replaced by the checkout). A
+  requirement or checksum that's missing fails the gate; it is never
+  fetched.
+
+It fails on a known vulnerability their code *reaches* (a call path, not
+just a required module) that `hack/vulncheck-allow.txt` doesn't list. An
+entry there reads `<OSV id> <target> # <why>`; keep the file empty or
+nearly so, and fix the finding instead (bump the dependency, and for a
+builtin bump its tile version too). Standard-library findings gate xbind's
+programs and the relay only. They are judged on the release of the `go`
+running the gate: `go1.27.0-X:nodwarf5` counts as go1.27.0, and a devel
+go fails the gate (govulncheck would match it against no advisory). So run
+it with the go that builds the release, and keep that go current. A tile's
+standard library is its workspace host's Go. Go the bundles carry without
+building it here is **not** scanned: the prebuilt helpers (`bin/gocryptfs`,
+pinned in `hack/helpers.sha256`) and the rootfs's tools (gopls, dlv).
+`--no-check` doesn't skip the gate. It needs network (the vulnerability
+database, each module's dependencies), so it is not part of `make check`.
+`make vulncheck VULNCHECK=<target…>` checks some targets only.
 
 ## Embedded assets
 

@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release
+.PHONY: dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -291,8 +291,26 @@ hooks:
 	git config core.hooksPath .githooks
 	@echo ">> pre-commit hook active: make fmt-check js-check large-files"
 
-# The whole release: make release TAG=vX.Y.Z (hack/release.sh — checks, tag,
-# push, build+publish from a detached worktree, watch CI, prune dist/).
+# The release's vulnerability gate (hack/vulncheck): govulncheck over the Go
+# a release builds from this checkout — xbind's programs (linux/amd64 and
+# arm64), the relay, the sdk, and each builtin tile's and template's backend
+# read-only against its own go.mod.tile, as xbind builds it — failing on a
+# known vulnerability their code reaches that hack/vulncheck-allow.txt
+# doesn't list (with why). Standard-library findings gate xbind's programs
+# and the relay, judged on the release of the go running it: run it with
+# the go that builds the release. Prebuilt helpers (gocryptfs) and the
+# rootfs's tools aren't scanned. `make release` runs it before tagging; not
+# in `check`: it needs network (the vulnerability database, each module's
+# dependencies). VULNCHECK=<target…> narrows it
+# (make vulncheck VULNCHECK=builtin-tiles/sandbox-terminal).
+GOVULNCHECK ?= golang.org/x/vuln/cmd/govulncheck@v1.8.0
+VULNCHECK ?=
+vulncheck:
+	@go run ./hack/vulncheck -govulncheck $(GOVULNCHECK) $(VULNCHECK)
+
+# The whole release: make release TAG=vX.Y.Z (hack/release.sh — checks, the
+# vulnerability gate, tag, push, build+publish from a detached worktree,
+# watch CI, prune dist/).
 release:
 	@./hack/release.sh $(TAG) $(RELEASE_FLAGS)
 

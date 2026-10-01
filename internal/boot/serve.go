@@ -168,7 +168,9 @@ func (st *State) serve(ctx context.Context) error {
 // dp is the deployments plane, which answers which deployment a save drives
 // (LiveReload, Primary); a tile without a record drives main, as today (D119d),
 // and a tile whose live reload is paused drives nothing (WorkTreeMoved).
-func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *runner.Runner, brk *broker.Broker, dp *deployments.Plane, reconcileIngress func()) {
+// refreshViews re-renders open restricted terminals' go.work after the root
+// one (term.RefreshViews).
+func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *runner.Runner, brk *broker.Broker, dp *deployments.Plane, reconcileIngress, refreshViews func()) {
 	for ev := range w.C {
 		if err := reg.Rescan(); err != nil {
 			slog.Warn("rescan", "err", err)
@@ -183,6 +185,7 @@ func watchLoop(w *watch.Watcher, reg *registry.Registry, hub *events.Hub, run *r
 		if err := deps.GoWork(reg, deps.SDKPath()); err != nil {
 			slog.Warn("go.work", "err", err)
 		}
+		refreshViews()
 		reload, restart := changedComponents(reg, ev.Paths)
 		routeBatch(reload, restart, dp, hub, run.ChangedDeployment)
 		run.WakeAlwaysOn() // a new tile, or the flag added
