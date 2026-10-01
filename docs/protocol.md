@@ -179,7 +179,7 @@ class refuses it too, reads included (§Tile deployments, *Which deployment
 a call acts on*).
 
 **A partitioned tile's credentials act in a partition**
-([partitions.md](/docs/partitions.md), in development). On a tile whose
+([partitions.md](/docs/partitions.md)). On a tile whose
 recorded mode has user partitions, xbind decides the partition from the
 credential, never from the URL or a header:
 
@@ -2305,7 +2305,7 @@ POST   /partitions/limits         admin (the admin console: when the
                                    ≤ 4096, partitionBytes ≥ 1 MiB. The caps
                                    default from host memory M (per tile
                                    clamp(M/4 ÷ E, 4, 32), workspace
-                                   clamp(M/2 ÷ E, 8, 128), E ≈ 160 MiB; M
+                                   clamp(M/2 ÷ E, 8, 128), E = 96 MiB; M
                                    is MemTotal, or xbind's own cgroup
                                    memory limit when lower), the ceiling
                                    to the tile's per-namespace one. →
@@ -6743,7 +6743,7 @@ a time, sub-paths traversal-stripped. The native runtime document
   checkpoint instead of the work tree — read-only at the tile's own path,
   restarted from its kept build on every restart — and a save doesn't reach
   you: a crash loop clears with a deploy or a restart. Your env is the same.
-- A partitioned tile (in development, docs/partitions.md) runs one process per person who
+- A partitioned tile (docs/partitions.md) runs one process per person who
   uses it, `XBIN_PARTITION=user:<id>`, beside its optional global instance
   (`XBIN_PARTITION=global`, today's process at today's keys): started on
   the person's first use, never at boot, stopped 10 min after its last

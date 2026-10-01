@@ -753,7 +753,7 @@ Env every backend instance gets:
 | `XBIN_SOCKET` | unix socket to listen on |
 | `XBIN_COMPONENT` | own path (identity) — the same in every tile deployment |
 | `XBIN_DEPLOYMENT` | only in a tile deployment that isn't the tile's primary: its name (`dev`); absent for the primary ([tile-deployments.md](/docs/tile-deployments.md)) |
-| `XBIN_PARTITION` | only in a partitioned tile (in development): `user:<id>` in a person's own instance, `global` in the global instance (and in a non-primary deployment whose code asks for partitions); absent in every tile that isn't partitioned ([partitions.md](/docs/partitions.md)) |
+| `XBIN_PARTITION` | only in a partitioned tile: `user:<id>` in a person's own instance, `global` in the global instance (and in a non-primary deployment whose code asks for partitions); absent in every tile that isn't partitioned ([partitions.md](/docs/partitions.md)) |
 | `XBIN_GATEWAY`, `XBIN_TOKEN` | how to call other elements / xbin APIs (this generation's credential — dies at swap) |
 | `XBIN_RES_<NAME>` | each granted resource ([resources.md](/docs/resources.md)) |
 

@@ -252,8 +252,8 @@ func TestHostMemory(t *testing.T) {
 	if got := hostMemory(meminfo, self, root); got != 2<<30 {
 		t.Errorf("a 2 GiB slice above xbind: %d", got)
 	}
-	if tl, ws := partitionCapsFrom(hostMemory(meminfo, self, root)); tl != 4 || ws != 8 {
-		t.Errorf("caps in a 2 GiB container: %d/%d, want 4/8", tl, ws)
+	if tl, ws := partitionCapsFrom(hostMemory(meminfo, self, root)); tl != 5 || ws != 10 {
+		t.Errorf("caps in a 2 GiB container: %d/%d, want 5/10", tl, ws)
 	}
 	if got := hostMemory(filepath.Join(dir, "none"), self, root); got != 2<<30 {
 		t.Errorf("no meminfo, a cgroup cap: %d", got)

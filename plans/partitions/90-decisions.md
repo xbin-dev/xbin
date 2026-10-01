@@ -335,6 +335,37 @@ questions they raised.
 
   With the agent partitioned by default (PD-35), 03 §A.5 checks these
   cover that load; I2 sets E from a QA-box measurement of the default agent.
+- **Measured (I2, 2026-10-01; records/I2.md).** On the QA box (v0.3.66,
+  `--isolate`, 4 vCPU, 7.75 GiB, an upgraded workspace), 20 people × two
+  default agent instances = 40 running partitions: each is 6 processes
+  (backend, its rootfs overlay, two gocryptfs and their two loggers) and
+  ~36 threads; **55.8 MiB resident** (48.6–61.2: backend 23.2, gocryptfs
+  pair 25.9, loggers 6.0, overlay 0.6), **24.7 MiB proportional** (the
+  tile's instances share their binary), **~26 MiB of host memory at the
+  margin**; a short model turn adds ~2 MiB; ~0.6 MB on disk (the agent's
+  empty schema). **E = 96 MiB** (was the 160 MiB placeholder): the
+  measured resident size (56, 61 at most) with ~70% headroom for the
+  heavier use I2 didn't measure — conservative because it ships (v0.3.67)
+  before the owner reviews it; ~3.7× the marginal cost. Caps on this box
+  12/24 → 20/41 (the I2 load, 20 people × 2 agents, fits); 4 GiB 6/12 →
+  10/21; 8 GiB 12/25 → 21/42. The measurement alone supports E = 64 MiB
+  (31/62 here, 16/32 on 4 GiB): the owner's call. With the placeholder,
+  20 people opening one instance within 2½ minutes: the 13th evicted the
+  first (idle 2 min), the last 7 got the 503. The other
+  constants stand as measured: the 10-min reap fired 10 min after the last
+  use or restart (at the reaper's next tick, all 20 of a tile at once);
+  the idle unmount (PD-48) took the views out of the mount table on time,
+  the hour after the stop — **but no gocryptfs exited**: every sandbox
+  started while a view was mounted keeps a copy of it in its detached old
+  root (records/I2.md §Bugs 2), so the daemons live on, outside the caps
+  (~9 MiB each pair), and the person's next start mounts a second
+  gocryptfs on the same ciphertext (34 such pairs seen). Not fixed for
+  v0.3.67. A start turned away at the caps also mounts the person's
+  volumes before admission and leaves them for the idle hour (§Bugs 3);
+  its fix waits for the pin's (branch pt/i2-refused-volumes). And on that
+  box the per-component cgroup limits were off (a pre-existing boot-order
+  bug, §Bugs 1), so the caps were the only bound on people's instances'
+  memory — one more reason E stays conservative.
 
 **PD-19 — User partitions need `--isolate`.** DEFAULT.
 
@@ -503,6 +534,22 @@ questions they raised.
   - viewers signing in with the owner token get the global view (08 §11).
 - Extended (owner, 2026-10-01; D177): existing instances too — the
   template's update asks each for the mode (PD-52's amendment).
+- **Measured (I2, 2026-10-01; records/I2.md).** The default holds on the
+  QA box: both new instances came up `["user","global"]`, partitioned at
+  once (empty). Overhead per person per instance ~26 MiB of host memory
+  (56 MiB resident) while they use it, ~9 MiB for the idle hour after —
+  and, until the pinned-views bug (PD-18) is fixed, for as long as any
+  sandbox started meanwhile lives; the global instance ~21 MiB plus the
+  tile's three volumes, as an unpartitioned instance costs. A person's
+  first-ever start takes ~2.4 s
+  (1.7 s of it the agent writing its empty schema through gocryptfs), a
+  restart ~0.6 s, a warm request ~10 ms. With E from the measurement
+  (PD-18, 96 MiB) an 8 GiB host runs 21 people's instances per agent and
+  42 in all before the caps evict or refuse (12 and 25 with the
+  placeholder). D177 on the upgraded box: the two existing instances
+  ask nothing until they merge the template (`/templates/updates` lists
+  them); an opted-out copy that merged the ask went pending with data and
+  switched at once when empty.
 
 **PD-36 — LLM concurrency across partitions.** DEFAULT (C18).
 - Rec: a tile-wide cap, on by default at today's limit (4), as a flock
