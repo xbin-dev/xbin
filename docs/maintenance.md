@@ -42,11 +42,11 @@ integration` run, split over parallel GitHub-hosted jobs (below,
 "Integration shards"): the guards (`make guards`), the unit tests in two
 shards, `make tile-check`, the integration tests in four shards, the VM
 suite in a `vm` job with KVM, the split's own guard (`shards`), and the
-native client's Linux half in four jobs: `make swift-test` and `make
+native client's Linux half in three jobs: `make swift-test` and `make
 swift-stubcheck` (the app's SwiftUI/UIKit code against SDK stubs) under
 Swift 6.4, `make native-check` and the iOS CI's own check
-(`native/ios/scripts/ci-local-check.sh`, its bash 3.2 half a job of its
-own). A release (`make release TAG=vX.Y.Z`) runs `make check` and the
+(`native/ios/scripts/ci-local-check.sh`, with its bash 3.2 dry tests). A
+release (`make release TAG=vX.Y.Z`) runs `make check` and the
 online pin checks before building. Builder-visible behaviour also
 needs a `docs/changelog.md` entry and the relevant `docs/*.md` update; every
 non-obvious choice gets a numbered entry in the decision log

@@ -6364,7 +6364,7 @@ Deviations and refinements made while implementing; all deliberate:
     2/2, tile-check (its backends now concurrent), integration 1/4…4/4 —
     plus vm (KVM, the vm helpers, the guest rootfs: `make integration
     SHARD=vm`), shards (the split's guard) and the native client's checks
-    in four jobs. GitHub-hosted only (pull requests run it). The first
+    in three jobs. GitHub-hosted only (pull requests run it). The first
     sharded run: 3 min 35 s wall, green, every Go cache cold.
   - **The split is by test, from source, balanced by measured time, with
     a hash for the unmeasured.** A suite (one go test over one package,

@@ -216,7 +216,7 @@ jobs:
   # against SDK stubs (make swift-stubcheck), and the iOS CI's own guard —
   # ios.yml's shape, actionlint, shellcheck and the dry runs of
   # native/ios/scripts against fake Apple tools, under bash 5 and macOS's
-  # bash 3.2 (ci-local-check.sh). Four jobs, so none waits on another.
+  # bash 3.2 (ci-local-check.sh). Three jobs, so none waits on another.
   # GitHub-hosted only — this workflow runs for pull requests.
   native:
     name: native swift-test
@@ -268,18 +268,8 @@ jobs:
       - name: Swift (swiftly)
         run: native/ios/scripts/ci-linux-swift.sh
       - run: hack/ci-apt.sh shellcheck python3-yaml
-      - name: ci-local-check.sh (the iOS CI scripts)
+      - name: ci-local-check.sh (the iOS CI scripts, also under bash 3.2)
         env:
+          CI_LOCAL_BASH32: "1"
           CI_LOCAL_FETCH_ACTIONLINT: "1"
-        run: native/ios/scripts/ci-local-check.sh
-
-  native-bash32:
-    name: native bash 3.2
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - name: the iOS CI scripts' dry tests under bash 3.2 (ci-local-check.sh's container)
-        env:
-          CI_LOCAL_BASH32: only
         run: native/ios/scripts/ci-local-check.sh
