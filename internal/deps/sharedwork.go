@@ -2,10 +2,13 @@ package deps
 
 // sharedwork.go — what the upgrade check of D166 (runner/goversions.go)
 // needs of go.mod and go.work syntax: the workspace's shared go.work as
-// every Go build used it before D166, a go.mod's direct requirements, and
-// the module that pins extra requirements into a build workspace.
+// every Go build used it before D166, a go.mod's direct requirements, the
+// module that pins extra requirements into a build workspace, and a digest
+// of what decides a build workspace's versions.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path"
@@ -21,56 +24,164 @@ import (
 var ErrNoSharedWork = errors.New("the workspace has no Go module")
 
 // SharedWork is the go.work every Go build of the workspace ran with before
-// D166: the root go.work — xbind's (every component's module, the SDK
-// replaced as GoWork renders it) or a hand-managed one's own lines — with
-// absolute paths, so a build workspace elsewhere can stand in for it, as
-// the confined builds' copy did (99fa52da). The go.work on disk is not
-// read for xbind's own: it is rendered from the registry, as GoWork writes
-// it.
-func SharedWork(reg *registry.Registry, sdkPath string) ([]byte, error) {
+// D166, for the build of one tile: the root go.work — xbind's (every
+// component's module, the SDK replaced as GoWork renders it) or a
+// hand-managed one's own lines — with absolute paths, so a build workspace
+// elsewhere can stand in for it, as the confined builds' copy did
+// (99fa52da). The go.work on disk is not read for xbind's own: it is
+// rendered from the registry, as GoWork writes it.
+//
+// Two shapes D166 made buildable, which a go.work using every module
+// can't hold, are rendered as the go command takes them:
+//
+//   - The go line is the highest of 1.24 (the root file's), a hand-managed
+//     go.work's and every used module's, as BuildWork's: the go command
+//     refuses a go.work older than a module it uses, and `go mod init`
+//     writes `go 1.24.0`. A go.work's go line doesn't change the versions
+//     MVS selects (each module's own go line decides its graph's pruning).
+//   - Of several modules declaring one path (a copied tile: "appears
+//     multiple times in workspace"), one is used: the one prefer reports
+//     (the tile's own, or the one its build workspace chose), else the
+//     first (a copy's go.mod is the original's: either brings the same
+//     requirements into the graph). Nor is a module whose path the go.work
+//     replaces at every version.
+//
+// prefer is nil, or reports the directories the tile's build uses.
+func SharedWork(reg *registry.Registry, sdkPath string, prefer func(dir string) bool) ([]byte, error) {
 	rw, err := ReadRootWork(reg.Root)
 	if err != nil {
 		return nil, err
 	}
+	var dirs []string
 	if rw != nil { // hand-managed: its own lines, as the go command read them
-		var sb strings.Builder
+		dirs = rw.Uses
+	} else {
+		for _, m := range goModules(reg, nil) {
+			dirs = append(dirs, filepath.Join(reg.Root, filepath.FromSlash(m)))
+		}
+		if len(dirs) == 0 {
+			return nil, ErrNoSharedWork
+		}
+		if sdkPath != "" && !filepath.IsAbs(sdkPath) { // relative to the go.work's directory, as the go command reads it
+			sdkPath = filepath.Join(reg.Root, sdkPath)
+		}
+	}
+	replacedAll := func(p string) bool {
+		if rw != nil {
+			return rw.replacesAll(p)
+		}
+		return sdkPath != "" && p == SDKModule
+	}
+	type used struct {
+		dir string
+		mod goMod
+	}
+	var mods []used
+	byPath := map[string][]int{}
+	for _, d := range dirs {
+		mod, _ := readGoModIn(moduleAt(reg.Root, d)) // unreadable: used all the same, as the go command found it
+		if mod.Path != "" {
+			if replacedAll(mod.Path) {
+				continue
+			}
+			byPath[mod.Path] = append(byPath[mod.Path], len(mods))
+		}
+		mods = append(mods, used{d, mod})
+	}
+	drop := map[int]bool{}
+	for _, is := range byPath {
+		if len(is) < 2 {
+			continue
+		}
+		keep := is[0]
+		for _, i := range is {
+			if prefer != nil && prefer(filepath.Clean(mods[i].dir)) {
+				keep = i
+				break
+			}
+		}
+		for _, i := range is {
+			drop[i] = i != keep
+		}
+	}
+	goLine := buildGo
+	if rw != nil && goVersionLess(goLine, rw.Go) {
+		goLine = rw.Go
+	}
+	var uses []string
+	for i, u := range mods {
+		if drop[i] {
+			continue
+		}
+		if goVersionLess(goLine, u.mod.Go) {
+			goLine = u.mod.Go
+		}
+		uses = append(uses, u.dir)
+	}
+	var sb strings.Builder
+	if rw != nil {
 		sb.WriteString("// the workspace's hand-managed go.work, paths made absolute\n\n")
-		if rw.Go != "" {
-			fmt.Fprintf(&sb, "go %s\n", modToken(rw.Go))
-		}
-		if rw.Toolchain != "" {
-			fmt.Fprintf(&sb, "\ntoolchain %s\n", modToken(rw.Toolchain))
-		}
+	} else {
+		sb.WriteString(workMarker + "\n\n")
+	}
+	fmt.Fprintf(&sb, "go %s\n", modToken(goLine))
+	if rw != nil && rw.Toolchain != "" {
+		fmt.Fprintf(&sb, "\ntoolchain %s\n", modToken(rw.Toolchain))
+	}
+	if rw != nil {
 		for _, g := range rw.Godebug {
 			fmt.Fprintf(&sb, "\ngodebug %s\n", modToken(g))
 		}
-		sb.WriteString("\nuse (\n")
-		for _, u := range rw.Uses {
-			fmt.Fprintf(&sb, "\t%s\n", modToken(u))
-		}
-		sb.WriteString(")\n")
+	}
+	sb.WriteString("\nuse (\n")
+	for _, u := range uses {
+		fmt.Fprintf(&sb, "\t%s\n", modToken(u))
+	}
+	sb.WriteString(")\n")
+	if rw != nil {
 		for _, r := range rw.Replaces {
 			sb.WriteString("\n" + r.render(r.New) + "\n")
 		}
-		return []byte(sb.String()), nil
-	}
-	mods := goModules(reg, nil)
-	if len(mods) == 0 {
-		return nil, ErrNoSharedWork
-	}
-	var sb strings.Builder
-	sb.WriteString(workMarker + "\n\ngo 1.24\n\nuse (\n")
-	for _, m := range mods {
-		fmt.Fprintf(&sb, "\t%s\n", modToken(filepath.Join(reg.Root, filepath.FromSlash(m))))
-	}
-	sb.WriteString(")\n")
-	if sdkPath != "" {
-		if !filepath.IsAbs(sdkPath) { // relative to the go.work's directory, as the go command reads it
-			sdkPath = filepath.Join(reg.Root, sdkPath)
-		}
+	} else if sdkPath != "" {
 		fmt.Fprintf(&sb, "\nreplace %s => %s\n", SDKModule, modToken(filepath.Clean(sdkPath)))
 	}
 	return []byte(sb.String()), nil
+}
+
+// moduleAt is the module at dir, read beneath root when it is there (never
+// through a symlink on the way), else beneath dir itself.
+func moduleAt(root, dir string) Module {
+	if inside(dir, root) {
+		rel, _ := filepath.Rel(root, dir)
+		if rel == "." {
+			rel = ""
+		}
+		return Module{Dir: dir, Root: root, Rel: filepath.ToSlash(rel)}
+	}
+	return Module{Dir: dir, Root: dir}
+}
+
+// Inputs is a digest of what decides the versions w's build selects: its
+// go.work and the go.mod of every module it uses (MVS reads nothing else of
+// the workspace's, and a published module's go.mod never changes). Builds
+// with the same inputs select the same versions.
+func (w Work) Inputs() string {
+	h := sha256.New()
+	frame := func(b []byte) {
+		fmt.Fprintf(h, "%d:", len(b))
+		h.Write(b)
+	}
+	frame(w.GoWork)
+	for _, m := range w.Uses {
+		frame([]byte(m.Dir))
+		var b []byte
+		if f, err := fsutil.OpenBeneath(m.Root, filepath.FromSlash(path.Join(m.Rel, "go.mod"))); err == nil {
+			b, _ = readCapped(f, modFileMax)
+			f.Close()
+		}
+		frame(b)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // DirectRequires is the module paths m's go.mod requires on a line not
