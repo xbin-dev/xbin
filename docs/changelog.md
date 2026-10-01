@@ -45,7 +45,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   token revoked before it stops, as every partition's stop does. Base
   auto-update moves each person's terminal layer on its own, at the start of
   that person's next session, never under a running one of theirs, and
-  nobody else's layer with it; `GET /ws/term/env` and the terminal window's
+  nobody else's layer with it, and its lines name it as theirs (`xbin: your
+  terminal on <tile> moved to the new base image — …`, where a tile's
+  layer says `this tile's terminal`); `GET /ws/term/env` and the terminal window's
   base-update offer are that person's layer's. The admin console's workspace
   tab has both the terminals (base auto-update) and the policies sub-tabs;
   `bx settings` and `bx policies` are separate commands. `sandbox-terminal`

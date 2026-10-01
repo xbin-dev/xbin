@@ -186,38 +186,41 @@ func (m *Manager) waitMoved() {
 	}
 }
 
-// sayBaseMoved is an agent session saying its start moved the tile's layer
-// (key) to the current base: a notice in its log — the Agent tab shows it,
-// muted — and its host's text log; and the tile's next shell says it too
-// (noteMove), since the packages that went may have been a shell user's.
-func (s *Session) sayBaseMoved(m *Manager, key string) {
-	s.logEvent(m, agent.New(EvNotice, noticeData{Text: baseMovedNote}))
-	s.agent.logf(baseMovedNote)
-	m.noteMove(key)
+// sayBaseMoved is an agent session saying its start moved the layer it
+// claims (key; layer as movedLayer names it) to the current base: a notice
+// in its log — the Agent tab shows it, muted — and its host's text log; and
+// the layer's next shell says it too (noteMove), since the packages that
+// went may have been a shell user's.
+func (s *Session) sayBaseMoved(m *Manager, key, layer string) {
+	note := baseMovedNote(layer)
+	s.logEvent(m, agent.New(EvNotice, noticeData{Text: note}))
+	s.agent.logf(note)
+	m.noteMove(key, layer)
 }
 
-// noteMove records that an agent session's start moved key's layer, for the
-// tile's next shell (takeMoveNote).
-func (m *Manager) noteMove(key string) {
+// noteMove records that an agent session's start moved key's layer (named
+// layer), for the next shell on it (takeMoveNote).
+func (m *Manager) noteMove(key, layer string) {
 	b := &m.base
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.notes == nil {
 		b.notes = map[string]string{}
 	}
-	b.notes[key] = baseMovedByAgentLine
+	b.notes[key] = greyLine(baseMovedByAgentNote(layer))
 }
 
-// takeMoveNote is the line a shell starting on key says first: its own
-// move's (moved), else an agent's move not yet told (once), else "".
-func (m *Manager) takeMoveNote(key string, moved bool) string {
+// takeMoveNote is the line a shell starting on key (named layer) says
+// first: its own move's (moved), else an agent's move not yet told (once),
+// else "".
+func (m *Manager) takeMoveNote(key, layer string, moved bool) string {
 	b := &m.base
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	note := b.notes[key]
 	delete(b.notes, key)
 	if moved {
-		return baseMovedLine
+		return greyLine(baseMovedNote(layer))
 	}
 	return note
 }

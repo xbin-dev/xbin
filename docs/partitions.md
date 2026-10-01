@@ -1208,7 +1208,8 @@ opened it, and reaches only that person's partition:
   and their lifecycle) moves each person's layer on its own: at the start
   of that person's next session once a newer base image is installed,
   never under one of their sessions that is running, and nobody else's
-  layer with it.
+  layer with it — its grey line says `xbin: your terminal on <tile> moved
+  to the new base image — …`.
 - **Its agent history is the partition's.** A finished agent session's
   transcript is kept with the person's partition, listed with their other
   past sessions, and never read by a person recreated under the same id. A

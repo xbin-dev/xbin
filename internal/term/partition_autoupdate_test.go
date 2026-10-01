@@ -1,12 +1,15 @@
 package term
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/layers"
+	"github.com/xbin-dev/xbin/internal/termwire"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -155,14 +158,55 @@ func TestPartitionMoveNotes(t *testing.T) {
 	if ana != partLayerKey("apps/p", "k-ana") || tile != termKey("apps/p") || ana == bob {
 		t.Fatalf("layer keys: ana %q bob %q tile %q", ana, bob, tile)
 	}
-	m.noteMove(ana) // ana's agent session's start moved her layer
-	if n := m.takeMoveNote(bob, false); n != "" {
+	m.noteMove(ana, o("ana").movedLayer()) // ana's agent session's start moved her layer
+	if n := m.takeMoveNote(bob, o("bob").movedLayer(), false); n != "" {
 		t.Errorf("bob's shell was told of ana's move: %q", n)
 	}
-	if n := m.takeMoveNote(tile, false); n != "" {
+	if n := m.takeMoveNote(tile, o("").movedLayer(), false); n != "" {
 		t.Errorf("a shell on the tile's own layer was told of ana's move: %q", n)
 	}
-	if n := m.takeMoveNote(ana, false); n != baseMovedByAgentLine {
+	if n := m.takeMoveNote(ana, o("ana").movedLayer(), false); n != "\x1b[90mxbin: an agent session's start moved your terminal on apps/p to the new base image — "+baseMovedWhat+"\x1b[0m\r\n" {
 		t.Errorf("ana's next shell: %q", n)
+	}
+}
+
+// covers D175 PD-22 (D177) — the base-move lines name the layer that moved
+// as its session's person knows it: a person's own layer on a partitioned
+// tile is "your terminal on <tile>" — in her shell's line, the line an
+// agent's move leaves her next shell, and her agent session's notice —
+// while the tile's own layer (an unpartitioned tile, or a session there
+// without a person) stays "this tile's terminal".
+func TestPartitionMoveLines(t *testing.T) {
+	anaO := openOpts{part: sessionPart{on: true, tile: "apps/p", part: "user:ana", key: "k-ana"}}
+	tileO := openOpts{part: sessionPart{tile: "apps/p"}}
+	globalO := openOpts{part: sessionPart{on: true, tile: "apps/p", part: "global"}}
+	const yours, tiles = "your terminal on apps/p", "this tile's terminal"
+	for _, c := range []struct {
+		name string
+		o    openOpts
+		want string
+	}{{"ana's own layer", anaO, yours}, {"the tile's layer", tileO, tiles}, {"a session in global without a person", globalO, tiles}} {
+		layer := c.o.movedLayer()
+		if layer != c.want {
+			t.Errorf("%s: named %q, want %q", c.name, layer, c.want)
+			continue
+		}
+		m := &Manager{}
+		key := c.o.layerKey("apps/p")
+		if n, want := m.takeMoveNote(key, layer, true), "\x1b[90mxbin: "+c.want+" moved to the new base image — "+baseMovedWhat+"\x1b[0m\r\n"; n != want {
+			t.Errorf("%s: own move %q, want %q", c.name, n, want)
+		}
+		var got []SessionEvent
+		m.OnEvent = func(cwd string, ev SessionEvent) { got = append(got, ev) }
+		s := &Session{ID: "s1", Cwd: "apps/p", kind: KindAgent, hub: termwire.NewHub(0), agent: &agentState{log: agent.NewLog(0, 0)}}
+		s.sayBaseMoved(m, key, layer)
+		evs, _ := s.agent.log.Since(0)
+		var d noticeData
+		if len(evs) != 1 || json.Unmarshal(evs[0].Data, &d) != nil || d.Text != "xbin: "+c.want+" moved to the new base image — "+baseMovedWhat {
+			t.Errorf("%s: the agent's notice %+v", c.name, evs)
+		}
+		if n, want := m.takeMoveNote(key, layer, false), "\x1b[90mxbin: an agent session's start moved "+c.want+" to the new base image — "+baseMovedWhat+"\x1b[0m\r\n"; n != want {
+			t.Errorf("%s: the next shell after the agent's move %q, want %q", c.name, n, want)
+		}
 	}
 }

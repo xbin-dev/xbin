@@ -156,20 +156,44 @@ func (m *Manager) claimLayer(envKey string) (c layerClaim, held bool, err error)
 	return c, false, nil
 }
 
-// What a session says when its start moved the tile's layer to the current
-// base; a shell prints it first, grey (baseMovedLine), an agent session logs
-// it as a notice its Agent tab shows. What goes is everything the layer
-// holds — all outside the workspace's bind mounts and $HOME, a VM
-// terminal's whole disk — so the line names that, not only apt installs.
-// A shell on a tile whose layer an agent session's start moved says the
-// agent's line (baseMovedByAgentLine), once (takeMoveNote).
-const (
-	baseMovedWhat        = "everything outside the workspace files and $HOME was reset (installed packages, /etc, /var, /opt…; a VM terminal's whole disk)"
-	baseMovedNote        = "xbin: this tile's terminal moved to the new base image — " + baseMovedWhat
-	baseMovedByAgentNote = "xbin: an agent session's start moved this tile's terminal to the new base image — " + baseMovedWhat
-	baseMovedLine        = "\x1b[90m" + baseMovedNote + "\x1b[0m\r\n"
-	baseMovedByAgentLine = "\x1b[90m" + baseMovedByAgentNote + "\x1b[0m\r\n"
-)
+// What a session says when its start moved the layer it claims to the
+// current base (baseMovedNote); a shell prints it first, grey (greyLine), an
+// agent session logs it as a notice its Agent tab shows. What goes is
+// everything the layer holds — all outside the workspace's bind mounts and
+// $HOME, a VM terminal's whole disk — so the line names that, not only apt
+// installs. A shell whose layer an agent session's start moved says the
+// agent's line (baseMovedByAgentNote), once (takeMoveNote). Both name the
+// layer as the session's person knows it (movedLayer): the tile's terminal,
+// or on a partitioned tile their own.
+const baseMovedWhat = "everything outside the workspace files and $HOME was reset (installed packages, /etc, /var, /opt…; a VM terminal's whole disk)"
+
+// Who the base-move lines say moved (openOpts.movedLayer): the tile's layer,
+// or a person's own on a partitioned tile (PD-22) — only that person's
+// sessions claim it, so only they are told.
+const movedTileLayer = "this tile's terminal"
+
+// movedLayer is the layer a new session claims (layerKey) as its base-move
+// lines name it: a person's own on a partitioned tile, "your terminal on
+// <tile>"; else movedTileLayer.
+func (o openOpts) movedLayer() string {
+	if o.part.key != "" {
+		return "your terminal on " + o.part.tile
+	}
+	return movedTileLayer
+}
+
+// baseMovedNote says that the session's own start moved layer.
+func baseMovedNote(layer string) string {
+	return "xbin: " + layer + " moved to the new base image — " + baseMovedWhat
+}
+
+// baseMovedByAgentNote says that an agent session's start moved layer.
+func baseMovedByAgentNote(layer string) string {
+	return "xbin: an agent session's start moved " + layer + " to the new base image — " + baseMovedWhat
+}
+
+// greyLine is note as a shell's first output: grey, on a line of its own.
+func greyLine(note string) string { return "\x1b[90m" + note + "\x1b[0m\r\n" }
 
 // EnvStatus reports a component's persistent terminal layer before any
 // terminal is open: whether one exists, and whether it was built on an older

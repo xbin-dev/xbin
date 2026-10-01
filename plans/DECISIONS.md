@@ -9869,3 +9869,13 @@ Deviations and refinements made while implementing; all deliberate:
     with the output. TestPartitionProxyRerouteRefused (the same status,
     body and headers as a first refusal), TestRerouteRetiredGeneration's
     404 case.
+  - **Follow-up: a person's layer's move line is theirs.** The base-move
+    lines said "this tile's terminal" for a person's own layer too
+    (`.xbin/term-part`); they now name the layer as the session's person
+    knows it (openOpts.movedLayer, the same test as layerKey: a partition
+    key): "your terminal on <tile>" — the shell's own line, the line an
+    agent's move leaves that person's next shell, the agent's notice — and
+    "this tile's terminal" for the tile's layer, unchanged. Only that
+    person's sessions claim the layer, so only they read it (PD-09).
+    TestPartitionMoveLines (both cases, all three lines),
+    TestPartitionLayerBaseMoveIsolated (the line in a real sandbox).
