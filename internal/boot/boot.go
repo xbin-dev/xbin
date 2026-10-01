@@ -74,6 +74,7 @@ type State struct {
 	reconcileIngress func()
 	onVMPolicy       func(old, cur vm.Policy) // a VM policy change, for the tile-sandbox runtime (stepTileSandboxes)
 	watcher          *watch.Watcher
+	watchDone        chan struct{} // closed when the watch loop has returned (stepWatch, serve's stopWatch)
 	priv             Privileges
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)
 	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
@@ -751,12 +752,17 @@ func (st *State) stepWatch() error {
 	if st.Term != nil {
 		refreshViews = st.Term.RefreshViews
 	}
-	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
-		st.reconcileIngress()
-		if st.TileSbx != nil {
-			st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
-		}
-	}, refreshViews)
+	done := make(chan struct{})
+	st.watchDone = done
+	go func() {
+		defer close(done) // the loop ends when the watcher closes (serve's stopWatch)
+		watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
+			st.reconcileIngress()
+			if st.TileSbx != nil {
+				st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
+			}
+		}, refreshViews)
+	}()
 	return nil
 }
 
