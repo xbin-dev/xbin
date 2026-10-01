@@ -1432,7 +1432,11 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    in); in an admin's ?user= listing, and
                                    in an admin's view as its person, a
                                    person's session there has an empty
-                                   name
+                                   name. A shell named xbin:sign-in is the
+                                   Agent tab's guided sign-in running a
+                                   CLI's login (D178): it is no tab — a
+                                   client that makes tabs of this list
+                                   skips it
 PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
                                    the creator only: 403 for an admin on
                                    another person's session). {name}: name
@@ -1440,10 +1444,31 @@ PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
                                    session → follows the user) → ok
 GET    /agent/providers           authenticated. the coding agents this daemon
                                    runs: [{id,name,modes:[{id,name,explicit?}],
-                                   defaultMode,login}] (D74; explicit modes are
-                                   never defaults; login is the shell command
-                                   that signs the CLI in — the agent uses the
-                                   session's $HOME, no vault key)
+                                   defaultMode,login,signin?}] (D74; explicit
+                                   modes are never defaults; login is the
+                                   shell command that signs the CLI in — the
+                                   agent uses the session's $HOME, no vault
+                                   key). signin (D178; claude only, today) is
+                                   a sign-in a client drives for a person
+                                   without showing a terminal: {command,
+                                   argv, env?, tty, fallback?, url, hosts,
+                                   code, invalid?, done, fail} — run command
+                                   in a terminal session on the tile (or
+                                   argv+env over pipes when tty is false),
+                                   offer the first https URL on one of hosts
+                                   (or a subdomain) matching the regular
+                                   expression url — an OSC 8 link's target
+                                   first, else the text, rejoined where the
+                                   CLI broke it over full-width lines —
+                                   write the person's code and Enter once a
+                                   line holds code, and read invalid (code
+                                   refused as malformed, asked again), done
+                                   (signed in), fail (gave up; that line
+                                   says why). A run that ends without a URL
+                                   is a CLI too old for command: fallback is
+                                   the interactive sign-in to run in a
+                                   terminal instead. Nothing is saved but
+                                   what the CLI keeps in $HOME
 POST   /term/sessions             terminal-level on the tile (a shell's own
                                    terminal token counts; an agent
                                    sandbox's never — 403). {cwd, kind:"agent",
@@ -6579,7 +6604,7 @@ them apart by `hasOlder`.
 | `elicitation.resolved` | `{eid, action, by, content?}` — action: accept \| decline \| cancel; `content` the submitted values (with accept) |
 | `permission.resolved` | `{pid, optionId, by}` — by: `user:<id>`, `owner`, `auto` (a session rule), `cancel` |
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
-| `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a one-click sign-in that runs `command` in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
+| `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a sign-in: the provider's guided one when `GET /agent/providers` gives it a `signin` (D178: a link to open and a code to paste, the CLI running in a terminal session no tab shows), else — and on request — `command` run in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 | `notice` | `{text}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today one: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first) |
 

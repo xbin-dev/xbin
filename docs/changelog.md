@@ -12,6 +12,32 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **Claude Code signs in once, with a link and a code — guided in the
+  Agent tab; terminal links open whole**
+  ([09-terminals.md](/docs/overview/09-terminals.md) §Agent sessions,
+  [protocol.md](/docs/protocol.md) `GET /agent/providers`,
+  [elements.md](/docs/elements.md) §`<bx-terminal>`, D178). Claude Code's
+  sign-in is now `claude auth login` — one sign-in, no first-run screens,
+  a link to open and the code it shows pasted back — where `claude /login`
+  signed a fresh home in twice (its onboarding, then the command). When a
+  Claude Code agent is signed out, the Agent tab's **Sign in** runs it in a
+  terminal session of its own that no tab shows and offers **Open sign-in
+  page ↗**, **Copy link**, a code field with **Finish**, and the CLI's own
+  word on how it went; **Use a terminal instead** opens the shell tab as
+  before (codex, gemini and opencode sign in that way still). `GET
+  /agent/providers` gains an additive `signin` on claude: the command and
+  how to read its output (sdk/acp `Provider.Signin`, `Signin.Scan`), for
+  any client that wants to drive it. In every terminal a click on an OSC 8
+  link opens its whole target from any row it spans — no more "this link
+  could potentially be dangerous" — a URL broken over rows is joined back,
+  and a program's OSC 52 copy (Claude Code's "c to copy") reaches the
+  clipboard while the terminal has the focus. Claude Code agents no longer
+  run with `CLAUDE_CODE_REMOTE=1`, which put them in Anthropic's own
+  remote-session mode (auto memory off, a 2-minute API timeout, a
+  `bypassPermissions` default mode in your settings refused); the
+  adapter's sign-in methods are now `claude auth login`'s. coding-sandbox:
+  a new manager advertises `claude auth login` for Claude Code; a saved
+  config keeps its login, and an older one still works. Nothing to change.
 - **Partitioned tiles: people's partitions swap, and their terminal layers
   move base, like a tile's** ([partitions.md](/docs/partitions.md) §How
   people's partitions run, §Terminals and agent sessions;
@@ -142,8 +168,6 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   registered at SIGTERM) are refused; register what should bring it back
   while it runs. Nothing to change unless your partitioned backend does
   that at its exit.
-
-
 - **Agent template: a coding agent's `activity` no longer reads `idle`
   while it works.** The summary's `activity` (the `harness` event,
   `/tree`, `/needs`) went to `idle` on every status update that said the

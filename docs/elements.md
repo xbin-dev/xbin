@@ -529,6 +529,15 @@ wire) to one of two places:
     running; ending it is the endpoint's route — a manager's `DELETE
     …/sbx/sandboxes/{id}/execs/{session}`.
 
+Links (D178): a click on a URL a program printed opens it in a new tab with
+no opener — http and https only, and whole however it was drawn: an OSC 8
+hyperlink opens its target from any row it spans (no "dangerous link"
+confirm), a URL the program broke over rows with real line breaks is joined
+back (it reaches the right edge and the next rows are URL characters
+alone), and plain URLs link as before. A program's OSC 52 copy (Claude
+Code's "c to copy") writes the clipboard while the terminal has the focus;
+it is never read back. In a tile, new tabs need `cap:open-links`.
+
 Events: `bx-session` (`detail.id`; on `/ws/term` also the scope fields) and
 `bx-exit`. Theme, font size and prediction are kept in `localStorage` where
 the document has one; a sandboxed tile has none, and gets the defaults.

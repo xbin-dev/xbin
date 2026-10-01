@@ -104,6 +104,39 @@ export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.lo
   };
 }
 
+// The Agent tab's guided sign-in (agent-signin.js, D178) runs the CLI's
+// login in a terminal session of its own, which is never a tab. It names
+// the session SIGNIN as soon as it knows the id, and every browser's
+// listing passes over that name (visibleRows); this browser passes over it
+// before that too — while one is opening on a tile (signinOpening), a
+// shell row no tab here knows waits for the next listing (the rename's
+// `term` event brings one), and the id it reports is skipped from then on.
+export const SIGNIN = 'xbin:sign-in';
+const signins = { ids: new Set(), opening: new Map() }; // the ids; tile → how many are opening
+
+// signinOpening(cwd) → done(id): a sign-in session is being opened on cwd;
+// call done with its id once known (or with nothing when it never opened).
+export function signinOpening(cwd) {
+  signins.opening.set(cwd, (signins.opening.get(cwd) || 0) + 1);
+  let once = false;
+  return (id) => {
+    if (once) return;
+    once = true;
+    if (id) signins.ids.add(id);
+    const n = signins.opening.get(cwd) - 1;
+    if (n > 0) signins.opening.set(cwd, n); else signins.opening.delete(cwd);
+  };
+}
+
+// visibleRows(rows, cwd, local) → the listing without sign-in sessions:
+// none named SIGNIN or reported here, and — while one is opening on cwd —
+// no shell row that a local tab doesn't already hold.
+export function visibleRows(rows, cwd, local = []) {
+  const known = new Set(local.map((t) => t.id).filter(Boolean));
+  const opening = signins.opening.has(cwd);
+  return rows.filter((s) => s.name !== SIGNIN && !signins.ids.has(s.id) && !(opening && (s.kind || 'shell') === 'shell' && !known.has(s.id)));
+}
+
 // tabsFrom(server, local) → the tab list after a listing: the server's
 // rows in its order, each keeping the local tab's `key` (lit's repeat must
 // not remount a live terminal), what the session frame told the local tab

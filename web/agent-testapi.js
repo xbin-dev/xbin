@@ -68,6 +68,9 @@ export function agentTestApi(a) {
     get history() { return a._historyMeta || null; }, // the past session shown read-only (history mode)
     resumeHistory() { a._doResume(); },
     signIn() { const lg = a._login(); if (lg) a._doSignIn(lg); },
+    // the guided sign-in strip (agent-signin.js, D178), when it shows; the note after it worked
+    get signin() { return a.renderRoot?.querySelector('bx-agent-signin')?.testApi() || null; },
+    get signedNote() { return a._signedNote || ''; },
     setOption(id, value) { a._setOption(id, value); },
     start() { return a._create(); },
     send(text) { a._draft = text; return a._submit(); },

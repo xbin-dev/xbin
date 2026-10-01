@@ -40,6 +40,7 @@
 
 import { scrollCssText } from '/vendor/bx-scroll.js';
 import { logsQuery, echoOK, logChoices, badgeText, globalProbe } from '/vendor/logs-partition.js';
+import { wireLinks } from '/vendor/term-links.js';
 
 const LISTING_TTL = 30000; // how long the switcher trusts its listing on a new stream
 
@@ -161,7 +162,8 @@ export class BxLogs extends HTMLElement {
     });
     this.#fit = new window.FitAddon.FitAddon();
     this.#term.loadAddon(this.#fit);
-    if (window.WebLinksAddon) this.#term.loadAddon(new window.WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, '_blank', 'noopener,noreferrer')));
+    // links as in a terminal (term-links.js; a log never writes the clipboard)
+    wireLinks(this.#term, { focused: () => false });
     this.#term.open(this.#host);
     this.#host.style.background = termBg();
     try { this.#fit.fit(); } catch { }
