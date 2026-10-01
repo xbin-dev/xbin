@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **Fix: an unmounted encrypted volume's gocryptfs now ends, and a volume
+  never runs two** ([partitions.md](/docs/partitions.md) §How people's
+  partitions run, [resources.md](/docs/resources.md)). Every sandbox or
+  terminal started while a volume was mounted carries a copy of its mount,
+  so a person's volumes unmounted after the idle hour kept their gocryptfs
+  processes running (~9 MiB a person) until those sandboxes ended — and
+  the person's next start ran a second gocryptfs on the same encrypted
+  data. xbind now removes a volume's mountpoint when it unmounts it (idle,
+  a reset or removal, a seal, shutdown), which ends those copies too, and
+  waits for the process to exit; before mounting a volume it ends any
+  earlier gocryptfs still serving it. Nothing to change.
+
 - **Fix: partitioned tiles — a start turned away at the running caps no
   longer leaves the person's volumes mounted**
   ([partitions.md](/docs/partitions.md) §How people's partitions run,

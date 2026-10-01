@@ -1081,6 +1081,16 @@ Each person's partition is **its own backend process**, in its own sandbox:
   are refused. Register what should bring it back — its cron jobs — while
   it runs, when it goes idle; the agent template does
   (builtin-templates/agent/API.md "Partitioned instances" → Resume).
+- **Its volumes go an hour later.** A person's encrypted volumes (one
+  gocryptfs process each, with its logger) mount at their partition's
+  start and unmount once nobody has used them for an hour while none of
+  their instances runs ([resources.md](resources.md)). The unmount ends
+  the gocryptfs too, freeing its memory and key: xbind removes the
+  volume's mountpoint, which also detaches the copies of the mount that
+  sandboxes and terminals started meanwhile carry in their own mount
+  namespaces, and waits for the process to exit. The next start mounts
+  the volume again (~0.1 s), and xbind never runs a second gocryptfs on a
+  volume while an earlier one still serves it: it ends that one first.
 - **What it gets.** `XBIN_PARTITION=user:<id>` (the global instance gets
   `global`; an unpartitioned tile gets nothing new), the same
   `XBIN_COMPONENT`, `XBIN_RES_*` paths and code as every other instance,

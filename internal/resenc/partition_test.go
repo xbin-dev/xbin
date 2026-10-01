@@ -215,3 +215,25 @@ func TestPartitionVolumeRoundTrip(t *testing.T) {
 		t.Errorf("after the remount: %q %v", b, err)
 	}
 }
+
+// covers PD-48 I2 — a use racing the idle unmount: once UnmountIdle judged
+// a view due (under its lock) the view is going away, so Touch answers
+// false and leaves the clock, and the use Ensures it instead — which waits
+// on that lock and mounts it again — rather than handing out a view about
+// to be unmounted.
+func TestTouchWhileTakingDown(t *testing.T) {
+	const key = ".partitions/apps~x/main/u-alice/fs"
+	m := New(t.TempDir(), "", nil)
+	k := mkey(key, "db")
+	m.mounts[k] = m.MountDir(key, "db")
+	if !m.Touch(key, "db") || m.used[k].IsZero() {
+		t.Fatal("a mounted view's Touch")
+	}
+	m.downing[k], m.used[k] = true, time.Time{}
+	if m.Touch(key, "db") || !m.used[k].IsZero() {
+		t.Error("Touch of a view the idle unmount is taking down")
+	}
+	if m.Touch(key, "files") {
+		t.Error("Touch of a view that isn't mounted")
+	}
+}
