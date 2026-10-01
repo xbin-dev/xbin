@@ -9891,7 +9891,8 @@ Deviations and refinements made while implementing; all deliberate:
     (`session/load`, D75). A sandbox's `$HOME` holds one login, so
     multi-account means saved sign-ins. (3) The saved sign-in wins over the
     sandbox's own `$HOME` login; the chip says "using ‹name›". (4) Every
-    agent-template instance becomes partitioned (D177); saved sign-ins
+    agent-template instance becomes partitioned (landing beside this on
+    pt/land); saved sign-ins
     exist only in a person's own partition, in its vault — never at the
     global instance, never in legacy mode (only on an xbind without
     `--isolate`, or after "Keep current mode"), which keeps the
