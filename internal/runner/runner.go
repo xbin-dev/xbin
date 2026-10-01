@@ -427,6 +427,16 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		r.emit(c.Path, dep, "build-error", err.Error())
 		return err
 	}
+	if code.WorkTree && r.workTreeLeft(c.Path, dep) {
+		// Live reload left the deployment while its work tree built (a pause
+		// committed): what this generation read may postdate the pause's
+		// checkpoint, so it never serves (D174). The current generation
+		// serves until the deploy the pause queued swaps the checkpoint in;
+		// without one, the next request builds what the record names.
+		r.stopGen(inst, 2*time.Second)
+		g.release()
+		return nil
+	}
 
 	if !r.install(s, inst, false) {
 		g.release()

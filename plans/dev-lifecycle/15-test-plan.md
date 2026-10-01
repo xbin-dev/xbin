@@ -253,7 +253,7 @@ are M2.
 | 21 | pause; drop artifacts (loss of `.xbin/`); restart; ensure | build @c1 from the materialized checkpoint, then start | P9 T11 |
 | 22 | seal; unseal (`ShouldRun` false → true) with live reload paused | `start` from `artifact(c1)` | P9 |
 | 23 | ensure (live reload on); pause, work tree unchanged since the last build | exactly one swap onto @c1, never a build @worktree | P9, 05-model §5 |
-| 24 | ensure; edit; pause | build @c1 (the new content); swap | 05-model §5 |
+| 24 | ensure; edit; pause | build @c1 (the new content); swap. The edit's work-tree build, in flight at the pause, never serves (D174) | 05-model §5 |
 | 25 | ensure; broken edit; pause | build @c1 fails; live reload stays detached, and the record pins the deployment to c1 in state `failed` (05-model §5); no `reload`, `build-*` or `status` for the tile (05-model §8); the old generation serves until it exits, and any restart runs c1 and fails visibly, never @worktree | SC-LIVE-RELOAD-PAUSE, P9 |
 | 26 | pause; edit; reload-now | build @c2; swap; exactly one `reload` for the bare tile; the primary's status clears at the swap, not at `build-start` (05-model §8); live reload still paused | P9 P13, flow A |
 | 27 | pause; resume | build @worktree; swap; following the work tree again | flow A |

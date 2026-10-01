@@ -6203,12 +6203,44 @@ Deviations and refinements made while implementing; all deliberate:
     debounces, and the harness's xbind start and stop (60 s, 20 s, the
     shared daemon's 10 s) wait on the same conditions bounded by a 3-minute
     guard: a loaded boot took 63 s.
-  - **Left, both seen only at load ~300–480 on 192 cores:** the runner's
-    5 s health timeout (pinned, TestSeamKeepsConstants) failed a python
-    start in 3 of 36 runs; and the go subtest under `-race` (8 of 8) served
-    code saved after the pause's checkpoint before its deploy swapped: the
-    run's first save, flushed by the watcher after the resume, queues a
-    second work-tree build behind the resume's, which reads the tree as
-    the next saves land, and a work-tree build checks the record only when
-    it starts (07-runtime §8.6 lets an in-flight build swap). Not changed
-    here: each needs a decision on a pinned contract.
+  - **Left, seen only at load ~300–480 on 192 cores:** the runner's 5 s
+    health timeout (pinned, TestSeamKeepsConstants; protocol.md's
+    "health-checked by socket-connect within 5 s") failed a python start in
+    3 of 36 runs, failing that pause's deploy. Not changed here: it is a
+    contract. The go subtest's failure under the same load is D174's.
+- **D174 — A generation built from the work tree serves only if live reload
+  still drives its deployment once a pause in progress ends (2026-10-01).**
+  internal/runner/{runner.go (buildAndStart), deploy.go (workTreeLeft,
+  SettledCodeFor)}, internal/deployments/plane.go (overlay.settle,
+  SettledCodeFor). TestLiveReloadPauseRace/backends/runs/go under `-race`
+  at load ~380 failed every execution (8 of 8; 1–2 of 10 pause runs each):
+  after the pause's answer the code answered a save newer than the
+  checkpoint (`r003-000285` against `r003-000149`) until the pause's deploy
+  swapped. A work-tree build reads the record only when it starts
+  (runCurrent) and reads the work tree as it builds: one started before a
+  pause — here a second build queued behind the resume's, when the watcher
+  flushed the run's first save after the resume committed — compiled saves
+  made after the pause took its checkpoint, and swapped in, as 07-runtime
+  §8.6 allowed ("the in-flight build finishes and swaps"). A slower build
+  could read saves made after the pause's answer: a leak by
+  SC-LIVE-RELOAD-PAUSE's own words, and a pinned deployment running its
+  work tree, which runCurrent exists to prevent.
+  - **Now.** Before a generation built from the work tree is installed
+    (buildAndStart: the save, grant, crash and reap path), the runner asks
+    SettledCodeFor: the plane waits out an operation detaching the tile's
+    live reload (the pausing overlay, held from its request to its commit
+    or catch-up), then answers from the record. Pinned meanwhile: the
+    generation stops unserved, and the current one serves until the
+    operation's queued deploy swaps the checkpoint in (with none current,
+    the next request builds the checkpoint). Still the work tree (the
+    operation failed and caught up, or attached live reload here): it
+    serves as before. What it serves was read before the check, and the
+    check precedes any later operation's mark, so it predates that
+    operation's checkpoint.
+  - **Not chosen:** reading the record without waiting (an install between
+    a pause's capture and its commit still serves code newer than the
+    checkpoint, and one racing the commit serves it after the answer); the
+    plane's LiveReload (false while any operation holds the overlay, which
+    would also drop the first build of the deployment an attach makes
+    follow the work tree); cancelling the build when the pause begins (its
+    build turn is the pause's deploy's next anyway).

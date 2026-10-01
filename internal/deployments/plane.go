@@ -436,6 +436,7 @@ type overlay struct {
 	n     atomic.Int32
 	mu    sync.Mutex
 	tiles map[string]int
+	idle  map[string]chan struct{} // closed when tile's last mark goes: what settle waits on
 }
 
 // on marks tile until the returned func runs.
@@ -453,6 +454,10 @@ func (o *overlay) on(tile string) func() {
 			o.mu.Lock()
 			if o.tiles[tile]--; o.tiles[tile] <= 0 {
 				delete(o.tiles, tile)
+				if ch := o.idle[tile]; ch != nil {
+					close(ch)
+					delete(o.idle, tile)
+				}
 			}
 			o.n.Add(-1)
 			o.mu.Unlock()
@@ -467,6 +472,28 @@ func (o *overlay) has(tile string) bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.tiles[tile] > 0
+}
+
+// settle waits until no operation marks tile: the one detaching its live
+// reload has committed, or failed and caught up.
+func (o *overlay) settle(tile string) {
+	for o.n.Load() != 0 {
+		o.mu.Lock()
+		if o.tiles[tile] <= 0 {
+			o.mu.Unlock()
+			return
+		}
+		if o.idle == nil {
+			o.idle = map[string]chan struct{}{}
+		}
+		ch := o.idle[tile]
+		if ch == nil {
+			ch = make(chan struct{})
+			o.idle[tile] = ch
+		}
+		o.mu.Unlock()
+		<-ch
+	}
 }
 
 // ---- the runner's hooks (runner.DeploymentHooks) ----
@@ -494,6 +521,15 @@ func (p *Plane) CodeFor(tile, dep string) (runner.Code, error) {
 		return runner.Code{WorkTree: true}, nil
 	}
 	return runner.Code{Tree: *d.Checkpoint}, nil
+}
+
+// SettledCodeFor is CodeFor once no operation is detaching tile's live
+// reload (the pausing overlay): the runner asks it before a generation built
+// from the work tree serves, so one built while a pause took its checkpoint
+// never serves once the pause commits (D174).
+func (p *Plane) SettledCodeFor(tile, dep string) (runner.Code, error) {
+	p.pausing.settle(tile)
+	return p.CodeFor(tile, dep)
 }
 
 // Primary names tile's primary deployment: its record's, else main.

@@ -371,7 +371,7 @@ func TestDeploySeamRows(t *testing.T) {
 		}
 	})
 
-	t.Run("24 an edit whose rebuild is in flight: that build swaps, then the pause ships c1", func(t *testing.T) {
+	t.Run("24 an edit whose rebuild is in flight: that build never serves, the pause ships c1 (D174)", func(t *testing.T) {
 		g := newDeployRig(t, goMan)
 		g.ensure()
 		g.takeAll()
@@ -389,8 +389,10 @@ func TestDeploySeamRows(t *testing.T) {
 			t.Fatal(err)
 		}
 		g.settle()
-		g.expectLog([]string{st(2), sp(1), c1b, st(3), sp(2)}, true)
-		g.expectTape([]string{bs, bo}) // the save's build only
+		// The save's generation started, then stopped unserved: the pause
+		// pinned main meanwhile. g1 served until c1 swapped in.
+		g.expectLog([]string{st(2), sp(2), c1b, st(3), sp(1)}, false)
+		g.expectTape([]string{bs}) // the save's build only, which never served
 		if got := g.served(); got != "healthy g3 c1" {
 			t.Errorf("served %s, want healthy g3 c1", got)
 		}

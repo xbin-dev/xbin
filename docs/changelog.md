@@ -26,6 +26,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   on SIGTERM without answering the requests it holds still loses them, and
   one of those idempotent requests may now run on both generations: drain
   on SIGTERM, as `xbin.Serve` does.
+- **Pausing live reload while a save still builds ships the checkpoint
+  only** ([tile-deployments.md](/docs/tile-deployments.md) §Pausing live
+  reload). The save's build used to finish and swap in before the pause's
+  checkpoint did, and as it read the work tree while it built, it could
+  briefly serve saves made after the pause. Its generation now never
+  serves once the pause commits: the code running before keeps serving
+  until the checkpoint swaps in.
 
 ## 2026-09-30
 

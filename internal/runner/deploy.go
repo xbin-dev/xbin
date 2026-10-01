@@ -67,6 +67,11 @@ type DeploymentHooks struct {
 	// Without a record it answers {WorkTree: true} for main and
 	// util.ErrNoDeployment for any other name; nil answers the same.
 	CodeFor func(tile, dep string) (Code, error)
+	// SettledCodeFor is CodeFor once no operation is detaching tile's live
+	// reload: it waits for one in progress (a pause between its request and
+	// its commit) to end. A generation built from the work tree asks it
+	// before it serves (workTreeLeft). nil: CodeFor, without waiting.
+	SettledCodeFor func(tile, dep string) (Code, error)
 	// Primary names tile's primary deployment; "main" without a record, and
 	// when nil.
 	Primary func(tile string) string
@@ -132,6 +137,22 @@ func (r *Runner) recordCode(tile, dep string) (Code, error) {
 		return Code{}, util.NoDeployment(tile, dep)
 	}
 	return Code{WorkTree: true}, nil
+}
+
+// workTreeLeft says whether deployment dep of tile, a generation of which was
+// just built from the work tree, has stopped following the work tree
+// meanwhile: an operation that detaches live reload (a pause, a promote onto
+// it, …) is waited out, then the record is read again. That generation never
+// serves (D174): it read the work tree when it built, possibly after the
+// checkpoint the operation took, and the deploy the operation queued starts
+// that checkpoint. A record that can't be read changes nothing here.
+func (r *Runner) workTreeLeft(tile, dep string) bool {
+	read := r.SettledCodeFor
+	if read == nil {
+		read = r.recordCode
+	}
+	code, err := read(tile, dep)
+	return err == nil && !code.WorkTree
 }
 
 // ErrNeedsIsolation refuses or holds a backend pinned to a checkpoint on an
