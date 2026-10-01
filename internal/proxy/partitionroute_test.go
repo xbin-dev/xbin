@@ -73,6 +73,9 @@ type fakeParts struct {
 	holds  map[string]int // "active"/"passive" → live holds
 	events []string
 	gens   []fakeGen // when set, what each EnsurePartition answers in turn (then sock)
+	// thenErr, when set, is what EnsurePartition answers once gens ran out
+	// (an admission the swap's caps refused).
+	thenErr error
 }
 
 var startNames = map[PartitionStart]string{StartInteractive: "interactive", StartBackground: "background", StartMail: "mail"}
@@ -88,6 +91,9 @@ func (f *fakeParts) EnsurePartition(_ context.Context, c *registry.Component, de
 		g := f.gens[0]
 		f.gens = f.gens[1:]
 		return g, nil
+	}
+	if f.thenErr != nil {
+		return nil, f.thenErr
 	}
 	return fakeGen{sock: f.sock}, nil
 }

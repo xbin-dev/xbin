@@ -9858,3 +9858,14 @@ Deviations and refinements made while implementing; all deliberate:
     (no request), manifestmerge's TestKeptKeysConflict and
     TestOldInstanceTakesRequestedPartition (the driver);
     docs/changes/2026-10-01-agent-instances-partitioned.md.
+  - **Follow-up: a refused reroute is the first refusal's 503.** A rerouted
+    request whose second EnsurePartition was refused (the caps met during
+    the swap) answered the transport's 502 "backend error: …"; rerouting
+    now hands again's error to forward as an ensureError, answered by
+    ServeHTTP's own ensureFailed under the same Decision — 503 and the
+    reason (the first path sets no Retry-After, so neither does this).
+    Shared with deployments, as D173's error path is: a reroute finding the
+    deployment removed is the first ensure's 404, a failed build its 502
+    with the output. TestPartitionProxyRerouteRefused (the same status,
+    body and headers as a first refusal), TestRerouteRetiredGeneration's
+    404 case.

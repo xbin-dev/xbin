@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // fakeGen is a generation for rerouting: a socket, and whether it is retired.
@@ -72,6 +74,8 @@ func gone(t *testing.T) string { return filepath.Join(t.TempDir(), "gone.sock") 
 // safe: no body, and an idempotent method or nothing sent (a failed dial).
 // Anything else, and any failure of a generation that wasn't retired (a
 // crash), answers 502 as before, without asking for another generation.
+// When the deployment has no generation to follow to, the request answers
+// as a first ensure's same failure does (D177: a removed deployment's 404).
 func TestRerouteRetiredGeneration(t *testing.T) {
 	next := answering(t, "g2")
 	for _, tc := range []struct {
@@ -81,7 +85,7 @@ func TestRerouteRetiredGeneration(t *testing.T) {
 		gen      fakeGen
 		again    []generation // what each call of again answers, in order
 		againErr error
-		want     string // the answer's body, or "502" plus a substring of the error
+		want     string // the answer's body, or its status plus a substring of the error
 		asked    int    // calls of again
 	}{
 		{name: "GET cut off by the retirement goes to the new generation",
@@ -102,6 +106,9 @@ func TestRerouteRetiredGeneration(t *testing.T) {
 		{name: "the deployment can't answer now: its reason",
 			method: "GET", gen: fakeGen{cutting(t), true}, againErr: errors.New("component apps/x is not enabled"),
 			want: "502 component apps/x is not enabled", asked: 1},
+		{name: "the deployment went meanwhile: as a first ensure's, 404",
+			method: "GET", gen: fakeGen{cutting(t), true}, againErr: fmt.Errorf("apps/x: %w", util.ErrNoDeployment),
+			want: "404 " + util.ErrNoDeployment.Error(), asked: 1},
 		{name: "a deployment that never stops swapping: bounded",
 			method: "GET", gen: fakeGen{cutting(t), true},
 			again: []generation{fakeGen{cutting(t), true}, fakeGen{cutting(t), true}, fakeGen{cutting(t), true}, fakeGen{next, false}},
@@ -127,9 +134,9 @@ func TestRerouteRetiredGeneration(t *testing.T) {
 			if w.Code != http.StatusOK {
 				got = fmt.Sprint(w.Code) + " " + got
 			}
-			if want, ok := strings.CutPrefix(tc.want, "502 "); ok {
-				if w.Code != http.StatusBadGateway || !strings.Contains(got, want) {
-					t.Errorf("answer %q, want a 502 naming %q", got, want)
+			if code, want, ok := strings.Cut(tc.want, " "); ok && len(code) == 3 {
+				if fmt.Sprint(w.Code) != code || !strings.Contains(got, want) {
+					t.Errorf("answer %q, want a %s naming %q", got, code, want)
 				}
 			} else if got != tc.want {
 				t.Errorf("answer %q, want %q", got, tc.want)

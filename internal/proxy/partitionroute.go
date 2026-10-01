@@ -150,7 +150,7 @@ func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, tar
 		if err != nil {
 			return nil, nil, err
 		}
-		return &rerouting{px: px, gen: gen, again: again}, &backendHold{release: px.Runner.TrackDeployment(comp.Path, target)}, nil
+		return &rerouting{px: px, gen: gen, again: again, d: d}, &backendHold{release: px.Runner.TrackDeployment(comp.Path, target)}, nil
 	}
 	if px.Partitions == nil {
 		return nil, nil, errNoPartitionRunner
@@ -178,7 +178,7 @@ func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, tar
 		h.mu.Unlock()
 		active()
 	}
-	return &rerouting{px: px, gen: gen, again: again}, h, nil
+	return &rerouting{px: px, gen: gen, again: again, d: d}, h, nil
 }
 
 // ensureStatus is the status of a failed ensure of a user partition: a
