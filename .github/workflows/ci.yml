@@ -34,8 +34,8 @@ jobs:
           # tests: fmt-check, vet, js-check, js-test, native-check,
           # theme-check, shellcheck, pins-offline, large-files
           - { name: check, run: make -j4 -O guards, cache: check }
-          - { name: unit 1/2, run: make test SHARD=1/2, cache: unit, helpers: true }
-          - { name: unit 2/2, run: make test SHARD=2/2, cache: unit, helpers: true }
+          - { name: unit 1/2, run: make test SHARD=1/2, cache: unit-1, helpers: true }
+          - { name: unit 2/2, run: make test SHARD=2/2, cache: unit-2, helpers: true }
           # the builtin tiles' and templates' backends against their own
           # go.mod.tile (network: their deps)
           - { name: tile-check, run: make tile-check, cache: tile }
@@ -60,9 +60,11 @@ jobs:
         with:
           node-version: "24"
       # The module and build caches, one per kind of job (they compile
-      # different things). Restored from the newest master run's; saved only
-      # by master runs (below), so pull requests share master's and the
-      # repository's 10 GB cache budget isn't spent per branch.
+      # different things; the unit shards' packages differ, the integration
+      # shards' mostly don't, and the first of them to end saves). Restored
+      # from the newest master run's; saved only by master runs (below), so
+      # pull requests share master's and the repository's 10 GB cache
+      # budget isn't spent per branch.
       - id: gocache
         uses: actions/cache/restore@v6
         with:
