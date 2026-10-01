@@ -10,6 +10,15 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-01
+
+- **Fix: a sandbox's network relay sends nothing after it is closed.**
+  When a sandboxed backend, terminal or tool run stopped, a flow still
+  finishing (the reset of a connection that was being dialed, say) could
+  write its packet after the relay had closed its TUN, into whatever file
+  xbind had opened under the same number by then. The relay now stops its
+  writers before it closes the TUN. Nothing to change.
+
 ## 2026-09-30
 
 - **BREAKING (security): each Go tile builds with a `go.work` of its

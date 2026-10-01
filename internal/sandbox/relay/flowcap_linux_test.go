@@ -383,7 +383,12 @@ func TestDNSPinningStrict(t *testing.T) {
 }
 
 // CloseTUN hands the TUN fd to the relay: Close shuts it after the readers
-// stop, so the sandbox's end reads EOF.
+// stop, so the sandbox's end reads EOF. Close closes the fd before it
+// returns, so the EOF is there at once: the reads don't wait. (A packet
+// ahead of the EOF would be the relay's, sent before Close; this relay has
+// no flows and sends none. It once read another relay's late RST, written
+// into this socket because it took that relay's closed TUN fd number:
+// TestCloseStopsWriters.)
 func TestCloseTUN(t *testing.T) {
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
@@ -396,8 +401,7 @@ func TestCloseTUN(t *testing.T) {
 	}
 	r.Close()
 	r.Close() // idempotent: the fd is closed once
-	_ = unix.SetsockoptTimeval(fds[1], unix.SOL_SOCKET, unix.SO_RCVTIMEO, &unix.Timeval{Sec: 2})
-	n, err := unix.Read(fds[1], make([]byte, 64))
+	n, _, err := unix.Recvfrom(fds[1], make([]byte, 2048), unix.MSG_DONTWAIT)
 	if n != 0 || err != nil {
 		t.Fatalf("the sandbox's end: read %d, %v — want EOF once the relay closed the TUN", n, err)
 	}

@@ -15,9 +15,11 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/sys/unix"
 
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
 // The relay driven through a real gVisor stack: raw IPv4 packets go in over
@@ -428,4 +430,48 @@ func TestCloseStopsReaders(t *testing.T) {
 		}
 	}
 	t.Fatalf("goroutines: %d before, %d after three relays closed", base, n)
+}
+
+// Close stops the TUN's writers too. gVisor checks that a route is still
+// good, then writes to the link holding no lock, and its fdbased link
+// writes straight to the fd: a flow goroutine between the two — sending the
+// RST of a dial Close cancelled, say — reached the link after Close had
+// returned, and wrote into whatever file had the fd's number by then. (So
+// TestCloseTUN once read an earlier test's 40-byte RST.) Here the write
+// reaches the NIC's link endpoint after Close, as such a goroutine's does.
+func TestCloseStopsWriters(t *testing.T) {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Skip("socketpair:", err)
+	}
+	defer unix.Close(fds[1])
+	r, err := Start(Config{TunFD: fds[0], Allow: allowAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var link stack.LinkWriter = r.gate // the NIC's endpoint: the ICMP tap over the gate
+	if r.icmp != nil {
+		link = r.icmp
+	}
+	write := func() {
+		pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+			Payload: buffer.MakeWithData(tcpSYN(allowed, sbxIP, 80, 41000)), // any packet
+		})
+		defer pkt.DecRef()
+		pkt.NetworkProtocolNumber = header.IPv4ProtocolNumber
+		var pkts stack.PacketBufferList
+		pkts.PushBack(pkt)
+		_, _ = link.WritePackets(pkts)
+	}
+	write() // reaches the TUN
+	r.Close()
+	write()
+	unix.Close(fds[0])
+	buf := make([]byte, 2048)
+	if n, _, err := unix.Recvfrom(fds[1], buf, unix.MSG_DONTWAIT); n == 0 || err != nil {
+		t.Fatalf("the packet written before Close: read %d, %v", n, err)
+	}
+	if n, _, err := unix.Recvfrom(fds[1], buf, unix.MSG_DONTWAIT); n != 0 || err != nil {
+		t.Fatalf("a packet written after Close reached the TUN: read %d, %v — want EOF", n, err)
+	}
 }
