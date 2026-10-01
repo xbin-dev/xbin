@@ -9858,7 +9858,7 @@ Deviations and refinements made while implementing; all deliberate:
     error" wording. Nothing else needs it: the rootfs probe
     (claude-agent-acp 0.81.1, signed out) opens the session with the same
     modes and options either way; only the advertised auth methods differ.
-  - **The AgTT side follows separately**, after the partitions merge: the
+  - **The AgTT side follows separately** (built as D179), after the partitions merge: the
     agent template's guided method (it still runs the adapter's terminal
     method, now `auth login`, or the catalog's `LoginCmd` — left as
     `CLAUDE_CODE_REMOTE=1 claude /login` for it to replace with

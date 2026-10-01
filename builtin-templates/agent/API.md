@@ -2229,7 +2229,7 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
  "modes": [{"id": "default", "name": "Ask before acting"}, {"id": "bypassPermissions", "name": "Bypass permissions", "explicit": true}],
  "defaultMode": "default", "autoMode": "acceptEdits", "approveMode": "default", "planMode": "plan",
  "setting": "approve",                        // the caller's own (below)
- "login": {"command": "CLAUDE_CODE_REMOTE=1 claude /login"},
+ "login": {"command": "claude auth login", "guided": true, "mint": true}, // its terminal sign-in; guided: the guided sign-in (D179), mint: its Remember (a person's partition)
  "options": [ /* the config options its last session reported, any conversation — absent before one */ ],
  "sandboxes": {"apps/coding-sandbox|sb-7f3a": {"installed": true, "signedIn": false, "at": 1790000100000}}}
 ```
