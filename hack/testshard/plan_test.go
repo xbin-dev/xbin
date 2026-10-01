@@ -40,6 +40,9 @@ func TestShardsRunEveryTestOnce(t *testing.T) {
 		if err := checkUnitPartition(root, tm, profile, p.UnitShards); err != nil {
 			t.Error(err)
 		}
+		if err := checkAlone(root, p, tm, profile); err != nil {
+			t.Error(err)
+		}
 	}
 	if err := checkCI(root, p); err != nil {
 		t.Error(err)

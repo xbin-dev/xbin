@@ -19,9 +19,16 @@
 // unit_shards splits `make test` (go test ./... and the sdk and relay
 // modules) by package the same way, for CI's unit jobs
 // (`make test SHARD=i/N`); a bare `make test` runs it whole.
+//
+// alone: patterns over <suite>/<Test> for the tests that measure latency
+// against budgets (plans/dev-flow.md, "Latency budgets"; they must run by
+// themselves). A local `make integration` runs them after every shard is
+// done, so the other shards' load isn't in their samples; a CI shard has a
+// runner of its own, and they stay in their shard.
 {
   "shards": 4,
   "unit_shards": 2,
+  "alone": ["^test/TestLatency", "^test/TestRollBackBound$"],
   "suites": [
     // the end-to-end suite over a real xbind (TestMain builds one and boots
     // a shared daemon; tests with a daemon of their own start more), Go

@@ -47,6 +47,19 @@ type plan struct {
 	Shards     int     `json:"shards"`
 	UnitShards int     `json:"unit_shards"`
 	Suites     []suite `json:"suites"`
+	// Alone are patterns over unit keys (<suite>/<Test>): tests a local
+	// run of every shard at once runs after the shards, by themselves.
+	Alone []string `json:"alone"`
+}
+
+// alone reports whether key matches one of the plan's alone patterns.
+func (p *plan) alone(key string) bool {
+	for _, a := range p.Alone {
+		if regexp.MustCompile(a).MatchString(key) {
+			return true
+		}
+	}
+	return false
 }
 
 // timings are measured seconds per profile ("ci", "local"): an integration
@@ -64,6 +77,11 @@ func loadPlan(root string) (*plan, error) {
 	}
 	if p.Shards < 1 || p.UnitShards < 1 {
 		return nil, fmt.Errorf("%s: shards and unit_shards must be at least 1", planFile)
+	}
+	for _, a := range p.Alone {
+		if _, err := regexp.Compile(a); err != nil {
+			return nil, fmt.Errorf("%s: alone %q: %w", planFile, a, err)
+		}
 	}
 	seen := map[string]bool{}
 	for _, s := range p.Suites {

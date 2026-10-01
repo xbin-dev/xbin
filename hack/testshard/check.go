@@ -56,6 +56,52 @@ func checkPartition(root string, p *plan, t timings, profile string, n int) erro
 	return nil
 }
 
+// checkAlone: each of the plan's alone patterns names a sharded suite's
+// test, and a local run of every shard at once (which moves those tests
+// after the shards) still runs every sharded test exactly once.
+func checkAlone(root string, p *plan, t timings, profile string) error {
+	shards, _, err := integrationShards(root, p, t, profile, p.Shards)
+	if err != nil {
+		return err
+	}
+	var problems []string
+	seen := map[string]int{}
+	var alone []unit
+	matched := make([]bool, len(p.Alone))
+	for _, sh := range shards {
+		var keep []unit
+		keep, alone = splitAlone(p, sh, alone)
+		for _, u := range keep {
+			seen[u.key()]++
+		}
+	}
+	for _, u := range alone {
+		seen[u.key()]++
+		for i, a := range p.Alone {
+			if regexp.MustCompile(a).MatchString(u.key()) {
+				matched[i] = true
+			}
+		}
+	}
+	for _, sh := range shards {
+		for _, u := range sh {
+			if seen[u.key()] != 1 {
+				problems = append(problems, fmt.Sprintf("%s runs %d times", u.key(), seen[u.key()]))
+			}
+		}
+	}
+	for i, a := range p.Alone {
+		if !matched[i] {
+			problems = append(problems, fmt.Sprintf("alone %q matches no sharded test", a))
+		}
+	}
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return fmt.Errorf("every shard at once, the alone tests after (%s profile):\n  %s", profile, strings.Join(problems, "\n  "))
+	}
+	return nil
+}
+
 // checkUnitPartition: every unit package in exactly one of n shards.
 func checkUnitPartition(root string, t timings, profile string, n int) error {
 	shards, pkgs, err := unitShards(root, t, profile, n)
@@ -226,6 +272,9 @@ func cmdVerify(root string, _ []string) error {
 			return err
 		}
 		if err := checkUnitPartition(root, t, profile, p.UnitShards); err != nil {
+			return err
+		}
+		if err := checkAlone(root, p, t, profile); err != nil {
 			return err
 		}
 	}

@@ -82,7 +82,10 @@ tests longest first onto the least-loaded shard by
 `hack/integration-timings.json`, a test without a time onto the shard its
 name hashes to (so adding a test moves nothing else). A suite with a `job`
 (the VM suite) runs whole in that CI job. The unit packages split the same
-way into `unit_shards` (2).
+way into `unit_shards` (2). The tests the plan names `alone` (the latency
+budgets) stay in their shard on CI, where a shard has a runner to itself;
+a local run of every shard at once runs them after the shards, by
+themselves.
 
 | Command | Runs |
 |---|---|

@@ -176,29 +176,37 @@ func parseShardFlags(name string, args []string) (shardFlags, error) {
 }
 
 // planned is every shard's and job's steps: "1/N"…"N/N", then each job.
-func planned(root string, p *plan, t timings, f shardFlags) ([]string, map[string][]step, error) {
+// Without -shard (every shard at once) the plan's alone tests leave their
+// shards for after: the steps run once the shards are done.
+func planned(root string, p *plan, t timings, f shardFlags) ([]string, map[string][]step, []step, error) {
 	n := p.Shards
 	if f.shard != "" && strings.Contains(f.shard, "/") {
 		var err error
 		if _, n, err = parseShard(f.shard); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 	shards, _, err := integrationShards(root, p, t, f.profile, n)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	w := floor(t[f.profile])
-	var names []string
+	var (
+		names []string
+		alone []unit
+	)
 	out := map[string][]step{}
 	for i, sh := range shards {
 		k := fmt.Sprintf("%d/%d", i+1, n)
 		names = append(names, k)
+		if f.shard == "" {
+			sh, alone = splitAlone(p, sh, alone)
+		}
 		out[k] = suiteSteps(p, sh, w, f.execWrap)
 	}
 	lists, err := listSuites(root, p)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, j := range p.jobs() {
 		var units []unit
@@ -214,11 +222,25 @@ func planned(root string, p *plan, t timings, f shardFlags) ([]string, map[strin
 	}
 	if f.shard != "" {
 		if _, ok := out[f.shard]; !ok {
-			return nil, nil, fmt.Errorf("no shard or job %q (have %s)", f.shard, strings.Join(names, ", "))
+			return nil, nil, nil, fmt.Errorf("no shard or job %q (have %s)", f.shard, strings.Join(names, ", "))
 		}
-		return []string{f.shard}, out, nil
+		return []string{f.shard}, out, nil, nil
 	}
-	return names, out, nil
+	sort.Slice(alone, func(i, j int) bool { return alone[i].key() < alone[j].key() })
+	return names, out, suiteSteps(p, alone, w, f.execWrap), nil
+}
+
+// splitAlone moves sh's alone units onto alone; returns the rest of sh.
+func splitAlone(p *plan, sh, alone []unit) ([]unit, []unit) {
+	var keep []unit
+	for _, u := range sh {
+		if p.alone(u.key()) {
+			alone = append(alone, u)
+		} else {
+			keep = append(keep, u)
+		}
+	}
+	return keep, alone
 }
 
 func cmdList(root string, args []string) error {
@@ -237,9 +259,12 @@ func cmdList(root string, args []string) error {
 	if f.unit {
 		return listUnit(root, p, t, f)
 	}
-	names, steps, err := planned(root, p, t, f)
+	names, steps, after, err := planned(root, p, t, f)
 	if err != nil {
 		return err
+	}
+	if len(after) > 0 {
+		names, steps["after the shards, alone"] = append(names, "after the shards, alone"), after
 	}
 	for _, k := range names {
 		total, tests := 0.0, 0
@@ -320,6 +345,14 @@ func runSteps(root, label string, steps []step, out io.Writer) []result {
 	return res
 }
 
+func stepTests(steps []step) int {
+	n := 0
+	for _, s := range steps {
+		n += s.tests
+	}
+	return n
+}
+
 func failed(res []result) []string {
 	var out []string
 	for _, r := range res {
@@ -343,7 +376,7 @@ func cmdRun(root string, args []string) error {
 	if err != nil {
 		return err
 	}
-	names, steps, err := planned(root, p, t, f)
+	names, steps, after, err := planned(root, p, t, f)
 	if err != nil {
 		return err
 	}
@@ -353,13 +386,14 @@ func cmdRun(root string, args []string) error {
 		}
 		return nil
 	}
-	return runAll(root, names, steps, f.logs)
+	return runAll(root, names, steps, after, f.logs)
 }
 
 // runAll runs every shard and job at once, each into a log file of its own
 // (in logs, kept; else a temp dir, removed when all pass), and reports each
-// as it ends; the failures' FAIL lines and tails at the end.
-func runAll(root string, names []string, steps map[string][]step, logs string) error {
+// as it ends; then the after steps, by themselves, into after.log; the
+// failures' FAIL lines and tails at the end.
+func runAll(root string, names []string, steps map[string][]step, after []step, logs string) error {
 	dir, keep := logs, logs != ""
 	var err error
 	if keep {
@@ -402,6 +436,22 @@ func runAll(root string, names []string, steps map[string][]step, logs string) e
 		}()
 	}
 	wg.Wait()
+	if len(after) > 0 {
+		k := "after"
+		fmt.Printf("  then %d tests by themselves (the plan's alone: latency budgets)\n", stepTests(after))
+		lf, err := os.Create(logOf(k))
+		if err != nil {
+			return err
+		}
+		res := runSteps(root, "after the shards, alone", after, lf)
+		_ = lf.Close()
+		if f := failed(res); len(f) > 0 {
+			bad = append(bad, k)
+			fmt.Printf("  %-6s FAIL (%s) after %.0fs — %s\n", k, strings.Join(f, ", "), time.Since(start).Seconds(), logOf(k))
+		} else {
+			fmt.Printf("  %-6s ok after %.0fs\n", k, time.Since(start).Seconds())
+		}
+	}
 	if len(bad) == 0 {
 		fmt.Printf("make integration: green in %.0fs\n", time.Since(start).Seconds())
 		if !keep {
