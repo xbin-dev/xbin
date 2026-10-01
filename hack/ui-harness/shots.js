@@ -830,6 +830,7 @@ PASSES.personPageAsked = require('./passes/personpageasked').personPageAsked; //
 PASSES.agentMoves = require('./passes/agentmoves').agentMoves; // AF: an un-shared conversation moves home (HARNESS_AGENT_PARTITION=1)
 PASSES.agentHosted = require('./passes/agenthosted').agentHosted; // B2d: non-secure (hosted) chats, HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
 PASSES.agentHarness = require('./passes/agentharness').agentHarness; // D147: coding agents in the agent template (not under HARNESS_ISOLATE: its fake adapter is a host path)
+PASSES.agentSignins = require('./passes/agentsignins').agentSignins; // D179: saved sign-ins for coding agents (partitioned under HARNESS_AGENT_PARTITION=1)
 
 (async () => {
   const args = process.argv.slice(2);

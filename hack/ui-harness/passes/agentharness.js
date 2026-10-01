@@ -15,7 +15,12 @@
 //   3. "ask": the question form → answered;
 //   4. a sandbox with no credentials: the sign-in card → the login terminal
 //      (the terminal dock; `fake-code`) → "Signed in? Retry" → the held
-//      prompt answers; the API-key method, the key never echoed;
+//      prompt answers; the API-key method, the key never echoed; the
+//      guided sign-in (D179: the fake signs in as Claude Code does —
+//      fakebin/claude's `auth login` in the sandbox): the link joined from
+//      its OSC 8 rows, a malformed code asked again, the right one answers
+//      the held message, the sign-in's exec deleted, no Remember
+//      (unpartitioned);
 //   5. the AgTT agent: "harness fan out" → three coding agents → the
 //      parent's child cards → the Coding agents board (chip, "needs you") →
 //      a child's park answered from the board → "harness steer"; a person's
@@ -287,8 +292,42 @@ async function signIn(a, check, stamp) {
   const logTail = (await call(a, `/api/apps/agent/runs/${kid}/harness/log`)).body;
   check(!page.includes(KEY) && !view.includes(KEY) && !String(logTail).includes(KEY), 'the key is nowhere: not in the page, the conversation or the agent\'s log');
   await shots(a, 'api-key-signed-in');
+
+  // (c) the guided sign-in (D179): the fake signs in as Claude Code does —
+  // fakebin/claude's `auth login` runs in the sandbox (a host process here),
+  // the card offers its link and takes the code
+  const gbox = await newSandbox(a, `harness-guided-${stamp}`, { signed: false });
+  const gid = await start(a, gbox.ref, 'hello guided');
+  await a.waitForSelector('#hl-guided #hl-gstart', { timeout: 30000 });
+  const terms = await a.$$eval('#hlogin .hlm [data-kind="terminal"]', (els) => els.map((e) => e.textContent.trim()));
+  check(terms.length === 1 && terms[0] === 'Use a terminal instead', `beside the guided sign-in, one terminal: "Use a terminal instead" (${JSON.stringify(terms)})`);
+  check(!(await a.$('#hl-remember')), 'an unpartitioned agent offers no Remember (saved sign-ins are a person\'s own partition\'s)');
+  await shots(a, 'guided');
+  await a.click('#hl-gstart');
+  await a.waitForSelector('#hl-gopen', { timeout: 30000 });
+  const href = await a.getAttribute('#hl-gopen', 'href');
+  check(href === GUIDED_URL, `"Open sign-in page ↗" carries the whole URL, joined from the CLI's 60-column OSC 8 rows (${href})`);
+  check(!!(await a.$('#hl-gcopy')) && /Open the sign-in page, sign in, then paste the code/.test(await a.textContent('#hl-gstatus')), 'Copy link, and the status asks for the code');
+  await shots(a, 'guided-link');
+  await a.fill('#hl-gcode input', 'garbage');
+  await a.press('#hl-gcode input', 'Enter');
+  await until(a, () => /isn't the whole code/.test(document.getElementById('hl-gstatus')?.textContent || ''), null, 30000);
+  check(!!(await a.$('#hl-gopen')), 'a malformed code: the CLI asks again, the link stands');
+  await a.fill('#hl-gcode input', 'harness-code#harness-state');
+  await a.press('#hl-gcode input', 'Enter');
+  await answered(a, 'echo: hello guided', 30000);
+  await resting(a);
+  const g1 = await runOf(a, gid);
+  check(g1.status === 'idle' && g1.harness?.state === 'ready', `signed in: the held message answers, no Retry needed (${g1.status} · ${g1.harness?.state})`);
+  const execs = (await call(a, `/api/apps/fakesbx/sbx/sandboxes/${gbox.id}/execs`)).body;
+  const left = ((execs && execs.execs) || []).filter((x) => /^sign-in /.test(x.label || ''));
+  check(left.length === 0, `the sign-in's exec is deleted once it is over (${JSON.stringify(left).slice(0, 200)})`);
+  await shots(a, 'guided-signed-in');
   return { box, id };
 }
+
+// fakebin/claude's sign-in page
+const GUIDED_URL = 'https://claude.com/cai/oauth/authorize?code=true&client_id=harness-client-0123456789abcdef&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=harnessChallenge0123456789&code_challenge_method=S256&state=harness-state';
 
 // ---- 5. the AgTT agent's coding agents ----
 async function children(a, check, box, stamp) {
@@ -477,7 +516,7 @@ async function native(browser, check, box, parent, stamp) {
   check(await has(['Sign in to Fake agent (tests)']), 'native: a signed-out agent — the sign-in notice');
   await shot(page, 'agent-harness-native-signin', { fullPage: false });
   await tap('Sign in');
-  check(await has(['Open a login terminal', 'Signed in? Retry']), 'native: the Sign in screen — the login terminal, an API key, a device code, Retry');
+  check(await has(['Sign in to Fake agent (tests)', 'Use a terminal instead', 'Signed in? Retry']), 'native: the Sign in screen — the guided sign-in first (D179), the login terminal as "Use a terminal instead", an API key, a device code, Retry');
   await shot(page, 'agent-harness-native-signin-screen', { fullPage: false });
   const relay = await page.evaluate(async (id) => new Promise((res) => {
     const w = xbin.ws(`/api/apps/agent/runs/${id}/harness/terminal?login=1&rows=24&cols=80`);

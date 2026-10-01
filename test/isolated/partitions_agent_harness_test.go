@@ -272,6 +272,7 @@ func TestPartitionsAgentHarness(t *testing.T) {
 		t.Fatalf("the adapter after its turn: %+v", x)
 	}
 
+	t.Run("saved-signin", func(t *testing.T) { phSavedSignin(t, e, box) }) // D179: partitions_agent_signin_test.go
 	t.Run("sockets", func(t *testing.T) { phSockets(t, e, box, id, gen, x.ID) })
 	t.Run("refusals", func(t *testing.T) { phRefusals(t, e, box, team, id) }) // partitions_agent_harness_refusals_test.go
 	t.Run("halt", func(t *testing.T) { phHalt(t, e, box, id) })

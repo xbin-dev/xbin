@@ -1,19 +1,32 @@
 #!/bin/sh
 # hack/ui-harness/fakebin/claude — a scripted Claude Code sign-in for the UI
 # harness (run.sh puts this directory first on xbind's PATH, so the
-# workspace's shells — host shells: the harness runs unisolated — find it).
+# workspace's shells — host shells: the harness runs unisolated — and
+# apps/fakesbx's sandbox commands, host processes too, find it).
 # `claude auth login [--claudeai]` signs in the way Claude Code 2.1.280 does
 # (D178; sdk/acp/testdata/signin): a line, the URL, "Paste code here if
 # prompted > ", then a code per line — one without a '#' is "Invalid code"
 # and asked again, harness-code#harness-state signs in ("Login successful.",
-# exit 0), any other "Login failed: …" (exit 1). The URL is drawn as Ink
-# draws a long one: broken over 60-column rows with real line breaks, each
-# row an OSC 8 link to the whole URL; FAKE_CLAUDE_PLAIN=1 breaks it at the
-# terminal's own width instead, as plain text (a TUI without hyperlinks).
+# exit 0 — and $HOME/.fakeacp/credentials, the scripted coding agent's
+# sign-in, as the agent template's guided sign-in needs: D179), any other
+# "Login failed: …" (exit 1). The URL is drawn as Ink draws a long one:
+# broken over 60-column rows with real line breaks, each row an OSC 8 link
+# to the whole URL; FAKE_CLAUDE_PLAIN=1 breaks it at the terminal's own
+# width instead, as plain text (a TUI without hyperlinks).
+# `claude setup-token` (D179; a terminal only, as Ink needs one): the same
+# URL and prompt, then harness-code#harness-state prints a one-year token
+# (sk-ant-oat01-harness-…, its last four the code's first four) and exits 0,
+# $HOME untouched; any other code with a '#' is its OAuth error (exit 1).
 # Anything else: exit 2.
 URL='https://claude.com/cai/oauth/authorize?code=true&client_id=harness-client-0123456789abcdef&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=harnessChallenge0123456789&code_challenge_method=S256&state=harness-state'
-if [ "$1" != auth ] || [ "$2" != login ]; then
-  echo "fake claude: only 'auth login' here" >&2
+mode=
+if [ "$1" = auth ] && [ "$2" = login ]; then
+  mode=login
+elif [ "$1" = setup-token ]; then
+  mode=token
+  [ -t 0 ] || { printf 'Error: Raw mode is not supported on the current process.stdin\r\n' >&2; exit 2; }
+else
+  echo "fake claude: only 'auth login' and 'setup-token' here" >&2
   exit 2
 fi
 width=60
@@ -21,6 +34,7 @@ if [ -n "${FAKE_CLAUDE_PLAIN:-}" ]; then
   width=$(stty size 2>/dev/null </dev/tty | cut -d' ' -f2)
   [ -n "$width" ] && [ "$width" -gt 10 ] 2>/dev/null || width=80
 fi
+[ "$mode" = token ] && printf 'This will guide you through long-lived (1-year) auth token setup for your Claude account.\r\n\r\n'
 printf 'Opening browser to sign in…\r\n'
 printf "Browser didn't open? Use the url below to sign in (c to copy)\r\n\r\n"
 rest=$URL
@@ -41,10 +55,21 @@ while IFS= read -r code; do
     *) printf 'Invalid code. Please make sure the full code was copied.\r\n' >&2; continue ;;
   esac
   if [ "$code" = 'harness-code#harness-state' ]; then
+    if [ "$mode" = token ]; then
+      printf '\r\n\033[32m✓\033[39m Long-lived authentication token created successfully!\r\n\r\nYour OAuth token (valid for 1 year):\r\n\r\n'
+      printf '\033[38;5;220msk-ant-oat01-harness-0123456789abcdefghij-%s\033[39m\r\n\r\n' "$(printf '%s' "$code" | cut -c1-4)"
+      printf 'Store this token securely. You won'"'"'t be able to see it again.\r\n'
+      exit 0
+    fi
+    mkdir -p "$HOME/.fakeacp" && printf '{"method":"claude auth login"}\n' > "$HOME/.fakeacp/credentials"
     printf 'Login successful.\r\n'
     exit 0
   fi
-  printf 'Login failed: Request failed with status code 400\r\n' >&2
+  if [ "$mode" = token ]; then
+    printf 'OAuth error: Request failed with status code 400\r\n' >&2
+  else
+    printf 'Login failed: Request failed with status code 400\r\n' >&2
+  fi
   exit 1
 done
 exit 1
