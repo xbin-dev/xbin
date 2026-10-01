@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # hack/tile-check.sh — vet and test every builtin tile backend and the agent
 # template's backend the way a workspace builds them: against go.mod.tile
-# (restored to go.mod in a scratch copy) with the sdk replaced by this
-# checkout. `make vet` compiles them against the ROOT go.mod, which is not
-# what runs; this is. Needs network on first run (each tile's own deps).
+# (restored to go.mod in a scratch copy) and go.sum as shipped, read-only,
+# through a go.work of their own shaped as xbind's build renders one (D166:
+# the module, the sdk replaced by this checkout, the go line the highest of
+# 1.24 and the module's). A requirement or checksum the module lacks fails
+# here as in the build: `go mod tidy` its go.mod.tile and go.sum (in a copy
+# named go.mod, the sdk replaced). `make vet` compiles them against the ROOT
+# go.mod, which is not what runs; this is. Needs network on first run (each
+# tile's own deps).
 #
 #   hack/tile-check.sh            # every tile (make tile-check)
 #   hack/tile-check.sh agent      # one
@@ -40,9 +45,11 @@ for d in "${dirs[@]}"; do
   for s in go.sum.tile go.sum; do [ -f "$d/$s" ] && cp "$d/$s" "$work/go.sum" && break; done
   (
     cd "$work"
-    go mod edit -replace "github.com/xbin-dev/xbin/sdk=$repo/sdk"
-    GOFLAGS=-mod=mod go mod tidy >/dev/null 2>&1 || true
-    if out=$(GOFLAGS=-mod=mod go vet ./... 2>&1 && GOFLAGS=-mod=mod go test ${TILE_TEST_FLAGS:-} ./... 2>&1); then
+    gol=$(sed -n 's/^go[[:space:]][[:space:]]*\([0-9][0-9.]*\).*/\1/p' go.mod | head -1)
+    gol=$(printf '%s\n' 1.24 "${gol:-1.24}" | sort -V | tail -1)
+    printf 'go %s\n\nuse .\n\nreplace github.com/xbin-dev/xbin/sdk => "%s"\n' "$gol" "$repo/sdk" > go.work
+    export GOWORK="$work/go.work" GOFLAGS="${GOFLAGS:+$GOFLAGS }-mod=readonly"
+    if out=$(go vet ./... 2>&1 && go test ${TILE_TEST_FLAGS:-} ./... 2>&1); then
       echo "$out" | grep -v "no test files" || true
       echo "  ✓ $name"
     else
