@@ -56,7 +56,8 @@ func SharedWork(reg *registry.Registry, sdkPath string, prefer func(dir string) 
 	if rw != nil { // hand-managed: its own lines, as the go command read them
 		dirs = rw.Uses
 	} else {
-		for _, m := range goModules(reg, nil) {
+		mods, _ := goModules(reg, nil) // the go line is SharedWork's own (below)
+		for _, m := range mods {
 			dirs = append(dirs, filepath.Join(reg.Root, filepath.FromSlash(m)))
 		}
 		if len(dirs) == 0 {
