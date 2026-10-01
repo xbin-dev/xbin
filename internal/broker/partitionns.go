@@ -625,6 +625,43 @@ func (b *Broker) reapIdlePartitions(now time.Time) {
 	}
 }
 
+// IdlePartitionVolumes lets the volumes of person part's partition of
+// deployment dep of tile go idle at once (resenc.Expire), as a backup's
+// own mount does: the runner's admission turned a start of it away
+// (PartitionTurnedAway) after the encryption check (holdReasonIn) mounted
+// them, and they would otherwise stay mounted, a gocryptfs process and its
+// logger each, for partitionIdle with nothing of the person's running —
+// for every person a busy tile refuses (I2). The disk monitor's next pass
+// unmounts them unless a request holds one or an instance of the person in
+// the scope runs by then (partitionRunningSeam). Only the person's own
+// volumes: the tile's shared ones and other scopes' stay as they are.
+func (b *Broker) IdlePartitionVolumes(tile, dep, part string) {
+	user, ok := strings.CutPrefix(part, "user:")
+	if !ok || user == "" || b.resenc == nil {
+		return
+	}
+	c, ok := b.Reg.Component(tile)
+	if !ok || c.Scope == "" {
+		return
+	}
+	pkey, _, err := b.partitionKeyOf(user)
+	if err != nil {
+		return
+	}
+	if dep == "" {
+		dep = util.MainDeployment
+	}
+	for _, u := range c.Manifest.Uses {
+		rt, res, ok := b.envTarget(c, dep, u.Target)
+		if !ok || !fileBackedType(res.Type) || rt.Scope != c.Scope || res.Shared == registry.SharedAll || res.Shared == registry.SharedRead {
+			continue
+		}
+		if k, err := b.resKeysIn(rt, dep, pkey); err == nil && resenc.PartitionVolume(k.DirKey) {
+			b.resenc.Expire(k.DirKey, k.Name)
+		}
+	}
+}
+
 // partitionNSLabel names id for admins' alerts and rows: its tile and whose
 // partition, never its content (PD-46).
 func (b *Broker) partitionNSLabel(id nsID) string {

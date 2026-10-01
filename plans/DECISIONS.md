@@ -6785,6 +6785,26 @@ Deviations and refinements made while implementing; all deliberate:
   — kept in their vault, handed to the CLI in its environment only in a
   sandbox of theirs no one else uses — win over the sandbox HOME's; an
   API key reaches each adapter's `authenticate` in its own shape.*
+  *Noted 2026-10-02 (deflake/harness-pipe-lost): TestHarnessPipeLost/stdio_drop
+  failed on CI (job 110604971403) when its prompt, sent the moment the
+  test cut the stdio socket, beat the pipe's reader to the drop: it went
+  on the dead socket, the pipe gave it up by the at-most-once rule above
+  ("may not have reached the command — not sent again"), and the test,
+  with no `Dropped` wired, waited on a turn nothing would end — every time
+  with one P (`-cpu 1`), 12 of 80 under load. The test's race, not the
+  product's: in AgTT `Dropped` abandons the call and the turn ends "send it
+  again" (TestHarnessStdioDropNoDoubleSend). The subtest now prompts once
+  the pipe has attached again; the other order is a subtest of its own,
+  made certain (the manager swallows the prompt, then the socket drops):
+  `Dropped` hears of it once and it is never sent twice. ACCEPTED: a
+  message sent in the instant a socket drops fails "send it again" even
+  when the drop came first — the client can't tell a frame written after
+  the manager closed from one it read before closing, and the contract has
+  no stdin offset to ask on the next attach. Proving it under load found
+  TestHarnessPipeTurn's own flake (9 of 191): the fake agent's slash
+  commands follow session/new on a 50 ms timer, and a turn that ended
+  first left them (395 bytes) after its end, past the offset the test
+  expects read; it now waits for them before its prompt.*
 
 - **D148 — Partitioned tiles, F5: people's partitions' vaults,
   registrations and records (2026-09-30).** Implements the vault,
@@ -9895,6 +9915,33 @@ Deviations and refinements made while implementing; all deliberate:
     header names): 1067 times, 221 of them new (153 partition tests), none
     dropped; a cached unit package keeps its old time. The plan now expects
     ~171 s for each of the 4 shards and both unit shards.
+  - **Follow-up (I2, v0.3.67): an unmount ends the view's gocryptfs, and a
+    refused start's volumes go.** The QA box's idle unmount freed no
+    daemon — every sandbox started while a view was mounted keeps a copy
+    of its mount (locked in its user namespace; a terminal's recursive
+    bind), so `fusermount -u` in xbind's namespace left gocryptfs serving
+    it — and the next start ran a second gocryptfs on the ciphertext (34
+    cipher dirs served twice). resenc now removes the mountpoint after
+    every unmount (idle, Unmount for wipes/restores/seeds, the
+    cap:containers remount, seal, shutdown, RecoverStale): the kernel
+    (3.18+) detaches every namespace's mounts on a removed directory,
+    while a sandbox's own bind, on a directory of its root, stays; takeDown
+    then waits on the daemon's pidfd. The safety net is in Ensure: a
+    gocryptfs still serving the cipher dir (found by command line in
+    /proc, this uid) is ended before mounting — mountpoint removed, wait,
+    SIGTERM, SIGKILL, else an error — never run beside. A start racing
+    the idle unmount waits on the volume's lock and mounts again; its
+    Touch of a view being taken down answers false, so ensureVolume
+    Ensures instead of handing out a view about to go. Chosen over
+    killing at the idle unmount: only the next mount must end a
+    survivor, and partition volumes have no legitimate user once
+    nothing holds them and no instance runs (tile sandboxes mount main's
+    namespace only). With it, the refused start's volumes
+    (PartitionTurnedAway → IdlePartitionVolumes → Expire, held back on
+    `pt/i2-refused-volumes`) ship. TestIdleUnmountEndsPinnedDaemon,
+    TestRemountEndsStaleDaemon (both fail without it: the daemon stays /
+    two daemons), TestUnmountKeepsSandboxBind; the smoke's caps case
+    with a terminal holding the copies.
 
 - **D178 — Coding-agent sign-in: Claude Code signs in with `claude auth
   login`, guided in the Agent tab; terminal links open whole; no

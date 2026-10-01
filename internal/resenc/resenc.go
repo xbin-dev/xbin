@@ -22,12 +22,15 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -49,6 +52,9 @@ type Manager struct {
 	locks  map[string]*keyLock
 	refs   map[string]int       // key → Holds not yet released
 	used   map[string]time.Time // key → when it was mounted or last released
+	// downing marks the views UnmountIdle is taking down: a use then finds
+	// none (Touch) and mounts it again, under its lock, once it is down.
+	downing map[string]bool
 	// epoch counts UnmountAll/Close: an Ensure that began before one doesn't
 	// record, and takes down, the mount it made meanwhile (a seal).
 	epoch uint64
@@ -69,7 +75,7 @@ type keyLock struct {
 func New(root, bin string, derive func(string) ([]byte, error)) *Manager {
 	return &Manager{root: root, bin: bin, derive: derive,
 		mounts: map[string]string{}, modes: map[string]bool{}, locks: map[string]*keyLock{},
-		refs: map[string]int{}, used: map[string]time.Time{}}
+		refs: map[string]int{}, used: map[string]time.Time{}, downing: map[string]bool{}}
 }
 
 // lockKey takes volume k's lock; the answer releases it.
@@ -251,6 +257,7 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 
 	cipher := m.CipherDir(scopeKey, name)
 	mount := m.MountDir(scopeKey, name)
+	acipher, amount := absPath(cipher), absPath(mount) // as the daemon's command line names them (daemonsOn)
 	if isMounted(mount) {
 		if mode == singleTenant {
 			return mount, m.record(k, mount, singleTenant, epoch)
@@ -258,7 +265,7 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 		// Mounted in the other mode (cap:containers granted/revoked since):
 		// remount. The broker stops the scope's backends around cap changes,
 		// so the mount should be free; a straggler surfaces as EBUSY here.
-		if err := fusermountU(mount, false); err != nil {
+		if err := m.takeDown(acipher, mount); err != nil {
 			return "", fmt.Errorf("remount %s for mode change: %w", resID, err)
 		}
 		m.forget(k)
@@ -266,7 +273,12 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 	if err := os.MkdirAll(cipher, 0o700); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(mount, 0o700); err != nil {
+	// Nothing of xbind's serves the ciphertext now; something else's
+	// mustn't either, or this mount would be its second gocryptfs (I2).
+	if err := endStale(acipher, mount); err != nil {
+		return "", fmt.Errorf("gocryptfs mount %s: %w", resID, err)
+	}
+	if err := os.MkdirAll(mount, 0o700); err != nil { // an unmount removed it (removeMountpoint)
 		return "", err
 	}
 
@@ -292,7 +304,7 @@ func (m *Manager) Ensure(resID, scopeKey, name string, singleTenant bool) (strin
 	if singleTenant {
 		args = append(args, "-xbin-single-tenant")
 	}
-	args = append(args, cipher, mount)
+	args = append(args, acipher, amount)
 	if err := m.run(pw, args...); err != nil {
 		if singleTenant && strings.Contains(err.Error(), "user_allow_other") {
 			// fusermount3 gates -allow_other (implied by single-tenant mode)
@@ -318,8 +330,8 @@ func (m *Manager) record(k, mount string, singleTenant bool, epoch uint64) error
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.epoch != epoch {
-		if isMounted(mount) {
-			_ = fusermountU(mount, false)
+		if isMounted(mount) && fusermountU(mount, false) == nil {
+			_, _ = removeMountpoint(mount)
 		}
 		return errUnmountedMeanwhile
 	}
@@ -380,16 +392,113 @@ func (m *Manager) SupportsSingleTenant() bool {
 	return m.stSupport
 }
 
-// Unmount unmounts one resource's decrypted view (the ciphertext stays).
+// Unmount unmounts one resource's decrypted view (the ciphertext stays),
+// removes its mountpoint and waits for its gocryptfs to exit (takeDown).
 func (m *Manager) Unmount(scopeKey, name string) error {
 	k := mkey(scopeKey, name)
 	defer m.lockKey(k)()
 	m.forget(k)
-	mount := m.MountDir(scopeKey, name)
-	if !isMounted(mount) {
+	return m.takeDown(absPath(m.CipherDir(scopeKey, name)), m.MountDir(scopeKey, name))
+}
+
+// daemonExitGrace bounds the wait for a view's gocryptfs to exit once its
+// mounts are gone (takeDown, endStale); daemonStopGrace each wait after a
+// signal to a stale one (endStale). Neither is a delay: the waits end at
+// the exit.
+var (
+	daemonExitGrace = 5 * time.Second
+	daemonStopGrace = 10 * time.Second
+)
+
+// takeDown ends the view of cipher (absolute) at mount: it unmounts xbind's
+// mount there — an error, and nothing else done, when that is busy —,
+// removes the mountpoint (removeMountpoint) and waits, daemonExitGrace at
+// most, for the gocryptfs that served it to exit. One that doesn't (a file
+// held open on some namespace's copy of the mount) is logged, and the next
+// mount of the view ends it before it starts another (endStale). A
+// directory nothing was mounted on and no gocryptfs serves stays as it is.
+func (m *Manager) takeDown(cipher, mount string) error {
+	ds := daemonsOn(cipher)
+	defer closeDaemons(ds)
+	mounted := isMounted(mount)
+	if mounted {
+		if err := fusermountU(mount, false); err != nil {
+			return err
+		}
+	}
+	if !mounted && len(ds) == 0 {
 		return nil
 	}
-	return fusermountU(mount, false)
+	if _, err := removeMountpoint(mount); err != nil {
+		slog.Warn("resource encryption: an unmounted view's directory stays, so copies of its mount in sandboxes may keep its gocryptfs running until the view mounts again", "mount", mount, "err", err)
+	}
+	for _, d := range ds {
+		if !d.wait(daemonExitGrace) {
+			slog.Warn("resource encryption: a gocryptfs still runs after its view was unmounted; the view's next mount ends it first", "pid", d.pid, "cipher", cipher)
+		}
+	}
+	return nil
+}
+
+// removeMountpoint removes the directory of a view xbind no longer mounts
+// (true when there was one to remove). That ends the view in every mount
+// namespace, not only xbind's: each sandbox started while it was mounted
+// holds a copy of the mount on that directory — in the old root it
+// detached, locked in its user namespace, or carried in by a terminal's
+// recursive workspace bind — and the kernel (since 3.18) detaches every
+// namespace's mounts on a directory that is removed. Without it the
+// gocryptfs keeps serving those copies until the last such sandbox exits,
+// and the view's next mount starts a second one on the same ciphertext
+// (I2). A sandbox's own bind of the view, on a directory of its root,
+// stays: an instance still using it keeps working. Ensure makes the
+// directory again. One something wrote into while unmounted isn't empty
+// and stays, with what it holds: an error.
+func removeMountpoint(mount string) (bool, error) {
+	err := os.Remove(mount)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// endStale ends every gocryptfs still serving cipher (absolute) while xbind
+// has no view of it mounted at mount (the caller checked, under the
+// volume's lock) — one some sandbox's copy of an earlier mount kept alive —
+// because a second daemon on one ciphertext must never run (I2). It
+// removes the mountpoint, which frees one that only namespaces' copies
+// pinned, and waits for it; then asks it to stop (SIGTERM: gocryptfs
+// exits) and waits; then kills it. One that outlives all that is an error,
+// and nothing mounts. It returns once none runs.
+func endStale(cipher, mount string) error {
+	ds := daemonsOn(cipher)
+	if len(ds) == 0 {
+		return nil
+	}
+	defer closeDaemons(ds)
+	removed, _ := removeMountpoint(mount)
+	for _, d := range ds {
+		if removed && d.wait(daemonExitGrace) {
+			continue
+		}
+		slog.Warn("resource encryption: ending a gocryptfs that still serves a view's ciphertext before mounting it again", "pid", d.pid, "cipher", cipher)
+		d.signal(syscall.SIGTERM)
+		if d.wait(daemonStopGrace) {
+			continue
+		}
+		d.signal(syscall.SIGKILL)
+		if !d.wait(daemonStopGrace) {
+			return fmt.Errorf("an earlier gocryptfs (pid %d) still serves %s and doesn't exit: refusing to start a second one on the same ciphertext", d.pid, cipher)
+		}
+	}
+	return nil
+}
+
+// absPath is p made absolute (p itself when that fails).
+func absPath(p string) string {
+	if a, err := filepath.Abs(p); err == nil {
+		return a
+	}
+	return p
 }
 
 // Hold takes a reference on a resource's view for one of its users (a
@@ -417,15 +526,19 @@ func (m *Manager) Hold(scopeKey, name string) (release func()) {
 }
 
 // Touch restarts a mounted view's idle clock: a use that found it already
-// mounted (the broker's Ensure short-circuit). A no-op for a view this
-// Manager doesn't hold.
-func (m *Manager) Touch(scopeKey, name string) {
+// mounted (the broker's Ensure short-circuit). false, and a no-op, for a
+// view this Manager doesn't hold, or one the idle unmount is taking down
+// right now: the use Ensures it instead, which waits for that and mounts
+// it again — never a view going away under it.
+func (m *Manager) Touch(scopeKey, name string) bool {
 	k := mkey(scopeKey, name)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.mounts[k]; ok {
-		m.used[k] = time.Now()
+	if _, ok := m.mounts[k]; !ok || m.downing[k] {
+		return false
 	}
+	m.used[k] = time.Now()
+	return true
 }
 
 // Expire ends a mounted view's idle clock at once, unless something holds
@@ -448,7 +561,9 @@ func (m *Manager) Expire(scopeKey, name string) {
 // instance runs, which restarts its idle clock at now (so it runs from when
 // the instance stopped). A view something still has open stays mounted
 // (fusermount refuses it) and is tried again at the next call. Other views
-// stay mounted until seal, as always. It answers the views it unmounted.
+// stay mounted until seal, as always. Each unmount removes the view's
+// mountpoint and waits for its gocryptfs to exit (takeDown): the memory it
+// held is free once this returns. It answers the views it unmounted.
 func (m *Manager) UnmountIdle(now time.Time, idle time.Duration, keep func(scopeKey, name string) bool) []Mount {
 	var out []Mount
 	for _, mt := range m.Mounts() {
@@ -468,12 +583,18 @@ func (m *Manager) UnmountIdle(now time.Time, idle time.Duration, keep func(scope
 		m.mu.Lock()
 		_, still := m.mounts[k]
 		due := still && m.refs[k] == 0 && now.Sub(m.used[k]) >= idle
+		if due {
+			m.downing[k] = true // a start's Touch from now on mounts it again, after this
+		}
 		m.mu.Unlock()
 		if due {
-			if mount := m.MountDir(mt.ScopeKey, mt.Name); !isMounted(mount) || fusermountU(mount, false) == nil {
+			if m.takeDown(absPath(m.CipherDir(mt.ScopeKey, mt.Name)), m.MountDir(mt.ScopeKey, mt.Name)) == nil {
 				m.forget(k)
 				out = append(out, mt)
 			}
+			m.mu.Lock()
+			delete(m.downing, k)
+			m.mu.Unlock()
 		}
 		unlock()
 	}
@@ -506,15 +627,17 @@ func (m *Manager) Mounts() []Mount {
 	return out
 }
 
-// UnmountAll unmounts every mount this Manager holds (seal / shutdown). An
-// Ensure under way meanwhile takes its own mount down (record).
+// UnmountAll unmounts every mount this Manager holds (seal / shutdown), and
+// removes their mountpoints, so no copy of one in a sandbox's namespace
+// keeps a gocryptfs — and its key — running (removeMountpoint). An Ensure
+// under way meanwhile takes its own mount down (record).
 func (m *Manager) UnmountAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.epoch++
 	for k, mount := range m.mounts {
-		if isMounted(mount) {
-			_ = fusermountU(mount, false)
+		if isMounted(mount) && fusermountU(mount, false) == nil {
+			_, _ = removeMountpoint(mount)
 		}
 		delete(m.mounts, k)
 		delete(m.modes, k)
@@ -526,14 +649,18 @@ func (m *Manager) UnmountAll() {
 // resource stays readable — or a gocryptfs holding its key running — once
 // xbind is gone: the ciphertext stays, and the next boot mounts again. A
 // view something still holds (a terminal's bind, say) goes lazily:
-// detached now, its FUSE server gone with its last user.
+// detached now, its FUSE server gone with its last user. Its mountpoint
+// goes too, with every sandbox's copy of the mount (removeMountpoint).
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.epoch++
 	for k, mount := range m.mounts {
-		if isMounted(mount) && fusermountU(mount, false) != nil {
-			_ = fusermountU(mount, true)
+		if isMounted(mount) {
+			if fusermountU(mount, false) != nil {
+				_ = fusermountU(mount, true)
+			}
+			_, _ = removeMountpoint(mount)
 		}
 		delete(m.mounts, k)
 		delete(m.modes, k)
@@ -541,14 +668,17 @@ func (m *Manager) Close() {
 }
 
 // RecoverStale lazy-unmounts any resenc mounts left over from a previous xbind
-// (e.g. after a crash) so Ensure starts from a clean slate. Call once at start.
+// (e.g. after a crash), and removes their mountpoints (removeMountpoint), so
+// Ensure starts from a clean slate. Call once at start.
 func (m *Manager) RecoverStale() {
 	prefix, err := filepath.Abs(filepath.Join(m.root, ".xbin", "resenc"))
 	if err != nil {
 		return
 	}
 	for _, mp := range mountsUnder(prefix + string(os.PathSeparator)) {
-		_ = fusermountU(mp, true) // lazy: it may be a dead FUSE endpoint
+		if fusermountU(mp, true) == nil { // lazy: it may be a dead FUSE endpoint
+			_, _ = removeMountpoint(mp)
+		}
 	}
 }
 

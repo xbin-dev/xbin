@@ -450,6 +450,27 @@ func TestPartitionAdmission(t *testing.T) {
 		}
 	})
 
+	// I2: the gate's encryption check mounts the person's volumes before
+	// admission, so a start turned away tells the data plane to let them go.
+	t.Run("a start turned away lets its volumes go", func(t *testing.T) {
+		w := newPartWorld(t, userGlobal, registry.Manifest{})
+		w.r.PartitionCapsFor = func(string) (int, int) { return 1, 0 }
+		var away []string
+		w.r.PartitionTurnedAway = func(tile, dep, part string) { away = append(away, tile+" "+dep+" "+part) }
+		w.ensure("user:alice")
+		if len(away) != 0 {
+			t.Fatalf("an admitted start was turned away: %q", away)
+		}
+		w.ensure("user:bob") // refused: alice is in use
+		if _, err := w.r.EnsurePartition(context.Background(), w.c, "main", "user:carol", StartBackground); !errors.Is(err, ErrPartitionDeferred) {
+			t.Fatalf("carol's background start: %v", err)
+		}
+		w.ensure("user:alice") // running: no admission
+		if want := []string{"apps/x main user:bob", "apps/x main user:carol"}; !slices.Equal(away, want) {
+			t.Errorf("turned away: %q, want %q", away, want)
+		}
+	})
+
 	t.Run("a refused person is an admin's metadata", func(t *testing.T) {
 		w := newPartWorld(t, userGlobal, registry.Manifest{})
 		w.r.Sandboxes = sbx.New()
