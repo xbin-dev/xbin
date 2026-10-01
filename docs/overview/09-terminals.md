@@ -483,7 +483,12 @@ bar offer **⬆ base update**; with it on, the chooser says the next session
 moves instead (`GET /ws/term/env` → `baseAutoUpdate`; open windows re-read
 it on the `workspace-settings` event), and the title bar keeps the button
 for a running session. The setting covers terminal layers only — a tile
-sandbox's state is its manager's to reset or rebase.
+sandbox's state is its manager's to reset or rebase. On a partitioned tile
+each person's layer (`.xbin/term-part/<TileKey>/<pkey>`,
+[partitions.md](../partitions.md) §Terminals and agent sessions) moves the
+same way, on its own: at that person's next session start, never under
+one of their running sessions, and neither the tile's layer nor another
+person's with it; the window's status is the person's own layer's.
 
 ## VM terminals (D89)
 

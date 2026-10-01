@@ -1075,6 +1075,13 @@ Each person's partition is **its own backend process**, in its own sandbox:
   primary's checkpoint is shared the same way. A person's start that fails
   for them alone (it didn't come up healthy, say) is tried again on their
   next request; a build error or a crash loop stays until the code changes.
+  A partition swaps like the tile's own instance: a request routed to its
+  old generation just as the swap stopped it, which that generation never
+  answered, goes to the partition's new generation when sending it again
+  is safe ([elements.md](elements.md) §Runtimes & backend lifecycle) —
+  the same partition, through the same admission. And while live reload is
+  being paused, a partition's work-tree build waits for the pause like the
+  primary's, and never serves once the pause pinned the tile.
 - **Only on the primary, only with `--isolate`.** A person's partition
   runs only on the tile's primary deployment, and only on an xbind started
   with `--isolate`; elsewhere the tile's API answers that a person's
@@ -1174,7 +1181,12 @@ opened it, and reaches only that person's partition:
 - **Its dev layer is the person's own.** System changes (`apt install`,
   `/etc`) go to that person's layer of the tile, never the tile's shared
   one, so one person's terminal can't plant anything in another's; a VM
-  terminal's disk is per person too. Reset resets your own layer.
+  terminal's disk is per person too. Reset resets your own layer. Base
+  auto-update ([09-terminals.md](overview/09-terminals.md) §Base images
+  and their lifecycle) moves each person's layer on its own: at the start
+  of that person's next session once a newer base image is installed,
+  never under one of their sessions that is running, and nobody else's
+  layer with it.
 - **Its agent history is the partition's.** A finished agent session's
   transcript is kept with the person's partition, listed with their other
   past sessions, and never read by a person recreated under the same id. A
