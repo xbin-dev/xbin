@@ -591,7 +591,7 @@ What the agent gets:
   When the agent reports it is signed out (or a turn hits auth-required), the
   Agent tab shows a sign-in. For Claude Code it is **guided** (D178): **Sign
   in** runs `claude auth login` in a terminal session of its own on the
-  tile — one no tab shows — and the tab turns what it prints into **Open
+  tile — one no tab shows, which xbind ends after 15 minutes — and the tab turns what it prints into **Open
   sign-in page ↗** and **Copy link** (the whole link, however the CLI drew
   it), a field for the code the sign-in page shows you (**Finish** hands it
   to the CLI) and a line saying how it went: signed in — send your message
@@ -602,10 +602,12 @@ What the agent gets:
   and the tab offers its fallback in a terminal instead: `claude /exit`,
   whose first-run screens ask for the sign-in, then exit. Links in any
   terminal open whole, too: an OSC 8 link (what Claude Code prints) opens
-  its target from any row it spans, with no "dangerous link" confirm, a URL
-  a program broke over rows is joined back, and a program's OSC 52 copy
-  (Claude Code's "c to copy") reaches your clipboard while that terminal
-  has the focus. The first turn on a home with no
+  its target from any row it spans — at once when the row shows part of
+  that target, after a confirm naming the real host when it shows
+  something else — a URL a program broke over rows is joined back (never
+  opened with a user part), and a program's OSC 52 copy (Claude Code's
+  "c to copy") reaches your clipboard while that terminal has the focus;
+  a program's OSC 52 read gets no answer. The first turn on a home with no
   login also ends with a `status error` naming the command — never a vault
   command.
 - **its own settings, live.** The agent advertises what it can change —

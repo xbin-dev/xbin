@@ -90,8 +90,6 @@ func TestSigninAllowed(t *testing.T) {
 	for _, u := range []string{
 		"https://claude.ai/oauth/authorize?code=true",
 		"https://claude.com/cai/oauth/authorize?x=1",
-		"https://platform.claude.com/oauth/authorize?x=1",
-		"https://console.anthropic.com/oauth/authorize?x=1",
 	} {
 		if !s.Allowed(u) {
 			t.Errorf("%s refused", u)
@@ -105,6 +103,13 @@ func TestSigninAllowed(t *testing.T) {
 		"https://evil.example/oauth/authorize?next=https://claude.ai/",
 		"javascript:alert(1)//https://claude.ai/oauth/authorize?x",
 		"https://claude.ai/somewhere/else",
+		// the D178 review: exact hosts, the path pinned
+		"https://platform.claude.com/oauth/authorize?x=1",
+		"https://console.anthropic.com/oauth/authorize?x=1",
+		"https://evil.claude.ai/oauth/authorize?x=1",
+		"https://claude.ai/x?u=/oauth/authorize?code=1",
+		"https://claude.com/evil/oauth/authorize?x=1",
+		"https://claude.ai/oauth/authorize",
 		"",
 	} {
 		if s.Allowed(u) {

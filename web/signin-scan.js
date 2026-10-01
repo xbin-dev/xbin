@@ -8,14 +8,14 @@
 // (docs/protocol.md): {command, url, hosts, code, invalid?, done, fail, …}.
 
 // allowedURL(spec, u): may u be offered as the sign-in page — https, no
-// user part, on one of spec.hosts (or a subdomain of one), matching
-// spec.url whole.
+// user part, on one of spec.hosts exactly (a subdomain doesn't count),
+// matching spec.url whole.
 export function allowedURL(spec, u) {
   let p;
   try { p = new URL(u); } catch { return false; }
   if (p.protocol !== 'https:' || p.username || p.password || !p.hostname) return false;
   const host = p.hostname.toLowerCase();
-  if (!(spec.hosts || []).some((h) => { h = String(h).toLowerCase(); return host === h || host.endsWith('.' + h); })) return false;
+  if (!(spec.hosts || []).some((h) => host === String(h).toLowerCase())) return false;
   try { return new RegExp('^(?:' + spec.url + ')$').test(u); } catch { return false; }
 }
 

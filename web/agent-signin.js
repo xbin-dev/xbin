@@ -4,8 +4,9 @@
  * `signin` (GET /api/xbin/agent/providers, docs/protocol.md), the tab shows
  * this strip instead of a terminal. Sign in runs the CLI's own sign-in
  * (`signin.command`) in a terminal session of its own on the tile — the
- * $HOME the agent signs in from — that no tab shows (term-sessions.js
- * SIGNIN), at 1000 columns so nothing wraps, and reads its output
+ * $HOME the agent signs in from — opened with ?purpose=signin, so no tab
+ * shows it and xbind ends it after 15 minutes (term-sessions.js
+ * visibleRows), at 1000 columns so nothing wraps, and reads its output
  * (signin-scan.js) for what matters: Open sign-in page, Copy link, a field
  * for the code the page shows (Finish types it and Enter into the CLI), and
  * a status line. The CLI's own words decide: signed in → bx-signin-done;
@@ -22,10 +23,9 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { SigninReader, typedLine, cleanCode } from '/vendor/signin-scan.js';
-import { SIGNIN, signinOpening, makeStore } from '/vendor/term-sessions.js';
+import { SIGNIN_PURPOSE } from '/vendor/term-sessions.js';
 
 const enc = new TextEncoder();
-const sessions = makeStore();
 const COLS = 1000; // the CLI's terminal: wide enough that no URL wraps
 const REATTACH = 3; // a dropped socket reattaches this many times
 
@@ -70,7 +70,6 @@ export class BxAgentSignin extends LitElement {
     this._copied = false;
     this._ws = null;
     this._id = '';
-    this._opening = null; // term-sessions' done(id) while the session opens
   }
 
   disconnectedCallback() {
@@ -91,13 +90,12 @@ export class BxAgentSignin extends LitElement {
     this._typed = false;
     this._tries = 0;
     this._sentAt = -1; // the invalid-code count when a code was sent
-    this._opening = signinOpening(this.component || '');
     this._dial('');
   }
 
   _dial(session) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const q = session ? `session=${encodeURIComponent(session)}` : `cwd=${encodeURIComponent(this.component || '')}&gpu=none&api=0`;
+    const q = session ? `session=${encodeURIComponent(session)}` : `cwd=${encodeURIComponent(this.component || '')}&gpu=none&api=0&purpose=${SIGNIN_PURPOSE}`;
     let ws;
     try { ws = new WebSocket(`${proto}//${location.host}/ws/term?${q}`); } catch (e) { this._over(String(e.message || e)); return; }
     ws.binaryType = 'arraybuffer';
@@ -124,12 +122,7 @@ export class BxAgentSignin extends LitElement {
     let ctl;
     try { ctl = JSON.parse(m.data); } catch { return; }
     if (ctl.op === 'session' && ctl.id) {
-      if (!this._id) {
-        this._id = ctl.id;
-        this._opening?.(ctl.id);
-        this._opening = null;
-        sessions.rename(ctl.id, SIGNIN); // no tab, in any browser
-      }
+      if (!this._id) this._id = ctl.id;
       if (!this._typed) { this._typed = true; ws.send(enc.encode(typedLine(this.spec))); }
     } else if (ctl.op === 'exit') {
       this._exited = true;
@@ -158,8 +151,6 @@ export class BxAgentSignin extends LitElement {
 
   // the CLI is gone (an exit frame) or out of reach (why)
   _over(why) {
-    this._opening?.();
-    this._opening = null;
     const st = this._st || {};
     if (this._phase === 'done' || st.done) this._phase = 'done';
     else if (st.failed) { this._phase = 'failed'; this._msg = st.failed; }
@@ -173,8 +164,6 @@ export class BxAgentSignin extends LitElement {
 
   // stop: close the socket, and end the session unless the CLI is ending it
   _stop() {
-    this._opening?.();
-    this._opening = null;
     const ws = this._ws, id = this._id;
     this._ws = null;
     if (ws) { ws.onclose = null; ws.close(); }

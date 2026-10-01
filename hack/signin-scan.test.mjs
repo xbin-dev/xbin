@@ -9,12 +9,10 @@ import { scanSignin, allowedURL, SigninReader, typedLine, cleanCode, screenText 
 
 const dir = new URL('../sdk/acp/testdata/signin/', import.meta.url);
 const cases = JSON.parse(readFileSync(new URL('cases.json', dir), 'utf8'));
-// claude's signin as GET /agent/providers serves it (internal/server's golden)
-const spec = {
-  command: 'claude auth login --claudeai', argv: ['claude', 'auth', 'login', '--claudeai'], tty: false, fallback: 'claude /exit',
-  url: 'https://\\S+/oauth/authorize\\?\\S+', hosts: ['claude.com', 'claude.ai', 'anthropic.com'],
-  code: 'Paste code here if prompted', invalid: 'Invalid code', done: 'Login successful', fail: 'Login failed',
-};
+// claude's signin as GET /agent/providers serves it: read from
+// internal/server's golden, so the twins can't drift apart
+const golden = readFileSync(new URL('../internal/server/agentproviders_golden_test.go', import.meta.url), 'utf8');
+const spec = JSON.parse(/const wantProviders = `(.*)`/.exec(golden)[1]).find((p) => p.id === 'claude').signin;
 
 test('the captures read as the sign-ins they were', () => {
   assert.ok(cases.length >= 6);
@@ -52,12 +50,15 @@ test('done, an old CLI, and the echoed command', () => {
 });
 
 test('only an https URL on the provider\'s hosts is offered', () => {
-  for (const u of ['https://claude.ai/oauth/authorize?code=true', 'https://platform.claude.com/oauth/authorize?x=1', 'https://console.anthropic.com/oauth/authorize?x=1']) {
+  for (const u of ['https://claude.ai/oauth/authorize?code=true', 'https://claude.com/cai/oauth/authorize?x=1']) {
     assert.ok(allowedURL(spec, u), u);
   }
   for (const u of ['http://claude.ai/oauth/authorize?code=true', 'https://claude.ai.evil.example/oauth/authorize?x=1', 'https://evilclaude.ai/oauth/authorize?x=1',
     'https://claude.ai@evil.example/oauth/authorize?x=1', 'https://evil.example/oauth/authorize?next=https://claude.ai/', 'javascript:alert(1)//https://claude.ai/oauth/authorize?x',
-    'https://claude.ai/somewhere/else', '']) {
+    'https://claude.ai/somewhere/else', '',
+    // the D178 review: exact hosts, the path pinned
+    'https://platform.claude.com/oauth/authorize?x=1', 'https://console.anthropic.com/oauth/authorize?x=1', 'https://evil.claude.ai/oauth/authorize?x=1',
+    'https://claude.ai/x?u=/oauth/authorize?code=1', 'https://claude.com/evil/oauth/authorize?x=1']) {
     assert.ok(!allowedURL(spec, u), u);
   }
   const evil = '\x1b]8;;https://evil.example/oauth/authorize?x=1\x07click\x1b]8;;\x07\r\n' +

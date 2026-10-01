@@ -37,8 +37,10 @@ type Signin struct {
 	// drives in a terminal.
 	Fallback string `json:"fallback,omitempty"`
 	// URL is a regular expression (RE2 and JavaScript alike) the sign-in
-	// page's address matches; Hosts are the hosts it may be on (a subdomain
-	// of one counts). Only an https URL on one of them is ever offered.
+	// page's whole address matches — anchored at its scheme, host and path,
+	// so a redirect-style path elsewhere never matches; Hosts are the exact
+	// hosts it may be on (a subdomain doesn't count). Only an https URL with
+	// no user part on one of them is ever offered.
 	URL   string   `json:"url"`
 	Hosts []string `json:"hosts"`
 	// The markers, each a substring of one line of output: Code — the CLI
@@ -81,8 +83,11 @@ type SigninState struct {
 var claudeSignin = &Signin{
 	Command: "claude auth login --claudeai", Argv: []string{"claude", "auth", "login", "--claudeai"},
 	Fallback: "claude /exit",
-	URL:      `https://\S+/oauth/authorize\?\S+`, Hosts: []string{"claude.com", "claude.ai", "anthropic.com"},
-	Code: "Paste code here if prompted", Invalid: "Invalid code", Done: "Login successful", Fail: "Login failed",
+	// the page Claude Code 2.1.280 opens (sdk/acp/testdata/signin), and
+	// claude.ai's own: exact hosts, the path pinned (the D178 review)
+	URL:   `https://(?:claude\.com/cai|claude\.ai)/oauth/authorize\?\S+`,
+	Hosts: []string{"claude.com", "claude.ai"},
+	Code:  "Paste code here if prompted", Invalid: "Invalid code", Done: "Login successful", Fail: "Login failed",
 }
 
 // claudeSetupToken is Claude Code's long-lived token (`claude setup-token`,
@@ -98,8 +103,8 @@ var claudeSetupToken = &Signin{
 	Token: `sk-ant-oat01-[A-Za-z0-9_-]{20,}`,
 }
 
-// Allowed reports whether u may be offered as the sign-in page: https, on
-// one of Hosts (or a subdomain of one), matching URL.
+// Allowed reports whether u may be offered as the sign-in page: https, no
+// user part, on one of Hosts exactly, matching URL whole.
 func (s Signin) Allowed(u string) bool {
 	p, err := url.Parse(u)
 	if err != nil || p.Scheme != "https" || p.User != nil || p.Host == "" {
@@ -109,7 +114,7 @@ func (s Signin) Allowed(u string) bool {
 	ok := false
 	for _, h := range s.Hosts {
 		h = strings.ToLower(h)
-		if host == h || strings.HasSuffix(host, "."+h) {
+		if host == h {
 			ok = true
 		}
 	}

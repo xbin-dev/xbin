@@ -337,7 +337,7 @@ export class BxFrame extends LitElement {
   async _restoreTerm() {
     const legacy = sessions.migrateLegacy(this.src);
     const [all, win] = await Promise.all([sessions.list(this.src), sessions.loadWindow(this.src)]);
-    const rows = visibleRows(all, this.src, this._sessions); // never a sign-in's session (D178)
+    const rows = visibleRows(all); // never a sign-in's session (D178)
     if (!this.isConnected) return;
     for (const r of rows) if (legacy?.names?.[r.id] && !r.name) { r.name = legacy.names[r.id]; sessions.rename(r.id, r.name); }
     this._sessions = keepTargets(tabsFrom(rows, this._sessions), this._sessions, rows);
@@ -362,7 +362,7 @@ export class BxFrame extends LitElement {
   // browser: the directory says what the tabs are now.
   async _relist() {
     const gen = this._idGen;
-    const rows = visibleRows(await sessions.list(this.src), this.src, this._sessions);
+    const rows = visibleRows(await sessions.list(this.src));
     if (!this.isConnected) return;
     if (gen !== this._idGen) return this._relist(); // a tab got its id meanwhile: this listing may predate that session
     this._sessions = keepTargets(tabsFrom(rows, this._sessions), this._sessions, rows);

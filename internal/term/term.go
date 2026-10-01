@@ -71,6 +71,7 @@ type Session struct {
 	vm      bool          // a VM sandbox (vm.go)
 	target  sessionTarget // the target deployment, fixed at start (target.go)
 	part    sessionPart   // its partition on a partitioned tile, fixed at start (partition.go)
+	purpose string        // "" or PurposeSignin, fixed at start (purpose.go)
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
@@ -190,6 +191,10 @@ type Manager struct {
 	TilePartitioned    func(path string) (tile string, partitioned bool)
 	PersonPartitionKey func(userID string) string
 
+	// SigninLife is how long a guided sign-in's shell (?purpose=signin,
+	// purpose.go) lives before xbind ends it. 0 ⇒ 15 minutes.
+	SigninLife time.Duration
+
 	mu       sync.Mutex
 	sessions map[string]*Session
 	envHeld  map[string]bool        // component key → a live session holds its persistent layer
@@ -216,6 +221,11 @@ func NewManager(root string, env func() []string) *Manager {
 // ServeWS handles an authenticated /ws/term request.
 // Query: cwd=<component-path> + net=<scope> (new session) or session=<id> (reattach).
 func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
+	purpose := r.URL.Query().Get("purpose") // a guided sign-in's shell (purpose.go)
+	if err := checkPurpose(purpose); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	sessID := r.URL.Query().Get("session")
 	cwd := r.URL.Query().Get("cwd")
 	netMode := normalizeNet(r.URL.Query().Get("net"))
@@ -267,7 +277,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		o := m.openOptsFor(p, rel, cwd, netMode, gpuMode, apiAccess)
-		o.vm = wantVM
+		o.vm, o.purpose = wantVM, purpose
 		if code, err := m.pickTarget(p, &o, rel, r.URL.Query().Get("deployment")); err != nil {
 			http.Error(w, err.Error(), code)
 			return
@@ -308,6 +318,9 @@ func (m *Manager) List() []map[string]any {
 			"label":   s.Label, "scopes": s.Scopes, "name": s.name,
 		}
 		s.mu.Unlock()
+		if s.purpose != "" { // a guided sign-in's shell (purpose.go)
+			row["purpose"] = s.purpose
+		}
 		if d := m.echoOf(s); d != "" { // the session's target (target.go)
 			row["deployment"] = d
 		}
@@ -342,6 +355,7 @@ type openOpts struct {
 	launch     *sbxLaunch        // what the setup learnt (sbx.go; set by create/createAgent)
 	target     sessionTarget     // the target deployment (pickTarget, target.go)
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
+	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -441,6 +455,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
+		purpose: o.purpose, name: nameFor(o.purpose),
 		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
 	// before the PTY's first byte (pump hasn't started): this start moved the
@@ -454,6 +469,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	m.mu.Unlock()
 	m.changed("open", s)
 	unlist := m.register(s, o, leaf)
+	m.armPurpose(s)
 
 	go s.pump(func() {
 		unlist()

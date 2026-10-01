@@ -53,19 +53,28 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a link to open and the code it shows pasted back — where `claude /login`
   signed a fresh home in twice (its onboarding, then the command). When a
   Claude Code agent is signed out, the Agent tab's **Sign in** runs it in a
-  terminal session of its own (named `xbin:sign-in`) that no tab shows —
-  in the browser, and in the xbin app's session lists, which skip it too —
-  and offers **Open sign-in
+  terminal session of its own that no tab shows — in the browser, and in
+  the xbin app's session lists, which skip it too — and offers **Open sign-in
   page ↗**, **Copy link**, a code field with **Finish**, and the CLI's own
   word on how it went; **Use a terminal instead** opens the shell tab as
   before (codex, gemini and opencode sign in that way still). `GET
   /agent/providers` gains an additive `signin` on claude: the command and
   how to read its output (sdk/acp `Provider.Signin`, `Signin.Scan`), for
   any client that wants to drive it. In every terminal a click on an OSC 8
-  link opens its whole target from any row it spans — no more "this link
-  could potentially be dangerous" — a URL broken over rows is joined back,
+  link opens its whole target from any row it spans — at once when the row
+  shows part of that target, after a confirm naming the real host and URL
+  when it shows something else — a URL broken over rows is joined back,
   and a program's OSC 52 copy (Claude Code's "c to copy") reaches the
-  clipboard while the terminal has the focus. Claude Code agents no longer
+  clipboard while the terminal has the focus. Amended after a security
+  review: a link that shows one URL and opens another asks first, a URL
+  with a user part never opens, an OSC 52 clipboard read is never
+  answered; the sign-in's session is marked by xbind
+  (`/ws/term?purpose=signin` → `purpose: "signin"` in `GET
+  /term/sessions` rows and `term` events; any other purpose 400), not by
+  its name — clients hide shell rows with that purpose, `PATCH
+  /term/sessions/<id>` refuses the name `xbin:sign-in` (400) and renaming
+  such a session (409), and it ends after 15 minutes; `signin.url` is
+  anchored and `signin.hosts` match exactly (no subdomains). Claude Code agents no longer
   run with `CLAUDE_CODE_REMOTE=1`, which put them in Anthropic's own
   remote-session mode (auto memory off, a 2-minute API timeout, a
   `bypassPermissions` default mode in your settings refused); the
