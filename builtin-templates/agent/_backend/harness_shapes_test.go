@@ -268,9 +268,24 @@ func TestHarnessShapes(t *testing.T) {
 	}
 	hwait(t, "its commands", func() bool { r, _ := ag.db.getRun(cards); return harnessHasCommand(r, "compact") })
 	add("patch", call("PATCH", fmt.Sprintf("/runs/%d/harness", cards), map[string]any{"mode": "ask", "option": map[string]string{"id": "model", "value": "fake-fast"}}))
-	ag.eng.harnessOf(cards).activity("tool", "Run go vet ./...")
-	add("harnessGet", call("GET", fmt.Sprintf("/runs/%d/harness", cards), nil))
-	for _, n := range call("GET", fmt.Sprintf("/runs/%d/tree", cards), nil)["nodes"].([]any) {
+	// an activity with a title, read back through GET harness and /tree. The
+	// fake adapter's own idle (a session update it sends after a turn, or
+	// after the PATCH above) can land between the set and the reads and
+	// clear it — on a loaded CI runner it did, and the summaryNode lacked
+	// activity.title — so it is set again until both reads carry it.
+	const doing = "Run go vet ./..."
+	var (
+		hget  map[string]any
+		nodes []any
+	)
+	hwait(t, "the agent's activity in GET harness and /tree", func() bool {
+		ag.eng.harnessOf(cards).activity("tool", doing)
+		hget = call("GET", fmt.Sprintf("/runs/%d/harness", cards), nil)
+		nodes = call("GET", fmt.Sprintf("/runs/%d/tree", cards), nil)["nodes"].([]any)
+		return hasActivityTitle(hget, doing) && hasActivityTitle(nodes, doing)
+	})
+	add("harnessGet", hget)
+	for _, n := range nodes {
 		add("treeNode", n)
 	}
 	view(cards)
@@ -416,4 +431,27 @@ func TestHarnessShapes(t *testing.T) {
 		t.Fatalf("the backend no longer produces what testdata/harness_shapes.json says (fix the backend, or regenerate the file and the STUB fixtures):\n  %s",
 			strings.Join(missing, "\n  "))
 	}
+}
+
+// hasActivityTitle reports whether decoded JSON holds, anywhere, an
+// "activity" object whose title is title.
+func hasActivityTitle(x any, title string) bool {
+	switch v := x.(type) {
+	case map[string]any:
+		if a, ok := v["activity"].(map[string]any); ok && a["title"] == title {
+			return true
+		}
+		for _, e := range v {
+			if hasActivityTitle(e, title) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range v {
+			if hasActivityTitle(e, title) {
+				return true
+			}
+		}
+	}
+	return false
 }
