@@ -6156,3 +6156,59 @@ Deviations and refinements made while implementing; all deliberate:
       after the delay (an admin's pass may have completed it); Stop (at
       shutdown) cancels the lists' context and waits, recording nothing a
       stopped list left half done.
+- **D173 — A request a swap cut off goes to the generation that replaced
+  it, when resending it is safe (2026-10-01).** internal/proxy/reroute.go,
+  internal/runner/{runner.go (Gen), engine.go (stopGen)}. (The six numbers
+  before it are the unmerged partitions branch's.) The owner: "Those tests
+  should not be flaky / load/timing related".
+  TestLiveReloadPauseRace/backends/runs/python failed under load: a GET
+  13 µs to 180 ms after the pause's answer got `502 backend error: read unix
+  …/g13.sock: read: connection reset by peer` (or EOF). The proxy had taken
+  g13 from EnsureDeployment; the pause's deploy then installed g14 and
+  SIGTERMed g13 (`go stopGen(old)`), and g13 ended with the request in its
+  listen backlog. Not the fixture's alone: a request routed to a
+  generation before a swap that reaches it after the SIGTERM finds a
+  draining backend's listener closed (the SDK's Shutdown closes it first:
+  the backlog is reset, a later dial refused), and a backend that exits at
+  once drops what it holds too. D8's drain covers the requests the old
+  generation took, not the ones still on their way to it. Three python
+  clients requesting without pause across 20 save-driven swaps, on a box
+  at load 300–480: master failed 30 of 81,551 requests over 40 swaps
+  (resets, an EOF, a refused dial, each from a generation the swap had
+  just retired); with this change 0 of 246,372 over 120 swaps.
+  - **Now.** stopGen marks the generation retired before it signals —
+    every stop xbind makes (a swap's old generation, a reap, Stop,
+    StopAll), never the process's own exit. The proxy's transport for
+    /api and for ingress (rerouting) sends a request its generation failed
+    before any answer to the deployment's generation now (EnsureGen /
+    EnsureDeploymentGen: the same routing again, never another
+    deployment) when that generation was retired and resending is safe:
+    no body, and an idempotent method (GET, HEAD, OPTIONS, TRACE, or an
+    Idempotency-Key header: net/http's own retry rule) or a failed dial
+    (nothing was sent). At most three times: each needs another swap
+    during the request's own flight.
+  - **Not chosen:** holding the SIGTERM until the requests routed to the
+    old generation are answered (a request held open — the agent engine's
+    keep-alive to itself, a long poll — would keep the old code running
+    to the drain deadline, where the engine hands over on SIGTERM in
+    milliseconds); holding it until they were taken (accept isn't visible
+    from the client end of a unix socket); a delay before the SIGTERM (a
+    time, not a condition); resending a body or a POST that reached the
+    old generation (it may have acted on it).
+  - **The test.** Its node and python fixtures exited at once on SIGTERM,
+    against elements.md's graceful stop: an answer cut between its headers
+    and its body was possible too. They drain now. Its waits that a
+    condition ends have one hang guard (raceGuard, 3 min), the failed
+    pause waits for the broken save's build-error event rather than four
+    debounces, and the harness's xbind start and stop (60 s, 20 s, the
+    shared daemon's 10 s) wait on the same conditions bounded by a 3-minute
+    guard: a loaded boot took 63 s.
+  - **Left, both seen only at load ~300–480 on 192 cores:** the runner's
+    5 s health timeout (pinned, TestSeamKeepsConstants) failed a python
+    start in 3 of 36 runs; and the go subtest under `-race` (8 of 8) served
+    code saved after the pause's checkpoint before its deploy swapped: the
+    run's first save, flushed by the watcher after the resume, queues a
+    second work-tree build behind the resume's, which reads the tree as
+    the next saves land, and a work-tree build checks the record only when
+    it starts (07-runtime §8.6 lets an in-flight build swap). Not changed
+    here: each needs a decision on a pinned contract.

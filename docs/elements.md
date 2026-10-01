@@ -659,7 +659,12 @@ Lifecycle facts that matter when writing backends:
 - **Lazy start**: nothing runs until the first request (or first save).
 - **Blue/green**: in-flight requests finish on the old generation. Requests
   during a rebuild wait for the new one (never connection-refused). A failed
-  build keeps the old generation serving.
+  build keeps the old generation serving. A request routed to the old
+  generation just as it was swapped out, which the old one never answered
+  (its SIGTERM closed the socket first), goes to the new generation when
+  sending it again is safe: it has no body and is a `GET`, `HEAD`,
+  `OPTIONS` or `TRACE` (or carries an `Idempotency-Key` header), or nothing
+  of it reached the old one. Any other such request answers 502.
 - **Statelessness pays**: a swap is a new process — keep state in resources
   (kv, sqlite), not memory. Long-lived connections (WS/SSE) to an old
   generation are killed at the 30 s drain deadline; reconnect.
@@ -673,8 +678,10 @@ Lifecycle facts that matter when writing backends:
   or a restart (a save doesn't reach it). Logs: `bx logs -f <component>`,
   or `tail -f $XBIN_WORKSPACE/.xbin/log/<key>.log` (a non-primary tile
   deployment's: `bx logs -f <component>+<name>`).
-- **Graceful stop**: handle SIGTERM ([sdk.md](/docs/sdk.md) `xbin.Serve`
-  does).
+- **Graceful stop**: handle SIGTERM: stop taking connections, answer the
+  requests you hold, then exit ([sdk.md](/docs/sdk.md) `xbin.Serve`
+  does). A backend that exits at once loses those requests, except the ones
+  xbind may send again (Blue/green, above), which may then run twice.
 
 Env every backend instance gets:
 

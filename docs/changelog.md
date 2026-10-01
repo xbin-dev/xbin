@@ -10,6 +10,23 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-01
+
+- **A request that meets a swap reaches the new generation**
+  ([elements.md](/docs/elements.md) §Runtimes & backend lifecycle). A
+  request xbind had routed to a backend generation just as a save, a
+  deploy, a grant change or a reap replaced it could fail with
+  `502 backend error: … connection reset by peer` (or `EOF`, or a refused
+  dial): the old generation's SIGTERM closed its socket before it took the
+  request. Such a request now goes to the generation that replaced it when
+  sending it again is safe: it has no body and is a `GET`, `HEAD`,
+  `OPTIONS` or `TRACE` (or carries an `Idempotency-Key` header), or nothing
+  of it reached the old generation. Other requests answer 502 as before,
+  and so does any request of a backend that crashed. A backend that exits
+  on SIGTERM without answering the requests it holds still loses them, and
+  one of those idempotent requests may now run on both generations: drain
+  on SIGTERM, as `xbin.Serve` does.
+
 ## 2026-09-30
 
 - **BREAKING (security): each Go tile builds with a `go.work` of its

@@ -244,12 +244,23 @@ func (r *Runner) emit(tile, dep, typ, text string) {
 // pinned backend on an xbind without isolation is held with the reason
 // (C7).
 func (r *Runner) EnsureDeployment(ctx context.Context, c *registry.Component, dep string) (string, error) {
+	return sockOf(r.ensureDeployment(ctx, c, dep))
+}
+
+// EnsureDeploymentGen is EnsureDeployment answering the generation itself
+// (EnsureGen).
+func (r *Runner) EnsureDeploymentGen(ctx context.Context, c *registry.Component, dep string) (Gen, error) {
+	inst, err := r.ensureDeployment(ctx, c, dep)
+	return Gen{inst}, err
+}
+
+func (r *Runner) ensureDeployment(ctx context.Context, c *registry.Component, dep string) (*instance, error) {
 	if dep != r.primary(c.Path) {
 		return r.ensureOther(ctx, c, dep)
 	}
 	if c.HasBackend() {
 		if err := r.heldWithoutIsolation(c.Path, dep); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	return r.ensurePrimary(ctx, c, dep)

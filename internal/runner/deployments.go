@@ -123,36 +123,36 @@ func (s *state) live() bool { return s.cur != nil || s.building }
 // deployment and its own code must have a backend, which then builds and
 // starts under the state's single flight, as Ensure's do. Nothing about a
 // name the record doesn't hold creates a state.
-func (r *Runner) ensureOther(ctx context.Context, c *registry.Component, dep string) (string, error) {
+func (r *Runner) ensureOther(ctx context.Context, c *registry.Component, dep string) (*instance, error) {
 	if s := r.existingStateOf(c.Path, dep); s != nil {
 		s.mu.Lock()
 		if !s.dirty && s.cur != nil {
-			sock := s.cur.sock
+			inst := s.cur
 			s.lastReq = r.now()
 			s.mu.Unlock()
-			return sock, nil
+			return inst, nil
 		}
 		s.mu.Unlock()
 	}
 	code, err := r.codeFor(c.Path, dep)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	v, err := r.viewOf(c, dep, code, "")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := registry.ValidateRuntime(v.Manifest); err != nil {
-		return "", fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
+		return nil, fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
 	}
 	if !v.HasBackend() {
-		return "", fmt.Errorf("deployment %s of %s has no long-running backend", dep, c.Path)
+		return nil, fmt.Errorf("deployment %s of %s has no long-running backend", dep, c.Path)
 	}
 	if !r.Isolate { // nothing binds its own data at its paths (D119h)
-		return "", fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate), and this xbind runs backends without one", c.Path, dep)
+		return nil, fmt.Errorf("%s: deployment %s runs only in a sandbox (--isolate), and this xbind runs backends without one", c.Path, dep)
 	}
 	if !r.shouldRun(c.Path, dep) {
-		return "", fmt.Errorf("component %s is not enabled", c.Path)
+		return nil, fmt.Errorf("component %s is not enabled", c.Path)
 	}
 	return r.ensureState(ctx, c, r.stateOf(c.Path, dep))
 }

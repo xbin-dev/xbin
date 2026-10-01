@@ -161,7 +161,11 @@ Every (re)start is a *generation*:
 4. **Swap** — atomic pointer flip; new requests hit the new generation.
 5. **Drain** — the old generation gets SIGTERM and 30 s to finish in-flight
    work (decision D8), then SIGKILL. When it exits, its instance token is
-   revoked — an old generation's credential cannot outlive it.
+   revoked — an old generation's credential cannot outlive it. A request
+   routed to the old generation before the swap that it never answered
+   (its SIGTERM closed the socket under the request) goes to the new
+   generation when resending is safe: no body, and an idempotent method or
+   nothing of it sent (D173).
 
 Practical consequences for backend authors: keep state in resources, not
 memory (a swap is a new process); handle SIGTERM (the SDK's `xbin.Serve`
