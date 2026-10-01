@@ -43,6 +43,23 @@ type harness struct {
 	env []string
 }
 
+// hangGuard bounds the tests' waits for what is bound to happen (an event,
+// a process's start or end, a stream's close): a test fails there only when
+// it never happens. No verdict depends on how soon it happens, so a loaded
+// machine only makes a test slower.
+const hangGuard = 2 * time.Minute
+
+// waitUntil polls cond, which the code under test is bound to make true,
+// until it holds.
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for end := time.Now().Add(hangGuard); !cond(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("%s: not after %v", what, hangGuard)
+		}
+	}
+}
+
 func newHarness(t *testing.T, mod func(*Options)) *harness {
 	t.Helper()
 	h := &harness{t: t, root: t.TempDir(), more: make(chan struct{}, 1), ctlGone: make(chan struct{})}
