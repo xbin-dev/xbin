@@ -831,6 +831,33 @@ func stopCredUsers(s *hSignin, why string) int {
 	return len(runs)
 }
 
+// stopCredsIn stops at once the coding agents that started with a saved
+// sign-in in sandbox ref — shared through this agent's own route (a share
+// made at the manager is caught by the next re-check: before every message,
+// at most every minute while one works) — and answers how many.
+func stopCredsIn(ref, what string) int {
+	rows, err := agent.db.q.Query(`SELECT run_id, state FROM harness_sessions WHERE ref=? AND cred<>''`, ref)
+	if err != nil {
+		return 0
+	}
+	var runs []int64
+	for rows.Next() {
+		var id int64
+		var st string
+		if rows.Scan(&id, &st) == nil && hsExecMayRun(st) {
+			runs = append(runs, id)
+		}
+	}
+	rows.Close()
+	for _, id := range runs {
+		why := fmt.Sprintf("the coding agent was stopped: %s — %s; the next message starts it with the sandbox's own sign-in", what, credNotOwnBox)
+		if _, _, err := agent.queue(id, inboxHStop, inboxBody{Reason: why}, ""); err != nil {
+			logf("run #%d: stopping its coding agent (sandbox shared): %v", id, err)
+		}
+	}
+	return len(runs)
+}
+
 // handlePickSignin picks the saved sign-in a coding agent's conversation
 // uses — one of the person's for its harness, "default" or "sandbox" (the
 // sandbox's own) — and switches to it: an adapter at rest restarts with it

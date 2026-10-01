@@ -233,6 +233,9 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	invalidateSandboxCatalog()
+	if sandboxShared(box) { // shared now: no saved sign-in stays in a coding agent there (D179, harness_creds.go)
+		stopCredsIn(sandboxRef(rs.conn.M.Provider, rs.id), sbxLabel(box)+" is shared now")
+	}
 	rs.entry.Box, rs.access = box, sandboxAccess(callerOf(r), box)
 	xbin.WriteJSON(w, http.StatusOK, rs.item())
 }

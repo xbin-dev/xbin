@@ -441,6 +441,25 @@ func TestCredSharedMidRun(t *testing.T) {
 	}
 }
 
+// Shared through the agent's own route: the coding agent that holds a saved
+// sign-in there stops at once — no message needed.
+func TestCredSharedThroughAgent(t *testing.T) {
+	_ = memVault(t)
+	ag, h, box, _, _, _ := harnessPartitionG(t, "--require-login")
+	if code, body := aliceCall(t, h, "POST", "/prefs/harness-signins", map[string]any{"harness": "fake", "secret": "sk-ant-oat01-personal-CCCC"}); code != 201 {
+		t.Fatalf("a pasted token: %d %s", code, body)
+	}
+	run := askIn(t, h, box, "whoami")
+	hAnswered(t, ag, run.ID, "account: token …CCCC")
+	if code, body := aliceCall(t, h, "PATCH", "/sandboxes/"+sandboxRef("apps/cs", box.ID), map[string]any{"members": []string{"bob"}}); code != 200 {
+		t.Fatalf("sharing it: %d %s", code, body)
+	}
+	hwait(t, "the adapter stopped by the share", func() bool {
+		hs, _ := ag.db.harnessSession(run.ID)
+		return hs != nil && hs.State == hsFailed && strings.Contains(hs.Error, "is shared now")
+	})
+}
+
 // A saved sign-in the CLI refuses: the run parks on its sign-in, saying so,
 // the sign-in is marked refused (GET /prefs/harness-signins), and the next
 // start leaves it out. A status update alone (claude-agent-acp's probe
