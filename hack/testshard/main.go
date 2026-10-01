@@ -498,10 +498,41 @@ func cmdTimings(root string, args []string) error {
 	for k, v := range got {
 		t[*profile][k] = v
 	}
+	// drop what no longer exists: a removed test or suite, a gone package
+	p, err := loadPlan(root)
+	if err != nil {
+		return err
+	}
+	lists, err := listSuites(root, p)
+	if err != nil {
+		return err
+	}
+	pkgs, err := unitPackages(root)
+	if err != nil {
+		return err
+	}
+	live := map[string]bool{}
+	for s, names := range lists {
+		for _, n := range names {
+			live[s+"/"+n] = true
+		}
+	}
+	for _, pkg := range pkgs {
+		live["unit/"+pkg] = true
+	}
+	pruned := 0
+	for _, prof := range t {
+		for k := range prof {
+			if !live[k] {
+				delete(prof, k)
+				pruned++
+			}
+		}
+	}
 	if err := writeTimings(root, t); err != nil {
 		return err
 	}
-	fmt.Printf("%s: %d times into the %q profile (%d entries)\n", timingsFile, len(got), *profile, len(t[*profile]))
+	fmt.Printf("%s: %d times into the %q profile (%d entries); %d gone tests or packages dropped\n", timingsFile, len(got), *profile, len(t[*profile]), pruned)
 	return nil
 }
 
