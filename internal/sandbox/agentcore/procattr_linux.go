@@ -3,7 +3,6 @@
 package agentcore
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
@@ -128,28 +129,58 @@ func lookPath(argv0 string, env []string) (string, error) {
 	return "", fmt.Errorf("%s: not found in PATH", argv0)
 }
 
-// adjustOOM gives session id's process, just started, the core's
-// SessionOOMScoreAdj — sessions from 2 on only. Raising a score needs no
-// privilege, so the write fails only when the process is already gone (a
-// quick exec: not logged) or when the target is below the floor a
-// privileged writer set for the agent (oom_score_adj_min, say xbind's unit's
-// OOMScoreAdjust: logged). Until the write lands the session has the
-// agent's score, which matters only to an OOM kill in that instant.
-func (c *Core) adjustOOM(id, pid int) {
-	adj := c.o.SessionOOMScoreAdj
-	if adj == 0 || id < 2 {
-		return
+// ownOOMScore is the agent's own oom_score_adj (tests point it elsewhere).
+var ownOOMScore = "/proc/self/oom_score_adj"
+
+// spawnSession starts session id's process, one spawn at a time
+// (Core.spawnMu). A session from 2 on starts with the core's
+// SessionOOMScoreAdj: a process inherits its parent's score at the clone,
+// before any of its code runs, so the agent takes that score for the spawn
+// and goes back to its own once Start has returned (the clone done).
+// Written to the session's process after the start instead, the score
+// raced the session: whatever it forked before the write — a shell's first
+// command — kept the agent's score for good, and a quick session already
+// exiting failed the write.
+//
+// Raising a score needs no privilege, and the agent may always go back to
+// its own: oom_score_adj_min, the floor a privileged writer sets (say
+// xbind's unit's OOMScoreAdjust), is at most the score that writer gave.
+// So taking the session's score fails only when that is below the floor:
+// logged, and the session keeps the agent's score. For the moment of the
+// clone the agent carries the session's score, which matters only to an
+// OOM kill in that instant.
+func (c *Core) spawnSession(id int, argv0 string, argv []string, attr *os.ProcAttr) (*os.Process, <-chan unix.WaitStatus, error) {
+	c.spawnMu.Lock()
+	defer c.spawnMu.Unlock()
+	if adj := c.o.SessionOOMScoreAdj; adj != 0 && id >= 2 {
+		if back := c.takeOOMScore(id, adj); back != nil {
+			defer back()
+		}
 	}
-	proc := "/proc/" + strconv.Itoa(pid)
-	if err := os.WriteFile(proc+"/oom_score_adj", []byte(strconv.Itoa(adj)), 0); err != nil && !ended(proc) {
-		c.o.Logf("session %d: oom_score_adj %d: %v", id, adj, err)
-	}
+	return c.o.Spawn.Start(argv0, argv, attr)
 }
 
-// ended reports whether the process at proc (/proc/<pid>) is gone or a
-// zombie — whose oom_score_adj is root's and has nothing to adjust.
-func ended(proc string) bool {
-	b, err := os.ReadFile(proc + "/stat")
-	i := bytes.LastIndexByte(b, ')') // the state follows the comm: "pid (comm) S …"
-	return err != nil || i < 0 || i+2 >= len(b) || b[i+2] == 'Z' || b[i+2] == 'X'
+// takeOOMScore sets the agent's own oom_score_adj to adj for session id's
+// spawn; it returns what puts the agent's own back, or nil when there is
+// nothing to put back (already adj, or not set: logged).
+func (c *Core) takeOOMScore(id, adj int) (back func()) {
+	b, err := os.ReadFile(ownOOMScore)
+	if err != nil {
+		c.o.Logf("session %d: oom_score_adj %d: %v", id, adj, err)
+		return nil
+	}
+	own := strings.TrimSpace(string(b))
+	want := strconv.Itoa(adj)
+	if own == want {
+		return nil
+	}
+	if err := os.WriteFile(ownOOMScore, []byte(want), 0); err != nil {
+		c.o.Logf("session %d: oom_score_adj %d: %v", id, adj, err)
+		return nil
+	}
+	return func() {
+		if err := os.WriteFile(ownOOMScore, []byte(own), 0); err != nil {
+			c.o.Logf("the agent's own oom_score_adj back to %s after session %d's start: %v", own, id, err)
+		}
+	}
 }

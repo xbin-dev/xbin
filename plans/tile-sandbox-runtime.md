@@ -385,10 +385,12 @@ this in order:
 - **User work is what the OOM killer picks.** agentcore gains
   `Options.SessionOOMScoreAdj`. The namespace agent passes 500, and so does
   the VM guest for sessions ≥ 2 (session 1, a backend's or a terminal's,
-  keeps today's 0). The agent writes it to `/proc/<pid>/oom_score_adj` right
-  after the session starts; raising it needs no privilege, and a failed
-  write is logged, never fatal. The instant before the write only changes
-  which process a simultaneous OOM would pick. The leaf keeps
+  keeps today's 0). The session inherits it at the clone: the agent takes
+  the session's score for the spawn and goes back to its own right after
+  (raising it needs no privilege; a failed write is logged, never fatal),
+  so the session and everything it forks have it from their first
+  instruction. The moment the agent carries it only changes which process
+  a simultaneous OOM would pick. The leaf keeps
   `memory.oom.group` 0, so an OOM kills a process, not the sandbox.
 
 Its stdout and stderr go to xbind's log pipe: a 64 KiB ring per sandbox that
@@ -2808,10 +2810,21 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     exit stays 0 even when `exitSync` then kills a stopped fuse-overlayfs.
     Measured here: the agent exits and the pid namespace is empty 2–3 ms
     after the SIGKILL.
-  - *`Options.SessionOOMScoreAdj`* is clamped to ±1000 and written right
-    after the spawn, before `started` is sent. A write that fails because
-    the session already ended (gone, or a zombie, whose `oom_score_adj` is
-    root's: `EACCES`) is silent; any other failure is logged. That is
+  - *`Options.SessionOOMScoreAdj`* is clamped to ±1000. *(Amended
+    2026-10-01, deflake/namespace-agent.)* It was first written to the
+    session's `/proc/<pid>/oom_score_adj` right after the spawn, which
+    raced the session: under load a session read (and forked children
+    with) the agent's score before the write landed — whatever it forked
+    then kept the agent's score for good — and a quick session already
+    exiting failed the write with a spurious `EACCES` log line.
+    `TestNamespaceAgent/rootfs/oom_score_adj` failed ~8% of runs under CPU
+    load on exactly that. Now the session inherits it at the clone:
+    `spawnSession` (one spawn at a time) sets the agent's *own* score to
+    the session's, starts the process, and puts the agent's back before
+    `started` is sent. The agent so carries a session's score for the
+    moment of a clone, which only changes which process a simultaneous OOM
+    would pick. A failure to take the score is logged, and the session
+    keeps the agent's. That is
     chiefly a target below `oom_score_adj_min`, the floor a privileged
     writer sets (systemd's `OOMScoreAdjust=` for xbind's unit): an
     unprivileged write may lower a score down to that floor, not past it.
@@ -2821,8 +2834,9 @@ and WP-2b can start now. Each ends green on `make check` like any WP;
     sandbox's own processes an OOM takes: code in a sandbox can always end
     its own sandbox.
   - *Tests.* `agentcore/procattr_test.go` (unit): session 1 and the agent
-    keep the test's score, sessions 2 and 3 read 500, a reaped or zombie
-    process logs nothing, and without the option nothing changes.
+    keep the test's score, sessions 2 and 3 read 500 at once (and so does
+    the child each forks first thing), a score the agent can't take is
+    logged, and without the option nothing changes.
     `agentcore/ns_fuse_linux_test.go` (integration, `TestNamespaceAgentRoot`,
     minimal lower, so CI's `bin/fuse-overlayfs` runs it):
     - a stand-in that fails (the probe binary) and one that never mounts (a
