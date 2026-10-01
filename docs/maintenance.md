@@ -13,7 +13,7 @@ test or a Makefile target next to the thing that needs remembering.
 
 ```
 hack/dev-setup.sh       # once per machine (and after an upgrade): what the checks need here, fixed
-make check              # fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files test
+make check              # the guards (make guards: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files), then test
 make integration-deps   # once, and after a pull: the helpers (prebuilt), Firecracker, xbind/bx/xbin-vmagent, .rootfs if missing
 make integration        # when the runner / sandbox / broker path changed
 make hooks              # once per clone: the sub-second subset runs pre-commit
@@ -34,16 +34,20 @@ what each gap costs, then fixes what you agree to — the system steps in one
 (`XBIN_TEST_ROOTFS`, `XBIN_GOCRYPTFS`, `XBIN_DOWNGRADE_BIN`, the VM assets,
 `PLAYWRIGHT_DIR`), `GOFMT` (CI's Go's) and `PATH` for a toolchain it
 installed. `eval "$(hack/dev-setup.sh --env)"` gives your shell the same.
-`make integration` runs the cgroup tests under `$(DELEGATED)`, a
+`make integration` runs the cgroup tests under `$(DELEGATE)`, a
 `Delegate=yes` scope of your systemd user manager, where one can be made.
 
-CI (`.github/workflows/ci.yml`) runs exactly `make check` then
-`make integration`, and in a second job (`native`) the native client's
-Linux half: `make swift-test` and `make swift-stubcheck` (the app's
-SwiftUI/UIKit code against SDK stubs) under Swift 6.4, `make native-check` and the
-iOS CI's own check (`native/ios/scripts/ci-local-check.sh`); a release
-(`make release TAG=vX.Y.Z`) runs `make check` and the online pin checks
-before building. Builder-visible behaviour also
+CI (`.github/workflows/ci.yml`) runs what `make check` and `make
+integration` run, split over parallel GitHub-hosted jobs (below,
+"Integration shards"): the guards (`make guards`), the unit tests in two
+shards, `make tile-check`, the integration tests in four shards, the VM
+suite in a `vm` job with KVM, the split's own guard (`shards`), and the
+native client's Linux half in three jobs: `make swift-test` and `make
+swift-stubcheck` (the app's SwiftUI/UIKit code against SDK stubs) under
+Swift 6.4, `make native-check` and the iOS CI's own check
+(`native/ios/scripts/ci-local-check.sh`, with its bash 3.2 dry tests). A
+release (`make release TAG=vX.Y.Z`) runs `make check` and the
+online pin checks before building. Builder-visible behaviour also
 needs a `docs/changelog.md` entry and the relevant `docs/*.md` update; every
 non-obvious choice gets a numbered entry in the decision log
 (`plans/DECISIONS.md` in the repo). Each guard below is its own Makefile
@@ -66,6 +70,41 @@ Not in `check`: `make swift-test` runs the native client's Swift packages
 toolchain, Linux included — ci.yml's `native` job installs one to run them,
 and the Apple CI (`.github/workflows/ios.yml`) runs them on macOS; `make
 tile-check` needs the network (CI runs it).
+
+### Integration shards
+
+`make integration`'s suites — one `go test -tags=integration` over one
+package each, with its environment, filters and timeout — are listed in
+`hack/integration.jsonc`, with what each covers and what it skips without.
+`hack/testshard` lists every suite's top-level tests from source (what `go
+test -list` prints) and splits them into the plan's `shards` (4): measured
+tests longest first onto the least-loaded shard by
+`hack/integration-timings.json`, a test without a time onto the shard its
+name hashes to (so adding a test moves nothing else). A suite with a `job`
+(the VM suite) runs whole in that CI job. The unit packages split the same
+way into `unit_shards` (2). The tests the plan names `alone` (the latency
+budgets) stay in their shard on CI, where a shard has a runner to itself;
+a local run of every shard at once runs them after the shards, by
+themselves.
+
+| Command | Runs |
+|---|---|
+| `make integration` | every shard and job at once, each into a log under `$TMPDIR` (`LOGS=dir`: there, kept); the failures' FAIL lines and tails at the end (`TMPDIR=…` where /tmp is a small tmpfs: shards' daemons need many inodes) |
+| `make integration SHARD=2/4` | one shard in the foreground, as CI's job does; `SHARD=vm` the vm job's suites |
+| `make test SHARD=1/2` | one unit shard (a bare `make test` is unchanged) |
+| `go run ./hack/testshard list [-shard 2/4] [-unit]` | the go test commands a shard runs, without running them |
+| `go run ./hack/testshard timings -profile ci <logs…>` | refresh the timing file from shard logs (`gh run view --log`); `-profile local` from a local run's logs |
+
+Every test runs exactly once: hack/testshard's tests (in `make test`)
+recompute the split under both timing profiles and fail when an
+integration test lands in no shard or two, a unit package in no unit shard
+or two, a suite's filter matches nothing, or `ci.yml` doesn't run each
+shard and job exactly once (or runs anything unsharded beside them). CI's
+`shards` job (`testshard verify`) also compiles every suite package and
+checks the source listing against `go test -list`. A shard runs each of its
+suites whatever failed before; a balanced shard takes about a minute and a
+half of tests on a 4-vCPU runner — add a shard (the plan's `shards` and
+ci.yml's matrix, together) when the timing file says they grew past that.
 
 ## Exec guard (nothing runs as xbind on tile data)
 
@@ -102,8 +141,9 @@ xbind-owned file under `data/deployments`, say); `fsutil.OpenBeneath`/
 drives checkpoint capture, extraction and GC, the drift count and the
 backup of a checkpoint store through a hostile tree aimed at a FIFO. And
 `TestIntegrationPackagesListed` fails when a package with
-`integration`-tagged tests is missing from `make integration`'s list, which
-is how `internal/sandbox`'s tests once went unrun.
+`integration`-tagged tests is missing from `make integration`'s suites
+(`hack/integration.jsonc`), which is how `internal/sandbox`'s tests once
+went unrun.
 
 ## Size budget (the ratchet)
 
@@ -161,13 +201,44 @@ make release TAG=v0.3.44 RELEASE_FLAGS=--dry-run
 ```
 
 The script: preflight (tag shape, clean tree, on master, `gh` authenticated)
-→ `make check` → annotated tag + push of the branch and the tag → build and
-publish from a **detached worktree of the tag** (`deploy/publish-release.sh`
-builds whatever checkout it runs in; an edit on master during the build must
-not leak into the bundles) → watch the commit's CI runs → `gh release view`
-→ prune `dist/` to the two newest tags' bundles. `--no-check`, `--arch`,
-`--no-watch`, `--keep N`, `--allow-branch` exist for the unusual day; the
-release notes and the changelog entry are still yours to write.
+→ `make check` → `make vulncheck` (below) → annotated tag + push of the
+branch and the tag → build and publish from a **detached worktree of the
+tag** (`deploy/publish-release.sh` builds whatever checkout it runs in; an
+edit on master during the build must not leak into the bundles) → watch the
+commit's CI runs → `gh release view` → prune `dist/` to the two newest
+tags' bundles. `--no-check`, `--arch`, `--no-watch`, `--keep N`,
+`--allow-branch` exist for the unusual day; the release notes and the
+changelog entry are still yours to write.
+
+**The vulnerability gate** (`make vulncheck`, `hack/vulncheck`) runs
+govulncheck, in source mode, over the Go a release builds from this
+checkout. It scans these targets:
+
+- `xbind` and `xbind/arm64`: xbind's programs (`./cmd/...` with the repo's
+  `go.work`), as `make build` builds them for each bundle (CGO_ENABLED=0,
+  linux/amd64 and linux/arm64);
+- `relay` and `sdk`;
+- each builtin tile's and template's backend, against its own
+  `go.mod.tile` and `go.sum`, read-only, through a `go.work` shaped as the
+  one xbind builds it with (the sdk replaced by the checkout). A
+  requirement or checksum that's missing fails the gate; it is never
+  fetched.
+
+It fails on a known vulnerability their code *reaches* (a call path, not
+just a required module) that `hack/vulncheck-allow.txt` doesn't list. An
+entry there reads `<OSV id> <target> # <why>`; keep the file empty or
+nearly so, and fix the finding instead (bump the dependency, and for a
+builtin bump its tile version too). Standard-library findings gate xbind's
+programs and the relay only. They are judged on the release of the `go`
+running the gate: `go1.27.0-X:nodwarf5` counts as go1.27.0, and a devel
+go fails the gate (govulncheck would match it against no advisory). So run
+it with the go that builds the release, and keep that go current. A tile's
+standard library is its workspace host's Go. Go the bundles carry without
+building it here is **not** scanned: the prebuilt helpers (`bin/gocryptfs`,
+pinned in `hack/helpers.sha256`) and the rootfs's tools (gopls, dlv).
+`--no-check` doesn't skip the gate. It needs network (the vulnerability
+database, each module's dependencies), so it is not part of `make check`.
+`make vulncheck VULNCHECK=<target…>` checks some targets only.
 
 ## Embedded assets
 

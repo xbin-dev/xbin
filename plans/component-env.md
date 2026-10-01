@@ -183,7 +183,15 @@ Lifecycle:
   resolving; unstamped legacy bases are preserved as `rootfs-v0`.
 - **migration** — an existing (unstamped) terminal layer is treated as `v0` on
   first sight and stamped; it keeps running on the preserved `rootfs-v0`.
-- **safety gate** — at startup xbind aborts (`CheckBaseImages`) if any layer
-  pins a base that isn't installed, rather than corrupt it on a different base.
+- **safety gate** — a session's start refuses a layer that pins a base that
+  isn't installed, rather than corrupt it on a different base. (At startup
+  xbind used to abort over one, `CheckBaseImages`; since D175 it logs them —
+  the per-start refusal is the gate.) A stamp or base version that can't be
+  read fails the start too, never read as "unstamped".
 - **release** — `GCBaseImages` removes preserved `rootfs-<version>` siblings once
   no terminal pins them (i.e. everyone has upgraded).
+- **auto-update (D175)** — with the workspace setting on (the default), a
+  session's start that takes a layer built on another base puts it aside
+  (removed in the background, confined, as the reset removes it) and runs on
+  a fresh layer on the current base, printing one grey line; a running
+  session is never touched. A layer on a missing base moves the same way.

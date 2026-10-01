@@ -63,19 +63,32 @@ var (
 )
 
 // BaseVersion reads a rootfs's stamped base version, defaulting to Legacy
-// for an unstamped (pre-versioning) base or none.
+// for an unstamped (pre-versioning) base or none — and for a version file
+// that can't be read, which a caller about to discard anything on the
+// answer must tell apart (ReadBaseVersion).
 func BaseVersion(rootfs string) string {
+	v, _ := ReadBaseVersion(rootfs)
+	return v
+}
+
+// ReadBaseVersion is BaseVersion with the read's error: Legacy, nil for an
+// unstamped base (no version file, or an empty one) or none; Legacy and the
+// error when the file is there but can't be read (EIO, EACCES, EMFILE…).
+func ReadBaseVersion(rootfs string) (string, error) {
 	if rootfs == "" {
-		return Legacy
+		return Legacy, nil
 	}
 	b, err := os.ReadFile(filepath.Join(rootfs, VersionFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return Legacy, nil
+	}
 	if err != nil {
-		return Legacy
+		return Legacy, err
 	}
 	if v := strings.TrimSpace(string(b)); v != "" {
-		return v
+		return v, nil
 	}
-	return Legacy
+	return Legacy, nil
 }
 
 // ResolveBase returns the rootfs dir serving base version: the current
@@ -118,6 +131,11 @@ func Read(dir string) (Stamps, error) {
 	s.Overlay, err = readStamp(filepath.Join(dir, OverlayFile))
 	return s, err
 }
+
+// ReadBase returns dir's base stamp alone: "" when there is none, an error
+// when it is there but can't be read or isn't a regular file — never ""
+// for a stamp that exists, whatever the overlay stamp beside it holds.
+func ReadBase(dir string) (string, error) { return readStamp(filepath.Join(dir, BaseFile)) }
 
 // readStamp reads one stamp without following a symlink, bounded.
 func readStamp(p string) (string, error) {

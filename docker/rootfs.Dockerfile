@@ -31,8 +31,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   NODE_ARCH : x64   | arm64      (nodejs.org)
 #   OC_ARCH   : x64-baseline | arm64   (opencode release asset)
 
-# Go (full toolchain — components build against it).
-ARG GO_VERSION=1.24.0
+# Go (full toolchain — components build against it). Terminals and agents
+# build tiles with it, so it must meet every shipped go.mod's go line — the
+# builtins' security-fixed dependencies need go 1.26.0 (golang.org/x/crypto
+# ≥ v0.56.0) — and stay at most the host Go xbind's installer guarantees
+# (deploy/install.sh GO_MIN): `go mod init` here writes this version as the
+# new tile's go line, and xbind builds tiles with the host's Go
+# (hack/check-pins.sh checks both).
+ARG GO_VERSION=1.26.3
 RUN a="$(dpkg --print-architecture)" \
     && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${a}.tar.gz" | tar -C /usr/local -xz
 

@@ -43,12 +43,29 @@ make integration    # end-to-end; compiles real Go backends (network on first
                     # run for module downloads). Includes the container-store
                     # fs suites (test/containerfs/): those need bin/gocryptfs
                     # (`make helpers`) + unprivileged userns, and skip with
-                    # instructions when missing
-make check          # the definition of done: fmt-check vet js-check shellcheck
-                    # pins-offline large-files test — CI runs exactly this,
-                    # then integration
+                    # instructions when missing. Its suites (hack/
+                    # integration.jsonc) run as shards, all at once, each
+                    # into a log; SHARD=i/N runs one as a CI job does
+make check          # the definition of done: the guards (fmt-check vet
+                    # js-check shellcheck pins-offline large-files …, alone:
+                    # `make guards`) and test — CI runs the same split over
+                    # parallel jobs, with integration's shards
 make hooks          # once per clone: fmt-check + js-check run pre-commit
-make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing)
+make vulncheck      # the release's vulnerability gate (network): govulncheck
+                    # over the Go a release builds from this checkout —
+                    # xbind's programs (linux/amd64 and arm64), the relay,
+                    # the sdk, each builtin tile's and template's backend
+                    # read-only against its go.mod.tile, as xbind builds it —
+                    # failing on a known vulnerability their code reaches
+                    # that hack/vulncheck-allow.txt doesn't list with why.
+                    # Standard-library findings gate xbind's programs and the
+                    # relay, judged on the release of the go running it (run
+                    # it with the go that builds the release; a devel go
+                    # fails it). Not scanned: prebuilt helpers (gocryptfs)
+                    # and the rootfs's tools (gopls, dlv). VULNCHECK=<target…>
+                    # narrows it. Not in `check`; `make release` runs it
+make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing):
+                    # make check, make vulncheck, tag, push, build, publish
 ./hack/vendor.sh    # refresh pinned frontend deps (lit, xterm, marked) + hack/vendor.sha256
 ```
 

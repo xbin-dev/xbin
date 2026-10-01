@@ -344,6 +344,9 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	m.mu.Unlock()
 	m.changed("open", s)
 	unlist := m.register(s, o, leaf)
+	if o.launch.baseMoved != "" { // D175: this start moved the tile's layer to the current base
+		s.sayBaseMoved(m, termKey(rel))
+	}
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
 	// its login from) plus the provider's own non-secret knobs. No API keys —

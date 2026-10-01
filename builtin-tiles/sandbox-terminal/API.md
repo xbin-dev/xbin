@@ -168,8 +168,10 @@ ssh -t api-dev@sbx.example.com -p 2222 htop  # a command, in a terminal
   in its manager.
 - **Leaving.** When the client disconnects while the command runs, the
   command's process group gets `HUP`, and is killed if it still runs two
-  seconds later. Work that should outlive the connection belongs in its own
-  session (`setsid`, `tmux`).
+  seconds later — also when it disconnects while the command is still
+  starting (a stopped sandbox booting, a terminal opening): it is ended
+  once its manager has said which one it started. Work that should outlive the
+  connection belongs in its own session (`setsid`, `tmux`).
 - **Not in v1:** port forwarding (local and remote), agent forwarding, X11,
   `sftp` (and so today's `scp`), environment variables from the client.
 - **The host key** is an ed25519 key made on first start and kept in the

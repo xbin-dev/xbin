@@ -270,3 +270,17 @@ test('a fold from a turn start and the state before it equals the whole fold', (
     }
   }
 });
+
+// D174: a `notice` (xbin's own line — the session's start moved the tile's
+// layer to a new base) is a block of its own, keyed by its seq like any
+// other; the status digest doesn't take it
+test('a notice is a block of its own', () => {
+  const f = new Fold([
+    { seq: 1, ts: 10, type: 'notice', data: { text: 'xbin: moved' } },
+    { seq: 2, ts: 20, type: 'status', data: { status: 'idle' } },
+    { seq: 3, ts: 30, type: 'message.delta', data: { role: 'user', text: 'hi' } },
+  ]);
+  assert.deepEqual(f.blocks.map((b) => [b.kind, b.text]), [['notice', 'xbin: moved'], ['msg', 'hi']]);
+  assert.equal(f.st.status, 'idle');
+  assert.equal(f.st.detail, '');
+});

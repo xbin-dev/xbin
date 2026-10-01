@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 )
 
 // Config is everything the daemon reads at boot: the flag block of
@@ -77,12 +78,15 @@ type Config struct {
 	// Runtime injection — not settings. Version is the build id main
 	// resolves; Listener replaces the console listener (tests bind :0 and set
 	// Listen to the bound address); Ready runs once the console listener
-	// serves; Privileges nil ⇒ the real setuid path; Stdout nil ⇒ os.Stdout.
-	Version    string
-	Listener   net.Listener
-	Ready      func(addr string)
-	Privileges Privileges
-	Stdout     io.Writer
+	// serves; Privileges nil ⇒ the real setuid path; Stdout nil ⇒ os.Stdout;
+	// GoVersionsDelay is how long after boot the D166 upgrade check's first
+	// pass waits (0 ⇒ 30 s; tests shorten it).
+	Version         string
+	Listener        net.Listener
+	Ready           func(addr string)
+	Privileges      Privileges
+	Stdout          io.Writer
+	GoVersionsDelay time.Duration
 }
 
 // RegisterFlags declares every `flag`-tagged field on fs, its default being

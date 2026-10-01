@@ -167,11 +167,16 @@ func TestDeployPlaneOperations(t *testing.T) {
 
 	t.Run("a Go tile deploys through the runner", func(t *testing.T) {
 		f := newOpsFx(t, true)
+		// The runner holds the deploy until the answer is read: the lane's
+		// goroutine could otherwise finish it before the pause answers.
+		hold := make(chan struct{})
+		f.run.set(func(r *fakeRunner) { r.before = hold })
 		ans := f.must(ownerP, OpPause, &PauseRequest{Tile: opAPI})
 		tree1 := *f.rec(opAPI).Deployments["main"].Checkpoint
 		if ans.Deploy == nil || (ans.Deploy.Result != resultQueued && ans.Deploy.Result != resultRunning) {
 			t.Fatalf("pause's deploy = %+v, want it queued behind the runner", ans.Deploy)
 		}
+		close(hold)
 		if e := f.wait(opAPI, ans.Deploy.ID); e.Result != resultOK {
 			t.Fatalf("pause's deploy finished %+v", e)
 		}

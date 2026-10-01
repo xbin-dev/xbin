@@ -436,6 +436,7 @@ type overlay struct {
 	n     atomic.Int32
 	mu    sync.Mutex
 	tiles map[string]int
+	idle  map[string]chan struct{} // closed when tile's last mark goes: what settle waits on
 }
 
 // on marks tile until the returned func runs.
@@ -453,6 +454,10 @@ func (o *overlay) on(tile string) func() {
 			o.mu.Lock()
 			if o.tiles[tile]--; o.tiles[tile] <= 0 {
 				delete(o.tiles, tile)
+				if ch := o.idle[tile]; ch != nil {
+					close(ch)
+					delete(o.idle, tile)
+				}
 			}
 			o.n.Add(-1)
 			o.mu.Unlock()
@@ -469,32 +474,29 @@ func (o *overlay) has(tile string) bool {
 	return o.tiles[tile] > 0
 }
 
-// ---- the runner's hooks (runner.DeploymentHooks) ----
-
-// CodeFor answers what deployment dep of tile runs: its record's checkpoint,
-// or the work tree while live reload drives it (D119e); util.ErrNoDeployment for
-// a name the tile doesn't have; a *HeldError while its record holds it, so
-// nothing starts. Without a record: the work tree for main.
-func (p *Plane) CodeFor(tile, dep string) (runner.Code, error) {
-	rec, err := p.record(tile)
-	if err != nil {
-		return runner.Code{}, err
-	}
-	if rec == nil {
-		if dep != util.MainDeployment {
-			return runner.Code{}, util.NoDeployment(tile, dep)
+// settle waits until no operation marks tile: the one detaching its live
+// reload has committed, or failed and caught up.
+func (o *overlay) settle(tile string) {
+	for o.n.Load() != 0 {
+		o.mu.Lock()
+		if o.tiles[tile] <= 0 {
+			o.mu.Unlock()
+			return
 		}
-		return runner.Code{WorkTree: true}, nil
+		if o.idle == nil {
+			o.idle = map[string]chan struct{}{}
+		}
+		ch := o.idle[tile]
+		if ch == nil {
+			ch = make(chan struct{})
+			o.idle[tile] = ch
+		}
+		o.mu.Unlock()
+		<-ch
 	}
-	d := rec.Deployments[dep]
-	switch {
-	case d == nil:
-		return runner.Code{}, util.NoDeployment(tile, dep)
-	case d.Checkpoint == nil:
-		return runner.Code{WorkTree: true}, nil
-	}
-	return runner.Code{Tree: *d.Checkpoint}, nil
 }
+
+// ---- the runner's hooks (runner.DeploymentHooks) ----
 
 // Primary names tile's primary deployment: its record's, else main.
 func (p *Plane) Primary(tile string) string {

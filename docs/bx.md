@@ -128,6 +128,10 @@ bx partition share-log <tile> [--days n] [--stop]
 bx partition credential <id> allow|refuse
                                        answer a credential an admin made for you
 bx partition reviewed <tile> on|off    run reviewed code only (admin)
+bx settings [ls] | set --base-auto-update[=true|false]
+                                       workspace settings (set: admin, D175):
+                                       base auto-update, terminals moving to a
+                                       new base image at their next start
 bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets (D28)
 bx access <tile> [set|rm user:…|org:…=level | request [level] | approve <user> [level]]
                                        per-tile access entries — exact entries
@@ -391,7 +395,12 @@ sets (unknown attachments, rules that can't parse, orgs granted HOST
 networking, inert net bindings); chrome requests no admin approved (those
 tiles run sandboxed) and approvals naming no component; tiles whose name
 holds `+` (which can't get deployments; no new name may hold one); go.work
-ownership; strict tile asset gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
+ownership; Go tiles that build with older dependency versions since each
+builds with its own `go.mod` (D166), with the `require` lines that keep what
+each had and what changed (admin credentials: `GET
+/api/xbin/go-build-versions`; a dismissed one is a note, as is a tile the
+check couldn't compare — [the migration
+note](/docs/changes/2026-09-30-go-build-workspace.md)); strict tile asset gating (tiles whose absolute `/c/` URLs, `inject:false` or escaping symlinks
 the strict modes refuse — from `GET /api/xbin/tile-assets`; under the
 default legacy mode these are what the coming enforcement will refuse);
 partitioned tiles holding a grant on another partitioned tile's people's
@@ -506,6 +515,19 @@ sandbox managers that don't keep people apart, files the tile's own
 repository doesn't track (xbind lists them, with a confined git), caps its
 people's partitions met in the last day, and orphaned partitions (with the
 `bx partition purge … --partition <id> --yes` that deletes each).
+
+**`bx settings`** — the workspace settings an admin sets (D175; the admin
+console's workspace → terminals tab sets the same). `bx settings` shows
+them; `bx settings set --base-auto-update=false` (or `--no-base-auto-update`)
+turns base auto-update off, `--base-auto-update` back on. On — the default —
+a tile's terminal layer built on an older base image moves to the current
+base at its next session start: everything outside the workspace files and
+`$HOME` is reset, for good (installed packages, `/etc`, `/var`, `/opt`…, a
+VM terminal's disk), and a running terminal keeps its base until it ends
+([09-terminals.md](/docs/overview/09-terminals.md) §Base images).
+Off, a layer stays on its base and the terminal window offers the update.
+Reads need any credential, the change an admin's (`GET`/`PUT
+/api/xbin/workspace-settings`); an xbind without the setting answers 404.
 
 **`bx fix assets`** — the codemod for strict tile asset gating
 ([auth.md §Tile asset gating](/docs/auth.md), [elements.md §Asset

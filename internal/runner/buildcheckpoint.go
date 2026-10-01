@@ -9,18 +9,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/xbin-dev/xbin/internal/confine"
+	"github.com/xbin-dev/xbin/internal/deps"
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -94,10 +93,11 @@ func fullTree(s string) bool {
 
 // buildCheckpointGo compiles tile c's checkpoint tree, materialized at root,
 // unless an earlier build left its artifact (D119e). It is buildConfined's
-// build with the tree shown at the tile's canonical path, so go.work's
-// `use ./<tile>` and relative replace lines resolve unchanged; the components
-// nested in it and every go.work module of a tile whose primary is pinned
-// shown from their primaries' code (checkpointPlan, NP-07-4); and only a
+// build with the tree shown at the tile's canonical path, so its go.work's
+// `use` of the tile and relative replace lines resolve unchanged; the
+// components nested in it and every Go module of a tile whose primary is
+// pinned shown from their primaries' code (checkpointPlan, NP-07-4), and its
+// go.work made from that code (D166); and only a
 // fresh .xbin/build/<CompKey>/c/<tree>.tmp-<rand>/ writable, renamed to
 // c/<tree>/ with its build.json once the build succeeds, so a crash never
 // leaves a partial artifact that looks valid.
@@ -139,17 +139,8 @@ func (r *Runner) buildCheckpointGoIn(c *registry.Component, tree, root string, p
 			_ = os.RemoveAll(tmp)
 		}
 	}()
-	extra := plan.binds
-	if plan.goWork != nil {
-		name := tmpName + ".go.work"
-		if err := writeAt(cfd, name, plan.goWork); err != nil {
-			return "", fmt.Errorf("checkpoint build's go.work: %w", err)
-		}
-		defer unix.Unlinkat(cfd, name, 0)
-		extra = append(extra, confine.At(filepath.Join(base, pr.arts, name), filepath.Join(r.Root, "go.work"), true))
-	}
 	start := time.Now()
-	err = r.runGoBuild(c, goEntry(c.Manifest), goBuild{dirFrom: root, out: filepath.Join(tmp, "bin"), outDir: tmp, extra: extra, gocache: pr.gocache, modcache: pr.modcache})
+	err = r.runGoBuild(c, goEntry(c.Manifest), goBuild{dirFrom: root, out: filepath.Join(tmp, "bin"), outDir: tmp, extra: plan.binds, gocache: pr.gocache, modcache: pr.modcache, work: plan.work})
 	if err != nil {
 		return "", err
 	}
@@ -174,6 +165,7 @@ func (r *Runner) buildCheckpointGoIn(c *registry.Component, tree, root string, p
 		}
 	}
 	placed = true
+	r.GoVersions.Built(c.Path) // a pinned primary redeployed: the D166 alert re-checks the tile's go.mod
 	return final, nil
 }
 
@@ -289,16 +281,24 @@ type buildRecord struct {
 	Toolchain string            `json:"toolchain"`
 	GoFlags   string            `json:"goflags"`
 	GoEnv     map[string]string `json:"goenv,omitempty"`   // the operator's settings passed in (passGoEnv)
-	Modules   []buildModule     `json:"modules,omitempty"` // every go.work module
-	Sum       []string          `json:"sum,omitempty"`     // module@version, as the tile's go.sum pins them
-	Built     time.Time         `json:"built"`
-	Millis    int64             `json:"durationMs"`
-	Rebuilt   []string          `json:"rebuilt,omitempty"` // how the inputs differ from the record this build replaced
+	Modules   []buildModule     `json:"modules,omitempty"` // every module the build's go.work uses
+	// Workspace is "tile" for a build with its own go.work (D166); "" for
+	// one before, with the workspace's, whose Modules were every module the
+	// workspace's go.work used.
+	Workspace string    `json:"workspace,omitempty"`
+	Sum       []string  `json:"sum,omitempty"` // module@version, as the tile's go.sum pins them
+	Built     time.Time `json:"built"`
+	Millis    int64     `json:"durationMs"`
+	Rebuilt   []string  `json:"rebuilt,omitempty"` // how the inputs differ from the record this build replaced
 }
 
-// buildModule is one go.work module and the code the build compiled it from.
+// ownWorkspace is buildRecord.Workspace for a build with its own go.work.
+const ownWorkspace = "tile"
+
+// buildModule is one module of the build's go.work and the code the build
+// compiled it from.
 type buildModule struct {
-	Use  string `json:"use"`  // as go.work writes it
+	Use  string `json:"use"`  // its directory: "./<workspace-relative>", or absolute outside the workspace
 	Code string `json:"code"` // "worktree", or the checkpoint's tree
 }
 
@@ -312,7 +312,7 @@ func (r *Runner) newBuildRecord(c *registry.Component, tree string, plan ckptPla
 	}
 	return &buildRecord{
 		Tile: c.Path, Tree: tree, Toolchain: tc.version, GoFlags: goFlags(), GoEnv: env,
-		Modules: plan.modules, Sum: plan.sum,
+		Modules: plan.modules, Workspace: ownWorkspace, Sum: plan.sum,
 		Built: start.UTC(), Millis: time.Since(start).Milliseconds(),
 	}
 }
@@ -326,6 +326,15 @@ func (b *buildRecord) changedFrom(old *buildRecord) []string {
 	}
 	if old.GoFlags != b.GoFlags || !maps.Equal(old.GoEnv, b.GoEnv) {
 		d = append(d, "the Go settings")
+	}
+	if old.Workspace != b.Workspace {
+		// the module graph itself differs: one over the whole workspace
+		// then, the tile's own now — its module lists don't compare
+		d = append(d, "the build's go.work: the workspace's → the tile's own (D166)")
+		if !slices.Equal(old.Sum, b.Sum) {
+			d = append(d, "go.sum's module versions")
+		}
+		return d
 	}
 	was := map[string]string{}
 	for _, m := range old.Modules {
@@ -352,77 +361,69 @@ func (b *buildRecord) changedFrom(old *buildRecord) []string {
 // ckptPlan is what a checkpoint build shows beyond the tile's own tree.
 type ckptPlan struct {
 	binds   []sandbox.Bind // other components' code, each at its own path
-	modules []buildModule  // every go.work module, with the code it builds against
-	goWork  []byte         // a corrected go.work over the workspace's; nil = the workspace's as it is
+	modules []buildModule  // every module the build's go.work uses, with the code it builds against
+	work    *deps.Work     // the build's own workspace (D166); nil = the tree holds no Go module
 	sum     []string       // the tile's go.sum pins
 }
 
 // checkpointPlan resolves the code a checkpoint build of c's tree (at root)
 // sees. The components shown from elsewhere than the workspace are
-// showCode's, with every go.work module's component asked about, so
-// cross-tile references follow the other tile's primary (05-model §6). A
-// module shown from a checkpoint that keeps its go.mod elsewhere than
-// go.work says (the root versus backend/) gets that one use line corrected
-// in a per-build go.work, bound read-only over the workspace's. Tile files
-// are read beneath their trees only.
+// showCode's, with every component holding a Go module asked about (and
+// every one holding a module a hand-managed go.work uses), so cross-tile
+// references follow the other tile's primary (05-model §6). The build's
+// own go.work (buildWork) is made from that code: the tile's modules as its
+// tree keeps them (at its root or in backend/), each other module where its
+// shown code keeps it. Tile files are read beneath their trees only.
 func (r *Runner) checkpointPlan(c *registry.Component, tree, root string) (ckptPlan, error) {
 	var plan ckptPlan
-	lines, uses, err := readGoWork(r.Root)
-	if err != nil {
-		return plan, err
-	}
-	comps := append(r.components(), c)
-	owners := make([]*registry.Component, len(uses))
+	comps := r.components()
 	modules := map[string]bool{}
-	for i, u := range uses {
-		owners[i] = moduleOwner(comps, u.dir)
-		if n := owners[i]; n != nil && n.Path != c.Path {
+	for _, n := range comps {
+		if n.Path == c.Path {
+			continue
+		}
+		if _, ok := deps.ModuleSub(r.readRoot(n.Dir)); ok {
 			modules[n.Path] = true
+		}
+	}
+	if rw, _ := deps.ReadRootWork(r.Root); rw != nil {
+		for _, u := range rw.Uses {
+			if n := owningComponent(comps, u); n != nil && n.Path != c.Path {
+				modules[n.Path] = true
+			}
 		}
 	}
 	shown, err := r.showCode(c, modules)
 	if err != nil {
 		return plan, err
 	}
-	code := map[string]shownComp{c.Path: {comp: c, root: root, tree: tree}}
+	code := map[string]shownComp{}
 	for _, s := range shown {
 		code[s.comp.Path] = s
 		plan.binds = append(plan.binds, confine.At(s.root, s.comp.Dir, true))
 	}
-	rewrote := false
-	for i, u := range uses {
-		m := buildModule{Use: u.token, Code: "worktree"}
-		if n := owners[i]; n != nil {
-			if s := code[n.Path]; s.tree != "" {
-				m.Code = s.tree
-				if want := moduleDirIn(s.root, n.Dir); want != "" && want != u.dir {
-					rel, _ := filepath.Rel(r.Root, want)
-					lines[u.line] = strings.Replace(lines[u.line], u.token, "./"+filepath.ToSlash(rel), 1)
-					rewrote = true
-				}
+	if w, ok := r.buildWork(c, goEntry(c.Manifest), root, code); ok {
+		plan.work = &w
+		for _, m := range w.Uses {
+			use := m.Dir
+			if rel, err := filepath.Rel(r.Root, m.Dir); err == nil && within(m.Dir, r.Root) {
+				use = "./" + filepath.ToSlash(rel)
 			}
+			bm := buildModule{Use: use, Code: "worktree"}
+			switch {
+			case m.Tile == c.Path:
+				bm.Code = tree
+			case m.Tile != "" && code[m.Tile].tree != "":
+				bm.Code = code[m.Tile].tree
+			}
+			plan.modules = append(plan.modules, bm)
 		}
-		plan.modules = append(plan.modules, m)
-	}
-	if rewrote {
-		plan.goWork = []byte(strings.Join(lines, "\n"))
 	}
 	if d := moduleDirIn(root, c.Dir); d != "" {
 		sub, _ := filepath.Rel(c.Dir, d)
 		plan.sum = goSumPins(root, filepath.Join(sub, "go.sum"))
 	}
 	return plan, nil
-}
-
-// moduleOwner is the component whose Go module dir is: at its root, or in
-// its backend/.
-func moduleOwner(comps []*registry.Component, dir string) *registry.Component {
-	for _, n := range comps {
-		if n.Dir == dir || filepath.Join(n.Dir, "backend") == dir {
-			return n
-		}
-	}
-	return nil
 }
 
 // moduleDirIn is where a tree materialized at root and shown at dir keeps
@@ -442,79 +443,8 @@ func moduleDirIn(root, dir string) string {
 	return ""
 }
 
-// goWorkMax and goSumMax cap what a build reads of go.work and go.sum.
-const (
-	goWorkMax = 1 << 20
-	goSumMax  = 8 << 20
-)
-
-// workUse is one `use` directive of go.work.
-type workUse struct {
-	line  int    // its line
-	token string // the path as written
-	dir   string // the directory it names, absolute and clean
-}
-
-// readGoWork reads the workspace's go.work (beneath the workspace: a
-// symlink out of it is refused) and its use directives; nothing when there
-// is none.
-func readGoWork(root string) ([]string, []workUse, error) {
-	f, err := fsutil.OpenBeneath(root, "go.work")
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("the workspace's go.work can't be read: %w", err)
-	}
-	b, err := io.ReadAll(io.LimitReader(f, goWorkMax+1))
-	f.Close()
-	if err != nil || len(b) > goWorkMax {
-		return nil, nil, errors.New("the workspace's go.work can't be read")
-	}
-	lines := strings.Split(string(b), "\n")
-	var uses []workUse
-	add := func(i int, tok string) {
-		p := tok
-		if u, err := strconv.Unquote(tok); err == nil {
-			p = u
-		}
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(root, filepath.FromSlash(p))
-		}
-		uses = append(uses, workUse{line: i, token: tok, dir: filepath.Clean(p)})
-	}
-	block := false
-	for i, l := range lines {
-		t := l
-		if j := strings.Index(t, "//"); j >= 0 {
-			t = t[:j]
-		}
-		t = strings.TrimSpace(t)
-		if block {
-			if t == ")" {
-				block = false
-			} else if t != "" {
-				add(i, t)
-			}
-			continue
-		}
-		rest, ok := strings.CutPrefix(t, "use")
-		if !ok || rest == "" || !strings.ContainsRune(" \t(", rune(rest[0])) {
-			continue
-		}
-		rest = strings.TrimSpace(rest)
-		if inner, ok := strings.CutPrefix(rest, "("); ok {
-			inner, closed := strings.CutSuffix(inner, ")")
-			for _, tok := range strings.Fields(inner) {
-				add(i, tok)
-			}
-			block = !closed
-			continue
-		}
-		add(i, rest)
-	}
-	return lines, uses, nil
-}
+// goSumMax caps what a build record reads of go.sum.
+const goSumMax = 8 << 20
 
 // goSumPins lists the module@version pairs a go.sum beneath root pins,
 // sorted and without duplicates; nil without one.

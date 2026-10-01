@@ -683,7 +683,7 @@ stripping the prefix (your handler sees `/<path>`).
 
 | runtime | entry default | change behavior |
 |---------|---------------|-----------------|
-| `go` | `./backend` package | `go build` (workspace go.work, shared cache) → new process → health check → atomic swap → old gets SIGTERM, 30 s drain |
+| `go` | `./backend` package | `go build` (the build's own go.work, made from your go.mod — §Cross-component code access) → new process → health check → atomic swap → old gets SIGTERM, 30 s drain |
 | `node` | `backend/server.js` | restart-on-change (same swap dance, no compile) |
 | `python` | `backend/server.py` | restart-on-change |
 
@@ -699,7 +699,12 @@ Lifecycle facts that matter when writing backends:
 - **Lazy start**: nothing runs until the first request (or first save).
 - **Blue/green**: in-flight requests finish on the old generation. Requests
   during a rebuild wait for the new one (never connection-refused). A failed
-  build keeps the old generation serving.
+  build keeps the old generation serving. A request routed to the old
+  generation just as it was swapped out, which the old one never answered
+  (its SIGTERM closed the socket first), goes to the new generation when
+  sending it again is safe: it has no body and is a `GET`, `HEAD`,
+  `OPTIONS` or `TRACE` (or carries an `Idempotency-Key` header), or nothing
+  of it reached the old one. Any other such request answers 502.
 - **Statelessness pays**: a swap is a new process — keep state in resources
   (kv, sqlite), not memory. Long-lived connections (WS/SSE) to an old
   generation are killed at the 30 s drain deadline; reconnect.
@@ -713,8 +718,10 @@ Lifecycle facts that matter when writing backends:
   or a restart (a save doesn't reach it). Logs: `bx logs -f <component>`,
   or `tail -f $XBIN_WORKSPACE/.xbin/log/<key>.log` (a non-primary tile
   deployment's: `bx logs -f <component>+<name>`).
-- **Graceful stop**: handle SIGTERM ([sdk.md](/docs/sdk.md) `xbin.Serve`
-  does).
+- **Graceful stop**: handle SIGTERM: stop taking connections, answer the
+  requests you hold, then exit ([sdk.md](/docs/sdk.md) `xbin.Serve`
+  does). A backend that exits at once loses those requests, except the ones
+  xbind may send again (Blue/green, above), which may then run twice.
 
 Env every backend instance gets:
 
@@ -832,5 +839,80 @@ Keep it truthful over pretty — it's a contract, not marketing.
   against them.
 - Go: xbind maintains a generated `go.work` at the workspace root listing
   every Go component and the xbin SDK — any shell can `go build`/`gopls`
-  across the whole workspace. If you hand-edit `go.work`, remove the
-  generated-marker line and xbind will leave it alone.
+  across the whole workspace. Its `go` line is the highest of `1.24` and
+  the listed modules' (the go command refuses a `go.work` older than a
+  module it uses): one tile at `go 1.26.0` makes it `go 1.26.0`, and a
+  terminal whose Go is older fetches that toolchain (`GOTOOLCHAIN=auto`,
+  the default; network needed). The base rootfs ships Go 1.26.3; older
+  bases have 1.24.0, and **⬆ base update** moves a terminal to the
+  current one
+  ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+  If you hand-edit `go.work`, remove the generated-marker line and xbind
+  will leave it alone.
+- Go, **your tile's build** (D166): xbind builds your backend with a
+  `go.work` of its own, made from your `go.mod` at each build — never the
+  root one, whose single module graph let every tile's `go.mod` change what
+  every other tile compiled (a newer requirement, a `replace`, a module
+  declaring a path someone else imports). It uses:
+  - your tile's module (at its root, or in `backend/`; and the one holding
+    your `entry` package, when that is another), and the xbin SDK. A tile
+    with no `go.mod` of its own, inside another component's module
+    (`apps/suite/admin` in `apps/suite`), builds in that module, as before;
+  - each other tile's module **your own `go.mod`, manifest or code
+    chooses** — and on through what those modules choose. Only these
+    choose one; nothing another tile's `go.mod` says does:
+    - a `require` of a module path with no dot in its first element
+      (`calendar`, `lib/greet`: no proxy serves it), or at `v0.0.0`, is
+      the workspace's module with that path;
+    - a `replace` with a tile's directory is that tile's module — and a
+      `require` your `go.mod` also replaces is the replace's alone (your
+      `replace example.com/lib => ./lib` is never another tile's
+      `example.com/lib`);
+    - an import no `require` or `replace` of the build covers is the one
+      workspace module that holds the package — for a dotless path, or a
+      module nested in your own module's directory (a child component). When
+      two could (`calendar`'s `store/` and a module declaring
+      `calendar/store`), neither is used and the build says so (name the
+      one you mean in `deps`, or require it with a `replace` to its
+      directory);
+    - a tile your manifest names in `deps` is your choice of its code: its
+      module serves your references to the path it declares — even a
+      dotted one at a published version, or an import with no `require` —
+      and its `replace` lines come along. Name only tiles you'd let into
+      your binary;
+    - with a hand-managed root `go.work`, a module it `use`s outside every
+      tile (the workspace's own, which only admins write) serves any
+      reference to its path.
+
+    Never: a module declaring your own path, the SDK's or one beneath it; an
+    import under a path a `go.mod` of the build requires (another tile
+    declaring `golang.org/x/sys/unix` never stands in for the x/sys you
+    require); a standard-library package; a namesake of one of your own
+    packages elsewhere (a module beneath your module path counts only
+    nested in your directory, or named in `deps`). A dotted path at a
+    **published** version
+    (`golang.org/x/crypto v0.57.0`) resolves as a normal module even when a
+    tile declares that path — unless you name that tile in `deps`. A
+    module your build uses brings its `go.mod`'s `replace` lines along (in
+    workspace mode they apply to the whole build): you chose to build with
+    its code;
+  - with a hand-managed root `go.work`, its `go`, `toolchain`, `godebug`
+    and `replace` lines. The build's `go` line is the highest of `1.24`,
+    that one and your modules' (`go mod init` in a terminal writes its
+    Go's version: `go 1.26.3`).
+
+  So **require what you import**, and to build against another tile's
+  module, name the tile in `deps` — or `require` it with a `replace` to its
+  directory (`require example.com/lib v0.0.0` + `replace example.com/lib
+  => ../lib`). A bare `require … v0.0.0` of a workspace module works only
+  until the go command loads the whole module graph (any import from
+  outside the workspace), then fails looking that version up — the go
+  command's rule, with any go.work. A package another tile's `go.mod`
+  happened to pull in no longer reaches your build: the build fails with
+  `no required module provides package …` (or `package … is not in std`
+  for a dotless path), and xbind adds a line saying what to put in your
+  `go.mod` or manifest — naming module paths and versions, never another
+  tile ([changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md)).
+  The build's `go.work` and `go.work.sum` live under
+  `.xbin/cache/tile/<key>/work/`; a Go tile with no module at all builds
+  with `GOWORK=off`.

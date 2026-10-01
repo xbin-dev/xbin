@@ -52,10 +52,12 @@ type Options struct {
 	// Dump answers "dump" (a VM guest's report); nil ignores it.
 	Dump func() string
 	// SessionOOMScoreAdj, when not 0, is the oom_score_adj (-1000…1000)
-	// every session from 2 on gets right after it starts — a tile sandbox's
-	// execs — so that under memory pressure the OOM killer takes user work,
-	// not the agent. Session 1 (a backend's, a terminal's) keeps what it
-	// inherited. A failed write is logged, never fatal (procattr_linux.go).
+	// every session from 2 on starts with — a tile sandbox's execs — so that
+	// under memory pressure the OOM killer takes user work, not the agent.
+	// The session's process has it from the clone on, before any of its
+	// code runs, and so does everything it forks. Session 1 (a backend's, a
+	// terminal's) keeps what it inherited. A failed write is logged, never
+	// fatal (procattr_linux.go).
 	SessionOOMScoreAdj int
 
 	Logf func(format string, args ...any)
@@ -66,6 +68,9 @@ type Core struct {
 	o Options
 
 	cfgMu sync.Mutex // one Configure at a time
+	// spawnMu: one session's spawn at a time — while a session from 2 on is
+	// cloned, the agent carries that session's oom_score_adj (spawnSession)
+	spawnMu sync.Mutex
 
 	mu         sync.Mutex
 	configured bool

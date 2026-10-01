@@ -281,3 +281,16 @@ export function agoCoarse(unixSec) {
   if (s < 86400 * 60) return `${Math.round(s / 86400)}d ago`;
   return `${Math.round(s / (86400 * 30))}mo ago`;
 }
+
+// alertBar(alerts, done): the router's row per workspace alert (GET
+// /alerts). One that can be dismissed (the Go build versions alert, D166)
+// carries dismiss, the route a POST to which does it; done(err?) follows.
+export function alertBar(alerts, done) {
+  if (!alerts?.length) return nothing;
+  const dismiss = (a) => api(a.dismiss, { method: 'POST' }).then(() => done(), (e) => done(e));
+  return html`<div class="alertbar">
+    ${alerts.map((a) => html`<div class="al ${a.level}">
+      <b>${a.level === 'crit' ? '⚠' : '⚡'}</b> ${a.message}
+      ${a.dismiss ? html`<button class="al-x" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`)}
+  </div>`;
+}

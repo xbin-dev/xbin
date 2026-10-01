@@ -111,30 +111,72 @@ func TestGoWorkFor(t *testing.T) {
 	}
 }
 
-// A generated go.work, copied elsewhere for GOWORK, keeps naming the
-// workspace's modules and SDK; a hand-managed one isn't rewritten.
-func TestAbsGoWork(t *testing.T) {
-	gen := renderGoWork([]string{"./apps/a", "./apps/b/backend"}, "sdk")
-	got, ok := AbsGoWork(gen, "/ws")
-	if !ok {
-		t.Fatal("a generated go.work wasn't recognised")
-	}
-	for _, want := range []string{"\t/ws/apps/a\n", "\t/ws/apps/b/backend\n", "replace github.com/xbin-dev/xbin/sdk => /ws/sdk\n", workMarker} {
-		if !strings.Contains(got, want) {
-			t.Errorf("no %q in\n%s", want, got)
+// The generated go.work's go line is the highest of 1.24 and its modules':
+// the go command refuses, for every command run with it, a go.work whose go
+// line is below a module it uses ("module apps/c listed in go.work file
+// requires go >= 1.26.0, but go.work lists go 1.24"). A go line that isn't a
+// Go version, and a go.mod reached through a symlink, never raise it; a
+// restricted terminal's go.work counts only the modules it lists.
+func TestGoWorkGoLine(t *testing.T) {
+	root := t.TempDir()
+	mk := func(p, content string) {
+		t.Helper()
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if strings.Contains(got, "./") {
-		t.Errorf("a relative path is left:\n%s", got)
+	mk("xbin.json", `{"schema":1}`)
+	mk("apps/a/xbin.json", `{"runtime":"go"}`)
+	mk("apps/a/go.mod", "module a\n\ngo 1.22\n")
+	mk("apps/b/xbin.json", `{"runtime":"go"}`)
+	mk("apps/b/backend/go.mod", "module b\n\ngo 1.24\n")
+	mk("apps/odd/xbin.json", `{"runtime":"go"}`)
+	mk("apps/odd/go.mod", "module odd\n\ngo 9.x\n")
+	outside := filepath.Join(t.TempDir(), "go.mod")
+	if err := os.WriteFile(outside, []byte("module link\n\ngo 1.99.0\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	abs := renderGoWork([]string{"./apps/a"}, "/opt/xbin/sdk")
-	if got, _ := AbsGoWork(abs, "/ws"); !strings.Contains(got, "=> /opt/xbin/sdk\n") {
-		t.Errorf("an absolute sdk path changed:\n%s", got)
+	mk("apps/link/xbin.json", `{"runtime":"go"}`)
+	if err := os.Symlink(outside, filepath.Join(root, "apps", "link", "go.mod")); err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := AbsGoWork("go 1.24\n\nuse ./apps/a\n", "/ws"); ok {
-		t.Error("a hand-managed go.work was rewritten")
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := AbsGoWork("go 1.24\n"+workMarker+"\n", "/ws"); ok {
-		t.Error("a marker that isn't the first line claims the file")
+	goLine := func() string {
+		t.Helper()
+		if err := GoWork(reg, ""); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := os.ReadFile(filepath.Join(root, "go.work"))
+		for _, l := range strings.Split(string(b), "\n") {
+			if v, ok := strings.CutPrefix(l, "go "); ok {
+				return v
+			}
+		}
+		t.Fatalf("no go line:\n%s", b)
+		return ""
+	}
+	if v := goLine(); v != "1.24" {
+		t.Errorf("modules at go 1.22/1.24 (and an odd one, a symlinked one): go %s, want 1.24 as before", v)
+	}
+
+	mk("apps/c/xbin.json", `{"runtime":"go"}`)
+	mk("apps/c/go.mod", "module c\n\ngo 1.26.0\n\nrequire golang.org/x/crypto v0.57.0\n")
+	if err := reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if v := goLine(); v != "1.26.0" {
+		t.Errorf("a module at go 1.26.0: go %s, want 1.26.0", v)
+	}
+
+	got := GoWorkFor(reg, "", func(p string) bool { return p == "apps/a" || p == "apps/b" })
+	if !strings.Contains(got, "\ngo 1.24\n") {
+		t.Errorf("a restricted go.work counts only its own modules:\n%s", got)
 	}
 }

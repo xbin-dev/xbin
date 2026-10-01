@@ -849,6 +849,65 @@ GET    /runtime                    admin. full runtime visibility →
 GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
+GET    /go-build-versions          admin. the D166 upgrade check's latest
+                                   result → {since?, done, fresh?, running,
+                                   checkedAt?, workspaceError?, tiles:[{tile,
+                                   require:["<module> <version>"], minimal,
+                                   changes:[{module, had?, now?}], dismissed,
+                                   checkedAt}], errors:[{tile, error}]}.
+                                   tiles: each Go tile whose own build (its
+                                   go.mod's versions) links a module lower
+                                   than the workspace's shared go.work did,
+                                   with the fewest require lines that keep
+                                   what it had (minimal:false = the raw
+                                   differing lines: the search gave up);
+                                   a change without now is no longer
+                                   linked, one without had newly linked.
+                                   errors: tiles it couldn't compare (their
+                                   build fails one way or the other).
+                                   workspaceError: the shared go.work itself
+                                   doesn't load (`go list -m` refuses it),
+                                   said once for every tile it left
+                                   uncompared. since: the xbind version the
+                                   change came with; done: the first pass
+                                   completed; fresh: no Go build of an
+                                   earlier xbind was found, nothing
+                                   compared. It runs once on its own, in the
+                                   background after the first boot of an
+                                   xbind with it on a workspace an earlier
+                                   xbind built Go tiles in (a work-tree
+                                   binary, or a checkpoint artifact whose
+                                   build.json records the shared go.work;
+                                   marker: data/go-build-versions.json),
+                                   over the Go tiles the workspace has then,
+                                   keeping what each linked under the shared
+                                   go.work (its baseline). A tile it names is
+                                   listed again after a build of it (work
+                                   tree or checkpoint) once its go.mod, or
+                                   another go.mod or the go.work its build
+                                   uses, changed — and leaves once its
+                                   go.mod caught up. Only tiles the
+                                   workspace still has as Go tiles are
+                                   listed. `bx doctor` renders it
+POST   /go-build-versions/check    admin. compare the check's tiles again, in
+                                   the background, a few at a time → 202
+                                   {running:true, started} (started false: a
+                                   pass is already running; GET shows
+                                   running until it is done). Each tile is
+                                   compared with its baseline — only the
+                                   modules it links both ways count — and
+                                   the shared go.work is listed only for a
+                                   tile that has none yet; a tile added
+                                   since the upgrade is not compared (it
+                                   never built with the shared go.work).
+                                   200 {running:false, started:false,
+                                   reason} when no tile has anything to
+                                   compare (a fresh workspace); 503 while
+                                   xbind stops
+POST   /go-build-versions/dismiss  admin. body {tile?} (none: every tile the
+                                   alert names) → the GET report. Hides the
+                                   alert's line for the tile until its lines
+                                   change; 404 a tile the check doesn't list
 GET    /vm                         authenticated. VM sandboxes (D89)
                                    → {status:{available,reason,emulated?,
                                    note?}, policy:
@@ -1248,11 +1307,20 @@ POST   /path-tickets              a tile's page (its frame token) only.
                                    /api/~<ticket>/<rest> (§Path tickets)
 
 GET    /alerts                    any. workspace health {alerts:[{level,kind,
-                                   tile?,message,system}]} — disk quota / low
-                                   disk / cgroup at-limit; system alerts to all,
-                                   tile alerts to admins + that tile's users.
-                                   An unreadable data/workspace-policies.json
-                                   is kind `policies`, admins only.
+                                   tile?,message,system,dismiss?}]} — disk
+                                   quota / low disk / cgroup at-limit; system
+                                   alerts to all, tile alerts to admins +
+                                   that tile's users. An unreadable
+                                   data/workspace-policies.json is kind
+                                   `policies`, admins only. Admins also get
+                                   kind go-build-versions (warn): Go tiles
+                                   that build with older dependency versions
+                                   since each builds with its own go.mod
+                                   (D166), and the require lines that keep
+                                   what each had (GET /go-build-versions).
+                                   dismiss: the route a POST to which
+                                   dismisses the alert
+                                   (/go-build-versions/dismiss).
                                    An alert about a deployment's data beyond
                                    the primary's main carries deployment (the
                                    data's deployment; tile is then the data's
@@ -2227,6 +2295,30 @@ POST   /partitions/limits         admin (the admin console: when the
                                    can't read: the defaults apply and POST
                                    answers 500); applies at the next start;
                                    audited (docs/partitions.md)
+GET    /workspace-settings        authenticated. {baseAutoUpdate, error?} —
+                                   the workspace settings an admin sets
+                                   (D175). baseAutoUpdate (default true): a
+                                   tile's terminal layer built on an older
+                                   base image moves to the current base at
+                                   its next session start (everything
+                                   outside the workspace files and $HOME is
+                                   reset: installed packages, /etc, /var,
+                                   /opt…, a VM terminal's disk; a running
+                                   session keeps its base until it ends);
+                                   false: it stays, and the terminal window
+                                   offers the base update. error: the file
+                                   can't be read — base auto-update is off
+                                   until it is fixed
+PUT    /workspace-settings        admin. {baseAutoUpdate?: bool}: each
+                                   present key replaces its setting, an
+                                   absent one is left alone; an unknown key
+                                   or no key is 400 → the full view, which
+                                   a `workspace-settings` event carries too
+                                   (open terminal windows re-read GET
+                                   /ws/term/env on it); audited.
+                                   Kept in data/workspace-settings.json,
+                                   whose other keys (a newer xbind's) are
+                                   kept; an older xbind ignores the file
 GET    /chrome                    admin. {tiles: [{path, requested,
                                    approved, shipped?, chrome, missing?}]} —
                                    every component whose xbin.json says
@@ -4975,8 +5067,9 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   writes, and every admin API (backups, the vault barrier, vaults,
   resources, auth-overview, backends, runtime, ingress, gpus, the VM policy,
   token rotation, view-as, the native-runtime, chrome, branding and
-  workspace-policies writes, push config and devices), and partition mode
-  decisions (`POST /partitions/mode`). Deciding a PR (`POST /code/pr/state`) is
+  workspace-policies and workspace-settings writes, push config and
+  devices), and partition mode decisions (`POST /partitions/mode`). Deciding
+  a PR (`POST /code/pr/state`) is
   primary-only for backends: 403 `deciding a PR is the primary's act: a
   non-primary deployment's backend can't do it (<deployment>)`.
 - **Audit.** A tile credential acting in a deployment other than `main`
@@ -6013,6 +6106,7 @@ DELETE /ws/term/env?cwd=<p>        terminal level on the tile: wipe its persiste
                                    terminal layer back to the base rootfs → 204
                                    (on a partitioned tile: the caller's own)
 GET    /ws/term/env?cwd=<p>        that layer's state → {exists, baseOutdated,
+                                   baseAutoUpdate,
                                    vm:{available,reason,memMiB,vcpus}}
 ```
 
@@ -6120,7 +6214,8 @@ The frames are [the terminal wire](#the-terminal-wire) (below), with
     pick on this tile, `label` names the effective scope, `netNote` explains a
     clamp; `baseOutdated:true` ⇒ this terminal's persistent layer was built on
     an older base image — reset it via `/ws/term/env` to rebuild on the
-    current base; `echoAck:true` ⇒ this xbind sends the `ack` and `pong`
+    current base (with the workspace's base auto-update on, the session's
+    next start does that by itself, D175); `echoAck:true` ⇒ this xbind sends the `ack` and `pong`
     frames below; `deployment` = the named target, or the current primary's
     name for a session that asked for the primary by name — the echo a client
     checks, since an older xbind ignores `?deployment=`; `targetNote` = a line
@@ -6188,9 +6283,23 @@ component's terminal has its own persistent overlay layer (`.xbin/term/<key>/`)
 so system-level changes survive across sessions — a resettable dev sandbox
 (`docs/isolation.md` §The dev layer). Workspace files and `$HOME` persist independently.
 `GET /ws/term/env?cwd=<component-path>` (same gate) reports that layer
-without opening a terminal: `{"exists":bool,"baseOutdated":bool}` —
+without opening a terminal: `{"exists":bool,"baseOutdated":bool,"baseAutoUpdate":bool}` —
 `baseOutdated` as on the session frame, so the terminal window offers the
-base update on its session chooser too.
+base update on its session chooser too; `baseAutoUpdate` is the
+workspace's setting (`GET /api/xbin/workspace-settings`, D175): while it is
+on, the next session that opens the layer — no other session holding it —
+moves it to the current base first (its upper and VM disk put aside and
+removed as the reset removes them: everything outside the workspace files
+and `$HOME`), and the shell's first output is one grey line saying so
+(`xbin: this tile's terminal moved to the new base image — everything
+outside the workspace files and $HOME was reset (…)`); an agent session
+logs a `notice` event instead, and the tile's next shell prints `xbin: an
+agent session's start moved this tile's terminal to the new base image —
+…` once. A running session is never moved. A layer whose base isn't
+installed any more moves the same way; with the setting off, such a layer
+fails to open (reset it). Neither keeps xbind from booting any more (it
+used to refuse to start over such a layer, D175). A layer stamp or base
+version that can't be read fails the open, the layer untouched.
 
 Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 xbind restart kills them (run `tmux` inside if you care).
@@ -6268,6 +6377,7 @@ required). JSON text frames:
          "request":{"spec":{"user":true,"global":true},"since":"…","declined":false}}} // its mode changed; re-read GET /partitions?tile=
 {"type":"partitions","component":"apps/x",                         // to the person's own session, app or device only:
  "data":{"op":"notice","notice":{"id":"…","at":"…","kind":"partition-deleted|partition-reset|credential","tile":"apps/x","text":"…","hold":"…"}}}
+{"type":"workspace-settings","data":{"baseAutoUpdate":false}} // an admin changed the workspace settings (D175): the new view; a terminal window re-reads GET /ws/term/env
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition
  "data":{"level":"error","message":"…","ts":1785…,"transient":false}}
@@ -6471,6 +6581,7 @@ them apart by `hasOlder`.
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
 | `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a one-click sign-in that runs `command` in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
+| `notice` | `{text}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today one: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first) |
 
 The live log is in memory; an `exited` or `error` status is final and the
 session leaves the directory (`term` event `close`). Its transcript does not
@@ -6548,7 +6659,12 @@ a time, sub-paths traversal-stripped. The native runtime document
   swapped blue/green on change (an edit to the tile's native UI entry
   alone reloads its views without a swap — docs/elements.md §Native app
   UI), SIGTERMed with a 30 s drain, idle-reaped
-  after ~30 min, and crash-loop-broken after 3 fast exits.
+  after ~30 min, and crash-loop-broken after 3 fast exits. On SIGTERM stop
+  taking connections and answer the requests you hold. A request your stop
+  cut off before any answer goes to the generation that replaced you when
+  sending it again is safe (no body, and an idempotent method or nothing
+  of it reached you), even one you had begun; any other is lost
+  (docs/elements.md §Runtimes & backend lifecycle).
 - While your deployment is pinned (docs/tile-deployments.md) you run a
   checkpoint instead of the work tree — read-only at the tile's own path,
   restarted from its kept build on every restart — and a save doesn't reach

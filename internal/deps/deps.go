@@ -8,6 +8,8 @@
 //   - go.work: a generated workspace file at the root listing every Go
 //     component module (plus the xbin SDK), so any shell and any gopls sees
 //     the whole workspace. Marker-guarded: hand-edited files are left alone.
+//     No tile's build reads it: each Go build gets a go.work of its own,
+//     made from the tile's go.mod (buildwork.go, D166).
 package deps
 
 import (
@@ -18,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -118,16 +121,16 @@ func cleanStale(c *registry.Component, want map[string]string) {
 // is stale and would break builds, so we reclaim it. This keeps go.work
 // self-healing against the toolchain editing it out from under us.
 func GoWork(reg *registry.Registry, sdkPath string) error {
-	mods := goModules(reg, nil)
+	mods, goLine := goModules(reg, nil)
 	workPath := filepath.Join(reg.Root, "go.work")
 	if len(mods) == 0 && sdkPath == "" {
 		return nil // nothing Go in the workspace; leave whatever exists alone
 	}
-	desired := renderGoWork(mods, sdkPath)
+	desired := renderGoWork(mods, goLine, sdkPath)
 
 	cur, err := os.ReadFile(workPath)
 	if err != nil {
-		return os.WriteFile(workPath, []byte(desired), 0o644) // no file yet
+		return fsutil.WriteFileAtomic(workPath, []byte(desired), 0o644) // no file yet
 	}
 	if string(cur) == desired {
 		return nil // already correct — don't feed the file watcher
@@ -140,26 +143,42 @@ func GoWork(reg *registry.Registry, sdkPath string) error {
 			slog.Warn("go.work is missing component modules — reclaiming it (a `go work use` likely rewrote it and stripped xbind's marker)", "missing", missing)
 		}
 	}
-	return os.WriteFile(workPath, []byte(desired), 0o644)
+	// atomically: every Go build reads this file (ReadRootWork), and a torn
+	// one would read as hand-managed
+	return fsutil.WriteFileAtomic(workPath, []byte(desired), 0o644)
 }
 
-// goModules lists the workspace's Go module use-paths, sorted; include
-// (nil = all) filters by component path.
-func goModules(reg *registry.Registry, include func(path string) bool) []string {
+// goModules lists the workspace's Go module use-paths, sorted, and the go
+// line a go.work using them states: the highest of 1.24 and their go.mod
+// files' — the go command refuses a go.work whose go line is below a module
+// it uses, for every command run with it (D166: a builtin needing go 1.26.0
+// must not stop `go build` in every terminal). include (nil = all) filters
+// by component path.
+func goModules(reg *registry.Registry, include func(path string) bool) ([]string, string) {
 	var mods []string
+	goLine := buildGo
 	for _, c := range reg.Components() {
 		if include != nil && !include(c.Path) {
 			continue
 		}
+		var rel string
 		switch {
 		case fileExists(filepath.Join(c.Dir, "go.mod")):
-			mods = append(mods, "./"+c.Path) // canonical: module at the component root
+			rel = c.Path // canonical: module at the component root
 		case fileExists(filepath.Join(c.Dir, "backend", "go.mod")):
-			mods = append(mods, "./"+c.Path+"/backend") // module in backend/ (also supported)
+			rel = c.Path + "/backend" // module in backend/ (also supported)
+		default:
+			continue
+		}
+		mods = append(mods, "./"+rel)
+		// read beneath the root, never through a symlink; a go line that
+		// isn't a Go version never raises it
+		if m, ok := readGoModIn(Module{Root: reg.Root, Rel: rel}); ok && goVersionLess(goLine, m.Go) {
+			goLine = m.Go
 		}
 	}
 	sort.Strings(mods)
-	return mods
+	return mods, goLine
 }
 
 // GoWorkFor renders a go.work covering only the components include admits —
@@ -168,16 +187,16 @@ func goModules(reg *registry.Registry, include func(path string) bool) []string 
 // that don't exist in the allow-list mount. "" when there is nothing Go to
 // declare.
 func GoWorkFor(reg *registry.Registry, sdkPath string, include func(path string) bool) string {
-	mods := goModules(reg, include)
+	mods, goLine := goModules(reg, include)
 	if len(mods) == 0 && sdkPath == "" {
 		return ""
 	}
-	return renderGoWork(mods, sdkPath)
+	return renderGoWork(mods, goLine, sdkPath)
 }
 
-func renderGoWork(mods []string, sdkPath string) string {
+func renderGoWork(mods []string, goLine, sdkPath string) string {
 	var sb strings.Builder
-	sb.WriteString(workMarker + "\n\ngo 1.24\n\nuse (\n")
+	sb.WriteString(workMarker + "\n\ngo " + modToken(goLine) + "\n\nuse (\n")
 	for _, m := range mods {
 		fmt.Fprintf(&sb, "\t%s\n", m)
 	}
@@ -190,36 +209,6 @@ func renderGoWork(mods []string, sdkPath string) string {
 		fmt.Fprintf(&sb, "\nreplace github.com/xbin-dev/xbin/sdk => %s\n", sdkPath)
 	}
 	return sb.String()
-}
-
-// AbsGoWork is a go.work xbind generated (GoWork), its paths made absolute
-// against root, the workspace: the same workspace for a `go` run whose
-// GOWORK names a copy elsewhere — a confined tile build's own, so the
-// go.work.sum beside it is the tile's own (internal/runner). ok=false for a
-// hand-managed go.work (no marker): its paths aren't xbind's to rewrite.
-func AbsGoWork(content, root string) (string, bool) {
-	if !strings.HasPrefix(content, workMarker+"\n") {
-		return "", false
-	}
-	var sb strings.Builder
-	for _, line := range strings.SplitAfter(content, "\n") {
-		t := strings.TrimSpace(line)
-		nl := ""
-		if strings.HasSuffix(line, "\n") {
-			nl = "\n"
-		}
-		switch {
-		case strings.HasPrefix(t, "./"): // a use (renderGoWork's)
-			line = "\t" + filepath.Join(root, t) + nl
-		case strings.HasPrefix(t, "replace ") && strings.Contains(t, " => "):
-			i := strings.Index(t, " => ")
-			if p := strings.TrimSpace(t[i+4:]); !filepath.IsAbs(p) {
-				line = t[:i+4] + filepath.Join(root, p) + nl
-			}
-		}
-		sb.WriteString(line)
-	}
-	return sb.String(), true
 }
 
 // missingModules returns the wanted `use` paths not referenced by an existing

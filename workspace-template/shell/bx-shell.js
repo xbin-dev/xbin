@@ -1246,9 +1246,10 @@ export class BxShell extends LitElement {
   }
 
   // ---- sidebar: system status footer (admin-only; polls /status every 5s) ----
-  async _loadAlerts() {
+  async _loadAlerts(dismiss) { // dismiss: an alert's dismiss route, POSTed first
     if (document.hidden) return;
     try {
+      if (dismiss) await window.xbin?.fetch('/api/xbin' + dismiss, { method: 'POST' });
       const r = await window.xbin?.fetch('/api/xbin/alerts');
       if (r?.ok) this._alerts = (await r.json()).alerts || [];
     } catch { /* transient */ }
@@ -1696,7 +1697,7 @@ export class BxShell extends LitElement {
     return html`
       ${this._alerts.length ? html`<div class="alerts">
         ${this._alerts.map((a) => html`<div class="alert ${a.level}">
-          <span class="ico">${a.level === 'crit' ? '\u26A0' : '\u26A1'}</span>${a.message}</div>`)}
+          <span class="ico">${a.level === 'crit' ? '\u26A0' : '\u26A1'}</span>${a.message}${a.dismiss ? html`<button class="dismiss" @click=${() => this._loadAlerts(a.dismiss)}>dismiss</button>` : nothing}</div>`)}
       </div>` : nothing}
       ${this._setupCard ? html`<div class="alerts"><div class="alert warn">
         <span class="ico">\u{1F510}</span>

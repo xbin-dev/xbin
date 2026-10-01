@@ -9,28 +9,29 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/xbin-dev/xbin/internal/jsonc"
 )
 
 // covers NP-15-6 — every package with integration-tagged tests is in
 // `make integration`.
 //
-// The Makefile's integration target runs `go test -tags=integration` over an
-// explicit package list. A package whose sandboxed tests carry the tag but
-// which the list misses is compiled by no build and run by no CI job:
-// internal/sandbox's tests sat like that. This finds every such package by
-// Go's own reach — the root module and the go.work modules; no `.`/`_`
-// directories, no testdata, no other nested module — and fails when no
-// `go test -tags=integration` line of the target names it, directly or
-// through a `./dir/...` pattern.
+// `make integration` runs `go test -tags=integration` over the suites
+// hack/integration.jsonc lists, one package each (hack/testshard splits them
+// into CI's shards; its own tests check that every listed test runs exactly
+// once). A package whose sandboxed tests carry the tag but which no suite
+// names is compiled by no build and run by no CI job: internal/sandbox's
+// tests sat like that. This finds every such package by Go's own reach —
+// the root module and the go.work modules; no `.`/`_` directories, no
+// testdata, no other nested module — and fails when no suite names it.
 func TestIntegrationPackagesListed(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pats := integrationTargetPatterns(t, filepath.Join(root, "Makefile"))
+	pats := integrationSuitePackages(t, filepath.Join(root, "hack", "integration.jsonc"))
 	if len(pats) == 0 {
-		t.Fatal("found no `go test -tags=integration ./…` line in the Makefile's integration target — " +
-			"the parser below no longer understands it; fix the parser, not the list")
+		t.Fatal("found no suite in hack/integration.jsonc — the reader below no longer understands it; fix the reader, not the list")
 	}
 	tagged := integrationTaggedPackages(t, root)
 	if len(tagged) == 0 && runtime.GOOS == "linux" {
@@ -44,77 +45,37 @@ func TestIntegrationPackagesListed(t *testing.T) {
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Fatalf("packages with integration-tagged tests that `make integration` never runs — add each to "+
-			"a `go test -tags=integration` line of the Makefile's integration target (it lists: %s):\n  %s",
+		t.Fatalf("packages with integration-tagged tests that `make integration` never runs — add a suite for each "+
+			"to hack/integration.jsonc (it lists: %s):\n  %s",
 			strings.Join(pats, " "), strings.Join(missing, "\n  "))
 	}
 }
 
-// integrationTargetPatterns returns the package patterns (./…) of every
-// `go test` command in the Makefile's integration recipe that sets the
-// integration tag.
-func integrationTargetPatterns(t *testing.T, makefile string) []string {
+// integrationSuitePackages returns the package (./…) of every suite of the
+// integration plan.
+func integrationSuitePackages(t *testing.T, planFile string) []string {
 	t.Helper()
-	b, err := os.ReadFile(makefile)
+	b, err := os.ReadFile(planFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var recipe []string
-	in := false
-	for _, l := range strings.Split(string(b), "\n") {
-		switch {
-		case !in:
-			in = strings.HasPrefix(l, "integration:")
-		case strings.HasPrefix(l, "\t"):
-			recipe = append(recipe, l)
-		case strings.TrimSpace(l) == "":
-		default: // the next rule or assignment ends the recipe
-			in = false
-		}
-		if !in && len(recipe) > 0 {
-			break
-		}
+	var plan struct {
+		Suites []struct {
+			Pkg string `json:"pkg"`
+		} `json:"suites"`
+	}
+	if err := jsonc.Unmarshal(b, &plan); err != nil {
+		t.Fatal(err)
 	}
 	var pats []string
 	seen := map[string]bool{}
-	for _, cmd := range strings.Split(strings.ReplaceAll(strings.Join(recipe, "\n"), "\\\n", " "), "\n") {
-		f := strings.Fields(cmd)
-		if len(f) == 0 || strings.HasPrefix(f[0], "#") || !goTestWithIntegrationTag(f) {
-			continue
-		}
-		for _, a := range f {
-			if strings.HasPrefix(a, "./") && !seen[a] {
-				seen[a] = true
-				pats = append(pats, a)
-			}
+	for _, s := range plan.Suites {
+		if strings.HasPrefix(s.Pkg, "./") && !seen[s.Pkg] {
+			seen[s.Pkg] = true
+			pats = append(pats, s.Pkg)
 		}
 	}
 	return pats
-}
-
-// goTestWithIntegrationTag reports whether a command line runs `go test`
-// with the integration build tag (-tags=a,integration or -tags integration).
-func goTestWithIntegrationTag(f []string) bool {
-	goTest, tag := false, false
-	for i, a := range f {
-		if a == "go" && i+1 < len(f) && f[i+1] == "test" {
-			goTest = true
-		}
-		a = strings.TrimPrefix(a, "-")
-		var tags string
-		switch {
-		case strings.HasPrefix(a, "-tags="):
-			tags = strings.TrimPrefix(a, "-tags=")
-		case strings.HasPrefix(a, "tags="):
-			tags = strings.TrimPrefix(a, "tags=")
-		case (a == "tags" || a == "-tags") && i+1 < len(f):
-			tags = f[i+1]
-		}
-		for _, tg := range strings.FieldsFunc(tags, func(r rune) bool { return r == ',' || r == ' ' || r == '"' || r == '\'' }) {
-			tag = tag || tg == "integration"
-		}
-	}
-	return goTest && tag
 }
 
 // integrationTaggedPackages maps each package directory (repo-relative,

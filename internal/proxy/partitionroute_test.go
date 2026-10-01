@@ -76,11 +76,14 @@ type fakeParts struct {
 
 var startNames = map[PartitionStart]string{StartInteractive: "interactive", StartBackground: "background", StartMail: "mail"}
 
-func (f *fakeParts) EnsurePartition(_ context.Context, c *registry.Component, dep, part string, class PartitionStart) (string, error) {
+func (f *fakeParts) EnsurePartition(_ context.Context, c *registry.Component, dep, part string, class PartitionStart) (PartitionGen, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, fmt.Sprintf("%s %s %s %s", c.Path, dep, part, startNames[class]))
-	return f.sock, f.err
+	if f.err != nil {
+		return nil, f.err
+	}
+	return fakeGen{sock: f.sock}, nil
 }
 
 func (f *fakeParts) TrackPartition(tile, dep, part string, passive bool) func() {

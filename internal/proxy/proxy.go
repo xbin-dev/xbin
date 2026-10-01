@@ -283,7 +283,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// self-call, the named one on a qualified URL; and, on a partitioned
 	// tile, the partition it reached (partitionroute.go).
 	// deployment: the target Route returned.
-	sock, hold, err := px.ensureTarget(ctx, comp, target, d)
+	tr, hold, err := px.ensureTarget(ctx, comp, target, d)
 	if err != nil {
 		var be *runner.BuildError
 		code, partErr := ensureStatus(d, err)
@@ -309,16 +309,20 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if target != primary {
 		answering = target
 	}
-	px.forward(w, r, sock, endpoint, answering, hold.onResponse)
+	// A request the generation's retirement cut off goes to the generation
+	// the same instance has now — the same deployment, and on a partitioned
+	// tile the same partition, never another (rerouting, ensureTarget).
+	px.forward(w, r, tr, endpoint, answering, hold.onResponse)
 }
 
-// forward proxies r to the backend listening on sock, at /<endpoint>.
+// forward proxies r to the backend generation tr sends it to (rerouting),
+// at /<endpoint>.
 // answering names the deployment that answers when it isn't the target's
 // primary: the response then carries X-XBin-Deployment, set over any value
 // the backend set (NP-11-12). A primary's responses pass as they always
 // have. onResponse, when set, sees the backend's response before it is
 // copied back (a user partition's hold, partitionroute.go).
-func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint, answering string, onResponse func(*http.Response)) {
+func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, tr *rerouting, endpoint, answering string, onResponse func(*http.Response)) {
 	// The ?frame= auth credential (browser WS attribution) is consumed
 	// here; never forward it — the callee could replay it as the caller.
 	outQuery := r.URL.Query()
@@ -354,7 +358,7 @@ func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint,
 			}
 			return nil
 		},
-		Transport:     px.transportFor(sock),
+		Transport:     tr,
 		FlushInterval: -1, // stream (SSE etc.)
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			jsonErr(w, http.StatusBadGateway, "backend error: "+err.Error(), "")

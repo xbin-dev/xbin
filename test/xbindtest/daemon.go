@@ -149,11 +149,11 @@ func (d *Daemon) start(t testing.TB) {
 		}
 		select {
 		case <-d.done:
-			t.Fatalf("xbind exited while booting:\n%s", d.LogTail(60))
+			t.Fatalf("xbind exited while booting:\n%s", logTail(d.log, 60)) // d.mu is held: never LogTail
 		default:
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("xbind didn't answer /healthz within %s:\n%s", ready, d.LogTail(60))
+			t.Fatalf("xbind didn't answer /healthz within %s:\n%s", ready, logTail(d.log, 60))
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -322,6 +322,13 @@ func (d *Daemon) LogTail(n int) string {
 	d.mu.Lock()
 	f := d.log
 	d.mu.Unlock()
+	return logTail(f, n)
+}
+
+// logTail is the last n lines of a daemon log, for callers that hold d.mu
+// (start's boot failures: LogTail there would wait on the lock forever, and
+// the test would hang until go test's timeout instead of failing).
+func logTail(f *os.File, n int) string {
 	if f == nil {
 		return ""
 	}

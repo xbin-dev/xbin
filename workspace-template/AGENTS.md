@@ -781,6 +781,12 @@ you set up in it survive across terminal sessions (your workspace files and
 `$HOME` persist independently). It does **not** auto-inherit a component's
 `setup` layer — install what you need for interactive work in the terminal
 itself. "Reset sandbox" (⟲ in the terminal window) wipes it back to clean.
+When xbin ships a newer base image (a newer Go, say), the next session that
+opens the layer moves it to the new base and starts clean — a grey first
+line says so — while the workspace's **base auto-update** is on, the
+default (`bx settings`; docs/overview/09-terminals.md §Base images). A
+running session keeps its base until it ends. Anything a backend needs
+belongs in `setup` anyway.
 
 ## Interfaces — typed, swappable dependencies (docs/overview/11-interfaces.md)
 

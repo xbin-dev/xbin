@@ -573,7 +573,9 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           per-component layer</strong>
           (<code>.xbin/term/&lt;component&gt;/</code>) that survives across
           sessions and restarts — a real dev box per component. The ⟲ button
-          resets it to clean.</p>
+          resets it to clean. When xbin ships a newer base image, the next
+          session moves to it and starts clean (the workspace's base
+          auto-update, on by default; a grey first line says so).</p>
           <p>Two things to keep straight:</p>
           <ul>
             <li><strong>$HOME</strong> (<code>homes/&lt;you&gt;</code>) is

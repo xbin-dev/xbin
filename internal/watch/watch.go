@@ -36,7 +36,11 @@ type Watcher struct {
 	mu      sync.Mutex
 	pending map[string]struct{}
 	timer   *time.Timer
+	closed  bool // Close ran: no batch is sent any more, C is closed
 
+	// C carries the batches; Close closes it, so a consumer ranging over it
+	// ends — after the batch it holds, never with one more a debounce timer
+	// still had pending.
 	C    chan Event
 	done chan struct{}
 }
@@ -149,24 +153,32 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	}
 
 	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
 	w.pending[rel] = struct{}{}
 	if w.timer == nil {
 		w.timer = time.AfterFunc(w.debounce, w.flush)
 	} else {
 		w.timer.Reset(w.debounce)
 	}
-	w.mu.Unlock()
 }
 
+// flush sends the pending batch — under mu, so it never sends on the C
+// Close closed (the send never blocks: a slow consumer loses the batch).
 func (w *Watcher) flush() {
 	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
 	paths := make([]string, 0, len(w.pending))
 	for p := range w.pending {
 		paths = append(paths, p)
 	}
 	w.pending = map[string]struct{}{}
 	w.timer = nil
-	w.mu.Unlock()
 	if len(paths) == 0 {
 		return
 	}
@@ -177,7 +189,24 @@ func (w *Watcher) flush() {
 	}
 }
 
+// Close stops the watcher: a pending debounce is dropped and C closed, so
+// a consumer ranging over C ends once it has handled what it holds — a
+// change that lands after Close drives nothing (xbind's shutdown: nothing
+// is rescanned, provisioned or written into the workspace after it).
+// Idempotent.
 func (w *Watcher) Close() error {
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return nil
+	}
+	w.closed = true
+	if w.timer != nil {
+		w.timer.Stop()
+		w.timer = nil
+	}
+	close(w.C)
+	w.mu.Unlock()
 	close(w.done)
 	return w.fs.Close()
 }

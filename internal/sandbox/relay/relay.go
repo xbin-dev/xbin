@@ -53,6 +53,7 @@ const udpIdleTimeout = 30 * time.Second
 type Relay struct {
 	stack     *stack.Stack
 	link      stack.LinkEndpoint // the TUN's fdbased endpoint
+	gate      *writeGate         // the stack's way to link: its writes stop at Close
 	tunFD     int                // closed by Close (Config.CloseTUN); -1 = the caller's
 	stopFDs   []int              // the TUN readers' wake-up eventfds (stopFDs), closed by Close
 	closeOnce sync.Once
@@ -375,6 +376,7 @@ func start(cfg Config, dial dialFunc) (_ *Relay, err error) {
 		tileIP: cfg.TileIP, hairDial: cfg.HairpinDial, allowHost: cfg.AllowHost,
 		strict: cfg.StrictPublic, maxTCP: max(cfg.MaxTCP, 0), maxUDP: max(cfg.MaxUDP, 0),
 		budget: cfg.Budget, open: map[*claim]struct{}{}, tunFD: -1, stopFDs: stopFDs(ep),
+		gate: &writeGate{LinkEndpoint: ep},
 	}
 	if cfg.CloseTUN {
 		r.tunFD = cfg.TunFD
@@ -398,8 +400,8 @@ func start(cfg Config, dial dialFunc) (_ *Relay, err error) {
 
 	// Interpose an ICMP-echo forwarder at the link layer so `ping` works
 	// (gVisor has no ICMP forwarder). Best-effort — on failure we just lack ping.
-	var nic stack.LinkEndpoint = ep
-	if tap, e := newICMPTap(ep, cfg.TunFD, r); e == nil {
+	var nic stack.LinkEndpoint = r.gate
+	if tap, e := newICMPTap(r.gate, cfg.TunFD, r); e == nil {
 		r.icmp = tap
 		nic = tap
 	}
@@ -427,23 +429,27 @@ func start(cfg Config, dial dialFunc) (_ *Relay, err error) {
 // Close tears the relay down. Every flow ends at once — dials in flight are
 // cancelled and each open flow's host side is closed — and gives its flow
 // slots back (Config.Budget) before Close returns. The TUN's readers have
-// stopped when it returns, so the caller may close the fd (Config.CloseTUN
-// has Close do it): a reader left running would leak with its per-CPU
-// processors and go on reading whatever file later takes the fd's number.
-// They stop holding no stack lock — a one-processor reader delivers packets
-// inline, and delivery can take the stack's locks.
+// stopped when it returns, and nothing writes to it any more, so the caller
+// may close the fd (Config.CloseTUN has Close do it). A reader left running
+// would leak with its per-CPU processors and go on reading whatever file
+// later takes the fd's number; a late writer (writeGate) would write a
+// packet into that file. The readers stop holding no stack lock — a
+// one-processor reader delivers packets inline, and delivery can take the
+// stack's locks.
 func (r *Relay) Close() {
 	r.closeOnce.Do(func() {
 		r.cancel()
 		r.closeFlows()
 		r.link.Attach(nil) // returns once the TUN's readers have stopped
 		closeFDs(r.stopFDs)
-		r.stack.Close()
+		r.stack.Close() // its aborted flows' resets still go out
 		_ = r.stack.RemoveNIC(nicID)
 		if r.icmp != nil {
 			r.icmp.close()
 		}
-		if r.tunFD >= 0 { // Config.CloseTUN: the readers have stopped
+		// From here on a write stops at the gate (one in flight is waited out).
+		r.gate.close()
+		if r.tunFD >= 0 { // Config.CloseTUN: no reader or writer is left
 			unix.Close(r.tunFD)
 		}
 	})

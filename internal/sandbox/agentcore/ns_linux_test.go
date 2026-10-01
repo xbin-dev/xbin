@@ -222,10 +222,15 @@ func launchNamespaceAgent(t *testing.T, bin, rootfs string, mod ...func(*sandbox
 	h.Started() // the sandbox alone holds the factory's end and the lock now
 	sb.cmd, sb.spec = cmd, spec
 	t.Cleanup(func() {
+		ended := !alive(cmd.Process.Pid) // before this kill: a zombie, or reaped by a subtest
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		if t.Failed() {
-			t.Logf("the agent's log:\n%s", sb.log)
+			how := "ran until this cleanup killed it"
+			if ended {
+				how = "had ended: " + cmd.ProcessState.String()
+			}
+			t.Logf("the agent %s; its log:\n%s", how, sb.log)
 		}
 	})
 	if err := h.SetupUserns(); err != nil {
@@ -351,7 +356,7 @@ func testNamespaceAgent(t *testing.T, bin, rootfs string) {
 		s := sb.next
 		sb.next++
 		ss := sb.exec(proto.Exec{Session: s, Argv: []string{"/probe", "sleeper"}, Merge: true, NoStdin: true})
-		_ = ss["stdout"].SetReadDeadline(time.Now().Add(15 * time.Second))
+		_ = ss["stdout"].SetReadDeadline(time.Now().Add(hangGuard))
 		line, err := bufio.NewReader(ss["stdout"]).ReadString('\n')
 		if err != nil {
 			t.Fatal(err)
@@ -362,11 +367,7 @@ func testNamespaceAgent(t *testing.T, bin, rootfs string) {
 		if m := sb.wait(s, "exited"); m.Signal != int(unix.SIGTERM) {
 			t.Errorf("exited %+v, want killed by TERM", m)
 		}
-		for end := time.Now().Add(5 * time.Second); sb.probe("alive", grandchild) != "gone\n"; time.Sleep(50 * time.Millisecond) {
-			if time.Now().After(end) {
-				t.Fatalf("the grandchild %s outlived a group signal", grandchild)
-			}
-		}
+		waitUntil(t, "the grandchild "+grandchild+" ended by a group signal", func() bool { return sb.probe("alive", grandchild) == "gone\n" })
 	})
 
 	t.Run("tty", func(t *testing.T) {
@@ -376,7 +377,7 @@ func testNamespaceAgent(t *testing.T, bin, rootfs string) {
 			sb.next++
 			ss := sb.exec(proto.Exec{Session: s, Argv: argv, TTY: true, Rows: 30, Cols: 100})
 			c := ss["pty"]
-			_ = c.SetReadDeadline(time.Now().Add(15 * time.Second))
+			_ = c.SetReadDeadline(time.Now().Add(hangGuard))
 			var seen bytes.Buffer
 			until := func(want string) {
 				buf := make([]byte, 4096)
@@ -390,7 +391,7 @@ func testNamespaceAgent(t *testing.T, bin, rootfs string) {
 			}
 			until(want1)
 			sb.send(proto.Msg{Op: "resize", Session: s, Rows: 40, Cols: 120})
-			time.Sleep(100 * time.Millisecond) // the resize is on ctl, the input on the pty
+			sb.barrier() // the resize is on ctl, the input on the pty: the resize first
 			if _, err := c.Write([]byte(input)); err != nil {
 				t.Fatal(err)
 			}
@@ -565,24 +566,16 @@ func testNamespaceAgent(t *testing.T, bin, rootfs string) {
 			if err != nil {
 				t.Errorf("the agent's exit: %v", err)
 			}
-		case <-time.After(10 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("the agent outlived its factory")
 		}
+		// The agent was PID 1: its exit kills the rest of the namespace
+		// (how soon they are gone is the scheduler's business).
 		for _, p := range append(pids, sb.cmd.Process.Pid) {
-			for unix.Kill(p, 0) == nil {
-				if time.Since(closed) > time.Second {
-					t.Fatalf("pid %d of the sandbox outlived the factory by 1 s", p)
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
+			waitUntil(t, "pid "+strconv.Itoa(p)+" of the sandbox gone with the factory", func() bool { return unix.Kill(p, 0) != nil })
 		}
 		t.Logf("the pid namespace emptied %s after the factory closed", time.Since(closed).Round(time.Millisecond))
-		for tryLock(sb.lockAt) != nil {
-			if time.Since(closed) > 5*time.Second {
-				t.Fatal("the lock outlived the sandbox")
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
+		waitUntil(t, "the lock released with the sandbox", func() bool { return tryLock(sb.lockAt) == nil })
 		if _, err := sb.fac.Dial(); err == nil {
 			t.Error("a dial after the close")
 		}

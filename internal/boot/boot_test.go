@@ -66,8 +66,10 @@ func TestStepsOrder(t *testing.T) {
 		{"isolation", "tile-sandboxes"}, // the runtime reads the uid mapping
 		{"vm", "tile-sandboxes"},        // and the VM manager
 		{"broker", "tile-sandboxes"},
-		{"tile-sandboxes", "server"}, // which mounts its routes
-		{"workspace", "isolation"},   // the definitions pin their bases before isolation's GC
+		{"tile-sandboxes", "server"},       // which mounts its routes
+		{"workspace", "isolation"},         // the definitions pin their bases before isolation's GC
+		{"server", "go-build-versions"},    // the upgrade check's routes are mounted before it runs
+		{"always-on", "go-build-versions"}, // and the boot's own builds go first
 	} {
 		if idx(e[0]) >= idx(e[1]) {
 			t.Errorf("step %q must run before %q", e[0], e[1])

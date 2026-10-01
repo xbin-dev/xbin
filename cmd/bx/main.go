@@ -174,7 +174,7 @@ func usage() {
                                         drive a coding agent in a tile's sandbox
   bx cron ls                            scheduled jobs
   bx doctor | bx fix assets <tile> [--write]   workspace problems | absolute /c/ URLs → relative
-`+nativeUsage+chromeUsage+policiesUsage+partitionUsage+deployUsage)
+`+nativeUsage+chromeUsage+policiesUsage+partitionUsage+settingsUsage+deployUsage)
 	os.Exit(2)
 }
 

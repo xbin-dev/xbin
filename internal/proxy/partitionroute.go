@@ -71,15 +71,24 @@ func startOf(d Decision) PartitionStart {
 
 // PartitionRunner is the runner's side of user partitions (03 §A.2), part
 // "user:<id>" (string(util.Partition)): EnsurePartition starts (or reuses)
-// partition part of deployment dep of c and answers its socket;
-// TrackPartition holds it while a request runs, a passive hold (a live
-// event stream) not counting as use. An admission refusal wraps
-// sbx.ErrRefused (503). Boot installs an adapter over the runner's methods
-// (internal/boot/partitionroute.go); without it no user partition runs
-// here, and a call reaching one answers 503.
+// partition part of deployment dep of c and answers its generation
+// (PartitionGen); TrackPartition holds it while a request runs, a passive
+// hold (a live event stream) not counting as use. An admission refusal
+// wraps sbx.ErrRefused (503). Boot installs an adapter over the runner's
+// methods (internal/boot/partitionroute.go); without it no user partition
+// runs here, and a call reaching one answers 503.
 type PartitionRunner interface {
-	EnsurePartition(ctx context.Context, c *registry.Component, dep, part string, class PartitionStart) (string, error)
+	EnsurePartition(ctx context.Context, c *registry.Component, dep, part string, class PartitionStart) (PartitionGen, error)
 	TrackPartition(tile, dep, part string, passive bool) func()
+}
+
+// PartitionGen is the generation of a person's partition a request is sent
+// to: its socket, and whether xbind has retired it since (the runner's
+// Gen). A request a swap of that partition cut off goes to the generation
+// that replaced it, as one to a deployment does (rerouting, D173).
+type PartitionGen interface {
+	Sock() string
+	Retired() bool
 }
 
 // errNoPartitionRunner answers a call reaching a user partition on an
@@ -122,25 +131,37 @@ func (h *backendHold) done() {
 
 // ensureTarget starts (or reuses) the instance d reaches: a user partition
 // through the partition runner, everything else — every unpartitioned
-// tile, a partitioned tile's global instance — as today.
-func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, target string, d Decision) (string, *backendHold, error) {
+// tile, a partitioned tile's global instance — as today. It answers the
+// request's transport and the call's hold on that instance. A request the
+// generation's retirement cut off (a swap, D173) goes again to the
+// generation that instance has now: the same deployment and the same
+// partition, through the same ensure (a user partition's gates and
+// admission included), never another. The hold stays valid across that:
+// the runner tracks a deployment or a partition, not a generation.
+func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, target string, d Decision) (*rerouting, *backendHold, error) {
 	if !d.Partition.IsUser() {
 		// Every unpartitioned tile's one instance, and a partitioned tile's
 		// global one (today's instance, PD-04).
-		// deployment: the target Route returned.
-		sock, err := px.Runner.EnsureDeployment(ctx, comp, target)
-		if err != nil {
-			return "", nil, err
+		again := func() (generation, error) {
+			// deployment: the target Route returned.
+			return px.Runner.EnsureDeploymentGen(ctx, comp, target)
 		}
-		return sock, &backendHold{release: px.Runner.TrackDeployment(comp.Path, target)}, nil
+		gen, err := again()
+		if err != nil {
+			return nil, nil, err
+		}
+		return &rerouting{px: px, gen: gen, again: again}, &backendHold{release: px.Runner.TrackDeployment(comp.Path, target)}, nil
 	}
 	if px.Partitions == nil {
-		return "", nil, errNoPartitionRunner
+		return nil, nil, errNoPartitionRunner
 	}
-	part := string(d.Partition)
-	sock, err := px.Partitions.EnsurePartition(ctx, comp, target, part, startOf(d))
+	part, class := string(d.Partition), startOf(d)
+	again := func() (generation, error) {
+		return px.Partitions.EnsurePartition(ctx, comp, target, part, class)
+	}
+	gen, err := again()
 	if err != nil {
-		return "", nil, err
+		return nil, nil, err
 	}
 	h := &backendHold{release: px.Partitions.TrackPartition(comp.Path, target, part, false)}
 	h.onResponse = func(res *http.Response) {
@@ -157,7 +178,7 @@ func (px *Proxy) ensureTarget(ctx context.Context, comp *registry.Component, tar
 		h.mu.Unlock()
 		active()
 	}
-	return sock, h, nil
+	return &rerouting{px: px, gen: gen, again: again}, h, nil
 }
 
 // ensureStatus is the status of a failed ensure of a user partition: a

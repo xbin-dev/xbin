@@ -45,10 +45,10 @@ The router (`admin.js`, `GROUPS`) and one element per tab under `tabs/`
 - **binding** — roles, grants (approve/revoke/add), interface providers,
   binding wiring.
 - **ingress** — endpoints, services / expose.
-- **workspace** — branding; the xbin app's native-runtime switch; the
-  policies for partitioned tiles (asking each person before another
-  partitioned tile uses their data; credential resets waiting for the
-  person).
+- **workspace** — branding; the xbin app's native-runtime switch;
+  terminals: base auto-update (D175); the policies for partitioned tiles
+  (asking each person before another partitioned tile uses their data;
+  credential resets waiting for the person).
 
 ## Endpoints used
 
@@ -63,7 +63,8 @@ All under `/api/xbin`, gated by owner-or-`xbin:admin` unless
 `/permission-sets`, `/net-sets`, `/vaults`, `/vault/<c>/<k>`,
 `/vault-status`, `/vault-seal`, `/vault-unseal`, `/vault-rekey`,
 `/grants`, `/bindings`, `/ingress`, `/branding`, `/native-runtime`,
-`/workspace-policies`, `/partitions/edges`, `/deployments`, `/deployments/protect`, `/deployments/primary`,
+`/workspace-settings`, `/workspace-policies`, `/partitions/edges`,
+`/deployments`, `/deployments/protect`, `/deployments/primary`,
 `/deployments/deliveries`, `/deployments/always-on`, `/partitions`,
 `/partitions/mode`, `/partitions/reviewed`, `/partitions/limits`,
 `/partitions/stop`, `/partitions/reset`, `/partitions/purge`,

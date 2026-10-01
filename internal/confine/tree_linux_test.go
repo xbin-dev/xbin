@@ -3,13 +3,19 @@
 package confine
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	fusefs "github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -231,6 +237,19 @@ func TestCopyTreeRefusedXattrs(t *testing.T) {
 // noXattrFS mounts, under root, a FUSE loopback of a fresh dir that answers
 // every xattr call ENOSYS — a filesystem without user xattrs, as tmpfs was
 // before Linux 6.6 — and returns its mount point. Skips where FUSE isn't.
+//
+// The server is a child process (this test binary again, TestMain's
+// noXattrServeArg), never this one: a direct CopyTree forks cp with its
+// working directory on the mount, and Go's fork is a vfork — the forking
+// thread, its signals blocked, waits in the kernel until the child execs,
+// while the child's chdir waits on the FUSE server. Served in-process, a GC
+// that starts in that window can never stop the world (that thread can't be
+// preempted), so the server's goroutines never run again and the whole
+// binary deadlocks, go test's own -timeout timer included: CI run
+// 36841863101 sat 12 minutes in TestCopyTreeRefusedXattrs/direct until the
+// go command's SIGQUIT. The child is also the hang guard: if the test still
+// holds the mount after noXattrGuard, it SIGQUITs this binary (every
+// goroutine's stack, then exit) and unmounts.
 func noXattrFS(t *testing.T, root string) string {
 	t.Helper()
 	back, mnt := filepath.Join(root, "noxattr-back"), filepath.Join(root, "noxattr")
@@ -239,15 +258,49 @@ func noXattrFS(t *testing.T, root string) string {
 			t.Fatal(err)
 		}
 	}
-	lb, err := fusefs.NewLoopbackRoot(back)
+	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := fusefs.Mount(mnt, lb, &fusefs.Options{MountOptions: fuse.MountOptions{DisableXAttrs: true, FsName: "noxattr"}})
+	cmd := exec.Command(exe, noXattrServeArg, back, mnt, strconv.Itoa(os.Getpid()), noXattrGuard.String())
+	cmd.Stderr = os.Stderr
+	stop, err := cmd.StdinPipe() // closing it: unmount and exit
 	if err != nil {
-		t.Skip("no FUSE here:", err)
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = srv.Unmount() })
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	line, _ := bufio.NewReader(out).ReadString('\n')
+	served := make(chan error, 1)
+	go func() { served <- cmd.Wait() }()
+	end := func() error {
+		_ = stop.Close()
+		select {
+		case err := <-served:
+			return err
+		case <-time.After(30 * time.Second):
+			_ = cmd.Process.Kill()
+			return fmt.Errorf("the noxattr FUSE server didn't exit: killed (%v)", <-served)
+		}
+	}
+	switch line = strings.TrimSpace(line); {
+	case line == "ready":
+	case strings.HasPrefix(line, "skip: "):
+		_ = end()
+		t.Skip("no FUSE here:", strings.TrimPrefix(line, "skip: "))
+	default:
+		t.Fatalf("the noxattr FUSE server: %q, %v", line, end())
+	}
+	t.Cleanup(func() {
+		if err := end(); err != nil {
+			t.Error(err)
+		}
+	})
 	probe := filepath.Join(mnt, "probe")
 	_ = os.WriteFile(probe, nil, 0o644)
 	if err := unix.Setxattr(probe, "user.test", []byte("x"), 0); err == nil {
@@ -255,4 +308,48 @@ func noXattrFS(t *testing.T, root string) string {
 	}
 	_ = os.Remove(probe)
 	return mnt
+}
+
+// noXattrServeArg re-executes the test binary as noXattrFS's server.
+const noXattrServeArg = "__confine-test-noxattrfs"
+
+// noXattrGuard bounds a test holding a noXattrFS mount: all of
+// TestCopyTreeRefusedXattrs takes seconds.
+const noXattrGuard = time.Minute
+
+// serveNoXattrFS is the server process: it mounts back at mnt, says "ready"
+// (or "skip: <why>" where FUSE isn't), and serves until its stdin closes —
+// or until the guard runs out, when it SIGQUITs the test binary first —
+// then unmounts and exits.
+func serveNoXattrFS(back, mnt, parent, guard string) {
+	pid, _ := strconv.Atoi(parent)
+	d, err := time.ParseDuration(guard)
+	if err != nil || pid <= 1 {
+		fmt.Printf("bad arguments: %q %q\n", parent, guard)
+		os.Exit(2)
+	}
+	lb, err := fusefs.NewLoopbackRoot(back)
+	if err != nil {
+		fmt.Printf("loopback: %v\n", err)
+		os.Exit(2)
+	}
+	srv, err := fusefs.Mount(mnt, lb, &fusefs.Options{MountOptions: fuse.MountOptions{DisableXAttrs: true, FsName: "noxattr"}})
+	if err != nil {
+		fmt.Printf("skip: %v\n", err)
+		os.Exit(0)
+	}
+	fmt.Println("ready")
+	eof := make(chan struct{})
+	go func() { _, _ = io.Copy(io.Discard, os.Stdin); close(eof) }()
+	select {
+	case <-eof:
+	case <-time.After(d):
+		fmt.Fprintf(os.Stderr, "noxattr FUSE server: the test still holds %s after %v: SIGQUIT to it for every goroutine's stack\n", mnt, d)
+		_ = syscall.Kill(pid, syscall.SIGQUIT)
+	}
+	if err := srv.Unmount(); err != nil {
+		fmt.Fprintf(os.Stderr, "noxattr FUSE server: unmount %s: %v\n", mnt, err)
+		os.Exit(1)
+	}
+	os.Exit(0)
 }

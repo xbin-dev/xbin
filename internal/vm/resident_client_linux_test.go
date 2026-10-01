@@ -179,9 +179,44 @@ type execResult struct {
 	stdout, stderr string
 }
 
+// started waits for the session's "started": whatever the agent does
+// before it says so (going back to its own oom_score_adj after the
+// session's clone, say) is done.
+func (x *execution) started(t *testing.T) {
+	t.Helper()
+	for {
+		select {
+		case m := <-x.events:
+			switch m.Op {
+			case "started":
+				return
+			case "exited", "error":
+				t.Fatalf("session %d ended before it started: %+v", x.id, m)
+			}
+		case <-x.exited:
+			t.Fatalf("session %d: the VM exited", x.id)
+		case <-time.After(vmTimeout):
+			t.Fatalf("session %d didn't start within %s", x.id, vmTimeout)
+		}
+	}
+}
+
 // run runs ex to its end with stdin as its input.
 func (c *rclient) run(t *testing.T, ex proto.Exec, stdin string) execResult {
+	return c.runSent(t, ex, stdin, false)
+}
+
+// runStarted is run with stdin sent once the session has started.
+func (c *rclient) runStarted(t *testing.T, ex proto.Exec, stdin string) execResult {
+	return c.runSent(t, ex, stdin, true)
+}
+
+func (c *rclient) runSent(t *testing.T, ex proto.Exec, stdin string, afterStart bool) execResult {
+	t.Helper()
 	x := c.start(t, ex)
+	if afterStart {
+		x.started(t)
+	}
 	var wg sync.WaitGroup
 	var out, errb bytes.Buffer
 	for _, s := range []struct {

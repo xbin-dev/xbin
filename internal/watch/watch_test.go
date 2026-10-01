@@ -7,7 +7,43 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
+
+// Close drops a pending debounce and closes C: a consumer ranging over C
+// ends, and a change Close cut short is never delivered — not by the
+// debounce timer, not by a flush that raced Close (xbind's shutdown: its
+// watch loop writes nothing into the workspace after it). Idempotent.
+func TestCloseEndsTheStream(t *testing.T) {
+	root := t.TempDir()
+	w, err := New(root, time.Hour) // the debounce never fires by itself
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.handle(fsnotify.Event{Name: filepath.Join(root, "apps", "x", "index.html"), Op: fsnotify.Write})
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.flush() // a timer that fired as Close ran
+	w.handle(fsnotify.Event{Name: filepath.Join(root, "apps", "x", "app.js"), Op: fsnotify.Write})
+	n := 0
+	for range w.C { // ends: C is closed
+		n++
+	}
+	if n != 0 {
+		t.Fatalf("%d batches after Close", n)
+	}
+	w.mu.Lock()
+	timer := w.timer
+	w.mu.Unlock()
+	if timer != nil {
+		t.Fatal("a debounce timer outlived Close")
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("a second Close: %v", err)
+	}
+}
 
 // dropped is the watcher's filter for one changed file, as handle applies it
 // (watch.go, handle): the file's directory by ignoreDir, its name by

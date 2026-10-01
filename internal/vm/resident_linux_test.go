@@ -86,14 +86,15 @@ func main() { fmt.Println("probe-ok", len(os.Args)) }
 			t.Errorf("the single-file export: %+v", r)
 		}
 		// WP-3b: user work, not the guest's agent, is what an OOM kill takes.
-		// The agent sets a session's score just after it started
-		// (adjustOOM), so the session waits for its own (at most 2 s) before
-		// it reads it and the agent's: a bare cat could read it first.
-		r = c.run(t, proto.Exec{Argv: []string{"sh", "-c", `i=0
-while [ "$(cat /proc/$$/oom_score_adj)" != 500 ] && [ $i -lt 200 ]; do sleep 0.01; i=$((i+1)); done
-cat /proc/$$/oom_score_adj /proc/1/oom_score_adj`}}, "")
-		if r.code != 0 || r.stdout != "500\n0\n" {
-			t.Errorf("the oom_score_adj of an exec, then of the agent: %+v", r)
+		// A session has its score from the clone on, and so has a child it
+		// forks first thing (agentcore's spawnSession). The agent carries the
+		// session's score only while it clones the session: the session
+		// reads the agent's once "started" says that is over (its line comes
+		// after it).
+		r = c.runStarted(t, proto.Exec{Argv: []string{"sh", "-c",
+			"cat /proc/self/oom_score_adj; read go; cat /proc/$$/oom_score_adj /proc/1/oom_score_adj"}}, "go\n")
+		if r.code != 0 || r.stdout != "500\n500\n0\n" {
+			t.Errorf("the oom_score_adj of an exec's first child, the exec's, then the agent's: %+v", r)
 		}
 	})
 

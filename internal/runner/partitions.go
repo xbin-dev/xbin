@@ -228,18 +228,30 @@ func globalRefusal(tile string) error {
 // ErrNoPartition); "user:<id>" is that person's instance, started on its
 // first use past admission (partadmit.go). c is the registry's component.
 func (r *Runner) EnsurePartition(ctx context.Context, c *registry.Component, dep, part string, class StartClass) (string, error) {
+	return sockOf(r.ensurePartition(ctx, c, dep, part, class))
+}
+
+// EnsurePartitionGen is EnsurePartition answering the generation itself
+// (EnsureGen): the proxy resends a request a swap of the partition's
+// generation cut off to the one that replaced it (D173).
+func (r *Runner) EnsurePartitionGen(ctx context.Context, c *registry.Component, dep, part string, class StartClass) (Gen, error) {
+	inst, err := r.ensurePartition(ctx, c, dep, part, class)
+	return Gen{inst}, err
+}
+
+func (r *Runner) ensurePartition(ctx context.Context, c *registry.Component, dep, part string, class StartClass) (*instance, error) {
 	switch {
 	case part == "":
-		return r.EnsureDeployment(ctx, c, dep) // deployment: the caller's, Route's answer; its one instance
+		return r.ensureDeployment(ctx, c, dep) // deployment: the caller's, Route's answer; its one instance
 	case part == PartitionGlobal:
 		if spec, ok := r.partitionSpec(c.Path); dep == r.primary(c.Path) && (!ok || !spec.Global) {
-			return "", fmt.Errorf("%w: %s has no global instance", ErrNoPartition, c.Path)
+			return nil, fmt.Errorf("%w: %s has no global instance", ErrNoPartition, c.Path)
 		}
-		return r.EnsureDeployment(ctx, c, dep) // deployment: the caller's, Route's answer; global is its instance at today's key
+		return r.ensureDeployment(ctx, c, dep) // deployment: the caller's, Route's answer; global is its instance at today's key
 	}
 	pkey, uid, err := r.partitionGate(c, dep, part)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	r.stopStale(c.Path, dep, part, pkey) // an earlier incarnation of the person never serves again
 	key := partStateKey(c.Path, dep, pkey)
@@ -248,13 +260,13 @@ func (r *Runner) EnsurePartition(ctx context.Context, c *registry.Component, dep
 		r.touchLocked(s, class)
 		switch {
 		case !s.dirty && s.cur != nil:
-			sock := s.cur.sock
+			inst := s.cur
 			s.mu.Unlock()
-			return sock, nil
+			return inst, nil
 		case !s.dirty && s.lastErr != nil && sticky(s.lastErr):
 			err := s.lastErr
 			s.mu.Unlock()
-			return "", err
+			return nil, err
 		case s.live(): // its own rebuild or start: blue/green is always admitted
 			s.mu.Unlock()
 			return r.ensureState(ctx, c, s)
@@ -270,7 +282,7 @@ func (r *Runner) EnsurePartition(ctx context.Context, c *registry.Component, dep
 		if class == StartInteractive { // a deferred delivery retries; a refused person is an admin's metadata
 			r.sbxFail(partitionView(c, part, pkey), sbx.Start, err)
 		}
-		return "", err
+		return nil, err
 	}
 	defer release()
 	s := r.partStateOf(c.Path, dep, part, pkey, uid)

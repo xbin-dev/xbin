@@ -5,7 +5,6 @@ package agentcore
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,14 +12,14 @@ import (
 	"syscall"
 	"testing"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/xbin-dev/xbin/internal/sandbox/vm/proto"
 )
 
 // covers WP-3b — Options.SessionOOMScoreAdj: sessions from 2 start with it,
-// session 1 (a backend's, a terminal's) and the agent keep what they had,
-// and a session gone before the write logs nothing.
+// from their first instruction on, and so does what they fork at once;
+// session 1 (a backend's, a terminal's) and the agent keep what they had;
+// a score the agent can't take is logged, and the session keeps the
+// agent's.
 func TestSessionOOMScoreAdj(t *testing.T) {
 	lowerOwnOOMScore()
 	b, err := os.ReadFile("/proc/self/oom_score_adj")
@@ -37,57 +36,55 @@ func TestSessionOOMScoreAdj(t *testing.T) {
 		o.SessionOOMScoreAdj = 500
 		o.Logf = func(f string, a ...any) { mu.Lock(); logged = append(logged, fmt.Sprintf(f, a...)); mu.Unlock() }
 	})
-	score := func(h *harness, session int, raised bool) string {
+	// score reads a session's oom_score_adj at once: in a child the session
+	// forks first thing, then in the session's process. A session has its
+	// score from the clone on (spawnSession), and so has that child.
+	score := func(h *harness, session int) string {
 		t.Helper()
-		// The write lands just after the start (adjustOOM: until then the
-		// session has the agent's score), so a raised session waits for it.
-		cmd := "cat /proc/self/oom_score_adj"
-		if raised {
-			cmd = "i=0; while [ \"$(cat /proc/self/oom_score_adj)\" != 500 ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; " + cmd
-		}
-		ss := h.exec(proto.Exec{Session: session, Argv: sh(cmd), Merge: true, NoStdin: true})
+		ss := h.exec(proto.Exec{Session: session, Argv: sh("cat /proc/self/oom_score_adj; cat /proc/$$/oom_score_adj"), Merge: true, NoStdin: true})
 		out := readAll(t, ss["stdout"])
 		if m := h.wait(session, "exited", "error"); m.Op != "exited" || m.Code != 0 {
 			t.Fatalf("session %d: %+v %q", session, m, out)
 		}
-		return strings.TrimSpace(out)
+		return strings.Join(strings.Fields(out), " ")
 	}
-	if got := score(h, 1, false); got != strconv.Itoa(own) {
-		t.Errorf("session 1's oom_score_adj %s, want the agent's %d", got, own)
+	agents := strconv.Itoa(own) + " " + strconv.Itoa(own)
+	if got := score(h, 1); got != agents {
+		t.Errorf("session 1's oom_score_adj (a child's, its own) %s, want the agent's %d", got, own)
 	}
 	for _, s := range []int{2, 3} {
-		if got := score(h, s, true); got != "500" {
-			t.Errorf("session %d's oom_score_adj %s, want 500", s, got)
+		if got := score(h, s); got != "500 500" {
+			t.Errorf("session %d's oom_score_adj (a child's, its own) %s, want 500", s, got)
 		}
 	}
 	if b, _ := os.ReadFile("/proc/self/oom_score_adj"); strings.TrimSpace(string(b)) != strconv.Itoa(own) {
 		t.Errorf("the agent's own oom_score_adj became %s", b)
 	}
-	// a session gone before the write, reaped or a zombie: nothing to log
-	gone := exec.Command("true")
-	if err := gone.Run(); err != nil {
-		t.Fatal(err)
-	}
-	h.core.adjustOOM(4, gone.Process.Pid)
-	zombie := exec.Command("true")
-	if err := zombie.Start(); err != nil {
-		t.Fatal(err)
-	}
-	var info unix.Siginfo
-	if err := unix.Waitid(unix.P_PID, zombie.Process.Pid, &info, unix.WEXITED|unix.WNOWAIT, nil); err != nil {
-		t.Fatal(err)
-	}
-	h.core.adjustOOM(5, zombie.Process.Pid)
-	_ = zombie.Wait()
 	mu.Lock()
 	if len(logged) > 0 {
 		t.Errorf("logged: %q", logged)
 	}
 	mu.Unlock()
 
+	// a score the agent can't take (one below the floor a privileged writer
+	// set; here, an own score it can't even read) is logged, and the session
+	// starts with the agent's
+	was := ownOOMScore
+	t.Cleanup(func() { ownOOMScore = was })
+	ownOOMScore = t.TempDir() // a directory
+	if got := score(h, 4); got != agents {
+		t.Errorf("session 4, the agent unable to take its score: %s, want the agent's %d", got, own)
+	}
+	mu.Lock()
+	if len(logged) != 1 || !strings.HasPrefix(logged[0], "session 4: oom_score_adj 500: ") {
+		t.Errorf("logged: %q, want session 4's oom_score_adj failure", logged)
+	}
+	mu.Unlock()
+	ownOOMScore = was
+
 	// without the option, every session keeps the agent's
 	h = newHarness(t, nil)
-	if got := score(h, 2, false); got != strconv.Itoa(own) {
+	if got := score(h, 2); got != agents {
 		t.Errorf("session 2 with no SessionOOMScoreAdj: %s, want %d", got, own)
 	}
 }

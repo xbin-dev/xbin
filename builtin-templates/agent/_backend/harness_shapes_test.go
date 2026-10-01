@@ -268,7 +268,12 @@ func TestHarnessShapes(t *testing.T) {
 	}
 	hwait(t, "its commands", func() bool { r, _ := ag.db.getRun(cards); return harnessHasCommand(r, "compact") })
 	add("patch", call("PATCH", fmt.Sprintf("/runs/%d/harness", cards), map[string]any{"mode": "ask", "option": map[string]string{"id": "model", "value": "fake-fast"}}))
-	ag.eng.harnessOf(cards).activity("tool", "Run go vet ./...")
+	// a call in progress (its title), set once the last turn's end is
+	// applied in full — it rests the activity last, and no later event of
+	// an idle session sets it (not the PATCH's mode and options updates)
+	cs := ag.eng.harnessOf(cards)
+	hwait(t, "the last turn's end applied", func() bool { return cs.activityNow().Kind == "idle" })
+	cs.activity("tool", "Run go vet ./...")
 	add("harnessGet", call("GET", fmt.Sprintf("/runs/%d/harness", cards), nil))
 	for _, n := range call("GET", fmt.Sprintf("/runs/%d/tree", cards), nil)["nodes"].([]any) {
 		add("treeNode", n)
@@ -305,10 +310,17 @@ func TestHarnessShapes(t *testing.T) {
 	done := harnessChild(t, ag, root, cards, "echo kid")
 	parkOf(t, ag, kid, "approval")
 	answered(done, "echo: echo kid")
-	hwait(t, "the done child's link", func() bool {
-		var st string
-		_ = ag.db.q.QueryRow(`SELECT state FROM links WHERE child_id=?`, done).Scan(&st)
-		return st != linkRunning
+	// the done child's link settled, as its event says it: the one link
+	// event the test can count on (the parent's delivery of it may come or
+	// not), published after the settle commits — a read of the row could
+	// beat it — and taken off the stream by evs' own goroutine
+	hwait(t, "the done child's link event", func() bool {
+		for _, ev := range evs.of(evLink) {
+			if d, _ := ev.Data.(map[string]any); d["childId"] == done && d["state"] != linkRunning {
+				return true
+			}
+		}
+		return false
 	})
 	for _, n := range call("GET", fmt.Sprintf("/runs/%d/tree", root), nil)["nodes"].([]any) {
 		add("treeNode", n)
@@ -416,4 +428,27 @@ func TestHarnessShapes(t *testing.T) {
 		t.Fatalf("the backend no longer produces what testdata/harness_shapes.json says (fix the backend, or regenerate the file and the STUB fixtures):\n  %s",
 			strings.Join(missing, "\n  "))
 	}
+}
+
+// hasActivityTitle reports whether decoded JSON holds, anywhere, an
+// "activity" object whose title is title.
+func hasActivityTitle(x any, title string) bool {
+	switch v := x.(type) {
+	case map[string]any:
+		if a, ok := v["activity"].(map[string]any); ok && a["title"] == title {
+			return true
+		}
+		for _, e := range v {
+			if hasActivityTitle(e, title) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range v {
+			if hasActivityTitle(e, title) {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -54,7 +54,7 @@ const (
 // Alert is a workspace health notice for the admin tile / shell banner.
 type Alert struct {
 	Level string `json:"level"`          // "warn" | "crit"
-	Kind  string `json:"kind"`           // "disk-low" | "quota" | "blocking" | "oom" | "pids"
+	Kind  string `json:"kind"`           // "disk-low" | "quota" | "blocking" | "oom" | "pids" | "go-build-versions"
 	Tile  string `json:"tile,omitempty"` // scope/component, when tile-specific
 	// Deployment names a data namespace's deployment when the alert is
 	// about one beyond the primary's main: never System, admins only
@@ -62,6 +62,9 @@ type Alert struct {
 	Deployment string `json:"deployment,omitempty"`
 	Message    string `json:"message"`
 	System     bool   `json:"system"` // workspace-wide (shown to every user), vs tile-scoped
+	// Dismiss is the /api/xbin route a POST to which dismisses the alert,
+	// for one that can be ("" = it goes away only when its cause does).
+	Dismiss string `json:"dismiss,omitempty"`
 }
 
 type diskMon struct {
@@ -385,6 +388,9 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, b.backupKeyAlerts()...) // keys no export holds yet: admins only (backupkeys_status.go)
 		out = append(out, b.consentAlerts()...)   // consent files this xbind can't read (partitionconsent.go)
+		if b.AdminAlerts != nil {
+			out = append(out, b.AdminAlerts()...) // the Go build versions alert (D166)
+		}
 	}
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})
 }

@@ -109,6 +109,102 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   while it runs. Nothing to change unless your partitioned backend does
   that at its exit.
 
+
+- **Agent template: a coding agent's `activity` no longer reads `idle`
+  while it works.** The summary's `activity` (the `harness` event,
+  `/tree`, `/needs`) went to `idle` on every status update that said the
+  adapter ran no prompt — its usage, slash commands, mode, options or
+  title. During a turn the agent started by itself (Codex, answering a
+  message that came as a turn ended) each such update said so mid-turn,
+  and one handled just after a message went (the commands an adapter
+  lists as it starts, say) showed it idle until its first words. Only a
+  turn's end rests it now. Nothing to change.
+- **SDK: `acptest` plays `perm2…`** ([sdk.md](/docs/sdk.md) §Testing an
+  ACP client): two tool calls that ask at once, as Claude's parallel
+  calls do — the second `session/request_permission` sent before the
+  first is answered, the turn waiting for both, then "perm2: ‹option›
+  ‹option›" — to test how a client queues permission requests. Every
+  other script plays as before.
+- **BREAKING: terminals move to a new base image by themselves — base
+  auto-update, a workspace setting, on by default**
+  ([changes/2026-10-01-base-auto-update.md](/docs/changes/2026-10-01-base-auto-update.md),
+  [09-terminals.md](/docs/overview/09-terminals.md) §Base images, D175).
+  A tile's terminal layer built on an older base image now moves to the
+  current base at its next session start: it is reset as **⬆ base
+  update** resets it — everything outside the workspace files and `$HOME`
+  goes, for good (installed packages, `/etc`, `/var`, `/opt`…, a VM
+  terminal's whole disk) — and the shell's first line says so, in grey.
+  An agent session's move shows in its Agent tab (a new `notice` agent
+  event) and in the tile's next shell, once. A running terminal keeps its
+  base until it ends. The old layer is put aside and removed in the
+  background, so the session starts at once. A layer whose base isn't
+  installed any more moves the same way. The terminal window's chooser
+  says the next session moves instead of offering the button. Turn it off
+  to keep today's behaviour — before upgrading, to keep what the layers
+  hold: the admin console's new workspace → **terminals** tab, the new
+  **`bx settings`** (`set --base-auto-update=false`), or the new
+  `GET`/`PUT /api/xbin/workspace-settings` (`{baseAutoUpdate}`, admin to
+  change, publishing a `workspace-settings` event; kept in
+  `data/workspace-settings.json`, whose other keys a write keeps). `GET
+  /ws/term/env` gains `baseAutoUpdate`. Tile sandboxes are not touched.
+  This release's base ships Go 1.26.3, so with the setting on a terminal
+  no longer needs **⬆ base update** for the builtins' `go 1.26.0`
+  ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+- **xbind no longer refuses to start over a terminal layer pinned to a
+  base image that isn't installed** ([09-terminals.md](/docs/overview/09-terminals.md)
+  §Base images, D175). It logs the layer; the layer's sessions refuse to
+  start until it is reset, as they did behind the boot gate (or move, with
+  base auto-update on). A layer stamp or base version that can't be read
+  now fails a session's start, the layer untouched, instead of being read
+  as an unstamped one.
+- **`sandbox-terminal` v7: an SSH client that disconnects while its
+  command is still starting no longer leaves the command running**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §People's terminals).
+  The tile gave up on the manager's answer to the command's start when
+  the client left — but the manager started the command anyway, and
+  without its id nothing ended it: `ssh box@host cmd` interrupted while a
+  stopped sandbox booted ran `cmd` to the end, and a terminal whose
+  client left while it opened kept its shell. The tile now waits for that
+  answer (up to two minutes after the client left; for a terminal, the
+  `tty` route's upgrade and its `session` frame) and ends the command as
+  for a client that leaves while it runs: `HUP`, then `DELETE` if it
+  still runs. A manager sees its exec start or terminal upgrade completed
+  instead of abandoned, then the `HUP` and `DELETE`. `GET /sessions`
+  stops listing a connection as soon as its client has gone. Tile Manager
+  → Updates.
+- **Fix: a sandbox's network relay sends nothing after it is closed.**
+  When a sandboxed backend, terminal or tool run stopped, a flow still
+  finishing (the reset of a connection that was being dialed, say) could
+  write its packet after the relay had closed its TUN, into whatever file
+  xbind had opened under the same number by then. The relay now stops its
+  writers before it closes the TUN. Nothing to change.
+- **Fix: sandbox file operations through `../` symlinks on a busy host.**
+  Reading, writing, listing or tarring a path whose symlink climbs with
+  `..` could fail with `resource temporarily unavailable` while the host
+  was busy renaming files elsewhere. The sandbox agent now retries longer,
+  with a short backoff (about half a second at most). Nothing to change.
+- **A request that meets a swap reaches the new generation**
+  ([elements.md](/docs/elements.md) §Runtimes & backend lifecycle). A
+  request xbind had routed to a backend generation just as a save, a
+  deploy or a grant change replaced it (or a reap stopped it) could fail
+  with `502 backend error: … connection reset by peer` (or `EOF`, or a
+  refused dial): the old generation's SIGTERM closed its socket before it
+  took the request. Such a request now goes to the deployment's current
+  generation when sending it again is safe: it has no body and is a `GET`,
+  `HEAD`, `OPTIONS` or `TRACE` (or carries an `Idempotency-Key` header),
+  or nothing of it reached the old generation. Other requests answer 502
+  as before, and so does any request of a backend that crashed. A backend
+  that exits on SIGTERM without answering the requests it holds still
+  loses them, and one of those idempotent requests may now run on both
+  generations: drain on SIGTERM, as `xbin.Serve` does.
+- **Pausing live reload while a save still builds ships the checkpoint
+  only** ([tile-deployments.md](/docs/tile-deployments.md) §Pausing live
+  reload). The save's build used to finish and swap in before the pause's
+  checkpoint did, and as it read the work tree while it built, it could
+  briefly serve saves made after the pause. Its generation now never
+  serves once the pause commits: the code running before keeps serving
+  until the checkpoint swaps in.
+
 ## 2026-09-30
 
 - **The agent template: non-secure (hosted) conversations and "Add a copy of
@@ -933,6 +1029,94 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   tile's http slot bound to another partitioned tile; `bx grant` and `bx
   bind` print the warning. Nothing changes for a workspace without a
   partitioned tile.
+- **BREAKING (security): each Go tile builds with a `go.work` of its
+  own** ([changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md),
+  [elements.md](/docs/elements.md) §Cross-component code access,
+  [isolation.md](/docs/isolation.md)). Builds used the workspace's root
+  `go.work`, which uses every Go tile, and in workspace mode `go` builds one
+  module graph over all of them: any tile's `go.mod` could raise the version
+  of a dependency every other tile built with, break every Go build, or —
+  with a `replace`, or by declaring a module path another tile imports —
+  make another tile's backend compile code of its choosing. A build's
+  `go.work` is now made from the tile's own `go.mod` at each build: its
+  module, the xbin SDK, and only the other tiles' modules the tile's own
+  `go.mod`, manifest and code choose (a dotless `require` like `calendar`
+  or one at `v0.0.0`, a `replace` with a tile's directory, a dotless import
+  one module alone holds, tiles named in `deps`; a hand-managed root
+  `go.work` keeps its `go`, `toolchain`, `godebug` and `replace` lines).
+  A tile that built only thanks to another tile's `go.mod`, or that imports
+  another tile's dotted module with no `require` or `deps`, now fails with
+  `no required module provides package …`, and the build's output says
+  what to add (module paths and versions, never another tile); a dotted
+  tile module required at a published version now builds from the
+  published module unless `deps` names the tile. The root `go.work` is
+  still the one terminals, editors and gopls use, and is now written
+  atomically; its `go` line now follows its modules' (next entry). Also
+  fixes a new Go tile's first build failing with `go: no modules were found
+  in the current workspace` when it ran before the root `go.work` listed
+  the tile.
+- **BREAKING (security): the builtins' Go dependencies carry their own
+  security fixes; their `go.mod` files and the workspace `go.work` now say
+  `go 1.26.0`. Update them from the Tile Manager**
+  ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).
+  Each tile now builds with its own `go.mod` (above), so a builtin no
+  longer picks up newer versions another tile's `go.mod` required. These
+  are the fixed versions, in the builtins themselves:
+  - **`sandbox-terminal` v6**: its SSH server runs on
+    `golang.org/x/crypto` v0.57.0 (was v0.48.0). That fixes ten advisories
+    its code reaches: GO-2026-5013, -5014, -5017, -5018, -5019, -5020,
+    -5023, -6303, -6354, -6355. They cover certificate, FIDO-key and
+    source-address restrictions that weren't enforced, and panics,
+    deadlocks and loops a client can cause. Tile Manager → Updates.
+  - **Agent template**: `golang.org/x/text` v0.42.0 (was v0.3.8, which has
+    an infinite loop on invalid input, GO-2026-5970, reached through the
+    JS engine), `golang.org/x/sys` v0.48.0, and `modernc.org/sqlite`
+    v1.60.1 (was v1.39.1). An instance takes them like any template
+    update: `git fetch template && git merge` in it. The Tile Manager and
+    `bx template updates` list the instances that are behind. A stock
+    instance's `go.mod` and `go.sum` merge cleanly. The coding-sandbox
+    template reaches no vulnerability and is unchanged.
+  - Those versions need Go 1.26, so both `go.mod` files now say
+    `go 1.26.0`. The host's Go builds them; the installer's is 1.26.3 or
+    newer. The base rootfs now ships Go 1.26.3 (was 1.24.0). The
+    workspace's generated `go.work` now says the highest `go` line of its
+    modules instead of always `go 1.24`. The go command refused `go 1.24`
+    for every command in every terminal as soon as any tile said
+    `go 1.24.0` or later, which is what `go mod init` writes. An open
+    restricted terminal's `go.work` now follows changes too
+    ([isolation.md](/docs/isolation.md)).
+  - **What breaks:** once a module says `go 1.26.0`, every `go` command in
+    a terminal on an older base (Go 1.24.0) first downloads go1.26.0
+    (`go: downloading go1.26.0`). A terminal whose network can't reach
+    `proxy.golang.org` fails with `toolchain not available`. Fix it with
+    **⬆ base update**, which wipes apt-installed packages, or by allowing
+    the proxy. A downgrade to v0.3.64 or older fails every Go tile's build
+    (`go.work file requires go >= 1.26.0, but go.work lists go 1.24`)
+    unless those `go.mod` files say `go 1.24` again first. The migration
+    note has the details.
+  - Every release now passes a vulnerability gate. No known vulnerability
+    that the code of xbind's programs, the sdk or a builtin reaches ships
+    unless the release says why.
+- **Admins are told which Go tiles now link older dependency versions,
+  and what to add to keep them** (D166, [changes/2026-09-30-go-build-workspace.md](/docs/changes/2026-09-30-go-build-workspace.md)
+  §How to migrate, [protocol.md](/docs/protocol.md) `GET
+  /go-build-versions`, [bx.md](/docs/bx.md) `bx doctor`). Under the shared
+  `go.work` a tile linked the highest version any tile's graph reached;
+  with its own `go.mod` it links its own, which builds fine and runs older
+  code. Once, in the background after the first start of this xbind on a
+  workspace an earlier one built Go tiles in, xbind lists what each Go
+  tile's entry links both ways (confined, like a build) and finds the
+  fewest `require` lines that keep what it had. An admin-only alert (kind
+  `go-build-versions`) names each tile: ``<tile> builds with older
+  dependency versions since <version> (each Go tile now builds with its own
+  go.mod's versions): add `require <module> <version>` to <tile>'s go.mod
+  to keep what it had``. It can be dismissed (the shell's and the admin
+  tile's banners gain a dismiss button for an alert that carries
+  `dismiss`), and a tile leaves it once its `go.mod` caught up (checked
+  after a build of it that changed its `go.mod`). `bx doctor` lists the
+  tiles with every module that changed; `POST /go-build-versions/check`
+  compares them again with what each linked then (a tile added after the
+  upgrade is never compared).
 - **Agent template: coding agents — Claude Code, Codex, Gemini CLI and
   OpenCode answer a conversation, or work for the agent, in a coding
   sandbox** (D147, `builtin-templates/agent/API.md` §Coding agents). A

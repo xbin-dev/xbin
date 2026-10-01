@@ -10,13 +10,13 @@ require (
 	github.com/hanwen/go-fuse/v2 v2.11.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/vishvananda/netlink v1.3.1
-	github.com/xbin-dev/xbin/sdk v0.0.0-20260824095858-d3eb8d8f705a
+	github.com/xbin-dev/xbin/sdk v0.0.0-20261001020550-ed1b07c0f53a
 	go.etcd.io/bbolt v1.5.0
-	golang.org/x/crypto v0.53.0
-	golang.org/x/net v0.55.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/net v0.58.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sys v0.46.0
-	golang.org/x/term v0.44.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
 	gvisor.dev/gvisor v0.0.0-20260701204157-69c2d17aea96
 )
 

@@ -30,7 +30,8 @@ import (
 )
 
 // partitionRunnerOf builds the proxy's PartitionRunner over run: the
-// runner's EnsurePartition and TrackPartition, its start classes by name,
+// runner's EnsurePartitionGen (the generation, which the proxy follows
+// across a swap: D173) and TrackPartition, its start classes by name,
 // and its refusals — the caps (ErrPartitionBusy, whose text is the 503's
 // exactly), a deferred delivery, a start this xbind can't make now
 // (ErrPartitionRefused: no --isolate, a person who may not run it, …) and
@@ -38,8 +39,8 @@ import (
 // 503 keeping its text. nil would leave every person's partition at 503
 // "no partition runner" (TestPartitionRunnerWired).
 var partitionRunnerOf = func(run *runner.Runner) proxy.PartitionRunner {
-	return partitionStarts[runner.StartClass]{
-		ensure: run.EnsurePartition, track: run.TrackPartition,
+	return partitionStarts[runner.StartClass, runner.Gen]{
+		ensure: run.EnsurePartitionGen, track: run.TrackPartition,
 		classes: [...]runner.StartClass{proxy.StartInteractive: runner.StartInteractive,
 			proxy.StartBackground: runner.StartBackground, proxy.StartMail: runner.StartMail},
 		unavailable: []error{runner.ErrPartitionBusy, runner.ErrPartitionDeferred,
@@ -48,9 +49,9 @@ var partitionRunnerOf = func(run *runner.Runner) proxy.PartitionRunner {
 }
 
 // partitionStarts is a proxy.PartitionRunner over a runner's start and
-// hold functions, whose start class type is C.
-type partitionStarts[C any] struct {
-	ensure func(ctx context.Context, c *registry.Component, dep, part string, class C) (string, error)
+// hold functions, whose start class type is C and generation type G.
+type partitionStarts[C any, G proxy.PartitionGen] struct {
+	ensure func(ctx context.Context, c *registry.Component, dep, part string, class C) (G, error)
 	track  func(tile, dep, part string, passive bool) func()
 	// classes maps the proxy's start classes onto the runner's.
 	classes [3]C
@@ -59,22 +60,25 @@ type partitionStarts[C any] struct {
 	unavailable []error
 }
 
-var _ proxy.PartitionRunner = partitionStarts[uint8]{}
+var _ proxy.PartitionRunner = partitionStarts[uint8, runner.Gen]{}
 
-func (a partitionStarts[C]) EnsurePartition(ctx context.Context, c *registry.Component, dep, part string, class proxy.PartitionStart) (string, error) {
+func (a partitionStarts[C, G]) EnsurePartition(ctx context.Context, c *registry.Component, dep, part string, class proxy.PartitionStart) (proxy.PartitionGen, error) {
 	if int(class) >= len(a.classes) {
-		return "", sbx.Refuse(errors.New("a person's partition can't start: an unknown start class"))
+		return nil, sbx.Refuse(errors.New("a person's partition can't start: an unknown start class"))
 	}
-	sock, err := a.ensure(ctx, c, dep, part, a.classes[class])
+	gen, err := a.ensure(ctx, c, dep, part, a.classes[class])
 	for _, e := range a.unavailable {
 		if errors.Is(err, e) {
-			return "", sbx.Refuse(err)
+			return nil, sbx.Refuse(err)
 		}
 	}
-	return sock, err
+	if err != nil {
+		return nil, err
+	}
+	return gen, nil
 }
 
-func (a partitionStarts[C]) TrackPartition(tile, dep, part string, passive bool) func() {
+func (a partitionStarts[C, G]) TrackPartition(tile, dep, part string, passive bool) func() {
 	return a.track(tile, dep, part, passive)
 }
 

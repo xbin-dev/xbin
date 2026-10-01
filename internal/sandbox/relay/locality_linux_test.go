@@ -11,7 +11,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -154,14 +153,10 @@ func localityChecks(t *testing.T) {
 // (even with IFA_F_NODAD), and until then nothing can call it the host's.
 func waitLocal(t *testing.T, ip string) {
 	t.Helper()
-	for end := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if rs, err := netlink.RouteGet(net.ParseIP(ip)); err == nil && len(rs) > 0 && rs[0].Type == unix.RTN_LOCAL {
-			return
-		}
-		if time.Now().After(end) {
-			t.Fatalf("%s: the kernel never routed it as local", ip)
-		}
-	}
+	waitUntil(t, ip+": the kernel routes it as local", func() bool {
+		rs, err := netlink.RouteGet(net.ParseIP(ip))
+		return err == nil && len(rs) > 0 && rs[0].Type == unix.RTN_LOCAL
+	})
 }
 
 func mustCIDR(t *testing.T, s string) *net.IPNet {

@@ -56,10 +56,12 @@ What that means when you build a **Go backend** (`--isolate` workspaces):
 | | |
 |---|---|
 | toolchain | the host's Go, the same version as before, read-only |
-| sees | the workspace read-only (so `go.work` and every module it `use`s resolve as always) with `.xbin/`, `data/` and `homes/` masked; the xbin SDK |
-| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile. The checksums a build adds for the workspace (what `go` writes to `go.work.sum`: a module your `go.mod` names without a `go.sum` entry, or one the workspace's modules together select) go to a `go.work.sum` of your tile's own there, seeded from the workspace's, beside a copy of the generated `go.work` — a hand-managed `go.work` is used as it is |
+| sees | the workspace read-only (so every module the build uses resolves as always) with `.xbin/`, `data/` and `homes/` masked; the xbin SDK |
+| workspace | a **`go.work` of the build's own**, made from your tile's `go.mod` at each build: your module, the SDK, and only the other tiles' modules your own `go.mod`, manifest and code choose — never the workspace's root `go.work`, so no other tile's `go.mod` (its requirements, its `replace` lines, a module path it declares) changes what your tile compiles (D166; [elements.md](elements.md) §Cross-component code access has the rules) |
+| writes | only your tile's own: its build output and its **own** build and module caches under `.xbin/cache/tile/` (a shared cache would let one tile's build plant code in another's). The first build after this change compiles the standard library once per tile. The checksums a build adds (what `go` writes to `go.work.sum`: a module your `go.mod` names without a `go.sum` entry) go to a `go.work.sum` beside the build's own `go.work` there, seeded from the workspace's |
 | modules | whatever the host's module cache already holds is served from it read-only, offline; new modules are downloaded — **public addresses only** (the operator sets `XBIN_BUILD_NET=host` for a GOPROXY or private modules on the LAN) |
 | not honoured | a `replace` to a path outside the workspace and the SDK (it isn't there); VCS stamping (`-buildvcs=false` — nothing your repo's config says runs, even inside the box) |
+| version check | once after the upgrade to D166's per-tile `go.work` (again when an admin asks, and after a build of yours that changed your `go.mod` while the alert names your tile), xbind lists the modules your entry links (`go list -deps`; `go list -m` when the shared `go.work` fails to load) under the workspace's shared `go.work` and under your own, in the same box with the same caches and network, to tell admins which `require` lines keep the versions your tile linked before ([the migration note](/docs/changes/2026-09-30-go-build-workspace.md)); it writes only `.xbin/cache/tile/<key>/versions/` (its `go.work` and `go.work.sum`) |
 
 An **import from a git URL** runs its `git ls-remote`/`git clone` on the
 host's network (anything the host reaches, as before), with the daemon's
@@ -118,12 +120,16 @@ deployment:
   deployment's `setup` output and logs go to its own backend log,
   `.xbin/deploy/<key>/d/<name>/backend.log` (`bx logs <tile>+<name>`).
 - **The Go build** runs confined like any other, with the checkpoint at the
-  tile's path and every `go.work` module of another tile built against that
-  tile's primary (its pinned checkpoint, or its work tree while it follows
-  it). The artifact is kept per checkpoint under
-  `.xbin/build/<key>/c/<tree>/` with a `build.json` recording its inputs
-  (toolchain, Go settings, each module's code, `go.sum`'s pins), reused on
-  every restart and rebuilt only after `.xbin/` is lost. Rebuilding is
+  tile's path, its own `go.work` made from the checkpoint's `go.mod`, and
+  every other tile's module it uses built against that tile's primary (its
+  pinned checkpoint, or its work tree while it follows it). The artifact is
+  kept per checkpoint under `.xbin/build/<key>/c/<tree>/` with a
+  `build.json` recording its inputs (toolchain, Go settings, each module's
+  code, `go.sum`'s pins), reused on every restart and rebuilt only after
+  `.xbin/` is lost. A protected primary's artifact built before D166 (with
+  the workspace's `go.work`) is not rebuilt on its own: its inputs moved,
+  so a restart after `.xbin/` loss holds it until a tile manager
+  redeploys. Rebuilding is
   reproducible up to what the artifact also embedded: other tiles' code as
   their primaries stood, `go.sum`'s modules and the host toolchain. At most
   max(1, CPUs/4) builds for non-primary deployments run at once across the
@@ -186,7 +192,10 @@ user can `read` (read-only), their own component (read-write), and their own
   is the workspace's entire topology — grant edges, wiring, public
   hostnames — and never enters the sandbox.
 - **`go.work` is filtered** to readable modules (so `go build` never chases
-  directories that aren't there), and `AGENTS.md`/`.gitignore` are copies.
+  directories that aren't there). It is kept current while the terminal is
+  open: its `go` line follows the modules' as their `go.mod` files change,
+  because the go command refuses a `go.work` whose `go` line is below a
+  module it uses. `AGENTS.md`/`.gitignore` are copies.
 - `.xbin/`, `data/`, other homes: simply **not mounted** (an empty `.xbin`
   marker exists so `bx` can locate the workspace root), and the resenc
   mount-table names the recursive bind used to carry are gone with it.
@@ -341,6 +350,29 @@ xbind removes a layer — on a reset, an `offloaded-full`, or when a restore
 replaces it — in a confined run (§Confined tool runs, above) with only the
 file capabilities, so files an `apt install` left owned by other users
 inside the sandbox go too.
+
+**A newer base image.** A layer only makes sense on the base image it was
+built on, so it stays pinned to that base when xbin ships a newer one (a
+newer Go, say). With the workspace's **base auto-update** on — the default
+(D175; the admin console → workspace → terminals, `bx settings`) — the
+next session that opens a layer built on an older base moves it to the
+current base first: the layer is put aside and removed as a reset removes
+it, and the shell's first line, in grey, says so (an agent session's
+Agent tab, and the tile's next shell, say it too). A running session is
+never moved; it keeps its base until it ends. With the setting off the
+layer stays on its base and the terminal window offers **⬆ base update**,
+which does the same reset on request. Either way your workspace files and
+`$HOME` are kept, and what goes is everything the layer holds — all the
+rest of the terminal's filesystem: installed packages, `/etc`, `/var` (a
+database's files), `/opt`, `/usr/local`, and a VM terminal's whole disk
+with its docker images and volumes. No backup holds those; keep what
+matters under the tile or `$HOME`, and what a backend needs in its
+`setup`. A layer pinned to a
+base that isn't installed any more fails to open (reset it), or moves with
+the setting on; it no longer keeps xbind from booting. This is the terminal dev layer only: the component
+env layer below is rebuilt for a new base by itself, and a tile sandbox's
+state is its manager's to reset or rebase (`base.outdated`;
+[protocol.md](/docs/protocol.md) §Reset and rebase).
 
 Keep two "layers" straight — they are deliberately separate:
 

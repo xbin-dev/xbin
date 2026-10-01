@@ -82,12 +82,13 @@ func (st *State) stepIsolation() error {
 	// (editing plane), plus the SDK source ro so `go build` resolves.
 	tm.Isolate = true
 	tm.Rootfs = abs
-	// Safety gate: never stack an existing terminal upper on a base image
-	// different from the one it was built on (corrupts apt/dpkg state). Abort
-	// if a pinned base is missing — the base upgrade must preserve old bases.
-	if err := tm.CheckBaseImages(); err != nil {
-		return err
-	}
+	// Never stack an existing terminal upper on a base image different from
+	// the one it was built on (corrupts apt/dpkg state): a session's start
+	// refuses a layer whose base is missing, or moves it to the current base
+	// (base auto-update) — the boot only logs them (D175; it used to refuse
+	// to start), reads the current base's version once, and has the remover
+	// finish what a restart left of layers moved off their base.
+	tm.CheckBaseImages()
 	layers.GC(abs, st.pinnedBases()) // release preserved bases no layer pins anymore
 	// Same locator as go.work generation (XBIN_SDK_PATH → /opt/xbin/sdk).
 	// Never fall back to "": filepath.Abs("") is the daemon's cwd (the

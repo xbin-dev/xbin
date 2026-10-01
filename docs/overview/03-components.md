@@ -106,7 +106,7 @@ published endpoint) is the owner's act. Declaring is cheap and inert.
 | runtime | entry default | backend shape |
 |---------|---------------|---------------|
 | `static` | — | no backend; files served via `/c/`, HTML gets the D4 injection |
-| `go` | `./backend` package | compiled per change (workspace `go.work`, shared build cache; `CGO_ENABLED=0` under `--isolate` so the static binary runs on the sandbox rootfs), then the blue/green dance below |
+| `go` | `./backend` package | compiled per change (a `go.work` of the build's own, made from the tile's `go.mod` — below; `CGO_ENABLED=0` under `--isolate` so the static binary runs on the sandbox rootfs), then the blue/green dance below |
 | `node` | `backend/server.js` | interpreter is the binary — restart-on-change, same swap dance, no compile |
 | `python` | `backend/server.py` | as node |
 
@@ -161,7 +161,11 @@ Every (re)start is a *generation*:
 4. **Swap** — atomic pointer flip; new requests hit the new generation.
 5. **Drain** — the old generation gets SIGTERM and 30 s to finish in-flight
    work (decision D8), then SIGKILL. When it exits, its instance token is
-   revoked — an old generation's credential cannot outlive it.
+   revoked — an old generation's credential cannot outlive it. A request
+   routed to the old generation before the swap that it never answered
+   (its SIGTERM closed the socket under the request) goes to the new
+   generation when resending is safe: no body, and an idempotent method or
+   nothing of it sent (D173).
 
 Practical consequences for backend authors: keep state in resources, not
 memory (a swap is a new process); handle SIGTERM (the SDK's `xbin.Serve`
@@ -265,6 +269,20 @@ byte.
   and any gopls sees the whole workspace. The file is marker-guarded: remove
   the generated-by line to take ownership; if a stray `go work use` strips
   the marker *and* modules go missing, xbind reclaims it.
+- **Each Go build's own `go.work`** (D166). No tile's build reads the root
+  file: in workspace mode `go` builds one module graph over everything it
+  uses, so every tile's `go.mod` — a newer requirement, a `replace` —
+  changed what every other tile compiled, and a new tile's first build
+  could race the root file's regeneration. A build gets a `go.work`
+  rendered from the tile's own `go.mod` at build time: the tile's module
+  (or, for a tile with none, the component module it sits in), the SDK,
+  and only the other tiles' modules the tile's own `go.mod`, manifest and
+  code choose (dotless module paths, `v0.0.0` requirements, a `replace`
+  with a tile's directory, a dotless import one module alone holds,
+  `deps`) — never a module that merely declares a path the tile uses
+  ([elements.md](../elements.md) §Cross-component code access has the
+  rules). A hand-managed root `go.work` keeps its `go`, `toolchain`,
+  `godebug` and `replace` lines for every build.
 - **The SDK is zero-dependency** by rule — components inherit its module
   graph, so the SDK must never pull anything in.
 

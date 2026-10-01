@@ -33,6 +33,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/vm"
 	"github.com/xbin-dev/xbin/internal/watch"
+	"github.com/xbin-dev/xbin/internal/wssettings"
 )
 
 // watchDebounce coalesces editor save bursts (plans/implementation.md phase 1).
@@ -73,10 +74,14 @@ type State struct {
 	reconcileIngress func()
 	onVMPolicy       func(old, cur vm.Policy) // a VM policy change, for the tile-sandbox runtime (stepTileSandboxes)
 	watcher          *watch.Watcher
+	watchDone        chan struct{} // closed when the watch loop has returned (stepWatch, serve's stopWatch)
 	priv             Privileges
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)
 	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
 	uidRangeNote     string // why not
+	// settings is the workspace settings file (D175): the terminals read
+	// base auto-update from it, the server serves it (stepServer).
+	settings *wssettings.Store
 	// sandboxBasePins is the base of every tile-sandbox definition, archived
 	// ones included (plans/tile-sandbox-runtime.md §9) — one of the pin
 	// sources the boot's base-image GC passes keep (pinnedBases). An error
@@ -109,6 +114,9 @@ type Step struct {
 //     mounts its routes.
 //   - workspace before isolation: the tile-sandbox definitions' base pins
 //     (sandboxBasePins) must answer before isolation's base-image GC.
+//   - go-build-versions after server: the D166 upgrade check (decided in
+//     the registry step, before any build) starts its first pass in the
+//     background once everything else runs; its routes are mounted.
 var Steps = []Step{
 	{"workspace", (*State).stepWorkspace},
 	{"privileges", (*State).stepPrivileges},
@@ -130,6 +138,7 @@ var Steps = []Step{
 	{"server", (*State).stepServer},
 	{"watch", (*State).stepWatch},
 	{"always-on", (*State).stepAlwaysOn},
+	{"go-build-versions", (*State).stepGoVersions},
 }
 
 // Run boots the workspace described by cfg and serves it until ctx is done
@@ -265,6 +274,7 @@ func (st *State) stepRegistry() error {
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
 	st.Sbx = sbx.New()
 	st.Run.Sandboxes = st.Sbx
+	st.bootGoVersions() // before any build: an earlier xbind's builds say the check is due (goversions.go)
 	// The deployments plane loads its records before the first Provision
 	// (broker.New), so a pinned primary's code is what the registry composes.
 	dp := &deployments.Plane{Root: st.WS, Reg: reg, Hub: st.Hub, Run: st.Run,
@@ -316,6 +326,10 @@ func (st *State) stepTerminals() error {
 	if bxDir != "" {               // the agent host bound into agent sandboxes (D74)
 		tm.BxPath = filepath.Join(bxDir, "bx")
 	}
+	// A tile's layer built on an older base moves to the current one at its
+	// next session start, while the workspace setting is on (D175).
+	st.settings = wssettings.New(filepath.Join(ws, "data", "workspace-settings.json"))
+	tm.BaseAutoUpdate = st.settings.BaseAutoUpdate
 	term.Version = st.Cfg.Version
 	// D17a: a non-admin's terminal masks out the source of every tile below
 	// their read level — the mount-level half of the same visibility rule the
@@ -335,6 +349,16 @@ func (st *State) stepTerminals() error {
 	// redacted copies (xbin.json filtered to readable rows — the full file
 	// is the whole grants/bindings topology incl. public hostnames; go.work
 	// covering only readable modules so builds don't chase absent dirs).
+	// A view's go.work covers the components it binds — readable at open —
+	// and is re-rendered as the workspace changes (term.RefreshViews, from
+	// the watch loop): its go line follows the modules' (D166).
+	tm.ViewGoWork = func(readable []string) string {
+		in := make(map[string]bool, len(readable))
+		for _, r := range readable {
+			in[r] = true
+		}
+		return deps.GoWorkFor(reg, deps.SDKPath(), func(path string) bool { return in[path] })
+	}
 	tm.TermView = func(p auth.Principal) ([]string, map[string][]byte) {
 		var readable []string
 		for _, c := range reg.Components() {
@@ -346,7 +370,7 @@ func (st *State) stepTerminals() error {
 		files := map[string][]byte{
 			"xbin.json": registry.RedactedManifestJSON(reg.Workspace(), canRead),
 		}
-		if gw := deps.GoWorkFor(reg, deps.SDKPath(), canRead); gw != "" {
+		if gw := tm.ViewGoWork(readable); gw != "" {
 			files["go.work"] = []byte(gw)
 		}
 		for _, name := range []string{"AGENTS.md", ".gitignore"} {
@@ -468,6 +492,9 @@ func (st *State) stepBroker() error {
 		deps.Reconcile(reg)
 		if err := deps.GoWork(reg, deps.SDKPath()); err != nil {
 			slog.Warn("go.work", "err", err)
+		}
+		if st.Term != nil {
+			st.Term.RefreshViews() // open restricted terminals' go.work too
 		}
 		brk.EnsureComponentRepos() // new/imported components get their own git repo
 	}
@@ -591,7 +618,7 @@ func (st *State) stepProxy() error {
 	// beyond main the remap onto the deployment's own volumes (08-data §3.6).
 	dp := st.Deployments
 	dp.TileEnv = brk.EnvFor
-	run.DeploymentHooks = runner.DeploymentHooks{CodeFor: dp.CodeFor, Primary: dp.Primary,
+	run.DeploymentHooks = runner.DeploymentHooks{CodeFor: dp.CodeFor, SettledCodeFor: dp.SettledCodeFor, Primary: dp.Primary,
 		View: dp.View, Materialize: dp.Materialize, EnvFor: brk.DeploymentEnv, LimitsFor: dp.LimitsFor,
 		Retained: dp.RetainedTrees}
 	run.AlwaysOnSwitched = dp.AlwaysOnSwitched // a non-primary deployment's alwaysOn switch (07-runtime §11)
@@ -703,6 +730,7 @@ func (st *State) stepServer() error {
 		TileAssets:     st.Cfg.TileAssets, // --tile-assets (validated); docs/auth.md §Tile asset gating
 		TilesDomain:    st.Cfg.tilesDomain(),
 		Brand:          branding.New(filepath.Join(st.WS, "data", "branding.json")), // the workspace's title + icon (D76)
+		Settings:       st.settings,                                                 // workspace settings (D175)
 	}
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)
@@ -730,6 +758,7 @@ func (st *State) stepServer() error {
 	st.registerSandboxAPI(srv)
 	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
 	st.registerTileSandboxAPI(srv)
+	st.registerGoVersionsAPI(srv) // the D166 upgrade check's routes and admin alert
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}
@@ -744,12 +773,21 @@ func (st *State) stepWatch() error {
 		return err
 	}
 	st.watcher = w
-	go watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
-		st.reconcileIngress()
-		if st.TileSbx != nil {
-			st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
-		}
-	})
+	refreshViews := func() {}
+	if st.Term != nil {
+		refreshViews = st.Term.RefreshViews
+	}
+	done := make(chan struct{})
+	st.watchDone = done
+	go func() {
+		defer close(done) // the loop ends when the watcher closes (serve's stopWatch)
+		watchLoop(w, st.Reg, st.Hub, st.Run, st.Broker, st.Deployments, func() {
+			st.reconcileIngress()
+			if st.TileSbx != nil {
+				st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
+			}
+		}, refreshViews)
+	}()
 	return nil
 }
 

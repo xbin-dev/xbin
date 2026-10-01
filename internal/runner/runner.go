@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,6 +73,11 @@ type instance struct {
 	artifact string // its built artifact
 	leaf     string // its cgroup leaf
 	envHash  string // its env layer's hash
+	// retired is set once xbind stops the generation (stopGen): a swap
+	// replaced it, or a stop, a reap or a shutdown ended it. Never set by
+	// the process's own exit (a crash). The proxy resends a request whose
+	// generation failed it only because xbind retired it (Gen.Retired).
+	retired atomic.Bool
 }
 
 type state struct {
@@ -171,7 +177,11 @@ type Runner struct {
 	VM         *vm.Manager // "vm" backends (vm.go); nil = none
 	vms        vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
-	Sandboxes       *sbx.Registry
+	Sandboxes *sbx.Registry
+	// GoVersions is told of each Go build that succeeds, of a work tree or
+	// a checkpoint: a tile its upgrade alert names is re-checked when what
+	// decides its versions changed (goversionscheck.go, D166). nil = none.
+	GoVersions      *GoVersions
 	DeploymentHooks                 // installed by the deployments plane; nil-safe (deploy.go)
 	PartitionHooks                  // installed by the identity and data planes; fail-closed (partitions.go)
 	inUse           inUse           // inspect.go: the trees and artifacts generations use
@@ -200,21 +210,14 @@ func New(root string, a *auth.Auth, hub *events.Hub, reg *registry.Registry) *Ru
 // state is comp's primary's runner state, created dirty when missing.
 func (r *Runner) state(comp string) *state { return r.stateOf(comp, r.primary(comp)) }
 
-// Ensure returns the unix socket of a healthy backend for c's primary,
-// (re)building first if needed. Blocks concurrent callers during builds
-// (single-flight) so a save under load never surfaces connection-refused.
-func (r *Runner) Ensure(ctx context.Context, c *registry.Component) (string, error) {
-	return r.ensurePrimary(ctx, c, r.primary(c.Path))
-}
-
 // ensurePrimary is Ensure for deployment dep, c's primary, whose code the
 // registry's component describes (07-runtime §5.1).
-func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep string) (string, error) {
+func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep string) (*instance, error) {
 	if err := registry.ValidateRuntime(c.Manifest); err != nil {
-		return "", fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
+		return nil, fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
 	}
 	if c.Manifest.Runtime == "" || c.Manifest.Runtime == "static" {
-		return "", fmt.Errorf("component %s has no long-running backend", c.Path)
+		return nil, fmt.Errorf("component %s has no long-running backend", c.Path)
 	}
 	// Lifecycle gate (plans/lifecycle.md): a disabled/offloaded component never
 	// spawns — enforced here so no path (proxy, watcher rebuild, grant change)
@@ -226,10 +229,10 @@ func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep s
 				why = w
 			}
 		}
-		return "", fmt.Errorf("component %s %s", c.Path, why)
+		return nil, fmt.Errorf("component %s %s", c.Path, why)
 	}
 	if r.noGlobal(c.Path, dep) { // only people's partitions run (partitions.go)
-		return "", globalRefusal(c.Path)
+		return nil, globalRefusal(c.Path)
 	}
 	return r.ensureState(ctx, c, r.stateOf(c.Path, dep))
 }
@@ -237,19 +240,19 @@ func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep s
 // ensureState is the single flight on one deployment's state s: its healthy
 // generation, its sticky error until a change, or the build this caller
 // takes (runCurrent), re-checked after every build.
-func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *state) (string, error) {
+func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *state) (*instance, error) {
 	for {
 		s.mu.Lock()
 		s.lastReq = r.now()
 		if !s.dirty && s.cur != nil {
-			sock := s.cur.sock
+			inst := s.cur
 			s.mu.Unlock()
-			return sock, nil
+			return inst, nil
 		}
 		if !s.dirty && s.lastErr != nil {
 			err := s.lastErr
 			s.mu.Unlock()
-			return "", err
+			return nil, err
 		}
 		if s.building {
 			done := s.buildDone
@@ -258,7 +261,7 @@ func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *stat
 			case <-done:
 				continue
 			case <-ctx.Done():
-				return "", ctx.Err()
+				return nil, ctx.Err()
 			}
 		}
 		// We take the build.
@@ -396,6 +399,16 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		err = fmt.Errorf("backend did not become healthy: %w", err)
 		r.emitState(s, "build-error", err.Error())
 		return err
+	}
+	if code.WorkTree && r.workTreeLeft(c.Path, dep) {
+		// Live reload left the deployment while its work tree built (a pause
+		// committed): what this generation read may postdate the pause's
+		// checkpoint, so it never serves (D174). The current generation
+		// serves until the deploy the pause queued swaps the checkpoint in;
+		// without one, the next request builds what the record names.
+		r.stopGen(inst, 2*time.Second)
+		g.release()
+		return nil
 	}
 
 	if !r.install(s, inst, false) {

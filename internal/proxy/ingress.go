@@ -69,7 +69,7 @@ func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingre
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
-	sock, err := px.Runner.Ensure(ctx, comp)
+	gen, err := px.Runner.EnsureGen(ctx, comp)
 	if err != nil {
 		// Build/spawn detail stays inside the workspace — anonymous clients
 		// get a plain 502.
@@ -97,7 +97,11 @@ func (px *Proxy) ForwardIngress(w http.ResponseWriter, r *http.Request, rt ingre
 				pr.Out.Header.Set("Upgrade", u)
 			}
 		},
-		Transport:     px.transportFor(sock),
+		// A request the generation's retirement cut off goes to the
+		// primary's generation now (rerouting).
+		Transport: &rerouting{px: px, gen: gen, again: func() (generation, error) {
+			return px.Runner.EnsureGen(ctx, comp)
+		}},
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			http.Error(w, "this site hit an internal error", http.StatusBadGateway)

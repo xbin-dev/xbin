@@ -412,12 +412,24 @@ for terminals):
   base; a pre-existing unstamped upper → the legacy `v0`).
 - **`ResolveBase`** pins the layer's upper to the exact base it was built on —
   the current rootfs if it matches, else a preserved sibling `<rootfs>-<version>`.
-- **`CheckBaseImages`** is a startup safety gate: xbind **refuses to start** if
-  any existing terminal layer is pinned to a base that isn't installed, rather
-  than corrupt its apt state. A base upgrade must therefore *preserve* old bases
-  as `<rootfs>-<version>` siblings (`deploy/install.sh` does this on upgrade);
-  the fix if you hit the gate is to restore the base or reset the affected
-  terminal(s). (A tile sandbox whose base is gone fails its own start instead.)
+- **A missing base is never stacked on another one.** A session's start
+  refuses a layer pinned to a base that isn't installed (`this terminal's
+  base image "<v>" is not installed — reset the terminal…`), rather than
+  corrupt its apt state — or, with base auto-update on (below), moves it to
+  the current base. A base upgrade therefore *preserves* old bases as
+  `<rootfs>-<version>` siblings (`deploy/install.sh` does this on upgrade);
+  the fix for a refused terminal is to restore the base or reset it. At boot
+  **`CheckBaseImages`** logs every such layer; it no longer refuses to start
+  over one (D175 — the per-start refusal is what keeps a layer off another
+  base, and one stale layer, or an admin turning auto-update off, must not
+  keep the whole workspace down). (A tile sandbox whose base is gone fails
+  its own start too.)
+- **Unreadable is not missing.** A layer's `base` stamp, or the rootfs's
+  `etc/xbin-base-version`, that is there but can't be read (EIO, EACCES, a
+  link) fails the session's start, the layer untouched — never read as an
+  unstamped layer or base, which would re-pin it to `v0` (and, with
+  auto-update on, discard it). The current base's version is read once per
+  xbind run: the installer stops xbind before it swaps the rootfs.
 - **GC at boot** releases preserved bases that nothing pins anymore — the
   cleanup side, so old bases don't accumulate once every layer has upgraded.
   The pins are the union of the terminal layers' stamps (`.xbin/term/*`), the
@@ -430,6 +442,48 @@ for terminals):
 
 A terminal whose layer's base is older than the current rootfs reports
 `baseOutdated` on attach, so the UI can offer a reset-to-upgrade.
+
+**Base auto-update (D175).** A workspace setting, **on by default**
+(admin console → workspace → terminals; `bx settings`; `GET`/`PUT
+/api/xbin/workspace-settings`, kept in `data/workspace-settings.json`).
+While it is on, a session's start that takes a tile's layer — no other
+session holding it — and finds it built on another base than the current
+rootfs moves it there first, and the move **can't be undone**: the layer
+holds everything of the terminal outside the workspace files and `$HOME` —
+installed packages, `/etc`, `/var` (a database's files), `/opt`,
+`/usr/local`, and a VM terminal's whole disk (its docker images and
+volumes), none of which a backup holds. The old layer is put aside
+(renamed into `.xbin/term-moved/`, so the session starts at once however
+big it is) and removed there in the background, in a confined run as the
+reset removes it; a fresh layer is stamped with the current base. The
+shell's first output is one grey line:
+
+```
+xbin: this tile's terminal moved to the new base image — everything outside the workspace files and $HOME was reset (installed packages, /etc, /var, /opt…; a VM terminal's whole disk)
+```
+
+An agent session moves the same way and says so in its Agent tab (a
+`notice` event, shown muted), and the tile's next shell prints `xbin: an
+agent session's start moved this tile's terminal to the new base image —
+…` once — an `alwaysOn` agent is often the first to start on a tile after
+an upgrade. Nothing is yanked: a running session keeps its base until it
+ends or restarts, and a second session meanwhile gets an ephemeral upper
+(above). A move that can't complete fails the start — the old layer can't
+be put aside and its removal in place fails, or the new layer can't be
+stamped — and the next start tries again: half a layer is never mounted.
+What the background removal can't remove stays in `.xbin/term-moved/` for
+the next boot to remove. A layer whose base isn't installed any more moves
+the same way; once moved it pins its old base no longer, so the next
+boot's GC releases that base. A layer a restore brought back from an older
+base moves at its next start too. A rootfs with no version stamp (a dev
+one) is no base to move to: nothing moves. Terminals run no `setup`: the
+component env layer is rebuilt for a new base by itself. With the setting
+**off**, layers stay pinned as above and the window's chooser and title
+bar offer **⬆ base update**; with it on, the chooser says the next session
+moves instead (`GET /ws/term/env` → `baseAutoUpdate`; open windows re-read
+it on the `workspace-settings` event), and the title bar keeps the button
+for a running session. The setting covers terminal layers only — a tile
+sandbox's state is its manager's to reset or rebase.
 
 ## VM terminals (D89)
 

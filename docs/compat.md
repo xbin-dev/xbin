@@ -250,3 +250,10 @@ header, env variable, token, backup archive or file differs.
 - Behaviour that `docs/changelog.md` marks **BREAKING** with a linked
   migration note under `/docs/changes/` — that note is the one place a
   workspace has to act after an upgrade.
+- Building Go tiles after a downgrade to an xbind older than a `go` line
+  the workspace's modules use. xbind v0.3.64 and older write `go 1.24`
+  into the root `go.work` and build every Go tile with it. Once any
+  `go.mod` says more, which `sandbox-terminal` v6 and the agent template
+  do (`go 1.26.0`), every Go tile's build fails there. Set those lines to
+  `go 1.24` before downgrading
+  ([changes/2026-09-30-builtins-go-1-26.md](/docs/changes/2026-09-30-builtins-go-1-26.md)).

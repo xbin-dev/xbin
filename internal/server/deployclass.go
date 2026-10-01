@@ -312,6 +312,9 @@ var routeClasses = map[string]RouteClass{
 	"GET /runtime":                           PrimaryOnly,
 	"GET /ingress":                           PrimaryOnly,
 	"GET /gpus":                              PrimaryOnly,
+	"GET /go-build-versions":                 PrimaryOnly,
+	"POST /go-build-versions/check":          PrimaryOnly,
+	"POST /go-build-versions/dismiss":        PrimaryOnly,
 	"PUT /vm/policy":                         PrimaryOnly,
 	"POST /auth-rotate-token":                PrimaryOnly,
 	"POST /impersonate":                      PrimaryOnly,
@@ -321,6 +324,7 @@ var routeClasses = map[string]RouteClass{
 	"PUT /branding":                          PrimaryOnly,
 	"PUT /workspace-policies":                PrimaryOnly,
 	"POST /partitions/limits":                PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
+	"PUT /workspace-settings":                PrimaryOnly,
 	"GET /push/config":                       PrimaryOnly,
 	"PUT /push/config":                       PrimaryOnly,
 	"DELETE /push/config":                    PrimaryOnly,
@@ -342,6 +346,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /chrome":               Neutral,
 	"GET /branding":             Neutral,
 	"GET /workspace-policies":   Neutral, // people and admins; the handler refuses tile code (PD-55)
+	"GET /workspace-settings":   Neutral,
 
 	// ---- a person's own sign-in, account, devices and sessions ----
 	"POST /login":                     Neutral,

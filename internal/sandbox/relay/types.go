@@ -27,7 +27,8 @@ const HairpinIP = "10.0.2.4"
 // Config configures a relay (see Start).
 type Config struct {
 	// TunFD is the sandbox's egress TUN. The caller keeps owning it — close
-	// it after Relay.Close returns (Close stops the TUN's readers first), or
+	// it after Relay.Close returns (Close stops the TUN's readers and
+	// writers first), or
 	// after a failed Start — unless CloseTUN hands it to the relay, which
 	// then closes it at those two points itself.
 	TunFD    int

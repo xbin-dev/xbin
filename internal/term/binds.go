@@ -1,10 +1,12 @@
 package term
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -123,6 +125,54 @@ func (m *Manager) stageView(rel, homeKey string, readable []string, rootFiles ma
 		}
 	}
 	return dir, nil
+}
+
+// trackView records a live view dir and the components it binds, for
+// RefreshViews; dropView forgets it and removes it.
+func (m *Manager) trackView(dir string, readable []string) {
+	m.viewMu.Lock()
+	defer m.viewMu.Unlock()
+	if m.views == nil {
+		m.views = map[string][]string{}
+	}
+	m.views[dir] = append([]string(nil), readable...)
+}
+
+// dropView forgets a view dir and removes it — after any RefreshViews write
+// into it is done (viewMu), so none lands in a dir being removed.
+func (m *Manager) dropView(dir string) {
+	m.viewMu.Lock()
+	delete(m.views, dir)
+	m.viewMu.Unlock()
+	_ = os.RemoveAll(dir)
+}
+
+// RefreshViews re-renders the go.work of every live restricted view (D40)
+// from the workspace as it is now, over the components each binds. A view
+// is staged once, at open, but its go.work's go line follows the modules'
+// (D166: the go command refuses a go.work below a module it uses, for
+// every command) — so a builtin updated to go 1.26.0, or a go.mod a
+// terminal raised, would leave every go command in an open restricted
+// terminal refusing until it was reopened. Called wherever the root
+// go.work is regenerated. The view dir is xbind's, bound read-only: a
+// write replaces the file in it (temp file + rename), never through
+// anything a sandbox wrote.
+func (m *Manager) RefreshViews() {
+	if m.ViewGoWork == nil {
+		return
+	}
+	m.viewMu.Lock()
+	defer m.viewMu.Unlock()
+	for dir, readable := range m.views {
+		gw := m.ViewGoWork(readable)
+		p := filepath.Join(dir, "go.work")
+		if cur, err := os.ReadFile(p); gw == "" || (err == nil && string(cur) == gw) {
+			continue
+		}
+		if err := fsutil.WriteFileAtomic(p, []byte(gw), 0o644); err != nil {
+			slog.Warn("terminal view: go.work", "view", dir, "err", err)
+		}
+	}
 }
 
 // scopedBindsView is the D40 ALLOW-LIST plan for restricted terminals: the

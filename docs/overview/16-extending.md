@@ -50,8 +50,8 @@ crash-loop braking after 3 fast exits.
 
 **Zero-dependency by hard rule** — components inherit whatever the SDK
 depends on, so it depends on nothing but the standard library. The
-workspace's generated `go.work` resolves it locally (`/opt/xbin/sdk`), so
-builds work offline. The full exported surface:
+workspace's generated `go.work`, and each build's own (D166), resolve it
+locally (`/opt/xbin/sdk`), so builds work offline. The full exported surface:
 
 | Capability | API |
 |---|---|

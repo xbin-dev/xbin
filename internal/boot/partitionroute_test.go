@@ -44,16 +44,16 @@ func TestPartitionRunnerWired(t *testing.T) {
 func TestPartitionStartsAdapter(t *testing.T) {
 	errBusy, errOther := errors.New("caps reached"), errors.New("boom")
 	var asked []string
-	a := partitionStarts[string]{
-		ensure: func(_ context.Context, c *registry.Component, dep, part, class string) (string, error) {
+	a := partitionStarts[string, testGen]{
+		ensure: func(_ context.Context, c *registry.Component, dep, part, class string) (testGen, error) {
 			asked = append(asked, c.Path+" "+dep+" "+part+" "+class)
 			switch part {
 			case "user:busy":
-				return "", fmt.Errorf("apps/t: %w", errBusy)
+				return testGen{}, fmt.Errorf("apps/t: %w", errBusy)
 			case "user:broken":
-				return "", errOther
+				return testGen{}, errOther
 			}
-			return "/sock", nil
+			return testGen{"/sock"}, nil
 		},
 		track: func(tile, dep, part string, passive bool) func() {
 			asked = append(asked, fmt.Sprintf("hold %s %s %s %v", tile, dep, part, passive))
@@ -65,12 +65,12 @@ func TestPartitionStartsAdapter(t *testing.T) {
 	c := &registry.Component{Path: "apps/t"}
 	for class, want := range map[proxy.PartitionStart]string{proxy.StartInteractive: "i", proxy.StartBackground: "b", proxy.StartMail: "m"} {
 		asked = nil
-		if sock, err := a.EnsurePartition(context.Background(), c, "main", "user:alice", class); sock != "/sock" || err != nil ||
+		if gen, err := a.EnsurePartition(context.Background(), c, "main", "user:alice", class); err != nil || gen.Sock() != "/sock" ||
 			len(asked) != 1 || asked[0] != "apps/t main user:alice "+want {
-			t.Errorf("class %d: %q, %v, asked %v", class, sock, err, asked)
+			t.Errorf("class %d: %v, %v, asked %v", class, gen, err, asked)
 		}
 	}
-	if _, err := a.EnsurePartition(context.Background(), c, "main", "user:busy", proxy.StartInteractive); !errors.Is(err, sbx.ErrRefused) ||
+	if gen, err := a.EnsurePartition(context.Background(), c, "main", "user:busy", proxy.StartInteractive); gen != nil || !errors.Is(err, sbx.ErrRefused) ||
 		!errors.Is(err, errBusy) || err.Error() != "apps/t: caps reached" {
 		t.Errorf("a listed refusal: %v", err)
 	}
@@ -265,3 +265,9 @@ func TestPartitionWiring(t *testing.T) {
 		t.Errorf("alice disabled, her partition's token: %d %s", code, body)
 	}
 }
+
+// testGen is a generation of a person's partition for the adapter's test.
+type testGen struct{ sock string }
+
+func (g testGen) Sock() string  { return g.sock }
+func (g testGen) Retired() bool { return false }

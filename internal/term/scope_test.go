@@ -246,3 +246,59 @@ func TestStageView(t *testing.T) {
 		}
 	}
 }
+
+// A live view's go.work follows the workspace (D166: its go line is the
+// modules', and the go command refuses one below a module it uses):
+// RefreshViews re-renders it over the components the view binds, and a
+// dropped view is neither written nor kept.
+func TestRefreshViews(t *testing.T) {
+	root := t.TempDir()
+	goLine := "1.24"
+	var asked [][]string
+	m := &Manager{Root: root, ViewGoWork: func(readable []string) string {
+		asked = append(asked, readable)
+		return "go " + goLine + "\n\nuse ./apps/mine\n"
+	}}
+	if err := os.MkdirAll(filepath.Join(root, ".xbin", "term"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	readable := []string{"apps/mine", "apps/friend"}
+	dir, err := m.stageView("apps/mine", "alice", readable, map[string][]byte{"go.work": []byte(m.ViewGoWork(readable))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.trackView(dir, readable)
+	read := func() string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(dir, "go.work"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	goLine = "1.26.0" // a builtin updated, a go.mod raised
+	m.RefreshViews()
+	if got := read(); got != "go 1.26.0\n\nuse ./apps/mine\n" {
+		t.Errorf("refreshed go.work:\n%s", got)
+	}
+	if last := asked[len(asked)-1]; strings.Join(last, " ") != "apps/mine apps/friend" {
+		t.Errorf("rendered over %v, want the components the view binds", last)
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("a temp file left in the view: %s", e.Name())
+		}
+	}
+
+	m.dropView(dir)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("a dropped view is removed: %v", err)
+	}
+	goLine = "1.27.0"
+	m.RefreshViews()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("RefreshViews wrote into a dropped view: %v", err)
+	}
+}

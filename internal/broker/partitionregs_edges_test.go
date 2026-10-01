@@ -320,11 +320,11 @@ type deferringParts struct {
 	asked []string
 }
 
-func (d *deferringParts) EnsurePartition(_ context.Context, c *registry.Component, dep, part string, class proxy.PartitionStart) (string, error) {
+func (d *deferringParts) EnsurePartition(_ context.Context, c *registry.Component, dep, part string, class proxy.PartitionStart) (proxy.PartitionGen, error) {
 	d.mu.Lock()
 	d.asked = append(d.asked, fmt.Sprintf("%s %s %s %d", c.Path, dep, part, class))
 	d.mu.Unlock()
-	return "", sbx.Refuse(fmt.Errorf("%w: 4 background starts of people's partitions already run", runner.ErrPartitionDeferred))
+	return nil, sbx.Refuse(fmt.Errorf("%w: 4 background starts of people's partitions already run", runner.ErrPartitionDeferred))
 }
 
 func (d *deferringParts) TrackPartition(tile, dep, part string, passive bool) func() {

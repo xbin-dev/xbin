@@ -8628,6 +8628,426 @@ Deviations and refinements made while implementing; all deliberate:
     for a lower-precedence line (it would shadow the builder's global
     attributes file).
 
+- **D166 — Each Go tile builds with a go.work of its own, made from its
+  go.mod at build time; the root go.work is for shells and gopls only
+  (2026-09-30).** internal/deps/{buildwork.go, modfile.go},
+  internal/runner/{gowork.go, build.go, buildcheckpoint.go}. (The numbers
+  between D136 and this one, D147 aside, and the five after it are the
+  unmerged partitions branch's, which left this one to this fix.) The
+  owner: "go.work seems
+  generally always felt sketchy to me, especially if all builds can
+  influence some shared build env." D78 had given every
+  confined build its own GOCACHE and GOMODCACHE, but the module graph was
+  still shared: every build ran with the root go.work (99fa52da: a copy of
+  it), which `use`s every Go component, and in workspace mode the go
+  command runs MVS over every used module and applies every used go.mod's
+  `replace` workspace-wide. So one tile's requirement bump changed the
+  version every other Go tile built with, one broken go.mod broke every Go
+  build, and a person who could change only tile A could point tile B's
+  dependency at code of their choosing. Reproduced with the go command
+  (TestConfinedGoBuildOwnWorkspace's control, and on master's confined
+  build): tile A's `replace golang.org/x/sys => ./evil` and its `require
+  example.com/dep v1.1.0` tied to its own code by a version-specific
+  replace made B's backend print A's code. And F6 (partitions records)
+  found a race: a new tile's first build could run before deps.GoWork
+  listed its module — "go: no modules were found in the current
+  workspace", sticky until the code changed (reproduced on master, both
+  with and without isolation).
+  - **Chosen: a build workspace per build, generated.** deps.BuildWork
+    renders it from the registry and the tile's own files each time the
+    runner builds — work tree, checkpoint, protected — and with isolation
+    off too (GOWORK set; there is no boundary there, but one module graph
+    per tile is the behaviour either way). It `use`s the tile's own
+    modules (goModules' rule — the root or backend/ — plus the module
+    holding the entry package when that is another), and each other
+    module the tile reaches, and replaces the SDK as the root file does.
+    Built from what the registry lists at build time, the race is gone by
+    construction. The root go.work (GoWork, D40's GoWorkFor) is unchanged.
+  - **Reach.** From the tile's module: its go.mod's `require` lines, its
+    `replace` lines, and the imports of its Go files (go/parser,
+    ImportsOnly), then on through every module used — every used go.mod's
+    lines before any import, so an import is looked up only once the lines
+    known by then have claimed their paths. Imports matter because
+    workspace mode lets a module import another used module *without* a
+    require line (verified: builds with the shared go.work, fails with only
+    the tile's module) — a tile doing that must keep building. The scan
+    reads every .go file but tests in every directory a package can build
+    from (`_*` and testdata too: a template's entry is `./_backend`), not
+    `.*`, vendor/, node_modules/ or nested modules; build tags aren't
+    evaluated (a superset only adds modules the tile's own code names).
+    Files are read beneath an os.Root at the module (fsutil.OpenRootIn),
+    O_NONBLOCK and regular only, 20000 files and 1 MiB each at most.
+  - **A reference chooses a workspace module only by the referring
+    module's own lines — never a namesake.** A per-tile closure alone
+    would keep a variant of the hole: tile A declares `module
+    golang.org/x/crypto` and every tile that requires x/crypto reaches A;
+    and a first cut that credited an import to the longest module path any
+    go.mod declared was still open (review, reproduced with the go
+    command): A declaring `golang.org/x/sys/unix` (with a replace hiding
+    x/sys's own package), `github.com/xbin-dev/xbin/sdk/sandboxcontract`
+    (every agent tile imports an SDK sub-package) or `calendar/store` got
+    its code compiled into a tile importing that package, and lines in
+    unrelated go.mods changed what served another tile's imports. The
+    rules, read only from the referring module's go.mod and manifest and
+    the modules the build already uses:
+    - a `require` whose go.mod also replaces that path (at every version,
+      or the required one) is the replace's alone: a directory is served
+      only by the workspace module at that directory (never by path — the
+      `require example.com/lib v0.0.0` + `replace => ./lib` pattern), a
+      module path as a require of it would be;
+    - a `require` of path p is served by a workspace module declaring p
+      when p is dotless (no proxy serves `calendar`; builtins and `bx new`
+      scaffolds are dotless), the version is a placeholder (v0.0.0, or the
+      zero pseudo-version `go mod tidy` writes for a replaced module), the
+      referring tile's manifest names the module's tile in `deps` (the
+      documented way to "build against" another component — it lets that
+      tile's module stand in for the path it declares, even at a published
+      version, and brings its replaces: a choice of that code, documented as
+      such), or only admins write it (a hand-managed use outside every
+      tile). A dotted path at a published version resolves as a normal
+      module even when a tile declares it;
+    - an import is looked up among the workspace's modules only when no
+      path a used go.mod requires or replaces, the SDK's or the go.work's
+      replaces covers it (x/sys/unix under a required x/sys, sdk/ws under
+      the SDK), it isn't a standard-library package (the host GOROOT), and
+      no used module holds its package. Then the one workspace module that
+      holds the package serves it, as the go command finds one (dirInModule:
+      the directory beneath the module, no go.mod on the way — a nested
+      module's — and a .go file in it): a dotless module, one nested in
+      the tile's own module directory (a child component, in the tile's
+      own tree), or one of a deps-named tile or an admin's. When several
+      could, none does — the go command would say "ambiguous import", and
+      taking either lets a namesake stand in; a deps-named one among them
+      wins. A module whose
+      path lies strictly under the tile's own serves only from inside the
+      own module's directory (a nested component, never a namesake of the
+      tile's own sub-package elsewhere);
+    - never used: a module declaring the tile's own path, the SDK's or one
+      beneath it (configured or not), or one the go.work replaces at every
+      version. A last check drops a module served only by path or import
+      whose path lies strictly under a dotted path a used go.mod requires
+      at a published version, or (import only) under one a used go.mod
+      requires or replaces, and resolves again without it.
+
+    **Dotted imports without a require are no longer served by path.**
+    A tile importing another tile's `example.com/lib` with no go.mod line
+    built with the shared go.work; now it needs deps (or a require with a
+    replace) — unless that module is nested in the tile's own module
+    directory (TestConfinedBuildOfCheckpointAtCanonicalPath's
+    `example.com/sub`; its sibling `example.com/y` now comes through
+    deps). The alternatives: serve a unique dotted provider (a tile
+    whose go.mod lacks a require for a *published* module it imports —
+    exactly the tiles this change breaks — would silently compile a
+    namesake's code instead of failing), or serve it unless some go.mod of
+    the workspace requires that path published (the first cut: then an
+    unrelated tile's go.mod line takes another tile's module away, the
+    influence D166 removes). Dotless paths keep working either way: nothing
+    outside the workspace could serve them, so a namesake can only make an
+    import ambiguous (which failed under the shared go.work too).
+    **`require M v0.0.0` without a replace is fragile regardless:** the go
+    command looks M@v0.0.0 up (and fails) once a build loads the whole
+    module graph — any import from a module outside the workspace
+    (verified; the shared go.work had the same). Hints and docs advise
+    deps, or the require with a `replace` to the module's directory.
+  - **A used module brings its replace lines.** In workspace mode they
+    apply to the whole build; the tile chose to build with that module's
+    code, which is in its binary anyway, so its replaces give its authors
+    nothing more — and dropping them would break a module that needs its
+    own fork. Conflicts error as before, for the tiles that use both.
+  - **A hand-managed root go.work** (no marker) was the tile build's input
+    (isolation.md: "used as it is"), so its `go`, `toolchain`, `godebug`
+    and `replace` lines carry into every build, and its `use`d modules are
+    candidates like the components' (one inside a tile is that tile's; one
+    outside every tile is admin-written and serves any reference). One that
+    leaves the workspace through a symlink is never read (a warning): a
+    confined build couldn't see it before either.
+  - **Where it lives.** The go.work is written under the tile's (or its
+    protected primary's) cache dir, `work/<16 hex digits of its sha256>/`, bound
+    read-write into the build, so `go.work.sum` beside it is written only
+    by builds of that same workspace — a deployment's checkpoint build and
+    the work tree's no longer share one file (per-build content made the
+    99fa52da single file racy). `work/` itself is bound into no build any
+    more; its entries are made with openArtifacts (never followed,
+    replaced when something else sits there). A new directory's
+    go.work.sum is seeded from the workspace's and the tile's newest one
+    (the pre-D166 `work/go.work.sum` included), so no checksum a build
+    already added needs the network again; directories no build wrote for
+    7 days are removed. A tile with no module builds with GOWORK=off
+    ("go.mod file not found"), never the root file.
+  - **A tile holding no module of its own** (apps/suite/admin: xbin.json
+    and backend/ inside apps/suite's module) builds in the component module
+    it sits in — the nearest go.mod above it, when that is another
+    component's module or a hand-managed use, as the go command found it
+    under the root go.work — read where that component's code is, its
+    references that component's (review: the first cut gave it GOWORK=off,
+    and it lost the SDK). A nearest go.mod no go.work used never built
+    ("not one of the workspace modules") and still gets GOWORK=off.
+  - **The go line** is the highest of 1.24 (the root file's), a
+    hand-managed root's and the used modules' go lines, in the go command's
+    order (1.24 < 1.24rc1 < 1.24.0): a go.work older than a module it uses
+    is refused ("module . listed in go.work file requires go >= 1.24.0"),
+    and `go mod init` writes `go 1.24.0`. (The root go.work's own `go
+    1.24` is unchanged: shells and gopls, as before.)
+  - **The hint names module paths and versions, never a tile.** A failed
+    build whose output says "no required module provides package P" or
+    "package P is not in std" gains `xbind:` lines: several workspace
+    modules could provide P (their module paths — prefixes of the tile's
+    own import), P is in a workspace module the build doesn't use, or a
+    workspace go.mod requires its module at a published version (the
+    highest). The build's output is readable by the tile's readers; naming
+    the tile that requires or owns a module would leak unreadable tiles'
+    names and dependency sets past D40.
+  - **The root go.work is written atomically** (fsutil.WriteFileAtomic):
+    every build now reads it (ReadRootWork, for a hand-managed one's
+    lines), and a torn regeneration would read as hand-managed — F6's race
+    in another form.
+  - **Compatibility — the breaking part.** A build that relied on another
+    tile's go.mod fails now: an import of a package only another tile
+    requires ("no required module provides package"), an API newer than
+    the tile's own requirement, another tile's replace. So does a dotted
+    tile module imported without a go.mod line or deps, and a dotless
+    import two workspace modules could provide (it failed as "ambiguous
+    import" before, and now fails with a hint). A dotted tile module
+    required at a published version now builds from the published module
+    (from the proxy) unless deps names the tile. That is the hole itself
+    (compat.md rule 11: a security hole closes in the release that finds
+    it, with a migration note — docs/changes/2026-09-30-go-build-workspace.md).
+    Every builtin tile and template, and the examples, build with only
+    their own module and the SDK (checked). A protected primary's
+    build.json now records `workspace: "tile"`; one recorded before D166
+    compares as "inputs moved", so a restart after `.xbin/` loss holds it
+    for a manager's redeploy rather than silently rebuilding it with a
+    different module graph (07-runtime §3.4's rule). Checkpoint builds
+    record the modules they used, not every workspace module.
+  - **Not chosen:** keeping the shared graph but dropping replaces (MVS
+    still lets any tile move another's versions, and a squatted path
+    still wins); a synthetic module carrying other tiles' requirements for
+    one release as a compat bridge (it keeps exactly the version influence
+    this removes, for the tiles most exposed to it); retrying a failed
+    build with more modules (the go command's error text as an API, and a
+    failed build silently fixed with another tile's code); `go list` or
+    `go mod graph` to compute the reach (running go on tile data needs a
+    sandbox per step, and it would load the shared graph it exists to
+    avoid); requiring `deps` for every cross-tile import (breaks tiles
+    that import a dotless module today); crediting an import to the longest
+    module path any go.mod names, or telling published paths from what
+    other go.mods require (the first cut; review above).
+  - **Amended 2026-10-01: the builtins' own dependencies, the root
+    go.work's go line, and a release vulnerability gate.** Measured on the
+    owner's workspace (66 Go tiles): with D166 no build breaks and no
+    vulnerability becomes reachable, but 25 tiles silently link older
+    dependency versions — the shared graph had lifted each to the highest
+    version any tile's graph reached (partly by accident: one tile's
+    indirect x/tools line un-pruned libc's x/tools→x/net→x/crypto chain).
+    The owner chose isolation plus an admin alert naming what each owner
+    should add (done separately), and fixing the builtins' stale
+    dependencies at the source behind a release gate (this). govulncheck
+    over every shipped module found 11 reachable advisories:
+    sandbox-terminal's x/crypto v0.48.0 (ten in x/crypto/ssh, fixed by
+    v0.52.0–v0.56.0) and the agent template's x/text v0.3.8 (GO-2026-5970,
+    through goja); none in xbind's programs built with the release
+    toolchain (go1.27.0, its standard library judged — see the review
+    below). Bumped: sandbox-terminal (v6) to x/crypto v0.57.0, the agent
+    template to x/text v0.42.0 (with x/sys v0.48.0 and modernc.org/sqlite
+    v1.60.1), xbind's own go.mod to x/crypto v0.57.0 (the root module vets
+    sandbox-terminal's backend). Every fix
+    needs a go line above 1.24 (x/text ≥ v0.39.0: go 1.25.0; x/crypto ≥
+    v0.56.0: go 1.26.0), so those go.mod files say go 1.26.0, with three
+    consequences:
+    - **The root go.work's go line is the highest of 1.24 and its
+      modules'** (goModules), as a build's already was. The go command
+      refuses a go.work whose go line is below a module it uses, for every
+      command run with it — so the fixed `go 1.24` broke every terminal's
+      go as soon as one tile said go 1.24.0 or later, which `go mod init`
+      writes (sandbox-terminal's go.mod comment had worked around exactly
+      this). Only a valid version, read beneath the root and never through
+      a symlink, raises it; a workspace whose modules all say ≤ 1.24 gets
+      the same bytes as before.
+    - **The base rootfs's Go goes 1.24.0 → 1.26.3.** check-pins wants it ≥
+      every shipped go line, and now also ≤ install.sh's GO_MIN: `go mod
+      init` in a terminal writes the terminal's Go version as the tile's go
+      line, and xbind builds that tile with the host's Go (1.26.8, the first
+      pick, would have made each terminal-made tile's build fetch a
+      toolchain on installer-provisioned hosts). A terminal on an older
+      base (1.24.0) switches toolchains through GOTOOLCHAIN=auto (checked:
+      go1.24.0 with a `go 1.26.0` go.work builds both a go 1.24 and a go
+      1.26.0 module; with `go 1.24` it refuses both).
+    - **Agent instances take it by the D50 merge**: a stock instance's
+      go.mod (go.mod.tile renamed, its module line its own) and go.sum
+      merge cleanly from master's embed to this one (checked).
+    The gate: `make vulncheck` (hack/vulncheck) runs govulncheck over
+    xbind's ./cmd/... with the repo's go.work (as `make build` builds
+    them: CGO_ENABLED=0, linux/amd64 and, as target xbind/arm64,
+    linux/arm64), the relay, the sdk, and every module in the embedded
+    trees against its own go.mod.tile and go.sum, read-only, through a
+    go.work shaped as the D166 build's (the sdk replaced by the checkout);
+    it fails on a reachable finding hack/vulncheck-allow.txt doesn't list
+    (`<id> <target> # why`, empty). `make release` runs it before the tag,
+    --no-check or not; not in `make check` (network). Standard-library
+    findings gate xbind's programs and the relay only — judged against the
+    go running the gate, which is the one building the release; a tile's
+    standard library is its host's Go. Not chosen: scanning ./... as
+    "xbind" (it counts the builtin backends the root module holds for
+    `make vet`, and every exported function as an entry point); keeping go
+    1.24 lines over go-1.26 dependencies (an untidy go.mod that `go mod
+    tidy` in a terminal turns into the failure above, and go1.24.0 refuses
+    the dependency anyway); jq for the JSON (publisher hosts aren't assumed
+    to have it). Open: install.sh's Go 1.26.3 (= go.mod's) has 9 reachable
+    standard-library advisories in xbind's programs (GO-2026-4970, an
+    os.Root escape, among them) — what a from-source install builds xbind
+    and every tile with; raising GO_MIN, go.mod and the rootfs to 1.26.8
+    together is the owner's call.
+    Review (2026-10-01), fixed:
+    - **The stdlib half of the gate was off on the release machine.**
+      govulncheck v1.8.0 reads the standard library's version only from a
+      bare release GOVERSION; for `go1.27.0-X:nodwarf5` (the owner's
+      /usr/bin/go) or a devel build it matches no standard-library
+      advisory and reports none. The gate now passes each target
+      GOVERSION=<the go's release> and fails (exit 2) on a go naming no
+      release; parse refuses an unreadable go_version for a target the
+      standard library gates. Re-run so: xbind and xbind/arm64 clean under
+      go1.27.0; under CI's go1.26.3, 9 (xbind) and 8 (relay) — the open
+      item above.
+    - **Builtins scanned read-only, as built.** -mod=mod could scan versions
+      the go command fetched or added instead of the shipped ones. Each is
+      now scanned and tile-checked (hack/tile-check.sh too, which ran `go mod
+      tidy || true`) through its own D166-shaped go.work, -mod=readonly: a
+      missing requirement or checksum fails. Module mode was not chosen: it
+      refuses master's coding-sandbox go.mod (`go 1.24` over go-1.24.0
+      dependencies), which the real workspace-mode build accepts.
+    - **coding-sandbox keeps master's dependencies.** Its only finding,
+      GO-2026-5024, is in x/sys/windows and never called; the bump bought
+      nothing and put every coding-sandbox instance at go 1.26.0 (below).
+      Tidying its go line to 1.24.0 would hit the same downgrade break.
+    - **BREAKING, with a migration note**
+      (docs/changes/2026-09-30-builtins-go-1-26.md). Once any module says go
+      1.26.0, every `go` in a terminal on an old base (Go 1.24.0) downloads
+      go1.26.0 first — or fails where its network can't reach
+      proxy.golang.org — and a downgrade to v0.3.64 or older fails every Go
+      tile's build (its root go.work says `go 1.24`, checked with the go
+      command). Remedies: ⬆ base update; setting those go lines to `go
+      1.24` before a downgrade (checked: a read-only workspace build with
+      host go1.26.3 accepts sandbox-terminal at go 1.24 over x/crypto
+      v0.57.0). docs/compat.md names the downgrade limit.
+    - **An open restricted terminal's go.work follows the workspace**
+      (term.RefreshViews, from the watch loop and structure changes): its
+      view is staged once at open, and a stale `go 1.24` would refuse every
+      go command after a builtin update or a raised go.mod. Rewritten in
+      xbind's view dir (temp + rename) under the lock dropView takes.
+    Not done: a binary-mode scan of prebuilt helpers (bin/gocryptfs,
+    x/crypto v0.33.0, 21 imprecise advisories on a stripped binary) and the
+    rootfs's gopls/dlv — the docs and the allow file now say they aren't
+    scanned.
+  - **Amended 2026-10-01: the silent downgrades, and the alert that names
+    them (G1).** internal/runner/{goversions.go, goversionscheck.go,
+    goversionsgo.go, goversionsreport.go}, internal/deps/sharedwork.go,
+    internal/boot/goversions.go. Measured on
+    the owner's workspace (66 Go tiles): no build broke and no
+    vulnerability became reachable, but 25 tiles silently link older
+    dependency versions — under the shared go.work MVS lifted every tile to
+    the highest version any tile's graph reached; per tile each falls back
+    to its own go.mod. 20 of the 25 are one pattern (modernc.org/sqlite
+    v1.39.1→v1.34.5 with libc, mathutil, memory, x/sys, x/exp); the rest
+    x/crypto, x/text, x/net, x/sys, coder/websocket. The shared versions
+    were partly accidental: one tile's indirect x/tools line un-pruned
+    libc's x/tools→x/net→x/crypto chain in the shared graph. The minimal
+    require set restoring each tile's old list was 31 lines for 25 tiles
+    (one line, sqlite's, covers 20). The owner: ship isolation, and an admin
+    alert telling owners exactly what to add (G1); fix the builtins' own
+    stale deps at the source with a vulnerability release gate (G2, apart).
+    - **Chosen: compute it, per tile, with the go command, confined.** For
+      each Go tile, `go list -deps` of its entry (listFormat: each
+      package's module, version and replacement) twice: with the shared
+      go.work (deps.SharedWork: the root go.work as builds used it — xbind's
+      rendered from the registry, or a hand-managed one's lines — paths made
+      absolute) and with its own build workspace (BuildWork, as the build
+      renders it). Each runs as the tile's build does (goBuildCmd's binds,
+      per-tile caches, network, CGO_ENABLED=0, GOFLAGS with -mod=readonly
+      added unless it sets -mod; isolation off: as that build runs), with
+      its go.work and go.work.sum in the tile's cache dir, versions/, made
+      and written without following links (openArtifacts, writeAt) and
+      bound into no build. A change is a module linked lower, no longer, or
+      newly; a workspace module, a replaced one (another tile's replace is
+      the hole) and a higher version are not.
+    - **The fewest lines, greedily, verified.** Candidates are the raw
+      differing lines (each module linked lower or no longer, at the
+      version it had), the tile's go.mod's direct requirements first. Each
+      round lists the build with each candidate added to the lines chosen
+      so far — through a module of its own the go.work uses
+      (deps.PinGoMod: in workspace mode every used module's requirements
+      are roots, so it builds as if the tile's go.mod had the line; checked
+      with the go command: the same list as adding the line to a tidy
+      go.mod, or raising the existing one) — keeps the one leaving the
+      fewest changes (one leaving none ends the round), and repeats until
+      every module it had is back; then drops a chosen line the others make
+      redundant. 24 lists at most per tile; when they run out or no line
+      changes anything, the answer is the raw differing lines (minimal:
+      false). The sqlite pattern takes one list (sqlite is the tile's own
+      direct requirement), the un-pruned chain one line (x/net's).
+    - **When.** Once on its own: Boot (the registry step, before any
+      build) finds data/go-build-versions.json absent and a build of an
+      earlier xbind — a Go tile's .xbin/build/<key>/bin, or a checkpoint
+      artifact (shared or a protected primary's) whose build.json records
+      no workspace of its own — and starts the pass in the background
+      after the boot (30 s later, two tiles at a time), recording each
+      checked tile so a restart resumes; done is the marker. A workspace
+      with no such build gets the marker at once (since = the running
+      version either way: the alert's "since <version>"). **The tiles it
+      compares are fixed then:** the Go tiles the workspace has at that
+      boot (the baseline set), and what each linked under the shared
+      go.work is stored for every tile compared, affected or not (its
+      baseline). Again on an admin's POST /go-build-versions/check: each
+      tile of the set compared with its baseline (only modules linked both
+      ways count: its code may have changed), the shared go.work listed
+      only for a tile without one; a tile added since is never compared
+      (it never built with the shared go.work: "to keep what it had" would
+      be false), and a fresh workspace answers that there is nothing to
+      compare. And a tile the alert names is listed again after a build of
+      it — work tree or checkpoint — against its baseline, when what
+      decides its versions changed since it was checked (a digest of the
+      entry, its build go.work and every used module's go.mod: MVS reads
+      nothing else; deps.Work.Inputs); its line goes once none is lower, or
+      narrows to what is left. The work tree is what is listed, a pinned
+      primary's too: its go.mod is the one the alert says to change and
+      the next deployment builds.
+    - **The surface.** One admin-only alert (kind go-build-versions, warn;
+      Broker.AdminAlerts, never a tile reader's: it names tiles and their
+      dependency sets, D40) naming every tile not dismissed with its lines
+      — tiles needing the same lines named together, since one alert per
+      tile would put 25 banners in the shell — with dismiss, the route that
+      dismisses it (POST /go-build-versions/dismiss {tile?}; a tile comes
+      back when its lines change); GET /go-build-versions for `bx doctor`
+      (each tile, its lines, every change, the tiles it couldn't compare).
+    - **Not chosen:** editing tiles' go.mods (a tile's code is its writers';
+      the alert says what to add); the synthetic bridge module (above:
+      keeps the influence D166 removes); `go mod graph` to predict which
+      line lifts what (its pruned graph doesn't hold the higher versions'
+      edges, and the list with the line is the proof anyway); comparing
+      the whole build lists including drops and adds on a re-check (a
+      code change drops modules no line brings back).
+    - **Review (2026-10-01).** The shared go.work as first rendered (`go
+      1.24`, every module used) can't hold two shapes D166 made
+      buildable, and the go command then refuses it for every tile (checked
+      with go 1.26.3): a module at a go line above 1.24 (`go mod init`
+      writes `go 1.24.0`: "requires go >= 1.24.0, but go.work lists go
+      1.24") and two tiles declaring one module path, a copied tile
+      ("appears multiple times in workspace"). SharedWork now raises its go
+      line as BuildWork does (the highest of 1.24, a hand-managed go.work's
+      and the used modules'; it doesn't change what MVS selects), uses one
+      of several namesakes — the one the tile's build uses, else the first
+      (a copy's go.mod is the original's) — and drops a module the go.work
+      replaces at every version (a tile declaring the SDK's path). A shared
+      list that fails anyway is checked once per pass with `go list -m`
+      on the same go.work (confined like the lists; it loads only the
+      workspace's modules): when that fails too, the go.work is at fault —
+      one workspaceError, no per-tile copies, no further list of that
+      go.work in the pass; the tiles stay without a baseline for the next.
+      Also: the alert and the report skip a tile no longer a Go tile (a
+      pass drops it from the state); the first pass checks it is still due
+      after the delay (an admin's pass may have completed it); Stop (at
+      shutdown) cancels the lists' context and waits, recording nothing a
+      stopped list left half done.
+
 - **D167 — Partitioned tiles, B2d: the agent's non-secure (hosted)
   conversations and "Add a copy of my …" (2026-09-30).** Implements PD-32,
   PD-33 and the agent's side of 90 §I4 (global is the realtime hub) of
@@ -9087,3 +9507,256 @@ Deviations and refinements made while implementing; all deliberate:
     agent's own fix needs no platform change; the owner's question);
     keying `prefs/harness-sandbox` by home (a remembered sandbox that
     isn't the person's own doesn't fit, and is replaced).
+
+- **D173 — A request a swap cut off goes to the generation that replaced
+  it, when resending it is safe (2026-10-01).** internal/proxy/reroute.go,
+  internal/runner/{runner.go (Gen), engine.go (stopGen)}. (The six numbers
+  before it are the unmerged partitions branch's.) The owner: "Those tests
+  should not be flaky / load/timing related".
+  TestLiveReloadPauseRace/backends/runs/python failed under load: a GET
+  13 µs to 180 ms after the pause's answer got `502 backend error: read unix
+  …/g13.sock: read: connection reset by peer` (or EOF). The proxy had taken
+  g13 from EnsureDeployment; the pause's deploy then installed g14 and
+  SIGTERMed g13 (`go stopGen(old)`), and g13 ended with the request in its
+  listen backlog. Not the fixture's alone: a request routed to a
+  generation before a swap that reaches it after the SIGTERM finds a
+  draining backend's listener closed (the SDK's Shutdown closes it first:
+  the backlog is reset, a later dial refused), and a backend that exits at
+  once drops what it holds too. D8's drain covers the requests the old
+  generation took, not the ones still on their way to it. Three python
+  clients requesting without pause across 20 save-driven swaps, on a box
+  at load 300–480: master failed 30 of 81,551 requests over 40 swaps
+  (resets, an EOF, a refused dial, each from a generation the swap had
+  just retired); with this change 0 of 246,372 over 120 swaps.
+  - **Now.** stopGen marks the generation retired before it signals —
+    every stop xbind makes (a swap's old generation, a reap, Stop,
+    StopAll), never the process's own exit. The proxy's transport for
+    /api and for ingress (rerouting) sends a request its generation failed
+    before any answer to the deployment's generation now (EnsureGen /
+    EnsureDeploymentGen: the same routing again, never another
+    deployment) when that generation was retired and resending is safe:
+    no body, and an idempotent method (GET, HEAD, OPTIONS, TRACE, or an
+    Idempotency-Key header: net/http's own retry rule) or a failed dial
+    (nothing was sent). At most three times: each needs another swap
+    during the request's own flight.
+  - **Not chosen:** holding the SIGTERM until the requests routed to the
+    old generation are answered (a request held open — the agent engine's
+    keep-alive to itself, a long poll — would keep the old code running
+    to the drain deadline, where the engine hands over on SIGTERM in
+    milliseconds); holding it until they were taken (accept isn't visible
+    from the client end of a unix socket); a delay before the SIGTERM (a
+    time, not a condition); resending a body or a POST that reached the
+    old generation (it may have acted on it).
+  - **The test.** Its node and python fixtures exited at once on SIGTERM,
+    against elements.md's graceful stop: an answer cut between its headers
+    and its body was possible too. They drain now. Its waits that a
+    condition ends have one hang guard (raceGuard, 3 min), the failed
+    pause waits for the broken save's build-error event rather than four
+    debounces, and the harness's xbind start and stop (60 s, 20 s, the
+    shared daemon's 10 s) wait on the same conditions bounded by a 3-minute
+    guard: a loaded boot took 63 s.
+  - **Left, seen only at load ~300–480 on 192 cores:** the runner's 5 s
+    health timeout (pinned, TestSeamKeepsConstants; protocol.md's
+    "health-checked by socket-connect within 5 s") failed a python start in
+    3 of 36 runs, failing that pause's deploy. Not changed here: it is a
+    contract. The go subtest's failure under the same load is D174's.
+- **D174 — A generation built from the work tree serves only if live reload
+  still drives its deployment once a pause in progress ends (2026-10-01).**
+  internal/runner/{runner.go (buildAndStart), deploy.go (workTreeLeft,
+  SettledCodeFor)}, internal/deployments/plane.go (overlay.settle,
+  SettledCodeFor). TestLiveReloadPauseRace/backends/runs/go under `-race`
+  at load ~380 failed every execution (8 of 8; 1–2 of 10 pause runs each):
+  after the pause's answer the code answered a save newer than the
+  checkpoint (`r003-000285` against `r003-000149`) until the pause's deploy
+  swapped. A work-tree build reads the record only when it starts
+  (runCurrent) and reads the work tree as it builds: one started before a
+  pause — here a second build queued behind the resume's, when the watcher
+  flushed the run's first save after the resume committed — compiled saves
+  made after the pause took its checkpoint, and swapped in, as 07-runtime
+  §8.6 allowed ("the in-flight build finishes and swaps"). A slower build
+  could read saves made after the pause's answer: a leak by
+  SC-LIVE-RELOAD-PAUSE's own words, and a pinned deployment running its
+  work tree, which runCurrent exists to prevent.
+  - **Now.** Before a generation built from the work tree is installed
+    (buildAndStart: the save, grant, crash and reap path), the runner asks
+    SettledCodeFor: the plane waits out an operation detaching the tile's
+    live reload (the pausing overlay, held from its request to its commit
+    or catch-up), then answers from the record. Pinned meanwhile: the
+    generation stops unserved, and the current one serves until the
+    operation's queued deploy swaps the checkpoint in (with none current,
+    the next request builds the checkpoint). Still the work tree (the
+    operation failed and caught up, or attached live reload here): it
+    serves as before. What it serves was read before the check, and the
+    check precedes any later operation's mark, so it predates that
+    operation's checkpoint.
+  - **Not chosen:** reading the record without waiting (an install between
+    a pause's capture and its commit still serves code newer than the
+    checkpoint, and one racing the commit serves it after the answer); the
+    plane's LiveReload (false while any operation holds the overlay, which
+    would also drop the first build of the deployment an attach makes
+    follow the work tree); cancelling the build when the pause begins (its
+    build turn is the pause's deploy's next anyway).
+
+- **D175 — Base auto-update: a tile's terminal layer built on an older
+  base image moves to the current base at its next session start; a
+  workspace setting, on by default (2026-10-01).** internal/term/base.go
+  (claimLayer), internal/wssettings, internal/server/wssettings.go, the
+  admin tile's workspace → terminals tab, `bx settings`. The owner: "For Go
+  versions in bases lets have a knob in admin workspace settings on base
+  auto-updates, default to true." A terminal's layer (.xbin/term/<key>:
+  the overlay upper, a VM terminal's disk) is pinned to the base it was
+  built on (component-env.md §Base images): a newer xbind's base reached
+  it only when someone pressed the window's "⬆ base update". Once D166's
+  builtins said `go 1.26.0`, a terminal on the old base (Go 1.24.0)
+  downloaded a toolchain for every `go` command, or failed where its
+  network scope couldn't reach proxy.golang.org.
+  - **Chosen: the move happens when a session claims the layer.** A
+    session's start takes the layer (acquireEnv: one live holder) before
+    anything mounts it; if its stamp isn't the current base and the
+    setting is on, the layer is moved off — put aside (one rename into
+    .xbin/term-moved/, which no layer scan, VM disk scan or backup reads)
+    for a background remover that removes it confined, exactly as the
+    reset removes it — and a fresh layer stamped with the current base,
+    and the session runs there. Put aside, not removed inline: a VM disk
+    or a big upper is minutes of confined `find -delete`, and the start
+    is the WebSocket's open. The shell's first output is one grey line
+    saying so; an agent session logs a `notice` event its Agent tab shows
+    (and its host log), and the tile's next shell says the agent's move
+    once (an automation's agent session may be the first after an
+    upgrade, and the packages were perhaps a shell user's). A running
+    session is never touched: a second session on the tile while one
+    holds the layer gets an ephemeral upper (as always), and the holder
+    keeps its base until it ends or restarts. Files and $HOME are bind
+    mounts, not the layer, so what is lost is what the reset loses — and
+    the line says what that is: everything outside the workspace files
+    and $HOME (installed packages, /etc, /var, /opt…, a VM terminal's
+    whole disk with its docker images and volumes, none of it in a
+    backup). Terminals run no `setup`: the backend's env layer (setup's)
+    is keyed by the rootfs already (runner.setupHash) and rebuilds by
+    itself.
+  - **A move that can't complete fails the start** (the error says to
+    open it again or reset it), and the next start tries again: the old
+    layer can't be put aside and its removal in place fails (`find
+    -delete` may have stopped halfway — half a layer is never mounted, on
+    either base), or the fresh layer can't be stamped (its empty dir goes
+    again, so the next start makes a new layer on the current base rather
+    than read an unstamped one as legacy). What the background remover
+    can't remove stays in term-moved for the next boot's sweep.
+  - **Unreadable is never "missing" (review).** A layer stamp that is
+    there but can't be read (EIO — containerfs has an unresolved one —
+    EACCES, EMFILE, a link) used to read as no stamp: re-stamped `v0`
+    (legacy), it would have been discarded as outdated while it was on
+    the current base. A rootfs version file that can't be read used to
+    read as `v0` too: every layer on the current base outdated, and the
+    fresh one stamped `v0`, to be discarded again at the next start.
+    Now: only a stamp that is absent (ENOENT) on an existing layer is
+    legacy; an unreadable one fails the start, the layer untouched (as an
+    unreadable stamp failed it before the move existed: "not installed").
+    The current base's version is read once per xbind run (the installer
+    stops xbind before it swaps the rootfs), a failed read is an error
+    and isn't kept, and no start, stamp or move happens on it. Every
+    stamp write is checked. An unstamped rootfs (current = `v0`, a dev
+    one) is no base to move to.
+  - **A base that isn't installed any more** (GC released it, a host move
+    or DR onto a fresh install, a restore, a base deleted by hand). With
+    the setting on, such a layer moves like any other; off, its start
+    refuses it, as before. **The boot no longer refuses to start over one,
+    either way** (CheckBaseImages logs them): the per-start refusal is what
+    keeps a layer off another base, and claimLayer is the only path that
+    mounts a terminal layer — so the boot gate guarded nothing the start
+    doesn't, and with the setting it would have turned "admin turns
+    auto-update off" into "xbind won't boot" wherever such a layer had
+    been let through. Tile sandboxes were already this way (a missing
+    pinned base puts that sandbox in error, never gates the boot). A
+    moved layer no longer pins its old base, so the next boot's GC
+    releases it.
+  - **The setting** lives in data/workspace-settings.json (internal/
+    wssettings): an xbind-owned JSON object, each key with a default for
+    when it is absent (a missing file is every default: on); a write sets
+    its keys and keeps every other key the file holds (a newer xbind's);
+    an older xbind never reads the file, so a downgrade ignores it and the
+    upgrade back finds it. A file that can't be read turns base
+    auto-update off (a guess must not discard anything) and a PUT refuses
+    to overwrite it. Not users.json, where the native-runtime switch is:
+    its rewrite drops keys it doesn't know (a downgrade's first write
+    would turn an admin's "off" back on), and it is the identity store.
+    Not branding.json: branding's. GET /api/xbin/workspace-settings
+    (authenticated), PUT (admin, audited, primary-only, publishing a
+    `workspace-settings` event so open windows re-read); /ws/term/env
+    gains baseAutoUpdate so the window's chooser says what the next
+    session does instead of offering the button.
+  - **Not chosen:** moving every outdated layer at boot (no session to
+    tell, and a layer nobody opens again would lose its installs for
+    nothing); rebasing (re-stamping the kept upper: dpkg's status from the
+    old base over the new base's files — what the pin exists to prevent);
+    tile sandboxes (internal/tilesbx): their cur/ is the whole sandbox
+    state a manager tile keeps — work, not only installs — and the
+    sandbox-manager contract gives the manager the choice (`base.outdated`,
+    reset, rebase), so the setting doesn't touch them; a per-tile switch
+    (the owner asked for one workspace knob); keeping a moved-off layer
+    for a grace period to undo the move (a VM disk is tens of GB and the
+    fresh layer grows beside it; nothing would offer the undo — the
+    choice is the setting, made before the upgrade); a 409 on turning the
+    setting off while layers on missing bases exist (moot once the boot
+    stopped refusing them).
+  - Numbered D175: D173 and D174 went to deflake/livereload-pause,
+    in flight at the same time.
+
+- **D176 — CI runs as parallel jobs; make integration and make test are
+  split into shards by test and by package, every test exactly once
+  (2026-10-01).** .github/workflows/ci.yml, hack/testshard,
+  hack/integration.jsonc, hack/integration-timings.json, hack/ci-apt.sh.
+  The owner: CI's wall clock at most 5 minutes, covering everything it
+  covers today. One job ran make check (3.5 min), make tile-check (2.3
+  min), make integration (5 min on 2026-09-29) and the VM suite in series,
+  11 min in all; on 2026-10-01 (run 36841863101) integration hung 12 minutes in
+  internal/confine (a vfork + in-process FUSE deadlock, fixed on its own
+  in 04f41f9b) and the run failed at 21 minutes.
+  - **Jobs.** A `test` matrix — check (`make -j4 -O guards`), unit 1/2 and
+    2/2, tile-check (its backends now concurrent), integration 1/4…4/4 —
+    plus vm (KVM, the vm helpers, the guest rootfs: `make integration
+    SHARD=vm`), shards (the split's guard) and the native client's checks
+    in three jobs. GitHub-hosted only (pull requests run it). The first
+    sharded run: 3 min 35 s wall, green, every Go cache cold.
+  - **The split is by test, from source, balanced by measured time, with
+    a hash for the unmeasured.** A suite (one go test over one package,
+    with its env and filters — what a Makefile line was) lists its
+    top-level tests from the package's test files (go list + go/parser:
+    what `go test -list` prints, checked against it in the shards job),
+    and testshard assigns them longest-first onto the least-loaded shard
+    from the timing file's profile ("ci" when $CI is set, else "local"),
+    a suite's build and TestMain counted once per shard; a test the file
+    doesn't know goes to the shard its name hashes to. So the split is
+    deterministic — every job computes the same one on its own, nothing is
+    passed between jobs — and adding a test moves no other. Rejected:
+    sharding by package (./test alone is 3 minutes on CI; the next
+    biggest 1.5), a dynamic queue (jobs would share state, and a run
+    could no longer be reproduced with `SHARD=i/N` locally), and running
+    the suites concurrently on one runner (4 vCPUs: the speed audit's
+    1408 → 497 s needed a 192-core box).
+  - **The guard is a test, not a convention.** hack/testshard's tests (in
+    make test) recompute the split under both profiles and fail when an
+    integration test lands in no shard or two, a unit package in no unit
+    shard or two, a suite's filter matches nothing, or ci.yml doesn't run
+    each shard and job exactly once, or runs `make integration`, `make
+    test` or `make check` unsharded beside them. TestIntegrationPackagesListed
+    reads the plan instead of the Makefile. The first sharded run's top-level
+    results equal the last single-job run's for every test both have (the
+    one test only the old run has was removed by D166), and none ran twice.
+  - **Locally, every shard at once.** `make integration` runs the shards
+    and jobs concurrently, each into a log of its own, and the latency
+    budgets (the plan's `alone`) by themselves after them; `SHARD=i/N`
+    runs one in the foreground, as its CI job does.
+  - **Caches.** Each kind of job has its own module + build cache
+    (actions/cache), restored from master's newest and saved only by
+    master runs: pull requests share master's, and the repository's 10 GB
+    cache budget isn't spent per branch. ACCEPTED TRADE-OFF: a pull
+    request that changes go.sum starts from master's older cache, and
+    master runs churn the budget by a cache per kind per run (LRU evicts
+    the oldest).
+  - **Not taken from the speed audit (2026-09-29):** the latency
+    benchmarks to a nightly tier and the test-only timer and argon knobs —
+    they change what CI covers, and the shards meet the budget without
+    them. Taken: its reliability traps (xbindtest's boot-failure deadlock,
+    the tilesbx fd settle; the PauseRace fixtures are another agent's
+    deflake), and keeping going after a failure.

@@ -51,7 +51,7 @@ import '/vendor/bx-deploy.js';
 import { deepActive, clampBox, dragWindow, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid } from '/vendor/term-sessions.js';
 import { titlebar, toolsRow, titlebarCss, fitBar, barKey } from '/vendor/frame-titlebar.js';
-import { agentProviders, rememberKind, launcherItems, launcherCss, loadTileState, restartAgent, wantVM } from '/vendor/frame-launcher.js';
+import { agentProviders, rememberKind, launcherItems, launcherCss, loadEnvStatus, loadTileState, restartAgent, wantVM } from '/vendor/frame-launcher.js';
 import { panels, panelsCss, setLayout, revealTerm, restoreLayout, layoutPref, PANE_W } from '/vendor/frame-panels.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
@@ -386,6 +386,7 @@ export class BxFrame extends LitElement {
 
   _event(e) {
     if (e.type === 'deployments') return onDeployEvent(this, e); // every one: a frame of <tile>+<name> hears its tile's (frame-deploy.js)
+    if (e.type === 'workspace-settings') return loadEnvStatus(this); // base auto-update on/off: what the chooser says (D175)
     if (!e.component) return;
     const mine = e.component === this.src || e.component.startsWith(this.src + '/');
     if (!mine) return;
