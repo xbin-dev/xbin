@@ -35,7 +35,7 @@ import './tabs/users.js';
 import './tabs/signin.js';
 import './tabs/sessions.js';
 import './tabs/runtime.js';
-import { PLAIN_TABS } from './plain-tabs.js'; // sandboxes, deployments, branding, nativeapp, terminals, policies, partitions
+import { PLAIN_TABS } from './plain-tabs.js'; // sandboxes, deployments, branding, nativeapp, settings, partitions
 import { targetOptions, serviceOptions, WithDrafts, alertBar } from './shared.js';
 
 export class BxAdmin extends WithDrafts(LitElement) {
@@ -121,7 +121,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
       { id: 'endpoints', label: 'endpoints' },
       { id: 'expose', label: 'services / expose' },
     ] },
-    { id: 'workspace', label: 'workspace', tabs: [{ id: 'branding', label: 'branding' }, { id: 'nativeapp', label: 'xbin app' }, { id: 'terminals', label: 'terminals' }, { id: 'policies', label: 'policies' }] },
+    { id: 'workspace', label: 'workspace', tabs: [{ id: 'branding', label: 'branding' }, { id: 'nativeapp', label: 'xbin app' }, { id: 'settings', label: 'settings' }] },
   ];
   static tabsFlat() { return BxAdmin.GROUPS.flatMap((g) => g.tabs); }
   _grpOf(tab) { return BxAdmin.GROUPS.find((g) => g.tabs.some((t) => t.id === tab)) || BxAdmin.GROUPS[0]; }
@@ -131,7 +131,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
     // #tab, or #tab/sub for a tab's drill-in (organisations: #orgs/<id>).
     const [h, ...rest] = location.hash.replace(/^#/, '').split('/');
     // Back-compat: honor a couple of old hash ids so bookmarks don't 404.
-    const alias = { overview: 'components', runtime: 'components', interfaces: 'providers' };
+    const alias = { overview: 'components', runtime: 'components', interfaces: 'providers', terminals: 'settings', policies: 'settings' };
     const want = alias[h] || h;
     this._tab = BxAdmin.tabsFlat().some((t) => t.id === want) ? want : 'components';
     this._sub = this._tab === want ? rest.join('/') : '';

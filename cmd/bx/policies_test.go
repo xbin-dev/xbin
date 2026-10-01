@@ -5,7 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +53,18 @@ func TestBxPolicies(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("requests:\n got %q\nwant %q", got, want)
+	}
+
+	// D180: the command is an alias of bx settings now — one line on stderr
+	// says so, stdout stays the answer
+	r, w, _ := os.Pipe()
+	stderr := os.Stderr
+	os.Stderr = w
+	err := moreCmds["policies"]([]string{"--json"})
+	os.Stderr = stderr
+	w.Close()
+	note, _ := io.ReadAll(r)
+	if err != nil || strings.Count(string(note), "\n") != 1 || !strings.Contains(string(note), "bx settings set partition-consent") {
+		t.Fatalf("the alias's note: %q (%v)", note, err)
 	}
 }

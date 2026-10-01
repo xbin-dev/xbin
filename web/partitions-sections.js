@@ -35,8 +35,8 @@ export function headerSection(host, m) {
       what you decide. Nobody else reads your partition through xbind — not the tile's writers, not admins
       (<a href="/docs/partitions.md" target="_blank" rel="noopener">how partitions work</a>).</p>
     <div class="row small">
-      <span class="chip ${pol.partitionConsent ? 'ok' : 'off'}" title="the workspace policy partitionConsent">consent before another tile uses your data: ${pol.partitionConsent ? 'on' : 'off'}</span>
-      <span class="chip ${pol.credentialResetConfirm ? 'ok' : 'off'}" title="the workspace policy credentialResetConfirm">credential resets wait for you: ${pol.credentialResetConfirm ? 'on' : 'off'}</span>
+      <span class="chip ${pol.partitionConsent ? 'ok' : 'off'}" title="the workspace setting partitionConsent">consent before another tile uses your data: ${pol.partitionConsent ? 'on' : 'off'}</span>
+      <span class="chip ${pol.credentialResetConfirm ? 'ok' : 'off'}" title="the workspace setting credentialResetConfirm">credential resets wait for you: ${pol.credentialResetConfirm ? 'on' : 'off'}</span>
     </div>
     ${me.impersonatedBy ? html`<div class="banner">View-as (${me.impersonatedBy}): read-only, and a person's partitions stay theirs — this page shows little.</div>` : nothing}
     ${me.kind === 'root' ? html`<div class="banner">The root token is no person: it holds no partitions, consents or personal binds. Sign in as yourself to see yours; as the owner you still decide switches here.</div>` : nothing}

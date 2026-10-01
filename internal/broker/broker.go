@@ -28,6 +28,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 	"github.com/xbin-dev/xbin/internal/vault"
+	"github.com/xbin-dev/xbin/internal/wssettings"
 )
 
 // CronPrincipal is the From identity of scheduler-invoked calls.
@@ -53,8 +54,12 @@ type Broker struct {
 	Users     *users.Store          // human users (nil = single-user/root-only)
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
 	tileSbx   tileSbxSlot           // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
-	pol       policiesStore         // data/workspace-policies.json, cached (policies.go, PD-55)
-	plim      partitionLimits       // data/partition-limits.json (partitionlimits.go, PD-18)
+	// Settings is the workspace settings store (D175/D180) the server's
+	// routes share — the partitioned tiles' switches (policies.go); nil:
+	// the workspace's own, opened on first use.
+	Settings     *wssettings.Store
+	settingsOnce sync.Once
+	plim         partitionLimits // data/partition-limits.json (partitionlimits.go, PD-18)
 
 	obs *obs.Plane // tile status, prefs, logs (internal/obs)
 

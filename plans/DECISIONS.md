@@ -9820,7 +9820,8 @@ Deviations and refinements made while implementing; all deliberate:
     settings` / `/workspace-settings` (D175, released in v0.3.65,
     `data/workspace-settings.json`) are two admin switch sets with two
     files and two console tabs. Folding them is a compat question (the
-    released route and file can't move) left to the owner.
+    released route and file can't move) left to the owner. (The owner
+    asked for one place: D180 folds them.)
   - **Fixed on the way: the agent engine's false takeover.** Engine.fenced
     scanned the engine epoch with its error dropped; a failed read was 0,
     "another engine took over this database", and the sole engine stopped
@@ -10284,3 +10285,100 @@ Deviations and refinements made while implementing; all deliberate:
       in the exec request and can read a process's environment) and
       xbind's admins are in the trust base; so is the image. Said in both
       API.md files.
+
+- **D180 — One set of workspace settings: base auto-update (D175) and the
+  partitioned tiles' switches (PD-55) are the workspace settings, one
+  model, one store, one event, one console tab (2026-10-01).**
+  internal/wssettings (the store), internal/server/wssettings.go (the
+  routes, the aliases included), internal/broker/policies.go (the reader
+  and the alert), cmd/bx/settings.go, the admin tile's tabs/settings.js and
+  settings-view.js. The owner asked for one place: D177 had left `bx
+  settings` / `/workspace-settings` / data/workspace-settings.json /
+  workspace → terminals (D175, released in v0.3.65) and `bx policies` /
+  `/workspace-policies` / data/workspace-policies.json / workspace →
+  policies (PD-55, shipping in v0.3.66) side by side — "folding them is a
+  compat question … left to the owner".
+  - **Chosen: the released name and file are the model.** D175's route
+    and file shipped first and can't move, so the switches join them:
+    `GET/PUT /workspace-settings` carry `baseAutoUpdate`,
+    `partitionConsent`, `credentialResetConfirm`, grouped by topic
+    (terminals; partitioned tiles) in `bx settings` and the console's
+    workspace → settings tab. One store (wssettings.Store, shared by the
+    terminal manager, the broker and the server: one cache, one mutex),
+    one event (`workspace-settings`, `{baseAutoUpdate, changed: [keys]}`).
+  - **Each switch keeps its semantics, per key.** Defaults: base
+    auto-update on, the switches off. Reads: base auto-update any
+    credential; the switches a person (session, device, or a terminal or
+    agent session they drive) or an admin — other tile code's GET has no
+    such keys (one rule, server.ReadsPartitionSettings, which the
+    partitions listing uses too). Writes: admin, audited with every
+    setting's old→new. Fail-safe values when a value can't be read:
+    base auto-update off (a guess must not discard a layer); a switch —
+    a protection — its last value read, or on (never quietly off); a
+    switch's key in another case is unreadable (encoding/json would match
+    it). A file with any setting it can't read is never overwritten;
+    admins get one alert, kind `workspace-settings` — crit while a
+    switch can't be read, warn for base auto-update alone (new: D175 had
+    none). An empty settings file is every default, as D175 had it.
+    The consent and confirmation timing is the switches' consumers', not
+    the store's: untouched.
+  - **The event carries no switch.** Every socket hears a non-bus event —
+    tile frames too — and tile code may not read the switches, so the
+    `workspace-settings` event carries base auto-update (as before) and
+    the keys a write set; a console reads GET again.
+  - **Never break users (compat.md rules 2, 4, 6): the v0.3.66 surface
+    stays as aliases.** `GET/PUT /workspace-policies` answer as before —
+    same shape (`schema: 1`), same 403 for tile code, same 400s
+    (`baseAutoUpdate` there is still unknown), 500 while a switch can't be
+    read — from the one store. A write of a switch on either route
+    publishes `policies` beside `workspace-settings`: v0.3.66's admin
+    console, shell (bx-part-consent) and partitions page follow it. `bx
+    policies` is the same command with one line on stderr naming `bx
+    settings`. The console's `tabs/terminals.js` and `tabs/policies.js`
+    stay (rule 4) as the settings element limited to one group, and
+    `#terminals`/`#policies` open the settings tab. A new console against
+    an older xbind tells it by its answers, not a version: no
+    `partitionConsent` in `GET /workspace-settings` → the switches are at
+    `/workspace-policies` (read, saved, and followed by `policies` there);
+    that route missing too (Go's mux 404, no error body) → no
+    partitioned tiles; `/workspace-settings` missing → no settings. `bx
+    settings` does the same. The alert's kind changed from `policies`;
+    nothing reads it by kind.
+  - **The pre-D180 file: imported, kept current, re-imported.** The first
+    read after the upgrade copies data/workspace-policies.json's switches
+    into the settings file and records the SHA-256 of the bytes it took
+    (`policiesFileSha256`), so the import is once and idempotent. The file
+    is not removed: every write of a switch also writes both into it
+    (keeping its keys and a newer schema number) and records its new sum,
+    so a downgrade to v0.3.66 reads the switches as they are — and when
+    an older xbind (or a hand) changes it, its sum no longer matches and
+    the next read imports it again: what was set while downgraded is what
+    the upgrade back applies. Written first, the settings file second: a
+    write that fails between them leaves the policies file to be
+    imported. A policies file to import that can't be read (empty
+    included, as it always was) makes both switches unreadable — on —
+    until it is fixed or removed; a settings file that can't be read
+    imports nothing. A fresh workspace gets the policies file at its first
+    switch write (a downgrade to v0.3.66 must not find them off).
+  - **The partition class of the writes is unchanged.** `PUT
+    /workspace-settings` stays GlobalOnlyRefused and the alias
+    PartitionNeutral, as each was: the only credential the difference
+    reaches is a partitioned tile's own holding xbin:admin.
+  - **Rejected:** keeping the policies' file as the switches' store under
+    one route (two files, two caches, a downgrade of D175's file
+    semantics); moving everything to a new route or file (D175's are
+    released); a boot-time migration (the read imports it, and the
+    downgrade case needs the re-import anyway); deleting or renaming the
+    policies file (a downgrade would find the switches off); an event
+    carrying the switches' values (tile frames hear every event); a
+    `policies`-only event for the switches (an older-only signal for a new
+    model).
+  - Tests: internal/wssettings (defaults, persistence, unknown keys, each
+    fail-safe, the import, the downgrade copy and its re-import, a broken
+    policies file), internal/server (the routes, who reads and writes what
+    on both routes, the alias's shape, body rules, events and audit, an
+    unreadable file), internal/broker (the readers with the real IsAdmin,
+    the upgrade from v0.3.66's file, the alert), cmd/bx (set's forms, an
+    older xbind, the alias's note), hack/admin-settings.test.mjs (the
+    console's detection), the `adminSettings` harness pass (the tab, an
+    older xbind's answers, the console from before the tab).

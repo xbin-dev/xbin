@@ -10,7 +10,8 @@ import './tabs/sandboxes.js';
 import './tabs/deployments.js';
 import './tabs/branding.js';
 import './tabs/nativeapp.js';
-import './tabs/terminals.js';
+import './tabs/settings.js';
+import './tabs/terminals.js'; // one section of settings: an older admin.js's tabs (D180)
 import './tabs/policies.js';
 import './tabs/partitions.js';
 
@@ -19,6 +20,7 @@ export const PLAIN_TABS = {
   deployments: () => html`<bx-admin-deployments></bx-admin-deployments>`,
   branding: () => html`<bx-admin-branding></bx-admin-branding>`,
   nativeapp: () => html`<bx-admin-nativeapp></bx-admin-nativeapp>`,
+  settings: () => html`<bx-admin-settings></bx-admin-settings>`,
   terminals: () => html`<bx-admin-terminals></bx-admin-terminals>`,
   policies: () => html`<bx-admin-policies></bx-admin-policies>`,
   partitions: () => html`<bx-admin-partitions></bx-admin-partitions>`,

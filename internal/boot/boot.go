@@ -79,8 +79,8 @@ type State struct {
 	rootfs           string // --isolate's rootfs, absolute (stepConfine)
 	uidRange         bool   // sandboxes map a delegated sub-id range (stepIsolation)
 	uidRangeNote     string // why not
-	// settings is the workspace settings file (D175): the terminals read
-	// base auto-update from it, the server serves it (stepServer).
+	// settings is the workspace settings file (D175, D180): one store for
+	// the terminals, the broker (stepBroker) and the server (stepServer).
 	settings *wssettings.Store
 	// sandboxBasePins is the base of every tile-sandbox definition, archived
 	// ones included (plans/tile-sandbox-runtime.md §9) — one of the pin
@@ -412,6 +412,7 @@ func (st *State) stepBroker() error {
 	if err != nil {
 		return err
 	}
+	brk.Settings = st.settings // the partitioned tiles' switches (D180), the store the server serves
 	// Tile deployments: the tile-life hooks (transfer, creation, leftovers)
 	// and the server's deployment questions answer from the plane.
 	dp := st.Deployments

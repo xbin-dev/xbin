@@ -46,9 +46,12 @@ The router (`admin.js`, `GROUPS`) and one element per tab under `tabs/`
   binding wiring.
 - **ingress** — endpoints, services / expose.
 - **workspace** — branding; the xbin app's native-runtime switch;
-  terminals: base auto-update (D175); the policies for partitioned tiles
-  (asking each person before another partitioned tile uses their data;
-  credential resets waiting for the person).
+  *settings* (D180) — every workspace setting, by topic: terminals (base
+  auto-update, D175) and partitioned tiles (asking each person before
+  another partitioned tile uses their data; credential resets waiting for
+  the person). Against an older xbind it reads what that one has (v0.3.66:
+  the partitioned tiles' switches through `/workspace-policies`) and says
+  what it lacks; the old `#terminals` and `#policies` links open it.
 
 ## Endpoints used
 

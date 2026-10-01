@@ -993,9 +993,9 @@ else's. It needs three things, checked at every call and data reach:
 - the grant, approved as today;
 - alice's read access on X: Z can't create data for alice in a tile she
   can't open;
-- only when the workspace policy **partitionConsent** is on (the admin
-  console's workspace → policies tab, or `bx policies set partition-consent
-  on`; off by default): alice's own consent for Z → X.
+- only when the workspace setting **partitionConsent** is on (the admin
+  console's workspace → settings tab, Partitioned tiles, or `bx settings
+  set partition-consent on`; off by default): alice's own consent for Z → X.
 
 A resource X declares shared (`"shared": true` or `"read"`) is one copy for
 everyone, no person's data: alice's partition of Z reaches it with the
@@ -1383,7 +1383,7 @@ an xbind without partitions). What it answers depends on who asks:
   the global instance's inbox counts — never what a partition holds, its
   vault key names, its log lines or its mail;
 - **the tile's own code** (its frames, backend, terminals): the tile's state
-  and the features, nothing about people (not even the workspace policies).
+  and the features, nothing about people (not even the partitioned tiles' switches).
 
 Only the rows the caller sees are built, and a partition's bytes are
 measured at most once a minute. `bx partition ls` prints it
@@ -1478,8 +1478,8 @@ link minted for them (by an admin, or an org admin's reset by link), a
 password set on them or a single sign-on email bound to them by someone
 else is recorded in the audit log, and they are told — a push ("a sign-in
 link for your account was created by `<admin>` at `<time>`") and a notice
-in `GET /api/xbin/partitions`. With the workspace policy
-**credentialResetConfirm** on (`bx policies set credential-reset-confirm
+in `GET /api/xbin/partitions`. With the workspace setting
+**credentialResetConfirm** on (`bx settings set credential-reset-confirm
 on`, admins) such a credential is **held**: the link answers "waiting for
 `<person>` to confirm" when redeemed, and a new password or email is kept
 aside while the old one keeps working. The person allows or refuses it from
@@ -1595,7 +1595,7 @@ level on the tile, an ancestor, or the provider — the code runs in every
 partition), the host and the vault unseal key, or what a partition itself
 writes to a shared resource or mails to the global instance. An admin can
 still take over a person's account by resetting its credentials; that is
-recorded and the person is told, and a workspace policy can make such resets
+recorded and the person is told, and a workspace setting can make such resets
 wait for the person. Switching a tile's partition mode deletes all its data,
 and erases it from backups, after a manager confirms. Backups are encrypted,
 each person's partition under a key of its own, and restoring one on
