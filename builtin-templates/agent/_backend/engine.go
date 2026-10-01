@@ -90,8 +90,9 @@ type Engine struct {
 	decorate func(r *Run, summary map[string]any) // nil = a run's summary as it is (publishRun)
 
 	// Test seams.
-	now      func() time.Time
-	onTakeup func() // called after takeover (tests)
+	now       func() time.Time
+	onTakeup  func()                                     // called after takeover (tests)
+	readEpoch func(q queryer, key string) (int64, error) // nil = readEpoch (epoch.go)
 }
 
 // epochName is the settings key of this engine's epoch.
@@ -145,10 +146,15 @@ func (e *Engine) takeOver() {
 	}
 	e.mu.Unlock()
 	var epoch int64
-	err := e.db.Tx(func(t *DB) error {
-		_ = t.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k=?`, e.epochName()).Scan(&epoch)
-		epoch++
-		return t.putSetting(e.epochName(), itoa(epoch))
+	err := retryEpochRead(func() error { // a failed read is tried again, never taken for 0 (epoch.go)
+		return e.db.Tx(func(t *DB) error {
+			ep, err := e.epochIn(t.q)
+			if err != nil {
+				return err
+			}
+			epoch = ep + 1
+			return t.putSetting(e.epochName(), itoa(epoch))
+		})
 	})
 	if err != nil {
 		logf("engine takeover failed: %v", err)
@@ -305,20 +311,31 @@ func (e *Engine) Signal(id int64, cause error) {
 
 // fenced runs fn in one transaction that first proves this engine still owns
 // the database. With _txlock=immediate the check and the writes are atomic
-// against any other process.
+// against any other process. Only an epoch that was read and differs fences
+// this engine out: a read that fails tries the transaction again (fn hasn't
+// run), and one that keeps failing is returned, nothing written (epoch.go).
 func (e *Engine) fenced(fn func(t *DB) error) error {
-	return e.db.Tx(func(t *DB) error {
-		var ep int64
-		_ = t.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k=?`, e.epochName()).Scan(&ep)
-		e.mu.Lock()
-		mine := e.epoch
-		e.mu.Unlock()
-		if ep != mine {
-			e.lostOwnership()
-			return errFenced
-		}
-		return fn(t)
+	err := retryEpochRead(func() error {
+		return e.db.Tx(func(t *DB) error {
+			ep, err := e.epochIn(t.q)
+			if err != nil {
+				return err
+			}
+			e.mu.Lock()
+			mine := e.epoch
+			e.mu.Unlock()
+			if ep != mine {
+				e.lostOwnership()
+				return errFenced
+			}
+			return fn(t)
+		})
 	})
+	var re *epochReadError
+	if errors.As(err, &re) {
+		logf("an engine write was dropped: %v (tried %d times; this engine still owns the database)", err, epochReadTries)
+	}
+	return err
 }
 
 // lostOwnership stops this engine: another one bumped the epoch, so the lock

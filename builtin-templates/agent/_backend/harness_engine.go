@@ -226,8 +226,10 @@ func (s *hsess) guard() error {
 	case s.isHalted():
 		return errHarnessGone
 	}
-	var cur int64
-	_ = e.db.q.QueryRow(`SELECT CAST(v AS INTEGER) FROM settings WHERE k='engine_epoch'`).Scan(&cur)
+	cur, err := e.epochNow() // a read that fails refuses this write, and is no takeover (epoch.go)
+	if err != nil {
+		return err
+	}
 	if cur != ep {
 		return errFenced
 	}

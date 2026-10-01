@@ -12,6 +12,40 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **Partitioned tiles: people's partitions swap, and their terminal layers
+  move base, like a tile's** ([partitions.md](/docs/partitions.md) §How
+  people's partitions run, §Terminals and agent sessions;
+  [09-terminals.md](/docs/overview/09-terminals.md) §Base images and their
+  lifecycle). What the runtime fixes below (a request that meets a swap,
+  pausing live reload while a save builds, base auto-update) do for a tile's
+  own instance they do for each person's partition of a partitioned tile
+  too: a request routed to a partition's old generation just as a swap
+  stopped it, which it never answered, goes to the partition's new
+  generation when sending it again is safe — the same partition, through the
+  same admission; and a partition's work-tree build waits for a live-reload
+  pause in progress, and never serves once the pause pinned the tile — its
+  token revoked before it stops, as every partition's stop does. Base
+  auto-update moves each person's terminal layer on its own, at the start of
+  that person's next session, never under a running one of theirs, and
+  nobody else's layer with it; `GET /ws/term/env` and the terminal window's
+  base-update offer are that person's layer's. The admin console's workspace
+  tab has both the terminals (base auto-update) and the policies sub-tabs;
+  `bx settings` and `bx policies` are separate commands. `sandbox-terminal`
+  is v8: v6 and v7 (below) plus its tests' fake manager following the
+  contract's partitioned consumers. Nothing changes for a workspace without
+  a partitioned tile. Nothing to change.
+- **Fix: the agent template's engine no longer stops on a failed read of
+  its epoch** (the template's API.md is unchanged). Every write the agent
+  engine makes first reads the engine epoch, the fence that keeps a
+  replaced backend from writing; a read that failed was taken for epoch 0,
+  so the only engine logged "another engine took over this database" and
+  stopped driving runs until the next restart. Now a failed read is tried
+  again (a few times, within a fraction of a second) and, if it keeps
+  failing, that one write is dropped with a log line while the engine
+  keeps running; the coding-agent pipe's ownership check does the same,
+  and a takeover never rewinds the epoch to 1 over a failed read. Nothing
+  to change.
+
 - **Sandbox managers: a user partition's person on terminals and stdio
   sockets, and what one shared sandbox shares**
   ([sandbox-manager.md](/docs/sandbox-manager.md) §Partitioned consumers,
@@ -551,7 +585,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   informational; a webhook's `202` means taken, not run; a private push
   trigger needs a `match` (400) no one else's overlaps (409). The bridge
   template's `AGENTS.md` and `API.md`, and the webhooks (v3) and
-  sandbox-terminal tiles' `API.md`, say the same to their builders and
+  sandbox-terminal (v8) tiles' `API.md`, say the same to their builders and
   people — including that binding them is an ordinary (global) bind, that a
   personal bind applies to none of them (they aren't partitioned), and who
   ends up in whose trust base. Nothing to change.
