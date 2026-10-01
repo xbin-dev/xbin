@@ -5,13 +5,16 @@ package main
 // its SSH server on a loopback port, and an x/crypto/ssh client.
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -97,11 +100,166 @@ type rig struct {
 	t       *testing.T
 	tile    *Tile
 	mgr     *fsbManager
+	front   *front
 	tg      sandboxcontract.Target
 	sshAddr string
 	hostPub ssh.PublicKey
 	api     *httptest.Server
 	xbind   *fakeAccess
+}
+
+// front serves the manager's requests: a test may wrap it to step in
+// (see a call answered, hold an answer back).
+type front struct {
+	mu sync.Mutex
+	h  http.Handler
+}
+
+func (f *front) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	h := f.h
+	f.mu.Unlock()
+	h.ServeHTTP(w, r)
+}
+
+// use wraps what serves the manager's requests from now on.
+func (f *front) use(mw func(next http.Handler) http.Handler) {
+	f.mu.Lock()
+	f.h = mw(f.h)
+	f.mu.Unlock()
+}
+
+// deletes says which of sandbox sb's execs the manager was told to DELETE,
+// each once that is answered.
+func (r *rig) deletes(sb string) <-chan string {
+	prefix := "/sbx/sandboxes/" + sb + "/execs/"
+	ch := make(chan string, 16)
+	r.front.use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+			next.ServeHTTP(w, q)
+			if eid, ok := strings.CutPrefix(q.URL.Path, prefix); ok && q.Method == http.MethodDelete && !strings.Contains(eid, "/") {
+				ch <- eid
+			}
+		})
+	})
+	return ch
+}
+
+// holdStarts holds back the manager's answers to exec starts in sandbox
+// sb: each command starts, started says its id, and its answer goes out
+// once answer is called (at the latest when the test ends).
+func (r *rig) holdStarts(sb string) (started <-chan string, answer func()) {
+	route := "/sbx/sandboxes/" + sb + "/execs"
+	ids := make(chan string, 16)
+	hold := make(chan struct{})
+	answer = sync.OnceFunc(func() { close(hold) })
+	r.t.Cleanup(answer) // before the manager's server closes: it waits for its handlers
+	r.front.use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+			if q.Method != http.MethodPost || q.URL.Path != route {
+				next.ServeHTTP(w, q)
+				return
+			}
+			rec := httptest.NewRecorder()
+			next.ServeHTTP(rec, q)
+			var x struct {
+				ID string `json:"id"`
+			}
+			_ = json.Unmarshal(rec.Body.Bytes(), &x)
+			ids <- x.ID
+			<-hold
+			maps.Copy(w.Header(), rec.Header())
+			w.WriteHeader(rec.Code)
+			_, _ = w.Write(rec.Body.Bytes())
+		})
+	})
+	return ids, answer
+}
+
+// holdTerminals holds back the manager's answers to terminal starts (the
+// tty route) in sandbox sb: each command starts, started says so, and the
+// WebSocket upgrade goes out once answer is called (at the latest when the
+// test ends).
+func (r *rig) holdTerminals(sb string) (started <-chan struct{}, answer func()) {
+	route := "/sbx/sandboxes/" + sb + "/tty"
+	starts := make(chan struct{}, 16)
+	hold := make(chan struct{})
+	answer = sync.OnceFunc(func() { close(hold) })
+	r.t.Cleanup(answer)
+	r.front.use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+			if q.URL.Path != route {
+				next.ServeHTTP(w, q)
+				return
+			}
+			next.ServeHTTP(heldUpgrade{w, func() { starts <- struct{}{}; <-hold }}, q)
+		})
+	})
+	return starts, answer
+}
+
+// heldUpgrade runs wait before a WebSocket upgrade takes the connection
+// over: the manager has started the command by then.
+type heldUpgrade struct {
+	http.ResponseWriter
+	wait func()
+}
+
+func (h heldUpgrade) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h.wait()
+	return http.NewResponseController(h.ResponseWriter).Hijack()
+}
+
+// execs lists sandbox sb's execs at the manager, as person.
+func (r *rig) execs(person, sb string) []sandboxcontract.Exec {
+	r.t.Helper()
+	var l struct {
+		Execs []sandboxcontract.Exec `json:"execs"`
+	}
+	r.tg.As(r.t, self).Asserting(person).Call("GET", "/sandboxes/"+sb+"/execs", nil, 200, &l)
+	return l.Execs
+}
+
+// awaitOutput reads exec eid's output at the manager, as person, until it
+// holds want (the exec still running).
+func (r *rig) awaitOutput(person, sb, eid, want string) {
+	r.t.Helper()
+	me := r.tg.As(r.t, self).Asserting(person)
+	out := ""
+	for since, deadline := int64(0), time.Now().Add(hangGuard); ; {
+		c := me.Chunk(sb, eid, fmt.Sprintf("since=%d&waitMs=10000", since))
+		out, since = out+c.Data, c.End
+		if strings.Contains(out, want) {
+			return
+		}
+		if c.State != "running" || time.Now().After(deadline) {
+			r.t.Fatalf("exec %s is %s, its output %q without %q", eid, c.State, out, want)
+		}
+	}
+}
+
+// endedByDelete: the tile sent exec eid a HUP and then — the command deaf
+// to it — a DELETE; it runs no more.
+func (r *rig) endedByDelete(person, sb, eid string) {
+	r.t.Helper()
+	route := "/sbx/sandboxes/" + sb + "/execs/" + eid
+	hup, del := -1, -1
+	for i, c := range r.mgr.Calls() {
+		switch {
+		case c.Method == http.MethodPost && c.Path == route+"/signal" && strings.Contains(c.Body, `"HUP"`) && hup < 0:
+			hup = i
+		case c.Method == http.MethodDelete && c.Path == route:
+			del = i
+		}
+	}
+	if hup < 0 || del < hup {
+		r.t.Fatalf("exec %s: not a HUP and then a DELETE (calls #%d, #%d)", eid, hup, del)
+	}
+	for _, x := range r.execs(person, sb) {
+		if x.State == "running" {
+			r.t.Fatalf("exec %s still runs", x.ID)
+		}
+	}
 }
 
 // fakeAccess is xbind's GET /access/<user> for the tile: everyone reads it
@@ -149,7 +307,8 @@ func (r *rig) forget() {
 func newRig(t *testing.T, opts ...func(*Tile)) *rig {
 	t.Helper()
 	m := &fsbManager{Root: t.TempDir(), DefaultFrom: "apps/nobody", Grace: 200 * time.Millisecond}
-	srv := httptest.NewServer(m)
+	fr := &front{h: m}
+	srv := httptest.NewServer(fr)
 	t.Cleanup(func() { srv.Close(); m.Close() })
 	vault := &memVault{}
 	tile := newTile(self, &memKV{}, vault.get, vault.set,
@@ -176,7 +335,7 @@ func newRig(t *testing.T, opts ...func(*Tile)) *rig {
 	t.Cleanup(func() { ln.Close() })
 	api := httptest.NewServer(tile.routes())
 	t.Cleanup(api.Close)
-	return &rig{t: t, tile: tile, mgr: m, tg: sandboxcontract.Target{URL: srv.URL, Grace: m.Grace},
+	return &rig{t: t, tile: tile, mgr: m, front: fr, tg: sandboxcontract.Target{URL: srv.URL, Grace: m.Grace},
 		sshAddr: ln.Addr().String(), hostPub: signer.PublicKey(), api: api, xbind: xb}
 }
 
@@ -327,6 +486,23 @@ func exitCode(t *testing.T, err error) int {
 	}
 	t.Fatalf("session: %v", err)
 	return 0
+}
+
+// hangGuard bounds a wait for something that happens whatever the load:
+// only a hang (a bug) runs into it.
+const hangGuard = 2 * time.Minute
+
+// recv waits for a value on ch.
+func recv[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(hangGuard):
+		t.Fatalf("hung waiting: %s", what)
+	}
+	var zero T
+	return zero
 }
 
 // eventually waits for cond.

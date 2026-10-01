@@ -360,11 +360,6 @@ func (t *Tile) handleConn(nc net.Conn, cfg *ssh.ServerConfig) {
 		t.mu.Lock()
 		t.conns[lc] = struct{}{}
 		t.mu.Unlock()
-		defer func() {
-			t.mu.Lock()
-			delete(t.conns, lc)
-			t.mu.Unlock()
-		}()
 		go t.touchKey(lc.key)
 		go keepalive(sc)
 		go t.watchAccess(ctx, lc)
@@ -393,6 +388,9 @@ func (t *Tile) handleConn(nc net.Conn, cfg *ssh.ServerConfig) {
 		}()
 	}
 	cancel() // the connection is gone: every session's command is ended
+	t.mu.Lock()
+	delete(t.conns, lc) // and it isn't live (GET /sessions) while they are
+	t.mu.Unlock()
 	wg.Wait()
 }
 

@@ -15,10 +15,14 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 )
 
-// TestMain doubles as the sandbox's re-exec init.
+// TestMain doubles as the sandbox's re-exec init and as noXattrFS's FUSE
+// server.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == sandbox.InitArg {
 		sandbox.RunInit(os.Args[2])
+	}
+	if len(os.Args) == 6 && os.Args[1] == noXattrServeArg {
+		serveNoXattrFS(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
 	}
 	os.Exit(m.Run())
 }

@@ -44,6 +44,32 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   base auto-update on). A layer stamp or base version that can't be read
   now fails a session's start, the layer untouched, instead of being read
   as an unstamped one.
+- **`sandbox-terminal` v7: an SSH client that disconnects while its
+  command is still starting no longer leaves the command running**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §People's terminals).
+  The tile gave up on the manager's answer to the command's start when
+  the client left — but the manager started the command anyway, and
+  without its id nothing ended it: `ssh box@host cmd` interrupted while a
+  stopped sandbox booted ran `cmd` to the end, and a terminal whose
+  client left while it opened kept its shell. The tile now waits for that
+  answer (up to two minutes after the client left; for a terminal, the
+  `tty` route's upgrade and its `session` frame) and ends the command as
+  for a client that leaves while it runs: `HUP`, then `DELETE` if it
+  still runs. A manager sees its exec start or terminal upgrade completed
+  instead of abandoned, then the `HUP` and `DELETE`. `GET /sessions`
+  stops listing a connection as soon as its client has gone. Tile Manager
+  → Updates.
+- **Fix: a sandbox's network relay sends nothing after it is closed.**
+  When a sandboxed backend, terminal or tool run stopped, a flow still
+  finishing (the reset of a connection that was being dialed, say) could
+  write its packet after the relay had closed its TUN, into whatever file
+  xbind had opened under the same number by then. The relay now stops its
+  writers before it closes the TUN. Nothing to change.
+- **Fix: sandbox file operations through `../` symlinks on a busy host.**
+  Reading, writing, listing or tarring a path whose symlink climbs with
+  `..` could fail with `resource temporarily unavailable` while the host
+  was busy renaming files elsewhere. The sandbox agent now retries longer,
+  with a short backoff (about half a second at most). Nothing to change.
 
 ## 2026-09-30
 

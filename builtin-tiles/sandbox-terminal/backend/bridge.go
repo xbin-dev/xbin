@@ -13,16 +13,20 @@
 //
 // A client that leaves while the command runs ends it the way sshd does:
 // HUP to its process group, and a DELETE (the group killed) when it still
-// runs a moment later. Work meant to outlive the connection belongs in
-// its own session (setsid, tmux).
+// runs a moment later. One that leaves while the command starts too: the
+// start is answered first (starting), since only its id can end it. Work
+// meant to outlive the connection belongs in its own session (setsid,
+// tmux).
 package main
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -285,6 +289,29 @@ func (t *Tile) ended(e *entry, person, eid string) {
 	_ = t.call(ctx, e.M, person, "DELETE", route, nil, nil)
 }
 
+// leftStartGrace is how long a command's start may still take once its
+// client has left: the tile waits that long for the command's id to end it.
+const leftStartGrace = 2 * time.Minute
+
+// starting is ctx for a request that starts a command: the client's
+// leaving doesn't abandon it — a manager starts the command whether or not
+// anyone still waits for its answer (a stopped sandbox boots first), and
+// only that answer, the command's id, lets the tile end it. Once ctx ends
+// the request has leftStartGrace more.
+func starting(ctx context.Context) (context.Context, context.CancelFunc) {
+	sctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(ctx, func() {
+		grace := time.NewTimer(leftStartGrace)
+		defer grace.Stop()
+		select {
+		case <-sctx.Done():
+		case <-grace.C:
+			cancel()
+		}
+	})
+	return sctx, func() { stop(); cancel() }
+}
+
 // --- with a terminal: the tty route ----------------------------------------------------
 
 func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyReq) exitInfo {
@@ -303,11 +330,19 @@ func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyR
 	}
 	hdr := http.Header{}
 	hdr.Set("Sbx-User", person)
-	dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	if ctx.Err() != nil {
+		return exitInfo{} // the client left already: nothing to start
+	}
+	sctx, started := starting(ctx) // the dial starts the command
+	dctx, cancel := context.WithTimeout(sctx, 30*time.Second)
 	conn, resp, err := ws.Dial(dctx, u, hdr, &ws.DialOptions{Client: t.hc, MaxMessageSize: 4 << 20})
 	cancel()
+	started()
 	if err != nil {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil { // the client left while it started
+			if errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("ssh: %s's terminal in %s may run on: it didn't open within 30s, its client gone", person, e.SB.ID)
+			}
 			return exitInfo{}
 		}
 		if resp != nil && resp.StatusCode >= 300 {
@@ -346,6 +381,8 @@ func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyR
 		execID string
 		ex     *exitInfo
 	)
+	known := make(chan struct{}) // closed once execID is set
+	var knownOnce sync.Once
 	done := make(chan error, 1)
 	go func() { // output, then how it ended
 		for {
@@ -375,6 +412,9 @@ func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyR
 				mu.Lock()
 				execID = m.ID
 				mu.Unlock()
+				if m.ID != "" {
+					knownOnce.Do(func() { close(known) })
+				}
 			case "exit":
 				mu.Lock()
 				ex = &exitInfo{code: m.Code, signal: m.Signal}
@@ -388,6 +428,15 @@ func (s *session) ttyBridge(ctx context.Context, e *entry, cmd string, pty *ptyR
 	select {
 	case err2 = <-done:
 	case <-ctx.Done():
+		// the client left: the session frame, the first, says which
+		// command to end — wait for it if it hasn't come
+		grace := time.NewTimer(leftStartGrace)
+		select {
+		case <-known:
+		case err2 = <-done:
+		case <-grace.C:
+		}
+		grace.Stop()
 		_ = conn.Close()
 	}
 	mu.Lock()
@@ -440,10 +489,22 @@ func (s *session) execBridge(ctx context.Context, e *entry, cmd string) exitInfo
 	var x struct {
 		ID string `json:"id"`
 	}
-	if err := t.call(ctx, e.M, person, "POST", sbxPath(e.SB.ID, "/execs"), body, &x); err != nil {
-		if ctx.Err() != nil {
-			return exitInfo{}
+	if ctx.Err() != nil {
+		return exitInfo{} // the client left already: nothing to start
+	}
+	sctx, started := starting(ctx)
+	err := t.call(sctx, e.M, person, "POST", sbxPath(e.SB.ID, "/execs"), body, &x)
+	started()
+	if ctx.Err() != nil { // the client left while it started
+		switch {
+		case err == nil:
+			t.ended(e, person, x.ID)
+		case errors.Is(err, context.Canceled):
+			log.Printf("ssh: %s's command in %s may run on: its start wasn't answered within %s of the client leaving", person, e.SB.ID, leftStartGrace)
 		}
+		return exitInfo{}
+	}
+	if err != nil {
 		return s.refused(e, err)
 	}
 	route := sbxPath(e.SB.ID, "/execs/"+url.PathEscape(x.ID))

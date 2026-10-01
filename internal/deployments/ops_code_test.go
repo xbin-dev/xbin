@@ -295,7 +295,7 @@ func TestDeployPlaneOperationsCode(t *testing.T) {
 
 	t.Run("a Go tile: prepared through the runner, promoted after a swap", func(t *testing.T) {
 		f := newCodeFx(t, true)
-		f.must(ownerP, OpPause, &PauseRequest{Tile: opAPI})
+		f.settle(opAPI, f.must(ownerP, OpPause, &PauseRequest{Tile: opAPI})) // main's pause runs on its lane: done before dev's deploy is the runner's last
 		tree1 := cp(f.rec(opAPI), "main")
 		ans := f.add(ownerP, &AddRequest{Tile: opAPI, Deployment: "dev", From: FromPrimary})
 		if e := f.wait(opAPI, ans.Deploy.ID); cp(f.rec(opAPI), "dev") != tree1 || e.From != "main" || e.Result != resultOK || e.How != "add" {
@@ -710,6 +710,7 @@ func TestWorkTreeWritersReachOnlyLiveTarget(t *testing.T) {
 			index := tile + "/index.html"
 			f.write(index, "<h1>v1</h1>")
 			f.add(ownerP, &AddRequest{Tile: tile, Deployment: "dev", Attach: true})
+			f.drained(tile) // main's pin runs on its lane after the add answers; left running it writes into the workspace as the test's cleanup removes it
 			c, _ := f.reg.Component(tile)
 			f.write(index, "<h1>update</h1>") // the builtin update or the PR, in the work tree
 

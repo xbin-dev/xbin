@@ -15,9 +15,11 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/sys/unix"
 
+	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
+	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
 // The relay driven through a real gVisor stack: raw IPv4 packets go in over
@@ -39,6 +41,9 @@ type harness struct {
 	peer  *net.UnixConn // the sandbox's side of the "TUN"
 	dials chan string   // "tcp 1.2.3.4:80" per vetted dial
 	sport uint16
+	// inline: one processor (Config.Processors: 1), so the relay handles
+	// the TUN's packets in the order they come (see udpRefused)
+	inline bool
 }
 
 func newHarness(t *testing.T, cfg Config) *harness { return newHarnessDial(t, cfg, nil) }
@@ -51,7 +56,7 @@ func newHarnessDial(t *testing.T, cfg Config, dial dialFunc) *harness {
 	if err != nil {
 		t.Skip("socketpair:", err)
 	}
-	h := &harness{t: t, dials: make(chan string, 64), sport: 40000}
+	h := &harness{t: t, dials: make(chan string, 64), sport: 40000, inline: cfg.Processors == 1}
 	cfg.TunFD = fds[0]
 	if dial == nil {
 		d := net.Dialer{Timeout: time.Second, Control: func(network, address string, _ syscall.RawConn) error {
@@ -86,11 +91,28 @@ func (h *harness) send(pkt []byte) {
 	}
 }
 
-// recv returns the first packet the relay sends that match accepts, or nil
-// after d.
-func (h *harness) recv(d time.Duration, match func(header.IPv4) bool) header.IPv4 {
+// hangGuard bounds the tests' waits for what the relay is bound to do (send
+// a packet, dial, record a flow, let go of an fd): a test fails there only
+// when that never happens. No verdict depends on how soon it happens, so a
+// loaded machine only makes a test slower.
+const hangGuard = 2 * time.Minute
+
+// waitUntil polls cond, which the code under test is bound to make true,
+// until it holds.
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for end := time.Now().Add(hangGuard); !cond(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("%s: not after %v", what, hangGuard)
+		}
+	}
+}
+
+// recv returns the first packet the relay sends that match accepts (nil
+// only at the hang guard).
+func (h *harness) recv(match func(header.IPv4) bool) header.IPv4 {
 	h.t.Helper()
-	deadline := time.Now().Add(d)
+	deadline := time.Now().Add(hangGuard)
 	buf := make([]byte, 65536)
 	for {
 		_ = h.peer.SetReadDeadline(deadline)
@@ -108,12 +130,23 @@ func (h *harness) recv(d time.Duration, match func(header.IPv4) bool) header.IPv
 	}
 }
 
-// dialed reports the next vetted dial within d ("" = none).
-func (h *harness) dialed(d time.Duration) string {
+// dialed waits for the next vetted dial ("" only at the hang guard).
+func (h *harness) dialed() string {
 	select {
 	case s := <-h.dials:
 		return s
-	case <-time.After(d):
+	case <-time.After(hangGuard):
+		return ""
+	}
+}
+
+// dialedSoFar reports a vetted dial already made ("" = none), without
+// waiting: callers first wait for an event that comes after any dial.
+func (h *harness) dialedSoFar() string {
+	select {
+	case s := <-h.dials:
+		return s
+	default:
 		return ""
 	}
 }
@@ -180,23 +213,60 @@ func rstFrom(dst netip.Addr, sport uint16) func(header.IPv4) bool {
 	}
 }
 
-// synTo sends a SYN to dst:dport and reports whether it was reset at once
-// and what the relay dialed ("" = nothing).
+// synTo sends a SYN to dst:dport and reports whether it was reset and what
+// the relay dialed ("" = nothing). Every flow here ends in a RST — a
+// refused one at once, an allowed one when its vetted dial fails — and a
+// flow's dial comes before its RST, so once the RST is in, the dial is
+// known.
 func (h *harness) synTo(dst netip.Addr, dport uint16) (reset bool, dial string) {
+	h.t.Helper()
 	sp := h.port()
 	h.send(tcpSYN(sbxIP, dst, sp, dport))
-	dial = h.dialed(300 * time.Millisecond)
-	return h.recv(2*time.Second, rstFrom(dst, sp)) != nil, dial
+	reset = h.recv(rstFrom(dst, sp)) != nil
+	return reset, h.dialedSoFar()
 }
 
-func (h *harness) udpTo(dst netip.Addr, dport uint16) (dial string) {
+// udpDialed sends a datagram to dst:dport and waits for the relay to dial
+// it.
+func (h *harness) udpDialed(dst netip.Addr, dport uint16) (dial string) {
 	h.send(udpPkt(sbxIP, dst, h.port(), dport, []byte("hello")))
-	return h.dialed(300 * time.Millisecond)
+	return h.dialed()
 }
 
-// flow waits for a recorded flow to dst and returns it.
+// udpRefused sends a datagram to dst:dport, which the relay must drop, and
+// reports what it dialed for it ("" = nothing). A dropped datagram leaves no
+// trace, so a ping follows it: with one processor (Config.Processors: 1)
+// the relay handles the TUN's packets in order, a UDP flow's dial inline,
+// and records the ping inline too. Once the ping is recorded, any dial for
+// the datagram has been made. The ping goes to `denied`, which this relay
+// must refuse, so nothing leaves the machine.
+func (h *harness) udpRefused(dst netip.Addr, dport uint16) (dial string) {
+	h.t.Helper()
+	if !h.inline {
+		h.t.Fatal("udpRefused needs a one-processor relay (Config.Processors: 1)")
+	}
+	if h.r.icmp == nil || (!h.r.blocked(denied) && h.r.allow != nil) {
+		h.t.Fatal("udpRefused's ping marker needs a relay that answers pings and refuses `denied`")
+	}
+	pings := func() (n int) {
+		for _, f := range h.r.Stats().Recent {
+			if f.Proto == "icmp" && f.Dst == denied.String() {
+				n++
+			}
+		}
+		return n
+	}
+	before := pings()
+	h.send(udpPkt(sbxIP, dst, h.port(), dport, []byte("hello")))
+	h.send(icmpEcho(sbxIP, denied, h.port()))
+	waitUntil(h.t, "the marker ping recorded", func() bool { return pings() > before })
+	return h.dialedSoFar()
+}
+
+// flow waits for a recorded flow to dst and returns it (nil only at the hang
+// guard).
 func (h *harness) flow(proto string, dst netip.Addr) *Flow {
-	for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+	for end := time.Now().Add(hangGuard); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
 		for _, f := range h.r.Stats().Recent {
 			if f.Proto == proto && f.Dst == dst.String() {
 				return &f
@@ -241,11 +311,11 @@ func TestDenyBeatsGatewayForward(t *testing.T) {
 
 // Deny beats an Allow that says yes, for UDP.
 func TestDenyBeatsAllowUDP(t *testing.T) {
-	h := newHarness(t, Config{Allow: allowAll, Deny: denyOne})
-	if dial := h.udpTo(denied, 9); dial != "" {
+	h := newHarness(t, Config{Allow: allowAll, Deny: denyOne, Processors: 1})
+	if dial := h.udpRefused(denied, 9); dial != "" {
 		t.Fatalf("denied destination was dialed: %q", dial)
 	}
-	if dial := h.udpTo(allowed, 9); dial != "udp "+allowed.String()+":9" {
+	if dial := h.udpDialed(allowed, 9); dial != "udp "+allowed.String()+":9" {
 		t.Fatalf("control: an allowed destination must be dialed, got %q", dial)
 	}
 }
@@ -266,8 +336,9 @@ func TestDenyBeatsAllowICMP(t *testing.T) {
 // Deny beats a DNS pin of a host the policy allows (and Allow is nil).
 func TestDenyBeatsDNSPin(t *testing.T) {
 	h := newHarness(t, Config{
-		AllowHost: func(name string, port int) bool { return name == "api.example.com" },
-		Deny:      func(ip netip.Addr) bool { return ip == netip.MustParseAddr("203.0.113.7") },
+		AllowHost:  func(name string, port int) bool { return name == "api.example.com" },
+		Deny:       func(ip netip.Addr) bool { return ip == netip.MustParseAddr("203.0.113.7") },
+		Processors: 1, // udpRefused
 	})
 	pinned := netip.MustParseAddr("203.0.113.7")
 	other := netip.MustParseAddr("203.0.113.8")
@@ -279,7 +350,7 @@ func TestDenyBeatsDNSPin(t *testing.T) {
 	if reset, dial := h.synTo(pinned, 443); !reset || dial != "" {
 		t.Fatalf("pinned but denied: reset=%v dial=%q", reset, dial)
 	}
-	if dial := h.udpTo(pinned, 443); dial != "" {
+	if dial := h.udpRefused(pinned, 443); dial != "" {
 		t.Fatalf("pinned but denied (udp) was dialed: %q", dial)
 	}
 	if _, dial := h.synTo(other, 443); dial != "tcp 203.0.113.8:443" {
@@ -290,7 +361,7 @@ func TestDenyBeatsDNSPin(t *testing.T) {
 // A nil Allow means nothing is allowed — and nothing panics, ICMP included
 // (it used to call the nil func).
 func TestNilAllow(t *testing.T) {
-	h := newHarness(t, Config{})
+	h := newHarness(t, Config{Processors: 1}) // udpRefused
 	h.send(icmpEcho(sbxIP, allowed, 1))
 	if f := h.flow("icmp", allowed); f == nil || f.Allowed {
 		t.Fatalf("a ping with no policy must be refused: %+v", f)
@@ -298,30 +369,29 @@ func TestNilAllow(t *testing.T) {
 	if reset, dial := h.synTo(allowed, 80); !reset || dial != "" {
 		t.Fatalf("tcp with no policy: reset=%v dial=%q", reset, dial)
 	}
-	if dial := h.udpTo(allowed, 9); dial != "" {
+	if dial := h.udpRefused(allowed, 9); dial != "" {
 		t.Fatalf("udp with no policy was dialed: %q", dial)
 	}
 }
 
-// DNSRefuse answers REFUSED at once, locally: no resolver is dialed, whatever
-// address the query went to.
+// DNSRefuse answers REFUSED locally: no resolver is dialed, whatever address
+// the query went to. (Every dial here is vetted and refused, so an answer
+// can only be the relay's own, and a query it forwarded would get none.)
 func TestDNSRefuse(t *testing.T) {
 	h := newHarness(t, Config{DNSRefuse: true, Resolver: "192.0.2.53:53", Allow: allowAll})
 	dnsIP := netip.MustParseAddr("10.0.2.3")
-	ask := func(dst netip.Addr, sport, id uint16) (dnsmessage.Message, time.Duration) {
+	ask := func(dst netip.Addr, sport, id uint16) dnsmessage.Message {
 		t.Helper()
 		q := dnsQuery(t, "example.com", dnsmessage.TypeA)
 		q[0], q[1] = byte(id>>8), byte(id)
-		t0 := time.Now()
 		h.send(udpPkt(sbxIP, dst, sport, 53, q))
-		resp := h.recv(time.Second, func(ip header.IPv4) bool {
+		resp := h.recv(func(ip header.IPv4) bool {
 			if ip.TransportProtocol() != header.UDPProtocolNumber {
 				return false
 			}
 			u := header.UDP(ip.Payload())
 			return u.SourcePort() == 53 && u.DestinationPort() == sport
 		})
-		took := time.Since(t0)
 		if resp == nil {
 			t.Fatalf("no DNS answer from %s", dst)
 		}
@@ -329,25 +399,22 @@ func TestDNSRefuse(t *testing.T) {
 		if err := m.Unpack(header.UDP(resp.Payload()).Payload()); err != nil {
 			t.Fatal(err)
 		}
-		return m, took
+		return m
 	}
 	sp := h.port()
 	for i, dst := range []netip.Addr{dnsIP, dnsIP, netip.MustParseAddr("8.8.8.8")} {
 		if i == 2 {
 			sp = h.port()
 		}
-		m, took := ask(dst, sp, uint16(100+i))
+		m := ask(dst, sp, uint16(100+i))
 		if !m.Response || m.RCode != dnsmessage.RCodeRefused || m.ID != uint16(100+i) {
 			t.Fatalf("query %d: want REFUSED for id %d, got %+v", i, 100+i, m.Header)
 		}
 		if len(m.Questions) != 1 || m.Questions[0].Name.String() != "example.com." || len(m.Answers) != 0 {
 			t.Fatalf("query %d: the question is echoed, no answers: %+v", i, m)
 		}
-		if took > 50*time.Millisecond {
-			t.Fatalf("query %d: REFUSED took %v, want < 50ms", i, took)
-		}
 	}
-	if dial := h.dialed(100 * time.Millisecond); dial != "" {
+	if dial := h.dialedSoFar(); dial != "" {
 		t.Fatalf("DNSRefuse must not reach a resolver, dialed %q", dial)
 	}
 	if f := h.flow("udp", dnsIP); f == nil || f.Allowed {
@@ -421,11 +488,51 @@ func TestCloseStopsReaders(t *testing.T) {
 		unix.Close(fds[0])
 		defer unix.Close(fds[1]) // the sandbox's end stays up: no EOF to stop a reader
 	}
-	var n int
-	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
-		if n = runtime.NumGoroutine(); n <= base+4 {
-			return
-		}
+	// The readers are gone when Close returns; the stacks' other goroutines
+	// wind down after it.
+	waitUntil(t, "three closed relays' goroutines gone", func() bool { return runtime.NumGoroutine() <= base+4 })
+}
+
+// Close stops the TUN's writers too. gVisor checks that a route is still
+// good, then writes to the link holding no lock, and its fdbased link
+// writes straight to the fd: a flow goroutine between the two — sending the
+// RST of a dial Close cancelled, say — reached the link after Close had
+// returned, and wrote into whatever file had the fd's number by then. (So
+// TestCloseTUN once read an earlier test's 40-byte RST.) Here the write
+// reaches the NIC's link endpoint after Close, as such a goroutine's does.
+func TestCloseStopsWriters(t *testing.T) {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Skip("socketpair:", err)
 	}
-	t.Fatalf("goroutines: %d before, %d after three relays closed", base, n)
+	defer unix.Close(fds[1])
+	r, err := Start(Config{TunFD: fds[0], Allow: allowAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var link stack.LinkWriter = r.gate // the NIC's endpoint: the ICMP tap over the gate
+	if r.icmp != nil {
+		link = r.icmp
+	}
+	write := func() {
+		pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
+			Payload: buffer.MakeWithData(tcpSYN(allowed, sbxIP, 80, 41000)), // any packet
+		})
+		defer pkt.DecRef()
+		pkt.NetworkProtocolNumber = header.IPv4ProtocolNumber
+		var pkts stack.PacketBufferList
+		pkts.PushBack(pkt)
+		_, _ = link.WritePackets(pkts)
+	}
+	write() // reaches the TUN
+	r.Close()
+	write()
+	unix.Close(fds[0])
+	buf := make([]byte, 2048)
+	if n, _, err := unix.Recvfrom(fds[1], buf, unix.MSG_DONTWAIT); n == 0 || err != nil {
+		t.Fatalf("the packet written before Close: read %d, %v", n, err)
+	}
+	if n, _, err := unix.Recvfrom(fds[1], buf, unix.MSG_DONTWAIT); n != 0 || err != nil {
+		t.Fatalf("a packet written after Close reached the TUN: read %d, %v — want EOF", n, err)
+	}
 }
