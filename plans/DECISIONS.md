@@ -6800,7 +6800,11 @@ Deviations and refinements made while implementing; all deliberate:
   message sent in the instant a socket drops fails "send it again" even
   when the drop came first — the client can't tell a frame written after
   the manager closed from one it read before closing, and the contract has
-  no stdin offset to ask on the next attach.*
+  no stdin offset to ask on the next attach. Proving it under load found
+  TestHarnessPipeTurn's own flake (9 of 191): the fake agent's slash
+  commands follow session/new on a 50 ms timer, and a turn that ended
+  first left them (395 bytes) after its end, past the offset the test
+  expects read; it now waits for them before its prompt.*
 
 - **D148 — Partitioned tiles, F5: people's partitions' vaults,
   registrations and records (2026-09-30).** Implements the vault,

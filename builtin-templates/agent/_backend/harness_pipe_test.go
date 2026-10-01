@@ -236,6 +236,11 @@ func TestHarnessPipeTurn(t *testing.T) {
 		if p.Stdio() != stdio {
 			t.Fatalf("the transport: stdio %v", p.Stdio())
 		}
+		// the agent's commands follow session/new on a timer of its own: in
+		// first, nothing comes after the turn's end (read to its offset)
+		ev.wait(t, "the commands", func(e acp.Event) bool {
+			return e.Type == acp.EvStatus && strings.Contains(string(e.Data), `"commands"`)
+		})
 		text := "echo " + strings.Repeat("x", 3000)
 		if err := c.Send(ctx, text); err != nil {
 			t.Fatal(err)
