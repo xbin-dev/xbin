@@ -323,8 +323,12 @@ func TestPartitionAdmission(t *testing.T) {
 			mem       int64
 			tile, all int
 		}{
-			{4 << 30, 6, 12}, // the 4 GiB macOS VM
+			{4 << 30, 10, 21}, // the 4 GiB macOS VM
+			{8 << 30, 21, 42},
+			{7936 << 20, 20, 41}, // the QA box's MemTotal: I2's 20 people × 2 agents fit
+			{16 << 30, 32, 85},
 			{1 << 30, 4, 8},
+			{512 << 20, 4, 8},
 			{64 << 30, 32, 128},
 			{0, 4, 8},
 		} {
@@ -334,12 +338,12 @@ func TestPartitionAdmission(t *testing.T) {
 		}
 		w := newPartWorld(t, userGlobal, registry.Manifest{})
 		w.r.parts.adm.memTotal.Store(4 << 30)
-		if tl, ws := w.r.partitionCaps("apps/x"); tl != 6 || ws != 12 {
+		if tl, ws := w.r.partitionCaps("apps/x"); tl != 10 || ws != 21 {
 			t.Errorf("the runner's caps on 4 GiB: %d/%d", tl, ws)
 		}
 		w.r.PartitionCapsFor = func(string) (int, int) { return 9, 0 } // an admin's tile cap
-		if tl, ws := w.r.partitionCaps("apps/x"); tl != 9 || ws != 12 {
-			t.Errorf("with an override: %d/%d, want 9/12", tl, ws)
+		if tl, ws := w.r.partitionCaps("apps/x"); tl != 9 || ws != 21 {
+			t.Errorf("with an override: %d/%d, want 9/21", tl, ws)
 		}
 	})
 

@@ -23,7 +23,6 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a reset or removal, a seal, shutdown), which ends those copies too, and
   waits for the process to exit; before mounting a volume it ends any
   earlier gocryptfs still serving it. Nothing to change.
-
 - **Fix: partitioned tiles — a start turned away at the running caps no
   longer leaves the person's volumes mounted**
   ([partitions.md](/docs/partitions.md) §How people's partitions run,
@@ -34,7 +33,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   the caps were full; they now unmount at the disk monitor's next pass,
   within a minute, unless an instance of the person runs by then. Nothing
   to change.
-
+- **Partitioned tiles: higher default running caps, from a measurement**
+  ([partitions.md](/docs/partitions.md) §How people's partitions run,
+  [protocol.md](/docs/protocol.md) `POST /partitions/limits`). The default
+  caps on people's instances running at once — clamp(M/4 ÷ E, 4, 32) per
+  tile, clamp(M/2 ÷ E, 8, 128) per workspace — now take E = 96 MiB, from
+  a measurement of a person's agent partition with its gocryptfs
+  processes (about 56 MiB resident) plus room for heavier use, instead of
+  the 160 MiB placeholder: a 4 GiB machine runs 10 per tile and 21 in all
+  (was 6 and 12), 8 GiB 21 and 42 (was 12 and 25). Caps an admin or a
+  tile manager set are unchanged. Nothing to change.
 - **xbin app: partitioned tiles** ([partitions.md](/docs/partitions.md)
   §Your partitions page; D181). A partitioned tile's row and card carry
   the web shell's marker, the half-split teal disc (VoiceOver reads its

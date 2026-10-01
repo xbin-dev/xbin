@@ -53,9 +53,14 @@ const (
 	mailStartsPerMinute   = 6                // mail doorbell cold starts per tile per minute
 	partitionSwapsPerTile = 4                // blue/green restarts of one tile's partitions at once
 	// PartitionInstanceEstimate is E, the memory one partition instance is
-	// taken to hold — a placeholder with two gocryptfs processes, until the
-	// QA-box measurement of the default agent replaces it (I2).
-	PartitionInstanceEstimate = 160 << 20
+	// taken to hold, its two gocryptfs mounts included. The QA-box
+	// measurement of the default agent (I2, plans/partitions/records/I2.md):
+	// 56 MiB resident per person's partition, 61 at most (backend 23, two
+	// gocryptfs 26, their two loggers 6, the rootfs overlay 1), ~26 MiB of
+	// it its own (instances of one tile share their binary's pages). E
+	// keeps ~70% headroom over that for the heavier use I2 didn't measure
+	// (long conversations, busy volumes).
+	PartitionInstanceEstimate = 96 << 20
 )
 
 var (
