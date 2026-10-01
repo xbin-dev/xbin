@@ -48,8 +48,11 @@ func (r *Runner) awaitHealthy(c *registry.Component, inst *instance) error {
 	return waitHealthy(inst.sock, inst.waitCh, r.healthFor(c))
 }
 
-// stopGen terminates a generation: SIGTERM, then SIGKILL after deadline.
+// stopGen terminates a generation: SIGTERM, then SIGKILL after deadline. It
+// marks the generation retired before the signal, so a request that fails
+// because of the stop already finds it retired (Gen.Retired).
 func (r *Runner) stopGen(inst *instance, deadline time.Duration) {
+	inst.retired.Store(true)
 	if e := r.engine; e != nil && e.stop != nil {
 		e.stop(inst, deadline)
 		return

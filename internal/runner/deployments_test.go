@@ -1159,10 +1159,11 @@ var ensureCallers = map[string]bool{
 }
 
 // covers D127d SC-INBOUND — TestEnsureCallSitesPassPrimary (15-test-plan
-// §3.13): every call of Runner.Ensure (a method Ensure with two arguments)
-// in xbind's code is one of ensureCallers, which mean the primary, and
-// every EnsureDeployment call carries a "deployment:" comment on its line or
-// the line above, saying which deployment and why.
+// §3.13): every call of Runner.Ensure or EnsureGen (a method of that name
+// with two arguments) in xbind's code is one of ensureCallers, which mean
+// the primary, and every EnsureDeployment or EnsureDeploymentGen call
+// carries a "deployment:" comment on its line or the line above, saying
+// which deployment and why.
 func TestEnsureCallSitesPassPrimary(t *testing.T) {
 	repo, err := filepath.Abs("../..")
 	if err != nil {
@@ -1209,12 +1210,12 @@ func TestEnsureCallSitesPassPrimary(t *testing.T) {
 					}
 					line := fset.Position(call.Pos()).Line
 					switch {
-					case sel.Sel.Name == "Ensure" && len(call.Args) == 2:
+					case (sel.Sel.Name == "Ensure" || sel.Sel.Name == "EnsureGen") && len(call.Args) == 2:
 						found++
 						if site := rel + " " + fn.Name.Name; !ensureCallers[site] {
 							t.Errorf("%s:%d: %s calls Runner.Ensure, which means the primary; name the deployment with EnsureDeployment (annotated), or add the site to ensureCallers if it is an inbound edge", rel, line, fn.Name.Name)
 						}
-					case sel.Sel.Name == "EnsureDeployment" && len(call.Args) == 3:
+					case (sel.Sel.Name == "EnsureDeployment" || sel.Sel.Name == "EnsureDeploymentGen") && len(call.Args) == 3:
 						if !strings.Contains(comments[line]+comments[line-1], "deployment:") {
 							t.Errorf("%s:%d: an EnsureDeployment call without a \"deployment:\" comment saying which deployment and why", rel, line)
 						}

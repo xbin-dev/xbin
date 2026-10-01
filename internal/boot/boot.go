@@ -604,7 +604,7 @@ func (st *State) stepProxy() error {
 	// beyond main the remap onto the deployment's own volumes (08-data §3.6).
 	dp := st.Deployments
 	dp.TileEnv = brk.EnvFor
-	run.DeploymentHooks = runner.DeploymentHooks{CodeFor: dp.CodeFor, Primary: dp.Primary,
+	run.DeploymentHooks = runner.DeploymentHooks{CodeFor: dp.CodeFor, SettledCodeFor: dp.SettledCodeFor, Primary: dp.Primary,
 		View: dp.View, Materialize: dp.Materialize, EnvFor: brk.DeploymentEnv, LimitsFor: dp.LimitsFor,
 		Retained: dp.RetainedTrees}
 	run.AlwaysOnSwitched = dp.AlwaysOnSwitched // a non-primary deployment's alwaysOn switch (07-runtime §11)

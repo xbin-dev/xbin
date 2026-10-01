@@ -257,7 +257,7 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// bare URL from anyone but the tile itself, the caller's own on a
 	// self-call, the named one on a qualified URL.
 	// deployment: the target Route returned.
-	sock, err := px.Runner.EnsureDeployment(ctx, comp, target)
+	gen, err := px.Runner.EnsureDeploymentGen(ctx, comp, target)
 	if err != nil {
 		var be *runner.BuildError
 		switch {
@@ -281,15 +281,22 @@ func (px *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if target != primary {
 		answering = target
 	}
-	px.forward(w, r, sock, endpoint, answering)
+	// A request the generation's retirement cut off goes to the target's
+	// generation now: the same deployment, never another (rerouting).
+	again := func() (generation, error) {
+		// deployment: the target Route returned, as above.
+		return px.Runner.EnsureDeploymentGen(ctx, comp, target)
+	}
+	px.forward(w, r, &rerouting{px: px, gen: gen, again: again}, endpoint, answering)
 }
 
-// forward proxies r to the backend listening on sock, at /<endpoint>.
+// forward proxies r to the backend generation tr sends it to (rerouting),
+// at /<endpoint>.
 // answering names the deployment that answers when it isn't the target's
 // primary: the response then carries X-XBin-Deployment, set over any value
 // the backend set (NP-11-12). A primary's responses pass as they always
 // have.
-func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint, answering string) {
+func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, tr *rerouting, endpoint, answering string) {
 	// The ?frame= auth credential (browser WS attribution) is consumed
 	// here; never forward it — the callee could replay it as the caller.
 	outQuery := r.URL.Query()
@@ -322,7 +329,7 @@ func (px *Proxy) forward(w http.ResponseWriter, r *http.Request, sock, endpoint,
 			}
 			return nil
 		},
-		Transport:     px.transportFor(sock),
+		Transport:     tr,
 		FlushInterval: -1, // stream (SSE etc.)
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			jsonErr(w, http.StatusBadGateway, "backend error: "+err.Error(), "")

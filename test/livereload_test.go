@@ -195,7 +195,7 @@ func startPlainDaemon(t *testing.T) (dlAPI, string) {
 	cmd.Stdout, cmd.Stderr = &out, &out
 	startDaemon(t, cmd, pws)
 	a := dlAPI{url: "http://" + addr}
-	if !waitFor(func() bool { c, _ := a.do("GET", "/healthz", ""); return c == 200 }, 15*time.Second) {
+	if !waitFor(func() bool { c, _ := a.do("GET", "/healthz", ""); return c == 200 }, daemonGuard) {
 		t.Fatalf("the plain xbind never became healthy:\n%s", out.String())
 	}
 	return a, pws
@@ -685,8 +685,9 @@ func main() {
 const rtNodeSource = `const http = require('http'), fs = require('fs'), path = require('path');
 const marker = __MARKER__, fault = __FAULT__;
 if (fault === 'crash') process.exit(3);
+let srv = null;
 if (fault === 'hang') setInterval(() => {}, 1 << 30);
-else http.createServer((req, res) => {
+else srv = http.createServer((req, res) => {
   if (req.url === '/v') return res.end(marker);
   if (req.url === '/file') {
     try { return res.end(fs.readFileSync(path.join(process.cwd(), __FILE__))); }
@@ -695,10 +696,12 @@ else http.createServer((req, res) => {
   res.statusCode = 404;
   res.end('no such path');
 }).listen(process.env.XBIN_SOCKET);
-process.on('SIGTERM', () => process.exit(0));
+// SIGTERM drains, as docs/sdk.md asks: no new connections, and the exit once
+// the requests it holds are answered.
+process.on('SIGTERM', () => srv ? srv.close(() => process.exit(0)) : process.exit(0));
 `
 
-const rtPythonSource = `import os, signal, sys, time
+const rtPythonSource = `import os, signal, sys, threading, time
 from http.server import BaseHTTPRequestHandler
 from socketserver import UnixStreamServer
 
@@ -732,8 +735,12 @@ class Server(UnixStreamServer):
         req, _ = self.socket.accept()
         return req, ("xbin", 0)
 
-signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
-Server(os.environ["XBIN_SOCKET"], Handler).serve_forever()
+srv = Server(os.environ["XBIN_SOCKET"], Handler)
+# SIGTERM drains, as docs/elements.md asks: the request in hand is answered,
+# then serve_forever returns and the process ends. shutdown waits for
+# serve_forever, which runs here, so it is asked from a thread of its own.
+signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=srv.shutdown).start())
+srv.serve_forever()
 `
 
 // served is what tile serves now: its backend's GET /v and GET /file, or a
@@ -963,6 +970,11 @@ func TestLiveReloadPauseRefusedWithoutIsolation(t *testing.T) {
 	nothing("after the save")
 }
 
+// raceGuard bounds every wait of TestLiveReloadPauseRace that a condition
+// ends: a hang guard, far past any answer on a loaded machine, and never
+// what a check depends on.
+const raceGuard = 3 * time.Minute
+
 // raceRuns is how many runs TestLiveReloadPauseRace makes per runtime: 10,
 // or 100 at a milestone exit (XBIN_TEST_FULL=1, SC-LIVE-RELOAD-PAUSE).
 func raceRuns() int {
@@ -1021,7 +1033,7 @@ func TestLiveReloadPauseRace(t *testing.T) {
 		// tree moved on past its pinned code.
 		const static = "apps/lr-race-static-iso"
 		mustRT(t, d.WS, static, "static", "st-pinned", "")
-		a.waitServed(t, static, "static", "st-pinned", 30*time.Second)
+		a.waitServed(t, static, "static", "st-pinned", raceGuard)
 		if _, e := a.op(t, "live-reload/pause", static); e.Result != "ok" {
 			t.Fatalf("pausing %s: %+v", static, e)
 		}
@@ -1039,7 +1051,7 @@ func TestLiveReloadPauseRace(t *testing.T) {
 			if tile == static {
 				rt = "static"
 			}
-			a.waitServed(t, tile, rt, marker, 3*time.Minute)
+			a.waitServed(t, tile, rt, marker, raceGuard)
 		}
 	})
 }
@@ -1115,7 +1127,7 @@ func raceRun(t *testing.T, a dlAPI, ws, tile, rt string, run int) (cpV, cpF stri
 	if a.hasRecord(tile) {
 		a.op(t, "live-reload/resume", tile)
 	}
-	a.waitServed(t, tile, rt, first, 3*time.Minute)
+	a.waitServed(t, tile, rt, first, raceGuard)
 
 	var done atomic.Int64 // the last save that completed
 	stop, werr := make(chan struct{}), make(chan error, 1)
@@ -1208,7 +1220,7 @@ func racePinnedHolds(t *testing.T, a dlAPI, ws, tile, rt, cpV, cpF string, next 
 		t.Helper()
 		var v, f string
 		var ok bool
-		if !waitFor(func() bool { v, f, ok = a.served(tile, rt); return ok && v == cpV && f == cpF }, 10*time.Second) {
+		if !waitFor(func() bool { v, f, ok = a.served(tile, rt); return ok && v == cpV && f == cpF }, raceGuard) {
 			t.Fatalf("%s never served its checkpoint %q/%q: /v %q, /file %q", tile, cpV, cpF, v, f)
 		}
 		a.waitTile(t, tile)
@@ -1219,14 +1231,14 @@ func racePinnedHolds(t *testing.T, a dlAPI, ws, tile, rt, cpV, cpF string, next 
 		t.Fatalf("%s: no backend pid listed", tile)
 	}
 	must(t, syscall.Kill(pid, syscall.SIGKILL))
-	if !waitFor(func() bool { v, _, ok := a.served(tile, rt); return ok && v == cp && backendPID(t, a, tile) != pid }, time.Minute) {
+	if !waitFor(func() bool { v, _, ok := a.served(tile, rt); return ok && v == cp && backendPID(t, a, tile) != pid }, raceGuard) {
 		v, f, _ := a.served(tile, rt)
 		t.Fatalf("%s: after a crash it serves %q/%q, pinned %q", tile, v, f, cp)
 	}
 	servesCheckpoint()
 	gen := backendGen(t, a, tile)
 	grantChange(t, a, tile)
-	if !waitFor(func() bool { v, _, ok := a.served(tile, rt); return ok && v == cp && backendGen(t, a, tile) > gen }, time.Minute) {
+	if !waitFor(func() bool { v, _, ok := a.served(tile, rt); return ok && v == cp && backendGen(t, a, tile) > gen }, raceGuard) {
 		v, f, _ := a.served(tile, rt)
 		t.Fatalf("%s: after a grant change (gen %d → %d) it serves %q/%q, pinned %q", tile, gen, backendGen(t, a, tile), v, f, cp)
 	}
@@ -1246,17 +1258,20 @@ func raceFailedPause(t *testing.T, a dlAPI, ws, tile, rt string) string {
 	if a.hasRecord(tile) {
 		a.op(t, "live-reload/resume", tile)
 	}
-	a.waitServed(t, tile, rt, "fp-good", 3*time.Minute)
+	a.waitServed(t, tile, rt, "fp-good", raceGuard)
 	fault := "crash"
 	if rt == "go" {
 		fault = "build"
 	}
+	tp := a.tape(t)
+	m := tp.mark()
 	mustRT(t, ws, tile, rt, "fp-broken", fault)
-	// The zero-state save's build or start fails, and the old generation
-	// keeps serving (its /file reads the live work tree): nothing to wait
-	// for but the watcher (bounded).
-	time.Sleep(4 * latencyDebounce)
-	a.waitCode(t, tile, rt, "fp-good", time.Minute)
+	// The save's build or start fails, and the old generation keeps serving
+	// (its /file reads the live work tree).
+	if _, ok := tp.wait(m, isEvent("build-error", tile), raceGuard); !ok {
+		t.Fatalf("%s: the broken save's build never failed: %s", tile, tp.describe(m, tile))
+	}
+	a.waitCode(t, tile, rt, "fp-good", raceGuard)
 
 	_, e := a.op(t, "live-reload/pause", tile)
 	if e.How != "pause" || e.Result != "failed" || e.Error == "" {
@@ -1266,7 +1281,7 @@ func raceFailedPause(t *testing.T, a dlAPI, ws, tile, rt string) string {
 	if st.LiveReload != "" || st.pinned("main") != e.Checkpoint {
 		t.Errorf("%s: after the failed pause live reload %q, main pinned to %q (attempted %s)", tile, st.LiveReload, st.pinned("main"), e.Checkpoint)
 	}
-	a.waitCode(t, tile, rt, "fp-good", 10*time.Second)
+	a.waitCode(t, tile, rt, "fp-good", raceGuard)
 
 	mustRT(t, ws, tile, rt, "fp-fixed", "")
 	time.Sleep(3 * latencyDebounce) // negative: the fixed work tree reaches nothing
@@ -1280,7 +1295,7 @@ func raceFailedPause(t *testing.T, a dlAPI, ws, tile, rt string) string {
 	var ok bool
 	// A restart runs the attempted checkpoint, which can't start: the tile
 	// answers errors until it is deployed again, and never the work tree.
-	if !waitFor(func() bool { v, _, ok = a.served(tile, rt); return !ok || v == "fp-fixed" }, time.Minute) || v == "fp-fixed" {
+	if !waitFor(func() bool { v, _, ok = a.served(tile, rt); return !ok || v == "fp-fixed" }, raceGuard) || v == "fp-fixed" {
 		t.Errorf("%s: after a crash, pinned to the failed checkpoint, it answers %q (ok %v)", tile, v, ok)
 	}
 	for i := 0; i < 5; i++ {
@@ -1292,7 +1307,7 @@ func raceFailedPause(t *testing.T, a dlAPI, ws, tile, rt string) string {
 	if _, e = a.op(t, "live-reload/now", tile); e.Result != "ok" {
 		t.Fatalf("%s: reload now of the fixed work tree: %+v", tile, e)
 	}
-	a.waitServed(t, tile, rt, "fp-fixed", time.Minute)
+	a.waitServed(t, tile, rt, "fp-fixed", raceGuard)
 	return "fp-fixed"
 }
 

@@ -640,7 +640,8 @@ func TestIdentifyDeploymentHeader(t *testing.T) {
 		r := httptest.NewRequest("GET", "/api/apps/t+dev/x/y?frame=tok&q=1", nil)
 		r.Header.Set(HeaderDeployment, "dev") // as identify set it
 		rec := httptest.NewRecorder()
-		(&Proxy{}).forward(rec, r, sock, "x/y", c.answering)
+		px := &Proxy{}
+		px.forward(rec, r, &rerouting{px: px, gen: fakeGen{sock: sock}}, "x/y", c.answering)
 		if got := rec.Header().Values(HeaderDeployment); !slices.Equal(got, []string{c.want}) {
 			t.Errorf("answering %q: the response's X-XBin-Deployment %q, want %q", c.answering, got, c.want)
 		}

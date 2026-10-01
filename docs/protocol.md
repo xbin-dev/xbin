@@ -5052,7 +5052,12 @@ a time, sub-paths traversal-stripped. The native runtime document
   swapped blue/green on change (an edit to the tile's native UI entry
   alone reloads its views without a swap — docs/elements.md §Native app
   UI), SIGTERMed with a 30 s drain, idle-reaped
-  after ~30 min, and crash-loop-broken after 3 fast exits.
+  after ~30 min, and crash-loop-broken after 3 fast exits. On SIGTERM stop
+  taking connections and answer the requests you hold. A request your stop
+  cut off before any answer goes to the generation that replaced you when
+  sending it again is safe (no body, and an idempotent method or nothing
+  of it reached you), even one you had begun; any other is lost
+  (docs/elements.md §Runtimes & backend lifecycle).
 - While your deployment is pinned (docs/tile-deployments.md) you run a
   checkpoint instead of the work tree — read-only at the tile's own path,
   restarted from its kept build on every restart — and a save doesn't reach
