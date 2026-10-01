@@ -160,6 +160,14 @@ func TestAgentTemplateUpdateWithoutIsolation(t *testing.T) {
 	}
 	r.merge(inst, "apps/old-agent", "")
 	blockSaid()
+	if err := r.b.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := r.b.Reg.Component("apps/old-agent"); !ok {
+		t.Fatal("apps/old-agent isn't registered")
+	} else if st, _, req := c.PartitionState(); st != registry.PartitionUnpartitioned || req != nil {
+		t.Errorf("apps/old-agent after the update without --isolate: %v %+v, want unpartitioned, no request", st, req)
+	}
 	// the note is said once: another start commits nothing
 	head := mustGit(t, r.tpl, "rev-parse", "main")
 	r.b.MaterializeTemplateRepos(v2)
