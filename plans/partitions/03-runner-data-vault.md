@@ -98,8 +98,13 @@ spell the deployment anyway.
      host memory — per tile `clamp(MemTotal/4 ÷ E, 4, 32)`, workspace
      `clamp(MemTotal/2 ÷ E, 8, 128)`, where `E` is the per-instance estimate
      (placeholder 160 MiB incl. two gocryptfs processes, replaced by the QA-box
-     measurement of an agent partition's RSS before release, I2). A 4 GiB
-     macOS VM (`deploy/install-macos.sh`) gets 6/12.
+     measurement of an agent partition's RSS before release, I2). **I2
+     measured it (records/I2.md): E = 96 MiB** — an agent partition holds
+     ~56 MiB resident (61 at most) with its two gocryptfs processes (~26 MiB
+     of its own, PSS plus kernel); E keeps ~70% headroom for heavier use
+     I2 didn't measure (64 MiB is what the measurement alone supports: a
+     recommendation for the owner). A 4 GiB macOS VM
+     (`deploy/install-macos.sh`) gets 10/21 (6/12 with the placeholder).
    - **Interactive vs background.** `class` comes from Route (02 §7): rule-1
      deliveries (cron, bus, mail) are background. A partition is *in use*
      while it has a non-passive tracked connection, a hold (the agent's

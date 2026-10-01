@@ -2305,7 +2305,7 @@ POST   /partitions/limits         admin (the admin console: when the
                                    ≤ 4096, partitionBytes ≥ 1 MiB. The caps
                                    default from host memory M (per tile
                                    clamp(M/4 ÷ E, 4, 32), workspace
-                                   clamp(M/2 ÷ E, 8, 128), E ≈ 160 MiB; M
+                                   clamp(M/2 ÷ E, 8, 128), E = 96 MiB; M
                                    is MemTotal, or xbind's own cgroup
                                    memory limit when lower), the ceiling
                                    to the tile's per-namespace one. →

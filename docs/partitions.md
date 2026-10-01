@@ -1111,8 +1111,12 @@ Each person's partition is **its own backend process**, in its own sandbox:
 
 **Limits.** How many people's instances run at once is capped, per tile and
 for the whole workspace, from the host's memory M — per tile
-clamp(M/4 ÷ E, 4, 32), workspace-wide clamp(M/2 ÷ E, 8, 128), with E about
-160 MiB per instance (a 4 GiB machine runs 6 per tile, 12 in all). M is
+clamp(M/4 ÷ E, 4, 32), workspace-wide clamp(M/2 ÷ E, 8, 128), with E
+96 MiB per instance (a 4 GiB machine runs 10 per tile, 21 in all; 8 GiB,
+21 and 42). E comes from a measurement: a person's partition of the agent
+template, with its two encrypted volumes' gocryptfs processes, holds about
+56 MiB resident, about 26 MiB of it its own (people's instances of one
+tile share their binary), and E leaves room for heavier use. M is
 the machine's MemTotal, or xbind's own memory limit when it runs in a
 cgroup (a container) that caps it lower. At the cap, a person's start stops the least recently used partition
 that isn't in use (no request in the last 2 minutes and no held
