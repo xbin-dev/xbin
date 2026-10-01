@@ -163,6 +163,8 @@ export const shellCss = [scrollCss, css`
     .alert .ico { font-size: 14px; }
     .alert.warn { background: #b7791f; }
     .alert.crit { background: #c53030; }
+    .alert .dismiss { margin-left: auto; flex: none; font: inherit; background: none; color: inherit;
+      border: 1px solid rgba(255,255,255,.5); border-radius: 4px; cursor: pointer; }
 
     /* ---- component status: sidebar dots + tab tint + toasts (tiles → workspace) ---- */
     .tab.st-warn, .tab.st-error { color: var(--st); }

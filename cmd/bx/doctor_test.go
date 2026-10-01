@@ -47,3 +47,33 @@ func TestDoctorFlagsPlusNames(t *testing.T) {
 		t.Errorf("bx doctor flagged apps/x:\n%s", out)
 	}
 }
+
+// covers D166's upgrade check — bx doctor renders GET /go-build-versions: a
+// tile still linking older versions is a problem naming the lines to add
+// and what changed, a dismissed one a note, a tile it couldn't compare a
+// note with the error's first line.
+func TestDoctorGoBuildVersions(t *testing.T) {
+	f := newDLFake().on("GET /api/xbin/components", 200, `[{"path":"apps/b","runtime":"go"}]`).
+		on("GET /api/xbin/go-build-versions", 200, `{"since":"v0.3.65","done":true,"running":false,"tiles":[
+			{"tile":"apps/b","require":["modernc.org/sqlite v1.39.1"],"minimal":true,"changes":[
+				{"module":"modernc.org/libc","had":"v1.66.10","now":"v1.55.3"},
+				{"module":"golang.org/x/exp","had":"v0.0.0-2025"},
+				{"module":"example.com/n","now":"v0.1.0"}],"dismissed":false},
+			{"tile":"apps/c","require":["golang.org/x/net v0.46.0"],"minimal":false,"changes":[],"dismissed":true}],
+			"errors":[{"tile":"apps/d","error":"built with the workspace's go.work: go: module . requires go >= 1.25.0\nmore"}]}`)
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	out, _, _ := dlExec(t, t.TempDir(), []string{"XBIN_URL=" + srv.URL, "XBIN_TOKEN=dl-token"}, "doctor")
+	for _, want := range []string{
+		"✗ apps/b builds with older dependency versions since v0.3.65 (each Go tile now builds with its own go.mod's versions): add `require modernc.org/sqlite v1.39.1` to its go.mod to keep what it had — modernc.org/libc v1.66.10 → v1.55.3, golang.org/x/exp v0.0.0-2025 → not linked, example.com/n (new) v0.1.0",
+		"· (dismissed) apps/c builds with older dependency versions since v0.3.65 (each Go tile now builds with its own go.mod's versions): add `require golang.org/x/net v0.46.0` to its go.mod to keep what it had (the raw differing lines: fewer may do)",
+		"· apps/d: the Go build versions check couldn't compare its builds: built with the workspace's go.work: go: module . requires go >= 1.25.0\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bx doctor lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "✗ apps/c") {
+		t.Errorf("a dismissed tile counted as a problem:\n%s", out)
+	}
+}

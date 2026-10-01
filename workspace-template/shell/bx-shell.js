@@ -1252,6 +1252,15 @@ export class BxShell extends LitElement {
     } catch { /* transient */ }
   }
 
+  // An alert that can be dismissed names the route (a.dismiss, under
+  // /api/xbin) a POST to which does it — asked as the alerts were read.
+  async _dismissAlert(a) {
+    try {
+      await window.xbin?.fetch('/api/xbin' + a.dismiss, { method: 'POST' });
+    } catch { /* the next poll tells */ }
+    this._loadAlerts();
+  }
+
   // ---- component status & notifications (tiles → workspace) ----
   // RAW fetch: the cookie principal is the signed-in user, so the list is
   // read-filtered to their tiles (xbin.fetch would downgrade to the chrome
@@ -1734,7 +1743,8 @@ export class BxShell extends LitElement {
     return html`
       ${this._alerts.length ? html`<div class="alerts">
         ${this._alerts.map((a) => html`<div class="alert ${a.level}">
-          <span class="ico">${a.level === 'crit' ? '\u26A0' : '\u26A1'}</span>${a.message}</div>`)}
+          <span class="ico">${a.level === 'crit' ? '\u26A0' : '\u26A1'}</span>${a.message}
+          ${a.dismiss ? html`<button class="dismiss" @click=${() => this._dismissAlert(a)}>dismiss</button>` : nothing}</div>`)}
       </div>` : nothing}
       ${this._setupCard ? html`<div class="alerts"><div class="alert warn">
         <span class="ico">\u{1F510}</span>

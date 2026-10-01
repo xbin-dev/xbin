@@ -267,6 +267,12 @@ func cmdDoctor() error {
 			fmt.Println("  · go.work is hand-managed (xbind will not touch it; tile builds keep its go, toolchain, godebug and replace lines — D166)")
 		}
 	}
+	// Go tiles that link older dependency versions since each builds with
+	// its own go.mod (D166). Best-effort: needs admin credentials.
+	var gv goBuildVersions
+	if err := apiJSON("GET", "/api/xbin/go-build-versions", nil, &gv); err == nil {
+		doctorGoBuildVersions(gv, warn)
+	}
 
 	// Sandbox uid mapping: a terminal reads its own /proc/self/uid_map. A single
 	// mapped range of size 1 (e.g. "0 999 1") is single-uid mode, where apt/dpkg
@@ -353,6 +359,76 @@ func cmdDoctor() error {
 		return nil
 	}
 	return fmt.Errorf("%d problem(s)", problems)
+}
+
+// goBuildVersions is GET /go-build-versions (docs/protocol.md): the Go
+// tiles whose own go.mod links older versions than the shared go.work did.
+type goBuildVersions struct {
+	Since   string `json:"since"`
+	Done    bool   `json:"done"`
+	Running bool   `json:"running"`
+	Tiles   []struct {
+		Tile    string   `json:"tile"`
+		Require []string `json:"require"`
+		Minimal bool     `json:"minimal"`
+		Changes []struct {
+			Module string `json:"module"`
+			Had    string `json:"had"`
+			Now    string `json:"now"`
+		} `json:"changes"`
+		Dismissed bool `json:"dismissed"`
+	} `json:"tiles"`
+	Errors []struct {
+		Tile  string `json:"tile"`
+		Error string `json:"error"`
+	} `json:"errors"`
+}
+
+// doctorGoBuildVersions renders the D166 upgrade check: each tile still
+// linking older versions is a problem with the lines to add (a dismissed
+// one a note), a tile it couldn't compare a note.
+func doctorGoBuildVersions(gv goBuildVersions, warn func(string, ...any)) {
+	since := gv.Since
+	if since == "" {
+		since = "D166"
+	}
+	if gv.Running {
+		fmt.Println("  · the Go build versions check is running (D166; GET /api/xbin/go-build-versions)")
+	}
+	for _, t := range gv.Tiles {
+		var lines, changes []string
+		for _, r := range t.Require {
+			lines = append(lines, "`require "+r+"`")
+		}
+		for _, c := range t.Changes {
+			switch {
+			case c.Had == "":
+				changes = append(changes, c.Module+" (new) "+c.Now)
+			case c.Now == "":
+				changes = append(changes, c.Module+" "+c.Had+" → not linked")
+			default:
+				changes = append(changes, c.Module+" "+c.Had+" → "+c.Now)
+			}
+		}
+		raw := ""
+		if !t.Minimal {
+			raw = " (the raw differing lines: fewer may do)"
+		}
+		msg := fmt.Sprintf("%s builds with older dependency versions since %s (each Go tile now builds with its own go.mod's versions): add %s to its go.mod to keep what it had%s",
+			t.Tile, since, strings.Join(lines, ", "), raw)
+		if len(changes) > 0 {
+			msg += " — " + strings.Join(changes, ", ")
+		}
+		if t.Dismissed {
+			fmt.Println("  · (dismissed) " + msg)
+		} else {
+			warn("%s", msg)
+		}
+	}
+	for _, e := range gv.Errors {
+		first, _, _ := strings.Cut(strings.TrimSpace(e.Error), "\n")
+		fmt.Printf("  · %s: the Go build versions check couldn't compare its builds: %s\n", e.Tile, first)
+	}
 }
 
 // fuseConfAllowsOther reports whether a fuse.conf enables user_allow_other
