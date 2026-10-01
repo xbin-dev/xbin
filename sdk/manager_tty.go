@@ -224,7 +224,7 @@ func DialManagerTTY(ctx context.Context, endpoint, sandboxID string, o ManagerTT
 //		if !ok {
 //			return
 //		}
-//		xbin.RelayManagerTTY(w, r, sb.Endpoint, sb.ID, xbin.ManagerTTYOptions{User: person, Cmd: "claude /login"})
+//		xbin.RelayManagerTTY(w, r, sb.Endpoint, sb.ID, xbin.ManagerTTYOptions{User: person, Cmd: "claude auth login"})
 //	})
 func RelayManagerTTY(w http.ResponseWriter, r *http.Request, endpoint, sandboxID string, o ManagerTTYOptions) ManagerTTYRelay {
 	if why := notHandshake(r); why != "" { // before anything starts at the manager

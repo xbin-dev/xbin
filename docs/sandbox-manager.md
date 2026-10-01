@@ -124,7 +124,7 @@ body (a sandboxed page can't set custom request headers).
  "caps": ["exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports"],
  "egress": ["none", "internet"],
  "images": [{"id": "base", "title": "Debian with git, Go and Node", "default": true, "tools": ["git", "go", "node", "rg"],
-             "harnesses": [{"id": "claude", "title": "Claude Code", "argv": ["claude-agent-acp"], "login": "CLAUDE_CODE_REMOTE=1 claude /login"},
+             "harnesses": [{"id": "claude", "title": "Claude Code", "argv": ["claude-agent-acp"], "login": "claude auth login"},
                            {"id": "codex"}]}],
  "sizes": [{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}],
  "limits": {"sandboxes": 0, "runTimeoutMaxMs": 600000, "runOutputMax": 1048576,
