@@ -22,6 +22,7 @@ import { harnessOf, nameOf } from './harness.js';
 import { access } from './rules.js';
 import { homeOf } from './homes.js';
 import { signInAway } from './harness-homes.js';
+import { guidedOf, rememberOf } from './harness-signins.js';
 
 // --- the dock ---------------------------------------------------------------------
 
@@ -164,7 +165,10 @@ const sharedOf = (s) => !!(s && (s.visibility === 'team' || (Array.isArray(s.mem
 //    — the card says why in view and offers nothing), view,
 //    away ('' | why this page offers no sign-in: model/harness-homes.js
 //    signInAway — the global instance's page, or a shared conversation's
-//    run in a person's partition, where the credentials wouldn't stay theirs)}
+//    run in a person's partition, where the credentials wouldn't stay theirs),
+//    guided (the guided sign-in is offered: a link and a code, D179 —
+//    model/harness-signins.js), remember ({offered, why}: its "Remember for
+//    my other sandboxes")}
 export function signIn(v, { list = null, entry = null, me = null } = {}) {
   const r = v && v.run;
   const ps = r && r.pendingState;
@@ -195,7 +199,7 @@ export function signIn(v, { list = null, entry = null, me = null } = {}) {
   const shared = !!hs.shared || sharedOf(row);
   const away = signInAway(r.id);
   const talk = access(v).talk && !away;
-  return {
+  const c = {
     run: r.id, park: ps.park || '', name, command, methods, shared, canUse,
     sandbox: { ref, name: sname, cwd },
     // someone else's: ask them; yours no longer (a share taken back): its owner, or another sandbox
@@ -209,6 +213,11 @@ export function signIn(v, { list = null, entry = null, me = null } = {}) {
     warn: `The credentials land in ${sname}'s home: anyone who may use it acts as you with ${name} there, and its clones and snapshots keep them.`,
     confirmLabel: `${sname} is shared — sign in anyway`,
   };
+  // the guided sign-in (D179: a link and a code, the CLI in the sandbox) and
+  // its Remember (a saved sign-in, a person's own partition only)
+  c.guided = guidedOf(c, entry);
+  c.remember = c.guided ? rememberOf(c, { entry, row, me: who }) : { offered: false, why: '' };
+  return c;
 }
 
 // methodLabel: a method's button.

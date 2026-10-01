@@ -22,6 +22,8 @@
 import { catalogOf, findHarness } from './harness.js';
 import { at, homeOf, runOfPath } from './homes.js';
 import { harnessesHere } from './harness-homes.js';
+import { signinsOf } from './harness-signins.js';
+import { partitionState } from './partition.js';
 
 const cid = () => 'h' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -58,7 +60,7 @@ const savePref = (key, v) => globalThis.xbin.fetch(`/api/xbin/prefs/${key}`, { m
 export const AGENT = 'agent'; // prefs/agent: the built-in agent answers
 
 export function createHarnessStore(app) {
-  let loaded = false, inflight = null;
+  let loaded = false, inflight = null, signinsInflight = null;
   const emit = () => app.emit('harness');
   // the view's own run (not current()'s merged copy): its park
   const parkOf = (runId) => app.session.views.get(runId)?.run?.pendingState?.park || app.session.runs.get(runId)?.pendingState?.park;
@@ -161,6 +163,50 @@ export function createHarnessStore(app) {
     authenticate(runId, method, { apiKey, confirm } = {}) {
       return call(`/runs/${runId}/harness/authenticate`, 'POST', { method, ...(apiKey ? { apiKey } : {}), ...(confirm ? { confirm: true } : {}) });
     },
+    // guided: the guided sign-in (D179) — without code it starts (202
+    // {signin: {url, paste}}: yours alone), with code it finishes ({state:
+    // "ready", saved?}); remember mints a saved sign-in named name instead
+    // (`claude setup-token`: its token stays with the backend).
+    guided(runId, { code, remember, name, confirm } = {}) {
+      return call(`/runs/${runId}/harness/authenticate`, 'POST', { method: 'guided', ...(code ? { code } : {}),
+        ...(remember ? { remember: true, ...(name ? { name } : {}) } : {}), ...(confirm ? { confirm: true } : {}) });
+    },
+    // pickSignin: the saved sign-in a conversation uses — "default",
+    // "sandbox" or an id (PUT /runs/{id}/harness/signin) — {harness}.
+    async pickSignin(runId, signin) {
+      const r = await call(`/runs/${runId}/harness/signin`, 'PUT', { signin });
+      emit();
+      return r;
+    },
+
+    // --- saved sign-ins (D179: a person's own partition) ---------------------------
+    signins: signinsOf(null), // GET /prefs/harness-signins (model/harness-signins.js signinsOf)
+    // loadSignins reads them (never in the shared space's own page: none there).
+    async loadSignins() {
+      if (partitionState() === 'global') { hs.signins = { ...signinsOf({ available: false }), why: 'the shared space holds no one\'s credentials' }; emit(); return hs.signins; }
+      try { hs.signins = signinsOf(await call('/prefs/harness-signins')); } catch (e) { hs.signins = { ...signinsOf(null), loaded: true, why: e.message }; }
+      emit();
+      return hs.signins;
+    },
+    ensureSignins() { if (!hs.signins.loaded && !signinsInflight) signinsInflight = hs.loadSignins().finally(() => { signinsInflight = null; }); },
+    // saveSignin: a pasted key or token — the secret goes once and is kept
+    // by the backend; the answer is its row.
+    async saveSignin({ harness, name, secret, env, isDefault } = {}) {
+      const r = await call('/prefs/harness-signins', 'POST', { harness, secret, ...(name ? { name } : {}), ...(env ? { env } : {}), ...(isDefault ? { default: true } : {}) });
+      await hs.loadSignins();
+      return r;
+    },
+    async updateSignin(id, patch) {
+      const r = await call(`/prefs/harness-signins/${encodeURIComponent(id)}`, 'PUT', patch);
+      await hs.loadSignins();
+      return r;
+    },
+    async forgetSignin(id) {
+      const r = await call(`/prefs/harness-signins/${encodeURIComponent(id)}`, 'DELETE');
+      await hs.loadSignins();
+      return r;
+    },
+
     // log: the adapter's stderr, its last max bytes (≤ 64 KiB), as text.
     log(runId, max = 65536) { return call(`/runs/${runId}/harness/log?max=${Math.min(65536, Number(max) || 65536)}`, 'GET', undefined, true); },
     // steer: a message to a harness run (a child's too — its parent is told,

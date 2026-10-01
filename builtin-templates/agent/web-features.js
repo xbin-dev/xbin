@@ -229,4 +229,8 @@ export const IMPLEMENTS = {
   'harness.autonomy': 'harness-controls.js — #hctl: settingTpl, at home for the harness that answers new chats (app.harness.setSetting)',
   // Coding agents — terminals and sign-in (D147 §8 U5)
   'harness.login': 'signin.js — #hlogin (ext.end, a login park only): [data-kind] methods, a login tab in the dock (terminals.js #sbxterm-retry), the password form, #hl-device, #hl-confirm, #hl-ask, #hl-retry (model/terminals.js signIn)',
+  'harness.login.guided': 'signin.js — #hl-guided: #hl-gstart, #hl-gopen (a link), #hl-gcopy, #hl-gcode with Finish, #hl-gstatus; the terminal method "Use a terminal instead" (model/harness-signins.js guidedWords)',
+  'harness.login.remember': 'signin.js — #hl-remember and #hl-rname, or #hl-noremember saying why (model/harness-signins.js rememberOf)',
+  'harness.signins': 'harness-catalog.js — #hsignins in the ⚙ Coding agents tab: .hsrow rows (Default, Make default, Rename, Forget), a paste form per coding agent (model/harness-signins.js signinGroups)',
+  'harness.account': 'harness-controls.js — #hctl\'s label ends with the account; its popover\'s Account section switches it (model/harness-signins.js accountOf, app.harness.pickSignin)',
 };

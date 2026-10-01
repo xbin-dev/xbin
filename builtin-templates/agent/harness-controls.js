@@ -13,6 +13,11 @@
 //            steers or queues, as the placeholder says); Stop interrupts
 //   steered  a message steered into the running turn says so for a moment
 //            (from the stream: model/harness-ask.js steerTrack)
+//   account  in a person's own partition, #hctl's label ends with the account
+//            its coding agent uses ("using Work") and the popover's Account
+//            section switches it — the default, another saved sign-in, the
+//            sandbox's own — and opens Saved sign-ins… (D179:
+//            model/harness-signins.js accountOf, harness-catalog.js openSignins)
 // All of it through the web's seams (web-ext.js: paint) and elements of its
 // own; the words are model/harness-ask.js's. The queued chips' label is
 // agent.js's (queueTpl with steerWords).
@@ -22,9 +27,12 @@ import { harnessOf, nameOf } from './model/harness.js';
 import { controls, settingOf, slashCommands, slashMatches, slashText, steerWords, steerTrack, ownerOf, modeConfirm } from './model/harness-ask.js';
 import { access } from './model/rules.js';
 import { barredWhy } from './model/harness-homes.js'; // one in the shared space isn't driven: its mode and options are shown, not switched
+import { accountOf, switchWords } from './model/harness-signins.js';
+import { partitionState } from './model/partition.js';
+import { openSignins } from './harness-catalog.js';
 
 const $ = (id) => document.getElementById(id);
-const st = { open: false, busy: false, err: '', sel: 0, dismissed: null, shown: null, timer: 0 };
+const st = { open: false, busy: false, err: '', note: '', sel: 0, dismissed: null, shown: null, timer: 0 };
 let hctl, pop, slash, steer, stopTitle = '';
 const track = steerTrack();
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
@@ -56,9 +64,11 @@ ext.register({
     const h = v ? harnessOf(v) : null;
     const home = !v && !app.page ? app.harness.picked() : null;
     if (h) app.harness.ensure();
+    if (h && partitionState() === 'user') app.harness.ensureSignins(); // the account (D179)
     hctl.hidden = !(h || home);
     if (!h && !home) st.open = false;
-    render(h ? buttonTpl(controls(h, app.harness.find(h.provider), who(v)).label) : home ? buttonTpl(homeLabel(home)) : nothing, hctl);
+    const acct = h ? accountOf(h, app.harness.signins) : null;
+    render(h ? buttonTpl(controls(h, app.harness.find(h.provider), who(v)).label + (acct.shown && acct.label ? ` · ${acct.label}` : '')) : home ? buttonTpl(homeLabel(home)) : nothing, hctl);
     drawPop(v, h, home);
     // the composer's words on a harness run (null: the built-in ones stand)
     const w = steerWords(v);
@@ -103,9 +113,31 @@ function drawPop(v, h, home) {
         @change=${(e) => pickOption(runId, o, e.target.value)}>
         ${o.choices.map((ch) => html`<option value=${String(ch.value)} ?selected=${String(ch.value) === String(o.value)}
           title=${ch.description || nothing}>${ch.name}</option>`)}</select>`)}
+    ${accountTpl(runId, h, c)}
     ${st.busy ? html`<div class="muted small">switching…</div>` : nothing}
     ${st.err ? html`<div class="err small">${st.err}</div>` : nothing}
+    ${st.note && !st.err ? html`<div class="muted small" id="hctl-note">${st.note}</div>` : nothing}
     ${settingTpl(app.harness.find(h.provider), true)}`, pop);
+}
+
+// the account its coding agent uses (D179): the default, another saved
+// sign-in or the sandbox's own; a switch restarts it with that one at the
+// next message, resuming the session
+function accountTpl(runId, h, c) {
+  const app = ctx.app;
+  const acct = accountOf(h, app.harness.signins);
+  if (!acct.shown) return nothing;
+  const pick = (ch) => {
+    if (ch.current || ch.disabled) return;
+    st.note = '';
+    patch(async () => { await app.harness.pickSignin(runId, ch.value); st.note = switchWords(c.name, ch); });
+  };
+  return html`<div class="hsec">Account</div>
+    ${acct.choices.map((ch) => html`<label class="hmode hacct ${ch.disabled ? 'off' : ''}" data-signin=${ch.value} title=${ch.why || nothing}>
+      <input type="radio" name="hctl-acct" .checked=${live(ch.current)} ?disabled=${ch.disabled || st.busy || !c.talk} @change=${() => pick(ch)}>
+      <span>${ch.label}${ch.why ? html`<span class="muted small"> — ${ch.why}</span>` : nothing}</span></label>`)}
+    ${acct.warn ? html`<div class="err small" id="hctl-acctwarn">${acct.warn}</div>` : nothing}
+    <button class="btn btnsm ghost" type="button" id="hctl-signins" @click=${() => { st.open = false; repaint(); openSignins(app); }}>Saved sign-ins…</button>`;
 }
 
 // a call on the live session: the popover says it's on its way, then why it failed;
@@ -221,7 +253,8 @@ const style = document.createElement('style');
 style.textContent = `
   .hctl { align-self: flex-end; flex: 1 1 0; min-width: 2em; max-width: max-content; display: flex; } /* the pickers' row: what's left of it */
   .hctl[hidden] { display: none; }
-  .hctl .hctlb { min-width: 0; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hctl .hctlb { min-width: 0; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hctlpop .hacct.off { opacity: .55; }
   .hctlpop, .hslash, .hsteer { position: fixed; z-index: 30; }
   .hctlpop[hidden], .hslash[hidden], .hsteer[hidden] { display: none; }
   .hctlpop { box-sizing: border-box; width: min(340px, calc(100vw - 16px)); max-height: 70vh; overflow: auto; background: var(--bx-panel); border: 1px solid var(--bx-border);

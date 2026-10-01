@@ -27,3 +27,6 @@ import './harness-board.js'; // the Coding agents screen (sections), its toolbar
 
 // U8 managers
 import './harness-catalog.js';
+
+// D179 saved sign-ins
+import './harness-signins.js'; // Coding-agent sign-ins (a person's own): list, rename, default, paste a key or token, Forget
