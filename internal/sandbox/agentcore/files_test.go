@@ -23,7 +23,7 @@ import (
 func (h *harness) call(op proto.FileOp, body []byte) (first proto.FileResult, data []byte, last proto.FileResult) {
 	h.t.Helper()
 	c := h.dial(proto.Hello{Kind: "file", File: &op})
-	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(hangGuard))
 	pc := proto.NewConn(c, nil)
 	if op.Op == "write" || op.Op == "tar-put" {
 		go func() {
@@ -215,7 +215,7 @@ func TestWriteNeedsTheTerminator(t *testing.T) {
 	h := newHarness(t, nil)
 	op := proto.FileOp{Op: "write", Path: "/nt"}
 	c := h.dial(proto.Hello{Kind: "file", File: &op})
-	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(hangGuard))
 	if err := proto.WriteFrame(c, []byte("partial")); err != nil {
 		t.Fatal(err)
 	}
