@@ -593,10 +593,19 @@ func testLive(t *testing.T, bin, rootfs string) {
 			le.start("sb-1")
 			le.stop("sb-1")
 		}
-		runtime.GC()
-		time.Sleep(100 * time.Millisecond)
-		if after := openFDs(t); after > before {
-			t.Fatalf("open fds %d → %d over 20 cycles", before, after)
+		// a stopped sandbox's last descriptors close asynchronously (its
+		// relay's and waiter's goroutines): a loaded host takes longer than
+		// a fixed settle. A leak stays.
+		after, deadline := 0, time.Now().Add(5*time.Second)
+		for {
+			runtime.GC()
+			if after = openFDs(t); after <= before || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if after > before {
+			t.Fatalf("open fds %d → %d over 20 cycles (5 s after the last stop)", before, after)
 		}
 	})
 

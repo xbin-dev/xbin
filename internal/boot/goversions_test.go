@@ -230,7 +230,19 @@ func TestGoBuildVersionsBoot(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	b, err := os.ReadFile(filepath.Join(ws, "data", "go-build-versions.json"))
+	// the alert is up once b is compared; the pass is done (and says so in
+	// its state) once a is too, which may come after (CI run 36851265963)
+	var (
+		b   []byte
+		err error
+	)
+	for {
+		b, err = os.ReadFile(filepath.Join(ws, "data", "go-build-versions.json"))
+		if err == nil && strings.Contains(string(b), `"done": true`) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if err != nil || !strings.Contains(string(b), `"done": true`) || !strings.Contains(string(b), `"since": "test"`) {
 		t.Errorf("the state: %s %v", b, err)
 	}

@@ -43,10 +43,13 @@ make integration    # end-to-end; compiles real Go backends (network on first
                     # run for module downloads). Includes the container-store
                     # fs suites (test/containerfs/): those need bin/gocryptfs
                     # (`make helpers`) + unprivileged userns, and skip with
-                    # instructions when missing
-make check          # the definition of done: fmt-check vet js-check shellcheck
-                    # pins-offline large-files test — CI runs exactly this,
-                    # then integration
+                    # instructions when missing. Its suites (hack/
+                    # integration.jsonc) run as shards, all at once, each
+                    # into a log; SHARD=i/N runs one as a CI job does
+make check          # the definition of done: the guards (fmt-check vet
+                    # js-check shellcheck pins-offline large-files …, alone:
+                    # `make guards`) and test — CI runs the same split over
+                    # parallel jobs, with integration's shards
 make hooks          # once per clone: fmt-check + js-check run pre-commit
 make vulncheck      # the release's vulnerability gate (network): govulncheck
                     # over the Go a release builds from this checkout —

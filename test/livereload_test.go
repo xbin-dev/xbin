@@ -151,17 +151,22 @@ func zeroStatePID(t *testing.T, tile string) int {
 		Sandboxes []struct {
 			Kind string
 			PID  int
+			Gen  int
 		}
 	}
 	if json.Unmarshal([]byte(body), &out) != nil {
 		return 0
 	}
+	// the newest generation: right after a swap the registry still lists
+	// the one it replaced, draining or already gone (killing that one was
+	// "no such process" on a loaded host, or no crash of the serving one)
+	pid, gen := 0, -1
 	for _, s := range out.Sandboxes {
-		if s.Kind == "backend" {
-			return s.PID
+		if s.Kind == "backend" && s.Gen > gen {
+			pid, gen = s.PID, s.Gen
 		}
 	}
-	return 0
+	return pid
 }
 
 // ---- the dev lifecycle's M1 tests (WP-28): shared helpers ----

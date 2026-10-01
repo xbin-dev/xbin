@@ -429,3 +429,26 @@ func TestHarnessShapes(t *testing.T) {
 			strings.Join(missing, "\n  "))
 	}
 }
+
+// hasActivityTitle reports whether decoded JSON holds, anywhere, an
+// "activity" object whose title is title.
+func hasActivityTitle(x any, title string) bool {
+	switch v := x.(type) {
+	case map[string]any:
+		if a, ok := v["activity"].(map[string]any); ok && a["title"] == title {
+			return true
+		}
+		for _, e := range v {
+			if hasActivityTitle(e, title) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range v {
+			if hasActivityTitle(e, title) {
+				return true
+			}
+		}
+	}
+	return false
+}

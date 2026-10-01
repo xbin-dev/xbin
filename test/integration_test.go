@@ -9,6 +9,7 @@ package test
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -54,6 +55,10 @@ func startDaemon(t *testing.T, cmd *exec.Cmd, ws string) {
 }
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if l := flag.Lookup("test.list"); l != nil && l.Value.String() != "" {
+		os.Exit(m.Run()) // only listing (hack/testshard verify): no xbind to build, no daemon
+	}
 	var err error
 	repo, err = filepath.Abs("..")
 	if err != nil {
@@ -275,12 +280,25 @@ func TestGoBackendLifecycle(t *testing.T) {
 	}
 }
 
+// installExample copies examples/<name> into the shared workspace as
+// apps/<name>, unless an earlier test of this process already did: the
+// tests that use one install it themselves, so each passes in any shard
+// (hack/testshard), with or without the others.
+func installExample(t *testing.T, name string) {
+	t.Helper()
+	dst := filepath.Join(ws, "apps", name)
+	if _, err := os.Stat(dst); err == nil {
+		return
+	}
+	cp := exec.Command("cp", "-r", filepath.Join(repo, "examples", name), dst)
+	if out, err := cp.CombinedOutput(); err != nil {
+		t.Fatal(string(out))
+	}
+}
+
 func TestGrantFlowAndResources(t *testing.T) {
 	for _, ex := range []string{"calendar", "email"} {
-		cp := exec.Command("cp", "-r", filepath.Join(repo, "examples", ex), filepath.Join(ws, "apps", ex))
-		if out, err := cp.CombinedOutput(); err != nil {
-			t.Fatal(string(out))
-		}
+		installExample(t, ex)
 	}
 	// Same-scope auto-grant: calendar can write its own kv + bus. Use
 	// today's date: email's /today reads the current day.
@@ -342,20 +360,27 @@ func TestGrantFlowAndResources(t *testing.T) {
 }
 
 func TestComponentsAPI(t *testing.T) {
-	_, body := get(t, "/api/xbin/components")
-	var comps []map[string]any
-	if err := json.Unmarshal([]byte(body), &comps); err != nil {
-		t.Fatalf("components not JSON: %v", err)
-	}
-	found := false
-	for _, c := range comps {
-		if c["path"] == "apps/calendar" {
-			found = true
-			if c["runtime"] != "go" {
-				t.Errorf("calendar runtime: %v", c["runtime"])
+	installExample(t, "calendar") // TestGrantFlowAndResources's, when it ran first
+	var (
+		body  string
+		found bool
+	)
+	waitFor(func() bool { // a fresh copy registers once the watcher sees it
+		_, body = get(t, "/api/xbin/components")
+		var comps []map[string]any
+		if err := json.Unmarshal([]byte(body), &comps); err != nil {
+			t.Fatalf("components not JSON: %v", err)
+		}
+		for _, c := range comps {
+			if c["path"] == "apps/calendar" {
+				found = true
+				if c["runtime"] != "go" {
+					t.Errorf("calendar runtime: %v", c["runtime"])
+				}
 			}
 		}
-	}
+		return found
+	}, 30*time.Second)
 	if !found {
 		t.Fatalf("apps/calendar missing from %s", body)
 	}
