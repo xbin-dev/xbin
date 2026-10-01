@@ -1455,9 +1455,13 @@ GET    /agent/providers           authenticated. the coding agents this daemon
                                    code, invalid?, done, fail} — run command
                                    in a terminal session on the tile (or
                                    argv+env over pipes when tty is false),
-                                   offer the first https URL on one of hosts
-                                   (or a subdomain) matching the regular
-                                   expression url — an OSC 8 link's target
+                                   offer the first https URL with no user
+                                   part on one of hosts exactly (no
+                                   subdomain) matching the regular
+                                   expression url whole (anchored at its
+                                   host and path: claude's is
+                                   https://(claude.com/cai|claude.ai)/oauth/
+                                   authorize?…) — an OSC 8 link's target
                                    first, else the text, rejoined where the
                                    CLI broke it over full-width lines —
                                    write the person's code and Enter once a
