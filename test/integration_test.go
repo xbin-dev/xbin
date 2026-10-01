@@ -99,7 +99,7 @@ func TestMain(m *testing.M) {
 		}
 		r.Body.Close()
 		return r.StatusCode == 200
-	}, 10*time.Second) {
+	}, daemonGuard) {
 		panic("xbind did not become healthy")
 	}
 
@@ -122,6 +122,12 @@ func removeTree(dir string) {
 	})
 	_ = os.RemoveAll(dir)
 }
+
+// daemonGuard bounds an xbind's start and stop in these tests, which end on
+// a condition (healthy, exited): a hang guard, never what a test depends
+// on. A boot on a loaded machine has taken over a minute (its confined
+// builtin setup), and a stop waits for its backends' drains.
+const daemonGuard = 3 * time.Minute
 
 func waitFor(cond func() bool, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)

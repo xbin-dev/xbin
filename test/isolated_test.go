@@ -5,7 +5,7 @@ package test
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -131,8 +131,9 @@ func isolationOrSkip(t *testing.T) string {
 	return fs
 }
 
-// start launches the daemon on d's workspace and ports, waits (a bounded
-// minute) until it is healthy, and reads the root token when auth is on.
+// start launches the daemon on d's workspace and ports, waits until it is
+// healthy (bounded by daemonGuard), and reads the root token when auth is
+// on.
 func (d *isoDaemon) start(t *testing.T) {
 	t.Helper()
 	if d.cmd != nil {
@@ -183,7 +184,7 @@ func (d *isoDaemon) start(t *testing.T) {
 		}
 		c, _ := d.do(t, "GET", "/healthz", "")
 		return c == 200
-	}, 60*time.Second)
+	}, daemonGuard)
 	select {
 	case <-done:
 		healthy = false
@@ -217,12 +218,12 @@ func (d *isoDaemon) restart(t *testing.T) {
 	d.start(t)
 }
 
-// halt sends SIGTERM (xbind stops its backends on the way out), waits a
-// bounded time, then kills the process group: xbind if it is still there,
-// and every straggler (a build, a sandbox) either way. xbind leaves its
-// encrypted resources' gocryptfs mounts up on exit (the next start's
-// RecoverStale clears them), so the cleanup releases them after the kill
-// (releaseFuseMounts).
+// halt sends SIGTERM (xbind stops its backends on the way out), waits for
+// its exit (bounded by daemonGuard), then kills the process group: xbind
+// if it is still there, and every straggler (a build, a sandbox) either
+// way. xbind leaves its encrypted resources' gocryptfs mounts up on exit
+// (the next start's RecoverStale clears them), so the cleanup releases them
+// after the kill (releaseFuseMounts).
 func (d *isoDaemon) halt() error {
 	if d.cmd == nil {
 		return nil
@@ -236,8 +237,8 @@ func (d *isoDaemon) halt() error {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
 		select {
 		case <-done:
-		case <-time.After(20 * time.Second):
-			err = errors.New("no exit 20 s after SIGTERM; killed")
+		case <-time.After(daemonGuard):
+			err = fmt.Errorf("no exit %v after SIGTERM; killed", daemonGuard)
 		}
 	}
 	// The group id stays reserved while any member lives, so this reaches
