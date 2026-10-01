@@ -2,7 +2,7 @@
 // I1): a workspace's scaffold is what `bx builtin update` last wrote, so an
 // xbind with partitioned tiles meets an older shell and admin console. The
 // pass puts the last release's shell/ and tiles/admin/ (git tag
-// HARNESS_OLD_SCAFFOLD, default v0.3.64: before partitions) in place of the
+// HARNESS_OLD_SCAFFOLD, default v0.3.65: before partitions) in place of the
 // workspace's, and checks, as the admin:
 //   - apps/opart (user + global; holds nothing, so partitioned at once) is
 //     one tile, one card: the old shell renders it, its frame shows the
@@ -28,7 +28,7 @@ const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, tileFr
 const WS = process.env.WS || '';
 const HARNESS_DIR = process.env.HARNESS_DIR || '';
 const REPO = process.env.REPO || path.join(__dirname, '..', '..', '..');
-const OLD = process.env.HARNESS_OLD_SCAFFOLD || 'v0.3.64';
+const OLD = process.env.HARNESS_OLD_SCAFFOLD || 'v0.3.65';
 const PART = 'apps/opart', PEND = 'apps/opend';
 const NOTE = 'Each person keeps their own notes here.';
 const DIRS = ['shell', 'tiles/admin'];
