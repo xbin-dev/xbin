@@ -9885,6 +9885,15 @@ Deviations and refinements made while implementing; all deliberate:
     person's sessions claim the layer, so only they read it (PD-09).
     TestPartitionMoveLines (both cases, all three lines),
     TestPartitionLayerBaseMoveIsolated (the line in a real sandbox).
+  - **Follow-up: the ci shard profile knows the partitions tests.** It had
+    no time for any of them (they hashed into shards), and CI's integration
+    shards ran 144/155/102/145 s of suites (run 36909713832, master
+    f6f0ba71). `testshard timings -profile ci` over that run's shard and
+    unit job logs, one file per job (the run's one log interleaves jobs, and
+    a job that isn't a shard's must not feed the suite a shard's last
+    header names): 1067 times, 221 of them new (153 partition tests), none
+    dropped; a cached unit package keeps its old time. The plan now expects
+    ~171 s for each of the 4 shards and both unit shards.
 
 - **D178 — Coding-agent sign-in: Claude Code signs in with `claude auth
   login`, guided in the Agent tab; terminal links open whole; no
