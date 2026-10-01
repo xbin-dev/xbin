@@ -123,6 +123,21 @@ func (r *Runner) install(s *state, inst *instance, stamp bool) bool {
 	return !gone
 }
 
+// discardGen stops inst, a healthy generation of s that will never serve
+// (D174: live reload left the deployment while it built), as install stops
+// one whose state went: its token revoked first — a person's partition's
+// never authenticates past its stop (partstop.go) — and no longer s's
+// starting generation, which a stop or the running count would still see.
+func (r *Runner) discardGen(s *state, inst *instance) {
+	s.mu.Lock()
+	if s.pt != nil && s.pt.starting == inst {
+		s.pt.starting = nil
+	}
+	s.mu.Unlock()
+	r.revoke(inst.token)
+	r.stopGen(inst, 2*time.Second)
+}
+
 // live: a generation runs, or one is being built; callers hold s.mu.
 func (s *state) live() bool { return s.cur != nil || s.building }
 

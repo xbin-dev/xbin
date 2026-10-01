@@ -72,6 +72,7 @@ type fakeParts struct {
 	asked  []string
 	holds  map[string]int // "active"/"passive" → live holds
 	events []string
+	gens   []fakeGen // when set, what each EnsurePartition answers in turn (then sock)
 }
 
 var startNames = map[PartitionStart]string{StartInteractive: "interactive", StartBackground: "background", StartMail: "mail"}
@@ -82,6 +83,11 @@ func (f *fakeParts) EnsurePartition(_ context.Context, c *registry.Component, de
 	f.asked = append(f.asked, fmt.Sprintf("%s %s %s %s", c.Path, dep, part, startNames[class]))
 	if f.err != nil {
 		return nil, f.err
+	}
+	if len(f.gens) > 0 { // what each call answers, in order (a swap)
+		g := f.gens[0]
+		f.gens = f.gens[1:]
+		return g, nil
 	}
 	return fakeGen{sock: f.sock}, nil
 }

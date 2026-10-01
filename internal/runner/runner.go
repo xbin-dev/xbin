@@ -210,33 +210,6 @@ func New(root string, a *auth.Auth, hub *events.Hub, reg *registry.Registry) *Ru
 // state is comp's primary's runner state, created dirty when missing.
 func (r *Runner) state(comp string) *state { return r.stateOf(comp, r.primary(comp)) }
 
-// ensurePrimary is Ensure for deployment dep, c's primary, whose code the
-// registry's component describes (07-runtime §5.1).
-func (r *Runner) ensurePrimary(ctx context.Context, c *registry.Component, dep string) (*instance, error) {
-	if err := registry.ValidateRuntime(c.Manifest); err != nil {
-		return nil, fmt.Errorf("component %s: %w", c.Path, err) // runtime "cgi" (D117): never runs
-	}
-	if c.Manifest.Runtime == "" || c.Manifest.Runtime == "static" {
-		return nil, fmt.Errorf("component %s has no long-running backend", c.Path)
-	}
-	// Lifecycle gate (plans/lifecycle.md): a disabled/offloaded component never
-	// spawns — enforced here so no path (proxy, watcher rebuild, grant change)
-	// can start it. The proxy still 409s earlier for a nicer message.
-	if r.ShouldRun != nil && !r.ShouldRun(c.Path) {
-		why := "is not enabled"
-		if r.HoldReason != nil {
-			if w := r.HoldReason(c.Path); w != "" {
-				why = w
-			}
-		}
-		return nil, fmt.Errorf("component %s %s", c.Path, why)
-	}
-	if r.noGlobal(c.Path, dep) { // only people's partitions run (partitions.go)
-		return nil, globalRefusal(c.Path)
-	}
-	return r.ensureState(ctx, c, r.stateOf(c.Path, dep))
-}
-
 // ensureState is the single flight on one deployment's state s: its healthy
 // generation, its sticky error until a change, or the build this caller
 // takes (runCurrent), re-checked after every build.
@@ -405,8 +378,10 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		// committed): what this generation read may postdate the pause's
 		// checkpoint, so it never serves (D174). The current generation
 		// serves until the deploy the pause queued swaps the checkpoint in;
-		// without one, the next request builds what the record names.
-		r.stopGen(inst, 2*time.Second)
+		// without one, the next request builds what the record names. A
+		// person's partition asks the same (its code is the primary's):
+		// its generation is discarded like an uninstalled one (discardGen).
+		r.discardGen(s, inst)
 		g.release()
 		return nil
 	}
