@@ -12,6 +12,38 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **Agent template: coding agents sign in with a link and a code, and a
+  person keeps saved sign-ins — several per coding agent — in their own
+  partition** (the template's API.md §Coding agents → "Signing in", "Saved
+  sign-ins", "Guided and saved sign-ins in the UI";
+  [sandbox-manager.md](/docs/sandbox-manager.md) §hello; [sdk.md](/docs/sdk.md)
+  `Provider.Mint`, `Keys`; D179). A coding agent waiting for its sign-in
+  offers **Sign in to Claude Code**: the agent runs Claude Code's own
+  `claude auth login` in the sandbox and hands you **Open sign-in page ↗**,
+  **Copy link** and a field for the code (`POST /runs/{id}/harness/
+  authenticate {method: "guided", code?}`), **Use a terminal instead** as
+  before. In a person's own partition **Remember for my other sandboxes**
+  runs the official `claude setup-token` instead and keeps its one-year
+  token as a **saved sign-in** in their partition's vault — it never
+  reaches a page, a row or a log; a key or token can be pasted too
+  (Anthropic, `CODEX_API_KEY`, `GEMINI_API_KEY`, opencode's provider keys:
+  `GET/POST/PUT/DELETE /prefs/harness-signins`). Saved sign-ins are named
+  ("Personal", "Work"), one per coding agent the default, and go into a
+  coding agent's environment — winning over the sandbox's own sign-in —
+  only in the person's own conversation, in a sandbox of theirs no one
+  else uses; never copied into a sandbox's home. A conversation shows
+  `· using Work` on its coding agent's ▾ and switches account there (`PUT
+  /runs/{id}/harness/signin`): the adapter restarts with the other sign-in
+  and resumes the same session. A refused one is marked and left out
+  until signed in again; it warns 14 days before it expires; Forget stops
+  the coding agents using it. Unpartitioned agents keep the per-sandbox
+  sign-in (and the guided one); the shared space has none. Also: an API
+  key now reaches Gemini CLI's `authenticate` in the shape it reads (the
+  key itself — it read the object it was sent as no key), and a sandbox
+  manager's advertised `login` wins over the template's own (an older
+  coding-sandbox's `claude /login` keeps working; Claude Code's terminal
+  sign-in is `claude auth login`, without `CLAUDE_CODE_REMOTE`). Nothing
+  to change.
 - **Claude Code signs in once, with a link and a code — guided in the
   Agent tab; terminal links open whole**
   ([09-terminals.md](/docs/overview/09-terminals.md) §Agent sessions,

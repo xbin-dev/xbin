@@ -250,7 +250,15 @@ consumer runs one as a non-`tty` exec with `stdin: true`. Each is
   partitioned agent a coding agent starts, and signs in, only in a person's
   own conversations, in a sandbox homed in their partition — never at its
   global instance nor in a shared or hosted conversation (its API.md,
-  "Partitioned instances").
+  "Partitioned instances"). For a well-known id an entry's `login` wins
+  over the consumer's own sign-in command (the agent template, D179), so a
+  manager that advertises one keeps it. A consumer may also drive the
+  CLI's own sign-in without showing a terminal — the agent template runs
+  Claude Code's `claude auth login` as an exec with `stdin` (or `claude
+  setup-token` as a `tty` exec, for a person's saved sign-in) and reads
+  its link from the output — and may hand a person's saved credential to
+  a coding agent as an exec's `env`, never into `home`: to the manager
+  these are execs like any other.
 
 The list is the manager's word about the image, not a probe (an image's
 installs can fail): a consumer may check with `command -v <argv[0]>` through

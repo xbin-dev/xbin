@@ -6779,6 +6779,12 @@ Deviations and refinements made while implementing; all deliberate:
   never moves between homes (plans/partitions/90-decisions.md §I15); from
   a person's partition the relays' `Sbx-User` is the partition's verified
   person (D140), not asserted.*
+  *Amended 2026-10-01 (D179): a coding agent signs in through a guided
+  sign-in too (the CLI's own login run as an exec, its link and code
+  relayed to the person), and in a person's own partition saved sign-ins
+  — kept in their vault, handed to the CLI in its environment only in a
+  sandbox of theirs no one else uses — win over the sandbox HOME's; an
+  API key reaches each adapter's `authenticate` in its own shape.*
 
 - **D148 — Partitioned tiles, F5: people's partitions' vaults,
   registrations and records (2026-09-30).** Implements the vault,
@@ -9861,3 +9867,166 @@ Deviations and refinements made while implementing; all deliberate:
     `Signin`, a sandbox manager's advertised login must win over the
     catalog default, so an older coding-sandbox manager's `claude /login`
     keeps working; a new one advertises `claude auth login`.
+
+- **D179 — Coding-agent sign-ins in the agent template: the guided sign-in,
+  saved sign-ins (several per coding agent, a person's own partition only)
+  and switching accounts within a session (2026-10-01).** The agent
+  template's side of D178: builtin-templates/agent/_backend/
+  harness_guided.go, harness_creds.go; sdk/acp `Provider.Mint`, `Keys`,
+  `Signin.Token`; model/harness-signins.js; the template's API.md §Coding
+  agents ("Signing in", "The guided sign-in", "Saved sign-ins", "Guided
+  and saved sign-ins in the UI"); docs/sandbox-manager.md §hello; docs/
+  sdk.md. Amends D147 ("credentials stay in the sandbox HOME") and D172
+  (sign-in only where credentials stay the person's: U-M4).
+  - **The owner's rulings (2026-10-01).** (1) Saved sign-ins: yes — the
+    guided card has "Remember for my other sandboxes", which runs the
+    official `claude setup-token` through the same link-and-paste flow,
+    the backend scraping the token, which never reaches the browser; or
+    the person pastes an API key or token (Anthropic, OpenAI
+    `CODEX_API_KEY`, `GEMINI_API_KEY`, opencode's provider keys). (2)
+    Several logins per coding agent (a personal and a company
+    subscription): named per harness, one the default, a conversation can
+    pick one, and switching within a session should work — restart the
+    adapter with the other credential and resume the same session
+    (`session/load`, D75). A sandbox's `$HOME` holds one login, so
+    multi-account means saved sign-ins. (3) The saved sign-in wins over the
+    sandbox's own `$HOME` login; the chip says "using ‹name›". (4) Every
+    agent-template instance becomes partitioned (D177); saved sign-ins
+    exist only in a person's own partition, in its vault — never at the
+    global instance, never in legacy mode (only on an xbind without
+    `--isolate`, or after "Keep current mode"), which keeps the
+    per-sandbox guided sign-in only.
+  - **The policy.** The token is minted by the unmodified CLI (`claude
+    setup-token`, Anthropic's own long-lived-token flow for headless use)
+    with the person's own sign-in on Anthropic's page, and is kept as that
+    person's own secret, used only for their own coding agents. We never
+    proxy subscription credentials: no gateway, no shared pool, no copy
+    of `~/.claude/.credentials.json` or `~/.codex/auth.json` between
+    sandboxes (their refresh tokens are single-use: copies log each other
+    out), nothing else from `~/.claude` copied either. A setup-token makes
+    model requests only (no connectors, no Remote Control) and outranks a
+    `$HOME` `/login` as `CLAUDE_CODE_OAUTH_TOKEN`.
+  - **The guided sign-in** (`POST …/harness/authenticate {method:
+    "guided", code?, remember?, name?}`) runs the provider's `Signin`
+    (`claude auth login --claudeai`: plain over pipes) — or, with
+    remember, its `Mint` (`claude setup-token`: a TTY, at 1000 columns so
+    the URL and the token are one line each) — as a contract exec in the
+    run's sandbox with stdin open, reads it with `acp.Signin.Scan`, and
+    answers 202 `{signin: {url, paste}}` to the requester alone. `code`
+    writes the code and Enter (`\n` over pipes, `\r` on a terminal — Ink's
+    return); the CLI's words decide: done (or exit 0 for `auth login`) →
+    the run's existing Retry (an inbox wake), `Invalid code` → 409 with
+    the link standing, anything else → 502 with the CLI's reason line. The
+    exec is deleted at every end; one per conversation, bounded at 15
+    minutes (also the exec's own `timeoutMs`, so a process that dies
+    leaves nothing waiting), dropped on a handoff (`letHarnessesGo`: a
+    successor knows none, the person starts over). Remember is refused
+    unless the gate below holds for the run's sandbox: while the exec
+    lives its output (the token) is readable by whoever may use the
+    sandbox (the manager's exec routes). A minted token goes straight into
+    the vault; a saved sign-in of the same name is replaced (its id, and
+    the conversations that picked it, stay; a refusal clears).
+  - **Saved sign-ins.** harness_signins keeps the non-secret part per
+    person: `{id, harness, name, kind (setup-token | api-key), env,
+    mintedAt, expiresAt (a setup-token: +365 d), refusedAt, refused,
+    isDefault}`; the secret only in the partition's vault
+    (`harness-signin.‹id›`, through the SDK's `SetSecret`/`Secret`/
+    `DeleteSecret`, which a person's partition reaches as its own vault,
+    D148) — never in a row, a log line, an answer or an event (the tests
+    scan every table, the log and every answer). Routes: `GET/POST
+    /prefs/harness-signins`, `PUT/DELETE /prefs/harness-signins/{id}`
+    (rename, default, a new secret; Forget), `PUT /runs/{id}/harness/
+    signin` (the conversation's pick: default, sandbox, or an id;
+    `config.harness.signin`). `env` is `acp.Provider.Keys`' (claude:
+    `CLAUDE_CODE_OAUTH_TOKEN` for `sk-ant-oat…`, else
+    `ANTHROPIC_API_KEY`; codex `CODEX_API_KEY`; gemini
+    `GEMINI_API_KEY`; opencode by prefix or named).
+  - **The injection gate** (`credWhy`, checked at every spawn): the env
+    is merged into the adapter's exec request only when (a) the agent
+    runs in the `user` partition state, (b) the run is the person's own
+    (its root's owner is the partition's person; not hosted:
+    `harnessBarred`), (c) the sandbox is private and theirs
+    (`!sandboxShared(box) && box.Owner.User == person` — a co-user could
+    read the process's environment), (d) the credential isn't refused or
+    expired. The env is never persisted: the provider's catalog map is
+    copied, never written; `harness_sessions.cred` (additive) records
+    which credential the generation started with, its id only. Re-checked
+    with the sandbox's use (before every prompt, at most every minute on
+    durable events, at a takeover): a sandbox shared mid-run stops the
+    adapter (`hstop`), and the next start leaves the credential out.
+  - **Refusals and false refusals.** With a credential in, only the
+    adapter's own refusal counts — a -32000 on a prompt (the client's
+    `AuthHint` marks it) or on opening a session: it sets `refusedAt` and
+    parks on the sign-in with "saved sign-in refused — sign in again". A
+    status update alone doesn't: claude-agent-acp 0.81's `claude auth
+    status --json` probe maps an env token's `{loggedIn: true, authMethod:
+    "oauth_token"}` (no subscription it can name, Claude Code 2.1.280) to
+    `_auth/status_update {kind: "none"}` though every turn works; parking
+    on it would have stopped every saved sign-in. The fake (acptest)
+    pushes the same status so the tests hold it.
+  - **Keys an adapter takes only through `authenticate`.** codex 0.156's
+    app-server reads no `CODEX_API_KEY` at start (`account/read` →
+    `account: null`, checked here), and Gemini CLI with another sign-in
+    selected uses its env key only after `authenticate`. When such an
+    adapter refuses its session signed out and an API-key credential was
+    injected, the engine calls its API-key method once with the key
+    (`credAuthenticate`). Codex then keeps it in its own
+    `~/.codex/auth.json` (its file store; `-c
+    cli_auth_credentials_store="ephemeral"` would keep it in memory, but
+    codex-acp passes no flags to its app-server): in a private sandbox of
+    the person's only, by the gate, and Forget doesn't reach it there —
+    said in API.md.
+  - **Switching accounts within a session resumes the same session.**
+    `PUT …/harness/signin` stores the pick and, for an adapter at rest,
+    an `hswitch` inbox row stops it (state stopped, the session id and
+    `loadable` kept, a note); the next message starts it with the other
+    credential and `session/load`s the same session. claude-agent-acp
+    0.81.1's `loadSession` reads the transcript from the CLI's own
+    `$HOME/.claude/projects` in the sandbox (`readResumedSession`), with
+    no account in it; thinking-block signatures are portable across
+    accounts and platforms. TestSwitchAccountResumes checks it end to end
+    with the fake (`--persist`): the same ACP session id, a new
+    generation, the other account answering. Not run live against two
+    real Anthropic accounts (no credentials here). A load that fails falls
+    back to a fresh session with a note, as every resume does; carrying
+    the context into it was not built — the load works.
+  - **Which login a terminal runs.** A sandbox manager's advertised
+    `login` now wins over the catalog's for a catalog id
+    (`harnessProvider`), so an older coding-sandbox's `claude /login`
+    keeps working and a new one's `claude auth login` is used; the
+    catalog's claude `LoginCmd` drops `CLAUDE_CODE_REMOTE=1` (D178: the
+    adapter's own terminal methods are `--cli auth login --claudeai |
+    --console` without it). The guided sign-in runs the catalog's
+    `Signin`, whatever the manager advertises: the CLI is the same
+    binary. `claude /exit` stays the fallback for a CLI without `auth`
+    (said when the guided sign-in ends without a link).
+  - **Gemini's API-key shape** (a bug): gemini-cli 0.60's ACP
+    `authenticate` reads `_meta["api-key"]` as the key itself
+    (acpRpcDispatcher.ts, checked in the rootfs bundle); AgTT sent
+    `{apiKey}`, read as no key. `apiKeyMeta` sends the string to gemini,
+    the object to codex-acp and the fake (which now accepts both and
+    records which came: TestAPIKeyMetaShape).
+  - **A-M1 at the global instance**: no guided sign-in (the existing 409
+    on `authenticate`), every saved-sign-in route 409, no injection
+    (`credWhy`). Legacy: the guided sign-in, no Remember, no saved
+    sign-ins (`GET` says `available: false` and why).
+  - **The UI** (model/harness-signins.js, both views): the card's guided
+    block (Open sign-in page ↗ — a real link, Copy link, the code and
+    Finish, a status line, Use a terminal instead; Remember with a name
+    where `rememberOf` allows it, else why), Coding-agent sign-ins (the ⚙
+    Coding agents tab for managers; for everyone a dialog from the card's
+    and the ▾ menu's "Saved sign-ins…", the app's Coding agent settings),
+    and the account on the coding agent's ▾ with its switch.
+  - **Not chosen:** copying a `/login` between sandboxes (refresh tokens
+    are single-use); a proxy holding subscription credentials; writing
+    the credential into the sandbox's `$HOME` (it would outlive Forget
+    and travel with clones and snapshots); minting in a shared sandbox
+    (its exec output is its co-users'); storing the env with the exec or
+    the session; parking on the probe's "none" (above); version-sniffing
+    the CLI in a shell line (D178's rejection stands).
+  - **Open:** Remember mints Claude Code only (the others have no mint:
+    paste a key); a live check of setup-token's success lines (the
+    capture ends at the code prompt — success is the token itself, a
+    refusal "OAuth error"); codex's own copy of a saved key in its
+    `auth.json` (above); a partition's purge takes the vault — a person's
+    saved sign-ins go with their removal, as everything of theirs does.

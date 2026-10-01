@@ -182,7 +182,16 @@ A sign-in's credentials stay in the sandbox's home, for everyone the
 sandbox serves and its clones (docs/sandbox-manager.md §hello,
 §Partitioned consumers), and `argv` and `login` run beside them: the
 operators who set them are in the trust base of every person who uses
-these agents.
+these agents. A consumer's advertised `login` is what its terminal sign-in
+runs (the agent template: D179, over its own default). The agent template
+also signs Claude Code in without a terminal (its guided sign-in, D179):
+`claude auth login --claudeai` as a non-`tty` exec with `stdin`, or
+`claude setup-token` as a `tty` exec at 1000 columns for a person's saved
+sign-in — this manager sees those as any exec, deleted once the sign-in is
+over. A saved sign-in reaches a coding agent as an `env` entry of its
+exec request (`CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_API_KEY`, …), only in a
+sandbox the person owns and shares with no one: the manager passes it to
+the process and keeps it nowhere (an exec's record lists no `env`).
 
 The first sandbox of an image builds it: a template sandbox of its own is
 made and prepared, the script runs in it **as root** in the workdir (with
