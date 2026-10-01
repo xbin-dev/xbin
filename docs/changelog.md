@@ -15,17 +15,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **A request that meets a swap reaches the new generation**
   ([elements.md](/docs/elements.md) §Runtimes & backend lifecycle). A
   request xbind had routed to a backend generation just as a save, a
-  deploy, a grant change or a reap replaced it could fail with
-  `502 backend error: … connection reset by peer` (or `EOF`, or a refused
-  dial): the old generation's SIGTERM closed its socket before it took the
-  request. Such a request now goes to the generation that replaced it when
-  sending it again is safe: it has no body and is a `GET`, `HEAD`,
-  `OPTIONS` or `TRACE` (or carries an `Idempotency-Key` header), or nothing
-  of it reached the old generation. Other requests answer 502 as before,
-  and so does any request of a backend that crashed. A backend that exits
-  on SIGTERM without answering the requests it holds still loses them, and
-  one of those idempotent requests may now run on both generations: drain
-  on SIGTERM, as `xbin.Serve` does.
+  deploy or a grant change replaced it (or a reap stopped it) could fail
+  with `502 backend error: … connection reset by peer` (or `EOF`, or a
+  refused dial): the old generation's SIGTERM closed its socket before it
+  took the request. Such a request now goes to the deployment's current
+  generation when sending it again is safe: it has no body and is a `GET`,
+  `HEAD`, `OPTIONS` or `TRACE` (or carries an `Idempotency-Key` header),
+  or nothing of it reached the old generation. Other requests answer 502
+  as before, and so does any request of a backend that crashed. A backend
+  that exits on SIGTERM without answering the requests it holds still
+  loses them, and one of those idempotent requests may now run on both
+  generations: drain on SIGTERM, as `xbin.Serve` does.
 - **Pausing live reload while a save still builds ships the checkpoint
   only** ([tile-deployments.md](/docs/tile-deployments.md) §Pausing live
   reload). The save's build used to finish and swap in before the pause's
