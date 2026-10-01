@@ -135,3 +135,34 @@ func TestPartitionLayerBaseAutoUpdate(t *testing.T) {
 		t.Fatalf("left in term-moved: %v", ents)
 	}
 }
+
+// covers D175 PD-09 PD-22 (LAND) — what a shell says after an agent
+// session's start moved a layer is keyed by the layer that moved: on a
+// partitioned tile the person's own (openOpts.layerKey, which both the
+// agent session's start and the shell's ask). Ana's agent moving her layer
+// is said once to her next shell — never to bob's, whose layer stayed, nor
+// to a shell on the tile's own layer, which would learn that someone's
+// agent ran there.
+func TestPartitionMoveNotes(t *testing.T) {
+	m := &Manager{}
+	o := func(user string) openOpts {
+		if user == "" {
+			return openOpts{part: sessionPart{tile: "apps/p"}}
+		}
+		return openOpts{part: sessionPart{on: true, tile: "apps/p", part: "user:" + user, key: "k-" + user}}
+	}
+	ana, bob, tile := o("ana").layerKey("apps/p"), o("bob").layerKey("apps/p"), o("").layerKey("apps/p")
+	if ana != partLayerKey("apps/p", "k-ana") || tile != termKey("apps/p") || ana == bob {
+		t.Fatalf("layer keys: ana %q bob %q tile %q", ana, bob, tile)
+	}
+	m.noteMove(ana) // ana's agent session's start moved her layer
+	if n := m.takeMoveNote(bob, false); n != "" {
+		t.Errorf("bob's shell was told of ana's move: %q", n)
+	}
+	if n := m.takeMoveNote(tile, false); n != "" {
+		t.Errorf("a shell on the tile's own layer was told of ana's move: %q", n)
+	}
+	if n := m.takeMoveNote(ana, false); n != baseMovedByAgentLine {
+		t.Errorf("ana's next shell: %q", n)
+	}
+}

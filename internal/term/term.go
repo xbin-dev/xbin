@@ -446,7 +446,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 	// before the PTY's first byte (pump hasn't started): this start moved the
 	// tile's layer to the current base, or an agent session's start did and
 	// no shell has said so yet (D175) — an ephemeral session too
-	if note := m.takeMoveNote(termKey(rel), o.launch.baseMoved != ""); m.Isolate && note != "" {
+	if note := m.takeMoveNote(o.layerKey(rel), o.launch.baseMoved != ""); m.Isolate && note != "" { // the layer this shell claims: a person's own on a partitioned tile
 		s.hub.Output([]byte(note))
 	}
 	m.mu.Lock()
