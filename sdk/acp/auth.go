@@ -2,7 +2,8 @@ package acp
 
 // Signing the agent in through the agent itself (ACP authenticate), for an
 // embedder with no terminal to run the CLI's own login in: an API key
-// (codex: _meta["api-key"].apiKey; gemini), or a device code (codex, only
+// (codex: _meta["api-key"].apiKey; gemini: _meta["api-key"], the key
+// itself), or a device code (codex, only
 // to a client that advertised url elicitations: elicit.go — the code
 // arrives as a url elicitation.request while Authenticate waits).
 

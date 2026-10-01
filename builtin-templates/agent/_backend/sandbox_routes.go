@@ -205,6 +205,25 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	box := rs.entry.Box
+	if p.Visibility != nil || p.Members != nil || len(p.Shares) > 0 {
+		nb := *box // as the PATCH leaves it
+		if p.Visibility != nil {
+			nb.Visibility = *p.Visibility
+		}
+		if p.Members != nil {
+			nb.Members = *p.Members
+		}
+		if len(p.Shares) > 0 {
+			nb.Shares = p.Shares
+		}
+		// before the share is live: no saved sign-in left there (D179, the review's L8)
+		if sandboxShared(&nb) {
+			if err := readyForShare(r.Context(), rs.conn, rs.id, sandboxRef(rs.conn.M.Provider, rs.id), sbxLabel(box)+" is shared now"); err != nil {
+				xbin.WriteError(w, http.StatusBadGateway, sbxLabel(box)+" isn't shared: "+err.Error()+" — try again")
+				return
+			}
+		}
+	}
 	for attempt := 0; ; attempt++ {
 		q := p
 		if p.Labels != nil {
@@ -233,6 +252,9 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	invalidateSandboxCatalog()
+	if sandboxShared(box) { // shared now: no saved sign-in stays in a coding agent there (D179, harness_creds.go)
+		stopCredsIn(sandboxRef(rs.conn.M.Provider, rs.id), sbxLabel(box)+" is shared now")
+	}
 	rs.entry.Box, rs.access = box, sandboxAccess(callerOf(r), box)
 	xbin.WriteJSON(w, http.StatusOK, rs.item())
 }

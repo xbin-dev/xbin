@@ -1799,7 +1799,7 @@ unbound, 403 not allowed, 502 its manager down), and nothing is created.
 | `GET /sandboxes` | `?fresh=1` skips the cache | `{sandboxes: [{ref, provider, manager, …the contract's sandbox…, mine, canUse, canManage, canEdit, boundTo?, homed?, why?}], managers: [{provider, title, ok, error?, refusal?, caps, egress, images, sizes, limits}]}` — every sandbox the caller may see across the bound managers, and those bound to a conversation the caller sees (`boundTo`: its ids; `homed`/`why`: in a person's partition only — whether its conversations may work in it, and why not: §Partitioned instances). Merged, cached 15 s (the agent's own changes show at once); `manager` is the manager's title. Anyone who can use the tile |
 | `POST /sandboxes` | `{name, provider?, image?, size?, egress?, visibility?, members?, conversation?, bind?, cwd?, clientId?, start?}` | **201** + the sandbox (as below), with `binding` when it was bound. Created at `provider` (optional while one manager is bound), owned by the caller. With `conversation` (the caller takes part in it): made for it (above) and bound there unless `bind: false` — refused up front when its class wouldn't allow it, and deleted again if the binding fails. `clientId` makes a retry return the same sandbox (per person) |
 | `GET /sandboxes/{ref}` | | one sandbox, fresh from its manager, as `GET /sandboxes` lists it |
-| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does). New `labels` keep `xbin.agent/internal` (sent with the sandbox's `version` unless you send one: a label set meanwhile is read again and kept) |
+| `PATCH /sandboxes/{ref}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox — its owner's (the contract's `PATCH`; `restartNeeded` when a change waits for the next start, and `egressNext` while an egress does). New `labels` keep `xbin.agent/internal` (sent with the sandbox's `version` unless you send one: a label set meanwhile is read again and kept). One that shares it first ends the saved sign-ins there (D179: guided sign-ins, adapters holding one, codex's key file) — **502** `‹name› isn't shared: …` when it can't |
 | `DELETE /sandboxes/{ref}` | | `{ok, detached}` — its owner's or a tile manager's; it is detached from every conversation that had it |
 | `POST /sandboxes/{ref}/{start\|stop\|archive\|thaw}` | `?wait=<s>` (≤ 120), `?conversation=<id>`; `{start?}` on thaw | the sandbox. Start, stop and thaw: who may use or manage it — or, with `conversation`, a participant of a conversation it is bound to (as the binder). Archive: its owner or a tile manager |
 
@@ -2236,7 +2236,7 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
  "modes": [{"id": "default", "name": "Ask before acting"}, {"id": "bypassPermissions", "name": "Bypass permissions", "explicit": true}],
  "defaultMode": "default", "autoMode": "acceptEdits", "approveMode": "default", "planMode": "plan",
  "setting": "approve",                        // the caller's own (below)
- "login": {"command": "CLAUDE_CODE_REMOTE=1 claude /login"},
+ "login": {"command": "claude auth login", "guided": true, "mint": true}, // its terminal sign-in; guided: the guided sign-in (D179), mint: its Remember (a person's partition)
  "options": [ /* the config options its last session reported, any conversation — absent before one */ ],
  "sandboxes": {"apps/coding-sandbox|sb-7f3a": {"installed": true, "signedIn": false, "at": 1790000100000}}}
 ```
@@ -2411,6 +2411,17 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   starts it afresh, as Retry does; a code no process waits on any more is
   taken away. A page the
   coding agent asks to have opened at any other time is declined.
+  **The guided sign-in** (D179; `harness.login` of `GET /harnesses` says
+  `guided: true` — Claude Code, and the test fake) runs the coding agent's
+  own sign-in CLI in its sandbox — Claude Code's `claude auth login
+  --claudeai` — and hands you its link and takes the code its page shows:
+  no terminal (`authenticate {method: "guided"}`, below). **Saved
+  sign-ins** — in a person's own partition only — are your own
+  credentials for a coding agent's CLI, named ("Personal", "Work"), one
+  per coding agent your default, kept in your partition's vault and handed
+  to the CLI in its environment where the gate allows (below); `Remember
+  for my other sandboxes` on the guided sign-in mints one with Claude
+  Code's own `claude setup-token`.
 - **Stops and restarts.** `/interrupt` stops the turn: a permission or
   question waiting settles `(interrupted)` and the coding agent ends its
   turn (`idle`) — one that doesn't within 15 s is stopped. `/cancel` and
@@ -2476,7 +2487,8 @@ loop answers they are **409** `not a coding-agent conversation`.
 | `GET /runs/{id}/harness` | a viewer | — | `{harness, session: {gen, execId, acpSessionId, loadable, steering, startedAt, lastActive}, rules: [{kind, title}]}` — its summary, the adapter process (`startedAt`: its current generation's start, ms) and what "allow always" answers remember in this conversation; to the person who started a device-code sign-in that waits, its `harness.login.device` is `{url, message, by}` (everyone else's, and every other view's, only `{by}`) |
 | `PATCH /runs/{id}/harness` | a participant; an explicit mode: the owner | `{mode?, option?: {id, value}}` | `{harness}` |
 | `POST /runs/{id}/harness/answer` | a participant | `{park?, action: accept\|decline\|cancel, content?}` | `{ok: "true"}` |
-| `POST /runs/{id}/harness/authenticate` | a participant who may use its sandbox | `{method, apiKey?, confirm?}` | **200** `{ok: "true", state: "ready"}` · **202** `{ok: "true", device: {url, message}}` |
+| `POST /runs/{id}/harness/authenticate` | a participant who may use its sandbox | `{method, apiKey?, confirm?}`; `method: "guided"`: `{code?, remember?, name?, confirm?}` | **200** `{ok: "true", state: "ready"}` (guided with Remember: also `saved`, the saved sign-in's row) · **202** `{ok: "true", device: {url, message}}` · guided: **202** `{ok: "true", signin: {url, paste}}` |
+| `PUT /runs/{id}/harness/signin` | the conversation's owner, in their own partition | `{signin: "default" \| "sandbox" \| ‹id›}` | `{harness}` — the saved sign-in it uses, switched (D179) |
 
 - **The mode and options.** `PATCH` switches the coding agent's mode (one
   of `harness.mode.available`) and/or one of its config options (one of
@@ -2537,7 +2549,208 @@ loop answers they are **409** `not a coding-agent conversation`.
   signed in`, `a sign-in to ‹name› is already under way`, and `{error:
   "anyone who may use ‹sandbox› acts as you with ‹name› there — confirm to
   sign in", confirm: true}`; **502** `{error}` in the coding agent's words;
-  **504** `‹name› didn't start its sign-in`; **503** as `PATCH`.
+  **504** `‹name› didn't start its sign-in`; **503** as `PATCH`. The key
+  rides `_meta["api-key"]` in the shape the coding agent reads: Gemini
+  CLI takes the key itself there (a string), codex-acp an object
+  `{apiKey}` (an object sent to Gemini CLI read as no key: fixed in
+  D179).
+- **The guided sign-in** (`method: "guided"`, D179) — for a coding agent
+  whose catalog entry says `login.guided` (Claude Code's `Signin` in
+  sdk/acp: `claude auth login --claudeai`; the test fake signs in the same
+  way, through a `claude` on the sandbox's `PATH`). Without `code` it
+  starts the CLI as an exec in the run's sandbox (stdin open; a terminal
+  one at 1000 columns, so nothing wraps), reads what it prints
+  (`acp.Signin.Scan`: an OSC 8 link's target first, else a URL rejoined
+  from its rows, only `https` on the provider's exact hosts at its sign-in
+  path, no user part) and answers **202**
+  `{ok, signin: {url, paste}}` — `paste`: it asks for the code — to you
+  alone: another person's start or code while yours waits is **409**
+  `a sign-in to ‹name› is already under way` / `no sign-in of yours is
+  under way here — start one`, and your own start again answers yours
+  again. With `code` it writes the code and Enter and waits (60 s) for the
+  CLI's word: signed in (its `Login successful.`, or exit 0) → **200**
+  `{ok, state: "ready"}` and the run's Retry (an inbox wake: a fresh
+  adapter reads the new sign-in, the held message goes again); a
+  malformed code (`Invalid code`, the CLI asking again) → **409** `‹name›
+  says that isn't the whole code — copy it again …`, the link standing;
+  any other end → **502** with the CLI's reason line (`Login failed:
+  Request failed with status code 400`), or `‹name›'s sign-in ended
+  without a link: ‹its last line›` (a CLI too old for `auth login`: sign
+  in in a terminal — `claude /exit` there); **504** `‹name› didn't print
+  its sign-in link` (30 s) / `didn't answer the code`. Once the code is
+  in, the exchange runs to its end even when your request is gone (60 s
+  at most). The exec is always deleted once it is over — recorded
+  (`harness_signin_execs`) from before it starts until the manager took
+  the delete: one the manager didn't take is tried again, and the next
+  start of the agent sweeps what is left; one guided sign-in per
+  conversation, bounded at 15 minutes (the exec's own timeout too), and
+  one a save or restart of the agent cuts off is gone (start again);
+  while it waits for your code it holds your partition up, as a sign-in
+  the agent awaits does. A sandbox others may use takes `confirm: true`,
+  as above — the sign-in lands in its HOME. **With
+  `remember: true`** (and `name`, default `Personal` for a coding agent's
+  first, else `Sign-in ‹n›`) it runs the provider's `Mint` instead —
+  Claude Code's `claude setup-token`, on a terminal (a manager without
+  `tty`: **409**, paste a token instead) — and the one-year
+  `sk-ant-oat01-…` token it prints is scraped by the backend and kept as
+  your saved sign-in in your partition's vault (a saved sign-in of that
+  name replaced, its refusal cleared, and the coding agents that started
+  with the old one stopped): it is in no answer, row, log line or event,
+  and never reaches a page; the answer's `saved` is its row (no secret).
+  The Mint runs **clean**: the CLI found on the image's own directories
+  (`/usr/local/bun/bin`, `/usr/local/bin`, `/usr/bin`, … — never the
+  sandbox's `PATH`, where a shim in `~/.local/bin` would see the token),
+  run by its absolute path with nothing but `PATH`, `HOME`, `TERM` and
+  `LANG` in its environment (no `NODE_OPTIONS`, no `LD_PRELOAD`, nothing
+  a profile set) and a throwaway `HOME` (none of the sandbox's settings,
+  hooks or plugins), removed after; a Mint that ends without a token
+  never shows the CLI's last line (a token in a format the scan doesn't
+  know would be that line) — `‹name›'s sign-in didn't finish: no word
+  from it (it ended without a token)`. The sandbox's HOME isn't signed
+  in: the conversation uses the saved sign-in (picked for it when it
+  isn't your default). Only in your own partition, your own conversation,
+  in a sandbox of yours no one else uses and no hosted conversation ever
+  worked in — the exec's output is readable by whoever may use the
+  sandbox while it lives — else **409** with why (unpartitioned: `saved
+  sign-ins need a partitioned agent …`); checked when it starts and again
+  when the code comes: a sandbox shared at its manager meanwhile ends it
+  (**409** `that sign-in was ended: …`, nothing saved), and one shared
+  through this agent ends it before the share goes out. At the global
+  instance every sign-in is **409** (above).
+- **Saved sign-ins** (D179) — a person's own credentials for a coding
+  agent's CLI, in **their own partition only** (`GET
+  /prefs/harness-signins` says `available: false` and why on an
+  unpartitioned agent, whose one vault is everybody's — sign each sandbox
+  in on its own there; at the global instance every route is **409**
+  `saved sign-ins live only in a person's own space …`). Each is `{id,
+  harness, name, kind: setup-token | api-key, env, mintedAt?, expiresAt?,
+  refusedAt?, refused?, isDefault, expiring?}` — never its secret, which
+  lives only in the partition's vault (`harness-signin.‹id›`) and in the
+  adapter's exec request. `env` is the variable the CLI reads it from
+  (sdk/acp `Provider.Keys`): Claude Code `CLAUDE_CODE_OAUTH_TOKEN` (a
+  setup-token, `sk-ant-oat…`) or `ANTHROPIC_API_KEY`; Codex
+  `CODEX_API_KEY`; Gemini CLI `GEMINI_API_KEY`; opencode its provider keys
+  (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`,
+  `GOOGLE_GENERATIVE_AI_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, by the
+  value's prefix or named; a secret is one line of printable ASCII
+  without `" \ < > &`, which a key file would escape). A coding agent's
+  start puts it in the adapter's environment — winning over the sandbox's
+  own `$HOME` sign-in (an env token outranks Claude Code's `/login`) —
+  only when **all** hold: the run is the person's own conversation (not
+  hosted), in their own partition, its sandbox is theirs (`owner.user`)
+  and no one else's — **private**: visibility unset or `private`, not
+  seen through a share, no members, no shares; any other visibility,
+  one a newer manager adds included, counts as shared (they could read
+  the process's environment) — **no hosted (non-secure) conversation has
+  ever worked in it** (every use by one is recorded first, for good:
+  its members could have left something there that reads the next
+  process's environment — a hook, a `PATH` shim, a poller; such a
+  sandbox says so in the note: create another), and it isn't refused or
+  expired. Which one: the conversation's pick (`config.harness.signin`),
+  else the person's default for that coding agent; one that can't go in
+  is said in a note. A pick that was forgotten is **never** replaced by
+  the default (another account): the sandbox's own sign-in, with the
+  note `the saved sign-in this conversation picked is gone (forgotten) —
+  it uses the sandbox's own sign-in until you pick another`.
+  The environment is never stored: `harness_sessions.cred` keeps which
+  saved sign-in the current generation started with (its id), and the
+  summary's `signin: {pick: "default" | "sandbox" | ‹id›, using: {id,
+  name, refused?, forgotten?} | null}` names it (a person's partition
+  only). An adapter that refuses a prompt or a session while one is in
+  marks it refused (`refusedAt`, `refused`: its words) and parks on its
+  sign-in with the note `‹name› refused your saved sign-in ‹n› — saved
+  sign-in refused: sign in again`; the next start leaves it out until it
+  is replaced (a Remember of the same name, or a new secret). A status
+  update alone refuses nothing (claude-agent-acp 0.81's `claude auth
+  status` probe reports an env token's sign-in as kind `none`). A saved
+  API key an adapter reads only through its own `authenticate` (codex-acp
+  — codex 0.156's app-server reads no key from its environment at start
+  and has no setting that keeps it out of its file store; Gemini CLI with
+  another sign-in selected) is handed to that method once when the
+  adapter refuses its session signed out. **Codex writes it to its
+  `${CODEX_HOME:-~/.codex}/auth.json`** (sdk/acp `Provider.AuthFile`):
+  the agent removes that file right after the hand-over (codex keeps the
+  key in memory: the running adapter stays signed in), and — matched by
+  the key itself, read from the vault on stdin, never in an argv — again
+  before every start with another sign-in or the sandbox's own (so a
+  switch really switches account: codex would start signed in by the
+  file), before a share through this agent, and at **Forget** in every
+  sandbox codex ran in; a removal that fails is recorded
+  (`harness_sessions.scrub`) and done before the next start, which it
+  refuses while it can't (`Codex kept the key of its last start … — try
+  again; it doesn't start as the wrong account`). Codex signed in in a
+  sandbox **on its own** (`codex login` there) is left as it is: it uses
+  that sign-in, the saved one isn't named as in use, and a note says so
+  (`codex logout` there to use the saved one). Gemini CLI keeps a key it
+  is handed in memory only (0.60: no file). A saved sign-in warns from
+  14 days before it expires (`expiring`). A sandbox shared while an
+  adapter holds one stops that adapter — when shared through this agent
+  (`PATCH /sandboxes/{ref}` with `visibility`, `members` or `shares` that
+  make it shared), **before the share goes out**: the guided sign-ins
+  under way there end, the adapters that started there with a saved
+  sign-in are killed at the manager (waited for) and stopped, codex's
+  file is removed — any of it failing refuses the share (**502** `‹name›
+  isn't shared: … — try again`); shared elsewhere, at the next re-check
+  (before every message, and at most every minute while it works; an
+  idle one at the latest at its idle stop) — and the next message starts
+  it with the sandbox's own sign-in. A new secret for a saved sign-in (a
+  paste over it, a Remember or a paste under its name) stops the coding
+  agents that started with the old one, as Forget does. A person's
+  partition stopping (idle, an update) stops each adapter of theirs that
+  **rests** with a saved sign-in in its environment, waiting for the
+  manager's kill (the next message starts it again, resuming its
+  session): xbind gives a partition no hook before it purges a deleted
+  person, whose partition then never comes back to stop them. A person's
+  removal or purge deletes the vault with their partition.
+
+  **What prints the secret.** Every process the coding agent starts —
+  its tools, hooks, MCP servers — inherits its environment, so a routine
+  `env` or a prompt-injected command can print it. The adapter's output
+  is **redacted** before it becomes anything here: the exact secret of
+  the generation, and any string shaped like an Anthropic token
+  (`sk-ant-‹kind›‹nn›-…`), become `[redacted]***…` of the same length (the
+  stream's offsets stay the adapter's), in the transcript's rows and
+  events (and so an AgTT parent's context, notes, the page), the adapter's
+  log (`GET /runs/{id}/harness/log`), this agent's log lines and a
+  refusal's words kept with a saved sign-in (`refused`). What a tool
+  writes into the sandbox's files isn't. Claude Code 2.1.280's
+  `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` isn't used: it needs bubblewrap (the
+  rootfs has none; it fails without it) and writes stub dotfiles into
+  `HOME`. Codex's own shell tool leaves out variables named `*KEY*`,
+  `*TOKEN*` and `*SECRET*` by default.
+
+  **Residual risk.** A process running as the same user in the person's
+  own private sandbox — anything they, or a coding agent working for
+  them, started there — can read the adapter's environment
+  (`/proc/‹pid›/environ`) and so the secret; the gate keeps everyone
+  else's processes out (no co-users, no hosted conversation). One working
+  adapter (a turn in flight) of a person deleted mid-turn runs on until
+  it ends or the sandbox stops. **The trust base:** the coding-sandbox's
+  operators — who set its image, `argv` and `login`, and whose manager
+  receives the secret in the exec request's `env` and can read a running
+  process's environment — and xbind's admins (who run the host the vault
+  and the sandboxes live on) are in it;
+  so is the image: a Mint runs the image's own CLI, and an image whose
+  own directories were altered is out of scope.
+
+  | Method & path | Who | Body | Answer |
+  |---|---|---|---|
+  | `GET /prefs/harness-signins` | a person | — | `{available, why?, signins: […], harnesses: {‹id›: {name, keys: [{env, label, kind, prefix?}], mint}}, warnDays}` |
+  | `POST /prefs/harness-signins` | a person, in their partition | `{harness, secret, name?, env?, default?}` | **201** `{signin}` — a pasted key or token (one line, ≤ 8 KiB), its `env` by prefix unless named; the first for a coding agent is its default; one of a name you have replaces its secret (the coding agents on the old one stopped) |
+  | `PUT /prefs/harness-signins/{id}` | its person | `{name?, default?, secret?, env?}` | `{signin}` — renamed (unique per coding agent: **409**), the default (or none), a new secret (its refusal cleared; the coding agents that started with the old one stopped) |
+  | `DELETE /prefs/harness-signins/{id}` | its person | — | `{ok, stopped}` — **Forget**: a key codex kept removed from every sandbox it ran in (a removal that fails: **502**, nothing forgotten — try again), out of the vault, the row gone, and every coding agent that started with it stopped now (an `hstop`: a turn in flight ends saying so; the next message starts it without it) |
+
+  **Switching accounts within a conversation** (`PUT
+  /runs/{id}/harness/signin`, the owner's, while no turn runs and no
+  question waits — else **409**): the pick is stored, and an adapter at
+  rest is stopped at once (an `hswitch` inbox row; a note `switched to
+  ‹name› — ‹agent› resumes this conversation with it`); the next message
+  starts it with the other saved sign-in and **resumes the same session**
+  (`session/load` — claude-agent-acp's `loadSession` reads the transcript
+  from `$HOME/.claude/projects` in the sandbox, whatever account signs the
+  requests); one parked on its sign-in is retried with it at once. A
+  session that can't be reopened falls back to a fresh one with a note,
+  as any resume does.
 - **Its summary everywhere.** `POST /ask` and `POST /runs` answer a coding
   agent's new run with its `harness` too. `/tree` nodes carry `engine`
   and, for a coding agent, `harness` without `options`, `commands`,
@@ -2604,6 +2817,30 @@ images that have it, the sandboxes it was found or signed in on, the classes
 that allow it, its modes and sign-in command — and checks a running sandbox
 now (`?probe=`).
 
+**Guided and saved sign-ins in the UI** (D179; `model/harness-signins.js`,
+both views). On a sign-in card whose coding agent has a guided sign-in,
+**Sign in to ‹name›** comes first: once the CLI prints its link the card
+offers **Open sign-in page ↗** (a real link), **Copy link**, a field for
+the code the page shows and **Finish**, and a status line in the CLI's own
+words (a malformed code: paste it again; a refusal: its reason, Sign in
+again); signed in, the message goes again by itself. **Use a terminal
+instead** opens the login terminal as below. In your own partition, in a
+sandbox of yours no one else uses, **Remember for my other sandboxes**
+(with a name) mints a saved sign-in instead (the card says the token stays
+yours, out of the sandbox's home); elsewhere the card says why it isn't
+offered. **Coding-agent sign-ins** — the ⚙ Coding agents tab (managers),
+and for everyone the dialog behind **Saved sign-ins…** on the card and in
+the coding agent's ▾ menu (the app: Coding agent settings) — lists yours
+per coding agent: what each is (a subscription token, an API key), its
+state (expires in N days from 14 days before; expired; refused — sign in
+again), the default; **Make default**, **Rename**, **Forget** (confirmed),
+and a key or token pasted (a password field emptied as it is sent; which
+variable by its prefix, or picked). In a conversation the coding agent's
+▾ button ends with the account (`· using Work`, or `· this sandbox's
+sign-in`) and its **Account** section switches it — Default (‹name›),
+another saved sign-in (a refused or expired one greyed, saying why), or
+This sandbox's own sign-in — resuming the session at the next message.
+
 **Terminals and sign-in in the UI.** A coding agent that needs you to sign
 in parks its run on `pendingState.kind == "login"` (status `waiting_input`);
 the conversation then shows a sign-in card with the agent's own methods:
@@ -2663,6 +2900,11 @@ credentials.
   partition. Anywhere else — a run at the global instance, seen from a
   person's partition or from the global instance's own page — the card is
   read-only and says why, and the app offers no Sign in.
+- **Saved sign-ins** (D179) live only here, in the person's own
+  partition and its vault: Coding-agent sign-ins, Remember and the
+  account switch appear only in its page; the global instance's own page
+  has none (the shared space holds no one's credentials), and an
+  unpartitioned agent's says why it has none.
 - **Calls follow the run's home.** A coding agent's calls (mode, options,
   a permission, an answer, a message, Stop, Cancel, Retry, the log) go to
   the run's home, as every call about a conversation does. So does the
@@ -2696,7 +2938,7 @@ its terminals dial the manager directly, as you (verified).
 
 | Method & path | Who | Query | Answer |
 |---|---|---|---|
-| `GET /runs/{id}/harness/terminal` | a participant who may use its sandbox | `login=1`, `rows`, `cols`, `exec` | WebSocket: a terminal in the coding agent's sandbox at its cwd — its sign-in command with `login=1` (`harness.login.command`: the adapter's own when it offered one, else the catalog's, else the manager's advertisement), else the login shell |
+| `GET /runs/{id}/harness/terminal` | a participant who may use its sandbox | `login=1`, `rows`, `cols`, `exec` | WebSocket: a terminal in the coding agent's sandbox at its cwd — its sign-in command with `login=1` (`harness.login.command`: the adapter's own when it offered one, else the sandbox manager's advertised `login`, else the catalog's (D179: the manager's wins — an older coding-sandbox's `claude /login` keeps working; Claude Code's catalog sign-in is `claude auth login`, no `CLAUDE_CODE_REMOTE`)), else the login shell |
 | `GET /sandboxes/{ref}/terminal` | a person who may use the sandbox | `cwd`, `cmd`, `rows`, `cols`, `exec` | WebSocket: `cmd` as the contract's `tty` route runs it (the login shell unless given) |
 | `GET /runs/{id}/harness/log` | a viewer who may use its sandbox | `max` (bytes, ≤ 65536: the default; more is the cap) | `text/plain`: the tail of the coding agent's stderr, its current generation |
 
@@ -2920,7 +3162,8 @@ the same model.
 | `harness-homes.js` | coding agents in a partitioned instance (§Coding agents, "In a partitioned instance (the UI)"): whether this page starts one (`harnessesHere`), whether a sandbox is your own space's (`homedWhy`), where a sign-in is offered (`signInAway`), a shared new chat's "Who answers" (`sharedNewChat`) and the sandbox it takes along (`sharedSees`), a run in the shared space that isn't driven (`barredWhy`), and that a coding agent's conversation never moves (`keepsHome`, `unshareWhy`) |
 | `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once; `tailError`: why they couldn't be), and a row's coding agents at work below it (`kidsWords`) |
 | `harness-board.js` | the Coding agents board: `app.board` (`createBoard`, wired by `createApp`) — `rows(root)` (a conversation's tree, or at home yours at work: each row a child card and its section), `chip(root)`, `delegated(v)`, `take(ev)`; the words (`chipWords`, `filterWords`, `sectioned`, `emptyWords`, `delegatedWords`) |
-| `terminals.js` | the terminal dock's tabs (`termsOf(app)`: open, show, hide, close, a New shell in place — page-level, not a conversation's), a coding agent's run relay (`runTerminalSrc`), and the sign-in card (`signIn`): a login park's methods, the sandbox whose home the credentials land in, whether it is shared (a confirm), whom to ask, and whether that sandbox is gone or its manager down (`gone`, `goneText`) |
+| `terminals.js` | the terminal dock's tabs (`termsOf(app)`: open, show, hide, close, a New shell in place — page-level, not a conversation's), a coding agent's run relay (`runTerminalSrc`), and the sign-in card (`signIn`): a login park's methods, the sandbox whose home the credentials land in, whether it is shared (a confirm), whom to ask, and whether that sandbox is gone or its manager down (`gone`, `goneText`), and whether it offers the guided sign-in and its Remember (`guided`, `remember`) |
+| `harness-signins.js` | a coding agent's sign-ins (D179): the guided sign-in's steps and words (`newGuided`, `guidedStarted`, `guidedFailed`, `guidedFinished`, `guidedWords`), whether Remember is offered (`rememberOf`), saved sign-ins (`signinsOf`, `signinGroups`, `statusOf`, `keyFor`) and a conversation's account and its switch (`accountOf`) |
 
 `createApp({deltas, page})`: drafts arrive as deltas (`/stream?deltas=1`,
 "Deltas" above) and the open conversation is read in pages (`?limit=`,

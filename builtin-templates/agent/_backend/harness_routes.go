@@ -454,9 +454,12 @@ func handleHarnessAuthenticate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Method  string `json:"method"`
-		APIKey  string `json:"apiKey"`
-		Confirm bool   `json:"confirm"`
+		Method   string  `json:"method"`
+		APIKey   string  `json:"apiKey"`
+		Confirm  bool    `json:"confirm"`
+		Code     string  `json:"code"`     // guided: the code the sign-in page showed
+		Remember bool    `json:"remember"` // guided: mint a saved sign-in instead (harness_guided.go)
+		Name     *string `json:"name"`     // guided with remember: its name
 	}
 	if !decodeHarnessBody(w, r, &body) {
 		return
@@ -477,6 +480,14 @@ func handleHarnessAuthenticate(w http.ResponseWriter, r *http.Request) {
 	hs, _ := agent.db.harnessSession(id)
 	if hs == nil || hs.State != hsLogin {
 		xbin.WriteError(w, http.StatusConflict, name+" is signed in")
+		return
+	}
+	if body.Method == "guided" {
+		handleGuided(w, r, run, cfg, name, guidedBody{code: body.Code, remember: body.Remember, name: body.Name, confirm: body.Confirm}, denied)
+		return
+	}
+	if body.Code != "" || body.Remember {
+		xbin.WriteError(w, http.StatusBadRequest, "code and remember: only for method guided")
 		return
 	}
 	if msg := authMethodErr(hs, body.Method, body.APIKey); msg != "" {

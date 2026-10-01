@@ -20,7 +20,14 @@ type Options struct {
 	Steer        bool // --steer: serve _session/steering
 	AutoMode     bool // --auto-mode: an "auto" mode that skips an edit's permission
 	RequireLogin bool // --require-login: signed in only with $HOME/.fakeacp/credentials
-	Persist      bool // --persist: sessions in $HOME/.fakeacp/sessions, replayed by session/load
+	// CodexAuth (--codex-auth, with --require-login) signs in as codex 0.156
+	// does instead: signed in when ${CODEX_HOME:-$HOME/.codex}/auth.json
+	// held a key at start, or once authenticate gave one — written to that
+	// file and kept in memory, so deleting the file later doesn't sign the
+	// running agent out; no key read from the environment; session/new and
+	// session/load refused signed out (-32000).
+	CodexAuth bool
+	Persist   bool // --persist: sessions in $HOME/.fakeacp/sessions, replayed by session/load
 	// DeviceDelay is how long after the client accepts the device-code URL
 	// the sign-in completes (--device-ms): 0 = 1 s, negative = at once.
 	DeviceDelay time.Duration
@@ -115,6 +122,8 @@ func ParseArgs(args []string) Options {
 			o.RequireLogin = on
 		case "persist":
 			o.Persist = on
+		case "codex-auth":
+			o.CodexAuth = on
 		case "device-ms":
 			if !hasVal && i+1 < len(args) {
 				if _, err := strconv.Atoi(args[i+1]); err == nil {

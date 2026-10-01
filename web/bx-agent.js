@@ -41,6 +41,7 @@ import { ScrollWindow } from '/vendor/scroll-window.js';
 import { toolCard, permCard, changesCard, askCard, cardsCss, mdLive } from '/vendor/agent-cards.js';
 import { agentTestApi } from '/vendor/agent-testapi.js';
 import { slashQuery, matchCommands, commandHint } from '/vendor/agent-slash.js';
+import '/vendor/agent-signin.js';
 
 export class BxAgent extends LitElement {
   static properties = {
@@ -60,6 +61,8 @@ export class BxAgent extends LitElement {
     _draft: { state: true },
     _error: { state: true },
     _authErr: { state: true }, // the last create/turn failed auth (show the sign-in banner)
+    _signinTerm: { state: true }, // the person chose a terminal over the guided sign-in
+    _signedNote: { state: true }, // a guided sign-in just worked: what to do now
     _followUp: { state: true }, // {text, after}: plan feedback to send once the rejected turn settles
     _slashSel: { state: true }, // the highlighted slash command
     _slashOff: { state: true }, // Escape closed the menu (until the draft changes)
@@ -147,6 +150,7 @@ export class BxAgent extends LitElement {
     .signin .msg { flex: 1; }
     .signin button { border: 1px solid var(--bx-amber, #f2a71b); background: var(--bx-amber, #f2a71b); color: #1b1e24;
       border-radius: 5px; padding: 3px 10px; font-weight: 700; cursor: pointer; font: inherit; white-space: nowrap; }
+    .status.signed { color: var(--bx-green, #4caf50); }
     .status.ended button { margin-left: auto; border: 1px solid var(--bx-accent, #f5a623); background: transparent; color: var(--bx-accent, #f5a623);
       border-radius: 5px; padding: 2px 8px; cursor: pointer; font: 11px var(--bx-mono, ui-monospace, monospace); font-weight: 600; white-space: nowrap; }
     .status.ended button:hover { background: var(--bx-accent, #f5a623); color: #1b1e24; }
@@ -170,6 +174,9 @@ export class BxAgent extends LitElement {
     this._draft = '';
     this._error = '';
     this._authErr = false;
+    this._signinTerm = false;
+    this._signedNote = '';
+    this._signedSeq = null; // the log's end when a guided sign-in worked
     this._followUp = null;
     this._slashSel = 0;
     this._slashOff = false;
@@ -190,8 +197,8 @@ export class BxAgent extends LitElement {
     this._hostRO = new ResizeObserver(() => { if (this._stale && !this._hidden()) this.requestUpdate(); });
     this._hostRO.observe(this);
     if (this.history) { this._loadHistory(); return; }
+    this._loadProviders(); // for the sign-in (D178) and mode names, every path
     if (this.session) { this._open(); return; }
-    this._loadProviders(); // for the sign-in command and mode names, both paths
     this._maybeEager();
   }
 
@@ -334,7 +341,7 @@ export class BxAgent extends LitElement {
       if (!r.ok) return;
       const ps = await r.json();
       this._providers = ps;
-      if (ps.length && !this._provider) { this._provider = ps[0].id; this._mode = ps[0].defaultMode || ''; }
+      if (ps.length && !this._provider && !this.session) { this._provider = ps[0].id; this._mode = ps[0].defaultMode || ''; }
     } catch { /* offline; the composer still shows */ }
   }
 
@@ -481,7 +488,7 @@ export class BxAgent extends LitElement {
       const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/prompt`,
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
       if (!r.ok) { this._error = (await r.json().catch(() => ({}))).error || `prompt failed (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }
-      this._error = ''; this._authErr = false; this._refetch();
+      this._error = ''; this._authErr = false; this._signedNote = ''; this._refetch();
       return true;
     } catch (e) { this._error = String(e.message || e); return false; }
   }
@@ -594,6 +601,9 @@ export class BxAgent extends LitElement {
   // login:{needed,provider,command} when the agent says it is signed out (or a
   // turn hit -32000); a create/prompt error that reads like auth is a fallback
   _login() {
+    // signed in here (D178): the agent says "signed out" until a turn works,
+    // so the prompt stays down unless one fails again
+    if (this._signedSeq != null && this._tx.statusAfter(this._signedSeq) !== 'error') return null;
     const last = this._tx.st.last;
     if (last && last.login && last.login.needed) return last.login;
     if (this._authErr) {
@@ -614,6 +624,42 @@ export class BxAgent extends LitElement {
   _doSignIn(lg) {
     if (!lg || !lg.command) return;
     this.dispatchEvent(new CustomEvent('bx-open-terminal', { detail: { run: lg.command }, bubbles: true }));
+  }
+
+  // the provider's guided sign-in (D178: GET /agent/providers `signin`), if any
+  _signinSpec() {
+    const p = (this._providers || []).find((x) => x.id === (this.provider || this._provider));
+    return (p && p.signin && p.signin.command) ? p.signin : null;
+  }
+
+  // the guided sign-in worked: the prompt goes, the person sends again
+  _signedIn(lg) {
+    this._signedSeq = this._tx.lastSeq;
+    this._authErr = false;
+    this._signinTerm = false;
+    const asked = this._blocks().some((b) => b.kind === 'msg' && b.role === 'user');
+    this._signedNote = `Signed in to ${lg.provider}.${asked ? ' Send your message again.' : ''}`;
+  }
+
+  // "use a terminal instead": today's shell tab, running the login — or the
+  // CLI's fallback when it is too old for the guided command
+  _signinTerminal(lg, ev) {
+    this._signinTerm = true;
+    const spec = this._signinSpec();
+    this._doSignIn({ ...lg, command: ev.detail?.fallback && spec?.fallback ? spec.fallback : lg.command });
+  }
+
+  _signin(lg) {
+    const spec = this._signinSpec();
+    if (spec && !this._signinTerm) {
+      return html`<bx-agent-signin .spec=${spec} provider=${lg.provider} component=${this.component}
+        @bx-signin-done=${() => this._signedIn(lg)} @bx-signin-terminal=${(ev) => this._signinTerminal(lg, ev)}></bx-agent-signin>`;
+    }
+    return html`<div class="signin">
+      <span class="msg">Not signed in to ${lg.provider}.</span>
+      <button @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
+      ${spec ? html`<button @click=${() => { this._signinTerm = false; }} title="sign in here: a link to open and a code to paste">Guided sign-in</button>` : nothing}
+    </div>`;
   }
 
   _key(ev) {
@@ -672,10 +718,7 @@ export class BxAgent extends LitElement {
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
         </div>
-        ${lg ? html`<div class="signin">
-          <span class="msg">Not signed in to ${lg.provider}.</span>
-          <button @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
-        </div>` : nothing}
+        ${lg ? this._signin(lg) : this._signedNote ? html`<div class="status signed">${this._signedNote}</div>` : nothing}
         ${!this.session ? (this.provider || this.restarting ? nothing : this._chooser()) : this._settings()}
         ${this._slashMenu()}
         <div class="compose">

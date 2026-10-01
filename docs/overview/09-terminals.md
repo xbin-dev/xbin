@@ -586,14 +586,30 @@ What the agent gets:
   authenticates exactly as the CLI would in a shell: from its own `$HOME`
   (`~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.gemini/`,
   `~/.local/share/opencode/`), which is the per-user home shared with every
-  terminal. So `claude /login` (or `codex login`, `opencode auth login`, …)
-  run once in a shell terminal signs the agent in on every tile. When the
-  agent reports it is signed out (or a turn hits auth-required), the Agent
-  tab shows a **"Sign in to <Provider>"** button that opens a shell terminal
-  in the same window running that command for you — the sign-in URL it prints
-  is clickable, so there is no wrapped URL to copy out of the transcript. The
-  first turn on a home with no login also ends with a `status error` naming
-  the command — never a vault command.
+  terminal. So `claude auth login` (or `codex login`, `opencode auth
+  login`, …) run once in a shell terminal signs the agent in on every tile.
+  When the agent reports it is signed out (or a turn hits auth-required), the
+  Agent tab shows a sign-in. For Claude Code it is **guided** (D178): **Sign
+  in** runs `claude auth login` in a terminal session of its own on the
+  tile — one no tab shows, which xbind ends after 15 minutes — and the tab turns what it prints into **Open
+  sign-in page ↗** and **Copy link** (the whole link, however the CLI drew
+  it), a field for the code the sign-in page shows you (**Finish** hands it
+  to the CLI) and a line saying how it went: signed in — send your message
+  again — or the CLI's own reason it failed, with **Try again**. **Use a
+  terminal instead** opens a shell tab in the same window running the
+  sign-in command, as for the other agents, whose sign-in always works that
+  way. A Claude Code too old for `claude auth login` ends without a link,
+  and the tab offers its fallback in a terminal instead: `claude /exit`,
+  whose first-run screens ask for the sign-in, then exit. Links in any
+  terminal open whole, too: an OSC 8 link (what Claude Code prints) opens
+  its target from any row it spans — at once when the row shows part of
+  that target, after a confirm naming the real host when it shows
+  something else — a URL a program broke over rows is joined back (never
+  opened with a user part), and a program's OSC 52 copy (Claude Code's
+  "c to copy") reaches your clipboard while that terminal has the focus;
+  a program's OSC 52 read gets no answer. The first turn on a home with no
+  login also ends with a `status error` naming the command — never a vault
+  command.
 - **its own settings, live.** The agent advertises what it can change —
   the model, the reasoning effort, the permission mode — and the Agent tab
   shows each as a picker once the session is up — picking a provider from the

@@ -40,16 +40,20 @@ public struct TermDirectoryEntry: Equatable, Sendable, Identifiable {
     /// non-primary deployment's name, "" for the primary (and on an xbind
     /// without tile deployments).
     public var deployment: String
+    /// Set by xbind only: "signin" for the web Agent tab's guided sign-in
+    /// shell (``TermDirectory/signinPurpose``), "" for every other session.
+    public var purpose: String
 
     public init(id: String, cwd: String, net: String = "", label: String = "", scopes: [TermScope] = [], gpu: String = "none",
                 api: Bool = true, name: String = "", created: Date? = nil, lastActive: Date? = nil, clients: Int = 0,
                 envHeld: Bool = false, kind: Kind = .shell, vm: Bool = false, provider: String = "", mode: String = "",
-                model: String = "", status: String = "", pending: Int = 0, questions: Int = 0, deployment: String = "") {
+                model: String = "", status: String = "", pending: Int = 0, questions: Int = 0, deployment: String = "",
+                purpose: String = "") {
         self.id = id; self.cwd = cwd; self.net = net; self.label = label; self.scopes = scopes; self.gpu = gpu
         self.api = api; self.name = name; self.created = created; self.lastActive = lastActive; self.clients = clients
         self.envHeld = envHeld; self.kind = kind; self.vm = vm; self.provider = provider; self.mode = mode
         self.model = model; self.status = status; self.pending = pending; self.questions = questions
-        self.deployment = deployment
+        self.deployment = deployment; self.purpose = purpose
     }
 
     /// What the sheet shows: the user's name, else "shell"/the provider,
@@ -157,10 +161,17 @@ public enum TermDirectory {
         return (try? JSONEncoder().encode(["name": clean])) ?? Data("{\"name\":\"\"}".utf8)
     }
 
-    /// Decodes the list; rows without an id are skipped, unknown fields ignored.
+    /// The purpose xbind gives the web Agent tab's guided sign-in shell
+    /// (D178, docs/protocol.md): a CLI's login running for that tab, never
+    /// a session of the person's — no tab, no badge, no inbox row. Set by
+    /// the server only (a name is anyone's to give, so it says nothing).
+    public static let signinPurpose = "signin"
+
+    /// Decodes the list; rows without an id are skipped, as are guided
+    /// sign-ins' shells (``signinPurpose``); unknown fields ignored.
     public static func decode(_ data: Data) -> [TermDirectoryEntry] {
         guard let rows = try? JSONDecoder().decode([Lenient].self, from: data) else { return [] }
-        return rows.compactMap(\.entry)
+        return rows.compactMap(\.entry).filter { !($0.kind == .shell && $0.purpose == signinPurpose) }
     }
 
     /// One row, every field optional and type-tolerant.
@@ -169,7 +180,7 @@ public enum TermDirectory {
 
         enum K: String, CodingKey {
             case id, cwd, net, label, scopes, gpu, api, name, created, lastActive, clients, envHeld, kind, vm
-            case provider, mode, model, status, pending, questions, deployment
+            case provider, mode, model, status, pending, questions, deployment, purpose
         }
 
         init(from decoder: any Decoder) throws {
@@ -187,7 +198,7 @@ public enum TermDirectory {
                 clients: i(.clients), envHeld: b(.envHeld) ?? false,
                 kind: TermDirectoryEntry.Kind(rawValue: s(.kind)) ?? .shell, vm: b(.vm) ?? false,
                 provider: s(.provider), mode: s(.mode), model: s(.model), status: s(.status), pending: i(.pending),
-                questions: i(.questions), deployment: s(.deployment))
+                questions: i(.questions), deployment: s(.deployment), purpose: s(.purpose))
         }
     }
 

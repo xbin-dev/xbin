@@ -68,6 +68,12 @@
 //	            terminal_exit (failed on a non-zero exit)
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
 //	            wait, output → a chunk "term: <output>"
+//	printenv N  (a prefix) the agent's own environment variable N, as
+//	            Claude Code's Bash tool (a child of the agent) prints it: an
+//	            execute tool_call completed with the value as its text, the
+//	            line "hook: N=<value>" on stderr, then a chunk "printenv: <value>"
+//	whoami…     (a prefix) a chunk "account: <token …last4 | home | none>":
+//	            the sign-in a turn uses (--require-login's rules below)
 //	env         a chunk "HOME=<home> key=<yes|no> settings=<~/.claude/settings.json
 //	            via fs/read_text_file> model=<the model option>"
 //	write       fs/write_text_file <cwd>/fake-wrote.txt
@@ -103,8 +109,23 @@
 //	                 _auth/status_update{kind:none} and fails -32000. The auth
 //	                 methods become fake-login (terminal, args ["login"]),
 //	                 fake-api-key (_meta["api-key"]) and fake-device (a device
-//	                 code through URL elicitation)
-//	--persist        sessions get their own ids; every session's updates (and
+//	                 code through URL elicitation). As Claude Code does, a
+//	                 credential in the environment outranks $HOME's:
+//	                 CLAUDE_CODE_OAUTH_TOKEN (else ANTHROPIC_API_KEY) signs
+//	                 every prompt in, and one holding "refused" fails every
+//	                 prompt (-32000, the sign-out status first; its message
+//	                 echoes the token, as a careless adapter's might); with an
+//	                 OAuth token, session/new and session/load are followed by
+//	                 _auth/status_update{kind:none}, as claude-agent-acp
+//	                 0.81's `claude auth status` probe reports one
+//	--codex-auth    (with --require-login) signs in as codex 0.156 does:
+//	                signed in when ${CODEX_HOME:-$HOME/.codex}/auth.json held
+//	                a key at start, or once fake-api-key's authenticate gave
+//	                one — written to that file and kept in memory, so
+//	                removing the file doesn't sign the running agent out; no
+//	                key from the environment; session/new and session/load
+//	                refused signed out (-32000); `whoami` says "key …<last 4>"
+//	--persist       sessions get their own ids; every session's updates (and
 //	                 its prompts, as user_message_chunk) are appended to
 //	                 $HOME/.fakeacp/sessions/<id>.jsonl, and session/load
 //	                 replays exactly those instead of the canned turn
@@ -112,8 +133,10 @@
 //	                 accepts the URL (default 1000)
 //
 // authenticate (with --require-login): fake-api-key takes
-// _meta["api-key"].apiKey (empty → -32602 "no key", "bad" → "invalid API
-// key", else it writes the credentials file — never the key); fake-device
+// _meta["api-key"].apiKey, codex-acp's shape, or _meta["api-key"] as the key
+// itself, gemini-cli's (empty → -32602 "no key", "bad" → "invalid API
+// key", else it writes the credentials file — the method and which shape
+// came, never the key); fake-device
 // needs the client's elicitation.url, sends elicitation/create {mode:"url"}
 // and, N ms after the client accepts, writes the file, sends
 // elicitation/complete and answers; any other method (and, without the

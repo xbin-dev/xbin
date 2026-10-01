@@ -123,9 +123,11 @@ start() {
   # works here: without --isolate fakesbx runs on the host, every sandbox
   # command is a host process, and a variable without the XBIN_ prefix
   # reaches its backend. Under HARNESS_ISOLATE neither holds (the agent
-  # passes don't run there).
+  # passes don't run there). fakebin/ leads xbind's PATH, which the
+  # (host) shells inherit: its scripted `claude` is what the Agent tab's
+  # guided sign-in runs (D178; the agentTab pass).
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
-  (cd "$REPO" && XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
+  (cd "$REPO" && PATH="$H/fakebin:$PATH" XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
       FSB_HARNESS_FAKE="$REPO/bin/fakeacp --steer --auto-mode --require-login --persist" \
       nohup bin/xbind --dev "${overlay_flags[@]}" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${iso_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)

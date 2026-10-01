@@ -104,6 +104,19 @@ export function makeStore({ fetch: f = globalThis.fetch, storage = globalThis.lo
   };
 }
 
+// The Agent tab's guided sign-in (agent-signin.js, D178) runs the CLI's
+// login in a shell session of its own, which is never a tab: it opens it
+// with /ws/term?purpose=signin, and xbind marks the session from its first
+// listing on — purpose "signin", which only xbind sets (a name is anyone's
+// to give, so it hides nothing; the security review of D178).
+export const SIGNIN_PURPOSE = 'signin';
+
+// visibleRows(rows) → the listing without guided sign-ins' shells; an agent
+// session is always a tab.
+export function visibleRows(rows) {
+  return rows.filter((s) => !((s.kind || 'shell') === 'shell' && s.purpose === SIGNIN_PURPOSE));
+}
+
 // tabsFrom(server, local) → the tab list after a listing: the server's
 // rows in its order, each keeping the local tab's `key` (lit's repeat must
 // not remount a live terminal), what the session frame told the local tab

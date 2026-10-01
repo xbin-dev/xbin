@@ -255,6 +255,11 @@ export const FEATURES = {
   'harness.autonomy': 'your Auto / Always approve per coding agent (/prefs/harness-mode): how its new conversations, and the ones the agent starts for you, begin',
   // Coding agents — terminals and sign-in (D147 §8 U5)
   'harness.login': 'a coding agent waiting for a sign-in (pendingState "login"): its methods — a login terminal running its sign-in command in the sandbox, then "Signed in? Retry"; an API key, sent once and never stored or shown; a device code (the page to open, the code) — the warning that credentials land in the sandbox\'s shared home, a confirm on a sandbox others may use, and whom to ask when you may not use it',
+  // Coding agents — guided and saved sign-ins (D179, model/harness-signins.js)
+  'harness.login.guided': 'the guided sign-in on the sign-in card: the provider\'s own CLI runs in the sandbox (Claude Code\'s `claude auth login`) — Open sign-in page ↗, Copy link, the code it shows and Finish, a status line in the CLI\'s words, and Use a terminal instead',
+  'harness.login.remember': '"Remember for my other sandboxes" on the guided sign-in, with a name: `claude setup-token` instead, its token kept by the backend as a saved sign-in (never shown) — a person\'s own partition and a sandbox of theirs no one else uses only, else why not',
+  'harness.signins': 'Coding-agent sign-ins (the Coding agents settings): your saved sign-ins per coding agent — what each is, its state (expiring in 14 days, expired, refused), the default; rename, make the default, paste a key or token, Forget; unpartitioned or in the shared space, why there are none',
+  'harness.account': 'a coding agent\'s conversation names the account it uses ("using Work", or the sandbox\'s own sign-in) and switches it: the default, another saved sign-in, or the sandbox\'s own — the session resumes with it at the next message',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.

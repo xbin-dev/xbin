@@ -145,7 +145,7 @@ func routes(mux *http.ServeMux) {
 	moveRoutes(mux)
 	fetchRoutes(mux)
 	for _, rt := range append(append(append(append(append(append(routeTable(), sandboxRoutes()...), liveRoutes()...), probeRoutes()...), harnessRoutes()...),
-		harnessRelayRoutes()...), harnessAPIRoutes()...) {
+		harnessRelayRoutes()...), append(harnessAPIRoutes(), signinRoutes()...)...) {
 		// agentRole is RoleFunc("admin") unless partitioned (partition_routes.go);
 		// hostedRoute serves a hosted conversation's routes from team at global (hosted_serve.go)
 		mux.Handle(rt.pattern, agentRole(hostedRoute(rt.pattern, rt.need, guard(rt.need, partitionRoute(rt.pattern, rt.h)))))

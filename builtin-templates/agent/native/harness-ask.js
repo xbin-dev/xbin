@@ -9,11 +9,14 @@
 //             approval with the plan as `markdown` above it; a question as a
 //             `question` from the schema (url mode: the page as a link, then
 //             Submit when done)
-//   toolbar   in a conversation: Mode (a menu: the adapter's modes, a bypass
-//             one confirmed and the owner's only, the config options but the
-//             model — effort… — and your Auto / Always approve) and the
-//             Model picker
-//   main      Coding agent settings → your setting per harness (a screen)
+//   toolbar   in a conversation: Account (in a person's own partition: the
+//             saved sign-in it uses — "using Work" — and a switch to another,
+//             the default or the sandbox's own: D179), Mode (a menu: the
+//             adapter's modes, a bypass one confirmed and the owner's only,
+//             the config options but the model — effort… — and your Auto /
+//             Always approve) and the Model picker
+//   main      Coding agent settings → your setting per harness, and your
+//             Coding-agent sign-ins (native/harness-signins.js) (a screen)
 //   composer  the placeholder while a turn runs, the harness's slash
 //             commands, Send now (interrupts), a steered message said
 // The `end` seam answers only for a harness run parked on a permission or a
@@ -28,6 +31,8 @@ import {
   steerWords, steerTrack, ownerOf, modeConfirm, optionConfirm,
 } from '../model/harness-ask.js';
 import { barredWhy } from '../model/harness-homes.js';
+import { accountOf } from '../model/harness-signins.js';
+import { openSignins } from './harness-signins.js';
 
 const confirming = new Map(); // park → the explicit option picked, until confirmed or not
 const track = steerTrack();
@@ -163,7 +168,18 @@ function controlsTpl(v, h) {
   // options fold into the Mode menu — a phone's bar holds only so much
   const model = c.talk ? c.options.find((o) => o.category === 'model') : null;
   const rest = c.talk ? c.options.filter((o) => o !== model) : [];
-  return html`<menu icon="gear" label=${'Mode: ' + (c.mode.name || '—')}>
+  // the account (D179, a person's own partition): "using Work", and a switch
+  // to another saved sign-in, the default or the sandbox's own — the
+  // coding agent resumes this conversation with it
+  if (h.signin) app.harness.ensureSignins();
+  const acc = c.talk ? accountOf(h, app.harness.signins) : { shown: false };
+  return html`${acc.shown ? html`<menu icon="key" label=${'Account: ' + (acc.label || '—')}>
+      ${acc.choices.filter((ch) => !ch.disabled || ch.current).map((ch) => html`<button icon=${ch.current ? 'check' : nothing}
+        @tap=${guard(() => (ch.current ? null : app.harness.pickSignin(id, ch.value)))}>${ch.label + (ch.why ? ` — ${ch.why}` : '')}</button>`)}
+      ${acc.warn ? html`<divider/><button icon="warning" @tap=${openSignins}>${acc.warn}</button>` : nothing}
+      <divider/><button icon="key" @tap=${openSignins}>Saved sign-ins…</button>
+    </menu>` : nothing}
+    <menu icon="gear" label=${'Mode: ' + (c.mode.name || '—')}>
       ${c.modes.filter((m) => m.allowed || m.current).map((m) => html`<button icon=${m.current ? 'check' : nothing}
         confirm=${m.explicit && !m.current ? { title: modeConfirm(c.name, m), label: 'Switch', destructive: true } : nothing}
         @tap=${guard(() => (m.current ? null : app.harness.setMode(id, m.id)))}>${(m.explicit ? '⚠ ' : '') + m.name}</button>`)}
@@ -194,6 +210,9 @@ function settingsScreen() {
               @change=${guard((e) => app.harness.setSetting(h.id, e.value))}/>`
           : html`<row title=${s.name} detail="Always approve" subtitle=${s.choices[1].title}/>`;
       }) : html`<row title="No coding agent is available" subtitle=${app.harness.error || 'no bound sandbox manager offers one'}/>`}
+    </section>
+    <section title="Your sign-ins" footer="Saved sign-ins for coding agents — your own, kept in your space's vault and never in a sandbox: a personal and a work subscription, an API key.">
+      <row title="Coding-agent sign-ins" icon="key" nav @tap=${openSignins}/>
     </section>
     ${ui.err ? html`<section><notice tone="danger" text=${ui.err}/></section>` : nothing}
   </screen>`;

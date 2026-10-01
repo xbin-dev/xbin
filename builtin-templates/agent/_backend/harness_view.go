@@ -266,6 +266,9 @@ func harnessSummary(d *DB, r *Run) map[string]any {
 	if hs.State == hsLogin && hs.Login != "" && json.Valid([]byte(hs.Login)) {
 		out["login"] = json.RawMessage(hs.Login)
 	}
+	if userMode() { // saved sign-ins (D179): the conversation's pick, and the one its adapter started with
+		out["signin"] = signinSummary(d, h, hs)
+	}
 	if agent != nil && agent.eng != nil {
 		if s := agent.eng.harnessOf(r.ID); s != nil {
 			a := s.activityNow()

@@ -17,7 +17,7 @@ const { users } = require('./passes/users');
 const { termSets } = require('./passes/termsets');
 const { gridScale } = require('./passes/gridscale'), { predict } = require('./passes/predict'), { termSessions } = require('./passes/termsessions'), { vmToggle } = require('./passes/vmtoggle');
 const { viewAs } = require('./passes/viewas'), { windows } = require('./passes/windows');
-const { agentTab } = require('./passes/agenttab');
+const { agentTab } = require('./passes/agenttab'), { agentSignin } = require('./passes/agentsignin');
 const { ingressMulti } = require('./passes/ingressmulti');
 const { menuOpen } = require('./passes/menuopen');
 const { branding } = require('./passes/branding');
@@ -816,7 +816,7 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, personalBinds, personPage,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, agentSignin, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, personalBinds, personPage,
 };
 PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
 PASSES.adminPartitions = require('./passes/adminpartitions').adminPartitions; // F12, on its own line
@@ -830,6 +830,7 @@ PASSES.personPageAsked = require('./passes/personpageasked').personPageAsked; //
 PASSES.agentMoves = require('./passes/agentmoves').agentMoves; // AF: an un-shared conversation moves home (HARNESS_AGENT_PARTITION=1)
 PASSES.agentHosted = require('./passes/agenthosted').agentHosted; // B2d: non-secure (hosted) chats, HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
 PASSES.agentHarness = require('./passes/agentharness').agentHarness; // D147: coding agents in the agent template (not under HARNESS_ISOLATE: its fake adapter is a host path)
+PASSES.agentSignins = require('./passes/agentsignins').agentSignins; // D179: saved sign-ins for coding agents (partitioned under HARNESS_AGENT_PARTITION=1)
 
 (async () => {
   const args = process.argv.slice(2);

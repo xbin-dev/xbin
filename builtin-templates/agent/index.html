@@ -199,6 +199,12 @@
     .hlogin .hlm > .btn { align-self: flex-start; }
     .hlogin .hldev { margin: 6px 0; padding: 6px 8px; border: 1px dashed var(--bx-border); border-radius: 6px; overflow-wrap: anywhere; }
     .hlogin .acts { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+    /* the guided sign-in (D179): the link, Copy link, the code and Finish, Remember */
+    .hlogin .hlg { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
+    .hlogin .hlgrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .hlogin .hlgrow a.btn { text-decoration: none; }
+    .hlogin .hlcode { flex: 1 1 auto; min-width: 0; max-width: 340px; font-family: var(--bx-mono, monospace); }
+    .hlogin .hlname { width: 14em; max-width: 100%; }
     /* the top bar's sharing status (model/rules.js shareStatus) */
     .sharepill.on { color: var(--bx-accent); border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
     .sharepill.in { color: var(--bx-text); }

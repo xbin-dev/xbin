@@ -42,7 +42,10 @@ type SessionInfo struct {
 	// Partition is what the session acts in on a partitioned tile:
 	// "user:<id>" or "global" (partition.go); absent on every other tile.
 	Partition string `json:"partition,omitempty"`
-	personal  bool   // a person's session on a partitioned tile (Personal)
+	// Purpose is set by xbind only: "signin" for a guided sign-in's shell,
+	// which no tab shows (purpose.go); absent on every other session.
+	Purpose  string `json:"purpose,omitempty"`
+	personal bool   // a person's session on a partitioned tile (Personal)
 }
 
 // Personal reports a person's session on a partitioned tile — in their
@@ -59,7 +62,7 @@ func (s *Session) info() SessionInfo {
 	}
 	si := SessionInfo{
 		ID: s.ID, Cwd: s.Cwd, Net: s.Net, Label: s.Label, Scopes: scopes,
-		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm,
+		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm, Purpose: s.purpose,
 		Created:    s.born.UTC().Format(time.RFC3339),
 		LastActive: s.hub.LastActive().UTC().Format(time.RFC3339),
 		Clients:    s.hub.Clients(), EnvHeld: s.envKey != "",
@@ -110,13 +113,45 @@ func (m *Manager) ListFor(homeKey, cwd string, may func(rel string) bool) []Sess
 	return out
 }
 
+// List returns session metadata for the status API, ordered by creation time
+// (m.sessions is a map, so without sorting the admin view would reshuffle).
+func (m *Manager) List() []map[string]any {
+	out := []map[string]any{}
+	for _, s := range m.sorted() {
+		s.mu.Lock()
+		row := map[string]any{
+			"id": s.ID, "cwd": s.Cwd, "net": s.Net, "clients": s.hub.Clients(),
+			"user": s.homeKey, "kind": s.kind, "vm": s.vm,
+			"created": s.born.UTC().Format(time.RFC3339),
+			"label":   s.Label, "scopes": s.Scopes, "name": s.name,
+		}
+		s.mu.Unlock()
+		if s.purpose != "" { // a guided sign-in's shell (purpose.go)
+			row["purpose"] = s.purpose
+		}
+		if d := m.echoOf(s); d != "" { // the session's target (target.go)
+			row["deployment"] = d
+		}
+		if s.part.personal() { // a person's session on a partitioned tile: no name in an admin's listing (PD-09)
+			row["partition"], row["name"] = s.part.part, ""
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 // Rename sets a session's tab name. false = no such session. Empty clears.
+// The reserved name, and a guided sign-in's session, are left as they are
+// (RenameRefused says why, purpose.go).
 func (m *Manager) Rename(id, name string) bool {
 	m.mu.Lock()
 	s := m.sessions[id]
 	m.mu.Unlock()
 	if s == nil {
 		return false
+	}
+	if ReservedName(name) || s.purpose == PurposeSignin {
+		return true
 	}
 	s.mu.Lock()
 	s.name = name

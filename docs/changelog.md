@@ -12,6 +12,90 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-01
 
+- **Agent template: coding agents sign in with a link and a code, and a
+  person keeps saved sign-ins — several per coding agent — in their own
+  partition** (the template's API.md §Coding agents → "Signing in", "Saved
+  sign-ins", "Guided and saved sign-ins in the UI";
+  [sandbox-manager.md](/docs/sandbox-manager.md) §hello; [sdk.md](/docs/sdk.md)
+  `Provider.Mint`, `Keys`; D179). A coding agent waiting for its sign-in
+  offers **Sign in to Claude Code**: the agent runs Claude Code's own
+  `claude auth login` in the sandbox and hands you **Open sign-in page ↗**,
+  **Copy link** and a field for the code (`POST /runs/{id}/harness/
+  authenticate {method: "guided", code?}`), **Use a terminal instead** as
+  before. In a person's own partition **Remember for my other sandboxes**
+  runs the official `claude setup-token` instead and keeps its one-year
+  token as a **saved sign-in** in their partition's vault — it never
+  reaches a page, a row or a log; a key or token can be pasted too
+  (Anthropic, `CODEX_API_KEY`, `GEMINI_API_KEY`, opencode's provider keys:
+  `GET/POST/PUT/DELETE /prefs/harness-signins`). Saved sign-ins are named
+  ("Personal", "Work"), one per coding agent the default, and go into a
+  coding agent's environment — winning over the sandbox's own sign-in —
+  only in the person's own conversation, in a sandbox of theirs no one
+  else uses and no hosted conversation ever worked in; never copied into
+  a sandbox's home (Codex, which writes a key it is handed to its
+  `auth.json`, has that file removed at once, before a switch, a share
+  and at Forget). Whatever a coding agent prints is redacted before it
+  is kept or shown: its secret, and anything shaped like an Anthropic
+  token, become `[redacted]`. `setup-token` runs the image's own `claude`
+  with an empty environment and a throwaway home. Sharing a sandbox
+  through the agent first stops the coding agents holding a saved
+  sign-in there (or refuses: 502); a new secret stops the ones on the
+  old one. A conversation shows
+  `· using Work` on its coding agent's ▾ and switches account there (`PUT
+  /runs/{id}/harness/signin`): the adapter restarts with the other sign-in
+  and resumes the same session. A refused one is marked and left out
+  until signed in again; it warns 14 days before it expires; Forget stops
+  the coding agents using it, and a conversation that had picked it uses
+  the sandbox's own sign-in (never the default) until another is picked.
+  A person's space stopping stops their resting coding agents that hold
+  one. Residual risk, in the template's API.md: a process of the person's
+  own in their sandbox can read the coding agent's environment; the
+  coding-sandbox's operators and xbind's admins are in the trust base.
+  Unpartitioned agents keep the per-sandbox
+  sign-in (and the guided one); the shared space has none. Also: an API
+  key now reaches Gemini CLI's `authenticate` in the shape it reads (the
+  key itself — it read the object it was sent as no key), and a sandbox
+  manager's advertised `login` wins over the template's own (an older
+  coding-sandbox's `claude /login` keeps working; Claude Code's terminal
+  sign-in is `claude auth login`, without `CLAUDE_CODE_REMOTE`). Nothing
+  to change.
+- **Claude Code signs in once, with a link and a code — guided in the
+  Agent tab; terminal links open whole**
+  ([09-terminals.md](/docs/overview/09-terminals.md) §Agent sessions,
+  [protocol.md](/docs/protocol.md) `GET /agent/providers`,
+  [elements.md](/docs/elements.md) §`<bx-terminal>`, D178). Claude Code's
+  sign-in is now `claude auth login` — one sign-in, no first-run screens,
+  a link to open and the code it shows pasted back — where `claude /login`
+  signed a fresh home in twice (its onboarding, then the command). When a
+  Claude Code agent is signed out, the Agent tab's **Sign in** runs it in a
+  terminal session of its own that no tab shows — in the browser, and in
+  the xbin app's session lists, which skip it too — and offers **Open sign-in
+  page ↗**, **Copy link**, a code field with **Finish**, and the CLI's own
+  word on how it went; **Use a terminal instead** opens the shell tab as
+  before (codex, gemini and opencode sign in that way still). `GET
+  /agent/providers` gains an additive `signin` on claude: the command and
+  how to read its output (sdk/acp `Provider.Signin`, `Signin.Scan`), for
+  any client that wants to drive it. In every terminal a click on an OSC 8
+  link opens its whole target from any row it spans — at once when the row
+  shows part of that target, after a confirm naming the real host and URL
+  when it shows something else — a URL broken over rows is joined back,
+  and a program's OSC 52 copy (Claude Code's "c to copy") reaches the
+  clipboard while the terminal has the focus. Amended after a security
+  review: a link that shows one URL and opens another asks first, a URL
+  with a user part never opens, an OSC 52 clipboard read is never
+  answered; the sign-in's session is marked by xbind
+  (`/ws/term?purpose=signin` → `purpose: "signin"` in `GET
+  /term/sessions` rows and `term` events; any other purpose 400), not by
+  its name — clients hide shell rows with that purpose, `PATCH
+  /term/sessions/<id>` refuses the name `xbin:sign-in` (400) and renaming
+  such a session (409), and it ends after 15 minutes; `signin.url` is
+  anchored and `signin.hosts` match exactly (no subdomains). Claude Code agents no longer
+  run with `CLAUDE_CODE_REMOTE=1`, which put them in Anthropic's own
+  remote-session mode (auto memory off, a 2-minute API timeout, a
+  `bypassPermissions` default mode in your settings refused); the
+  adapter's sign-in methods are now `claude auth login`'s. coding-sandbox:
+  a new manager advertises `claude auth login` for Claude Code; a saved
+  config keeps its login, and an older one still works. Nothing to change.
 - **BREAKING: existing agent instances ask to become partitioned when they
   take the template's update**
   ([changes/2026-10-01-agent-instances-partitioned.md](/docs/changes/2026-10-01-agent-instances-partitioned.md);
@@ -159,8 +243,6 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   registered at SIGTERM) are refused; register what should bring it back
   while it runs. Nothing to change unless your partitioned backend does
   that at its exit.
-
-
 - **Agent template: a coding agent's `activity` no longer reads `idle`
   while it works.** The summary's `activity` (the `harness` event,
   `/tree`, `/needs`) went to `idle` on every status update that said the

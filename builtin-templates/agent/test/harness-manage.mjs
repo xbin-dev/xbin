@@ -87,7 +87,7 @@ ok('coding agents: each of the catalog\'s', rows.map((r) => r.id).join() === 'cl
 ok('…available, its images, sandboxes, classes', /^CC\s*Claude Code available/.test(row('claude')) && row('claude').includes('Coding sandboxes · base — internet, open network')
   && row('claude').includes('api-dev: installed · signed in') && row('claude').includes('Classes ▣ Coding'), row('claude'));
 ok('…its modes and sign-in', row('claude').includes('default Ask before acting · Auto: Accept edits · plan: Plan · the owner only: Bypass permissions')
-  && row('claude').includes('CLAUDE_CODE_REMOTE=1 claude /login'), row('claude'));
+  && row('claude').includes('claude auth login'), row('claude'));
 ok('…not signed in where it was', row('codex').includes('api-dev: installed · not signed in'), row('codex'));
 ok('…one that isn\'t available says why', row('gemini').includes('not available needs internet access — Coding sandboxes offers none') && row('opencode').includes('Images none has it')
   && row('opencode').includes('no auto mode'), row('gemini') + ' | ' + row('opencode'));
