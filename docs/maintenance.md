@@ -161,13 +161,29 @@ make release TAG=v0.3.44 RELEASE_FLAGS=--dry-run
 ```
 
 The script: preflight (tag shape, clean tree, on master, `gh` authenticated)
-→ `make check` → annotated tag + push of the branch and the tag → build and
-publish from a **detached worktree of the tag** (`deploy/publish-release.sh`
-builds whatever checkout it runs in; an edit on master during the build must
-not leak into the bundles) → watch the commit's CI runs → `gh release view`
-→ prune `dist/` to the two newest tags' bundles. `--no-check`, `--arch`,
-`--no-watch`, `--keep N`, `--allow-branch` exist for the unusual day; the
-release notes and the changelog entry are still yours to write.
+→ `make check` → `make vulncheck` (below) → annotated tag + push of the
+branch and the tag → build and publish from a **detached worktree of the
+tag** (`deploy/publish-release.sh` builds whatever checkout it runs in; an
+edit on master during the build must not leak into the bundles) → watch the
+commit's CI runs → `gh release view` → prune `dist/` to the two newest
+tags' bundles. `--no-check`, `--arch`, `--no-watch`, `--keep N`,
+`--allow-branch` exist for the unusual day; the release notes and the
+changelog entry are still yours to write.
+
+**The vulnerability gate** (`make vulncheck`, `hack/vulncheck`) runs
+govulncheck over every Go module a release ships: xbind's programs
+(`./cmd/...` with the repo's `go.work`, as `make build` builds them), the
+relay, the sdk, and each builtin tile's and template's backend against its
+own `go.mod.tile` with the sdk replaced by the checkout (what a workspace
+builds). It fails on a known vulnerability their code *reaches* (a call
+path, not just a required module) that `hack/vulncheck-allow.txt` doesn't
+list — `<OSV id> <target> # <why>`, kept empty or nearly: fix it instead
+(bump the dependency; for a builtin, bump its tile version too). Standard-
+library findings gate xbind's own programs only, judged against the `go`
+running the gate — the one that builds the release, so keep it current; a
+tile's are its workspace host's Go. `--no-check` doesn't skip it. It needs
+network (the vulnerability database, each module's dependencies), so it is
+not part of `make check`; `make vulncheck VULNCHECK=<target…>` checks some.
 
 ## Embedded assets
 

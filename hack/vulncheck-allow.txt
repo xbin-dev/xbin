@@ -1,0 +1,11 @@
+# Reachable vulnerabilities `make vulncheck` (hack/vulncheck, the release's
+# vulnerability gate) lets a release ship with: one per line,
+#
+#   <OSV id> <target> # <why it may ship, and what removes it>
+#
+# target is a name make vulncheck prints (xbind, relay, sdk,
+# builtin-tiles/<name>, builtin-templates/<name>) or * for every one. An entry
+# matching nothing any more is reported: remove it. Empty today — a release
+# fixes what its code reaches (update the dependency, or the go building it)
+# rather than adding a line here; an entry is for an advisory with no fix yet
+# or a finding shown not to apply, with the reason on the line.

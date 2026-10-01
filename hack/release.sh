@@ -2,7 +2,10 @@
 # hack/release.sh — the whole release in one command:  make release TAG=vX.Y.Z
 #
 #   1. preflight: tag shape, clean tree, on master, gh authenticated
-#   2. make check (skip with --no-check)
+#   2. make check (skip with --no-check), then make vulncheck — the
+#      vulnerability gate (hack/vulncheck): no known vulnerability the
+#      shipped Go code reaches unless hack/vulncheck-allow.txt says why.
+#      Never skipped; it needs network, as the rest of a release does
 #   3. annotated tag (or verify an existing one points at HEAD), push the
 #      branch and the tag
 #   4. build + publish from a DETACHED WORKTREE of the tag —
@@ -27,7 +30,7 @@ while [ $# -gt 0 ]; do
     --keep) KEEP="$2"; shift ;;
     --keep=*) KEEP="${1#*=}" ;;
     --allow-branch) ANYBRANCH=1 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     v*) TAG="$1" ;;
     *) echo "error: unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -68,6 +71,9 @@ if [ "$CHECK" = 1 ]; then
   info "make check"
   run make -s check
 fi
+# before the tag: a release found vulnerable is never tagged or pushed
+info "make vulncheck"
+run make -s vulncheck
 
 # --- 3. tag + push ----------------------------------------------------------
 if [ "$NEWTAG" = 1 ]; then

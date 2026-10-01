@@ -48,7 +48,17 @@ make check          # the definition of done: fmt-check vet js-check shellcheck
                     # pins-offline large-files test — CI runs exactly this,
                     # then integration
 make hooks          # once per clone: fmt-check + js-check run pre-commit
-make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing)
+make vulncheck      # the release's vulnerability gate (network): govulncheck
+                    # over every Go module a release ships — xbind's programs,
+                    # the relay, the sdk, each builtin tile's and template's
+                    # backend against its go.mod.tile — failing on a known
+                    # vulnerability their code reaches that
+                    # hack/vulncheck-allow.txt doesn't list with why; the
+                    # standard library's gate xbind's programs, so run it with
+                    # the go that builds the release. VULNCHECK=<target…>
+                    # narrows it. Not in `check`; `make release` runs it
+make release TAG=vX.Y.Z   # the whole release (docs/maintenance.md → Releasing):
+                    # make check, make vulncheck, tag, push, build, publish
 ./hack/vendor.sh    # refresh pinned frontend deps (lit, xterm, marked) + hack/vendor.sha256
 ```
 
