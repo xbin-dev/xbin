@@ -40,7 +40,7 @@ const (
 // parent wrote (a schedule's, a watcher's, /learn) are stray: a coding
 // agent's conversation isn't driven by them (D147 §3.3).
 type hInbox struct {
-	prompt, answer, approve, wake, interrupt, cancel, compact, stop, stray []*InboxRow
+	prompt, answer, approve, wake, interrupt, cancel, compact, stop, swtch, stray []*InboxRow
 }
 
 func sortHarnessInbox(rows []*InboxRow) hInbox {
@@ -72,6 +72,8 @@ func sortHarnessInbox(rows []*InboxRow) hInbox {
 			h.compact = append(h.compact, r)
 		case inboxHStop:
 			h.stop = append(h.stop, r)
+		case inboxHSwitch:
+			h.swtch = append(h.swtch, r)
 		}
 	}
 	return h
@@ -130,6 +132,11 @@ func (e *Engine) harnessPass(run *Run, rows []*InboxRow) {
 	}
 	if len(h.stop) > 0 {
 		e.harnessStop(ctx, run, h.stop)
+	}
+	if len(h.swtch) > 0 && e.harnessSwitch(ctx, run, h.swtch) { // another sign-in picked (harness_creds.go)
+		if run, _ = e.db.getRun(run.ID); run == nil {
+			return
+		}
 	}
 	if len(h.interrupt) > 0 {
 		e.harnessInterrupt(ctx, run, h.interrupt)

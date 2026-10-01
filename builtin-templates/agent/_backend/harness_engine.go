@@ -95,6 +95,13 @@ type hsess struct {
 	steerOut  json.RawMessage   // the request id of the steer frame last put on stdin (harness_steer.go)
 	braked    bool              // a halt conf says is on was seen at an event (harness_partition.go brakeSoon)
 	work      uint64            // how many times it went to work (toWork): a rest after a turn's end checks it (harness_partition.go)
+	// cred is the saved sign-in the adapter started with (its id; ""
+	// none: harness_creds.go). While one is in, only the adapter's own
+	// refusal of a prompt or a session says it is signed out (authRefused,
+	// set by the client's AuthHint for a -32000) — claude-agent-acp's
+	// status probe calls an env token's sign-in "none".
+	cred        string
+	authRefused atomic.Bool
 
 	// rest: no turn at work — idle, or parked on a person. In a person's
 	// partition only a working session keeps the hold, or one AgTT is
@@ -190,6 +197,7 @@ func (e *Engine) letHarnessesGo() {
 		s.halt()
 		s.pipe.Detach()
 	}
+	e.dropGuided() // a guided sign-in lives in the process that started it: the person starts over
 }
 
 func (s *hsess) halt() {
@@ -447,6 +455,13 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	if hs == nil {
 		hs = &harnessSession{RunID: run.ID, RootID: rootOf(run)}
 	}
+	// a saved sign-in of the person's, through the gate (harness_creds.go):
+	// its secret in the adapter's environment only — never stored
+	cred, credNote := e.db.credPick(run, cfg, u.Box)
+	env, err := credEnv(prov.Env, cred)
+	if err != nil {
+		return nil, &harnessFail{err.Error()}
+	}
 	wasLogin := hs.State == hsLogin // started to sign in: it stays parked on it
 	gen := hs.Gen + 1
 	cwd := orStr(h.Cwd, u.Cwd)
@@ -459,6 +474,9 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	e.mu.Unlock()
 	s := newHsess(e, run, gen, epoch, prov)
 	s.newSess = resume == ""
+	if cred != nil {
+		s.cred = cred.ID
+	}
 	var rules []acp.Rule // what "allow always" answers remember in this conversation
 	if json.Unmarshal([]byte(hs.Rules), &rules) == nil {
 		s.perms.SetRules(rules)
@@ -480,6 +498,10 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		hs.ReadOff, hs.ErrOff, hs.Draft, hs.Answers = 0, 0, "", "" // a new adapter: no request of the old one's to answer
 		hs.Shared, hs.Name = sandboxShared(u.Box), prov.Name
 		hs.LastActiveMs, hs.StartedMs = nowMs(), nowMs()
+		hs.Cred = s.cred // which saved sign-in, never its secret
+		if credNote != "" {
+			s.e.emitStep(t, rootOf(run), t.journal(run.ID, "note", map[string]string{"text": credNote}))
+		}
 		t.harnessUsageTx() // a person's partition's usage totals (harness_partition.go)
 		return t.putHarnessSession(hs)
 	})
@@ -489,7 +511,8 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	tg := harnessTarget(u)
 	tg.Guard, tg.Dropped = s.guard, s.dropped
 	pipe, err := startHarnessPipe(ctx, tg, hpSpawn{Run: run.ID, Root: rootOf(run), Gen: gen, Provider: prov.ID,
-		Argv: prov.Argv, Cwd: cwd, Env: prov.Env})
+		Argv: prov.Argv, Cwd: cwd, Env: env})
+	env = nil
 	if err != nil {
 		return nil, &harnessFail{fmt.Sprintf("couldn't start %s in %s: %v", prov.Name, name, err)}
 	}
@@ -502,7 +525,8 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		pipe.Detach()
 		return nil, errHandoff
 	}
-	s.c = acp.NewWith(acp.ClientOptions{Caps: harnessCaps(), IDPrefix: fmt.Sprintf("h%d.%d", run.ID, gen), AwaitLogin: true})
+	s.c = acp.NewWith(acp.ClientOptions{Caps: harnessCaps(), IDPrefix: fmt.Sprintf("h%d.%d", run.ID, gen), AwaitLogin: true,
+		AuthHint: s.authHint})
 	go s.consume()
 	opts := map[string]string{}
 	for k, v := range h.Options {
@@ -512,7 +536,11 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	}
 	acfg := acp.Config{Provider: prov, Mode: h.Mode, Options: opts, SkipModeOptions: true, ResumeID: resume, Cwd: cwd,
 		Argv: prov.Argv, Perms: s.perms, Log: s.log, Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return s.process(), nil }}
-	if err := s.c.Start(ctx, acfg); err != nil {
+	err = s.c.Start(ctx, acfg)
+	if sid, _ := s.c.Session(); err != nil && isAuthErr(err) && sid == "" && s.c.State().AuthNeeded && cred != nil && s.credAuthenticate(ctx, cred) {
+		err = nil // a saved API key the adapter takes only through authenticate (codex, gemini): its session is open now
+	}
+	if err != nil {
 		if ctx.Err() != nil || s.isHalted() {
 			return nil, errHandoff
 		}
@@ -537,6 +565,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 			// sign-in through it (harness_login.go)
 			if cerr := s.commit(nil, func(t *DB, hs *harnessSession) error {
 				hs.Steering = s.c.State().Steering
+				s.refuseCredTx(t, hs, err.Error()) // it refused the saved sign-in it was started with
 				return s.loginTx(t, hs, nil)
 			}); cerr != nil {
 				s.stop()
@@ -557,7 +586,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		if err := s.dropModeOptionsTx(t, run, st); err != nil {
 			return err
 		}
-		if wasLogin || st.AuthNeeded {
+		if wasLogin || s.signedOutNow(st) {
 			return s.loginTx(t, hs, nil)
 		}
 		return nil
@@ -565,7 +594,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	if err != nil {
 		return nil, err
 	}
-	if !wasLogin && !st.AuthNeeded {
+	if !wasLogin && !s.signedOutNow(st) {
 		signed := true
 		_ = e.db.noteHarnessSeen(h.Ref, prov.ID, &signed, &signed)
 	}
@@ -682,6 +711,10 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 	seq := attachSeq.n
 	attachSeq.Unlock()
 	s := newHsess(e, run, hs.Gen, epoch, prov)
+	s.cred = hs.Cred
+	if why := s.credStillFits(run, u.Box); why != "" { // the sandbox was shared meanwhile: not with that sign-in in it
+		return nil, &harnessFail{why}
+	}
 	switch hs.PromptState {
 	case "sent":
 		st.PromptRPC, st.Turn = json.RawMessage(hs.PromptRPC), uint64(hs.Turn)
@@ -729,7 +762,7 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 		s.pipe.Detach()
 		return nil, errHandoff
 	}
-	s.c = acp.NewWith(acp.ClientOptions{Caps: harnessCaps(), AwaitLogin: true, Attach: &st,
+	s.c = acp.NewWith(acp.ClientOptions{Caps: harnessCaps(), AwaitLogin: true, Attach: &st, AuthHint: s.authHint,
 		IDPrefix: fmt.Sprintf("h%d.%de%da%d", run.ID, hs.Gen, epoch, seq)})
 	go s.consume()
 	acfg := acp.Config{Provider: prov, Mode: cfg.Harness.Mode, Cwd: hs.Cwd, Argv: prov.Argv, Perms: s.perms, Log: s.log,

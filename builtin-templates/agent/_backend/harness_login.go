@@ -11,7 +11,8 @@
 //     prompt resent — signed out still, the run parks again;
 //   - harnessAuthenticate (POST /runs/{id}/harness/authenticate's engine
 //     side): the adapter's own authenticate — an API key (in
-//     _meta["api-key"].apiKey, once: never stored, never logged), or a
+//     _meta["api-key"] in the shape the adapter reads — {apiKey}, gemini's
+//     the key itself (apiKeyMeta) — once: never stored, never logged), or a
 //     device code, whose URL the adapter asks the person to open through a
 //     url elicitation (honoured only now) — then the held prompt resent to
 //     the same adapter. The code is the requester's alone: they get it in
@@ -305,7 +306,7 @@ func (e *Engine) deviceFor(runID int64, user string) *hDevice {
 // are *hAuthErr (the route's status and words) or a handoff's.
 //
 // method is one of harness.login.methods of kind api-key (apiKey needed:
-// it rides authenticate._meta["api-key"].apiKey once — never stored,
+// it rides authenticate._meta["api-key"] once (apiKeyMeta) — never stored,
 // never logged; the answer within 30 s → State "ready", the held prompt
 // resent) or device-code (the adapter's URL within 30 s → Device, for by
 // alone — harness.login.device says only who; the run leaves login by
@@ -360,7 +361,7 @@ func (e *Engine) harnessAuthenticate(ctx context.Context, run *Run, method, apiK
 	}
 	if kind == "api-key" {
 		actx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err := s.c.Authenticate(actx, m.ID, map[string]any{"api-key": map[string]any{"apiKey": apiKey}})
+		err := s.c.Authenticate(actx, m.ID, apiKeyMeta(s.prov.ID, apiKey)) // in the adapter's own shape (gemini: the key itself)
 		cancel()
 		if err != nil {
 			s.endAuth(a)

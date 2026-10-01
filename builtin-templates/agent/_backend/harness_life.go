@@ -165,7 +165,12 @@ func (e *Engine) harnessRights(ctx context.Context, run *Run, s *hsess) error {
 	if err != nil {
 		return nil
 	}
-	_, _, err = e.harnessUse(ctx, run, cfg)
+	u, _, err := e.harnessUse(ctx, run, cfg)
+	if err == nil {
+		if why := s.credStillFits(run, u.Box); why != "" { // shared since it started with a saved sign-in (harness_creds.go)
+			err = &harnessFail{why}
+		}
+	}
 	if !isHarnessFail(err) {
 		s.mu.Lock()
 		s.checked = time.Now()
@@ -192,8 +197,14 @@ func (s *hsess) recheckSoon() {
 		if run, err := e.db.getRun(s.run); err == nil {
 			if cfg, err := e.db.runConfig(s.run); err == nil {
 				ctx, cancel := context.WithTimeout(e.base, sbxCallTimeout)
-				_, _, ferr = e.harnessUse(ctx, run, cfg)
+				var u *sbxUse
+				u, _, ferr = e.harnessUse(ctx, run, cfg)
 				cancel()
+				if ferr == nil {
+					if why := s.credStillFits(run, u.Box); why != "" {
+						ferr = &harnessFail{why}
+					}
+				}
 			}
 		}
 		s.mu.Lock()

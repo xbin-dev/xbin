@@ -794,7 +794,8 @@ func (s *hsess) onStatus(ev acp.Event) {
 		return // the end is ended()'s
 	}
 	_ = s.commit(&ev, func(t *DB, hs *harnessSession) error {
-		if d.Login != nil && d.Login.Needed && hs.State == hsLive && hs.PromptState == "" && s.auth() == nil {
+		if d.Login != nil && d.Login.Needed && hs.State == hsLive && hs.PromptState == "" && s.auth() == nil &&
+			(s.cred == "" || s.authRefused.Load()) { // with a saved sign-in in, the adapter's own refusal only (harness_creds.go)
 			// signed out (_auth/status_update) with no turn: park on the
 			// sign-in now (mid-turn, the prompt's failure does)
 			if run, err := t.getRun(s.run); err == nil && run.Status != statusRunning && run.Status != statusWaiting {
@@ -839,7 +840,10 @@ func (s *hsess) onTurnEnd(ev acp.Event) {
 			d.Error = why // the pipe gave up on it: said in people's words
 		}
 	}
-	signedOut := d.StopReason == "error" && s.c != nil && s.c.State().AuthNeeded
+	signedOut := d.StopReason == "error" && s.c != nil && s.signedOutNow(s.c.State())
+	if d.StopReason != "error" {
+		s.authRefused.Store(false) // a turn that worked: signed in
+	}
 	detached := s.isDetached()
 	rests := false
 	mark := s.workMark() // the end's poke may send a queued prompt before the rest (harness_partition.go)
@@ -865,6 +869,7 @@ func (s *hsess) onTurnEnd(ev acp.Event) {
 		}
 		switch {
 		case signedOut:
+			s.refuseCredTx(t, hs, d.Error) // refused the saved sign-in it was started with
 			return s.loginTx(t, hs, held)
 		case detached:
 			return nil // the adapter's own turn goes on (harness_steer.go)

@@ -72,6 +72,7 @@ type Engine struct {
 	delivery map[int64][]chan struct{} // inbox id → closed when consumed
 	drafts   map[int64]*draft
 	harness  map[int64]*hsess      // the coding agents this process drives (harness_engine.go)
+	guided   map[int64]*hGuided    // the guided sign-ins under way here (harness_guided.go)
 	hlocks   map[int64]*sync.Mutex // a harness run's start lock (ensureHarness)
 	hretry   map[int64]int         // a takeover's unanswered attaches in a row (resumeHarness)
 	idleCh   chan struct{}         // closed when the last actor exits during shutdown

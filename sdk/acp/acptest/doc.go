@@ -121,8 +121,10 @@
 //	                 accepts the URL (default 1000)
 //
 // authenticate (with --require-login): fake-api-key takes
-// _meta["api-key"].apiKey (empty → -32602 "no key", "bad" → "invalid API
-// key", else it writes the credentials file — never the key); fake-device
+// _meta["api-key"].apiKey, codex-acp's shape, or _meta["api-key"] as the key
+// itself, gemini-cli's (empty → -32602 "no key", "bad" → "invalid API
+// key", else it writes the credentials file — the method and which shape
+// came, never the key); fake-device
 // needs the client's elicitation.url, sends elicitation/create {mode:"url"}
 // and, N ms after the client accepts, writes the file, sends
 // elicitation/complete and answers; any other method (and, without the

@@ -88,17 +88,24 @@ func (f *fake) authenticate(m *acp.Message) (any, *acp.Error) {
 	_ = json.Unmarshal(m.Params, &p)
 	switch p.MethodID {
 	case "fake-api-key":
+		// codex-acp's shape, {apiKey}, or gemini-cli's, the key itself:
+		// the credentials file says which came
 		var key struct {
 			APIKey string `json:"apiKey"`
 		}
-		_ = json.Unmarshal(p.Meta["api-key"], &key)
+		shape := "object"
+		if json.Unmarshal(p.Meta["api-key"], &key.APIKey) == nil {
+			shape = "string"
+		} else {
+			_ = json.Unmarshal(p.Meta["api-key"], &key)
+		}
 		switch key.APIKey {
 		case "":
 			return nil, &acp.Error{Code: acp.CodeInvalidParams, Message: "no key"}
 		case "bad":
 			return nil, &acp.Error{Code: acp.CodeInternal, Message: "invalid API key"}
 		}
-		if err := f.signIn("fake-api-key"); err != nil {
+		if err := f.signIn("fake-api-key:" + shape); err != nil {
 			return nil, &acp.Error{Code: acp.CodeInternal, Message: err.Error()}
 		}
 		return map[string]any{}, nil
