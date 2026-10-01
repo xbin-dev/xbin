@@ -6349,3 +6349,62 @@ Deviations and refinements made while implementing; all deliberate:
     stopped refusing them).
   - Numbered D175: D173 and D174 went to deflake/livereload-pause,
     in flight at the same time.
+
+- **D176 — CI runs as parallel jobs; make integration and make test are
+  split into shards by test and by package, every test exactly once
+  (2026-10-01).** .github/workflows/ci.yml, hack/testshard,
+  hack/integration.jsonc, hack/integration-timings.json, hack/ci-apt.sh.
+  The owner: CI's wall clock at most 5 minutes, covering everything it
+  covers today. One job ran make check (3.5 min), make tile-check (2.3
+  min), make integration (5 min on 2026-09-29) and the VM suite in series,
+  11 min in all; on 2026-10-01 (run 36841863101) integration hung 12 minutes in
+  internal/confine (a vfork + in-process FUSE deadlock, fixed on its own
+  in 04f41f9b) and the run failed at 21 minutes.
+  - **Jobs.** A `test` matrix — check (`make -j4 -O guards`), unit 1/2 and
+    2/2, tile-check (its backends now concurrent), integration 1/4…4/4 —
+    plus vm (KVM, the vm helpers, the guest rootfs: `make integration
+    SHARD=vm`), shards (the split's guard) and the native client's checks
+    in four jobs. GitHub-hosted only (pull requests run it). The first
+    sharded run: 3 min 35 s wall, green, every Go cache cold.
+  - **The split is by test, from source, balanced by measured time, with
+    a hash for the unmeasured.** A suite (one go test over one package,
+    with its env and filters — what a Makefile line was) lists its
+    top-level tests from the package's test files (go list + go/parser:
+    what `go test -list` prints, checked against it in the shards job),
+    and testshard assigns them longest-first onto the least-loaded shard
+    from the timing file's profile ("ci" when $CI is set, else "local"),
+    a suite's build and TestMain counted once per shard; a test the file
+    doesn't know goes to the shard its name hashes to. So the split is
+    deterministic — every job computes the same one on its own, nothing is
+    passed between jobs — and adding a test moves no other. Rejected:
+    sharding by package (./test alone is 3 minutes on CI; the next
+    biggest 1.5), a dynamic queue (jobs would share state, and a run
+    could no longer be reproduced with `SHARD=i/N` locally), and running
+    the suites concurrently on one runner (4 vCPUs: the speed audit's
+    1408 → 497 s needed a 192-core box).
+  - **The guard is a test, not a convention.** hack/testshard's tests (in
+    make test) recompute the split under both profiles and fail when an
+    integration test lands in no shard or two, a unit package in no unit
+    shard or two, a suite's filter matches nothing, or ci.yml doesn't run
+    each shard and job exactly once, or runs `make integration`, `make
+    test` or `make check` unsharded beside them. TestIntegrationPackagesListed
+    reads the plan instead of the Makefile. The first sharded run's top-level
+    results equal the last single-job run's for every test both have (the
+    one test only the old run has was removed by D166), and none ran twice.
+  - **Locally, every shard at once.** `make integration` runs the shards
+    and jobs concurrently, each into a log of its own, and the latency
+    budgets (the plan's `alone`) by themselves after them; `SHARD=i/N`
+    runs one in the foreground, as its CI job does.
+  - **Caches.** Each kind of job has its own module + build cache
+    (actions/cache), restored from master's newest and saved only by
+    master runs: pull requests share master's, and the repository's 10 GB
+    cache budget isn't spent per branch. ACCEPTED TRADE-OFF: a pull
+    request that changes go.sum starts from master's older cache, and
+    master runs churn the budget by a cache per kind per run (LRU evicts
+    the oldest).
+  - **Not taken from the speed audit (2026-09-29):** the latency
+    benchmarks to a nightly tier and the test-only timer and argon knobs —
+    they change what CI covers, and the shards meet the budget without
+    them. Taken: its reliability traps (xbindtest's boot-failure deadlock,
+    the tilesbx fd settle; the PauseRace fixtures are another agent's
+    deflake), and keeping going after a failure.
