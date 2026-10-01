@@ -318,7 +318,7 @@ export function kidsSeed() {
       acp: { kind: 'execute', title: 'psql -f migrations/0007_users.sql', label: 'Apply the migration', tool: 'shell', status: 'pending' } });
 
   const c28 = run(28);
-  const login = { command: 'CLAUDE_CODE_REMOTE=1 claude /login', methods: [{ id: 'claude-login', name: 'Log in with Claude', kind: 'terminal' },
+  const login = { command: 'claude-agent-acp --cli auth login --claudeai', methods: [{ id: 'claude-ai-login', name: 'Claude Subscription', kind: 'terminal' },
     { id: 'anthropic-api-key', name: 'Anthropic API key', kind: 'api-key' }] };
   Object.assign(c28, { status: 'waiting_input', result: '', pendingState: { kind: 'login', park: 'Xq3kidlogin', harness: { login } } });
   c28.harness = { ...c28.harness, state: 'login', login, counts: { tools: 0, files: 0, add: 0, del: 0 },
@@ -341,7 +341,7 @@ function CATALOG() {
   const img = (image) => ({ provider: SBX, manager: 'Coding sandboxes', image, advertised: true, egress: ['internet', 'open'] });
   return [
     { id: 'claude', name: 'Claude Code', available: true, reason: '', why: '', classes: ['coding'], images: [img('base')], modes: MODES.map(({ description, ...m }) => m),
-      defaultMode: 'default', autoMode: 'acceptEdits', approveMode: 'default', planMode: 'plan', login: { command: 'CLAUDE_CODE_REMOTE=1 claude /login' },
+      defaultMode: 'default', autoMode: 'acceptEdits', approveMode: 'default', planMode: 'plan', login: { command: 'claude auth login', guided: true },
       options: [MODEL, EFFORT], sandboxes: { [API_DEV]: { installed: true, signedIn: true, at: NOW - 3600000 } } },
     { id: 'codex', name: 'Codex', available: true, reason: '', why: '', classes: ['coding'], images: [img('base')], modes: CODEX_MODES,
       defaultMode: 'read-only', autoMode: 'agent', approveMode: 'read-only', planMode: 'read-only', login: { command: 'codex login' },

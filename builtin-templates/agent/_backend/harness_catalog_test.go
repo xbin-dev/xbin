@@ -69,7 +69,7 @@ func TestHarnessCatalogShape(t *testing.T) {
 	if claude["available"] != false || claude["reason"] != "no-image" || claude["why"] != "no bound sandbox manager's image has it" ||
 		claude["name"] != "Claude Code" || claude["autoMode"] != "acceptEdits" || claude["approveMode"] != "default" ||
 		claude["planMode"] != "plan" || claude["defaultMode"] != "default" || claude["setting"] != "approve" ||
-		jsonOf(claude["login"]) != `{"command":"CLAUDE_CODE_REMOTE=1 claude /login"}` || jsonOf(claude["images"]) != `[]` ||
+		jsonOf(claude["login"]) != `{"command":"claude auth login","guided":true}` || jsonOf(claude["images"]) != `[]` ||
 		jsonOf(claude["classes"]) != `["coding"]` {
 		t.Fatalf("claude: %s", jsonOf(claude))
 	}
@@ -84,7 +84,7 @@ func TestHarnessCatalogShape(t *testing.T) {
 		"modes": []any{map[string]any{"id": "ask", "name": "Ask before acting"}, map[string]any{"id": "auto", "name": "Auto"},
 			map[string]any{"id": "yolo", "name": "Yolo", "explicit": true}},
 		"defaultMode": "ask", "autoMode": "auto", "approveMode": "ask", "planMode": "ask", "setting": "approve",
-		"login": map[string]any{"command": "fakeacp login"}, "sandboxes": map[string]any{},
+		"login": map[string]any{"command": "fakeacp login", "guided": true}, "sandboxes": map[string]any{}, // it signs in as Claude Code does (D179)
 	}
 	if !reflect.DeepEqual(fake, want) {
 		t.Fatalf("fake\n got %s\nwant %s", jsonOf(fake), jsonOf(want))
@@ -456,13 +456,19 @@ func TestHarnessModePrefs(t *testing.T) {
 	}
 }
 
-// A manager's own argv for a catalog id wins — the probe looks for it — and
-// the catalog's name, login and (for its own argv) commands stay.
+// A manager's own argv and login for a catalog id win — the probe looks for
+// the argv; an older coding-sandbox's `claude /login` stays its terminal
+// sign-in (D179) — and the catalog's name, guided sign-in and (for its own
+// argv) commands stay.
 func TestHarnessProviderAdvertisedArgv(t *testing.T) {
 	cat, _ := acp.Lookup("claude")
 	p := harnessProvider("claude", &sbxHarness{ID: "claude", Title: "CC", Argv: []string{"claude-agent-acp"}, Login: "claude /login"})
-	if p.Name != "Claude Code" || p.LoginCmd != cat.LoginCmd || jsonOf(p.Bins) != `["claude-agent-acp","claude"]` {
-		t.Fatalf("the catalog's argv: %+v", p)
+	if p.Name != "Claude Code" || p.LoginCmd != "claude /login" || jsonOf(p.Bins) != `["claude-agent-acp","claude"]` ||
+		p.Signin != cat.Signin || p.Mint != cat.Mint {
+		t.Fatalf("the catalog's argv, the manager's login: %+v", p)
+	}
+	if cat.LoginCmd != "claude auth login" {
+		t.Fatalf("the catalog's terminal sign-in: %q", cat.LoginCmd)
 	}
 	p = harnessProvider("claude", &sbxHarness{ID: "claude", Argv: []string{"/opt/acp/claude", "--stdio"}})
 	if jsonOf(p.Argv) != `["/opt/acp/claude","--stdio"]` || jsonOf(p.Bins) != `["/opt/acp/claude"]` || p.LoginCmd != cat.LoginCmd {

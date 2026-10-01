@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
@@ -87,17 +88,30 @@ func (f *fake) authenticate(m *acp.Message) (any, *acp.Error) {
 	_ = json.Unmarshal(m.Params, &p)
 	switch p.MethodID {
 	case "fake-api-key":
+		// codex-acp's shape, {apiKey}, or gemini-cli's, the key itself:
+		// the credentials file says which came
 		var key struct {
 			APIKey string `json:"apiKey"`
 		}
-		_ = json.Unmarshal(p.Meta["api-key"], &key)
+		shape := "object"
+		if json.Unmarshal(p.Meta["api-key"], &key.APIKey) == nil {
+			shape = "string"
+		} else {
+			_ = json.Unmarshal(p.Meta["api-key"], &key)
+		}
 		switch key.APIKey {
 		case "":
 			return nil, &acp.Error{Code: acp.CodeInvalidParams, Message: "no key"}
 		case "bad":
 			return nil, &acp.Error{Code: acp.CodeInternal, Message: "invalid API key"}
 		}
-		if err := f.signIn("fake-api-key"); err != nil {
+		if f.o.CodexAuth { // codex: the key in auth.json, and in memory from now on
+			if err := f.codexSignIn(key.APIKey); err != nil {
+				return nil, &acp.Error{Code: acp.CodeInternal, Message: err.Error()}
+			}
+			return map[string]any{}, nil
+		}
+		if err := f.signIn("fake-api-key:" + shape); err != nil {
 			return nil, &acp.Error{Code: acp.CodeInternal, Message: err.Error()}
 		}
 		return map[string]any{}, nil
@@ -149,6 +163,17 @@ func (f *fake) requireLogin() *acp.Error {
 	if !f.o.RequireLogin {
 		return nil
 	}
+	if f.o.CodexAuth {
+		return f.codexSignedOut()
+	}
+	switch tok := f.envToken(); {
+	case strings.Contains(tok, "refused"): // a credential in the env outranks $HOME, refused or not
+		_ = f.conn.Notify(acp.MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
+		// the token echoed, as a careless adapter's error might: a consumer's redaction is tested on it
+		return &acp.Error{Code: acp.CodeAuthRequired, Message: "Authentication required: OAuth token has been revoked (" + tok + ")"}
+	case tok != "":
+		return nil
+	}
 	f.mu.Lock()
 	in := f.signedIn
 	f.mu.Unlock()
@@ -178,6 +203,106 @@ func (f *fake) signIn(method string) error {
 	f.signedIn = f.credentials()
 	f.mu.Unlock()
 	return nil
+}
+
+// envToken is the credential Claude Code would take from its environment
+// (--require-login): CLAUDE_CODE_OAUTH_TOKEN, else ANTHROPIC_API_KEY ("":
+// none). One that holds "refused" is refused at every prompt.
+func (f *fake) envToken() string {
+	if t := f.getenv("CLAUDE_CODE_OAUTH_TOKEN"); t != "" {
+		return t
+	}
+	return f.getenv("ANTHROPIC_API_KEY")
+}
+
+// probeStatus is what claude-agent-acp 0.81's `claude auth status` probe
+// pushes once a session opens while an OAuth token in the environment signs
+// Claude Code in: loggedIn but no subscription it can name, which it maps
+// to kind "none" — though every turn works (--require-login only).
+func (f *fake) probeStatus() {
+	if f.o.RequireLogin && f.getenv("CLAUDE_CODE_OAUTH_TOKEN") != "" {
+		_ = f.conn.Notify(acp.MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
+	}
+}
+
+// account is which sign-in a turn uses: "token …<last 4>" for one in the
+// environment, "home" for $HOME's, "none".
+func (f *fake) account() string {
+	if f.o.CodexAuth {
+		f.mu.Lock()
+		k := f.codexKey
+		f.mu.Unlock()
+		if k == "" {
+			return "none"
+		}
+		return "key …" + k[max(0, len(k)-4):]
+	}
+	if t := f.envToken(); t != "" {
+		return "token …" + t[max(0, len(t)-4):]
+	}
+	if f.credentials() {
+		return "home"
+	}
+	return "none"
+}
+
+// --- --codex-auth: codex 0.156's sign-in --------------------------------------
+
+// codexFile is codex's auth.json.
+func (f *fake) codexFile() string {
+	if h := f.getenv("CODEX_HOME"); h != "" {
+		return filepath.Join(h, "auth.json")
+	}
+	return filepath.Join(f.getenv("HOME"), ".codex", "auth.json")
+}
+
+// codexStartKey is the key auth.json holds at start ("" none).
+func (f *fake) codexStartKey() string {
+	b, err := os.ReadFile(f.codexFile())
+	if err != nil {
+		return ""
+	}
+	var a struct {
+		Key string `json:"OPENAI_API_KEY"`
+	}
+	_ = json.Unmarshal(b, &a)
+	return a.Key
+}
+
+// codexSignIn keeps key as codex's file store does — auth.json — and in
+// memory, where it stays when the file goes.
+func (f *fake) codexSignIn(key string) error {
+	f.fileMu.Lock()
+	defer f.fileMu.Unlock()
+	if f.stopped {
+		return errors.New("the agent stopped")
+	}
+	file := f.codexFile()
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return err
+	}
+	// as codex writes it: pretty-printed, so `"auth_mode": "apikey"` with its space
+	b, _ := json.MarshalIndent(map[string]any{"auth_mode": "apikey", "OPENAI_API_KEY": key, "tokens": nil}, "", "  ")
+	if err := os.WriteFile(file, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	f.codexKey = key
+	f.mu.Unlock()
+	return nil
+}
+
+// codexSignedOut refuses (the sign-out status, then -32000) while no key
+// signs the agent in.
+func (f *fake) codexSignedOut() *acp.Error {
+	f.mu.Lock()
+	in := f.codexKey != ""
+	f.mu.Unlock()
+	if in {
+		return nil
+	}
+	_ = f.conn.Notify(acp.MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
+	return &acp.Error{Code: acp.CodeAuthRequired, Message: "Authentication required: sign in with an API key"}
 }
 
 // credentials reports whether $HOME/.fakeacp/credentials exists.

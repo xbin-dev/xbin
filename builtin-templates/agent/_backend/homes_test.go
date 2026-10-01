@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -133,9 +134,11 @@ func TestSharedAskAtGlobal(t *testing.T) {
 		t.Fatalf("the people conversation: %+v", a)
 	}
 	waitStatus(t, ag.db, people.ID, statusIdle)
-	// bob: both in his Shared view; the one he is a member of in his own
-	if got := fmt.Sprint(homeConvIDs(t, h, f5("bob", "read"), "shared")); got != fmt.Sprint([]int64{people.ID, team.ID}) {
-		t.Fatalf("bob's shared view: %s", got)
+	// bob: both in his Shared view; the one he is a member of in his own.
+	// The view orders them by their last activity — when each one's first
+	// turn ended, which a loaded machine can swap: the set is what counts.
+	if got := homeConvIDs(t, h, f5("bob", "read"), "shared"); len(got) != 2 || !slices.Contains(got, people.ID) || !slices.Contains(got, team.ID) {
+		t.Fatalf("bob's shared view: %v (want %d and %d)", got, people.ID, team.ID)
 	}
 	if got := fmt.Sprint(homeConvIDs(t, h, f5("bob", "read"), "mine")); !strings.Contains(got, fmt.Sprint(people.ID)) {
 		t.Fatalf("bob's own list: %s", got)

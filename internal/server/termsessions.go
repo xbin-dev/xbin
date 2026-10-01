@@ -22,13 +22,15 @@ func (s *Server) registerTermAPI() {
 }
 
 // termChange is a `term` event's data: which session changed, whose, and
-// the session's target deployment when it states one (term.Manager.
-// DeploymentOf: an "open" or "rename"; a closed session is gone).
+// the session's target deployment when it states one and its purpose when
+// it has one (term.Manager.DeploymentOf/PurposeOf: an "open" or "rename"; a
+// closed session is gone).
 type termChange struct {
 	Op         string `json:"op"`
 	ID         string `json:"id"`
 	User       string `json:"user"`
 	Deployment string `json:"deployment,omitempty"`
+	Purpose    string `json:"purpose,omitempty"` // "signin": a guided sign-in's shell (term/purpose.go)
 }
 
 func (c termChange) Owner() string { return c.User }
@@ -64,7 +66,7 @@ func (s *Server) TermChanged(op, homeKey, id, cwd string) {
 	}
 	c := termChange{Op: op, ID: id, User: homeKey}
 	if s.Term != nil {
-		c.Deployment = s.Term.DeploymentOf(id)
+		c.Deployment, c.Purpose = s.Term.DeploymentOf(id), s.Term.PurposeOf(id)
 	}
 	s.Hub.Publish(events.Event{Type: "term", Component: cwd, Data: c})
 }
@@ -130,6 +132,7 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 
 // apiTermRename names a tab: {name}. The session's creator or an admin —
 // not an admin in another person's session on a partitioned tile (PD-09).
+// Never the sign-in's reserved name (400), never a sign-in's session (409).
 func (s *Server) apiTermRename(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalOf(r)
 	id := r.PathValue("id")
@@ -144,6 +147,11 @@ func (s *Server) apiTermRename(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(body.Name) > 64 {
 		body.Name = body.Name[:64]
+	}
+	// the sign-in's reserved name, or a sign-in's session (term/purpose.go)
+	if code, why := s.Term.RenameRefused(id, body.Name); code != 0 {
+		apiErr(w, code, why)
+		return
 	}
 	if !s.Term.Rename(id, body.Name) {
 		apiErr(w, http.StatusNotFound, "no such session")

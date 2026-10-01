@@ -6,11 +6,13 @@
 // checking a running sandbox now (?probe=). A pushed screen of its own kind
 // ({kind: 'harnesses'}, native/settings.js pushes it) drawn through the
 // `screen` seam. What it says is model/harness-manage.js; the web's
-// harness-catalog.js draws the same tab.
+// harness-catalog.js draws the same tab. It links your own saved sign-ins
+// (native/harness-signins.js).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ctx, guard } from './ui.js';
 import { catalogRows, probeTargets, modesWords } from '../model/harness-manage.js';
+import { openSignins } from './harness-signins.js';
 
 const TONE = { ok: 'ok', warn: 'warn', bad: 'danger' };
 
@@ -30,6 +32,9 @@ function catalogScreen(s) {
     ${app.harness.error ? html`<section><notice tone="danger" text=${app.harness.error}/></section>` : nothing}
     <section footer="One can be started when a bound sandbox manager's image has it, a class people may use allows it (Classes: the Coding agents toolset), and that class allows a sandbox with an egress other than none — it must reach its provider.">
       ${rows.length ? nothing : html`<progress label="loading…"/>`}
+    </section>
+    <section footer="Your own saved sign-ins — every person keeps theirs in their own space.">
+      <row title="Your coding-agent sign-ins" icon="key" nav @tap=${openSignins}/>
     </section>
     ${repeat(rows, (r) => r.id, (r) => html`<section title=${`${r.mono} · ${r.name}`} footer=${modesWords(r)}>
       <row title=${r.available ? 'Available' : 'Not available'} subtitle=${r.why || nothing} icon=${r.available ? 'check' : 'warning'} tone=${r.available ? 'ok' : 'warn'}/>

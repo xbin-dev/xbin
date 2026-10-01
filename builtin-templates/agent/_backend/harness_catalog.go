@@ -103,13 +103,19 @@ func (h *sbxHello) imageHarnesses(id string) []string {
 
 // harnessProvider is what the agent knows of harness id: the sdk catalog's
 // entry, the fake's, or one made of the manager's advertisement (e; nil:
-// none seen). A manager's own argv for a catalog id wins (the contract:
-// docs/sandbox-manager.md §hello) and is what a probe looks for; the
-// catalog's name and login stay (its login matches the adapter's env).
+// none seen). A manager's own argv and login for a catalog id win (the
+// contract: docs/sandbox-manager.md §hello — D179: an older coding-sandbox's
+// `claude /login` keeps working, a new one's `claude auth login`) and argv is
+// what a probe looks for; the catalog's name, Signin, Mint and Keys stay.
+// The fake signs in as Claude Code does (claude's Signin, Mint and Keys: a
+// scripted `claude` on the sandbox's PATH), as xbind's fake agent does.
 func harnessProvider(id string, e *sbxHarness) acp.Provider {
 	if p, ok := acp.Lookup(id); ok {
 		if e != nil && len(e.Argv) > 0 && !slices.Equal(e.Argv, p.Argv) {
 			p.Argv, p.Bins = slices.Clone(e.Argv), []string{e.Argv[0]}
+		}
+		if e != nil && e.Login != "" {
+			p.LoginCmd = e.Login
 		}
 		return p
 	}
@@ -121,6 +127,9 @@ func harnessProvider(id string, e *sbxHarness) acp.Provider {
 	p := acp.Provider{ID: id, Name: id, Driver: "acp", Argv: argv}
 	if id == fakeHarness {
 		p = acp.Fake(argv)
+		if c, ok := acp.Lookup("claude"); ok {
+			p.Signin, p.Mint, p.Keys = c.Signin, c.Mint, c.Keys
+		}
 	}
 	if title != "" {
 		p.Name = title
@@ -174,6 +183,10 @@ type hcEntry struct {
 
 type hcLogin struct {
 	Command string `json:"command"`
+	// Guided: a guided sign-in (a link and a pasted code, harness_guided.go)
+	// is offered; Mint: its Remember can make a saved sign-in (D179).
+	Guided bool `json:"guided,omitempty"`
+	Mint   bool `json:"mint,omitempty"`
 }
 
 // hcManager is one bound manager as the catalog reads it.
@@ -317,6 +330,7 @@ func harnessCatalog(c who, mgrs []hcManager, visible func(ref string) bool) []hc
 		if e.Login.Command == "" && adv[id] != nil {
 			e.Login.Command = adv[id].Login
 		}
+		e.Login.Guided, e.Login.Mint = p.Signin != nil, p.Mint != nil && userMode()
 		e.Setting = hmApprove
 		if m := modes[id]; m != "" {
 			e.Setting = m

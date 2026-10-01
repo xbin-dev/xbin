@@ -206,7 +206,7 @@ the manager's (never in a sandbox's `caps`):
  "caps": ["exec", "files", "tar", "tty", "stdio", "snapshots", "clone", "archive", "ports", "partitions"],
  "egress": ["none", "internet"],
  "images": [{"id": "base", "title": "Debian with git, Go and Node", "default": true, "tools": ["git", "go", "node", "rg"],
-             "harnesses": [{"id": "claude", "title": "Claude Code", "argv": ["claude-agent-acp"], "login": "CLAUDE_CODE_REMOTE=1 claude /login"},
+             "harnesses": [{"id": "claude", "title": "Claude Code", "argv": ["claude-agent-acp"], "login": "claude auth login"},
                            {"id": "codex"}]}],
  "sizes": [{"id": "small", "memMiB": 2048, "vcpus": 2, "diskGiB": 20, "default": true}],
  "limits": {"sandboxes": 0, "runTimeoutMaxMs": 600000, "runOutputMax": 1048576,
@@ -250,7 +250,17 @@ consumer runs one as a non-`tty` exec with `stdin: true`. Each is
   partitioned agent a coding agent starts, and signs in, only in a person's
   own conversations, in a sandbox homed in their partition — never at its
   global instance nor in a shared or hosted conversation (its API.md,
-  "Partitioned instances").
+  "Partitioned instances"). For a well-known id an entry's `login` wins
+  over the consumer's own sign-in command (the agent template, D179), so a
+  manager that advertises one keeps it. A consumer may also drive the
+  CLI's own sign-in without showing a terminal — the agent template runs
+  Claude Code's `claude auth login` as an exec with `stdin` (or `claude
+  setup-token` as a `tty` exec, for a person's saved sign-in) and reads
+  its link from the output — and may hand a person's saved credential to
+  a coding agent as an exec's `env`, never into `home`: to the manager
+  these are execs like any other. A manager receives such a credential
+  and can read a running process's environment, so its operators are in
+  the trust base of every person whose saved sign-in reaches it.
 
 The list is the manager's word about the image, not a probe (an image's
 installs can fail): a consumer may check with `command -v <argv[0]>` through

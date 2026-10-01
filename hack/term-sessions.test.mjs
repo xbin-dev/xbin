@@ -4,7 +4,7 @@
 // tab list, and how the legacy browser record is adopted once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey, vmPrefKey, layoutFromPref, layoutToPref, windowPref } from '../web/term-sessions.js';
+import { makeStore, tabsFrom, clampActive, activeIndex, legacyKey, prefKey, vmPrefKey, layoutFromPref, layoutToPref, windowPref, visibleRows, SIGNIN_PURPOSE } from '../web/term-sessions.js';
 
 // a fetch that records calls and answers from a table
 function fakeFetch(answers = {}) {
@@ -192,4 +192,21 @@ test('the window pref: layouts, beside the terminal, the width', () => {
     assert.deepEqual(layoutFromPref(layoutToPref(w)), w, `${w.layout}${w.beside ? ' beside' : ''} round-trips`);
   }
   assert.deepEqual(windowPref({ open: true, layout: 'deployments', beside: true, paneW: 50 }), { open: true, layout: 'term', paneW: 50 }, 'the pref never records Deployments, alone or beside');
+});
+
+// xbind marks the sign-in's shell (purpose "signin", which only it sets);
+// a name hides nothing — anyone who may rename a session could give it —
+// and an agent session is always a tab (the security review of D178, L11)
+test('a guided sign-in\'s session is never a tab (D178)', () => {
+  const ids = (rows) => rows.map((r) => r.id);
+  const rows = [
+    { id: 'a', kind: 'shell' },
+    { id: 'g', kind: 'agent' },
+    { id: 's', kind: 'shell', name: 'xbin:sign-in', purpose: SIGNIN_PURPOSE },
+    { id: 'p', purpose: 'signin' }, // no kind: a shell
+    { id: 'n', kind: 'shell', name: 'xbin:sign-in' },
+    { id: 'q', kind: 'agent', purpose: 'signin' },
+  ];
+  assert.equal(SIGNIN_PURPOSE, 'signin');
+  assert.deepEqual(ids(visibleRows(rows)), ['a', 'g', 'n', 'q']);
 });

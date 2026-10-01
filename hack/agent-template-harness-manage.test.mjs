@@ -65,7 +65,7 @@ test('the catalog for managers: availability, images, sandboxes, classes, modes,
   assert.deepEqual(claude.classes, ['▣ Coding']);
   assert.equal(M.modesWords(claude), 'default Ask before acting · Auto: Accept edits · plan: Plan · the owner only: Bypass permissions');
   assert.equal(M.modesWords(codex), 'default Read only · Auto: Agent · the owner only: Full access', 'plan the same as the default: not said again');
-  assert.equal(claude.login, 'CLAUDE_CODE_REMOTE=1 claude /login');
+  assert.equal(claude.login, 'claude auth login');
   assert.deepEqual(claude.options, ['Model', 'Reasoning effort']);
   assert.match(gemini.why, /^needs internet access/);
   assert.equal(gemini.images[0].label, 'Coding sandboxes · base — no network (egress none only)');

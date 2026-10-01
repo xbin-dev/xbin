@@ -224,4 +224,8 @@ export const IMPLEMENTS = {
   'harness.autonomy': 'native/harness-ask.js — ⋯ → Coding agent settings (the main menu: home\'s and the drawer\'s) → settingsScreen; the Mode menu (your setting for new ones)',
   // Coding agents — terminals and sign-in (D147 §8 U5)
   'harness.login': 'native/terminal.js — the notice and device link (ext.end, a login park only), Sign in in the composer and ⋯, signInTpl: a login terminal (termTpl, Retry in its toolbar), a secure field, the device page and code, the confirm toggle, whom to ask, Retry',
+  'harness.login.guided': 'native/terminal.js — signInTpl\'s guidedTpl section first: Sign in to ‹name›, then Open the sign-in page (a row: xbin.native.open), Copy link (button copy), the Code field (kept off props) and Finish, the status in the section\'s footer; the terminal method becomes "Use a terminal instead" (model/harness-signins.js guidedWords)',
+  'harness.login.remember': 'native/terminal.js — guidedTpl: the "Remember for my other sandboxes" toggle and its Name it field, else the footer saying why (model/harness-signins.js rememberOf)',
+  'harness.signins': 'native/harness-signins.js — the Coding-agent sign-ins screen (from Coding agent settings, native/harness-ask.js, and the managers\' Coding agents screen): a section per coding agent, rows with Default, row actions Make default and Forget, signin-edit (Rename, Make default, Forget), signin-add (a secure field kept off props, Which key, Make it the default); unpartitioned or shared: a notice saying why',
+  'harness.account': 'native/harness-ask.js — controlsTpl: the Account menu in the toolbar ("Account: using Work"), its choices (a refused or expired one left out) → app.harness.pickSignin, Saved sign-ins… (model/harness-signins.js accountOf)',
 };

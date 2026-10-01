@@ -6779,6 +6779,12 @@ Deviations and refinements made while implementing; all deliberate:
   never moves between homes (plans/partitions/90-decisions.md §I15); from
   a person's partition the relays' `Sbx-User` is the partition's verified
   person (D140), not asserted.*
+  *Amended 2026-10-01 (D179): a coding agent signs in through a guided
+  sign-in too (the CLI's own login run as an exec, its link and code
+  relayed to the person), and in a person's own partition saved sign-ins
+  — kept in their vault, handed to the CLI in its environment only in a
+  sandbox of theirs no one else uses — win over the sandbox HOME's; an
+  API key reaches each adapter's `authenticate` in its own shape.*
 
 - **D148 — Partitioned tiles, F5: people's partitions' vaults,
   registrations and records (2026-09-30).** Implements the vault,
@@ -9879,3 +9885,393 @@ Deviations and refinements made while implementing; all deliberate:
     person's sessions claim the layer, so only they read it (PD-09).
     TestPartitionMoveLines (both cases, all three lines),
     TestPartitionLayerBaseMoveIsolated (the line in a real sandbox).
+
+- **D178 — Coding-agent sign-in: Claude Code signs in with `claude auth
+  login`, guided in the Agent tab; terminal links open whole; no
+  CLAUDE_CODE_REMOTE (2026-10-01).** sdk/acp signin.go, providers.go;
+  web/signin-scan.js, agent-signin.js, term-links.js, term-sessions.js;
+  docs/protocol.md `GET /agent/providers`. The owner: the sign-in should
+  run something like `claude /exit` — which prompts for the login and
+  then exits, which we catch — because `/login` "just prompts for login
+  twice"; and the login link "renders really jank" in the terminal.
+  - **`claude auth login`, not `/login` or `/exit`.** On a fresh `$HOME`
+    Claude Code's onboarding signs in, then the `/login` command signs in
+    again. `claude auth login` (2.1.41+; a pasted code since 2.1.126; one
+    line of link since 2.1.202) skips onboarding, the theme picker and
+    the REPL, works without a TTY, prints `If the browser didn't open,
+    visit: <URL>` (OSC 8 on a terminal, plain on pipes) and `Paste code
+    here if prompted > `, then `Login successful.` and exit 0, or `Login
+    failed: …` and exit 1; a malformed code prints `Invalid code…` and is
+    asked again. `claude /exit` works too, but walks the theme,
+    login-method and trust screens — it is the **fallback**, for a CLI
+    without `auth`: the command carries `--claudeai` (the subscription
+    sign-in, its default anyway) so such a CLI fails at once on an
+    unknown option instead of starting a session, and a run that ends
+    without a link offers `claude /exit` in a terminal. Rejected: version
+    detection in a shell line (long, and shown to whoever opens the
+    terminal), and `/exit` for everyone (three screens to click through).
+  - **The spec is data, the reader pure, twice.** `Provider.Signin`
+    {command, argv, env, tty, fallback, url (a regexp RE2 and JS agree
+    on), hosts, code/invalid/done/fail markers} rides `GET
+    /agent/providers` as `signin` (additive; claude only — codex's device
+    code, gemini's and opencode's terminal flows keep today's terminal).
+    `Signin.Scan` (Go) and `scanSignin` (web/signin-scan.js) strip
+    CSI/OSC, take an OSC 8 target first (Ink draws a long URL as one link
+    per row, each pointing at the whole URL), else rejoin a URL
+    hard-wrapped over equal-width rows, and offer only an https URL on the
+    provider's hosts (subdomains count; no user part). Both are tested on
+    the same captures of Claude Code 2.1.280 (sdk/acp/testdata/signin).
+    Nothing is saved or minted here: the CLI keeps the login in `$HOME` as
+    it always did — saved per-person sign-ins wait on the owner's policy.
+  - **The guided strip** (`<bx-agent-signin>`): **Sign in** opens a
+    terminal session over the existing `/ws/term` wire (cwd the tile, gpu
+    none, api 0, net the tile's default — the agent's), sends
+    `{op:"resize",cols:1000}` so nothing wraps, and types ` <command>;
+    exit` (the leading space keeps it out of an ignorespace history; the
+    `exit` ends the session when the CLI does, even when the CLI is
+    missing). It shows **Open sign-in page ↗** (a real link: no popup
+    blocker), **Copy link**, the link itself, a code field and
+    **Finish** (the cleaned code and Enter, once the CLI asked), and a
+    status line. The CLI's words decide, not the exit frame: `/ws/term`'s
+    exit frame for a shell carries no code (it is sent before the reap),
+    so `Login successful` is signed in, `Login failed` the reason and
+    **Try again**, a new `Invalid code` paste-again; an exit with none of
+    them shows the last line. Signed in, the prompt stays down until a
+    turn fails again (the agent keeps reporting signed-out until a turn
+    succeeds) and the tab says to send the message again — as before, the
+    person re-sends. **Use a terminal instead** is today's shell tab
+    running the login; the strip's session ends then.
+  - **No tab for it, without new server surface.** The session directory
+    lists every session of the user's on the tile, and bx-frame makes a
+    tab of each — in every browser. The strip names its session
+    `xbin:sign-in` (the existing rename) the moment it learns the id, and
+    `visibleRows` drops that name; in this browser rows are also dropped
+    by id, and while one is opening on the tile a shell row no tab holds
+    waits for the next listing (the rename's `term` event brings it). The
+    xbin app's directory (XbinTerm `TermDirectory.decode`) drops the name
+    too, so no tab, badge or inbox row there either. A `name` on
+    `/ws/term` would close the last window — another browser can show a
+    "Bash" tab for the instant between open and rename — but the brief was
+    no new server surface.
+  - **Terminal links** (term-links.js, every `<bx-terminal>` and
+    `<bx-logs>`): xterm's `linkHandler` opens OSC 8 targets (http/https,
+    `noopener`, no `confirm()` — xterm's default asks "This link could
+    potentially be dangerous"), so any row of Ink's wrapped link opens
+    the whole URL; a link provider registered before the web-links addon
+    joins a URL that reaches the right edge with the following rows made
+    only of URL characters (the addon joins soft wraps only — a fragment
+    gave a truncated URL); `@xterm/addon-clipboard` 0.1.0 (the one built
+    for xterm 5.5, a single-file UMD like the other addons; vendored and
+    pinned) answers OSC 52 so Claude Code's "c to copy" works — writes
+    only, while that terminal has the focus, never a read (a sandboxed
+    program must not read the person's clipboard). Its constructor takes
+    (base64, provider), not what its typings say.
+  - **CLAUDE_CODE_REMOTE=1 is gone from the adapter's env.** Added in D75
+    for the sign-in only: under it claude-agent-acp advertises its
+    full-screen `--cli` login (`claude-login`) instead of `auth login
+    --claudeai|--console`, and D-harness A11 kept it believing `auth
+    login` needs a localhost redirect — true before 2.1.126, not since.
+    But Claude Code itself inherits the adapter's env, and to 2.1.280 the
+    variable means Anthropic's own remote sessions: auto memory off, a
+    2-minute API timeout instead of 5, a settings `defaultMode` of
+    `bypassPermissions` refused ("only acceptEdits, plan, default, and
+    auto are allowed"), git-status prefetch off, its own "Authentication
+    error" wording. Nothing else needs it: the rootfs probe
+    (claude-agent-acp 0.81.1, signed out) opens the session with the same
+    modes and options either way; only the advertised auth methods differ.
+  - **The AgTT side follows separately** (built as D179), after the partitions merge: the
+    agent template's guided method (it still runs the adapter's terminal
+    method, now `auth login`, or the catalog's `LoginCmd` — left as
+    `CLAUDE_CODE_REMOTE=1 claude /login` for it to replace with
+    `Signin`), the gemini `_meta["api-key"]` shape bug, and saved
+    per-person sign-ins (the policy ruling first). When it moves to
+    `Signin`, a sandbox manager's advertised login must win over the
+    catalog default, so an older coding-sandbox manager's `claude /login`
+    keeps working; a new one advertises `claude auth login`.
+  - **Amended 2026-10-01 (security review).** Four of the choices above
+    were holes; none had shipped.
+    *Links (M4):* dropping xterm's `confirm()` let any program in a
+    terminal — or a request path a backend logs into `<bx-logs>` — draw
+    an OSC 8 link showing `https://login.xbin.dev/…` that opens another
+    site. `linkHandler` now reads the cells the link covers and opens at
+    once only when that text is part of the target and any host it names
+    is the target's (Ink's per-row pieces of its own URL still open in one
+    click); anything else asks first, naming the host and the whole URL.
+    `openLink` refuses a user part, so rows joined across a hard break
+    (`https://claude.ai` + `@evil.com/x`) never open.
+    *OSC 52 (N15):* `@xterm/addon-clipboard` answered a `?` read into the
+    program's input. Our own handler (`parseOsc52`) writes the clipboard
+    only for the `c` selection, only while that terminal has the focus,
+    at most 1 MiB of UTF-8, and swallows reads; the addon is no longer
+    vendored.
+    *No tab (L11):* hiding by the name `xbin:sign-in` let anyone who may
+    rename a session (a terminal token included) or an agent's own title
+    hide any session from every tab bar. The "no new server surface"
+    brief gives way: `/ws/term?purpose=signin` opens a shell xbind marks
+    (`SessionInfo.purpose`, omitempty, also on `term` open events; any
+    other purpose is 400), clients hide shell rows with that purpose only
+    — never an agent row, never by name — and the browser's id/opening
+    bookkeeping is gone (the mark is there from the first listing). xbind
+    still names the session `xbin:sign-in`, but nothing else can: a
+    rename to that name (any case) is 400, renaming a sign-in session
+    409, an agent's open/restart name and its own title skip it. A
+    sign-in session ends 15 minutes after it opened (`Manager.SigninLife`,
+    a timer armed at creation).
+    *Allow-list (N16):* "subdomains count" and `\S+/oauth/authorize\?`
+    passed a redirect-style path (`https://claude.ai/x?u=/oauth/authorize?…`)
+    and any subdomain. The URL is anchored —
+    `https://(claude.com/cai|claude.ai)/oauth/authorize?…` — and hosts
+    match exactly, in Go and web/signin-scan.js; the JS test reads the
+    spec from the server's golden, so the twins can't drift.
+
+- **D179 — Coding-agent sign-ins in the agent template: the guided sign-in,
+  saved sign-ins (several per coding agent, a person's own partition only)
+  and switching accounts within a session (2026-10-01).** The agent
+  template's side of D178: builtin-templates/agent/_backend/
+  harness_guided.go, harness_creds.go; sdk/acp `Provider.Mint`, `Keys`,
+  `Signin.Token`; model/harness-signins.js; the template's API.md §Coding
+  agents ("Signing in", "The guided sign-in", "Saved sign-ins", "Guided
+  and saved sign-ins in the UI"); docs/sandbox-manager.md §hello; docs/
+  sdk.md. Amends D147 ("credentials stay in the sandbox HOME") and D172
+  (sign-in only where credentials stay the person's: U-M4).
+  - **The owner's rulings (2026-10-01).** (1) Saved sign-ins: yes — the
+    guided card has "Remember for my other sandboxes", which runs the
+    official `claude setup-token` through the same link-and-paste flow,
+    the backend scraping the token, which never reaches the browser; or
+    the person pastes an API key or token (Anthropic, OpenAI
+    `CODEX_API_KEY`, `GEMINI_API_KEY`, opencode's provider keys). (2)
+    Several logins per coding agent (a personal and a company
+    subscription): named per harness, one the default, a conversation can
+    pick one, and switching within a session should work — restart the
+    adapter with the other credential and resume the same session
+    (`session/load`, D75). A sandbox's `$HOME` holds one login, so
+    multi-account means saved sign-ins. (3) The saved sign-in wins over the
+    sandbox's own `$HOME` login; the chip says "using ‹name›". (4) Every
+    agent-template instance becomes partitioned (D177); saved sign-ins
+    exist only in a person's own partition, in its vault — never at the
+    global instance, never in legacy mode (only on an xbind without
+    `--isolate`, or after "Keep current mode"), which keeps the
+    per-sandbox guided sign-in only.
+  - **The policy.** The token is minted by the unmodified CLI (`claude
+    setup-token`, Anthropic's own long-lived-token flow for headless use)
+    with the person's own sign-in on Anthropic's page, and is kept as that
+    person's own secret, used only for their own coding agents. We never
+    proxy subscription credentials: no gateway, no shared pool, no copy
+    of `~/.claude/.credentials.json` or `~/.codex/auth.json` between
+    sandboxes (their refresh tokens are single-use: copies log each other
+    out), nothing else from `~/.claude` copied either. A setup-token makes
+    model requests only (no connectors, no Remote Control) and outranks a
+    `$HOME` `/login` as `CLAUDE_CODE_OAUTH_TOKEN`.
+  - **The guided sign-in** (`POST …/harness/authenticate {method:
+    "guided", code?, remember?, name?}`) runs the provider's `Signin`
+    (`claude auth login --claudeai`: plain over pipes) — or, with
+    remember, its `Mint` (`claude setup-token`: a TTY, at 1000 columns so
+    the URL and the token are one line each) — as a contract exec in the
+    run's sandbox with stdin open, reads it with `acp.Signin.Scan`, and
+    answers 202 `{signin: {url, paste}}` to the requester alone. `code`
+    writes the code and Enter (`\n` over pipes, `\r` on a terminal — Ink's
+    return); the CLI's words decide: done (or exit 0 for `auth login`) →
+    the run's existing Retry (an inbox wake), `Invalid code` → 409 with
+    the link standing, anything else → 502 with the CLI's reason line. The
+    exec is deleted at every end; one per conversation, bounded at 15
+    minutes (also the exec's own `timeoutMs`, so a process that dies
+    leaves nothing waiting), dropped on a handoff (`letHarnessesGo`: a
+    successor knows none, the person starts over); while it waits it holds
+    a person's partition up (`harnessHoldsLocked`), as D172's awaited
+    sign-in does. Remember is refused unless the gate below holds for the
+    run's sandbox: while the exec
+    lives its output (the token) is readable by whoever may use the
+    sandbox (the manager's exec routes). A minted token goes straight into
+    the vault; a saved sign-in of the same name is replaced (its id, and
+    the conversations that picked it, stay; a refusal clears).
+  - **Saved sign-ins.** harness_signins keeps the non-secret part per
+    person: `{id, harness, name, kind (setup-token | api-key), env,
+    mintedAt, expiresAt (a setup-token: +365 d), refusedAt, refused,
+    isDefault}`; the secret only in the partition's vault
+    (`harness-signin.‹id›`, through the SDK's `SetSecret`/`Secret`/
+    `DeleteSecret`, which a person's partition reaches as its own vault,
+    D148) — never in a row, a log line, an answer or an event (the tests
+    scan every table, the log and every answer). Routes: `GET/POST
+    /prefs/harness-signins`, `PUT/DELETE /prefs/harness-signins/{id}`
+    (rename, default, a new secret; Forget), `PUT /runs/{id}/harness/
+    signin` (the conversation's pick: default, sandbox, or an id;
+    `config.harness.signin`). `env` is `acp.Provider.Keys`' (claude:
+    `CLAUDE_CODE_OAUTH_TOKEN` for `sk-ant-oat…`, else
+    `ANTHROPIC_API_KEY`; codex `CODEX_API_KEY`; gemini
+    `GEMINI_API_KEY`; opencode by prefix or named).
+  - **The injection gate** (`credWhy`, checked at every spawn): the env
+    is merged into the adapter's exec request only when (a) the agent
+    runs in the `user` partition state, (b) the run is the person's own
+    (its root's owner is the partition's person; not hosted:
+    `harnessBarred`), (c) the sandbox is private and theirs
+    (`!sandboxShared(box) && box.Owner.User == person` — a co-user could
+    read the process's environment), (d) the credential isn't refused or
+    expired. The env is never persisted: the provider's catalog map is
+    copied, never written; `harness_sessions.cred` (additive) records
+    which credential the generation started with, its id only. Re-checked
+    with the sandbox's use (before every prompt, at most every minute on
+    durable events, at a takeover): a sandbox shared mid-run stops the
+    adapter (`hstop`), and the next start leaves the credential out; a
+    share through the agent's own `PATCH /sandboxes/{ref}` stops it at
+    once. Left: a share made at the manager while an adapter idles is seen
+    at its next message or its idle stop (≤ `harnessIdleMin`), its
+    environment readable meanwhile — nothing tells the agent of it.
+  - **Refusals and false refusals.** With a credential in, only the
+    adapter's own refusal counts — a -32000 on a prompt (the client's
+    `AuthHint` marks it) or on opening a session: it sets `refusedAt` and
+    parks on the sign-in with "saved sign-in refused — sign in again". A
+    status update alone doesn't: claude-agent-acp 0.81's `claude auth
+    status --json` probe maps an env token's `{loggedIn: true, authMethod:
+    "oauth_token"}` (no subscription it can name, Claude Code 2.1.280) to
+    `_auth/status_update {kind: "none"}` though every turn works; parking
+    on it would have stopped every saved sign-in. The fake (acptest)
+    pushes the same status so the tests hold it.
+  - **Keys an adapter takes only through `authenticate`.** codex 0.156's
+    app-server reads no `CODEX_API_KEY` at start (`account/read` →
+    `account: null`, checked here), and Gemini CLI with another sign-in
+    selected uses its env key only after `authenticate`. When such an
+    adapter refuses its session signed out and an API-key credential was
+    injected, the engine calls its API-key method once with the key
+    (`credAuthenticate`). Codex then keeps it in its own
+    `~/.codex/auth.json` (its file store; `-c
+    cli_auth_credentials_store="ephemeral"` would keep it in memory, but
+    codex-acp passes no flags to its app-server) — removed by the agent
+    since the security review (the amendment below).
+  - **Switching accounts within a session resumes the same session.**
+    `PUT …/harness/signin` stores the pick and, for an adapter at rest,
+    an `hswitch` inbox row stops it (state stopped, the session id and
+    `loadable` kept, a note); the next message starts it with the other
+    credential and `session/load`s the same session. claude-agent-acp
+    0.81.1's `loadSession` reads the transcript from the CLI's own
+    `$HOME/.claude/projects` in the sandbox (`readResumedSession`), with
+    no account in it; thinking-block signatures are portable across
+    accounts and platforms. TestSwitchAccountResumes checks it end to end
+    with the fake (`--persist`): the same ACP session id, a new
+    generation, the other account answering. Not run live against two
+    real Anthropic accounts (no credentials here). A load that fails falls
+    back to a fresh session with a note, as every resume does; carrying
+    the context into it was not built — the load works.
+  - **Which login a terminal runs.** A sandbox manager's advertised
+    `login` now wins over the catalog's for a catalog id
+    (`harnessProvider`), so an older coding-sandbox's `claude /login`
+    keeps working and a new one's `claude auth login` is used; the
+    catalog's claude `LoginCmd` drops `CLAUDE_CODE_REMOTE=1` (D178: the
+    adapter's own terminal methods are `--cli auth login --claudeai |
+    --console` without it). The guided sign-in runs the catalog's
+    `Signin`, whatever the manager advertises: the CLI is the same
+    binary. `claude /exit` stays the fallback for a CLI without `auth`
+    (said when the guided sign-in ends without a link).
+  - **Gemini's API-key shape** (a bug): gemini-cli 0.60's ACP
+    `authenticate` reads `_meta["api-key"]` as the key itself
+    (acpRpcDispatcher.ts, checked in the rootfs bundle); AgTT sent
+    `{apiKey}`, read as no key. `apiKeyMeta` sends the string to gemini,
+    the object to codex-acp and the fake (which now accepts both and
+    records which came: TestAPIKeyMetaShape).
+  - **A-M1 at the global instance**: no guided sign-in (the existing 409
+    on `authenticate`), every saved-sign-in route 409, no injection
+    (`credWhy`). Legacy: the guided sign-in, no Remember, no saved
+    sign-ins (`GET` says `available: false` and why).
+  - **The UI** (model/harness-signins.js, both views): the card's guided
+    block (Open sign-in page ↗ — a real link, Copy link, the code and
+    Finish, a status line, Use a terminal instead; Remember with a name
+    where `rememberOf` allows it, else why), Coding-agent sign-ins (the ⚙
+    Coding agents tab for managers; for everyone a dialog from the card's
+    and the ▾ menu's "Saved sign-ins…", the app's Coding agent settings),
+    and the account on the coding agent's ▾ with its switch.
+  - **Not chosen:** copying a `/login` between sandboxes (refresh tokens
+    are single-use); a proxy holding subscription credentials; writing
+    the credential into the sandbox's `$HOME` (it would outlive Forget
+    and travel with clones and snapshots); minting in a shared sandbox
+    (its exec output is its co-users'); storing the env with the exec or
+    the session; parking on the probe's "none" (above); version-sniffing
+    the CLI in a shell line (D178's rejection stands).
+  - **Open:** Remember mints Claude Code only (the others have no mint:
+    paste a key); a live check of setup-token's success lines (the
+    capture ends at the code prompt — success is the token itself, a
+    refusal "OAuth error"); a partition's purge takes the vault — a
+    person's saved sign-ins go with their removal, as everything of
+    theirs does.
+  - **Amended 2026-10-01 (the security review of f41f94ec).** Every
+    finding checked against the code held; each fix has its regression
+    test (harness_signin_review_test.go; TestCredGate,
+    TestGuidedRemember, TestSavedSigninRefused).
+    - *M1 — a hosted conversation could plant a reader for the host's
+      token.* `hostedHarnessRefusal` is one-way (a hosted conversation is
+      kept out of a sandbox only after the host's coding agent worked
+      there). Now every use of a sandbox by a hosted (non-secure)
+      conversation is recorded first, for good (`sandboxUse` →
+      `hosted_sandboxes`), and the gate gains (e): no hosted conversation
+      ever worked in the sandbox — a saved sign-in never goes in, nor
+      does Remember mint there, with a note saying why (create another
+      sandbox). The other direction stood: a hosted conversation is
+      refused a sandbox any coding agent of the host's ran in.
+    - *M2 — codex kept the key.* codex 0.156 offers no ephemeral store
+      a consumer can reach (no env override; codex-acp passes no flags),
+      so the agent removes `${CODEX_HOME:-~/.codex}/auth.json`
+      (`Provider.AuthFile`, a field of the catalog) when it holds the key
+      — matched by the key itself, sent on the `/run`'s stdin, never in
+      an argv — right after the hand-over (codex keeps the key in
+      memory: probed, it stays signed in with the file gone), before
+      every start with another sign-in or the sandbox's own (so a switch
+      switches: codex would otherwise start signed in by the file and
+      the chip name the wrong account), before a share through the
+      agent, and at Forget in every sandbox codex ran in. A failed
+      removal is kept (`harness_sessions.scrub`) and refuses the next
+      start until it's done; a pending one is matched by the file's
+      API-key mode (the secret may be gone). Codex signed in on its own
+      in a sandbox is left alone, the saved sign-in not named as in use,
+      a note saying so. Gemini 0.60 keeps a key handed to `authenticate`
+      in memory only (`saveApiKey` is the interactive CLI's).
+    - *M3 — anything the agent starts can print the secret.* The
+      adapter's stdout is redacted before the client reads it
+      (harness_redact.go): the generation's exact secret, and any
+      Anthropic-token-shaped string, become `[redacted]***…` of the same
+      length — whole lines (an ACP frame is one; a partial line waits for
+      its newline), so `read_off` stays the adapter's and a successor
+      resumes where it should; a ring gap goes on once, after the bytes
+      before it. So the rows, events, an AgTT parent's context and notes
+      never hold it; `/harness/log`, the log lines and a refusal's stored
+      words (`refused_why`, N18) are redacted too. Claude Code 2.1.280's
+      `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` was checked and not used: it is
+      a GitHub-Actions isolation mode that needs bubblewrap (none in the
+      rootfs; it throws without it) and writes stub dotfiles into HOME.
+      codex's default shell environment policy already leaves out
+      `*KEY*`/`*TOKEN*`/`*SECRET*`.
+    - *L5* — Remember's gate is checked again, on the sandbox as it is
+      now, before the code goes in; a share through the agent ends the
+      guided sign-ins there first. *L6, N19* — a sign-in's exec is
+      recorded (`harness_signin_execs`, by clientId) before `ExecStart`
+      until the manager took its delete, which is retried with backoff
+      and swept at the next takeover (only rows from before it);
+      `ExecStart` and the code exchange run on contexts of their own.
+      *L7* — a Mint's errors never show the CLI's last line (a token in a
+      format the scan doesn't know would be it); refusal lines are
+      token-masked. *L8* — a share through `PATCH /sandboxes/{ref}`
+      first ends the sign-ins there, kills (and waits for) the adapters
+      holding a saved sign-in and removes codex's file — or refuses the
+      share (502). *L9* — `sandboxPrivate` is an allow-list: visibility
+      "" or `private`, not seen through a share, no members, no shares.
+      *L10* — a forgotten pick falls back to the sandbox's own sign-in
+      with a note, never to the default (another account). *L12* — the
+      Mint runs the image's own CLI (found on the rootfs's directories,
+      never the sandbox's `PATH`) under `env -i` (PATH, HOME, TERM, LANG
+      only) with a throwaway HOME, removed after: a shim in
+      `~/.local/bin`, `NODE_OPTIONS` or a settings hook can't see the
+      token; an image whose own directories were altered is out of scope.
+      *L13* — verified: xbind gives a partition no hook before a purge.
+      A person's partition stopping (idle, an update) now kills, waiting
+      for the manager, each adapter of theirs that rests with a saved
+      sign-in (the next message starts it again with `session/load`); one
+      at work when a person is deleted runs on until it ends or its
+      sandbox stops. *N14* — a new secret (a paste over it, a paste or
+      Remember under its name) stops the coding agents on the old one.
+      *N17* — the saved name comes back in `guidedCode`'s result.
+      `cleanSecret` refuses `" \ < > &` (a key file holds the key
+      verbatim, so its removal can find it). `hsess.cred` became atomic.
+    - *Residual risk (N20).* A same-user process in the person's own
+      private sandbox — anything they or a coding agent of theirs started
+      there — can read the adapter's environment; the gate keeps everyone
+      else's out. The coding-sandbox's operators (they receive the secret
+      in the exec request and can read a process's environment) and
+      xbind's admins are in the trust base; so is the image. Said in both
+      API.md files.

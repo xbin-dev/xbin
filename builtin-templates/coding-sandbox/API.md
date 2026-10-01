@@ -163,16 +163,18 @@ one-line shell command that signs it in at a terminal). A new manager's
 
 | id | title | argv | login |
 |---|---|---|---|
-| `claude` | Claude Code | `claude-agent-acp` | `CLAUDE_CODE_REMOTE=1 claude /login` |
+| `claude` | Claude Code | `claude-agent-acp` | `claude auth login` |
 | `codex` | Codex | `codex-acp` | `codex login --device-auth` |
 | `gemini` | Gemini CLI | `gemini --acp` | `NO_BROWSER=true gemini` |
 | `opencode` | OpenCode | `opencode acp` | `opencode auth login` |
 
 — signing in without a browser in the sandbox (a URL to open and a code to
 paste back, a device code), whose login callback on the sandbox's
-`localhost` a person's browser couldn't reach (Claude Code signs in that
-way only under `CLAUDE_CODE_REMOTE=1`, as its ACP adapter runs; a manager
-made before 2026-09-30 advertised `claude /login`). A saved config keeps
+`localhost` a person's browser couldn't reach. Claude Code's is `claude
+auth login` (D178: one sign-in, a link and a pasted code; `claude /login`
+signs a fresh home in twice, through its onboarding first). A manager made
+before 2026-09-30 advertised `claude /login`, one made before 2026-10-01
+`CLAUDE_CODE_REMOTE=1 claude /login`; both still sign Claude Code in. A saved config keeps
 the harnesses it was saved with, logins included: one saved before them lists none (a consumer
 then probes for the agents it knows), until an operator adds them. The
 page's image editor keeps an image's harnesses; `PUT /ops/config` sets them.
@@ -180,7 +182,28 @@ A sign-in's credentials stay in the sandbox's home, for everyone the
 sandbox serves and its clones (docs/sandbox-manager.md §hello,
 §Partitioned consumers), and `argv` and `login` run beside them: the
 operators who set them are in the trust base of every person who uses
-these agents.
+these agents. A consumer's advertised `login` is what its terminal sign-in
+runs (the agent template: D179, over its own default). The agent template
+also signs Claude Code in without a terminal (its guided sign-in, D179):
+`claude auth login --claudeai` as a non-`tty` exec with `stdin`, or
+`claude setup-token` as a `tty` exec at 1000 columns for a person's saved
+sign-in — this manager sees those as any exec, deleted once the sign-in is
+over. A saved sign-in reaches a coding agent as an `env` entry of its
+exec request (`CLAUDE_CODE_OAUTH_TOKEN`, `CODEX_API_KEY`, …), only in a
+sandbox the person owns and shares with no one (visibility unset or
+`private`, no members, no shares) and no hosted conversation used: the
+manager passes it to the process and keeps it nowhere (an exec's record
+lists no `env`). The agent's `setup-token` runs the image's own `claude`
+(found on the image's directories, not the sandbox's `PATH`) with an
+empty environment and a throwaway `HOME`. When codex is handed a key
+(it writes `~/.codex/auth.json`), the agent removes that file with a
+`/run` whose `stdin` carries the key to match — never its argv. **The
+trust base** (D179): this manager receives each saved secret in an
+exec request and can read a running process's environment, so its
+operators — like xbind's admins — are trusted by every person whose
+saved sign-in reaches a sandbox here; and a same-user process in the
+person's own sandbox can read the agent's environment (the agent template
+redacts what the agent prints, not what such a process does).
 
 The first sandbox of an image builds it: a template sandbox of its own is
 made and prepared, the script runs in it **as root** in the workdir (with

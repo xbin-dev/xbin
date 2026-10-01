@@ -53,6 +53,7 @@
 import { Predictor, srttUpdate, SRTT_SHOW } from '/vendor/term-predict.js';
 import { srcTarget, reattachSrc, canReattach, endedByClose, RETRIES, LIVED, backoff, exitWords } from '/vendor/term-src.js';
 import { sandboxed } from '/vendor/bx-kit.js';
+import { wireLinks, joinedLinksAt, rowOf } from '/vendor/term-links.js';
 import { scrollCssText } from '/vendor/bx-scroll.js';
 
 // Load a classic script once per document. Several elements (the terminal,
@@ -571,9 +572,10 @@ export class BxTerminal extends HTMLElement {
     });
     this.#fit = new window.FitAddon.FitAddon();
     this.#term.loadAddon(this.#fit);
-    // URLs a CLI prints (an agent's sign-in link, a dev-server address) become
-    // one click instead of a hard-to-select wrapped blob.
-    if (window.WebLinksAddon) this.#term.loadAddon(new window.WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, '_blank', 'noopener,noreferrer')));
+    // URLs a CLI prints (an agent's sign-in link, a dev-server address) open
+    // in one click, whole however it drew them: OSC 8, rows it broke, OSC 52
+    // copy (term-links.js, D178).
+    wireLinks(this.#term, { focused: () => this.shadowRoot?.activeElement === this.#term?.textarea });
     // Ctrl+W is word-erase (WERASE, 0x17) in a shell, but the browser default
     // closes the tab — pre-empt that so the keystroke reaches the pty. Same
     // for Ctrl+Shift+W (close window). Returning true lets xterm still emit
@@ -882,6 +884,11 @@ export class BxTerminal extends HTMLElement {
         if (n != null) t.#applyAck(n);
       },
       ping: () => t.#ping(),
+      // links (term-links.js): the joined URLs on screen row `row`, a cell's
+      // centre in client pixels (a pass hovers and clicks it), the OSC 8 handler
+      links: (row) => { const b = t.#term?.buffer.active; return b ? joinedLinksAt((j) => rowOf(t.#term, j), t.#term.cols, b.baseY + row) : []; },
+      cellPoint: (row, col) => { const r = t.#term?.element?.querySelector('.xterm-screen')?.getBoundingClientRect(); return r ? { x: r.left + (col + 0.5) * r.width / t.#term.cols, y: r.top + (row + 0.5) * r.height / t.#term.rows } : null; },
+      get linkHandler() { return !!t.#term?.options.linkHandler; },
     };
   }
 }

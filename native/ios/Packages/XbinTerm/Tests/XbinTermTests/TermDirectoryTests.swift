@@ -53,6 +53,27 @@ import Testing
         } == ["idle", "idle", "error", "ended", "stopping", "starting", "future"])
     }
 
+    /// The web Agent tab's guided sign-in runs a CLI's login in a shell
+    /// session xbind marks with purpose "signin" (D178): it is no tab, badge
+    /// or inbox row here either — the web's visibleRows drops it the same
+    /// way. A name hides nothing (anyone who may rename could give one),
+    /// and an agent session is never hidden.
+    @Test func guidedSigninSessionsAreNotListed() {
+        let json = #"""
+        [{"id":"s1","cwd":"apps/x","kind":"shell","name":"build"},
+         {"id":"g1","cwd":"apps/x","kind":"shell","name":"xbin:sign-in","purpose":"signin","clients":1},
+         {"id":"a1","cwd":"apps/x","kind":"agent","provider":"claude","status":"error"},
+         {"id":"a2","cwd":"apps/x","kind":"agent","provider":"claude","purpose":"signin"},
+         {"id":"s2","cwd":"apps/x","kind":"shell","name":"xbin:sign-in"}]
+        """#
+        let list = TermDirectory.decode(Data(json.utf8))
+        #expect(TermDirectory.signinPurpose == "signin")
+        #expect(list.map(\.id) == ["s1", "a1", "a2", "s2"])             // a shell with the purpose only
+        #expect(list.first { $0.id == "a2" }?.purpose == "signin")
+        #expect(TermDirectory.byTile(list)["apps/x"] == TileSessions(shells: 2, agents: 2))
+        #expect(TermDirectory.forTile(list, cwd: "apps/x").map(\.id).contains("g1") == false)
+    }
+
     /// A session waiting only on a question (an elicitation) needs the user
     /// too: the server's row carries `questions` (internal/term/sessions.go).
     @Test func questionsCountAsNeedingYou() throws {

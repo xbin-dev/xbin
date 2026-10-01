@@ -72,6 +72,7 @@ type Engine struct {
 	delivery map[int64][]chan struct{} // inbox id → closed when consumed
 	drafts   map[int64]*draft
 	harness  map[int64]*hsess      // the coding agents this process drives (harness_engine.go)
+	guided   map[int64]*hGuided    // the guided sign-ins under way here (harness_guided.go)
 	hlocks   map[int64]*sync.Mutex // a harness run's start lock (ensureHarness)
 	hretry   map[int64]int         // a takeover's unanswered attaches in a row (resumeHarness)
 	idleCh   chan struct{}         // closed when the last actor exits during shutdown
@@ -168,6 +169,7 @@ func (e *Engine) takeOver() {
 			e.ag.clearWakeJobs()
 			e.keep.wakeKeepReady() // a person's partition keeps them from now on (resume_keep.go)
 		}()
+		go e.sweepSigninExecs(nowMs()) // sign-in execs an earlier process left (harness_guided.go)
 	}
 	e.recover()
 	outboxKick() // replies the previous owner wrote after our streams connected
@@ -446,7 +448,8 @@ func (e *Engine) BeginShutdown() {
 		e.idleCh = make(chan struct{})
 	}
 	e.mu.Unlock()
-	e.letHarnessesGo() // the successor attaches to them: never killed here
+	e.stopRestingCreds() // a person's partition: none resting with a saved sign-in outlives it (harness_engine.go)
+	e.letHarnessesGo()   // the successor attaches to the rest: never killed here
 	e.cancelBase(errHandoff)
 	e.hub.closeAll()
 	e.hold.stop()

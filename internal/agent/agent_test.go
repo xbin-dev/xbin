@@ -145,7 +145,7 @@ func TestProviders(t *testing.T) {
 		t.Fatal("a provider without a mode table lets the agent judge")
 	}
 	// the auth hint points at the home login, per provider — never a vault key
-	if h := LoginHint(c, "apps/x"); !strings.Contains(h, "claude /login") || !strings.Contains(h, "apps/x") || strings.Contains(h, "vault") {
+	if h := LoginHint(c, "apps/x"); !strings.Contains(h, "claude auth login") || !strings.Contains(h, "apps/x") || strings.Contains(h, "vault") {
 		t.Fatalf("claude login hint: %q", h)
 	}
 	if h := LoginHint(o, "apps/x"); !strings.Contains(h, "opencode auth login") {

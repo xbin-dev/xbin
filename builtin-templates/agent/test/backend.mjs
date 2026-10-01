@@ -312,6 +312,60 @@ export function STUB(seed) {
     setRun(id, { status: 'running', pendingState: {}, harness: h });
   };
   const oneOf = (xs) => xs.join(', ');
+  // --- saved sign-ins and the guided sign-in (D179) -----------------------
+  // window.__signins = {available, why, list, harnesses}: GET
+  // /prefs/harness-signins (seed.signins; seed.signinsAvailable false: an
+  // unpartitioned agent's, with seed.signinsWhy), never a secret. A guided
+  // sign-in (authenticate {method: "guided"}) answers its link (202); a code
+  // without '#' is "not the whole code" (409), bad… is the CLI's refusal
+  // (502), any other signs in — with remember, a saved sign-in named so.
+  const SIGNIN_URL = 'https://claude.com/cai/oauth/authorize?code=true&client_id=stub&response_type=code&scope=user%3Ainference&state=stub-state';
+  const CLAUDE_KEYS = [{ env: 'CLAUDE_CODE_OAUTH_TOKEN', label: 'Claude subscription token (claude setup-token)', kind: 'setup-token', prefix: 'sk-ant-oat' },
+    { env: 'ANTHROPIC_API_KEY', label: 'Anthropic API key', kind: 'api-key' }];
+  const SI = window.__signins = {
+    available: seed.signinsAvailable !== false, why: seed.signinsWhy || '', list: (seed.signins || []).map((x) => ({ ...x })),
+    harnesses: seed.signinHarnesses || { claude: { name: 'Claude Code', keys: CLAUDE_KEYS, mint: true },
+      codex: { name: 'Codex', keys: [{ env: 'CODEX_API_KEY', label: 'OpenAI API key', kind: 'api-key' }], mint: true },
+      opencode: { name: 'OpenCode', keys: [{ env: 'ANTHROPIC_API_KEY', label: 'Anthropic API key', kind: 'api-key', prefix: 'sk-ant-' },
+        { env: 'OPENAI_API_KEY', label: 'OpenAI API key', kind: 'api-key', prefix: 'sk-' }], mint: false } },
+  };
+  let siSeq = SI.list.length;
+  const siWhy = () => SI.why || 'saved sign-ins need a partitioned agent';
+  const addSignin = (x) => {
+    const mine = SI.list.filter((s) => s.harness === x.harness);
+    const name = x.name || (mine.length ? `Sign-in ${mine.length + 1}` : 'Personal');
+    const same = mine.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (same) { Object.assign(same, { kind: x.kind, env: x.env, refusedAt: 0, mintedAt: x.mintedAt || 0, expiresAt: x.expiresAt || 0 }); return same; }
+    const s = { id: `hs${++siSeq}`, harness: x.harness, name, kind: x.kind, env: x.env, isDefault: !mine.length, createdAt: Date.now(), updatedAt: Date.now(),
+      ...(x.mintedAt ? { mintedAt: x.mintedAt, expiresAt: x.expiresAt } : {}) };
+    SI.list.push(s);
+    return s;
+  };
+  const guidedSignin = (id, r, b) => {
+    const h = r.harness;
+    const G = (H.guided = H.guided || {});
+    if (!b.code) {
+      if (b.remember && !SI.available) return json({ error: siWhy() }, 409);
+      if (!b.remember && (h.sandbox || {}).shared && !b.confirm) {
+        return json({ error: `anyone who may use ${(h.sandbox || {}).name} acts as you with ${h.name} there — confirm to sign in`, confirm: true }, 409);
+      }
+      G[id] = { remember: !!b.remember, name: b.name || '' };
+      return json({ ok: 'true', signin: { url: SIGNIN_URL, paste: true } }, 202);
+    }
+    const g = G[id];
+    if (!g) return json({ error: 'no sign-in of yours is under way here — start one' }, 409);
+    const code = String(b.code);
+    if (!code.includes('#')) return json({ error: `${h.name} says that isn't the whole code — copy it again from the sign-in page and paste it` }, 409);
+    delete G[id];
+    if (code.startsWith('bad')) return json({ error: 'Login failed: Request failed with status code 400' }, 502);
+    const now = Date.now();
+    const saved = g.remember ? addSignin({ harness: h.provider, name: g.name, kind: 'setup-token', env: 'CLAUDE_CODE_OAUTH_TOKEN', mintedAt: now, expiresAt: now + 365 * 86400000 }) : null;
+    const next = { ...h, state: 'ready' };
+    delete next.login; delete next.pending;
+    if (saved) next.signin = { pick: (h.signin || {}).pick || 'default', using: { id: saved.id, name: saved.name } };
+    setRun(id, { status: 'running', pendingState: {}, harness: next });
+    return json({ ok: 'true', state: 'ready', ...(saved ? { saved } : {}) });
+  };
   // below: a conversation row's waiting and kids (§4.3.8), from the runs under it
   const LIVE = ['running', 'awaiting', 'sleeping', 'waiting_input'];
   const below = (r) => {
@@ -411,6 +465,52 @@ export function STUB(seed) {
       }
       return out;
     }) })],
+    ['GET', /\/prefs\/harness-signins$/, () => json({ available: SI.available, ...(SI.available ? {} : { why: siWhy() }), signins: SI.available ? SI.list : [],
+      harnesses: SI.harnesses, warnDays: 14 })],
+    ['POST', /\/prefs\/harness-signins$/, (m, o) => {
+      const b = JSON.parse(o.body || '{}');
+      if (!SI.available) return json({ error: siWhy() }, 409);
+      const hk = SI.harnesses[b.harness];
+      if (!hk) return json({ error: `harness: "${b.harness || ''}" takes no saved sign-in` }, 400);
+      const secret = String(b.secret || '').trim();
+      if (!secret) return json({ error: 'secret: the key or token, one line' }, 400);
+      const key = b.env ? hk.keys.find((k) => k.env === b.env) : hk.keys.find((k) => k.prefix && secret.startsWith(k.prefix)) || hk.keys.find((k) => !k.prefix);
+      if (!key) return json({ error: b.env ? `env: one of ${oneOf(hk.keys.map((k) => k.env))}` : 'env: say which key this is' }, 400);
+      const s = addSignin({ harness: b.harness, name: b.name, kind: key.kind, env: key.env });
+      if (b.default) for (const x of SI.list) if (x.harness === s.harness) x.isDefault = x === s;
+      return json({ signin: s }, 201);
+    }],
+    ['PUT', /\/prefs\/harness-signins\/([^/?]+)$/, (m, o) => {
+      const s = SI.list.find((x) => x.id === decodeURIComponent(m[1]));
+      if (!s) return json({ error: 'no such saved sign-in' }, 404);
+      const b = JSON.parse(o.body || '{}');
+      if (b.name != null) {
+        const name = String(b.name).trim();
+        if (!name) return json({ error: 'name: up to 40 characters, one line' }, 400);
+        if (SI.list.some((x) => x !== s && x.harness === s.harness && x.name.toLowerCase() === name.toLowerCase())) return json({ error: `you have a saved sign-in named ${name} already` }, 409);
+        s.name = name;
+      }
+      if (b.default != null) for (const x of SI.list) if (x.harness === s.harness) x.isDefault = b.default ? x === s : x.isDefault && x !== s;
+      return json({ signin: s });
+    }],
+    ['DELETE', /\/prefs\/harness-signins\/([^/?]+)$/, (m) => {
+      const i = SI.list.findIndex((x) => x.id === decodeURIComponent(m[1]));
+      if (i < 0) return json({ error: 'no such saved sign-in' }, 404);
+      SI.list.splice(i, 1);
+      return json({ ok: 'true', stopped: 0 });
+    }],
+    ['PUT', /\/runs\/(\d+)\/harness\/signin$/, (m, o) => {
+      const id = +m[1];
+      const r = hrun(id);
+      if (!r) return notHarness();
+      if (!SI.available) return json({ error: siWhy() }, 409);
+      const b = JSON.parse(o.body || '{}');
+      const pick = b.signin === 'sandbox' ? 'sandbox' : !b.signin || b.signin === 'default' ? 'default' : b.signin;
+      if (pick !== 'sandbox' && pick !== 'default' && !SI.list.some((x) => x.id === pick && x.harness === r.harness.provider)) {
+        return json({ error: `signin: one of your saved sign-ins for ${r.harness.name}, "default" or "sandbox"` }, 400);
+      }
+      return json({ harness: setHarness(id, { signin: { ...(r.harness.signin || {}), pick } }) });
+    }],
     ['GET', /\/prefs\/harness-mode$/, () => (person() ? json({ modes: H.modes }) : json({ error: "the setting is a person's own" }, 403))],
     ['PUT', /\/prefs\/harness-mode\/([^/?]+)$/, (m, o) => {
       const b = JSON.parse(o.body || '{}');
@@ -478,6 +578,7 @@ export function STUB(seed) {
       const b = JSON.parse(o.body || '{}');
       const h = r.harness;
       if (h.state !== 'login') return json({ error: `${h.name} is signed in` }, 409); // its methods went with its login
+      if (b.method === 'guided') return guidedSignin(id, r, b);
       const methods = ((h.login || {}).methods || []).filter((x) => x.kind === 'api-key' || x.kind === 'device-code');
       const md = methods.find((x) => x.id === b.method);
       if (!md) return json({ error: `method: one of ${oneOf(methods.map((x) => x.id))}` }, 400);

@@ -12,7 +12,7 @@ package term
 // permission answers come through the Manager from the API; any client may
 // answer a permission — the first wins. The agent authenticates from the
 // session's per-user $HOME (D6) — the same home a shell terminal gets, so a
-// `claude /login` / `codex login` / … done once in a terminal serves the
+// `claude auth login` / `codex login` / … done once in a terminal serves the
 // agent on every tile. There are no provider keys in the tile vault.
 
 import (
@@ -540,8 +540,8 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 		st.mu.Unlock()
 		// the agent's own title (most adapters generate one after the first
 		// turn) names a tab the user has not named — it follows the user like
-		// any name (D73)
-		if d.Title != "" {
+		// any name (D73) — never the sign-in's reserved one (purpose.go)
+		if d.Title != "" && !ReservedName(d.Title) {
 			s.mu.Lock()
 			if s.name == "" {
 				s.name, renamed = d.Title, true

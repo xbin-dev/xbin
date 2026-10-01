@@ -345,6 +345,19 @@ func (p *harnessPipe) Kill() {
 	p.killOnce.Do(func() { go p.kill() })
 }
 
+// KillNow deletes the command at once (its group killed), waiting for the
+// manager: a stop that can't wait for Kill's pace (a shutdown).
+func (p *harnessPipe) KillNow(ctx context.Context) error {
+	p.mu.Lock()
+	p.killing = true
+	p.mu.Unlock()
+	p.killOnce.Do(func() {}) // no Kill after it
+	if err := p.t.Conn.ExecDelete(ctx, p.t.ID, p.execID); err != nil && !gone(err) {
+		return err
+	}
+	return nil
+}
+
 func (p *harnessPipe) kill() {
 	go func() { _ = p.closeStdin(p.killStep) }()
 	if p.ended(p.killStep) {

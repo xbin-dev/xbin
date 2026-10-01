@@ -3,6 +3,7 @@ package acptest
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -203,6 +204,17 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "t1", "status": "completed",
 			"content": []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: "a.txt b.txt"}}}})
 		f.say("listed")
+	case strings.HasPrefix(text, "printenv "):
+		// as Claude Code's own Bash tool: a child of the agent's process,
+		// its environment inherited (a hook prints on stderr)
+		name := strings.TrimSpace(strings.TrimPrefix(text, "printenv "))
+		v := f.getenv(name)
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "env1", "title": "printenv " + name, "kind": "execute",
+			"status": "in_progress", "rawInput": map[string]string{"command": "printenv " + name}})
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "env1", "status": "completed",
+			"content": []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: v}}}})
+		fmt.Fprintf(os.Stderr, "hook: %s=%s\n", name, v)
+		f.say("printenv: " + v)
 	case strings.HasPrefix(text, "run:"), strings.Contains(text, "term"):
 		label, script := "term", "echo hi; printenv FAKE_API_KEY | wc -c"
 		if strings.HasPrefix(text, "run:") {
@@ -233,6 +245,8 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 				"_meta":   map[string]any{"terminal_output": map[string]any{"terminal_id": "run1", "data": out.Output}, "terminal_exit": map[string]any{"terminal_id": "run1", "exit_code": code}}})
 		}
 		f.say(label + ": " + strings.Join(strings.Fields(out.Output), " "))
+	case strings.HasPrefix(text, "whoami"):
+		f.say("account: " + f.account())
 	case strings.Contains(text, "env"):
 		key := "no"
 		if f.getenv("FAKE_API_KEY") != "" {
