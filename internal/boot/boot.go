@@ -109,6 +109,9 @@ type Step struct {
 //     mounts its routes.
 //   - workspace before isolation: the tile-sandbox definitions' base pins
 //     (sandboxBasePins) must answer before isolation's base-image GC.
+//   - go-build-versions after server: the D166 upgrade check (decided in
+//     the registry step, before any build) starts its first pass in the
+//     background once everything else runs; its routes are mounted.
 var Steps = []Step{
 	{"workspace", (*State).stepWorkspace},
 	{"privileges", (*State).stepPrivileges},
@@ -130,6 +133,7 @@ var Steps = []Step{
 	{"server", (*State).stepServer},
 	{"watch", (*State).stepWatch},
 	{"always-on", (*State).stepAlwaysOn},
+	{"go-build-versions", (*State).stepGoVersions},
 }
 
 // Run boots the workspace described by cfg and serves it until ctx is done
@@ -265,6 +269,7 @@ func (st *State) stepRegistry() error {
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
 	st.Sbx = sbx.New()
 	st.Run.Sandboxes = st.Sbx
+	st.bootGoVersions() // before any build: an earlier xbind's builds say the check is due (goversions.go)
 	// The deployments plane loads its records before the first Provision
 	// (broker.New), so a pinned primary's code is what the registry composes.
 	dp := &deployments.Plane{Root: st.WS, Reg: reg, Hub: st.Hub, Run: st.Run,
@@ -705,6 +710,7 @@ func (st *State) stepServer() error {
 	st.registerSandboxAPI(srv)
 	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
 	st.registerTileSandboxAPI(srv)
+	st.registerGoVersionsAPI(srv) // the D166 upgrade check's routes and admin alert
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}

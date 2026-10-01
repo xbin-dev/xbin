@@ -66,6 +66,11 @@ type Broker struct {
 	// pendingSeen is the last-published pending-grant key set (RefreshPending).
 	pendingSeen map[string]bool
 
+	// AdminAlerts, if set, is a source of alerts GET /alerts shows admins
+	// only, whatever tile they name: the Go build versions alert (D166),
+	// which names tiles and their dependency versions.
+	AdminAlerts func() []Alert
+
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/
 	// symlinks and regenerate go.work without waiting for the watcher.

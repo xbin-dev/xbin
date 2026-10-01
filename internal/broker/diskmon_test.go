@@ -1,6 +1,10 @@
 package broker
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+)
 
 func TestDiskMonQuota(t *testing.T) {
 	usage := map[string]int64{"apps~big": 60 << 30, "apps~small": 1 << 30}
@@ -34,5 +38,24 @@ func TestDiskMonQuota(t *testing.T) {
 	}
 	if !found {
 		t.Error("extra (cgroup) alerts must be folded into Alerts()")
+	}
+}
+
+// covers D166's upgrade check — an admin-only alert (the Go build versions
+// alert names tiles and their dependency versions) reaches admins, whatever
+// tile it names, and nobody else: not a reader of the tile, not the tile.
+func TestAdminAlertsAdminsOnly(t *testing.T) {
+	b := testBroker(t)
+	b.AdminAlerts = func() []Alert {
+		return []Alert{{Level: "warn", Kind: "go-build-versions", Tile: "apps/calendar", Message: "apps/calendar builds with older dependency versions", Dismiss: "/go-build-versions/dismiss"}}
+	}
+	is := func(a Alert) bool { return a.Kind == "go-build-versions" }
+	if a := findAlert(alertsFor(t, b, auth.Principal{Owner: true}), is); a == nil || a.Dismiss != "/go-build-versions/dismiss" {
+		t.Errorf("the owner's alerts: %+v", a)
+	}
+	for _, p := range []auth.Principal{{Component: "apps/calendar", Via: "instance"}, {UserID: "alice", Via: "session"}} {
+		if a := findAlert(alertsFor(t, b, p), is); a != nil {
+			t.Errorf("%+v sees the admin-only alert", p)
+		}
 	}
 }

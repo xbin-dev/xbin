@@ -632,6 +632,42 @@ GET    /runtime                    admin. full runtime visibility →
 GET    /gpus                       admin. host NVIDIA GPUs for gpu:* grants and
                                    the terminal picker → {gpus:[{index,uuid,
                                    name,node}]}
+GET    /go-build-versions          admin. the D166 upgrade check's latest
+                                   result → {since?, done, fresh?, running,
+                                   checkedAt?, tiles:[{tile, require:
+                                   ["<module> <version>"], minimal, changes:
+                                   [{module, had?, now?}], dismissed,
+                                   checkedAt}], errors:[{tile, error}]}.
+                                   tiles: each Go tile whose own build (its
+                                   go.mod's versions) links a module lower
+                                   than the workspace's shared go.work did,
+                                   with the fewest require lines that keep
+                                   what it had (minimal:false = the raw
+                                   differing lines: the search gave up);
+                                   a change without now is no longer
+                                   linked, one without had newly linked.
+                                   errors: tiles it couldn't compare (their
+                                   build fails one way or the other).
+                                   since: the xbind version the change came
+                                   with; done: the first pass completed;
+                                   fresh: no Go build of an earlier xbind was
+                                   found, nothing compared. It runs once on
+                                   its own, in the background after the
+                                   first boot of an xbind with it on a
+                                   workspace an earlier xbind built Go tiles
+                                   in (marker: data/go-build-versions.json);
+                                   a tile it names is listed again after
+                                   each of its builds, and leaves once its
+                                   go.mod caught up. `bx doctor` renders it
+POST   /go-build-versions/check    admin. compare every Go tile again, in the
+                                   background, a few at a time → 202
+                                   {running:true, started} (started false: a
+                                   pass is already running; GET shows
+                                   running until it is done)
+POST   /go-build-versions/dismiss  admin. body {tile?} (none: every tile the
+                                   alert names) → the GET report. Hides the
+                                   alert's line for the tile until its lines
+                                   change; 404 a tile the check doesn't list
 GET    /vm                         authenticated. VM sandboxes (D89)
                                    → {status:{available,reason,emulated?,
                                    note?}, policy:
@@ -956,9 +992,17 @@ POST   /path-tickets              a tile's page (its frame token) only.
                                    /api/~<ticket>/<rest> (§Path tickets)
 
 GET    /alerts                    any. workspace health {alerts:[{level,kind,
-                                   tile?,message,system}]} — disk quota / low
-                                   disk / cgroup at-limit; system alerts to all,
-                                   tile alerts to admins + that tile's users.
+                                   tile?,message,system,dismiss?}]} — disk
+                                   quota / low disk / cgroup at-limit; system
+                                   alerts to all, tile alerts to admins +
+                                   that tile's users. Admins also get kind
+                                   go-build-versions (warn): Go tiles that
+                                   build with older dependency versions since
+                                   each builds with its own go.mod (D166),
+                                   and the require lines that keep what each
+                                   had (GET /go-build-versions). dismiss: the
+                                   route a POST to which dismisses the alert
+                                   (/go-build-versions/dismiss).
                                    An alert about a deployment's data beyond
                                    the primary's main carries deployment (the
                                    data's deployment; tile is then the data's
