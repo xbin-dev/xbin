@@ -113,6 +113,13 @@
 //	                 OAuth token, session/new and session/load are followed by
 //	                 _auth/status_update{kind:none}, as claude-agent-acp
 //	                 0.81's `claude auth status` probe reports one
+//	--codex-auth    (with --require-login) signs in as codex 0.156 does:
+//	                signed in when ${CODEX_HOME:-$HOME/.codex}/auth.json held
+//	                a key at start, or once fake-api-key's authenticate gave
+//	                one — written to that file and kept in memory, so
+//	                removing the file doesn't sign the running agent out; no
+//	                key from the environment; session/new and session/load
+//	                refused signed out (-32000); `whoami` says "key …<last 4>"
 //	--persist       sessions get their own ids; every session's updates (and
 //	                 its prompts, as user_message_chunk) are appended to
 //	                 $HOME/.fakeacp/sessions/<id>.jsonl, and session/load

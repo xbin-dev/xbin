@@ -40,6 +40,7 @@ type fake struct {
 	prompt    json.RawMessage // in-flight prompt id
 	cur       *turnState      // the running turn
 	signedIn  bool            // --require-login
+	codexKey  string          // --codex-auth: the key signing it in (in memory)
 	elicitURL bool            // the client takes URL elicitation (device code)
 	termAuth  bool            // the client takes _meta terminal-auth
 	asks      int             // perm2's requests so far (their ids: "perm2-<n>")
@@ -53,6 +54,9 @@ func newFake(o Options) *fake {
 	}
 	if o.RequireLogin {
 		f.signedIn = f.credentials()
+		if o.CodexAuth {
+			f.codexKey = f.codexStartKey()
+		}
 	}
 	return f
 }
@@ -65,6 +69,11 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 	case acp.MAuthenticate:
 		return f.authenticate(m)
 	case acp.MSessionNew:
+		if f.o.RequireLogin && f.o.CodexAuth { // codex refuses a session signed out
+			if rerr := f.codexSignedOut(); rerr != nil {
+				return nil, rerr
+			}
+		}
 		var p acp.SessionNewParams
 		_ = json.Unmarshal(m.Params, &p)
 		f.mu.Lock()
@@ -86,6 +95,11 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 	case acp.MSessionLoad:
 		// resume: the prior turns stream back as session/update BEFORE the
 		// answer — a user line and the agent's echo of it, tagged with the id
+		if f.o.RequireLogin && f.o.CodexAuth {
+			if rerr := f.codexSignedOut(); rerr != nil {
+				return nil, rerr
+			}
+		}
 		var p acp.SessionLoadParams
 		_ = json.Unmarshal(m.Params, &p)
 		f.mu.Lock()

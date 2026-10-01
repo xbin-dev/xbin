@@ -145,3 +145,20 @@ func TestProviderSafe(t *testing.T) {
 		t.Errorf("OptionModes is the runner's, never in the JSON: %s", b)
 	}
 }
+
+// Only codex keeps a key handed through authenticate in a file (D179):
+// a client removes it once the adapter took it. Never in the JSON.
+func TestProviderAuthFile(t *testing.T) {
+	for _, p := range Providers() {
+		if (p.AuthFile != "") != (p.ID == "codex") {
+			t.Errorf("%s: AuthFile %q", p.ID, p.AuthFile)
+		}
+	}
+	c, _ := Lookup("codex")
+	if c.AuthFile != `${CODEX_HOME:-$HOME/.codex}/auth.json` {
+		t.Fatalf("codex auth file: %q", c.AuthFile)
+	}
+	if b, _ := json.Marshal(c); strings.Contains(string(b), "auth.json") {
+		t.Errorf("AuthFile in the JSON: %s", b)
+	}
+}

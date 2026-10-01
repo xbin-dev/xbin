@@ -41,6 +41,13 @@ type Provider struct {
 	// a token Mint printed, or a key the person pastes — in the order a
 	// client offers them (KeyFor). Shared: read-only.
 	Keys []Key `json:"-"`
+	// AuthFile is where the CLI writes an API key handed to its adapter
+	// through ACP authenticate, as a shell word ($HOME, $CODEX_HOME):
+	// codex's auth.json. "" for a CLI that keeps such a key in memory only.
+	// A client that hands over a key it keeps elsewhere removes the file
+	// once the adapter took it (codex 0.156 keeps it in memory then); the
+	// file would otherwise outlive the client's own forgetting of the key.
+	AuthFile string `json:"-"`
 	// Bins are the executables the provider needs on PATH: the adapter
 	// first, then the CLI LoginCmd runs when that is another one.
 	Bins []string `json:"-"`
@@ -137,7 +144,10 @@ var catalog = []Provider{
 			{ID: "agent-full-access", Name: "Full access", Explicit: true}},
 		DefaultMode: "read-only", Env: map[string]string{"NO_BROWSER": "1"},
 		LoginCmd: "codex login --device-auth", Bins: []string{"codex-acp", "codex"}, AutoMode: "agent",
+		// codex's app-server reads no CODEX_API_KEY at start: a key goes
+		// through authenticate, which writes it to auth.json (its file store)
 		Keys:        []Key{{Env: "CODEX_API_KEY", Label: "OpenAI API key", Kind: "api-key"}},
+		AuthFile:    `${CODEX_HOME:-$HOME/.codex}/auth.json`,
 		ApproveMode: "read-only", PlanMode: "read-only"},
 	{ID: "gemini", Name: "Gemini CLI", Driver: "acp", Argv: []string{"gemini", "--acp"}, Login: "gemini (then choose Login with Google)",
 		Modes: []Mode{{ID: "default", Name: "Ask before acting"}, {ID: "autoEdit", Name: "Auto edit"}, {ID: "plan", Name: "Plan"},
