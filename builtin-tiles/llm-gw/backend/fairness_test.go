@@ -110,17 +110,15 @@ func TestPartitionLimitOrder(t *testing.T) {
 	first := make(chan *httptest.ResponseRecorder, 1)
 	go func() { first <- proxy(ctx, alice, "slow") }()
 	<-arrived
-	var order []string
-	var mu sync.Mutex
+	seenMu.Lock()
+	from := len(seen)
+	seenMu.Unlock()
 	var wg sync.WaitGroup
 	for i, m := range []string{"a1", "a2", "a3"} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			proxy(ctx, alice, m)
-			mu.Lock()
-			order = append(order, m)
-			mu.Unlock()
 		}()
 		waitFor(t, m+" waits", func() bool { _, w := inFlight(ak); return w == i+1 })
 	}
@@ -129,6 +127,18 @@ func TestPartitionLimitOrder(t *testing.T) {
 	holdMu.Unlock()
 	<-first
 	wg.Wait()
+	// The order the upstream answered them is the order they were let in:
+	// with one slot, the next call reaches it only after the one before
+	// is done. (The order the calls return in isn't: a call's slot goes to
+	// the next before its own proxy returns, so the next may return first.)
+	seenMu.Lock()
+	var order []string
+	for _, m := range seen[from:] {
+		if m != "slow" {
+			order = append(order, m)
+		}
+	}
+	seenMu.Unlock()
 	if got := strings.Join(order, ","); got != "a1,a2,a3" {
 		t.Errorf("the waiting calls ran as %s, want in order", got)
 	}
