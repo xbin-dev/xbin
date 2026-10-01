@@ -239,17 +239,6 @@ func (b *Broker) scopeDiskUsage() map[string]int64 {
 	return out
 }
 
-// DiskAlerts returns the current workspace disk/limit alerts.
-func (b *Broker) DiskAlerts() []Alert { return b.disk.Alerts() }
-
-// SetLimitAlerts injects extra alert sources (e.g. cgroup at-limit events)
-// that the monitor folds into DiskAlerts. Called from main after wiring.
-func (b *Broker) SetLimitAlerts(fn func() []Alert) {
-	if b.disk != nil {
-		b.disk.extra = fn
-	}
-}
-
 // UnsealOrInit brings the vault barrier online with a passphrase: initializes
 // it on first use (migrating any legacy plaintext), or unseals an existing
 // one. Called at boot from XBIN_VAULT_PASSPHRASE, and by the unseal API.
@@ -775,27 +764,4 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	}
 	b.writeGrantOK(w, r, g) // + the approval warning (partitionconsent.go)
 	return g, true
-}
-
-// TileDiskStatus resolves a component to its scope's disk footprint/quota/block
-// state (for the tile status API).
-func (b *Broker) TileDiskStatus(component string) (usage, quota int64, blocked bool) {
-	scope := ""
-	if c, ok := b.Reg.Component(component); ok {
-		scope = c.Scope
-	}
-	k, _ := scopeKeys(scope, util.MainDeployment)
-	return b.disk.Status(k.Quota)
-}
-
-// TileAlerts returns the alerts relevant to one component (its own tile-scoped
-// alerts plus any workspace-wide/system alerts).
-func (b *Broker) TileAlerts(component string) []Alert {
-	var out []Alert
-	for _, a := range b.DiskAlerts() {
-		if a.System || a.Tile == component {
-			out = append(out, a)
-		}
-	}
-	return out
 }

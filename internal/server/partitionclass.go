@@ -456,6 +456,10 @@ var partitionClasses = map[string]PartitionClass{
 	"PUT /chrome":                            GlobalOnlyRefused,
 	"PUT /branding":                          GlobalOnlyRefused,
 	"PUT /workspace-policies":                PartitionNeutral,
+	"PUT /workspace-settings":                GlobalOnlyRefused,
+	"GET /go-build-versions":                 GlobalOnlyRefused,
+	"POST /go-build-versions/check":          GlobalOnlyRefused,
+	"POST /go-build-versions/dismiss":        GlobalOnlyRefused,
 	"GET /push/config":                       GlobalOnlyRefused,
 	"PUT /push/config":                       GlobalOnlyRefused,
 	"DELETE /push/config":                    GlobalOnlyRefused,
@@ -513,6 +517,7 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /chrome":               PartitionNeutral,
 	"GET /branding":             PartitionNeutral,
 	"GET /workspace-policies":   PartitionNeutral,
+	"GET /workspace-settings":   PartitionNeutral,
 
 	// ---- a person's own sign-in, account, devices and sessions ----
 	"POST /login":                     PartitionNeutral,
