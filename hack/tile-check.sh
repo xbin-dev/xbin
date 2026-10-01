@@ -13,6 +13,7 @@
 #   hack/tile-check.sh            # every tile (make tile-check)
 #   hack/tile-check.sh agent      # one
 #   TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh agent   # extra go test flags
+#   TILE_CHECK_JOBS=1 hack/tile-check.sh   # one at a time (default: one per CPU)
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d)
@@ -31,8 +32,10 @@ else
   done
 fi
 
-fails=0
-for d in "${dirs[@]}"; do
+# check_one <dir>: vet + test one backend in its scratch copy; its output
+# on stdout, its verdict the exit status.
+check_one() {
+  local d=$1 name work
   name=$(basename "$d")
   work="$scratch/$name"
   mkdir -p "$work"
@@ -56,6 +59,21 @@ for d in "${dirs[@]}"; do
       echo "$out"
       echo "  ✗ $name"; exit 1
     fi
-  ) || fails=$((fails + 1))
+  )
+}
+
+# The backends are independent: TILE_CHECK_JOBS of them at once (default:
+# one per CPU), each into a log of its own, printed in order.
+jobs_max=${TILE_CHECK_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
+pids=()
+for d in "${dirs[@]}"; do
+  while [ "$(jobs -rp | wc -l)" -ge "$jobs_max" ]; do sleep 0.2; done
+  check_one "$d" > "$scratch/$(basename "$d").log" 2>&1 &
+  pids+=($!)
+done
+fails=0
+for i in "${!dirs[@]}"; do
+  wait "${pids[$i]}" || fails=$((fails + 1))
+  cat "$scratch/$(basename "${dirs[$i]}").log"
 done
 [ "$fails" -eq 0 ] && echo "tile-check: ${#dirs[@]} backend(s) vet + test against their own go.mod.tile" || { echo "tile-check: $fails failed"; exit 1; }
