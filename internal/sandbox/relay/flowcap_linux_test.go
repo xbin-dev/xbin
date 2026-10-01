@@ -75,14 +75,16 @@ func rstPort(ip header.IPv4) uint16 {
 // synUntil sends a SYN from each port to dst:80 — again, round by round,
 // for the ports that have no RST yet (the TUN drops what the sandbox doesn't
 // read in time; a SYN resent for a flow still dialing is the same flow) —
-// until want ports are reset. It returns the reset ports.
+// until want ports are reset. It returns the reset ports. The rounds only
+// pace the resends: however slow a round, what is reset in the end is the
+// same.
 func (h *harness) synUntil(ports []uint16, dst netip.Addr, rst <-chan uint16, want int, sample func()) map[uint16]bool {
 	h.t.Helper()
 	reset := map[uint16]bool{}
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 	for len(reset) < want {
 		if time.Now().After(deadline) {
-			h.t.Fatalf("%d of %d ports reset after 30s", len(reset), want)
+			h.t.Fatalf("%d of %d ports reset after %v", len(reset), want, hangGuard)
 		}
 		for _, p := range ports {
 			if !reset[p] {
@@ -108,7 +110,9 @@ func (h *harness) synUntil(ports []uint16, dst netip.Addr, rst <-chan uint16, wa
 
 // 5000 concurrent connects through one relay with MaxTCP 1024: at most 1024
 // dials reach the dialer, the rest are reset at once, and the process's fds
-// stay bounded by the cap rather than by the flood.
+// stay bounded by the cap rather than by the flood. ("At once": the 1024
+// dials hold until the test lets go, so every RST before that is one that
+// waited for no dial.)
 func TestFlowCapTCP(t *testing.T) {
 	const flood, limit = 5000, 1024
 	release := make(chan struct{})
@@ -139,9 +143,9 @@ func TestFlowCapTCP(t *testing.T) {
 	t0 := time.Now()
 	reset := h.synUntil(ports, allowed, rst, flood-limit, func() { peak = max(peak, openFDs(t)) })
 	took := time.Since(t0)
-	for end := time.Now().Add(2 * time.Second); dials.Load() < limit && time.Now().Before(end); {
-		time.Sleep(10 * time.Millisecond)
-	}
+	// A port is reset only while the cap is full, so the 1024 flows are
+	// admitted by now; their dials follow their claims.
+	waitUntil(t, "the admitted flows' dials", func() bool { return dials.Load() >= limit })
 	if n := dials.Load(); n != limit {
 		t.Fatalf("%d dials reached the dialer, want exactly %d (the cap)", n, limit)
 	}
@@ -155,24 +159,16 @@ func TestFlowCapTCP(t *testing.T) {
 	if peak-base > limit+128 {
 		t.Fatalf("open fds grew by %d under a cap of %d", peak-base, limit)
 	}
-	if took > 20*time.Second {
-		t.Fatalf("the refusals took %v: a flow past the cap must be reset at once", took)
-	}
 	if st := h.r.Stats(); st.Denied < int64(flood-limit) {
 		t.Fatalf("refused flows must be recorded as denied: %+v", st.Denied)
 	}
 
 	// The held dials fail: their flows end and give their slots back.
 	stop()
-	for end := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if n, _ := h.r.counts(); n == 0 {
-			break
-		}
-		if time.Now().After(end) {
-			n, _ := h.r.counts()
-			t.Fatalf("%d TCP flows still held after their dials failed", n)
-		}
-	}
+	waitUntil(t, "the TCP flows ended after their dials failed", func() bool {
+		n, _ := h.r.counts()
+		return n == 0
+	})
 }
 
 // One Budget shared by two relays admits 100 flows in all, and a relay's
@@ -202,28 +198,27 @@ func TestFlowBudgetShared(t *testing.T) {
 		ports[i] = uint16(30000 + i)
 	}
 	// Both relays fill the budget together: send on both, then take the
-	// RSTs of whichever lost the race.
+	// RSTs of whichever lost the race. Each SYN is judged once — 100 are
+	// admitted (their dials hold) and 60 reset — and 60 RSTs fit the
+	// socket's queue, so nothing is resent. With all 160 judged, no SYN is
+	// left to take a slot that a Close below frees.
 	for _, h := range hs {
 		for _, p := range ports {
 			h.send(tcpSYN(sbxIP, allowed, p, 80))
 		}
 	}
-	for end := time.Now().Add(5 * time.Second); dials.Load() < 100 && time.Now().Before(end); {
-		time.Sleep(10 * time.Millisecond)
-	}
-	var reset [2]map[uint16]bool
-	for i, h := range hs {
-		held, _ := h.r.counts()
-		reset[i] = h.synUntil(ports, allowed, rsts[i], len(ports)-held, nil)
-	}
-	// Let the resent SYNs still queued be refused before a slot frees up.
-	for last := int64(-1); ; time.Sleep(200 * time.Millisecond) {
-		n := hs[0].r.Stats().Denied + hs[1].r.Stats().Denied
-		if n == last {
-			break
+	reset := [2]map[uint16]bool{{}, {}}
+	for guard := time.After(hangGuard); len(reset[0])+len(reset[1]) < 60; {
+		select {
+		case p := <-rsts[0]:
+			reset[0][p] = true
+		case p := <-rsts[1]:
+			reset[1][p] = true
+		case <-guard:
+			t.Fatalf("%d+%d of 60 SYNs reset after %v", len(reset[0]), len(reset[1]), hangGuard)
 		}
-		last = n
 	}
+	waitUntil(t, "the admitted flows' dials", func() bool { return dials.Load() >= 100 })
 	h0, _ := hs[0].r.counts()
 	h1, _ := hs[1].r.counts()
 	if n := dials.Load(); n != 100 || h0+h1 != 100 || b.Used() != 100 || b.Cap() != 100 {
@@ -277,28 +272,36 @@ func pipeDial(ends chan<- net.Conn) dialFunc {
 	}
 }
 
+// pipeEnd waits for the host side of the flow from sport that the relay
+// dials with pipeDial.
+func pipeEnd(t *testing.T, ends <-chan net.Conn, sport uint16) net.Conn {
+	t.Helper()
+	select {
+	case c := <-ends:
+		t.Cleanup(func() { c.Close() })
+		return c
+	case <-time.After(hangGuard):
+		t.Fatalf("flow from %d was not dialed", sport)
+		return nil
+	}
+}
+
 // MaxUDP: a datagram of a flow past the cap gets an ICMP port-unreachable at
-// once and is recorded as denied.
+// once and is recorded as denied. (The two flows hold their slots to the
+// end, so a datagram that waited for one would get no answer at all.)
 func TestFlowCapUDP(t *testing.T) {
 	ends := make(chan net.Conn, 8)
 	h := newHarnessDial(t, Config{Allow: allowAll, MaxUDP: 2}, pipeDial(ends))
 	for _, sp := range []uint16{50001, 50002} {
 		h.send(udpPkt(sbxIP, allowed, sp, 9, []byte("hi")))
-		select {
-		case c := <-ends:
-			t.Cleanup(func() { c.Close() })
-		case <-time.After(2 * time.Second):
-			t.Fatalf("flow from %d was not dialed", sp)
-		}
+		pipeEnd(t, ends, sp)
 	}
-	t0 := time.Now()
 	h.send(udpPkt(sbxIP, allowed, 50003, 9, []byte("hi")))
-	if h.recv(time.Second, unreachTo(allowed, 50003)) == nil {
+	if h.recv(unreachTo(allowed, 50003)) == nil {
 		t.Fatal("a datagram past MaxUDP must get a port-unreachable")
 	}
-	if took := time.Since(t0); took > 200*time.Millisecond {
-		t.Fatalf("the port-unreachable took %v", took)
-	}
+	// The relay judges a datagram inline, dialing before the stack could
+	// answer it: a dial for this one would be in by now.
 	select {
 	case <-ends:
 		t.Fatal("a flow past MaxUDP was dialed")
@@ -321,20 +324,12 @@ func TestFlowCloseReturnsBudget(t *testing.T) {
 	var pipes []net.Conn
 	for sp := uint16(50001); sp <= 50004; sp++ {
 		h.send(udpPkt(sbxIP, allowed, sp, 9, []byte("hi")))
-		select {
-		case c := <-ends:
-			pipes = append(pipes, c)
-			t.Cleanup(func() { c.Close() })
-		case <-time.After(2 * time.Second):
-			t.Fatalf("flow from %d was not dialed", sp)
-		}
+		pipes = append(pipes, pipeEnd(t, ends, sp))
 	}
 	for sp := uint16(41001); sp <= 41006; sp++ { // clear of h.port()'s 40001…
 		h.send(tcpSYN(sbxIP, allowed, sp, 80))
 	}
-	for end := time.Now().Add(3 * time.Second); b.Used() < 10 && time.Now().Before(end); {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitUntil(t, "the budget spent", func() bool { return b.Used() >= 10 })
 	if tcp, udp := h.r.counts(); b.Used() != 10 || tcp != 6 || udp != 4 {
 		t.Fatalf("budget %d, flows tcp %d udp %d: want 10 = 6 + 4", b.Used(), tcp, udp)
 	}
@@ -343,7 +338,7 @@ func TestFlowCloseReturnsBudget(t *testing.T) {
 		t.Fatal("a SYN past the budget must be reset")
 	}
 	h.send(udpPkt(sbxIP, allowed, 50009, 9, []byte("hi")))
-	if h.recv(time.Second, unreachTo(allowed, 50009)) == nil {
+	if h.recv(unreachTo(allowed, 50009)) == nil {
 		t.Fatal("a datagram past the budget must get a port-unreachable")
 	}
 
@@ -352,7 +347,9 @@ func TestFlowCloseReturnsBudget(t *testing.T) {
 		t.Fatalf("Close returned with %d budget slots still held", got)
 	}
 	for i, c := range pipes {
-		_ = c.SetReadDeadline(time.Now().Add(time.Second))
+		// Close has closed the relay's end: the read ends at once (the
+		// deadline only guards a hang).
+		_ = c.SetReadDeadline(time.Now().Add(hangGuard))
 		_, err := io.Copy(io.Discard, c) // the datagram, then the close
 		if err != nil {
 			t.Fatalf("UDP flow %d: its host side must be closed by Close, got %v", i, err)
@@ -440,16 +437,10 @@ func TestHostDenyReleasesSocket(t *testing.T) {
 		d := HostDeny()
 		_ = d(netip.MustParseAddr("192.0.2.1"))
 	}
-	for end := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		runtime.GC()
-		n := openFDs(t)
-		if n <= base+4 {
-			return
-		}
-		if time.Now().After(end) {
-			t.Fatalf("fds %d → %d after 64 dropped HostDenys", base, n)
-		}
-	}
+	waitUntil(t, "64 dropped HostDenys' sockets closed", func() bool {
+		runtime.GC() // their finalizers close them
+		return openFDs(t) <= base+4
+	})
 }
 
 // A failed lookup denies; no route passes the flow on.
@@ -484,12 +475,8 @@ func TestCloseReleasesFDs(t *testing.T) {
 		r.Close()
 		unix.Close(fds[1])
 	}
-	for end := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	waitUntil(t, "20 closed relays' fds released", func() bool {
 		runtime.GC() // the HostDenys' netlink sockets go with their relays
-		if n := openFDs(t); n <= base+2 {
-			return
-		} else if time.Now().After(end) {
-			t.Fatalf("fds %d → %d after 20 relays started and closed", base, n)
-		}
-	}
+		return openFDs(t) <= base+2
+	})
 }

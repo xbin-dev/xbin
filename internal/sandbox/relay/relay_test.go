@@ -27,7 +27,7 @@ func TestSpliceUDPIdleReapsSilentFlow(t *testing.T) {
 	go func() { spliceUDPIdle(cli, srv, 40*time.Millisecond); close(done) }()
 	select {
 	case <-done: // reaped on idle, as it should be
-	case <-time.After(3 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("spliceUDPIdle hung on an idle flow — UDP would show 'open' forever")
 	}
 }
