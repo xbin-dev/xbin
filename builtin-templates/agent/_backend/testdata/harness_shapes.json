@@ -258,7 +258,6 @@
    "content": ["string"],
    "created": ["number"],
    "id": ["number"],
-   "model": ["string"],
    "name": ["string"],
    "reasoning": ["string"],
    "reasoningMs": ["number"],
