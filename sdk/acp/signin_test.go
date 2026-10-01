@@ -162,7 +162,60 @@ func TestSigninCatalog(t *testing.T) {
 		t.Fatalf("claude's sign-in: %+v", s)
 	}
 	c, _ := Lookup("claude")
-	if c.Env["CLAUDE_CODE_REMOTE"] != "" {
-		t.Fatal("the adapter runs in Claude Code's remote-session mode")
+	if c.Env["CLAUDE_CODE_REMOTE"] != "" || strings.Contains(c.LoginCmd, "CLAUDE_CODE_REMOTE") || c.LoginCmd != "claude auth login" {
+		t.Fatalf("the adapter or its terminal sign-in runs in Claude Code's remote-session mode: %+v %q", c.Env, c.LoginCmd)
+	}
+}
+
+// claude's Mint is `claude setup-token` on a terminal: the same page and
+// prompt as its sign-in (the 2.1.280 capture reads as one), then the token
+// it prints — the newest one, whole, out of Ink's drawing — and nothing
+// before it does. Only claude mints; every provider's Keys route a pasted
+// value (KeyFor).
+func TestSigninMint(t *testing.T) {
+	c, _ := Lookup("claude")
+	m := c.Mint
+	if m == nil || strings.Join(m.Argv, " ") != m.Command || m.Command != "claude setup-token" || !m.TTY || m.Token == "" {
+		t.Fatalf("claude's mint: %+v", m)
+	}
+	cap, err := os.ReadFile(filepath.Join("testdata", "signin", "setup-token-tty.raw"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := m.Scan(cap)
+	if !strings.HasPrefix(st.URL, "https://claude.com/cai/oauth/authorize?") || !st.Code || st.Token != "" || st.Done || st.Failed != "" {
+		t.Fatalf("the capture up to the code prompt: %+v", st)
+	}
+	tok := "sk-ant-oat01-" + strings.Repeat("Ab3_-", 20) + "xyzAA"
+	// what follows the code: Ink redraws, colours, the token on a line of its own (1000 columns: no wrap)
+	after := "\x1b[2K\x1b[1A\x1b[2K\x1b[G\x1b[32m✓\x1b[39m Long-lived authentication token created successfully!\r\n\r\n" +
+		"Your OAuth token (valid for 1 year):\r\n\r\n\x1b[38;5;220m" + tok + "\x1b[39m\r\n\r\n" +
+		"Store this token securely. You won't be able to see it again.\r\n\r\n" +
+		"Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\r\n"
+	if st := m.Scan(append(append([]byte{}, cap...), after...)); st.Token != tok || st.Failed != "" {
+		t.Fatalf("the minted token: %q (failed %q)", st.Token, st.Failed)
+	}
+	if st := m.Scan(append(append([]byte{}, cap...), "\r\nOAuth error: Request failed with status code 400\r\n"...)); st.Token != "" || st.Failed != "OAuth error: Request failed with status code 400" {
+		t.Fatalf("a refused code: %+v", st)
+	}
+	if st := claudeSpec(t).Scan([]byte(after)); st.Token != "" {
+		t.Fatal("auth login's spec reads a token")
+	}
+	for _, p := range Providers() {
+		if (p.Mint != nil) != (p.ID == "claude") || len(p.Keys) == 0 {
+			t.Errorf("%s: mint %v, keys %v", p.ID, p.Mint != nil, p.Keys)
+		}
+	}
+	for _, x := range []struct{ id, value, env string }{
+		{"claude", "sk-ant-oat01-abc", "CLAUDE_CODE_OAUTH_TOKEN"}, {"claude", "sk-ant-api03-abc", "ANTHROPIC_API_KEY"},
+		{"codex", "sk-proj-abc", "CODEX_API_KEY"}, {"gemini", "AIzaXYZ", "GEMINI_API_KEY"},
+		{"opencode", "sk-ant-api03-x", "ANTHROPIC_API_KEY"}, {"opencode", "sk-or-v1-x", "OPENROUTER_API_KEY"},
+		{"opencode", "sk-proj-x", "OPENAI_API_KEY"}, {"opencode", "what", ""},
+	} {
+		p, _ := Lookup(x.id)
+		k, ok := p.KeyFor(x.value)
+		if k.Env != x.env || ok != (x.env != "") {
+			t.Errorf("%s KeyFor(%q) = %+v %v, want %s", x.id, x.value, k, ok, x.env)
+		}
 	}
 }

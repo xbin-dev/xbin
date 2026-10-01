@@ -31,6 +31,16 @@ type Provider struct {
 	// nil: none — the person signs in at a terminal (Login). Shared:
 	// read-only.
 	Signin *Signin `json:"signin,omitempty"`
+	// Mint is a sign-in driven the same way that prints a long-lived
+	// credential instead of keeping a login in $HOME (Signin.Token says what
+	// it looks like): claude's `claude setup-token`. A client keeps it as
+	// the person's own secret and hands it to the CLI in its environment
+	// (Keys). nil: none. Shared: read-only.
+	Mint *Signin `json:"-"`
+	// Keys are the environment variables the CLI reads a credential from —
+	// a token Mint printed, or a key the person pastes — in the order a
+	// client offers them (KeyFor). Shared: read-only.
+	Keys []Key `json:"-"`
 	// Bins are the executables the provider needs on PATH: the adapter
 	// first, then the CLI LoginCmd runs when that is another one.
 	Bins []string `json:"-"`
@@ -57,6 +67,41 @@ type Provider struct {
 	OptionModes map[string]string `json:"-"`
 }
 
+// Key is one environment variable a CLI takes a credential from.
+type Key struct {
+	Env   string `json:"env"`   // CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, …
+	Label string `json:"label"` // for people: "Anthropic API key"
+	// Kind is "setup-token" (a token Mint prints, or one pasted that Prefix
+	// says is such) or "api-key".
+	Kind string `json:"kind"`
+	// Prefix: a pasted value that starts with it goes here (the first such
+	// in Keys wins); "" takes a value no prefix claims.
+	Prefix string `json:"prefix,omitempty"`
+}
+
+// KeyFor is the key of p's Keys a pasted value goes to: the first whose
+// Prefix it starts with, else the first with none (false: p takes no
+// pasted credential, or none fits).
+func (p Provider) KeyFor(value string) (Key, bool) {
+	for _, k := range p.Keys {
+		if k.Prefix != "" && strings.HasPrefix(value, k.Prefix) {
+			return k, true
+		}
+	}
+	for _, k := range p.Keys {
+		if k.Prefix == "" {
+			return k, true
+		}
+	}
+	return Key{}, false
+}
+
+// claudeKeys: a setup-token (any sk-ant-oat token) as
+// CLAUDE_CODE_OAUTH_TOKEN — it outranks a $HOME login — and any other value
+// as ANTHROPIC_API_KEY.
+var claudeKeys = []Key{{Env: "CLAUDE_CODE_OAUTH_TOKEN", Label: "Claude subscription token (claude setup-token)", Kind: "setup-token", Prefix: "sk-ant-oat"},
+	{Env: "ANTHROPIC_API_KEY", Label: "Anthropic API key", Kind: "api-key"}}
+
 // Mode is one of a provider's session modes.
 type Mode struct {
 	ID       string `json:"id"`
@@ -78,8 +123,10 @@ var catalog = []Provider{
 		// blocks, no text → no thought chunks); summarized makes it stream
 		SessionMeta: map[string]any{"claudeCode": map[string]any{"options": map[string]any{
 			"thinking": map[string]any{"type": "adaptive", "display": "summarized"}}}},
-		// the agent template's terminal sign-in until it moves to Signin (D178)
-		LoginCmd: "CLAUDE_CODE_REMOTE=1 claude /login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits",
+		// a terminal's sign-in (D178; Signin is the one a client drives), Mint
+		// the long-lived token and Keys where a saved credential goes (D179)
+		LoginCmd: "claude auth login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits",
+		Mint: claudeSetupToken, Keys: claudeKeys,
 		ApproveMode: "default", PlanMode: "plan",
 		// its ExitPlanMode approval's options (claude-agent-acp 0.81)
 		OptionModes: map[string]string{"exit-plan-default": "default", "exit-plan-accept-edits": "acceptEdits",
@@ -90,14 +137,23 @@ var catalog = []Provider{
 			{ID: "agent-full-access", Name: "Full access", Explicit: true}},
 		DefaultMode: "read-only", Env: map[string]string{"NO_BROWSER": "1"},
 		LoginCmd: "codex login --device-auth", Bins: []string{"codex-acp", "codex"}, AutoMode: "agent",
+		Keys:        []Key{{Env: "CODEX_API_KEY", Label: "OpenAI API key", Kind: "api-key"}},
 		ApproveMode: "read-only", PlanMode: "read-only"},
 	{ID: "gemini", Name: "Gemini CLI", Driver: "acp", Argv: []string{"gemini", "--acp"}, Login: "gemini (then choose Login with Google)",
 		Modes: []Mode{{ID: "default", Name: "Ask before acting"}, {ID: "autoEdit", Name: "Auto edit"}, {ID: "plan", Name: "Plan"},
 			{ID: "yolo", Name: "Auto-approve everything", Explicit: true}},
 		LoginCmd: "NO_BROWSER=true gemini", Bins: []string{"gemini"}, AutoMode: "autoEdit",
+		Keys:        []Key{{Env: "GEMINI_API_KEY", Label: "Gemini API key", Kind: "api-key"}},
 		ApproveMode: "default", PlanMode: "plan"},
 	{ID: "opencode", Name: "OpenCode", Driver: "acp", Argv: []string{"opencode", "acp"}, Login: "opencode auth login",
 		LoginCmd: "opencode auth login", Bins: []string{"opencode"},
+		// the provider keys opencode reads from its environment
+		Keys: []Key{{Env: "ANTHROPIC_API_KEY", Label: "Anthropic API key", Kind: "api-key", Prefix: "sk-ant-"},
+			{Env: "OPENROUTER_API_KEY", Label: "OpenRouter API key", Kind: "api-key", Prefix: "sk-or-"},
+			{Env: "OPENAI_API_KEY", Label: "OpenAI API key", Kind: "api-key", Prefix: "sk-"},
+			{Env: "GOOGLE_GENERATIVE_AI_API_KEY", Label: "Google AI API key", Kind: "api-key", Prefix: "AIza"},
+			{Env: "GROQ_API_KEY", Label: "Groq API key", Kind: "api-key", Prefix: "gsk_"},
+			{Env: "XAI_API_KEY", Label: "xAI API key", Kind: "api-key", Prefix: "xai-"}},
 		// its build and plan agents, as its config option of category mode
 		// (opencode 1.18): build asks as its own settings say, plan changes
 		// nothing

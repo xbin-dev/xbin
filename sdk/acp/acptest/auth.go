@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp"
@@ -149,6 +150,13 @@ func (f *fake) requireLogin() *acp.Error {
 	if !f.o.RequireLogin {
 		return nil
 	}
+	switch tok := f.envToken(); {
+	case strings.Contains(tok, "refused"): // a credential in the env outranks $HOME, refused or not
+		_ = f.conn.Notify(acp.MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
+		return &acp.Error{Code: acp.CodeAuthRequired, Message: "Authentication required: OAuth token has been revoked"}
+	case tok != "":
+		return nil
+	}
 	f.mu.Lock()
 	in := f.signedIn
 	f.mu.Unlock()
@@ -178,6 +186,38 @@ func (f *fake) signIn(method string) error {
 	f.signedIn = f.credentials()
 	f.mu.Unlock()
 	return nil
+}
+
+// envToken is the credential Claude Code would take from its environment
+// (--require-login): CLAUDE_CODE_OAUTH_TOKEN, else ANTHROPIC_API_KEY ("":
+// none). One that holds "refused" is refused at every prompt.
+func (f *fake) envToken() string {
+	if t := f.getenv("CLAUDE_CODE_OAUTH_TOKEN"); t != "" {
+		return t
+	}
+	return f.getenv("ANTHROPIC_API_KEY")
+}
+
+// probeStatus is what claude-agent-acp 0.81's `claude auth status` probe
+// pushes once a session opens while an OAuth token in the environment signs
+// Claude Code in: loggedIn but no subscription it can name, which it maps
+// to kind "none" — though every turn works (--require-login only).
+func (f *fake) probeStatus() {
+	if f.o.RequireLogin && f.getenv("CLAUDE_CODE_OAUTH_TOKEN") != "" {
+		_ = f.conn.Notify(acp.MAuthStatus, map[string]any{"authStatus": map[string]any{"kind": "none"}})
+	}
+}
+
+// account is which sign-in a turn uses: "token …<last 4>" for one in the
+// environment, "home" for $HOME's, "none".
+func (f *fake) account() string {
+	if t := f.envToken(); t != "" {
+		return "token …" + t[max(0, len(t)-4):]
+	}
+	if f.credentials() {
+		return "home"
+	}
+	return "none"
 }
 
 // credentials reports whether $HOME/.fakeacp/credentials exists.

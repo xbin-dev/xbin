@@ -68,6 +68,8 @@
 //	            terminal_exit (failed on a non-zero exit)
 //	term        terminal/create `sh -c 'echo hi; printenv FAKE_API_KEY | wc -c'`,
 //	            wait, output → a chunk "term: <output>"
+//	whoami…     (a prefix) a chunk "account: <token …last4 | home | none>":
+//	            the sign-in a turn uses (--require-login's rules below)
 //	env         a chunk "HOME=<home> key=<yes|no> settings=<~/.claude/settings.json
 //	            via fs/read_text_file> model=<the model option>"
 //	write       fs/write_text_file <cwd>/fake-wrote.txt
@@ -103,8 +105,15 @@
 //	                 _auth/status_update{kind:none} and fails -32000. The auth
 //	                 methods become fake-login (terminal, args ["login"]),
 //	                 fake-api-key (_meta["api-key"]) and fake-device (a device
-//	                 code through URL elicitation)
-//	--persist        sessions get their own ids; every session's updates (and
+//	                 code through URL elicitation). As Claude Code does, a
+//	                 credential in the environment outranks $HOME's:
+//	                 CLAUDE_CODE_OAUTH_TOKEN (else ANTHROPIC_API_KEY) signs
+//	                 every prompt in, and one holding "refused" fails every
+//	                 prompt (-32000, the sign-out status first); with an
+//	                 OAuth token, session/new and session/load are followed by
+//	                 _auth/status_update{kind:none}, as claude-agent-acp
+//	                 0.81's `claude auth status` probe reports one
+//	--persist       sessions get their own ids; every session's updates (and
 //	                 its prompts, as user_message_chunk) are appended to
 //	                 $HOME/.fakeacp/sessions/<id>.jsonl, and session/load
 //	                 replays exactly those instead of the canned turn

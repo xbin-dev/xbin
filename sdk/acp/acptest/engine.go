@@ -80,6 +80,7 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 				{"name": "review", "description": "Review the pending changes", "input": map[string]string{"hint": "what to focus on"}},
 				{"name": "compact", "description": "Summarize the conversation to free context"},
 				{"name": "init", "description": "Write a CLAUDE.md for this project"}}})
+			f.probeStatus()
 		}()
 		return acp.SessionNewResult{SessionID: sid, Modes: f.modes(), ConfigOptions: f.configOptions()}, nil
 	case acp.MSessionLoad:
@@ -98,6 +99,7 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 			f.update(map[string]any{"sessionUpdate": acp.UpUserChunk, "content": acp.ContentBlock{Type: "text", Text: "resumed " + p.SessionID}})
 			f.update(map[string]any{"sessionUpdate": acp.UpAgentChunk, "content": acp.ContentBlock{Type: "text", Text: "echo: resumed " + p.SessionID}, "messageId": "m0"})
 		}
+		go func() { f.sleep(50 * time.Millisecond); f.probeStatus() }()
 		return acp.SessionLoadResult{Modes: f.modes(), ConfigOptions: f.configOptions()}, nil
 	case acp.MSessionSetConfig:
 		var p acp.SetConfigParams

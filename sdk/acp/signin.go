@@ -49,6 +49,12 @@ type Signin struct {
 	Invalid string `json:"invalid,omitempty"`
 	Done    string `json:"done"`
 	Fail    string `json:"fail"`
+	// Token is a regular expression (RE2) a credential the CLI prints
+	// matches — a sign-in that mints one (Provider.Mint) ends when it
+	// appears. "" for one that keeps its login in $HOME. The credential is
+	// the person's: a client keeps it as their own secret and shows it to
+	// no one, them included.
+	Token string `json:"token,omitempty"`
 }
 
 // SigninState is what a sign-in has printed so far (Signin.Scan).
@@ -60,6 +66,9 @@ type SigninState struct {
 	Done    bool   // it said it signed in
 	Failed  string // the line that said it failed ("" while none did)
 	Last    string // the last line of text: what to show when it ends saying none of these
+	// Token is the newest credential the CLI printed (Signin.Token; "" while
+	// none). A secret: never log, store or show it as it is.
+	Token string
 }
 
 // claudeSignin is Claude Code's: `claude auth login` (2.1.126 and later:
@@ -74,6 +83,19 @@ var claudeSignin = &Signin{
 	Fallback: "claude /exit",
 	URL:      `https://\S+/oauth/authorize\?\S+`, Hosts: []string{"claude.com", "claude.ai", "anthropic.com"},
 	Code: "Paste code here if prompted", Invalid: "Invalid code", Done: "Login successful", Fail: "Login failed",
+}
+
+// claudeSetupToken is Claude Code's long-lived token (`claude setup-token`,
+// D179): the same sign-in page and code prompt as `auth login`, on a
+// terminal only (Ink), then a one-year `sk-ant-oat01-…` token printed once —
+// valid as CLAUDE_CODE_OAUTH_TOKEN wherever Claude Code runs, for model
+// requests only, never refreshed. At 1000 columns it is one line. The token
+// is the end: Done stays empty, and a refusal is its OAuth error.
+var claudeSetupToken = &Signin{
+	Command: "claude setup-token", Argv: []string{"claude", "setup-token"}, TTY: true,
+	URL: claudeSignin.URL, Hosts: claudeSignin.Hosts,
+	Code: claudeSignin.Code, Invalid: claudeSignin.Invalid, Fail: "OAuth error",
+	Token: `sk-ant-oat01-[A-Za-z0-9_-]{20,}`,
 }
 
 // Allowed reports whether u may be offered as the sign-in page: https, on
@@ -131,6 +153,15 @@ func (s Signin) Scan(out []byte) SigninState {
 		}
 		if t := strings.TrimSpace(l); t != "" {
 			st.Last = t
+		}
+	}
+	if s.Token != "" {
+		if re, err := regexp.Compile(s.Token); err == nil {
+			for i := len(lines) - 1; i >= 0 && st.Token == ""; i-- {
+				if all := re.FindAllString(lines[i], -1); len(all) > 0 {
+					st.Token = all[len(all)-1]
+				}
+			}
 		}
 	}
 	return st

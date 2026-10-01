@@ -233,6 +233,8 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 				"_meta":   map[string]any{"terminal_output": map[string]any{"terminal_id": "run1", "data": out.Output}, "terminal_exit": map[string]any{"terminal_id": "run1", "exit_code": code}}})
 		}
 		f.say(label + ": " + strings.Join(strings.Fields(out.Output), " "))
+	case strings.HasPrefix(text, "whoami"):
+		f.say("account: " + f.account())
 	case strings.Contains(text, "env"):
 		key := "no"
 		if f.getenv("FAKE_API_KEY") != "" {
