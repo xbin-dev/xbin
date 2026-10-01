@@ -9,7 +9,7 @@ import (
 
 func ptr(b bool) *bool { return &b }
 
-// A missing file is every default: base auto-update is on (D173).
+// A missing file is every default: base auto-update is on (D174).
 func TestDefaultIsOn(t *testing.T) {
 	s := New(filepath.Join(t.TempDir(), "data", "workspace-settings.json"))
 	st, err := s.Load()

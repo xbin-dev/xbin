@@ -1,7 +1,7 @@
 package server
 
 // The workspace settings an admin sets from the admin console's workspace
-// tab that have no store of their own (D173): GET/PUT
+// tab that have no store of their own (D174): GET/PUT
 // /api/xbin/workspace-settings, held by internal/wssettings in
 // data/workspace-settings.json. Today one: baseAutoUpdate — a tile's
 // terminal layer built on an older base image moves to the current base at
@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/wssettings"
 )
 
@@ -44,7 +45,8 @@ func (s *Server) apiWorkspaceSettingsGet(w http.ResponseWriter, r *http.Request)
 // apiWorkspaceSettingsPut: admin (the admin tile through its xbin:admin
 // grant). {baseAutoUpdate?: bool} — each present key replaces its setting,
 // an absent one is left alone, an unknown one is refused; the file's other
-// keys are kept. → the full view. Audited like every admin write.
+// keys are kept. → the full view, which a `workspace-settings` hub event
+// carries too. Audited like every admin write.
 func (s *Server) apiWorkspaceSettingsPut(w http.ResponseWriter, r *http.Request) {
 	if !(s.admin(r) || auth.PrincipalOf(r).IsAdmin()) {
 		apiErr(w, http.StatusForbidden, "admin only — needs the xbin:admin capability (docs/auth.md)")
@@ -64,5 +66,9 @@ func (s *Server) apiWorkspaceSettingsPut(w http.ResponseWriter, r *http.Request)
 		apiErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, settingsView(st, nil))
+	view := settingsView(st, nil)
+	if s.Hub != nil { // open terminal windows re-read what their chooser says (GET /ws/term/env)
+		s.Hub.Publish(events.Event{Type: "workspace-settings", Data: view})
+	}
+	WriteJSON(w, http.StatusOK, view)
 }

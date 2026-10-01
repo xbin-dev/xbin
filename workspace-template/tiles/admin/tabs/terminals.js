@@ -1,9 +1,10 @@
 /**
  * <bx-admin-terminals> — the admin console's "terminals" tab under
- * workspace: base auto-update (D173). On (the default), a tile's terminal
+ * workspace: base auto-update (D174). On (the default), a tile's terminal
  * layer built on an older base image moves to the current base at its next
- * session start — its apt installs and /etc changes are reset, files and
- * $HOME kept; a running terminal keeps its base until it ends. Off, the
+ * session start — everything outside the workspace files and $HOME is reset
+ * (installed packages, /etc, /var, /opt…, a VM terminal's disk); a running
+ * terminal keeps its base until it ends. Off, the
  * terminal window offers the base update instead. Saves go through
  * PUT /workspace-settings (admin); docs/overview/09-terminals.md.
  */
@@ -51,9 +52,9 @@ export class BxAdminTerminals extends WithRouter(LitElement) {
     const on = !!s.baseAutoUpdate;
     return html`<div class="card" data-base-auto-update=${on ? 'on' : 'off'}>
       <h4>Base image updates</h4>
-      <div class="hint">A tile's terminals keep the system changes made in them (apt installs, /etc) on top of
-        the base image they were built on. When xbin ships a newer base — a newer Go, say — a terminal moves to it
-        only by resetting those changes; files and $HOME are kept.</div>
+      <div class="hint">A tile's terminal keeps everything outside the workspace files and $HOME — installed packages,
+        /etc, /var, /opt…, a VM terminal's disk — in a layer on top of the base image it was built on. When xbin ships a
+        newer base (a newer Go, say), a terminal moves to it only by resetting that layer, for good.</div>
       <label class="sw">
         <input type="checkbox" .checked=${on} ?disabled=${this._busy} @change=${(e) => this._set(e.target.checked)}>
         <span><b>Move terminals to a new base image automatically</b>, at their next start. A running terminal keeps
@@ -61,7 +62,7 @@ export class BxAdminTerminals extends WithRouter(LitElement) {
       </label>
       <div class="state">
         <span class="dot" style="background:${on ? 'var(--bx-green, #4caf50)' : 'var(--bx-amber, #f2a71b)'}"></span>
-        ${on ? 'on — a terminal on an older base starts on the new one and says so'
+        ${on ? 'on — a terminal (or agent session) on an older base starts on the new one and says so'
           : 'off — terminals stay on their base; the window offers ⬆ base update'}
       </div>
       ${s.error ? html`<div class="bad">${s.error} — base auto-update is off until the file is fixed</div>` : ''}

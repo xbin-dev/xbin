@@ -33,7 +33,7 @@ func (s *Server) registerCoreAPI() {
 	s.registerTermAPI()                                           // the session directory (termsessions.go, D73)
 	s.registerNativeAPI()                                         // the workspace's native-runtime switch (native.go)
 	s.registerChromeAPI()                                         // admin-approved chrome (chrome.go, D118)
-	s.registerWorkspaceSettingsAPI()                              // base auto-update, … (wssettings.go, D173)
+	s.registerWorkspaceSettingsAPI()                              // base auto-update, … (wssettings.go, D174)
 }
 
 // apiGPUs lists the host GPUs available for gpu:* grants / the terminal picker.

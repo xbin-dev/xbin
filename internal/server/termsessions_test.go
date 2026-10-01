@@ -208,7 +208,7 @@ func TestTermEnvStatus(t *testing.T) {
 	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseAutoUpdate":false,"baseOutdated":false,"exists":true}` {
 		t.Fatalf("a current layer: %d %s", c, b)
 	}
-	// the workspace's base auto-update, as the terminals apply it (D173)
+	// the workspace's base auto-update, as the terminals apply it (D174)
 	s.Term.BaseAutoUpdate = func() bool { return true }
 	if c, b := get(alice, "apps/x"); c != 200 || b != `{"baseAutoUpdate":true,"baseOutdated":false,"exists":true}` {
 		t.Fatalf("auto-update on: %d %s", c, b)

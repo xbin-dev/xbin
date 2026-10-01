@@ -107,6 +107,7 @@ export class BxAgent extends LitElement {
     .plan li { list-style: none; margin: 1px 0; }
     .plan .done { color: var(--bx-green, #4caf50); text-decoration: line-through; opacity: .7; }
     .gap { color: var(--bx-muted, #868f9a); font: 11px var(--bx-mono, ui-monospace, monospace); text-align: center; margin: 4px 0; }
+    .notice { color: var(--bx-muted, #868f9a); font: 11px var(--bx-mono, ui-monospace, monospace); margin: 4px 0; white-space: pre-wrap; }
     .turn { border-top: 1px dashed var(--bx-border, #363c45); margin: 10px 0; padding-top: 4px;
       font: 10px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); text-align: center; }
     .foot { flex: none; border-top: 1px solid var(--bx-border, #363c45); padding: 6px 8px; position: relative; }
@@ -820,6 +821,8 @@ export class BxAgent extends LitElement {
         return html`<div class="turn">turn ${b.turn ?? ''} · ${b.stopReason || 'done'}${b.error ? html` — <span class="err">${b.error}</span>` : nothing}</div>`;
       case 'gap':
         return html`<div class="gap">… earlier events dropped (log limit)</div>`;
+      case 'notice': // xbin's own line (a `notice` event), not the agent's
+        return html`<div class="notice">${b.text}</div>`;
       default:
         return nothing;
     }

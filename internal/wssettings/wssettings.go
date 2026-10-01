@@ -1,5 +1,5 @@
 // Package wssettings is the workspace settings an admin sets from the admin
-// console's workspace tab that have no store of their own (D173):
+// console's workspace tab that have no store of their own (D174):
 // data/workspace-settings.json, a small xbind-owned JSON object. Each
 // setting has a default for when its key is absent, so a missing file is
 // every default. A write replaces only the keys it sets and keeps every
@@ -25,7 +25,7 @@ import (
 // The file's keys.
 const (
 	// KeyBaseAutoUpdate: a tile's terminal layer built on an older base
-	// image moves to the current base at its next session start (D173).
+	// image moves to the current base at its next session start (D174).
 	KeyBaseAutoUpdate = "baseAutoUpdate"
 )
 

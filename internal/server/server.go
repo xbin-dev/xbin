@@ -42,7 +42,7 @@ type Server struct {
 	// set from the admin tile, shown by the shell and the sign-in pages. nil
 	// (tests) = xbin's own.
 	Brand *branding.Store
-	// Settings is the workspace settings file (D173, wssettings.go); nil = none.
+	// Settings is the workspace settings file (D174, wssettings.go); nil = none.
 	Settings *wssettings.Store
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
@@ -325,7 +325,7 @@ func (s *Server) handleTermReset(w http.ResponseWriter, r *http.Request) {
 
 // handleTermEnv reports a component's persistent terminal layer (?cwd=):
 // {exists, baseOutdated, baseAutoUpdate} — so the terminal window can offer
-// the base update, or say the next session moves to it (D173), before any
+// the base update, or say the next session moves to it (D174), before any
 // terminal is open (GET /ws/term/env) — and whether a VM terminal
 // can open ({vm: {available, reason}}, plans/vm-sandbox.md).
 func (s *Server) handleTermEnv(w http.ResponseWriter, r *http.Request) {

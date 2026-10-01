@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/wssettings"
 )
 
 // GET /workspace-settings is for every signed-in principal, PUT for
-// admins (D173): base auto-update defaults to on, a PUT persists and keeps
+// admins (D174): base auto-update defaults to on, a PUT persists and keeps
 // the file's other keys, a bad body is 400, and /ws/term/env says what the
 // terminals apply.
 func TestWorkspaceSettingsRoutes(t *testing.T) {
@@ -45,8 +46,18 @@ func TestWorkspaceSettingsRoutes(t *testing.T) {
 			t.Fatalf("PUT %s: %d %s", bad, c, b)
 		}
 	}
+	ch, cancel := s.Hub.Subscribe(func(e events.Event) bool { return e.Type == "workspace-settings" })
+	defer cancel()
 	if c, b := do(alice, "PUT", api, `{"baseAutoUpdate":false}`); c != 200 || b != `{"baseAutoUpdate":false}` {
 		t.Fatalf("PUT off: %d %s", c, b)
+	}
+	select { // published before the answer: open terminal windows re-read /ws/term/env
+	case e := <-ch:
+		if v, _ := e.Data.(map[string]any); v["baseAutoUpdate"] != false {
+			t.Fatalf("the event: %+v", e)
+		}
+	default:
+		t.Fatal("no workspace-settings event on the hub")
 	}
 	if raw, _ := os.ReadFile(file); !strings.Contains(string(raw), `"newerKey"`) || !strings.Contains(string(raw), `"baseAutoUpdate": false`) {
 		t.Fatalf("the file after the PUT: %s", raw)

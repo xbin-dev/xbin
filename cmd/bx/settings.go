@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// bx settings — the workspace settings an admin sets (docs/bx.md, D173):
+// bx settings — the workspace settings an admin sets (docs/bx.md, D174):
 // GET/PUT /api/xbin/workspace-settings. Today one: base auto-update, a
 // tile's terminal layer built on an older base image moving to the current
 // base at its next session start.
@@ -23,7 +23,7 @@ type wsSettings struct {
 }
 
 func (s wsSettings) print() {
-	state := "on — a terminal on an older base image moves to the current one at its next start (its apt installs reset)"
+	state := "on — a terminal on an older base image moves to the current one at its next start (everything outside the workspace files and $HOME reset)"
 	if !s.BaseAutoUpdate {
 		state = "off — terminals stay on their base image; the terminal window offers the update"
 	}
