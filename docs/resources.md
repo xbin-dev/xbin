@@ -440,9 +440,12 @@ What each partition sees:
   `data/resources-enc/.partitions/<scope>/<deployment>/<partition id>/`
   (its `kv.db`, `fs/<resource>/` per volume and `ns.json`, which names
   the person), beside the tile's own data, which keeps today's keys and is
-  the global instance's. Its volumes mount on first use and unmount once
+  the global instance's. Its volumes mount on first use and unmount, their
+  gocryptfs processes ending with them, once
   nobody has used them for an hour while none of that person's instances
-  runs (and, like every volume, when the vault is sealed).
+  runs (and, like every volume, when the vault is sealed) — or within a
+  minute when the start that mounted them was turned away at the running
+  caps ([partitions.md](/docs/partitions.md) §How people's partitions run).
 - **Other tiles' access** is today's grants: an unpartitioned tile, or the
   global instance of a partitioned one, reaches the tile's own (global's)
   data; a person's partition of another partitioned tile reaches that same

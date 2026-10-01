@@ -341,6 +341,77 @@ func TestPartitionIdleKVClose(t *testing.T) {
 	}
 }
 
+// covers PD-48 I2 — a start the runner's admission turned away
+// (PartitionTurnedAway) leaves nothing mounted for the idle hour: the
+// encryption check mounted the person's own volumes before admission, and
+// IdlePartitionVolumes makes just those due at the disk monitor's next pass
+// — not another person's, not the tile's shared ones, not one a request
+// holds, and none while an instance of the person runs.
+func TestIdlePartitionVolumes(t *testing.T) {
+	w := partFx(t)
+	b := w.b
+	nsFakeVolumes(t, b)
+	for _, p := range []string{"user:alice", "user:carol"} {
+		if why := b.PartitionEncryptionHoldReason("apps/docs", util.MainDeployment, p); why != "" {
+			t.Fatalf("%s may not start: %q", p, why)
+		}
+	}
+	mounted := func() []string {
+		var out []string
+		for _, mt := range b.resenc.Mounts() {
+			out = append(out, mt.ScopeKey+"/"+mt.Name)
+		}
+		slices.Sort(out)
+		return out
+	}
+	alicePK := util.PartitionKey("alice", "uid-alice")
+	alice := func(name string) resKeys {
+		t.Helper()
+		k, err := b.resKeysIn(resTarget{Scope: "apps/docs", Name: name}, util.MainDeployment, alicePK)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	before := mounted()
+	for _, n := range []string{"files", "notes", "box"} {
+		if k := alice(n); !slices.Contains(before, k.DirKey+"/"+k.Name) {
+			t.Fatalf("alice's %s isn't mounted after the encryption check: %q", n, before)
+		}
+	}
+	prev := partitionRunningSeam
+	t.Cleanup(func() { partitionRunningSeam = prev })
+	running := true
+	partitionRunningSeam = func(_ *Broker, _, _, pkey string) bool { return running && pkey == alicePK }
+
+	b.IdlePartitionVolumes("apps/docs", "", "user:alice")
+	b.reapIdlePartitions(time.Now())
+	if got := mounted(); !slices.Equal(got, before) {
+		t.Fatalf("unmounted while her instance runs: %q, was %q", got, before)
+	}
+	running = false
+	b.reapIdlePartitions(time.Now())
+	if got := mounted(); !slices.Equal(got, before) {
+		t.Fatalf("unmounted without being turned away, before the idle hour: %q", got)
+	}
+	files := alice("files")
+	release := b.resenc.Hold(files.DirKey, files.Name) // a request of hers
+	b.IdlePartitionVolumes("apps/docs", "", "user:alice")
+	b.reapIdlePartitions(time.Now())
+	release()
+	var want []string
+	for _, m := range before {
+		if k1, k2 := alice("notes"), alice("box"); m != k1.DirKey+"/"+k1.Name && m != k2.DirKey+"/"+k2.Name {
+			want = append(want, m)
+		}
+	}
+	if got := mounted(); !slices.Equal(got, want) || len(want) != len(before)-2 {
+		t.Errorf("after a start of alice's was turned away: %q mounted, want %q (all but her unheld volumes)", got, want)
+	}
+	b.IdlePartitionVolumes("apps/nope", "", "user:alice") // no such tile, and no person: nothing
+	b.IdlePartitionVolumes("apps/docs", "", "global")
+}
+
 // covers PD-26 PD-43 — the uid decides whose a namespace is when both the
 // store and the record carry one, whatever the clocks say (a step back of
 // the host clock never orphans a live person's data); only without one does

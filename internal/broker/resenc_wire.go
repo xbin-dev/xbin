@@ -120,8 +120,7 @@ func (b *Broker) ensureVolume(k resKeys, scope, rtype string) bool {
 	if !b.encryptionReady() {
 		return false
 	}
-	if volumeMounted(b.resenc, k) {
-		b.resenc.Touch(k.DirKey, k.Name) // a use: a partition's idle clock restarts
+	if volumeMounted(b.resenc, k) && b.resenc.Touch(k.DirKey, k.Name) { // a use: a partition's idle clock restarts
 		return true
 	}
 	if _, err := b.resenc.Ensure(k.FSLabel, k.DirKey, k.Name, b.resSingleTenant(scope, rtype)); err != nil {
