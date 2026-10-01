@@ -692,6 +692,17 @@ func TestPartitionsSmoke(t *testing.T) {
 		if r.Status != 503 || !strings.Contains(string(r.Body), "too many people's instances of "+psTile) {
 			t.Errorf("dave past the cap: %d %s", r.Status, r)
 		}
+		// I2: the gate mounted dave's volumes for that start (his first: it
+		// initialized them), and a start turned away lets them go at the
+		// disk monitor's next pass (45 s) instead of after the idle hour
+		dk := util.PartitionKey("dave", e.uid(t, "dave"))
+		if _, err := os.Stat(filepath.Join(e.partDir(psTile, dk), "fs", "files", "gocryptfs.conf")); err != nil {
+			t.Errorf("dave's refused start never reached his volumes (the case this checks): %v", err)
+		}
+		xbindtest.Eventually(t, 2*time.Minute, "dave's volumes unmounted after his refused start", func() (bool, string) {
+			n := psVolumeProcs(dk)
+			return n == 0, fmt.Sprintf("%d gocryptfs processes of his partition", n)
+		})
 		if w := e.who(t, "/api/"+psTile+"/who", e.fr(t, psTile, "alice")); w.Boot != boots["alice"] {
 			t.Errorf("alice's instance changed (boot %s → %s) under the cap", boots["alice"], w.Boot)
 		}

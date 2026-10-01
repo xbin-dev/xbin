@@ -577,6 +577,26 @@ func (e *psEnv) partDir(scope, pkey string) string {
 
 var psPkey = regexp.MustCompile(`^u-[0-9a-f]{32}$`)
 
+// psVolumeProcs counts the gocryptfs processes serving a volume of the
+// partition pkey: one per mounted view, gone once it is unmounted. A
+// process list, not a mount table, so it doesn't matter which mount
+// namespace xbind mounted in.
+func psVolumeProcs(pkey string) int {
+	ents, _ := os.ReadDir("/proc")
+	n := 0
+	for _, ent := range ents {
+		b, err := os.ReadFile(filepath.Join("/proc", ent.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		args := strings.Split(string(b), "\x00")
+		if filepath.Base(args[0]) == "gocryptfs" && strings.Contains(string(b), "/"+pkey+"/fs/") {
+			n++
+		}
+	}
+	return n
+}
+
 // psRaw sends one request with exactly hdrs — no owner token added, no
 // redirect followed — and returns the status, body and headers.
 func psRaw(t *testing.T, method, url string, hdrs ...xbindtest.Header) (int, string, http.Header) {
