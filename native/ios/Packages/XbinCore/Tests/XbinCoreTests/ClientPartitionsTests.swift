@@ -115,6 +115,25 @@ import Testing
         #expect(XbindPage(linkName: "consents") == nil)
     }
 
+    /// The bar over the page follows the page's own colour, not the
+    /// phone's appearance: xbind's dark theme (#1b1e24, the page's body)
+    /// wants a dark bar in a light-mode app; a light theme a light one.
+    @Test func barFollowsThePage() {
+        func dark(_ hex: UInt32) -> Bool {
+            PageBarScheme.isDark(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
+                                 blue: Double(hex & 0xFF) / 255)
+        }
+        #expect(dark(0x1B1E24))   // xbind's --bx-bg (the partitions page, "Continue as")
+        #expect(dark(0x000000) && dark(0x23272E) && dark(0x2A2F37))
+        #expect(!dark(0xFFFFFF) && !dark(0xF2F2F7) && !dark(0xF5A623))
+        // Mid greys either side of where white and black text contrast
+        // alike (relative luminance ≈ 0.179).
+        #expect(dark(0x757575) && !dark(0x777777))
+        #expect(PageBarScheme.luminance(red: 1, green: 1, blue: 1) == 1 && PageBarScheme.luminance(red: 0, green: 0, blue: 0) == 0)
+        // Out-of-range components (extended sRGB) are clamped.
+        #expect(PageBarScheme.isDark(red: -0.2, green: -0.1, blue: 0) && !PageBarScheme.isDark(red: 1.2, green: 1.1, blue: 1.05))
+    }
+
     /// The feature gate: the page is there only when `GET
     /// /api/xbin/partitions` lists `partitions-page/1`.
     @Test func featureGate() {

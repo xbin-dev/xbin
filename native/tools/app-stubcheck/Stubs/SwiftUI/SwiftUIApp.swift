@@ -227,3 +227,10 @@ extension ProgressViewStyle where Self == _ProgressViewStyle {
 extension View {
     public func progressViewStyle<S: ProgressViewStyle>(_ style: S) -> some View { _V(self) }
 }
+// …and its bar following the page's colour and scheme (ToolbarPlacement:
+// term-stubcheck's SwiftUITerm.swift).
+extension View {
+    public func toolbarBackground<S: ShapeStyle>(_ style: S, for bars: ToolbarPlacement...) -> some View { _V(self) }
+    public func toolbarBackgroundVisibility(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View { _V(self) }
+    public func toolbarColorScheme(_ colorScheme: ColorScheme?, for bars: ToolbarPlacement...) -> some View { _V(self) }
+}

@@ -70,7 +70,24 @@ struct XbindPageScreen: View {
         .background {
             if let bg = controller?.pageBackground { Color(uiColor: bg).ignoresSafeArea() }
         }
+        // The page keeps its own theme whatever the phone's appearance
+        // (xbind's dark one in a light-mode app): its colour runs up under
+        // the bar, as under a tile page, and the bar follows it — that
+        // colour as its background and the scheme a title reads on, so the
+        // status bar and the bar's items follow too (PageBarScheme).
+        .toolbarBackground(Color(uiColor: shownPageColor ?? .systemBackground), for: .navigationBar)
+        .toolbarBackgroundVisibility(barScheme == nil ? .automatic : .visible, for: .navigationBar)
+        .toolbarColorScheme(barScheme, for: .navigationBar)
         .toolbar {
+            // The title in the page's scheme's own colour: legible over the
+            // page even where the bar's scheme isn't applied.
+            ToolbarItem(placement: .principal) {
+                Text(verbatim: page.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .foregroundStyle(barScheme == .dark ? Color.white : barScheme == .light ? Color.black : Color.primary)
+                    .accessibilityAddTraits(.isHeader)
+            }
             ToolbarItemGroup(placement: .primaryAction) {
                 if controller?.canGoBack == true {
                     Button { controller?.goBack() } label: { Image(systemName: "arrow.uturn.backward") }
@@ -99,6 +116,22 @@ struct XbindPageScreen: View {
                 d?.answer(ok, text)
             }
         }
+    }
+
+    /// The page's colour while the page shows — not while the gate, the
+    /// progress or an error (on the system background) does.
+    private var shownPageColor: UIColor? {
+        guard gate == .served, let c = controller, c.loadError == nil else { return nil }
+        return c.pageBackground
+    }
+
+    /// The bar's scheme over the page: dark on a dark page, light on a
+    /// light one; nil (the system's) while no page colour is known.
+    private var barScheme: ColorScheme? {
+        guard let bg = shownPageColor else { return nil }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard bg.getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5 else { return nil }
+        return PageBarScheme.isDark(red: Double(r), green: Double(g), blue: Double(b)) ? .dark : .light
     }
 
     /// The feature gate, then the page.

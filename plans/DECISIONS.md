@@ -10422,7 +10422,17 @@ Deviations and refinements made while implementing; all deliberate:
     and a link all land the same way, back returns to where the window
     was, a window restores onto it (asking the gate again), Handoff gives a
     browser `/xbin/partitions`, and the banner of a notification linking
-    the page is suppressed while it is shown (it updates itself).
+    the page is suppressed while it is shown (it updates itself). *Amended
+    (the Mac mini's first run):* the page keeps its own theme whatever the
+    phone's appearance — xbind's dark one in a light-mode app drew the
+    bar's black title on the dark page. As under a tile page its colour
+    runs up under the bar, and the bar now follows it: that colour as a
+    visible bar background, the scheme a title reads on
+    (`toolbarColorScheme`; `PageBarScheme`: WCAG contrast, white text below
+    relative luminance ≈ 0.179) and the title drawn in that scheme's colour
+    as the bar's principal item, legible even where the scheme isn't
+    applied. Tile pages and chrome tiles show no title (only glass items,
+    which adapt), so they are left as they were.
   - **Push kinds.** The app registers `account` too (`PushAPI.appKinds`;
     a registration without it is renewed by the kinds check; an older
     xbind accepts any well-formed kind — checked against v0.3.61). The

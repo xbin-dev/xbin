@@ -159,4 +159,6 @@ extension UIApplication {
 }
 extension UIColor {
     public static let secondarySystemBackground = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+    public func getRed(_ red: UnsafeMutablePointer<CGFloat>?, green: UnsafeMutablePointer<CGFloat>?,
+                       blue: UnsafeMutablePointer<CGFloat>?, alpha: UnsafeMutablePointer<CGFloat>?) -> Bool { false }
 }

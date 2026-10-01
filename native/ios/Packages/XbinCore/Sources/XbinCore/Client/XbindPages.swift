@@ -104,6 +104,30 @@ public enum XbindPageTicket {
     }
 }
 
+/// The bar over one of xbind's pages (D181): the page's own colour runs up
+/// under it, as under a tile page's (TileScreens' WebTileScreen), and the
+/// page keeps its own theme whatever the phone's appearance — xbind's dark
+/// workspace theme in a light-mode app, say — so the bar takes the page's
+/// colour and the scheme its title reads on: light text on a dark page,
+/// dark text on a light one, by WCAG contrast.
+public enum PageBarScheme {
+    /// Whether a page whose background is (`red`, `green`, `blue`) — sRGB,
+    /// 0…1 — wants a dark bar: white text contrasts more with it than black.
+    public static func isDark(red: Double, green: Double, blue: Double) -> Bool {
+        let l = luminance(red: red, green: green, blue: blue)
+        return 1.05 / (l + 0.05) >= (l + 0.05) / 0.05
+    }
+
+    /// WCAG relative luminance.
+    public static func luminance(red: Double, green: Double, blue: Double) -> Double {
+        func lin(_ c: Double) -> Double {
+            let v = min(max(c, 0), 1)
+            return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * lin(red) + 0.7152 * lin(green) + 0.0722 * lin(blue)
+    }
+}
+
 /// The settings menu's entry to the partitions page (owner ruling I13,
 /// plans/partitions/90-decisions.md; the web shell's `pageEntry`): shown
 /// while the workspace serves the page, to a signed-in person — not the
