@@ -222,10 +222,15 @@ func launchNamespaceAgent(t *testing.T, bin, rootfs string, mod ...func(*sandbox
 	h.Started() // the sandbox alone holds the factory's end and the lock now
 	sb.cmd, sb.spec = cmd, spec
 	t.Cleanup(func() {
+		ended := !alive(cmd.Process.Pid) // before this kill: a zombie, or reaped by a subtest
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		if t.Failed() {
-			t.Logf("the agent's log:\n%s", sb.log)
+			how := "ran until this cleanup killed it"
+			if ended {
+				how = "had ended: " + cmd.ProcessState.String()
+			}
+			t.Logf("the agent %s; its log:\n%s", how, sb.log)
 		}
 	})
 	if err := h.SetupUserns(); err != nil {
