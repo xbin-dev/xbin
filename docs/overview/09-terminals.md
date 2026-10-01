@@ -444,7 +444,7 @@ A terminal whose layer's base is older than the current rootfs reports
 `baseOutdated` on attach, so the UI can offer a reset-to-upgrade.
 
 **Base auto-update (D175).** A workspace setting, **on by default**
-(admin console → workspace → terminals; `bx settings`; `GET`/`PUT
+(admin console → workspace → settings, Terminals; `bx settings`; `GET`/`PUT
 /api/xbin/workspace-settings`, kept in `data/workspace-settings.json`).
 While it is on, a session's start that takes a tile's layer — no other
 session holding it — and finds it built on another base than the current

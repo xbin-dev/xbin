@@ -557,8 +557,10 @@ words and confirmations imported from `/vendor/deploy-state.js` and
 expose/endpoints, `orgs` for the org list, one org's page (`#orgs/<id>`
 — the router passes the hash's `sub` down), policy ceilings and the
 workspace defaults, `users`, `signin`, `sessions`, and the workspace
-group's `branding`, `nativeapp` and `policies` — the workspace policies for
-partitioned tiles, PD-55); the
+group's `branding`, `nativeapp` and `settings` — every workspace setting
+by topic, terminals and partitioned tiles, D180, its words and old-xbind
+detection in `settings-view.js`; `terminals` and `policies` are its two
+sections alone, kept for an older `admin.js`); the
 router renders it with its inputs as properties and imports it
 **relatively** (`./tabs/map.js`) — a sandboxed tile may import its own
 siblings, and `bx builtin update` delivers new files inside the unit, so an
@@ -603,11 +605,16 @@ pass (`hack/ui-harness/passes/admindeploy.js`) drives the deployments tab
 inside the shell on the deployments pass's fixture: protect, deliveries,
 unprotect and the reassign confirmation, each through the admin tile's
 frame, and the link to the tile's Deployments panel. `adminTabs` also
-counts the policies tab's two switches; the `adminPolicies` pass
-(`hack/ui-harness/passes/policies.js`) drives it: the confirmation before
-"ask each person" turns on (cancel, then Turn on), the credential-reset
-switch saving at once, a second console following the `policies` event,
-and a user's read-only access. The `personalBinds` pass
+counts the settings tab's three switches; the `adminSettings` pass
+(`hack/ui-harness/passes/settings.js`; `adminPolicies` is its old name)
+drives it: the old `#terminals`/`#policies` bookmarks, base auto-update
+off and on, the confirmation before "ask each person" turns on (cancel,
+then Turn on), the credential-reset switch saving at once, a second
+console following the `workspace-settings` event (a write through the
+`/workspace-policies` alias too), a user's read-only access, the tab
+against an older xbind (v0.3.66's and v0.3.65's answers stubbed), and the
+console from before the tab (from git) against this xbind;
+`hack/admin-settings.test.mjs` unit-tests `settings-view.js`. The `personalBinds` pass
 (`hack/ui-harness/passes/personalbinds.js`) checks bind types on a
 partitioned tile: an admin refused a personal bind of someone else's tile,
 the person's own bind, their document's `xbin-interfaces` meta (the global

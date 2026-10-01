@@ -34,7 +34,7 @@ const { tabStrip } = require('./passes/tabstrip'), { sandboxes } = require('./pa
 const { sandboxTerminal } = require('./passes/sandboxterminal'), { codingSandbox } = require('./passes/codingsandbox'), { livereload } = require('./passes/livereload'), { deployments } = require('./passes/deployments'), { adminDeployments } = require('./passes/admindeploy');
 const { layoutSync } = require('./passes/layoutsync'), { deployBranches } = require('./passes/deploybranches');
 const { scrollbars } = require('./passes/scrollbars'), { agentLong } = require('./passes/agentlong'), { agentLongPerf } = require('./passes/agentlongperf'), { agentTemplateLong } = require('./passes/agenttemplatelong');
-const { agentTask } = require('./passes/agenttask'), { adminPolicies } = require('./passes/policies'), { templateCard } = require('./passes/templatecard'), { partitionSwitch } = require('./passes/partitionswitch');
+const { agentTask } = require('./passes/agenttask'), { adminSettings } = require('./passes/settings'), { templateCard } = require('./passes/templatecard'), { partitionSwitch } = require('./passes/partitionswitch');
 const { personalBinds } = require('./passes/personalbinds'), { personPage } = require('./passes/personpage');
 const { adminMap } = require('./passes/adminmap'); // moved out of this file (its size budget)
 
@@ -806,7 +806,7 @@ async function adminTabs(browser) {
       return { err: body.querySelector(':scope > .err')?.textContent?.trim() ?? '', len: ${deepText}(body).trim().length, denied: !!a.renderRoot.querySelector('.denied') };
     })()`);
     check(!st.denied && !st.err && st.len > 10, `${id}: renders (${st.len} chars${st.err ? ', error: ' + st.err : ''})`);
-    if (id === 'policies') check(await page.locator('bx-admin-policies input[data-policy]').count() === 2, 'policies: both switches (PD-55)');
+    if (id === 'settings') check(await page.locator('bx-admin-settings input[data-setting]').count() === 3, 'settings: base auto-update and both partitioned tiles\' switches (D180)');
     await shot(page, `admin-tab-${id}`);
   }
   await ctx.close();
@@ -816,8 +816,9 @@ async function adminTabs(browser) {
 const PASSES = {
   admin, adminTabs, adminMap, menus, mobile, screens,
   orgAdmin: async (b) => { await orgAdmin(b, 'dev1', 'devpass123', ['apps/crawler', 'apps/dev1-notes']); await orgAdmin(b, 'sales1', 'salespass123', ['apps/leads']); },
-  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, agentSignin, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminPolicies, templateCard, partitionSwitch, personalBinds, personPage,
+  netPickers, windows, reloadFocus, permSets, openLinks, contextCopy, users, viewAs, termSets, gridScale, predict, termSessions, agentTab, agentSignin, branding, ingressMulti, menuOpen, agentTemplate, personalPlane, newTile, agentConvs, channels, vmToggle, devices, appHelp, tileAssets, tilePages, termRun, tabStrip, sandboxes, agentSandbox, livePreview, sandboxNet, sandboxTerminal, codingSandbox, layoutSync, scrollbars, agentLong, agentLongPerf, agentTemplateLong, livereload, deployments, deployBranches, adminDeployments, agentTask, adminSettings, templateCard, partitionSwitch, personalBinds, personPage,
 };
+PASSES.adminPolicies = adminSettings; // its name before D180 (the policies tab is the settings tab's section)
 PASSES.partitionMark = require('./passes/partitionmark').partitionMark; // on its own line: parallel packs' PASSES edits merge
 PASSES.adminPartitions = require('./passes/adminpartitions').adminPartitions; // F12, on its own line
 PASSES.partitionLogs = require('./passes/partitionlogs').partitionLogs; // F12, on its own line
