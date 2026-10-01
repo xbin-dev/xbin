@@ -7,11 +7,13 @@ package runner
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +71,10 @@ func proxyModule(t *testing.T, dir, path, version, gomod string, files map[strin
 // own, lower ones, and drops extra. The check finds the one line that
 // keeps what b had — top's, b's own direct requirement, which lifts base
 // and brings extra back — and names it in the admin alert; a is
-// unaffected. The lists run confined and write nothing of the workspace.
+// unaffected. Tile c, a copy of a at `go 1.24.0` (as `go mod init` writes
+// it), is a shape the shared go.work can't hold as it was — two modules
+// `a`, one newer than its go line — and breaks no tile's check (G1 review
+// finding 1). The lists run confined and write nothing of the workspace.
 // When b's go.mod catches up, b's next build re-checks it and the line
 // goes. Isolation off, the check finds the same.
 func TestConfinedGoVersionsAlert(t *testing.T) {
@@ -98,6 +103,9 @@ func TestConfinedGoVersionsAlert(t *testing.T) {
 	w("apps/b/xbin.json", `{"runtime":"go"}`)
 	w("apps/b/go.mod", "module b\n\ngo 1.22\n\nrequire example.com/top v1.0.0\n\nrequire example.com/base v1.0.0 // indirect\n")
 	w("apps/b/backend/main.go", main)
+	w("apps/c/xbin.json", `{"runtime":"go"}`)
+	w("apps/c/go.mod", "module a\n\ngo 1.24.0\n\nrequire example.com/top v1.1.0\n\nrequire (\n\texample.com/base v1.1.0 // indirect\n\texample.com/extra v1.0.0 // indirect\n)\n")
+	w("apps/c/backend/main.go", main)
 	// an earlier xbind built b
 	w(".xbin/build/"+util.CompKey("apps/b")+"/bin", "an old binary")
 
@@ -128,10 +136,13 @@ func TestConfinedGoVersionsAlert(t *testing.T) {
 		t.Fatalf("an upgraded workspace: due=%v %v", g.due, err)
 	}
 	_ = os.Remove(filepath.Join(root, ".xbin", "build", util.CompKey("apps/b"), "bin")) // not an object file go build would replace
-	g.runAll(true)
+	runPass(g, true)
 	rep := g.Report()
-	if len(rep.Errors) > 0 {
-		t.Fatalf("errors: %+v", rep.Errors)
+	if len(rep.Errors) > 0 || rep.WorkspaceError != "" {
+		t.Fatalf("errors: %+v %s", rep.Errors, rep.WorkspaceError)
+	}
+	if st := readGoVersionsState(t, g); len(st.Baseline) != 3 || st.Baseline["apps/a"] == nil || st.Baseline["apps/c"] == nil {
+		t.Errorf("baselines: %+v", st.Baseline)
 	}
 	if !rep.Done || len(rep.Tiles) != 1 || rep.Tiles[0].Tile != "apps/b" {
 		t.Fatalf("report %+v", rep)
@@ -205,9 +216,135 @@ func TestConfinedGoVersionsAlert(t *testing.T) {
 	t.Setenv("GOFLAGS", "-modcacherw")
 	r2 := &Runner{Root: root, Reg: reg}
 	g2 := &GoVersions{Run: r2, Path: filepath.Join(t.TempDir(), "state.json"), Version: "v0.3.65"}
-	g2.runAll(false)
+	if err := g2.Boot(); err != nil || !g2.due { // b's binary: built
+		t.Fatalf("isolation off, an upgraded workspace: due=%v %v", g2.due, err)
+	}
+	runPass(g2, true)
 	rep2 := g2.Report()
 	if len(rep2.Errors) > 0 || len(rep2.Tiles) != 1 || !reflect.DeepEqual(rep2.Tiles[0].Require, []string{"example.com/top v1.1.0"}) {
 		t.Errorf("isolation off: %+v", rep2)
+	}
+}
+
+// covers G1 review finding 8 — the accidental half of the shared versions,
+// with the go command's own module graph pruning: tile t imports
+// example.com/lib and example.com/net (requiring net v1.0.0); lib's go.mod
+// requires example.com/tool, whose go.mod requires net v1.1.0 (and its
+// crypto v1.1.0) — an edge t's pruned graph never loads, as t builds no
+// package of tool. Tile u's `example.com/tool v1.0.0 // indirect` line makes
+// tool a root of the shared graph, which un-prunes that edge: under the
+// shared go.work t linked net v1.1.0 and crypto v1.1.0. The check finds the
+// one line — net's, t's own direct requirement — and that line, through the
+// pin module or added to t's go.mod, reproduces exactly what t linked under
+// the shared go.work. Without u's line nothing changes: it was the line.
+func TestConfinedGoVersionsUnprunedIndirect(t *testing.T) {
+	fs := ckRootfs(t)
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go")
+	}
+	root := t.TempDir()
+	w := func(rel, s string) { ckWrite(t, filepath.Join(root, filepath.FromSlash(rel)), s) }
+	proxy := filepath.Join(root, "proxy")
+	for _, v := range []string{"v1.0.0", "v1.1.0"} {
+		proxyModule(t, proxy, "example.com/crypto", v, "module example.com/crypto\n\ngo 1.22\n",
+			map[string]string{"crypto.go": "package crypto\n\nconst V = \"crypto " + v + "\"\n"})
+		proxyModule(t, proxy, "example.com/net", v, "module example.com/net\n\ngo 1.22\n\nrequire example.com/crypto "+v+"\n",
+			map[string]string{"net.go": "package net\n\nimport \"example.com/crypto\"\n\nconst V = \"net " + v + " \" + crypto.V\n"})
+	}
+	proxyModule(t, proxy, "example.com/tool", "v1.0.0", "module example.com/tool\n\ngo 1.22\n\nrequire example.com/net v1.1.0\n\nrequire example.com/crypto v1.1.0 // indirect\n",
+		map[string]string{"tool.go": "package tool\n\nconst V = \"tool\"\n", "nt/nt.go": "package nt\n\nimport \"example.com/net\"\n\nconst V = net.V\n"})
+	proxyModule(t, proxy, "example.com/lib", "v1.0.0", "module example.com/lib\n\ngo 1.22\n\nrequire example.com/tool v1.0.0\n",
+		map[string]string{"lib.go": "package lib\n\nconst V = \"lib\"\n", "gen/gen.go": "package gen\n\nimport \"example.com/tool\"\n\nconst V = \"gen \" + tool.V\n"})
+	tGoMod := "module t\n\ngo 1.22\n\nrequire (\n\texample.com/lib v1.0.0\n\texample.com/net v1.0.0\n)\n\nrequire example.com/crypto v1.0.0 // indirect\n"
+	w("apps/t/xbin.json", `{"runtime":"go"}`)
+	w("apps/t/go.mod", tGoMod)
+	w("apps/t/backend/main.go", "package main\n\nimport (\n\t\"fmt\"\n\n\t\"example.com/lib\"\n\t\"example.com/net\"\n)\n\nfunc main() { fmt.Println(lib.V, net.V) }\n")
+	uGoMod := "module u\n\ngo 1.22\n\nrequire example.com/lib v1.0.0\n\nrequire example.com/tool v1.0.0 // indirect\n"
+	w("apps/u/xbin.json", `{"runtime":"go"}`)
+	w("apps/u/go.mod", uGoMod)
+	w("apps/u/backend/main.go", "package main\n\nimport (\n\t\"fmt\"\n\n\t\"example.com/lib/gen\"\n)\n\nfunc main() { fmt.Println(gen.V) }\n")
+	w(".xbin/build/"+util.CompKey("apps/t")+"/bin", "an old binary")
+	reg, err := registry.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	confine.Configure(fs)
+	defer confine.Configure("")
+	if _, err := hostToolchain(); err != nil {
+		t.Skip("no host toolchain:", err)
+	}
+	saved := tcVal
+	tcVal.goproxy, tcVal.download = "file://"+proxy, ""
+	t.Cleanup(func() { tcVal = saved })
+	t.Setenv("GONOSUMDB", "example.com")
+	t.Setenv("GOFLAGS", "")
+
+	r := &Runner{Root: root, Isolate: true, Rootfs: fs, Reg: reg}
+	g := &GoVersions{Run: r, Path: filepath.Join(root, "data", "go-build-versions.json"), Version: "v0.3.65"}
+	r.GoVersions = g
+	if err := g.Boot(); err != nil || !g.due {
+		t.Fatalf("an upgraded workspace: due=%v %v", g.due, err)
+	}
+	_ = os.Remove(filepath.Join(root, ".xbin", "build", util.CompKey("apps/t"), "bin"))
+	runPass(g, true)
+	rep := g.Report()
+	if len(rep.Errors) > 0 || rep.WorkspaceError != "" || len(rep.Tiles) != 1 || rep.Tiles[0].Tile != "apps/t" {
+		t.Fatalf("report %+v", rep)
+	}
+	if tt := rep.Tiles[0]; !tt.Minimal || !reflect.DeepEqual(tt.Require, []string{"example.com/net v1.1.0"}) || !reflect.DeepEqual(tt.Changes, []VersionChange{
+		{Module: "example.com/crypto", Had: "v1.1.0", Now: "v1.0.0"},
+		{Module: "example.com/net", Had: "v1.1.0", Now: "v1.0.0"},
+	}) {
+		t.Errorf("t's entry %+v", tt)
+	}
+	comparable := func(mods []modVer) []modVer {
+		return slices.DeleteFunc(slices.Clone(mods), func(m modVer) bool { return !m.comparable() })
+	}
+	had := comparable(parseModVers(readGoVersionsState(t, g).Baseline["apps/t"].Had))
+	if !reflect.DeepEqual(had, []modVer{{Path: "example.com/crypto", Version: "v1.1.0"}, {Path: "example.com/lib", Version: "v1.0.0"}, {Path: "example.com/net", Version: "v1.1.0"}}) {
+		t.Fatalf("t under the shared go.work: %+v", had)
+	}
+	// the pin module's list is the shared one
+	tc, _ := reg.Component("apps/t")
+	work, _ := r.buildWork(tc, "./backend", "", nil)
+	pinned, err := r.listModules(context.Background(), tc, "./backend", work.GoWork, []deps.Pin{{Path: "example.com/net", Version: "v1.1.0"}})
+	if err != nil || !reflect.DeepEqual(comparable(pinned), had) {
+		t.Errorf("with the pin module: %+v %v", pinned, err)
+	}
+	// and so is the list with the line in t's go.mod, which its build links
+	w("apps/t/go.mod", strings.Replace(tGoMod, "example.com/net v1.0.0", "example.com/net v1.1.0", 1))
+	work, _ = r.buildWork(tc, "./backend", "", nil)
+	edited, err := r.listModules(context.Background(), tc, "./backend", work.GoWork, nil)
+	if err != nil || !reflect.DeepEqual(comparable(edited), had) {
+		t.Errorf("with the line in go.mod: %+v %v", edited, err)
+	}
+	bin, err := r.build(tc)
+	if err != nil {
+		if be, ok := err.(*BuildError); ok {
+			t.Fatalf("build t: %s", be.Output)
+		}
+		t.Fatal(err)
+	}
+	if out, _ := exec.Command(bin).Output(); strings.TrimSpace(string(out)) != "lib net v1.1.0 crypto v1.1.0" {
+		t.Errorf("t's backend printed %q", out)
+	}
+	waitIdle(t, g, "apps/t")
+	if msg, ok := g.Alert(); ok {
+		t.Errorf("an alert after t caught up: %q", msg)
+	}
+
+	// without u's indirect line the shared graph prunes the edge: t linked
+	// its own versions, nothing to say
+	w("apps/t/go.mod", tGoMod)
+	w("apps/u/go.mod", strings.Replace(uGoMod, "\nrequire example.com/tool v1.0.0 // indirect\n", "", 1))
+	w(".xbin/build/"+util.CompKey("apps/t")+"/bin", "an old binary")
+	g2 := &GoVersions{Run: r, Path: filepath.Join(t.TempDir(), "state.json"), Version: "v0.3.65"}
+	if err := g2.Boot(); err != nil || !g2.due {
+		t.Fatalf("control: due=%v %v", g2.due, err)
+	}
+	runPass(g2, true)
+	if rep := g2.Report(); rep.WorkspaceError != "" || slices.ContainsFunc(rep.Tiles, func(x GoVersionsTile) bool { return x.Tile == "apps/t" }) ||
+		slices.ContainsFunc(rep.Errors, func(x GoVersionsFailed) bool { return x.Tile == "apps/t" }) {
+		t.Errorf("control: %+v", rep)
 	}
 }

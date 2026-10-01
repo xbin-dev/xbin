@@ -171,9 +171,9 @@ type Runner struct {
 	vms        vmState
 	// Sandboxes lists every running generation (sbx.go, D112; nil-safe).
 	Sandboxes *sbx.Registry
-	// GoVersions is told of each Go work-tree build that succeeds: a tile
-	// its upgrade alert names is re-checked (goversionscheck.go, D166).
-	// nil = none.
+	// GoVersions is told of each Go build that succeeds, of a work tree or
+	// a checkpoint: a tile its upgrade alert names is re-checked when what
+	// decides its versions changed (goversionscheck.go, D166). nil = none.
 	GoVersions      *GoVersions
 	DeploymentHooks       // installed by the deployments plane; nil-safe (deploy.go)
 	inUse           inUse // inspect.go: the trees and artifacts generations use

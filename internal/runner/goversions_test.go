@@ -1,19 +1,12 @@
 package runner
 
 import (
-	"bytes"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/xbin-dev/xbin/internal/deps"
-	"github.com/xbin-dev/xbin/internal/registry"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 func TestParseModList(t *testing.T) {
@@ -197,7 +190,9 @@ func TestMinimalPinsSqlitePattern(t *testing.T) {
 // The accidental half of the shared versions: one tile's indirect x/tools
 // line un-pruned libc's x/tools → x/net → x/crypto chain, so every tile
 // linked that x/net and x/crypto. A tile requiring none of them directly
-// needs the one line that lifts the rest: x/net's.
+// needs the one line that lifts the rest: x/net's. (This world doesn't
+// prune, so it checks the search's shape only; the go command's own
+// pruning is TestConfinedGoVersionsUnprunedIndirect's.)
 func TestMinimalPinsUnprunedIndirect(t *testing.T) {
 	w := mvs{
 		"golang.org/x/tools@v0.30.0": {"golang.org/x/net@v0.46.0"},
@@ -283,216 +278,4 @@ func TestGoVersionsMessage(t *testing.T) {
 			t.Errorf("several tiles: %q lacks %q", many, s)
 		}
 	}
-}
-
-// goVersionsFixture is a registry with Go tiles apps/a and apps/b and a
-// GoVersions over it whose lists come from lists: the shared go.work's
-// (keyed "shared:<tile>") and each tile's own ("own:<tile>").
-func goVersionsFixture(t *testing.T, lists map[string][]modVer) (*GoVersions, string) {
-	t.Helper()
-	root := t.TempDir()
-	write := func(rel, s string) {
-		p := filepath.Join(root, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("xbin.json", `{"schema":1}`)
-	for _, tile := range []string{"apps/a", "apps/b"} {
-		write(tile+"/xbin.json", `{"runtime":"go"}`)
-		write(tile+"/go.mod", "module "+filepath.Base(tile)+"\n\ngo 1.22\n")
-		write(tile+"/backend/main.go", "package main\n\nfunc main() {}\n")
-	}
-	reg, err := registry.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := &GoVersions{Run: &Runner{Root: root, Reg: reg}, Path: filepath.Join(root, "data", "go-build-versions.json"), Version: "v0.3.65"}
-	g.list = func(c *registry.Component, entry string, gowork []byte, pins []deps.Pin) ([]modVer, error) {
-		key := "own:" + c.Path
-		if bytes.Contains(gowork, []byte("DO NOT EDIT (remove this line")) {
-			key = "shared:" + c.Path
-		}
-		mods := slices.Clone(lists[key])
-		for _, p := range pins { // a pin lifts its own module only
-			for i := range mods {
-				if mods[i].Path == p.Path && compareSemver(p.Version, mods[i].Version) > 0 {
-					mods[i].Version = p.Version
-				}
-			}
-		}
-		return mods, nil
-	}
-	return g, root
-}
-
-func readGoVersionsState(t *testing.T, g *GoVersions) goVersionsState {
-	t.Helper()
-	b, err := os.ReadFile(g.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var st goVersionsState
-	if err := json.Unmarshal(b, &st); err != nil {
-		t.Fatal(err)
-	}
-	return st
-}
-
-// The check runs once on its own: due on the first boot of a workspace an
-// earlier xbind built a Go tile in, never on a fresh one (which gets the
-// done-marker at once), not again once done — and an interrupted first
-// pass resumes after the tiles it checked.
-func TestGoVersionsOnce(t *testing.T) {
-	lists := map[string][]modVer{
-		"shared:apps/a": {{Path: "a"}, {Path: "example.com/dep", Version: "v1.2.0"}},
-		"own:apps/a":    {{Path: "a"}, {Path: "example.com/dep", Version: "v1.0.0"}},
-		"shared:apps/b": {{Path: "b"}, {Path: "example.com/dep", Version: "v1.2.0"}},
-		"own:apps/b":    {{Path: "b"}, {Path: "example.com/dep", Version: "v1.2.0"}},
-	}
-	// fresh: nothing built
-	g, root := goVersionsFixture(t, lists)
-	if err := g.Boot(); err != nil {
-		t.Fatal(err)
-	}
-	if st := readGoVersionsState(t, g); !st.Done || !st.Fresh || st.Since != "v0.3.65" || g.due {
-		t.Fatalf("fresh workspace: %+v due=%v", st, g.due)
-	}
-
-	// an upgrade: an earlier xbind built apps/b
-	g, root = goVersionsFixture(t, lists)
-	bin := filepath.Join(root, ".xbin", "build", util.CompKey("apps/b"), "bin")
-	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bin, []byte("elf"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := g.Boot(); err != nil {
-		t.Fatal(err)
-	}
-	if st := readGoVersionsState(t, g); st.Done || !g.due || st.Since != "v0.3.65" {
-		t.Fatalf("upgrade: %+v due=%v", st, g.due)
-	}
-	// interrupted after apps/b
-	g.st.Checked = []string{"apps/b"}
-	if err := g.saveLocked(); err != nil {
-		t.Fatal(err)
-	}
-	g2 := &GoVersions{Run: g.Run, Path: g.Path, Version: "v0.3.66", list: g.list}
-	if err := g2.Boot(); err != nil || !g2.due || g2.st.Since != "v0.3.65" {
-		t.Fatalf("resume: due=%v since=%q %v", g2.due, g2.st.Since, err)
-	}
-	var seen []string
-	inner := g2.list
-	g2.list = func(c *registry.Component, entry string, gowork []byte, pins []deps.Pin) ([]modVer, error) {
-		seen = append(seen, c.Path)
-		return inner(c, entry, gowork, pins)
-	}
-	g2.runAll(true)
-	if slices.Contains(seen, "apps/b") || !slices.Contains(seen, "apps/a") {
-		t.Errorf("the resumed pass listed %q", seen)
-	}
-	st := readGoVersionsState(t, g2)
-	if !st.Done || st.Fresh || len(st.Checked) != 0 || st.Since != "v0.3.65" {
-		t.Fatalf("after the pass: %+v", st)
-	}
-	if e := st.Tiles["apps/a"]; e == nil || !reflect.DeepEqual(e.Require, []string{"example.com/dep v1.2.0"}) || !e.Minimal {
-		t.Fatalf("apps/a's entry: %+v", e)
-	}
-	// done: the next boot runs nothing
-	g3 := &GoVersions{Run: g.Run, Path: g.Path, Version: "v0.3.67"}
-	if err := g3.Boot(); err != nil || g3.due {
-		t.Fatalf("after done: due=%v %v", g3.due, err)
-	}
-	if msg, ok := g3.Alert(); !ok || !strings.HasPrefix(msg, "apps/a builds with older dependency versions since v0.3.65 ") {
-		t.Errorf("alert %q %v", msg, ok)
-	}
-}
-
-// The alert: dismissed until the tile's lines change; a tile's line goes
-// when its own go.mod catches up (the re-check after its next build).
-func TestGoVersionsAlertDismissRecheck(t *testing.T) {
-	lists := map[string][]modVer{
-		"shared:apps/a": {{Path: "a"}, {Path: "example.com/dep", Version: "v1.2.0"}, {Path: "example.com/two", Version: "v0.5.0"}},
-		"own:apps/a":    {{Path: "a"}, {Path: "example.com/dep", Version: "v1.0.0"}, {Path: "example.com/two", Version: "v0.4.0"}},
-		"shared:apps/b": {{Path: "b"}, {Path: "example.com/dep", Version: "v1.2.0"}},
-		"own:apps/b":    {{Path: "b"}, {Path: "example.com/dep", Version: "v1.1.0"}},
-	}
-	g, _ := goVersionsFixture(t, lists)
-	g.runAll(false)
-	msg, ok := g.Alert()
-	if !ok || !strings.Contains(msg, "2 Go tiles build with older dependency versions since v0.3.65") ||
-		!strings.Contains(msg, "add `require example.com/dep v1.2.0` and `require example.com/two v0.5.0` to apps/a's go.mod") ||
-		!strings.Contains(msg, "add `require example.com/dep v1.2.0` to apps/b's go.mod") {
-		t.Fatalf("alert %q %v", msg, ok)
-	}
-	if err := g.Dismiss("apps/x"); err != ErrGoVersionsUnknownTile {
-		t.Errorf("dismiss an unknown tile: %v", err)
-	}
-	if err := g.Dismiss("apps/b"); err != nil {
-		t.Fatal(err)
-	}
-	if msg, _ := g.Alert(); strings.Contains(msg, "apps/b") || !strings.HasPrefix(msg, "apps/a builds") {
-		t.Errorf("after dismissing apps/b: %q", msg)
-	}
-	// a pass with the same lines keeps the dismissal
-	g.runAll(false)
-	if msg, _ := g.Alert(); strings.Contains(msg, "apps/b") {
-		t.Errorf("a pass with the same lines re-raised apps/b: %q", msg)
-	}
-	// apps/a's go.mod catches up on one of its two: its next build re-checks
-	// it against what it had, and the line it still needs is the alert's
-	lists["own:apps/a"] = []modVer{{Path: "a"}, {Path: "example.com/dep", Version: "v1.2.0"}, {Path: "example.com/two", Version: "v0.4.0"}}
-	g.Built("apps/a")
-	waitIdle(t, g, "apps/a")
-	if e := g.st.Tiles["apps/a"]; e == nil || !reflect.DeepEqual(e.Require, []string{"example.com/two v0.5.0"}) {
-		t.Fatalf("after catching up on dep: %+v", e)
-	}
-	// and on the other: gone
-	lists["own:apps/a"] = []modVer{{Path: "a"}, {Path: "example.com/dep", Version: "v1.3.0"}, {Path: "example.com/two", Version: "v0.5.0"}}
-	g.Built("apps/a")
-	waitIdle(t, g, "apps/a")
-	if _, ok := g.Alert(); ok {
-		t.Errorf("an alert after both tiles are done or dismissed: %+v", g.Report())
-	}
-	if rep := g.Report(); len(rep.Tiles) != 1 || rep.Tiles[0].Tile != "apps/b" || !rep.Tiles[0].Dismissed {
-		t.Errorf("report %+v", rep)
-	}
-	// a build of a tile the alert doesn't name lists nothing
-	calls := 0
-	inner := g.list
-	g.list = func(c *registry.Component, entry string, gowork []byte, pins []deps.Pin) ([]modVer, error) {
-		calls++
-		return inner(c, entry, gowork, pins)
-	}
-	g.Built("apps/a")
-	waitIdle(t, g, "apps/a")
-	if calls != 0 {
-		t.Errorf("a build of a tile with no entry listed %d times", calls)
-	}
-	// lines that change re-raise a dismissed tile
-	lists["shared:apps/b"] = []modVer{{Path: "b"}, {Path: "example.com/dep", Version: "v1.3.0"}}
-	g.runAll(false)
-	if msg, _ := g.Alert(); !strings.Contains(msg, "`require example.com/dep v1.3.0` to apps/b's go.mod") {
-		t.Errorf("changed lines: %q", msg)
-	}
-}
-
-// waitIdle waits for tile's re-check to end.
-func waitIdle(t *testing.T, g *GoVersions, tile string) {
-	t.Helper()
-	for i := 0; i < 2000; i++ {
-		g.mu.Lock()
-		busy := g.busy[tile]
-		g.mu.Unlock()
-		if !busy {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("%s's re-check never ended", tile)
 }
