@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Host exporter: what /metrics serves right now (the metrics dashboard
+     scrapes it every few seconds). -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Host exporter</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    html, body { margin: 0; height: 100%; }
+    body { display: grid; grid-template-rows: auto 1fr; }
+    header { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px 8px; border-bottom: 1px solid var(--bx-border); }
+    header b { font-size: 14px; }
+    header span { color: var(--bx-muted); font-size: 12px; }
+    pre { margin: 0; padding: 10px 16px; overflow: auto; font: 11.5px/1.55 var(--bx-mono); color: var(--bx-muted); }
+    pre .n { color: var(--bx-text); }
+    pre .v { color: var(--bx-accent); }
+  </style>
+</head>
+<body class="bx">
+  <header><b>Host exporter</b><span id="st">reading…</span></header>
+  <pre id="out"></pre>
+  <script type="module">
+    const out = document.getElementById('out'), st = document.getElementById('st');
+    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    async function tick() {
+      try {
+        const [text, s] = await Promise.all([
+          xbin.fetch(`/api/${xbin.self}/metrics`).then((r) => r.text()),
+          xbin.fetch(`/api/${xbin.self}/status`).then((r) => r.json())]);
+        out.innerHTML = text.split('\n').map((l) => l.startsWith('#') ? esc(l)
+          : esc(l).replace(/^([^\s{]+)(\{[^}]*\})?\s(.+)$/, (_, n, lb, v) => `<span class="n">${n}</span>${lb || ''} <span class="v">${v}</span>`)).join('\n');
+        st.textContent = `${s.host} · ${s.cpus} CPUs · ${s.scrapes} scrapes served`;
+      } catch (e) { st.textContent = String(e.message || e); }
+    }
+    tick(); setInterval(tick, 3000);
+  </script>
+</body>
+</html>

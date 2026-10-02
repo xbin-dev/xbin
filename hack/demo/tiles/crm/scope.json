@@ -1,0 +1,6 @@
+{
+  // apps/crm is a scope: the CRM's data lives in its own resource.
+  "resources": {
+    "data": { "type": "filesystem" }
+  }
+}

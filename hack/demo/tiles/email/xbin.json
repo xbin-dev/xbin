@@ -1,0 +1,11 @@
+{
+  // examples/email, with the demo film set's inbox: threads live in this
+  // tile's `mail` kv resource (scope.json) and the page reads them directly.
+  "runtime": "go",
+  "uses": [
+    { "target": "res:apps/email/mail", "role": "writer" },
+    // Cross-scope: approved by the owner (bx grant apps/email apps/calendar:reader).
+    { "target": "apps/calendar",         "role": "reader" },
+    { "target": "res:apps/calendar/bus", "role": "reader" }
+  ]
+}

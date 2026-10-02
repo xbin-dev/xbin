@@ -1,0 +1,42 @@
+{
+  "_comment": "The demo film set's fictional company (hack/demo/README.md). Every name, address and number here is invented; domains are under the reserved .example TLD (RFC 2606) and phone numbers in the fictional 555-01xx range. seed.sh reads this file: people become xbin users (password below), teams become orgs.",
+  "company": {
+    "name": "Larkspan",
+    "legalName": "Larkspan Inc.",
+    "tagline": "Route planning and live dispatch for regional delivery fleets",
+    "description": "Larkspan makes route-planning and live-dispatch software for regional delivery fleets — grocery co-ops, pharmacy distributors, building suppliers and couriers running 10 to 400 vans. Thirteen people, remote-first, with a small office and a training yard in Columbus, Ohio.",
+    "domain": "larkspan.example",
+    "founded": 2021,
+    "hq": "Columbus, Ohio",
+    "currency": "USD",
+    "icon": "data/brand-icon.svg"
+  },
+  "password": "larkspan-demo",
+  "people": [
+    { "id": "maya",   "name": "Maya Okafor",      "title": "CEO & co-founder",                "role": "user",  "orgs": { "leadership": "admin", "sales": "member" } },
+    { "id": "tomas",  "name": "Tomás Reyes",      "title": "CTO & co-founder",                "role": "admin", "orgs": { "leadership": "member", "engineering": "admin" } },
+    { "id": "ingrid", "name": "Ingrid Halvorsen", "title": "Head of Sales",                   "role": "user",  "orgs": { "leadership": "member", "sales": "admin" } },
+    { "id": "daniel", "name": "Daniel Mensah",    "title": "Account Executive",               "role": "user",  "orgs": { "sales": "member" } },
+    { "id": "priya",  "name": "Priya Raman",      "title": "Customer Success Lead",           "role": "user",  "orgs": { "sales": "member" } },
+    { "id": "jonas",  "name": "Jonas Lindqvist",  "title": "Solutions Engineer",              "role": "user",  "orgs": { "sales": "member", "engineering": "member" } },
+    { "id": "lukas",  "name": "Lukas Brandt",     "title": "Staff Engineer, Routing",         "role": "user",  "orgs": { "engineering": "member" } },
+    { "id": "hana",   "name": "Hana Kobayashi",   "title": "Frontend Engineer",               "role": "user",  "orgs": { "engineering": "member" } },
+    { "id": "owen",   "name": "Owen Gallagher",   "title": "Platform Engineer",               "role": "admin", "orgs": { "engineering": "admin", "operations": "member" } },
+    { "id": "sofia",  "name": "Sofia Marchetti",  "title": "Product Designer",                "role": "user",  "orgs": { "engineering": "member" } },
+    { "id": "ruth",   "name": "Ruth Achterberg",  "title": "Head of Operations",              "role": "user",  "orgs": { "leadership": "member", "operations": "admin" } },
+    { "id": "kofi",   "name": "Kofi Boateng",     "title": "Support Engineer",                "role": "user",  "orgs": { "operations": "member" } },
+    { "id": "elena",  "name": "Elena Petrova",    "title": "Finance & People",                "role": "user",  "orgs": { "operations": "member", "leadership": "member" } }
+  ],
+  "orgs": [
+    { "id": "leadership", "name": "Leadership",      "description": "Founders and heads of department" },
+    { "id": "engineering",        "name": "Engineering",     "description": "Routing engine, apps and platform" },
+    { "id": "sales",        "name": "Sales & Success", "description": "Sales, onboarding and customer success" },
+    { "id": "operations",        "name": "Operations",      "description": "Dispatch support, finance and people" }
+  ],
+  "personas": {
+    "_comment": "Who the stills and footage sign in as.",
+    "admin": "tomas",
+    "person": "priya",
+    "expenses": ["daniel", "priya"]
+  }
+}

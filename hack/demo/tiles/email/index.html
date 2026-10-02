@@ -1,0 +1,163 @@
+<!doctype html>
+<!-- The team inbox: examples/email's backend (GET /today reads apps/calendar
+     with this tile's own grant) plus an inbox kept in the tile's `mail` kv
+     resource. The demo film set lays this page over the example's own. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>email</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>html, body { margin: 0; height: 100%; }</style>
+</head>
+<body class="bx">
+  <team-inbox></team-inbox>
+  <script type="module">
+    import { LitElement, html, css, nothing } from 'lit';
+    import { scrollCss } from '/vendor/scroll-css.js';
+
+    const MAIL = `res:${xbin.self}/mail`;
+    const kv = (k) => `/api/xbin/kv/${MAIL}/${k}`;
+    const DAY = 864e5;
+    const when = (t) => {
+      const d = new Date(t), now = new Date();
+      if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      if (now - d < 6 * DAY) return d.toLocaleDateString('en-US', { weekday: 'short' });
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    };
+    const initials = (n) => String(n || '?').split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+    const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return [14, 32, 152, 168, 190, 210, 232, 262, 290, 330, 350, 46][h % 12]; };
+    const last = (t) => t.messages[t.messages.length - 1];
+
+    class TeamInbox extends LitElement {
+      static properties = { _threads: { state: true }, _sel: { state: true }, _folder: { state: true }, _today: { state: true }, _dayName: { state: true }, _err: { state: true }, _replying: { state: true } };
+      static styles = [scrollCss, css`
+        :host { display: grid; grid-template-columns: 168px minmax(240px, 300px) 1fr; height: 100%; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
+        * { box-sizing: border-box; }
+        nav { border-right: 1px solid var(--bx-border); padding: 12px 10px; overflow: auto; background: color-mix(in srgb, var(--bx-bg) 40%, var(--bx-panel)); }
+        .box { font-size: 11px; color: var(--bx-muted); padding: 0 6px 10px; word-break: break-all; }
+        .f { display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+        .f.on { background: var(--bx-panel-2); font-weight: 600; }
+        .f b { color: var(--bx-accent); font-size: 11px; }
+        .today { margin-top: 16px; padding: 8px; border-radius: 8px; background: var(--bx-panel-2); border: 1px solid var(--bx-border); }
+        .today h4 { margin: 0 0 6px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+        .today div { font-size: 11.3px; padding: 2px 0; line-height: 1.35; }
+        .today b { font-family: var(--bx-mono); font-weight: 500; color: var(--bx-accent); margin-right: 4px; }
+        .today .src { margin-top: 6px; font-size: 10px; color: var(--bx-muted); }
+        .list { border-right: 1px solid var(--bx-border); overflow: auto; }
+        .th { padding: 9px 12px; border-bottom: 1px solid color-mix(in srgb, var(--bx-border) 60%, transparent); cursor: pointer; position: relative; }
+        .th:hover { background: color-mix(in srgb, var(--bx-panel-2) 60%, transparent); }
+        .th.on { background: var(--bx-panel-2); box-shadow: inset 3px 0 0 var(--bx-accent); }
+        .th .row { display: flex; gap: 6px; align-items: baseline; }
+        .th .who { font-size: 12.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .th.unread .who, .th.unread .s { font-weight: 650; }
+        .th .t { font-size: 11px; color: var(--bx-muted); white-space: nowrap; }
+        .th .s { font-size: 12px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .th .p { font-size: 11.3px; color: var(--bx-muted); margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .th.unread::before { content: ''; position: absolute; left: 4px; top: 15px; width: 6px; height: 6px; border-radius: 50%; background: var(--bx-accent); }
+        .read { overflow: auto; padding: 16px 20px 24px; }
+        .read h2 { margin: 0 0 4px; font-size: 16px; font-weight: 650; }
+        .labels { margin-bottom: 12px; display: flex; gap: 6px; }
+        .chip { font-size: 10.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--bx-border); color: var(--bx-muted); }
+        .msg { border: 1px solid var(--bx-border); border-radius: 9px; padding: 11px 13px; margin-bottom: 10px; background: color-mix(in srgb, var(--bx-panel-2) 55%, var(--bx-panel)); }
+        .mh { display: flex; gap: 9px; align-items: center; margin-bottom: 8px; }
+        .av { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700; background: hsl(var(--h) 45% 42%); flex: none; }
+        .mh .n { font-weight: 600; font-size: 12.5px; }
+        .mh .e { color: var(--bx-muted); font-size: 11.3px; }
+        .mh .t { margin-left: auto; color: var(--bx-muted); font-size: 11.3px; white-space: nowrap; align-self: flex-start; }
+        .body { white-space: pre-wrap; font-size: 12.8px; line-height: 1.55; }
+        .reply { display: flex; gap: 8px; }
+        .reply button { font: inherit; font-size: 12px; color: inherit; background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+        .reply button.send { background: var(--bx-accent); border-color: var(--bx-accent); color: #1b1e24; font-weight: 600; }
+        textarea { width: 100%; min-height: 110px; resize: vertical; background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 8px; color: inherit;
+                   font: inherit; font-size: 12.8px; line-height: 1.5; padding: 9px 11px; margin-bottom: 8px; }
+        .empty { color: var(--bx-muted); padding: 30px; text-align: center; }
+      `];
+
+      constructor() { super(); this._threads = []; this._folder = 'Inbox'; }
+      connectedCallback() {
+        super.connectedCallback();
+        this._load();
+        this._loadToday();
+        xbin.bus.on('res:apps/calendar/bus/events/', () => this._loadToday());
+      }
+      async _load() {
+        try {
+          const r = await xbin.fetch(`/api/xbin/kv/${MAIL}/?prefix=thread/`);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const { keys } = await r.json();
+          const ts = (await Promise.all((keys || []).map(async (k) => { const v = await xbin.fetch(kv(k)); return v.ok ? v.json() : null; }))).filter(Boolean);
+          ts.sort((a, b) => last(b).at - last(a).at);
+          this._threads = ts;
+          this._sel ??= ts[0]?.id;
+        } catch (e) { this._err = `Couldn't open the inbox: ${e.message}`; }
+      }
+      // the example's server-side path: our backend calls apps/calendar with
+      // our identity. On a weekend, what's ahead instead: Monday's meetings,
+      // from the calendar's own API (as the person reading, who can see it)
+      async _loadToday() {
+        const t = new Date(), ahead = t.getDay() === 6 ? 2 : t.getDay() === 0 ? 1 : 0;
+        let r;
+        if (ahead) {
+          const d = new Date(t); d.setDate(d.getDate() + ahead);
+          const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          r = await xbin.fetch(`/api/apps/calendar/events?day=${day}`);
+          this._dayName = r.ok ? d.toLocaleDateString('en-US', { weekday: 'long' }) : 'Today';
+        }
+        if (!r?.ok) r = await xbin.fetch(`/api/${xbin.self}/today`);
+        this._today = r.ok ? (await r.json()).events.sort((a, b) => (a.time || '').localeCompare(b.time || '')) : null;
+      }
+      async _send(t) {
+        const body = this.renderRoot.querySelector('textarea')?.value.trim();
+        if (!body) return;
+        const me = (await (await xbin.fetch('/api/xbin/whoami')).json()).user || {};
+        const to = [...t.messages].reverse().find((m) => !m.from.email.endsWith('@larkspan.example'))?.from.email || last(t).to;
+        t.messages.push({ from: { name: me.name || 'Larkspan', email: `${me.id || 'hello'}@larkspan.example` }, to, at: Date.now(), body });
+        this._replying = false;
+        this._threads = [...this._threads].sort((a, b) => last(b).at - last(a).at);
+        await xbin.fetch(kv(`thread/${t.id}`), { method: 'PUT', body: JSON.stringify(t) });
+      }
+      async _open(t) {
+        this._sel = t.id; this._replying = false;
+        if (t.unread) {
+          t.unread = false;
+          this.requestUpdate();
+          await xbin.fetch(kv(`thread/${t.id}`), { method: 'PUT', body: JSON.stringify(t) });
+        }
+      }
+      render() {
+        const folders = ['Inbox', 'Customers', 'Internal', 'Events'];
+        const shown = this._threads.filter((t) => this._folder === 'Inbox' || t.labels?.includes(this._folder));
+        const t = this._threads.find((x) => x.id === this._sel);
+        const unread = (f) => this._threads.filter((x) => x.unread && (f === 'Inbox' || x.labels?.includes(f))).length;
+        return html`
+          <nav>
+            <div class="box">hello@larkspan.example</div>
+            ${folders.map((f) => html`<div class="f ${this._folder === f ? 'on' : ''}" @click=${() => { this._folder = f; }}><span>${f}</span>${unread(f) ? html`<b>${unread(f)}</b>` : nothing}</div>`)}
+            <div class="today"><h4>${this._dayName || 'Today'}</h4>
+              ${this._today == null ? html`<div class="muted">—</div>` : this._today.length ? this._today.map((e) => html`<div><b>${e.time}</b>${e.title.split(' · ')[0]}</div>`) : html`<div>No meetings</div>`}
+              <div class="src">from the team calendar</div></div>
+          </nav>
+          <div class="list">
+            ${this._err ? html`<div class="empty">${this._err}</div>` : shown.map((x) => html`<div class="th ${x.unread ? 'unread' : ''} ${x.id === this._sel ? 'on' : ''}" @click=${() => this._open(x)}>
+              <div class="row"><span class="who">${[...new Set(x.messages.map((m) => m.from.name.split(' ')[0]))].join(', ')}${x.messages.length > 1 ? html` <span class="t">${x.messages.length}</span>` : nothing}</span><span class="t">${when(last(x).at)}</span></div>
+              <div class="s">${x.subject}</div>
+              <div class="p">${last(x).body.replace(/\s+/g, ' ')}</div></div>`)}
+          </div>
+          <div class="read">${t ? html`
+            <h2>${t.subject}</h2>
+            <div class="labels">${(t.labels || []).map((l) => html`<span class="chip">${l}</span>`)}${t.starred ? html`<span class="chip" style="color:var(--bx-accent)">★ starred</span>` : nothing}</div>
+            ${t.messages.map((m) => html`<div class="msg">
+              <div class="mh"><span class="av" style="--h:${hue(m.from.email)}">${initials(m.from.name)}</span>
+                <div><div class="n">${m.from.name}</div><div class="e">${m.from.email} → ${m.to}</div></div>
+                <span class="t">${new Date(m.at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</span></div>
+              <div class="body">${m.body}</div></div>`)}
+            ${this._replying ? html`<textarea placeholder="Write a reply…"></textarea>
+              <div class="reply"><button class="send" @click=${() => this._send(t)}>Send</button><button @click=${() => { this._replying = false; }}>Discard</button></div>`
+              : html`<div class="reply"><button @click=${() => { this._replying = true; }}>Reply</button></div>`}` : html`<div class="empty">Nothing selected</div>`}
+          </div>`;
+      }
+    }
+    customElements.define('team-inbox', TeamInbox);
+  </script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "_comment": "The team calendar (apps/calendar, examples/calendar's backend), posted by hack/demo/seed.sh through the example's own POST /events. weekly: on those weekdays (0 is Monday) of the last, this and the next two weeks. events: one-offs on a date named relative to the demo's day ({{iso:0}}: today on a weekday, else the coming Monday; counted in working days; seed.sh). The day's star is the Brightwell renewal call Lark preps Priya for; the CRM's next steps and the inbox name the same days.",
+  "weekly": [
+    { "weekdays": [0, 1, 2, 3, 4], "time": "09:30", "title": "Engineering standup" },
+    { "weekdays": [0], "time": "11:00", "title": "Pipeline review · Ingrid, Daniel, Jonas, Maya" },
+    { "weekdays": [4], "time": "16:00", "title": "Friday demos" }
+  ],
+  "events": [
+    { "date": "{{iso:-8}}", "time": "10:00", "title": "Kettle Creek renewal signing · Daniel, June Albright" },
+    { "date": "{{iso:-7}}", "time": "13:00", "title": "Q4 planning offsite (half day)" },
+    { "date": "{{iso:-4}}", "time": "13:00", "title": "Pinewood pilot check-in · Jonas, Grant Holloway" },
+    { "date": "{{iso:-4}}", "time": "15:30", "title": "Driver app 4.12 release planning" },
+    { "date": "{{iso:-3}}", "time": "13:00", "title": "Northgate security review · Ingrid, Simone Clarke" },
+    { "date": "{{iso:-3}}", "time": "14:30", "title": "Design review: dispatch board offline mode · Sofia, Hana" },
+    { "date": "{{iso:-3}}", "time": "16:30", "title": "1:1 Tomás / Lukas" },
+    { "date": "{{iso:-2}}", "time": "12:00", "title": "Lunch & learn: time windows in the route optimizer · Lukas" },
+    { "date": "{{iso:-2}}", "time": "15:00", "title": "Hiring sync: senior backend engineer" },
+    { "date": "{{iso:-1}}", "time": "10:00", "title": "Brightwell: MSA redlines · Daniel, Ingrid, Dana Whitfield" },
+    { "date": "{{iso:-1}}", "time": "14:00", "title": "Incident review: geocoder timeouts · Owen, Lukas" },
+    { "date": "{{iso:-1}}", "time": "17:00", "title": "Board prep · Maya, Tomás, Elena" },
+    { "date": "{{iso:0}}", "time": "10:00", "title": "Brightwell renewal call · Priya, Daniel, Dana Whitfield" },
+    { "date": "{{iso:0}}", "time": "11:30", "title": "Kettle Creek driver-app check-in · Priya, June Albright" },
+    { "date": "{{iso:0}}", "time": "14:00", "title": "All-hands: Q3 numbers and Q4 plan" },
+    { "date": "{{iso:1}}", "time": "10:00", "title": "Quarry Hill demo · Daniel, Rita Kowalski" },
+    { "date": "{{iso:1}}", "time": "13:30", "title": "Lakeshore exec sponsor call · Maya, Sam Whitaker" },
+    { "date": "{{iso:1}}", "time": "15:00", "title": "Tollan discovery call · Daniel, Brooke Hammond" },
+    { "date": "{{iso:2}}", "time": "14:00", "title": "Riverbend: depot hand-off rules demo · Ingrid, Henrik Olsen" },
+    { "date": "{{iso:3}}", "time": "13:00", "title": "Saltmarsh pricing options · Ingrid, Peter Vance" },
+    { "date": "{{iso:4}}", "time": "10:00", "title": "Northgate: security questionnaire due · Ingrid" },
+    { "date": "{{iso:7}}", "time": "13:00", "title": "Pinewood pilot readout · Jonas, Priya, Grant Holloway" }
+  ]
+}

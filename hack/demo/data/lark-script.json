@@ -1,0 +1,88 @@
+{
+  "_comment": "What the scripted model (hack/fakeopenai -script, demo.go) answers on the demo film set: the conversations hack/demo/seed.sh starts as people, the automations' runs, the team-chat channel, and a few likely questions in the chat tile. Answers call the CRM's and the ops report's real MCP tools and quote what they return ({{…}} placeholders), so they stay true to the data. Anything unmatched gets the fallback.",
+  "models": ["assistant-large", "assistant-small"],
+  "fallback": "I can help with that from what I can reach here: the CRM (accounts, deals, contacts, activity) and the nightly ops report. Ask me about a customer, the pipeline, renewals or last night's numbers.",
+  "replies": [
+    {
+      "match": ["brightwell", "renewal call"],
+      "title": "Brightwell renewal call prep",
+      "steps": [
+        { "thinking": "Pulling Brightwell's account, deals and recent activity from the CRM first, then last night's numbers for their depots.",
+          "calls": [{ "name": "mcp:get_account", "args": { "query": "Brightwell", "summary": "Look up Brightwell in the CRM" } }] },
+        { "thinking": "The QBR notes and the expansion deal are there. Checking how their depots did last night.",
+          "calls": [{ "name": "mcp:latest_report", "args": { "summary": "Read last night's ops report" } }] },
+        { "text": "Here's where **{{#1.account.name}}** stands before your 10:00.\n\n**The account.** {{#1.account.plan}} plan, {{#1.account.vans}} vans across {{#1.account.depots}} depots, {{#1.account.arr|usd}} ARR. Renewal is due **{{#1.account.renewal|date}}**. Health is good: the last QBR showed 96.4% on time (91% at go-live) and 7% fewer miles.\n\n**The open deal.** *{{#1.deals.0.name}}*, {{#1.deals.0.amount|usd}}, in {{#1.deals.0.stage}}, expected to close {{#1.deals.0.close|date}}. Daniel sent the revised order form this morning: 60 vans from January 6, a three-year term, $70 per van held. Next step on record: {{#1.deals.0.next}}.\n\n**Since the QBR**\n- Last night the {{#2.customers.0.name}} routes ran {{#2.customers.0.stops|int}} stops at **{{#2.customers.0.onTime}}% on time**, the Dayton DC's first night on the new depot hand-off rules.\n- Marcus Lee's team in Dayton asked for the driver app next.\n\n**Worth raising**\n1. Fold the renewal into the expansion: one three-year term for all 202 vans keeps the $70 rate and takes the {{#1.account.renewal|date}} deadline off the table.\n2. Offer a short driver-app pilot in Dayton before the January go-live; it's what Marcus asked for.\n3. Ask Dana for a reference call for Northgate, who are evaluating us now.\n\nWant me to draft the follow-up to Dana once the call is done?" }
+      ]
+    },
+    {
+      "match": ["follow-up", "dana"],
+      "title": "Follow-up to Dana at Brightwell",
+      "steps": [
+        { "thinking": "Short and concrete: confirm what was agreed, the dates, and what each side does next.",
+          "text": "Here's a draft:\n\n---\n\n**Subject:** Brightwell and Larkspan: what we agreed today\n\nHi Dana,\n\nThanks for the time today. To confirm what we agreed:\n\n- **One three-year term for all 202 vans**: your current 142 plus the 60 for the Dayton DC, at $70 per van per month.\n- **A two-week driver-app pilot in Dayton in December** with Marcus's team, before the full rollout on January 6. Priya will send the pilot plan by {{weekday:+2}}.\n- Ellen's wording on the liability cap (section 9.2) stands as agreed.\n\nI'll send the updated order form and MSA for signature today. If they're back by {{weekday:+3}}, we start the Dayton data import the week after.\n\nThanks again,\nDaniel\n\n---\n\nWant me to log this against the expansion deal in the CRM once you've sent it?" }
+      ]
+    },
+    {
+      "match": ["ops report", "standup"],
+      "title": "Last night's ops report",
+      "steps": [
+        { "thinking": "Reading last night's report and the week's headline numbers to compare.",
+          "calls": [
+            { "name": "mcp:latest_report", "args": { "summary": "Read last night's ops report" } },
+            { "name": "mcp:list_reports", "args": { "limit": 7, "summary": "Compare with the last seven nights" } }
+          ] },
+        { "text": "Nothing urgent from the night of {{#1.date|date}}.\n\n- **{{#1.totals.routes|int}} routes, {{#1.totals.stops|int}} stops, {{#1.totals.onTime}}% on time**, {{#1.totals.exceptions|int}} exceptions. Plan time p95 {{#1.platform.planSecondsP95}} s.\n- API p95 {{#1.platform.apiP95ms}} ms, uptime {{#1.platform.uptimePct}}%, {{#1.platform.drivers|int}} drivers on the road ({{#1.platform.crashFreePct}}% crash-free).\n- Support: {{#1.support.opened}} tickets in, {{#1.support.closed}} closed, first reply in {{#1.support.firstResponseMin}} min.\n\n**Worth a mention at standup**\n1. {{#1.notes.0}}\n2. {{#1.notes.1}}\n3. The night before ({{#2.1.date|date}}) logged one incident: a planner worker restarted out of memory. No customer impact; Lukas has the follow-up.\n\nThe rest of the week was steady: on-time stayed within a point of {{#2.0.onTime}}% every night." }
+      ]
+    },
+    {
+      "match": ["renewals", "90 days"],
+      "title": "Renewals in the next 90 days",
+      "steps": [
+        { "thinking": "The pipeline summary lists renewals and accounts at risk.",
+          "calls": [{ "name": "mcp:pipeline_summary", "args": { "summary": "Check renewals and accounts at risk" } }] },
+        { "text": "Three customers renew in the next 90 days:\n\n| Customer | Renews | ARR |\n|---|---|---|\n| {{renewing90.0.name}} | {{renewing90.0.renewal|date}} | {{renewing90.0.arr|usd}} |\n| {{renewing90.1.name}} | {{renewing90.1.renewal|date}} | {{renewing90.1.arr|usd}} |\n| {{renewing90.2.name}} | {{renewing90.2.renewal|date}} | {{renewing90.2.arr|usd}} |\n\n**At risk: {{atRisk.0}}.** Their champion left in August, and the new VP Ops, Sam Whitaker, wants a written SLA on route recalculation before renewing. Maya has the exec call with Sam on {{weekday:+1}}, and the latency fix has held since Tuesday.\n\n**Brightwell** is healthy, and its renewal can ride on the Dayton expansion Daniel is negotiating. **Bluestem** is healthy too; the webhook add-on Jonas is scoping fits naturally into that renewal conversation.\n\nShould I set a reminder two weeks before each date?" }
+      ]
+    },
+    {
+      "match": ["morning ops brief"],
+      "steps": [
+        { "calls": [{ "name": "mcp:latest_report", "args": { "summary": "Read last night's ops report" } }] },
+        { "text": "**Ops brief, {{#1.date|date}}**\n\n1. {{#1.totals.routes|int}} routes and {{#1.totals.stops|int}} stops; **{{#1.totals.onTime}}% on time** ({{#1.totals.exceptions|int}} exceptions).\n2. Platform healthy: API p95 {{#1.platform.apiP95ms}} ms, uptime {{#1.platform.uptimePct}}%, plan time p95 {{#1.platform.planSecondsP95}} s.\n3. {{#1.notes.0}}\n4. {{#1.notes.1}}\n5. Support: {{#1.support.opened}} new tickets, {{#1.support.closed}} closed, first reply in {{#1.support.firstResponseMin}} min." }
+      ]
+    },
+    {
+      "match": ["pipeline digest"],
+      "steps": [
+        { "calls": [
+            { "name": "mcp:pipeline_summary", "args": { "summary": "Read the pipeline summary" } },
+            { "name": "mcp:list_deals", "args": { "stage": "negotiation", "summary": "List deals in negotiation" } }
+          ] },
+        { "text": "**Friday pipeline digest**\n\n**Open pipeline {{#1.pipeline|usd}}** across {{#1.openDeals}} deals; weighted forecast {{#1.weighted|usd}}. Won in the last 30 days: {{#1.won30|usd}}.\n\n**In negotiation**\n- **{{#2.0.account}}**: {{#2.0.name}}, {{#2.0.amount|usd}}, closing {{#2.0.close|date}} ({{#2.0.owner}}). Next: {{#2.0.next}}.\n- **{{#2.1.account}}**: {{#2.1.name}}, {{#2.1.amount|usd}}, closing {{#2.1.close|date}} ({{#2.1.owner}}). Next: {{#2.1.next}}.\n\n**Moved this week:** Kettle Creek's 2027 renewal closed with the driver app; Brightwell's Dayton expansion went to Negotiation; Tollan came in from the website.\n\n**Renewal at risk:** {{#1.atRisk.0}}, with the exec call with Sam Whitaker on {{weekday:+1}}." }
+      ]
+    },
+    {
+      "match": ["northgate", "questionnaire"],
+      "title": "Northgate security questionnaire",
+      "steps": [
+        { "calls": [{ "name": "mcp:get_account", "args": { "query": "Northgate", "summary": "Look up Northgate in the CRM" } }] },
+        { "text": "The security questionnaire is due **{{longdate:+4}}**. Last touch: {{#1.activity.0.text}}\n\nThe deal is *{{#1.deals.0.name}}*, {{#1.deals.0.amount|usd}}, in {{#1.deals.0.stage}}, expected to close {{#1.deals.0.close|date}} ({{#1.deals.0.owner}}). After the questionnaire, the next step is the pilot plan review with their ops team." }
+      ]
+    },
+    {
+      "match": ["pipeline"],
+      "title": "Pipeline overview",
+      "steps": [
+        { "calls": [{ "name": "mcp:pipeline_summary", "args": { "summary": "Read the pipeline summary" } }] },
+        { "text": "**Open pipeline: {{pipeline|usd}}** across {{openDeals}} deals, weighted to {{weighted|usd}}.\n\n- Won in the last 30 days: {{won30|usd}} (win rate {{winRate}}%).\n- ARR today: {{arr|usd}} from {{customers}} customers.\n- At risk: {{atRisk.0}}.\n\nBy stage: {{byStage.lead.count}} lead, {{byStage.qualified.count}} qualified, {{byStage.demo.count}} in demo, {{byStage.proposal.count}} at proposal, {{byStage.negotiation.count}} in negotiation." }
+      ]
+    },
+    {
+      "match": ["champion"],
+      "title": "Who our champions are",
+      "steps": [
+        { "calls": [{ "name": "mcp:get_account", "args": { "query": "Brightwell", "summary": "Look up Brightwell in the CRM" } }] },
+        { "text": "At **{{#1.account.name}}** it's **{{#1.contacts.0.name}}**, {{#1.contacts.0.title}} ({{#1.contacts.0.email}}). Note on file: {{#1.contacts.0.note}}" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "_comment": "Two people's expense books in apps/expenses — a partitioned tile (\"partition\": [\"user\"]), so each book lives in its person's own partition. hack/demo/seed.sh imports each as that person (their own session and frame), never as the workspace owner. Dates are days before the seed.",
+  "mileageRate": 0.70,
+  "people": {
+    "daniel": {
+      "items": [
+        { "daysAgo": 0, "merchant": "Harvest Table", "category": "meals", "amount": 214.60, "note": "Client dinner: Brightwell (Dana Whitfield, Marcus Lee)", "receipt": true, "status": "draft", "trip": "Brightwell expansion" },
+        { "daysAgo": 1, "merchant": "Midwest Fleet Ops Summit", "category": "events", "amount": 395.00, "note": "Conference pass, Nov 12–13", "receipt": false, "status": "draft" },
+        { "daysAgo": 3, "merchant": "Mileage", "category": "mileage", "miles": 352, "note": "Columbus ⇄ Indianapolis: Northgate security review", "receipt": false, "status": "submitted", "trip": "Indianapolis: Northgate" },
+        { "daysAgo": 3, "merchant": "Union Hall Kitchen", "category": "meals", "amount": 86.40, "note": "Lunch with Rafael Ortiz and Simone Clarke", "receipt": true, "status": "submitted", "trip": "Indianapolis: Northgate" },
+        { "daysAgo": 3, "merchant": "Market Street Parking", "category": "travel", "amount": 18.00, "note": "Parking near Northgate HQ", "receipt": true, "status": "submitted", "trip": "Indianapolis: Northgate" },
+        { "daysAgo": 8, "merchant": "Mileage", "category": "mileage", "miles": 142, "note": "Columbus ⇄ Dayton: Kettle Creek driver-app kickoff", "receipt": false, "status": "approved", "trip": "Dayton: Kettle Creek kickoff" },
+        { "daysAgo": 8, "merchant": "Fifth Street Coffee", "category": "meals", "amount": 42.75, "note": "Coffee and pastries for the kickoff", "receipt": true, "status": "approved", "trip": "Dayton: Kettle Creek kickoff" },
+        { "daysAgo": 24, "merchant": "Allegheny Riverside Hotel", "category": "lodging", "amount": 189.00, "note": "1 night: Alder Street QBR", "receipt": true, "status": "reimbursed", "trip": "Pittsburgh: Alder Street QBR" },
+        { "daysAgo": 24, "merchant": "Rideshare", "category": "travel", "amount": 23.80, "note": "Hotel to Alder Street's office", "receipt": true, "status": "reimbursed", "trip": "Pittsburgh: Alder Street QBR" }
+      ]
+    },
+    "priya": {
+      "items": [
+        { "daysAgo": 0, "merchant": "Copy Corner", "category": "office", "amount": 64.00, "note": "Printed onboarding guides for Pinewood's dispatchers", "receipt": true, "status": "draft" },
+        { "daysAgo": 1, "merchant": "Survey software", "category": "software", "amount": 49.00, "note": "Customer health survey tool, October", "receipt": true, "status": "draft" },
+        { "daysAgo": 5, "merchant": "Travel desk", "category": "travel", "amount": 312.40, "note": "Flight CMH ⇄ MKE", "receipt": true, "status": "submitted", "trip": "Milwaukee: Lakeshore onsite" },
+        { "daysAgo": 5, "merchant": "Third Ward Inn", "category": "lodging", "amount": 318.00, "note": "2 nights", "receipt": true, "status": "submitted", "trip": "Milwaukee: Lakeshore onsite" },
+        { "daysAgo": 4, "merchant": "Riverwalk Deli", "category": "meals", "amount": 96.20, "note": "Lunch with Lakeshore's dispatch team (6)", "receipt": true, "status": "submitted", "trip": "Milwaukee: Lakeshore onsite" },
+        { "daysAgo": 4, "merchant": "Rideshare", "category": "travel", "amount": 41.30, "note": "Airport and hospital site visits", "receipt": true, "status": "submitted", "trip": "Milwaukee: Lakeshore onsite" },
+        { "daysAgo": 12, "merchant": "Capitol Square Café", "category": "meals", "amount": 73.50, "note": "Riverbend playbook review with Henrik and Amy", "receipt": true, "status": "approved" },
+        { "daysAgo": 21, "merchant": "Mileage", "category": "mileage", "miles": 386, "note": "Columbus ⇄ Ann Arbor: Granary Row go-live", "receipt": false, "status": "reimbursed", "trip": "Ann Arbor: Granary Row go-live" }
+      ]
+    }
+  }
+}

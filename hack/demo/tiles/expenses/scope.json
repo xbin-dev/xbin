@@ -1,0 +1,6 @@
+{
+  // apps/expenses is a scope; partitioned, so `data` is per person.
+  "resources": {
+    "data": { "type": "filesystem" }
+  }
+}

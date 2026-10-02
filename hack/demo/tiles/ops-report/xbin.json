@@ -1,0 +1,20 @@
+{
+  // The nightly ops report (API.md): a cron job at 05:30 renders the night
+  // that ended; each report is announced on the bus (report/published).
+  "runtime": "node",
+  "uses": [
+    { "target": "res:apps/ops-report/data", "role": "writer" },
+    { "target": "res:apps/ops-report/cron", "role": "writer" },
+    { "target": "res:apps/ops-report/bus", "role": "writer" }
+  ],
+  "expose": {
+    "roles": {
+      "reader": "Read the nightly reports; the MCP tools",
+      "writer": "Render a report now (implies reader)"
+    }
+  },
+  // MCP (streamable HTTP at /mcp): latest_report, get_report, list_reports.
+  "provides": {
+    "mcp": { "kind": "http", "service": "mcp", "role": "reader" }
+  }
+}

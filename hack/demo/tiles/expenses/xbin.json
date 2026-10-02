@@ -1,0 +1,11 @@
+{
+  "partition": ["user"],
+  // Expenses: each person's own book (API.md). Partitioned: every person
+  // who opens it gets a backend and a `data` resource of their own
+  // (docs/partitions.md) — under an xbind started with --isolate; the demo
+  // seed drops the line above where xbind runs without it.
+  "runtime": "node",
+  "uses": [
+    { "target": "res:apps/expenses/data", "role": "writer" }
+  ]
+}
