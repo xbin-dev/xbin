@@ -208,8 +208,8 @@ pure parts.
   OPENAI_API_KEY, …) belong to the workspace's model gateway, not here.
 - **Retakes start the same.** The example shots reset what they touch:
   the terminal shot ends the tile's shells and drops its window pref; the
-  agent shot deletes exactly the conversations its previous take created
-  (`<take>.agent-runs.json`).
+  agent shot deletes exactly the conversations its previous take into the
+  same `--out` created (`.agent.agent-runs.json` there).
 - **Headless isn't hidden.** Every capture renders at a forced device scale
   factor with scrollbars on (Playwright's headless default hides them; a
   real browser shows them), so stills, beginframe and x11 frames match.

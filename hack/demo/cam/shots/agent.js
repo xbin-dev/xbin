@@ -13,9 +13,10 @@ const fs = require('fs');
 const path = require('path');
 
 const CARD = (tile) => `.card[data-path="${tile}"]`;
-// a take's own conversations, remembered so the next take can remove them:
-// a retake starts from the same sidebar, and nothing else is touched
-const ledger = (cam) => path.join(cam.o.out, `${cam.o.take}.agent-runs.json`);
+// the conversations this shot's last take created, remembered so the next
+// take — any take of this shot into the same --out, still or video — removes
+// exactly those: a retake starts from the same sidebar, nothing else is touched
+const ledger = (cam) => path.join(cam.o.out, `.${cam.o.shot}.agent-runs.json`);
 const api = (cam, tile, p) => `${cam.o.url}/api/${tile}${p}`;
 async function runIds(cam, tile) {
   const r = await cam.page.context().request.get(api(cam, tile, '/runs?roots=1'));
