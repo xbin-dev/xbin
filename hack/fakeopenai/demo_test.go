@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The demo script (-script) answers before the built-in keywords: a reply
@@ -71,5 +72,27 @@ func TestDemoScript(t *testing.T) {
 	}
 	if p = pick([]turn{user("hello there")}, "", nil); p.Text != "Hello from the fake model." {
 		t.Fatalf("a built-in keyword: %q", p.Text)
+	}
+}
+
+// Day placeholders count working days from the demo's day: today on a
+// weekday, the coming Monday on a weekend (hack/demo/seed.sh agrees).
+func TestDemoDays(t *testing.T) {
+	defer func() { clock = time.Now }()
+	at := func(s string) func() time.Time {
+		return func() time.Time { d, _ := time.ParseInLocation("2006-01-02 15:04", s, time.Local); return d }
+	}
+	for _, c := range []struct{ now, in, want string }{
+		{"2026-10-03 00:40", "{{weekday:0}} {{date:0}}", "Monday Oct 5"},                     // a Saturday: the coming Monday
+		{"2026-10-03 00:40", "{{weekday:-1}}, {{longdate:+4}}", "Friday, October 9"},         // back over the weekend
+		{"2026-10-07 09:00", "{{weekday:+2}}, then {{ weekday:+3 }}", "Friday, then Monday"}, // forward over it
+		{"2026-10-07 09:00", "the {{nth:-2}}, {{nth:+4}}, {{iso:+10}}", "the 5th, 13th, 2026-10-21"},
+		{"2026-10-19 09:00", "the {{nth:+2}}, {{nth:+3}}, {{nth:+4}}, {{nth:+8}}", "the 21st, 22nd, 23rd, 29th"},
+		{"2026-10-19 09:00", "{{weekday:+1}} {{#1.x}}", "Tuesday —"}, // results still fill after
+	} {
+		clock = at(c.now)
+		if got := fill(c.in, nil); got != c.want {
+			t.Errorf("at %s: fill(%q) = %q, want %q", c.now, c.in, got, c.want)
+		}
 	}
 }

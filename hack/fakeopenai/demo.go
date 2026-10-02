@@ -36,7 +36,8 @@ package main
 // reads the turn's second JSON result instead (in the order they came), and
 // a filter formats a value: "{{deals.0.amount|usd}}" → "$50,400",
 // "{{account.renewal|date}}" → "Nov 12" (from an ISO date or unix ms),
-// "{{x|int}}" → "1,284".
+// "{{x|int}}" → "1,284". A day can be named relative to the demo's day
+// (dayRe): "due {{date:+4}}" → "due Oct 9".
 
 import (
 	"encoding/json"
@@ -224,12 +225,70 @@ func turnJSON(conv []turn) []any {
 
 var placeholderRe = regexp.MustCompile(`\{\{\s*(#\d+\.)?([A-Za-z0-9_.\-]+)\s*(?:\|\s*([a-z]+)\s*)?\}\}`)
 
+// dayRe names a day relative to the demo's day — today on a weekday, else
+// the coming Monday (the week hack/demo's calendar opens on) — counted in
+// working days: {{weekday:+1}} "Monday", {{date:+4}} "Oct 9", {{longdate:+4}}
+// "October 9", {{nth:+4}} "9th", {{iso:-2}} "2026-10-01". hack/demo/seed.sh
+// fills the same placeholders in the set's fixtures, so what the model says
+// agrees with the calendar and the CRM.
+var dayRe = regexp.MustCompile(`\{\{\s*(weekday|date|longdate|nth|iso):([+-]?\d+)\s*\}\}`)
+
+// clock is the demo's now (a test sets it).
+var clock = time.Now
+
+// fillDays replaces the day placeholders (dayRe) in s.
+func fillDays(s string) string {
+	now := clock()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+	for day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
+		day = day.AddDate(0, 0, 1)
+	}
+	return dayRe.ReplaceAllStringFunc(s, func(m string) string {
+		sm := dayRe.FindStringSubmatch(m)
+		n, _ := strconv.Atoi(sm[2])
+		d, step := day, 1
+		if n < 0 {
+			n, step = -n, -1
+		}
+		for ; n > 0; n-- {
+			d = d.AddDate(0, 0, step)
+			for d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+				d = d.AddDate(0, 0, step)
+			}
+		}
+		switch sm[1] {
+		case "weekday":
+			return d.Weekday().String()
+		case "date":
+			return d.Format("Jan 2")
+		case "longdate":
+			return d.Format("January 2")
+		case "nth":
+			k, suffix := d.Day(), "th"
+			if k < 11 || k > 13 {
+				switch k % 10 {
+				case 1:
+					suffix = "st"
+				case 2:
+					suffix = "nd"
+				case 3:
+					suffix = "rd"
+				}
+			}
+			return strconv.Itoa(k) + suffix
+		}
+		return d.Format("2006-01-02")
+	})
+}
+
 // fill replaces {{path}} with the value at path in the turn's newest JSON
 // result ({{#k.path}}: its k-th), formatted by the filter; "—" when absent.
+// Day placeholders (dayRe) are filled first.
 func fill(s string, results []any) string {
 	if !strings.Contains(s, "{{") {
 		return s
 	}
+	s = fillDays(s)
 	return placeholderRe.ReplaceAllStringFunc(s, func(m string) string {
 		sm := placeholderRe.FindStringSubmatch(m)
 		var v any
