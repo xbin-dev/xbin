@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>frame counter</title>
+<!--
+  hack/demo/cam/framecheck/index.html — a frame counter for checking a
+  capture path: every requestAnimationFrame it draws its frame number as the
+  block pattern of pattern.js (big black/white blocks a decoder reads back
+  from the recorded video: check.js). Open it full-screen in the browser
+  being recorded.
+
+    ?counter=raf    the number of rAF callbacks so far (default): a repeat in
+                    the video is a capture that outran the page or a page
+                    that missed its frame, a skip is a frame the capture lost
+    ?counter=time   (rAF time − start) / (1000/fps): skips also show frames
+                    the page itself never drew
+    ?fps=60         the nominal rate for counter=time and the stats
+    ?stress=N       N animated shadowed cards under the info line — raster
+                    and compositing load, away from the blocks
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #info { position: fixed; left: 0; right: 0; bottom: 0; height: 20vh; display: flex; align-items: center; gap: 3vw;
+    padding: 0 3vw; box-sizing: border-box; font: 600 3.2vh/1.2 ui-monospace, Menlo, monospace; color: #9aa4b2; }
+  #n { color: #f5a623; font-size: 7vh; min-width: 16ch; }
+  .card { position: fixed; bottom: 2vh; width: 6vh; height: 6vh; border-radius: 1vh; background: linear-gradient(135deg, #2b3038, #3a4250);
+    box-shadow: 0 0.6vh 2vh rgba(0, 0, 0, .6), inset 0 0 0 1px #4a5262; animation: drift 2.4s ease-in-out infinite alternate; }
+  @keyframes drift { from { transform: translateX(0) rotate(0); } to { transform: translateX(30vw) rotate(180deg); } }
+</style>
+<canvas id="c"></canvas>
+<div id="info"><span id="n">frame —</span><span id="rate">rAF — fps</span><span id="mode"></span></div>
+<script src="pattern.js"></script>
+<script>
+  const q = new URLSearchParams(location.search);
+  const mode = q.get('counter') === 'time' ? 'time' : 'raf';
+  const fps = Number(q.get('fps')) || 60;
+  const P = window.FramePattern;
+  const cv = document.getElementById('c');
+  const g = cv.getContext('2d', { alpha: false });
+  const nEl = document.getElementById('n'), rateEl = document.getElementById('rate');
+  document.getElementById('mode').textContent = `counter=${mode} · ${innerWidth}×${innerHeight} @${devicePixelRatio}×`;
+  for (let i = 0; i < (Number(q.get('stress')) || 0); i++) {
+    const d = document.createElement('div');
+    d.className = 'card';
+    d.style.left = `${(i * 37) % 60}vw`;
+    d.style.animationDelay = `${-(i * 0.173) % 2.4}s`;
+    document.body.appendChild(d);
+  }
+  function size() {
+    cv.width = Math.round(innerWidth * devicePixelRatio);
+    cv.height = Math.round(innerHeight * devicePixelRatio);
+  }
+  size();
+  addEventListener('resize', size);
+  // the stats a capture script can read back: window.__fc.report()
+  const st = window.__fc = { mode, fps, frames: 0, t0: null, last: null, gaps: [], counter: 0,
+    report() {
+      const g = this.gaps.slice(1), n = g.length || 1, nominal = 1000 / this.fps;
+      return { mode: this.mode, frames: this.frames, counter: this.counter, ms: this.last - this.t0,
+        rafFps: this.frames > 1 ? (this.frames - 1) / ((this.last - this.t0) / 1000) : 0,
+        meanGapMs: g.reduce((a, b) => a + b, 0) / n, maxGapMs: Math.max(0, ...g), late: g.filter((x) => x > nominal * 1.5).length };
+    } };
+  function draw(n) {
+    const W = cv.width, H = cv.height, gap = Math.max(2, Math.round(W / 400));
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, W, Math.ceil(H * P.AREA));
+    const b = P.bits(n);
+    for (let i = 0; i < P.BLOCKS; i++) {
+      const [x, y, w, h] = P.cell(i);
+      g.fillStyle = b[i] ? '#fff' : '#000';
+      g.fillRect(Math.round(x * W) + gap, Math.round(y * H) + gap, Math.round(w * W) - 2 * gap, Math.round(h * H) - 2 * gap);
+    }
+  }
+  function frame(ts) {
+    if (st.t0 == null) st.t0 = ts;
+    if (st.last != null) { st.gaps.push(ts - st.last); if (st.gaps.length > 3600) st.gaps.shift(); }
+    st.last = ts;
+    st.frames++;
+    st.counter = mode === 'time' ? Math.round((ts - st.t0) / (1000 / fps)) : st.frames - 1;
+    draw(st.counter);
+    nEl.textContent = `frame ${st.counter}`;
+    if (st.frames % 15 === 0) rateEl.textContent = `rAF ${st.report().rafFps.toFixed(1)} fps`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
