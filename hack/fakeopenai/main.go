@@ -87,7 +87,8 @@
 // three words of the first message>"; its compaction summarizer (D133) gets
 // "SUMMARY: <n> transcript line(s) folded".
 //
-// Every request reports a 100-token prompt unless its plan says otherwise.
+// Every request reports a 100-token prompt and 20 completion tokens unless
+// its plan says otherwise (a -script answer reports its own sizes).
 // The agent's task reminder (D133: a <task-reminder> block appended to the
 // last message, never stored) is cut off before a message is scripted, and
 // recorded on its own. /v1/models lists a 128 000-token context window.
@@ -100,6 +101,9 @@
 // prompt, the task reminder) so a pass can measure, e.g., how long a
 // restarted backend took to re-issue its call, or check what a call after a
 // compaction carried.
+//
+// -script FILE answers from a demo script first (demo.go: the demo film
+// set's conversations, hack/demo), with its own model list.
 //
 //	go run ./hack/fakeopenai -addr 127.0.0.1:18977
 package main
@@ -215,6 +219,7 @@ type plan struct {
 	Calls    []call
 	Fast     bool // stream without the per-word and per-call pauses
 	Prompt   int  // the prompt tokens the reply reports (0: 100)
+	Output   int  // the completion tokens it reports (0: 20)
 }
 
 func (p plan) promptTokens() int {
@@ -222,6 +227,27 @@ func (p plan) promptTokens() int {
 		return p.Prompt
 	}
 	return 100
+}
+
+func (p plan) outputTokens() int {
+	if p.Output > 0 {
+		return p.Output
+	}
+	return 20
+}
+
+// chatUsage is a Chat Completions usage block, its fields in the order
+// providers send them (a gateway that scrapes the counts from the stream's
+// tail, llm-gw's, reads prompt_tokens before completion_tokens).
+type chatUsage struct {
+	PromptTokens     int            `json:"prompt_tokens"`
+	CompletionTokens int            `json:"completion_tokens"`
+	TotalTokens      int            `json:"total_tokens"`
+	Details          map[string]any `json:"completion_tokens_details,omitempty"`
+}
+
+func (p plan) chatUsage(details map[string]any) chatUsage {
+	return chatUsage{p.promptTokens(), p.outputTokens(), p.promptTokens() + p.outputTokens(), details}
 }
 
 // purposeOf tells the agent's calls apart by their system prompt.
@@ -516,8 +542,9 @@ func answerLine(s string) string {
 
 func chatCompletions(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Model    string `json:"model"`
-		Stream   bool   `json:"stream"`
+		Model    string            `json:"model"`
+		Stream   bool              `json:"stream"`
+		Tools    []json.RawMessage `json:"tools"`
 		Messages []struct {
 			Role       string          `json:"role"`
 			Content    json.RawMessage `json:"content"`
@@ -554,7 +581,7 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		conv = append(conv, turn{Role: m.Role, Text: text, Tool: names[m.ToolCallID]})
 	}
-	p := script(conv, system)
+	p := pick(conv, system, offered(req.Tools))
 	rec := record("chat", req.Model, conv, system, reminder)
 	if !wait(r.Context(), p.Delay) {
 		rec.done(true)
@@ -576,7 +603,7 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 			msg["tool_calls"] = tcs
 		}
 		writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": msg, "finish_reason": finish(p)}},
-			"usage": map[string]any{"prompt_tokens": p.promptTokens(), "completion_tokens": 20, "total_tokens": p.promptTokens() + 20}})
+			"usage": p.chatUsage(nil)})
 		return
 	}
 	sse := startSSE(w)
@@ -602,8 +629,7 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "function": map[string]any{"arguments": args[half:]}}}}, nil)
 	}
 	chunk(map[string]any{}, finish(p))
-	sse(map[string]any{"choices": []any{}, "usage": map[string]any{"prompt_tokens": p.promptTokens(), "completion_tokens": 20, "total_tokens": p.promptTokens() + 20,
-		"completion_tokens_details": map[string]any{"reasoning_tokens": len(p.Thinking) * 3}}})
+	sse(map[string]any{"choices": []any{}, "usage": p.chatUsage(map[string]any{"reasoning_tokens": len(p.Thinking) * 3})})
 	sse("[DONE]")
 }
 
@@ -615,6 +641,7 @@ func responses(w http.ResponseWriter, r *http.Request) {
 		Stream       bool              `json:"stream"`
 		Instructions string            `json:"instructions"`
 		Input        []json.RawMessage `json:"input"`
+		Tools        []json.RawMessage `json:"tools"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		http.Error(w, `{"error":{"message":"bad request"}}`, 400)
@@ -657,7 +684,7 @@ func responses(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"empty input"}}`, 400)
 		return
 	}
-	p := script(conv, system)
+	p := pick(conv, system, offered(req.Tools))
 	rec := record("responses", req.Model, conv, system, reminder)
 	if !wait(r.Context(), p.Delay) {
 		rec.done(true)
@@ -665,7 +692,7 @@ func responses(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rec.done(false)
 	var output []any
-	usage := map[string]any{"input_tokens": p.promptTokens(), "output_tokens": 20, "output_tokens_details": map[string]any{"reasoning_tokens": 7}}
+	usage := map[string]any{"input_tokens": p.promptTokens(), "output_tokens": p.outputTokens(), "output_tokens_details": map[string]any{"reasoning_tokens": 7}}
 	if !req.Stream {
 		if len(p.Thinking) > 0 {
 			output = append(output, map[string]any{"type": "reasoning", "id": "rs_1", "encrypted_content": "enc",
@@ -824,13 +851,30 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18977", "listen address")
+	scriptFile := flag.String("script", "", "a demo script (JSON) answering before the built-in keywords (demo.go)")
 	flag.Parse()
+	if *scriptFile != "" {
+		d, err := loadDemo(*scriptFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		demo = d
+		log.Printf("demo script %s: %d replies", *scriptFile, len(d.Replies))
+	}
 	if _, p, err := net.SplitHostPort(*addr); err == nil {
 		n, _ := strconv.Atoi(p)
 		servePort = n + 1
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
+		if demo != nil && len(demo.Models) > 0 {
+			var data []any
+			for _, m := range demo.Models {
+				data = append(data, map[string]any{"id": m, "object": "model", "context_length": 128000})
+			}
+			writeJSON(w, map[string]any{"object": "list", "data": data})
+			return
+		}
 		writeJSON(w, map[string]any{"object": "list", "data": []any{
 			map[string]any{"id": "fake-chat", "object": "model", "context_length": 128000},
 			map[string]any{"id": "gpt-5-fake", "object": "model", "context_length": 128000}}})
