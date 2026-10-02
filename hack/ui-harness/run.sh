@@ -35,6 +35,12 @@
 #                       partition — the agentTemplate pass runs against it,
 #                       and agentHomes (shared chats, two homes) needs it,
 #                       as does agentHosted (non-secure, hosted chats)
+#   HARNESS_SEED=demo ./run.sh --keep [pass…]   seed the demo film set
+#                       (hack/demo/seed.sh: Larkspan, a fictional company's
+#                       workspace — hack/demo/README.md) instead of the test
+#                       seed, with fakeopenai playing hack/demo's script; the
+#                       passes default to demoStills (the test passes need
+#                       the test seed)
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$H/../.." && pwd)"
@@ -86,6 +92,16 @@ mkdir -p "$OUT"
 mode="${1:-}"
 [[ $# -gt 0 ]] && shift
 passes=("$@")   # --shots [pass…]
+# HARNESS_SEED=demo: the demo film set (hack/demo) — its seed, its model
+# script, and its passes unless some are named
+export HARNESS_SEED=${HARNESS_SEED:-}
+seed_sh="$H/seed.sh" fake_args=()
+if [[ "$HARNESS_SEED" == demo ]]; then
+  seed_sh="$REPO/hack/demo/seed.sh" fake_args=(-script "$REPO/hack/demo/data/lark-script.json")
+  [[ ${#passes[@]} -eq 0 ]] && passes=(demoStills)
+elif [[ -n "$HARNESS_SEED" ]]; then
+  echo "HARNESS_SEED=$HARNESS_SEED: unknown (demo, or unset for the test seed)" >&2; exit 1
+fi
 # a mode that starts xbind needs the rootfs before it builds or wipes anything
 if [[ -n "$HARNESS_ISOLATE" && "$mode" != --stop && "$mode" != --shots && ! -x "$ROOTFS/bin/sh" ]]; then
   echo "HARNESS_ISOLATE=1: no rootfs at $ROOTFS (make rootfs, or ROOTFS=dir / XBIN_TEST_ROOTFS=dir)" >&2; exit 1
@@ -126,7 +142,7 @@ start() {
   # passes don't run there). fakebin/ leads xbind's PATH, which the
   # (host) shells inherit: its scripted `claude` is what the Agent tab's
   # guided sign-in runs (D178; the agentTab pass).
-  (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
+  (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" "${fake_args[@]}" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
   (cd "$REPO" && PATH="$H/fakebin:$PATH" XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
       FSB_HARNESS_FAKE="$REPO/bin/fakeacp --steer --auto-mode --require-login --persist" \
       nohup bin/xbind --dev "${overlay_flags[@]}" --workspace "$WS" --listen "127.0.0.1:$PORT" \
@@ -159,7 +175,7 @@ case "$mode" in
     # auth ON (no --no-auth): --dev seeds admin/admin, so other users can log in.
     start
     export TOKEN; TOKEN=$(cat "$WS/.xbin/token")
-    bash "$H/seed.sh" > "$OUT/seed.log" 2>&1 || { echo "seed failed:"; tail -20 "$OUT/seed.log"; exit 1; }
+    bash "$seed_sh" > "$OUT/seed.log" 2>&1 || { echo "seed failed:"; tail -20 "$OUT/seed.log"; exit 1; }
     echo "seeded (log: $OUT/seed.log)" ;;
 esac
 

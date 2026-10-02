@@ -1,5 +1,7 @@
 bin/
 devws*/
+# hack/demo/up.sh's workspaces and their snapshots (the demo film set)
+/.demo/
 .rootfs/
 go.work.sum
 *.log
