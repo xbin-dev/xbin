@@ -189,6 +189,18 @@ export const copyToMine = (runId, files = false) => homeApi('', '/copy', jbody({
 export const getConfig = () => api('/config');
 export const saveConfig = (c) => api('/config', jbody(c, 'PUT'));
 
+// The workflow and fairness limits (API.md "Config, models, features"):
+// [config key, label, the backend's default (what 0 means), what it bounds].
+// The ⚙ Config tab (agent.js) and native/settings.js draw them.
+export const WF_LIMITS = [
+  ['maxActiveRuns', 'Model calls at once', 4, 'concurrent model calls across the whole agent (1–32)'],
+  ['maxActiveRunsPerUser', 'Model calls at once, per person', 2, "a partitioned agent: one person's model calls at once, never above the limit above (1–32)"],
+  ['maxDepth', 'Subagent depth', 3, 'how deep subagents may delegate; the root conversation is 0 (≤ 8)'],
+  ['maxSpawn', 'Subagents per conversation', 32, 'subagents one conversation tree may start over its life (≤ 500)'],
+  ['maxSpawnPerTurn', 'Subagents per turn', 8, 'subagents started in a single turn (≤ 32)'],
+  ['subagentTimeout', 'Subagent wait (s)', 900, 'how long a foreground subagent is waited for before it moves to the background (≤ 3600)'],
+];
+
 // models: the model references the bound LLM providers list (GET /models) —
 // what a tier or a pick stores; throws when it cannot say.
 export const models = async () => ((await api('/models')).data || []).map((x) => x.ref || x.id).filter(Boolean);

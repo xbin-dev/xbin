@@ -115,7 +115,7 @@ func TestLegacyModeUnchanged(t *testing.T) {
 	if err := confRefuses("config"); err != nil {
 		t.Errorf("legacy mode refuses a settings write: %v", err)
 	}
-	if gateLimit(Config{MaxActiveRuns: 6}) != 6 {
+	if gateLimit(Config{MaxActiveRuns: 6}) != 6 || gateLimit(Config{MaxActiveRuns: 6, MaxActiveRunsPerUser: 1}) != 6 {
 		t.Error("legacy mode caps its gate")
 	}
 }

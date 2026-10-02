@@ -722,6 +722,10 @@ async function tabConfig(bd) {
       <div class="field"><label>Max iters / drive</label><input id="cf-iters" type="number" value="${num(c.maxIters)}"></div>
       <div class="field"><label>Tool timeout (s)</label><input id="cf-timeout" type="number" value="${num(c.toolTimeout)}"></div>
     </div></div>
+    <div class="sec"><h4>Subagents &amp; fairness</h4><div class="grid4">
+      ${actions.WF_LIMITS.map(([k, label, def, tip]) => `<div class="field"><label title="${esc(tip)}">${esc(label)}</label>
+        <input id="cf-${k}" type="number" min="0" placeholder="${def}" value="${num(c[k]) || ''}"></div>`).join('')}
+    </div><div class="hint">Empty = the default shown. The model-call limits apply to the whole tile at once; a subagent's call never takes the last free slot, so a new chat waits for at most one call. In a partitioned agent each person's calls are capped at the per-person limit.</div></div>
     <div class="sec"><h4>Behavior</h4>
       <label class="chk"><input type="checkbox" id="cf-sub" ${c.subagents ? 'checked' : ''}> Subagents (expose <span class="mono">spawn_subagent</span>)</label>
       <label class="chk"><input type="checkbox" id="cf-appr" ${c.approve ? 'checked' : ''}> Require approval before side-effecting tools</label>
@@ -734,6 +738,7 @@ async function tabConfig(bd) {
       system: $('cf-system').value,
       tokenBudget: num($('cf-budget').value), maxIters: num($('cf-iters').value), toolTimeout: num($('cf-timeout').value),
       subagents: $('cf-sub').checked, approve: $('cf-appr').checked,
+      ...Object.fromEntries(actions.WF_LIMITS.map(([k]) => [k, num($('cf-' + k).value)])),
     };
     try {
       await actions.saveConfig(next); cfgCache = next;

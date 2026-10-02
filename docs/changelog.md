@@ -10,6 +10,21 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-02
+
+- **Agent template: the subagent and fairness limits in Settings, and a
+  per-person model-call limit.** The ⚙ Config tab (and the app's Config
+  screen) now edits the workflow limits `PUT /config` already took —
+  `maxActiveRuns`, `maxDepth`, `maxSpawn`, `maxSpawnPerTurn`,
+  `subagentTimeout` — plus a new `maxActiveRunsPerUser`: how many of one
+  person's model calls run at once in a partitioned agent (default 2, as
+  before; never above `maxActiveRuns`). At 2 a person's subagents run their
+  model calls one at a time, because a subagent never takes the last free
+  slot; raise it for wider fan-outs. A person's partition follows a change at
+  its next model call, without a restart. Managers (anyone with write access
+  to the agent, which includes every workspace admin) set them, once for the
+  whole tile. Nothing to change.
+
 ## 2026-10-01
 
 - **Fix: an unmounted encrypted volume's gocryptfs now ends, and a volume

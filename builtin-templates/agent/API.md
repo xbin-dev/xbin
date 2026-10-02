@@ -536,8 +536,10 @@ What a partitioned instance does differently:
   partition shares; a dead process frees its slot. As within one instance,
   a subagent's call never takes the last slot, so a new chat waits for at
   most one call to finish however wide everyone's fan-outs are. Each
-  partition's own gate allows at most 2 of its calls at once; the global
-  instance keeps `maxActiveRuns`. The locks need one kernel: xbind never
+  partition's own gate allows at most `maxActiveRunsPerUser` (default 2,
+  never above `maxActiveRuns`) of its calls at once — at the default that
+  leaves a person's subagents one call at a time — and follows a change to
+  it at its next model call; the global instance keeps `maxActiveRuns`. The locks need one kernel: xbind never
   runs a partitioned tile's backend in a VM (`vm` and `partition` don't
   mix). A `team` directory that can't hold the lock files costs only the
   cap (calls and titles go ahead).
@@ -1013,10 +1015,12 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "replTimeoutMs": 5000,       // REPL budget per statement (max 60000)
   "replMemMB": 256,            // REPL heap watchdog
   // workflow limits (0 = default): delegation depth, lifetime runs per tree,
-  // spawns per turn, concurrent MODEL CALLS process-wide, and how long a
-  // foreground subagent is waited for before it moves to the background
+  // spawns per turn, concurrent MODEL CALLS process-wide, a person's own
+  // concurrent model calls in a partitioned agent (never above
+  // maxActiveRuns), and how long a foreground subagent is waited for before
+  // it moves to the background. The ⚙ Config tab edits them
   "maxDepth": 3, "maxSpawn": 32, "maxSpawnPerTurn": 8, "maxActiveRuns": 4,
-  "subagentTimeout": 900,
+  "maxActiveRunsPerUser": 2, "subagentTimeout": 900,
   // coding agents (§Coding agents): an idle one is stopped after
   // harnessIdleMin minutes (absent = 15, 0 = never), and at most maxHarness
   // run at once per conversation tree (0 = 3)
@@ -1319,7 +1323,9 @@ instant (a `yield` wake, a subagent deadline) and are one-shot.
   calls.
 - **Model calls are gated, not runs.** `maxActiveRuns` bounds concurrent model
   calls. A top-level run's call goes first, and subagents may hold at most
-  `limit − 1` slots, so a new chat never waits behind a fan-out.
+  `limit − 1` slots, so a new chat never waits behind a fan-out. In a
+  partitioned agent a person's calls also share their own gate of
+  `maxActiveRunsPerUser`.
 
 Upgrading from the pre-D81 loop: runs that were mid-drive in the old binary
 finish their lease (up to 30 s) before the new engine adopts them — once.
