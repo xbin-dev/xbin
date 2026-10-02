@@ -50,7 +50,7 @@ All claims are for **a big workstation** (Setup below), not a small VPS.
 
 **Where the workspaces lived.** This changes the numbers, so each section says which layout it used:
 
-- **run3-prodlike** is production-like: the workspace on the NVMe (btrfs) and xbind's run dir on a tmpfs, as `RuntimeDirectory=xbin` gives `/run/xbin`. Sections 2–5 and the VM terminals in §1 come from it. run2 is the same with the run dir on disk.
+- **run3-prodlike** is production-like: the workspace on the NVMe (btrfs) and xbind's run dir on a tmpfs, as `RuntimeDirectory=xbin` gives `/run/xbin`. Sections 2–5 lead with it, and pool it with runs 1 and 2 where they say so. §1's VM terminals pool it with run2. run2 is the same layout with the run dir on disk.
 - **run1, run4 and run5** have the workspace on tmpfs (RAM). §1's tile sandboxes come only from these runs: xbind starts no tile sandbox while the workspace disk is below its 10 % free reserve (`internal/broker/diskmon.go`), and the only writable disk here is 97.5 % full.
   - On the same disk, VM terminals took 6 ms longer at the median than on tmpfs, 10 ms at the p90, and had one outlier.
   - Partition cold starts took 34 ms longer at the median.
