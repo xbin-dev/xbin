@@ -87,7 +87,13 @@ func (s *samples) add(fields map[string]any, ms map[string]float64) {
 	for k, v := range fields {
 		line[k] = v
 	}
-	for k, v := range ms {
+	keys := make([]string, 0, len(ms))
+	for k := range ms {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys) // a stable order for the series one sample adds
+	for _, k := range keys {
+		v := ms[k]
 		line[k+"Ms"] = round3(v)
 		if _, ok := s.ser[k]; !ok {
 			s.keys = append(s.keys, k)

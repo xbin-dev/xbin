@@ -80,7 +80,10 @@ esac
   echo "go: $(go version)"
   echo "node: $(node --version 2>/dev/null || echo none)"
   if [ -n "${XBIN_FIRECRACKER:-}" ] && [ -x "$XBIN_FIRECRACKER" ]; then echo "firecracker: $("$XBIN_FIRECRACKER" --version 2>/dev/null | head -1)"; fi
-  echo "rootfs: ${XBIN_TEST_ROOTFS:-$repo/.rootfs}"
+  rootfs=${XBIN_TEST_ROOTFS:-$repo/.rootfs}
+  echo "rootfs: $rootfs ($(. "$rootfs/etc/os-release" 2>/dev/null && echo "$PRETTY_NAME"), built $(date -r "$rootfs/etc/os-release" '+%F %T' 2>/dev/null))"
+  tmp=${TMPDIR:-/tmp}
+  echo "workspaces under: $tmp ($(findmnt -n -o FSTYPE,SOURCE -T "$tmp" 2>/dev/null | head -1))"
   echo "load at start: $(cat /proc/loadavg)"
 } > "$MEASURE_OUT/machine-$which.txt"
 cat "$MEASURE_OUT/machine-$which.txt"

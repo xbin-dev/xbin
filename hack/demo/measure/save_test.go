@@ -14,9 +14,10 @@ package measure
 //     confined build plus the new generation's start and health check
 //     (build-start → build-ok) and the swap (build-ok → served).
 //
-// TestSwap runs a request loop against the Go tile's API through ten saves
-// (each a rebuild and a blue/green swap) and counts every request that
-// failed and the slowest ones.
+// TestSwap runs a closed request loop against the Go tile's API — 8 workers
+// GET, 4 POST with a JSON body — through ten saves (each a
+// rebuild and a blue/green swap), and counts every request that failed and
+// the slowest ones; every request is in swap-requests.csv.gz.
 
 import (
 	"bufio"
@@ -158,25 +159,26 @@ func TestSwap(t *testing.T) {
 	waitRelease(t, d, "r0b", 2*time.Minute)
 	ev.settle(ordersTile, 700*time.Millisecond)
 
-	const getters, posters = 8, 2
+	// G: GET /orders, P: POST /orders with a JSON body. A request the old
+	// generation never answered (a swap's SIGTERM reset it) is sent again
+	// only when that is safe: no body, and an idempotent method or an
+	// Idempotency-Key (docs/elements.md §Runtimes & backend lifecycle) — a
+	// POST with a body never is, so one caught at the swap answers 502.
+	kinds := []byte("GGGGGGGGPPPP")
 	tr := &http.Transport{MaxIdleConnsPerHost: 64}
 	hc := &http.Client{Transport: tr, Timeout: 60 * time.Second}
 	tok := "Bearer " + d.Token()
 	url := d.URL + "/api/" + ordersTile + "/orders"
 	ctx, cancel := context.WithCancel(context.Background())
 	begin := time.Now()
-	logs := make([][]req, getters+posters)
+	logs := make([][]req, len(kinds))
 	var latest atomic.Value // the newest release a GET saw
 	latest.Store("r0b")
 	var wg sync.WaitGroup
-	for w := range getters + posters {
+	for w, kind := range kinds {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			kind := byte('G')
-			if w >= getters {
-				kind = 'P'
-			}
 			for n := 0; ctx.Err() == nil; n++ {
 				var r *http.Request
 				if kind == 'G' {
@@ -201,7 +203,8 @@ func TestSwap(t *testing.T) {
 					var body struct{ Release string }
 					if json.Unmarshal(b, &body) == nil {
 						x.release = body.Release
-					} else if x.err == "" && resp.StatusCode >= 300 {
+					}
+					if x.err == "" && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 						x.err = cut(b)
 					}
 					if kind == 'G' && x.status == 200 {
@@ -335,14 +338,27 @@ func TestSwap(t *testing.T) {
 		slices.Sort(s)
 		return round3(s[min(len(s)-1, int(q*float64(len(s))))])
 	}
+	names := map[byte]string{'G': "GET /orders", 'P': "POST /orders (JSON body)"}
+	perKind := map[string]any{}
+	failedBy := map[byte]int{}
+	for _, x := range failed {
+		failedBy[x.kind]++
+	}
+	workers := map[byte]int{}
+	for _, k := range kinds {
+		workers[k]++
+	}
+	for k, name := range names {
+		perKind[name] = map[string]any{"workers": workers[k], "requests": count[k], "failed": failedBy[k],
+			"latencyMs": map[string]float64{"p50": p(lat[k], 0.5), "p99": p(lat[k], 0.99), "p999": p(lat[k], 0.999), "max": p(lat[k], 1)}}
+	}
 	sum := map[string]any{
-		"workers":  map[string]int{"GET /orders": getters, "POST /orders": posters},
-		"requests": map[string]int{"GET": count['G'], "POST": count['P'], "all": len(all)},
-		"failed":   len(failed), "failures": asRows(failed[:min(len(failed), 200)]),
+		"byKind":           perKind,
+		"requests":         len(all),
+		"failed":           len(failed),
+		"failures":         asRows(failed[:min(len(failed), 200)]),
 		"staleAfterSwitch": stale,
 		"latencyMs": map[string]any{
-			"GET":                map[string]float64{"p50": p(lat['G'], 0.5), "p99": p(lat['G'], 0.99), "p999": p(lat['G'], 0.999), "max": p(lat['G'], 1)},
-			"POST":               map[string]float64{"p50": p(lat['P'], 0.5), "p99": p(lat['P'], 0.99), "p999": p(lat['P'], 0.999), "max": p(lat['P'], 1)},
 			"inSwapWindows":      map[string]float64{"n": float64(len(winLat)), "p50": p(winLat, 0.5), "p99": p(winLat, 0.99), "max": p(winLat, 1)},
 			"outsideSwapWindows": map[string]float64{"n": float64(len(restLat)), "p50": p(restLat, 0.5), "p99": p(restLat, 0.99), "max": p(restLat, 1)},
 		},
@@ -354,8 +370,9 @@ func TestSwap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(outDir(t), "swap.summary.json"), append(b, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("swap: %d requests (%d GET, %d POST) over %d saves: %d failed, %d stale; latency GET p50 %.2f p99 %.2f max %.2f ms, POST max %.2f ms; in swap windows max %.2f ms, outside max %.2f ms",
-		len(all), count['G'], count['P'], len(swaps), len(failed), stale, p(lat['G'], 0.5), p(lat['G'], 0.99), p(lat['G'], 1), p(lat['P'], 1), p(winLat, 1), p(restLat, 1))
+	t.Logf("swap: %d requests over %d saves: %d failed (GET %d of %d, POST %d of %d), %d stale; max latency GET %.2f, POST %.2f ms; in swap windows max %.2f ms, outside max %.2f ms",
+		len(all), len(swaps), len(failed), failedBy['G'], count['G'], failedBy['P'], count['P'], stale,
+		p(lat['G'], 1), p(lat['P'], 1), p(winLat, 1), p(restLat, 1))
 	for _, x := range failed[:min(len(failed), 10)] {
 		t.Logf("failed: %+v", x)
 	}
