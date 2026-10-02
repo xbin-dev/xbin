@@ -1,0 +1,9 @@
+{
+  // Onboarding tracker (README.md). No backend: the page keeps each
+  // customer's checklist in this tile's kv resource and reads plan, fleet
+  // and health from the CRM.
+  "uses": [
+    { "target": "res:apps/onboarding/state", "role": "writer" },
+    { "target": "apps/crm", "role": "reader" }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  // Host metrics in Prometheus text format at GET /metrics (load, memory,
+  // CPU, network, disk — read from /proc at every scrape). The metrics
+  // dashboard binds its `sources` interface here (service "prometheus").
+  "runtime": "node",
+  "expose": {
+    "roles": { "reader": "Scrape /metrics" }
+  },
+  "provides": {
+    "metrics": { "kind": "http", "service": "prometheus", "role": "reader" }
+  }
+}

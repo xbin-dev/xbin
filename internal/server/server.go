@@ -186,6 +186,12 @@ func (s *Server) Handler() http.Handler {
 // ambient credentials (the cookie is dropped from tile contexts; a genuinely
 // cross-site caller's cookie isn't sent under SameSite=Lax), so the frame
 // token remains the only way to read anything — as designed (ND8).
+//
+// A tile page that speaks MCP to a bound provider (the builtin chat tile's
+// streamable-HTTP client) sends the protocol's own headers after its
+// initialize — Mcp-Session-Id, MCP-Protocol-Version, and Last-Event-ID to
+// resume a stream — and reads the session id the server answers with: the
+// preflight allows them and the answer exposes that one.
 func nullOriginCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Origin") != "null" {
@@ -194,9 +200,10 @@ func nullOriginCORS(next http.Handler) http.Handler {
 		}
 		w.Header().Set("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Origin", "null")
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader)
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader+", Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID")
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
 			return

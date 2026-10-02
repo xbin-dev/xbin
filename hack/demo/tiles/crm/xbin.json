@@ -1,0 +1,20 @@
+{
+  // Larkspan CRM: accounts, contacts, deals and activity (API.md). Its data
+  // is one JSON document in the `data` filesystem resource.
+  "runtime": "node",
+  "uses": [
+    { "target": "res:apps/crm/data", "role": "writer" }
+  ],
+  "expose": {
+    "roles": {
+      "reader": "Read accounts, contacts, deals and activity; the MCP tools",
+      "writer": "Move deals between stages and log activity (implies reader)"
+    }
+  },
+  // MCP (streamable HTTP at /mcp): search_accounts, get_account, list_deals,
+  // pipeline_summary. Bind an agent's or the chat tile's `mcp` slot here;
+  // the binding grants the reader role.
+  "provides": {
+    "mcp": { "kind": "http", "service": "mcp", "role": "reader" }
+  }
+}

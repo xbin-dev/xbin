@@ -10,6 +10,24 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-03
+
+- **Fix: MCP from a tile's page works** — the builtin chat tile's tools from
+  the MCP servers bound to its `mcp` slot. Its client sends MCP's
+  `Mcp-Session-Id` and `MCP-Protocol-Version` headers after `initialize`,
+  which xbind's answer to a sandboxed frame's preflight didn't allow, so
+  every call after the first failed in the browser (the chat showed
+  "⚠ 0 tools"). Preflights now allow them (and `Last-Event-ID`), and
+  answers expose `Mcp-Session-Id` ([protocol.md](/docs/protocol.md)
+  §Authentication). Nothing to change.
+- **chat tile v4**: a model round that only calls tools (no text, no
+  reasoning) no longer draws an empty reply bubble above its tool cards.
+  `bx builtin update tile:chat` takes it.
+- **traefik tile v5**: its setup script unpacks the traefik binary as the
+  sandbox's own user (`tar --no-same-owner`). It failed ("Cannot change
+  ownership to uid 1001") where a tile sandbox maps a single uid, as on a
+  rootless host with one uid. `bx builtin update tile:traefik` takes it.
+
 ## 2026-10-01
 
 - **Fix: an unmounted encrypted volume's gocryptfs now ends, and a volume

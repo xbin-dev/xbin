@@ -1,0 +1,36 @@
+{
+  "_comment": "The nightly ops report's model (apps/ops-report): the customers' fleets the routing platform planned for, the platform's baselines, and what happened on particular nights. The tile generates each night's numbers from these baselines with a deterministic per-night variation, so a report is the same whenever it is rendered. Imported by hack/demo/seed.sh (POST /import), which renders the last 14 nights; the cron job renders each new night at 05:30.",
+  "customers": [
+    { "id": "brightwell",   "name": "Brightwell Grocers Co-op",   "routes": 148, "stopsPerRoute": 27, "onTime": 96.4 },
+    { "id": "riverbend",    "name": "Riverbend Dairy",            "routes": 91,  "stopsPerRoute": 22, "onTime": 97.2 },
+    { "id": "lakeshore",    "name": "Lakeshore Medical Couriers", "routes": 63,  "stopsPerRoute": 31, "onTime": 94.1 },
+    { "id": "kettle-creek", "name": "Kettle Creek Bakeries",      "routes": 39,  "stopsPerRoute": 18, "onTime": 98.0 },
+    { "id": "bluestem",     "name": "Bluestem Natural Foods",     "routes": 35,  "stopsPerRoute": 24, "onTime": 96.8 },
+    { "id": "alder-street", "name": "Alder Street Couriers",      "routes": 29,  "stopsPerRoute": 34, "onTime": 93.6 },
+    { "id": "granary-row",  "name": "Granary Row Market",         "routes": 19,  "stopsPerRoute": 21, "onTime": 97.5 },
+    { "id": "harbor-vine",  "name": "Harbor & Vine Florists",     "routes": 13,  "stopsPerRoute": 16, "onTime": 98.4 },
+    { "id": "pinewood",     "name": "Pinewood Building Supply (pilot)", "routes": 22, "stopsPerRoute": 9, "onTime": 95.0 }
+  ],
+  "platform": {
+    "planSecondsP95": 2.3,
+    "apiRequestsM": 4.1,
+    "apiErrorPct": 0.03,
+    "apiP95ms": 184,
+    "drivers": 1052,
+    "crashFreePct": 99.6,
+    "ticketsOpened": 7,
+    "ticketsClosed": 8,
+    "firstResponseMin": 14
+  },
+  "nights": [
+    { "daysAgo": 13, "notes": ["Pinewood pilot week 1 started: 22 routes on the Grand Rapids yard."] },
+    { "daysAgo": 11, "incident": { "sev": 3, "title": "Geocoder timeouts for 17 minutes", "window": "22:14–22:31", "impact": "Lakeshore's evening re-plan ran 6 minutes late", "owner": "owen" } },
+    { "daysAgo": 9, "notes": ["Driver app 4.11 rolled out to 100% of drivers."] },
+    { "daysAgo": 8, "set": { "ticketsOpened": 12 }, "notes": ["Ticket spike after the 4.11 rollout: Android 15 drivers logged out mid-route (Alder Street, Granary Row)."] },
+    { "daysAgo": 6, "notes": ["Kettle Creek renewed for 2027 with the driver app."] },
+    { "daysAgo": 5, "notes": ["Route-plan cache warmed before the 04:00 batch; plan p95 down to 1.9 s."], "set": { "planSecondsP95": 1.9 } },
+    { "daysAgo": 3, "notes": ["Riverbend's Green Bay depot ran its first night on Larkspan in shadow mode."] },
+    { "daysAgo": 2, "incident": { "sev": 4, "title": "One planner worker restarted (out of memory)", "window": "03:52", "impact": "No customer impact; the batch retried in 40 s", "owner": "lukas" } },
+    { "daysAgo": 1, "notes": ["Brightwell's Dayton DC ran its first night on the new depot hand-off rules: 97.1% on time.", "Fix for Android 15 logouts (4.12) is in staged rollout: 20% of drivers."], "customers": { "brightwell": { "onTime": 97.1 } } }
+  ]
+}

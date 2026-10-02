@@ -69,7 +69,10 @@ resolution: a tile that omits its frame token cannot ride the human's
 session. Requests with `Origin: null` (opaque-origin fetches) get
 `Access-Control-Allow-Origin: null` and preflight answers — required for
 tile `fetch()` to function at all, and safe because tile requests carry no
-ambient credentials.
+ambient credentials. A preflight allows `Authorization`, `Content-Type`,
+`X-XBin-Frame-Token` and MCP's streamable-HTTP headers (`Mcp-Session-Id`,
+`MCP-Protocol-Version`, `Last-Event-ID`), and every answer exposes
+`Mcp-Session-Id`, so a tile page can talk MCP to a provider it binds.
 
 The gateway unix socket (`$XBIN_GATEWAY`, `.xbin/run/gateway.sock`) serves
 this same API; element backends use it with their instance bearer token.

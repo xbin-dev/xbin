@@ -1,0 +1,155 @@
+<!doctype html>
+<!-- The team calendar: a week view over examples/calendar's backend (GET
+     /events?day=, POST /events; live via its bus). The demo film set lays
+     this page over the example's own. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>calendar</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>html, body { margin: 0; height: 100%; }</style>
+</head>
+<body class="bx">
+  <team-calendar></team-calendar>
+  <script type="module">
+    import { LitElement, html, css, nothing } from 'lit';
+    import { scrollCss } from '/vendor/scroll-css.js';
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const key = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const monday = (d) => { const m = new Date(d); m.setHours(12, 0, 0, 0); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return m; };
+    // the work week to show: this one, or on a weekend the coming one
+    const workWeek = () => { const t = new Date(), m = monday(t); if (t.getDay() === 0 || t.getDay() === 6) m.setDate(m.getDate() + 7); return m; };
+    const fmt = (d, o) => d.toLocaleDateString('en-US', o);
+    const nowHM = () => { const n = new Date(); return `${pad(n.getHours())}:${pad(n.getMinutes())}`; };
+
+    class TeamCalendar extends LitElement {
+      static properties = { _start: { state: true }, _days: { state: true }, _adding: { state: true }, _narrow: { state: true } };
+      static styles = [scrollCss, css`
+        :host { display: grid; grid-template-rows: auto 1fr; height: 100%; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
+        * { box-sizing: border-box; }
+        header { display: flex; align-items: center; gap: 10px; padding: 12px 16px 10px; border-bottom: 1px solid var(--bx-border); }
+        h1 { margin: 0; font-size: 15px; font-weight: 650; }
+        .range { color: var(--bx-muted); font-size: 12.5px; }
+        .sp { flex: 1; }
+        button { font: inherit; font-size: 12px; color: inherit; background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+        .week { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); min-height: 0; overflow: auto; }
+        .agenda { overflow: auto; padding: 4px 14px 16px; }
+        .agenda h2 { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); margin: 12px 2px 8px; }
+        .agenda h2 b { color: var(--bx-accent); font-weight: 600; }
+        .day { border-right: 1px solid var(--bx-border); padding: 8px 8px 14px; min-width: 0; }
+        .day:last-child { border-right: 0; }
+        .dh { display: flex; align-items: baseline; gap: 6px; padding: 2px 4px 8px; }
+        .dh .w { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); }
+        .dh .n { font-size: 17px; font-weight: 650; }
+        .day.today { background: color-mix(in srgb, var(--bx-accent) 4%, transparent); }
+        .day.today .n { color: #1b1e24; background: var(--bx-accent); border-radius: 999px; padding: 0 7px; }
+        .ev { border-radius: 7px; padding: 6px 8px; margin-bottom: 6px; background: var(--bx-panel-2); border: 1px solid var(--bx-border);
+              border-left: 3px solid var(--c, var(--bx-accent)); }
+        .ev .t { font-family: var(--bx-mono); font-size: 11px; color: var(--c, var(--bx-accent)); }
+        .ev .x { font-size: 12.3px; font-weight: 600; line-height: 1.3; margin-top: 1px; }
+        .ev .p { font-size: 11px; color: var(--bx-muted); line-height: 1.35; margin-top: 1px; }
+        .ev.past { opacity: .55; }
+        .now { height: 0; border-top: 2px solid var(--bx-red); margin: 2px 0 8px; position: relative; }
+        .now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--bx-red); }
+        .free { color: var(--bx-muted); font-size: 11.5px; padding: 2px 4px; }
+        form { display: flex; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--bx-border); }
+        input, select { background: var(--bx-panel-2); border: 1px solid var(--bx-border); color: inherit; border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 12px; }
+        input[name=title] { flex: 1; }
+      `];
+
+      constructor() { super(); this._start = workWeek(); this._days = []; }
+      connectedCallback() {
+        super.connectedCallback();
+        // narrow (a sidebar-sized card): today's agenda instead of the week
+        this._ro = new ResizeObserver(([e]) => { this._narrow = e.contentRect.width < 560; });
+        this._ro.observe(this);
+        this._load();
+        // live: the calendar's own bus (also how other apps stay in sync)
+        xbin.bus.on(`res:${xbin.self}/bus/events/`, () => this._load());
+        this._tick = setInterval(() => this.requestUpdate(), 60000);
+      }
+      disconnectedCallback() { super.disconnectedCallback(); clearInterval(this._tick); this._ro?.disconnect(); }
+
+      async _load() {
+        const days = [...Array(5)].map((_, i) => { const d = new Date(this._start); d.setDate(d.getDate() + i); return d; });
+        this._days = await Promise.all(days.map(async (d) => {
+          const r = await xbin.fetch(`/api/${xbin.self}/events?day=${key(d)}`);
+          const evs = r.ok ? (await r.json()).events : [];
+          evs.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+          return { date: d, events: evs };
+        }));
+      }
+      _week(n) { const d = new Date(this._start); d.setDate(d.getDate() + 7 * n); this._start = n ? d : workWeek(); this._load(); }
+      _form(today) {
+        return html`<form @submit=${this._add}>
+          <select name="day">${this._days.map((d) => html`<option value=${key(d.date)} ?selected=${key(d.date) === today}>${fmt(d.date, { weekday: 'short', day: 'numeric' })}</option>`)}</select>
+          <input name="time" placeholder="10:00" size="5" required>
+          <input name="title" placeholder="What, and who" required>
+          <button>Add</button>
+        </form>`;
+      }
+      async _add(e) {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        await xbin.fetch(`/api/${xbin.self}/events`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ day: f.get('day'), time: f.get('time'), title: f.get('title') }) });
+        this._adding = false;
+      }
+
+      // one event card (the week's columns and the agenda share it)
+      _event(ev, d, today, hm) {
+        const [title, people] = ev.title.split(' · ');
+        const past = key(d.date) < today || (key(d.date) === today && (ev.time || '') < hm);
+        const c = /standup|demos/i.test(title) ? 'var(--bx-muted)' : /review|incident|hiring|board/i.test(title) ? '#a68cf0'
+          : /all-hands|lunch|offsite/i.test(title) ? '#3fbfae' : 'var(--bx-accent)';
+        return html`<div class="ev ${past ? 'past' : ''}" style="--c:${c}">
+          <div class="t">${ev.time}</div><div class="x">${title}</div>${people ? html`<div class="p">${people}</div>` : nothing}</div>`;
+      }
+      _agenda(today, hm) {
+        const i = Math.max(0, this._days.findIndex((d) => key(d.date) >= today));
+        const days = this._days.slice(i, i + 2);
+        return html`<div class="agenda">${days.map((d) => html`
+          <h2>${key(d.date) === today ? html`<b>Today</b> · ` : ''}${fmt(d.date, { weekday: 'long', month: 'short', day: 'numeric' })}</h2>
+          ${d.events.length ? d.events.map((ev) => this._event(ev, d, today, hm)) : html`<div class="free">No meetings</div>`}`)}</div>`;
+      }
+
+      render() {
+        const end = new Date(this._start); end.setDate(end.getDate() + 4);
+        const today = key(new Date()), hm = nowHM();
+        if (this._narrow) {
+          return html`<div><header><h1>Calendar</h1><span class="sp"></span>
+            <button @click=${() => { this._adding = !this._adding; }}>${this._adding ? 'Cancel' : '+ Event'}</button></header>
+            ${this._adding ? this._form(today) : nothing}</div>${this._agenda(today, hm)}`;
+        }
+        return html`
+          <div>
+            <header>
+              <h1>Team calendar</h1>
+              <span class="range">${fmt(this._start, { month: 'short', day: 'numeric' })} – ${fmt(end, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              <span class="sp"></span>
+              <button @click=${() => this._week(-1)} title="Previous week">‹</button>
+              <button @click=${() => this._week(0)}>This week</button>
+              <button @click=${() => this._week(1)} title="Next week">›</button>
+              <button @click=${() => { this._adding = !this._adding; }}>${this._adding ? 'Cancel' : '+ Event'}</button>
+            </header>
+            ${this._adding ? this._form(today) : nothing}
+          </div>
+          <div class="week">${this._days.map((d) => {
+            const isToday = key(d.date) === today;
+            let nowShown = !isToday;
+            return html`<div class="day ${isToday ? 'today' : ''}">
+              <div class="dh"><span class="w">${fmt(d.date, { weekday: 'short' })}</span><span class="n">${d.date.getDate()}</span></div>
+              ${d.events.length ? d.events.map((ev) => {
+                const line = !nowShown && (ev.time || '') >= hm ? (nowShown = true, html`<div class="now"></div>`) : nothing;
+                return html`${line}${this._event(ev, d, today, hm)}`;
+              }) : html`<div class="free">No meetings</div>`}
+              ${!nowShown ? html`<div class="now"></div>` : nothing}
+            </div>`;
+          })}</div>`;
+      }
+    }
+    customElements.define('team-calendar', TeamCalendar);
+  </script>
+</body>
+</html>

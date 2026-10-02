@@ -1,0 +1,6 @@
+{
+  // apps/email is a scope: the team inbox's threads (kv, one key per thread).
+  "resources": {
+    "mail": { "type": "kv" }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  // apps/ops-report is a scope:
+  //   data — the report model and every rendered night (one JSON document)
+  //   cron — the 05:30 job (the backend registers it at start)
+  //   bus  — report/published, one event per new report
+  "resources": {
+    "data": { "type": "filesystem" },
+    "cron": { "type": "cron" },
+    "bus": { "type": "bus" }
+  }
+}

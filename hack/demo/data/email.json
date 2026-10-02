@@ -1,0 +1,72 @@
+{
+  "_comment": "The team inbox (apps/email: examples/email plus a kv-backed inbox page). Each thread becomes kv key thread/<id> in res:apps/email/mail. 'at' is minutes before the seed for a message; bodies are plain text.",
+  "mailbox": "hello@larkspan.example",
+  "threads": [
+    { "id": "brightwell-order-form", "subject": "Re: Order form for the Dayton DC expansion", "labels": ["Customers"], "unread": true, "starred": true,
+      "messages": [
+        { "from": { "name": "Daniel Mensah", "email": "daniel@larkspan.example" }, "to": "dana.whitfield@brightwell.example", "at": 330,
+          "body": "Hi Dana,\n\nAttached is the revised order form: 60 additional vans for the Dayton DC from January 6, on a three-year term, with the $70 per van rate held from your current agreement.\n\nEllen's redlines on the MSA are all accepted except the liability cap in 9.2; I've suggested a middle ground in the comments.\n\nBest,\nDaniel" },
+        { "from": { "name": "Dana Whitfield", "email": "dana.whitfield@brightwell.example" }, "to": "daniel@larkspan.example", "at": 46,
+          "body": "Thanks Daniel — this looks right. Ellen is fine with your wording on 9.2.\n\nOne ask before we sign: can Marcus's team pilot the driver app in Dayton for two weeks in December, before the full rollout in January? He wants his drivers comfortable before the holiday volume is behind us.\n\nIf that works, I'll have the signed form back to you by {{weekday:+2}}.\n\nDana" }
+      ] },
+    { "id": "pinewood-week2", "subject": "Pilot week 2: crane windows on the north yard", "labels": ["Customers"], "unread": true,
+      "messages": [
+        { "from": { "name": "Grant Holloway", "email": "grant.holloway@pinewood-supply.example" }, "to": "jonas@larkspan.example", "at": 128,
+          "body": "Jonas,\n\nWeek 2 is going well — the drivers stopped asking for the old printouts on Tuesday. One thing: the north yard's crane is only staffed 7:00–11:00 on Fridays, and today's plan put two loads after 11.\n\nCan we add that as a rule for Fridays only? Tessa can send the exact hours.\n\nGrant" }
+      ] },
+    { "id": "riverbend-eau-claire", "subject": "Eau Claire shadow night: one route looked off", "labels": ["Customers"], "unread": true,
+      "messages": [
+        { "from": { "name": "Henrik Olsen", "email": "henrik.olsen@riverbend-dairy.example" }, "to": "priya@larkspan.example", "at": 205,
+          "body": "Morning Priya,\n\nThe shadow plan for Eau Claire looked good overall, but route 14 sent a truck back to Madison for the school orders instead of handing them to Eau Claire at the cross-dock. Amy thinks it's the hand-off cut-off time.\n\nCould someone look before tonight's run?\n\nThanks,\nHenrik" }
+      ] },
+    { "id": "northgate-sso", "subject": "Security questionnaire: two follow-ups on SSO", "labels": ["Customers"], "unread": false,
+      "messages": [
+        { "from": { "name": "Simone Clarke", "email": "simone.clarke@northgate-rx.example" }, "to": "ingrid@larkspan.example", "at": 1530,
+          "body": "Hi Ingrid,\n\nThanks for walking us through the audit log yesterday. Two follow-ups for the questionnaire:\n\n1. Do you support SCIM provisioning, or only SSO with just-in-time accounts?\n2. Where is route data stored, and can it stay in the US only?\n\nWe'd like to close this out by the {{nth:+4}}.\n\nSimone" },
+        { "from": { "name": "Ingrid Halvorsen", "email": "ingrid@larkspan.example" }, "to": "simone.clarke@northgate-rx.example", "at": 1410,
+          "body": "Hi Simone,\n\n1. SSO with just-in-time accounts today; SCIM is on our roadmap for Q1 and we can commit to it in the order form.\n2. All route and customer data is stored in US regions only.\n\nTomás will send the data-flow diagram tomorrow.\n\nIngrid" }
+      ] },
+    { "id": "lakeshore-agenda", "subject": "{{weekday:+1}}'s call: agenda", "labels": ["Customers"], "unread": false,
+      "messages": [
+        { "from": { "name": "Sam Whitaker", "email": "sam.whitaker@lakeshore-med.example" }, "to": "maya@larkspan.example", "at": 1790,
+          "body": "Maya,\n\nFor {{weekday:+1}} I'd like to cover: (1) what happened with API latency in August and what changed since, (2) a written SLA for route recalculation, and (3) pricing for the second hospital network.\n\nKeisha will join for the first half.\n\nSam" }
+      ] },
+    { "id": "kofi-4-12", "subject": "Driver app 4.12 staged rollout: Android 15 logouts fixed", "labels": ["Internal"], "unread": false,
+      "messages": [
+        { "from": { "name": "Kofi Boateng", "email": "kofi@larkspan.example" }, "to": "support@larkspan.example", "at": 1880,
+          "body": "4.12 is out to 20% of drivers. Zero logout reports from the Android 15 devices in that group overnight (it was 9–14 a night before).\n\nI'll take it to 100% Monday morning if the weekend stays quiet, and close the Alder Street and Granary Row tickets then." }
+      ] },
+    { "id": "harbor-valentines", "subject": "Valentine's Day capacity: an early heads-up", "labels": ["Customers"], "unread": false,
+      "messages": [
+        { "from": { "name": "Lucy Tran", "email": "lucy@harborvine.example" }, "to": "priya@larkspan.example", "at": 2950,
+          "body": "Hi Priya! The holiday add-on has been great so far. For Valentine's Day we're expecting about 3x our normal orders over two days and we'll rent 6 extra vans.\n\nCan we plan them in early January? Happy to do a call whenever suits you.\n\nLucy" }
+      ] },
+    { "id": "billing-september", "subject": "September invoices sent", "labels": ["Internal"], "unread": false,
+      "messages": [
+        { "from": { "name": "Elena Petrova", "email": "elena@larkspan.example" }, "to": "team@larkspan.example", "at": 3100,
+          "body": "All nine September invoices went out this morning. Two customers moved to annual billing (Bluestem and Granary Row), so October's cash will look lighter than usual — that's expected.\n\nExpense reports for September are approved through Tuesday; anything submitted after that goes into October's run." }
+      ] },
+    { "id": "bluestem-webhooks", "subject": "Webhook payload sample?", "labels": ["Customers"], "unread": false,
+      "messages": [
+        { "from": { "name": "Aaron Fisk", "email": "aaron.fisk@bluestem.example" }, "to": "jonas@larkspan.example", "at": 4380,
+          "body": "Hi Jonas, could you send a sample of the order.delivered webhook payload? Our ERP team wants to map the fields before we schedule the integration work.\n\nThanks, Aaron" },
+        { "from": { "name": "Jonas Lindqvist", "email": "jonas@larkspan.example" }, "to": "aaron.fisk@bluestem.example", "at": 4200,
+          "body": "Here you go — sample payloads for order.delivered and route.completed, plus the signature header we send with every event. The docs page has the retry policy (5 attempts with backoff).\n\nJonas" }
+      ] },
+    { "id": "fernbrook-estimate", "subject": "Route-savings estimate: next steps", "labels": ["Customers"], "unread": false,
+      "messages": [
+        { "from": { "name": "Olivia Park", "email": "olivia.park@fernbrook.example" }, "to": "daniel@larkspan.example", "at": 4700,
+          "body": "Daniel — the calculator said we'd drive about 14% fewer miles. Our owner wants to see that on our own data before a bigger conversation. What would you need from us?\n\nOlivia" }
+      ] },
+    { "id": "hiring-backend", "subject": "Senior backend engineer: three interviews this week", "labels": ["Internal"], "unread": false,
+      "messages": [
+        { "from": { "name": "Elena Petrova", "email": "elena@larkspan.example" }, "to": "engineering@larkspan.example", "at": 5800,
+          "body": "Three candidates for the senior backend role are booked for this week: Tuesday 15:00, Wednesday 11:00 and Thursday 16:00. Lukas runs the system design round, Owen the on-call scenario.\n\nScorecards in the hiring folder by end of day, please." }
+      ] },
+    { "id": "summit-speaker", "subject": "Speaker slot confirmed: Midwest Fleet Ops Summit", "labels": ["Events"], "unread": false,
+      "messages": [
+        { "from": { "name": "Summit program team", "email": "speakers@fleetops-summit.example" }, "to": "maya@larkspan.example", "at": 7300,
+          "body": "Dear Maya,\n\nWe're happy to confirm your talk \"Re-planning mid-day without breaking the drivers' day\" on November 12 at 14:20 in Hall B (30 minutes plus Q&A).\n\nPlease send your slides by November 5.\n\nThe program team" }
+      ] }
+  ]
+}

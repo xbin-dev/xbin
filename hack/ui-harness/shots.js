@@ -832,6 +832,7 @@ PASSES.agentMoves = require('./passes/agentmoves').agentMoves; // AF: an un-shar
 PASSES.agentHosted = require('./passes/agenthosted').agentHosted; // B2d: non-secure (hosted) chats, HARNESS_ISOLATE=1 HARNESS_AGENT_PARTITION=1
 PASSES.agentHarness = require('./passes/agentharness').agentHarness; // D147: coding agents in the agent template (not under HARNESS_ISOLATE: its fake adapter is a host path)
 PASSES.agentSignins = require('./passes/agentsignins').agentSignins; // D179: saved sign-ins for coding agents (partitioned under HARNESS_AGENT_PARTITION=1)
+PASSES.demoStills = require('../demo/stills').demoStills; // the demo film set's stills (HARNESS_SEED=demo; hack/demo/README.md)
 
 (async () => {
   const args = process.argv.slice(2);
