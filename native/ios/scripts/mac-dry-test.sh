@@ -348,8 +348,11 @@ done
 mk "$HOME/Library/Developer/Xcode/DerivedData/Old-jkl"
 FAKE_PGREP_MATCH='mac-remote\.sh --on-mac (toolchain' run "$S/mac-cleanup.sh"
 eq "mac-cleanup: skipped while a mac-remote.sh run is going" "$rc:$(find "$HOME" -name Old-jkl | wc -l | tr -d ' ')" "0:1"
-has "mac-cleanup: …says so" "$out" "a mac-remote.sh run is going — skipped"
+has "mac-cleanup: …says so" "$out" "a mac-remote.sh or footage.sh run is going — skipped"
 hasnt "mac-cleanup: …and leaves its simulators alone" "$(cat "$FAKE_LOG")" "simctl"
+FAKE_PGREP_MATCH='footage\.sh --on-mac record' run "$S/mac-cleanup.sh"
+eq "mac-cleanup: skipped while footage.sh records" "$rc:$(find "$HOME" -name Old-jkl | wc -l | tr -d ' ')" "0:1"
+hasnt "mac-cleanup: …and leaves its simulator alone" "$(cat "$FAKE_LOG")" "simctl"
 run "$S/mac-cleanup.sh" --bogus
 eq "mac-cleanup: an unknown argument fails" "$rc" 2
 export HOME=$realhome
