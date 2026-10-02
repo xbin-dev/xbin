@@ -33,6 +33,10 @@ type Options struct {
 	Auth bool
 	// Ready bounds the boot (healthz answering); 0 = 60 s.
 	Ready time.Duration
+	// Addr is the address it listens on ("" = a free port on 127.0.0.1): a
+	// run that shares the host with others keeps to the ports it was given
+	// (hack/demo/measure).
+	Addr string
 }
 
 // Daemon is one isolated xbind, started and stopped by the test.
@@ -72,12 +76,14 @@ func Start(t testing.TB, a *Assets, o Options) *Daemon {
 	} else {
 		d.WS = o.WS
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	if d.Addr = o.Addr; d.Addr == "" {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Addr = ln.Addr().String()
+		ln.Close()
 	}
-	d.Addr = ln.Addr().String()
-	ln.Close()
 	d.URL = "http://" + d.Addr
 	t.Cleanup(func() { d.cleanup(t) })
 	d.start(t)
