@@ -15,9 +15,10 @@ package measure
 //     (build-start → build-ok) and the swap (build-ok → served).
 //
 // TestSwap runs a closed request loop against the Go tile's API — 8 workers
-// GET, 4 POST with a JSON body — through ten saves (each a
-// rebuild and a blue/green swap), and counts every request that failed and
-// the slowest ones; every request is in swap-requests.csv.gz.
+// GET, 4 POST with a JSON body — through $MEASURE_SWAPS saves (10 by
+// default; each a rebuild and a blue/green swap), and counts every request
+// that failed and the slowest ones; every request is in
+// swap-requests.csv.gz.
 
 import (
 	"bufio"
@@ -40,8 +41,8 @@ import (
 )
 
 var (
-	saveN = quick(30, 3) // samples per series (one more, the first, is discarded as cold)
-	swapN = quick(10, 2) // saves under the request loop
+	saveN = quick(30, 3)                          // samples per series (one more, the first, is discarded as cold)
+	swapN = envInt("MEASURE_SWAPS", quick(10, 2)) // saves under the request loop
 )
 
 func TestSaveToLive(t *testing.T) {

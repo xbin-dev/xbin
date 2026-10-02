@@ -31,6 +31,14 @@ func quick(full, few int) int {
 	return full
 }
 
+// envInt is $name as a positive number, else def.
+func envInt(name string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(name)); err == nil && n > 0 {
+		return n
+	}
+	return def
+}
+
 // outDir is where the raw data goes: $MEASURE_OUT, else a directory under
 // $TMPDIR (said so).
 func outDir(t testing.TB) string {
@@ -206,7 +214,11 @@ func daemon(t *testing.T, extraEnv ...string) *xbindtest.Daemon {
 	a := xbindtest.Require(t)
 	env := append([]string{"XBIN_VAULT_PASSPHRASE=measure-vault-4d1c"}, extraEnv...)
 	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Env: env, Addr: addr(0), Ready: 2 * time.Minute})
-	t.Logf("xbind %s on %s, workspace %s, log %s", a.Bin, d.URL, d.WS, d.LogPath())
+	run, err := os.Readlink(filepath.Join(d.WS, ".xbin", "run")) // a symlink to the tmpfs run dir xbind picked
+	if err != nil {
+		run = "the workspace's own .xbin/run (no tmpfs found)"
+	}
+	t.Logf("xbind %s on %s, workspace %s, run dir %s, log %s", a.Bin, d.URL, d.WS, run, d.LogPath())
 	return d
 }
 

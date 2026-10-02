@@ -12,6 +12,13 @@
 #              checkout, which git ignores)
 # MEASURE_PORT the first of the ports it listens on (default 9341; it uses
 #              that one and the next few: xbind, the latency proxy)
+# MEASURE_SWAPS how many saves the swap loop goes through (default 10)
+# MEASURE_QUICK=1 a few samples of each, to check a setup
+# MEASURE_SINGLE_UID=1 see below
+# TMPDIR       where the daemons' workspaces go (os.MkdirTemp): put it on
+#              the disk a real workspace would use. RUNTIME_DIRECTORY (what
+#              systemd's RuntimeDirectory=xbin sets) is xbind's run dir for
+#              sockets: a tmpfs, as /run/xbin is in production.
 #
 # Needs: user namespaces, the base rootfs and helpers (.dev.mk from
 # hack/dev-setup.sh), /dev/kvm (vm), Playwright with Chromium in
@@ -84,6 +91,9 @@ esac
   echo "rootfs: $rootfs ($(. "$rootfs/etc/os-release" 2>/dev/null && echo "$PRETTY_NAME"), built $(date -r "$rootfs/etc/os-release" '+%F %T' 2>/dev/null))"
   tmp=${TMPDIR:-/tmp}
   echo "workspaces under: $tmp ($(findmnt -n -o FSTYPE,SOURCE -T "$tmp" 2>/dev/null | head -1))"
+  rd=${RUNTIME_DIRECTORY:-${XDG_RUNTIME_DIR:-$tmp}}
+  echo "xbind's run dir under: $rd ($(findmnt -n -o FSTYPE -T "$rd" 2>/dev/null | head -1))"
+  echo "swap saves: ${MEASURE_SWAPS:-10}"
   echo "load at start: $(cat /proc/loadavg)"
 } > "$MEASURE_OUT/machine-$which.txt"
 cat "$MEASURE_OUT/machine-$which.txt"
