@@ -483,6 +483,14 @@ func modelFor(ctx context.Context, cfg Config, tier string) string {
 	if m := preferredModel(ctx, use); m != "" {
 		return m
 	}
+	// No preferred model for this use-type: fall back to ANY model a bound
+	// provider serves before the hardcoded last resort, which 404s on a
+	// gateway that doesn't carry it.
+	if cfg.Model == "" {
+		if c := modelCatalog(ctx); len(c.Models) > 0 {
+			return c.Models[0].Ref
+		}
+	}
 	return firstNonEmpty(cfg.Model, "gpt-4o-mini")
 }
 
