@@ -52,7 +52,8 @@ native/
     scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh and the
                             dry tests; the Mac: mac-setup.sh, mac-remote.sh, mac-cleanup.sh,
                             release-build.sh (the release user's signed build; unused yet),
-                            e2e-xbind.sh (the UI tests' xbind, on this box)
+                            e2e-xbind.sh (the UI tests' xbind, on this box), footage.sh (screen
+                            recordings for the promo video and the website)
   tools/                    fixture runner (fixture.mjs), shots.mjs + gallery/ (reference screenshots),
                             swiftui-stubcheck/, term-stubcheck/ (App/Terminal against stubs),
                             uitest-stubcheck/ (the UI tests vs XCUITest stubs),
@@ -998,6 +999,78 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   tunnel yourself. Under an ssh ControlMaster `mac-remote.sh tunnel`
   returns at once — the forward lives on the master connection; drop it
   with `ssh -O cancel -R 127.0.0.1:P:127.0.0.1:P <mac>`.
+
+### Footage (the promo video, the website)
+
+```sh
+XBIN_MAC=dev@mini native/ios/scripts/footage.sh --out ~/buxon/.film-media/ios   # [--appearance dark] [--name N]
+XBIN_MAC=dev@mini native/ios/scripts/footage.sh clean   # its Mac tree (xbin-footage/) and simulator, gone
+```
+
+`simctl io <udid> recordVideo` records a simulator while a walk through the
+app runs with UIKit's animations on: Home → a screen → the native counter
+(+1 twice) → a terminal (`ls`) → an agent (a prompt and its answer), a beat
+on each. Like `e2e` it starts the xbind here (`e2e-xbind.sh`, port 9871,
+its own `XBIN_E2E_DIR`) and tunnels it; it dresses the workspace as a
+company's (branding, the person's name, the calendar example with a day of
+meetings, a prompt and terminal title that name the person and the tile, not
+this box; the UI tests' fixture tiles gone), builds in its own
+`XBIN_MAC_DIR=xbin-footage`, and films the simulator `xbin-e2e-footage`
+(erased, US English, status bar at 9:41). Out come the clip, a 60 fps copy,
+a cue sheet (each step's second in the clip) and a full-size still at each
+beat. A run takes about four and a half minutes once the Mac has built the
+app (the xbind and its backends, the simulator's erase and two boots, the
+sign-in, the walk); the first build adds about three. The script's header
+lists the knobs. The walk itself is `UITests/XbinFootageTests.swift`, which
+is not committed: footage.sh needs a copy in the tree, and it skips without
+`FOOTAGE=1`.
+
+What the first takes taught (2026-10-02, Xcode 27.0, iOS 27.0):
+
+- **Recording needs no screen.** It ran from an ssh session (`launchctl
+  managername`: Background); no Simulator or DeviceHub window. (The dev
+  user also had a console login then, the owner's; the CI user's runner
+  boots simulators with none.) H.264 at the display's pixels — 1206×2622 on
+  an iPhone 18 Pro — and a frame only when the screen changes: about 22
+  fps on average over a take, 60 in an animation, none while it stands
+  still.
+- **"Recording started" on stderr is the first frame; SIGINT ends it**, and
+  simctl finalizes the file before it exits. A background job of a script
+  ignores SIGINT: footage.sh resets it before simctl starts.
+- **The file trips ffmpeg**: large composition offsets (and a duplicated
+  timestamp) make it fall back to decode times, and frames land seconds out
+  of place. `-fflags +igndts` keeps the real ones; the 60 fps copy is made
+  so, for editors that want a constant rate.
+- **A simulator takes the Mac's region**: here en_PL, a 24-hour "09:41" and
+  a Polish keyboard beside the English one. footage.sh sets en_US and boots
+  again.
+- **XCUITest is the slow part.** Without `-XbinUITesting` every step waits
+  for animations to end, which a terminal's blinking cursor never does (60 s
+  a step); every query snapshots the app (about a second here). The walk
+  replaces XCUIApplicationProcess's private quiescence wait, taps at points
+  read from one snapshot once an element's frame holds still (a panel still
+  sliding moves it — a tap at its first frame opened the next card over),
+  and types on the software keyboard's keys in one synthesized event
+  (XCPointerEventPath, private too) — `typeText` slides the keyboard away
+  and back, and a tap per key took a second. The clip runs 65–90 s, with
+  a few still stretches an editor cuts (the agent's session starting).
+- **The app holds the tunnel.** ssh doesn't end while a forwarded
+  connection is open, and the app's sockets are: the walk quits it, and
+  footage.sh shuts the simulator down after.
+- **The Home Screen shows the test runner's icon** (`XbinUITests-Runner`),
+  so the clip starts in the app, not on the springboard.
+
+What still reads as a test fixture (with the fake agent): the launcher's
+"Fake agent (tests)" box, the tab "fake: …", the author "fakeacp" and its
+scripted answer. A real provider fixes those (`FOOTAGE_AGENT=claude` once
+the xbind can run its ACP adapter and has its key; footage.sh's header).
+And the messages' times are the Mac's clock, not 9:41.
+
+What the camera caught in the app: **a panel push blanks the panel it
+leaves at once** — three or so frames of plain background, then the new one
+slides in over it, where the old one should slide aside under it (it looks
+as if PanelStack's delayed `opacity` change takes effect at once). The UI
+tests never show it: their animations are off.
 
 ### Security
 
