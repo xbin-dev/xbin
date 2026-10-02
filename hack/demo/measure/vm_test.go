@@ -54,9 +54,10 @@ var vmSize = map[string]any{"memMiB": 2048, "vcpus": 2, "diskGiB": 20}
 
 // The sample counts (MEASURE_QUICK=1: a few of each, to check the setup).
 var (
-	vmSeqN   = quick(30, 3) // sequential VM sandboxes
-	termSeqN = quick(20, 2) // terminals per mode
-	nsSeqN   = quick(20, 2) // namespace sandboxes
+	vmSeqN   = quick(30, 3)                   // sequential VM sandboxes
+	termSeqN = quick(20, 2)                   // terminals per mode
+	nsSeqN   = quick(20, 2)                   // namespace sandboxes
+	vmRounds = envInt("MEASURE_VM_ROUNDS", 1) // rounds of the concurrency levels
 	vmLevels = func() []int {
 		if os.Getenv("MEASURE_QUICK") == "1" {
 			return []int{4}
@@ -210,10 +211,13 @@ func TestVM(t *testing.T) {
 
 	t.Run("concurrent", func(t *testing.T) {
 		var levels []map[string]any
-		for _, n := range vmLevels {
-			lv := concurrentOnce(t, d, n, rec)
-			levels = append(levels, lv)
-			t.Logf("concurrent %d: %v", n, lv)
+		for round := 1; round <= vmRounds; round++ {
+			for _, n := range vmLevels {
+				lv := concurrentOnce(t, d, n, rec)
+				lv["round"] = round
+				levels = append(levels, lv)
+				t.Logf("concurrent %d, round %d: %v", n, round, lv)
+			}
 		}
 		extra["concurrent"] = levels
 	})

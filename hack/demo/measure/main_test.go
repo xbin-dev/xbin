@@ -219,6 +219,14 @@ func daemon(t *testing.T, extraEnv ...string) *xbindtest.Daemon {
 		run = "the workspace's own .xbin/run (no tmpfs found)"
 	}
 	t.Logf("xbind %s on %s, workspace %s, run dir %s, log %s", a.Bin, d.URL, d.WS, run, d.LogPath())
+	// xbind's log goes with the raw data (xbindtest removes it after a
+	// passing test; this cleanup runs before that one)
+	t.Cleanup(func() {
+		if b, err := os.ReadFile(d.LogPath()); err == nil {
+			name := strings.NewReplacer("/", "-", " ", "_").Replace(t.Name())
+			_ = os.WriteFile(filepath.Join(outDir(t), name+".xbind.log"), b, 0o644)
+		}
+	})
 	return d
 }
 

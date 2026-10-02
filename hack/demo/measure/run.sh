@@ -13,6 +13,7 @@
 # MEASURE_PORT the first of the ports it listens on (default 9341; it uses
 #              that one and the next few: xbind, the latency proxy)
 # MEASURE_SWAPS how many saves the swap loop goes through (default 10)
+# MEASURE_VM_ROUNDS how many times the 8/16/32/64-at-once VM bursts run (1)
 # MEASURE_QUICK=1 a few samples of each, to check a setup
 # MEASURE_SINGLE_UID=1 see below
 # TMPDIR       where the daemons' workspaces go (os.MkdirTemp): put it on
