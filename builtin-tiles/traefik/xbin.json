@@ -48,6 +48,8 @@
 
   // Fetch the pinned traefik binary at env-layer build time (runs once, with
   // net:internet, cached until this script changes). Version-pinned over
-  // https from the official release; bump V here to upgrade.
-  "setup": "set -e; V=3.1.7; A=$(dpkg --print-architecture); cd /usr/local/bin; curl -fsSLo t.tgz \"https://github.com/traefik/traefik/releases/download/v${V}/traefik_v${V}_linux_${A}.tar.gz\"; tar xzf t.tgz traefik; rm t.tgz; chmod +x traefik; ./traefik version"
+  // https from the official release; bump V here to upgrade. --no-same-owner:
+  // the archive's files belong to uid 1001, which a sandbox that maps only
+  // its own uid can't chown to.
+  "setup": "set -e; V=3.1.7; A=$(dpkg --print-architecture); cd /usr/local/bin; curl -fsSLo t.tgz \"https://github.com/traefik/traefik/releases/download/v${V}/traefik_v${V}_linux_${A}.tar.gz\"; tar xzf t.tgz --no-same-owner traefik; rm t.tgz; chmod +x traefik; ./traefik version"
 }

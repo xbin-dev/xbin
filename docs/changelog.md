@@ -23,6 +23,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **chat tile v4**: a model round that only calls tools (no text, no
   reasoning) no longer draws an empty reply bubble above its tool cards.
   `bx builtin update tile:chat` takes it.
+- **traefik tile v5**: its setup script unpacks the traefik binary as the
+  sandbox's own user (`tar --no-same-owner`). It failed ("Cannot change
+  ownership to uid 1001") where a tile sandbox maps a single uid, as on a
+  rootless host with one uid. `bx builtin update tile:traefik` takes it.
 
 ## 2026-10-01
 
