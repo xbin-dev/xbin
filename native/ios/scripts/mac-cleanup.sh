@@ -82,9 +82,10 @@ if pgrep -f 'Runner.Worker' >/dev/null 2>&1; then
   say "a runner job is running — skipped"
   exit 0
 fi
-# the ssh dev loop's commands on this Mac (not its `cleanup`, which is this)
-if pgrep -f 'mac-remote\.sh --on-mac (toolchain|packages|build|snapshots|uitests|run|e2e)' >/dev/null 2>&1; then
-  say "a mac-remote.sh run is going — skipped"
+# the ssh dev loop's commands on this Mac (not its `cleanup`, which is this),
+# and a footage.sh recording
+if pgrep -f 'mac-remote\.sh --on-mac (toolchain|packages|build|snapshots|uitests|run|e2e)|footage\.sh --on-mac record' >/dev/null 2>&1; then
+  say "a mac-remote.sh or footage.sh run is going — skipped"
   exit 0
 fi
 
