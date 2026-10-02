@@ -47,7 +47,6 @@
                              border-radius: 5px; padding: 6px 8px; overflow-x: auto; }
     .msg.assistant .md code { font: 11.5px var(--bx-mono); }
     .msg .err { color: var(--bx-red); font-size: 11.5px; white-space: pre-wrap; }
-    .msg.assistant:empty { display: none; }
 
     details.think { margin: 0 0 6px; border: 1px dashed var(--bx-border); border-radius: 6px;
                     background: var(--bx-panel-2); }
@@ -124,6 +123,7 @@
     function assistantBubble() {
       const el = document.createElement('div');
       el.className = 'msg assistant';
+      el.hidden = true;   // until there is thinking, text or an error: a round that only calls tools draws no bubble
       el.innerHTML = `
         <details class="think" open hidden>
           <summary>Thinking<span class="dots"></span></summary>
@@ -137,6 +137,7 @@
       return {
         el,
         update(thinking, content) {
+          if (thinking || content) el.hidden = false;
           if (thinking) { details.hidden = false; thinkPre.textContent = thinking; }
           if (content) {
             if (!folded) { folded = true; details.open = false; summary.textContent = 'Thinking'; }
@@ -145,6 +146,7 @@
         },
         fail(text) {
           const p = document.createElement('div'); p.className = 'err'; p.textContent = text; el.append(p);
+          el.hidden = false;
         },
         done() { summary.textContent = 'Thinking'; },   // stop the animated dots
       };

@@ -20,6 +20,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   "⚠ 0 tools"). Preflights now allow them (and `Last-Event-ID`), and
   answers expose `Mcp-Session-Id` ([protocol.md](/docs/protocol.md)
   §Authentication). Nothing to change.
+- **chat tile v4**: a model round that only calls tools (no text, no
+  reasoning) no longer draws an empty reply bubble above its tool cards.
+  `bx builtin update tile:chat` takes it.
 
 ## 2026-10-01
 
