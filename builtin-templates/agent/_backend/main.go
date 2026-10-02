@@ -56,6 +56,67 @@ func main() {
 		log.Printf("xbin: %s: %v — refusing to serve (/docs/partitions.md)", xbin.Self(), err)
 		os.Exit(3)
 	}
+	// Listen first, initialize second. xbind health-checks by socket-connect
+	// within 5s, and a cold start (idle-reaped process, cold page cache) can
+	// spend longer than that in openDB's schema and migration work — which
+	// failed the start ("timeout dialing backend socket") even though the
+	// process came up fine a moment later. Requests arriving before boot
+	// finishes wait on the gate instead. Routes register first: they read
+	// only the mode (detectMode, above), never the db.
+	mux := http.NewServeMux()
+	routes(mux)
+	adapterRoutes(mux) // chat adapters: the channel role (channels.go)
+
+	ready := make(chan struct{})
+	var eng *Engine
+	go func() {
+		t0 := time.Now()
+		eng = boot()
+		log.Printf("boot finished in %s", time.Since(t0).Round(time.Millisecond))
+		close(ready)
+	}()
+
+	// SIGTERM (a save's blue/green swap, a stop, an idle reap): stop driving
+	// at once so the successor — already booted and waiting on the engine
+	// lock — takes over the moment this process exits. Mid-boot there is no
+	// engine yet; Serve returns and the process exits without one.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
+	go func() {
+		<-sig
+		<-ready
+		eng.BeginShutdown()
+		stopHosting(0)
+	}()
+
+	xbin.Serve(gateReady(ready, mux))
+	// Serve returns at SIGTERM without waiting for anything; the engine gets
+	// a bounded moment to unwind and hand over.
+	select {
+	case <-ready:
+		eng.Shutdown(2 * time.Second)
+		stopHosting(2 * time.Second)
+	default: // stopped mid-boot: nothing is driving yet
+	}
+}
+
+// gateReady holds each request until boot has finished (handlers read the
+// agent global, which boot assigns); a caller that gives up first gets a 503.
+func gateReady(ready <-chan struct{}, h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-ready:
+			h.ServeHTTP(w, r)
+		case <-r.Context().Done():
+			xbin.WriteError(w, http.StatusServiceUnavailable, "starting up")
+		}
+	})
+}
+
+// boot opens the db and starts the engine and the background work. Fatal on
+// failure: a backend without its db is useless, and exiting surfaces it in
+// bx status.
+func boot() *Engine {
 	dbPath := xbin.Resource("db")
 	if dbPath == "" {
 		log.Fatal("no db resource (grant res:<self>/db writer) — see scope.json")
@@ -83,24 +144,5 @@ func main() {
 	go agent.startPartitionMail()
 	go startHosting() // a host's engine over team (hosted_engine.go; nothing unless this partition hosts)
 
-	// SIGTERM (a save's blue/green swap, a stop, an idle reap): stop driving
-	// at once so the successor — already booted and waiting on the engine
-	// lock — takes over the moment this process exits.
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
-	go func() {
-		<-sig
-		eng.BeginShutdown()
-		stopHosting(0)
-	}()
-
-	mux := http.NewServeMux()
-	routes(mux)
-	adapterRoutes(mux) // chat adapters: the channel role (channels.go)
-
-	xbin.Serve(mux)
-	// Serve returns at SIGTERM without waiting for anything; the engine gets
-	// a bounded moment to unwind and hand over.
-	eng.Shutdown(2 * time.Second)
-	stopHosting(2 * time.Second)
+	return eng
 }
