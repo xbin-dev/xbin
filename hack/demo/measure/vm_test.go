@@ -12,7 +12,7 @@ package measure
 //     through xbind's proxy: POST /sandboxes (the runtime answers once the
 //     VM booted and its in-box agent answered: state running), then POST
 //     …/run `echo` — the request to the command's output;
-//   - a VM terminal (the ⧉ toggle): /ws/term?vm=1 opened → the shell's
+//   - a VM terminal (the terminal's VM toggle): /ws/term?vm=1 opened → the shell's
 //     prompt → a command's answer;
 //   - the same two in a namespace sandbox, for scale;
 //   - N sandboxes asked for at once (8, 16, 32, 64): each one's time to

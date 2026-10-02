@@ -14,7 +14,7 @@
 //     and times keydown (the event's own timestamp) → the typed glyph in the
 //     terminal's DOM, either the prediction overlay (.pov, web/bx-terminal.js)
 //     or xterm's rows holding the shell's echo — a MutationObserver over
-//     .xterm-screen. Modes auto, on and off (the 🔧 menu's choice).
+//     .xterm-screen. Modes auto, on and off (the terminal's predictive-echo setting).
 //
 // Env: URL, MEASURE_OUT, MEASURE_WS (the workspace), MEASURE_USER /
 // MEASURE_PASSWORD, MEASURE_VERSIONS (static: a JSON list of {file,

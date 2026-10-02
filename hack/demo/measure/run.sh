@@ -89,7 +89,7 @@ esac
   echo "node: $(node --version 2>/dev/null || echo none)"
   if [ -n "${XBIN_FIRECRACKER:-}" ] && [ -x "$XBIN_FIRECRACKER" ]; then echo "firecracker: $("$XBIN_FIRECRACKER" --version 2>/dev/null | head -1)"; fi
   rootfs=${XBIN_TEST_ROOTFS:-$repo/.rootfs}
-  echo "rootfs: $rootfs ($(. "$rootfs/etc/os-release" 2>/dev/null && echo "$PRETTY_NAME"), built $(date -r "$rootfs/etc/os-release" '+%F %T' 2>/dev/null))"
+  echo "rootfs: $rootfs ($(sed -n 's/^PRETTY_NAME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$rootfs/etc/os-release" 2>/dev/null), built $(date -r "$rootfs/etc/os-release" '+%F %T' 2>/dev/null))"
   tmp=${TMPDIR:-/tmp}
   echo "workspaces under: $tmp ($(findmnt -n -o FSTYPE,SOURCE -T "$tmp" 2>/dev/null | head -1))"
   rd=${RUNTIME_DIRECTORY:-${XDG_RUNTIME_DIR:-$tmp}}
