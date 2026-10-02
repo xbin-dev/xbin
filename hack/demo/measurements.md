@@ -32,7 +32,7 @@ All claims are for **a big workstation** (Setup below), not a small VPS.
 | 2 | **Save Go code and the rebuilt backend serves in under 0.8 s.** | 90 saves, max 784.2 ms (§2) |
 | 3 | **Redeploy under load without dropping a read.** 0 of 5.39 M GETs failed over 60 live redeploys at about 30,000 requests/s. | Writes caught at the exact swap instant can fail: 15 of 2.34 M POSTs got a 502. Worst wait 0.56 s, one request in 35 of 60 redeploys (§3) |
 | 4 | **With a 300 ms round trip, what you type appears within one frame (≤ 17 ms) instead of after 0.3 s.** | 240 keys with prediction on or auto: in the DOM within 1.6 ms, painted by the next frame (≤ 16.7 ms). Off: ≥ 301.7 ms (§4) |
-| 5 | **A person's own instance starts on their first request in under 0.3 s, then answers in under 1 ms.** | 39 cold starts, max 264.8 ms; 4,500 warm requests, p90 0.5 ms, max 3.2 ms. Encrypted file volumes add about 0.03 s each (§5) |
+| 5 | **A person's own instance starts on their first request in under 0.3 s, then answers in about a millisecond.** | 39 cold starts, max 264.8 ms; 4,500 warm requests: 98 % under 1 ms, p99 1.5 ms, max 3.2 ms. Encrypted file volumes add about 0.03 s each (§5) |
 | 6 | Install time: **not measured here.** It needs a fresh VPS (§6). | — |
 
 ## Setup
@@ -272,6 +272,8 @@ Predicted glyphs are drawn underlined until the server confirms them, because th
 
 **Claim:** *"With 300 ms between you and the server, what you type appears within one frame (under 17 ms), not after 0.3 s."* The default mode (auto) does it once the link is slower than 100 ms.
 
+This was measured for keys typed one at a time at a shell prompt. Fast bursts, and full-screen programs that hide the cursor (vim, Claude Code; the engine's anchor mode, D71), weren't timed.
+
 ## 5. A person's partition: first request and warm requests
 
 **Method** (`TestPartition`):
@@ -309,7 +311,7 @@ With the workspace on tmpfs (run1), cold starts were 34 ms faster at the median:
 
 **Claims:**
 
-- *"Your own instance starts on your first request in under 0.3 s; after that it answers in under a millisecond"* (39 of 39 cold starts under 265 ms; 9 in 10 warm requests within 0.5 ms, the worst of 4,500 3.2 ms).
+- *"Your own instance starts on your first request in under 0.3 s; after that it answers in about a millisecond"* (39 of 39 cold starts under 265 ms; 98 % of 4,500 warm requests under 1 ms, p90 0.5 ms, p99 1.5 ms, the worst 3.2 ms). Don't say "always under 1 ms".
 - For a tile that keeps encrypted files, add up to about 32 ms per volume on a person's first start, or 19 ms on a restart. Two volumes would still fit under 0.35 s (264.8 + 2 × 31.6 ms).
 - For comparison, the I2 measurement on a 4-vCPU VPS (`plans/partitions/records/I2.md`) put the agent template's first start at 2.4 s, almost all of it the template's own schema migration.
 
