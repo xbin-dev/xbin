@@ -34,6 +34,8 @@ const path = require('path');
 
 const HERE = __dirname;
 const REPO = path.resolve(HERE, '../../..');
+// a mistake on the command line: said in one line, no stack
+const usage = (msg) => Object.assign(new Error(msg), { usage: true });
 
 function parse(argv) {
   const o = { mode: 'video', capture: null, size: '1920x1080', dpr: 2, fps: 60, quality: 'lossless', codec: 'auto', frames: 'png',
@@ -41,7 +43,7 @@ function parse(argv) {
     set: {}, display: process.env.DISPLAY || '', keepFrames: false, list: false, shot: null, out: null, cursorScale: 1 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const val = () => { if (i + 1 >= argv.length) throw new Error(`${a} needs a value`); return argv[++i]; };
+    const val = () => { if (i + 1 >= argv.length) throw usage(`${a} needs a value`); return argv[++i]; };
     switch (a) {
       case '--out': o.out = val(); break;
       case '--mode': o.mode = val(); break;
@@ -62,20 +64,20 @@ function parse(argv) {
       case '--keep-frames': o.keepFrames = true; break;
       case '--cursor-scale': o.cursorScale = Number(val()); break;
       case '--list': o.list = true; break;
-      case '--set': { const kv = val(); const j = kv.indexOf('='); if (j < 1) throw new Error(`--set wants key=value, got ${kv}`); o.set[kv.slice(0, j)] = kv.slice(j + 1); break; }
+      case '--set': { const kv = val(); const j = kv.indexOf('='); if (j < 1) throw usage(`--set wants key=value, got ${kv}`); o.set[kv.slice(0, j)] = kv.slice(j + 1); break; }
       case '-h': case '--help': o.help = true; break;
       default:
-        if (a.startsWith('-')) throw new Error(`unknown option ${a}`);
-        if (o.shot) throw new Error(`one shot per run (${o.shot}, ${a})`);
+        if (a.startsWith('-')) throw usage(`unknown option ${a}`);
+        if (o.shot) throw usage(`one shot per run (${o.shot}, ${a})`);
         o.shot = a;
     }
   }
   const m = /^(\d+)x(\d+)$/.exec(o.size);
-  if (!m) throw new Error(`--size wants WxH, got ${o.size}`);
+  if (!m) throw usage(`--size wants WxH, got ${o.size}`);
   o.width = Number(m[1]); o.height = Number(m[2]);
-  if (!['still', 'video', 'scratch'].includes(o.mode)) throw new Error(`--mode is still|video|scratch, got ${o.mode}`);
+  if (!['still', 'video', 'scratch'].includes(o.mode)) throw usage(`--mode is still|video|scratch, got ${o.mode}`);
   if (o.mode === 'video') o.capture = o.capture || 'beginframe';
-  if (o.capture && !['beginframe', 'x11', 'screencast'].includes(o.capture)) throw new Error(`--capture is beginframe|x11|screencast, got ${o.capture}`);
+  if (o.capture && !['beginframe', 'x11', 'screencast'].includes(o.capture)) throw usage(`--capture is beginframe|x11|screencast, got ${o.capture}`);
   o.pace = o.pace || (o.mode === 'still' ? 'fast' : 'human');
   o.url = (o.url || process.env.URL || `http://127.0.0.1:${process.env.PORT || 8697}`).replace(/\/$/, '');
   return o;
@@ -84,7 +86,7 @@ function parse(argv) {
 function resolveShot(name) {
   const cands = [path.resolve(name), path.join(HERE, 'shots', name), path.join(HERE, 'shots', `${name}.js`)];
   for (const c of cands) if (fs.existsSync(c) && fs.statSync(c).isFile()) return c;
-  throw new Error(`no shot module ${name} (node shot.js --list)`);
+  throw usage(`no shot module ${name} (node shot.js --list)`);
 }
 
 function listShots() {
@@ -105,12 +107,12 @@ async function main() {
   const o = parse(process.argv.slice(2));
   if (o.help) { console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 30).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); return 0; }
   if (o.list) { listShots(); return 0; }
-  if (!o.shot) throw new Error('which shot? node shot.js <shot-module> --out <dir> (--list)');
-  if (!o.out) throw new Error('--out <dir> is required');
+  if (!o.shot) throw usage('which shot? node shot.js <shot-module> --out <dir> (--list)');
+  if (!o.out) throw usage('--out <dir> is required');
   const file = resolveShot(o.shot);
   const shot = require(file);
   const action = typeof shot === 'function' ? shot : shot.action;
-  if (typeof action !== 'function') throw new Error(`${file}: export an async (cam) => {…}`);
+  if (typeof action !== 'function') throw usage(`${file}: export an async (cam) => {…}`);
   const name = path.basename(file).replace(/\.js$/, '');
   o.take = o.take || name;
   o.out = path.resolve(o.out);
@@ -177,4 +179,8 @@ async function main() {
   return 0;
 }
 
-main().then((code) => process.exit(code), (e) => { console.error('shot failed:', e.stack || e); process.exit(1); });
+main().then((code) => process.exit(code), (e) => {
+  if (e.usage) { console.error(`shot.js: ${e.message}`); process.exit(2); }
+  console.error('shot failed:', e.stack || e);
+  process.exit(1);
+});
