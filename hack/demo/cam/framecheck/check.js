@@ -5,12 +5,14 @@
 // duplicated frame, a skip is a dropped one, a frame that fails its CRC was
 // caught mid-update (torn).
 //
-//   node check.js <video> [--json FILE] [--list N] [--expect perfect]
+//   node check.js <video> [--json FILE] [--list N] [--expect perfect] [--from SECONDS]
 //
 // ffmpeg decodes the video to small greyscale frames (area-averaged, so
 // each block's centre is a clean average); pattern.js decodes the blocks.
-// --expect perfect exits 1 unless there were no drops, repeats or torn
-// frames between the first and last decoded frame.
+// The verdict covers the take from its roll: a shot.js recording carries
+// its sidecar (<video>.json) and what came before the roll (an encoder
+// warming up) is not judged — --from overrides. --expect perfect exits 1
+// unless there were no drops, repeats or torn frames.
 'use strict';
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
@@ -107,7 +109,7 @@ function analyze(seq, fps = 60, { list = 50 } = {}) {
 
 function format(file, p, r) {
   const L = [];
-  L.push(`video    ${file}: ${p.width}x${p.height} ${p.codec}/${p.pixFmt}, ${p.fps.toFixed(3)} fps, ${r.frames} frames (${(r.frames / p.fps).toFixed(2)} s)`);
+  L.push(`video    ${file}: ${p.width}x${p.height} ${p.codec}/${p.pixFmt}, ${p.fps.toFixed(3)} fps, ${r.frames} frames (${(r.frames / p.fps).toFixed(2)} s)${r.from ? ` judged from the roll, frame ${r.from}` : ''}`);
   if (r.first == null) { L.push(`pattern  none found (${r.blank} blank, ${r.torn} torn)`); return L.join('\n'); }
   L.push(`pattern  ${r.ok} decoded, ${r.torn} torn, ${r.blank} blank mid-stream (+${r.leadingBlank} leading, ${r.trailingBlank} trailing blank)`);
   L.push(`counter  ${r.first} → ${r.last}: ${r.unique} distinct page frames, ${r.uniqueFps} per second of video (page counted at ${r.pageFps}/s)`);
@@ -119,10 +121,23 @@ function format(file, p, r) {
   return L.join('\n');
 }
 
+// rollFrame(file): the video frame the take rolled at, from its sidecar
+function rollFrame(file, fps) {
+  try {
+    const side = JSON.parse(fs.readFileSync(file.replace(/\.[^./]+$/, '.json'), 'utf8'));
+    if (side.roll && side.video && typeof side.video.startT === 'number') return Math.max(0, Math.round(((side.roll.t - side.video.startT) * fps) / 1000));
+  } catch { /* no sidecar: the whole video */ }
+  return 0;
+}
+
 async function check(file, opts = {}) {
   const p = probe(file);
   const seq = await decodeVideo(file);
-  return { probe: p, report: analyze(seq, p.fps, opts) };
+  const from = opts.from != null ? Math.round(opts.from * p.fps) : rollFrame(file, p.fps);
+  const report = analyze(seq.slice(from), p.fps, opts);
+  report.from = from;
+  for (const a of report.anomalies) { a.frame += from; a.t = +(a.frame / p.fps).toFixed(3); } // frames of the whole video
+  return { probe: p, report };
 }
 
 module.exports = { analyze, check, format, decodeVideo, probe, levels, SW, SH };
@@ -130,10 +145,11 @@ module.exports = { analyze, check, format, decodeVideo, probe, levels, SW, SH };
 if (require.main === module) {
   (async () => {
     const a = process.argv.slice(2);
-    const file = a.find((x) => !x.startsWith('--') && a[a.indexOf(x) - 1] !== '--json' && a[a.indexOf(x) - 1] !== '--list' && a[a.indexOf(x) - 1] !== '--expect');
-    if (!file) { console.error('usage: node check.js <video> [--json FILE] [--list N] [--expect perfect]'); process.exit(2); }
+    const valued = ['--json', '--list', '--expect', '--from'];
+    const file = a.find((x, i) => !x.startsWith('--') && !valued.includes(a[i - 1]));
+    if (!file) { console.error('usage: node check.js <video> [--json FILE] [--list N] [--expect perfect] [--from SECONDS]'); process.exit(2); }
     const opt = (k) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : undefined; };
-    const { probe: p, report: r } = await check(file, { list: Number(opt('--list')) || 200 });
+    const { probe: p, report: r } = await check(file, { list: Number(opt('--list')) || 200, from: opt('--from') != null ? Number(opt('--from')) : undefined });
     console.log(format(file, p, r));
     if (opt('--json')) fs.writeFileSync(opt('--json'), JSON.stringify({ file, probe: p, ...r }, null, 1) + '\n');
     if (opt('--expect') === 'perfect' && !r.perfect) process.exit(1);

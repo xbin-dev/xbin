@@ -35,7 +35,7 @@ const CURSORS = {
 // The page side. Runs in every document; draws only in the top one.
 function overlayMain(cfg, CURSORS, pointAt) {
   if (window.top !== window || window.__cam) return;
-  const st = { x: -60, y: -60, kind: 'default', shown: true, anim: null, segs: null, start: 0, scale: cfg.scale || 1 };
+  const st = { x: -60, y: -60, kind: 'default', shown: true, anim: null, segs: null, hint: null, scale: cfg.scale || 1 };
   try { // continuity across a navigation: where the cursor was
     const s = JSON.parse(sessionStorage.getItem('__camPos') || 'null');
     if (Array.isArray(s)) [st.x, st.y] = s;

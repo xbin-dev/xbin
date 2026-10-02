@@ -88,8 +88,9 @@ async function main() {
     console.log(`${bad.length ? 'FAIL' : 'PASS'} ${c.name.padEnd(8)} ${report.verdict}${bad.length ? `\n     ${bad.join('\n     ')}` : ''}`);
     if (bad.length) { fails++; console.log(format(file, probe, report).replace(/^/gm, '     | ')); }
   }
-  console.log(`${cases.length - fails}/${cases.length} cases as injected (${W}x${H}, lossy H.264 crf 30) — videos in ${DIR}`);
-  if (!args.includes('--keep') && !args.includes('--dir')) fs.rmSync(DIR, { recursive: true, force: true });
+  const keep = args.includes('--keep') || args.includes('--dir');
+  console.log(`${cases.length - fails}/${cases.length} cases as injected (${W}x${H}, lossy H.264 crf 30)${keep ? ` — videos in ${DIR}` : ''}`);
+  if (!keep) fs.rmSync(DIR, { recursive: true, force: true });
   return fails ? 1 : 0;
 }
 
