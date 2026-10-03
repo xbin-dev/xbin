@@ -307,8 +307,8 @@ struct DiffLinesView: View {
     private func color(_ k: ChatDiff.Line.Kind) -> Color {
         switch k {
         case .added: return XbinColor.ok
-        case .removed: return .red
-        case .hunk: return .blue
+        case .removed: return XbinColor.danger
+        case .hunk: return XbinColor.muted
         case .file: return .secondary
         case .context: return .primary
         }

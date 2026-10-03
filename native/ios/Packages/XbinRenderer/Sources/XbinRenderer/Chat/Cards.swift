@@ -300,19 +300,22 @@ public struct DiffView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// A file's status letter as the reference colours it (render-chat.js
+    /// st-A/st-D/st-M): added ok, deleted danger, modified the accent, the
+    /// rest muted.
     static func letterColor(_ l: String) -> Color {
         switch l {
         case "A": return XbinColor.toneText(.ok)
         case "D": return XbinColor.toneText(.danger)
-        case "R": return Color(uiColor: .systemBlue)
-        default: return XbinColor.toneText(.warn)
+        case "M": return XbinColor.accent
+        default: return XbinColor.muted
         }
     }
 
     static func foreground(_ k: ChatDiff.Line.Kind) -> Color {
         switch k {
         case .file: return XbinColor.muted
-        case .hunk: return Color(uiColor: .systemBlue)
+        case .hunk: return XbinColor.muted // the reference's dl-hunk
         case .added: return XbinColor.toneText(.ok)
         case .removed: return XbinColor.toneText(.danger)
         case .context: return XbinColor.text

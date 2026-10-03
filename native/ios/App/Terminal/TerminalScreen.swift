@@ -249,7 +249,7 @@ struct TermSessionsSheet: View {
                                     await workspace.refreshSessions()
                                 }
                             }
-                            Button("Rename") { newName = s.name; renaming = s }.tint(.blue)
+                            Button("Rename") { newName = s.name; renaming = s }.tint(XbinColor.accent)
                         }
                     }
                     Button("New session", systemImage: "plus") {
