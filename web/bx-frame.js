@@ -37,11 +37,25 @@
  * stays inside the host's `popBounds` (the shell's canvas) so it is always
  * reachable by scrolling. Windows share a bring-to-front z-order.
  *
+ * Base Two (D184): the pop-up is a window (product-ui 3) — a 28 px title
+ * bar, the live square, 1 px window edge, the window shadows; the one
+ * brought to the front last on the page is the active one (the
+ * `bx-window-front` event, which the shell's windows share), and a 3 px
+ * part tab says what its active tab is: terminal or agent session. The
+ * frame tells its build state (buildState: live | building | failed) with
+ * a `bx-build` event, so an embedder's title bar can draw it. When the
+ * frame's own document follows the person's appearance (data-bx-theme),
+ * the frame posts it to its iframe on every load and change
+ * (xbin:appearance, docs/protocol.md), so a tile document follows its
+ * embedder live.
+ *
  * See /docs/elements.md.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { keyed } from 'lit';
+import { appearanceMessage, follows, onAppearance } from '/vendor/bx-theme.js';
+import '/vendor/bx-icons.js';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
@@ -62,6 +76,12 @@ import { deployCss, deployMount, onDeployEvent, keepTargets, setTarget, sessionE
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
+// The page's active window (product-ui 3): the one brought to the front
+// last. Every kind of window — these pop-ups, the shell's floats, cards and
+// spawned windows — says so with this event {key}, so each knows whether
+// it is the one.
+const FRONT = 'bx-window-front';
+let popN = 0;
 // On phones the pop-up is a full-screen sheet (CSS) — no geometry to follow.
 const SHEET = typeof matchMedia === 'function' ? matchMedia('(max-width: 820px)') : { matches: false };
 
@@ -107,6 +127,8 @@ export class BxFrame extends LitElement {
     _active: { state: true },
     _gpus: { state: true },
     _buildError: { state: true },
+    _building: { state: true }, // a build-start without its build-ok / build-error yet
+    _popActive: { state: true }, // the pop-up is the page's active window
     _autoHeight: { state: true },
     _layout: { state: true },  // 'term' | 'code' | 'logs' | 'prs' | 'deployments' (never saved: NP-10-2) — frame-panels.js
     _beside: { state: true },  // the terminal sits beside the panel
@@ -126,7 +148,17 @@ export class BxFrame extends LitElement {
     popBounds: { attribute: false },
   };
 
-  static styles = [scrollCss, titlebarCss, launcherCss, deployCss, panelsCss, css`
+  static styles = [scrollCss, css`
+    /* controls in the UI font, the focus ring, placeholders from the tokens
+       (a shadow root's own: document rules don't reach in here) */
+    button, input, select, textarea { font: inherit; color: inherit; }
+    :focus-visible:not(iframe) {
+      outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px);
+      box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12);
+    }
+    ::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
+    bx-icon { flex: none; }
+  `, titlebarCss, launcherCss, deployCss, panelsCss, css`
     :host { display: block; position: relative; }
     /* height:100% is what lets a fixed-height embedder (the shell grid tiles /
        floating windows pin the host with position:absolute; inset:0) flow a
@@ -142,32 +174,40 @@ export class BxFrame extends LitElement {
     }
     .edit {
       position: absolute; top: 2px; right: 2px;
-      width: 7px; height: 7px; padding: 0; border: 0; border-radius: 2px;
-      background: var(--bx-accent, #f5a623);
+      width: 7px; height: 7px; padding: 0; border: 0; border-radius: var(--bx-radius, 2px);
+      background: var(--bx-accent, #8C9BFF);
       opacity: 0.35; cursor: pointer; z-index: 10;
     }
     .edit:hover { opacity: 1; }
+    /* the build failed: its error glyph and word over the compiler output */
     .overlay {
       position: absolute; inset: 0; z-index: 9; overflow: auto;
-      background: color-mix(in srgb, var(--bx-panel, #23272e) 96%, var(--bx-red, #ef5350));
-      color: var(--bx-red, #ef5350);
-      font: 11.5px/1.55 var(--bx-mono, ui-monospace, monospace);
+      background: var(--bx-code-bg, #16171D);
+      color: var(--bx-text, #E9EAF0);
+      font: var(--bx-font-code, 12px/18px ui-monospace, monospace);
       padding: 10px 12px; margin: 0; white-space: pre-wrap;
-      border-top: 2px solid var(--bx-red, #ef5350);
+      border-top: 2px solid var(--bx-danger, #FF7A7A);
     }
-    .overlay b { color: var(--bx-red, #ef5350); }
+    .overlay b { display: inline-flex; align-items: center; gap: 6px; color: var(--bx-danger, #FF7A7A); font-weight: 700; }
 
-    /* ---- floating terminal window ---- */
+    /* ---- floating terminal window: window chrome (product-ui 3) ---- */
     .pop {
       position: fixed; box-sizing: border-box;
       display: flex; flex-direction: column;
-      background: var(--bx-panel, #23272e);
-      border: 1px solid var(--bx-border, #363c45);
-      border-radius: 8px;
-      box-shadow: 0 8px 28px rgba(16, 24, 40, 0.20), var(--bx-shadow, 0 1px 2px rgba(0, 0, 0, 0.35));
+      font: var(--bx-font, 13px/18px system-ui, sans-serif);
+      color: var(--bx-text, #E9EAF0);
+      background: var(--bx-panel, #1F2028);
+      border: 1px solid var(--bx-window-border, #666A7E);
+      border-radius: var(--bx-radius, 2px);
+      box-shadow: var(--bx-shadow-rest, 0 10px 28px rgba(0, 0, 0, 0.4));
       resize: both; overflow: hidden;
       min-width: 380px; min-height: 220px;
     }
+    .pop.active { border-color: var(--bx-window-border-active, #9396A4); box-shadow: var(--bx-shadow-active, 0 16px 40px rgba(0, 0, 0, 0.55)); }
+    /* the part tab: a 3 px strip across the top edge, green while a terminal
+       tab is active, magenta while an agent session's is */
+    .pop::before { content: ''; flex: none; height: var(--bx-part-tab-h, 3px); background: var(--bx-part-tab-terminal, #00A86B); }
+    .pop.agent::before { background: var(--bx-part-tab-agent, #DB0072); }
     /* On phones the draggable pop-up becomes a full-screen sheet. */
     @media (max-width: 820px) {
       .pop { inset: 0 !important; width: auto !important; height: auto !important;
@@ -185,7 +225,12 @@ export class BxFrame extends LitElement {
     this._active = 0;
     this._gpus = []; // host GPU inventory (empty unless a GPU host)
     this._buildError = null;
+    this._building = false;
     this._autoHeight = false;
+    this._popActive = false;
+    this._winKey = `pop:${++popN}`; // this pop-up's name in the page's active-window event
+    this._onWinFront = (e) => { const on = e.detail?.key === this._winKey; if (on !== this._popActive) this._popActive = on; };
+    this._toldBuild = 'live'; // the build state the last bx-build said
     this._pop = null; // {dx, dy, w, h} — offsets from this frame's box; owned imperatively after open
     this._stopFollow = null; // the follow loop's stop while the pop-up is open
     this._offEvents = null;
@@ -205,11 +250,35 @@ export class BxFrame extends LitElement {
     this._autoHeight = !this.height && !this.style.height;
     this._offEvents = onEvent((e) => this._event(e));
     window.addEventListener('message', this._onMsg);
+    window.addEventListener(FRONT, this._onWinFront);
     document.addEventListener('visibilitychange', this._onVisible);
+    // the person's appearance changed (or the system's): the framed document follows
+    this._offAppearance = onAppearance(() => this._postAppearance(), this.ownerDocument.defaultView || window);
     this._restoreTerm();
     this._prepareFrame();
     deployMount(this); // the live reload state, when the tile's primary is pinned (frame-deploy.js)
   }
+
+  // The appearance relay (D184, docs/protocol.md xbin:appearance): when this
+  // frame's own document follows the person (data-bx-theme="auto"), its
+  // theme and density go to the iframe — on every load and every change —
+  // so the tile matches its embedder. A document that never opted in sends
+  // nothing: a new tile inside it keeps what xbind injected. The message
+  // carries no credential; on its own origin (origins mode) it goes to that
+  // origin only.
+  _postAppearance() {
+    const doc = this.ownerDocument;
+    if (!follows(doc)) return;
+    const w = this._iframe?.contentWindow;
+    if (!w) return;
+    try { w.postMessage(appearanceMessage(doc), this._frame?.origin || '*'); } catch { /* the frame is navigating */ }
+  }
+
+  // buildState: what the tile's code is doing now — 'failed' (its last build
+  // failed: the overlay shows why), 'building' (a build started), or 'live'.
+  // A change is announced as `bx-build` {state} (bubbles, composed) for the
+  // embedder's title bar (the shell's live square).
+  get buildState() { return this._buildError !== null ? 'failed' : this._building ? 'building' : 'live'; }
 
   // Resolve how this frame must load (sandboxed? credentialless? its own
   // tile origin?) before the iframe exists — frame-info.js.
@@ -247,11 +316,17 @@ export class BxFrame extends LitElement {
   // handlers); the sessions themselves are the server's to remember.
   updated(changed) {
     if (changed.has('deployment') && changed.get('deployment') !== undefined) { // another deployment's page
-      this._buildError = null; this._frameKey++; this._prepareFrame();
+      this._buildError = null; this._building = false; this._frameKey++; this._prepareFrame();
+    }
+    if ((changed.has('_buildError') || changed.has('_building')) && this.buildState !== this._toldBuild) {
+      this._toldBuild = this.buildState;
+      this.dispatchEvent(new CustomEvent('bx-build', { bubbles: true, composed: true, detail: { state: this._toldBuild } }));
     }
     if (changed.has('_active') || changed.has('_termOpen') || changed.has('_layout') || changed.has('_beside') || changed.has('_paneW')) this._saveTerm();
     if (changed.has('_termOpen')) {
       if (this._termOpen) { this._follow(); this._observePop(); this._loadWindowState(); } else { this._ro?.disconnect(); this._ro = null; }
+      // the active window closed: none is, until another comes to the front
+      if (!this._termOpen && this._popActive) window.dispatchEvent(new CustomEvent(FRONT, { detail: { key: '' } }));
       this._popChanged();
     }
     const el = this._termOpen && this._popEl;
@@ -377,7 +452,9 @@ export class BxFrame extends LitElement {
     this._stopFollow?.();
     this._ro?.disconnect(); this._ro = null;
     this._offEvents?.();
+    this._offAppearance?.();
     window.removeEventListener('message', this._onMsg);
+    window.removeEventListener(FRONT, this._onWinFront);
     document.removeEventListener('visibilitychange', this._onVisible);
     if (this._winTimer) this._flushWindow();
   }
@@ -395,11 +472,14 @@ export class BxFrame extends LitElement {
       case 'reload': // (the primary's: a window on another deployment hears its own in `deployments`)
         if (!this.deployment && isReloadTarget(this, e.component)) this._reload();
         break;
+      case 'build-start':
+        if (e.component === this.src && !this.deployment) this._building = true;
+        break;
       case 'build-error':
-        if (e.component === this.src && !this.deployment) this._buildError = e.text || 'build failed';
+        if (e.component === this.src && !this.deployment) { this._buildError = e.text || 'build failed'; this._building = false; }
         break;
       case 'build-ok':
-        if (e.component === this.src && !this.deployment) this._buildError = null;
+        if (e.component === this.src && !this.deployment) { this._buildError = null; this._building = false; }
         break;
       case 'grants':
         // A grant affecting this component changed — reload so a frontend
@@ -428,6 +508,7 @@ export class BxFrame extends LitElement {
 
   _reload() {
     this._buildError = null;
+    this._building = false;
     this._beginReload();
     // Sandboxed frames are opaque origins (or, in origins mode, another
     // origin) — we can't reach contentWindow — so reload by re-navigation:
@@ -477,6 +558,9 @@ export class BxFrame extends LitElement {
   }
 
   _onFrameLoad() {
+    // every load, the first one too: a choice that changed while the frame
+    // was loading is corrected (the relay; D184)
+    this._postAppearance();
     if (!this._inFlight) return; // the initial load, not a reload
     this._inFlight = false;
     const gen = (this._loadGen = (this._loadGen || 0) + 1);
@@ -623,7 +707,11 @@ export class BxFrame extends LitElement {
     this.updateComplete.then(() => this._front());
   }
 
-  _front() { this._z = ++zTop; }
+  // to the front: the top of the pop-ups' z-order, and the page's active window
+  _front() {
+    this._z = ++zTop;
+    if (!this._popActive) window.dispatchEvent(new CustomEvent(FRONT, { detail: { key: this._winKey } }));
+  }
 
   // Title-bar drag (kit dragWindow, fenced inside the canvas — D66); the
   // native CSS resize handle owns width/height, read back into _pop on release.
@@ -809,12 +897,12 @@ export class BxFrame extends LitElement {
                   credentialless=${this._frame.credentialless ? '' : nothing}
                   @load=${() => this._onFrameLoad()}></iframe>`) : nothing}
         ${this._buildError !== null ? html`
-          <pre class="overlay"><b>build failed — ${this._page}</b>\n\n${this._buildError}</pre>` : nothing}
+          <pre class="overlay"><b><bx-icon name="error"></bx-icon>build failed — ${this._page}</b>\n\n${this._buildError}</pre>` : nothing}
         ${this.hasAttribute('no-edit') ? nothing : html`
           <button class="edit" title="edit ${this.src}" @click=${this._toggleTerm}></button>`}
       </div>
       ${this._termOpen ? (({ x, y, w, h }) => html`
-        <div class="pop ${this._narrow ? 'narrow' : ''}"
+        <div class="pop ${this._narrow ? 'narrow' : ''} ${this._popActive ? 'active' : ''} ${this._isAgent ? 'agent' : ''}"
              style="left:${x}px; top:${y}px; width:${w}px; height:${h}px; z-index:${this._z}"
              @pointerdown=${this._popDown}>
           ${titlebar(this)}

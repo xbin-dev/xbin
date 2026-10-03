@@ -16,17 +16,24 @@
  * selection}, `bx-canvas-menu` {clientX, clientY}, `bx-admin-win` path,
  * `bx-toggle-tile` path. frameFor / frameOpen / frames / rectOf /
  * raiseFocusedFloat / togglePin are the shell's handles on the cards.
+ *
+ * Every card is a window (product-ui 3; D184): a 28 px title bar with the
+ * live square (its frame's build state, `bx-build`), the tile's name and
+ * path, and 28 × 28 controls; the active window — the last one brought to
+ * the front, here or anywhere on the page (zorder.js frontWindow) — wears
+ * the active title bar and edge. The admin console's windows carry the
+ * admin part tab.
  */
 import { LitElement, html, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
 import '/vendor/bx-menu.js';
 import '/vendor/bx-dialog.js';
 import { clampBox, dragPointer, pathHas } from '/vendor/bx-kit.js';
-import { GRID, GAP, MIN_W, MIN_H, snap, RUNTIME_COLOR, LongPress, selectedText, prBadge,
+import { GRID, GAP, MIN_W, MIN_H, snap, LongPress, selectedText, prBadge, liveSquare, liveState,
   followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge, partitionMark, chipTag } from './shell-kit.js';
 import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
-import { nextZ, raiseTo } from './zorder.js';
+import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { canvasCss, prbCss, partCss } from './shell-css.js';
 import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
   switchSpec, switchResolve, staleRefusal, deletesNothing, keptText, switchedText, whoDecides, noteText,
@@ -51,6 +58,7 @@ export class BxCanvas extends LitElement {
     _dmenu: { state: true },            // a window head's ⇈ menu: {items, anchor, title}
     _part: { state: true },             // path → a pending card's decision {key, busy, err, done}
     _pdlg: { state: true },             // the Switch… typed confirmation: {path, v, dry, spec}
+    _front: { state: true },            // the active window's key (zorder.js): 'tile:<path>' is one of ours
   };
   static styles = [canvasCss, prbCss, partCss];
 
@@ -73,6 +81,9 @@ export class BxCanvas extends LitElement {
     };
     // A pop-up opened, moved, resized or closed: the scroll area follows.
     this.addEventListener('bx-pop', () => this.requestUpdate());
+    // A frame's build state changed (bx-frame `bx-build`): its live square follows.
+    this.addEventListener('bx-build', () => this.requestUpdate());
+    this._front = activeWindow();
   }
 
   // Tile deployments (optional): a window whose tile has another deployment
@@ -86,8 +97,14 @@ export class BxCanvas extends LitElement {
     super.connectedCallback();
     followDeployments();
     this._offDeploy = onDeployChange(() => this.requestUpdate());
+    this._offFront = onWindowFront((key) => { this._front = key; });
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); this._offFront?.(); }
+  // The active window (zorder.js): a card or float of ours is when its key is.
+  _isActive(path) { return this._front === `tile:${path}`; }
+  _activate(path) { frontWindow(`tile:${path}`); }
+  // The live square's state: the tile's row and its frame's build state.
+  _liveOf(path) { return liveState(this._rowOf(path), this.frameFor(path)?.buildState ?? ''); }
   _deployIcon(o, shown) {
     const c = (this.components ?? []).find((x) => x.path === o.path);
     wantDeployState(o.path, c);
@@ -148,6 +165,13 @@ export class BxCanvas extends LitElement {
     return false;
   }
   updated() {
+    // No window is active (none brought to the front yet, or the active one
+    // closed or is on another screen): the topmost float is, as on a desktop.
+    const f = this._front;
+    if (!this.mobile && (!f || (f.startsWith('tile:') && !this._all().some((o) => `tile:${o.path}` === f)))) {
+      const top = this._all().filter((o) => o.float).sort((a, b) => (b.float.z ?? 100) - (a.float.z ?? 100))[0];
+      if (top) this._activate(top.path);
+    }
     if (!this._pending.size) return;
     for (const [p, l] of [...this._pending]) {
       const fr = this.frameFor(p);
@@ -333,6 +357,9 @@ export class BxCanvas extends LitElement {
 
   // kind: 'grid' (on the snappable grid) | 'float' (a free-floating window).
   // Both are fixed-size: the frame fills a fixed body and scrolls inside.
+  // The head is the window's title bar: the live square, the partition
+  // marker, the name (the folder's) and the path, then the badges and the
+  // controls (28 × 28, 16 px glyphs, each named for a screen reader).
   _cardTemplate(o, kind = 'grid') {
     const floating = kind === 'float', shown = this._shownDep(o);
     const c = this._rowOf(o.path), pv = partitionView(c);
@@ -341,32 +368,38 @@ export class BxCanvas extends LitElement {
     // the chip says whose partition the window shows (yours/shared/global)
     const mark = shown ? null : partitionMark(c), chip = partitionChip(pv, { shown, who: this.who });
     const frame = html`<bx-frame src=${o.path} deployment=${shown || nothing} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
+    const name = o.path.slice(o.path.lastIndexOf('/') + 1);
+    const pin = floating ? 'pin back onto the grid' : 'unpin into a floating window';
+    const admin = 'tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)';
+    const menu = 'tile menu (terminal · logs · source · proposals · admin)';
     return html`
-      <div class="card" data-path=${o.path}
+      <div class="card ${this._isActive(o.path) ? 'active' : ''}" data-path=${o.path} data-part=${o.path === 'tiles/admin' ? 'admin' : nothing}
            @bx-contextmenu=${(e) => { e.stopPropagation(); this._tileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, e.detail.selection || ''); }}>
         <div class="head"
-             @pointerdown=${(e) => { this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
+             @pointerdown=${(e) => { this._activate(o.path); this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._press.move(e)}
              @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}>
-          ${mark ?? html`<span class="c" style="background:${RUNTIME_COLOR[this._runtimeOf(o.path)] ?? RUNTIME_COLOR['']}"></span>`}
-          <span class="t">${o.path}</span>
+          ${liveSquare(this._liveOf(o.path), this._runtimeOf(o.path))}
+          ${mark ?? nothing}
+          <span class="t" title=${o.path}><span class="nm">${name}</span><span class="path">${o.path}</span></span>
           ${shown ? html`<span class="dtag" title=${`this window shows ${o.path}'s deployment ${shown} (/c/${o.path}+${shown}/), not the primary`}>+${shown}</span>` : nothing}
           ${chipTag(chip)}
           ${prBadge(this.prs?.[o.path], () => this.frameOpen(o.path, 'prs'))}
           ${deployBadge(this._deployIcon(o, shown), (e) => this._deployMenu(e, o))}
           <span class="spacer"></span>
-          <button class="term" title="terminal on ${o.path}"
+          <button class="wc term" title="terminal on ${o.path}" aria-label="terminal on ${o.path}"
                   @pointerdown=${(e) => e.stopPropagation()}
-                  @click=${(e) => this._cardTerm(e)}>&gt;_</button>
-          ${!this.mobile && this.canAdminTile?.(o.path) ? html`<button title="tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)"
+                  @click=${(e) => this._cardTerm(e)}><bx-icon name="terminal"></bx-icon></button>
+          ${!this.mobile && this.canAdminTile?.(o.path) ? html`<button class="wc" title=${admin} aria-label="tile admin"
                   @pointerdown=${(e) => e.stopPropagation()}
-                  @click=${(e) => { e.stopPropagation(); this._emit('bx-admin-win', o.path); }}>⚙</button>` : nothing}
-          ${!this.mobile && this.canMutate ? html`<button title=${floating ? 'pin back onto the grid' : 'unpin into a floating window'}
-                  @click=${() => this.togglePin(o.path)}>${floating ? '▣' : '⧉'}</button>` : nothing}
-          <button title="tile menu (terminal · logs · source · proposals · admin)"
+                  @click=${(e) => { e.stopPropagation(); this._emit('bx-admin-win', o.path); }}><bx-icon name="settings"></bx-icon></button>` : nothing}
+          ${!this.mobile && this.canMutate ? html`<button class="wc" title=${pin} aria-label=${pin}
+                  @click=${() => this.togglePin(o.path)}><bx-icon name=${floating ? 'maximize' : 'restore'}></bx-icon></button>` : nothing}
+          <button class="wc" title=${menu} aria-label="tile menu"
                   @pointerdown=${(e) => e.stopPropagation()}
-                  @click=${(e) => this._tileMenu(e, o.path, e.currentTarget)}>⋯</button>
-          ${!this.mobile && this.canMutate ? html`<button title="close" @click=${() => this._emit('bx-toggle-tile', o.path)}>✕</button>` : nothing}
+                  @click=${(e) => this._tileMenu(e, o.path, e.currentTarget)}><bx-icon name="ellipsis"></bx-icon></button>
+          ${!this.mobile && this.canMutate ? html`<button class="wc close" title="close" aria-label="close ${o.path}"
+                  @click=${() => this._emit('bx-toggle-tile', o.path)}><bx-icon name="xmark"></bx-icon></button>` : nothing}
         </div>
         <div class="cbody">${frame}${this._partOverlay(o.path, c, pv, shown)}</div>
       </div>`;
@@ -405,7 +438,7 @@ export class BxCanvas extends LitElement {
           @click=${() => this._partSwitch(path, v)}>${st.busy === 'count' ? 'Counting…' : st.busy === 'switch' ? 'Switching…' : switchLabel(v.from, v.to) + '…'}</button>
       </div>` : html`<p class="pwho">Who decides: ${whoDecides(c?.owner)}.</p>`;
     return html`<div class="pover"><div class="pbox" role="alert">
-      <div class="phead"><span class="pdot"></span>Paused until a manager decides<a class="pmore" href="/xbin/partitions" target="_blank" rel="noopener" title="the partitions page: the switches you decide, your partitions">details…</a></div>
+      <div class="phead"><bx-icon class="pico" name="warning" label="Warning"></bx-icon>Paused until a manager decides<a class="pmore" href="/xbin/partitions" target="_blank" rel="noopener" title="the partitions page: the switches you decide, your partitions">details…</a></div>
       <p class="pmsg">${pendingText(path, v, this.alerts)}</p>
       ${note ? html`<p class="pnote">${note}</p>` : nothing}
       ${st.done ? html`<p class="pdone">${st.done}</p>` : buttons}
@@ -462,7 +495,7 @@ export class BxCanvas extends LitElement {
     // from a bigger monitor); dragging commits the on-screen position.
     const f = this.mobile ? o.float : clampBox(o.float, { minW: MIN_W, minH: MIN_H });
     return html`
-      <div class="float" data-path=${o.path}
+      <div class="float ${this._isActive(o.path) ? 'active' : ''}" data-path=${o.path}
            style="left:${f.x}px; top:${f.y}px; width:${f.w}px; height:${f.h}px; z-index:${f.z ?? 100};"
            @contextmenu=${(e) => this._onContextMenu(e)}
            @pointerdown=${() => this._floatFront(o.path)}
@@ -497,6 +530,7 @@ export class BxCanvas extends LitElement {
   // repeatedly clicking the front window doesn't churn the layout. z is part of
   // the tile, so the stacking order persists.
   _floatFront(path) {
+    this._activate(path);
     const floats = this._all().filter((o) => o.float);
     if (floats.length < 2) return;
     const o = floats.find((t) => t.path === path);
@@ -512,8 +546,9 @@ export class BxCanvas extends LitElement {
   // clicking anywhere in a window — not just its title bar — brings it forward.
   // A window blur with an iframe focused = the person clicked into that
   // tile (the click itself never reaches us), so its float comes to the
-  // front — unless the frame is mid-reload: a reloaded document that focuses
-  // an input would otherwise hoist its tile over the terminal someone is
+  // front, and its window — a float or a grid card — is the active one —
+  // unless the frame is mid-reload: a reloaded document that focuses an
+  // input would otherwise hoist its tile over the terminal someone is
   // typing in (bx-frame also hands that stolen focus back).
   raiseFocusedFloat() {
     setTimeout(() => {
@@ -523,7 +558,9 @@ export class BxCanvas extends LitElement {
       const host = el.getRootNode()?.host;
       if (host?.reloading && !host.hovered) return; // a reload's focus grab, not a click
       const win = host?.closest?.('.float');
-      if (win) this._floatFront(win.dataset.path);
+      if (win) { this._floatFront(win.dataset.path); return; }
+      const card = host?.closest?.('.gtile .card');
+      if (card) this._activate(card.dataset.path);
     }, 0);
   }
 

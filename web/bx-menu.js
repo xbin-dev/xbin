@@ -28,12 +28,19 @@
  * ArrowLeft for submenus, Escape, Tab closes, type-ahead on labels. Fires
  * `bx-menu-close` (dismissed or chosen — before the action runs) and
  * `bx-menu-select` {item} for items without an action.
+ *
+ * An item's or a cell's `icon` is a /vendor/bx-icons.js name (D184:
+ * 'terminal', 'pencil', …), drawn as <bx-icon>; any other string is shown
+ * as text, as before (an older shell's glyph characters keep working).
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { deepActive } from '/vendor/bx-kit.js';
+import { hasIcon } from '/vendor/bx-icons.js';
 
 const isItem = (it) => !it.kind || it.kind === 'item';
+// an item's icon: a glyph of the set, else its text
+const glyph = (icon) => (icon && hasIcon(icon) ? html`<bx-icon name=${icon}></bx-icon>` : (icon ?? ''));
 
 export class BxMenu extends LitElement {
   static properties = {
@@ -54,99 +61,105 @@ export class BxMenu extends LitElement {
 
   static styles = [scrollCss, css`
     :host { position: fixed; inset: 0; z-index: var(--bx-menu-z, 3800); display: none;
-      font: var(--bx-font, 13px/1.45 -apple-system, system-ui, sans-serif); color: var(--bx-text, #d4d9e0); }
+      font: var(--bx-font, 13px/18px system-ui, sans-serif); color: var(--bx-text, #E9EAF0); }
     :host([open]) { display: block; }
+    button, input { font: inherit; color: inherit; }
+    :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px); box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
+    .panel:focus-visible, .sheet:focus-visible { outline: none; box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); }
+    ::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
+    bx-icon { flex: none; }
     .backdrop { position: absolute; inset: 0; }
-    :host([sheet]) .backdrop { background: rgba(0, 0, 0, .45); }
+    :host([sheet]) .backdrop { background: var(--bx-scrim, rgba(0, 0, 0, 0.55)); }
 
-    /* ---- desktop panels ---- */
+    /* ---- desktop panels: a popover (product-ui 6), square, 28 px rows ---- */
     .panel {
       position: fixed; min-width: 200px; max-width: min(360px, 92vw);
       max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain;
       padding: 4px; box-sizing: border-box; outline: none;
-      background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
-      border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+      background: var(--bx-panel, #1F2028); border: 1px solid var(--bx-border-strong, #666A7E);
+      border-radius: var(--bx-radius, 2px); box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6));
     }
     .panel.hidden { visibility: hidden; }
-    .panel:has(.grid) { min-width: 250px; }
+    .panel:has(.grid) { min-width: 280px; }
 
-    /* ---- rows ---- */
+    /* ---- rows: hovered and keyboard-focused in the hover tint; the focus
+       ring sits inside (the panel clips) ---- */
     .it {
-      display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
-      text-align: left; border: 0; background: transparent; color: var(--bx-text, #d4d9e0);
-      font: inherit; font-size: 12.5px; padding: 6px 10px; border-radius: 5px; cursor: pointer;
+      display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; min-height: var(--bx-row, 28px);
+      text-align: left; border: 0; background: transparent; color: var(--bx-text, #E9EAF0);
+      padding: 0 8px; border-radius: var(--bx-radius, 2px); cursor: pointer;
       white-space: nowrap;
     }
-    .it:hover, .it:focus-visible, .it.open { background: var(--bx-panel-2, #2b3038); color: var(--bx-accent, #f5a623); outline: none; }
-    .it[disabled] { opacity: .45; cursor: default; }
-    .it[disabled]:hover { background: transparent; color: var(--bx-text, #d4d9e0); }
-    .it.danger { color: var(--bx-red, #ef5350); }
-    .it .ic { flex: none; width: 16px; text-align: center; color: var(--bx-muted, #868f9a); }
+    .it:hover, .it:focus-visible { background: var(--bx-hover, #2A2B34); }
+    .it.open { background: var(--bx-selection, #262C5C); color: var(--bx-selection-text, #E9EAF0); }
+    .it:focus-visible, .cell:focus-visible, .q:focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: calc(-1 * var(--bx-focus-width, 3px)); box-shadow: none; }
+    .it[disabled] { opacity: 0.5; cursor: default; }
+    .it[disabled]:hover { background: transparent; }
+    .it.danger { color: var(--bx-danger, #FF7A7A); }
+    .it .ic { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; color: var(--bx-muted, #A3A6B6); }
+    .it.danger .ic { color: inherit; }
     .it.mono .ic, .it.mono .lb { font-family: var(--bx-mono, ui-monospace, monospace); }
     .it .lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .it .hint { flex: none; font-size: 10.5px; color: var(--bx-muted, #868f9a); max-width: 40%;
+    .it .hint { flex: none; font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); max-width: 40%;
       overflow: hidden; text-overflow: ellipsis; }
-    .it .arrow { flex: none; color: var(--bx-muted, #868f9a); font-size: 10px; }
-    .it .chk { flex: none; width: 12px; color: var(--bx-accent, #f5a623); }
-    .badge { flex: none; padding: 0 5px; border-radius: 3px; font-size: 9.5px; line-height: 15px;
-      letter-spacing: .02em; color: var(--bx-amber, #f2a71b);
-      border: 1px solid color-mix(in srgb, var(--bx-amber, #f2a71b) 45%, transparent);
-      background: color-mix(in srgb, var(--bx-amber, #f2a71b) 10%, transparent); }
-    .sep { height: 1px; margin: 4px 6px; background: var(--bx-border, #363c45); }
-    .hd { padding: 6px 10px 2px; font-size: 10px; font-weight: 600; letter-spacing: .06em;
-      text-transform: uppercase; color: var(--bx-muted, #868f9a); }
-    .empty { padding: 6px 10px; color: var(--bx-muted, #868f9a); font-size: 11.5px; }
-    .ttl { padding: 4px 10px 6px; font: 600 11px var(--bx-mono, ui-monospace, monospace);
-      color: var(--bx-muted, #868f9a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .it .arrow { flex: none; display: inline-flex; color: var(--bx-muted, #A3A6B6); }
+    .it .chk { flex: none; display: inline-flex; width: 16px; color: var(--bx-accent, #8C9BFF); }
+    .badge { flex: none; box-sizing: border-box; height: 18px; padding: 0 4px; border-radius: var(--bx-radius, 2px);
+      font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); font-weight: 600; line-height: 16px; font-variant-numeric: tabular-nums;
+      color: var(--bx-text, #E9EAF0); border: 1px solid var(--bx-border-strong, #666A7E); }
+    .sep { height: 1px; margin: 4px; background: var(--bx-border, #33353F); }
+    .hd { padding: 8px 8px 2px; font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em);
+      text-transform: uppercase; color: var(--bx-muted, #A3A6B6); }
+    .empty { padding: 6px 8px; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+    .ttl { padding: 4px 8px 6px; font: var(--bx-font-code, 12px/18px ui-monospace, monospace); font-weight: 600;
+      color: var(--bx-muted, #A3A6B6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* the squares row */
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(42px, 1fr)); gap: 4px; padding: 2px 4px 6px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 4px; padding: 2px 0 6px; }
     .cell {
       position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 3px; height: 52px; border: 1px solid var(--bx-border, #363c45); border-radius: 6px;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); cursor: pointer; font: inherit;
+      gap: 4px; height: 52px; box-sizing: border-box; border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); cursor: pointer;
     }
-    .cell:hover, .cell:focus-visible { border-color: var(--bx-accent, #f5a623); color: var(--bx-accent, #f5a623); outline: none; }
-    .cell[disabled] { opacity: .45; cursor: default; }
+    .cell:hover, .cell:focus-visible { background: var(--bx-hover, #2A2B34); border-color: var(--bx-border-strong, #666A7E); }
+    .cell[disabled] { opacity: 0.5; cursor: default; }
     /* icon and label sit in fixed-height rows so labels align across cells
        whatever the glyph's own height */
-    .cell .ic { height: 18px; display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; }
-    .cell.mono .ic { font-family: var(--bx-mono, ui-monospace, monospace); font-weight: 700; font-size: 12px; letter-spacing: -.5px; }
-    .cell .lb { height: 12px; line-height: 12px; font-size: 10px; color: var(--bx-muted, #868f9a); }
-    .cell .badge { position: absolute; top: 3px; right: 4px; }
+    .cell .ic { height: 18px; display: flex; align-items: center; justify-content: center; line-height: 1; }
+    .cell.mono .ic { font-family: var(--bx-mono, ui-monospace, monospace); font-weight: 700; }
+    .cell .lb { height: 16px; font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); }
+    .cell .badge { position: absolute; top: 2px; right: 2px; }
 
     .q {
-      display: block; width: calc(100% - 8px); margin: 2px 4px 4px; box-sizing: border-box;
-      font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border, #363c45);
-      border-radius: 5px; background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
+      display: block; width: calc(100% - 8px); height: var(--bx-control-h, 28px); margin: 2px 4px 4px; box-sizing: border-box;
+      padding: 0 8px; border: 1px solid var(--bx-border-strong, #666A7E);
+      border-radius: var(--bx-radius, 2px); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
     }
-    .q:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 35%, transparent); }
 
     /* ---- bottom sheet ---- */
     .sheet {
       position: fixed; left: 0; right: 0; bottom: 0; max-height: 84vh;
       display: flex; flex-direction: column; box-sizing: border-box;
-      background: var(--bx-panel, #23272e); border-top: 1px solid var(--bx-border, #363c45);
-      border-radius: 12px 12px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, .35);
+      background: var(--bx-panel, #1F2028); border-top: 1px solid var(--bx-border-strong, #666A7E);
+      border-radius: 0; box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6));
       padding-bottom: env(safe-area-inset-bottom); outline: none;
-      animation: bx-sheet-in .18s ease-out;
+      animation: bx-sheet-in var(--bx-dur-panel, 200ms) var(--bx-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
     }
-    @keyframes bx-sheet-in { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+    @keyframes bx-sheet-in { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
     @media (prefers-reduced-motion: reduce) { .sheet { animation: none; } }
-    @media (max-height: 500px) { .sheet { max-height: 100vh; border-radius: 0; } }
-    .shead { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px;
-      border-bottom: 1px solid var(--bx-border, #363c45); font-size: 12.5px; }
+    @media (max-height: 500px) { .sheet { max-height: 100vh; } }
+    .shead { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px;
+      border-bottom: 1px solid var(--bx-border, #33353F); }
     .shead .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      font: 600 12px var(--bx-mono, ui-monospace, monospace); }
-    .shead button { border: 0; background: transparent; color: var(--bx-text, #d4d9e0); font: inherit;
-      font-size: 14px; padding: 6px 8px; cursor: pointer; border-radius: 6px; }
-    .shead button:hover { background: var(--bx-panel-2, #2b3038); }
+      font: var(--bx-font-code, 12px/18px ui-monospace, monospace); font-weight: 600; }
+    .shead button { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0;
+      border: 0; background: transparent; color: var(--bx-text, #E9EAF0); cursor: pointer; border-radius: var(--bx-radius, 2px); }
+    .shead button:hover { background: var(--bx-control-hover, #33353F); }
     .sbody { overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
-    .sheet .it { padding: 11px 12px; font-size: 14px; min-height: 44px; }
+    .sheet .it { padding: 0 12px; font-size: 14px; min-height: 44px; }
     .sheet .grid { grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 6px 4px 10px; }
     .sheet .cell { height: 64px; }
-    .sheet .cell .lb { font-size: 11px; }
-    .sheet .q { font-size: 14px; padding: 8px 10px; }
+    .sheet .q { height: 40px; font-size: 14px; padding: 0 10px; }
     .sheet .hd { padding-top: 10px; }
   `];
 
@@ -355,19 +368,19 @@ export class BxMenu extends LitElement {
         data-l=${level} data-i=${idx}
         @pointerenter=${(e) => this._hoverItem(it, e.currentTarget, level)}
         @click=${(e) => this._choose(it, e.currentTarget)}>
-      ${it.checked != null ? html`<span class="chk">${it.checked ? '✓' : ''}</span>` : nothing}
-      <span class="ic">${it.icon ?? ''}</span>
+      ${it.checked != null ? html`<span class="chk">${it.checked ? html`<bx-icon name="check" label="selected"></bx-icon>` : ''}</span>` : nothing}
+      <span class="ic">${glyph(it.icon)}</span>
       <span class="lb">${it.label}</span>
       ${it.badge ? html`<span class="badge">${it.badge}</span>` : nothing}
       ${it.hint ? html`<span class="hint">${it.hint}</span>` : nothing}
-      ${submenu ? html`<span class="arrow">${this.sheet ? '›' : '▸'}</span>` : nothing}
+      ${submenu ? html`<span class="arrow"><bx-icon name="chevron-right"></bx-icon></span>` : nothing}
     </button>`;
   }
   _grid(g) {
     return html`<div class="grid">${(g.cells ?? []).map((c) => html`
-      <button class="cell ${c.mono ? 'mono' : ''}" ?disabled=${!!c.disabled} title=${c.title ?? c.label ?? nothing}
+      <button class="cell ${c.mono && !hasIcon(c.icon) ? 'mono' : ''}" ?disabled=${!!c.disabled} title=${c.title ?? c.label ?? nothing}
           @click=${() => this._choose(c)}>
-        <span class="ic">${c.icon ?? ''}</span>
+        <span class="ic">${glyph(c.icon)}</span>
         <span class="lb">${c.label ?? ''}</span>
         ${c.badge ? html`<span class="badge">${c.badge}</span>` : nothing}
       </button>`)}</div>`;
@@ -401,9 +414,9 @@ export class BxMenu extends LitElement {
         <div class="backdrop" @pointerdown=${() => this._close()} @contextmenu=${(e) => { e.preventDefault(); this._close(); }}></div>
         <div class="sheet" role="menu" tabindex="-1" @keydown=${(e) => this._onKey(e, e.currentTarget, items)}>
           <div class="shead">
-            ${top ? html`<button title="back" @click=${() => this._back()}>‹</button><span class="t">${top.label}</span>`
+            ${top ? html`<button title="back" aria-label="back" @click=${() => this._back()}><bx-icon name="chevron-left"></bx-icon></button><span class="t">${top.label}</span>`
               : html`<span class="t">${this.title || ''}</span>`}
-            <button title="close" @click=${() => this._close()}>✕</button>
+            <button title="close" aria-label="close" @click=${() => this._close()}><bx-icon name="xmark"></bx-icon></button>
           </div>
           <div class="sbody">${this._list(items, 0, this._q)}</div>
         </div>`;

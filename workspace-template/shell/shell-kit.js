@@ -1,11 +1,12 @@
 // shell/shell-kit.js — what the shell and its child elements share: the
-// grid module the layout is measured in, the runtime colour dots, the
-// partitioned marker and partition chip (a card's head and a pop-out's),
-// the touch long-press gesture, the shell-text selection check, the ⇄
-// change-proposal badge and the tile deployments store behind the ⇈
-// badges. Imported relatively by bx-shell.js and its
-// child elements; nothing here touches element state.
+// grid module the layout is measured in, a window's live square, the status
+// levels' glyphs and words, the partitioned marker and partition chip (a
+// card's head and a pop-out's), the touch long-press gesture, the
+// shell-text selection check, the ⇄ change-proposal badge and the tile
+// deployments store behind the ⇈ badges. Imported relatively by
+// bx-shell.js and its child elements; nothing here touches element state.
 import { html, nothing } from 'lit';
+import '/vendor/bx-icons.js';
 import { useDeployLookup, deploySummary, deployHint, deployFailed, deployNames, shownDeployment } from './menus.js';
 import { partitionView, markTitle, partitionChip, framedTile } from './partition-mode.js';
 
@@ -13,13 +14,39 @@ import { partitionView, markTitle, partitionChip, framedTile } from './partition
 // node-testable); re-exported here for the shell's existing imports.
 export { GRID, GAP, DEF_W, DEF_H, MIN_W, MIN_H, snap } from './grid-layout.js';
 
-// The dot before a tile's name: its runtime.
-export const RUNTIME_COLOR = {
-  '': 'var(--bx-muted, #868f9a)',
-  static: 'var(--bx-muted, #868f9a)',
-  go: 'var(--bx-accent, #f5a623)',
-  node: 'var(--bx-green, #4caf50)',
-  python: 'var(--bx-amber, #f2a71b)',
+// A window's live square (product-ui 3; D184): the 8 px square before a
+// tile's name says the state of the code it shows — filled in the accent
+// when the saved change is live, hollow while it builds, a danger outline
+// and the word "failed" when the build failed, hollow for a tile that is
+// switched off. The runtime, which the square's colour used to say, is in
+// its tooltip. state: 'live' | 'building' | 'failed' (bx-frame buildState)
+// or 'off' (liveState below); runtime: the /components row's.
+const RUNTIME_NAME = { go: 'a Go backend', node: 'a Node backend', python: 'a Python backend' };
+const LIVE_WORD = { live: 'live', building: 'building', failed: 'build failed', off: 'switched off' };
+export const runtimeName = (runtime) => RUNTIME_NAME[runtime] ?? 'static (no backend)';
+// liveState(c, build) → the square's state for the tile's /components row c
+// and its frame's build state ('' while the frame isn't there yet).
+export function liveState(c, build) {
+  if (c?.state && c.state !== 'enabled') return 'off';
+  return build === 'building' || build === 'failed' ? build : 'live';
+}
+export function liveSquare(state, runtime) {
+  const title = `${LIVE_WORD[state] ?? 'live'} · ${runtimeName(runtime)}`;
+  return html`<span class="lsq ${state}" role="img" aria-label=${title} title=${title}></span>${state === 'failed'
+    ? html`<span class="lfail">failed</span>` : nothing}`;
+}
+
+// The status levels (tiles → workspace, /alerts): a glyph of its own shape
+// and a word with the colour (R2) — never a dot alone.
+export const STATUS = Object.freeze({
+  ok: { icon: 'ok', word: 'OK' }, info: { icon: 'info', word: 'Info' },
+  warn: { icon: 'warning', word: 'Warning' }, error: { icon: 'error', word: 'Error' },
+});
+// statusIcon(level) → the level's glyph (class sti: its colour from --st,
+// statusCss), named by its word.
+export const statusIcon = (level) => {
+  const s = STATUS[level] ?? STATUS.info;
+  return html`<bx-icon class="sti" name=${s.icon} label=${s.word}></bx-icon>`;
 };
 
 // The partitioned marker (PD-53, design A): an 8px ring with its left half
@@ -95,12 +122,12 @@ export function selectedText(root) {
 // (sidebar rows).
 export function prBadge(n, onOpen = null) {
   if (!n) return nothing;
-  const title = `${n} open change proposal${n === 1 ? '' : 's'} — review in the tile's terminal window (⇄ tab)`;
+  const title = `${n} open change proposal${n === 1 ? '' : 's'} — review in the tile's terminal window (its proposals panel)`;
   return onOpen
-    ? html`<button class="prb" title=${title}
+    ? html`<button class="prb" title=${title} aria-label=${title}
                    @pointerdown=${(e) => e.stopPropagation()}
-                   @click=${(e) => { e.stopPropagation(); onOpen(); }}>⇄${n}</button>`
-    : html`<span class="prb" title=${title}>⇄${n}</span>`;
+                   @click=${(e) => { e.stopPropagation(); onOpen(); }}><bx-icon name="diff"></bx-icon>${n}</button>`
+    : html`<span class="prb" title=${title}><bx-icon name="diff"></bx-icon>${n}</span>`;
 }
 
 // Tree items: '#screen:<id>' parks a personal tab, '#orgscreen:<id>' references
@@ -194,17 +221,18 @@ export function followDeployments() {
   });
 }
 
-// deployChip(c, state) → null, or the card head's ⇈ badge {text, title,
+// deployChip(c, state) → null, or the card head's ⇈ badge {icon, title,
 // failed}: while the primary is pinned or its last deploy failed, titled
-// with the terminal window's chip sentence once the words are here.
+// with the terminal window's chip sentence once the words are here. A
+// failed deploy draws the error glyph and the word (R2).
 export function deployChip(c, st) {
   const sum = deploySummary(c, st), failed = deployFailed(st);
   if (!sum || (!sum.pinned && !failed)) return null;
   let title = '';
   try { title = (st?.record && dwords?.chip?.(st)?.title) || ''; } catch { /* the words changed: plain text */ }
-  return { text: failed ? '⇈!' : '⇈', title: title || deployHint(sum, st), failed };
+  return { icon: failed ? 'error' : 'deploy', title: title || deployHint(sum, st), failed };
 }
-// deployIcon(c, state, shown) → null, or a tile window head's ⇈ {text,
+// deployIcon(c, state, shown) → null, or a tile window head's ⇈ {icon,
 // title, failed}: while the tile has a deployment the viewer may show besides
 // the primary, the primary is pinned, or its last deploy failed — and while
 // the window shows another deployment (shown). Its click picks what the
@@ -213,18 +241,18 @@ export function deployIcon(c, st, shown) {
   const chip = deployChip(c, st), others = deployNames(st).length > 1;
   if (!chip && !others && !shown) return null;
   const title = [chip?.title, others ? 'pick the deployment this window shows' : ''].filter(Boolean).join(' · ');
-  return { text: chip?.text || '⇈', title, failed: !!chip?.failed };
+  return { icon: chip?.icon || 'deploy', title, failed: !!chip?.failed };
 }
 // deployBadge(chip, onOpen): the ⇄N badge's manners; with onOpen a button
 // (onOpen(event): a menu anchors at event.currentTarget).
 export function deployBadge(d, onOpen = null) {
   if (!d) return nothing;
-  const style = d.failed ? 'color: var(--bx-red, #ef5350)' : '';
+  const body = html`<bx-icon name=${d.icon || 'deploy'}></bx-icon>${d.failed ? 'failed' : nothing}`;
   return onOpen
-    ? html`<button class="prb dpb" style=${style} title=${d.title} aria-label=${d.title}
+    ? html`<button class="prb dpb ${d.failed ? 'bad' : ''}" title=${d.title} aria-label=${d.title}
                    @pointerdown=${(e) => e.stopPropagation()}
-                   @click=${(e) => { e.stopPropagation(); onOpen(e); }}>${d.text}</button>`
-    : html`<span class="prb dpb" style=${style} title=${d.title}>${d.text}</span>`;
+                   @click=${(e) => { e.stopPropagation(); onOpen(e); }}>${body}</button>`
+    : html`<span class="prb dpb ${d.failed ? 'bad' : ''}" title=${d.title}>${body}</span>`;
 }
 // openDeployments(root, path): the tile's terminal window on its Deployments
 // layout, from an element inside the shell (root: its getRootNode()); a tile

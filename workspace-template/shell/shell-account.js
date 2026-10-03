@@ -20,16 +20,15 @@ export function accountMenu(shell) {
   if (shell._who?.kind !== 'user') return nothing;
   const w = shell._who;
   return html`
-      <div class="hd" style="margin-top:10px">my account — ${w.id}${w.name && w.name !== w.id ? ` (${w.name})` : ''} · ${w.role}</div>
-      <form style="display:flex; flex-direction:column; gap:4px"
-            @submit=${(e) => changePassword(shell, e)}>
-        <input name="cur" type="password" placeholder="current password" autocomplete="current-password" required>
-        <input name="nw" type="password" placeholder="new password (min 8)" minlength="8" autocomplete="new-password" required>
-        <input name="nw2" type="password" placeholder="repeat new password" minlength="8" autocomplete="new-password" required>
-        <label style="font-size:11px; display:flex; gap:5px; align-items:center" title="the xbin app on your phones signs in with its own key — a new password alone doesn't sign it out"><input type="checkbox" name="rmdev" style="margin:0">and remove my app devices</label>
+      <div class="hd">my account — ${w.id}${w.name && w.name !== w.id ? ` (${w.name})` : ''} · ${w.role}</div>
+      <form class="pw" @submit=${(e) => changePassword(shell, e)}>
+        <input name="cur" type="password" placeholder="current password" aria-label="current password" autocomplete="current-password" required>
+        <input name="nw" type="password" placeholder="new password (min 8)" aria-label="new password" minlength="8" autocomplete="new-password" required>
+        <input name="nw2" type="password" placeholder="repeat new password" aria-label="repeat the new password" minlength="8" autocomplete="new-password" required>
+        <label class="rmdev" title="the xbin app on your phones signs in with its own key — a new password alone doesn't sign it out"><input type="checkbox" name="rmdev">and remove my app devices</label>
         <button class="act" type="submit">change password</button>
       </form>
-      <button class="act" style="margin-top:6px; width:100%" title="the xbin app on your phones and tablets — add one with a QR code, or remove one"
+      <button class="act wide" title="the xbin app on your phones and tablets — add one with a QR code, or remove one"
               @click=${() => { shell._settingsOpen = false; openDevices(); }}>devices…</button>
       ${partitionsEntry(shell)}`;
 }
@@ -42,7 +41,7 @@ export function accountMenu(shell) {
 function partitionsEntry(shell) {
   if (!pageEntry(shell._components, shell._who)) return nothing;
   return html`<a class="act parts" data-partitions href=${PARTITIONS_PAGE} target="_blank" rel="noopener" title=${PAGE_ENTRY_TITLE}
-      @click=${() => { shell._settingsOpen = false; }}><span class="pm">${markShape}</span><span>${PAGE_ENTRY}</span><span class="ext" aria-hidden="true">↗</span></a>`;
+      @click=${() => { shell._settingsOpen = false; }}><span class="pm">${markShape}</span><span>${PAGE_ENTRY}</span><bx-icon class="ext" name="popout"></bx-icon></a>`;
 }
 
 async function changePassword(shell, e) {

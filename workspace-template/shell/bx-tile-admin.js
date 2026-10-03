@@ -20,6 +20,7 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
+import { baseCss } from './shell-css.js';
 import '/vendor/bx-multiselect.js';
 import { netOptions } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
@@ -51,54 +52,66 @@ export class BxTileAdmin extends LitElement {
     _busy: { state: true },
   };
 
-  static styles = [scrollCss, css`
+  static styles = [scrollCss, baseCss, css`
     :host {
-      display: block; min-width: 0; font: var(--bx-font, 12.5px/1.45 system-ui, sans-serif);
-      color: var(--bx-text, #d4d9e0);
+      display: block; min-width: 0; font: var(--bx-font, 13px/18px system-ui, sans-serif);
+      color: var(--bx-text, #E9EAF0); font-variant-numeric: tabular-nums;
     }
-    .hd { display: flex; align-items: baseline; gap: 8px; padding: 8px 10px 6px;
-      border-bottom: 1px solid var(--bx-border, #363c45); }
-    .hd .t { font-family: var(--bx-mono, monospace); font-size: 12px; font-weight: 700;
+    .hd { display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+      border-bottom: 1px solid var(--bx-border, #33353F); }
+    .hd .t { font: var(--bx-font-code, 12px/18px ui-monospace, monospace); font-weight: 700;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hd .st { margin-left: auto; }
-    .err { color: var(--bx-red, #ef5350); font-size: 11px; padding: 4px 10px; }
-    details { border-bottom: 1px solid var(--bx-border, #363c45); }
+    .meta { font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+    .code { font: var(--bx-font-code, 12px/18px ui-monospace, monospace); }
+    .err { color: var(--bx-danger, #FF7A7A); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); padding: 4px 12px; }
+    td .err, .sec.err { padding: 0; }
+    details { border-bottom: 1px solid var(--bx-border, #33353F); }
     details:last-child { border-bottom: 0; }
-    summary { cursor: pointer; user-select: none; list-style-position: inside;
-      padding: 6px 10px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
-      text-transform: uppercase; color: var(--bx-muted, #868f9a); }
-    summary:hover { background: var(--bx-panel-2, #2b3038); }
-    .sec { padding: 2px 10px 10px; }
-    .pill { display: inline-block; font-size: 10.5px; padding: 0 6px; border-radius: 999px;
-      background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45);
-      margin: 1px 3px 1px 0; }
-    .pill.on { color: var(--bx-green, #4caf50); border-color: color-mix(in srgb, var(--bx-green, #4caf50) 45%, transparent); }
-    .pill.off { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent); }
-    .mono { font-family: var(--bx-mono, monospace); }
-    .muted { color: var(--bx-muted, #868f9a); }
-    table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+    /* the sections' heads: micro caps rows */
+    summary { cursor: pointer; user-select: none; list-style-position: inside; min-height: var(--bx-row, 28px); box-sizing: border-box;
+      padding: 6px 12px; font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em);
+      text-transform: uppercase; color: var(--bx-muted, #A3A6B6); }
+    summary:hover { background: var(--bx-hover, #2A2B34); }
+    summary:focus-visible { outline-offset: calc(-1 * var(--bx-focus-width, 3px)); box-shadow: none; }
+    .sec { padding: 2px 12px 12px; }
+    /* badges: square, 20 px, a 1 px border */
+    .pill { display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box; height: 20px; padding: 0 6px; margin: 1px 4px 1px 0;
+      font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); vertical-align: middle;
+      color: var(--bx-text, #E9EAF0); background: var(--bx-panel-2, #262730);
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); }
+    .pill bx-icon { color: var(--bx-muted, #A3A6B6); }
+    .pill.on { color: var(--bx-ok, #A3CF5E); border-color: var(--bx-ok, #A3CF5E); background: var(--bx-ok-bg, #2F352E); }
+    .pill.on bx-icon, .pill.warn bx-icon { color: inherit; }
+    .pill.off { color: var(--bx-muted, #A3A6B6); }
+    .pill.warn { color: var(--bx-warn, #F2994A); border-color: var(--bx-warn, #F2994A); background: var(--bx-warn-bg, #382F2C); }
+    .mono { font-family: var(--bx-mono, ui-monospace, monospace); }
+    .muted { color: var(--bx-muted, #A3A6B6); }
+    table { border-collapse: collapse; width: 100%; }
     /* Control-heavy tables share the width; long refs ellipsize (the full
        text rides on title=) instead of pushing the window into a scroll. */
     table.fx { table-layout: fixed; }
-    td { padding: 2px 6px 2px 0; border-top: 1px solid var(--bx-border, #363c45); vertical-align: middle; }
+    td { padding: 2px 8px 2px 0; height: var(--bx-row, 28px); border-top: 1px solid var(--bx-border, #33353F); vertical-align: middle; }
     td.ref { max-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     td.ctl { text-align: right; white-space: nowrap; }
     tr:first-child td { border-top: 0; }
     bx-multiselect { max-width: 100%; }
-    button.act { border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
-      color: var(--bx-text, #d4d9e0); border-radius: 5px; font: inherit; font-size: 10.5px;
-      padding: 1px 7px; cursor: pointer; }
-    button.act:hover { background: var(--bx-panel-2, #2b3038); }
-    button.act:disabled { opacity: .5; cursor: default; }
-    button.go { color: var(--bx-green, #4caf50); }
-    button.rm { color: var(--bx-red, #ef5350); }
-    input, select { font: inherit; font-size: 11px; padding: 2px 6px; max-width: 100%; box-sizing: border-box;
-      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
-    select { text-overflow: ellipsis; }
-    .row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
-    .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11.5px; }
-    .kv .k { color: var(--bx-muted, #868f9a); }
+    button.act { display: inline-flex; align-items: center; justify-content: center; gap: 4px; vertical-align: middle;
+      box-sizing: border-box; min-height: 24px; min-width: 24px; padding: 0 8px; cursor: pointer; font-weight: 600;
+      border: 1px solid var(--bx-border-strong, #666A7E); background: var(--bx-panel, #1F2028);
+      color: var(--bx-text, #E9EAF0); border-radius: var(--bx-radius, 2px); }
+    button.act:hover { background: var(--bx-hover, #2A2B34); }
+    button.act:disabled { opacity: 0.5; cursor: default; }
+    button.go { color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); }
+    button.go:hover { background: var(--bx-accent-hover, #A9B4FF); }
+    button.rm { color: var(--bx-danger, #FF7A7A); border-color: var(--bx-danger, #FF7A7A); }
+    input, select { box-sizing: border-box; height: var(--bx-control-h, 28px); padding: 0 8px; max-width: 100%;
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); }
+    select { padding: 0 4px; text-overflow: ellipsis; }
+    .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+    .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; }
+    .kv .k { color: var(--bx-muted, #A3A6B6); }
   `];
 
   constructor() {
@@ -189,7 +202,7 @@ export class BxTileAdmin extends LitElement {
     const st = this._ov?.state ?? 'enabled';
     const set = (state) => this._do(() => api('/lifecycle', { method: 'POST', ...jbody({ component: this.path, state }) }));
     return html`<div class="sec">
-      <span class="pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>
+      <span class="pill ${st === 'enabled' ? 'on' : 'off'}"><bx-icon name=${st === 'enabled' ? 'ok' : 'pause'}></bx-icon>${st}</span>
       <span class="row">
         ${st !== 'enabled' ? html`<button class="act go" ?disabled=${this._busy}
           @click=${() => set('enabled')}>${st === 'hidden' ? 'unhide' : 'enable'}</button>` : nothing}
@@ -198,7 +211,7 @@ export class BxTileAdmin extends LitElement {
         ${st !== 'hidden' && st !== 'offloaded' && st !== 'offloaded-full' ? html`<button class="act rm" ?disabled=${this._busy}
           title="disabled + removed from sidebars until unhidden (D42)"
           @click=${() => confirm(`Hide ${this.path}? It is disabled and drops out of sidebars until unhidden.`) && set('hidden')}>hide</button>` : nothing}
-        <span class="muted" style="font-size:10.5px">offload lives in the admin tile</span>
+        <span class="muted meta">offload lives in the admin tile</span>
       </span></div>`;
   }
 
@@ -206,9 +219,9 @@ export class BxTileAdmin extends LitElement {
     const rt = this._rt;
     if (!rt) return html`<div class="sec muted">…</div>`;
     if (rt.err) return html`<div class="sec err">${rt.err}</div>`;
-    if (rt.none) return html`<div class="sec muted">no backend (static tile, or not spawned)${this._ov?.vm ? html` — it asks for a ⧉ VM when it starts` : nothing}</div>`;
+    if (rt.none) return html`<div class="sec muted">no backend (static tile, or not spawned)${this._ov?.vm ? html` — it asks for a VM when it starts` : nothing}</div>`;
     const act = rt.activity ?? {};
-    const sbx = { vm: '⧉ VM', namespace: '🔒 namespace sandbox', host: 'none (host)' }[rt.sandbox];
+    const sbx = { vm: 'VM', namespace: 'namespace sandbox', host: 'none (host)' }[rt.sandbox];
     return html`<div class="sec kv">
       <span class="k">state</span><span class="mono">${rt.state} (gen ${rt.gen ?? '—'}${rt.restarts ? `, ${rt.restarts} restarts` : ''})</span>
       ${sbx ? html`<span class="k">sandbox</span><span class="mono">${sbx}${rt.vm ? ` · ${rt.vm.memMiB} MiB · ${rt.vm.vcpus} vCPU · ${rt.vm.emulated ? 'emulated' : 'KVM'}` : ''}</span>` : nothing}
@@ -243,7 +256,7 @@ export class BxTileAdmin extends LitElement {
           <td style="text-align:right; white-space:nowrap">
             ${this._secEdit === k ? nothing : html`<button class="act" @click=${() => { this._secEdit = k; }}>set</button>`}
             <button class="act rm" @click=${() => confirm(`Delete secret ${k}?`) &&
-              this._do(() => api(`/vault/${this.path}/${encodeURIComponent(k)}`, { method: 'DELETE' }))}>✕</button>
+              this._do(() => api(`/vault/${this.path}/${encodeURIComponent(k)}`, { method: 'DELETE' }))} aria-label=${`delete ${k}`}><bx-icon name="xmark"></bx-icon></button>
           </td></tr>`) : html`<tr><td class="muted">no secrets</td></tr>`}</table>
       <form class="row" @submit=${(e) => { e.preventDefault(); const f = e.target;
           if (!f.k.value.trim()) return;
@@ -277,16 +290,16 @@ export class BxTileAdmin extends LitElement {
       </div>
       <table>
         ${entries.map((e) => html`<tr>
-          <td><span class="pill">${e.kind === 'org' ? '🏢' : '👤'} ${e.kind}</span> <span class="mono">${e.id}</span></td>
+          <td><span class="pill"><bx-icon name=${e.kind === 'org' ? 'org' : 'person'}></bx-icon>${e.kind}</span> <span class="mono">${e.id}</span></td>
           <td>${e.source === 'exact'
             ? html`<select ?disabled=${this._busy} @change=${(ev) => setEntry(e.kind, e.id, ev.target.value)}>
                 ${levelsFor(e.kind).map((l) => html`<option value=${l} ?selected=${e.level === l}>${l === 'none' ? 'none (exclude)' : l}</option>`)}
               </select>`
             : html`<span class="pill">${e.level}</span>`}</td>
-          <td class="muted" style="font-size:10px">${e.source}</td>
+          <td class="muted meta">${e.source}</td>
           <td style="text-align:right">${e.source === 'exact'
             ? html`<button class="act rm" title="remove this entry" ?disabled=${this._busy}
-                @click=${() => setEntry(e.kind, e.id, '')}>✕</button>`
+                aria-label=${`remove ${e.id}`} @click=${() => setEntry(e.kind, e.id, '')}><bx-icon name="xmark"></bx-icon></button>`
             : nothing}</td>
         </tr>`)}
         ${!entries.length ? html`<tr><td class="muted" colspan="4">no entries — owner/admins only</td></tr>` : nothing}
@@ -311,7 +324,7 @@ export class BxTileAdmin extends LitElement {
         </select>
         <button class="act go" ?disabled=${this._busy}>add</button>
       </form>
-      <div class="muted" style="font-size:10px; margin-top:4px">
+      <div class="muted meta" style="margin-top:4px">
         read = see the tile · write = use/edit it · terminal = a root shell on it.
         An exact user entry is authoritative — it overrides org membership,
         patterns and defaults; <i>none</i> excludes outright (D31). Pattern
@@ -329,7 +342,7 @@ export class BxTileAdmin extends LitElement {
         ${roles.map((r) => html`<span class="pill">${r}</span>`)}</div>` : nothing}
       <table class="fx">
         ${g.pending.map((p) => html`<tr style=${p.blocked ? 'opacity:.55' : ''}>
-          <td class="mono ref" style="font-size:10.5px" title=${p.blocked ?? capInfo(p.target)?.desc ?? `${p.from} → ${p.target}`}>${p.from} → ${p.target}</td>
+          <td class="code ref" title=${p.blocked ?? capInfo(p.target)?.desc ?? `${p.from} → ${p.target}`}>${p.from} → ${p.target}</td>
           <td style="width:5.5em"><span class="pill">${p.role}</span></td>
           <td class="ctl" style="width:5em">${p.blocked
             ? html`<button class="act" disabled title=${p.blocked}>blocked</button>`
@@ -337,7 +350,7 @@ export class BxTileAdmin extends LitElement {
                 @click=${() => this._do(() => api('/grants', { method: 'POST', ...jbody({ from: p.from, target: p.target, role: p.role }) }))}>approve</button>`}</td>
         </tr>`)}
         ${g.grants.map((p) => html`<tr>
-          <td class="mono ref" style="font-size:10.5px" title=${capInfo(p.target)?.desc ?? `${p.from} → ${p.target}`}>${p.from} → ${p.target}</td>
+          <td class="code ref" title=${capInfo(p.target)?.desc ?? `${p.from} → ${p.target}`}>${p.from} → ${p.target}</td>
           <td style="width:5.5em"><span class="pill">${p.role}</span></td>
           <td class="ctl" style="width:5em"><button class="act rm" ?disabled=${this._busy}
             @click=${() => this._do(() => api('/grants', { method: 'DELETE', ...jbody({ from: p.from, target: p.target, role: p.role }) }))}>revoke</button></td>
@@ -420,13 +433,13 @@ export class BxTileAdmin extends LitElement {
               const shown = nopts.find((o) => o.id === cur);
               return html`<tr data-kind=${def.kind}>
                 <td class="ref" title=${slot}>${slot} <span class="pill">${def.kind}</span>
-                  ${inert ? html`<span class="pill off" title=${inert}>inert</span>` : nothing}</td>
+                  ${inert ? html`<span class="pill warn" title=${inert}><bx-icon name="warning"></bx-icon>inert</span>` : nothing}</td>
                 <td class="ctl" style="width:62%"><span class="mono" title=${shown?.title ?? cur}>${shown?.label ?? cur ?? '— unbound —'}</span>
-                  ${inert ? html`<div class="err" style="font-size:10.5px">${inert}</div>` : nothing}</td></tr>`;
+                  ${inert ? html`<div class="err">${inert}</div>` : nothing}</td></tr>`;
             }
             return html`<tr data-kind=${def.kind}>
               <td class="ref" title=${slot}>${slot} <span class="pill">${def.kind}</span>
-                ${inert ? html`<span class="pill off" title=${inert}>inert</span>` : nothing}</td>
+                ${inert ? html`<span class="pill warn" title=${inert}><bx-icon name="warning"></bx-icon>inert</span>` : nothing}</td>
               <td class="ctl" style="width:62%">
                 <select title=${cur || 'unbound'} @change=${(e) => {
                   const v = e.target.value;
@@ -441,8 +454,8 @@ export class BxTileAdmin extends LitElement {
                     <input name="ref" size="24" placeholder="lan:10.0.0.0/8 · internet:host:443" .value=${cur && !known ? cur : ''}
                       title="filtered egress (D35): lan:<ip|cidr>[:port] or internet:<host|ip|cidr>[:port][,…] — no globs in bindings">
                     <button class="act go" type="submit">bind</button>
-                    <button class="act" type="button" @click=${() => { this._netCustom = null; }}>✕</button></form>` : nothing}
-                ${inert ? html`<div class="err" style="font-size:10.5px">${inert}</div>` : nothing}
+                    <button class="act" type="button" aria-label="cancel" @click=${() => { this._netCustom = null; }}><bx-icon name="xmark"></bx-icon></button></form>` : nothing}
+                ${inert ? html`<div class="err">${inert}</div>` : nothing}
               </td></tr>`;
           }
           if (!mayBind) {
@@ -476,11 +489,11 @@ export class BxTileAdmin extends LitElement {
       <div class="row" style="margin-top:0">
         <button class="act go" ?disabled=${this._busy}
           @click=${() => this._do(() => api('/backup', { method: 'POST', ...jbody({ component: this.path }) }))}>backup now</button>
-        <span class="muted" style="font-size:10.5px">needs an @archive binding</span>
+        <span class="muted meta">needs an @archive binding</span>
       </div>
       <table class="fx" style="margin-top:5px">
         ${vs.slice(0, 6).map((v) => html`<tr>
-          <td class="mono ref" style="font-size:10.5px" title=${v.version}>${v.version}</td>
+          <td class="code ref" title=${v.version}>${v.version}</td>
           <td class="muted" style="width:5em">${v.size ? (v.size / 1048576).toFixed(1) + ' MB' : ''}</td>
           <td class="ctl" style="width:5em"><button class="act" ?disabled=${this._busy}
             @click=${() => confirm(`Restore ${this.path} @ ${v.version}? Current state is replaced.`) &&
@@ -500,7 +513,7 @@ export class BxTileAdmin extends LitElement {
           <td><span class="pill">${j.role || 'reader'}</span></td>
           <td style="text-align:right"><button class="act rm" ?disabled=${this._busy}
             @click=${() => confirm(`Unregister cron job ${j.name}?`) &&
-              this._do(() => api(`/cron/jobs/${encodeURIComponent(j.name)}?component=${encodeURIComponent(this.path)}`, { method: 'DELETE' }))}>✕</button></td>
+              this._do(() => api(`/cron/jobs/${encodeURIComponent(j.name)}?component=${encodeURIComponent(this.path)}`, { method: 'DELETE' }))} aria-label=${`unregister ${j.name}`}><bx-icon name="xmark"></bx-icon></button></td>
         </tr>`)}
         ${!jobs.length ? html`<tr><td class="muted">no cron registrations</td></tr>` : nothing}
       </table></div>`;
@@ -537,9 +550,9 @@ export class BxTileAdmin extends LitElement {
                 @change=${(ev) => { const v = ev.target.value; ev.target.value = e.value; this._setEdge(e, v); }}>
                 ${e.values.map((v) => html`<option value=${v.value} ?selected=${v.value === e.value}>${v.label}</option>`)}</select>`
             : html`<span class="muted">${e.text}</span>`}
-            <div class="muted" style="font-size:10px">${e.refused}</div></td></tr>`)}</table>` : nothing}
-      <div class="row"><button class="act" @click=${() => openDeployments(this.getRootNode(), this.path)}>⇈ Deployments…</button>
-        <span class="muted" style="font-size:10.5px">the tile's terminal window</span></div>
+            <div class="muted meta">${e.refused}</div></td></tr>`)}</table>` : nothing}
+      <div class="row"><button class="act" @click=${() => openDeployments(this.getRootNode(), this.path)}><bx-icon name="deploy"></bx-icon>Deployments…</button>
+        <span class="muted meta">the tile's terminal window</span></div>
     </div>`;
   }
   _setEdge(e, v) {
@@ -573,9 +586,9 @@ export class BxTileAdmin extends LitElement {
       <div class="hd">
         ${this.noTitle ? nothing : html`<span class="t">${this.path}</span>`}
         ${this._ov?.forbidden ? nothing
-          : html`<span class="st pill ${st === 'enabled' ? 'on' : 'off'}">${st}</span>`}
+          : html`<span class="st pill ${st === 'enabled' ? 'on' : 'off'}"><bx-icon name=${st === 'enabled' ? 'ok' : 'pause'}></bx-icon>${st}</span>`}
         ${pinned ? html`<span class="pill" data-pinned title=${deployChip(null, ds)?.title ?? ''}>${deployCheckpoint(ds) ? `pinned to ${deployCheckpoint(ds)}` : 'pinned'}</span>` : nothing}
-        <button class="act" title="reload" @click=${() => { this._rt = null; this._loadCore(); }}>⟳</button>
+        <button class="act" title="reload" aria-label="reload" @click=${() => { this._rt = null; this._loadCore(); }}><bx-icon name="refresh"></bx-icon></button>
       </div>
       ${this._err && !this._errSec ? html`<div class="err" role="alert">${this._err}</div>` : nothing}
       <details open data-sec="lifecycle"><summary>lifecycle</summary>${this._lifecycle()}</details>

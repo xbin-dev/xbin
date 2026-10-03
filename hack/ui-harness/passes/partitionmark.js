@@ -1,18 +1,19 @@
 // hack/ui-harness/passes/partitionmark.js — covers PD-53 (design A) and
 // 06 §12.3 — the scaffold shell on partitioned tiles:
 //   1. apps/ppart (user + global; holds nothing, so its mode is recorded at
-//      once) carries the marker — a teal half-split disc — on its sidebar
-//      row (right before ⋯) and on its window head (where the runtime dot
-//      is): role img, the tooltip naming the global instance, cursor
-//      default, no hover state; its head's partition chip (owner ruling
-//      I3) says `yours`, quiet, in the marker's hue, with its tooltip; an
-//      unpartitioned tile keeps its dot and has no chip; a pop-out window
-//      (xbin.window) framing apps/ppart — a sub-path of its own, or
-//      spec.src from another tile — carries the marker and `yours` too, one
-//      of an unpartitioned tile neither;
+//      once) carries the marker — a teal half-split disc, in the theme's
+//      --bx-part — on its sidebar row (right before ⋯) and on its window
+//      head (right after the window's live square, D184): role img, the
+//      tooltip naming the global instance, cursor default, no hover state;
+//      its head's partition chip (owner ruling I3) says `yours`, quiet, in
+//      the marker's hue, with its tooltip; an unpartitioned tile has its
+//      live square alone and no chip; a pop-out window (xbin.window) framing
+//      apps/ppart — a sub-path of its own, or spec.src from another tile —
+//      carries the marker and `yours` too, one of an unpartitioned tile
+//      neither;
 //   1b. a deployment of apps/ppart (01 §2.8: one instance its writers
-//      share): the window showing it has no marker — the runtime dot and
-//      the chip `shared` — while the row keeps its marker; back on the
+//      share): the window showing it has no marker — its live square alone
+//      and the chip `shared` — while the row keeps its marker; back on the
 //      primary, the marker again and `yours`;
 //   1c. the workspace token (no person): apps/ppart's window shows its
 //      global instance — the chip `global` (its pop-out too); apps/pswitch
@@ -41,7 +42,17 @@ const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, closeT
 const WS = process.env.WS || '';
 const PART = 'apps/ppart', KEEP = 'apps/pkeep', SWITCH = 'apps/pswitch', DEP = 'pdep';
 const NOTE = 'Your notes live here, one list per person.';
-const TEAL = 'rgb(63, 181, 163)';
+// the partition marker's teal (--bx-part): Concrete Night's, or Day's where
+// the shell follows a light system (D184)
+const TEALS = ['rgb(63, 181, 163)', 'rgb(31, 135, 120)'];
+const tealOf = (page) => page.evaluate(() => {
+  const s = document.createElement('span');
+  s.style.color = 'var(--bx-part, #3FB5A3)';
+  document.body.append(s);
+  const c = getComputedStyle(s).color;
+  s.remove();
+  return c;
+});
 
 async function until(fn, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -72,7 +83,8 @@ async function pop(page, tile, spec) {
   await head.waitFor({ timeout: 10000 });
   return head;
 }
-const popFacts = (head) => head.evaluate((el) => ({ mark: !!el.querySelector('.pm[role=img]'), first: el.firstElementChild?.className || '',
+const popFacts = (head) => head.evaluate((el) => ({ mark: !!el.querySelector('.pm[role=img]'),
+  lead: [...el.children].slice(0, 2).map((c) => c.className.split(' ')[0]).join(' '),
   chip: el.querySelector('.pchip')?.textContent.trim() || '', kind: el.querySelector('.pchip')?.dataset.chip || '',
   title: el.querySelector('.pchip')?.title || '', color: el.querySelector('.pchip') ? getComputedStyle(el.querySelector('.pchip')).color : '',
   prev: el.querySelector('.pchip')?.previousElementSibling?.className || '' }));
@@ -146,6 +158,8 @@ async function partitionMark(browser) {
     for (const t of [PART, KEEP, SWITCH]) await openTile(B.page, t);
     await B.page.locator(`${row(PART)} .pm`).waitFor({ timeout: 10000 });
     const want = 'Partitioned: each person here has their own data';
+    const TEAL = await tealOf(B.page);
+    check(TEALS.includes(TEAL), `the partition marker's colour is the theme's teal (${TEAL})`);
     const mr = await markFacts(B.page, `${row(PART)} .pm`);
     check(mr && mr.role === 'img' && mr.title.startsWith(want) && mr.label === mr.title && /global instance/.test(mr.title),
       `the sidebar row carries the marker, role img, its tooltip naming the global instance (${JSON.stringify(mr)})`);
@@ -156,9 +170,9 @@ async function partitionMark(browser) {
     check(mh && mh.color === mr.color && mh.cursor === 'default', 'no hover state');
     const hd = await markFacts(B.page, `${card(PART)} .head .pm`);
     check(hd && hd.role === 'img' && hd.title === mr.title && hd.cursor === 'default', `the window head carries it too (${JSON.stringify(hd)})`);
-    check(await B.page.locator(`${card(PART)} .head .c`).count() === 0, 'in the runtime dot\'s place: the head has no dot');
-    check(await B.page.locator(`${card(KEEP)} .head .c`).count() === 1 && await B.page.locator(`${card(KEEP)} .head .pm`).count() === 0
-      && await B.page.locator(`${row(KEEP)} .pm`).count() === 0, `an unpartitioned tile (${KEEP}, even pending into partitions) keeps its dot and has no marker`);
+    check(await B.page.locator(`${card(PART)} .head .lsq + .pm`).count() === 1, 'the head carries it right after the window\'s live square (D184)');
+    check(await B.page.locator(`${card(KEEP)} .head .lsq`).count() === 1 && await B.page.locator(`${card(KEEP)} .head .pm`).count() === 0
+      && await B.page.locator(`${row(KEEP)} .pm`).count() === 0, `an unpartitioned tile (${KEEP}, even pending into partitions) has its live square and no marker`);
     check(await B.page.locator(`${card(SWITCH)} .head .pm`).count() === 1, `a pending switch doesn't change the marker (${SWITCH} still runs user)`);
     const ch = await chipFacts(B.page, `${card(PART)} .head .pchip`);
     check(ch && ch.text === 'yours' && ch.kind === 'yours' && /^Your partition: this window shows your own data/.test(ch.title),
@@ -175,8 +189,8 @@ async function partitionMark(browser) {
     await openTile(B.page, NOTES);
     const p1 = await pop(B.page, PART, { path: 'pop', title: 'pop-own', x: 700, y: 480, width: 320, height: 160 });
     const f1 = await popFacts(p1);
-    check(f1.mark && f1.first === 'pm' && f1.chip === 'yours' && f1.kind === 'yours' && /^Your partition: /.test(f1.title) && f1.color === TEAL && f1.prev === 'stitle',
-      `a pop-out of ${PART}'s own sub-path: the marker first, then the title and the chip yours (${JSON.stringify(f1)})`);
+    check(f1.mark && f1.lead === 'lsq pm' && f1.chip === 'yours' && f1.kind === 'yours' && /^Your partition: /.test(f1.title) && f1.color === TEAL && f1.prev === 'stitle',
+      `a pop-out of ${PART}'s own sub-path: its live square and the marker first, then the title and the chip yours (${JSON.stringify(f1)})`);
     await shotEl(B.page, 'bx-shell .spawn', 'partition-chip-popout');
     const p2 = await pop(B.page, NOTES, { src: PART, title: 'pop-src', x: 740, y: 520, width: 320, height: 160 });
     const f2 = await popFacts(p2);
@@ -195,8 +209,8 @@ async function partitionMark(browser) {
       await head.locator('button.dpb').waitFor({ timeout: 15000 });
       await pickDeployment(B.page, head, DEP);
       await head.locator('.dtag').waitFor({ timeout: 10000 });
-      check(await head.locator('.pm').count() === 0 && await head.locator('.c').count() === 1,
-        `a window showing ${DEP} carries no per-person marker: the runtime dot`);
+      check(await head.locator('.pm').count() === 0 && await head.locator('.lsq').count() === 1,
+        `a window showing ${DEP} carries no per-person marker: its live square alone`);
       const chip = await head.locator('.dshare').first().evaluate((el) => ({ text: el.textContent.trim(), title: el.title, kind: el.dataset.chip })).catch(() => null);
       check(chip?.text === 'shared' && chip.kind === 'shared' && /^Not partitioned: .*every writer of the tile shares/.test(chip.title),
         `… and its partition chip says shared (${JSON.stringify(chip)})`);
@@ -217,11 +231,12 @@ async function partitionMark(browser) {
     await usePersonalScreen(tp);
     for (const t of [PART, SWITCH]) await openTile(tp, t);
     await tp.locator(`${card(PART)} .head .pchip`).waitFor({ timeout: 15000 });
+    const tTEAL = await tealOf(tp);
     const gc = await chipFacts(tp, `${card(PART)} .head .pchip`);
-    check(gc && gc.text === 'global' && /^The global instance: /.test(gc.title) && gc.color === TEAL,
+    check(gc && gc.text === 'global' && /^The global instance: /.test(gc.title) && gc.color === tTEAL,
       `the workspace token's window on ${PART} shows its global instance: the chip says global (${JSON.stringify(gc)})`);
     const nc = await chipFacts(tp, `${card(SWITCH)} .head .pchip`);
-    check(nc && nc.text === 'no partition' && /^No partition: the workspace token has none of its own/.test(nc.title) && nc.color !== TEAL,
+    check(nc && nc.text === 'no partition' && /^No partition: the workspace token has none of its own/.test(nc.title) && nc.color !== tTEAL,
       `on ${SWITCH}, which has no global instance, it says no partition, muted (${JSON.stringify(nc)})`);
     await shotEl(tp, `${card(PART)} .head`, 'partition-chip-global');
     const tpop = await pop(tp, PART, { path: 'pop', title: 'pop-global', x: 700, y: 480, width: 320, height: 160 });
@@ -320,8 +335,8 @@ async function partitionMark(browser) {
     check(!!after, `Switch: ${SWITCH} runs unpartitioned, no request left (${JSON.stringify(after.partition ?? null)})`);
     check(!(await vaultHas(SWITCH)), 'the switch deleted the tile\'s data: its vault key is gone');
     await settle(B.page);
-    check(await B.page.locator(`${card(SWITCH)} .head .pm`).count() === 0 && await B.page.locator(`${card(SWITCH)} .head .c`).count() === 1
-      && await B.page.locator(`${row(SWITCH)} .pm`).count() === 0, 'the marker goes with the partitions: the dot is back');
+    check(await B.page.locator(`${card(SWITCH)} .head .pm`).count() === 0 && await B.page.locator(`${card(SWITCH)} .head .lsq`).count() === 1
+      && await B.page.locator(`${row(SWITCH)} .pm`).count() === 0, 'the marker goes with the partitions: the live square alone');
     await shot(B.page, 'partition-after-switch');
     for (const t of [PART, KEEP, SWITCH]) await closeTile(B.page, t);
   } finally {

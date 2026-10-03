@@ -33,8 +33,15 @@
  * only "Save and update for everyone" publishes it (revisioned — a stale save
  * asks whether to reload theirs or overwrite). Members may hide, reorder and
  * copy them; org admins rename them from the tab.
+ * **Appearance** (D184): the page follows the person's theme (System ·
+ * Light · Dark) and density (Compact · Comfortable), set in the settings
+ * menu: /vendor/bx-theme.js restyles this document and every frame at
+ * once, and the choice is the `theme` / `density` keys of this bucket
+ * (absent = the default), which the person's other tabs and devices follow
+ * through the `prefs` event.
  */
 import { LitElement, html, nothing, repeat } from 'lit';
+import { appearance, setAppearance, THEMES, DENSITIES } from '/vendor/bx-theme.js';
 import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
@@ -64,12 +71,17 @@ import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
 import { shellCss, statusCss, partCss } from './shell-css.js';
 import './bx-canvas.js';
 import './bx-side.js';
-import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus, spawnTitle } from './shell-kit.js';
+import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus, spawnTitle,
+  STATUS, statusIcon, liveSquare } from './shell-kit.js';
 import { overlaps, spotNear } from './grid-layout.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
-import { nextZ } from './zorder.js';
-import { follow as followLayout, editing as layoutEditing } from './layout-sync.js';
+import { nextZ, frontWindow, onWindowFront, activeWindow } from './zorder.js';
+import { follow as followLayout, editing as layoutEditing, foreignWrite } from './layout-sync.js';
+import { framedTile } from './partition-mode.js';
+
+// The appearance keys of the shell's prefs bucket (D184): absent = the default.
+const APPEARANCE = [['theme', 'system', THEMES], ['density', 'compact', DENSITIES]];
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -134,6 +146,8 @@ export class BxShell extends LitElement {
     _tabOrder: { state: true },   // tab order across personal + org screens (ids)
     _hiddenOrg: { state: true },  // org screens hidden from the tab bar {id: true}
     _shareOrg: { state: true },   // settings menu: org chosen for "share screen to org"
+    _look: { state: true },       // the page's appearance {theme, density} (/vendor/bx-theme.js), for the settings menu
+    _front: { state: true },      // the active window's key (zorder.js): 'spawn:<id>' is a spawned window of ours
   };
 
   static styles = [shellCss, statusCss, partCss]; // partCss: a pop-out's marker and partition chip
@@ -189,6 +203,10 @@ export class BxShell extends LitElement {
     this._saveTimer = null;
     this._writer = uid();    // X-Prefs-Writer: tells this tab's own layout saves from other clients'
     this._onBlur = () => this._raiseFocusedFloat();
+    this._look = appearance();
+    this._front = activeWindow();
+    // a spawned window's frame changed its build state: its live square follows
+    this.addEventListener('bx-build', () => this.requestUpdate());
   }
 
   connectedCallback() {
@@ -205,10 +223,15 @@ export class BxShell extends LitElement {
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
       if (e.type === 'pr') this._loadPRs();            // change-proposal badges (⇄)
       if (e.type === 'prefs') followLayout(this, e, LAYOUT_PREF); // the app / another tab saved the layout
+      if (e.type === 'prefs') this._followAppearance(e); // another tab or device changed the theme or density
     });
     this._loadStatuses();
     this._loadPRs();
     window.addEventListener('blur', this._onBlur);
+    // focus moving from one tile's frame into another's never blurs this
+    // window: its focusin does (the active window follows the click)
+    window.addEventListener('focusin', this._onBlur);
+    this._offFront = onWindowFront((key) => { this._front = key; });
     // Narrow-screen layout: switch to the mobile shell (off-canvas sidebar,
     // stacked tiles) under 820px. matchMedia so it flips live on rotate/resize.
     this._mq = window.matchMedia('(max-width: 820px)');
@@ -280,6 +303,8 @@ export class BxShell extends LitElement {
     clearInterval(this._sysTimer);
     clearInterval(this._alertTimer);
     window.removeEventListener('blur', this._onBlur);
+    window.removeEventListener('focusin', this._onBlur);
+    this._offFront?.();
     window.removeEventListener('keydown', this._onKey);
     window.removeEventListener('keydown', this._onZoomKey);
     window.removeEventListener('wheel', this._onZoomWheel);
@@ -433,7 +458,7 @@ export class BxShell extends LitElement {
     const d = this._orgDrafts?.[os.id];
     if (!d) {
       return html`<div class="orgbar">
-        <span class="ico" title="shared with every member of ${os.org}">🔒</span>
+        <bx-icon class="ico" name="lock" label="shared with every member of ${os.org}" title="shared with every member of ${os.org}"></bx-icon>
         <span class="txt">shared org screen · <b>${os.org}</b>${os.updatedBy
           ? html` · last saved by ${this._whoLabel(os.updatedBy)} ${ago(os.updatedAt)} (rev ${os.rev ?? 1})` : nothing}</span>
         <span class="spacer"></span>
@@ -444,9 +469,9 @@ export class BxShell extends LitElement {
     }
     const newer = (os.rev ?? 1) > d.baseRev;
     return html`<div class="orgbar editing">
-      <span class="ico">✎</span>
+      <bx-icon class="ico" name="pencil"></bx-icon>
       <span class="txt">editing <b>${os.name}</b> · based on rev ${d.baseRev}${d.dirty ? ' · unsaved changes' : ''}</span>
-      ${newer ? html`<span class="newer">⚠ a newer version (rev ${os.rev}) was saved by ${this._whoLabel(os.updatedBy)} ${ago(os.updatedAt)} —
+      ${newer ? html`<span class="newer"><bx-icon name="warning" label="Warning"></bx-icon> a newer version (rev ${os.rev}) was saved by ${this._whoLabel(os.updatedBy)} ${ago(os.updatedAt)} —
         <a @click=${() => { if (!d.dirty || confirm('Drop your draft and take the newer version?')) this._dropDraft(os.id); }}>reload theirs</a></span>` : nothing}
       <span class="spacer"></span>
       <button class="act" @click=${() => this._discardDraft(os.id)}>discard</button>
@@ -698,6 +723,7 @@ export class BxShell extends LitElement {
       z: nextZ(),
     };
     this._spawnWins = [...this._spawnWins, win];
+    frontWindow(`spawn:${d.id}`); // a new window is the active one
   }
 
   _resolveDialog(id, detail) {
@@ -713,11 +739,12 @@ export class BxShell extends LitElement {
     if (!w) return;
     w.reply();
     this._spawnWins = this._spawnWins.filter((x) => x.id !== id);
+    if (this._front === `spawn:${id}`) frontWindow(''); // the active window closed: none is now
   }
 
   _spawnFront(id) {
     const w = this._spawnWins.find((x) => x.id === id);
-    if (w) { w.z = nextZ(); this.requestUpdate(); }
+    if (w) { w.z = nextZ(); frontWindow(`spawn:${id}`); this.requestUpdate(); }
   }
 
   // _fitWindows brings every floating window back inside the viewport:
@@ -782,14 +809,19 @@ export class BxShell extends LitElement {
     });
   }
 
+  // A tile-spawned window: window chrome (product-ui 3) — the live square
+  // of what it frames, its title, the tile that opened it, close.
   _spawnTemplate(w) {
+    const fr = this.renderRoot?.querySelector(`.spawn[data-spawn="${CSS.escape(w.id)}"] bx-frame`);
     return html`
-      <div class="spawn" style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
+      <div class="spawn ${this._front === `spawn:${w.id}` ? 'active' : ''}" data-spawn=${w.id}
+           style="left:${w.x}px; top:${w.y}px; width:${w.w}px; height:${w.h}px; z-index:${w.z}"
            @pointerdown=${() => this._spawnFront(w.id)}>
         <div class="shead" @pointerdown=${(e) => this._spawnDragStart(e, w.id)}>
+          ${liveSquare(fr?.buildState || 'live', framedTile(w.src, this._components).row?.runtime)}
           ${spawnTitle(w.title, w.src, this._components, this._who)}
           <span class="sfrom">${w.from}</span>
-          <button title="close" @click=${() => this._closeSpawn(w.id)}>✕</button>
+          <button class="wc close" title="close" aria-label="close ${w.title}" @click=${() => this._closeSpawn(w.id)}><bx-icon name="xmark"></bx-icon></button>
         </div>
         <div class="sbody">
           <bx-frame src=${w.src} height="100%" no-edit style="position:absolute; inset:0"></bx-frame>
@@ -805,8 +837,8 @@ export class BxShell extends LitElement {
            @contextmenu=${(e) => { e.preventDefault(); this._adminPop = null; }}></div>
       <div class="admin-pop" style="left:${a.x}px; top:${a.y}px; width:${a.w}px; max-height:${a.h}px">
         <div class="ahead">
-          <span class="t">⚙ ${a.path}</span>
-          ${this._mobile ? html`<button title="close" @click=${() => { this._adminPop = null; }}>✕</button>` : nothing}
+          <span class="t" title=${`tile admin: ${a.path}`}><bx-icon name="settings"></bx-icon><b>${a.path.slice(a.path.lastIndexOf('/') + 1)}</b><span class="path">${a.path}</span></span>
+          ${this._mobile ? html`<button class="wc close" title="close" aria-label="close" @click=${() => { this._adminPop = null; }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
         </div>
         <bx-tile-admin class="apop" .path=${a.path} .section=${a.section} no-title></bx-tile-admin>
       </div>`;
@@ -860,7 +892,7 @@ export class BxShell extends LitElement {
     if (opts.selection) {
       const one = opts.selection.replace(/\s+/g, ' ').trim();
       items.unshift(
-        { icon: '⎘', label: 'Copy', hint: one.length > 40 ? one.slice(0, 39) + '…' : one,
+        { icon: 'copy', label: 'Copy', hint: one.length > 40 ? one.slice(0, 39) + '…' : one,
           title: one.length > 200 ? one.slice(0, 200) + '…' : one, action: () => this._copyText(opts.selection, path) },
         { kind: 'sep' });
     }
@@ -1054,6 +1086,52 @@ export class BxShell extends LitElement {
     window.dispatchEvent(new CustomEvent('bx-ambient-zoom', { detail: { zoom: z } }));
   }
 
+  // ---- appearance (D184): the theme and density, per person ----
+  // A pick restyles this page and every frame in it at once (setAppearance:
+  // bx-frame relays it to its iframe), then is saved in this bucket — PUT
+  // the key, or DELETE it for the default — with the X-Prefs-Writer header,
+  // so this tab skips its own `prefs` event while the person's other tabs
+  // and devices follow it (_followAppearance). Viewing the workspace as
+  // someone shows their choice and changes nothing.
+  _pickAppearance(key, value) {
+    const def = APPEARANCE.find(([k]) => k === key);
+    if (this._who?.readOnly || !def || !def[2].includes(value) || appearance()[key] === value) return;
+    setAppearance({ [key]: value });
+    this._look = appearance();
+    const f = window.xbin?.fetch ?? fetch, url = `/api/xbin/prefs/${key}`, headers = { 'X-Prefs-Writer': this._writer };
+    (value === def[1]
+      ? f(url, { method: 'DELETE', headers })
+      : f(url, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(value) }))
+      .catch(() => { /* offline: this page has it; the next pick saves */ });
+  }
+  // Another client changed the theme or density: read the key, follow it.
+  async _followAppearance(e) {
+    for (const [key, def, values] of APPEARANCE) {
+      if (!foreignWrite(e, key, this._writer)) continue;
+      let v = def;
+      try {
+        const r = await (window.xbin?.fetch ?? fetch)(`/api/xbin/prefs/${key}`);
+        if (r.ok) { const j = await r.json(); if (values.includes(j)) v = j; } else if (r.status !== 404) continue;
+      } catch { continue; /* offline: the next event, or a reload, has it */ }
+      setAppearance({ [key]: v });
+      this._look = appearance();
+    }
+  }
+  // The settings menu's Theme and Density: square segmented controls, the
+  // pressed one the person's choice (aria-pressed).
+  _appearanceRows() {
+    const look = this._look ?? appearance(), ro = !!this._who?.readOnly;
+    const seg = (key, label, opts) => html`<div class="row"><span id=${`ap-${key}`}>${label}</span>
+      <span class="seg" role="group" aria-labelledby=${`ap-${key}`}>${opts.map(([v, word, tip]) => html`<button
+        aria-pressed=${look[key] === v ? 'true' : 'false'} ?disabled=${ro} data-appearance=${`${key}:${v}`}
+        title=${ro ? 'read-only while you view the workspace as someone: this is their choice' : tip}
+        @click=${() => this._pickAppearance(key, v)}>${word}</button>`)}</span></div>`;
+    return html`
+      ${seg('theme', 'Theme', [['system', 'System', "follow this device's light or dark setting"],
+        ['light', 'Light', 'Concrete Day, whatever the device says'], ['dark', 'Dark', 'Concrete Night, whatever the device says']])}
+      ${seg('density', 'Density', [['compact', 'Compact', '28 px rows, 13 px text'], ['comfortable', 'Comfortable', '32 px rows, 14 px text']])}`;
+  }
+
   // Every folder operation takes a context (see _folderCtx): the user's own
   // top-level folders, or a shared set being curated through a draft.
   _addFolder(ctx = this._folderCtx('top')) {
@@ -1069,7 +1147,7 @@ export class BxShell extends LitElement {
       title: 'Folder', message: 'Name and an optional emoji icon.',
       fields: [
         { name: 'name', label: 'Name', value: f.name },
-        { name: 'icon', label: 'Icon (emoji)', value: f.icon || '', placeholder: '📁' },
+        { name: 'icon', label: 'Icon (emoji)', value: f.icon || '', placeholder: 'none: the folder glyph' },
       ],
       buttons: [{ label: 'Cancel', value: null }, { label: 'Save', value: 'save', primary: true }],
     } };
@@ -1150,7 +1228,7 @@ export class BxShell extends LitElement {
     const path = e.dataTransfer.getData('application/bx-comp') || e.dataTransfer.getData('text/plain');
     if (!path) return;
     if (!ctx.canEdit) {
-      note(ctx.curator ? 'shared folders — click ✎ on the section to curate them' : 'this folder is shared and read-only for you');
+      note(ctx.curator ? 'shared folders — click the pencil on the section to curate them' : 'this folder is shared and read-only for you');
       return;
     }
     if (ctx.shared) { // a shared tree holds its own section's tiles only
@@ -1285,10 +1363,11 @@ export class BxShell extends LitElement {
       if (r.ok) this._prs = (await r.json()).counts || {};
     } catch { /* transient */ }
   }
-  // Ambient signal in the browser tab title when something needs attention.
+  // Ambient signal in the browser tab title when something needs attention:
+  // the level's word (a title can't draw a glyph).
   _reflectTitle() {
     const worst = worstStatus(this._status, Object.keys(this._status));
-    const mark = worst === 'error' ? '🔴 ' : worst === 'warn' ? '🟡 ' : '';
+    const mark = worst === 'error' || worst === 'warn' ? `${STATUS[worst].word} · ` : '';
     const nm = this._brand?.title || this.name; // the admin's title, else the name attribute (D76)
     document.title = mark + (nm ? `${nm} · xbin` : 'xbin');
   }
@@ -1431,15 +1510,15 @@ export class BxShell extends LitElement {
     const org = orgs.includes(this._shareOrg) ? this._shareOrg : orgs[0];
     const targets = (this._orgScreens ?? []).filter((s) => s.org === org);
     return html`
-      <div class="hd" style="margin-top:10px">this screen</div>
-      ${this._isAdmin ? html`<div class="row" style="margin-bottom:4px">
+      <div class="hd">this screen</div>
+      ${this._isAdmin ? html`<div class="row">
         <span title="new users' first screen seeds from this layout (D37)">workspace default</span>
         <button class="act" @click=${() => this._saveWsDefault()}>save current</button>
       </div>` : nothing}
-      ${orgs.length ? html`<div class="row" style="flex-wrap:wrap">
-        <select id="share-org" .value=${org} @change=${(e) => { this._shareOrg = e.target.value; }}>
+      ${orgs.length ? html`<div class="row share">
+        <select id="share-org" aria-label="organisation" .value=${org} @change=${(e) => { this._shareOrg = e.target.value; }}>
           ${orgs.map((o) => html`<option value=${o} ?selected=${o === org}>${o}</option>`)}</select>
-        <select id="share-target" title="create a new org screen, or replace an existing one with this layout (D55)">
+        <select id="share-target" aria-label="as a new screen, or replacing one" title="create a new org screen, or replace an existing one with this layout (D55)">
           <option value="">as a new org screen</option>
           ${targets.map((s) => html`<option value=${s.id}>replace "${s.name}" (rev ${s.rev ?? 1})</option>`)}
         </select>
@@ -1694,85 +1773,89 @@ export class BxShell extends LitElement {
   }
 
   render() {
+    const alertLevel = (l) => (l === 'crit' ? { icon: 'error', word: 'Critical' } : { icon: 'warning', word: 'Warning' });
     return html`
       ${this._alerts.length ? html`<div class="alerts">
-        ${this._alerts.map((a) => html`<div class="alert ${a.level}">
-          <span class="ico">${a.level === 'crit' ? '\u26A0' : '\u26A1'}</span>${a.message}${a.dismiss ? html`<button class="dismiss" @click=${() => this._loadAlerts(a.dismiss)}>dismiss</button>` : nothing}</div>`)}
+        ${this._alerts.map((a) => html`<div class="alert ${a.level}" role="alert">
+          <bx-icon class="ico" name=${alertLevel(a.level).icon}></bx-icon><span class="lvl">${alertLevel(a.level).word}</span>
+          <span class="msg">${a.message}</span>${a.dismiss ? html`<button class="dismiss" @click=${() => this._loadAlerts(a.dismiss)}>dismiss</button>` : nothing}</div>`)}
       </div>` : nothing}
-      ${this._setupCard ? html`<div class="alerts"><div class="alert warn">
-        <span class="ico">\u{1F510}</span>
-        <span><b>Secure this workspace:</b> \u2460 create your admin account
-          (admin tile \u2192 users) \u2461 then disable token sign-in (users \u2192
+      ${this._setupCard ? html`<div class="alerts"><div class="alert warn" role="alert">
+        <bx-icon class="ico" name="warning"></bx-icon><span class="lvl">Warning</span>
+        <span class="msg"><b>Secure this workspace:</b> (1) create your admin account
+          (admin tile → users), (2) then disable token sign-in (users →
           sign-in security). The bootstrap token URL in your server logs is a
-          reusable credential \u2014 anyone who sees it gets in.</span>
-        <span style="flex:1"></span>
-        <button style="font:inherit; background:none; border:1px solid rgba(255,255,255,.5); color:inherit; border-radius:4px; cursor:pointer"
+          reusable credential — anyone who sees it gets in.</span>
+        <button class="dismiss"
           @click=${() => { localStorage.setItem('xbin-setup-dismissed', '1'); this._setupCard = false; }}>dismiss</button>
       </div></div>` : nothing}
       ${this._toasts.length ? html`<div class="toasts">
-        ${repeat(this._toasts, (t) => t.id, (t) => html`
-          <div class="toast st-${t.level}" @click=${() => { t.action?.(); this._dismissToast(t.id); }} title=${t.action ? 'open' : 'dismiss'}>
-            <span class="stdot"></span>
-            <span class="tmsg"><b>${t.comp.includes('/') ? t.comp.slice(t.comp.indexOf('/') + 1) : t.comp}</b>${t.message ? ' \u2014 ' + t.message : ''}</span>
+        ${repeat(this._toasts.slice(-3), (t) => t.id, (t) => html`
+          <div class="toast st-${STATUS[t.level] ? t.level : 'info'}" role="status" @click=${() => { t.action?.(); this._dismissToast(t.id); }} title=${t.action ? 'open' : 'dismiss'}>
+            ${statusIcon(t.level)}<span class="lvl">${(STATUS[t.level] ?? STATUS.info).word}</span>
+            <span class="tmsg"><b>${t.comp.includes('/') ? t.comp.slice(t.comp.indexOf('/') + 1) : t.comp}</b>${t.message ? ' — ' + t.message : ''}</span>
           </div>`)}
       </div>` : nothing}
       ${this._who?.impersonatedBy ? html`<div class="viewas" role="status">
-        <span>👁 viewing as <b>${this._who.name && this._who.name !== this._who.id ? `${this._who.name} (${this._who.id})` : this._who.id}</b>
+        <bx-icon name="eye"></bx-icon>
+        <span class="msg">viewing as <b>${this._who.name && this._who.name !== this._who.id ? `${this._who.name} (${this._who.id})` : this._who.id}</b>
           — read-only: this is what they see, in every tab of this browser, until you exit</span>
         <button class="chip" title="back to your own session" @click=${() => this._exitViewAs()}>exit view</button>
       </div>` : nothing}
       <div class="top">
-        ${this._mobile ? html`<button class="ham" title="menu"
-          @click=${() => { this._drawer = !this._drawer; }}>☰</button>` : nothing}
+        ${this._mobile ? html`<button class="ham" title="menu" aria-label="menu" aria-expanded=${this._drawer ? 'true' : 'false'}
+          @click=${() => { this._drawer = !this._drawer; }}><bx-icon name="menu"></bx-icon></button>` : nothing}
         ${brandLogo(this)}
         <span class="spacer"></span>
         <button class="chip settings ${this._settingsOpen ? 'on' : ''}" title="workspace settings (per user)" aria-haspopup="true" aria-expanded=${this._settingsOpen ? 'true' : 'false'}
-                @click=${() => { this._settingsOpen = !this._settingsOpen; }}><span class="c" style="background:var(--bx-accent, #f5a623)"></span>settings</button>
+                @click=${() => { this._settingsOpen = !this._settingsOpen; if (this._settingsOpen) this._look = appearance(); }}>settings</button>
         ${this._settingsOpen ? html`
           <div class="ctx-backdrop" @pointerdown=${() => { this._settingsOpen = false; }}></div>
-          <div class="wsmenu">
+          <div class="wsmenu" role="dialog" aria-label="settings">
             <div class="hd">settings</div>
             ${this._who?.kind === 'user' ? html`<button class="act add-device" data-add-device title="the xbin app on a phone or tablet: a QR code to scan"
-              @click=${() => { this._settingsOpen = false; openDevices({ add: true }); }}><b>add a device</b><span>the xbin app on your phone · QR code</span></button>` : nothing}
+              @click=${() => { this._settingsOpen = false; openDevices({ add: true }); }}><bx-icon name="device" size="20"></bx-icon><b>add a device</b><span>the xbin app on your phone · QR code</span></button>` : nothing}
+            ${this._appearanceRows()}
             <div class="row"><span>Font size</span>
               <span class="fs">
-                <button class="step" @click=${() => this._saveSettings({ fontSize: (this._settings.fontSize || 13) - 1 })}>−</button>
+                <button class="step" title="smaller" aria-label="smaller text" @click=${() => this._saveSettings({ fontSize: (this._settings.fontSize || 13) - 1 })}><bx-icon name="minus"></bx-icon></button>
                 <b>${this._settings.fontSize || 13}</b>
-                <button class="step" @click=${() => this._saveSettings({ fontSize: (this._settings.fontSize || 13) + 1 })}>+</button>
+                <button class="step" title="larger" aria-label="larger text" @click=${() => this._saveSettings({ fontSize: (this._settings.fontSize || 13) + 1 })}><bx-icon name="plus"></bx-icon></button>
                 ${(this._settings.fontSize || 13) !== 13 ? html`
-                  <button class="step" title="reset" style="width:auto; padding:0 6px"
+                  <button class="step" title="reset"
                           @click=${() => this._saveSettings({ fontSize: 13 })}>reset</button>` : nothing}
               </span></div>
             <div class="row"><span>Grid scale</span>
               <span class="fs">
-                <input type="range" min="0.5" max="1.5" step="0.05" .value=${String(this._gridScale)}
+                <input type="range" min="0.5" max="1.5" step="0.05" .value=${String(this._gridScale)} aria-label="grid scale"
                        title="how large the tile layout renders in this browser; the layout itself is unchanged"
                        @input=${(e) => this._setGridScale(e.target.value)}>
                 <b class="gs">${this._gridScale.toFixed(2)}× · ${Math.round(GRID * this._gridScale)} px</b>
                 ${this._gridScale !== 1 ? html`
-                  <button class="step" title="reset" style="width:auto; padding:0 6px"
+                  <button class="step" title="reset"
                           @click=${() => this._setGridScale(1)}>reset</button>` : nothing}
               </span></div>
             <div class="gshint">per browser: the layout stays the same for everyone</div>
             ${this._screenShareMenu()}
             ${accountMenu(this)}
-            ${this._menuMsg ? html`<div class="menu-msg ${this._menuMsg.ok ? 'ok' : 'bad'}" style="margin-top:6px">${this._menuMsg.text}</div>` : nothing}
+            ${this._menuMsg ? html`<div class="menu-msg ${this._menuMsg.ok ? 'ok' : 'bad'}" role="status"><bx-icon name=${this._menuMsg.ok ? 'ok' : 'error'}></bx-icon><span>${this._menuMsg.text}</span></div>` : nothing}
           </div>` : nothing}
-        <a class="chip" href="/docs/" target="_blank"><span class="c" style="background:var(--bx-green, #4caf50)"></span>docs</a>
-        <a class="chip" href="/logout" @click=${(e) => { e.preventDefault(); fetch('/logout', { method: 'POST' }).then(() => location.reload()); }}><span class="c" style="background:var(--bx-red, #ef5350)"></span>sign out</a>
+        <a class="chip" href="/docs/" target="_blank">docs</a>
+        <a class="chip" href="/logout" @click=${(e) => { e.preventDefault(); fetch('/logout', { method: 'POST' }).then(() => location.reload()); }}>sign out</a>
       </div>
 
-      <div class="tabs">
+      <div class="tabs" role="tablist" aria-label="screens">
         ${this._visibleTabs().map(({ kind, s }) => {
           const many = this._visibleTabs().length > 1;
           const tst = worstStatus(this._status, (s.tiles ?? []).map((t) => t.path));
           const draft = kind === 'org' ? this._orgDrafts?.[s.id] : null;
           const title = tst ? `${s.name} — a tile here needs attention (${tst})`
             : kind === 'org'
-              ? `org screen — shared with ${s.org}${s.canEdit ? ' (edit layout to change it for everyone)' : ' (read-only for you)'}${this._adminOrgs?.has(s.org) ? ' · double-click to rename' : ' · managed by org admins'} · drag to reorder · ✕ hides it for you`
+              ? `org screen — shared with ${s.org}${s.canEdit ? ' (edit layout to change it for everyone)' : ' (read-only for you)'}${this._adminOrgs?.has(s.org) ? ' · double-click to rename' : ' · managed by org admins'} · drag to reorder · close hides it for you`
               : 'drag to reorder · drag into a sidebar folder to park · double-click to rename';
           return html`
           <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''} ${kind === 'org' ? 'org' : ''}" draggable="true"
+               role="tab" aria-selected=${s.id === this._active ? 'true' : 'false'}
                @click=${() => this._switchScreen(s.id)}
                @dblclick=${() => this._renameScreen(s.id)}
                @dragstart=${(e) => { e.dataTransfer.setData('application/bx-screen', s.id);
@@ -1783,22 +1866,24 @@ export class BxShell extends LitElement {
                title=${title}>
             <span>${s.name}</span>
             ${kind === 'org' ? html`<span class="ob">${s.org}</span>` : nothing}
-            ${kind === 'org' && !s.canEdit ? html`<span class="ro" title="read-only for you">🔒</span>` : nothing}
-            ${draft?.dirty ? html`<span class="dirty" title="unsaved draft — Save and update for everyone">●</span>` : nothing}
-            ${tst === 'warn' || tst === 'error' ? html`<span class="stdot"></span>` : nothing}
+            ${kind === 'org' && !s.canEdit ? html`<bx-icon class="ro" name="lock" label="read-only for you" title="read-only for you"></bx-icon>` : nothing}
+            ${draft?.dirty ? html`<bx-icon class="dirty" name="pencil" label="unsaved draft" title="unsaved draft — Save and update for everyone"></bx-icon>` : nothing}
+            ${tst === 'warn' || tst === 'error' ? statusIcon(tst) : nothing}
             ${many ? html`<button class="x" title=${kind === 'org' ? 'hide this org screen from my tabs (reopen it from the sidebar)' : 'close'}
-              @click=${(e) => { e.stopPropagation(); kind === 'org' ? this._hideOrgTab(s.id) : this._closeScreen(s.id, e); }}>✕</button>` : nothing}
+              aria-label=${kind === 'org' ? `hide ${s.name}` : `close ${s.name}`}
+              @click=${(e) => { e.stopPropagation(); kind === 'org' ? this._hideOrgTab(s.id) : this._closeScreen(s.id, e); }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
           </div>`;
         })}
-        <div class="tab add" @click=${() => this._addScreen()} title="new screen">+</div>
+        <div class="tab add" role="button" tabindex="0" aria-label="new screen" @click=${() => this._addScreen()}
+             @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._addScreen(); } }} title="new screen"><bx-icon name="plus"></bx-icon></div>
       </div>
       ${this._orgBar()}
 
       <div class="body ${this._mobile ? 'mobile' : ''}">
         ${(this._side.collapsed && !this._mobile) ? html`
           <aside class="collapsed">
-            <button class="expand" title="expand sidebar"
-                    @click=${() => this._saveSide({ collapsed: false })}>»</button>
+            <button class="expand" title="expand sidebar" aria-label="expand the sidebar"
+                    @click=${() => this._saveSide({ collapsed: false })}><bx-icon name="chevron-right"></bx-icon></button>
           </aside>` : html`
           <bx-side class="${this._mobile ? 'drawer' : ''} ${this._drawer ? 'open' : ''}"
                    style=${this._mobile ? nothing : `width:${this._side.width || 224}px`}

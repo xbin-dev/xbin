@@ -24,7 +24,17 @@ const { URL, OUT, fs, login, closeCtx, openShell, usePersonalScreen, openTile, c
 
 const WS = process.env.WS || '';
 const TILE = 'apps/pentry', WHO = 'pentry', PASS = 'pentrypass123';
-const TEAL = 'rgb(63, 181, 163)';
+// the partition marker's teal (--bx-part): Concrete Night's, or Day's where
+// the shell follows a light system (D184)
+const TEALS = ['rgb(63, 181, 163)', 'rgb(31, 135, 120)'];
+const tealOf = (page) => page.evaluate(() => {
+  const s = document.createElement('span');
+  s.style.color = 'var(--bx-part, #3FB5A3)';
+  document.body.append(s);
+  const c = getComputedStyle(s).color;
+  s.remove();
+  return c;
+});
 const SETTINGS = 'bx-shell .top button.chip.settings';
 const MENU = 'bx-shell .wsmenu', ENTRY = 'bx-shell .wsmenu a[data-partitions]';
 
@@ -58,7 +68,8 @@ async function closeMenu(page) {
 }
 const entryFacts = (page) => page.locator(ENTRY).first().evaluate((a) => {
   const pm = a.querySelector('.pm'), cs = getComputedStyle(a);
-  return { text: [...a.children].map((c) => c.textContent.trim()).filter(Boolean).join(' '), href: a.getAttribute('href'), target: a.target, rel: a.rel, title: a.title,
+  return { text: [...a.children].map((c) => c.textContent.trim()).filter(Boolean).join(' '), ext: a.querySelector('bx-icon.ext')?.getAttribute('name') || '',
+    href: a.getAttribute('href'), target: a.target, rel: a.rel, title: a.title,
     mark: !!pm?.querySelector('svg'), color: pm ? getComputedStyle(pm).color : '', prev: a.previousElementSibling?.textContent.trim() || '',
     underline: cs.textDecorationLine, w: Math.round(a.getBoundingClientRect().width), menuW: Math.round(a.closest('.wsmenu').getBoundingClientRect().width) };
 }).catch(() => null);
@@ -98,10 +109,12 @@ async function partitionsEntry(browser) {
     const live = await P.page.locator(ENTRY).waitFor({ timeout: 15000 }).then(() => true).catch(() => false);
     check(live, 'with the menu open, "your partitions" appears once the listing holds a partitioned tile');
     const e = await entryFacts(P.page);
-    check(e && e.text === 'your partitions ↗' && e.href === '/xbin/partitions' && e.target === '_blank' && /noopener/.test(e.rel),
-      `a link to the partitions page, in a new tab (${JSON.stringify(e)})`);
-    check(e && /^Your partitions page: /.test(e.title) && e.mark && e.color === TEAL, `its tooltip, and the marker's shape in the marker's teal (${e?.title}; ${e?.color})`);
-    check(e && e.prev === 'devices…' && e.underline === 'none' && e.w >= e.menuW - 24, `in the account block after devices…, a button like it (${e?.prev}; ${e?.w}/${e?.menuW})`);
+    check(e && e.text === 'your partitions' && e.ext === 'popout' && e.href === '/xbin/partitions' && e.target === '_blank' && /noopener/.test(e.rel),
+      `a link to the partitions page, in a new tab: its words and the pop-out glyph (${JSON.stringify(e)})`);
+    const teal = await tealOf(P.page);
+    check(e && /^Your partitions page: /.test(e.title) && e.mark && TEALS.includes(teal) && e.color === teal,
+      `its tooltip, and the marker's shape in the marker's teal (${e?.title}; ${e?.color} = ${teal})`);
+    check(e && e.prev === 'devices…' && e.underline === 'none' && e.w >= e.menuW - 28, `in the account block after devices…, a button like it (${e?.prev}; ${e?.w}/${e?.menuW})`);
     await shotEl(P.page, MENU, 'partitions-entry');
     // the window of a tile with a global instance: `yours`, its tooltip naming the global instance
     await closeMenu(P.page);

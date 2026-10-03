@@ -17,18 +17,19 @@
 import { LitElement, html, nothing } from 'lit';
 import { pathHas } from '/vendor/bx-kit.js';
 import { LongPress, prBadge, isScreenItem, isOrgScreenItem, screenIdOf, scopeOf, ownerKeyOf, worstStatus,
-  followDeployments, wantDeployState, partitionMark } from './shell-kit.js';
+  followDeployments, wantDeployState, partitionMark, statusIcon } from './shell-kit.js';
 import { offloaded, hidden } from './menus.js';
 import { ago } from './rev-draft.js';
 import { sideCss, statusCss, prbCss, partCss } from './shell-css.js';
 
-// The tree's row icons — drawn, not emoji or font glyphs, so they look the
-// same everywhere: a tile is an app (a window), a screen a grid of cards.
-const APP_ICON = html`<svg class="ic" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.1" y="1.6" width="9.8" height="8.8" rx="1.8"
-  fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M1.6 4.4h8.8" stroke="currentColor" stroke-width="1.2"/></svg>`;
-const SCREEN_ICON = html`<svg class="ic" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="4.3" height="4.3" rx="1"
-  fill="currentColor"/><rect x="6.7" y="1" width="4.3" height="4.3" rx="1" fill="currentColor"/><rect x="1" y="6.7" width="4.3"
-  height="4.3" rx="1" fill="currentColor"/><rect x="6.7" y="6.7" width="4.3" height="4.3" rx="1" fill="currentColor"/></svg>`;
+// The tree's row icons — drawn glyphs (/vendor/bx-icons.js), never emoji or
+// font glyphs, so they look the same everywhere: a tile is an app (a
+// window), a screen a grid of cards (drawn here in the set's manner: the
+// set has no grid glyph yet).
+const APP_ICON = html`<bx-icon name="window"></bx-icon>`;
+const SCREEN_ICON = html`<svg class="ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
+  stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M2.75 2.75h4v4h-4zM9.25 2.75h4v4h-4zM2.75 9.25h4v4h-4zM9.25 9.25h4v4h-4z"/></svg>`;
+const caret = (open) => html`<bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon>`;
 
 export class BxSide extends LitElement {
   static properties = {
@@ -202,7 +203,7 @@ export class BxSide extends LitElement {
     const dirty = v.endsWith('-dirty');
     return html`
       <div class="buildfoot" title="the running xbind daemon's build commit">
-        <span class="glyph">⬡</span>
+        <bx-icon class="glyph" name="server"></bx-icon>
         <span class="label">xbind</span>
         <span class="ver ${dirty ? 'dirty' : ''}">${v}</span>
       </div>`;
@@ -254,11 +255,11 @@ export class BxSide extends LitElement {
            @drop=${(e) => { // dropped on the header while curating → unfile from this scope
              const path = e.dataTransfer.getData('application/bx-comp');
              if (ctx?.canEdit && path) { e.preventDefault(); e.stopPropagation(); this._a.fileInto?.('', path, ctx); } }}>
-        <span class="tri">${collapsed ? '▸' : '▾'}</span>
-        ${x.key === 'mine' ? '👤 ' : x.key !== 'workspace' ? '⚑ ' : ''}${label}
+        <span class="tri">${caret(!collapsed)}</span>
+        ${x.key === 'mine' ? html`<bx-icon class="oico" name="person"></bx-icon>` : x.key !== 'workspace' ? html`<bx-icon class="oico" name="org"></bx-icon>` : nothing}${label}
         <span class="n">${n}</span>
-        ${ctx?.curator && !editing ? html`<button class="pen" title="curate this section's shared folders (everyone here sees them)"
-          @click=${(e) => { e.stopPropagation(); this._a.enterFolderEdit?.(scope); }}>✎</button>` : nothing}
+        ${ctx?.curator && !editing ? html`<button class="pen" title="curate this section's shared folders (everyone here sees them)" aria-label="curate the shared folders"
+          @click=${(e) => { e.stopPropagation(); this._a.enterFolderEdit?.(scope); }}><bx-icon name="pencil"></bx-icon></button>` : nothing}
       </div>
       ${collapsed ? nothing : body}`;
   }
@@ -269,11 +270,11 @@ export class BxSide extends LitElement {
     const newer = set && (set.rev ?? 0) > d.baseRev;
     return html`
       <div class="secbar">
-        <div class="l">✎ editing shared folders${d.dirty ? ' · unsaved' : ''}</div>
-        ${newer ? html`<div class="newer">⚠ rev ${set.rev} saved by ${this._whoLabel(set.updatedBy)} ${ago(set.updatedAt)} —
-          <a @click=${() => { if (!d.dirty || confirm('Drop your draft and take the newer folders?')) this._a.dropFolderDraft?.(ctx.key); }}>reload theirs</a></div>` : nothing}
+        <div class="l"><bx-icon name="pencil"></bx-icon>editing shared folders${d.dirty ? ' · unsaved' : ''}</div>
+        ${newer ? html`<div class="newer"><bx-icon name="warning" label="Warning"></bx-icon><span>rev ${set.rev} saved by ${this._whoLabel(set.updatedBy)} ${ago(set.updatedAt)} —
+          <a @click=${() => { if (!d.dirty || confirm('Drop your draft and take the newer folders?')) this._a.dropFolderDraft?.(ctx.key); }}>reload theirs</a></span></div>` : nothing}
         <div class="r">
-          <button class="mini" title="new shared folder" @click=${() => this._a.addFolder?.(ctx)}>＋ folder</button>
+          <button class="mini" title="new shared folder" @click=${() => this._a.addFolder?.(ctx)}><bx-icon name="plus"></bx-icon>folder</button>
           <span style="flex:1"></span>
           <button class="mini" @click=${() => this._a.discardFolderDraft?.(ctx.key)}>discard</button>
           <button class="mini go" ?disabled=${!d.dirty} title="publish these folders to everyone in this section"
@@ -310,12 +311,12 @@ export class BxSide extends LitElement {
         <span class="tic">${APP_ICON}</span>
         <span class="nm">${label ?? c.path.slice(c.path.lastIndexOf('/') + 1)}</span>
         ${prBadge(this._s.prs?.[c.path])}
-        ${st ? html`<span class="stdot"></span>` : nothing}
-        ${c.manifestError ? html`<span class="err">⚠</span>` : nothing}
+        ${st ? statusIcon(st.level) : nothing}
+        ${c.manifestError ? html`<bx-icon class="err" name="warning" label="manifest error"></bx-icon>` : nothing}
         ${hidden(c) ? html`<span class="hidb">hidden</span>` : nothing}
         ${partitionMark(c)}
-        <button class="more" title="tile menu" @pointerdown=${(e) => e.stopPropagation()}
-                @click=${(e) => { e.stopPropagation(); this._a.tileMenu?.(e, c.path, e.currentTarget.getBoundingClientRect()); }}>⋯</button>
+        <button class="more" title="tile menu" aria-label=${`tile menu: ${c.path}`} @pointerdown=${(e) => e.stopPropagation()}
+                @click=${(e) => { e.stopPropagation(); this._a.tileMenu?.(e, c.path, e.currentTarget.getBoundingClientRect()); }}><bx-icon name="ellipsis"></bx-icon></button>
       </div>`;
   }
 
@@ -362,12 +363,12 @@ export class BxSide extends LitElement {
            @dragover=${(e) => { e.preventDefault(); this._dropFolder = ctx.canEdit ? f.id : null; }}
            @dragleave=${() => { if (this._dropFolder === f.id) this._dropFolder = null; }}
            @drop=${(e) => { this._dropFolder = null; this._a.dropOnFolder?.(e, f, ctx); }}>
-        <span class="tri">${open ? '▾' : '▸'}</span>
-        <span class="ficon">${f.icon || '📁'}</span>
+        <span class="tri">${caret(open)}</span>
+        <span class="ficon">${f.icon || html`<bx-icon name="folder"></bx-icon>`}</span>
         <span class="fname">${f.name}</span> <span class="n">${items.length + children.length}</span>
-        ${fst ? html`<span class="stdot"></span>` : nothing}
-        ${ctx.canEdit ? html`<button class="fx" title="delete folder (contents return to the section root / tabs)"
-                @click=${(e) => { e.stopPropagation(); this._a.deleteFolder?.(f, ctx); }}>✕</button>` : nothing}
+        ${fst ? statusIcon(fst) : nothing}
+        ${ctx.canEdit ? html`<button class="fx" title="delete folder (contents return to the section root / tabs)" aria-label=${`delete the folder ${f.name}`}
+                @click=${(e) => { e.stopPropagation(); this._a.deleteFolder?.(f, ctx); }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
       </div>
       ${open ? html`
         ${children.map((c) => this._folderTemplate(c, depth + 1, ctx, section))}
@@ -394,10 +395,11 @@ export class BxSide extends LitElement {
              e.dataTransfer.setData('application/bx-orgscreen', id); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
            @click=${() => this._a.openOrgScreen?.(id)}>
         <span class="sic">${SCREEN_ICON}</span>
-        <span class="sname">${s.name}${dirty ? ' ●' : ''}</span>
+        <span class="sname">${s.name}</span>
+        ${dirty ? html`<bx-icon class="dirty" name="pencil" label="unsaved draft"></bx-icon>` : nothing}
         ${folderId ? html`<span class="ob">${s.org}</span>` : nothing}
         ${hiddenTab ? html`<span class="pk">hidden</span>` : nothing}
-        ${folderId ? html`<button class="xt" title="remove from this folder" @click=${(e) => { e.stopPropagation(); this._a.fileInto?.('', '#orgscreen:' + id, this._ctx('top')); }}>✕</button>` : nothing}
+        ${folderId ? html`<button class="xt" title="remove from this folder" aria-label="remove from this folder" @click=${(e) => { e.stopPropagation(); this._a.fileInto?.('', '#orgscreen:' + id, this._ctx('top')); }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
       </div>`;
   }
 
@@ -413,7 +415,7 @@ export class BxSide extends LitElement {
         <span class="sic">${SCREEN_ICON}</span>
         <span class="sname">${s.name}</span>
         ${s.parked ? html`<span class="pk">parked</span>` : nothing}
-        <button class="xt" title="remove from tree" @click=${(e) => { e.stopPropagation(); this._a.removeScreenFromTree?.(id); }}>✕</button>
+        <button class="xt" title="remove from tree" aria-label="remove from the tree" @click=${(e) => { e.stopPropagation(); this._a.removeScreenFromTree?.(id); }}><bx-icon name="xmark"></bx-icon></button>
       </div>`;
   }
 
@@ -430,19 +432,19 @@ export class BxSide extends LitElement {
            @drop=${(e) => this._dropOnSpace(e)}>
         <div class="side-top">
           <button class="mini" title="new personal folder (view-only grouping — nothing moves on disk)"
-                  @click=${() => a.addFolder?.()}>＋ folder</button>
+                  @click=${() => a.addFolder?.()}><bx-icon name="plus"></bx-icon>folder</button>
           ${soloCtx?.curator && !soloCtx.draft ? html`<button class="mini" title="curate the shared folders everyone sees"
-            @click=${() => a.enterFolderEdit?.(soloScope)}>✎ shared</button>` : nothing}
+            @click=${() => a.enterFolderEdit?.(soloScope)}><bx-icon name="pencil"></bx-icon>shared</button>` : nothing}
           <span style="flex:1"></span>
-          <button class="mini" title="collapse sidebar" @click=${() => a.saveSide?.({ collapsed: true })}>«</button>
+          <button class="mini" title="collapse sidebar" aria-label="collapse the sidebar" @click=${() => a.saveSide?.({ collapsed: true })}><bx-icon name="chevron-left"></bx-icon></button>
         </div>
         <div class="side-search">
-          <input class="side-q" placeholder="filter tiles &amp; tabs…" .value=${this._q}
+          <input class="side-q" placeholder="filter tiles &amp; tabs…" aria-label="filter tiles and tabs" .value=${this._q}
                  @input=${(e) => { this._q = e.target.value; }}>
-          ${this._q ? html`<button class="qx" title="clear" @click=${() => { this._q = ''; }}>✕</button>` : nothing}
+          ${this._q ? html`<button class="qx" title="clear" aria-label="clear the filter" @click=${() => { this._q = ''; }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
         </div>
         ${secs.length > 1 ? html`<div class="side-owner">
-          <select title="show tiles by owner" .value=${s.side?.ownerFilter ?? ''}
+          <select title="show tiles by owner" aria-label="show tiles by owner" .value=${s.side?.ownerFilter ?? ''}
                   @change=${(e) => a.saveSide?.({ ownerFilter: e.target.value })}>
             <option value="">all owners</option>
             ${secs.map((x) => html`
@@ -454,7 +456,7 @@ export class BxSide extends LitElement {
           ${this._childFolders(null, top).map((f) => this._folderTemplate(f, 0, top))}
           ${this._sectionsTemplate()}
           ${s.hiddenCount ? html`<button class="hidtoggle"
-              title="hidden tiles are disabled; manage via the tile ⚙ or admin console"
+              title="hidden tiles are disabled; manage them in the tile admin or the admin console"
               @click=${() => a.toggleShowHidden?.()}>
             ${s.showHidden ? 'hide' : 'show'} hidden (${s.hiddenCount})</button>` : nothing}
           ${this._sideEmptyMsg()}
@@ -462,7 +464,7 @@ export class BxSide extends LitElement {
         ${s.orgButton ? html`
           <button class="orgbtn" title="your organisations: memberships, owned tiles, sharing, approvals${s.pendingN ? ` — ${s.pendingN} pending` : ''}"
             @click=${() => a.openOrganisations?.()}>
-            ⚑ organisations${s.pendingN ? html` <span class="n">${s.pendingN}</span>` : nothing}
+            <bx-icon name="org"></bx-icon>organisations${s.pendingN ? html` <span class="n">${s.pendingN}</span>` : nothing}
           </button>` : nothing}
         ${this._statusFooter()}
         ${this._buildFoot()}

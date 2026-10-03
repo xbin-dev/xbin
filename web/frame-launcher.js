@@ -149,11 +149,11 @@ export function launcherItems(f) {
   const items = [];
   const last = lastKind();
   if (last && (last.kind === 'shell' || provs.some((p) => p.id === last.provider))) {
-    items.push({ label: `${label(last)}  ·  last`, icon: '↺', action: () => start(last) });
+    items.push({ label: `${label(last)}  ·  last`, icon: 'refresh', action: () => start(last) });
     items.push({ kind: 'sep' });
   }
-  items.push({ label: 'Bash', mono: true, action: () => f._startKind('shell') });
-  for (const p of provs) items.push({ label: p.name, action: () => f._startKind('agent', p.id) });
+  items.push({ label: 'Bash', icon: 'terminal', action: () => f._startKind('shell') });
+  for (const p of provs) items.push({ label: p.name, icon: 'agent', action: () => f._startKind('agent', p.id) });
   const recent = (f._history || []).slice(0, 8);
   if (recent.length) {
     items.push({ kind: 'sep' });
@@ -168,8 +168,8 @@ export function launcherItems(f) {
 export function launcher(f) {
   const provs = f._providers || [];
   const vm = wantVM(f);
-  const card = (label, sub, onClick) => html`<button class="lcard" @click=${onClick}>
-    <span class="lname">${label}</span>${sub ? html`<span class="lsub">${sub}</span>` : nothing}</button>`;
+  const card = (label, sub, onClick, icon) => html`<button class="lcard" @click=${onClick}>
+    <span class="lname">${icon ? html`<bx-icon name=${icon}></bx-icon>` : nothing}${label}</span>${sub ? html`<span class="lsub">${sub}</span>` : nothing}</button>`;
   const recent = (f._history || []).slice(0, 8);
   const target = launchTarget(f) ? ` ${launchTarget(f)}` : ''; // what a new session calls (10-ux §2.7); '' in the zero state
   return html`<div class="launcher">
@@ -177,16 +177,17 @@ export function launcher(f) {
     ${f._envOld && f._envAuto ? html`<div class="lbase auto">
       <span>A newer base image is installed: the next session here starts on it, and everything outside your files &amp; $HOME is reset (installed packages, /etc, /var, /opt…, a VM terminal's disk).</span>
     </div>` : f._envOld ? html`<div class="lbase">
+      <bx-icon name="info" label="Info"></bx-icon>
       <span>This tile's terminals still run on an older base image.</span>
       <button class="lupdate" title="rebuild this tile's terminal layer on the newer base (installed packages are wiped; your files & $HOME are kept)"
-              @click=${() => f._resetEnv(true)}>⬆ base update</button>
+              @click=${() => f._resetEnv(true)}><bx-icon name="upload"></bx-icon>base update</button>
     </div>` : nothing}
     ${launchBanner(f)}
     ${vmSwitch(f, vm)}
     <div class="lcards">
-      ${card('Bash', (vm ? 'a shell in a VM sandbox' : 'a shell in the sandbox') + target, () => f._startKind('shell'))}
+      ${card('Bash', (vm ? 'a shell in a VM sandbox' : 'a shell in the sandbox') + target, () => f._startKind('shell'), 'terminal')}
       ${provs.length
-        ? provs.map((p) => card(p.name, (vm ? 'coding agent, in a VM' : 'coding agent') + target, () => f._startKind('agent', p.id)))
+        ? provs.map((p) => card(p.name, (vm ? 'coding agent, in a VM' : 'coding agent') + target, () => f._startKind('agent', p.id), 'agent'))
         : html`<span class="lsub">loading agents…</span>`}
     </div>
     ${recent.length ? html`<div class="lrecent">
@@ -212,41 +213,48 @@ function vmSwitch(f, on) {
   return html`<button class=${'lvm' + (on ? ' on' : '')} role="switch" aria-checked=${on ? 'true' : 'false'}
       title="start this tile's new sessions — shells and agents — in a VM sandbox; remembered for this tile"
       @click=${() => rememberVM(f, !on)}>
-    <span class="lname">⧉ VM sandbox: ${on ? 'on' : 'off'}</span>
+    <span class="lname"><bx-icon name="vm"></bx-icon>VM sandbox: ${on ? 'on' : 'off'}</span>
     <span class="lsub">root in its own kernel${size}${st.emulated ? ' · emulated — several times slower' : ''}</span></button>`;
 }
 
 export const launcherCss = css`
-  .launcher { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px; overflow: auto; }
-  .launcher .lhead { color: var(--bx-muted, #868f9a); font: 12px var(--bx-mono, ui-monospace, monospace); }
-  .launcher .lcards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 460px; }
-  .launcher .lcard { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; min-width: 130px;
-    padding: 12px 14px; border: 1px solid var(--bx-border, #363c45); border-radius: 8px;
-    background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); cursor: pointer; text-align: left; }
-  .launcher .lcard:hover { border-color: var(--bx-accent, #f5a623); }
-  .launcher .lname { font: 13px var(--bx-sans, system-ui); font-weight: 600; }
-  .launcher .lsub { color: var(--bx-muted, #868f9a); font-size: 11px; }
+  .launcher { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px; overflow: auto;
+    color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028); font: var(--bx-font-ui, 400 13px/18px system-ui, sans-serif); }
+  .launcher .lhead { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-code, 12px/18px ui-monospace, monospace); }
+  .launcher .lrecent > .lhead { font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase; }
+  .launcher .lcards { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 460px; }
+  .launcher .lcard { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 140px;
+    padding: 12px; border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+    background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); cursor: pointer; text-align: left; }
+  .launcher .lcard:hover { background: var(--bx-hover, #2A2B34); }
+  .launcher .lname { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .launcher .lname bx-icon { color: var(--bx-muted, #A3A6B6); }
+  .launcher .lsub { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
   .launcher .lrecent { display: flex; flex-direction: column; gap: 6px; width: min(460px, 100%); }
   .launcher .lrow { display: flex; align-items: center; gap: 8px; }
-  .launcher .lopen { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 8px 10px;
-    border: 1px solid var(--bx-border, #363c45); border-radius: 6px; background: var(--bx-panel-2, #2b3038);
-    color: var(--bx-text, #d4d9e0); cursor: pointer; text-align: left; }
-  .launcher .lopen:hover { border-color: var(--bx-accent, #f5a623); }
-  .launcher .lopen .lname { font-weight: 500; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .launcher .lresume { border: 1px solid var(--bx-accent, #f5a623); background: transparent; color: var(--bx-accent, #f5a623);
-    border-radius: 6px; padding: 6px 10px; cursor: pointer; font: 12px var(--bx-sans, system-ui); font-weight: 600; white-space: nowrap; }
-  .launcher .lresume:hover { background: var(--bx-accent, #f5a623); color: #1b1e24; }
-  .launcher .lbase { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 460px;
-    padding: 8px 10px; border: 1px solid var(--bx-amber, #f2a71b); border-radius: 6px; background: var(--bx-panel-2, #2b3038);
-    color: var(--bx-text, #d4d9e0); font-size: 12px; }
-  .launcher .lbase.auto { border-color: var(--bx-border, #363c45); color: var(--bx-muted, #868f9a); }
-  .launcher .lupdate { border: 1px solid var(--bx-amber, #f2a71b); background: var(--bx-amber, #f2a71b); color: #23272e;
-    border-radius: 5px; padding: 4px 10px; cursor: pointer; font: 12px var(--bx-sans, system-ui); font-weight: 700; white-space: nowrap; }
-  .launcher .lupdate:hover { filter: brightness(1.06); }
+  .launcher .lopen { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 6px 10px;
+    border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); background: var(--bx-panel, #1F2028);
+    color: var(--bx-text, #E9EAF0); cursor: pointer; text-align: left; }
+  .launcher .lopen:hover { background: var(--bx-hover, #2A2B34); }
+  .launcher .lopen .lname { display: block; font-weight: 400; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .launcher .lresume { box-sizing: border-box; height: var(--bx-control-h, 28px); padding: 0 10px; cursor: pointer; font-weight: 600; white-space: nowrap;
+    color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028);
+    border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); }
+  .launcher .lresume:hover { background: var(--bx-hover, #2A2B34); }
+  .launcher .lbase { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 460px;
+    padding: 8px 12px; border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+    background: var(--bx-info-bg, #30323B); color: var(--bx-text, #E9EAF0); }
+  .launcher .lbase > bx-icon { color: var(--bx-info, #A9B4C6); }
+  .launcher .lbase.auto { border-color: var(--bx-border, #33353F); background: var(--bx-panel-2, #262730); color: var(--bx-muted, #A3A6B6); }
+  .launcher .lupdate { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; height: var(--bx-control-h, 28px); padding: 0 10px;
+    cursor: pointer; font-weight: 600; white-space: nowrap;
+    color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent, #8C9BFF);
+    border: 1px solid var(--bx-accent, #8C9BFF); border-radius: var(--bx-radius, 2px); }
+  .launcher .lupdate:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
+  /* the VM sandbox choice: a switch; on, it is the selection */
   .launcher .lvm { display: flex; flex-direction: column; gap: 2px; align-items: center; padding: 6px 14px;
-    border: 1px dashed var(--bx-border, #363c45); border-radius: 8px; background: transparent;
-    color: var(--bx-text, #d4d9e0); cursor: pointer; }
-  .launcher .lvm:hover { border-color: var(--bx-accent, #f5a623); }
-  .launcher .lvm.on { border-style: solid; border-color: var(--bx-accent, #f5a623); }
-  .launcher .lvm.on .lname { color: var(--bx-accent, #f5a623); }
+    border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); background: var(--bx-panel, #1F2028);
+    color: var(--bx-text, #E9EAF0); cursor: pointer; }
+  .launcher .lvm:hover { background: var(--bx-hover, #2A2B34); }
+  .launcher .lvm.on { border-color: var(--bx-accent, #8C9BFF); background: var(--bx-selection, #262C5C); color: var(--bx-selection-text, #E9EAF0); }
 `;
