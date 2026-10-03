@@ -12,6 +12,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-03
 
+- **xbin's mark is the bˣ tile** (Base Two, D183): a white b with a yellow
+  x raised as its exponent, on a square cobalt tile, beside the wordmark
+  "xbin" in Bricolage Grotesque 800. `/vendor/favicon.svg` and
+  `/vendor/logo.svg` (the mark with the wordmark) keep their URLs and carry
+  the new drawings, and so do the PNGs beside them (`favicon.png`,
+  `favicon-256.png`, `favicon-32.png`, `apple-touch-icon.png`,
+  `logo.png`). The logo's proportions changed: `logo.svg` is 2.4:1 (3.7:1
+  before) and `logo.png` 1200 × 501, so a page that showed it at a fixed
+  width and height should size one side only. The tile keeps its colours in
+  both themes; `logo.svg`'s word is ink on a light system and near-white on
+  a dark one.
 - **The workspace follows your system's light or dark setting** (Base Two:
   Concrete Day and Concrete Night, D184). Settings → Theme overrides it per
   person (System, Light, Dark), and Density offers Comfortable; terminals
