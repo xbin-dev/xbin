@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-03
 
+- **docs: [design.md](/docs/design.md), how a tile should look and read**
+  (Base Two, D183, D184), for people and coding agents building tiles:
+  ten rules (tokens only; one accent, for actions; status as a glyph, a
+  word and a colour; square corners; small, steady type; dense, on a 4 px
+  grid; glyphs, not emoji; flat; no brand colour fields in a tile; motion
+  that only confirms), the components on the tokens (buttons, fields,
+  lists, tabs, tables, badges, alerts, dialogs that show the plan before
+  they ask, plates, empty states), the workspace's voice, both themes and
+  what not to do, with examples. [frontend-kit.md](/docs/frontend-kit.md)
+  §Theme stays the mechanism and links it. The workspace `AGENTS.md` (new
+  workspaces) carries the rules that matter most under Theme & shell and
+  points there; any workspace's agents can read the page at `/docs/` or in
+  `$XBIN_DOCS`.
 - **xbin's mark is the bˣ tile** (Base Two, D183): a white b with a yellow
   x raised as its exponent, on a square cobalt tile, beside the wordmark
   "xbin" in Bricolage Grotesque 800. `/vendor/favicon.svg` and

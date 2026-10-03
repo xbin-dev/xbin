@@ -108,7 +108,9 @@ Night** (dark) and **Concrete Day** (light). Every colour, font, corner and
 shadow is a custom property in `/vendor/theme.css`; everything else uses
 `var(--bx-…)`. A person picks one in the shell's settings — *Theme*: System,
 Light or Dark, and *Density*: Compact or Comfortable — and System follows
-the device's light or dark setting.
+the device's light or dark setting. This section is the mechanism; how a
+tile should look with it (the rules, the components, the words) is
+[design.md](/docs/design.md).
 
 ### Opting in
 

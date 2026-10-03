@@ -1,12 +1,20 @@
 # xbin documentation
 
-xbin is a self-modifying workspace: every piece of UI is backed by a
-directory you can open a shell into and edit live — including this
-workspace's own root page. Components have real backends (Go, node, python,
-shell) that live reload on save (unless a tile's developers paused live
-reload: [tile-deployments.md](/docs/tile-deployments.md)), declare roles
-other components can be granted, and share brokered resources (kv, blobs,
-bus, cron, sqlite).
+xbin is a workspace where people and AI agents build the systems a company
+runs on, and where those systems run. Each app is a folder: a page, an
+optional backend and its own history. Save a change and it is live. Every
+app and every agent works in its own sandbox and reaches only what someone
+has granted, and the workspace itself (its shell, its admin console) is
+built the same way, so it changes like any other app.
+
+These pages are how to build in it, for people and for the coding agents
+that work in its terminals. They call the folder you build a *tile* (or
+*component*): a directory with an `index.html` and, if it needs one, a
+backend that rebuilds when you save (unless the tile paused live reload:
+[tile-deployments.md](/docs/tile-deployments.md)). Tiles call each other
+through roles they are granted and share storage the workspace provides;
+the mental model below has the rest. How a tile should look and read is
+[design.md](/docs/design.md).
 
 **New here? Take the guided tour.** [overview/](/docs/overview/00-index.md)
 is a top-down walk through the whole system — how the subsystems compose and
@@ -22,6 +30,8 @@ overview is the map that puts them in context.
 3. [auth.md](/docs/auth.md) — identities, roles, grants, the vault
 4. [resources.md](/docs/resources.md) — kv, blob, bus, cron, sqlite
 5. [sdk.md](/docs/sdk.md) — the Go SDK, node/python patterns, and the in-frame `xbin` JS API
+6. [design.md](/docs/design.md) — how a tile looks and reads: the workspace's
+   design rules (Base Two), both themes, components, words
 
 **Reference:**
 
@@ -49,7 +59,11 @@ overview is the map that puts them in context.
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
   upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
 - [frontend-kit.md](/docs/frontend-kit.md) — the `/vendor/` modules a tile
-  may import (`bx-kit`, `bx-dialog`, `bx-code`, …), the URL rules, lit pitfalls
+  may import (`bx-kit`, `bx-dialog`, `bx-code`, …), the theme's mechanics
+  (opting in, tokens, icons), the URL rules, lit pitfalls
+- [design.md](/docs/design.md) — the design guide for tiles: calm surfaces,
+  one accent, status as glyph + word + colour, square corners, dialogs that
+  show the plan before they ask, the workspace's voice, both themes
 - [native.md](/docs/native.md) — a tile's native UI in the xbin mobile app:
   `native.js`, the template API, every primitive of the vocabulary, the
   rules, and checking it with `bx lint --native` / `bx preview --native`
@@ -71,7 +85,7 @@ cheat sheets, and the mistakes to avoid, all in one file on disk.
 ## The 60-second mental model
 
 ```
-Workspace  = one directory tree (one host — typically a VM), git-versioned
+Workspace  = one directory tree, git-versioned
 Scope      = a subtree marked by scope.json = "an app"; owns resources
 Component  = any directory with index.html and/or xbin.json = "an element"
 ```
