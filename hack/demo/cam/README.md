@@ -59,7 +59,7 @@ module.exports.setup = async (cam) => {
 | `cam.scroll(dy, {at})` | a wheel flick, eased |
 | `cam.hold(ms)` / `cam.sleep(ms)` | a beat (skipped at `--pace fast`) / a wait (never skipped) |
 | `cam.mark(name, t?, extra?)` | `{name, t, box, …extra}` into the sidecar; `{optional: true}` tolerates a missing target |
-| `cam.still(name, {cursor})` | `<take>-<name>.png` at size × dpr; no cursor unless asked (while x11/screencast roll, the cursor stays: hiding it would show) |
+| `cam.still(name, {cursor, caption})` | `<take>-<name>.png` at size × dpr; no cursor unless asked (while x11/screencast roll, the cursor stays: hiding it would show); `caption`: what it shows, kept in the sidecar |
 | `cam.cursorAt(t)`, `cam.showCursor(v)` | place / hide the cursor without a move |
 | `cam.sh`, `cam.fr`, `cam.waitFor`, `cam.waitSel`, `cam.settle`, `cam.openShell`, `cam.usePersonalScreen`, `cam.openTile`, `cam.in(tile)` | the UI harness helpers (`hack/ui-harness/lib.js`) on this page |
 | `cam.args`, `cam.o` | `--set k=v` over the module's `defaults`; the run's options (url, size, …) |
@@ -161,6 +161,48 @@ repeated frame, not a gap) into an mkv that survives a crash, remuxed to mp4
 at the cut. The recording rolls once frames flow; x11grab's first timestamp
 places the video on the sidecar's clock.
 
+## Website stills
+
+`site-stills.sh` shoots the website's stills of the demo film set
+(`hack/demo/README.md`): each `shots/site-*.js` on a desk (1440×900 at
+device scale 2) and on a phone (390×844 at 3), into one directory, then
+`shots.json` beside them (`stills-manifest.js`: file, pixel size, viewport,
+the persona, what the frame shows — the shot's `caption` — and the marks
+logged for it).
+
+```sh
+# the set in the UI harness (hack/demo/README.md), isolated: partitions, VM sandboxes
+HARNESS_SEED=demo HARNESS_ISOLATE=1 PORT=9331 HARNESS_DIR=/tmp/me/h hack/ui-harness/run.sh --keep
+TZ=America/Los_Angeles $C/site-stills.sh --out .film-media/stills --ws /tmp/me/h/ws --url http://127.0.0.1:9331 [shot…]
+```
+
+| shot | who | what |
+|---|---|---|
+| `canvas` | Maya (CEO) | her Company screen: Lark, the CRM's pipeline, the ops report, the calendar |
+| `live` | Priya, then Tomás | the onboarding tracker before and after a code change lands (a go-live timeline: `tiles/onboarding/next/`), and the diff in the tile's code window |
+| `agent` | Priya | Lark mid-task (tool calls done, the answer coming), then its answer; a phone films the chat app instead (the agent's page has no narrow layout) |
+| `terminal` | Jonas | a shell on the onboarding tile: its files and Lark's commits |
+| `sandboxes` | Lukas | the coding sandboxes: three VM sandboxes, their owners and quotas |
+| `network` | Tomás | the telematics tile's network, routed through the egress approver |
+| `admin` | Tomás | the admin console's people, then viewing the workspace as Priya |
+| `partitions` | Priya | her partitions page: her own instance of Lark and of expenses |
+| `phone` | Priya | the shell on a phone: her expense book, the inbox, the drawer |
+
+`site.js` is what they share: signing in as a person of `company.json`,
+putting their screens from `data/layouts.json` back first (a retake starts
+the same), the font a viewport gets (the person's seeded size on a desk,
+the shell's 13 px on a phone), waiting for a tile's content, and the still
+itself (the mouse parked off every scroller, a caption). Shots that change
+the set put it back: `live` restores the tracker's files, `network` binds
+the tile again, `agent` deletes its earlier take's conversation. Clicks
+inside a tile use `dispatchEvent` or `focus()`: under the shell's font
+zoom a pointer's coordinates land off target.
+
+Film in the set's time zone: the browser's clock (TZ) and the seed's
+`DEMO_TZ` must agree, or times of day ("05:30", "4:14 PM") shift. The set's
+company is American; a US zone keeps its times of day — and "today" —
+true to it.
+
 ## framecheck
 
 `framecheck/index.html` draws its frame number every `requestAnimationFrame`
@@ -197,7 +239,8 @@ pure parts.
 | `rec.js` | the still, scratch, x11 and screencast captures; ffmpeg |
 | `beginframe.js` | the deterministic capture |
 | `capture.sh` | the Xvfb master path |
-| `shots/` | `terminal`, `agent` (examples against the UI harness), `framecheck` |
+| `shots/` | `terminal`, `agent` (examples against the UI harness), `framecheck`; `site-*` (the website stills) |
+| `site.js`, `site-stills.sh`, `stills-manifest.js` | the website stills: shared set-up, the runner, `shots.json` |
 | `framecheck/` | the frame counter, its checker, the checker's self-test |
 
 ## Notes

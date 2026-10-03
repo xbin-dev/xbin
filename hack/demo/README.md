@@ -61,7 +61,15 @@ fakeopenai with the demo script, and runs the `demoStills` pass instead of
 the test passes (`stills.js`): it signs in as a regular person and as the
 admin, walks their seeded screens and saves 1440×900 frames at device scale
 2 to `$DEMO_STILLS` (default `$HARNESS_DIR/out/stills`). The harness has no
-`--isolate`-only parts here unless `HARNESS_ISOLATE=1`.
+`--isolate`-only parts here unless `HARNESS_ISOLATE=1` — with it, people's
+partitions and the VM coding sandboxes are real (on this machine, run it in
+`unshare --user --map-root-user --mount` for FUSE, as `up.sh` does itself).
+
+**The website's stills**: `hack/demo/cam/site-stills.sh` films the set's
+subjects (the canvas, an app changed live, the agent at work, a terminal,
+the coding sandboxes, network approvals, the admin console, a person's
+partitions, the phone) on a desk and a phone, with a `shots.json` of what
+each frame shows (`hack/demo/cam/README.md` §Website stills).
 
 **Sign in** as `tomas` (Tomás Reyes, CTO, a workspace admin) or `priya`
 (Priya Raman, customer success); everyone in `company.json` has the password
@@ -106,7 +114,11 @@ Brightwell renewal call Lark preps Priya for; the CRM's next steps, the inbox
 and Lark's answers name the days around it ("Demo with Rita on Tuesday").
 Seed on the shooting day; `reset.sh` warns when its snapshot is older. Times
 of day ("15:10", the 05:30 report) are in the seeding machine's time zone
-(`DEMO_TZ` overrides it): film with a browser in the same zone.
+(`DEMO_TZ` overrides it): film with a browser in the same zone. Larkspan is
+American: seeding and filming with `TZ` set to a US zone (the first stills
+used `America/Los_Angeles`) keeps its "today" and the zone the pages name
+(a partition's "last started … PDT") true to it — and a European evening
+is still a working afternoon there.
 
 ## What's in it
 
@@ -117,18 +129,21 @@ of day ("15:10", the 05:30 report) are in the seeding machine's time zone
 | `apps/metrics` | builtin prometheus-viewer on two real sources: the LLM gateway's counters and `apps/host-exporter` (this machine's load, memory, CPU, network, disk from /proc) | builtin, `tiles/host-exporter` |
 | `apps/calendar`, `apps/email` | `examples/calendar` and `examples/email` (their backends as they are) with a week-view page and a kv-backed team inbox | `tiles/calendar`, `tiles/email`, `data/calendar.json`, `data/email.json` |
 | `apps/chat` | builtin chat on the gateway, with the CRM's and the ops report's MCP tools | builtin |
-| `apps/lark` | the agent (builtin template): Larkspan's system prompt, the CRM and ops report bound as MCP servers, four conversations, two schedules (a morning ops brief, a Friday pipeline digest), the team-chat channel claimed with `#sales`/`#ops` trusted. Under `--isolate` partitioned: each person's conversations and schedules are their own, the channel's at its global instance | builtin template, `data/lark-script.json` |
+| `apps/lark` | the agent (builtin template): Larkspan's system prompt, the CRM and ops report bound as MCP servers, five conversations (Maya's pipeline question among them), two schedules (a morning ops brief, a Friday pipeline digest), the team-chat channel claimed with `#sales`/`#ops` trusted. Under `--isolate` partitioned: each person's conversations and schedules are their own, the channel's at its global instance | builtin template, `data/lark-script.json` |
 | `apps/llm-gw` | the gateway: one backend `inference` (the scripted model) or the real providers; preferred models per use | builtin |
 | `apps/team-chat` | agent-messaging-bridge; its console stands in for a chat platform; its egress goes through the egress approver | builtin template |
-| `apps/coding-sandbox` | sandbox manager bound to Lark: xbind's runtime under `--isolate`, else the template's own test backend (host directories), named `local` | builtin template |
-| `apps/egress-approver`, `apps/traefik` | builtins, wired (traefik needs `--isolate` to fetch its binary) | builtin |
+| `apps/coding-sandbox` | sandbox manager bound to Lark: xbind's runtime under `--isolate` (VM tile sandboxes switched on where xbind runs VMs), else the template's own test backend (host directories), named `local`; three engineers' sandboxes, two running | builtin template |
+| `apps/egress-approver`, `apps/traefik` | builtins, wired (traefik needs `--isolate` to fetch its binary); the approver is the team chat's and the telematics tile's way out | builtin |
+| `apps/telematics` | Operations' newest tile: the telematics and weather feeds dispatch will read; its `net` goes through the egress approver (the `approved-egress` network set lets Operations' tiles bind there). It makes no network calls | `tiles/telematics`, `data/telematics.json` |
 | `apps/expenses` | each person's own book — `"partition": ["user"]` under `--isolate` (one instance, books keyed by person, without it); Daniel's and Priya's are filled | `tiles/expenses`, `data/expenses.json` |
 | `apps/onboarding` | the app Lark built from Priya's brief: no backend, kv state, CRM facts through a grant; its git history is Lark's commits | `tiles/onboarding`, `data/onboarding.json` |
 
 People and teams (`company.json`): Leadership, Engineering, Sales &
 Success, Operations, each with its tiles and network sets (`internet`,
-`office-lan`, `routing-apis`, `depot-iot`). Each person signs in to their
-own screens (`data/layouts.json`) at a 17 px font (the shell's settings pref).
+`office-lan`, `routing-apis`, `depot-iot`, `approved-egress`). Each person
+signs in to their own screens (`data/layouts.json`) at a 17 px font (the
+shell's settings pref), or their own size there (Maya's four-app Company
+screen and Lukas's sandboxes at 15 px).
 
 ## Changing it
 
@@ -146,4 +161,6 @@ own screens (`data/layouts.json`) at a 17 px font (the shell's settings pref).
   placeholders filled from the tool results; `hack/fakeopenai/demo.go`).
 - Footage that types new questions to Lark or the chat gets the script's
   replies when they match, else its fallback — or real models
-  (`DEMO_LLM=real`).
+  (`DEMO_LLM=real`). A step's `delayMs` paces a reply like a model
+  thinking: the website's "agent at work" question (Lakeshore and Alder
+  Street) waits 30 s before its answer, long enough to film Lark mid-task.

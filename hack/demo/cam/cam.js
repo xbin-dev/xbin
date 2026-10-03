@@ -298,10 +298,12 @@ class Cam {
   }
   event(kind, data) { this.side.events.push({ kind, ...data }); }
 
-  // still(name, {cursor}): a PNG of the viewport (width×height × dpr). The
-  // cursor is left out unless asked for — except while a real-time capture
-  // is rolling, where hiding it would show in the footage.
-  async still(name, { cursor } = {}) {
+  // still(name, {cursor, caption}): a PNG of the viewport (width×height ×
+  // dpr). The cursor is left out unless asked for — except while a
+  // real-time capture is rolling, where hiding it would show in the
+  // footage. caption: what the frame shows, kept in the sidecar (the
+  // website stills' manifest reads it).
+  async still(name, { cursor, caption } = {}) {
     const file = path.join(this.o.out, `${this.o.take}-${name}.png`);
     // a recording in real time would film the cursor vanishing; beginframe
     // takes its still between two video frames, so it never does
@@ -315,7 +317,7 @@ class Cam {
       if (hide) await this.showCursor(false);
       try { await this.backend.still(this.page, file); } finally { if (hide) await this.showCursor(true); }
     }
-    this.side.stills.push({ name, t, file: path.basename(file), cursor: !hide });
+    this.side.stills.push({ name, t, file: path.basename(file), cursor: !hide, ...(caption ? { caption } : {}) });
     this.flush();
     this.log('still', path.basename(file));
     return file;
