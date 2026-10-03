@@ -124,11 +124,11 @@ import Testing
     @Test func pausedWithChanges() {
         let s = Self.paused()
         let c = DeployView.chip(s, now: Self.now)
-        #expect(c?.text == "📌 Live reload paused · 3")
+        #expect(c?.text == "Live reload paused · 3" && c?.icon == "pin")
         #expect(c?.title == "Live reload paused by ana 12m ago — 3 files changed since c:3f2a1c9, which main runs. Reload now ships them to main once.")
         #expect(DeployView.header(s, now: Self.now) == "Live reload paused by ana 12m ago — 3 files changed since c:3f2a1c9, the checkpoint main runs.")
         let a = DeployView.actions(s)
-        #expect(a.map(\.label) == ["⇡ Reload now · 3", "Resume live reload on ▸"])
+        #expect(a.map(\.label) == ["Reload now · 3", "Resume live reload on"])
         #expect(a[0].title == "Ship the work tree to main once (3 files); main stays pinned.")
         #expect(a[1].items.map(\.label) == ["main"] && a[1].items[0].title == "main follows the work tree again; the 3 changed files ship now.")
         let l = DeployView.launcher(s)
@@ -143,16 +143,16 @@ import Testing
 
     @Test func liveReloadOnDev() {
         let s = Self.onDev()
-        #expect(DeployView.chip(s)?.text == "● Live reload: dev")
+        #expect(DeployView.chip(s)?.text == "Live reload: dev" && DeployView.chip(s)?.icon == "live")
         #expect(DeployView.header(s) == "Live reload: dev — saves reach apps/crm+dev. The primary, main, is pinned to c:3f2a1c9.")
         let a = DeployView.actions(s)
-        #expect(a.map(\.label) == ["Pause live reload", "Attach live reload to ▸"] && a[1].items.map(\.deployment) == ["main"])
+        #expect(a.map(\.label) == ["Pause live reload", "Attach live reload to"] && a[1].items.map(\.deployment) == ["main"])
         #expect(DeployView.launcher(s)?.banner?.text == "Live reload: dev — saves reach apps/crm+dev; main is pinned to c:3f2a1c9.")
         #expect(DeployView.launcher(s)?.note == "Saves reach dev; new sessions call main. Switch in the tile API select after starting.")
         // The rows: primary first, the Dev API tag on the session's target, live reload's.
         let rows = DeployView.rows(s, target: "primary")
         #expect(rows.map(\.name) == ["main", "dev"] && rows.map(\.target) == [true, false] && rows.map(\.liveReload) == [false, true])
-        #expect(rows.map(\.code) == ["📌 c:3f2a1c9", "● work tree"] && rows[1].url == "/c/apps/crm+dev/")
+        #expect(rows.map(\.code) == ["c:3f2a1c9", "work tree"] && rows.map(\.codeIcon) == ["pin", "live"] && rows[1].url == "/c/apps/crm+dev/")
         #expect(DeployView.rows(s, target: "dev").map(\.target) == [false, true])
         #expect(DeployView.devAPITitle(s, "dev").hasPrefix("Dev API: this tab's API calls and bx commands reach apps/crm+dev (XBIN_DEPLOYMENT=dev)."))
         #expect(DeployView.sessionTarget(api: true, deployment: "") == "primary" && DeployView.sessionTarget(api: false, deployment: "dev") == "off")
@@ -220,7 +220,7 @@ import Testing
 
     @Test func aBranchSwitchOnTheHeaderAndTheOffers() {
         let s = Self.switched("hotfix")
-        #expect(DeployView.chip(s)?.text == "📌 Live reload paused · ⎇ hotfix")
+        #expect(DeployView.chip(s)?.text == "Live reload paused · branch hotfix")
         #expect(DeployView.chip(s)?.title == "Live reload paused — the work tree is on hotfix, and dev requires feature: dev keeps running c:5e5e5e5.")
         let o = DeployView.offers(s)
         #expect(o.map(\.label) == ["Keep dev on hotfix this time", "Add a deployment for hotfix…"])
@@ -230,7 +230,7 @@ import Testing
         #expect(DeployView.launcher(s)?.banner?.text == "Live reload is paused: the work tree is on hotfix, and dev requires feature.")
         #expect(DeployView.offers(Self.switched("release")).map { [$0.label, $0.op, $0.deployment] } == [["Resume live reload on qa (release)", "resume", "qa"]])
         let back = Self.switched("feature")
-        #expect(DeployView.chip(back)?.text == "📌 Live reload paused · 2")
+        #expect(DeployView.chip(back)?.text == "Live reload paused · 2")
         #expect(DeployView.chip(back)?.title == "Live reload paused when the work tree left feature; it is on feature again — resume live reload on dev to follow saves.")
         #expect(DeployView.offers(back).map { [$0.label, $0.op, $0.deployment] } == [["Resume live reload on dev", "resume", "dev"]])
         let a = Self.attached("release")

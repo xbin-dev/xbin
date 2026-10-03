@@ -1,6 +1,7 @@
 import Observation
 import SwiftUI
 import XbinCore
+import XbinRenderer
 import XbinTerm
 
 /// A tile's live reload and deployments in the app (D132; D119, D127,
@@ -244,7 +245,7 @@ final class DeploymentsModel {
 /// The Deployments tool (D132): live reload's sentence and actions, the
 /// offers to follow a branch switch (D131), the deployments with their
 /// tags ("Dev API": what the last session tab's API calls reach, D129;
-/// "● live reload": where saves go), a deployment's overview — its view
+/// "live reload": where saves go), a deployment's overview — its view
 /// link, its Branch row with Set and Clear — and its deploy log with Roll
 /// back. What stays on the web says so.
 struct DeploymentsToolView: View {
@@ -278,7 +279,7 @@ struct DeploymentsToolView: View {
                 HStack { Spacer(); ProgressView(); Spacer() }
             }
             if let p = model.problem {
-                Section { Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red) }
+                Section { Label { Text(verbatim: p) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
             }
         }
         .listStyle(.insetGrouped)
@@ -335,7 +336,7 @@ struct DeploymentsToolView: View {
                 } label: {
                     Label { Text(verbatim: o.label) } icon: { Image(systemName: "arrow.triangle.branch") }
                 }
-                .tint(Color.xbinAmber)
+                .tint(XbinColor.accent)
                 .disabled(!o.enabled || model.busy)
                 .accessibilityHint(o.enabled ? o.title : o.why)
             }
@@ -346,10 +347,12 @@ struct DeploymentsToolView: View {
                 Text(verbatim: m).font(.footnote).foregroundStyle(.secondary)
             }
         } header: {
-            HStack(spacing: 6) {
-                Text(f.paused ? "📌 Live reload paused" : "● Live reload")
+            HStack(spacing: 10) {
+                Label(f.paused ? "Live reload paused" : "Live reload",
+                      systemImage: XbinGlyphs.symbol(f.paused ? DeployView.Glyph.pinned : DeployView.Glyph.attached))
                 if !f.branch.need.isEmpty || !(f.branch.workTreeBranch ?? "").isEmpty, let w = f.branch.workTreeBranch, !w.isEmpty {
-                    Text(verbatim: "⎇ \(w)").monospaced()
+                    Label { Text(verbatim: w).monospaced() } icon: { Image(systemName: XbinGlyphs.symbol("branch")) }
+                        .accessibilityLabel(Text("branch \(w)"))
                 }
             }
         }
@@ -361,7 +364,11 @@ struct DeploymentsToolView: View {
                 Task { await model.start(.init(op: a.op, deployment: a.deployment)) }
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: a.label)
+                    if a.op == "reloadNow" {
+                        Label { Text(verbatim: a.label) } icon: { Image(systemName: XbinGlyphs.symbol(DeployView.Glyph.reloadNow)) }
+                    } else {
+                        Text(verbatim: a.label)
+                    }
                     if !a.enabled, !a.why.isEmpty { Text(verbatim: a.why).font(.caption).foregroundStyle(.secondary) }
                 }
             }
@@ -379,7 +386,7 @@ struct DeploymentsToolView: View {
                 }
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: a.label.replacingOccurrences(of: " ▸", with: "…"))
+                    Text(verbatim: a.label + "…")
                     if !a.enabled, !a.why.isEmpty { Text(verbatim: a.why).font(.caption).foregroundStyle(.secondary) }
                 }
             }
@@ -411,28 +418,48 @@ struct DeploymentsToolView: View {
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(verbatim: r.name).font(.body.weight(current ? .semibold : .regular))
-                if r.primary { pill("primary", .secondary) }
-                if r.protected { pill("🛡 protected", .secondary) }
-                if r.target { pill(DeployView.tagDevAPI, .blue).accessibilityHint(DeployView.devAPITitle(s, r.name)) }
-                if r.liveReload { pill(DeployView.tagLiveReload, Color.xbinAmber).accessibilityHint(DeployView.liveReloadTitle(s, r.name)) }
+                if r.primary { pill("primary", XbinColor.muted) }
+                if r.protected { pill("protected", XbinColor.muted, glyph: DeployView.Glyph.shield) }
+                if r.target { pill(DeployView.tagDevAPI, XbinColor.accent).accessibilityHint(DeployView.devAPITitle(s, r.name)) }
+                if r.liveReload {
+                    pill(DeployView.tagLiveReload, XbinColor.accent, glyph: DeployView.tagLiveReloadIcon)
+                        .accessibilityHint(DeployView.liveReloadTitle(s, r.name))
+                }
                 Spacer(minLength: 0)
-                if r.lastDeployFailed { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red) }
+                if r.lastDeployFailed {
+                    // Status: glyph, word and colour.
+                    Label("deploy failed", systemImage: XbinGlyphs.symbol("error")).font(.caption.weight(.semibold))
+                        .foregroundStyle(XbinColor.danger)
+                }
             }
             HStack(spacing: 8) {
-                Text(verbatim: r.code).font(.caption.monospaced())
+                Label { Text(verbatim: r.code).font(.caption.monospaced()) } icon: {
+                    Image(systemName: XbinGlyphs.symbol(r.codeIcon)).font(.caption2)
+                }
                 if !r.status.isEmpty { Text(verbatim: r.status).font(.caption) }
-                if !r.branch.isEmpty { Text(verbatim: "⎇ \(r.branch)").font(.caption.monospaced()) }
+                if !r.branch.isEmpty {
+                    Label { Text(verbatim: r.branch).font(.caption.monospaced()) } icon: {
+                        Image(systemName: XbinGlyphs.symbol("branch")).font(.caption2)
+                    }
+                    .accessibilityLabel(Text("branch \(r.branch)"))
+                }
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(XbinColor.muted)
         }
         .padding(.vertical, 2)
     }
 
-    private func pill(_ text: String, _ color: Color) -> some View {
-        Text(verbatim: text).font(.caption2.bold()).lineLimit(1).fixedSize()
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(color.opacity(0.18), in: Capsule())
-            .foregroundStyle(color == .secondary ? Color.secondary : color)
+    /// A tag (Base Two's badges: square, a 1 pt edge, the glyph before
+    /// the word).
+    private func pill(_ text: String, _ color: Color, glyph: String? = nil) -> some View {
+        HStack(spacing: 3) {
+            if let glyph { Image(systemName: XbinGlyphs.symbol(glyph)).font(.system(size: 9, weight: .semibold)) }
+            Text(verbatim: text).font(.caption2.bold()).lineLimit(1)
+        }
+        .fixedSize()
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .overlay(RoundedRectangle.xbinPlate.strokeBorder(color, lineWidth: 1))
+        .foregroundStyle(color)
     }
 
     // MARK: A deployment
@@ -488,17 +515,21 @@ struct DeploymentsToolView: View {
                 ForEach(DeployView.logRows(s, name, Array(entries.prefix(12)))) { e in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
-                            Text(verbatim: e.code).font(.caption.monospaced())
+                            Label { Text(verbatim: e.code).font(.caption.monospaced()) } icon: {
+                                Image(systemName: XbinGlyphs.symbol(e.codeIcon)).font(.caption2)
+                            }
                             Text(verbatim: e.how).font(.caption.weight(.semibold))
-                            if e.state == "running" { pill("runs now", .green) }
+                            if e.state == "running" { pill("runs now", XbinColor.ok, glyph: "ok") }
                             Spacer(minLength: 0)
-                            Text(verbatim: e.result).font(.caption).foregroundStyle(e.failed ? .red : .secondary).lineLimit(2)
+                            Text(verbatim: e.result).font(.caption).foregroundStyle(e.failed ? XbinColor.danger : XbinColor.muted).lineLimit(2)
                         }
                         HStack(spacing: 6) {
                             Text(verbatim: e.who)
-                            if !e.branch.isEmpty { Text(verbatim: "⎇ \(e.branch)").monospaced() }
+                            if !e.branch.isEmpty {
+                                Label { Text(verbatim: e.branch).monospaced() } icon: { Image(systemName: XbinGlyphs.symbol("branch")) }
+                            }
                         }
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption2).foregroundStyle(XbinColor.muted)
                         if let rb = e.rollback {
                             Button(e.rollbackLabel) {
                                 let entry = entries.first { $0.id == e.id }
@@ -532,25 +563,30 @@ struct DeploymentsToolView: View {
     }
 }
 
-/// The launcher's live reload banner (deploy-state.js `launcher`): amber
-/// while paused, with Reload now.
+/// The launcher's live reload banner (deploy-state.js `launcher`): the
+/// warn tint while paused, with Reload now.
 struct DeployBannerView: View {
     let banner: DeployView.Banner
     let model: DeploymentsModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label { Text(verbatim: banner.text).font(.footnote) } icon: { Image(systemName: banner.tone == "paused" ? "pin.fill" : "circle.fill") }
+            Label { Text(verbatim: banner.text).font(.footnote) } icon: {
+                Image(systemName: XbinGlyphs.symbol(banner.tone == "paused" ? DeployView.Glyph.pinned : DeployView.Glyph.attached))
+                    .foregroundStyle(banner.tone == "paused" ? XbinColor.warn : XbinColor.accent)
+            }
             if banner.reloadNow {
-                Button(DeployView.labelReloadNow) { Task { await model.start(.init(op: "reloadNow")) } }
-                    .buttonStyle(.bordered).tint(Color.xbinAmber).controlSize(.small)
-                    .disabled(model.busy)
+                Button(DeployView.labelReloadNow, systemImage: XbinGlyphs.symbol(DeployView.Glyph.reloadNow)) {
+                    Task { await model.start(.init(op: "reloadNow")) }
+                }
+                .buttonStyle(.bordered).tint(XbinColor.accent).controlSize(.small)
+                .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
+                .disabled(model.busy)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(banner.tone == "paused" ? Color.xbinAmber.opacity(0.18) : Color(uiColor: .secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .xbinCard(banner.tone == "paused" ? XbinColor.warnBackground : XbinColor.surface)
     }
 }
 

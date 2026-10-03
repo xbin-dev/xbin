@@ -185,46 +185,61 @@ public enum DeployView {
         "Live reload: \(s.primary.isEmpty ? "main" : s.primary) — every save reaches everyone using \(s.tile)."
     }
 
+    /// The glyphs drawn beside the words (deploy-state.js `GLYPH`, D184
+    /// §1.6: /vendor/bx-icons.js names): a view model carries its glyph as
+    /// `icon` and its words without one; the app draws the SF Symbol of the
+    /// same meaning (Deployments.swift).
+    public enum Glyph {
+        public static let attached = "live", pinned = "pin", reloadNow = "refresh", layout = "deploy", shield = "shield"
+    }
+
     /// The chip (deploy-state.js `chip`): nil in the zero state; its
-    /// `text` (the full bar's) and `title`, the sentence.
+    /// `text` (the full bar's), `title`, the sentence, and `icon`: "pin"
+    /// while saves don't reach the target, "live" while they do.
     public struct Chip: Equatable, Sendable {
         public var text: String
         public var title: String
         public var failed: Bool
+        public var icon: String = Glyph.pinned
     }
 
     public static func chip(_ s: DeploymentsState, now: Date = Date()) -> Chip? {
         let f = facts(s)
         if f.zero { return nil }
         let P = f.primary
-        var base: String, title: String
+        var base: String, title: String, icon = Glyph.pinned
         if f.reader, s.liveReload != P {
             let pin = cp(s, P)
-            base = "📌 \(P) pinned to \(pin)"
+            base = "\(P) pinned to \(pin)"
             title = "\(P) is pinned to \(pin): saves in the work tree don't reach it."
         } else if f.paused, f.cause == "branch", f.branch.off {
-            base = "📌 Live reload paused · ⎇ \(f.branch.workTreeBranch ?? "no branch")"
+            let wtb = f.branch.workTreeBranch ?? ""
+            base = "Live reload paused · \(wtb.isEmpty ? "no branch" : "branch \(wtb)")"
             title = pausedSentence(s, f, header: false, now: now)
         } else if f.paused {
             let count = f.cause == "protect" ? nil : f.changed
-            base = (count ?? 0) > 0 ? "📌 Live reload paused · \(count!)" : "📌 Live reload paused"
+            base = (count ?? 0) > 0 ? "Live reload paused · \(count!)" : "Live reload paused"
             title = pausedSentence(s, f, header: false, now: now)
         } else if f.attached == P {
-            base = "● Live reload: \(P)"
+            icon = Glyph.attached
+            base = "Live reload: \(P)"
             title = "Live reload: \(P) — every save reaches everyone using \(s.tile)."
         } else {
             let A = f.attached
-            base = "● Live reload: \(A)"
+            icon = Glyph.attached
+            base = "Live reload: \(A)"
             title = "Live reload: \(A) — saves reach \(s.tile)+\(A). The primary, \(P), is pinned to \(cp(s, P)).\(Branch.offSentence(f.branch, A))"
         }
         let failed = !f.failed.isEmpty
-        return Chip(text: failed ? "\(base) · deploy failed" : base, title: failed ? "\(title) \(failedSentence(s, f))" : title, failed: failed)
+        return Chip(text: failed ? "\(base) · deploy failed" : base, title: failed ? "\(title) \(failedSentence(s, f))" : title, failed: failed,
+                    icon: icon)
     }
 
     // MARK: Actions (the chip's menu, the panel's header)
 
     /// One action: an operation on the tile or on a deployment, or a
-    /// submenu of them (Resume live reload on ▸, Attach live reload to ▸).
+    /// submenu of them (Resume live reload on, Attach live reload to: the
+    /// menu draws a submenu's arrow).
     public struct Action: Equatable, Sendable, Identifiable {
         /// pause | reloadNow | resume | attach | addFor | undo — or, for an
         /// offer, follow/<name>, keep/<name>, addFor/<branch>.
@@ -250,9 +265,9 @@ public enum DeployView {
     }
 
     public static let labelPause = "Pause live reload"
-    public static let labelResume = "Resume live reload on ▸"
-    public static let labelAttach = "Attach live reload to ▸"
-    public static let labelReloadNow = "⇡ Reload now"
+    public static let labelResume = "Resume live reload on"
+    public static let labelAttach = "Attach live reload to"
+    public static let labelReloadNow = "Reload now"
 
     static func reloadNowTip(_ f: Facts) -> String {
         if let n = f.changed, n > 0 { return "Ship the work tree to \(f.last) once (\(files(n))); \(f.last) stays pinned." }
@@ -277,8 +292,8 @@ public enum DeployView {
     }
 
     /// The actions of the live reload header (deploy-state.js `chipItems`
-    /// without its header, sentence and offers): Reload now and Resume ▸
-    /// while paused, else Pause and Attach ▸. A reader gets none.
+    /// without its header, sentence and offers): Reload now and Resume
+    /// while paused, else Pause and Attach. A reader gets none.
     public static func actions(_ s: DeploymentsState, undo: DeployEntry? = nil) -> [Action] {
         let f = facts(s)
         guard !f.reader else { return [] }
@@ -407,7 +422,9 @@ public enum DeployView {
     // MARK: Rows, overview, log (deploy-panel.js)
 
     public static let tagDevAPI = "Dev API"
-    public static let tagLiveReload = "● live reload"
+    public static let tagLiveReload = "live reload"
+    /// The live reload tag's glyph (deploy-panel.js TAG.liveReloadIcon).
+    public static let tagLiveReloadIcon = Glyph.attached
 
     public static func devAPITitle(_ s: DeploymentsState, _ name: String) -> String {
         let P = s.primary.isEmpty ? "main" : s.primary
@@ -425,8 +442,9 @@ public enum DeployView {
         public var id: String { name }
         public var primary: Bool
         public var protected: Bool
-        /// "📌 c:3f2a1c9" or "● work tree".
+        /// "c:3f2a1c9" or "work tree", with `codeIcon`: "pin" or "live".
         public var code: String
+        public var codeIcon: String
         public var status: String
         /// The Dev API tag: the session's target is this deployment.
         public var target: Bool
@@ -439,8 +457,15 @@ public enum DeployView {
     }
 
     static func pointer(_ d: DeploymentInfo?) -> String {
-        guard let d, !d.checkpoint.isEmpty else { return "● work tree" }
-        return "📌 \(d.checkpoint)"
+        guard let d, !d.checkpoint.isEmpty else { return "work tree" }
+        return d.checkpoint
+    }
+
+    /// The code's glyph: "live" while it follows the work tree, "pin" on a
+    /// checkpoint.
+    static func pointerIcon(_ d: DeploymentInfo?) -> String {
+        guard let d, !d.checkpoint.isEmpty else { return Glyph.attached }
+        return Glyph.pinned
     }
 
     static func statusText(_ d: DeploymentInfo?) -> String {
@@ -458,7 +483,8 @@ public enum DeployView {
             if (a.name == P) != (b.name == P) { return a.name == P }
             return a.name < b.name
         }.map { d in
-            Row(name: d.name, primary: d.name == P, protected: d.name == P && s.protectedPrimary, code: pointer(d), status: statusText(d),
+            Row(name: d.name, primary: d.name == P, protected: d.name == P && s.protectedPrimary, code: pointer(d), codeIcon: pointerIcon(d),
+                status: statusText(d),
                 target: t != nil && t == d.name, liveReload: s.record && !s.liveReload.isEmpty && s.liveReload == d.name,
                 lastDeployFailed: d.lastDeploy?.result == "failed", branch: d.branch, branchOverride: d.branchOverride,
                 url: !d.url.isEmpty ? d.url : "/c/\(s.tile)\(d.name == P ? "" : "+\(d.name)")/")
@@ -488,7 +514,7 @@ public enum DeployView {
         var how = ""
         if let e, !e.how.isEmpty { how = codeMoves.contains(e.how) ? howPhrase(e) : (howWords[e.how] ?? e.how) }
         let at = [e?.finishedAt, e?.at, e?.requestedAt].compactMap { $0 }.first { !$0.isEmpty } ?? ""
-        if d.primary { lines.append(("primary", "primary — everything from outside reaches it\(s.protectedPrimary ? " · 🛡 protected" : "")")) }
+        if d.primary { lines.append(("primary", "primary — everything from outside reaches it\(s.protectedPrimary ? " · protected" : "")")) }
         var code = pointer(d)
         if !how.isEmpty {
             code += " · \(how)"
@@ -505,7 +531,9 @@ public enum DeployView {
     public struct LogRow: Equatable, Sendable, Identifiable {
         public var id: String
         public var checkpoint: String
+        /// "c:3f2a1c9" or "work tree", with `codeIcon`: "pin" or "live".
         public var code: String
+        public var codeIcon: String
         public var how: String
         public var result: String
         public var who: String
@@ -535,7 +563,9 @@ public enum DeployView {
             let result = e.result == "failed" ? "failed\(e.error.isEmpty ? "" : " — \(e.error)")"
                 : e.result == "running" ? "running\(e.phase.isEmpty ? "" : " · \(e.phase)")" : e.result
             let when = ago(e.finishedAt.isEmpty ? e.requestedAt : e.finishedAt, now: now)
-            return LogRow(id: e.id, checkpoint: e.checkpoint, code: e.followsWorkTree || e.checkpoint.isEmpty ? "● work tree" : "📌 \(e.checkpoint)",
+            let tree = e.followsWorkTree || e.checkpoint.isEmpty
+            return LogRow(id: e.id, checkpoint: e.checkpoint, code: tree ? "work tree" : e.checkpoint,
+                          codeIcon: tree ? Glyph.attached : Glyph.pinned,
                           how: how, result: result, who: "\(who(e.by))\(e.agent ? " (agent)" : "") · \(when)",
                           feed: e.feed.isEmpty || e.feed == "work-tree" ? "work tree" : e.feed, branch: e.branch,
                           state: running ? "running" : "", rollback: back ? control(s, "rollback", name) : nil,
