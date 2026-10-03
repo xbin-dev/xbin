@@ -203,7 +203,7 @@ func (s *Server) handleWebTicketRedeem(w http.ResponseWriter, r *http.Request, t
 	if u.Email != "" {
 		who += " · " + u.Email
 	}
-	page := s.brandPage(webConfirmPageHTML, " — continue")
+	page := themed(s.brandPage(webConfirmPageHTML, " — continue"), r)
 	page = strings.NewReplacer("{{NAME}}", htmlEscape(name), "{{WHO}}", htmlEscape(who),
 		"{{NEXT}}", htmlEscape(t.Next), "{{NONCE}}", htmlEscape(nonce)).Replace(page)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -340,45 +340,30 @@ func webTicketRefuse(w http.ResponseWriter, t auth.WebTicket, ip, why string) {
 }
 
 // webConfirmCSP: the confirmation page runs no script, loads nothing but
-// its inline style and data: icons, is never framed (no clickjacking of
-// Continue) and posts only here.
-const webConfirmCSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+// its styles (inline, and /vendor/theme.css with its fonts: D184) and data:
+// icons, is never framed (no clickjacking of Continue) and posts only here.
+const webConfirmCSP = "default-src 'none'; img-src data:; style-src 'self' 'unsafe-inline'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 
-// webConfirmPageHTML is the signed-out browser's "Continue as <name>" page
-// (the sign-in pages' styling; brandPage fills TITLE/ICON/LOGO, the rest is
-// HTML-escaped server-side).
-const webConfirmPageHTML = `<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+// webConfirmPageHTML is the signed-out browser's "Continue as <name>" page,
+// styled as the sign-in pages (pagetheme.go). brandPage fills TITLE/ICON/
+// LOGO and themed THEME; the rest is HTML-escaped server-side.
+const webConfirmPageHTML = pageOpen + `{{THEME}}
 <title>{{TITLE}}</title>
 <link rel="icon" href="{{ICON}}">
-<style>
-:root{color-scheme:dark}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-  background:#1b1e24;color:#d4d9e0;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
-.card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
-  padding:26px 28px;width:320px;max-width:calc(100vw - 24px);box-sizing:border-box}
-.logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:16px}
-.logo svg,.logo img.mark{flex:none}
-.logo img.mark{width:22px;height:22px;object-fit:contain;border-radius:4px}
-h1{font-size:16px;margin:0 0 2px;overflow-wrap:anywhere}
-.who{font-size:12.5px;color:#868f9a;margin:0 0 4px;overflow-wrap:anywhere}
-.next{font-size:12px;color:#868f9a;margin:0;overflow-wrap:anywhere}
-.next code{color:#d4d9e0}
-button{width:100%;margin-top:16px;background:#f5a623;color:#23272e;border:0;border-radius:6px;
-  padding:9px;font:700 14px inherit;cursor:pointer;overflow-wrap:anywhere}
-button:hover{background:#e0912a}
-.warn{margin-top:14px;background:#3a2d12;border:1px solid #8a6d1a;color:#e3c878;border-radius:6px;
-  padding:8px 10px;font-size:12px}
-.alt{margin-top:12px;font-size:12px;color:#868f9a}
-.alt a{color:#f5a623}
-</style></head><body>
-<form class="card" method="post" action="/login/web-ticket">
+<style>` + pageCSS + `
+.who{margin:0 0 4px;color:var(--bx-muted)}
+.next{margin:0;color:var(--bx-muted)}
+.bx button{overflow-wrap:anywhere}
+</style></head><body class="bx">
+<form class="plate" method="post" action="/login/web-ticket">
   <div class="logo">{{LOGO}}</div>
+  <div class="main">
   <h1>Continue as {{NAME}}</h1>
   <p class="who">{{WHO}}</p>
   <p class="next">opens <code>{{NEXT}}</code></p>
   <input type="hidden" name="confirm" value="{{NONCE}}">
-  <button autofocus>Continue as {{NAME}}</button>
-  <div class="warn">Only continue if you just opened this from the xbin app on your own phone or tablet. If someone sent you this link, close this page: it would sign this browser into <b>their</b> account.</div>
-  <div class="alt">Not you? <a href="/login">Sign in with your own account</a></div>
+  <button class="primary" autofocus>Continue as {{NAME}}</button>
+  <div class="alert warning">` + svgWarning + `<span>Only continue if you just opened this from the xbin app on your own phone or tablet. If someone sent you this link, close this page: it would sign this browser into <b>their</b> account.</span></div>
+  <p class="muted">Not you? <a href="/login">Sign in with your own account</a></p>
+  </div>
 </form></body></html>`

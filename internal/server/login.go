@@ -120,100 +120,66 @@ func (s *Server) trustedProxyAddr(addr netip.Addr) bool {
 	return false
 }
 
-const loginPageHTML = `<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+// loginPageHTML is the sign-in page: Base Two's Work volume on the product
+// tokens (pagetheme.go, D184). brandPage fills TITLE/ICON/LOGO and themed
+// THEME; handleLogin fills ERR, SSO and PWNOTE, escaped there.
+const loginPageHTML = pageOpen + `{{THEME}}
 <title>{{TITLE}}</title>
 <link rel="icon" href="{{ICON}}">
-<style>
-:root{color-scheme:dark}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-  background:#1b1e24;color:#d4d9e0;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
-.card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
-  padding:26px 28px;width:300px;max-width:calc(100vw - 24px);box-sizing:border-box}
-.logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:18px}
-.logo svg,.logo img.mark{flex:none}
-.logo img.mark{width:22px;height:22px;object-fit:contain;border-radius:4px}
-label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-  color:#868f9a;margin:10px 0 3px}
-.warn{background:#3a2d12;border:1px solid #8a6d1a;color:#e3c878;border-radius:6px;
-  padding:8px 10px;font-size:12.5px;margin-bottom:12px}
-input{width:100%;box-sizing:border-box;border:1px solid #363c45;border-radius:6px;padding:7px 9px;
-  font:14px inherit;color:#d4d9e0;background:#2b3038}
-input:focus{outline:2px solid rgba(245,166,35,.45)}
-button{width:100%;margin-top:16px;background:#f5a623;color:#23272e;border:0;border-radius:6px;
-  padding:8px;font:700 14px inherit;cursor:pointer}
-button:hover{background:#e0912a}
-.note{margin-top:14px;font-size:11.5px;color:#868f9a}
-.err{background:#3a1616;border:1px solid #8a2f2f;color:#e0a3a3;border-radius:6px;
-  padding:8px 10px;font-size:12.5px;margin-bottom:12px}
-a.sso{display:block;text-align:center;margin-bottom:14px;background:#2b3038;color:#d4d9e0;
-  border:1px solid #454d59;border-radius:6px;padding:8px;font-weight:600;text-decoration:none}
-a.sso:hover{border-color:#f5a623}
-.or{display:flex;align-items:center;gap:8px;color:#5c6672;font-size:11px;margin-bottom:10px}
-.or::before,.or::after{content:"";flex:1;border-top:1px solid #363c45}
-</style></head><body>
-<form class="card" method="post" action="/login">
+<style>` + pageCSS + `
+a.sso{box-sizing:border-box;display:flex;align-items:center;justify-content:center;min-height:var(--bx-control-h);
+  margin:0 0 12px;padding:4px 11px;background:var(--bx-panel);border:1px solid var(--bx-border-strong);
+  border-radius:var(--bx-radius);color:var(--bx-text);font:var(--bx-font);font-weight:600;text-decoration:none}
+a.sso:hover{background:var(--bx-hover)}
+.or{display:flex;align-items:center;gap:8px;margin:12px 0;color:var(--bx-subtle)}
+.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--bx-border)}
+.note{margin:16px 0 0;color:var(--bx-muted)}
+</style></head><body class="bx">
+<form class="plate" method="post" action="/login">
   <div class="logo">{{LOGO}}</div>
+  <div class="main">
   {{ERR}}{{SSO}}{{PWNOTE}}<label for="u">Username</label>
   <input id="u" name="username" autocomplete="username" autofocus required>
   <label for="p">Password</label>
   <input id="p" name="password" type="password" autocomplete="current-password" required>
-  <button>Sign in</button>
-  <div class="note">Got an invite link? Open it to set your password. Operators can sign in with the owner-token URL from the server logs.</div>
+  <button class="primary">Sign in</button>
+  <p class="note">Got an invite link? Open it to set your password. Operators can sign in with the owner-token URL from the server logs.</p>
+  </div>
 </form></body></html>`
 
 // invitePageHTML is the set-your-password page an invite link opens (D22).
-// Same styling as the login page; {{USER}}/{{TOKEN}}/{{ERR}} are substituted
-// server-side (HTML-escaped). There is no self-signup — this page only ever
-// finishes an admin-created account.
-const invitePageHTML = `<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+// Styled as the sign-in page; {{USER}}/{{TOKEN}}/{{ERR}}/{{WARN}} are
+// substituted server-side (HTML-escaped). There is no self-signup — this
+// page only ever finishes an admin-created account.
+const invitePageHTML = pageOpen + `{{THEME}}
 <title>{{TITLE}}</title>
 <link rel="icon" href="{{ICON}}">
-<style>
-:root{color-scheme:dark}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-  background:#1b1e24;color:#d4d9e0;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
-.card{background:#23272e;border:1px solid #363c45;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);
-  padding:26px 28px;width:300px;max-width:calc(100vw - 24px);box-sizing:border-box}
-.logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;letter-spacing:.04em;margin-bottom:14px}
-.logo img.mark{flex:none;width:22px;height:22px;object-fit:contain;border-radius:4px}
-h1{font-size:15px;margin:0 0 4px}
-p{font-size:12.5px;color:#868f9a;margin:0 0 8px}
-label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-  color:#868f9a;margin:10px 0 3px}
-.warn{background:#3a2d12;border:1px solid #8a6d1a;color:#e3c878;border-radius:6px;
-  padding:8px 10px;font-size:12.5px;margin-bottom:12px}
-input{width:100%;box-sizing:border-box;border:1px solid #363c45;border-radius:6px;padding:7px 9px;
-  font:14px inherit;color:#d4d9e0;background:#2b3038}
-input:focus{outline:2px solid rgba(245,166,35,.45)}
-button{width:100%;margin-top:16px;background:#f5a623;color:#23272e;border:0;border-radius:6px;
-  padding:8px;font:700 14px inherit;cursor:pointer}
-button:hover{background:#e0912a}
-.err{margin-top:10px;font-size:12px;color:#ef5350}
-</style></head><body>
-<form class="card" method="post" action="/login/invite">
+<style>` + pageCSS + `</style></head><body class="bx">
+<form class="plate" method="post" action="/login/invite">
   <div class="logo">{{LOGO}}</div>
+  <div class="main">
   <h1>Welcome, {{USER}}</h1>
-  <p>Choose a password to finish setting up your account. This link works once.</p>
+  <p class="muted">Choose a password to finish setting up your account. This link works once.</p>
   <input type="hidden" name="invite" value="{{TOKEN}}">
   <label for="p">Password (min 8 characters)</label>
   <input id="p" name="password" type="password" autocomplete="new-password" minlength="8" autofocus required>
   <label for="p2">Repeat password</label>
   <input id="p2" name="password2" type="password" autocomplete="new-password" minlength="8" required>
-  <button>Set password &amp; sign in</button>
+  <button class="primary">Set password &amp; sign in</button>
   {{WARN}}
   {{ERR}}
+  </div>
 </form></body></html>`
 
 // inviteBadHTML: an invalid/expired/used invite — deliberately generic.
-const inviteBadHTML = `<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>xbin — invite</title>
-<style>:root{color-scheme:dark}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:#1b1e24;color:#d4d9e0;font:14px/1.6 -apple-system,"Segoe UI",system-ui,sans-serif}
-.card{background:#23272e;border:1px solid #363c45;border-radius:10px;padding:26px 28px;width:320px}
-a{color:#f5a623}</style></head><body>
-<div class="card"><b>This invite link is invalid, expired, or already used.</b><br>
-Ask your workspace admin for a fresh one, or <a href="/login">sign in</a> if you already set a password.</div>
-</body></html>`
+const inviteBadHTML = pageOpen + `{{THEME}}
+<title>{{TITLE}}</title>
+<link rel="icon" href="{{ICON}}">
+<style>` + pageCSS + `</style></head><body class="bx">
+<div class="plate">
+  <div class="logo">{{LOGO}}</div>
+  <div class="main">
+  <h1 class="status">` + svgError + `This invite link is invalid, expired, or already used.</h1>
+  <p>Ask your workspace admin for a fresh one, or <a href="/login">sign in</a> if you already set a password.</p>
+  </div>
+</div></body></html>`

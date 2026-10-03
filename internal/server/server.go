@@ -366,7 +366,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	page := s.brandPage(loginPageHTML, " — sign in") // the workspace's title/icon, or xbin's (D76)
+	// the workspace's title/icon, or xbin's (D76); the person's theme (D184)
+	page := themed(s.brandPage(loginPageHTML, " — sign in"), r)
 	// SSO button — rendered only when configured AND startable (external-url
 	// set). Label is admin-config, HTML-escaped.
 	sso := ""
@@ -379,15 +380,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// attacker text.
 	errHTML := ""
 	if msg := ssoErrText(r.URL.Query().Get("sso_err")); msg != "" {
-		errHTML = `<div class="err">` + html.EscapeString(msg) + `</div>`
+		errHTML = pageAlert("error", html.EscapeString(msg))
 	}
 	page = strings.ReplaceAll(page, "{{ERR}}", errHTML)
 	// SSO-only mode: the form stays (the page can't know who is typing —
 	// admins may still use it) but says who it is for.
 	note := ""
 	if s.Auth.Users != nil && s.Auth.Users.PasswordLoginDisabled() {
-		note = `<div class="warn">Password sign-in is reserved for workspace admins — everyone else uses ` +
-			html.EscapeString(SSOButtonLabel(s.ssoConfig())) + `.</div>`
+		note = pageAlert("info", `Password sign-in is reserved for workspace admins — everyone else uses `+
+			html.EscapeString(SSOButtonLabel(s.ssoConfig()))+`.`)
 	}
 	page = strings.ReplaceAll(page, "{{PWNOTE}}", note+loginNextField(r)) // ?next= rides the form (loginnext.go)
 	_, _ = w.Write([]byte(page))
@@ -407,14 +408,14 @@ func (s *Server) serveInvitePage(w http.ResponseWriter, r *http.Request, tok, er
 	u, ok := s.Auth.Users.InviteUser(tok)
 	if !ok {
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(inviteBadHTML))
+		_, _ = w.Write([]byte(themed(s.brandPage(inviteBadHTML, " — invite"), r)))
 		return
 	}
-	page := strings.ReplaceAll(s.brandPage(invitePageHTML, " — welcome"), "{{USER}}", htmlEscape(u.ID))
+	page := strings.ReplaceAll(themed(s.brandPage(invitePageHTML, " — welcome"), r), "{{USER}}", htmlEscape(u.ID))
 	page = strings.ReplaceAll(page, "{{TOKEN}}", htmlEscape(tok))
 	errHTML := ""
 	if errMsg != "" {
-		errHTML = `<div class="err">` + htmlEscape(errMsg) + `</div>`
+		errHTML = pageAlert("error", htmlEscape(errMsg))
 	}
 	page = strings.ReplaceAll(page, "{{ERR}}", errHTML)
 	warnHTML := ""
@@ -423,8 +424,8 @@ func (s *Server) serveInvitePage(w http.ResponseWriter, r *http.Request, tok, er
 		if p.User != nil {
 			who = htmlEscape(p.User.ID)
 		}
-		warnHTML = `<div class="warn">You are signed in as <b>` + who +
-			`</b> — setting this password signs you out and uses up this single-use link. Meant for someone else? Close this page and send them the URL instead.</div>`
+		warnHTML = pageAlert("warning", `You are signed in as <b>`+who+
+			`</b> — setting this password signs you out and uses up this single-use link. Meant for someone else? Close this page and send them the URL instead.`)
 	}
 	page = strings.ReplaceAll(page, "{{WARN}}", warnHTML)
 	_, _ = w.Write([]byte(page))
