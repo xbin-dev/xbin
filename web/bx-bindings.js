@@ -21,6 +21,7 @@ export class BxBindings extends LitElement {
     _pick: { state: true },
     _route: { state: true },
     _errs: { state: true },
+    _approvable: { state: true },
     _showAll: { state: true },
   };
 
@@ -85,6 +86,7 @@ export class BxBindings extends LitElement {
     this._route = {};     // "comp slot" -> {mode:'host'|'zone', host, zone, listen} (expose rows)
     this._errs = {};      // "comp slot" -> last server refusal (rendered inline)
     this._showAll = false;
+    this._approvable = null; // comp → true: the wiring this person may change (GET /bindings)
   }
 
   connectedCallback() {
@@ -106,6 +108,8 @@ export class BxBindings extends LitElement {
       // options: null from an older daemon for a slot nobody provides
       this._pending = (d.pending ?? []).filter((p) => p.approvable !== false).map((p) => ({ ...p, options: p.options ?? [] }));
       this._bindings = d.bindings ?? {};
+      // the tiles whose wiring this person may change (an admin: all)
+      this._approvable = d.approvable ?? null;
     } catch { /* next event reloads */ }
   }
 
@@ -197,8 +201,11 @@ export class BxBindings extends LitElement {
   render() {
     const active = this._active();
     if (this._pending.length === 0 && !this._showAll) {
-      return active.length === 0 ? nothing
-        : html`<a @click=${() => { this._showAll = true; }}>${active.length} interface ${active.length === 1 ? 'binding' : 'bindings'}</a>`;
+      // the count is a way into wiring someone may change: bindings on tiles
+      // they can't rewire are no line on every screen (as bx-grants)
+      const n = this._approvable ? active.filter((b) => this._approvable[b.component]).length : active.length;
+      return n === 0 ? nothing
+        : html`<a @click=${() => { this._showAll = true; }}>${n} interface ${n === 1 ? 'binding' : 'bindings'}</a>`;
     }
     return html`<div class="panel">
       ${this._pending.length > 0 ? html`

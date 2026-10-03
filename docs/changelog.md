@@ -32,7 +32,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **The grants and bindings line** reads "1 grant active", "11 grants
   active", "20 interface bindings" (no more "(s)"), and a person's own view
   (`GET /grants` scope `mine`) with nothing waiting shows no count at all;
-  admins (workspace or org) keep it. The admin console's access map says
+  admins (workspace or org) keep it. The bindings count counts only the
+  tiles whose wiring the person may change (`GET /bindings` `approvable`). The admin console's access map says
   "1 allowance", "2 policy rows", and on a touch or phone-sized screen
   points at the policies tab instead of saying "hover". The view-as banner and the
   partitions page are reworded ("…in every tab of this browser, until you
