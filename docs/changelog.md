@@ -29,11 +29,26 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `<meta name="xbin-theme">` / `<meta name="xbin-density">` to a tile
   document when the person chose a theme or density, and frames hear
   changes as `xbin:appearance` ([protocol.md](/docs/protocol.md)); the docs
-  viewer follows the person too. Corners are 2 px; the fonts are Instrument
-  Sans, JetBrains Mono and Bricolage Grotesque, served from
-  `/vendor/fonts/`. The builtin tiles' new versions follow the theme; `bx
-  builtin update` brings the shell, root and admin console (until then an
-  older shell stays dark). Nothing to change.
+  viewer follows the person too, and so do xbind's own pages — sign-in,
+  invite, "Continue as", request access, the partition switch page, the
+  tile navigation hop and the tile-origin refusal — through the
+  `xbin_theme` hint cookie the shell keeps (a UI hint, never a credential);
+  their default mark is the wordmark "xbin". Corners are 2 px; the fonts are
+  Instrument Sans, JetBrains Mono and Bricolage Grotesque, served from
+  `/vendor/fonts/`; code faces and terminals draw no ligatures. Status
+  shows as a glyph of its own shape with its word (`ok`, `info`, `warning`,
+  `error`), never a coloured or breathing dot alone; emoji used as icons
+  became drawn glyphs, and view-model strings lost their emoji (a test that
+  matched "🔌 tile API" matches "tile API"). New token `--bx-mono-size`
+  (mono beside UI text). The builtin tiles follow the theme as chat v5,
+  egress-approver v4, llm-gw v10, prometheus-viewer v4, s3-archiver v4,
+  sandbox-terminal v9, traefik v6 and webhooks v4 (`bx builtin update
+  tile:<name>`); `bx builtin update` brings the shell, root and admin
+  console (until then an older shell stays dark). Nothing to change.
+- **Fix: the Agent tab ends a session that is gone.** When its session
+  answered 404 (exited or removed server-side) the tab threw instead of
+  showing the transcript as ended; it now keeps it, greyed, as it does for a
+  session that ends while open. Nothing to change.
 - **Fix: MCP from a tile's page works** — the builtin chat tile's tools from
   the MCP servers bound to its `mcp` slot. Its client sends MCP's
   `Mcp-Session-Id` and `MCP-Protocol-Version` headers after `initialize`,

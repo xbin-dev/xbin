@@ -404,7 +404,9 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   frame loads `/c/<src>+<deployment>/` and reloads and paints its build
   overlay from the tile's `deployments` events, while its terminal window,
   code, logs and proposals stay `src`'s. Empty or absent: the primary. The
-  shell's window `⇈` sets it ([tile-deployments.md](/docs/tile-deployments.md)).
+  shell's window sets it from its deploy button
+  ([tile-deployments.md](/docs/tile-deployments.md)). (The window's buttons
+  draw `/vendor/bx-icons.js` glyphs, D184; this section names them.)
 
 - **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
@@ -424,6 +426,23 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   signed into (the session directory, D73: the frame asks
   `GET /api/xbin/term/sessions?cwd=` for its tabs, remembers nothing itself,
   and follows `term` events so a tab opened elsewhere appears here).
+- **A window among windows** (D184): the pop-up has window chrome — its
+  edge, its shadow, and a 3 px part tab across the top that says what its
+  active tab is (a terminal, or an agent session). The window brought to
+  the front last on the page is the active one: every kind of window says
+  so with a `bx-window-front` event on `window` (`detail: {key}`, `key`
+  empty once the active window closed) — these pop-ups, and the shell's
+  cards, floating and spawned windows — so each knows whether it is the
+  one.
+- **Build state**: `buildState` is `'live'`, `'building'` (a build started)
+  or `'failed'` (its last build failed: the overlay shows why); a change
+  fires `bx-build` (`detail: {state}`, bubbles, composed), so an embedder's
+  title bar can draw it (the shell's live square).
+- **Appearance relay**: when the frame's own document follows the person
+  (`<html data-bx-theme="auto">`), the frame posts `xbin:appearance` to its
+  iframe on every load and every change of the person's theme or density
+  ([protocol.md](/docs/protocol.md) §Tile ↔ shell messaging); in a document
+  that doesn't, it posts nothing.
 - **Agent tab**: the `+ Agent` button opens an **agent session** (D74) instead
   of a shell — a coding agent (Claude Code, Codex, Gemini, OpenCode) running
   in this tile's sandbox, driven over the Agent Client Protocol. The tab
@@ -433,24 +452,24 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   (docs/overview/09-terminals.md §Agent sessions). A tab whose session
   ended keeps its transcript, greyed, until you dismiss it. A long transcript
   shows its recent part; scrolling up loads earlier entries in place (D124).
-- **Panels** (D129): the layout switcher shows the terminal alone (`>_`) or
-  a panel — code `{ }`, backend logs `▤`, change proposals `⇄`, the
-  Deployments panel `⇈` — full width; `⇋` (the last button, a toggle) puts
-  the terminal beside whichever panel shows, split by a divider you drag
-  (or move with ←/→ once focused; a double-click resets it). The width is
-  one per window and kept in your window pref; the panel keeps its place
-  beside the terminal while you switch panels, and `>_` puts the terminal
-  back alone. A window without sessions shows the launcher only where the
+- **Panels** (D129): the layout switcher shows the terminal alone
+  (`terminal`) or a panel — code (`code`), backend logs (`list`), change
+  proposals (`diff`), the Deployments panel (`deploy`) — full width;
+  `split` (the last button, a toggle) puts the terminal beside whichever
+  panel shows, split by a divider you drag (or move with ←/→ once focused;
+  a double-click resets it). The width is one per window and kept in your
+  window pref; the panel keeps its place beside the terminal while you
+  switch panels, and `terminal` puts the terminal back alone. A window without sessions shows the launcher only where the
   terminal would be. `open(layout)` shows the panel full width; `'split'`
   still means code beside the terminal.
 - **The bar degrades, never clips**: when the window is narrow (below
   ~640 px, or the phone sheet) or the full bar measures wider than the
   window (it varies by host and tab: a GPU picker, the VM toggle, long tab
   names), the path and the network picker's label shorten first, then the
-  layout switcher and the pickers move into a tools row behind `⋯`. Tabs
-  keep a legible width; a tab strip that still overflows scrolls (the
+  layout switcher and the pickers move into a tools row behind `ellipsis`.
+  Tabs keep a legible width; a tab strip that still overflows scrolls (the
   wheel scrolls it sideways) and keeps the active tab in view, so every
-  tab and the window's `✕` stay reachable. The pickers ask before
+  tab and the window's close (`xmark`) stay reachable. The pickers ask before
   restarting a live session, since the network scope, GPU and API token
   are fixed at spawn. A window restored open (a reload, another browser)
   loads the same pickers, VM toggle and base-update state as one opened by
@@ -468,26 +487,29 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   next successful build. A failed deploy of a checkpoint paints none: the
   tile keeps serving its previous code.
 - **Live reload controls**: the terminal window's bar shows the tile's live
-  reload state. In the zero state that is one entry, `⇈`, whose menu offers
-  Pause live reload; while live reload is paused, a chip (`📌 Live reload
-  paused · 3`, the files changed since; `📌 3` on the narrow bar) and a
-  `⇡ Reload now` offer, the chip's menu holding Reload now and Resume live
-  reload on ▸. Every operation confirms from a dry run of the exact request.
+  reload state. In the zero state that is one entry, `deploy`, whose menu
+  offers Pause live reload; while live reload is paused, a chip (`pin` and
+  "Live reload paused · 3", the files changed since; `pin` and "3" on the
+  narrow bar) and a Reload now offer (`refresh`, "Reload now · 3"), the
+  chip's menu holding Reload now and a Resume live reload on submenu.
+  Every operation confirms from a dry run of the exact request.
   The launcher shows a banner while live reload is paused (nothing is drawn
-  over the page: in the shell the tile's window head carries `⇈`); open
+  over the page: in the shell the tile's window head carries `deploy`); open
   terminals print a grey line when live reload pauses or
   resumes, or code moves or fails to. With branch-assigned deployments
   (`branches/1`) the chip names the work tree's branch after a switch
-  (`📌 Live reload paused · ⎇ main`) and its menu leads with the offers to
+  ("Live reload paused · branch main") and its menu leads with the offers to
   follow it — resume or attach live reload on the deployment assigned that
   branch, keep the deployment on it this time, or add a deployment for it
   ([tile-deployments.md](/docs/tile-deployments.md) §Assigned branches).
-  The layout switcher's `⇈` opens the
+  The layout switcher's `deploy` opens the
   **Deployments panel** (its rows tag the active tab's target `Dev API`
-  and the live reload target `● live reload`), and once a tile has more than an unprotected
-  `main` the tile API select picks the session's target deployment
-  (`🔌 target: dev`; switching restarts the session). An xbind without tile
-  deployments draws today's window.
+  and the live reload target `live reload`, with the `live` glyph), and
+  once a tile has more than an unprotected `main` the tile API select picks
+  the session's target deployment ("target: dev"; switching restarts the
+  session; an `<option>` holds no glyph, so the select's entries are words:
+  "tile API", "no API"). An xbind without tile deployments draws today's
+  window.
 
 Frames nest. The root page is itself a component full of frames; you can
 frame the root inside the root if you enjoy that sort of thing.
@@ -687,13 +709,14 @@ without the app keeps the in-frame fallbacks above.
 ## Status & notifications
 
 A tile tells the workspace how it's doing over a small self-scoped channel; the
-shell renders it as a colour on the tile's sidebar entry (breathing for
-`warn`/`error`), a tint on the screen tab, and the browser-tab title.
+shell renders it as a status glyph on the tile's sidebar entry (each level its
+own shape, colour and word, D184; nothing blinks), the same glyph on the screen
+tab for `warn`/`error`, and the level's word in the browser-tab title.
 
 - **`xbin.status(level, message)`** — set a **persistent, self-clearing**
   condition. `level` ∈ `ok | info | warn | error`. `ok` with an empty message
-  **clears** it (or use `xbin.clearStatus()`); `ok` with a message shows a
-  healthy dot. Sticky until you change it — clear it when the condition passes.
+  **clears** it (or use `xbin.clearStatus()`); `ok` with a message shows the
+  healthy glyph. Sticky until you change it — clear it when the condition passes.
 - **`xbin.notify(level, message)`** — a **one-shot** notification (toast) that
   fades; does not change the persistent status.
 - Backend equivalents: `xbin.Status` / `xbin.ClearStatus` / `xbin.Notify`
@@ -784,7 +807,7 @@ manifest key or file of yours is involved (the state lives in xbind's
 `data/`, never in the tile).
 
 - **Pausing live reload** (`bx live-reload pause`, or the terminal window's
-  `⇈` → Pause live reload) pins the deployment live reload followed to a
+  `deploy` button → Pause live reload) pins the deployment live reload followed to a
   checkpoint of the work tree. Saves then change the files and nothing else:
   frames don't reload, the backend doesn't rebuild. **Reload now** ships the
   work tree once and stays paused; **resuming** follows every save again,

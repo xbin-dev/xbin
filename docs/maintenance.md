@@ -666,7 +666,8 @@ partitioned tile: an admin refused a personal bind of someone else's tile,
 the person's own bind, their document's `xbin-interfaces` meta (the global
 row, then theirs with `personal: true`) against the admin's (the global row
 alone), and the binding → wiring view's `global` and `personal · <user> →
-<provider>` labels, whose ✕ removes the bind. The runtime → partitions tab
+<provider>` labels, whose remove control (the `xmark` glyph) removes the
+bind. The runtime → partitions tab
 is `tabs/partitions.js` (the list, a `PLAIN_TABS` entry), its tile view
 `tabs/partition-tile.js`, and their words and request bodies
 `tabs/partitions-view.js` — lit-free, tested in
@@ -773,8 +774,8 @@ screens, opening a tile or a menu) stays the shell's, which keeps one
 owner for layout persistence and the draft flows. Its own state is the
 filter text and the drag-hover highlights. The host element is the
 aside: the shell sizes it and marks it `drawer`/`open` on phones; its
-stylesheet is `sideCss`, with `statusCss` (level colours, dot, breathe)
-shared with the screen tabs. `shell-kit.js` also carries the pure tree
+stylesheet is `sideCss`, with `statusCss` (the level colours a status
+glyph and a tinted row inherit) shared with the screen tabs. `shell-kit.js` also carries the pure tree
 helpers both sides use (`isScreenItem`, `screenIdOf`, `scopeOf`,
 `sectionOf`, `ownerKeyOf`, `worstStatus`). Next: `bx-screens`,
 `bx-toasts` the same way. `bx-shell.js` keeps its name and imports the

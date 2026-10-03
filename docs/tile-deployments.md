@@ -80,16 +80,18 @@ logs` reach **your target**. They can differ: check both before deciding a
 fix "didn't work". `bx status` prints a `deployments` line for a tile that
 has any, ending `this terminal → dev`.
 
-In the browser the terminal window says the same: in the zero state its bar
-has one quiet entry, `⇈`, whose menu offers **Pause live reload**. While live
-reload is paused the entry becomes a chip, `📌 Live reload paused · 3`,
-counting the files changed since the checkpoint, next to **⇡ Reload now**;
-the chip's menu has Reload now and **Resume live reload on ▸**. The terminal
-window's launcher shows a banner while live reload is paused, the tile's
-window head in the shell carries `⇈` (below; nothing is drawn over the page
-itself), and every open terminal of the tile prints a grey line when live
-reload pauses, resumes or moves, or code moves or fails to. The window's `⇈`
-layout is the **Deployments panel** (below).
+In the browser the terminal window says the same (its controls draw the
+glyphs of `/vendor/bx-icons.js`, named here in backticks; D184): in the
+zero state its bar has one quiet entry, `deploy`, whose menu offers **Pause
+live reload**. While live reload is paused the entry becomes a chip, `pin`
+and "Live reload paused · 3", counting the files changed since the
+checkpoint, next to **Reload now** (`refresh`); the chip's menu has Reload
+now and a **Resume live reload on** submenu. The terminal window's launcher
+shows a banner while live reload is paused, the tile's window head in the
+shell carries `deploy` (below; nothing is drawn over the page itself), and
+every open terminal of the tile prints a grey line when live reload pauses,
+resumes or moves, or code moves or fails to. The window's `deploy` layout
+is the **Deployments panel** (below).
 
 Programs can ask `GET /api/xbin/deployments?tile=<tile>` (`record: false` is
 the zero state; `&deployment=<name>` selects one) or read `deployments:
@@ -101,7 +103,7 @@ deployment's name, and no count that reveals one
 ## Pausing live reload
 
 ```sh
-bx live-reload pause      # or: ⇈ → Pause live reload, in the terminal window
+bx live-reload pause      # or: deploy → Pause live reload, in the terminal window
 ```
 
 - **What it does.** The live reload target is pinned to a fresh checkpoint of
@@ -168,7 +170,7 @@ Everything a pinned deployment serves and runs comes from its checkpoint:
 ## Reload now
 
 ```sh
-bx live-reload now        # or: ⇡ Reload now, in the terminal window
+bx live-reload now        # or: Reload now, in the terminal window
 ```
 
 Checkpoint the work tree and deploy it once to the deployment live reload
@@ -182,7 +184,7 @@ the answer is 409 `the code changed since you reviewed …` and nothing ships.
 
 ```sh
 bx live-reload resume                # onto the deployment it last followed
-bx live-reload resume --to dev       # or: Resume live reload on ▸ dev
+bx live-reload resume --to dev       # or: Resume live reload on → dev
 bx live-reload attach --to dev       # while live reload is on: move it to dev
 ```
 
@@ -285,7 +287,7 @@ primary.
 
 A terminal or agent session calls one deployment, fixed for its life: its
 **target**. It is chosen in the terminal window's tile API select, which
-lists `🔌 target: main (primary)`, `🔌 target: dev`, …, `⛔ no API` once the
+lists `target: main (primary)`, `target: dev`, …, `no API` once the
 tile has more than an unprotected `main` (a tile without deployments keeps
 today's two entries).
 
@@ -490,8 +492,9 @@ bx live-reload                                       # each deployment's branch,
   control — none, the work tree's (`current (feature)`), or a new branch
   with its name. A deployment's overview has a **Branch** row (with
   `takes main this time` while an override holds) and **Set branch…** /
-  **Clear branch**; the side list and the deploy log show `⎇ feature`. After
-  a switch the live reload chip reads `📌 Live reload paused · ⎇ main`, and
+  **Clear branch**; the side list and the deploy log show `branch` and
+  "feature". After a switch the live reload chip reads "Live reload paused
+  · branch main", and
   its menu and the panel's header lead with the offers: **Resume live
   reload on qa (release)** (**Attach live reload to …** while live reload
   is still attached), **Resume live reload on dev** once you are back on its
@@ -763,12 +766,12 @@ manage protection in three places, all of them a person's credential:
   passes for every tile. Never from a tile terminal: there bx is refused.
 - **The admin console's runtime → deployments tab** (`tiles/admin`; in an
   existing workspace after `bx builtin update scaffold:tiles/admin`): every
-  tile with a deployment record — its primary, 🛡 when protected, where
+  tile with a deployment record — its primary, `shield` when protected, where
   live reload is, its deployments, the last deploy — with Protect /
   Unprotect the primary, Reassign the primary… (the same loud confirmation
   as the panel's), and
-  deliveries and alwaysOn per non-primary deployment. ⇈ Deployments panel
-  opens the tile's terminal window for everything else. The tab acts as the
+  deliveries and alwaysOn per non-primary deployment. Deployments panel
+  (`deploy`) opens the tile's terminal window for everything else. The tab acts as the
   person who opened the admin tile: a tile they don't manage shows the
   primary only, its buttons disabled with the reason
   ([auth.md](/docs/auth.md) §Tile deployments).
@@ -801,15 +804,17 @@ manage protection in three places, all of them a person's credential:
 
 ## The Deployments panel
 
-The terminal window's `⇈` layout (the button counts the deployments you may
-see, `⇈ 2`). It opens full width; the window's `⇋` puts the terminal
+The terminal window's `deploy` layout (the button counts the deployments
+you may see: `deploy` and "2"). It opens full width; the window's `split`
+puts the terminal
 beside it, split by a divider you drag, and a narrow panel shows its side
 list and the selected row's page one at a time. A header with the live reload sentence and its buttons (and
 **Undo** after a code move that paused live reload); a side list —
-**tile-wide**, one row per deployment (the primary first, `🛡` when
+**tile-wide**, one row per deployment (the primary first, `shield` when
 protected; **`Dev API`** on the deployment the active tab's API calls and
 `bx` commands reach — its target, `$XBIN_DEPLOYMENT` when non-primary —
-and **`● live reload`** on the one saves reach), **+ Add deployment…** —
+and **`live reload`** with the `live` glyph on the one saves reach),
+**+ Add deployment…** —
 and a pane for the selected row:
 
 - **overview**: code, status, the branch it requires (§Assigned branches),
@@ -831,11 +836,12 @@ from a dry run of the exact request. Readers see the primary only.
 
 **In the shell** (in an existing workspace after `bx builtin update
 scaffold:shell`, and `scaffold:tiles/admin` for the admin console): a tile
-with deployments gets a `⇈ Deployments…` line in its tile menu (after Open
-full page; not for its readers). Its window's head (a grid card or a floating window)
-carries `⇈` while the tile has a deployment you may show besides the
-primary, the primary is pinned, or its last deploy onto it failed (`⇈!`);
-hovering says what the primary is pinned to. `⇈` opens a menu that picks
+with deployments gets a **Deployments…** line (`deploy`) in its tile menu
+(after Open full page; not for its readers). Its window's head (a grid card
+or a floating window) carries `deploy` while the tile has a deployment you
+may show besides the primary, the primary is pinned, or its last deploy
+onto it failed (`error` and the word "failed"); hovering says what the
+primary is pinned to. The button opens a menu that picks
 **what this window shows**: the primary (it follows the role: after a
 reassignment the window shows the new primary) or a non-primary deployment
 — the frame then loads `/c/<tile>+<name>/` and reloads from that
@@ -876,7 +882,7 @@ The rules for an agent working on a tile, beyond the workspace `AGENTS.md`:
   calls reach your target (`← this terminal`, `$XBIN_DEPLOYMENT`). A fix
   that "didn't work" may simply not be running where you look.
 - **You can't switch your own target.** To call `dev`, ask the user to pick
-  `🔌 target: dev` in the terminal's tile API select (the session restarts;
+  `target: dev` in the terminal's tile API select (the session restarts;
   an agent resumes its conversation). Reads work anyway: `bx status
   <tile>+dev`, `bx logs <tile>+dev`. If bx answers "unauthorized", this
   terminal's tile API is off.

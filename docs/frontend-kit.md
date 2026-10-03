@@ -67,7 +67,7 @@ xterm's loader), `/vendor/term-palettes.js` (the terminal settings menu's
 named palettes, D184), `/vendor/term-sessions.js` (the
 frame's view of the terminal session directory, D73),
 `/vendor/frame-deploy.js` (the terminal window's live reload controls: the
-`⇈` entry, the chip and its menu, Reload now, the launcher's banner, the
+`deploy` entry, the chip and its menu, Reload now, the launcher's banner, the
 grey lines in open terminals —
 [tile-deployments.md](/docs/tile-deployments.md)) with
 `/vendor/deploy-state.js` (its pure view model: which chip, menu items and

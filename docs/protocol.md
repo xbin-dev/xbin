@@ -75,12 +75,17 @@ docs viewer (`/docs/…`); a person who never chose gets the injection as
 before, byte for byte. `/vendor/theme.css` reads them in documents that opt
 in with `<html data-bx-theme="auto">`; frames hear later changes as
 `xbin:appearance` (§Tile ↔ shell messaging). xbind's own pages that get no
-injection — the sign-in pages before anyone is signed in, the partitions
-page — read the **hint cookie** `xbin_theme=light|dark` (absent: the
+injection read the **hint cookie** `xbin_theme=light|dark` (absent: the
 system's; `Path=/`, `SameSite=Lax`, 400 days, `Secure` on https, not
-HttpOnly, never sent to tile origins). The shell keeps it equal to the
-person's choice (`/vendor/bx-theme.js`); it is a UI hint, never a
-credential, and any other value is ignored.
+HttpOnly, host-only: never sent to tile origins). The sign-in, invite and
+invalid-invite pages, "Continue as", the partition switch page, the tile
+navigation hop and the tile-origin refusal render the meta from it
+server-side; request access and the partitions page copy it with
+`/vendor/theme-boot.js` — the same rule everywhere: exactly `light` or
+`dark`, else the system's. A page served on a tile's own origin (origins
+mode) never gets the cookie and follows the system. The shell keeps it
+equal to the person's choice (`/vendor/bx-theme.js`); it is a UI hint,
+never a credential, and any other value is ignored.
 Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
 (or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
@@ -89,7 +94,9 @@ resolution: a tile that omits its frame token cannot ride the human's
 session. Requests with `Origin: null` (opaque-origin fetches) get
 `Access-Control-Allow-Origin: null` and preflight answers — required for
 tile `fetch()` to function at all, and safe because tile requests carry no
-ambient credentials. A preflight allows `Authorization`, `Content-Type`,
+ambient credentials. A tile's own origin (origins mode) answers them on
+`/vendor/` too: a sandboxed frame there loads the theme's fonts
+cross-origin (D184). A preflight allows `Authorization`, `Content-Type`,
 `X-XBin-Frame-Token` and MCP's streamable-HTTP headers (`Mcp-Session-Id`,
 `MCP-Protocol-Version`, `Last-Event-ID`), and every answer exposes
 `Mcp-Session-Id`, so a tile page can talk MCP to a provider it binds.

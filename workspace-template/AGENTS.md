@@ -442,7 +442,7 @@ owner, *new screen*, and *bring windows on-screen* (floating windows clamp
 to the viewport on open, restore and browser resize; this recovers any
 still out of reach); right-click a card head or a sidebar row — or press
 its ⋯ — for the tile menu (terminal · logs · source · proposals, then
-open/close/pin/full page and, for admins, lifecycle + the ⚙ sections). A
+open/close/pin/full page and, for admins, lifecycle + the admin sections). A
 right-click (or touch long-press) *inside* a tile reaches the shell too —
 the injected client relays it unless the tile handled the event itself or
 the target is an input, link or editable text (those keep the native menu;
@@ -451,7 +451,7 @@ leads with **Copy** — the text rides the relay and the shell writes the
 clipboard, since a sandboxed frame has none; selected text in the shell's
 own chrome keeps the native menu. On touch a live selection belongs to the
 platform's toolbar. On phones the menus are
-bottom sheets (⋯ or long-press) and the ⚙ admin popover is a sheet.
+bottom sheets (⋯ or long-press) and the tile admin popover is a sheet.
 
 **Tile sizing (design constraint).** The shell lays tiles on a **fixed
 snappable grid** (48px): a tile is a **fixed size** the user sets by dragging
@@ -612,15 +612,17 @@ Lifecycle facts you must design around:
 ## Status & notifications — tell the workspace how you're doing
 
 A tile can surface its condition to the workspace UI: the shell shows it as a
-coloured dot on your sidebar entry (breathing for `warn`/`error`), tints the
-screen tab of any screen holding an affected tile, and marks the browser tab.
-Two calls, one channel:
+status glyph on your sidebar entry — each level its own shape, colour and
+word (a checked square for `ok`, an `i` for `info`, a triangle for `warn`,
+an octagon for `error`; nothing blinks) — marks the screen tab of any screen
+holding a tile in `warn` or `error` with that glyph, and puts the level's
+word in the browser tab's title. Two calls, one channel:
 
 ```js
 // frontend (xbin-client)
 xbin.status('error', 'Stripe webhook secret rejected');  // persistent, self-clearing
-xbin.status('ok', 'synced 30s ago');   // healthy signal (steady green dot)
-xbin.clearStatus();                     // condition passed — remove the dot
+xbin.status('ok', 'synced 30s ago');   // healthy signal (the ok glyph)
+xbin.clearStatus();                     // condition passed — remove the mark
 xbin.notify('info', 'Backup complete'); // one-shot toast, fades on its own
 ```
 ```go
@@ -631,8 +633,8 @@ xbin.Notify("info", "12 items imported")
 ```
 
 **Levels** — `error` (broken, needs action), `warn` (degraded/attention),
-`info` (FYI, steady dot), `ok` (healthy). `error`/`warn` breathe and colour the
-tab; `info`/`ok` are a steady dot.
+`info` (FYI), `ok` (healthy). `error`/`warn` also mark the screen's tab and
+the browser tab's title; `info`/`ok` show on the sidebar entry only.
 
 **Guidelines — apply these:**
 
@@ -641,14 +643,14 @@ tab; `info`/`ok` are a steady dot.
   (return those in the HTTP response); status is for *conditions*.
 - **Always clear it when it resolves.** `Status`/`xbin.status` is sticky — it
   stays until you set `ok` (with an empty message) or call `ClearStatus`. A
-  stale red dot that never clears trains the user to ignore all of them.
+  stale error mark that never clears trains the user to ignore all of them.
 - **Set on change, not on every tick/request.** Track your last-reported level
   and only call when it flips. The shell de-dups by component, but re-sending
   the same thing still churns the UI (and the events stream).
 - **One short headline** (≤ ~280 chars, one line): *what* is wrong and, if you
   can, *what to do*. Detail belongs in your own UI or `bx logs`.
-- **`ok` with a message = a positive health signal** (a steady green dot on
-  hover shows the text); **`ok` with an empty message clears**. Use healthy
+- **`ok` with a message = a positive health signal** (the ok glyph; hover
+  shows the text); **`ok` with an empty message clears**. Use healthy
   signals sparingly — a calm sidebar is the goal.
 - **`notify` is for one-shot events** worth a glance but not a lasting
   condition (“backup done”, “3 new tickets”). It toasts and disappears; it does
