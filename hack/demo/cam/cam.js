@@ -24,7 +24,7 @@ const overlay = require('./overlay');
 
 class Cam {
   // o: {backend, lib, out, take, shot, mode, width, height, dpr, fps, seed,
-  //     pace, user, pass, url, args, cursorScale, log}
+  //     pace, theme, user, pass, url, args, cursorScale, log}
   constructor(o) {
     this.o = o;
     this.backend = o.backend;
@@ -41,7 +41,7 @@ class Cam {
     this.sidecarFile = path.join(o.out, `${o.take}.json`);
     this.side = {
       shot: o.shot, take: o.take, mode: o.mode, capture: o.backend.capture, url: o.url,
-      viewport: { width: o.width, height: o.height }, dpr: o.dpr, fps: o.fps, seed: o.seed ?? 1, pace: o.pace,
+      viewport: { width: o.width, height: o.height }, dpr: o.dpr, fps: o.fps, seed: o.seed ?? 1, pace: o.pace, theme: o.theme || 'dark',
       clock: { kind: this.clock.kind, startedAt: new Date().toISOString(),
         note: 't = ms since the shot started, on the capture clock; video time = t - video.startT' },
       args: this.args, roll: null, cut: null, video: null, marks: [], events: [], stills: [],

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // hack/demo/cam/stills-manifest.js — shots.json for a directory of stills:
 // every still the sidecars (<take>.json) beside them list, with its pixel
-// size, the viewport and device scale it was shot at, what it shows (the
-// shot's caption) and the marks logged for it (those since the take's
-// previous still: name, time, the element's box in CSS px).
+// size, the viewport and device scale it was shot at, the theme (dark or
+// light), what it shows (the shot's caption) and the marks logged for it
+// (those since the take's previous still: name, time, the element's box in
+// CSS px).
 //
 //   node hack/demo/cam/stills-manifest.js DIR      → DIR/shots.json
 'use strict';
@@ -56,6 +57,8 @@ function main(dir) {
         viewport: `${side.viewport.width}x${side.viewport.height}`,
         dpr: side.dpr,
         device: side.viewport.width < 820 ? 'phone' : 'desk',
+        // the workspace's light or dark (D184); a take from before themes is dark
+        theme: side.theme || 'dark',
         shot: side.shot,
         persona: s.persona || side.args?.who || null,
         what: s.caption || null,

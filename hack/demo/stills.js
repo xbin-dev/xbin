@@ -4,8 +4,16 @@
 // walks their seeded screens and saves 1440×900 frames at device scale 2 to
 // $DEMO_STILLS (default $OUT/stills). Each still waits for the content it
 // shows, so a frame is never of a loading tile.
+//
+// DEMO_THEME picks the theme (D184; themes.js): dark (the default, the
+// stills as they always were), light, or both — a light still is
+// <name>-light.png. The theme is the system's (the browser's
+// prefers-color-scheme), which every document that opts in follows for a
+// person who never chose one; the set seeds no one's choice, and each still
+// clears a choice an earlier take may have left, as it puts their font back.
 const path = require('path');
 const { login, closeCtx, sh, fr, waitFor, openShell, settle, sleep, log, fs, OUT, URL } = require('../ui-harness/lib');
+const { themes, suffix } = require('./themes');
 
 const STILLS = process.env.DEMO_STILLS || path.join(OUT, 'stills');
 const VIEW = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 };
@@ -17,12 +25,17 @@ const PASS = process.env.DEMO_PASSWORD || (() => {
 })();
 const AGENT = company.agent.tile;
 
-async function still(page, name) {
+// stillFile(name, theme): a still's file name; dark keeps the plain name
+const stillFile = (name, theme = 'dark') => `${name}${suffix(theme)}.png`;
+// view(theme): a context's options for a still in that theme
+const view = (theme) => ({ ...VIEW, colorScheme: theme });
+
+async function still(page, name, theme = 'dark') {
   fs.mkdirSync(STILLS, { recursive: true });
   await page.mouse.move(1430, 890); // no hover state in the frame
   await sleep(300);
-  await page.screenshot({ path: path.join(STILLS, `${name}.png`) });
-  log('still', name + '.png');
+  await page.screenshot({ path: path.join(STILLS, stillFile(name, theme)) });
+  log('still', stillFile(name, theme));
 }
 
 // tile: the Playwright Frame of a tile's document on the current screen
@@ -53,10 +66,13 @@ async function openConversation(agent, title) {
 }
 
 const layouts = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/layouts.json'), 'utf8'));
-async function person(browser, who) {
-  const { ctx, page } = await login(browser, who, PASS, VIEW);
-  // their font as seeded (another pass, a phone still, may have left another)
-  await page.context().request.put(`${URL}/api/xbin/prefs/settings`, { data: { fontSize: layouts.people[who]?.fontSize ?? 17 } });
+async function person(browser, who, theme) {
+  const { ctx, page } = await login(browser, who, PASS, view(theme));
+  // their font as seeded (another pass, a phone still, may have left another),
+  // and no theme of their own: the still's theme is the system's
+  const req = page.context().request;
+  await req.put(`${URL}/api/xbin/prefs/settings`, { data: { fontSize: layouts.people[who]?.fontSize ?? 17 } });
+  await req.delete(`${URL}/api/xbin/prefs/theme`);
   await openShell(page);
   await waitFor(page, (t) => t.screens.length > 1, null, { timeout: 15000, label: `${who}'s seeded screens` });
   return { ctx, page };
@@ -64,11 +80,17 @@ async function person(browser, who) {
 
 async function demoStills(browser) {
   if (process.env.HARNESS_SEED !== 'demo') { log('SKIP demoStills: the demo seed only (HARNESS_SEED=demo ./run.sh)'); return; }
+  // (the harness's own HARNESS_THEME when DEMO_THEME is unset)
+  for (const theme of themes(process.env.DEMO_THEME || process.env.HARNESS_THEME)) await shoot(browser, theme);
+}
+
+// shoot(browser, theme): every still, in one theme
+async function shoot(browser, theme) {
   const P = company.personas.person, A = company.personas.admin;
 
   // ---- a regular person: Priya, customer success ----
   {
-    const { ctx, page } = await person(browser, P);
+    const { ctx, page } = await person(browser, P, theme);
     // Today: Merrow with the renewal-call prep, and the day's calendar
     await screen(page, 's-today');
     const agent = await tile(page, AGENT);
@@ -86,18 +108,18 @@ async function demoStills(browser) {
     });
     await shown(await tile(page, 'apps/calendar'), '.ev');
     await sleep(800);
-    await still(page, '01-person-today-agent');
+    await still(page, '01-person-today-agent', theme);
 
     // Customers: the pipeline board, then an account
     await screen(page, 's-customers');
     const crm = await tile(page, 'apps/crm');
     await shown(crm, '.card');
     await sleep(500);
-    await still(page, '02-person-crm-pipeline');
+    await still(page, '02-person-crm-pipeline', theme);
     await crm.locator('.card:has-text("Brightwell")').dispatchEvent('click');
     await shown(crm, 'aside .contact');
     await sleep(500);
-    await still(page, '03-person-crm-account');
+    await still(page, '03-person-crm-account', theme);
 
     // Onboarding: the tracker Merrow built, one checklist open
     await screen(page, 's-onboarding');
@@ -106,13 +128,13 @@ async function demoStills(browser) {
     await ob.locator('.card:has-text("Riverbend") .toggle').dispatchEvent('click');
     await shown(ob, '.step');
     await sleep(400);
-    await still(page, '04-person-onboarding');
+    await still(page, '04-person-onboarding', theme);
 
     // Expenses: her own book (a partition of her own under --isolate)
     await screen(page, 's-expenses');
     await shown(await tile(page, 'apps/expenses'), '.it');
     await sleep(400);
-    await still(page, '05-person-expenses');
+    await still(page, '05-person-expenses', theme);
 
     // Inbox: the threads, and the day's meetings beside them (read through
     // the inbox's backend: on a fresh set the first read waits for its start)
@@ -121,20 +143,20 @@ async function demoStills(browser) {
     await shown(mail, '.msg');
     await shown(mail, '.today b', 90000);
     await sleep(400);
-    await still(page, '06-person-inbox');
+    await still(page, '06-person-inbox', theme);
     await sh(page, (t) => t.setScreen('s-today'));
     await closeCtx(ctx, page);
   }
 
   // ---- the admin persona: Tomás, CTO ----
   {
-    const { ctx, page } = await person(browser, A);
+    const { ctx, page } = await person(browser, A, theme);
     // Ops: the nightly report beside live metrics (sparklines need a few scrapes)
     await screen(page, 's-ops');
     await shown(await tile(page, 'apps/ops-report'), '.k');
     await shown(await tile(page, 'apps/metrics'), '.srow');
     await sleep(Number(process.env.DEMO_METRICS_WAIT || 20000));
-    await still(page, '07-admin-ops');
+    await still(page, '07-admin-ops', theme);
 
     // Build: the tile Merrow built, with its history (Merrow's commits) open
     await screen(page, 's-build');
@@ -155,7 +177,7 @@ async function demoStills(browser) {
       try { await code.locator('.diff:has-text("was due")').waitFor({ timeout: 4000 }); break; } catch (e) { if (i >= 4) throw e; }
     }
     await sleep(800);
-    await still(page, '08-admin-agent-built-app');
+    await still(page, '08-admin-agent-built-app', theme);
     await fr(page, 'apps/onboarding', (f) => f.closeTerminal());
 
     // Merrow's automations: the schedules and the team chat channel
@@ -164,20 +186,20 @@ async function demoStills(browser) {
     await agent.evaluate(() => { location.hash = '#auto'; });
     await shown(agent, '.autos-page');
     await sleep(800);
-    await still(page, '09-admin-agent-automations');
+    await still(page, '09-admin-agent-automations', theme);
     await agent.evaluate(() => { location.hash = ''; });
     await closeCtx(ctx, page);
   }
 
   // ---- the sign-in page, branded ----
   {
-    const ctx = await browser.newContext(VIEW);
+    const ctx = await browser.newContext(view(theme));
     const page = await ctx.newPage();
     await page.goto(`${URL}/login`);
     await page.waitForSelector('.logo img.mark');
-    await still(page, '10-sign-in');
+    await still(page, '10-sign-in', theme);
     await ctx.close();
   }
 }
 
-module.exports = { demoStills, still, STILLS, VIEW, PASS, company };
+module.exports = { demoStills, still, stillFile, view, STILLS, VIEW, PASS, company };

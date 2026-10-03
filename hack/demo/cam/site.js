@@ -71,10 +71,12 @@ const pref = (cam, name, body) => api(cam, 'PUT', `/api/xbin/prefs/${encodeURICo
 
 // signIn(cam, who, {screen, font, fit}): their own session, their font,
 // their seeded screens open on `screen`, the shell loaded (on a phone, the
-// first app as tall as the phone unless fit is false)
+// first app as tall as the phone unless fit is false). No theme of their
+// own: the take's theme (shot.js --theme) is the system's, which they follow.
 async function signIn(cam, who, { screen, font, fit = true } = {}) {
   await cam.login(who, password(cam));
   await pref(cam, 'settings', { fontSize: font ?? fontFor(cam, who) });
+  await api(cam, 'DELETE', '/api/xbin/prefs/theme');
   if (layouts.people[who]) await pref(cam, 'layout', layoutPref(who, screen));
   await cam.openShell();
   if (screen) await cam.waitFor((t, id) => t.activeScreen === id, screenId(screen), { timeout: 15000, label: `screen ${screen}` });

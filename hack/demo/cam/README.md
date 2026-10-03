@@ -85,9 +85,15 @@ takes the cursor the target itself asks for.
 ```
 node shot.js <shot> --out DIR [--mode still|video|scratch] [--capture beginframe|x11|screencast]
              [--size 1920x1080] [--dpr 2] [--fps 60] [--quality lossless|high] [--codec auto|h264_nvenc|libx264]
-             [--frames png|jpeg] [--pace human|fast] [--url URL] [--user U --pass P] [--take NAME]
-             [--seed S] [--set k=v]… [--display :N] [--cursor-scale N] [--keep-frames]
+             [--frames png|jpeg] [--pace human|fast] [--theme dark|light] [--url URL] [--user U --pass P]
+             [--take NAME] [--seed S] [--set k=v]… [--display :N] [--cursor-scale N] [--keep-frames]
 ```
+
+`--theme` is the system's light or dark the browser reports
+(`prefers-color-scheme`), which the workspace follows for a person who chose
+none (D184): `dark` (Concrete Night) unless asked — `$DEMO_THEME`, else dark,
+never Playwright's own default of light — or `light` (Concrete Day). A light
+take's default name ends in `-light`, and the sidecar says `theme`.
 
 `--mode video` makes a master: H.264 lossless 4:4:4 (`--quality high`: 4:2:0
 QP 16 for players and editors that can't take 4:4:4), colour-tagged so it
@@ -167,13 +173,14 @@ places the video on the sidecar's clock.
 (`hack/demo/README.md`): each `shots/site-*.js` on a desk (1440×900 at
 device scale 2) and on a phone (390×844 at 3), into one directory, then
 `shots.json` beside them (`stills-manifest.js`: file, pixel size, viewport,
-the persona, what the frame shows — the shot's `caption` — and the marks
-logged for it).
+the theme, the persona, what the frame shows — the shot's `caption` — and
+the marks logged for it). `--theme dark|light|both` (default `$DEMO_THEME`,
+else dark) picks the workspace's look; a light take is `NN-shot-size-light`.
 
 ```sh
 # the set in the UI harness (hack/demo/README.md), isolated: partitions, VM sandboxes
 HARNESS_SEED=demo HARNESS_ISOLATE=1 PORT=9331 HARNESS_DIR=/tmp/me/h hack/ui-harness/run.sh --keep
-$C/site-stills.sh --out .film-media/stills --ws /tmp/me/h/ws --url http://127.0.0.1:9331 [shot…]
+$C/site-stills.sh --out .film-media/stills --ws /tmp/me/h/ws --url http://127.0.0.1:9331 [--theme both] [shot…]
 ```
 
 | shot | who | what |
@@ -191,7 +198,8 @@ $C/site-stills.sh --out .film-media/stills --ws /tmp/me/h/ws --url http://127.0.
 `site.js` is what they share: signing in as a person of `company.json`,
 putting their screens from `data/layouts.json` back first (a retake starts
 the same), the font a viewport gets (the person's seeded size on a desk,
-the shell's 13 px on a phone), waiting for a tile's content, and the still
+the shell's 13 px on a phone), no theme of their own (the take's is the
+system's), waiting for a tile's content, and the still
 itself (the mouse parked off every scroller, a caption). Shots that change
 the set put it back: `live` restores the tracker's files (even when it
 fails partway, and only into the film set: its branding must be the
