@@ -12,6 +12,13 @@ struct LoginLevel: View {
 
     var body: some View {
         Form {
+            // The mark and wordmark A over the ways to sign in (D185).
+            Section {
+                XbinLockup(height: 32)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+            }
             ProblemSection(problem: flow.problem)
             Section {
                 QRScanButton { text in Task { await flow.use(link: text) } }
