@@ -561,10 +561,11 @@
     dialog::backdrop { background: var(--bx-scrim); }
     .dlg-hd { padding: 12px 16px; border-bottom: 1px solid var(--bx-border); font: var(--bx-font-title); }
     .dlg-bd.share { min-width: min(460px, 86vw); }
-    .share .chk { display: block; margin: 4px 0; }
+    .share .chk { margin: 4px 0; }
     .share .prow { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
     .share .prow .mono { flex: 1; }
     .share .prow.add input { flex: 1; }
+    .share .prow select { width: auto; flex: none; } /* the role fits its words; the user id takes the rest */
     .bx .share .linkout { width: 100%; box-sizing: border-box; margin-top: 8px; font: var(--bx-font-code); }
     /* "Share a copy" (homes-ui.js): its choices read as sentences */
     #pubdlg .field .chk { display: flex; text-transform: none; letter-spacing: normal; font: var(--bx-font); color: var(--bx-text); }
@@ -574,6 +575,11 @@
     .field label { display: block; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
                    text-transform: uppercase; color: var(--bx-muted); margin-bottom: 4px; }
     .field input, .field textarea, .field select { width: 100%; }
+    /* an option in a field (a radio, a checkbox) is UI text beside its
+       control, not the field's micro-caps label (the share dialog's who can
+       see it, the hosted dialog's session files) */
+    .field .chk { display: flex; align-items: center; gap: 8px; font: var(--bx-font); letter-spacing: normal; text-transform: none; color: var(--bx-text); }
+    .field .chk input { width: auto; flex: none; }
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .empty { color: var(--bx-muted); padding: 24px; text-align: center; }
 
