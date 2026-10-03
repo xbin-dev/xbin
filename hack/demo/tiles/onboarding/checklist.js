@@ -12,11 +12,11 @@ export function checklist(c, { open, onToggle, onShowDone }) {
     return html`<label class="step ${s.done ? 'done' : ''} ${late ? 'late' : ''}">
       <input type="checkbox" .checked=${!!s.done} @change=${(e) => onToggle(c, s, e.target.checked)}>
       <span class="st">${s.title}</span>
-      <span class="due">${s.done ? `done ${day(s.doneAt)}` : s.due ? (late ? `late · was due ${day(s.due)}` : `due ${day(s.due)}`) : ''}</span>
+      <span class="due">${s.done ? `done ${day(s.doneAt)}` : s.due ? (late ? html`<bx-icon name="error"></bx-icon>late · was due ${day(s.due)}` : `due ${day(s.due)}`) : ''}</span>
     </label>`;
   };
   return html`<div class="steps">
-    ${done.length ? html`<button class="fold" @click=${onShowDone}>${open ? '▾' : '▸'} ${done.length} done</button>` : nothing}
+    ${done.length ? html`<button class="fold" @click=${onShowDone}><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon>${done.length} done</button>` : nothing}
     ${open ? done.map(row) : nothing}
     ${todo.map(row)}
   </div>`;

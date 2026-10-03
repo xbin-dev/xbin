@@ -7,21 +7,21 @@ const day = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day
 const firstWords = (n) => String(n).split(/\s+/).slice(0, 2).join(' ');
 
 export const timelineCss = css`
-  .tl { position: relative; margin: 0 0 14px; padding: 10px 14px 12px; border: 1px solid var(--bx-border); border-radius: 10px; background: var(--bx-panel-2); }
-  .tl h2 { margin: 0 0 6px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+  .tl { position: relative; margin: 0 0 16px; padding: 10px 14px 12px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-panel-2); }
+  .tl h2 { margin: 0 0 6px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); }
   .tl .lane { position: relative; height: 104px; margin: 0 8px; }
-  .tl .track { position: absolute; left: 0; right: 0; bottom: 18px; height: 4px; border-radius: 2px; background: var(--bx-border); }
-  .tl .mark { position: absolute; bottom: 14px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--bx-panel-2); z-index: 1; }
+  .tl .track { position: absolute; left: 0; right: 0; bottom: 18px; height: 4px; background: var(--bx-border); }
+  .tl .mark { position: absolute; bottom: 14px; width: 12px; height: 12px; margin-left: -6px; background: var(--bx-ok); box-shadow: 0 0 0 3px var(--bx-panel-2); z-index: 1; }
   /* a late go-live's mark is drawn over a neighbour's, never hidden under it */
-  .tl .mark.late { background: var(--bad); z-index: 2; }
-  .tl .stem { position: absolute; bottom: 26px; width: 1px; background: var(--bx-border); }
-  .tl .tag { position: absolute; font-size: 11.5px; white-space: nowrap; padding: 1px 0; }
+  .tl .mark.late { background: var(--bx-danger); z-index: 2; }
+  .tl .stem { position: absolute; bottom: 26px; width: 1px; background: var(--bx-border-strong); }
+  .tl .tag { position: absolute; font: var(--bx-font-meta); white-space: nowrap; padding: 1px 0; }
   .tl .tag b { font-weight: 600; }
   .tl .tag span { color: var(--bx-muted); }
-  .tl .tag.late b { color: var(--bad); }
+  .tl .tag.late b, .tl .tag.late span { color: var(--bx-danger); }
   .tl .tag.end { transform: translateX(-100%); text-align: right; }
-  .tl .tick { position: absolute; bottom: 0; font-size: 10.5px; color: var(--bx-muted); transform: translateX(-50%); }
-  .tl .tick.now { color: var(--bx-accent); transform: none; }
+  .tl .tick { position: absolute; bottom: 0; font: var(--bx-font-meta); color: var(--bx-muted); transform: translateX(-50%); }
+  .tl .tick.now { color: var(--bx-text); font-weight: 600; transform: none; }
 `;
 
 // timeline(customers): soonest first is how the board sorts them already;
