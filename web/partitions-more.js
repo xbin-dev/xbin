@@ -5,7 +5,8 @@
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { partitionedTiles, ledgerTotals, ledgerKind, timeText, plural } from '/vendor/partitions-kit.js';
 
-const said = (st) => html`${st.err ? html`<p class="err" role="alert">${st.err}</p>` : nothing}${st.done ? html`<p class="done">${st.done}</p>` : nothing}`;
+// what an action said: an error, or done (glyph, words, colour — D184)
+const said = (st) => html`${st.err ? html`<p class="err" role="alert"><bx-icon name="error"></bx-icon>${st.err}</p>` : nothing}${st.done ? html`<p class="done"><bx-icon name="ok"></bx-icon>${st.done}</p>` : nothing}`;
 
 const pick = (host, key, field, list, label) => html`<select name=${field} aria-label=${label}
     @change=${(e) => host.set(key, { [field]: e.target.value, err: '' })}>

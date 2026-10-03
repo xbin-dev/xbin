@@ -20,6 +20,7 @@ import {
   loadPage, call, errorText, modeBody, switchedText, resetConfirm, credentialOutcome, plural,
 } from '/vendor/partitions-kit.js';
 import { pageCss } from '/vendor/partitions-css.js';
+import '/vendor/bx-icons.js';
 import { headerSection, credentialsSection, decisionsSection, partitionsSection } from '/vendor/partitions-sections.js';
 import { consentsSection, bindsSection, noticesSection, ledgerSection } from '/vendor/partitions-more.js';
 
@@ -264,11 +265,11 @@ export class BxPartitionsPage extends LitElement {
 
   render() {
     if (this._framed) {
-      return html`<main><div class="banner err" role="alert">This page shows your partitions only when it is opened on its own, never inside another page.
+      return html`<main><div class="banner err" role="alert"><bx-icon name="error"></bx-icon>This page shows your partitions only when it is opened on its own, never inside another page.
         Open <code>/xbin/partitions</code> in a tab of its own.</div></main>`;
     }
     const m = this._m;
-    if (!m) return html`<main>${this._loadErr ? html`<div class="banner err">${this._loadErr}</div>` : html`<p class="muted">Loading…</p>`}</main>`;
+    if (!m) return html`<main>${this._loadErr ? html`<div class="banner err"><bx-icon name="error"></bx-icon>${this._loadErr}</div>` : html`<p class="muted">Loading…</p>`}</main>`;
     return html`<main>
       ${headerSection(this, m)}
       ${credentialsSection(this, m)}
