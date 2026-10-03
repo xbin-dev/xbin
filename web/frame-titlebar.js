@@ -25,37 +25,56 @@
  * compact chip stays in the title row, so the state never hides behind ⋯.
  * The layout switcher's ⇈ (before ⇋) opens the Deployments panel; once
  * a tile has deployments to choose from, the tile API select lists them as
- * the session's target ("🔌 target: dev"), and shows today's two entries
+ * the session's target ("target: dev"), and shows today's two entries
  * otherwise.
+ *
+ * Base Two (D184): the bar is the window's 28 px title bar — the live
+ * square (the frame's buildState), the tile's name and path, text tabs
+ * underlined in the accent, then the controls as 28 × 28 squares with
+ * 16 px glyphs (/vendor/bx-icons.js), each named for a screen reader.
+ * Option text carries no glyph: an <option> can't draw one.
  */
 import { html, css, nothing, live } from 'lit';
-import { scopeIcon } from '/vendor/bx-netrules.js';
+import '/vendor/bx-icons.js';
 import { rememberVM } from '/vendor/frame-launcher.js';
 import { barDeploy, titleChip, deployKey, layoutButton, targetSelect } from '/vendor/frame-deploy.js';
 import { split, toggleBeside, besideTitle } from '/vendor/frame-panels.js';
 
+// The live square (product-ui 3): the tile's code is live (the accent),
+// building (hollow) or its build failed (a danger outline and the word).
+const LIVE = { live: 'live', building: 'building', failed: 'build failed' };
+function liveSquare(state) {
+  const t = LIVE[state] || LIVE.live;
+  return html`<span class="lsq ${state}" role="img" aria-label=${t} title=${t}></span>${state === 'failed'
+    ? html`<span class="lfail">failed</span>` : nothing}`;
+}
+
 export function titlebar(f) {
+  const name = f.src.slice(f.src.lastIndexOf('/') + 1);
   return html`
     <div class="titlebar" @pointerdown=${(e) => f._dragStart(e)}>
-      <span class="path" title=${f.src}>${f.src}</span>
+      ${liveSquare(f.buildState)}
+      <span class="path" title=${f.src}><b class="nm">${name}</b><span class="dir">${f.src}</span></span>
       <span class="tabs" @wheel=${scrollTabs}>
         ${f._sessions.map((s, i) => html`
           <span class="tab ${i === f._active ? 'on' : ''} ${s.kind === 'agent' ? 'agent' : ''} ${s.ended ? 'ended' : ''}"
                 @click=${() => f._setActive(i)}
                 @dblclick=${() => f._renameTerm(i)}
                 title=${tabTitle(s)}>
+            ${s.kind === 'agent' ? html`<bx-icon name="agent"></bx-icon>` : nothing}
             <span class="lbl">${tabLabel(s, i)}</span>
             <button class="tabx" title=${s.ended ? 'dismiss (the session has ended)' : `close this ${s.kind === 'agent' ? 'agent' : 'terminal'}`}
-                    @click=${(e) => { e.stopPropagation(); f._closeTerm(i); }}>✕</button>
+                    aria-label=${s.ended ? 'dismiss' : `close this ${s.kind === 'agent' ? 'agent' : 'terminal'}`}
+                    @click=${(e) => { e.stopPropagation(); f._closeTerm(i); }}><bx-icon name="xmark"></bx-icon></button>
           </span>`)}
       </span>
-      <button class="mknew" title="new session (Bash, or a coding agent)" @click=${(e) => f._openLauncher(e)}>+</button>
+      <button class="mknew ib" title="new session (Bash, or a coding agent)" aria-label="new session" @click=${(e) => f._openLauncher(e)}><bx-icon name="plus"></bx-icon></button>
       ${f._narrow
-        ? html`${titleChip(f)}<button class="more ${f._tools ? 'on' : ''}" title="layout and session settings"
-                  @click=${() => { f._tools = !f._tools; }}>⋯</button>`
+        ? html`${titleChip(f)}<button class="more ib ${f._tools ? 'on' : ''}" title="layout and session settings" aria-label="layout and session settings"
+                  aria-expanded=${f._tools ? 'true' : 'false'} @click=${() => { f._tools = !f._tools; }}><bx-icon name="ellipsis"></bx-icon></button>`
         : html`${layoutGroup(f)}<span class="spacer"></span>${settings(f)}`}
-      <button class="winx" title="close (session keeps running)"
-              @click=${() => { f._termOpen = false; }}>✕</button>
+      <button class="winx ib" title="close (session keeps running)" aria-label="close the window (sessions keep running)"
+              @click=${() => { f._termOpen = false; }}><bx-icon name="xmark"></bx-icon></button>
     </div>`;
 }
 
@@ -134,20 +153,22 @@ function tabTitle(s) {
 // toggle that puts the terminal beside the panel (frame-panels.js, D129).
 function layoutGroup(f) {
   const beside = split(f);
+  const at = (l) => (f._layout === l ? 'on' : '');
   return html`
     <span class="lyt">
-      <button class=${f._layout === 'term' ? 'on' : ''} title=${f._isAgent ? 'agent only' : 'terminal only'}
-              @click=${() => f._setLayout('term')}>&gt;_</button>
-      <button class=${f._layout === 'code' ? 'on' : ''} title="code browser + review"
-              @click=${() => f._setLayout('code')}>{ }</button>
-      <button class=${f._layout === 'logs' ? 'on' : ''} title="backend logs (read-only)"
-              @click=${() => f._setLayout('logs')}>▤</button>
-      <button class=${f._layout === 'prs' ? 'on' : ''}
+      <button class=${at('term')} title=${f._isAgent ? 'agent only' : 'terminal only'} aria-label=${f._isAgent ? 'agent only' : 'terminal only'}
+              aria-pressed=${String(f._layout === 'term')} @click=${() => f._setLayout('term')}><bx-icon name="terminal"></bx-icon></button>
+      <button class=${at('code')} title="code browser + review" aria-label="code browser and review"
+              aria-pressed=${String(f._layout === 'code')} @click=${() => f._setLayout('code')}><bx-icon name="code"></bx-icon></button>
+      <button class=${at('logs')} title="backend logs (read-only)" aria-label="backend logs"
+              aria-pressed=${String(f._layout === 'logs')} @click=${() => f._setLayout('logs')}><bx-icon name="list"></bx-icon></button>
+      <button class=${at('prs')}
               title="change proposals — patches other tiles' agents suggested for this one"
-              @click=${() => f._setLayout('prs')}>⇄${f._prCount ? ` ${f._prCount}` : ''}</button>
+              aria-label=${`change proposals${f._prCount ? ` (${f._prCount} open)` : ''}`}
+              aria-pressed=${String(f._layout === 'prs')} @click=${() => f._setLayout('prs')}><bx-icon name="diff"></bx-icon>${f._prCount ? html`<span class="n">${f._prCount}</span>` : ''}</button>
       ${layoutButton(f)}
-      <button class=${'beside' + (beside ? ' on' : '')} aria-pressed=${String(beside)} title=${besideTitle(f)}
-              @click=${() => toggleBeside(f)}>⇋</button>
+      <button class=${'beside' + (beside ? ' on' : '')} aria-pressed=${String(beside)} title=${besideTitle(f)} aria-label=${besideTitle(f)}
+              @click=${() => toggleBeside(f)}><bx-icon name="split"></bx-icon></button>
     </span>`;
 }
 
@@ -173,13 +194,13 @@ function pickers(f) {
             title=${`network scope (${restarts})` + (now?.desc ? '\n' + now.desc : '')}
             .value=${now.id}
             @change=${async (e) => { if (!(await f._setNet(f._active, e.target.value))) e.target.value = now.id; }}>
-      ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''} .selected=${live(s.id === now.id)}>${scopeIcon(s.id)} ${s.label}</option>`)}
+      ${scopes.map((s) => html`<option value=${s.id} title=${s.desc ?? ''} .selected=${live(s.id === now.id)}>${s.label}</option>`)}
     </select>
     ${targetSelect(f, restarts) || html`<select class="scope" title=${`live tile API access — off = the ${f._isAgent ? 'agent' : 'shell'} can read/edit code but every API call is unauthorized (${restarts})`}
             .value=${api}
             @change=${async (e) => { if (!(await f._setApi(f._active, e.target.value))) e.target.value = api; }}>
-      <option value="on">🔌 tile API</option>
-      <option value="off">⛔ no API</option>
+      <option value="on">tile API</option>
+      <option value="off">no API</option>
     </select>`}
     ${vmToggle(f, restarts)}
     ${f._gpus.length && !cur?.vm ? html`
@@ -187,8 +208,8 @@ function pickers(f) {
               .value=${gpu}
               @change=${async (e) => { if (!(await f._setGpu(f._active, e.target.value))) e.target.value = gpu; }}>
         <option value="none" .selected=${live(gpu === 'none')}>no GPU</option>
-        ${f._gpus.map((g) => html`<option value=${g.index} .selected=${live(String(gpu) === String(g.index))}>🎮 GPU ${g.index}</option>`)}
-        ${f._gpus.length > 1 ? html`<option value="all" .selected=${live(gpu === 'all')}>🎮 all</option>` : nothing}
+        ${f._gpus.map((g) => html`<option value=${g.index} .selected=${live(String(gpu) === String(g.index))}>GPU ${g.index}</option>`)}
+        ${f._gpus.length > 1 ? html`<option value="all" .selected=${live(gpu === 'all')}>all GPUs</option>` : nothing}
       </select>` : nothing}
     ${layerButtons(f)}`;
 }
@@ -212,8 +233,8 @@ function vmToggle(f, restarts) {
       : `VM sandbox unavailable: ${st.reason}`;
   const patch = { vm: !on };
   if (!on && cur.net === 'host') patch.net = null; // back to the tile's default scope
-  return html`<button class=${'vm' + (on ? ' on' : '')} ?disabled=${!on && !st.available} title=${tip}
-      @click=${async () => { if (await f._respawn(f._active, patch, on ? 'outside the VM' : 'in a VM sandbox')) rememberVM(f, !on); }}>⧉ VM</button>`;
+  return html`<button class=${'vm' + (on ? ' on' : '')} ?disabled=${!on && !st.available} title=${tip} aria-pressed=${String(on)}
+      @click=${async () => { if (await f._respawn(f._active, patch, on ? 'outside the VM' : 'in a VM sandbox')) rememberVM(f, !on); }}><bx-icon name="vm"></bx-icon>VM</button>`;
 }
 
 // The tile's persistent terminal layer — shared by its shells and agents:
@@ -224,111 +245,113 @@ function layerButtons(f) {
   return html`${barDeploy(f)}
     ${cur?.baseOutdated || f._envOld ? html`
       <button class="upgrade" title="a newer base image is installed — rebuild this tile's terminals on it (installed packages are wiped; your files & $HOME are kept)"
-              @click=${() => f._resetEnv(true)}>⬆ base update</button>` : nothing}
-    <button title="reset this component's sandbox (wipe installed packages)"
-            @click=${() => f._resetEnv(false)}>⟲</button>`;
+              @click=${() => f._resetEnv(true)}><bx-icon name="upload"></bx-icon><span class="lbl">base update</span></button>` : nothing}
+    <button class="ib" title="reset this component's sandbox (wipe installed packages)" aria-label="reset the sandbox"
+            @click=${() => f._resetEnv(false)}><bx-icon name="refresh"></bx-icon></button>`;
 }
 
 // The bar's styles (adopted by bx-frame alongside its own).
 export const titlebarCss = css`
   .titlebar {
     display: flex; align-items: center; gap: 2px;
-    background: var(--bx-panel-2, #2b3038);
-    border-bottom: 1px solid var(--bx-border, #363c45);
-    padding: 3px 6px; user-select: none; cursor: grab;
+    height: var(--bx-titlebar-h, 28px); padding: 0 0 0 10px;
+    color: var(--bx-title-text-inactive, #8E91A2); background: var(--bx-titlebar, #1F2028);
+    border-bottom: 1px solid var(--bx-border, #33353F);
+    user-select: none; cursor: grab;
     touch-action: none; flex: none;
     /* one row, never clipped: the tab strip absorbs a tight width */
     flex-wrap: nowrap; overflow: hidden; min-width: 0;
   }
+  .pop.active .titlebar { color: var(--bx-title-text, #E9EAF0); background: var(--bx-titlebar-active, #262730); }
   .titlebar:active { cursor: grabbing; }
+  /* the live square (product-ui 3) */
+  .lsq { flex: none; box-sizing: border-box; width: 8px; height: 8px; margin-right: 6px; background: var(--bx-accent, #8C9BFF); }
+  .lsq.building { background: transparent; border: 1px solid var(--bx-border-strong, #666A7E); }
+  .lsq.failed { background: transparent; border: 1px solid var(--bx-danger, #FF7A7A); }
+  .lfail { flex: none; margin-right: 6px; font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); font-weight: 600; color: var(--bx-danger, #FF7A7A); }
+  /* the name (UI 600) and the path (mono, muted): the path gives way first */
   .titlebar .path {
-    color: var(--bx-text, #d4d9e0); font-weight: 600;
-    font: 11px var(--bx-mono, ui-monospace, monospace);
-    padding: 0 8px 0 4px; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 48px;
+    display: flex; align-items: baseline; gap: 8px; padding-right: 8px; white-space: nowrap;
+    overflow: hidden; flex: 0 1 auto; min-width: 48px;
   }
+  .titlebar .path .nm { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .titlebar .path .dir { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    font: var(--bx-font-code, 12px/18px ui-monospace, monospace); color: var(--bx-muted, #A3A6B6); }
   /* On the full bar the tabs keep their width: the path and the network
      picker give way, then the bar degrades (fitBar). On the degraded bar
      the strip absorbs the width: its tabs shrink to a legible floor, then
      it scrolls (a wheel scrolls it sideways). */
   .titlebar .tabs {
-    display: flex; align-items: center; gap: 2px;
+    display: flex; align-items: stretch; align-self: stretch;
     flex: 0 1 auto; min-width: 0;
     overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
   }
   .pop:not(.narrow) .titlebar .tabs { flex-shrink: 0; }
   .titlebar .tabs::-webkit-scrollbar { display: none; }
   .titlebar .spacer, .toolsrow .spacer { flex: 1; }
+  /* the controls: 28 × 28 squares (16 px glyphs), a word beside the glyph
+     where the control needs one */
   .titlebar button, .toolsrow button {
-    border: 1px solid transparent; background: transparent;
-    color: var(--bx-muted, #868f9a);
-    font: 11px var(--bx-mono, ui-monospace, monospace); padding: 1px 7px;
-    border-radius: 4px; cursor: pointer; white-space: nowrap; flex: none;
+    display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; box-sizing: border-box;
+    height: 28px; min-width: 28px; padding: 0 6px; cursor: pointer; white-space: nowrap;
+    border: 0; border-radius: 0; background: transparent; color: var(--bx-muted, #A3A6B6);
   }
+  .titlebar button.ib, .toolsrow button.ib { width: 28px; padding: 0; }
+  .titlebar button:hover, .toolsrow button:hover { color: var(--bx-text, #E9EAF0); background: var(--bx-control-hover, #33353F); }
   .titlebar button.on, .toolsrow button.on {
-    background: var(--bx-panel, #23272e);
-    border-color: var(--bx-border, #363c45);
-    color: var(--bx-text, #d4d9e0);
+    color: var(--bx-selection-text, #E9EAF0); background: var(--bx-selection, #262C5C);
+    box-shadow: inset 0 -2px 0 var(--bx-accent, #8C9BFF);
   }
-  .titlebar button:hover, .toolsrow button:hover { color: var(--bx-text, #d4d9e0); }
-  .titlebar button:disabled, .toolsrow button:disabled { opacity: .45; cursor: default; }
-  .titlebar button.vm.on, .toolsrow button.vm.on { color: var(--bx-accent, #f5a623); }
+  .titlebar button:disabled, .toolsrow button:disabled { opacity: 0.45; cursor: default; background: transparent; }
+  .titlebar button.winx:hover { color: var(--bx-close-hover-ink, #0B0C12); background: var(--bx-close-hover, #FF7A7A); }
+  .titlebar button:focus-visible, .toolsrow button:focus-visible { outline-offset: calc(-1 * var(--bx-focus-width, 3px)); box-shadow: none; }
+  /* a newer base image: the one call to act, a primary button, the one
+     that gives way (its word first) before the window's close is pushed out */
   .titlebar button.upgrade, .toolsrow button.upgrade {
-    color: #23272e; background: var(--bx-amber, #f2a71b); font-weight: 600;
-    border-radius: 5px; padding: 1px 8px; white-space: nowrap;
-    /* the one button that gives way (to "⬆…") before the window's ✕ is pushed out */
-    flex: 0 1 auto; min-width: 26px; overflow: hidden; text-overflow: ellipsis;
+    height: 22px; margin: 0 2px; padding: 0 8px; border-radius: var(--bx-radius, 2px); font-weight: 600;
+    color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent, #8C9BFF);
+    flex: 0 1 auto; min-width: 28px; overflow: hidden;
   }
-  .titlebar button.upgrade:hover, .toolsrow button.upgrade:hover { color: #23272e; filter: brightness(1.06); }
+  .titlebar button.upgrade .lbl, .toolsrow button.upgrade .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .titlebar button.upgrade:hover, .toolsrow button.upgrade:hover { color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent-hover, #A9B4FF); }
   /* Tabs are spans (not buttons) so each can hold a close button — nested
-     buttons are invalid HTML. Styled like the titlebar buttons. */
+     buttons are invalid HTML: text tabs, the active one underlined. An
+     agent session's tab carries the agents glyph (two linked squares); an
+     ended one is greyed and struck. */
   .titlebar .tab {
-    display: inline-flex; align-items: center; gap: 2px; max-width: 150px; min-width: 56px; flex: 0 1 auto;
-    border: 1px solid transparent; border-radius: 4px; padding: 1px 3px 1px 7px;
-    color: var(--bx-muted, #868f9a);
-    font: 11px var(--bx-mono, ui-monospace, monospace); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px; max-width: 160px; min-width: 56px; flex: 0 1 auto; box-sizing: border-box;
+    padding: 0 2px 0 8px; cursor: pointer; color: var(--bx-muted, #A3A6B6);
   }
-  .titlebar .tab.on {
-    background: var(--bx-panel, #23272e);
-    border-color: var(--bx-border, #363c45);
-    color: var(--bx-text, #d4d9e0);
-  }
-  .titlebar .tab:hover { color: var(--bx-text, #d4d9e0); }
+  .titlebar .tab:hover { color: var(--bx-text, #E9EAF0); background: var(--bx-control-hover, #33353F); }
+  .titlebar .tab.on { color: var(--bx-text, #E9EAF0); box-shadow: inset 0 -2px 0 var(--bx-accent, #8C9BFF); }
   .titlebar .tab .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .titlebar .tab .tabx {
-    flex: none; padding: 0 3px; border: 0; border-radius: 3px;
-    background: transparent; color: inherit; opacity: .45;
-    font-size: 12px; line-height: 1; cursor: pointer;
+    width: 20px; height: 20px; min-width: 0; padding: 0; border-radius: var(--bx-radius, 2px);
+    color: inherit; opacity: 0.6;
   }
-  .titlebar .tab .tabx:hover { opacity: 1; background: var(--bx-border, #363c45); }
-  /* Agent tabs read as agents without an emoji: an accent left edge + the
-     accent colour on the label; an ended one is greyed and struck. */
-  .titlebar .tab.agent { border-left: 2px solid var(--bx-accent, #f5a623); padding-left: 5px; }
-  .titlebar .tab.agent.on .lbl, .titlebar .tab.agent:hover .lbl { color: var(--bx-accent, #f5a623); }
-  .titlebar .tab.ended { opacity: .55; }
+  .titlebar .tab .tabx:hover { opacity: 1; color: var(--bx-close-hover-ink, #0B0C12); background: var(--bx-close-hover, #FF7A7A); }
+  .titlebar .tab.ended { opacity: 0.55; }
   .titlebar .tab.ended .lbl { text-decoration: line-through; }
-  .titlebar button.mknew { color: var(--bx-accent, #f5a623); font-weight: 700; }
   select.scope {
-    margin-left: 2px; border: 1px solid var(--bx-border, #363c45);
-    background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
-    font: 11px var(--bx-mono, ui-monospace, monospace);
-    padding: 1px 4px; border-radius: 4px; cursor: pointer; flex: none;
+    flex: none; box-sizing: border-box; height: 22px; margin: 0 2px; padding: 0 4px; cursor: pointer;
+    color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028);
+    border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
     /* the org scope's label names the sets ("org network (devs-net + …)")
        — cap it so the API/GPU pickers stay on the bar; the tooltip has it all */
     max-width: 24ch; text-overflow: ellipsis;
   }
+  select.scope:focus-visible { outline-offset: 0; box-shadow: none; }
   /* the network picker's label is the long one: it shortens before the bar degrades */
   .titlebar select.scope.net { flex-shrink: 1; min-width: 12ch; }
   .toolsrow {
     display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
-    background: var(--bx-panel-2, #2b3038);
-    border-bottom: 1px solid var(--bx-border, #363c45);
-    padding: 3px 6px; flex: none;
+    background: var(--bx-panel-2, #262730);
+    border-bottom: 1px solid var(--bx-border, #33353F);
+    padding: 0 4px; flex: none;
   }
-  .lyt { display: inline-flex; margin-left: 2px; flex: none; }
-  .lyt button { padding: 1px 6px; }
-  .lyt button.on { background: var(--bx-panel, #23272e); border-color: var(--bx-border, #363c45); color: var(--bx-text, #d4d9e0); }
+  .lyt { display: inline-flex; margin-left: 4px; flex: none; }
+  .lyt button { padding: 0 6px; }
+  .lyt button .n { font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); font-weight: 600; font-variant-numeric: tabular-nums; }
   /* ⇋ is a toggle beside the panel buttons, not one of them */
-  .lyt button.beside { margin-left: 3px; }
-  .lyt button.beside.on { color: var(--bx-accent, #f5a623); }
+  .lyt button.beside { margin-left: 4px; }
 `;

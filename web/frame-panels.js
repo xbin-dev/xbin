@@ -193,10 +193,11 @@ export const panelsCss = css`
   .panels > .pane { flex: 1; min-width: 0; overflow: hidden; }
   .panels.split > .pane { flex: 0 0 var(--pane-w, 55%); min-width: min(230px, calc(50% - 3px)); }
   .vsplit { flex: none; width: 5px; position: relative; z-index: 1; cursor: col-resize; touch-action: none;
-    background: var(--bx-border, #363c45); outline: none; }
+    background: var(--bx-border, #33353F); }
   /* a wider grab zone than the 5 px line (a finger, a quick mouse) */
   .vsplit::before { content: ''; position: absolute; inset: 0 -5px; }
-  .vsplit:hover, .vsplit:focus-visible { background: var(--bx-accent, #f5a623); }
-  .term-host { flex: 1; flex-direction: column; min-height: 0; min-width: 0; background: var(--bx-term-bg, #262c36); }
+  .vsplit:hover { background: var(--bx-border-strong, #666A7E); }
+  .vsplit:focus-visible { background: var(--bx-focus, #3DD6F5); outline: none; box-shadow: none; }
+  .term-host { flex: 1; flex-direction: column; min-height: 0; min-width: 0; background: var(--bx-term-bg, #0B0C12); }
   .panels.split > .term-host { min-width: min(200px, calc(50% - 3px)); }
 `;

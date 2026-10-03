@@ -271,18 +271,24 @@ function openMenu(f, e) {
 
 // ---- the title bar ----
 
-// a label that starts with its glyph: the glyph is aria-hidden (the
-// control's aria-label carries the words)
-const glyphed = (text) => {
+// labelled(text, icon): a view-model label (web/deploy-state.js) as drawn.
+// A label with an `icon` (a /vendor/bx-icons.js name, D184) draws the glyph
+// before its words; an older one starts with its glyph character, which is
+// aria-hidden (the control's aria-label carries the words).
+const labelled = (text, icon) => {
+  if (icon) return html`<bx-icon name=${icon}></bx-icon>${text ? html`<span class="w">${text}</span>` : nothing}`;
   const sp = text.indexOf(' ');
   const g = sp < 0 ? text : text.slice(0, sp), rest = sp < 0 ? '' : text.slice(sp);
   return html`<span aria-hidden="true">${g}</span>${rest}`;
 };
+// words(text, icon): the label's words alone (an aria-label), whichever form it has.
+const words = (text, icon) => (icon ? text : text.replace(/^\S+\s/, ''));
 
 function chipButton(f, c, compact) {
   const base = compact ? c.baseCompact : c.base;
   return html`<button class=${'lr' + (compact ? ' compact' : '')} title=${c.title} aria-label=${c.title}
-      @click=${(e) => openMenu(f, e)}>${glyphed(base)}${c.failed ? html`<span class="bad">${compact ? '!' : ' · deploy failed'}</span>` : nothing}</button>`;
+      @click=${(e) => openMenu(f, e)}>${labelled(base, c.icon)}${c.failed ? html`<span class="bad">${compact
+        ? html`<bx-icon name="error" label="deploy failed"></bx-icon>` : ' · deploy failed'}</span>` : nothing}</button>`;
 }
 
 // barDeploy(f): the window's live reload controls among the settings — the
@@ -293,11 +299,11 @@ export function barDeploy(f) {
   if (!vm.feature) return nothing;
   if (vm.zero) {
     return html`<button class="dentry" title=${vm.entry.title} aria-label=${vm.entry.title}
-        @click=${(e) => openMenu(f, e)}>${glyphed(vm.entry.text)}</button>`;
+        @click=${(e) => openMenu(f, e)}>${labelled(vm.entry.text, vm.entry.icon)}</button>`;
   }
   if (f._narrow) return nothing;
   return html`${vm.chip ? chipButton(f, vm.chip, false) : nothing}${vm.offer ? html`<button class="offer" title=${vm.offer.title}
-      aria-label=${vm.offer.label.slice(2)} @click=${() => act(f, 'reloadNow')}>${glyphed(vm.offer.label)}</button>` : nothing}`;
+      aria-label=${words(vm.offer.label, vm.offer.icon)} @click=${() => act(f, 'reloadNow')}>${labelled(vm.offer.label, vm.offer.icon)}</button>` : nothing}`;
 }
 
 // titleChip(f): the degraded bar's compact chip, in the title row itself
@@ -322,8 +328,8 @@ export const hasLayout = (f) => !!vmOf(f).entry;
 export function layoutButton(f) {
   const e = vmOf(f).entry;
   if (!e) return nothing;
-  return html`<button class=${f._layout === 'deployments' ? 'on' : ''} title=${e.title}
-      aria-label=${e.count ? `${e.title} (${e.count} deployments)` : e.title} @click=${() => f._setLayout('deployments')}>${glyphed(e.text)}</button>`;
+  return html`<button class=${f._layout === 'deployments' ? 'on' : ''} title=${e.title} aria-pressed=${String(f._layout === 'deployments')}
+      aria-label=${e.count ? `${e.title} (${e.count} deployments)` : e.title} @click=${() => f._setLayout('deployments')}>${labelled(e.text, e.icon)}</button>`;
 }
 
 // ---- the tile API select: a session's target ----
@@ -397,8 +403,9 @@ export function launchBanner(f) {
   const l = vmOf(f).launcher;
   if (!l) return nothing;
   const b = l.banner;
-  return html`${b ? html`<div class=${'ldep ' + b.tone}><span>${b.text}</span>${b.reloadNow ? html`
-      <button class="lreload" aria-label="Reload now" @click=${() => act(f, 'reloadNow')}><span aria-hidden="true">⇡</span> Reload now</button>` : nothing}
+  const icon = b?.icon || (b?.tone === 'paused' ? 'pause' : '');
+  return html`${b ? html`<div class=${'ldep ' + b.tone}>${icon ? html`<bx-icon name=${icon}></bx-icon>` : nothing}<span>${b.text}</span>${b.reloadNow ? html`
+      <button class="lreload" aria-label="Reload now" @click=${() => act(f, 'reloadNow')}><bx-icon name="reload"></bx-icon>Reload now</button>` : nothing}
     </div>` : nothing}${l.note ? html`<div class="ldepnote">${l.note}</div>` : nothing}`;
 }
 
@@ -448,19 +455,26 @@ export function deployTestApi(f) {
 // ---- styles (adopted by bx-frame beside the bar's and the launcher's) ----
 
 export const deployCss = css`
-  .titlebar button.lr, .toolsrow button.lr { color: var(--bx-text, #d4d9e0); }
+  .titlebar button.lr, .toolsrow button.lr { color: var(--bx-text, #E9EAF0); }
   .titlebar button.lr.compact { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; }
-  button.lr .bad { color: var(--bx-red, #ef5350); font-weight: 600; }
+  button.lr .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  button.lr .bad { display: inline-flex; align-items: center; color: var(--bx-danger, #FF7A7A); font-weight: 600; }
+  /* Reload now: the window's one offer to act — a primary button */
   .titlebar button.offer, .toolsrow button.offer {
-    border-color: var(--bx-accent, #f5a623); color: var(--bx-accent, #f5a623); font-weight: 600;
+    height: 22px; margin: 0 2px; padding: 0 8px; border-radius: var(--bx-radius, 2px); font-weight: 600;
+    color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent, #8C9BFF);
   }
-  .titlebar button.offer:hover, .toolsrow button.offer:hover { background: var(--bx-accent, #f5a623); color: #1b1e24; }
-  .launcher .ldep { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 460px;
-    padding: 8px 10px; border: 1px solid var(--bx-border, #363c45); border-radius: 6px; background: var(--bx-panel-2, #2b3038);
-    color: var(--bx-text, #d4d9e0); font-size: 12px; }
-  .launcher .ldep.paused { border-color: var(--bx-amber, #f2a71b); }
-  .launcher .lreload { border: 1px solid var(--bx-accent, #f5a623); background: transparent; color: var(--bx-accent, #f5a623);
-    border-radius: 6px; padding: 4px 10px; cursor: pointer; font: 12px var(--bx-sans, system-ui); font-weight: 600; white-space: nowrap; }
-  .launcher .lreload:hover { background: var(--bx-accent, #f5a623); color: #1b1e24; }
-  .launcher .ldepnote { color: var(--bx-muted, #868f9a); font-size: 11px; max-width: 460px; text-align: center; }
+  .titlebar button.offer:hover, .toolsrow button.offer:hover { color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent-hover, #A9B4FF); }
+  .launcher .ldep { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 460px;
+    padding: 8px 12px; border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); background: var(--bx-panel-2, #262730);
+    color: var(--bx-text, #E9EAF0); font: var(--bx-font-ui, 400 13px/18px system-ui, sans-serif); }
+  .launcher .ldep > bx-icon { color: var(--bx-muted, #A3A6B6); }
+  .launcher .ldep.paused { border-color: var(--bx-warn, #F2994A); background: var(--bx-warn-bg, #382F2C); }
+  .launcher .ldep.paused > bx-icon { color: var(--bx-warn, #F2994A); }
+  .launcher .lreload { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; height: var(--bx-control-h, 28px); padding: 0 10px;
+    cursor: pointer; font-weight: 600; white-space: nowrap;
+    color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent, #8C9BFF);
+    border: 1px solid var(--bx-accent, #8C9BFF); border-radius: var(--bx-radius, 2px); }
+  .launcher .lreload:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
+  .launcher .ldepnote { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); max-width: 460px; text-align: center; }
 `;
