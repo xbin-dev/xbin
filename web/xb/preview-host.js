@@ -69,8 +69,8 @@ function start() {
       font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); color: var(--bx-danger, #FF7A7A);
       background: var(--bx-danger-bg, #3A2B32); border-top: 1px solid var(--bx-danger, #FF7A7A); padding: 6px 10px; white-space: pre-wrap; }
     #xbn-strip:empty { display: none; }
-    /* theme-ok: a widget is the app's card, with the app's corner (plan §6) */
-    .xbn-widget { position: fixed; left: 12px; top: 24px; border-radius: 18px; overflow: hidden; box-shadow: ${L.shadow}; }
+    /* a widget is the app's card: Base Two's square corner, as the app draws it (D185) */
+    .xbn-widget { position: fixed; left: 12px; top: 24px; border-radius: var(--bx-radius, 2px); overflow: hidden; box-shadow: ${L.shadow}; }
     html.dark .xbn-widget { box-shadow: ${D.shadow}; }
     .xbn-widget xb-view { position: absolute; inset: 0; }
     xb-view.xbn-hidden { visibility: hidden; }`;

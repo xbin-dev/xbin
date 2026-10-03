@@ -28,6 +28,7 @@ public struct _LabelStyle: LabelStyle {}
 extension LabelStyle where Self == _LabelStyle {
     public static var iconOnly: _LabelStyle { .init() }
     public static var titleOnly: _LabelStyle { .init() }
+    public static var titleAndIcon: _LabelStyle { .init() }
 }
 public protocol NavigationSplitViewStyle {}
 extension BalancedNavigationSplitViewStyle: NavigationSplitViewStyle {}
@@ -175,7 +176,7 @@ extension View {
 }
 
 public enum TextAlignment: Sendable { case leading, center, trailing }
-public struct FillStyle: Sendable { public init() {} }
+public struct FillStyle: Sendable { public init(eoFill: Bool = false, antialiased: Bool = true) {} }
 public struct SymbolEffectOptions: Sendable { public static let `default` = SymbolEffectOptions() }
 public struct SafeAreaRegions: OptionSet, Sendable { public let rawValue: Int; public init(rawValue: Int) { self.rawValue = rawValue }; public static let all = SafeAreaRegions(rawValue: 7), container = SafeAreaRegions(rawValue: 1), keyboard = SafeAreaRegions(rawValue: 2) }
 public enum VerticalEdge: Sendable { case top, bottom

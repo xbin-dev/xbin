@@ -35,7 +35,7 @@ struct FieldNodeView: View {
                 input(kind: kind, label: label, p: p)
                     .padding(placement == .list ? 0 : 10)
                     .background(placement == .list ? Color.clear : XbinColor.fill,
-                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                in: RoundedRectangle.xbinPlate)
             }
             if let error = p.nonEmpty("error") {
                 Text(verbatim: error).font(.footnote).foregroundStyle(XbinColor.toneText(.danger))

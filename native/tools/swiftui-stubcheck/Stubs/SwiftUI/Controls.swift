@@ -101,7 +101,10 @@ public struct AccessibilityTraits: OptionSet, Sendable {
 public struct AccessibilityChildBehavior: Sendable { public static let combine = AccessibilityChildBehavior(), ignore = AccessibilityChildBehavior(), contain = AccessibilityChildBehavior() }
 
 public struct ControlSize: Sendable { public static let mini = ControlSize(), small = ControlSize(), regular = ControlSize(), large = ControlSize() }
-public struct ButtonBorderShape: Sendable { public static let capsule = ButtonBorderShape(), circle = ButtonBorderShape(), roundedRectangle = ButtonBorderShape() }
+public struct ButtonBorderShape: Sendable {
+    public static let capsule = ButtonBorderShape(), circle = ButtonBorderShape(), roundedRectangle = ButtonBorderShape()
+    public static func roundedRectangle(radius: CGFloat) -> ButtonBorderShape { ButtonBorderShape() }
+}
 
 public protocol TextSelectability {}
 public struct EnabledTextSelectability: TextSelectability {}

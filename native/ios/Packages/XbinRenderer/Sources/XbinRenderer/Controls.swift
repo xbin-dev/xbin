@@ -66,7 +66,7 @@ struct ButtonNodeView: View {
         }
         .disabled(p.bool("disabled") || busy)
         .accessibilityLabel(Text(verbatim: text))
-        // The renderer's amber tint would otherwise win over the destructive
+        // The renderer's accent tint would otherwise win over the destructive
         // role's red outside a list (bordered buttons, bar items).
         let danger = DangerTint(on: destructive)
         switch placement {
@@ -76,15 +76,17 @@ struct ButtonNodeView: View {
             Group {
                 switch role ?? "" {
                 case "primary": button.buttonStyle(.borderedProminent).controlSize(size).foregroundStyle(XbinColor.onTint)
+                    .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
                 case "plain": button.buttonStyle(.borderless)
                 default: button.buttonStyle(.bordered).controlSize(size).modifier(danger)
+                    .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
                 }
             }
             .fixedSize(horizontal: hugs, vertical: false)
         case .list:
             button
         case .chips:
-            button.buttonStyle(.bordered).controlSize(.small).buttonBorderShape(.capsule).modifier(danger)
+            button.buttonStyle(.bordered).controlSize(.small).buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius)).modifier(danger)
         case .inlineActions:
             button.buttonStyle(.borderless).controlSize(.small).foregroundStyle(XbinColor.muted)
         default:
@@ -183,7 +185,7 @@ struct ToggleNodeView: View {
             Text(verbatim: node.props.string("label") ?? "")
         }
         // A switch is on in green (the platform's, and the reference's
-        // `ok`), not in the renderer's amber tint.
+        // `ok`), not in the accent.
         .tint(XbinColor.tone(.ok))
         .disabled(node.props.bool("disabled"))
     }
@@ -318,7 +320,7 @@ private struct InlineChoices: View {
                     .buttonStyle(.plain)
                 }
             }
-            .background(XbinColor.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(XbinColor.surface, in: RoundedRectangle.xbinPlate)
         }
     }
 }

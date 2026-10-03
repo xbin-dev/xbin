@@ -175,7 +175,7 @@ export const CONTENT_CSS = css`
   .md-check.on { color: var(--xb-ok); }
   .md-check .ic { width: 16px; height: 16px; }
   .md code { font-family: var(--xb-mono); font-size: 0.86em; background: var(--xb-fill); border-radius: 5px; padding: 1px 5px; } /* theme-ok: inline code at 0.86em of the app's 17pt body (14.6px), as the app draws it */
-  .md-code { margin: 0 0 10px; border-radius: 10px; background: var(--xb-surface2); overflow: hidden; }
+  .md-code { margin: 0 0 10px; border-radius: var(--xb-radius); background: var(--xb-surface2); overflow: hidden; }
   .md-lang { font: var(--xb-font-caption); color: var(--xb-muted); padding: 6px 12px 0; }
   .md-code pre { margin: 0; padding: 8px 12px 10px; overflow-x: auto; font-family: var(--xb-mono); font-size: calc(var(--xb-size-subheadline) * 0.93); line-height: 1.45; }
   .md blockquote { margin: 0 0 10px; padding: 2px 0 2px 12px; border-left: 3px solid var(--xb-border); color: var(--xb-muted); }
@@ -189,7 +189,7 @@ export const CONTENT_CSS = css`
   .md.streaming > :last-child::after { content: ''; display: inline-block; width: 8px; height: 1em; margin-left: 2px; vertical-align: -2px; border-radius: 2px; background: var(--xb-accent); animation: xb-blink 1s steps(2) infinite; }
   @keyframes xb-blink { 50% { opacity: 0; } }
 
-  xb-image { display: block; overflow: hidden; border-radius: 10px; background: var(--xb-fill); }
+  xb-image { display: block; overflow: hidden; border-radius: var(--xb-radius); background: var(--xb-fill); }
   xb-image.cell { border-radius: 0; background: none; padding: 0; }
   xb-image img { display: block; width: 100%; height: auto; max-height: var(--xb-h-xl); }
   xb-image.fixed img { height: 100%; max-height: none; }
@@ -212,7 +212,7 @@ export const CONTENT_CSS = css`
   @keyframes xb-pulse { 50% { opacity: 0.3; } }
 
   xb-notice { display: flex; align-items: flex-start; gap: 10px; --n: var(--xb-muted); }
-  xb-notice.box { padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--n) 13%, var(--xb-surface)); }
+  xb-notice.box { padding: 12px 14px; border-radius: var(--xb-radius); background: color-mix(in srgb, var(--n) 13%, var(--xb-surface)); }
   xb-notice.cell { background: color-mix(in srgb, var(--n) 10%, var(--xb-surface)); }
   .n-accent { --n: var(--xb-accent); } .n-ok { --n: var(--xb-ok); } .n-warn { --n: var(--xb-warn); } .n-danger { --n: var(--xb-danger); }
   .n-info { --n: var(--xb-muted); }
@@ -235,7 +235,7 @@ export const CONTENT_CSS = css`
   xb-stack.h > xb-chart { flex: 1 1 0; } /* sized by the row, not its own SVG (a ResizeObserver loop otherwise) */
 
   xb-code { display: flex; align-items: center; gap: 4px; min-width: 0; }
-  xb-code.box { border-radius: 10px; background: var(--xb-surface2); }
+  xb-code.box { border-radius: var(--xb-radius); background: var(--xb-surface2); }
   xb-code pre { flex: 1 1 auto; min-width: 0; margin: 0; padding: 10px 12px; overflow-x: auto; font-family: var(--xb-mono); font-size: calc(var(--xb-size-subheadline) * 0.93); line-height: 1.45; white-space: pre; }
   xb-code.cell { padding-right: 8px; }
   xb-code.cell pre { padding: 0; }
@@ -255,14 +255,14 @@ export const CONTENT_CSS = css`
   .big .e-title { font: var(--xb-font-title-2); font-weight: 700; }
   .big .e-text { font: var(--xb-font-callout); color: var(--xb-muted); max-width: 300px; }
 
-  xb-terminal { display: block; border-radius: 10px; overflow: hidden; background: var(--xb-term-bg); color: var(--xb-term-fg); min-height: var(--xb-h-m); }
+  xb-terminal { display: block; border-radius: var(--xb-radius); overflow: hidden; background: var(--xb-term-bg); color: var(--xb-term-fg); min-height: var(--xb-h-m); }
   xb-terminal.cell { border-radius: 0; padding: 0; }
   .term-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: var(--xb-font-caption); color: var(--xb-term-muted); background: var(--xb-term-bar); }
   .term-bar .ic { width: 16px; height: 16px; }
   .term-body { margin: 0; padding: 10px 12px; font-family: var(--xb-mono); font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
   .term-cur { display: inline-block; width: 8px; height: 15px; background: var(--xb-term-cursor); vertical-align: -3px; animation: xb-blink 1s steps(2) infinite; }
 
-  xb-canvas { display: block; border-radius: 10px; overflow: hidden; background: var(--xb-surface); }
+  xb-canvas { display: block; border-radius: var(--xb-radius); overflow: hidden; background: var(--xb-surface); }
   xb-canvas.cell { border-radius: 0; padding: 0; }
   xb-canvas iframe { display: block; width: 100%; height: 100%; border: 0; }
 `;

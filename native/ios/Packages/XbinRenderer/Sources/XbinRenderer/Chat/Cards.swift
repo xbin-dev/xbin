@@ -7,8 +7,8 @@ import XbinRendererModel
 struct ChatCard: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(XbinColor.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(XbinColor.border, lineWidth: 0.5))
+            .background(XbinColor.surface, in: RoundedRectangle.xbinPlate)
+            .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 0.5))
     }
 }
 
@@ -154,7 +154,7 @@ public struct ApprovalView: View {
                     TextField("Feedback (optional)", text: $feedback, axis: .vertical)
                         .lineLimit(2...5)
                         .padding(10)
-                        .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(XbinColor.fill, in: RoundedRectangle.xbinPlate)
                 }
                 VStack(spacing: 8) {
                     ForEach(Array(approval.options.enumerated()), id: \.offset) { i, option in
@@ -180,9 +180,11 @@ public struct ApprovalView: View {
         .controlSize(.large)
         if emphasis == .prominent {
             button.buttonStyle(.borderedProminent).tint(XbinColor.tint).foregroundStyle(XbinColor.onTint)
+                .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
         } else {
             // A reject is red (the reference's r-destructive), not the tint.
             button.buttonStyle(.bordered).modifier(DangerTint(on: emphasis == .destructive))
+                .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
         }
     }
 }

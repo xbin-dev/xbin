@@ -159,12 +159,18 @@ public struct UIKeyboardHIDUsage: RawRepresentable, Sendable { public var rawVal
 
 public final class UIFont: NSObject, @unchecked Sendable {
     public struct TextStyle: Sendable, Hashable {
-        public static let body = TextStyle(), subheadline = TextStyle(), footnote = TextStyle(), caption1 = TextStyle(), headline = TextStyle()
+        public static let body = TextStyle(), subheadline = TextStyle(), footnote = TextStyle(), caption1 = TextStyle(), headline = TextStyle(),
+            largeTitle = TextStyle()
     }
-    public struct Weight: Sendable { public static let regular = Weight(), medium = Weight(), bold = Weight() }
+    public struct Weight: Sendable { public static let regular = Weight(), medium = Weight(), semibold = Weight(), bold = Weight(), heavy = Weight() }
+    public override init() { super.init() }
+    public init?(name fontName: String, size fontSize: CGFloat) { super.init() }
     public class func preferredFont(forTextStyle style: TextStyle, compatibleWith traitCollection: UITraitCollection? = nil) -> UIFont { UIFont() }
     public class func monospacedSystemFont(ofSize fontSize: CGFloat, weight: UIFont.Weight) -> UIFont { UIFont() }
+    public class func systemFont(ofSize fontSize: CGFloat, weight: UIFont.Weight) -> UIFont { UIFont() }
     public var lineHeight: CGFloat { 20 }
+    public var pointSize: CGFloat { 17 }
+    public func withSize(_ fontSize: CGFloat) -> UIFont { self }
 }
 extension UITraitCollection {
     public convenience init(preferredContentSizeCategory: UIContentSizeCategory) { self.init() }
@@ -173,6 +179,8 @@ public final class UIFontMetrics: Sendable {
     public init(forTextStyle textStyle: UIFont.TextStyle) {}
     public static let `default` = UIFontMetrics(forTextStyle: .body)
     public func scaledValue(for value: CGFloat, compatibleWith traitCollection: UITraitCollection? = nil) -> CGFloat { value }
+    public func scaledFont(for font: UIFont, maximumPointSize: CGFloat) -> UIFont { font }
+    public func scaledFont(for font: UIFont) -> UIFont { font }
 }
 open class UITextRange: NSObject {}
 public typealias UIActionHandler = @MainActor (UIAction) -> Void

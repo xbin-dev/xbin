@@ -24,7 +24,8 @@ public enum XbinWidgetMetrics {
     }
     /// The card's margin around the widget.
     public static let inset: Double = 10
-    public static let cornerRadius: Double = 18
+    /// Base Two: square corners (XbinShapes, D185).
+    public static let cornerRadius: Double = XbinShapes.radius
     /// The screen's side margin.
     public static let margin: Double = 12
     /// The gap between cards, across and down.

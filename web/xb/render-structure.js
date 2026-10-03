@@ -286,7 +286,7 @@ export const STRUCTURE_CSS = css`
   .body.chat { overflow: hidden; padding: 44px 0 0; gap: 0; }
   .body.chat > xb-transcript { flex: 1 1 auto; min-height: 0; }
   .lt-block { padding: 2px 4px 0; margin-bottom: -6px; }
-  .lt { margin: 0; font: var(--xb-font-large-title); font-weight: 700; letter-spacing: 0.3px; overflow-wrap: anywhere; }
+  .lt { margin: 0; font: var(--xb-font-large-title); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   .ls { font: var(--xb-font-subheadline); color: var(--xb-muted); margin-top: 2px; }
   .search { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border-radius: 10px; background: var(--xb-fill); color: var(--xb-muted); flex: none; }
   .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--xb-text); font: var(--xb-font-body); }
@@ -301,12 +301,14 @@ export const STRUCTURE_CSS = css`
   .sec-title { display: flex; align-items: center; gap: 4px; min-width: 0; font: var(--xb-font-footnote); text-transform: uppercase; letter-spacing: 0.2px; color: var(--xb-muted); text-align: left; }
   button.sec-title { padding: 2px 0; }
   .sec-chev { width: 14px; height: 14px; stroke-width: 2.6; }
-  .sec-badge { font: var(--xb-font-caption); font-weight: 600; color: var(--xb-muted); background: var(--xb-fill); border-radius: 999px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
+  .sec-badge { font: var(--xb-font-caption); font-weight: 600; color: var(--xb-muted); background: var(--xb-fill); border-radius: var(--xb-radius); padding: 1px 8px; font-variant-numeric: tabular-nums; }
   .sec-foot { padding: 7px 16px 0; font: var(--xb-font-footnote); color: var(--xb-muted); }
   xb-section.nested { padding-top: 12px; padding-bottom: 12px; }
   xb-section.nested .sec-head, xb-section.nested .sec-foot { padding-left: 0; padding-right: 0; }
 
   .group { background: var(--xb-surface); border-radius: var(--xb-radius-group); overflow: hidden; }
+  /* a section on a scroll screen is a card of the app's own (Base Two: square); a list's groups are iOS's inset sections */
+  .body.free xb-section > .group, xb-section.nested > .group { border-radius: var(--xb-radius); }
   .cell { position: relative; min-height: 44px; padding: 11px 16px; }
   .cell + .cell::before, .disc-body > .cell:first-child::before, .plain > * + *::before {
     content: ''; position: absolute; top: 0; left: var(--sep, 16px); right: 0; border-top: 0.5px solid var(--xb-separator);
@@ -363,7 +365,7 @@ export const STRUCTURE_CSS = css`
   .row-chev { color: var(--xb-muted); opacity: 0.6; display: flex; margin-right: -6px; }
   .row-chev .ic { width: calc(var(--xb-icon) - 2px); height: calc(var(--xb-icon) - 2px); stroke-width: 2.6; }
   .row-content { padding: 0 16px 12px; display: flex; flex-direction: column; gap: 8px; }
-  .pill { flex: none; font: var(--xb-font-footnote); font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--xb-fill); color: var(--xb-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .pill { flex: none; font: var(--xb-font-footnote); font-weight: 600; padding: 2px 9px; border-radius: var(--xb-radius); background: var(--xb-fill); color: var(--xb-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .pill-accent { background: color-mix(in srgb, var(--xb-accent) 20%, transparent); color: var(--xb-accent-text); }
   .pill-ok { background: color-mix(in srgb, var(--xb-ok) 16%, transparent); color: var(--xb-ok); }
   .pill-warn { background: color-mix(in srgb, var(--xb-warn) 18%, transparent); color: var(--xb-warn); }

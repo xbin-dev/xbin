@@ -72,21 +72,54 @@ import XbinCore
         #expect(XbinTone("warn") == .warn && XbinTone("info") == nil && XbinTone(nil) == nil)
         #expect(XbinNoticeTone("info")?.tone == nil && XbinNoticeTone("danger")?.symbol == "exclamationmark.octagon")
         #expect(XbinTypeRole("caption2") == .caption2 && XbinTypeRole("huge") == nil)
-        let (r, g, b) = XbinPalette.components(XbinPalette.amber)
-        #expect(abs(r - 245.0 / 255) < 1e-9 && abs(g - 166.0 / 255) < 1e-9 && abs(b - 35.0 / 255) < 1e-9)
+        let (r, g, b) = XbinPalette.components(XbinPalette.accent.day)
+        #expect(abs(r - 31.0 / 255) < 1e-9 && abs(g - 61.0 / 255) < 1e-9 && abs(b - 1.0) < 1e-9)
+        #expect(XbinPalette.accent.value(dark: true) == 0x8C9BFF && XbinShade(both: 1) == XbinShade(1, 1))
     }
 
-    /// Text in a colour role is legible on the light backgrounds (white, the
-    /// grouped background): AA's 4.5:1 for body text on white.
-    @Test func lightTextContrast() {
-        let text = [XbinPalette.amberTextLight, XbinPalette.okTextLight, XbinPalette.warnTextLight,
-                    XbinPalette.dangerTextLight]
-        for c in text {
-            #expect(XbinPalette.contrast(c, 0xFFFFFF) >= 4.5, "\(String(c, radix: 16)) on white")
-            #expect(XbinPalette.contrast(c, 0xF2F2F7) >= 4.1, "\(String(c, radix: 16)) on the grouped background")
+    /// Text in a colour role is legible where it sits, in both appearances
+    /// (WCAG 2.2 AA, as theme.css holds them): body text and every role
+    /// drawn as text 4.5:1 on the panel and the inset panel, muted and the
+    /// accent on the canvas too; the accent ink on the accent; the mark's
+    /// white b 4.5:1 and its yellow x 3:1 (a graphic) on the cobalt tile.
+    @Test func textContrast() {
+        let asText: [XbinShade] = [XbinPalette.text, XbinPalette.muted, XbinPalette.subtle, XbinPalette.accent,
+                                    XbinPalette.ok, XbinPalette.warn, XbinPalette.danger, XbinPalette.info]
+        for dark in [false, true] {
+            for c in asText {
+                for ground in [XbinPalette.panel, XbinPalette.panel2] {
+                    let (fg, bg) = (c.value(dark: dark), ground.value(dark: dark))
+                    #expect(XbinPalette.contrast(fg, bg) >= 4.5, "\(String(fg, radix: 16)) on \(String(bg, radix: 16))")
+                }
+            }
+            for c in [XbinPalette.text, XbinPalette.muted, XbinPalette.accent] {
+                let (fg, bg) = (c.value(dark: dark), XbinPalette.bg.value(dark: dark))
+                #expect(XbinPalette.contrast(fg, bg) >= 4.5, "\(String(fg, radix: 16)) on the canvas \(String(bg, radix: 16))")
+            }
+            let (ink, accent) = (XbinPalette.accentInk.value(dark: dark), XbinPalette.accent.value(dark: dark))
+            #expect(XbinPalette.contrast(ink, accent) >= 4.5, "the accent ink on the accent")
+            // Status on its own tint (a badge, a notice).
+            for (c, tint) in [(XbinPalette.ok, XbinPalette.okBg), (XbinPalette.warn, XbinPalette.warnBg),
+                              (XbinPalette.danger, XbinPalette.dangerBg), (XbinPalette.info, XbinPalette.infoBg)] {
+                #expect(XbinPalette.contrast(c.value(dark: dark), tint.value(dark: dark)) >= 4.5,
+                        "\(String(c.value(dark: dark), radix: 16)) on its tint")
+            }
         }
-        // What they replace: systemOrange on white.
-        #expect(XbinPalette.contrast(0xFF9500, 0xFFFFFF) < 2.5)
+        #expect(XbinPalette.contrast(XbinPalette.markB, XbinPalette.markTile) >= 4.5)
+        #expect(XbinPalette.contrast(XbinPalette.markX, XbinPalette.markTile) >= 3)
+        // The terminal's foreground and its normal colours on its background
+        // (white is dim text, as on the web).
+        for c in [XbinPalette.Terminal.foreground] + XbinPalette.Terminal.ansi[1...7] {
+            #expect(XbinPalette.contrast(c, XbinPalette.Terminal.background) >= 4.5, "\(String(c, radix: 16)) in the terminal")
+        }
         #expect(abs(XbinPalette.contrast(0x000000, 0xFFFFFF) - 21) < 1e-9)
+    }
+
+    /// Base Two's shapes and part tabs.
+    @Test func shapes() {
+        #expect(XbinShapes.radius == 2 && XbinWidgetMetrics.cornerRadius == 2)
+        #expect(XbinPalette.partTabHeight == 3)
+        #expect(XbinPalette.Terminal.ansi.count == 16)
+        #expect(XbinPalette.chartLight.count == 6 && XbinPalette.chartDark.count == 6)
     }
 }

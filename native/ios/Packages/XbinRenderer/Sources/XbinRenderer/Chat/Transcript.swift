@@ -235,7 +235,7 @@ public struct MessageView<Actions: View>: View {
                     bubble
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(XbinColor.bubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .background(XbinColor.bubble, in: RoundedRectangle.xbinPlate)
                         .opacity(message.queued ? 0.6 : 1)
                 }
                 if message.queued {

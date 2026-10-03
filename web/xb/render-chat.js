@@ -292,7 +292,7 @@ export const CHAT_CSS = css`
   .m-sender { font-weight: 600; }
   .m-text { white-space: pre-wrap; overflow-wrap: anywhere; }
   .m-user { align-items: flex-end; }
-  .m-user .m-bubble { max-width: 82%; padding: 9px 14px; border-radius: 20px 20px 6px 20px;
+  .m-user .m-bubble { max-width: 82%; padding: 9px 14px; border-radius: var(--xb-radius);
     background: var(--xb-bubble); }
   .m-user .m-meta { padding: 0 6px; }
   .m-assistant .m-bubble { max-width: 100%; }
@@ -326,7 +326,7 @@ export const CHAT_CSS = css`
   @keyframes xb-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
   .th-body { margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--xb-border); font: var(--xb-font-subheadline); color: var(--xb-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 
-  .card { display: block; background: var(--xb-surface); border-radius: 14px; box-shadow: 0 0 0 0.5px var(--xb-separator); min-width: 0; }
+  .card { display: block; background: var(--xb-surface); border-radius: var(--xb-radius); box-shadow: 0 0 0 0.5px var(--xb-separator); min-width: 0; }
   .tc-head { display: flex; align-items: stretch; }
   .tc-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; }
   .tc-ic { display: flex; color: var(--xb-muted); }
@@ -335,7 +335,7 @@ export const CHAT_CSS = css`
   .tc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .tc-title { font: var(--xb-font-subheadline); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tc-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip { font: var(--xb-font-caption); font-weight: 600; padding: 1px 7px; border-radius: 999px; }
+  .chip { font: var(--xb-font-caption); font-weight: 600; padding: 1px 7px; border-radius: var(--xb-radius); }
   .chip:not([class*="pill-"]) { background: var(--xb-fill); color: var(--xb-muted); }
   .st { display: flex; }
   .st .ic { width: 1.05em; height: 1.05em; stroke-width: 2.6; }
@@ -357,10 +357,10 @@ export const CHAT_CSS = css`
   .ap-text { font: var(--xb-font-subheadline); white-space: pre-wrap; overflow-wrap: anywhere; }
   .ap-note { font: var(--xb-font-footnote); color: var(--xb-muted); }
   .ap-settled { font: var(--xb-font-subheadline); color: var(--xb-muted); }
-  .ap-fb { width: 100%; resize: none; border: 0; outline: 0; border-radius: 10px; padding: 9px 11px; background: var(--xb-surface2); font: var(--xb-font-subheadline); color: var(--xb-text); }
+  .ap-fb { width: 100%; resize: none; border: 0; outline: 0; border-radius: var(--xb-radius); padding: 9px 11px; background: var(--xb-surface2); font: var(--xb-font-subheadline); color: var(--xb-text); }
   .ap-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
   .ap-opts.row { flex-direction: row; justify-content: flex-end; }
-  .b-opt { min-height: 44px; padding: 0 16px; border-radius: 12px; font: var(--xb-font-headline); background: var(--xb-fill); color: var(--xb-text); }
+  .b-opt { min-height: 44px; padding: 0 16px; border-radius: var(--xb-radius); font: var(--xb-font-headline); background: var(--xb-fill); color: var(--xb-text); }
   .ap-opts.row .b-opt { min-height: 40px; }
   .b-opt.r-primary { background: var(--xb-accent); color: var(--xb-on-accent); }
   .b-opt.r-destructive { background: color-mix(in srgb, var(--xb-danger) 14%, transparent); color: var(--xb-danger); }
@@ -370,7 +370,7 @@ export const CHAT_CSS = css`
   .q-label { font: var(--xb-font-footnote); color: var(--xb-muted); }
   .q-bool .q-label { font: var(--xb-font-body); color: var(--xb-text); }
   .q-req { color: var(--xb-danger); margin-left: 2px; }
-  .q-input { border: 0; outline: 0; border-radius: 10px; padding: 10px 12px; background: var(--xb-surface2); font: var(--xb-font-body); color: var(--xb-text); width: 100%; }
+  .q-input { border: 0; outline: 0; border-radius: var(--xb-radius); padding: 10px 12px; background: var(--xb-surface2); font: var(--xb-font-body); color: var(--xb-text); width: 100%; }
   .q-desc { font: var(--xb-font-caption); color: var(--xb-muted); }
   .q-err { font: var(--xb-font-footnote); color: var(--xb-danger); }
 

@@ -154,7 +154,7 @@ struct CardGroup: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .background(XbinColor.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(XbinColor.surface, in: RoundedRectangle.xbinPlate)
         .environment(\.xbinPlacement, .card)
     }
 }
