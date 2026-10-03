@@ -1,8 +1,12 @@
 // ui.js — small shared bits of the demo tiles' pages (copied next to each
 // tile's index.html by hack/demo/seed.sh): number and time formatting,
-// people's initials and colours, and the base styles the pages share. The
-// colours come from the workspace theme tokens (/vendor/theme.css).
-import { css } from 'lit';
+// people's initials, and the base styles the pages share. Every colour,
+// font, corner and shadow comes from the workspace theme's tokens
+// (/vendor/theme.css: the pages opt in with <html data-bx-theme="auto">, so
+// they follow the person's light or dark theme); status is an icon, a word
+// and a colour (/vendor/bx-icons.js draws the icons).
+import { css, html } from 'lit';
+import '/vendor/bx-icons.js';
 
 export const api = (p, opt) => globalThis.xbin.fetch(`/api/${globalThis.xbin.self}${p}`, opt);
 export async function getJSON(p, opt) {
@@ -48,37 +52,59 @@ export function inDays(t, now = Date.now()) {
 }
 
 export const initials = (name) => String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
-const HUES = [14, 32, 152, 168, 190, 210, 232, 262, 290, 330, 350, 46];
-export function hue(id) {
-  let h = 0;
-  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return HUES[h % HUES.length];
-}
+// avatar: a person as their initials on a square of concrete (size '', 'sm'
+// or 'lg'), their name in its tooltip
+export const avatar = (name, size = '') => html`<span class="av ${size}" title=${name}>${initials(name)}</span>`;
+
+// a status's icon (bx-icons) by its class: .ok, .warn, .bad
+export const STATUS_ICON = { ok: 'ok', warn: 'warning', bad: 'error', info: 'info' };
+// badge(status, word): a status badge — its icon, its word, its colour
+export const badge = (status, word) => html`<span class="badge ${status}"><bx-icon name=${STATUS_ICON[status]}></bx-icon>${word}</span>`;
 
 export const baseCss = css`
-  :host { display: block; height: 100%; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel);
-          --ok: var(--bx-green); --warn: var(--bx-amber); --bad: var(--bx-red);
-          --blue: #6aa7e8; --teal: #3fbfae; --violet: #a68cf0; }
+  :host { display: block; height: 100%; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
   * { box-sizing: border-box; }
-  button { font: inherit; color: inherit; cursor: pointer; }
+  ::selection { background: var(--bx-selection); color: var(--bx-selection-text); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  ::placeholder { color: var(--bx-subtle); opacity: 1; }
+  :focus-visible { outline: var(--bx-focus-outline); outline-offset: var(--bx-focus-offset); box-shadow: var(--bx-focus-halo); }
   .muted { color: var(--bx-muted); }
   .mono { font-family: var(--bx-mono); }
   .num { font-variant-numeric: tabular-nums; }
-  .av { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; flex: none;
-        font-size: 9.5px; font-weight: 700; letter-spacing: .02em; color: #fff;
-        background: hsl(var(--h, 210) 45% 42%); box-shadow: 0 0 0 1.5px var(--bx-panel); }
-  .av.lg { width: 30px; height: 30px; font-size: 11.5px; }
-  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 10.5px;
-          border: 1px solid var(--bx-border); color: var(--bx-muted); white-space: nowrap; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
-  .ok { --c: var(--ok); } .warn { --c: var(--warn); } .bad { --c: var(--bad); }
-  .chip.ok, .chip.warn, .chip.bad { color: var(--c); border-color: color-mix(in srgb, var(--c) 40%, transparent);
-          background: color-mix(in srgb, var(--c) 10%, transparent); }
-  .dot.ok, .dot.warn, .dot.bad { background: var(--c); }
-  .label { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
-  .btn { background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 4px 11px; font-size: 12px; }
-  .btn:hover { border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
-  .btn.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: #1b1e24; font-weight: 600; }
+  .meta { font: var(--bx-font-meta); font-variant-numeric: tabular-nums; }
+  .label { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); }
+  bx-icon { flex: none; }
+  /* status: the colour and its tint, for whatever carries the class */
+  .ok { --st: var(--bx-ok); --st-bg: var(--bx-ok-bg); }
+  .warn { --st: var(--bx-warn); --st-bg: var(--bx-warn-bg); }
+  .bad { --st: var(--bx-danger); --st-bg: var(--bx-danger-bg); }
+  .info { --st: var(--bx-info); --st-bg: var(--bx-info-bg); }
+  /* a person: initials on concrete, square */
+  .av { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: var(--bx-radius);
+        background: var(--bx-panel-2); border: 1px solid var(--bx-border); color: var(--bx-text);
+        font: var(--bx-font-micro); letter-spacing: 0.02em; }
+  .av.sm { width: 20px; height: 20px; }
+  .av.lg { width: 32px; height: 32px; font: var(--bx-font-ui); font-weight: 600; }
+  /* a badge: square, 20 px, micro caps, a hairline; a status badge adds its
+     icon and colour */
+  .badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px solid var(--bx-border);
+           border-radius: var(--bx-radius); font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+           text-transform: uppercase; color: var(--bx-muted); white-space: nowrap; }
+  .badge bx-icon { --bx-icon-size: 14px; margin-left: -2px; }
+  .badge.ok, .badge.warn, .badge.bad, .badge.info { color: var(--st); background: var(--st-bg); border-color: color-mix(in srgb, var(--st) 45%, transparent); }
+  /* buttons: secondary by default, .primary the accent, .quiet text only */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--bx-control-h); padding: 4px 11px;
+         background: var(--bx-panel); border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); color: var(--bx-text); font-weight: 600; }
+  .btn:hover { background: var(--bx-hover); }
+  .btn.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+  .btn.primary:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
+  .btn.quiet { background: transparent; border-color: transparent; color: var(--bx-muted); }
+  .btn.quiet:hover { color: var(--bx-accent); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.icon { width: var(--bx-control-h); padding: 0; }
+  input, select, textarea { min-height: var(--bx-control-h); padding: 4px 8px; background: var(--bx-panel); border: 1px solid var(--bx-border-strong);
+                            border-radius: var(--bx-radius); color: var(--bx-text); }
   .empty { color: var(--bx-muted); padding: 18px; text-align: center; }
-  .err { color: var(--bad); padding: 10px 14px; }
+  .err { display: flex; align-items: center; gap: 6px; color: var(--bx-danger); padding: 10px 14px; }
 `;
