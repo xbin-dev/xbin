@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -760,5 +762,29 @@ func TestOriginsHostRouting(t *testing.T) {
 	// And the tile cookie means nothing on the workspace origin.
 	if rec := w.do("/c/apps/a/app.js", cookie(ca.Name, ca.Value)); rec.Code != http.StatusUnauthorized {
 		t.Errorf("tile cookie on the workspace origin: %d", rec.Code)
+	}
+}
+
+// covers D184 — a sandboxed page on a tile origin (the partition switch
+// page, the refusal) links /vendor/theme.css there, and the sheet's fonts
+// load in CORS mode from Origin: null: the tile origin's /vendor/ answers
+// it as the workspace origin always has (nullOriginCORS), and nothing else.
+func TestOriginsVendorNullOrigin(t *testing.T) {
+	w := newAssetWS(t, TileAssetsOrigins)
+	w.s.WebFS = os.DirFS(filepath.Join("..", "..", "web"))
+	oa := host(w.originHost("apps/a"))
+	for _, p := range []string{"/vendor/theme.css", "/vendor/bx-icons.js"} {
+		for name, on := range map[string][]reqOpt{"the tile origin": {oa}, "the workspace origin": nil} {
+			rec := w.do(p, append(on, hdr("Origin", "null"), hdr("Sec-Fetch-Mode", "cors"))...)
+			if rec.Code != 200 || rec.Header().Get("Access-Control-Allow-Origin") != "null" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Errorf("%s on %s from Origin: null: %d %v", p, name, rec.Code, rec.Header())
+			}
+			if rec := w.do(p, append(on, hdr("Origin", "https://elsewhere.example"))...); rec.Code != 200 || rec.Header().Get("Access-Control-Allow-Origin") != "" {
+				t.Errorf("%s on %s from another origin: %d %v", p, name, rec.Code, rec.Header())
+			}
+		}
+	}
+	if rec := w.do("/vendor/theme.css", oa, method("POST"), hdr("Origin", "null")); rec.Code == 200 {
+		t.Errorf("a POST to the tile origin's /vendor/: %d", rec.Code)
 	}
 }

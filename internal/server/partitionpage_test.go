@@ -18,8 +18,9 @@ import (
 // deleted, the tile's partitionNote escaped, and who decides where; the
 // tile's other files, other tiles and a reader-less caller (the D36 page)
 // are as before, and the page goes when the request is decided. The page
-// is self-contained: no script, no external reference of any kind, so it
-// renders the same inside any shell, old ones and the app included.
+// is self-contained: no script, and no reference but xbind's own
+// /vendor/theme.css (D184; its styles and fonts are all the CSP allows), so
+// it renders the same inside any shell, old ones and the app included.
 func TestPartitionSwitchPage(t *testing.T) {
 	for _, mode := range []string{TileAssetsLegacy, TileAssetsTokens} {
 		t.Run(mode, func(t *testing.T) {
@@ -60,12 +61,17 @@ func TestPartitionSwitchPage(t *testing.T) {
 						t.Errorf("%s: the page lacks %q:\n%s", u, want, body)
 					}
 				}
-				if h := rec.Header(); h.Get("Cache-Control") != "no-store" || !strings.Contains(h.Get("Content-Security-Policy"), "default-src 'none'") ||
-					!strings.Contains(h.Get("Content-Security-Policy"), "sandbox") || h.Get("X-Content-Type-Options") != "nosniff" {
+				if h := rec.Header(); h.Get("Cache-Control") != "no-store" || h.Get("Content-Security-Policy") != partitionPageCSP ||
+					h.Get("X-Content-Type-Options") != "nosniff" {
 					t.Errorf("%s: headers %v", u, h)
 				}
-				// self-contained: nothing loads, nothing runs
-				if bad := regexp.MustCompile(`(?i)<script|<link|<img|<iframe|src=|href=|@import|url\(|<form|\son[a-z]+=`).FindString(body); bad != "" {
+				// self-contained: nothing runs, nothing loads but the theme
+				// sheet (and its fonts) from xbind itself
+				const sheet = `<link rel="stylesheet" href="/vendor/theme.css">`
+				if strings.Count(body, sheet) != 1 {
+					t.Errorf("%s: the page doesn't link the theme sheet once", u)
+				}
+				if bad := regexp.MustCompile(`(?i)<script|<link|<img|<iframe|src=|href=|@import|url\(|<form|\son[a-z]+=`).FindString(strings.Replace(body, sheet, "", 1)); bad != "" {
 					t.Errorf("%s: the page references or runs something (%q)", u, bad)
 				}
 				if strings.Contains(body, "data-xbin") || strings.Contains(body, "xbin-client") {
