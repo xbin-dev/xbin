@@ -107,6 +107,15 @@ open in the same tab and carry ↗.
   so `object-position: 70% 62%` keeps the art direction's framing) and the full frame for
   the phone strip (`*-strip.webp`), WebP from the masters with PIL. The night image's
   sheets do not double; it ships until its replacement is generated (same names).
+- **The curve** (`#curve`, visual D-1) is drawn from `data/software-per-year.json`,
+  the series the research pass's history register gives for it (new repositories
+  created on GitHub per year, every point with its source; the 2026 point an
+  annualised rate) and the dated inflection marker. `make website-chart`
+  (`hack/website-chart.mjs`) draws it into `index.html` between the
+  `<!-- chart D-1 … -->` markers: an SVG stretched to the frame with HTML labels over
+  it, and the numbers in a "Show the numbers" table. Edit the data, never the block. A
+  projection (the dashed "If the curve holds" line) is drawn only once the data file
+  carries one.
 - **Media over 1 MiB** (the 12 s film, later) stays out of git: it lives in
   `website/media/` (gitignored) and `media.lock` pins each file's sha256 and source.
 
@@ -121,8 +130,9 @@ when installed).
 
 ```
 make website        # website/dist: every page, css/, fonts/, img/, art/*.webp, js/,
-                    # app/, install.sh, og.png, favicon.svg, apple-touch-icon.png,
-                    # media/ as media.lock pins it, static/helpers/
+                    # data/, app/, install.sh, og.png, favicon.svg,
+                    # apple-touch-icon.png, media/ as media.lock pins it,
+                    # static/helpers/
 ```
 
 It runs the site's check with `--dist` first. `dist/` is the deployable artifact (any
@@ -173,7 +183,7 @@ each rule on a copy of the site):
 
 New with Base Two: `/product.html`, `/security.html`, `/install.html`, `/ios.html`,
 `/404.html`, `/favicon.svg`, `/apple-touch-icon.png`, `/css/`, `/fonts/`, `/img/`,
-`/art/`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
+`/art/`, `/data/software-per-year.json`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
 `/shots/` and its IBM Plex fonts (`website/shots/` stays in git for the repository
 README's image).
 

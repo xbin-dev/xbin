@@ -1,0 +1,87 @@
+{
+  "about": "The series the home page's curve draws (visual D-1). From the history register of the research pass (register.md and data.json, every number checked against its source on 2026-10-03). hack/website-chart.mjs draws it into index.html.",
+  "series": {
+    "id": "github_new_repos_per_year",
+    "title": "New repositories created on GitHub per year",
+    "unit": "repositories/year",
+    "definition": "Repositories created in the Octoverse year (12 months ending ~Sep 30; Aug 31 for 2025). 2018 is derived (≈1/3 of 96M). 2026 is an annualised monthly rate, not a full-year total.",
+    "solidity": "A",
+    "caveat": "Do not plot the 2026 point as a completed year; mark it \"annualised rate\".",
+    "points": [
+      {
+        "year": 2013.975,
+        "date": "2013-12-23",
+        "value": 5500000,
+        "source": "https://github.blog/news-insights/10-million-repositories/",
+        "note": "\"over 5.5M repositories ... created this year alone\""
+      },
+      {
+        "year": 2018.745,
+        "date": "2018-09-30",
+        "value": 32000000,
+        "source": "https://github.blog/news-insights/octoverse/state-of-the-octoverse/",
+        "note": "derived: \"one third of all repositories were created in the last 12 months\" x 96M"
+      },
+      {
+        "year": 2019.745,
+        "date": "2019-09-30",
+        "value": 44000000,
+        "source": "https://github.blog/news-insights/octoverse/the-state-of-the-octoverse-2019/"
+      },
+      {
+        "year": 2020.746,
+        "date": "2020-09-30",
+        "value": 60000000,
+        "source": "https://octoverse.github.com/2020/"
+      },
+      {
+        "year": 2021.745,
+        "date": "2021-09-30",
+        "value": 61000000,
+        "source": "https://octoverse.github.com/2021/"
+      },
+      {
+        "year": 2022.745,
+        "date": "2022-09-30",
+        "value": 85700000,
+        "source": "https://octoverse.github.com/2022/developer-community"
+      },
+      {
+        "year": 2023.745,
+        "date": "2023-09-30",
+        "value": 98000000,
+        "source": "https://www.altusintel.com/public-yywm6r/"
+      },
+      {
+        "year": 2024.746,
+        "date": "2024-09-30",
+        "value": 108000000,
+        "source": "https://github.blog/news-insights/octoverse/octoverse-2024/"
+      },
+      {
+        "year": 2025.663,
+        "date": "2025-08-31",
+        "value": 121000000,
+        "source": "https://github.blog/news-insights/octoverse/octoverse-a-new-developer-joins-github-every-second-as-ai-leads-typescript-to-1/"
+      },
+      {
+        "year": 2026.619,
+        "date": "2026-08-15",
+        "value": 288000000,
+        "source": "https://github.blog/news-insights/company-news/the-august-17-outage-and-the-work-ahead/",
+        "note": "annualised: \"new repositories per month rising to about 24M\" x 12 (GitHub, Aug 2026)"
+      }
+    ]
+  },
+  "inflection": {
+    "year": 2021.49,
+    "date": "2021-06-29",
+    "label": "First large language models",
+    "what": "AI pair programmer preview (GitHub Copilot)",
+    "source": "https://github.blog/news-insights/product-news/introducing-github-copilot-ai-pair-programmer/"
+  },
+  "latest_note": "annualised August rate",
+  "latest_note_source": "register.md §7: \"Mark the 2026 point of github_new_repos_per_year as 'annualised August rate'.\"",
+  "projection": null,
+  "projection_note": "The register gives no projection for this series; the dashed \"If the curve holds\" line waits for one."
+}

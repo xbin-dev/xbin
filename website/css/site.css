@@ -106,9 +106,10 @@ a:hover{text-decoration-thickness:2px}
 /* ---------- home: the first screen is a diptych, type on paper and the glass hall ---------- */
 .hero{display:grid;grid-template-columns:minmax(0,1fr) clamp(400px,44vw,720px);column-gap:var(--gutter);min-height:clamp(600px,calc(100svh - 72px),880px)}
 /* the stair never runs past its column: all four lines shrink together, never grow
-   ("exponential" is 4.56 em wide in Bricolage 800, plus its 0.3 em of field, at x4 or x2.25) */
+   ("exponential", the widest line, is 5.48 em in Bricolage 800 plus its 0.3 em of field,
+   at x4 on desktop and x2.25 on phones) */
 .hero-copy{container-type:inline-size;display:flex;flex-direction:column;min-width:0;padding-block:clamp(24px,4.4vh,48px) clamp(32px,6vh,64px)}
-.hero .stair{--s:min(clamp(20px,min(2.2vw,2.92vh),44px),calc((100cqw - var(--edge) - 8px) / 19.6))}
+.hero .stair{--s:min(clamp(20px,min(2.2vw,2.92vh),44px),calc((100cqw - var(--edge) - 8px) / 23.3))}
 .kicker{display:flex;align-items:center;gap:var(--s-3);margin:0 0 var(--s-5);padding-left:var(--edge);font:600 15px/1.25 var(--f-display);letter-spacing:.005em}
 .hero-def{margin-top:auto;padding:var(--s-7) var(--s-4) 0 var(--edge)}
 .hero-def .lead{max-width:24em;margin-bottom:var(--s-5);font:600 clamp(18px,.7vw + 11px,22px)/1.3 var(--f-text);letter-spacing:-.005em;text-wrap:balance}
@@ -119,18 +120,40 @@ a:hover{text-decoration-thickness:2px}
 .curve-head{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--s-5) var(--gutter);align-items:end;margin-bottom:clamp(32px,4vw,56px)}
 .curve-head .body{color:var(--muted)}
 .chart{margin:0}
-.chart-frame{position:relative;aspect-ratio:21 / 9;border-bottom:1px solid var(--text);background:linear-gradient(var(--divider),var(--divider)) 0 25%/100% 1px no-repeat,linear-gradient(var(--divider),var(--divider)) 0 50%/100% 1px no-repeat,linear-gradient(var(--divider),var(--divider)) 0 75%/100% 1px no-repeat}
-.chart-y{position:absolute;top:0;left:0;max-width:40em;font:600 14px/20px var(--f-text)}
-.chart-x{position:absolute;top:100%;left:0;right:0;display:flex;justify-content:space-between;padding-top:8px;font:var(--t-caption);color:var(--muted)}
-.chart svg{width:100%;height:auto;overflow:visible}
-.chart .numbers{margin-top:var(--s-7)}
-.chart .numbers summary{display:inline-flex;align-items:center;min-height:32px;font:600 15px/1.2 var(--f-text);cursor:pointer;border-radius:var(--r)}
+/* D-1, drawn by hack/website-chart.mjs: the plot stretches to the frame, its labels stay their size */
+.chart-y{margin-bottom:var(--s-5);font:600 14px/20px var(--f-text)}
+.chart-frame{position:relative;aspect-ratio:21 / 9;margin-left:44px;border-bottom:1px solid var(--text)}
+.chart-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.chart-grid{stroke:var(--divider);stroke-width:1}
+.chart-pre{fill:var(--chart-pre)}
+.chart-post{fill:var(--chart-post)}
+.chart-rule{stroke:var(--text);stroke-width:1}
+.chart-line{fill:none;stroke:var(--text);stroke-width:3;stroke-linejoin:miter;stroke-linecap:square}
+.chart-labels{position:absolute;inset:0;font:var(--t-caption);color:var(--muted)}
+.chart-labels>*{position:absolute}
+.chart-ytick{right:calc(100% + 8px);top:var(--y);transform:translateY(-50%);font:500 12px/1 var(--f-mono);font-variant-numeric:tabular-nums}
+.chart-xtick{top:calc(100% + 8px);left:var(--x);transform:translateX(-50%);font-variant-numeric:tabular-nums}
+.chart-marker{left:var(--x);top:0;max-width:11em;padding:0 0 0 8px;color:var(--text);font:600 13px/1.25 var(--f-text)}
+.chart-dot{top:var(--y);left:var(--x);width:8px;height:8px;margin:-4px 0 0 -4px;background:var(--text)}
+.chart-today{top:var(--y);left:var(--x);padding-right:14px;transform:translate(-100%,-50%);color:var(--text);font:600 13px/1.25 var(--f-text);text-align:right;white-space:nowrap}
+.chart-today small{display:block;color:var(--muted);font:400 12px/1.3 var(--f-text)}
+/* narrower plots: the latest point's label moves above the frame, clear of the marker's */
+@media (max-width:1100px){
+  .chart-y{margin-bottom:56px}
+  .chart-today{top:auto;bottom:calc(100% + 8px);left:auto;right:calc(100% - var(--x) - 4px);padding:0;transform:none}
+  .chart-marker{padding:0 8px 0 0;transform:translateX(-100%);text-align:right}
+}
+.chart .numbers{margin-top:var(--s-8)}
+.chart .numbers summary{display:inline-flex;align-items:center;gap:10px;min-height:32px;font:600 15px/1.2 var(--f-text);cursor:pointer;border-radius:var(--r);list-style:none}
+.chart .numbers summary::-webkit-details-marker{display:none}
+.chart .numbers summary::before{content:"";border-left:7px solid currentColor;border-block:5px solid transparent;transition:transform var(--d-ui) var(--ease-out)}
+.chart .numbers[open] summary::before{transform:rotate(90deg)}
 .chart table{margin-top:var(--s-4);border-collapse:collapse;font:var(--t-small);font-variant-numeric:tabular-nums}
 .chart th,.chart td{padding:6px 16px 6px 0;border-bottom:1px solid var(--divider);text-align:left;vertical-align:top}
 .chart th{font-weight:600}
 .chart figcaption{margin-top:var(--s-5);max-width:72ch}
 .figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-6) var(--gutter)}
-.chart .figs{margin-top:var(--s-9)}
+.chart .figs{margin-top:var(--s-8)}
 .h2 + .figs{margin-top:var(--s-7)}
 .fig{padding-top:var(--s-3);border-top:3px solid var(--text)}
 .fig-label{display:block;font:var(--t-micro);letter-spacing:var(--ls-micro);text-transform:uppercase}
@@ -189,7 +212,9 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .copy:hover{background:var(--surface)}
 .code{display:flex;align-items:flex-start;gap:var(--s-3);padding:12px 12px 12px 18px;border:1px solid var(--divider);border-radius:var(--r);background:var(--surface)}
 .code pre{flex:1;min-width:0;margin:0;padding:6px 0;overflow-x:auto;font:500 14px/1.6 var(--f-mono);font-variant-ligatures:none}
-.cmd-code{display:block;min-width:0;overflow-x:auto;white-space:nowrap;font:500 clamp(12px,calc((100cqw - var(--reserve)) / (var(--chars) * .6 + .2)),20px)/1.35 var(--f-mono);font-variant-ligatures:none;user-select:all;-webkit-user-select:all;scrollbar-width:none;border-radius:var(--r)}
+/* sized to its block so the command stays on one line: 0.6 em a character, plus half a pixel
+   each for platforms that round glyph advances to whole pixels; never under 12 px */
+.cmd-code{display:block;min-width:0;overflow-x:auto;white-space:nowrap;font:500 clamp(12px,calc((100cqw - var(--reserve) - var(--chars) * .5px) / (var(--chars) * .6 + .2)),20px)/1.35 var(--f-mono);font-variant-ligatures:none;user-select:all;-webkit-user-select:all;scrollbar-width:none;border-radius:var(--r)}
 .cmd-code::-webkit-scrollbar{display:none}
 .cmd-code::before{content:"$ ";content:"$ " / "";color:var(--band-prompt);user-select:none;-webkit-user-select:none}
 
@@ -279,7 +304,7 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
   .hero-photo{order:-1;height:112px;min-height:0}
   .hero-photo img{object-position:58% 92%}
   .hero-copy{position:relative;z-index:1;margin-top:-40px;padding:0 0 var(--s-7)}
-  .hero .stair{order:1;--s:min(clamp(18px,6.6vw,30px),calc((100cqw - var(--edge) - 4px) / 11))}
+  .hero .stair{order:1;--s:min(clamp(18px,6.6vw,30px),calc((100cqw - var(--edge) - 4px) / 13.1))}
   .hero .st2{--m:1.5}
   .hero .st3{--m:2.25}
   .hero .st4{--m:4.5}

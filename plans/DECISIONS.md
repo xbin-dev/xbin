@@ -10652,9 +10652,21 @@ Deviations and refinements made while implementing; all deliberate:
     M3 has the strongest presence where the mark is a square (favicon, app
     icon); its refinement opened the b's counter and unboxed the x after
     cold readers saw a notification badge.
+  - **The curve is drawn from measured data only.** The research pass's
+    register found no measured "software made per year" series before
+    public version control, so the home page's chart draws what it can
+    stand behind: new repositories created on GitHub per year, 2013 to
+    2025, and the August 2026 rate marked as annualised, every point with
+    its source (`website/data/software-per-year.json`, drawn by
+    `make website-chart`); the marker sits at the first language model for
+    code (June 2021). The register also warns that the bend came with
+    coding agents in 2025 and 2026, not with the first language models.
   - **Open.** The owner's sign-off on wordmark A or B (A ships; the swap
     is one file, `website/img/wordmark.svg`); the product theme, Concrete
     Day and Concrete Night (D184); the iOS app icon and the product's
-    other touchpoints (W8); the history figures the home page's curve
-    waits for (the research pass) and the screenshots and film that wait
-    for the product theme; the repository README's pitch.
+    other touchpoints (W8); the curve's projection and the two figures the
+    register does not give (the growth since 2021, the end of the decade
+    if the curve holds), and whether the section's copy, written for a
+    seventy-year chart, should change to fit the measured one; the
+    screenshots and film that wait for the product theme; the repository
+    README's pitch.
