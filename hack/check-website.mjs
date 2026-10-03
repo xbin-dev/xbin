@@ -355,7 +355,20 @@ function markup() {
   }
 }
 
-// ---------------------------------------------------------------- 7. media over 1 MiB
+// ---------------------------------------------------------------- 7. the mark's files
+// The site never redraws the mark: its copies are the masters, byte for byte.
+function marks() {
+  const masters = join(ROOT, 'plans/brand/marks');
+  const same = (a, b) => existsSync(a) && existsSync(b) && readFileSync(a).equals(readFileSync(b));
+  for (const [site, master] of [['img/mark.svg', 'mark.svg'], ['favicon.svg', 'favicon.svg']]) {
+    if (!same(join(SITE, site), join(masters, master))) fail(`website/${site} is not plans/brand/marks/${master} (copy the master; never redraw the mark)`);
+  }
+  if (!['wordmark-a.svg', 'wordmark-b.svg'].some((m) => same(join(SITE, 'img/wordmark.svg'), join(masters, m)))) {
+    fail('website/img/wordmark.svg is neither plans/brand/marks/wordmark-a.svg nor wordmark-b.svg');
+  }
+}
+
+// ---------------------------------------------------------------- 8. media over 1 MiB
 function media() {
   const lock = join(SITE, 'media.lock');
   if (!existsSync(lock)) { fail('website/media.lock is missing'); return; }
@@ -379,6 +392,7 @@ noStorage();
 budgets();
 chrome();
 markup();
+marks();
 media();
 
 const todos = { data: 0, copy: 0, page: [] };

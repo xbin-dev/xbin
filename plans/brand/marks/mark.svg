@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">xbin</title>
+  <!-- Master mark, for 20 px and up (use favicon-16.svg / favicon-32.svg below that).
+       8-unit grid, u = 128: margin 1u, exponent x 2u, b x-height 4u, tile 8u (1 : 2 : 4 : 8).
+       Cobalt tile; white b (ascender 6u = 1.5 x-height, stem 1.25u, bars and wall 1u, round 2u counter);
+       yellow x set as the exponent: half the b's x-height, top on the b's ascender line,
+       bottom on its x-height line, 1u from the right edge. Square corners. Yellow touches only cobalt. -->
+  <rect width="1024" height="1024" fill="#1F3DFF"/>
+  <path fill="#FFFFFF" fill-rule="evenodd" d="M128 128H288V448C304 404 356 376 440 376C572 376 672 482 672 640C672 798 572 904 440 904C356 904 308 884 288 856V896H128ZM288 576C288 536 336 512 416 512C500 512 544 556 544 640C544 724 500 768 416 768C336 768 288 744 288 704Z"/>
+  <path fill="#FFD000" d="M640 128H728L768 189L808 128H896L812 256L896 384H808L768 323L728 384H640L724 256Z"/>
+</svg>

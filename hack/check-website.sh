@@ -12,6 +12,7 @@
 #     first-screen images ≤ 250 KB;
 #   - one header and one footer, the same markup on every page;
 #   - every <img> has alt, width and height; colours only from css/tokens.css;
+#   - the site's mark files are the masters in plans/brand/marks/;
 #   - website/media.lock is well formed (--dist: website/media/ matches it).
 # The rules themselves are in hack/check-website.mjs.
 set -euo pipefail

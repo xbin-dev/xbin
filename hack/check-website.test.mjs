@@ -102,6 +102,15 @@ test('images, links and colours', (t) => {
   breaks(t, (d) => edit(d, '404.html', (s) => s.replace('<main id="content">', '<main id="content" style="background:#fff">')), /hex colour in a style attribute/);
 });
 
+test("the site's marks are the brand's masters", (t) => {
+  breaks(t, (d) => edit(d, 'img/mark.svg', (s) => s.replace('#FFD000', '#FFE000')), /img\/mark\.svg is not plans\/brand\/marks\/mark\.svg/);
+  breaks(t, (d) => edit(d, 'img/wordmark.svg', (s) => s.replace('<title id="title">xbin</title>', '<title id="title">XBIN</title>')), /wordmark\.svg is neither/);
+  // swapping in wordmark B is one file
+  const dir = site(t);
+  writeFileSync(join(dir, 'img/wordmark.svg'), readFileSync(join(ROOT, 'plans/brand/marks/wordmark-b.svg')));
+  assert.equal(check(dir).code, 0);
+});
+
 test('media over 1 MiB is locked by sha256', (t) => {
   const line = `${'a'.repeat(64)}  film/F-1-day.mp4  hack/demo set/09, Concrete Day\n`;
   breaks(t, (d) => appendFileSync(join(d, 'media.lock'), 'not a lock line\n'), /media\.lock:\d+: want/);

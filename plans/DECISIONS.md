@@ -1669,6 +1669,10 @@ Deviations and refinements made while implementing; all deliberate:
   README gets the same pitch, the use cases, try-it and how-it-works before
   its reference material. Copy rules recorded in website/README.md; the site
   now runs under `make js-check` and `shellcheck` (it never had a guard).
+  *Superseded for the site by D183 (2026-10-03): the office frame is
+  retired; the brand is Base Two and the copy leads with the systems
+  thesis. The no-comparisons, no "not X, but Y", no-em-dash and two-CTA
+  rules carry over.*
 
 - **D68 — The grid scale is per browser and geometry-only (2026-09-14).**
   A shared layout laid out on a 32-inch 4K display is far too large on a
@@ -10532,3 +10536,125 @@ Deviations and refinements made while implementing; all deliberate:
     v0.3.61: not served, `account` accepted). The app target, the UI tests
     (XbinPartitionsTests, on the e2e workspace's new `apps/parted`) and the
     look of the marker need the Apple CI / Mac mini.
+
+- **D183 — Base Two brand: the system, the mark, and xbin.dev rebuilt in
+  it (2026-10-03).**
+  The owner's story for xbin is an era: "upgrade to exponential era
+  software", "the first exponential era workspace". The brand was found
+  without priming: agents started over in isolated sessions, three concept
+  rounds of independent directions, each rendered and scored by a judge
+  that saw every image and read by cold readers who knew nothing of the
+  product, with the owner's notes between rounds (round three fixed the
+  headline, "Software has entered its exponential era.", and asked for more
+  presence). The owner picked V2, **Base Two** ("bold colors, some 70s
+  brutalism-adjacent vibe and overall it's a big statement"), then, from four
+  marks drawn for it, **M3, the bˣ tile**: a white b with a yellow x raised
+  as its exponent, reversed out of cobalt (it also spells `bx`). Approving
+  it the owner added: "I really like the less rounded corners, we should
+  apply that consistently everywhere; Theme should follow system settings,
+  and we need to audit light theme isn't broken by hardcoded styles."
+  The system is `plans/brand.md`; the mark's files and rules are
+  `plans/brand/marks/`.
+  - **The idea.** Read the name as a formula: x is the variable, bin is
+    base two. Four colour fields double in size, yellow 1, green 2, magenta
+    4, cobalt 8, in that order in both themes; the biggest statement gets
+    the biggest field. Loud headline, sober proof: the announcement is
+    posters and signs, everything after it is quiet, exact and checkable.
+  - **Three volumes** decide what each surface may do: Announce (the home
+    hero, OG cards, film titles: the stair, the fields, one photograph),
+    Inform (product, security, docs, install, legal: ink type, plates,
+    the era stripe as the only colour, at most one field band and none on
+    security, docs or legal), Work (the product: concrete, ink, one cobalt
+    accent, fields only for part tabs, the elevated banner and first run).
+    The home page alone moves through all three, once and in order.
+  - **The owner's thesis, which the copy now leads with.** A company is a
+    set of systems that cause things to be made, so agents should build
+    those systems rather than be them: people and agents build the systems
+    and no longer operate them. The definition, used verbatim: "xbin is a
+    workspace where people and AI agents build the systems a company runs
+    on, and where those systems run." The home page tells the story in a
+    few words (software made from the 1950s to today and the bend after the
+    first large language models, from sourced figures only; what breaks;
+    the idea; xbin working, measured) and keeps the product plug quiet.
+  - **What it replaces.** D67's frame, "an office for your agents", with
+    its office metaphor and "IT holds the keys", is retired for the site
+    (the repository README still carries it). Still in force from D67: no
+    comparisons with other products, no "not X, but Y", no em dashes,
+    exactly two calls to action (the trial command first, the install
+    command second, each verbatim on one line).
+  - **The copy rules now in force** (`plans/brand.md` §3): announce, then
+    explain in a plain sentence; measured numbers only from the claims
+    register (`hack/demo/measurements.md`), each sentence naming its
+    machine and each page carrying the hardware note once; agents are
+    software that builds and changes apps, never colleagues, hires or a
+    person's replacement; short declaratives, plain part names, sentence
+    case, "xbin" always lowercase; no hype words; trust claims show the
+    mechanism (who checks what, where it is recorded).
+  - **No deployment mode.** No copy says where xbin runs or who runs it,
+    to stay flexible (the owner: "just don't mention deployment mode,
+    besides no one really cares"). The install guide states requirements
+    as facts; the privacy page keeps its existing wording.
+  - **No sandbox technology on story surfaces** (home, product, iOS, film,
+    social): no microVM, namespace, daemon, kernel, container or language
+    names. A technology name overstates or misstates what most apps get,
+    and it varies by app and will change; the copy says "its own sandbox".
+    The security page may be concrete for IT but never names it either,
+    and the microVM figures left the claims the site makes.
+  - **Square corners and the system's theme.** 2 px wherever a corner
+    shows, on the site and in the product: buttons, inputs, code, cards,
+    plates, windows, mats, tabs; no pills; full-bleed bands and fields show
+    none. The theme follows `prefers-color-scheme` with no toggle and
+    nothing stored, and every colour comes from tokens, so neither theme
+    can break on a hard-coded value. Focus is a cyan ring, 3 px with a 2 px
+    gap, a hue no field, accent or status uses.
+  - **The site.** `website/` is rebuilt in it with no build step: plain
+    HTML and CSS, one small ES module (the copy buttons; without it a
+    command is plain text a click selects whole), self-hosted fonts, no
+    cookies, storage, analytics or third-party loads, every page working
+    without JavaScript. `hack/check-website.sh` (`make website-check`, in
+    the guards) holds it there: `install.sh` byte-identical, the privacy
+    page's words, `app/ios.json`, no third-party loads or storage, per-page
+    budgets (HTML and CSS 60 KB, JS 80 KB, fonts 200 KB, first-screen
+    images 250 KB), one header and footer, every image's alt and size;
+    `make website` refuses to build without the prebuilt helpers the site
+    serves. Wordmark A ships with the exact Bricolage Grotesque outlines in
+    place of the mark round's hand-drawn proxies.
+  - **Rejected** (in the judges' and cold readers' terms). The first rounds'
+    five directions turned out to be one idea, warm paper, one vermilion
+    accent and a square in the exponent: *Superscript* (A), an editorial
+    thesis set like a magazine's new chapter, whose spec box told readers
+    what xbin is but whose framing left them unsure they were on a product
+    page; *Instrument: Log Scale* (B), an engineering datasheet, the most
+    trustworthy to IT, whose log axis put unrelated quantities on one
+    scale; *Bounded Series* (C), every speed paired with its bound, the
+    clearest security story, under a headline claiming a speed nothing
+    measures; *Superscript* (D), a motion grammar taken from the product's
+    own mechanics, behind a near-generic two-square mark; *Superscript*
+    (E), the x of "exponential" rising into the exponent, whose red x
+    smudged at 16 px and read as close or error. Round three: *Chambered*
+    (A1), the thesis with a nautilus photograph, more atmosphere and the
+    round's lowest clarity; *Night Edition* (A2), the product standing in
+    the one lit opening of a dark concrete hall, the most "product page
+    with vibe" and close to dark-mode-only; *First Light* (V1), a cinematic
+    title sequence with the best information design and a sunrise that
+    came closest to the generic AI-startup look; *Generations* (V3), a
+    5ⁿ lattice growing from the product, rigorous but calm in type and busy
+    in picture; *Raw machine* (V4), brutalist and system-native, the
+    clearest install band under an 8-bit wordmark in a well-worn
+    yellow-on-black look. Base Two's own weak points, as judged (four
+    saturated fields read as a creative tool, a halving-square mark read
+    as decay, dark mode flipping the stair), are what the three volumes,
+    the mark round and the fixed doubling order answer. Marks: M1, a
+    doubling stair of columns, the best motion story but a generic bar
+    chart at 16 px; M2, 2ˣ, the most legible but outside the field
+    language and close to UI notation ("2×"); M4, the stair on an ink
+    plate, closest to the hero but with no single shape across themes.
+    M3 has the strongest presence where the mark is a square (favicon, app
+    icon); its refinement opened the b's counter and unboxed the x after
+    cold readers saw a notification badge.
+  - **Open.** The owner's sign-off on wordmark A or B (A ships; the swap
+    is one file, `website/img/wordmark.svg`); the product theme, Concrete
+    Day and Concrete Night (D184); the iOS app icon and the product's
+    other touchpoints (W8); the history figures the home page's curve
+    waits for (the research pass) and the screenshots and film that wait
+    for the product theme; the repository README's pitch.

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>xbin</title>
+  <!-- iOS app icon: full bleed, opaque, square corners; iOS applies its own mask.
+       Same drawing as mark.svg. The nearest artwork corner (the x's top-right terminal, 896,128)
+       sits 128 px in from both edges, outside the mask's corner curve, so the mask trims only cobalt. -->
+  <rect width="1024" height="1024" fill="#1F3DFF"/>
+  <path fill="#FFFFFF" fill-rule="evenodd" d="M128 128H288V448C304 404 356 376 440 376C572 376 672 482 672 640C672 798 572 904 440 904C356 904 308 884 288 856V896H128ZM288 576C288 536 336 512 416 512C500 512 544 556 544 640C544 724 500 768 416 768C336 768 288 744 288 704Z"/>
+  <path fill="#FFD000" d="M640 128H728L768 189L808 128H896L812 256L896 384H808L768 323L728 384H640L724 256Z"/>
+</svg>
