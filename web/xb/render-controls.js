@@ -220,8 +220,8 @@ export const CONTROLS_CSS = css`
   .tg-label { flex: 1; min-width: 0; cursor: pointer; overflow-wrap: anywhere; }
   .switch { position: relative; flex: none; width: 51px; height: 31px; border-radius: 16px; background: var(--xb-fill); transition: background 0.2s; }
   .switch.on { background: var(--xb-ok); }
-  .knob { position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.06); transition: transform 0.2s; }
+  .knob { position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: var(--xb-knob);
+    box-shadow: var(--xb-knob-shadow); transition: transform 0.2s; }
   .switch.on .knob { transform: translateX(20px); }
 
   xb-field { display: block; }
@@ -289,6 +289,6 @@ export const OVERLAY_CSS = css`
     box-shadow: var(--xb-shadow), 0 0 0 0.5px var(--xb-separator); overflow: hidden; animation: xb-fade 0.12s ease-out; }
   .pop xb-button + xb-button { border-top: 0.5px solid var(--xb-separator); }
   .pop-sep { height: 8px; background: var(--xb-fill); }
-  .ov-img { background: rgba(0, 0, 0, 0.92); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+  .ov-img { background: var(--xb-lightbox); display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
   .ov-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
 `;

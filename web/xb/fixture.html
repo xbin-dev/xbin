@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html data-bx-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -15,14 +15,18 @@
   Scripts drive it through window.xbnFixture: load(tree), apply(msg),
   set({theme, text}), events (what the view sent: [k, type, payload, n]),
   ready (a promise, settled once the first tree is drawn).
+
+  The page is on the theme's tokens (D184): it opts in, so its background
+  is Concrete Day or Night with the scheme (the renderer's own bg in each),
+  and theme.css serves the faces the renderer names.
 -->
+<link rel="stylesheet" href="/vendor/theme.css">
 <style>
-  html, body { margin: 0; height: 100%; background: #f6f7f9; }
-  @media (prefers-color-scheme: dark) { html, body { background: #1b1e24; } }
-  html.dark, html.dark body { background: #1b1e24; }
-  html.light, html.light body { background: #f6f7f9; }
+  html, body { margin: 0; height: 100%; background: var(--bx-bg, #0B0C12); }
   xb-view { position: fixed; inset: 0; }
-  #err { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 9; font: 12px/1.4 monospace; color: #fff; background: #c62828; padding: 8px; border-radius: 6px; white-space: pre-wrap; }
+  #err { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 9; font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace);
+    color: var(--bx-danger, #FF7A7A); background: var(--bx-danger-bg, #3A2B32); border: 1px solid var(--bx-danger, #FF7A7A);
+    padding: 8px; border-radius: var(--bx-radius, 2px); white-space: pre-wrap; }
   #err:empty { display: none; }
 </style>
 <script type="module">
@@ -32,10 +36,19 @@
   const view = document.querySelector('xb-view');
   const err = document.getElementById('err');
   const events = [];
+  // a forced scheme rides the meta theme.css reads (no cookie: this page is
+  // a tool, not the person's choice)
+  const scheme = (t) => {
+    let m = document.head.querySelector('meta[name="xbin-theme"]');
+    if (t !== 'light' && t !== 'dark') { m?.remove(); return; }
+    if (!m) { m = document.createElement('meta'); m.name = 'xbin-theme'; document.head.prepend(m); }
+    m.content = t;
+  };
   const set = ({ theme, text } = {}) => {
     if (theme !== undefined) {
       view.theme = theme || '';
       document.documentElement.className = theme || '';
+      scheme(theme);
     }
     if (text !== undefined) view.text = text || '';
   };

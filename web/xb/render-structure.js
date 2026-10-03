@@ -388,19 +388,20 @@ export const STRUCTURE_CSS = css`
   xb-tab { display: contents; }
   .seg { display: flex; padding: 2px; border-radius: 9px; background: var(--xb-fill); flex: none; }
   .seg-item { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 8px; border-radius: 7px; font: var(--xb-font-subheadline); font-weight: 500; color: var(--xb-text); white-space: nowrap; }
-  .seg-item.on { background: var(--xb-control-on); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04); font-weight: 600; }
+  .seg-item.on { background: var(--xb-control-on); box-shadow: var(--xb-control-shadow); font-weight: 600; }
   .seg-item span { overflow: hidden; text-overflow: ellipsis; }
   /* in a bar the segments keep their labels whole: the bar gives the toolbar
      its full width before the title (1h 6h 2… otherwise) */
   xb-toolbar .seg-item { flex: none; }
   xb-toolbar .seg-item span { overflow: visible; }
-  .tab-badge { font: var(--xb-font-caption2); font-weight: 700; background: var(--xb-danger); color: #fff; border-radius: 999px; padding: 1px 6px; }
+  .tab-badge { font: var(--xb-font-caption2); font-weight: 700; background: var(--xb-danger); color: var(--xb-on-danger); border-radius: 999px; padding: 1px 6px; }
   xb-tabs.tabs-bar { display: flex; flex-direction: column; height: 100%; min-height: 0; }
   xb-tabs.tabs-bar > .tabs-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   xb-tabs.tabs-bar > .tabs-body > xb-tab:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
   .tabbar { display: flex; flex: none; padding: 6px 8px 22px; border-top: 0.5px solid var(--xb-separator);
     background: color-mix(in srgb, var(--xb-surface) 88%, transparent); backdrop-filter: blur(18px); }
-  /* tab bar labels keep their size at every text size, as on iOS */
+  /* tab bar labels keep their size at every text size, as on iOS
+     (theme-ok: the app's tab bar idiom, 10 pt labels) */
   .tb-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; font: 500 10px/12px var(--xb-family); color: var(--xb-muted); position: relative; }
   .tb-item.on { color: var(--xb-accent-text); }
   .tb-item .ic { width: 24px; height: 24px; }

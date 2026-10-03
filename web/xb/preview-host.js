@@ -31,6 +31,8 @@
  */
 import { attach } from '/vendor/xb-native.js';
 import '/vendor/xb/render.js';
+import { SCHEMES } from '/vendor/xb/render-theme.js';
+import { appearance } from '/vendor/bx-theme.js';
 import { VOCAB, fullCaps } from '/vendor/xb/vocab.js';
 import { apiPath, assetPath, uploadMethod } from '/vendor/xb/tile-resource.js';
 
@@ -51,24 +53,36 @@ function start() {
     const c = fullCaps();
     inj.caps = { ...c, features: [...c.features, VOCAB.widget.feature], widgetSize: wsize };
   }
+  // theme.css for the faces the renderer names (Bricolage Grotesque,
+  // JetBrains Mono: D184); the page around the view in the renderer's own
+  // colours (render-theme.js), so it matches the view in either scheme
+  const sheet = document.createElement('link');
+  sheet.rel = 'stylesheet';
+  sheet.href = '/vendor/theme.css';
+  const L = SCHEMES.light, D = SCHEMES.dark;
   const style = document.createElement('style');
-  style.textContent = `html, body { margin: 0; height: 100%; background: #f6f7f9; }
-    @media (prefers-color-scheme: dark) { html:not(.light), html:not(.light) body { background: #1b1e24; } }
-    html.dark, html.dark body { background: #1b1e24; }
+  style.textContent = `html, body { margin: 0; height: 100%; background: ${L.bg}; }
+    @media (prefers-color-scheme: dark) { html:not(.light), html:not(.light) body { background: ${D.bg}; } html:not(.light) .xbn-widget { box-shadow: ${D.shadow}; } }
+    html.dark, html.dark body { background: ${D.bg}; }
     xb-view { position: fixed; inset: 0; }
     #xbn-strip { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; max-height: 30%; overflow: auto;
-      font: 12px/1.4 ui-monospace, monospace; color: #fff; background: rgba(198, 40, 40, 0.94); padding: 6px 10px; white-space: pre-wrap; }
+      font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); color: var(--bx-danger, #FF7A7A);
+      background: var(--bx-danger-bg, #3A2B32); border-top: 1px solid var(--bx-danger, #FF7A7A); padding: 6px 10px; white-space: pre-wrap; }
     #xbn-strip:empty { display: none; }
-    .xbn-widget { position: fixed; left: 12px; top: 24px; border-radius: 18px; overflow: hidden;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 6px 20px rgba(0, 0, 0, 0.08); }
+    /* theme-ok: a widget is the app's card, with the app's corner (plan §6) */
+    .xbn-widget { position: fixed; left: 12px; top: 24px; border-radius: 18px; overflow: hidden; box-shadow: ${L.shadow}; }
+    html.dark .xbn-widget { box-shadow: ${D.shadow}; }
     .xbn-widget xb-view { position: absolute; inset: 0; }
     xb-view.xbn-hidden { visibility: hidden; }`;
-  document.head.append(style);
-  const theme = q.get('theme');
-  if (theme === 'light' || theme === 'dark') document.documentElement.classList.add(theme);
+  document.head.append(sheet, style);
+  // the scheme: &theme=, else the person's choice where they made one (the
+  // document's injected meta, D184), else the system's
+  const asked = q.get('theme'), chose = appearance(document).theme;
+  const theme = asked === 'light' || asked === 'dark' ? asked : chose === 'light' || chose === 'dark' ? chose : '';
+  if (theme) document.documentElement.classList.add(theme);
 
   const view = document.createElement('xb-view');
-  view.theme = theme === 'light' || theme === 'dark' ? theme : '';
+  view.theme = theme;
   if (q.get('text') === 'large') view.text = 'large';
   const strip = document.createElement('div');
   strip.id = 'xbn-strip';
