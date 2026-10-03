@@ -534,6 +534,10 @@ body.bx {
   font: var(--bx-font);
 }
 .bx input[type="checkbox"], .bx input[type="radio"], .bx input[type="range"] { min-height: 0; padding: 0; }
+/* Defaults a .bx document's own rules override (no specificity): the
+   placeholder in subtle (product-ui 6), code in the mono face. */
+:where(.bx) ::placeholder { color: var(--bx-subtle); opacity: 1; }
+:where(.bx) :where(pre, code, kbd, samp) { font-family: var(--bx-mono); }
 .bx :focus-visible, .bx:focus-visible {
   outline: var(--bx-focus-outline);
   outline-offset: var(--bx-focus-offset);

@@ -19,7 +19,9 @@
 // on any, unless CANARY_REPORT=1 (a burn-down run: counts only).
 //
 // Exceptions, with their reasons, are EXEMPT below (the runtime `theme-ok:`):
-// keep them as few as the allowlist.
+// keep them as few as the allowlist. Content a person wrote (a folder's
+// emoji, an agent class's icon) is theirs: an element marked
+// data-bx-content, and what it holds, is never counted for emoji.
 const path = require('path');
 const { URL, OUT, fs, sleep, log, login, closeCtx, openShell, usePersonalScreen, openTile, closeTile, tileFrame, fr, checker, noGocryptfs } = require('../lib');
 
@@ -31,6 +33,7 @@ const RADIUS = '1.75px';
 const EXEMPT = [
   { el: /^textarea\.xterm-helper-textarea/, why: 'xterm\'s input proxy, styled by the vendored xterm.css and never visible (audit A22)' },
   { el: /\.qr\b/, why: 'a QR code stays dark on light for scanners' },
+  { el: /^span\.ficon\b/, prop: 'emoji', why: 'a folder\'s icon is what the person typed (the sidebar)' },
 ];
 
 // The canary sheet: theme.css's tokens, colour by colour, as fingerprints.
@@ -105,7 +108,8 @@ function auditDoc(RADIUS) {
       : pseudo ? (cs.content && cs.content !== 'none' && cs.content !== 'normal' ? cs.content.slice(0, 30) : '') : ownText(el);
     const field = !pseudo && /^(input|textarea|select|button)$/.test(el.localName);
     const tag = { text: (txt || (field ? (el.value || el.placeholder || '') : '')).slice(0, 40) };
-    if (txt && /\p{Extended_Pictographic}/u.test(txt) && !/^[←-⇿⌀-⏿■-◿☀-⛿✀-➿\s]+$/u.test(txt.replace(/[^\p{Extended_Pictographic}\s]/gu, ''))) flag('emoji', txt.match(/\p{Extended_Pictographic}/gu).join(''), tag);
+    const content = !!el.closest?.('[data-bx-content]');
+    if (txt && !content && /\p{Extended_Pictographic}/u.test(txt) && !/^[←-⇿⌀-⏿■-◿☀-⛿✀-➿\s]+$/u.test(txt.replace(/[^\p{Extended_Pictographic}\s]/gu, ''))) flag('emoji', txt.match(/\p{Extended_Pictographic}/gu).join(''), tag);
     if (txt || field) {
       for (const c of parse(cs.color)) if (c.a > 0 && !canary(c)) flag('color', short(c), tag);
       const fam = cs.fontFamily.split(',')[0].trim();
@@ -178,7 +182,7 @@ async function auditPage(page) {
       docs.push({ url: f.url(), error: String(e.message).slice(0, 200), findings: [] });
     }
   }
-  for (const d of docs) d.findings = d.findings.filter((x) => !EXEMPT.some((e) => e.el.test(x.el)));
+  for (const d of docs) d.findings = d.findings.filter((x) => !EXEMPT.some((e) => e.el.test(x.el) && (!e.prop || e.prop === x.prop)));
   return docs;
 }
 

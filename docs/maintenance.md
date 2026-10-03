@@ -558,8 +558,18 @@ names, an avatar hue derived from an id), or — for a whole file —
 the terminal's named palettes, the native renderer's iOS shapes. Both need
 a reason that holds; a bare `theme-ok:` excepts nothing. The tests are
 `hack/theme-fallbacks.test.mjs` and `hack/theme-lint.test.mjs` (`make
-js-test`); the harness's `themeCanary` pass is the runtime half (§UI
-harness).
+js-test`). The runtime half is the harness's `themeCanary` pass: every
+colour token set to a fingerprint, the fonts to families nobody has, the
+radius to an odd 1.75px, then every visible element of the shipped UI (the
+sign-in page, the shell, a terminal and the code window, the agent chat,
+the admin console, the partitions page) is checked for anything else, in
+both schemes — the UA defaults and runtime colours a source scan can't see
+(`CANARY_REPORT=1` lists without failing). Its few exceptions, with
+reasons, are `EXEMPT` in the pass; text a person wrote (a folder's emoji)
+sits in an element marked `data-bx-content` and isn't counted as an emoji.
+`appearance` is the mechanism's pass: no flash at the first frame in every
+kind of document, the relay, the hint cookie, density, fonts in every
+asset mode.
 
 ## The native reference (`docs/native.md`)
 
