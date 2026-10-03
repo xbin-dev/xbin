@@ -12,7 +12,8 @@
 #     --strict    warnings are fatal too
 #
 # Offline:
-#   1. web/vendor ↔ hack/vendor.sha256 (every file listed, every hash matches)
+#   1. web/vendor ↔ hack/vendor.sha256 (every file listed, fonts/ included,
+#      every hash matches)
 #   2. Go versions agree: go.mod == install.sh XBIN_GO_VERSION; ci.yml's
 #      go-version is go.mod's major.minor; the rootfs-baked toolchain
 #      (docker/rootfs.Dockerfile) satisfies every go.mod.tile / sdk / example
@@ -96,11 +97,12 @@ else
   else
     fail "web/vendor differs from hack/vendor.sha256 — $(cd "$repo/web/vendor" && sha256sum -c --quiet "$repo/hack/vendor.sha256" 2>&1 | tr '\n' ' ')(re-run ./hack/vendor.sh if the change is intended)"
   fi
+  # every file, fonts/ included (D184), by its path under web/vendor/
+  listed=$(sed -n 's/^[0-9a-f]\{64\}  //p' "$repo/hack/vendor.sha256")
   unlisted=""
-  for f in "$repo"/web/vendor/*; do
-    name=$(basename "$f")
-    grep -q " $name\$" "$repo/hack/vendor.sha256" || unlisted="$unlisted $name"
-  done
+  while IFS= read -r name; do
+    grep -qxF -- "$name" <<< "$listed" || unlisted="$unlisted $name"
+  done < <(cd "$repo/web/vendor" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
   [ -z "$unlisted" ] || fail "web/vendor has files not in hack/vendor.sha256:$unlisted"
 fi
 
