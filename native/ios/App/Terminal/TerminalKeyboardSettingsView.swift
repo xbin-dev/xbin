@@ -121,14 +121,14 @@ private struct KeyCapButton: View {
     var body: some View {
         Button(action: action) {
             Text(verbatim: AccessorySlot.capLabel(key))
-                .font(.system(size: 15, weight: .medium, design: .monospaced))
+                .font(XbinFont.mono(.body, size: 15))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(maxWidth: .infinity, minHeight: 36)
         }
         .buttonStyle(.borderless)
-        .foregroundStyle(selected ? Color.white : Color.primary)
-        .background(selected ? Color.accentColor : Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+        .foregroundStyle(selected ? XbinColor.onAccent : XbinColor.text)
+        .background(selected ? XbinColor.accent : XbinColor.fill, in: .xbinPlate)
         .accessibilityLabel(AccessorySlot.describe(key))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -151,11 +151,11 @@ private struct AccessoryRowPreview: View {
 
     private func cap(_ key: AccessoryKey, highlighted: Bool) -> some View {
         Text(verbatim: AccessorySlot.capLabel(key))
-            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .font(XbinFont.mono(.footnote, size: 12))
             .lineLimit(1)
             .minimumScaleFactor(0.5)
             .frame(maxWidth: .infinity, minHeight: 30)
-            .background(highlighted ? Color.accentColor.opacity(0.3) : Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 6))
+            .background(highlighted ? XbinColor.selection : XbinColor.fill, in: .xbinPlate)
             .layoutPriority(highlighted && AccessorySlot.capLabel(key).count > 3 ? 1 : 0)
     }
 }

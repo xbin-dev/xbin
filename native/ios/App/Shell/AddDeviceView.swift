@@ -140,7 +140,7 @@ struct QRCodeImage: View {
                     .resizable()
                     .scaledToFit()
                     .padding(12)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.white, in: .xbinPlate) // a QR code reads dark on white, in either theme
             } else {
                 Image(systemName: "qrcode").font(.largeTitle).foregroundStyle(.secondary)
             }
