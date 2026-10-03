@@ -4,17 +4,23 @@
   component you own — edit it, add a backend (`bx new` scaffolds are a good
   reference), give it a scope. The template it came from is unchanged.
 -->
-<html lang="en">
+<!--
+  data-bx-theme="auto": the page follows the person's light or dark theme.
+  Style it with theme.css's tokens (var(--bx-text), --bx-panel, --bx-accent,
+  --bx-radius, --bx-font…), never colours or fonts of your own, and it stays
+  right in both (docs/frontend-kit.md).
+-->
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>starter</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { margin: 0; padding: 1.25rem; font: 14px/1.5 system-ui, sans-serif; }
-    h1 { margin: 0 0 .25rem; font-size: 1.1rem; }
-    p { margin: .25rem 0; color: var(--bx-muted, #868f9a); }
-    code { background: var(--bx-surface-2, #1c1f26); padding: .1em .35em; border-radius: 4px; }
+    body { margin: 0; padding: 20px; font: var(--bx-font-body); }
+    h1 { margin: 0 0 4px; font: var(--bx-font-heading); letter-spacing: var(--bx-tracking-heading); }
+    p { margin: 4px 0; color: var(--bx-muted); }
+    code { background: var(--bx-panel-2); padding: 0 4px; border-radius: var(--bx-radius); font: var(--bx-font-code); }
   </style>
 </head>
 <body class="bx">

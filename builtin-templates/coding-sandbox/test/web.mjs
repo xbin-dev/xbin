@@ -10,7 +10,7 @@
 // also writes screenshots of each tab.
 //
 //   PLAYWRIGHT_DIR=~/lcad-wasm node test/web.mjs   (needs playwright + a chromium build; SKIPs without)
-import { readFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { STUB } from './stub.mjs';
@@ -22,6 +22,12 @@ const vendor = process.env.BX_VENDOR || join(here, '..', '..', '..', 'web', 'ven
 const ORIGIN = 'http://tile.test';
 const THEME = '<style>:root{--bx-border:#ccc;--bx-panel:#fff;--bx-panel-2:#f4f4f4;--bx-text:#111;--bx-bg:#fafafa;' +
   '--bx-muted:#777;--bx-accent:#b57e10;--bx-mono:monospace;--bx-red:#c33;--bx-green:#3a3}</style>';
+// the glyphs (<bx-icon>, D184): the kit's own file next to the vendored lit
+// (in a checkout: web/bx-icons.js; BX_ICONS=<path> elsewhere), else an
+// element that draws nothing — the page's words are what the test reads
+const iconsAt = [process.env.BX_ICONS, join(vendor, '..', 'bx-icons.js')].filter(Boolean).find((p) => existsSync(p));
+const ICONS = iconsAt ? readFileSync(iconsAt, 'utf8')
+  : "customElements.define('bx-icon', class extends HTMLElement {}); export const hasIcon = () => true; export const ICON_NAMES = [];";
 // the terminal element, stubbed: it keeps its src and says a session started
 const TERM = `customElements.define('bx-terminal', class extends HTMLElement {
   connectedCallback() { this.textContent = 'terminal → ' + this.getAttribute('src');
@@ -50,6 +56,7 @@ async function serve(ctx) {
     if (path === 'vendor/lit-all.min.js') return route.fulfill({ contentType: 'text/javascript', body: readFileSync(join(vendor, 'lit-all.min.js'), 'utf8') });
     if (path === 'vendor/bx-terminal.js') return route.fulfill({ contentType: 'text/javascript', body: TERM });
     if (path === 'vendor/theme.css') return route.fulfill({ contentType: 'text/css', body: '' });
+    if (path === 'vendor/bx-icons.js') return route.fulfill({ contentType: 'text/javascript', body: ICONS });
     if (path !== 'index.html' && !modules.has(path)) return route.fulfill({ status: 404, body: '' });
     let body = readFileSync(join(tileDir, path), 'utf8');
     if (path === 'index.html') body = body.replace('<link rel="stylesheet" href="/vendor/theme.css">', THEME);

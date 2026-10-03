@@ -4,53 +4,67 @@
      the agent binding, the claim, credentials, egress), lets anyone signed in link
      their chat account to their workspace account, and, while no platform is added,
      plays the chat platform itself (the console). -->
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>messaging bridge</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg, #1b1e24); }
-    main { max-width: 820px; margin: 0 auto; padding: 14px 16px 28px; }
-    h3 { margin: 0; font-size: 15px; }
-    h4 { margin: 20px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
-    .hd { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
-    .pill { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--bx-border); }
-    .pill.ok { color: var(--bx-green); border-color: var(--bx-green); }
-    .pill.warn { color: var(--bx-amber, #f2a71b); border-color: var(--bx-amber, #f2a71b); }
-    .pill.err { color: var(--bx-red); border-color: var(--bx-red); }
+    /* body.bx: theme.css's type, controls and focus ring; this sheet uses its
+       tokens only, so the page is right in light and dark (D184): .go is the
+       primary button, .rm the danger outline; states are square badges with
+       their colour beside the word; the console's people on panel-2, the
+       agent on the panel. */
+    body.bx { background: var(--bx-bg); }
+    main { max-width: 820px; margin: 0 auto; padding: var(--bx-pad) var(--bx-pad) 28px; }
+    h3 { margin: 0; font: var(--bx-font-title); }
+    h4 { margin: 16px 0 8px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+      text-transform: uppercase; color: var(--bx-muted); }
+    .hd { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+    .pill { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px;
+      font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+      border-radius: var(--bx-radius); border: 1px solid var(--bx-border-strong); color: var(--bx-muted); }
+    .pill.ok { color: var(--bx-ok); border-color: var(--bx-ok); }
+    .pill.warn { color: var(--bx-warn); border-color: var(--bx-warn); }
+    .pill.err { color: var(--bx-danger); border-color: var(--bx-danger); }
     .muted { color: var(--bx-muted); }
-    .small { font-size: 12px; }
-    .err { color: var(--bx-red); margin: 6px 0; }
-    .note { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--bx-accent); background: var(--bx-panel-2); }
-    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 10px 12px; background: var(--bx-panel); margin: 8px 0; }
-    .card.custom { border-color: var(--bx-accent); }
-    code, .mono { font-family: var(--bx-mono, monospace); font-size: 12px; }
-    .cmd { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
-    .cmd code { flex: 1; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel-2); overflow-x: auto; white-space: nowrap; }
+    .small { font: var(--bx-font-meta); }
+    .err { display: flex; gap: 6px; align-items: baseline; color: var(--bx-danger); margin: 8px 0; }
+    .note { display: flex; gap: 6px; align-items: baseline; margin: 8px 0; padding: 8px 12px;
+      border: 1px solid var(--bx-border); border-left: 2px solid var(--bx-info); background: var(--bx-panel);
+      border-radius: var(--bx-radius); }
+    .card { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px 12px; background: var(--bx-panel); margin: 8px 0; }
+    .card.custom { border-color: var(--bx-border-strong); }
+    code, .mono { font: var(--bx-font-code); }
+    .cmd { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+    .cmd code { flex: 1; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius);
+      background: var(--bx-code-bg); overflow-x: auto; white-space: nowrap; }
     ul.check { list-style: none; padding: 0; margin: 4px 0; }
-    ul.check li { margin: 6px 0; }
-    ul.check .ok { color: var(--bx-green); }
-    ul.check .todo { color: var(--bx-amber, #f2a71b); }
+    ul.check li { margin: 8px 0; }
+    ul.check .ok, ul.check .todo { display: inline-flex; align-items: center; gap: 4px; vertical-align: bottom; }
+    ul.check .ok { color: var(--bx-ok); }
+    ul.check .todo { color: var(--bx-warn); }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
-    input, select, textarea { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); }
     input.wide { flex: 1; min-width: 220px; }
-    textarea { width: 100%; box-sizing: border-box; }
-    button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 5px; border: 1px solid var(--bx-border); background: var(--bx-panel); color: var(--bx-text); cursor: pointer; }
-    button.go { background: var(--bx-accent); border-color: transparent; color: #fff; }
-    button.rm { color: var(--bx-red); }
-    .transcript { border: 1px solid var(--bx-border); border-radius: 7px; padding: 6px 10px; max-height: 360px; overflow-y: auto; background: var(--bx-panel); }
-    .line { padding: 4px 0; border-bottom: 1px solid var(--bx-border); }
-    .line:last-child { border-bottom: 0; }
+    body.bx input.mono { font-family: var(--bx-mono); }
+    body.bx textarea { width: 100%; }
+    .bx button.go { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+    .bx button.go:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
+    .bx button.rm { color: var(--bx-danger); border-color: var(--bx-danger); }
+    .bx button.icon { display: inline-flex; align-items: center; justify-content: center; min-width: var(--bx-control-h); padding: 0; }
+    .transcript { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 4px; max-height: 360px;
+      overflow-y: auto; background: var(--bx-panel); display: flex; flex-direction: column; gap: 4px; }
+    /* a person's line on panel-2, the agent's on the panel (product-ui 8) */
+    .line { padding: 4px 8px; border-radius: var(--bx-radius); }
+    .line.in { background: var(--bx-panel-2); }
     .line .who { font-weight: 600; }
-    .line.out .who { color: var(--bx-accent); }
-    .line .where { color: var(--bx-muted); font-size: 11px; }
+    .line .where { color: var(--bx-muted); font: var(--bx-font-meta); }
     .line .txt { white-space: pre-wrap; }
-    .line img { max-width: 240px; max-height: 160px; display: block; margin-top: 4px; border-radius: 4px; }
-    table { border-collapse: collapse; width: 100%; font-size: 12px; }
-    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
-    td.t { white-space: nowrap; color: var(--bx-muted); }
-    .k-error { color: var(--bx-red); }
+    .line img { max-width: 240px; max-height: 160px; display: block; margin-top: 4px; border-radius: var(--bx-radius); }
+    table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+    td { box-sizing: border-box; height: 32px; padding: 4px 8px 4px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+    td.t { white-space: nowrap; color: var(--bx-muted); font: var(--bx-font-code); }
+    .k-error { color: var(--bx-danger); }
   </style>
 </head>
 <body class="bx">
@@ -58,6 +72,7 @@
 <script type="module">
 import { html, render, nothing } from 'lit';
 import { selfApi as api, jbody } from '/vendor/bx-kit.js';
+import '/vendor/bx-icons.js'; // <bx-icon name>: drawn glyphs (D184)
 
 const self = window.xbin?.self || 'apps/messaging-bridge';
 const agentURL = () => window.xbin?.iface?.('agent')?.url || '';
@@ -113,10 +128,10 @@ function headTpl() {
   const s = st.state || {};
   const [cls, label] = PHASE[s.phase] || ['warn', s.phase || '…'];
   return html`<div class="hd"><h3>Messaging bridge</h3><span class="muted">${st.info?.title || s.platform}</span>
-      <span class="pill ${cls}" data-phase=${s.phase}>${label}</span><span style="flex:1"></span>
+      <span class="pill ${cls}" data-phase=${s.phase}><bx-icon name=${{ ok: 'ok', warn: 'warning', err: 'error' }[cls] || 'info'}></bx-icon>${label}</span><span style="flex:1"></span>
       <button @click=${() => act(() => api('/reconnect', { method: 'POST' }), 'Reconnecting…')}>Reconnect</button></div>
-    ${s.phase === 'error' ? html`<div class="err">${s.detail}</div>` : nothing}
-    ${err ? html`<div class="err">${err}</div>` : nothing}${note ? html`<div class="note small">${note}</div>` : nothing}`;
+    ${s.phase === 'error' ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${s.detail}</span></div>` : nothing}
+    ${err ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${err}</span></div>` : nothing}${note ? html`<div class="note small">${note}</div>` : nothing}`;
 }
 
 // customiseTpl: while only the console exists, say how to add a platform.
@@ -141,7 +156,7 @@ function wiringTpl() {
   const s = st.state || {};
   const info = st.info || {};
   const accts = s.accounts || [];
-  const item = (ok, text) => html`<li><span class=${ok ? 'ok' : 'todo'}>${ok ? 'done' : 'to do'}</span> — ${text}</li>`;
+  const item = (ok, text) => html`<li><span class=${ok ? 'ok' : 'todo'}><bx-icon name=${ok ? 'ok' : 'warning'}></bx-icon>${ok ? 'done' : 'to do'}</span> — ${text}</li>`;
   return html`<h4>Wiring</h4><ul class="check small">
     ${item(st.agent, html`bound to an agent${st.agent ? '' : html`: ${cmd(`bx bind ${self} agent=apps/agent`)}`}`)}
     ${(info.secrets || []).length ? item((info.secrets || []).every((f) => st.secretsSet?.[f.name]), 'credentials (below)') : nothing}
@@ -179,7 +194,7 @@ function linkTpl() {
     <div class="row"><input class="mono" placeholder="code" .value=${code} @input=${(e) => { code = e.target.value; }}
         @keydown=${(e) => { if (e.key === 'Enter') doLink(); }}>
       <button class="go" @click=${doLink}>Link</button></div>
-    ${linkErr ? html`<div class="err small">${linkErr}</div>` : nothing}${linkNote ? html`<div class="note small" data-linked>${linkNote}</div>` : nothing}
+    ${linkErr ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${linkErr}</span></div>` : nothing}${linkNote ? html`<div class="note small" data-linked>${linkNote}</div>` : nothing}
     ${links && links.length ? html`<div class="small">${links.map((l) => html`<div class="row">
         <span>${l.name || l.peerId}</span><span class="muted mono">${l.platform} · ${l.account} · ${l.peerId}</span><span style="flex:1"></span>
         <button @click=${() => unlink(l)}>Unlink</button></div>`)}</div>` : nothing}`;
@@ -234,7 +249,7 @@ function consoleTpl() {
       <select @change=${(e) => { draft.conv = e.target.value; draft.thread = ''; paint(); }}>
         ${Object.keys(CONVS).map((k) => html`<option value=${k} ?selected=${draft.conv === k}>${k === 'dm' ? 'a DM with the bot' : k === 'group' ? 'a group DM' : '#' + k}</option>`)}</select>
       ${draft.conv !== 'dm' ? html`<label class="small"><input type="checkbox" .checked=${draft.mentioned} @change=${set('mentioned')}> @bot</label>` : nothing}
-      ${draft.thread ? html`<span class="small muted">in thread ${draft.thread}</span><button @click=${() => { draft.thread = ''; paint(); }}>×</button>` : nothing}
+      ${draft.thread ? html`<span class="small muted">in thread ${draft.thread}</span><button class="icon" aria-label="leave the thread" title="leave the thread" @click=${() => { draft.thread = ''; paint(); }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
     </div>
     <div class="row"><input class="wide" data-console-text .value=${draft.text} @input=${set('text')} placeholder="say something (or /help, /new, /link)"
         @keydown=${(e) => { if (e.key === 'Enter') send(); }}>
@@ -266,7 +281,7 @@ function paint() {
   const tr = document.querySelector('[data-transcript]');
   const atEnd = !tr || tr.scrollHeight - tr.scrollTop - tr.clientHeight < 24;
   render(st ? html`${headTpl()}${customiseTpl()}${wiringTpl()}${secretsTpl()}${linkTpl()}${consoleTpl()}${eventsTpl()}`
-    : html`${err ? html`<div class="err">${err}</div>` : html`<div class="muted">loading…</div>`}`, document.getElementById('app'));
+    : html`${err ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${err}</span></div>` : html`<div class="muted">loading…</div>`}`, document.getElementById('app'));
   const now = document.querySelector('[data-transcript]');
   if (now && atEnd) now.scrollTop = now.scrollHeight;
 }

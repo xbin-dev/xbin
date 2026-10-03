@@ -7,6 +7,7 @@
 // draws the same model, held level by model/features.js.
 import { html, render, nothing } from '/vendor/lit-all.min.js';
 import { createApp } from './model/app.js';
+import '/vendor/bx-icons.js'; // <bx-icon name>: drawn glyphs (D184)
 import { opsTab, imagesTab, substrateLabel } from './web-ops.js';
 import { settingsTab } from './web-settings.js';
 import { mineTab } from './web-mine.js';
@@ -40,7 +41,7 @@ export function start(root) {
 
   function pageTpl() {
     if (!app.loaded) return html`<div class="muted pad">loading…</div>`;
-    if (app.err) return html`<div class="pad"><h3>Coding sandboxes</h3><div class="err" id="err">${app.err}</div></div>`;
+    if (app.err) return html`<div class="pad"><h3>Coding sandboxes</h3><div class="err" id="err"><bx-icon name="error"></bx-icon><span>${app.err}</span></div></div>`;
     const t = tabs();
     if (!t.some(([id]) => id === ui.tab)) ui.tab = t[0][0];
     const b = app.backend();
@@ -50,11 +51,11 @@ export function start(root) {
         <nav class="tabs" role="tablist">${t.map(([id, label]) => html`<button role="tab" class="tab ${ui.tab === id ? 'on' : ''}"
           id=${'tab-' + id} aria-selected=${ui.tab === id} @click=${() => go(id)}>${label}</button>`)}</nav>
         <span class="grow"></span>
-        <button class="ghost" id="refresh" title="Read everything again" @click=${() => ui.run('refresh', () => app.load())}>↻</button>
+        <button class="ghost icon" id="refresh" title="Read everything again" aria-label="Refresh" @click=${() => ui.run('refresh', () => app.load())}><bx-icon name="refresh"></bx-icon></button>
       </header>
       <main>
-        ${ui.err ? html`<div class="err" id="ui-err" role="alert">${ui.err}</div>` : nothing}
-        ${ui.msg ? html`<div class="note" id="ui-msg">${ui.msg}</div>` : nothing}
+        ${ui.err ? html`<div class="err" id="ui-err" role="alert"><bx-icon name="error"></bx-icon><span>${ui.err}</span></div>` : nothing}
+        ${ui.msg ? html`<div class="note" id="ui-msg"><bx-icon name="info"></bx-icon><span>${ui.msg}</span></div>` : nothing}
         ${ui.tab === 'ops' ? opsTab(app, ui) : ui.tab === 'images' ? imagesTab(app, ui) : ui.tab === 'settings' ? settingsTab(app, ui) : mineTab(app, ui)}
       </main>`;
   }

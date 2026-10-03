@@ -29,7 +29,7 @@ export function sandboxRows(st, now = Date.now()) {
     }
     return {
       id: s.id, name: s.name, consumer: F.consumerText(s.consumer, s.owner && s.owner.partitionId), owner: F.ownerText(s.owner), state: s.state,
-      stateLabel: F.STATES[s.state] || s.state, tone: F.stateTone(s.state), stateDetail: s.stateDetail || '',
+      stateLabel: F.STATES[s.state] || s.state, tone: F.stateTone(s.state), icon: F.stateIcon(s.state), stateDetail: s.stateDetail || '',
       image: (s.image && (s.image.title || s.image.id)) || '', imageId: (s.image && s.image.id) || '',
       size: (s.size && s.size.id) || '', sizeText: F.sizeText(s.size), egress: s.egress || 'none', egressText: F.egressText(s),
       isolation: F.ISOLATION[s.isolation] || s.isolation || '', disk: s.diskBytes ? F.bytes(s.diskBytes) : '',

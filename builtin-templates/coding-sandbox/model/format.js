@@ -16,6 +16,17 @@ export function stateTone(state) {
   return 'warn';
 }
 
+// stateIcon: the glyph a state's badge draws before its word (D184: status
+// is an icon, a word and a colour); toneIcon the same for any tone. Names
+// from /vendor/bx-icons.js; '' draws none.
+export function stateIcon(state) {
+  if (state === 'running') return 'live';
+  if (state === 'error') return 'error';
+  if (state === 'stopped' || state === 'archived') return '';
+  return 'wait';
+}
+export const toneIcon = (tone) => ({ ok: 'ok', warn: 'warning', danger: 'error' })[tone] || '';
+
 // What a sandbox may reach (docs/sandbox-manager.md), in words.
 export const EGRESS = { none: 'no network', internet: 'internet', open: 'open network' };
 

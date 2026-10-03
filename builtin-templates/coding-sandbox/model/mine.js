@@ -40,7 +40,7 @@ export function myRows(list, me, now = Date.now()) {
       : !caps.includes('tty') ? 'the substrate offers none (tty)' : '';
     const shareWhy = ro ? 'changing who may use it needs write access to this tile' : !mine ? 'only its owner changes who may use it' : '';
     return {
-      id: s.id, name: s.name, state: s.state, stateLabel: F.STATES[s.state] || s.state, tone: F.stateTone(s.state),
+      id: s.id, name: s.name, state: s.state, stateLabel: F.STATES[s.state] || s.state, tone: F.stateTone(s.state), icon: F.stateIcon(s.state),
       stateDetail: s.stateDetail || '', image: (s.image && (s.image.title || s.image.id)) || '', size: (s.size && s.size.id) || '',
       sizeText: F.sizeText(s.size), egress: s.egress || 'none', egressText: F.egressText(s),
       isolation: F.ISOLATION[s.isolation] || s.isolation || '', owner: F.ownerText(s.owner), mine,
