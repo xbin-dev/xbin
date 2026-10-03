@@ -224,7 +224,7 @@ test('tile menu: the deployments line from the summary', () => {
   assert.deepEqual(grid(items).cells.map((c) => c.label), ['terminal', 'logs', 'source', 'proposals'], 'still four squares');
   assertInOrder(items, ['Open full page', DEP], 'the line follows Open full page');
   const line = byLabel(items, DEP);
-  assert.equal(line.icon, '⇈');
+  assert.equal(line.icon, 'deploy');
   assert.equal(line.hint, 'main pinned');
   line.action();
   assert.deepEqual(calls, [['frameOpen', 'apps/a', 'deployments']]);
@@ -324,8 +324,8 @@ test('window deployments: the head menu', () => {
   assert.deepEqual(labels(items), ['<header>', 'main', 'dev', '<sep>', 'Deployments…']);
   assert.equal(byLabel(items, 'main').checked, true);
   assert.equal(byLabel(items, 'dev').checked, false);
-  assert.equal(byLabel(items, 'main').hint, 'primary · 📌 c:3f2a1c9');
-  assert.equal(byLabel(items, 'dev').hint, '● live reload');
+  assert.equal(byLabel(items, 'main').hint, 'primary · pinned to c:3f2a1c9');
+  assert.equal(byLabel(items, 'dev').hint, 'live reload');
   byLabel(items, 'dev').action();
   byLabel(items, 'Deployments…').action();
   assert.deepEqual(calls, [['show', 'dev'], ['openPanel']]);

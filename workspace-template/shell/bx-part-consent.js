@@ -22,6 +22,8 @@
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
+import '/vendor/bx-icons.js';
+import { baseCss } from './shell-css.js';
 import { consentPerson, consentWatch, consentPrompts, keepDismissed, consentEventOp, consentCall, consentKey, consentAsk, consentWhy,
   consentAllowTitle, allowedText, declinedText, errorText, consentStoreKey, coverPoints, CONSENT_HEAD, CONSENT_REGION, CONSENT_DENY_TITLE,
   CONSENT_COVERED, PARTITIONS_PAGE } from './partition-mode.js';
@@ -57,34 +59,33 @@ export class BxPartConsent extends LitElement {
     _armed: { state: true },     // nothing has covered the asks for ARM_MS: Allow is live
   };
 
-  static styles = css`
-    :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif); color: var(--bx-text, #d4d9e0);
-      --bx-part-c: var(--bx-part, #3fb5a3); }
+  static styles = [baseCss, css`
+    :host { display: block; font: var(--bx-font, 13px/18px system-ui, sans-serif); color: var(--bx-text, #E9EAF0);
+      --bx-part-c: var(--bx-part, #3FB5A3); }
     :host([hidden]) { display: none; } /* nothing to answer: no box, so the strip's gap doesn't move the canvas */
-    @supports (color: light-dark(#000, #fff)) {
-      :host { --bx-part-c: var(--bx-part, light-dark(#1f8778, #3fb5a3)); }
-    }
-    .panel { background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
-      border-left: 3px solid var(--bx-part-c); border-radius: var(--bx-radius, 6px);
-      box-shadow: var(--bx-shadow, 0 1px 2px rgba(0, 0, 0, 0.35)); padding: 8px 12px; }
-    h4 { margin: 0 0 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-      color: var(--bx-muted, #868f9a); }
+    /* the partition marker's hue as the panel's 3 px rule: what the asks are about */
+    .panel { background: var(--bx-panel, #1F2028); border: 1px solid var(--bx-border, #33353F);
+      border-left: 3px solid var(--bx-part-c); border-radius: var(--bx-radius, 2px); padding: 8px 12px; }
+    h4 { margin: 0 0 4px; font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
+      color: var(--bx-muted, #A3A6B6); }
     .ask { padding: 4px 0; }
-    .ask + .ask, .ask + .done, .done + .done { border-top: 1px solid var(--bx-border, #363c45); }
+    .ask + .ask, .ask + .done, .done + .done { border-top: 1px solid var(--bx-border, #33353F); }
     .line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .q { flex: 1; min-width: 12em; font-weight: 600; overflow-wrap: anywhere; }
-    .why { margin: 2px 0 0; color: var(--bx-muted, #868f9a); font-size: 12px; }
-    .err { margin: 4px 0 0; color: var(--bx-red, #ef5350); font-size: 12px; white-space: pre-wrap; }
-    .done { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 12px; color: var(--bx-muted, #868f9a); }
+    .why { margin: 2px 0 0; color: var(--bx-muted, #A3A6B6); }
+    .err { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; color: var(--bx-danger, #FF7A7A); white-space: pre-wrap; }
+    .done { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; color: var(--bx-muted, #A3A6B6); }
     .done span { flex: 1; overflow-wrap: anywhere; }
-    .done a { color: var(--bx-accent, #f5a623); text-decoration: none; }
-    button { font: inherit; font-size: 12px; font-weight: 600; border-radius: 5px; padding: 2px 10px; cursor: pointer;
-      border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0); }
-    button.allow { color: var(--bx-part-c); border-color: color-mix(in srgb, var(--bx-part-c) 60%, transparent); }
-    button:hover:not(:disabled) { border-color: var(--bx-muted, #868f9a); }
-    button:disabled { opacity: .55; cursor: default; }
-    button.x { padding: 0 6px; font-weight: 400; background: none; border: 0; color: var(--bx-muted, #868f9a); }
-  `;
+    .done a { color: var(--bx-link, #8C9BFF); }
+    button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 12px; cursor: pointer; font-weight: 600;
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); }
+    button.allow { color: var(--bx-part-c); border-color: var(--bx-part-c); }
+    button:hover:not(:disabled) { background: var(--bx-hover, #2A2B34); }
+    button:disabled { opacity: 0.5; cursor: default; }
+    button.x { display: inline-flex; align-items: center; justify-content: center; width: 28px; padding: 0; background: none; border: 0; color: var(--bx-muted, #A3A6B6); }
+    button.x:hover:not(:disabled) { background: var(--bx-close-hover, #FF7A7A); color: var(--bx-close-hover-ink, #0B0C12); }
+  `];
 
   constructor() {
     super();
@@ -233,11 +234,11 @@ export class BxPartConsent extends LitElement {
             <button class="allow" ?disabled=${!!st.busy || !this._armed} title=${consentAllowTitle(a.from, a.to)} @click=${() => this._allow(a)}>${st.busy ? 'Allowing…' : 'Allow'}</button>
           </div>
           <p class="why">${consentWhy(a.from, a.to)}</p>
-          ${st.err ? html`<p class="err">${st.err}</p>` : nothing}
+          ${st.err ? html`<p class="err"><bx-icon name="error" label="Error"></bx-icon><span>${st.err}</span></p>` : nothing}
         </div>`;
       })}
       ${repeat(this._done, (d) => d.key, (d) => html`<div class="done" data-consent-done=${d.key} role="status">
-        <span>${d.text}${d.link ? html` <a href=${d.link} target="_blank" rel="noopener">open it</a>` : nothing}</span><button class="x" title="close" @click=${() => this._drop(d)}>✕</button></div>`)}
+        <span>${d.text}${d.link ? html` <a href=${d.link} target="_blank" rel="noopener">open it</a>` : nothing}</span><button class="x" title="close" aria-label="close" @click=${() => this._drop(d)}><bx-icon name="xmark"></bx-icon></button></div>`)}
     </div>`;
   }
 }

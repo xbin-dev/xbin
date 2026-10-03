@@ -4,7 +4,8 @@
 // and renders the result; keeping the builders free of element state is
 // what lets `make check` unit-test them (hack/menus.test.mjs): which lines
 // an org screen's draft state shows, what "Open tile" lists and disables,
-// what the admin block offers per lifecycle state.
+// what the admin block offers per lifecycle state. An item's icon is a
+// glyph name of /vendor/bx-icons.js (D184), which bx-menu draws.
 //
 // state:
 //   orgScreen   the active org screen {id, canEdit} or null (personal screen)
@@ -94,12 +95,12 @@ export function deployMenu(path, c, st, shown, a) {
   const items = [{ kind: 'header', label: 'this window shows' }];
   for (const n of names.length ? names : [P]) {
     const d = byName.get(n), cp = d?.checkpoint?.id || '';
-    const hint = n === P ? `primary${sum?.pinned ? ` · 📌 ${cp || 'pinned'}` : ''}`
-      : st?.liveReload === n ? '● live reload' : cp ? `📌 ${cp}` : '';
+    const hint = n === P ? `primary${sum?.pinned ? ` · ${cp ? `pinned to ${cp}` : 'pinned'}` : ''}`
+      : st?.liveReload === n ? 'live reload' : cp ? `pinned to ${cp}` : '';
     items.push({ label: n, mono: true, hint, checked: (shown || P) === n, action: () => a.show(n === P ? '' : n) });
   }
-  if (shown) items.push({ icon: '⤢', label: `Open ${path}+${shown} full page`, action: () => a.openPage(`${path}+${shown}`) });
-  if (sum && mayOperate(st)) items.push({ kind: 'sep' }, { icon: '⇈', label: 'Deployments…', hint: deployHint(sum, st), action: a.openPanel });
+  if (shown) items.push({ icon: 'popout', label: `Open ${path}+${shown} full page`, action: () => a.openPage(`${path}+${shown}`) });
+  if (sum && mayOperate(st)) items.push({ kind: 'sep' }, { icon: 'deploy', label: 'Deployments…', hint: deployHint(sum, st), action: a.openPanel });
   return items;
 }
 
@@ -114,28 +115,28 @@ export function canvasMenuItems(s, a) {
   const os = s.orgScreen;
   if (os) {
     const d = s.draft;
-    if (!d && os.canEdit) items.push({ icon: '✎', label: 'Edit this org screen', action: () => a.enterEdit(os.id) });
+    if (!d && os.canEdit) items.push({ icon: 'pencil', label: 'Edit this org screen', action: () => a.enterEdit(os.id) });
     if (d) {
-      items.push({ icon: '💾', label: 'Save and update for everyone', disabled: !d.dirty, action: () => a.saveOrgDraft(os.id) });
-      items.push({ icon: '↺', label: 'Discard draft', action: () => a.discardDraft(os.id) });
+      items.push({ icon: 'save', label: 'Save and update for everyone', disabled: !d.dirty, action: () => a.saveOrgDraft(os.id) });
+      items.push({ icon: 'refresh', label: 'Discard draft', action: () => a.discardDraft(os.id) });
     }
-    items.push({ icon: '⧉', label: 'Copy to my screens', action: () => a.copyOrgScreen(os.id) });
+    items.push({ icon: 'copy', label: 'Copy to my screens', action: () => a.copyOrgScreen(os.id) });
     items.push({ kind: 'sep' });
   }
-  items.push({ icon: '▸', label: 'Open tile', items: openTileItems(s, a) });
+  items.push({ icon: 'window', label: 'Open tile', items: openTileItems(s, a) });
   const owners = s.owners ?? [];
   if (owners.length >= 2) {
-    items.push({ icon: '✦', label: 'Create a new tile', items: owners.map((o) => ({
+    items.push({ icon: 'plus', label: 'Create a new tile', items: owners.map((o) => ({
       label: tidy(o.label), action: () => a.newTileDialog('', '', o.value, { fixed: true }) })) });
   } else if (owners.length === 1) {
-    items.push({ icon: '✦', label: 'Create a new tile…', hint: tidy(owners[0].label),
+    items.push({ icon: 'plus', label: 'Create a new tile…', hint: tidy(owners[0].label),
       action: () => a.newTileDialog('', '', owners[0].value, { fixed: true }) });
   } else {
-    items.push({ icon: '✦', label: 'Create a new tile…', disabled: true, hint: s.ownerHint ?? 'org-only policy — ask an org admin' });
+    items.push({ icon: 'plus', label: 'Create a new tile…', disabled: true, hint: s.ownerHint ?? 'org-only policy — ask an org admin' });
   }
-  items.push({ icon: '▦', label: 'New screen', action: () => a.addScreen() });
+  items.push({ icon: 'split', label: 'New screen', action: () => a.addScreen() });
   items.push({ kind: 'sep' });
-  items.push({ icon: '⧉', label: 'Bring windows on-screen', hint: 'pop-ups, floats', action: () => a.fitWindows(true) });
+  items.push({ icon: 'restore', label: 'Bring windows on-screen', hint: 'pop-ups, floats', action: () => a.fitWindows(true) });
   return items;
 }
 
@@ -166,43 +167,43 @@ export function tileMenuItems(path, s, a) {
   const os = s.orgScreen;
   const draft = os ? s.draft : null;
   const items = [{ kind: 'grid', cells: [
-    { icon: '>_', mono: true, label: 'terminal', title: `terminal on ${path}`, action: () => a.frameOpen(path, 'term') },
-    { icon: '▤', label: 'logs', title: 'backend logs', action: () => a.frameOpen(path, 'logs') },
-    { icon: '{ }', mono: true, label: 'source', title: 'code browser + review', action: () => a.frameOpen(path, 'code') },
-    { icon: '⇄', label: 'proposals', badge: s.prs?.[path] || null, title: 'change proposals from other tiles', action: () => a.frameOpen(path, 'prs') },
+    { icon: 'terminal', label: 'terminal', title: `terminal on ${path}`, action: () => a.frameOpen(path, 'term') },
+    { icon: 'list', label: 'logs', title: 'backend logs', action: () => a.frameOpen(path, 'logs') },
+    { icon: 'code', label: 'source', title: 'code browser + review', action: () => a.frameOpen(path, 'code') },
+    { icon: 'diff', label: 'proposals', badge: s.prs?.[path] || null, title: 'change proposals from other tiles', action: () => a.frameOpen(path, 'prs') },
   ] }, { kind: 'sep' }];
   if (open) {
-    items.push({ icon: '✕', label: 'Close on this screen', disabled: !s.canMutate, hint: s.canMutate ? '' : 'view mode',
+    items.push({ icon: 'xmark', label: 'Close on this screen', disabled: !s.canMutate, hint: s.canMutate ? '' : 'view mode',
       action: () => a.toggle(path) });
-    items.push({ icon: tile?.float ? '▣' : '⧉', label: tile?.float ? 'Pin to the grid' : 'Unpin into a window',
+    items.push({ icon: tile?.float ? 'maximize' : 'restore', label: tile?.float ? 'Pin to the grid' : 'Unpin into a window',
       disabled: !s.canMutate, action: () => a.togglePin(path) });
   } else {
-    items.push({ icon: '▢', label: os && !os.canEdit ? 'Open on my screen' : os && !draft ? 'Open here (starts a draft)' : 'Open on this screen',
+    items.push({ icon: 'plus', label: os && !os.canEdit ? 'Open on my screen' : os && !draft ? 'Open here (starts a draft)' : 'Open on this screen',
       action: () => a.openTile(path) });
   }
-  items.push({ icon: '⤢', label: 'Open full page', action: () => a.openFullPage(path) });
+  items.push({ icon: 'popout', label: 'Open full page', action: () => a.openFullPage(path) });
   // One line, never a fifth square (the phone sheet's grid is four columns):
   // the terminal window's Deployments layout, for a tile with a record.
   const st = (s.deployState ?? deployLookup)(path, c);
   const dsum = deploySummary(c, st);
   if (dsum && mayOperate(st)) {
-    items.push({ icon: '⇈', label: 'Deployments…', hint: deployHint(dsum, st), action: () => a.frameOpen(path, 'deployments') });
+    items.push({ icon: 'deploy', label: 'Deployments…', hint: deployHint(dsum, st), action: () => a.frameOpen(path, 'deployments') });
   }
   if (s.canAdminTile?.(path)) {
     items.push({ kind: 'sep' }, { kind: 'header', label: 'admin' });
     if (state !== 'enabled') {
-      items.push({ icon: '▶', label: state === 'hidden' ? 'Unhide' : 'Enable', action: () => a.lifecycle(path, 'enabled') });
+      items.push({ icon: 'play', label: state === 'hidden' ? 'Unhide' : 'Enable', action: () => a.lifecycle(path, 'enabled') });
     } else {
-      items.push({ icon: '⏸', label: 'Disable', danger: true,
+      items.push({ icon: 'pause', label: 'Disable', danger: true,
         action: () => a.confirm(`Disable ${path}? Its backend stops now.`) && a.lifecycle(path, 'disabled') });
     }
     if (state !== 'hidden' && !offloaded(c)) {
-      items.push({ icon: '⊘', label: 'Hide', danger: true,
+      items.push({ icon: 'eye-slash', label: 'Hide', danger: true,
         action: () => a.confirm(`Hide ${path}? It is disabled and drops out of sidebars until unhidden.`) && a.lifecycle(path, 'hidden') });
     }
     for (const [sec, label] of [['access', 'Access…'], ['runtime', 'Runtime…'], ['vault', 'Vault…'], ['grants', 'Roles & grants…'],
       ['interfaces', 'Interfaces…'], ['backup', 'Backup…'], ['cron', 'Cron…']]) {
-      items.push({ icon: sec === 'access' ? '⚙' : '', label, action: () => a.openAdminWin(path, sec) });
+      items.push({ icon: sec === 'access' ? 'settings' : '', label, action: () => a.openAdminWin(path, sec) });
     }
   }
   return items;

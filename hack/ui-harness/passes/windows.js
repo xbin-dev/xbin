@@ -51,6 +51,19 @@ async function windows(browser) {
   let c = await canvasRect();
   check(inCanvas(r, c), `restored pop-up lands inside the canvas (${fmt(r)} in ${JSON.stringify(c)})`);
   await shot(page, 'windows-restored', { fullPage: false });
+  // window chrome (D184): the restored pop-up came to the front, so it is the
+  // active window — the active title bar — and it carries the terminal's
+  // 3 px part tab; a card's title bar is 28 px with 28 × 28 controls
+  const pc = await sh(page, (t) => {
+    const pop = t.frameFor('apps/crawler')?.testApi().popElement(), head = t.query('.card[data-path="apps/crawler"] .head');
+    const probe = (v) => { const s = document.createElement('span'); s.style.color = v; document.body.append(s); const k = getComputedStyle(s).color; s.remove(); return k; };
+    return { active: !!pop?.classList.contains('active'), part: pop ? getComputedStyle(pop, '::before').backgroundColor : '',
+      partH: pop ? getComputedStyle(pop, '::before').height : '', want: probe('var(--bx-part-tab-terminal, #00A86B)'),
+      bar: pop ? getComputedStyle(pop.querySelector('.titlebar')).height : '', head: head ? getComputedStyle(head).height : '',
+      close: head ? getComputedStyle(head.querySelector('button.close')).width : '' };
+  });
+  check(pc.active && pc.part === pc.want && pc.partH === '3px' && pc.bar === '28px' && pc.head === '28px' && pc.close === '28px',
+    `the pop-up is the active window with the terminal part tab; title bars 28 px (${JSON.stringify(pc)})`);
 
   // 2. the pop-up follows its card, and cannot leave the canvas: placed far
   // past the tiles it stays with its top-left over them; a shrinking browser
@@ -132,10 +145,15 @@ async function windows(browser) {
   await drag('.float[data-path="apps/offline"] .head', 90, 50);
   const fl1 = await sh(page, (t) => t.floatOf('apps/offline'));
   check(fl1 && Math.abs(fl1.x - fl0.x - 90) <= 2 && Math.abs(fl1.y - fl0.y - 50) <= 2, `float drag persisted the move (${JSON.stringify(fl0)} → ${JSON.stringify(fl1)})`);
+  // the window pressed is the page's active one, and only it (D184)
+  const actives = () => sh(page, (t) => ['.float[data-path="apps/offline"]', '.spawn', '.card[data-path="apps/crawler"]']
+    .filter((s) => t.query(s)?.classList.contains('active')));
+  check(JSON.stringify(await actives()) === JSON.stringify(['.float[data-path="apps/offline"]']), `the float pressed is the active window (${JSON.stringify(await actives())})`);
   const sw0 = await sh(page, (t) => ({ x: t.spawnWindows[0]?.x, y: t.spawnWindows[0]?.y }));
   await drag('.spawn .shead', -60, 30);
   const sw1 = await sh(page, (t) => ({ x: t.spawnWindows[0]?.x, y: t.spawnWindows[0]?.y }));
   check(Math.abs(sw1.x - sw0.x + 60) <= 2 && Math.abs(sw1.y - sw0.y - 30) <= 2, `spawned window drag moved it (${JSON.stringify(sw0)} → ${JSON.stringify(sw1)})`);
+  check(JSON.stringify(await actives()) === JSON.stringify(['.spawn']), `then the spawned window is (${JSON.stringify(await actives())})`);
   const gridPos = (path) => sh(page, (t, p) => { const o = t.openTiles.find((x) => x.path === p && !x.float); return o && { x: o.x, y: o.y }; }, path);
   // the seeded home's banners (pending requests, interfaces to bind) push the
   // canvas far down: bring the card to the top so a 420 px drag stays inside
@@ -147,6 +165,7 @@ async function windows(browser) {
   await drag('.card[data-path="apps/crawler"] .head', 0, 420);
   const g1 = await gridPos('apps/crawler');
   check(g0 && g1 && g1.y > g0.y && g1.x === g0.x, `grid tile drag snapped and persisted (${JSON.stringify(g0)} → ${JSON.stringify(g1)})`);
+  check(JSON.stringify(await actives()) === JSON.stringify(['.card[data-path="apps/crawler"]']), `then the grid card is (${JSON.stringify(await actives())})`);
 
   // 5. push on drag (D66): offline on the grid right below crawler (0,384);
   // dragging crawler 200px down (→ y 192) overlaps it → a ghost previews

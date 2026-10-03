@@ -35,15 +35,18 @@ export function applyFavicon(brand) {
 // brandLogo: the header's logo block. Branded: the icon (or xbin's mark)
 // and the title, replacing the wordmark and the chip. Unbranded: xbin's
 // mark, X/BIN and the "workspace" chip — what the header always showed.
+// xbin's own mark is drawn from the tokens (D184): the plate in the accent,
+// the X in the accent's ink, so it holds in both themes; a workspace's own
+// icon is its own.
 export function brandLogo(shell) {
   const b = shell._brand || {};
   const mark = b.icon
     ? html`<img class="mark" src=${b.icon} alt="" width="20" height="20">`
     : html`<svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
-        <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--bx-accent,#f5a623)"></path>
-        <path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9" stroke-linecap="butt"></path>
-        <circle cx="53" cy="11" r="2.6" fill="#23272e" opacity=".4"></circle>
-        <circle cx="11" cy="53" r="2.6" fill="#23272e" opacity=".4"></circle>
+        <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" style="fill: var(--bx-accent, #8C9BFF)"></path>
+        <path d="M21 21 43 43M43 21 21 43" style="stroke: var(--bx-accent-ink, #0B0C12)" stroke-width="9" stroke-linecap="butt"></path>
+        <circle cx="53" cy="11" r="2.6" style="fill: var(--bx-accent-ink, #0B0C12)" opacity=".4"></circle>
+        <circle cx="11" cy="53" r="2.6" style="fill: var(--bx-accent-ink, #0B0C12)" opacity=".4"></circle>
       </svg>`;
   if (b.title) return html`<span class="logo">${mark}<span class="ws-title">${b.title}</span></span>`;
   return html`<span class="logo">${mark}X/BIN</span><span class="ws-chip">${shell.name}</span>`;

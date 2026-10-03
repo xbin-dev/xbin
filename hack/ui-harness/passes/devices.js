@@ -1,6 +1,6 @@
 // hack/ui-harness/passes/devices.js — device login (docs/auth.md §Device
-// login): the top bar's settings chip (a chip like docs / sign out, no
-// emoji) opens the settings menu, whose first item "add a device" opens the
+// login): the top bar's settings chip (a chip like docs / sign out, words
+// alone) opens the settings menu, whose first item "add a device" opens the
 // panel straight on a code; its "address your phone uses" rebuilds the link
 // and the QR code, is checked, remembered per browser and reset — and the
 // enrollment still answers the server's origin, the one a device signs.
@@ -72,15 +72,12 @@ function qrText(name) {
 // remembered, the enrollment's origin unchanged, reset.
 async function addDeviceFlow(page, ctx, check) {
   const chip = await page.locator(SETTINGS).evaluate((b) => {
-    const docs = b.parentNode.querySelector('a.chip'), probe = document.createElement('span');
-    probe.style.background = 'var(--bx-accent, #f5a623)';
-    b.parentNode.append(probe);
-    const accent = getComputedStyle(probe).backgroundColor;
-    probe.remove();
+    const docs = b.parentNode.querySelector('a.chip');
     const st = (e) => { const c = getComputedStyle(e); return [c.fontSize, c.padding, c.borderRadius, c.borderTopWidth, Math.round(e.getBoundingClientRect().height)].join(' '); };
-    return { text: b.textContent.trim(), dot: getComputedStyle(b.querySelector('.c')).backgroundColor, accent, me: st(b), docs: st(docs) };
+    return { text: b.textContent.trim(), dots: b.parentNode.querySelectorAll('.chip .c').length, me: st(b), docs: st(docs) };
   });
-  check(chip.text === 'settings' && chip.dot === chip.accent, `the settings chip reads "settings" with an accent dot (${JSON.stringify(chip)})`);
+  // the top bar's chips are words alone: no status-coloured dots (D184, A17)
+  check(chip.text === 'settings' && chip.dots === 0, `the settings chip reads "settings", and no chip carries a coloured dot (${JSON.stringify(chip)})`);
   check(chip.me === chip.docs, `the settings chip is styled like the docs chip (${chip.me} vs ${chip.docs})`);
   await page.locator(SETTINGS).click();
   await waitSel(page, 'bx-shell .wsmenu');

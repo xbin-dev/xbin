@@ -24,6 +24,8 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { xbinApi as call } from '/vendor/bx-kit.js';
+import '/vendor/bx-icons.js';
+import { baseCss } from './shell-css.js';
 
 // openDevices({add}): open the panel — with add, straight on the add flow.
 export function openDevices({ add = false } = {}) {
@@ -61,8 +63,8 @@ function ago(t) {
 }
 
 // The QR code as one SVG path (qrcode-generator, vendored; loaded on first
-// use). Black on white with the 4-module quiet zone scanners expect —
-// whatever the theme.
+// use). Dark modules on a light ground with the 4-module quiet zone scanners
+// expect — whatever the theme (.qr: a fixed pair, not tokens).
 async function qrPath(text) {
   const { default: qrcode } = await import('/vendor/qrcode.mjs');
   const qr = qrcode(0, 'M');
@@ -88,58 +90,64 @@ export class BxDevices extends LitElement {
     _now: { state: true },
   };
 
-  static styles = [scrollCss, css`
+  static styles = [scrollCss, baseCss, css`
     :host { position: fixed; inset: 0; z-index: 4000; display: block; }
-    .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
+    .backdrop { position: absolute; inset: 0; background: var(--bx-scrim, rgba(0, 0, 0, 0.55)); }
+    /* a dialog (product-ui 6): square, 1 px border_strong, the title type */
     .box {
       position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%);
       width: min(470px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; box-sizing: border-box;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
-      border: 1px solid var(--bx-border, #363c45); border-radius: 10px;
-      box-shadow: 0 0 0 1px rgba(0, 0, 0, .4), 0 14px 44px rgba(0, 0, 0, .5);
-      padding: 16px 18px; font: var(--bx-font, 13px/1.5 -apple-system, system-ui, sans-serif);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6));
+      padding: 16px; font: var(--bx-font, 13px/18px system-ui, sans-serif);
     }
-    h3 { margin: 0 0 2px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    h3 { margin: 0 0 4px; font: var(--bx-font-title, 600 16px/22px system-ui, sans-serif); display: flex; align-items: center; gap: 8px; }
     h3 .x { margin-left: auto; }
-    .lede { margin: 0 0 12px; font-size: 12px; color: var(--bx-muted, #868f9a); }
+    .lede { margin: 0 0 12px; color: var(--bx-muted, #A3A6B6); }
     ul.devs { list-style: none; margin: 0; padding: 0; }
-    ul.devs > li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--bx-border, #363c45); }
+    ul.devs > li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--bx-border, #33353F); }
     ul.devs > li:first-child { border-top: 0; }
-    .ico { font-size: 18px; width: 22px; text-align: center; }
+    .ico { flex: none; display: inline-flex; color: var(--bx-muted, #A3A6B6); }
     .who { flex: 1; min-width: 0; }
     .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sub { font-size: 11px; color: var(--bx-muted, #868f9a); }
-    .empty { font-size: 12px; color: var(--bx-muted, #868f9a); padding: 6px 0 2px; }
-    button { font: inherit; font-size: 12px; padding: 4px 11px; border-radius: 6px; cursor: pointer;
-      border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
-    button:hover { background: var(--bx-panel-2, #2b3038); }
-    button.primary { background: var(--bx-accent, #f5a623); border-color: transparent; color: #23272e; font-weight: 600; }
-    button.rm { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent); }
-    button.x { border: 0; background: none; font-size: 15px; padding: 0 4px; color: var(--bx-muted, #868f9a); }
+    .sub { font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); }
+    .empty { color: var(--bx-muted, #A3A6B6); padding: 6px 0 2px; }
+    button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 12px; cursor: pointer; font-weight: 600;
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); }
+    button:hover { background: var(--bx-hover, #2A2B34); }
+    button.primary { background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); }
+    button.primary:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
+    button.rm { color: var(--bx-danger, #FF7A7A); border-color: var(--bx-danger, #FF7A7A); }
+    button.x { display: inline-flex; align-items: center; justify-content: center; width: 28px; padding: 0; border: 0; background: none; color: var(--bx-muted, #A3A6B6); }
+    button.x:hover { background: var(--bx-close-hover, #FF7A7A); color: var(--bx-close-hover-ink, #0B0C12); }
     .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-    .err { margin: 8px 0 0; padding: 7px 10px; font-size: 12px; border-radius: 6px; color: var(--bx-red, #ef5350);
-      border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 55%, transparent);
-      background: color-mix(in srgb, var(--bx-red, #ef5350) 12%, transparent); }
-    .enroll { margin-top: 12px; padding: 12px; border-radius: 8px; background: var(--bx-panel-2, #2b3038);
-      display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
-    .qr { width: 176px; height: 176px; flex: none; background: #fff; border-radius: 6px; }
+    .err { display: flex; align-items: flex-start; gap: 6px; margin: 8px 0 0; padding: 6px 10px; border-radius: var(--bx-radius, 2px);
+      color: var(--bx-danger, #FF7A7A); border: 1px solid var(--bx-danger, #FF7A7A); background: var(--bx-danger-bg, #3A2B32); }
+    .enroll { margin-top: 12px; padding: 12px; border-radius: var(--bx-radius, 2px); background: var(--bx-panel-2, #262730);
+      border: 1px solid var(--bx-border, #33353F); display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+    /* theme-ok: a QR code is dark modules on a light ground for every scanner, in either theme */
+    .qr { width: 176px; height: 176px; flex: none; background: #FFFFFF; border-radius: var(--bx-radius, 2px); }
     .qr svg { display: block; width: 100%; height: 100%; }
-    .steps { flex: 1; min-width: 180px; font-size: 12px; }
+    .steps { flex: 1; min-width: 180px; }
     .steps ol { margin: 0 0 8px; padding-left: 18px; }
     .link { display: flex; gap: 6px; margin-top: 6px; }
-    .link input { flex: 1; min-width: 0; font: 11px var(--bx-mono, monospace); padding: 4px 6px; border-radius: 5px;
-      border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
-    .timer { font-size: 11px; color: var(--bx-muted, #868f9a); margin-top: 6px; }
-    .ok { color: var(--bx-green, #4caf50); font-weight: 600; }
-    .push { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 3px; font-size: 11px; color: var(--bx-muted, #868f9a); }
-    .push .warn { color: var(--bx-amber, #f2a71b); }
-    .push button { font-size: 11px; padding: 0 7px; line-height: 18px; }
-    h4 { margin: 12px 0 2px; font-size: 12px; }
-    .note { margin-top: 8px; font-size: 11px; color: var(--bx-muted, #868f9a); }
+    .link input { flex: 1; min-width: 0; box-sizing: border-box; height: var(--bx-control-h, 28px); padding: 0 8px;
+      font: var(--bx-font-code, 12px/18px ui-monospace, monospace); border-radius: var(--bx-radius, 2px);
+      border: 1px solid var(--bx-border-strong, #666A7E); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); }
+    .timer { font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); margin-top: 6px; font-variant-numeric: tabular-nums; }
+    .ok { display: inline-flex; align-items: center; gap: 6px; color: var(--bx-ok, #A3CF5E); font-weight: 600; }
+    .push { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); }
+    .push .warn { display: inline-flex; align-items: center; gap: 4px; color: var(--bx-warn, #F2994A); }
+    .push button { min-height: 22px; padding: 0 8px; font-weight: 400; }
+    h4 { margin: 12px 0 4px; font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase; color: var(--bx-muted, #A3A6B6); }
+    .note { margin-top: 8px; font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); }
     .addr { display: block; margin-top: 8px; font-weight: 600; }
-    .hint { font-size: 11px; color: var(--bx-muted, #868f9a); margin-top: 3px; }
-    .hint.bad { color: var(--bx-red, #ef5350); }
+    .hint { font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); margin-top: 4px; }
+    .hint.bad { color: var(--bx-danger, #FF7A7A); }
     .or { margin-top: 8px; }
+    a { color: var(--bx-link, #8C9BFF); }
   `];
 
   #onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.close(); } };
@@ -183,14 +191,14 @@ export class BxDevices extends LitElement {
   // Activities (push-to-start registered; cards it follows), whether the
   // relay wants a new handle, and remove.
   _pushLine(reg) {
-    if (!reg) return html`<div class="push">🔕 no push notifications</div>`;
+    if (!reg) return html`<div class="push"><bx-icon name="bell-slash"></bx-icon>no push notifications</div>`;
     const kinds = reg.kinds?.length ? reg.kinds.join(', ') : 'all';
     const n = reg.activities?.length ?? 0;
     const live = [reg.pushToStart ? 'xbind may start one' : '', n ? `${n} following` : ''].filter(Boolean).join(', ');
-    return html`<div class="push" data-push=${reg.deviceId}>🔔 notifications: ${kinds}
+    return html`<div class="push" data-push=${reg.deviceId}><bx-icon name="bell"></bx-icon>notifications: ${kinds}
       · ${reg.lastSent ? `last sent ${ago(reg.lastSent)}` : 'none sent yet'}
       ${live ? html`<span data-live title="agent turns on the lock screen and in the Dynamic Island (removing the registration ends them)">· Live Activities: ${live}</span>` : nothing}
-      ${reg.needsNewHandle ? html`· <span class="warn" title=${reg.relayError ?? ''}>needs a new handle — the app renews it when next opened</span>` : nothing}
+      ${reg.needsNewHandle ? html`· <span class="warn" title=${reg.relayError ?? ''}><bx-icon name="warning" label="Warning"></bx-icon>needs a new handle — the app renews it when next opened</span>` : nothing}
       <button title="stop notifications to this device until its app is next opened — it registers again then (to stop them for good, turn the app's notifications off in the device's Settings, or remove the device)"
         @click=${() => this._removePush(reg.deviceId)}>remove</button></div>`;
   }
@@ -263,9 +271,8 @@ export class BxDevices extends LitElement {
   }
 
   _row(d) {
-    const icon = /^(ios|android|iphone)/.test(d.platform ?? '') ? '📱' : /^(ipados|ipad)/.test(d.platform ?? '') ? '▭' : '◻';
     return html`<li data-device=${d.id}>
-      <span class="ico" aria-hidden="true">${icon}</span>
+      <bx-icon class="ico" name="device" size="20"></bx-icon>
       <span class="who">
         <div class="name" title=${d.name}>${d.name}</div>
         <div class="sub">${d.platform || 'device'} · added ${ago(d.created)} ·
@@ -295,7 +302,7 @@ export class BxDevices extends LitElement {
           so adding one needs your password (or a sign-in in the last ten minutes).
           <div class="link"><input name="pw" type="password" autocomplete="current-password" placeholder="your password" required>
             <button class="primary" type="submit">continue</button></div>
-          ${s.retry ? html`<div class="timer" style="color: var(--bx-red, #ef5350)">${s.msg}</div>` : nothing}</div>
+          ${s.retry ? html`<div class="hint bad">${s.msg}</div>` : nothing}</div>
       </form>`;
     }
     return html`<div class="enroll" data-stepup="signin"><div class="steps"><b>Sign in again first.</b> Adding a device
@@ -309,12 +316,12 @@ export class BxDevices extends LitElement {
     if (!en) return nothing;
     const left = Math.max(0, Math.round(en.expires - (this._now ?? 0)));
     if (en.added) {
-      return html`<div class="enroll"><span class="ok">✓ ${en.added.name} was added.</span>
+      return html`<div class="enroll"><span class="ok"><bx-icon name="ok" label="OK"></bx-icon>${en.added.name} was added.</span>
         <span class="sub">It signs in with Face ID from now on.</span></div>`;
     }
     return html`<div class="enroll" data-enroll>
       <div class="qr" title="scan with the xbin app">${left ? html`<svg viewBox="0 0 ${en.qr.size} ${en.qr.size}"
-          shape-rendering="crispEdges" role="img" aria-label="enrollment QR code"><path d=${en.qr.d} fill="#000"/></svg>` : nothing}</div>
+          shape-rendering="crispEdges" role="img" aria-label="enrollment QR code"><path d=${en.qr.d} fill="#000"/></svg><!-- theme-ok: a QR code's modules stay dark on light for scanners -->` : nothing}</div>
       <div class="steps">
         <ol>
           <li>Open the <b>xbin</b> app on your phone.</li>
@@ -345,7 +352,7 @@ export class BxDevices extends LitElement {
     const other = (p.devices ?? []).filter((r) => !known.has(r.deviceId));
     return html`${other.length ? html`<h4>Other notification registrations</h4>
       <ul class="devs">${other.map((r) => html`<li data-push-other=${r.deviceId}>
-        <span class="ico" aria-hidden="true">🔔</span>
+        <bx-icon class="ico" name="bell" size="20"></bx-icon>
         <span class="who"><div class="name" title=${r.deviceId}>${r.deviceId}</div>
           <div class="sub">registered ${ago(r.created)} by a sign-in without a device key — it ends with that sign-in</div>
           ${this._pushLine(r)}</span></li>`)}</ul>` : nothing}
@@ -357,7 +364,7 @@ export class BxDevices extends LitElement {
     return html`
       <div class="backdrop" @click=${() => this.close()}></div>
       <div class="box" role="dialog" aria-modal="true" aria-label="my devices">
-        <h3>my devices <button class="x" title="close" @click=${() => this.close()}>✕</button></h3>
+        <h3>my devices <button class="x" title="close" aria-label="close" @click=${() => this.close()}><bx-icon name="xmark"></bx-icon></button></h3>
         <p class="lede">Phones and tablets signed in to this workspace with the xbin app — each with its own key, unlocked by Face ID.</p>
         ${list == null ? html`<div class="empty">loading…</div>`
           : list.length ? html`<ul class="devs">${list.map((d) => this._row(d))}</ul>`
@@ -365,7 +372,7 @@ export class BxDevices extends LitElement {
         ${this._otherPush(list)}
         ${this._stepUpBox()}
         ${this._enrollBox()}
-        ${this._err ? html`<div class="err" role="alert">${this._err}</div>` : nothing}
+        ${this._err ? html`<div class="err" role="alert"><bx-icon name="error" label="Error"></bx-icon><span>${this._err}</span></div>` : nothing}
         <div class="foot">
           ${(this._enroll && !this._enroll.added) || this._stepUp ? nothing
             : html`<button class="primary" @click=${() => this._add()}>add a device</button>`}
