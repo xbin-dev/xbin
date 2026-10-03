@@ -18,7 +18,9 @@ python3 -m http.server 9421 --bind 127.0.0.1 --directory website
 | Page | Volume | What it is |
 |---|---|---|
 | `index.html` | Announce, then Inform, then Work | The story: the hero (kicker, the stair, the lead, two buttons; the glass hall beside it, a strip of it on phones), `#curve` (software made per year, 1950s to today), `#breaks`, `#idea` (the page's one field band, cobalt), `#what`, `#measured`, `#install` (both commands, the trial first, `#try` on its block), `#start` (the closing call). `id="top"` is the hero. |
-| `product.html`, `security.html`, `install.html`, `ios.html` | Inform | Stubs: the deck's crumb, H1 and lead in the Inform hero, inside `<main data-todo="page">`. The page builders set the rest of each deck. `install.html` must carry `#trial`: every other page's "Try it free" links there. |
+| `product.html`, `install.html` | Inform | Stubs: the deck's crumb, H1 and lead in the Inform hero, inside `<main data-todo="page">`. The page builders set the rest of each deck. `install.html` must carry `#trial`: every other page's "Try it free" links there. |
+| `security.html` | Inform, strictly | For IT (`site/security.md`): the hero beside the facts plate (`#facts`), then `#default-deny`, `#sandboxes`, `#grants` (S-5, waiting for its capture), `#identity`, `#oversight` (S-9, an interim still), `#per-person`, `#vault`, `#evidence`, `#next`. No field, stair or photograph. |
+| `ios.html` | Inform | The iOS app in beta testing (`site/ios.md`): the hero with the status plate beside the three phone screens (S-10, waiting for the beta build's capture), `#features` under magenta part rules, `#next`. No store badge, link or date. |
 | `privacy.html` | Inform | The privacy policy, restyled; its title, description and words are unchanged and pinned (see Checks). |
 | `404.html` | Announce, small | The three-line stair and plain links; root-relative URLs so it works at any depth; `noindex`. |
 | `og.html` | — | Not a page: the share card's artwork, rendered to `og.png` (below). |
@@ -62,7 +64,14 @@ else holds a hex value. `css/site.css` is the components, by the brand's names:
   on one line, the `$ ` prompt drawn by CSS and never copied, `button.copy
   data-copy="…"`), or `.code` with a `pre` elsewhere;
 - Inform pages: `.ihero` (crumb, h1, lead); the privacy text: `.prose`; the 404:
-  `.nf`, `.link-list`.
+  `.nf`, `.link-list`;
+- security and iOS (their own section, scoped to `body.page-security` and
+  `body.page-ios`): `.ih-grid` (the hero's copy beside the facts plate or the phone
+  screens), `.four`, `.leadins`, `.card`, `.evidence`, `.phones`, and `.shot-todo`, a
+  shot that waits for its capture: `figure.shot` with the visual's description in
+  `data-shot`, its part's mat around a neutral frame at the shot's ratio with the alt
+  text as its `aria-label`, the visual's ID in the corner. Swap in the image when the
+  capture exists.
 
 Corners are 2 px wherever one shows; focus is the cyan ring (3 px, 2 px gap) from
 `:focus-visible`; motion plays once and is off under `prefers-reduced-motion`.
@@ -116,6 +125,11 @@ open in the same tab and carry ↗.
   it, and the numbers in a "Show the numbers" table. Edit the data, never the block. A
   projection (the dashed "If the curve holds" line) is drawn only once the data file
   carries one.
+- **Product shots** (`shots/*.webp`, served at `/shots/`; the PNGs beside them are the
+  old site's, kept for the repository README and not served): `S-9-interim.webp` is the
+  film set's still of view-as-user (`.film-media/stills/07-admin-desk-view-as.png`, the
+  current product theme) at 1600 × 1000, until the Concrete Day and Night captures
+  replace it as `S-9-light.webp` and `S-9-dark.webp` in a `<picture>` (`site/visuals.md`).
 - **Media over 1 MiB** (the 12 s film, later) stays out of git: it lives in
   `website/media/` (gitignored) and `media.lock` pins each file's sha256 and source.
 
@@ -183,9 +197,9 @@ each rule on a copy of the site):
 
 New with Base Two: `/product.html`, `/security.html`, `/install.html`, `/ios.html`,
 `/404.html`, `/favicon.svg`, `/apple-touch-icon.png`, `/css/`, `/fonts/`, `/img/`,
-`/art/`, `/data/software-per-year.json`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
-`/shots/` and its IBM Plex fonts (`website/shots/` stays in git for the repository
-README's image).
+`/art/`, `/data/software-per-year.json`, `/js/copy.js`, `/shots/*.webp`. No longer served: the old site's `/js/` islands, `/vendor/`,
+its `/shots/*.png` and its IBM Plex fonts (those PNGs stay in `website/shots/` for the
+repository README's image).
 
 ### app/ios.json: the iOS app's kill switch
 

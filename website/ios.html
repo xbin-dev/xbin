@@ -20,6 +20,8 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/bricolage-grotesque-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/instrument-sans-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/site.css">
 </head>
@@ -54,15 +56,58 @@
 </header>
 <!-- /shared header -->
 
-<main id="content" data-todo="page">
-  <!-- TODO-PAGE: the page builder sets the rest of site/ios.md here, verbatim, with the
-       classes in css/site.css (website/README.md has the page structure). The hero below is
-       the deck's own crumb, H1 and lead in the Inform template. -->
+<main id="content">
+  <!-- site/ios.md, set verbatim. Inform: magenta only as the screenshot mats and the part rules.
+       The app is in beta testing: no store badge, store link, QR code or release date. -->
   <section class="ihero" id="top" aria-labelledby="top-h">
+    <div class="wrap ih-grid">
+      <div>
+        <p class="crumb"><b>iOS app</b> · in beta testing</p>
+        <h1 class="h1" id="top-h">Your workspace, on your iPhone.</h1>
+        <p class="lead">The xbin iOS app opens your apps in native views, runs terminals, follows agent sessions and brings your notifications. It signs in with your iPhone’s secure hardware.</p>
+        <div class="plate">
+          <h2 class="plate-h" id="status-h">Status</h2>
+          <dl>
+            <div><dt>Beta</dt><dd>In beta testing. Not on the App Store yet.</dd></div>
+          </dl>
+        </div>
+      </div>
+      <!-- S-10 waits for its capture: the iOS app's own takes were withdrawn (.film-media/ios/README.txt)
+           and the film set's phone stills are the browser at phone width, not the app. Until the beta
+           build is captured (site/visuals.md S-10, 1179 × 2556), each mat holds a neutral frame. -->
+      <ul class="phones" tabindex="0" aria-labelledby="top-h">
+        <li><figure class="shot" data-shot="S-10a, magenta mat: the xbin iOS app (the current beta build) showing the handbook app in a native app view. Phone capture, 1179 × 2556 px, status bar clean (time 9:41, full signal and battery); no device frame, no App Store badge or reference anywhere on screen.">
+          <div class="mat mat-agents"><span class="mat-tab">iOS app</span><div class="shot-todo" role="img" aria-label="The xbin iOS app showing the handbook app in a native view." data-id="S-10a"></div></div>
+        </figure></li>
+        <li><figure class="shot" data-shot="S-10b, magenta mat: the xbin iOS app (the current beta build) showing the orders app’s terminal. Phone capture, 1179 × 2556 px, status bar clean (time 9:41, full signal and battery); no device frame, no App Store badge or reference anywhere on screen.">
+          <div class="mat mat-agents"><span class="mat-tab">iOS app</span><div class="shot-todo" role="img" aria-label="The xbin iOS app showing the orders app’s terminal." data-id="S-10b"></div></div>
+        </figure></li>
+        <li><figure class="shot" data-shot="S-10c, magenta mat: the xbin iOS app (the current beta build) following an agent session: the built-in agent’s work on the orders app. Phone capture, 1179 × 2556 px, status bar clean (time 9:41, full signal and battery); no device frame, no App Store badge or reference anywhere on screen.">
+          <div class="mat mat-agents"><span class="mat-tab">iOS app</span><div class="shot-todo" role="img" aria-label="The xbin iOS app following an agent session." data-id="S-10c"></div></div>
+        </figure></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="features" aria-labelledby="features-h">
     <div class="wrap">
-      <p class="crumb"><b>iOS app</b> · in beta testing</p>
-      <h1 class="h1" id="top-h">Your workspace, on your iPhone.</h1>
-      <p class="lead">The xbin iOS app opens your apps in native views, runs terminals, follows agent sessions and brings your notifications. It signs in with your iPhone’s secure hardware.</p>
+      <p class="label-mono">01 · What it does</p>
+      <h2 class="h2" id="features-h">What the app does.</h2>
+      <ul class="figs">
+        <li class="fig"><h3 class="h4">Apps</h3><p class="body">Your workspace’s apps, in native views.</p></li>
+        <li class="fig"><h3 class="h4">Terminals</h3><p class="body">Open an app’s terminal from your phone.</p></li>
+        <li class="fig"><h3 class="h4">Agent sessions</h3><p class="body">Follow agent sessions while they run.</p></li>
+        <li class="fig"><h3 class="h4">Notifications</h3><p class="body">Notifications from your workspace and its agent sessions.</p></li>
+        <li class="fig"><h3 class="h4">Sign-in</h3><p class="body">Sign in with your iPhone’s secure hardware.</p></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec sec-rule closing" id="next" aria-labelledby="next-h">
+    <div class="wrap">
+      <h2 class="h2" id="next-h">Start with a workspace.</h2>
+      <p class="body">The app signs in to an xbin workspace. Try one free for an hour, or install xbin.</p>
+      <p class="actions"><a class="btn btn-primary btn-lg" href="/install.html#trial">Try it free for an hour</a> <a class="btn btn-secondary btn-lg" href="/install.html">Install</a></p>
     </div>
   </section>
 </main>
