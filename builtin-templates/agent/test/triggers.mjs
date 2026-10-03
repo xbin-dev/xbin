@@ -52,7 +52,7 @@ const detail = await page.textContent('.autos-page');
 ok('the detail names the grant it needs', detail.includes('{ "target": "res:apps/cal/bus", "role": "reader" }'), detail.slice(0, 300));
 ok('its events say why one didn\'t run', detail.includes('over its hourly cap') && detail.includes('ran #40'));
 ok('…public data into a mixed class, in words', detail.includes('can move internal data out') && !detail.includes('class-mixed'));
-ok('its detail says its class', (await page.textContent('.autos-page [data-cls]')) === '🔒 Internal');
+ok('its detail says its class', (await page.textContent('.autos-page [data-cls]')) === 'Internal' && !!(await page.$('.autos-page [data-cls] bx-icon[name="lock"]')));
 await page.click('.autos-page button:has-text("Test")');
 await page.waitForSelector('.autos-page .said');
 ok('test fires it', (await page.textContent('.autos-page .said')).includes('Fired a test event'));

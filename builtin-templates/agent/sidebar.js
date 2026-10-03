@@ -11,7 +11,7 @@ import { groupRows } from './model/conv-groups.js';
 import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
 import { sharing } from './model/partition.js'; // the Shared view (in a person's partition: the shared space's)
 import * as actions from './model/actions.js';
-import { hostedRowChip } from './hosted-ui.js'; // a non-secure conversation's ⚠ chip
+import { hostedRowChip } from './hosted-ui.js'; // a non-secure conversation's warning chip
 import { kindOf } from './model/harness-start.js';
 import { kidsWords } from './model/harness-child.js';
 
@@ -39,7 +39,7 @@ export function sidebarTpl(list, ui) {
   return html`${body}${menuTpl(list, ui)}`;
 }
 
-const emptyShared = 'nothing shared yet — share a conversation from its ⋯ menu or its top bar, and whatever others share with you shows here too';
+const emptyShared = 'nothing shared yet — share a conversation from its row menu or its top bar, and whatever others share with you shows here too';
 
 function rowsTpl(rows, ui, withMatch = false) {
   return repeat(rows, (r) => r.id, (r) => rowTpl(r, ui, withMatch));
@@ -47,9 +47,10 @@ function rowsTpl(rows, ui, withMatch = false) {
 
 function rowTpl(r, ui, withMatch) {
   const g = rowGlyph(r);
-  const glyph = g === 'ask' ? html`<span class="gl ask" title="waiting for you">?</span>`
-    : g === 'error' ? html`<span class="gl err" title="failed">!</span>`
-    : g === 'spin' ? html`<span class="spin"></span>` : nothing;
+  // the row's state (D184): a glyph with its word in the title, the live square while it works
+  const glyph = g === 'ask' ? html`<span class="gl ask" title="waiting for you"><bx-icon name="question" label="waiting for you"></bx-icon></span>`
+    : g === 'error' ? html`<span class="gl err" title="failed"><bx-icon name="error" label="failed"></bx-icon></span>`
+    : g === 'spin' ? html`<span class="spin" title="working"></span>` : nothing;
   const shared = rowShared(r);
   const kind = kindOf(r); // a coding agent answers it (D147): its monogram
   const kids = kidsWords(r); // coding agents at work below it (D147 §4.3.8)
@@ -66,9 +67,9 @@ function rowTpl(r, ui, withMatch) {
     ${kind ? html`<span class="kind" data-kind=${kind.provider} title=${kind.title}>${kind.mono}</span>` : nothing}
     <div class="t">${r.title || 'run ' + r.id}</div>
     ${hostedRowChip(r)}
-    ${kids ? html`<span class="kids" title=${kids.title}>${kids.text}</span>` : nothing}
+    ${kids ? html`<span class="kids" title=${kids.title}><bx-icon name=${kids.icon}></bx-icon>${kids.text}</span>` : nothing}
     ${glyph}
-    <button class="rmenu" title="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}>⋯</button>
+    <button class="rmenu" title="more" aria-label="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}><bx-icon name="ellipsis"></bx-icon></button>
     ${shared ? html`<div class="chips" title=${shared.title}>${shared.chips.map((c) => html`<span class="chip ${c.kind}">${c.label}</span>`)}</div>` : nothing}
     ${withMatch && r.match ? html`<div class="snip">${r.match.snippet}</div>` : nothing}
   </div>`;

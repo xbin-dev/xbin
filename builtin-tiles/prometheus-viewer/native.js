@@ -40,7 +40,7 @@ const source = (e, i) => {
   return html`
     <section title=${epLabel(e)} footer=${e.url}>
       ${src == null ? html`<progress label="scraping…"/>`
-        : src.error ? html`<notice tone="danger" text=${`⚠ ${src.error}`}/>`
+        : src.error ? html`<notice tone="danger" text=${src.error}/>`
         : metrics(i, src.metrics)}
     </section>`;
 };

@@ -1,24 +1,27 @@
 <!doctype html>
-<html lang="en">
+<!-- data-bx-theme="auto": the page follows the person's light or dark theme;
+     its styles use theme.css's tokens only (docs/frontend-kit.md). -->
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>welcome</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { padding: 12px 14px; }
-    h2 { margin: 0 0 8px; font-size: 13px; color: var(--bx-text); }
-    p { margin: 6px 0 0; font-size: 12.5px; color: var(--bx-text); }
-    code { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
-           border-radius: 4px; padding: 0 4px;
-           font: 11.5px var(--bx-mono); }
-    a { color: var(--bx-accent); text-decoration: none; }
+    body { padding: var(--bx-pad); }
+    h2 { margin: 0 0 8px; font: var(--bx-font-heading); letter-spacing: var(--bx-tracking-heading); }
+    p { margin: 8px 0 0; font: var(--bx-font-body); }
+    code { background: var(--bx-code-bg); border: 1px solid var(--bx-border);
+           border-radius: var(--bx-radius); padding: 0 4px;
+           font: var(--bx-font-code); }
+    a { color: var(--bx-link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
     table { border-collapse: collapse; width: 100%; margin: 4px 0; }
-    td { padding: 4px 8px 4px 0; font-size: 12.5px; vertical-align: top;
+    td { padding: 6px 8px 6px 0; font: var(--bx-font-body); vertical-align: top;
          border-top: 1px solid var(--bx-border); }
     tr:first-child td { border-top: none; }
-    td:first-child { white-space: nowrap; padding-right: 14px; }
-    .bx-label { display: block; margin-top: 10px; color: var(--bx-muted); }
-    welcome-notes { display: block; margin-top: 10px; }
+    td:first-child { white-space: nowrap; padding-right: 16px; }
+    .bx-label { display: block; margin-top: 16px; }
+    welcome-notes { display: block; margin-top: 8px; }
   </style>
 </head>
 <body class="bx">

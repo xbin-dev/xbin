@@ -21,7 +21,7 @@ export const IMPLEMENTS = {
   'conv.pinned': 'native/convs.js — the Pinned section',
   'conv.unread': 'native/convs.js — the accent dot; model/app.js reads the one you look at',
   'conv.shared': 'native/convs.js — the chips in the subtitle (rowShared)',
-  'conv.status': 'native/convs.js — the row badge (rowGlyph: a run below waiting too), ⧉ N coding agents in its subtitle (model/harness-child.js kidsWords)',
+  'conv.status': 'native/convs.js — the row badge (rowGlyph: a run below waiting too), "N coding agents" in its subtitle (model/harness-child.js kidsWords)',
   'conv.kind': 'native/convs.js — the row\'s subtitle starts with its name (model/harness-start.js kindOf)',
   'conv.more': 'native/convs.js — the list\'s more',
   'conv.live': 'model/conv-list.js — apply(ev)',
@@ -77,7 +77,7 @@ export const IMPLEMENTS = {
   'composer.placeholder': 'native/chat.js — composerTpl (model/rules.js composer); native/harness-ask.js — composer, a coding agent\'s (model/harness-ask.js steerWords)',
   'composer.disabled': 'native/chat.js — composerTpl (model/rules.js composer)',
   'composer.class': 'native/classes.js classPickerTpl — the Class picker in the home toolbar (the app\'s composer holds buttons only)',
-  'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; ＋ New and Manage… push the Sandboxes screens)',
+  'composer.sandbox': 'native/sandboxes.js sandboxPickerTpl — the Sandbox picker in the chat and home toolbars, beside the model (a row you may not use is marked, and picking it says why; New sandbox… and Manage… push the Sandboxes screens)',
   'composer.agent': 'native/harness-start.js — the Who answers picker at the top of the home page (homeSetupTpl — a phone\'s home bar holds the class, model and sandbox pickers; an unavailable one is marked; picking it says why); native/classes.js and native/home.js hide the Class and Model pickers',
   'composer.model': 'native/chat.js modelPickerTpl — the Model picker in the chat and home toolbars (the app\'s composer holds buttons only)',
   'composer.attach': 'native/chat.js — composer upload (the app picks and uploads)',
@@ -93,7 +93,7 @@ export const IMPLEMENTS = {
   // Top bar
   'top.crumb': 'native/chat.js — runMenu: Its automation',
   'top.title': 'native/chat.js — the screen\'s title',
-  'top.class': 'native/chat.js — the subtitle (rules.topBar cls: its class, and ⚠ when it can move internal data out)',
+  'top.class': 'native/chat.js — the subtitle (rules.topBar cls: its class, and a warning when it can move internal data out)',
   'top.model': 'native/chat.js — ✦ in the subtitle',
   'top.task': 'native/chat.js — runMenu Task (rules.topBar task) → native/tools.js taskTpl: every request, read-only (actions.asks)',
   'top.task.delegated': 'native/harness-board.js — the Task screen\'s Delegated section through ext.task: a row per coding agent below the run (app.board.delegated), a tap to its chat',
@@ -192,7 +192,7 @@ export const IMPLEMENTS = {
   'state.partition.sandboxes': 'native/home.js — appNotices',
   'state.partition.hidden': 'model/stream.js — Live.visibility',
   'state.partition.mcp': 'native/settings.js — mcpTpl',
-  'state.partition.hosted': 'native/hosted.js — the warning as a sheet the first time (hostedWarnSheet, native.js) and heading the transcript, the composer\'s lock and buttons (native/chat.js), the row\'s ⚠ (native/convs.js) — model/hosted.js',
+  'state.partition.hosted': 'native/hosted.js — the warning as a sheet the first time (hostedWarnSheet, native.js) and heading the transcript, the composer\'s lock and buttons (native/chat.js), the row\'s "not private" (native/convs.js) — model/hosted.js',
   'state.partition.harness': 'model/harness-homes.js — native/harness-start.js (agentPicker, sandboxOptions, setupOf), native/terminal.js (signIn away: the notice alone, no Sign in; runTerminalSrc at the run\'s home), native/harness-child.js, native/convs.js row menu and native/chat.js composer (model/rules.js: keepsHome, barredWhy), native/harness-ask.js controls (barredWhy), native/share.js (unshareWhy), model/harness-store.js call; a shared new chat is the web\'s (state.partition.newShared)',
 
   // Deep links
@@ -210,7 +210,7 @@ export const IMPLEMENTS = {
   'harness.tool.output': 'native/harness-cards.js — execTpl (code); all of it: the hcall screen (toolcard ↗)',
   'harness.tool.diff': 'native/harness-cards.js — diffTpl: the diff primitive (files, patch); every patch: the hcall screen',
   'harness.subagent': 'native/harness-cards.js — bodyTpl: a nested transcript in the Task\'s toolcard',
-  'harness.plan': 'native/harness-start.js — 📋 N/M in the subtitle; native/harness-cards.js progressScreen: the plan primitive (⋯ → Progress)',
+  'harness.plan': 'native/harness-start.js — "plan N/M" in the subtitle; native/harness-cards.js progressScreen: the plan primitive (⋯ → Progress)',
   'harness.usage': 'native/harness-start.js — the context in use in the subtitle; native/harness-cards.js progressScreen (the cost too)',
   'harness.files': 'native/harness-cards.js — progressScreen',
   // Coding agents — asking and controls

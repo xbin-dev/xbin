@@ -17,7 +17,9 @@ import { base, runtimeCss, sandboxesCss } from '../admin-css.js';
 import { fmtBytes, fmtDur, WithRouter } from '../shared.js';
 
 const mib = (n) => (n >= 1024 ? `${+(n / 1024).toFixed(1)} GiB` : `${n || 0} MiB`);
-const MODE = { vm: '⧉ VM', namespace: '🔒 ns' };
+// a mode in words with its glyph (D184)
+const MODE_ICON = { vm: 'vm', namespace: 'lock' };
+const modeLabel = (m) => (MODE_ICON[m] ? html`<bx-icon name=${MODE_ICON[m]}></bx-icon>${m === 'vm' ? 'VM' : 'ns'}` : m);
 const LIVE = new Set(['starting', 'running', 'stopping']);
 // The policy's numbers, as the editor shows them: [path, label].
 const POLICY_NUMS = [
@@ -72,9 +74,9 @@ export class BxAdminTileSandboxes extends WithRouter(LitElement) {
     if (!h) return nothing;
     const t = h.total || {}, mem = t.memMiB || {}, pids = t.pids || {}, fl = h.flows || {}, tr = h.trash || {};
     return html`
-      ${h.policyError ? html`<div class="warn-line" data-tsbx-policy-error>⚠ the sandboxes policy file can't be read, so tile sandboxes are off until the policy is saved again: ${h.policyError}</div>` : nothing}
-      ${h.lowDisk ? html`<div class="warn-line" data-tsbx-low-disk>⚠ the workspace disk is low: tile sandboxes don't start, and running ones above the fair share were stopped, until space is freed</div>` : nothing}
-      ${h.cgroup ? html`<div class="warn-line">⚠ ${h.cgroup}</div>` : nothing}
+      ${h.policyError ? html`<div class="warn-line" data-tsbx-policy-error><bx-icon name="warning"></bx-icon><span>the sandboxes policy file can't be read, so tile sandboxes are off until the policy is saved again: ${h.policyError}</span></div>` : nothing}
+      ${h.lowDisk ? html`<div class="warn-line" data-tsbx-low-disk><bx-icon name="warning"></bx-icon><span>the workspace disk is low: tile sandboxes don't start, and running ones above the fair share were stopped, until space is freed</span></div>` : nothing}
+      ${h.cgroup ? html`<div class="warn-line"><bx-icon name="warning"></bx-icon><span>${h.cgroup}</span></div>` : nothing}
       <div class="sbx-policy" data-tsbx-health>
         memory <b>${mib(mem.used)}</b> of ${mem.cap ? mib(mem.cap) : 'no cap'} ·
         processes <b>${pids.used >= 0 ? pids.used : '?'}</b> of ${pids.cap || '?'} ·
@@ -90,7 +92,7 @@ export class BxAdminTileSandboxes extends WithRouter(LitElement) {
     const p = v.policy || {}, ov = Object.keys(p.overrides || {});
     if (!this._draft) {
       return html`<div class="sbx-policy" data-tsbx-policy="view">
-        policy: tile sandboxes ${p.enabled ? '✓' : '✗ off'} ·
+        policy: tile sandboxes ${p.enabled ? html`<bx-icon name="check"></bx-icon> on` : html`<bx-icon name="xmark"></bx-icon> off`} ·
         per tile ${p.perTile?.max} defined, ${p.perTile?.running} running, ${mib(p.perTile?.memMiB)}, ${p.perTile?.vcpus} vCPUs, ${p.perTile?.diskGiB} GiB ·
         all together ${p.total?.memMiB ? mib(p.total.memMiB) : "¾ of the host's memory"}, ${p.total?.pids} processes · idle stop ${p.idleStopMin} min
         ${ov.length ? html` · <span title=${ov.join(', ')}>${ov.length} tile override${ov.length === 1 ? '' : 's'}</span>` : nothing}
@@ -108,8 +110,8 @@ export class BxAdminTileSandboxes extends WithRouter(LitElement) {
     return html`<form class="sbx-policy editor" data-tsbx-policy="edit" @submit=${(e) => { e.preventDefault(); this._savePolicy(); }}>
       <label><input type="checkbox" name="enabled" .checked=${!!d.enabled} @change=${(e) => set('enabled', e.target.checked)}> tile sandboxes (manager tiles with <span class="mono">cap:sandboxes</span> run them)</label>
       <div class="sbx-fields">${POLICY_NUMS.map(([path, label]) => html`<label>${label} ${num(path)}</label>`)}</div>
-      <div class="muted" style="font-size:10.5px">empty = the default (shown)${ov.length ? ` · per-tile overrides (${ov.join(', ')}) are kept` : ''}</div>
-      ${warn.map((w) => html`<div class="warn-line">⚠ ${w}</div>`)}
+      <div class="muted hint">empty = the default (shown)${ov.length ? ` · per-tile overrides (${ov.join(', ')}) are kept` : ''}</div>
+      ${warn.map((w) => html`<div class="warn-line"><bx-icon name="warning"></bx-icon><span>${w}</span></div>`)}
       <div>
         <button class="act go" type="submit" data-tsbx-save-policy ?disabled=${this._busy}>save</button>
         <button class="act" type="button" @click=${() => { this._draft = null; }}>cancel</button>
@@ -155,14 +157,14 @@ export class BxAdminTileSandboxes extends WithRouter(LitElement) {
       <td class="mono" title=${r.uid ? `uid ${r.uid}` : ''}>${r.name}</td>
       <td title=${r.stateDetail || ''}>${r.state}${r.stateDetail ? html` <span class="muted sbx-err" data-tsbx-detail>· ${r.stateDetail}</span>` : nothing}
         ${this._ports(r)}</td>
-      <td><span class="sbx-mode ${r.mode}">${MODE[r.mode] || r.mode}</span>${r.accel === 'emulate' ? html` <span class="pill">emulated</span>` : nothing}</td>
+      <td><span class="sbx-mode ${r.mode}">${modeLabel(r.mode)}</span>${r.accel === 'emulate' ? html` <span class="pill">emulated</span>` : nothing}</td>
       <td class="mono">${mib(r.memMiB)} · ${r.vcpus} vCPU · ${r.diskGiB} GiB</td>
       <td class="num">${r.diskBytes ? fmtBytes(r.diskBytes) : '—'}</td>
       <td class="mono" title="the manager's claims: shown, never trusted">${r.for || ''}${r.forUser ? ` · ${r.forUser}` : ''}</td>
       <td class="mono">${r.lastActive ? ago(r.lastActive) : '—'}</td>
       <td style="white-space:nowrap">
-        ${LIVE.has(r.state) ? html`<button class="act" data-tsbx-stop ?disabled=${this._busy} @click=${() => this._stop(r)}>stop</button>` : nothing}
-        <button class="act" data-tsbx-delete ?disabled=${this._busy} @click=${() => this._delete(r)}>delete</button>
+        ${LIVE.has(r.state) ? html`<button class="act quiet" data-tsbx-stop ?disabled=${this._busy} @click=${() => this._stop(r)}>stop</button>` : nothing}
+        <button class="act quiet rm" data-tsbx-delete ?disabled=${this._busy} @click=${() => this._delete(r)}>delete</button>
       </td>
     </tr>`;
   }
@@ -174,7 +176,7 @@ export class BxAdminTileSandboxes extends WithRouter(LitElement) {
     if (!ps.length && !r.agentPorts) return nothing;
     const one = (p) => `:${p.port} ${p.refusal || p.status || '?'}`;
     const all = ps.map((p) => `${new Date(p.at).toLocaleTimeString()} ${one(p)}${p.from ? ' from ' + p.from : ''}`).join('\n');
-    return html`<div class="muted" style="font-size:10.5px" data-tsbx-ports title=${all}>
+    return html`<div class="muted hint" data-tsbx-ports title=${all}>
       ${r.agentPorts === 'predates' ? html`<span class="warn-line" data-tsbx-agent-ports>its agent predates ports — restart it</span> ` : nothing}
       ${ps.length ? html`ports ${ps.slice(-3).map(one).join(' · ')}` : nothing}</div>`;
   }

@@ -90,9 +90,9 @@ function rowTpl(r, withMatch) {
   const shared = rowShared(r);
   const kind = kindOf(r); // a coding agent answers it (D147): its name first
   const kids = kidsWords(r); // coding agents at work below it (D147 §4.3.8)
-  const sub = [kind ? kind.name : '', kids ? `⧉ ${kids.label}` : '',
-    ...(withMatch && r.match ? [r.match.snippet] : [r.hosted ? '⚠ not private' : '', // a non-secure conversation (native/hosted.js)
-      shared ? `👥 ${shared.chips.map((c) => c.label).join(' · ')}` : ''])].filter(Boolean).join(' · ');
+  const sub = [kind ? kind.name : '', kids ? kids.label : '',
+    ...(withMatch && r.match ? [r.match.snippet] : [r.hosted ? 'not private' : '', // a non-secure conversation (native/hosted.js)
+      shared ? shared.chips.map((c) => c.label).join(' · ') : ''])].filter(Boolean).join(' · ');
   const sel = app.root === r.id;
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}
       badge=${g ? g[0] : nothing} tone=${g ? g[1] : r.unread ? 'accent' : nothing} ?selected=${sel}

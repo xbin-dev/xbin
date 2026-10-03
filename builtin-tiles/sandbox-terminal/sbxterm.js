@@ -11,7 +11,9 @@
 // can't: the app's `terminal` primitive dials only the tile's own routes
 // (TERMINAL_GAP), so it lists, ends and says where to open them.
 
-export const ICON = '▣';
+// The tile's glyph: a name in /vendor/bx-icons.js (the page draws <bx-icon>),
+// the native vocabulary's too (D184).
+export const ICON = 'box';
 
 // What a sandbox's state is called (the contract's states); the transitional
 // ones end in "…".

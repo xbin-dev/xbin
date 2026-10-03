@@ -29,6 +29,44 @@ func TestCreateRefusesCGI(t *testing.T) {
 	}
 }
 
+// A new tile's page follows the person's light or dark theme (D184): it opts
+// in on <html>, links the theme, and writes no colour, font or size of its
+// own — only theme.css tokens.
+func TestCreateIndexFollowsTheTheme(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Create(root, Options{Path: "apps/new", Title: "A <new> tile"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(root, "apps", "new", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	for _, want := range []string{
+		`<html lang="en" data-bx-theme="auto">`,
+		`<link rel="stylesheet" href="/vendor/theme.css">`,
+		`<body class="bx">`,
+		`<title>A &lt;new&gt; tile</title>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("index.html lacks %s:\n%s", want, page)
+		}
+	}
+	style := page[strings.Index(page, "<style>"):strings.Index(page, "</style>")]
+	for _, decl := range strings.Split(style, ";") {
+		prop, val, ok := strings.Cut(decl, ":")
+		if !ok {
+			continue
+		}
+		prop = strings.TrimSpace(prop[strings.LastIndexAny(prop, "{}")+1:])
+		themed := prop == "color" || prop == "background" || strings.HasPrefix(prop, "font") ||
+			strings.Contains(prop, "radius") || strings.Contains(prop, "shadow") || strings.HasPrefix(prop, "border")
+		if strings.Contains(val, "#") || strings.Contains(val, "rgb") || (themed && !strings.Contains(val, "var(--bx-")) {
+			t.Errorf("a literal outside the tokens: %s:%s", prop, val)
+		}
+	}
+}
+
 // covers D127j — `bx new` writes locally through Create, so Create refuses a
 // '+' in any segment of a new tile's path, as /create does, before anything
 // is written: "<tile>+<name>" is a tile deployment's URL.

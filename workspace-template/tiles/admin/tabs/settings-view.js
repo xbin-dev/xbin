@@ -21,7 +21,7 @@ export const SETTINGS = [
     label: 'Move terminals to a new base image automatically',
     detail: 'at their next start. A running terminal keeps its base until it ends.',
     on: 'on — a terminal (or agent session) on an older base starts on the new one and says so',
-    off: 'off — terminals stay on their base; the window offers ⬆ base update',
+    off: 'off — terminals stay on their base; the window offers a base update',
     unreadable: 'base auto-update is off until the file is fixed',
     notice: (v) => v ? 'base auto-update is on' : 'base auto-update is off — terminal windows offer the update',
   },

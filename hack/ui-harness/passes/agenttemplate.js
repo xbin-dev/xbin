@@ -89,7 +89,7 @@ async function agentTemplate(browser) {
   await until(page, () => window.__has('.think .th', 'Thinking…') || window.__has('.think .th', 'Thought'), null, 60000);
   await answered(page, 'Hello from the fake model.', 30000);
   const think = await text(page, '.think .th');
-  check(think.some((t) => /^▸ Thought/.test(t)), `thinking folded to "Thought…" once the answer came (${JSON.stringify(think)})`);
+  check(think.some((t) => /^\s*Thought/.test(t)), `thinking folded to "Thought…" once the answer came (${JSON.stringify(think)})`);
   await page.click('.think .th');
   check((await page.textContent('.think .tb')).includes('Considering the greeting'), 'the folded thinking opens to its text');
   const named = await until(page, () => document.getElementById('runs').textContent.includes('Titled hello there'), null, 15000)

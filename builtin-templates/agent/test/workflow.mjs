@@ -40,14 +40,15 @@ await page.waitForSelector('#wf-body [data-n]');
 const rows = () => page.$$eval('#wf-body [data-n]', (els) => els.map((e) => ({
   n: +e.dataset.n, d: e.style.getPropertyValue('--d'), dot: e.querySelector('.dot').className,
   sub: e.querySelector('.sub').textContent, cls: e.querySelector('.sub').className, cost: e.querySelector('.cost').textContent,
+  ic: e.querySelector('.sub bx-icon')?.getAttribute('name') || '', // its glyph (D184)
   bar: e.querySelector('.share > i')?.style.width || '' })));
 let r = await rows();
 ok('the pane opens beside the chat', await page.evaluate(() => !document.getElementById('workflow').hidden && document.getElementById('main').classList.contains('wfon')));
 ok('rows in creation order within a parent, depth-first', r.map((x) => x.n).join() === '1,2,4,3', r.map((x) => x.n).join());
 ok('…indented by depth', r.map((x) => x.d).join() === '0,1,2,1', r.map((x) => x.d).join());
-ok('an error says its result', r[1].sub === '⚠ boom' && r[1].cls === 'sub bad', JSON.stringify(r[1]));
-ok('a dependency wait names what it waits on', r[3].sub === '⛔ waiting on #2' && r[3].cls === 'sub blk', JSON.stringify(r[3]));
-ok('a slot wait says so', r[2].sub === '⏳ queued — at the concurrency limit', r[2].sub);
+ok('an error says its result', r[1].sub === 'boom' && r[1].cls === 'sub bad' && r[1].ic === 'warning', JSON.stringify(r[1]));
+ok('a dependency wait names what it waits on', r[3].sub === 'waiting on #2' && r[3].cls === 'sub blk' && r[3].ic === 'error', JSON.stringify(r[3]));
+ok('a slot wait says so', r[2].sub === 'queued — at the concurrency limit' && r[2].ic === 'wait', r[2].sub);
 ok('spend with a share of the largest', r[0].bar === '100%' && r[1].bar === '41%' && r[2].cost === '', JSON.stringify(r.map((x) => [x.cost, x.bar])));
 const head = await page.evaluate(() => ['wf-title', 'wf-counts', 'wf-cost'].map((id) => document.getElementById(id).textContent));
 ok('the header: the root, counts', head[0] === 'root task' && head[1] === '4 nodes · 1 running · 2 queued · 1 error', head.join(' | '));

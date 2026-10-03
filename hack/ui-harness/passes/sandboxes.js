@@ -270,7 +270,7 @@ async function routedVMHost(browser, check) {
   const tilesUsed = await q.locator('[data-vm-tiles-used]').textContent().catch(() => '');
   check(/tile sandboxes\s+1 GiB of 2 GiB · 1 VM\b/.test(tilesUsed.replace(/\s+/g, ' ')), `the tile sandboxes' sub-budget shows (${tilesUsed.replace(/\s+/g, ' ').trim()})`);
   const view = (await q.locator('[data-vm-policy="view"]').textContent()).replace(/\s+/g, ' ');
-  check(/tile sandboxes ✓ \(emulated ✗\)/.test(view) && /\(tiles 2 GiB\)/.test(view), `the policy line shows the tiles switches and budget (${view.trim()})`);
+  check(/tile sandboxes on \(emulated off\)/.test(view) && /\(tiles 2 GiB\)/.test(view), `the policy line shows the tiles switches and budget (${view.trim()})`);
   check(await q.locator('tr[data-sbx-id="tile-child"][data-depth="1"]').count() === 1, "a tile's own sandbox nests under its parent");
   const head = await q.locator('tr.sbx-tile[data-sbx-tile="apps/web"]').textContent();
   check(/150\.0M in use/.test(head), `the tile leaf's memory is counted once for its two generations (100M, plus its sandboxes' 20M and 30M) (${head.replace(/\s+/g, ' ').trim()})`);
@@ -331,7 +331,13 @@ async function routedVMHost(browser, check) {
   await T.locator('[data-tsbx-policy="edit"] input[name="total.memMiB"]').fill('16384');
   await settle(q);
   check(/stops every running one now/.test(await T.locator('[data-tsbx-policy="edit"]').textContent()), 'the editor warns: off stops what runs');
+  // A full-page shot leaves Chromium at another scroll offset than its scroll
+  // anchoring remembers: the next layout (the click moving focus) snaps the
+  // page back, the save button jumps from under the pointer and the click
+  // lands on the form. Put the scroll back where it was before shooting.
+  const y0 = await q.evaluate(() => scrollY);
   await shot(q, 'admin-sandboxes-tile-policy');
+  await q.evaluate((y) => window.scrollTo(0, y), y0);
   await T.locator('[data-tsbx-save-policy]').click();
   for (let i = 0; i < 40 && !sbxPut; i++) await sleep(100);
   check(sbxPut && sbxPut.enabled === false && sbxPut.total?.memMiB === 16384 && sbxPut.total?.pids === 0 &&
@@ -375,7 +381,7 @@ async function idleVMTile(browser, check) {
   await gotoTab(C.page, 'components', TILE);
   await sleep(2500);
   const irow = C.page.locator('tr', { has: C.page.locator('a', { hasText: TILE }) }).first();
-  check(await irow.locator('[data-sbx-cell="vm"].idle').count() === 1, 'components: an idle tile asking for a VM shows ⧉ VM, muted');
+  check(await irow.locator('[data-sbx-cell="vm"].idle').count() === 1, 'components: an idle tile asking for a VM shows its VM badge, muted');
   await shot(C.page, 'admin-components-vm');
   await closeCtx(C.ctx, C.page);
 }

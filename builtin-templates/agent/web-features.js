@@ -79,7 +79,7 @@ export const IMPLEMENTS = {
   'composer.disabled': 'agent.js — paint() (model/rules.js composer)',
   'composer.class': 'classes.js — makeClassPicker: #tset opens .clsmenu (model/classes.js classPicker → app.pickClass)',
   'composer.model': 'agent.js — #msel (rules.modelPicker → app.pickModel)',
-  'composer.sandbox': 'sandboxes.js — makeSandboxUI: #ssel (model/sandboxes.js sandboxPicker → app.sbx.choose; ＋ New / Manage… open #sbxdlg)',
+  'composer.sandbox': 'sandboxes.js — makeSandboxUI: #ssel (model/sandboxes.js sandboxPicker → app.sbx.choose; New sandbox… / Manage… open #sbxdlg)',
   'composer.agent': 'harness-start.js — #apick: #abtn opens its menu (model/harness-start.js agentPicker → chooseAgent); classes.js hides #cpick',
   'composer.attach': 'agent.js — #clip',
   'composer.attach.paste': 'agent.js — paste',
@@ -231,6 +231,6 @@ export const IMPLEMENTS = {
   'harness.login': 'signin.js — #hlogin (ext.end, a login park only): [data-kind] methods, a login tab in the dock (terminals.js #sbxterm-retry), the password form, #hl-device, #hl-confirm, #hl-ask, #hl-retry (model/terminals.js signIn)',
   'harness.login.guided': 'signin.js — #hl-guided: #hl-gstart, #hl-gopen (a link), #hl-gcopy, #hl-gcode with Finish, #hl-gstatus; the terminal method "Use a terminal instead" (model/harness-signins.js guidedWords)',
   'harness.login.remember': 'signin.js — #hl-remember and #hl-rname, or #hl-noremember saying why (model/harness-signins.js rememberOf)',
-  'harness.signins': 'harness-catalog.js — #hsignins in the ⚙ Coding agents tab: .hsrow rows (Default, Make default, Rename, Forget), a paste form per coding agent (model/harness-signins.js signinGroups)',
+  'harness.signins': 'harness-catalog.js — #hsignins in the Settings → Coding agents tab: .hsrow rows (Default, Make default, Rename, Forget), a paste form per coding agent (model/harness-signins.js signinGroups)',
   'harness.account': 'harness-controls.js — #hctl\'s label ends with the account; its popover\'s Account section switches it (model/harness-signins.js accountOf, app.harness.pickSignin)',
 };

@@ -28,7 +28,7 @@ const turn = (m) => {
 const toolsBadge = () => {
   if (!chat.mcpEndpoints.length) return nothing;
   const n = chat.tools.length, label = `${n} tool${n === 1 ? '' : 's'}`;
-  return chat.toolErrors.length ? html`<badge tone="warn">${`⚠ ${label}`}</badge>` : html`<badge tone="muted">${label}</badge>`;
+  return chat.toolErrors.length ? html`<badge tone="warn">${`${label} · MCP errors`}</badge>` : html`<badge tone="muted">${label}</badge>`;
 };
 const paint = () => render(html`
   <screen title="Chat" style="scroll">

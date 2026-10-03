@@ -8,76 +8,85 @@
      ends them (DELETE the exec). The SSH panel: your public keys, the ssh
      command per sandbox once SSH is published, the host key. What it says is
      ./sbxterm.js (shared with native.js); the routes are API.md. -->
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>Sandbox terminals</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
+    /* body.bx: theme.css's type, controls (.primary, .quiet, .danger) and
+       focus ring; tokens only, so the page is right in light and dark
+       (D184). The cards sit on the canvas colour; the terminals follow the
+       theme unless their palette is picked (bx-terminal). */
     html, body { margin: 0; }
-    body { font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg); }
-    main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 28px; box-sizing: border-box; }
-    header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-    header h3 { margin: 0; font-size: 15px; }
-    h4 { margin: 18px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
-    h5 { margin: 12px 0 4px; font-size: 12px; font-weight: 600; }
+    body.bx { background: var(--bx-bg); }
+    main { max-width: 1100px; margin: 0 auto; padding: var(--bx-pad) var(--bx-pad) 28px; box-sizing: border-box; }
+    header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    header h3 { margin: 0; font: var(--bx-font-title); display: inline-flex; align-items: center; gap: 8px; }
+    h4 { margin: 16px 0 8px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+         text-transform: uppercase; color: var(--bx-muted); }
+    h5 { margin: 12px 0 4px; font: inherit; font-weight: 600; }
     .muted { color: var(--bx-muted); }
-    .small { font-size: 12px; }
-    .err { color: var(--bx-red); margin: 6px 0; }
-    .ok { color: var(--bx-green); }
+    /* meta and captions at 12px; running text (an explanation, an error) stays 13px */
+    .small { font: var(--bx-font-meta); }
+    div.small, .err.small, .note .small { font: inherit; }
+    .err { display: flex; gap: 6px; align-items: baseline; color: var(--bx-danger); margin: 8px 0; }
+    .ok { color: var(--bx-ok); }
     .grow { flex: 1; }
-    code, .mono { font-family: var(--bx-mono); font-size: 12px; }
-    .cmd { display: inline-block; padding: 2px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel-2);
-           white-space: nowrap; overflow-x: auto; max-width: 100%; vertical-align: middle; box-sizing: border-box; }
-    button { font: inherit; font-size: 12px; padding: 3px 11px; border-radius: 5px; border: 1px solid var(--bx-border);
-             background: var(--bx-panel); color: var(--bx-text); cursor: pointer; white-space: nowrap; }
-    button:hover:not(:disabled) { background: var(--bx-panel-2); }
-    button:disabled { opacity: .5; cursor: default; }
-    button.go { background: var(--bx-accent); border-color: transparent; color: #1b1e24; font-weight: 600; }
-    button.rm { color: var(--bx-red); }
-    button.ghost { background: transparent; border-color: transparent; color: var(--bx-muted); padding: 2px 6px; }
-    button.ghost:hover:not(:disabled) { color: var(--bx-text); }
-    input, textarea { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px;
-                      background: var(--bx-panel); color: var(--bx-text); box-sizing: border-box; }
-    textarea { width: 100%; min-height: 54px; font-family: var(--bx-mono); resize: vertical; }
+    code, .mono { font: var(--bx-font-code); }
+    .cmd { display: inline-block; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius);
+           background: var(--bx-code-bg); white-space: nowrap; overflow-x: auto; max-width: 100%; vertical-align: middle;
+           box-sizing: border-box; }
+    button.quiet { padding: 4px 6px; }
+    button.icon { display: inline-flex; align-items: center; justify-content: center; min-width: var(--bx-control-h); padding: 0; }
+    body.bx textarea { width: 100%; min-height: 56px; font-family: var(--bx-mono); resize: vertical; }
+    body.bx input.mono { font-family: var(--bx-mono); }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
-    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 8px 10px; background: var(--bx-panel); margin: 6px 0; }
-    .badge { display: inline-block; font-size: 10.5px; padding: 0 7px; border-radius: 9px; border: 1px solid var(--bx-border);
-             color: var(--bx-muted); white-space: nowrap; }
-    .badge.running { color: var(--bx-green); border-color: color-mix(in srgb, var(--bx-green) 45%, transparent); }
-    .badge.error { color: var(--bx-red); border-color: color-mix(in srgb, var(--bx-red) 45%, transparent); }
-    .note { border: 1px solid var(--bx-border); border-left: 3px solid var(--bx-accent); border-radius: 6px; padding: 7px 10px;
-            background: var(--bx-panel); margin: 6px 0; }
-    .note.danger { border-left-color: var(--bx-red); }
-    .note.ok { border-left-color: var(--bx-green); color: var(--bx-text); }
+    .card { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px 12px; background: var(--bx-panel); margin: 8px 0; }
+    /* a status badge: square, 20px, micro caps, a 1px border, its icon and word */
+    .badge { box-sizing: border-box; height: 20px; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px;
+             font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+             border-radius: var(--bx-radius); border: 1px solid var(--bx-border-strong); color: var(--bx-muted); white-space: nowrap; }
+    .badge.running { color: var(--bx-ok); border-color: var(--bx-ok); }
+    .badge.error { color: var(--bx-danger); border-color: var(--bx-danger); }
+    .note { border: 1px solid var(--bx-border); border-left: 2px solid var(--bx-info); border-radius: var(--bx-radius);
+            padding: 8px 12px; background: var(--bx-panel); margin: 8px 0; }
+    .note > b { display: inline-flex; gap: 6px; align-items: center; }
+    .note.danger { border-left-color: var(--bx-danger); }
+    .note.danger > b bx-icon { color: var(--bx-danger); }
+    .note.ok { border-left-color: var(--bx-ok); }
+    .note.ok > b bx-icon { color: var(--bx-ok); }
 
-    /* the terminals: a tab strip over a stack of <bx-terminal>s (all kept
-       connected; the hidden ones stay laid out at the same size) */
-    #terms { border: 1px solid var(--bx-border); border-radius: 7px; background: var(--bx-panel); margin: 10px 0 4px; overflow: hidden; }
-    .tabs { display: flex; gap: 2px; align-items: stretch; overflow-x: auto; border-bottom: 1px solid var(--bx-border); padding: 4px 4px 0; }
-    .tab { display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border: 1px solid transparent; border-bottom: 0;
-           border-radius: 6px 6px 0 0; cursor: pointer; white-space: nowrap; color: var(--bx-muted); }
-    .tab.on { background: var(--bx-term-bg); border-color: var(--bx-border); color: var(--bx-text); }
-    .tab .dot { font-size: 9px; color: var(--bx-green); }
-    .tab.ended .dot { color: var(--bx-muted); }
-    .thd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 8px; background: var(--bx-term-bg); }
+    /* the terminals: a tab strip (text tabs, the active one underlined in
+       the accent) over a stack of <bx-terminal>s (all kept connected; the
+       hidden ones stay laid out at the same size) */
+    #terms { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-panel); margin: 12px 0 4px; overflow: hidden; }
+    .tabs { display: flex; gap: 4px; align-items: stretch; overflow-x: auto; border-bottom: 1px solid var(--bx-border); padding: 0 4px; }
+    .tab { display: flex; align-items: center; gap: 6px; min-height: var(--bx-row); padding: 0 2px 0 8px; border-bottom: 2px solid transparent;
+           margin-bottom: -1px; cursor: pointer; white-space: nowrap; color: var(--bx-muted); }
+    .tab.on { border-bottom-color: var(--bx-accent); color: var(--bx-text); }
+    /* the live square: filled in the accent while the shell runs, hollow once it ended */
+    .tab .dot { box-sizing: border-box; width: 8px; height: 8px; background: var(--bx-accent); border: 1px solid var(--bx-accent); }
+    .tab.ended .dot { background: transparent; border-color: var(--bx-border-strong); }
+    .thd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 8px; background: var(--bx-term-bg); color: var(--bx-term-fg); }
+    .thd b { display: inline-flex; gap: 6px; align-items: center; }
     .stack { position: relative; height: 55vh; min-height: 220px; resize: vertical; overflow: hidden; background: var(--bx-term-bg); }
     .stack.max { height: calc(100vh - 110px); }
     .stack bx-terminal { position: absolute; inset: 0; visibility: hidden; }
     .stack bx-terminal.on { visibility: visible; }
 
-    .mgr { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 2px; }
-    .sbx { border: 1px solid var(--bx-border); border-radius: 7px; padding: 7px 10px; background: var(--bx-panel); margin: 5px 0; }
+    .mgr { display: flex; gap: 8px; align-items: baseline; margin: 12px 0 4px; }
+    .sbx { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px 12px; background: var(--bx-panel); margin: 4px 0; }
     .sbx .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .sbx .nm { font-size: 13.5px; }
-    .sbx .facts { color: var(--bx-muted); font-size: 12px; }
-    .sbx .l2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; font-size: 12px; }
-    .run { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; padding-left: 10px;
-           border-left: 2px solid var(--bx-border); font-size: 12px; }
-    .key { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid var(--bx-border); font-size: 12px; }
+    .sbx .facts { color: var(--bx-muted); }
+    .sbx .l2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+    .run { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; padding-left: 12px;
+           border-left: 2px solid var(--bx-border); }
+    .run > span:first-child { display: inline-flex; gap: 6px; align-items: center; }
+    .key { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; border-top: 1px solid var(--bx-border); }
     .key:first-child { border-top: 0; }
-    .empty { padding: 10px 12px; }
-    details summary { cursor: pointer; color: var(--bx-muted); font-size: 12px; margin-top: 10px; }
+    .empty { padding: 8px 12px; }
+    details summary { cursor: pointer; color: var(--bx-muted); margin-top: 12px; }
   </style>
 </head>
 <body class="bx">
@@ -86,6 +95,7 @@
 import { html, render, nothing, repeat } from '/vendor/lit-all.min.js';
 import { api, selfApi, jbody } from '/vendor/bx-kit.js';
 import * as T from './sbxterm.js';
+import '/vendor/bx-icons.js'; // <bx-icon name> (D184)
 
 const x = window.xbin || {};
 const self = x.self || 'apps/sandbox-terminal';
@@ -197,16 +207,16 @@ function termsTpl() {
     <div class="tabs" role="tablist">${repeat(tabs, (t) => t.k, (t) => html`<div class="tab ${t === cur ? 'on' : ''} ${t.ended ? 'ended' : ''}"
         role="tab" data-tab=${t.k} data-key=${t.key} title=${`${t.name} · ${t.cwd || 'its workdir'}${t.ended ? ` · ${t.ended}` : ''}`}
         @click=${() => { active = t.k; paint(); }}>
-      <span class="dot">●</span>${T.tabTitle(tabs, t)}
-      <button class="ghost" data-act="close" title="Close the tab — the shell keeps running (attach it again from its sandbox below)"
-        @click=${(e) => { e.stopPropagation(); closeTab(t); }}>✕</button></div>`)}</div>
-    <div class="thd"><b>${T.ICON} ${cur.name}</b><span class="mono muted" title=${cur.cwd}>${T.shortPath(cur.cwd) || 'its workdir'}</span>
+      <span class="dot" aria-hidden="true"></span>${T.tabTitle(tabs, t)}
+      <button class="quiet icon" data-act="close" aria-label="Close the tab" title="Close the tab — the shell keeps running (attach it again from its sandbox below)"
+        @click=${(e) => { e.stopPropagation(); closeTab(t); }}><bx-icon name="xmark"></bx-icon></button></div>`)}</div>
+    <div class="thd"><b><bx-icon name=${T.ICON}></bx-icon>${cur.name}</b><span class="mono muted" title=${cur.cwd}>${T.shortPath(cur.cwd) || 'its workdir'}</span>
       <span class="muted small">${cur.provider}</span>
       ${cur.ended ? html`<span class="badge" id="term-ended">${cur.ended}</span>` : nothing}
       <span class="grow"></span>
       ${cur.ended ? html`<button id="term-again" title="Start another shell in this tab" @click=${() => again(cur)}>New shell</button>` : nothing}
-      <button class="ghost" id="term-max" title=${max ? 'Smaller' : 'Larger'} @click=${() => { max = !max; paint(); }}>${max ? '⤡' : '⤢'}</button>
-      <button class="rm" id="term-end" ?disabled=${!!me?.viewedBy} title=${cur.ended ? 'Close the tab' : 'End the shell (at the manager) and close the tab'}
+      <button class="quiet icon" id="term-max" title=${max ? 'Smaller' : 'Larger'} aria-label=${max ? 'Smaller' : 'Larger'} @click=${() => { max = !max; paint(); }}><bx-icon name=${max ? 'restore' : 'maximize'}></bx-icon></button>
+      <button class="danger" id="term-end" ?disabled=${!!me?.viewedBy} title=${cur.ended ? 'Close the tab' : 'End the shell (at the manager) and close the tab'}
         @click=${() => endTab(cur)}>${cur.ended ? 'Close' : 'End'}</button></div>
     <div class="stack ${max ? 'max' : ''}">${repeat(tabs, (t) => `${t.k}.${t.gen}`, (t) => html`<bx-terminal class=${t === cur ? 'on' : ''}
         data-tab=${t.k} src=${t.src}
@@ -218,23 +228,27 @@ function termsTpl() {
 // --- the sandboxes ---------------------------------------------------------------------
 
 const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
+// a state's icon before its word (R2): running and error only
+const stateIcon = (s) => (s === 'running' ? html`<bx-icon name="live"></bx-icon>` : s === 'error' ? html`<bx-icon name="error"></bx-icon>` : nothing);
+// a note's tone → its status icon
+const TONE_ICON = { ok: 'ok', danger: 'error', info: 'info', warn: 'warning' };
 
 function rowTpl(r) {
   const ro = !!me?.viewedBy;
   return html`<div class="sbx" data-key=${r.key} data-login=${r.login}>
-    <div class="l1"><b class="nm">${r.name}</b><span class="badge ${r.state}">${r.stateLabel}</span>
+    <div class="l1"><b class="nm">${r.name}</b><span class="badge ${r.state}">${stateIcon(r.state)}${r.stateLabel}</span>
       <span class="facts">${r.facts}</span><span class="grow"></span>
-      <button class="go" data-act="open" ?disabled=${!r.open.ok} title=${r.open.why || `A login shell in ${r.name}, as you`}
+      <button class="primary" data-act="open" ?disabled=${!r.open.ok} title=${r.open.why || `A login shell in ${r.name}, as you`}
         @click=${() => openTab(r)}>Open terminal</button></div>
     ${r.open.why ? html`<div class="l2 muted" data-why>No terminal here: ${r.open.why}.</div>` : nothing}
-    <div class="l2">${r.ssh ? html`<code class="cmd" data-ssh>${r.ssh}</code><button class="ghost" title="Copy" @click=${() => copy(r.ssh)}>Copy</button>`
+    <div class="l2">${r.ssh ? html`<code class="cmd" data-ssh>${r.ssh}</code><button class="quiet" title="Copy" @click=${() => copy(r.ssh)}>Copy</button>`
       : html`<span class="muted">SSH login: <code>${r.login}</code></span>`}</div>
     ${repeat(r.running, (x) => x.id, (x) => html`<div class="run" data-exec=${x.id}>
-      <span>⌨ terminal ${x.n}</span><span class="muted" title=${x.cwd}>${x.label}</span>${x.here ? html`<span class="badge">open here</span>` : nothing}
+      <span><bx-icon name="terminal"></bx-icon>terminal ${x.n}</span><span class="muted" title=${x.cwd}>${x.label}</span>${x.here ? html`<span class="badge">open here</span>` : nothing}
       <span class="grow"></span>
       <button data-act="attach" ?disabled=${ro || !T.endpointOf(eps, r.provider)} title="Show it in a tab — its screen replays, and it goes on"
         @click=${() => openTab(r, x.id)}>${x.here ? 'Show' : 'Attach'}</button>
-      <button class="rm" data-act="end" ?disabled=${ro} title="End it at the manager" @click=${() => endRunning(r, x)}>End</button></div>`)}
+      <button class="danger" data-act="end" ?disabled=${ro} title="End it at the manager" @click=${() => endRunning(r, x)}>End</button></div>`)}
   </div>`;
 }
 
@@ -244,7 +258,7 @@ function listTpl() {
   const why = T.emptyWhy(list, self);
   return html`${repeat(gs, (g) => g.provider, (g) => html`<div class="mgr" data-provider=${g.provider}><b>${g.title}</b>
       <span class="muted small">${g.provider}${g.tty ? '' : ' · no terminals'}</span></div>
-    ${g.error ? html`<div class="err small">${g.error}</div>` : nothing}
+    ${g.error ? html`<div class="err small"><bx-icon name="error"></bx-icon><span>${g.error}</span></div>` : nothing}
     ${repeat(g.rows, (r) => r.key, rowTpl)}`)}
     ${why ? html`<div class="note empty" id="empty"><b>${why.title}</b><div class="small">${why.text}</div>
       ${why.cmd ? html`<div class="row"><code class="cmd">${why.cmd}</code></div>` : nothing}</div>` : nothing}`;
@@ -285,29 +299,29 @@ function sshTpl() {
   const kh = T.knownHosts(me.ssh);
   const hk = me.ssh && me.ssh.hostKey;
   return html`<div class="note ${st.ready ? 'ok' : st.tone}" id="ssh-state" data-ready=${st.ready ? '1' : '0'}>
-      <b>${st.title}</b> <span class="small">${st.text}</span>
+      <b>${TONE_ICON[st.ready ? 'ok' : st.tone] ? html`<bx-icon name=${TONE_ICON[st.ready ? 'ok' : st.tone]}></bx-icon>` : nothing}${st.title}</b> <span class="small">${st.text}</span>
       ${!st.ready && me.ssh && me.ssh.listening ? html`<div class="row"><code class="cmd">${st.expose}</code>
-        <button class="ghost" @click=${() => copy(st.expose)}>Copy</button></div>` : nothing}
+        <button class="quiet" @click=${() => copy(st.expose)}>Copy</button></div>` : nothing}
     </div>
     ${me.manager && !ro ? html`<div class="row"><label class="small muted" for="ssh-addr">Address people use (host or host:port)</label>
       <input id="ssh-addr" class="mono" .value=${draft.addr ?? ''} placeholder="sbx.example.com:2222" @input=${(e) => { draft.addr = e.target.value; }}>
       <button id="ssh-addr-save" @click=${saveAddr}>Save</button></div>` : nothing}
     ${hk ? html`<div class="row small muted">Host key <code>${hk.fingerprint}</code>
-      ${kh ? html`<button class="ghost" title=${kh} @click=${() => copy(kh)}>Copy its known_hosts line</button>` : nothing}</div>` : nothing}
+      ${kh ? html`<button class="quiet" title=${kh} @click=${() => copy(kh)}>Copy its known_hosts line</button>` : nothing}</div>` : nothing}
 
     <h5>Your keys</h5>
     <div class="card" id="keys">${keys && keys.length ? repeat(T.keyRows(keys), (k) => k.id, (k) => html`<div class="key" data-key-id=${k.id}>
         <b>${k.name}</b><code>${k.fingerprint}</code><span class="muted">${k.type} · added ${k.added} · ${k.lastUsed === 'never used' ? k.lastUsed : `used ${k.lastUsed}`}</span>
         ${k.inactive ? html`<span class="err small" data-inactive>${k.inactive}</span>` : nothing}
-        <span class="grow"></span><button class="rm" data-act="rm-key" ?disabled=${ro} @click=${() => removeKey(k)}>Remove</button></div>`)
+        <span class="grow"></span><button class="danger" data-act="rm-key" ?disabled=${ro} @click=${() => removeKey(k)}>Remove</button></div>`)
       : html`<div class="muted small" id="keys-empty">No keys yet — add your public key to log in over SSH.</div>`}</div>
     ${ro ? nothing : html`<div class="card" id="key-form">
       <textarea id="key-text" .value=${draft.key} placeholder="ssh-ed25519 AAAAC3Nza… you@laptop   (the contents of ~/.ssh/id_ed25519.pub)"
         @input=${(e) => { draft.key = e.target.value; draft.keyErr = ''; }}></textarea>
       <div class="row"><input id="key-name" .value=${draft.name} placeholder="a name (default: the key's comment)" @input=${(e) => { draft.name = e.target.value; }}>
-        <button class="go" id="key-add" ?disabled=${busy === 'key'} @click=${addKey}>${busy === 'key' ? 'Adding…' : 'Add key'}</button>
+        <button class="primary" id="key-add" ?disabled=${busy === 'key'} @click=${addKey}>${busy === 'key' ? 'Adding…' : 'Add key'}</button>
         <span class="muted small">ed25519, ECDSA, security keys (sk-…) or RSA of 2048 bits or more. A key is one person's.</span></div>
-      ${draft.keyErr ? html`<div class="err small" id="key-err">${draft.keyErr}</div>` : nothing}</div>`}
+      ${draft.keyErr ? html`<div class="err small" id="key-err"><bx-icon name="error"></bx-icon><span>${draft.keyErr}</span></div>` : nothing}</div>`}
 
     ${sessions.length ? html`<h5>Your SSH sessions</h5><div class="card" id="sessions">${sessions.map((s) => html`<div class="key">
       <b>${s.name || s.login}</b><span class="muted">${s.kind} · from ${s.remote} · since ${T.ago(s.started)}</span></div>`)}</div>` : nothing}
@@ -317,7 +331,7 @@ function sshTpl() {
       <div class="card">${everyone === null ? html`<div class="muted small">loading…</div>` : everyone.length ? repeat(T.keyRows(everyone), (k) => k.id, (k) => html`<div class="key" data-key-id=${k.id}>
         <b>${k.user}</b><span>${k.name}</span><code>${k.fingerprint}</code><span class="muted">added ${k.added} · ${k.lastUsed}</span>
         ${k.inactive ? html`<span class="err small" data-inactive>${k.inactive}</span>` : nothing}
-        <span class="grow"></span><button class="rm" @click=${() => removeKey(k, true)}>Revoke</button></div>`)
+        <span class="grow"></span><button class="danger" @click=${() => removeKey(k, true)}>Revoke</button></div>`)
         : html`<div class="muted small">nobody has registered a key</div>`}</div></details>` : nothing}`;
 }
 
@@ -325,12 +339,12 @@ function sshTpl() {
 
 function paint() {
   const running = Object.values(execs).reduce((n, l) => n + T.runningTerminals(l).length, 0);
-  render(html`<header><h3>${T.ICON} Sandbox terminals</h3>
+  render(html`<header><h3><bx-icon name=${T.ICON}></bx-icon>Sandbox terminals</h3>
       <span class="muted small">${me ? `as ${me.user}${me.viewedBy ? ` (viewed by ${me.viewedBy}: read only)` : ''}` : ''}</span>
       ${running ? html`<span class="muted small" id="running-count">${running} terminal${running === 1 ? '' : 's'} running</span>` : nothing}
       <span class="grow"></span>
-      <button class="ghost" id="refresh" title="Read the sandboxes again from their managers" @click=${() => load()}>↻</button></header>
-    ${err ? html`<div class="err" id="err">${err}</div>` : nothing}
+      <button class="quiet icon" id="refresh" aria-label="Refresh" title="Read the sandboxes again from their managers" @click=${() => load()}><bx-icon name="refresh"></bx-icon></button></header>
+    ${err ? html`<div class="err" id="err"><bx-icon name="error"></bx-icon><span>${err}</span></div>` : nothing}
     ${msg ? html`<div class="muted small" id="msg">${msg}</div>` : nothing}
     ${termsTpl()}
     <h4>Sandboxes</h4>${listTpl()}

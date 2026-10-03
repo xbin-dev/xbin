@@ -119,7 +119,7 @@ const lastCard = (page, tool) => page.$$eval(`#timeline .tcard[data-tool="${tool
   if (!e) return null;
   return { fam: e.dataset.fam, hl: e.querySelector('.hl')?.textContent.trim() || '', oc: e.querySelector('.oc')?.textContent.trim() || '',
     tone: e.querySelector('.oc')?.className || '', st: [...e.classList].filter((c) => c !== 'tcard' && c !== 'on').join(' '),
-    ic: e.querySelector('.ic')?.textContent.trim() || '' };
+    ic: e.querySelector('.ic bx-icon')?.getAttribute('name') || e.querySelector('.ic')?.textContent.trim() || '' }; // its glyph's name (D184)
 });
 const badge = (page) => page.$eval('#sbxbadge', (e) => e.textContent.trim()).catch(() => '');
 
@@ -313,7 +313,7 @@ async function agentSandbox(browser) {
     const workdir = (/Ran: (\S+)/.exec(ran) || [])[1] || '';
     check(workdir.endsWith('/work'), `"sandbox pwd": the agent ran pwd in the sandbox's workdir (${ran})`);
     const pwdCard = await lastCard(a, 'bash');
-    check(pwdCard && pwdCard.fam === 'box' && pwdCard.ic === '▣', `bash is a ▣ card (${JSON.stringify(pwdCard)})`);
+    check(pwdCard && pwdCard.fam === 'box' && pwdCard.ic === 'box', `bash is a sandbox card, the box glyph (${JSON.stringify(pwdCard)})`);
     check(pwdCard && /^exit 0\b/.test(pwdCard.oc) && /\bok\b/.test(pwdCard.tone), `its reading says how it ended: "${pwdCard && pwdCard.oc}"`);
     check(pwdCard && pwdCard.hl.includes('Where am I') && pwdCard.hl.includes('$ pwd'), `headed by the summary, the command under it (${pwdCard && pwdCard.hl})`);
     check((await badge(a)).startsWith(`▣ ${BOX}`), `the top bar's badge names the sandbox (${await badge(a)})`);
@@ -456,9 +456,10 @@ async function agentSandbox(browser) {
     await until(a, () => document.getElementById('stop').hidden, null, 15000);
     await a.click('#sbxbadge');
     await a.waitForSelector('#sbxpop');
-    const att = await text(a, '#sbxpop .sbxatt');
-    check(att.length === 2 && att.some((t) => t.includes(TEAM) && t.startsWith('●')) && att.some((t) => t.includes('scratch') && t.startsWith('○'))
-      && !att.some((t) => t.includes('⚠')), // the new one isn't "gone": the list is read again for it
+    // each row: its square (filled: the active one) and whether it is gone (the warning glyph), D184
+    const att = await a.$$eval('#sbxpop .sbxatt', (els) => els.map((e) => `${e.querySelector('.dot.on') ? '*' : '-'}${e.querySelector('.gone') ? '!' : ''} ${e.textContent.trim()}`));
+    check(att.length === 2 && att.some((t) => t.includes(TEAM) && t.startsWith('*')) && att.some((t) => t.includes('scratch') && t.startsWith('-'))
+      && !att.some((t) => t.startsWith('*!') || t.startsWith('-!')), // the new one isn't "gone": the list is read again for it
       `the popover lists it attached beside the active ${TEAM} (${JSON.stringify(att)})`);
     const spill = await a.$eval('#sbxpop', (p) => {
       const edge = p.getBoundingClientRect().right + 0.5;

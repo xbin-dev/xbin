@@ -10,6 +10,7 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
+import '/vendor/bx-icons.js'; // <bx-icon name> (D184)
 
 import { selfApi as api } from '/vendor/bx-kit.js';
 import { callersView } from './callers.js';
@@ -37,52 +38,55 @@ export class BxLlmGw extends LitElement {
     _busy: { state: true },
   };
 
+  // Base Two (D184): theme.css's tokens only (the page links it), so the page
+  // is right in light and dark; controls as the product's (28px, square,
+  // the focus ring), tables with 32px rows, tabular figures and a 2px rule
+  // under the header.
   static styles = [scrollCss, css`
-    :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
-            color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
-    .body { padding: 12px 14px; }
-    .err { color: var(--bx-red, #ef5350); font-size: 12px; margin: 4px 0; }
-    h4 { margin: 16px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
-         text-transform: uppercase; color: var(--bx-muted, #868f9a); }
+    :host { display: block; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
+    button, input, select { font: inherit; }
+    ::placeholder { color: var(--bx-subtle); opacity: 1; }
+    :focus-visible { outline: var(--bx-focus-outline); outline-offset: var(--bx-focus-offset); box-shadow: var(--bx-focus-halo); }
+    .body { padding: var(--bx-pad); }
+    .err { display: flex; gap: 6px; align-items: baseline; color: var(--bx-danger); margin: 4px 0; }
+    h4 { margin: 16px 0 8px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+         text-transform: uppercase; color: var(--bx-muted); }
     h4:first-child { margin-top: 0; }
-    .muted { color: var(--bx-muted, #868f9a); }
-    .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
-    label.f { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px;
-      font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
-      color: var(--bx-muted, #868f9a); flex: 1 1 220px; }
-    input, select { font: inherit; font-size: 12px; padding: 3px 7px;
-      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
-    input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
-    button.act { border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e);
-      color: var(--bx-text, #d4d9e0); border-radius: 5px; font: inherit; font-size: 11px;
-      padding: 3px 10px; cursor: pointer; white-space: nowrap; }
-    button.act:hover { background: var(--bx-panel-2, #2b3038); }
+    .muted { color: var(--bx-muted); }
+    .hint { font: var(--bx-font-meta); color: var(--bx-muted); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    input, select { box-sizing: border-box; min-height: var(--bx-control-h); padding: 4px 8px;
+      border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius);
+      background: var(--bx-panel); color: var(--bx-text); }
+    button.act { box-sizing: border-box; min-height: var(--bx-control-h); display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid var(--bx-border-strong); background: var(--bx-panel); color: var(--bx-text);
+      border-radius: var(--bx-radius); font-weight: 600; padding: 4px 11px; cursor: pointer; white-space: nowrap; }
+    button.act:hover { background: var(--bx-hover); }
     button.act:disabled { opacity: .5; cursor: default; }
-    button.go { background: var(--bx-accent, #f5a623); color: #fff; border-color: transparent; }
-    button.rm { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red) 40%, transparent); }
-    .pill { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 999px;
-      background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45);
-      margin: 1px 4px 1px 0; }
-    .ok { color: var(--bx-green, #4caf50); }
-    .warn { color: var(--bx-amber, #f2a71b); }
-    .mono { font-family: var(--bx-mono, monospace); }
-    table { border-collapse: collapse; width: 100%; font-size: 12px; }
-    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-         color: var(--bx-muted, #868f9a); font-weight: 600; padding: 3px 8px 3px 0; }
-    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border, #363c45);
-         vertical-align: middle; }
-    .search { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
-    .models { max-height: 260px; overflow: auto; border: 1px solid var(--bx-border, #363c45);
-      border-radius: 6px; }
+    /* go: the primary (accent fill); quiet: text only, a table row's actions; rm: the danger outline */
+    button.go { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+    button.go:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
+    button.quiet { background: transparent; border-color: transparent; padding: 4px 6px; }
+    button.quiet:hover { background: transparent; color: var(--bx-accent); }
+    button.rm { color: var(--bx-danger); border-color: var(--bx-danger); }
+    button.quiet.rm { border-color: transparent; }
+    .ok, .warn { display: inline-flex; align-items: center; gap: 4px; }
+    .ok { color: var(--bx-ok); }
+    .warn { color: var(--bx-warn); }
+    .mono { font-family: var(--bx-mono); }
+    td.mono { font: var(--bx-font-code); }
+    table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+    th { text-align: left; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+         color: var(--bx-muted); padding: 4px 8px 4px 0; border-bottom: 2px solid var(--bx-text); }
+    td { height: 32px; box-sizing: border-box; padding: 2px 8px 2px 0;
+         border-top: 1px solid var(--bx-border); vertical-align: middle; }
+    .search { width: 100%; margin-bottom: 8px; }
+    .models { max-height: 260px; overflow: auto; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); }
     .models table { width: 100%; }
-    .models th { position: sticky; top: 0; background: var(--bx-panel-2, #2b3038);
-      padding-left: 8px; }
+    .models th { position: sticky; top: 0; background: var(--bx-panel); padding-left: 8px; }
     .models td { padding-left: 8px; }
-    .count { font-size: 11px; color: var(--bx-muted, #868f9a); margin-bottom: 4px; }
+    .count { font: var(--bx-font-meta); color: var(--bx-muted); text-transform: none; letter-spacing: 0; }
     .models-head { display: flex; align-items: baseline; justify-content: space-between; }
-    .spin { display: inline-block; animation: spin 0.8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
   `];
 
   constructor() {
@@ -244,7 +248,7 @@ export class BxLlmGw extends LitElement {
 
     return html`
       <div class="body">
-        ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
+        ${this._err ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
 
         <h4>backends</h4>
         <table>
@@ -256,7 +260,7 @@ export class BxLlmGw extends LitElement {
             return html`<tr>
               <td class="mono">${b.name}</td>
               <td class="mono muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis">${b.baseURL}</td>
-              <td>${b.hasToken ? html`<span class="ok">✓</span>` : html`<span class="warn">none</span>`}</td>
+              <td>${b.hasToken ? html`<span class="ok"><bx-icon name="ok"></bx-icon>set</span>` : html`<span class="warn"><bx-icon name="warning"></bx-icon>none</span>`}</td>
               <td class="mono" style="text-align:right">${fmtN(st.reqs)}</td>
               <td class="mono" style="text-align:right">${fmtN(st.tokIn)}</td>
               <td class="mono" style="text-align:right">${fmtN(st.tokOut)}</td>
@@ -264,13 +268,13 @@ export class BxLlmGw extends LitElement {
               <td class="mono" style="text-align:right">${st.active
                 ? html`<span class="ok">${fmtN(st.active)}</span>` : '0'}</td>
               <td style="text-align:right; white-space:nowrap">
-                <button class="act" ?disabled=${this._busy} @click=${() => this._setToken(b.name)}>token</button>
-                <button class="act" ?disabled=${this._busy} @click=${() => {
+                <button class="act quiet" ?disabled=${this._busy} @click=${() => this._setToken(b.name)}>token</button>
+                <button class="act quiet" ?disabled=${this._busy} @click=${() => {
                   const nv = prompt(`Base URL for "${b.name}":`, b.baseURL);
                   if (nv?.trim()) this._saveBackend(b.name, nv.trim());
                 }}>url</button>
                 ${this._backends.length > 1 ? html`
-                  <button class="act rm" ?disabled=${this._busy} @click=${() => this._removeBackend(b.name)}>del</button>` : nothing}
+                  <button class="act quiet rm" ?disabled=${this._busy} @click=${() => this._removeBackend(b.name)}>del</button>` : nothing}
               </td></tr>`;
           })}
         </table>
@@ -285,7 +289,7 @@ export class BxLlmGw extends LitElement {
           <button class="act go" ?disabled=${this._busy}>add backend</button>
         </form>
         ${this._backends.length > 1 ? html`
-          <div class="muted" style="font-size:11px; margin-top:4px">
+          <div class="hint" style="margin-top:4px">
             With several backends, model ids are namespaced
             <span class="mono">&lt;backend&gt;/&lt;model&gt;</span> — requests route by that prefix.
           </div>` : nothing}
@@ -293,13 +297,13 @@ export class BxLlmGw extends LitElement {
         ${callersView(this._callers, this._limit, (n) => this._saveLimit(n))}
 
         <h4>preferred models</h4>
-        <div class="muted" style="font-size:11px; margin-bottom:5px">
+        <div class="hint" style="margin-bottom:8px">
           The workspace's default model per job. Tiles (the agent, chat,
           pipelines) resolve their model from here — set once, swap anywhere.
         </div>
         <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:6px 10px; margin-bottom:4px">
           ${(this._useTypes ?? []).map((u) => html`
-            <label style="display:flex; flex-direction:column; gap:2px; font-size:11px">
+            <label style="display:flex; flex-direction:column; gap:4px">
               <span class="muted" style="text-transform:capitalize">${u}</span>
               <select ?disabled=${!this._models.length}
                 @change=${(e) => this._savePreferred(u, e.target.value)}>
@@ -313,10 +317,10 @@ export class BxLlmGw extends LitElement {
         <div class="models-head">
           <h4>models ${models.length ? html`<span class="count">(${models.length}${q ? ` of ${this._models.length}` : ''})</span>` : nothing}</h4>
           <button class="act" ?disabled=${this._modelsLoading} @click=${() => this._loadModels()}>
-            <span class=${this._modelsLoading ? 'spin' : ''}>⟳</span> refresh
+            <bx-icon name="refresh"></bx-icon> refresh
           </button>
         </div>
-        ${this._modelsErr ? html`<div class="err">${this._modelsErr}</div>` : nothing}
+        ${this._modelsErr ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${this._modelsErr}</span></div>` : nothing}
         <input class="search" type="search" placeholder="search models…"
           .value=${this._search} @input=${(e) => { this._search = e.target.value; }}>
         <div class="models">
@@ -325,7 +329,7 @@ export class BxLlmGw extends LitElement {
             ${models.length ? models.map((m) => html`<tr>
               <td class="mono">${m.id}</td>
               <td class="muted">${m.owned_by ?? ''}</td>
-              <td style="text-align:right"><button class="act" @click=${() => this._addAlias(m.id)}>+ alias</button></td>
+              <td style="text-align:right"><button class="act quiet" @click=${() => this._addAlias(m.id)}>+ alias</button></td>
             </tr>`) : html`<tr><td class="muted" colspan="3">${this._modelsLoading ? 'loading…' : this._backends.some((b) => b.hasToken) ? 'no models found' : 'set an api token to list models'}</td></tr>`}
           </table>
         </div>
@@ -337,8 +341,8 @@ export class BxLlmGw extends LitElement {
             <td class="muted">→</td>
             <td class="mono">${target}</td>
             <td style="text-align:right">
-              <button class="act" @click=${() => this._editAlias(alias, target)}>edit</button>
-              <button class="act rm" @click=${() => this._removeAlias(alias)}>del</button>
+              <button class="act quiet" @click=${() => this._editAlias(alias, target)}>edit</button>
+              <button class="act quiet rm" @click=${() => this._removeAlias(alias)}>del</button>
             </td>
           </tr>`) : html`<tr><td class="muted">none yet — add one from the model list above, or below.</td></tr>`}
         </table>

@@ -1,7 +1,7 @@
 // sandboxes.js — coding sandboxes (D115) on the web: the composer's sandbox
 // picker (#ssel, beside the model picker — only where the class has the
 // sandbox toolset: the open conversation's, or the next new chat's), the top
-// bar's ▣ badge (#sbxbadge) with its popover (#sbxpop: the working
+// bar's sandbox badge (#sbxbadge) with its popover (#sbxpop: the working
 // directory, switching among the attached sandboxes, Detach, Manage… — a
 // coding agent's conversation keeps its sandbox: its cwd read-only, no
 // switch, no Detach), and
@@ -72,7 +72,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
     if (pop.open && pop.ref !== b.ref) { pop.ref = b.ref; pop.cwd = b.cwd; }
     return html`<span class="sbxwrap"><span class="badge sbxbadge ${b.broken ? 'broken' : ''}" id="sbxbadge" role="button" tabindex="0"
         aria-expanded=${pop.open ? 'true' : 'false'} title=${b.title} @click=${() => toggle(b)}
-        @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(b); } }}>${b.label}${b.broken ? ' ⚠' : ''}</span>${pop.open ? popTpl(b) : nothing}</span>`;
+        @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(b); } }}>${b.label}${b.broken ? html`<bx-icon name="warning" label="broken"></bx-icon>` : nothing}</span>${pop.open ? popTpl(b) : nothing}</span>`;
   }
   function toggle(b) {
     pop.open = !pop.open;
@@ -100,8 +100,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
     const tt = app.sbx.terminal(b.ref, b.cwd);
     return html`<div class="mback" @click=${closePop}></div>
       <div class="sbxpop" id="sbxpop" role="dialog" aria-label="This conversation's sandbox">
-        <div class="sbxhd"><b>${S.ICON} ${b.name}</b><span class="muted">${b.detail}</span></div>
-        ${b.broken ? html`<div class="err" id="sbx-broken">⚠ ${b.broken} — ${b.advice}</div>` : nothing}
+        <div class="sbxhd"><b><bx-icon name="box"></bx-icon>${b.name}</b><span class="muted">${b.detail}</span></div>
+        ${b.broken ? html`<div class="err" id="sbx-broken"><bx-icon name="warning"></bx-icon><span>${b.broken} — ${b.advice}</span></div>` : nothing}
         ${b.fixed ? html`<div class="field"><label>Working directory</label>
           <div class="mono" id="sbx-cwd-fixed">${b.cwd || 'its workdir'}</div>
           <div class="hint">Fixed for this conversation: a coding agent keeps the sandbox and directory it started in.</div></div>`
@@ -113,7 +113,8 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
         ${b.attached.length > 1 && !b.fixed ? html`<div class="field"><label>Attached — the agent works in one at a time</label>
           ${b.attached.map((a) => html`<div class="sbxatt ${a.on ? 'on' : ''}" data-ref=${a.ref} title=${a.broken || (a.on ? 'the active one' : 'make it the active one')}
               @click=${() => { if (!a.on && b.canChange) run(() => app.sbx.choose(a.ref, a.cwd)); }}>
-            ${a.on ? '●' : '○'} ${a.name}${a.cwd ? html` <span class="mono muted">${a.cwd}</span>` : nothing}${a.broken ? ' ⚠' : ''}</div>`)}</div>` : nothing}
+            <span class="dot ${a.on ? 'on' : ''}"></span>${a.name}${a.cwd ? html` <span class="mono muted">${a.cwd}</span>` : nothing}${a.broken
+              ? html`<bx-icon class="gone" name="warning" label=${a.broken}></bx-icon>` : nothing}</div>`)}</div>` : nothing}
         ${pop.err ? html`<div class="err" id="sbx-err">${pop.err}</div>` : nothing}
         ${popExtra ? popExtra(b, closePop) : nothing}
         ${tt.shown && tt.why ? html`<div class="hint" id="sbx-term-why">No terminal: ${tt.why}.</div>` : nothing}
@@ -174,9 +175,9 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
     const rows = app.sbx.rows(dl.order);
     dl.order = rows.map((r) => r.ref);
     const cant = app.sbx.createWhy();
-    return html`<div class="dlg-hd sbxdhd">${S.ICON} Sandboxes<span style="flex:1"></span>
-        <button class="btn ghost btnsm" id="sbx-refresh" title="Read them again from their managers" @click=${() => app.sbx.load(true)}>↻</button>
-        <button class="btn ghost btnsm" id="sbx-close" title="Close" @click=${() => dlg.close()}>✕</button></div>
+    return html`<div class="dlg-hd sbxdhd"><bx-icon name="box"></bx-icon>Sandboxes<span style="flex:1"></span>
+        <button class="btn ghost btnsm icon" id="sbx-refresh" title="Read them again from their managers" aria-label="Read them again" @click=${() => app.sbx.load(true)}><bx-icon name="refresh"></bx-icon></button>
+        <button class="btn ghost btnsm icon" id="sbx-close" title="Close" aria-label="Close" @click=${() => dlg.close()}><bx-icon name="xmark"></bx-icon></button></div>
       <div class="dlg-bd sbxbd">
         ${app.sbx.error ? html`<div class="err">${app.sbx.error}</div>` : nothing}
         ${L.managers.filter((m) => m.ok === false).map((m) => html`<div class="err">${m.title || m.provider}: ${m.error || 'unavailable'}</div>`)}
@@ -188,7 +189,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
         ${dl.msg ? html`<div class="muted" id="sbx-msg">${dl.msg}</div>` : nothing}
         ${dl.err && !dl.form && !dl.share ? html`<div class="err" id="sbx-err">${dl.err}</div>` : nothing}
         ${dl.share ? shareTpl() : dl.form ? formTpl() : html`<div><button class="btn btnsm" id="sbx-new" ?disabled=${!!cant} title=${cant}
-          @click=${() => { dl.form = {}; dl.err = ''; dl.msg = ''; draw(); }}>＋ New sandbox</button>
+          @click=${() => { dl.form = {}; dl.err = ''; dl.msg = ''; draw(); }}><bx-icon name="plus"></bx-icon>New sandbox</button>
           ${cant === S.VIEW_ONLY ? html`<span class="hint" id="sbx-new-why">${S.sentence(cant)}</span>` : nothing}</div>`}
       </div>`;
   }

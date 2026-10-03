@@ -64,7 +64,7 @@ ext.register({
     const t = HS.topChip(v);
     if (!t) return null;
     const h = harnessOf(v), p = planOf(h), u = usageBadge(h.usage);
-    return [`${t.mono} ${t.state === 'login' ? 'sign-in' : t.word}${t.shared ? ' 👥' : ''}`, p ? `📋 ${p.done}/${p.total}` : '', u ? u.head : ''].filter(Boolean).join(' · ');
+    return [`${t.mono} ${t.state === 'login' ? 'sign-in' : t.word}`, t.shared ? 'shared' : '', p ? `plan ${p.done}/${p.total}` : '', u ? u.head : ''].filter(Boolean).join(' · ');
   },
   // composer: at home, who answers (and where) in its placeholder
   composer: (v) => {

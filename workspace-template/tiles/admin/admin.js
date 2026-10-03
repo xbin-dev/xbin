@@ -18,6 +18,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 
 import { xbinApi as api } from '/vendor/bx-kit.js';
+import '/vendor/bx-icons.js'; // <bx-icon name>: the drawn glyphs every tab uses (D184)
 import { base } from './admin-css.js';
 // Tab elements (tiles/admin/tabs/*): each owns its data, endpoints and CSS
 // slice; the router keeps the nav, the shared lists and the global err /
@@ -67,26 +68,21 @@ export class BxAdmin extends WithDrafts(LitElement) {
     _denied: { state: true },
   };
 
+  // Base Two (D184): text tabs, the active one underlined in the accent
+  // (product-ui §6) — the group row in the UI's weight, the sub-tabs under
+  // it — sticky together; their height is --admin-nav-h, under which the
+  // tabs' table headers stick.
   static styles = [base, css`
-    :host { display: block; font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
-            color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
+    :host { display: block; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
+    .nav { position: sticky; top: 0; z-index: 2; background: var(--bx-panel); border-bottom: 1px solid var(--bx-border); }
     /* two-level nav: a primary group row + a sub-tab row under it */
-    .groups { display: flex; gap: 4px; padding: 6px 8px 0; flex-wrap: wrap;
-              background: var(--bx-panel-2, #2b3038); position: sticky; top: 0; z-index: 2; }
-    .groups button { border: 0; background: none; font: inherit; font-size: 12px; font-weight: 600;
-      padding: 5px 12px; cursor: pointer; color: var(--bx-muted, #868f9a); border-radius: 6px;
-      letter-spacing: .01em; }
-    .groups button.on { background: var(--bx-accent, #f5a623); color: #fff; }
-    .groups button:not(.on):hover { background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
-    .tabs { display: flex; gap: 2px; padding: 4px 8px 0; flex-wrap: wrap;
-            border-bottom: 1px solid var(--bx-border, #363c45);
-            background: var(--bx-panel-2, #2b3038); position: sticky; top: 33px; z-index: 1; }
-    .tabs.sub { top: 33px; }
-    .tabs button { border: 1px solid transparent; border-bottom: none; background: none;
-      font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer;
-      color: var(--bx-muted, #868f9a); border-radius: 5px 5px 0 0; }
-    .tabs button.on { background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
-      border-color: var(--bx-border, #363c45); margin-bottom: -1px; }
+    .groups, .tabs { display: flex; gap: 4px; padding: 0 8px; flex-wrap: wrap; }
+    .tabs { border-top: 1px solid var(--bx-border); }
+    .groups button, .tabs button { box-sizing: border-box; min-height: 32px; border: 0; border-bottom: 2px solid transparent;
+      background: none; padding: 4px 8px 2px; cursor: pointer; color: var(--bx-muted); }
+    .groups button { font-weight: 600; }
+    .groups button:hover, .tabs button:hover { color: var(--bx-text); }
+    .groups button.on, .tabs button.on { color: var(--bx-text); border-bottom-color: var(--bx-accent); }
   `];
 
   // Two-level nav (deployments run to thousands of tiles, so the flat tab row
@@ -173,6 +169,17 @@ export class BxAdmin extends WithDrafts(LitElement) {
   }
   disconnectedCallback() {
     super.disconnectedCallback(); this._off?.(); clearInterval(this._rtTimer); clearTimeout(this._refreshT);
+    this._navRO?.disconnect(); this._navRO = null;
+  }
+  // The tabs' table headers stick under the nav: its height, as it wraps or
+  // drops the sub-tab row, is --admin-nav-h (inherited into every tab).
+  updated() {
+    const nav = this.renderRoot.querySelector('.nav');
+    if (!nav || nav === this._navEl || typeof ResizeObserver === 'undefined') return;
+    this._navRO?.disconnect();
+    this._navEl = nav;
+    this._navRO = new ResizeObserver(() => this.style.setProperty('--admin-nav-h', `${nav.offsetHeight}px`));
+    this._navRO.observe(nav);
   }
   _refreshSoon() { clearTimeout(this._refreshT); this._refreshT = setTimeout(() => this._refresh(), 150); }
   // Green self-clearing notice (the red .err slot is for failures).
@@ -228,17 +235,21 @@ export class BxAdmin extends WithDrafts(LitElement) {
     const grp = this._grpOf(tab);
     return html`
       ${alertBar(this._alerts, (e) => (e ? (this._err = e.message) : this._refresh()))}
-      <div class="groups">
-        ${BxAdmin.GROUPS.map((g) => html`
-          <button class=${g.id === grp.id ? 'on' : ''} @click=${() => this._setGroup(g)}>${g.label}</button>`)}
+      <div class="nav">
+        <div class="groups">
+          ${BxAdmin.GROUPS.map((g) => html`
+            <button class=${g.id === grp.id ? 'on' : ''} aria-current=${g.id === grp.id ? 'true' : 'false'}
+              @click=${() => this._setGroup(g)}>${g.label}</button>`)}
+        </div>
+        ${grp.tabs.length > 1 ? html`<div class="tabs sub">
+          ${grp.tabs.map((t) => html`
+            <button class=${t.id === tab ? 'on' : ''} aria-current=${t.id === tab ? 'page' : 'false'}
+              @click=${() => this._setTab(t.id)}>${t.label}</button>`)}
+        </div>` : nothing}
       </div>
-      ${grp.tabs.length > 1 ? html`<div class="tabs sub">
-        ${grp.tabs.map((t) => html`
-          <button class=${t.id === tab ? 'on' : ''} @click=${() => this._setTab(t.id)}>${t.label}</button>`)}
-      </div>` : nothing}
       <div class="body">
-        ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
-        ${this._notice ? html`<div class="notice">${this._notice}</div>` : nothing}
+        ${this._err ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
+        ${this._notice ? html`<div class="notice"><bx-icon name="ok"></bx-icon><span>${this._notice}</span></div>` : nothing}
         ${tab === 'users' ? html`<bx-admin-users .users=${this._users} .orgs=${this._orgs} .sessions=${this._sessions} .reqs=${this._reqs}
               .authSettings=${this._authSettings} .targets=${this._targetOptions()}
               .permsets=${this._permsets} .netsets=${this._netsets}></bx-admin-users>`

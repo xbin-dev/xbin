@@ -4,7 +4,13 @@
 // uses. Pure functions over data the caller passes in — no element state.
 import { html, nothing } from 'lit';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { hasIcon } from '/vendor/bx-icons.js';
 import { ALLOW_KINDS, ROLE_CAPS, KNOWN_CAPS, allowKind, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
+
+// glyph(name): a view model's `icon` (a glyph name, D184 — the deploy, net
+// rule and allow-kind modules carry one beside words without emoji) drawn
+// before its words; nothing for no name, or for an older module's emoji.
+export const glyph = (name) => (name && hasIcon(name) ? html`<bx-icon name=${name}></bx-icon>` : nothing);
 
 // targetOptions(ov): every real component path (minus chrome), a pattern per
 // top dir, and * — the row editors' <datalist> of tile targets.
@@ -50,17 +56,18 @@ export const WithDrafts = (Base) => class extends Base {
     const d = this._draft(ctx) ?? [];
     const upd = (i, patch) => this._setDraft(ctx, d.map((r, j) => (j === i ? { ...r, ...patch } : r)));
     return html`
-      <div style="padding:6px 8px; background:var(--bx-panel-2, #2b3038); border-radius:6px">
-        ${d.map((r, i) => html`<div style="display:flex; gap:5px; align-items:center; margin-bottom:4px">
+      <div class="editor">
+        ${d.map((r, i) => html`<div style="display:flex; gap:8px; align-items:center; margin-bottom:4px">
           <input list="tile-targets" size="26" placeholder="path, prefix/* or *" .value=${r.target}
             @input=${(e) => upd(i, { target: e.target.value })}>
           <select @change=${(e) => upd(i, { level: e.target.value })}>
             ${['read', 'write', 'terminal', 'none'].map((l) => html`<option value=${l} ?selected=${r.level === l}
               title=${l === 'none' ? 'authoritative: overrides org membership, patterns and defaults (D31)' : ''}>${l === 'none' ? 'none (exclude)' : l}</option>`)}
           </select>
-          <button class="act rm" title="remove entry" @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}>✕</button>
+          <button class="act quiet rm icon" title="remove entry" aria-label="remove entry"
+            @click=${() => this._setDraft(ctx, d.filter((_, j) => j !== i))}><bx-icon name="xmark"></bx-icon></button>
         </div>`)}
-        <div style="display:flex; gap:5px; align-items:center">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
           <button class="act" @click=${() => this._setDraft(ctx, [...d, { target: '', level: 'write' }])}>+ entry</button>
           <button class="act go" @click=${async () => {
             const tiles = {};
@@ -69,7 +76,7 @@ export const WithDrafts = (Base) => class extends Base {
             if (!this._err) this._dropDraft(ctx);
           }}>save</button>
           <button class="act" @click=${() => this._dropDraft(ctx)}>cancel</button>
-          <span class="muted" style="font-size:10.5px">read = see it · write = use/edit · terminal = root shell on it ·
+          <span class="muted hint">read = see it · write = use/edit · terminal = root shell on it ·
             exact entries are authoritative (none = exclude, D31)</span>
         </div>
       </div>`;
@@ -114,7 +121,7 @@ export function allowRows(rows, onChange, { gotoTab } = {}) {
       case 'cap': return html`${val(r, i, { list: 'cap-classes', size: 18 })}
         <datalist id="cap-classes">${KNOWN_CAPS.map((c) => html`<option value=${c}></option>`)}</datalist>`;
       case 'net': return html`${val(r, i, { list: 'tile-targets' })}
-        <a class="link" style="font-size:11px" @click=${() => gotoTab?.('netsets')}>prefer a network set</a>`;
+        <a class="link hint" @click=${() => gotoTab?.('netsets')}>prefer a network set</a>`;
       default: return val(r, i);
     }
   };
@@ -124,17 +131,17 @@ export function allowRows(rows, onChange, { gotoTab } = {}) {
       return html`<div class="orow allowrow" data-kind=${r.kind}>
         <select name="kind" title=${allowKind(r.kind).help}
           @change=${(e) => upd(i, { kind: e.target.value, role: (e.target.value === 'tile' || e.target.value === 'res') ? (r.role ?? '') : '' })}>
-          ${ALLOW_KINDS.map((k) => html`<option value=${k.id} ?selected=${k.id === r.kind} title=${k.help}>${k.icon} ${k.label}</option>`)}
+          ${ALLOW_KINDS.map((k) => html`<option value=${k.id} ?selected=${k.id === r.kind} title=${k.help}>${k.label}</option>`)}
         </select>
         ${fields(r, i)}
-        <button class="act rm" title="remove this entry" @click=${() => rm(i)}>✕</button>
-        ${problem ? html`<span class="err-pill">${problem}</span>`
+        <button class="act quiet rm icon" title="remove this entry" aria-label="remove this entry" @click=${() => rm(i)}><bx-icon name="xmark"></bx-icon></button>
+        ${problem ? html`<span class="err-pill"><bx-icon name="error"></bx-icon>${problem}</span>`
           : html`<span class="allow-desc muted">→ ${describeAllow(r)} <span class="mono">${entry}</span></span>`}
       </div>`;
     })}
     <div class="orow">
       <button class="act" data-add-entry @click=${() => onChange([...rows, { kind: 'tile', value: '', role: 'writer' }])}>+ entry</button>
-      <span class="muted" style="font-size:10.5px">${rows.length ? allowKind(rows[rows.length - 1].kind).help : 'pick what to allow, fill the fields — the entry is built for you'}</span>
+      <span class="muted hint">${rows.length ? allowKind(rows[rows.length - 1].kind).help : 'pick what to allow, fill the fields — the entry is built for you'}</span>
     </div>`;
 }
 
@@ -290,7 +297,7 @@ export function alertBar(alerts, done) {
   const dismiss = (a) => api(a.dismiss, { method: 'POST' }).then(() => done(), (e) => done(e));
   return html`<div class="alertbar">
     ${alerts.map((a) => html`<div class="al ${a.level}">
-      <b>${a.level === 'crit' ? '⚠' : '⚡'}</b> ${a.message}
-      ${a.dismiss ? html`<button class="al-x" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`)}
+      <bx-icon name=${a.level === 'crit' ? 'error' : 'warning'}></bx-icon><span>${a.message}</span>
+      ${a.dismiss ? html`<button class="act quiet al-x" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`)}
   </div>`;
 }

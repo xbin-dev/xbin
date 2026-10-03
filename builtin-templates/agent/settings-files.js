@@ -64,7 +64,7 @@ export async function tabFiles(bd, ctx) {
           ${isHtmlPath(f.path) ? `<button class="btn ghost btnsm" data-fr="${i}" title="show in the render pane">Render</button> ` : ''}
           <button class="btn ghost btnsm" data-fe="${i}">${f.binary ? 'View' : 'Edit'}</button>
           <button class="btn rm btnsm" data-fd="${i}">Del</button></td></tr>`).join('')
-        : '<tr><td colspan="5" class="muted">no files yet — the agent writes these with its file tools; attach your own with 📎</td></tr>'}
+        : '<tr><td colspan="5" class="muted">no files yet — the agent writes these with its file tools; attach your own with the paperclip below the chat</td></tr>'}
       </table></div>
       <div class="hint">Text lives in this run's database; attachments in the tile's blob store. Deleting the run deletes both.</div>
     </div>${editor}`;

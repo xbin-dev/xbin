@@ -123,7 +123,7 @@ test('native: a class\'s Coding agents — the toggle, the checklist, what it ne
   const only = topScreen(r.snapshots.only);
   assert.deepEqual(all(only, { t: 'toggle', in: { t: 'section', p: { title: 'Coding agents it may start or spawn' } } }).map((t) => [t.p.label, t.p.value]),
     [['Claude Code', true], ['Codex', false], ['Gemini CLI', false], ['opencode', false]]);
-  assert.match(find(topScreen(r.snapshots.lame), { t: 'section', p: { title: 'Coding agents it may start or spawn' } }).p.footer, /^⚠ the harness toolset needs sandbox/);
+  assert.match(find(topScreen(r.snapshots.lame), { t: 'section', p: { title: 'Coding agents it may start or spawn' } }).p.footer, /^the harness toolset needs sandbox/);
   assert.match(JSON.stringify(topScreen(r.snapshots.refused)), /class coding: the harness toolset needs sandbox and an egress other than none/, 'the backend\'s refusal, said');
 });
 
@@ -146,6 +146,6 @@ test('native: Settings → Coding agents — each one, and checking a running sa
   assert.match(JSON.stringify(find(s, { t: 'section', p: { title: 'GM · Gemini CLI' } })), /needs internet access/);
   assert.ok(r.calls.some((c) => c.url.endsWith('/harnesses?probe=' + encodeURIComponent(`${SBX}|sb-9c1d`))), 'checked now');
   const after = topScreen(r.snapshots.checked);
-  assert.equal(find(after, { t: 'section', p: { title: 'Check a running sandbox now' } }).p.footer, 'checked scratch ✓');
+  assert.equal(find(after, { t: 'section', p: { title: 'Check a running sandbox now' } }).p.footer, 'checked scratch');
   assert.ok(find(after, { t: 'row', p: { title: 'scratch' }, in: { t: 'section', p: { title: 'CC · Claude Code' } } }), 'what it found is listed');
 });

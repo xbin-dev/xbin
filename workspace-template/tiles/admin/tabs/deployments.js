@@ -22,7 +22,7 @@ import { sandboxed } from '/vendor/bx-kit.js';
 import * as ds from '/vendor/deploy-state.js';
 import * as dp from '/vendor/deploy-panel.js';
 import { base, deploymentsCss } from '../admin-css.js';
-import { WithFilter, WithRouter } from '../shared.js';
+import { glyph, WithFilter, WithRouter } from '../shared.js';
 
 // The acts this tab does, and their routes under /api/xbin/deployments.
 const ROUTE = { primary: 'primary', protect: 'protect', unprotect: 'protect', deliveries: 'deliveries', alwaysOn: 'always-on' };
@@ -102,7 +102,7 @@ export class BxAdminDeployments extends WithFilter(WithRouter(LitElement)) {
     if (!tiles) return html`<p class="muted">loading…</p>`;
     const shown = tiles.filter((t) => this._match(t, this._states[t]?.primary));
     return html`
-      <h4 data-dep-head>tile deployments <span class="muted" style="font-weight:400">(${tiles.length} ${tiles.length === 1 ? 'tile has' : 'tiles have'} a deployment record)</span></h4>
+      <h4 data-dep-head>tile deployments <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">(${tiles.length} ${tiles.length === 1 ? 'tile has' : 'tiles have'} a deployment record)</span></h4>
       <p class="muted dep-note">Protection, the primary, deliveries and alwaysOn are tile managers' acts: the tile's owner, its org's admins, or a workspace admin.
         Here they run as you, in your own session — never from a tile terminal. Code moves and everything else are in each tile's Deployments panel.</p>
       ${tiles.length ? this._filterBar('filter tiles…', null, shown.length, tiles.length) : html`<p class="muted" data-dep-empty>No tile has deployments yet: every tile follows its work tree (live reload). A tile gets a record when its live reload is paused or a deployment is added — in its terminal window's Deployments panel, or with <span class="mono">bx live-reload pause</span> / <span class="mono">bx deployment add</span>.</p>`}
@@ -113,7 +113,7 @@ export class BxAdminDeployments extends WithFilter(WithRouter(LitElement)) {
     const said = this._said[tile], busy = this._busy === tile;
     if (!s || s.error) {
       return html`<div class="dcard" data-dep-tile=${tile}><div class="dhead"><span class="mono dpath">${tile}</span></div>
-        <div class="err">${s?.error || 'no state'}</div></div>`;
+        <div class="err"><bx-icon name="error"></bx-icon><span>${s?.error || 'no state'}</span></div></div>`;
     }
     const chip = ds.chip(s), last = lastDeploy(s), rows = dp.panelRows(s);
     const acts = dp.panelActions(s, null).filter((a) => TILE_ACTS.has(a.id));
@@ -121,17 +121,17 @@ export class BxAdminDeployments extends WithFilter(WithRouter(LitElement)) {
       <div class="dhead">
         <span class="mono dpath">${tile}</span>
         <span class="pill" title="everything from outside reaches the primary">primary: <b class="mono">${s.primary || 'main'}</b></span>
-        ${s.protectedPrimary ? html`<span class="pill prot" data-dep-protected title="only tile managers change its code">🛡 protected</span>`
+        ${s.protectedPrimary ? html`<span class="pill prot" data-dep-protected title="only tile managers change its code"><bx-icon name="shield"></bx-icon>protected</span>`
           : html`<span class="pill muted">not protected</span>`}
-        ${chip ? html`<span class="pill lr" title=${chip.title}>${chip.text}</span>` : nothing}
+        ${chip ? html`<span class="pill lr" title=${chip.title}>${glyph(chip.icon)}${chip.text}</span>` : nothing}
         ${s.view === 'reader' ? html`<span class="pill muted" title="you don't manage this tile: the primary's facts only">reader view</span>` : nothing}
       </div>
       ${last ? html`<div class="muted dlast" data-dep-last>last deploy: ${last.how || 'deploy'} ${last.checkpoint || ''} → ${last.deployment}
         · ${last.result}${last.by ? ` · ${ds.who(last.by)}` : ''}${last.at ? ` · ${ds.ago(last.at)}` : ''}</div>` : nothing}
       <table class="dtab"><tr><th>deployment</th><th>code</th><th>status</th><th>data</th><th>deliveries · alwaysOn</th></tr>
         ${rows.map((r) => html`<tr data-dep-row=${r.name}>
-          <td class="mono">${r.name}${r.primary ? html` <span class="muted">(primary${r.protected ? ' 🛡' : ''})</span>` : nothing}</td>
-          <td class="mono">${r.code}</td>
+          <td class="mono">${r.name}${r.primary ? html` <span class="muted">(primary${r.protected ? html` <bx-icon name="shield" label="protected"></bx-icon>` : ''})</span>` : nothing}</td>
+          <td class="mono">${glyph(r.codeIcon || r.icon)}${r.code}</td>
           <td class=${r.lastDeployFailed ? 'st-failed' : ''}>${r.status}</td>
           <td class="muted">${r.data}</td>
           <td>${r.primary ? html`<span class="muted">${r.deliveries}</span>` : this._switches(tile, s, r.name, busy)}</td>
@@ -140,12 +140,12 @@ export class BxAdminDeployments extends WithFilter(WithRouter(LitElement)) {
       <div class="dacts">
         ${acts.map((a) => html`<button class="act ${a.id === 'unprotect' ? '' : a.id === 'protect' ? 'go' : 'rm'}" data-dep-act=${a.id}
           ?disabled=${busy || !a.enabled} title=${a.enabled ? a.title : a.why || a.title}
-          @click=${() => (a.id === 'reassign' ? this._reassign(tile) : this._run(tile, a.id))}>${a.id === 'protect' ? '🛡 ' : ''}${a.label}</button>`)}
+          @click=${() => (a.id === 'reassign' ? this._reassign(tile) : this._run(tile, a.id))}>${a.id === 'protect' ? html`<bx-icon name="shield"></bx-icon>` : glyph(a.icon)}${a.label}</button>`)}
         <button class="act" data-dep-open title="open ${tile}'s terminal window on its Deployments panel: deploy, promote, roll back, live reload, edges, data"
-          @click=${() => this._openPanel(tile)}>⇈ Deployments panel</button>
+          @click=${() => this._openPanel(tile)}><bx-icon name="deploy"></bx-icon>Deployments panel</button>
         ${acts.some((a) => !a.enabled && a.why) ? html`<span class="muted dwhy">${acts.find((a) => !a.enabled && a.why).why}</span>` : nothing}
       </div>
-      ${said ? html`<div class=${said.error ? 'err' : 'notice'} data-dep-said>${said.error || said}</div>` : nothing}
+      ${said ? html`<div class=${said.error ? 'err' : 'notice'} data-dep-said><bx-icon name=${said.error ? 'error' : 'ok'}></bx-icon><span>${said.error || said}</span></div>` : nothing}
     </div>`;
   }
 

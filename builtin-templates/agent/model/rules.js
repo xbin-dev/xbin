@@ -38,7 +38,8 @@ export function topBar(v, row, me) {
     status: r.status,
     // the tool mode — not who may see it (that is Share)
     lane: web ? 'web' : 'private',
-    laneLabel: web ? '🌐 web' : '🔒 internal',
+    laneLabel: web ? 'web' : 'internal',
+    laneIcon: web ? 'globe' : 'lock', // a glyph name (D184): the views draw it before the word
     // its class (D116, fixed for its life): icon + name, and the warning of
     // a class that can move internal data out (model/classes.js badge)
     cls: badge(v),
@@ -161,7 +162,8 @@ export function grantChips(v, me, now = Date.now()) {
     const w = grantWords(g.cap, g);
     return {
       cap: g.cap,
-      label: `🔓 ${w.chip} · until ${clock(g.expiresMs)}`,
+      label: `${w.chip} · until ${clock(g.expiresMs)}`,
+      icon: 'unlock', // a glyph name (D184): the web draws it before the words
       title: `${g.grantedBy || 'The owner'} let the agent ${w.ask} in this conversation until ${clock(g.expiresMs)}`,
       revoke: own,
       run: r.rootId || r.id,
@@ -193,7 +195,8 @@ const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'waiting_input', 'que
 export function halt(me, on, rows) {
   return {
     shown: !!me.manager && (!!on || rows.some((r) => ACTIVE.has(r.status) && r.status !== 'waiting_input')),
-    label: on ? '⏻ HALTED' : '⏻',
+    label: on ? 'HALTED' : '', // the web draws the stop glyph before it (D184)
+    icon: 'stop',
     title: on ? 'Resume — the agent is halted' : 'Stop every running agent now',
   };
 }
@@ -221,7 +224,8 @@ export function rowShared(r) {
 
 // shareStatus: who can see the open conversation, said plainly for the top
 // bar — Private, the team (to read or write), how many people, or whose it is
-// when it was shared with you. Its owner changes it from there.
+// when it was shared with you. Its owner changes it from there. icon is a
+// glyph name (D184: people, lock) the views draw before the words.
 export function shareStatus(v, row) {
   const r = v.run;
   const { own } = access(v);
@@ -229,14 +233,14 @@ export function shareStatus(v, row) {
   const role = (row && row.teamRole) || r.teamRole;
   const n = (row && row.members) || 0;
   const people = n === 1 ? '1 person' : `${n} people`;
-  if (!own) return { icon: '👥', label: `from ${r.owner || 'the team'}`, tone: 'in', title: 'Shared with you — see who else can see it' };
+  if (!own) return { icon: 'people', label: `from ${r.owner || 'the team'}`, tone: 'in', title: 'Shared with you — see who else can see it' };
   if (vis === 'team') {
-    return { icon: '👥', label: `team can ${role === 'participant' ? 'write' : 'read'}${n ? ` · ${people}` : ''}`, tone: 'on',
+    return { icon: 'people', label: `team can ${role === 'participant' ? 'write' : 'read'}${n ? ` · ${people}` : ''}`, tone: 'on',
       title: 'Everyone who can open this agent can see it — change who can see it' };
   }
-  if (n) return { icon: '👥', label: `shared with ${people}`, tone: 'on', title: 'Shared with people — change who can see it' };
-  if (publishes(r.rootId || r.id)) return { icon: '🔒', label: 'private', tone: '', title: 'Only you can see it — share a copy of it in the shared space' };
-  return { icon: '🔒', label: 'private', tone: '', title: 'Only you can see it — share it' };
+  if (n) return { icon: 'people', label: `shared with ${people}`, tone: 'on', title: 'Shared with people — change who can see it' };
+  if (publishes(r.rootId || r.id)) return { icon: 'lock', label: 'private', tone: '', title: 'Only you can see it — share a copy of it in the shared space' };
+  return { icon: 'lock', label: 'private', tone: '', title: 'Only you can see it — share it' };
 }
 
 // rowMenu: a row's actions — its owner renames, shares and deletes; anyone

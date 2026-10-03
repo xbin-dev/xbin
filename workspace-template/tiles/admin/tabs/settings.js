@@ -48,21 +48,23 @@ export class BxAdminSettings extends WithRouter(LitElement) {
   };
   static styles = [base, css`
     section { max-width: 620px; margin-bottom: 18px; }
-    section > h3 { margin: 0 0 4px; font-size: 13px; }
-    .card { border: 1px solid var(--bx-border, #363c45); border-radius: 8px; padding: 12px 14px;
-            background: var(--bx-panel, #23272e); margin: 8px 0 10px; }
-    .card h4 { margin: 0 0 6px; }
-    label.sw { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; }
-    .hint { color: var(--bx-muted, #868f9a); font-size: 12px; }
-    .line, .state { font-size: 12px; margin: 6px 0 0 24px; }
-    .bad { color: var(--bx-red, #ef5350); font-size: 12px; margin: 8px 0 0 24px; }
-    .scope { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 400;
-             color: var(--bx-muted, #868f9a); border: 1px solid var(--bx-border, #363c45); }
-    .ask { margin: 8px 0 0 24px; padding: 8px 10px; border-radius: 6px; font-size: 12px;
-           background: color-mix(in srgb, var(--bx-amber, #f2a71b) 14%, transparent); }
-    .ask .row { display: flex; gap: 6px; margin-top: 6px; }
+    section > h3 { margin: 0 0 4px; font: inherit; font-weight: 600; }
+    .card { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: var(--bx-pad);
+            background: var(--bx-panel); margin: 8px 0 12px; }
+    .card h4 { margin: 0 0 8px; }
+    label.sw { display: flex; gap: 8px; align-items: flex-start; }
+    .hint { color: var(--bx-muted); }
+    .line, .state { margin: 8px 0 0 24px; }
+    .state { display: flex; gap: 6px; align-items: center; }
+    .bad { display: flex; gap: 6px; align-items: baseline; color: var(--bx-danger); margin: 8px 0 0 24px; }
+    /* the setting's scope: a square badge */
+    .scope { display: inline-flex; align-items: center; height: 20px; box-sizing: border-box; margin-left: 6px; padding: 0 6px;
+             border-radius: var(--bx-radius); font: var(--bx-font-meta); color: var(--bx-muted); border: 1px solid var(--bx-border-strong); }
+    /* asked before turning on: a warning, its tint and border */
+    .ask { margin: 8px 0 0 24px; padding: 8px 12px; border-radius: var(--bx-radius);
+           background: var(--bx-warn-bg); border: 1px solid var(--bx-warn); }
+    .ask .row { display: flex; gap: 8px; margin-top: 8px; }
     .ask ul { margin: 4px 0 0; padding-left: 18px; }
-    .ask code { font-size: 11px; }
   `];
 
   constructor() { super(); this.only = ''; this._state = null; this._asking = ''; this._busy = false; }
@@ -138,15 +140,15 @@ export class BxAdminSettings extends WithRouter(LitElement) {
         <span><b>${s.label}</b>${s.detail ? ` ${s.detail}` : nothing}${s.group === 'partitions' ? html`<span class="scope">applies to partitioned tiles</span>` : nothing}</span>
       </label>
       ${s.key === 'baseAutoUpdate'
-        ? html`<div class="state"><span class="dot" style="background:${on ? 'var(--bx-green, #4caf50)' : 'var(--bx-amber, #f2a71b)'}"></span>${on ? s.on : s.off}</div>`
+        ? html`<div class="state"><bx-icon class=${on ? 'st-healthy' : 'warn-ic'} name=${on ? 'ok' : 'warning'}></bx-icon><span>${on ? s.on : s.off}</span></div>`
         : html`<div class="line">${on ? s.on : s.off}</div>`}
-      ${why ? html`<div class="bad" data-setting-error=${s.key}>${why} — ${s.unreadable}</div>` : nothing}
+      ${why ? html`<div class="bad" data-setting-error=${s.key}><bx-icon name="error"></bx-icon><span>${why} — ${s.unreadable}</span></div>` : nothing}
       ${this._asking === s.key ? html`<div class="ask" data-setting-confirm=${s.key}>
         ${s.confirm}
         ${s.key === 'partitionConsent' ? this._edgesPreview() : nothing}
         <div class="row">
-          <button class="go" ?disabled=${this._busy} @click=${() => this._set(s, true)}>Turn on</button>
-          <button @click=${() => { this._asking = ''; }}>cancel</button>
+          <button class="act go" ?disabled=${this._busy} @click=${() => this._set(s, true)}>Turn on</button>
+          <button class="act" @click=${() => { this._asking = ''; }}>cancel</button>
         </div>
       </div>` : nothing}
     </div>`;

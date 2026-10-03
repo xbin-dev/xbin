@@ -73,7 +73,7 @@ test('the composer\'s picker: at home, icon + name, descriptions and warnings in
   const p = C.classPicker(null, st, 'bridge');
   assert.equal(p.shown, true);
   assert.deepEqual([p.value, p.label, p.mixed], ['bridge', '🌉 Bridge', true]);
-  assert.match(p.title, /^Class for your next new chat: Bridge — both \(⚠ can move internal data out\)$/);
+  assert.match(p.title, /^Class for your next new chat: Bridge — both \(can move internal data out\)$/);
   assert.deepEqual(p.rows.map((x) => [x.value, x.on, x.mixed, x.managers, x.nativeIcon]), [
     ['internal', false, false, false, 'lock'], ['web', false, false, false, 'globe'], ['coding', false, false, false, 'terminal'],
     ['bridge', true, true, false, 'lock'], ['ops', false, false, true, 'lock']]);
@@ -84,12 +84,16 @@ test('the composer\'s picker: at home, icon + name, descriptions and warnings in
 
 test('the badge: the conversation\'s class, the warning of a mixed one, the lane of an older view', () => {
   const b = C.badge({ class: { id: 'bridge', name: 'Bridge', icon: '🌉', description: 'both', mixed: true } });
-  assert.deepEqual([b.label, b.warn, b.mixed], ['🌉 Bridge', '⚠ can move internal data out', true]);
+  assert.deepEqual([b.label, b.warn, b.mixed], ['🌉 Bridge', 'can move internal data out', true]);
+  // the web draws the glyph its admin's emoji names, else the emoji as typed (D184)
+  assert.deepEqual([b.name, b.icon, b.glyph], ['Bridge', '🌉', '']);
+  assert.equal(C.badge({ class: { id: 'internal', name: 'Internal', icon: '🔒' } }).glyph, 'lock');
   assert.match(b.title, /^Bridge: both — fixed for this conversation$/);
   assert.match(b.warnTitle, /steer the agent into sending internal data outside/);
   assert.equal(C.badge({ class: { id: 'web', name: 'Web', icon: '🌐' } }).warn, '');
-  assert.equal(C.badge({ config: { toolset: 'web' } }).label, '🌐 web', 'no class in the view: its lane');
-  assert.equal(C.badge({ config: {} }).label, '🔒 internal');
+  assert.deepEqual([C.badge({ config: { toolset: 'web' } }).label, C.badge({ config: { toolset: 'web' } }).glyph], ['web', 'globe'],
+    'no class in the view: its lane — the word, and the glyph the web draws before it');
+  assert.deepEqual([C.badge({ config: {} }).label, C.badge({ config: {} }).glyph], ['internal', 'lock']);
   assert.equal(C.nativeIcon({ icon: '⚙️' }), 'gear', 'an emoji with its variation selector');
   assert.equal(C.nativeIcon({ icon: '🦄', toolsets: ['web'] }), 'globe', 'an icon the app lacks: by what the class reaches');
 });
@@ -176,7 +180,7 @@ test('delete, reset, the default', () => {
   const rows = C.editorRows(st);
   assert.deepEqual(rows.map((r) => [r.id, r.tags.join(' · '), r.del && r.del.label]), [
     ['internal', 'built-in', null], ['web', 'built-in', null], ['coding', 'built-in', 'Reset to default'],
-    ['bridge', 'default · ⚠ can move internal data out', 'Delete'], ['ops', 'managers only', 'Delete']]);
+    ['bridge', 'default · can move internal data out', 'Delete'], ['ops', 'managers only', 'Delete']]);
   assert.equal(rows[3].del.confirm, 'Delete the Bridge class? Its conversations go on as Internal.');
   assert.equal(rows[4].toolsets, 'internal');
 });
@@ -210,15 +214,15 @@ test('an automation\'s class: the forms\' choices, what cards say, the lane sent
   const st = C.listOf(listed());
   assert.deepEqual(C.choices(st, 'web').map((r) => [r.value, r.lane, r.on]),
     [['internal', 'private', false], ['web', 'web', true], ['coding', 'web', false], ['bridge', 'private', false], ['ops', 'private', false]]);
-  assert.match(C.choices(st, 'bridge').find((r) => r.on).label, /⚠ can move internal data out$/);
+  assert.match(C.choices(st, 'bridge').find((r) => r.on).label, / — can move internal data out$/);
   const gone = C.choices(st, 'old-one');
   assert.deepEqual([gone.length, gone.at(-1).value, gone.at(-1).gone, gone.at(-1).on], [6, 'old-one', true, true], 'the one it has stays listed');
   assert.deepEqual(C.choices(st, 'web', 'web').map((r) => r.value), ['web', 'coding'], 'one lane only');
   assert.deepEqual([C.laneFor(st, 'coding'), C.laneFor(st, 'bridge'), C.laneFor(st, 'gone', 'web'), C.laneFor(st, 'gone')], ['web', 'private', 'web', 'private']);
   let a = C.ofAutomation(st, { class: 'bridge', toolset: 'private' });
-  assert.deepEqual([a.label, a.lane, a.mixed, a.warn], ['🌉 Bridge', 'private', true, '⚠ can move internal data out']);
+  assert.deepEqual([a.label, a.lane, a.mixed, a.warn], ['🌉 Bridge', 'private', true, 'can move internal data out']);
   a = C.ofAutomation(st, { toolset: 'web' });
-  assert.deepEqual([a.id, a.label, a.nativeIcon], ['web', '🌐 Web', 'globe'], 'from before classes: its lane\'s built-in');
+  assert.deepEqual([a.id, a.label, a.nativeIcon, a.glyph], ['web', '🌐 Web', 'globe', 'globe'], 'from before classes: its lane\'s built-in (its admin\'s emoji, and the glyph it names)');
   a = C.ofAutomation(st, { class: 'secret', toolset: 'web' });
   assert.deepEqual([a.known, a.label, a.lane], [false, 'secret', 'web'], 'one you may not see: its id, its lane');
   const cc = C.channelClasses(st, { privateClass: '', webClass: '' });

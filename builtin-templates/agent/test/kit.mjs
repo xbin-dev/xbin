@@ -17,9 +17,20 @@ if (!KIT_PATH) {
   process.exit(0);
 }
 
-// serveKit(page | context): answer the kit's URL with the real kit.
-export const serveKit = (target) => target.route('**/vendor/bx-kit.js', (r) =>
-  r.fulfill({ contentType: 'text/javascript', body: readFileSync(KIT_PATH, 'utf8') }));
+// The drawn glyphs (<bx-icon>, D184): bx-icons.js beside the kit (in an
+// instance: BX_ICONS=<path>); without it the page keeps its words, as on an
+// xbind from before them.
+export const ICONS_PATH = [process.env.BX_ICONS, join(dirname(KIT_PATH), 'bx-icons.js')].filter(Boolean).find((p) => existsSync(p));
+
+// serveKit(page | context): answer the kit's URL with the real kit, and the glyphs'.
+export const serveKit = async (target) => {
+  await target.route('**/vendor/bx-kit.js', (r) =>
+    r.fulfill({ contentType: 'text/javascript', body: readFileSync(KIT_PATH, 'utf8') }));
+  if (ICONS_PATH) {
+    await target.route('**/vendor/bx-icons.js', (r) =>
+      r.fulfill({ contentType: 'text/javascript', body: readFileSync(ICONS_PATH, 'utf8') }));
+  }
+};
 
 // A read hands back a wrapper bound to the stub installed AT THAT MOMENT, so
 // a test that keeps `const orig = xbin.fetch` and later swaps in a function

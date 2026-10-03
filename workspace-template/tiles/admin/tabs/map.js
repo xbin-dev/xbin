@@ -83,24 +83,24 @@ export class BxAdminMap extends WithRouter(LitElement) {
     const outside = users.filter((u) => u.role !== 'admin' && !inOrg.has(u.id)).map((u) => u.id);
     const person = (m) => html`<span class="pill ${m.admin ? 'crown' : ''}"
       title="level ${m.level}${m.create ? ' · may create org tiles' : ''}${m.admin ? ' · org admin' : ''}">
-      ${m.admin ? '★ ' : ''}${m.id}·${(m.level || 'read')[0]}${m.create && !m.admin ? '+' : ''}</span>`;
+      ${m.admin ? html`<bx-icon name="key" label="org admin"></bx-icon>` : ''}${m.id}·${(m.level || 'read')[0]}${m.create && !m.admin ? '+' : ''}</span>`;
     return html`
       <div class="snode ws">
         <div class="shead">workspace</div>
-        <div>admins: ${wsAdmins.length ? wsAdmins.map((a) => html`<span class="pill crown">★ ${a}</span>`) : html`<span class="muted">root token only</span>`}
-          ${this.wsPolicy?.length ? html`<span class="pill pol" title=${this.wsPolicy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${plural(this.wsPolicy.length, 'policy row')}</span>` : nothing}
+        <div>admins: ${wsAdmins.length ? wsAdmins.map((a) => html`<span class="pill crown"><bx-icon name="key" label="admin"></bx-icon>${a}</span>`) : html`<span class="muted">root token only</span>`}
+          ${this.wsPolicy?.length ? html`<span class="pill pol" title=${this.wsPolicy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}><bx-icon name="error"></bx-icon>${plural(this.wsPolicy.length, 'policy row')}</span>` : nothing}
         </div>
-        ${outside.length ? html`<div style="margin-top:3px"><span class="muted" style="font-size:11px">in no org:</span> ${outside.map((u) => html`<span class="pill">${u}</span>`)}</div>` : nothing}
+        ${outside.length ? html`<div style="margin-top:4px"><span class="muted">in no org:</span> ${outside.map((u) => html`<span class="pill">${u}</span>`)}</div>` : nothing}
       </div>
       ${orgs.map((o) => html`
         <div class="snode org">
           <div class="shead"><span class="mono">${o.id}</span>${o.name !== o.id ? html` <span class="muted">${o.name}</span>` : nothing}
-            ${(o.sets ?? []).map((n) => html`<span class="pill" title="permission set">⛭ ${n}</span>`)}
-            ${(o.resolvedAllow ?? []).length ? html`<span class="pill" title=${'org admins may self-approve:\n' + o.resolvedAllow.join('\n')}>✓ ${plural(o.resolvedAllow.length, 'allowance')}</span>` : nothing}
-            ${o.policy?.length ? html`<span class="pill pol" title=${o.policy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${plural(o.policy.length, 'policy row')}</span>` : nothing}
+            ${(o.sets ?? []).map((n) => html`<span class="pill" title="permission set"><bx-icon name="key"></bx-icon>${n}</span>`)}
+            ${(o.resolvedAllow ?? []).length ? html`<span class="pill" title=${'org admins may self-approve:\n' + o.resolvedAllow.join('\n')}><bx-icon name="check"></bx-icon>${plural(o.resolvedAllow.length, 'allowance')}</span>` : nothing}
+            ${o.policy?.length ? html`<span class="pill pol" title=${o.policy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}><bx-icon name="error"></bx-icon>${plural(o.policy.length, 'policy row')}</span>` : nothing}
           </div>
           <div>${(o.members ?? []).length ? (o.members ?? []).map(person) : html`<span class="muted">no members</span>`}</div>
-          ${(o.ownedTiles ?? []).length ? html`<div style="margin-top:3px">
+          ${(o.ownedTiles ?? []).length ? html`<div style="margin-top:4px">
             ${(o.ownedTiles ?? []).map((p) => html`<span class="pill mono" title="owned by ${o.id}">${p}</span>`)}</div>` : nothing}
         </div>`)}`;
   }
@@ -110,14 +110,14 @@ export class BxAdminMap extends WithRouter(LitElement) {
     const c = s && this._matrix?.matrix?.[s.user]?.[s.tile];
     if (!c) return nothing;
     return html`
-      <div style="margin-top:8px; padding:8px 10px; border:1px solid var(--bx-border, #363c45); border-radius:6px">
+      <div class="editor" style="margin-top:8px">
         <span class="mono">${s.user}</span> on <span class="mono">${s.tile}</span> →
         ${this._lvChip(c.level)} <b>${c.level}</b>
-        <table style="margin-top:5px">
+        <table style="margin-top:4px">
           ${(c.explain ?? []).map((v, i) => html`<tr style=${i === 0 ? '' : 'opacity:.65'}>
             <td style="white-space:nowrap">${this._lvChip(v.level)} ${v.level}</td>
             <td>${this._srcLabel(v.source)}</td>
-            <td class="muted" style="font-size:10.5px">${i === 0 ? '← effective (highest wins)' : 'unioned'}</td>
+            <td class="muted hint">${i === 0 ? '← effective (highest wins)' : 'unioned'}</td>
           </tr>`)}
         </table>
       </div>`;
@@ -127,9 +127,9 @@ export class BxAdminMap extends WithRouter(LitElement) {
   // button, not an icon (review feedback: ⇄ alone wasn't discoverable).
   _ownerCell(m, tile) {
     const owner = m?.owners?.[tile] ?? '';
-    const icon = owner.startsWith('user:') ? '👤 ' : owner.startsWith('org:') ? '🏢 ' : '';
+    const icon = owner.startsWith('user:') ? html`<bx-icon name="person"></bx-icon>` : owner.startsWith('org:') ? html`<bx-icon name="org"></bx-icon>` : '';
     return html`<span class="pill mono" title="owner (D24)">${icon}${owner || 'workspace'}</span>
-      <button class="act" title="reassign this tile's owner — previews impact first (D39)"
+      <button class="act quiet" title="reassign this tile's owner — previews impact first (D39)"
         @click=${() => {
           this._ownerEdit = this._ownerEdit?.tile === tile ? null
             : { tile, to: owner };
@@ -200,8 +200,8 @@ export class BxAdminMap extends WithRouter(LitElement) {
         const isOpen = open.has(tile);
         return html`
           <div class="maprow">
-            <button class="act" style="width:20px" title=${isOpen ? 'collapse' : 'who has access'}
-              @click=${() => toggle(tile)}>${isOpen ? '▾' : '▸'}</button>
+            <button class="act quiet icon" title=${isOpen ? 'collapse' : 'who has access'} aria-label=${isOpen ? 'collapse' : 'who has access'}
+              @click=${() => toggle(tile)}><bx-icon name=${isOpen ? 'caret-down' : 'caret-right'}></bx-icon></button>
             <span class="mono" style="flex:1">${tile}</span>
             ${this._ownerCell(m, tile)}
             <span class="muted" style="white-space:nowrap; cursor:pointer" @click=${() => toggle(tile)}>
@@ -239,14 +239,14 @@ export class BxAdminMap extends WithRouter(LitElement) {
       ? this._mapLayout : (cols.length > 10 ? 'list' : 'matrix');
     return html`
       <h4>structure</h4>
-      <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
-        Who is where: ★ = admin of that box. Level pills on teams are their
-        grants (union — the highest matching source wins per tile); ⛔ marks a
+      <p class="muted hint" style="max-width:64ch; margin-top:2px">
+        Who is where: the key marks an admin of that box. Level pills on teams are their
+        grants (union — the highest matching source wins per tile); the error sign marks a
         policy ceiling on what those tiles may be granted (${HOVER ? 'hover for its rows' : 'the policies tab lists its rows'}).</p>
       ${this._structureView()}
 
-      <h4 style="margin-top:14px">effective access</h4>
-      <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
+      <h4 style="margin-top:16px">effective access</h4>
+      <p class="muted hint" style="max-width:64ch; margin-top:2px">
         The resolved model, straight from the server: what each user can do on
         each tile, and who OWNS it (transfer = reassign, with an impact
         preview). <span class="lv lv-read">r</span> read ·
@@ -261,7 +261,7 @@ export class BxAdminMap extends WithRouter(LitElement) {
       ${!m ? html`<p class="muted">loading…</p>` : !allCols.length
         ? html`<p class="muted">No regular users yet — add some in the users tab.</p>`
         : html`
-        <div class="row" style="margin:6px 0; flex-wrap:wrap">
+        <div class="row" style="display:flex; gap:8px; align-items:center; margin:8px 0; flex-wrap:wrap">
           <input placeholder="filter tiles / owner…" .value=${this._mapTileQ ?? ''}
             @input=${(e) => { this._mapTileQ = e.target.value; }} style="width:170px">
           <input placeholder="filter users…" .value=${this._mapUserQ ?? ''}
@@ -271,9 +271,9 @@ export class BxAdminMap extends WithRouter(LitElement) {
                ['matrix', 'matrix'], ['list', 'by-tile list']].map(([v, l]) =>
               html`<option value=${v} ?selected=${(this._mapLayout ?? 'auto') === v}>${l}</option>`)}
           </select>
-          <span class="muted" style="font-size:11px">${nTiles} tile${nTiles === 1 ? '' : 's'} ·
+          <span class="muted hint">${nTiles} tile${nTiles === 1 ? '' : 's'} ·
             ${cols.length}/${allCols.length} user${allCols.length === 1 ? '' : 's'}</span>
-          ${this._mapHiddenCount(m) ? html`<label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center">
+          ${this._mapHiddenCount(m) ? html`<label class="muted" style="display:inline-flex;gap:6px;align-items:center">
             <input type="checkbox" .checked=${!!this.showHidden}
               @change=${(e) => { this._emit('bx-admin-show-hidden', e.target.checked); }}> show hidden (${this._mapHiddenCount(m)})</label>` : nothing}
         </div>
@@ -288,11 +288,11 @@ export class BxAdminMap extends WithRouter(LitElement) {
   _xferReport(rep) {
     if (!rep) return nothing;
     const lv = rep.callerLevel;
-    return html`<div style="margin-top:5px; font-size:11.5px">
+    return html`<div style="margin-top:4px">
       ${lv && lv.before !== lv.after ? html`<div>your access: <b>${lv.before || 'none'}</b> → <b>${lv.after || 'none'}</b></div>` : nothing}
-      ${(rep.deadBindings ?? []).map((b) => html`<div style="color:var(--bx-red, #ef5350)">
+      ${(rep.deadBindings ?? []).map((b) => html`<div class="err-pill"><bx-icon name="error"></bx-icon>
         binding <span class="mono">${b.slot}</span> will be <b>UNBOUND</b>: ${b.reason}</div>`)}
-      ${(rep.deadGrants ?? []).map((g) => html`<div style="color:var(--bx-red, #ef5350)">
+      ${(rep.deadGrants ?? []).map((g) => html`<div class="err-pill"><bx-icon name="error"></bx-icon>
         grant <span class="mono">${g.target}:${g.role}</span> becomes inert: ${g.reason}</div>`)}
       ${(rep.planeChanges ?? []).map((s) => html`<div class="muted">${s}</div>`)}
       ${(rep.unbound ?? []).length ? html`<div>unbound: ${rep.unbound.map((s) => html`<span class="pill mono">${s}</span>`)}</div>` : nothing}
@@ -307,7 +307,7 @@ export class BxAdminMap extends WithRouter(LitElement) {
       ...(this.users ?? []).map((u) => ({ value: 'user:' + u.id, label: 'user: ' + u.id })),
       ...(this.orgs ?? []).map((o) => ({ value: 'org:' + o.id, label: 'org: ' + o.id }))];
     const pick = (to) => { this._ownerEdit = { tile: oe.tile, to, rep: null, perr: null }; };
-    return html`<div style="padding:6px 8px; border:1px solid var(--bx-accent,#f5a623); border-radius:6px; margin:2px 0">
+    return html`<div class="editor" style="margin:2px 0">
       <div class="row">owner of <span class="mono">${oe.tile}</span>:
         <span class="mono">${cur || 'workspace'}</span> →
         <select @change=${(e) => pick(e.target.value)}>
@@ -319,7 +319,7 @@ export class BxAdminMap extends WithRouter(LitElement) {
             this._ownerEdit = { ...oe, rep, perr: null };
           } catch (e) { this._ownerEdit = { ...oe, rep: null, perr: String(e.message ?? e) }; }
         }}>preview</button>
-        ${oe.rep ? html`<button class="go" @click=${async () => {
+        ${oe.rep ? html`<button class="act go" @click=${async () => {
           try {
             const done = await api('/owner', jbody({ tile: oe.tile, to: oe.to }, 'POST'));
             this._ownerEdit = null;
@@ -329,9 +329,9 @@ export class BxAdminMap extends WithRouter(LitElement) {
             this.load(true);
           } catch (e) { this._ownerEdit = { ...oe, perr: String(e.message ?? e) }; }
         }}>transfer</button>` : nothing}
-        <button @click=${() => { this._ownerEdit = null; }}>cancel</button>
+        <button class="act" @click=${() => { this._ownerEdit = null; }}>cancel</button>
       </div>
-      ${oe.perr ? html`<div class="err" style="margin-top:4px">${oe.perr}</div>` : nothing}
+      ${oe.perr ? html`<div class="err" style="margin-top:4px"><bx-icon name="error"></bx-icon><span>${oe.perr}</span></div>` : nothing}
       ${this._xferReport(oe.rep)}
     </div>`;
   }

@@ -14,9 +14,10 @@ export const ACP_FAMILY = {
   read: 'file', edit: 'edit', delete: 'del', move: 'move', search: 'search',
   execute: 'box', think: 'think', fetch: 'web', switch_mode: 'mode', other: 'other',
 };
-// The families only harness calls have: the web's glyphs and the native icons
-// (tool-heads.js ICON and native/ui.js FAMILY_ICON take them in).
-export const ACP_ICON = { edit: '✎', search: '🔎', del: '🗑', move: '↪', think: '💭', mode: '⇄' };
+// The families only harness calls have: the web's glyphs (bx-icons names,
+// D184) and the native icons (tool-heads.js ICON and native/ui.js
+// FAMILY_ICON take them in).
+export const ACP_ICON = { edit: 'pencil', search: 'search', del: 'trash', move: 'arrow-right', think: 'thought', mode: 'shield' };
 export const ACP_NATIVE_ICON = { edit: 'pencil', search: 'search', del: 'trash', move: 'link', think: 'sparkles', mode: 'shield' };
 
 export const isAcp = (name) => String(name || '').startsWith('acp:');

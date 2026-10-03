@@ -47,5 +47,5 @@ export const IMPLEMENTS = {
   'state.errors': 'web.js — ui.err (ui.run); web-ops.js, web-mine.js — the load errors',
   'state.reader': 'web.js — tabs (Your sandboxes only); web-mine.js — the reader note',
   'state.readonly': 'web-mine.js — the read-only note, New sandbox disabled, no row actions, Terminal and Sharing disabled, files without Upload, New folder and Remove (model/mine.js myRows filesWhy, termWhy, shareWhy)',
-  'state.refresh': 'web.js — ↻ and the 10 s reload while visible',
+  'state.refresh': 'web.js — the refresh button and the 10 s reload while visible',
 };

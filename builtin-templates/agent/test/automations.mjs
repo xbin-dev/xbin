@@ -46,9 +46,11 @@ const groups = await page.$$eval('.autos-page h5', (els) => els.map((e) => e.tex
 ok('grouped by kind', JSON.stringify(groups) === JSON.stringify(['Channels', 'Schedules', 'Watchers', 'Triggers']), groups.join(' | '));
 const bob = await page.textContent('.acard2[data-auto="schedule:5"]');
 ok('someone else\'s, overseen: whose it is, not what it does', bob.includes("bob's") && !bob.includes('Run now') && !bob.includes('Internal'), bob);
-ok('a card says its class (one from before classes: its lane\'s built-in)', (await page.textContent('.acard2[data-auto="schedule:3"] [data-cls]')) === '🔒 Internal');
+ok('a card says its class (one from before classes: its lane\'s built-in) — its glyph, then its name (D184)', (await page.textContent('.acard2[data-auto="schedule:3"] [data-cls]')) === 'Internal'
+  && !!(await page.$('.acard2[data-auto="schedule:3"] [data-cls] bx-icon[name="lock"]')));
 const leak = await page.textContent('.acard2[data-auto="schedule:6"]');
-ok('…and warns of one that can move internal data out', leak.includes('🌉 Bridge') && leak.includes('⚠ can move internal data out'), leak);
+ok('…and warns of one that can move internal data out', leak.includes('🌉 Bridge') && leak.includes('can move internal data out')
+  && !!(await page.$('.acard2[data-auto="schedule:6"] .clswarn bx-icon[name="warning"]')), leak);
 ok('#auto is in the address', await page.evaluate(() => location.hash === '#auto'));
 
 await page.click('.acard2[data-auto="schedule:3"]');
@@ -64,7 +66,7 @@ ok('…with the way back to its automation', (await page.textContent('#top .crum
 await page.click('#top .crumb');
 await page.waitForSelector('.autos-page .agoal');
 ok('the crumb returns to the automation', (await page.textContent('.autos-page')).includes('Morning digest'));
-ok('its detail says its class', (await page.textContent('.autos-page [data-cls]')) === '🔒 Internal');
+ok('its detail says its class', (await page.textContent('.autos-page [data-cls]')) === 'Internal' && !!(await page.$('.autos-page [data-cls] bx-icon[name="lock"]')));
 await page.click('.autos-page button:has-text("Edit")');
 await page.waitForSelector('.autos-page select[data-cls="class"]');
 ok('an edit shows its class, fixed', await page.isDisabled('.autos-page select[data-cls="class"]')

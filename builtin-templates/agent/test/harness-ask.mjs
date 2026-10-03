@@ -77,7 +77,7 @@ ok('(the stub still holds the run)', !!ps2);
 await go(27, '.hask.hplan');
 const plan = await page.textContent('.hask.hplan');
 ok('the plan, its options', plan.includes('Backfill in batches of 1000') && plan.includes('Yes, and auto-accept edits') && plan.includes('No, keep planning'), plan);
-ok('the bypass option is marked', (await page.textContent('.hask [data-opt="bypassPermissions"]')).startsWith('⚠') &&
+ok('the bypass option is marked', !!(await page.$('.hask [data-opt="bypassPermissions"] bx-icon[name="warning"]')) &&
   await page.$eval('.hask [data-opt="bypassPermissions"]', (e) => e.classList.contains('hwarn')));
 dialogs = 'dismiss';
 await page.click('.hask [data-opt="bypassPermissions"]');
@@ -133,7 +133,7 @@ dialogs = 'dismiss';
 await page.click('#hctl-pop [data-mode="bypassPermissions"] input');
 await page.waitForTimeout(100);
 ok('a bypass mode is marked and asks first — dismissed, nothing sent', (await calls('PATCH', '/runs/21/harness$')).length === 1 &&
-  (await page.textContent('#hctl-pop [data-mode="bypassPermissions"]')).includes('⚠') &&
+  !!(await page.$('#hctl-pop [data-mode="bypassPermissions"] bx-icon[name="warning"]')) &&
   await page.$eval('#hctl-pop [data-mode="bypassPermissions"] input', (e) => !e.checked));
 dialogs = 'accept';
 await page.click('#hctl-pop [data-mode="bypassPermissions"] input');
@@ -143,7 +143,7 @@ await page.selectOption('#hctl-pop select[data-opt="model"]', 'sonnet');
 await waitCall('PATCH', '/runs/21/harness$', 3);
 ok('an option: PATCH {option: {id, value}}', JSON.stringify((await last('PATCH', '/runs/21/harness$')).body) === '{"option":{"id":"model","value":"sonnet"}}');
 ok('your setting: Auto, as set (checked, whatever the theme draws a button like)', await page.$eval('#hctl-pop [data-setting="auto"]',
-  (e) => e.classList.contains('on') && e.textContent.trim().startsWith('✓') && e.getAttribute('aria-pressed') === 'true'));
+  (e) => e.classList.contains('on') && !!e.querySelector('bx-icon[name="check"]') && e.getAttribute('aria-pressed') === 'true'));
 await page.click('#hctl-pop [data-setting="approve"]');
 await waitCall('PUT', '/prefs/harness-mode/claude$', 1);
 ok('Always approve: PUT /prefs/harness-mode/claude', (await last('PUT', '/prefs/harness-mode/claude$')).body.mode === 'approve');

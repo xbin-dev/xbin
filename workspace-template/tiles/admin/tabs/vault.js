@@ -63,16 +63,17 @@ export class BxAdminVault extends WithRouter(LitElement) {
   _barrierView() {
     const st = this.vaultStatus;
     if (!st) return nothing;
+    // the state in words, its status icon and colour (D184: never colour alone)
     const badge = {
-      unsealed:     ['unsealed — encryption at rest active', 'var(--bx-green, #4caf50)'],
-      sealed:       ['sealed — encrypted and locked', 'var(--bx-amber, #f2a71b)'],
-      unconfigured: ['unconfigured — no passphrase set, secret storage refused', 'var(--bx-red, #ef5350)'],
-      plaintext:    ['plaintext — NO encryption at rest (dev mode)', 'var(--bx-red, #ef5350)'],
-    }[st.mode] ?? [st.mode, 'var(--bx-muted, #868f9a)'];
+      unsealed:     ['unsealed — encryption at rest active', 'ok', 'st-healthy'],
+      sealed:       ['sealed — encrypted and locked', 'lock', 'warn-ic'],
+      unconfigured: ['unconfigured — no passphrase set, secret storage refused', 'error', 'st-failed'],
+      plaintext:    ['plaintext — NO encryption at rest (dev mode)', 'error', 'st-failed'],
+    }[st.mode] ?? [st.mode, 'info', 'muted'];
     const firstTime = st.mode === 'unconfigured' || st.mode === 'plaintext';
     return html`
       <h4>encryption barrier</h4>
-      <p style="margin:0 0 8px"><span class="dot" style="background:${badge[1]}"></span>${badge[0]}</p>
+      <p class=${badge[2]} style="margin:0 0 8px; display:flex; gap:6px; align-items:center"><bx-icon name=${badge[1]}></bx-icon><span>${badge[0]}</span></p>
 
       ${st.mode === 'sealed' ? html`
         <form class="inline" @submit=${(e) => { e.preventDefault(); const f = e.target;
@@ -81,7 +82,7 @@ export class BxAdminVault extends WithRouter(LitElement) {
             autocomplete="off" required>
           <button class="act go">unseal</button>
         </form>
-        <p class="muted" style="font-size:11px;margin-top:6px">Encrypted resources and secrets
+        <p class="muted hint" style="margin-top:8px">Encrypted resources and secrets
           come back once unsealed. Also works from a terminal: <span class="mono">bx vault unseal</span>.</p>` : nothing}
 
       ${firstTime ? html`
@@ -94,7 +95,7 @@ export class BxAdminVault extends WithRouter(LitElement) {
             autocomplete="new-password" required>
           <button class="act go">${st.mode === 'plaintext' ? 'encrypt now' : 'set passphrase & unseal'}</button>
         </form>
-        <p class="muted" style="font-size:11px;margin-top:6px">Creates the barrier and encrypts
+        <p class="muted hint" style="margin-top:8px">Creates the barrier and encrypts
           existing secrets. <b>The passphrase cannot be recovered</b> — losing it loses the data.
           To have xbind unseal itself on boot, put <span class="mono">XBIN_VAULT_PASSPHRASE</span>
           in <span class="mono">/etc/xbin/xbin.env</span> (mode 600).</p>` : nothing}
@@ -112,7 +113,7 @@ export class BxAdminVault extends WithRouter(LitElement) {
           <button class="act">change passphrase</button>
           <button class="act rm" type="button" @click=${() => this._sealVault()}>seal now</button>
         </form>
-        <p class="muted" style="font-size:11px;margin-top:6px">Changing the passphrase re-wraps the
+        <p class="muted hint" style="margin-top:8px">Changing the passphrase re-wraps the
           data key — nothing is re-encrypted. If auto-unseal is configured, update
           <span class="mono">/etc/xbin/xbin.env</span> to match.</p>` : nothing}`;
   }
@@ -125,7 +126,7 @@ export class BxAdminVault extends WithRouter(LitElement) {
       ${sealedOff ? html`<h4>secrets</h4><span class="muted">unavailable while sealed — unseal above to browse and edit.</span>` : nothing}
       ${!sealedOff && vs.length === 0 ? html`<h4>secrets</h4><span class="muted">no vaults hold secrets yet — set one with
         <span class="mono">bx vault set &lt;component&gt; &lt;key&gt;</span> or below.</span>` : nothing}
-      ${vs.length && !sealedOff ? html`<p class="muted" style="font-size:11px">
+      ${vs.length && !sealedOff ? html`<p class="muted hint">
         Secret <b>values are private to the element that owns them</b> — the admin
         console can list and set/rotate secrets but can't read them back.</p>` : nothing}
       ${vs.map((v) => html`
@@ -143,8 +144,8 @@ export class BxAdminVault extends WithRouter(LitElement) {
                 </form>` : '••••••••'}</td>
               <td style="text-align:right; white-space:nowrap">
                 ${this._secretEdit?.comp === v.component && this._secretEdit?.key === k ? nothing
-                  : html`<button class="act" @click=${() => { this._secretEdit = { comp: v.component, key: k }; }}>set</button>`}
-                <button class="act rm" @click=${() => this._delSecret(v.component, k)}>del</button>
+                  : html`<button class="act quiet" @click=${() => { this._secretEdit = { comp: v.component, key: k }; }}>set</button>`}
+                <button class="act quiet rm" @click=${() => this._delSecret(v.component, k)}>del</button>
               </td></tr>`)}
         </table>`)}
       ${sealedOff ? nothing : html`<form class="inline" @submit=${(e) => { e.preventDefault();

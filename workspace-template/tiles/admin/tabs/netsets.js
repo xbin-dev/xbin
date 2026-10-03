@@ -10,7 +10,10 @@ import { LitElement, html, nothing } from 'lit';
 import { xbinApi as api } from '/vendor/bx-kit.js';
 import { RULE_KINDS, parseRule, fmtRule, ruleProblem, ruleLabel, setSummary } from '/vendor/bx-netrules.js';
 import { base } from '../admin-css.js';
-import { targetDatalist, WithDrafts, WithRouter } from '../shared.js';
+import { glyph, targetDatalist, WithDrafts, WithRouter } from '../shared.js';
+
+// a rule's glyph (bx-netrules' RULE_KINDS carry a glyph name, D184)
+const ruleIcon = (r) => RULE_KINDS.find((x) => x.id === parseRule(r).kind)?.icon;
 
 export class BxAdminNetsets extends WithRouter(WithDrafts(LitElement)) {
   static properties = {
@@ -60,9 +63,9 @@ export class BxAdminNetsets extends WithRouter(WithDrafts(LitElement)) {
         if (!this._err) { f.reset(); this._setDraft(editKey(name), [{ kind: 'internet', value: '' }]); } }}>
         <input name="name_" placeholder="set name (devs-net)" size="16" required>
         <button class="act go">create</button>
-        <span class="muted" style="font-size:10.5px">starts as 🌐 all internet and opens for editing — add LAN ranges or destinations there</span>
+        <span class="muted hint">starts as all internet and opens for editing — add LAN ranges or destinations there</span>
       </form>
-      <p class="muted" style="font-size:10.5px; margin-top:6px">Rule grammar:
+      <p class="muted hint" style="margin-top:8px">Rule grammar:
         <span class="mono">internet · internet:&lt;host|*.glob|ip|cidr&gt;[:port] · lan:&lt;ip|cidr&gt;[:port] · host · provider:&lt;tile-glob&gt;</span>
         — the <span class="mono">net:</span> allowance forms without the prefix. Hostnames are DNS-pinned by the
         relay (one <span class="mono">*</span> per glob); same-org provider tiles need no rule. A workspace or org
@@ -74,22 +77,22 @@ export class BxAdminNetsets extends WithRouter(WithDrafts(LitElement)) {
     const rules = ns.rules ?? [];
     const sum = setSummary(rules);
     const held = [...orgs.map((o) => `org ${o}`), ...tiles, ...holders];
-    return html`<div class="netsetcard" data-netset=${name} style="border:1px solid var(--bx-border, #363c45); border-radius:6px; padding:8px 10px; margin:8px 0">
+    return html`<div class="netsetcard" data-netset=${name} style="border:1px solid var(--bx-border); border-radius:var(--bx-radius); padding:8px 12px; margin:8px 0">
       <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap">
-        <b class="mono">⛭ ${name}</b>
+        <b class="mono"><bx-icon name="network"></bx-icon> ${name}</b>
         ${orgs.map((o) => html`<span class="pill">org ${o}</span>`)}
         ${tiles.map((t) => html`<span class="pill mono" title="bound to this set (set:${name}) by a workspace admin">${t}</span>`)}
         ${holders.map((h) => html`<span class="pill" title="part of a personal network (D88)">${holderLabel(h)}</span>`)}
-        ${sum.host ? html`<span class="pill pol" title="every org-bound tile and terminal in attached orgs shares the host's network stack">⚠ host</span>` : nothing}
+        ${sum.host ? html`<span class="pill hostnet" title="every org-bound tile and terminal in attached orgs shares the host's network stack"><bx-icon name="warning"></bx-icon>host</span>` : nothing}
         <span style="flex:1"></span>
         <button class="act" @click=${() => this._toggleDraft(key, () => rules.map(parseRule))}>edit</button>
         <button class="act rm" ?disabled=${held.length > 0}
           title=${held.length ? `detach / unbind ${held.join(', ')} first` : 'delete this set'}
           @click=${() => confirm(`Delete network set ${name}?`) && this._orgAPI('DELETE', `/net-sets/${encodeURIComponent(name)}`)}>del</button>
       </div>
-      <div style="margin-top:3px">${rules.length
-        ? rules.map((r) => html`<span class="pill mono" title=${r}>${ruleLabel(r)}</span>`)
-        : html`<span class="muted" style="font-size:11px">no rules — attached orgs' tiles reach nothing (airgapped, incl. DNS)</span>`}</div>
+      <div style="margin-top:4px">${rules.length
+        ? rules.map((r) => html`<span class="pill mono" title=${r}>${glyph(ruleIcon(r))}${ruleLabel(r)}</span>`)
+        : html`<span class="muted hint">no rules — attached orgs' tiles reach nothing (airgapped, incl. DNS)</span>`}</div>
       ${d ? this._netSetEditor(name, key, d) : nothing}
     </div>`;
   }
@@ -106,19 +109,19 @@ export class BxAdminNetsets extends WithRouter(WithDrafts(LitElement)) {
     const host = d.some((r) => r.kind === 'host');
     const providerOnly = wire.length > 0 && d.every((r) => r.kind === 'provider');
     const sum = setSummary(wire.filter(Boolean));
-    return html`<div class="editor" style="margin-top:6px">
+    return html`<div class="editor" style="margin-top:8px">
       ${d.map((r, i) => {
         const k = RULE_KINDS.find((x) => x.id === r.kind) ?? RULE_KINDS[0];
         return html`<div class="orow">
           <select @change=${(e) => upd(i, { kind: e.target.value })}>
-            ${RULE_KINDS.map((x) => html`<option value=${x.id} ?selected=${x.id === r.kind} title=${x.help}>${x.icon} ${x.label}</option>`)}
+            ${RULE_KINDS.map((x) => html`<option value=${x.id} ?selected=${x.id === r.kind} title=${x.help}>${x.label}</option>`)}
           </select>
           ${k.hasValue
             ? html`<input size="30" list=${r.kind === 'provider' ? 'tile-targets' : nothing} placeholder=${k.placeholder}
                 title=${k.help} .value=${r.value ?? ''} @input=${(e) => upd(i, { value: e.target.value })}>`
-            : html`<span class="muted" style="font-size:11px">${k.help}</span>`}
-          ${problems[i] ? html`<span class="err-pill">${problems[i]}</span>` : nothing}
-          <button class="act rm" title="remove rule" @click=${() => this._setDraft(key, d.filter((_, j) => j !== i))}>✕</button>
+            : html`<span class="muted hint">${k.help}</span>`}
+          ${problems[i] ? html`<span class="err-pill"><bx-icon name="error"></bx-icon>${problems[i]}</span>` : nothing}
+          <button class="act quiet rm icon" title="remove rule" aria-label="remove rule" @click=${() => this._setDraft(key, d.filter((_, j) => j !== i))}><bx-icon name="xmark"></bx-icon></button>
         </div>`;
       })}
       <div class="orow">
@@ -131,12 +134,12 @@ export class BxAdminNetsets extends WithRouter(WithDrafts(LitElement)) {
           }}>save</button>
         <button class="act" @click=${() => this._dropDraft(key)}>cancel</button>
       </div>
-      <div class="muted" style="font-size:11px; margin-top:4px">tiles in attached orgs reach:
+      <div class="muted hint" style="margin-top:4px">tiles in attached orgs reach:
         ${wire.filter(Boolean).length ? sum.text : 'nothing (airgapped, incl. DNS)'}${providerOnly ? ' — provider-only: no relay egress until a provider tile is bound' : ''}</div>
-      ${host ? html`<div class="warn-line">⚠ <b>host networking</b> shares the host's full network stack with EVERY
+      ${host ? html`<div class="warn-line"><bx-icon name="warning"></bx-icon><span><b>host networking</b> shares the host's full network stack with EVERY
         org-bound tile and terminal in attached orgs — no relay, no filtering, no metering, no ingress splicing.
-        Prefer a LAN range; keep host for a dedicated infra org.</div>` : nothing}
-      ${dup ? html`<div class="warn-line">duplicate rules</div>` : nothing}
+        Prefer a LAN range; keep host for a dedicated infra org.</span></div>` : nothing}
+      ${dup ? html`<div class="warn-line"><bx-icon name="warning"></bx-icon><span>duplicate rules</span></div>` : nothing}
     </div>`;
   }
 }

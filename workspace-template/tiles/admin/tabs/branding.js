@@ -22,13 +22,16 @@ export class BxAdminBranding extends WithRouter(LitElement) {
   };
   static styles = [base, css`
     .brand { display: grid; gap: 16px; max-width: 560px; }
-    .card { border: 1px solid var(--bx-border, #363c45); border-radius: 8px; padding: 12px 14px; background: var(--bx-panel, #23272e); }
-    .card h4 { margin: 0 0 6px; }
+    .card { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: var(--bx-pad); background: var(--bx-panel); }
+    .card h4 { margin: 0 0 8px; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
     .row input[type=text] { flex: 1; min-width: 200px; }
-    .preview { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-    .preview img, .preview svg { width: 32px; height: 32px; object-fit: contain; border-radius: 6px; background: var(--bx-panel-2, #2b3038); padding: 2px; }
-    .hint { color: var(--bx-muted, #868f9a); font-size: 12px; }
+    .preview { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+    .preview img, .preview svg { width: 32px; height: 32px; object-fit: contain; border-radius: var(--bx-radius); background: var(--bx-panel-2); padding: 2px; }
+    /* xbin's default mark: the plate in the accent, the X in its ink (D184) */
+    .preview .plate { fill: var(--bx-accent); }
+    .preview .x { stroke: var(--bx-accent-ink); }
+    .hint { color: var(--bx-muted); }
   `];
 
   constructor() { super(); this._brand = null; this._title = ''; this._err = ''; }
@@ -73,21 +76,21 @@ export class BxAdminBranding extends WithRouter(LitElement) {
         <div class="row">
           <input type="text" maxlength="64" placeholder="e.g. Acme Ops" .value=${this._title} @input=${(e) => { this._title = e.target.value; }}
             @keydown=${(e) => { if (e.key === 'Enter') this._put({ title: this._title }, 'workspace title saved'); }}>
-          <button @click=${() => this._put({ title: this._title }, 'workspace title saved')}>Save</button>
-          ${b.title ? html`<button @click=${() => this._put({ title: '' }, 'workspace title cleared — xbin\'s own again')}>Clear</button>` : nothing}
+          <button class="act go" @click=${() => this._put({ title: this._title }, 'workspace title saved')}>Save</button>
+          ${b.title ? html`<button class="act" @click=${() => this._put({ title: '' }, 'workspace title cleared — xbin\'s own again')}>Clear</button>` : nothing}
         </div>
       </div>
       <div class="card">
         <h4>Workspace icon</h4>
         <div class="hint">Replaces xbin's mark as the favicon and the header logo, here and on the sign-in page. SVG, PNG, JPEG, WebP or ICO, up to 256 KiB — a square works best.</div>
         <div class="preview">
-          ${b.hasIcon ? html`<img src=${b.icon} alt="">` : html`<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--bx-accent,#f5a623)"></path><path d="M21 21 43 43M43 21 21 43" stroke="#23272e" stroke-width="9"></path></svg>`}
+          ${b.hasIcon ? html`<img src=${b.icon} alt="">` : html`<svg viewBox="0 0 64 64" aria-hidden="true"><path class="plate" d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z"></path><path class="x" d="M21 21 43 43M43 21 21 43" stroke-width="9"></path></svg>`}
           <span class="hint">${b.hasIcon ? 'the custom icon' : "xbin's own mark"}</span>
         </div>
         <div class="row">
           <input type="file" accept=${ICON_TYPES} hidden @change=${this._pickIcon}>
-          <button @click=${() => this.renderRoot.querySelector('input[type=file]').click()}>Upload an image…</button>
-          ${b.hasIcon ? html`<button @click=${() => this._put({ icon: '' }, 'workspace icon removed — xbin\'s own again')}>Remove</button>` : nothing}
+          <button class="act" @click=${() => this.renderRoot.querySelector('input[type=file]').click()}>Upload an image…</button>
+          ${b.hasIcon ? html`<button class="act" @click=${() => this._put({ icon: '' }, 'workspace icon removed — xbin\'s own again')}>Remove</button>` : nothing}
         </div>
       </div>
     </div>`;

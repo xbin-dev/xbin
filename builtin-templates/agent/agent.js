@@ -49,6 +49,10 @@ import { makeWorkflow } from './workflow.js';
 import { ext, ctx as extCtx } from './web-ext.js';
 import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
 import { steerWords } from './model/harness-ask.js'; // a coding harness's queued chips
+import { clsIcon } from './classes.js'; // a class's glyph (or its admin's emoji) before its name
+// The drawn glyphs (<bx-icon name>, D184). An xbind from before them serves
+// no /vendor/bx-icons.js: the buttons and badges keep their words.
+try { await import('/vendor/bx-icons.js'); } catch { /* an older xbind: words without glyphs */ }
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
 // (model/actions.js rawFile, Attachments.upload).
@@ -141,7 +145,7 @@ app.on('home', () => {
 });
 app.on('page', () => { paintSide(); paint(); });
 session.ui.act.openFile = (path) => { selectFile(path); openSettings('files'); };
-Object.assign(session.ui.act, { openPreview: (path, ver, run) => openPreview(path, ver, false, run), openLive }); // the 🖼 / 📡 lines (a subagent's: its run)
+Object.assign(session.ui.act, { openPreview: (path, ver, run) => openPreview(path, ver, false, run), openLive }); // the rendered / live lines (a subagent's: its run)
 
 // --- the conversation list -------------------------------------------------
 //
@@ -185,43 +189,47 @@ function setHash(h) {
 // --- painting -------------------------------------------------------------------
 
 // The narrow layout (index.html, max-width 560px): the conversation list is
-// a drawer the top bar's ☰ opens, closed again by picking a conversation,
-// going home or tapping beside it; the ⋯ unfolds the top bar's less frequent
-// controls (.tmore). Wider, neither button shows and nothing folds.
+// a drawer the top bar's menu button opens, closed again by picking a
+// conversation, going home or tapping beside it; "more" unfolds the top bar's
+// less frequent controls (.tmore). Wider, neither button shows and nothing folds.
 let topMore = false;
 function sideOpen(on) { document.querySelector('.wrap').classList.toggle('sideopen', on); }
 $('sideback').onclick = () => sideOpen(false);
 for (const ev of ['select', 'home', 'page']) app.on(ev, () => sideOpen(false));
-const navTpl = () => html`<button class="btn ghost btnsm navbtn" title="Conversations" @click=${() => sideOpen(true)}>☰</button>`;
-const moreTpl = () => html`<button class="btn ghost btnsm navmore" title=${topMore ? 'fewer controls' : 'more controls'}
-  @click=${() => { topMore = !topMore; $('top').classList.toggle('more', topMore); paint(); }}>${topMore ? '‹' : '⋯'}</button>`;
+const navTpl = () => html`<button class="btn ghost btnsm icon navbtn" title="Conversations" aria-label="Conversations"
+  @click=${() => sideOpen(true)}><bx-icon name="menu"></bx-icon></button>`;
+const moreTpl = () => html`<button class="btn ghost btnsm icon navmore" title=${topMore ? 'fewer controls' : 'more controls'}
+  aria-label=${topMore ? 'fewer controls' : 'more controls'}
+  @click=${() => { topMore = !topMore; $('top').classList.toggle('more', topMore); paint(); }}><bx-icon name=${topMore ? 'chevron-left' : 'ellipsis'}></bx-icon></button>`;
+// a run's state as a badge (product-ui 6): its glyph, its word, its colour
+const STATUS_ICON = { running: 'live', sleeping: 'wait', waiting_input: 'warning', done: 'ok', error: 'error', canceled: 'stop' };
 
 function topTpl(v) {
   if (!v) return app.page === 'automations' ? html`${navTpl()}<span class="title">Automations</span>`
-    : html`${navTpl()}<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>${ext.top(null) || nothing}`;
+    : html`${navTpl()}<span class="title">${HOME.title}</span><span class="tagline">${HOME.tagline}</span>${ext.top(null) || nothing}`;
   const r = v.run;
   const t = rules.topBar(v, convs.find(r.rootId || r.id), app.me);
   // a count shows once there is something to count
   const n = (k) => (k ? ` (${k})` : '');
   return html`${navTpl()}${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
-    <span class="badge clsbadge" title=${t.cls.title}>${t.cls.label}</span>
+    <span class="badge clsbadge" title=${t.cls.title}>${clsIcon(t.cls)}${t.cls.name}</span>
     ${hostedChipTpl(v)}
-    ${t.cls.warn ? html`<span class="badge clswarn" title=${t.cls.warnTitle}>${t.cls.warn}</span>` : nothing}
+    ${t.cls.warn ? html`<span class="badge clswarn" title=${t.cls.warnTitle}><bx-icon name="warning"></bx-icon>${t.cls.warn}</span>` : nothing}
     ${sbxUI.badgeTpl(v)}
-    ${t.model ? html`<span class="badge" title="the model this conversation was switched to (the composer's picker)">✦ ${t.model}</span>` : nothing}
-    <span class="badge ${r.status}">${r.status}</span>
+    ${t.model ? html`<span class="badge" title="the model this conversation was switched to (the composer's picker)">${t.model}</span>` : nothing}
+    <span class="badge ${r.status}">${STATUS_ICON[r.status] ? html`<bx-icon name=${STATUS_ICON[r.status]}></bx-icon>` : nothing}${r.status}</span>
     ${t.viewOnly ? html`<span class="badge" title="shared with you to read">view only</span>` : nothing}
     ${t.retry ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
     ${t.compact ? html`<button class="btn ghost btnsm tmore" @click=${() => control('compact')}>Compact</button>` : nothing}
     ${t.learn ? html`<button class="btn ghost btnsm tmore" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
     ${t.memory != null ? html`<button class="btn ghost btnsm tmore" @click=${() => control('mem')} title="What the agent remembers">Memory${n(t.memory)}</button>` : nothing}
     <button class="btn ghost btnsm tmore" @click=${() => control('files')} title="This run's session files">Files${n(t.files)}</button>
-    ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
+    ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree"><bx-icon name="branch"></bx-icon>tree</span>` : nothing}
     ${ext.top(v) || nothing}
     ${t.sharing || t.publish ? html`<button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
-      title=${t.share.title}>${t.share.icon} ${t.share.label}</button>` : nothing}
-    ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
+      title=${t.share.title}><bx-icon name=${t.share.icon}></bx-icon>${t.share.label}</button>` : nothing}
+    ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}><bx-icon name=${g.icon}></bx-icon>${g.label}${g.revoke
       ? html`<button class="linkbtn" title="stop it now" @click=${() => session.revokeGrant(g.run, g.cap).catch((e) => alert(e.message))}>revoke</button>` : nothing}</span>`)}
     ${t.del ? html`<button class="btn ghost btnsm tmore delbtn" @click=${() => control('delete')} title="Delete this conversation and its history">Delete</button>` : nothing}
     ${moreTpl()}
@@ -244,7 +252,7 @@ function taskTpl(v) {
   const toggle = () => { taskOpen = open ? 0 : id; paint(); };
   return html`<div class="taskpin ${open ? 'open' : ''}">
     <button class="tasktoggle" @click=${toggle} title=${open ? 'fold the task'
-      : 'the task, pinned: every request this conversation was given, verbatim — the agent always sees them'}>📌 Task${p.more ? ` (+${p.more})` : ''} ${open ? '▾' : '▸'}</button>
+      : 'the task, pinned: every request this conversation was given, verbatim — the agent always sees them'}><bx-icon name="pin"></bx-icon>Task${p.more ? ` (+${p.more})` : ''}<bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></button>
     ${open ? html`<div class="asks">${taskAsks.err ? html`<span class="err">${taskAsks.err}</span>`
       : !taskAsks.list ? html`<span class="muted">loading…</span>`
       : taskAsks.list.map((a) => html`<div class="taskreq"><div class="askhead">#${a.seq} · ${rules.askFrom(a)} · ${new Date(a.at * 1000).toLocaleString()}${a.live ? '' : ' · compacted (the agent sees it pinned)'}</div>
@@ -312,7 +320,7 @@ $('msel').onchange = () => app.pickModel($('msel').value).catch((e) => { alert(e
 
 // --- workflow view ------------------------------------------------------
 //
-// The tree of the conversation's runs (workflow.js), from the top bar's ⑂.
+// The tree of the conversation's runs (workflow.js), from the top bar's tree badge.
 
 const wf = makeWorkflow({ selectRun });
 
@@ -323,8 +331,9 @@ function syncHalt() {
   const b = $('halt');
   const h = rules.halt(app.me, app.halted, convs.all());
   b.hidden = !h.shown;
-  b.textContent = h.label;
+  render(html`<bx-icon name=${h.icon}></bx-icon>${h.label}`, b);
   b.title = h.title;
+  b.setAttribute('aria-label', h.title);
   b.dataset.on = app.halted ? '1' : '';
 }
 
@@ -339,8 +348,11 @@ function syncHalt() {
 // ours, never relax it.
 const FRAME_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; " +
                   "font-src data:; form-action 'none'; base-uri 'none'";
-// Arbitrary HTML assumes a white page and a sane body margin.
+// Arbitrary HTML assumes a white page and a sane body margin — the model's
+// page, not ours: it keeps that in either theme (D184), in its sandboxed frame.
+// theme-ok: the model's HTML assumes a white page with the browser's own type
 const FRAME_CSS = 'html{background:#fff;color:#111;color-scheme:light}' +
+                  // theme-ok: the model's HTML assumes a white page with the browser's own type
                   'body{margin:12px;font:14px/1.5 system-ui,-apple-system,sans-serif}' +
                   'img,svg,video,canvas,table,pre{max-width:100%}' +
                   'pre{overflow-x:auto}table{border-collapse:collapse}';
@@ -416,7 +428,7 @@ function dropLive() {
   $('prevframe').hidden = false;
   $('prev-src').hidden = false;
   $('prev-reload').hidden = true;
-  $('prev-icon').textContent = '🖼';
+  $('prev-icon').setAttribute('name', 'photo');
 }
 
 // openLive shows a preview_port step's page, live (live.js); run: the step's
@@ -429,7 +441,7 @@ async function openLive(det, run) {
   $('prevframe').hidden = true;
   $('prev-src').hidden = true;
   $('prev-reload').hidden = false;
-  $('prev-icon').textContent = '📡';
+  $('prev-icon').setAttribute('name', 'signal');
   $('prev-path').textContent = $('prev-path').title = liveLabel(det);
   $('prev-ver').textContent = '';
   $('prev-warn').hidden = true;
@@ -438,7 +450,7 @@ async function openLive(det, run) {
   try { src = await liveURL(p.run, det); } catch (e) {
     if (preview !== p) return;
     $('prev-warn').hidden = false;
-    $('prev-warn').textContent = '⚠ ' + (e.message || e);
+    $('prev-warn-t').textContent = e.message || e;
     return;
   }
   if (preview !== p) return; // closed or replaced meanwhile
@@ -475,7 +487,7 @@ async function paintPreview() {
     f = await actions.file(p.run, p.path);
   } catch (e) {
     $('prev-warn').hidden = false;
-    $('prev-warn').textContent = '⚠ ' + (e.message || e);
+    $('prev-warn-t').textContent = e.message || e;
     return;
   }
   if (!preview || preview.path !== p.path || preview.run !== p.run) return; // stale
@@ -490,10 +502,10 @@ async function paintPreview() {
   $('prev-ver').textContent = f.version ? 'v' + f.version : '';
   $('prev-ver').title = stale ? `this chip rendered v${p.ver}; showing the current v${f.version}` : '';
   const warns = [];
-  if (blocked) warns.push(`⚠ ${blocked} external resource${blocked > 1 ? 's' : ''} blocked`);
+  if (blocked) warns.push(`${blocked} external resource${blocked > 1 ? 's' : ''} blocked`);
   if (stale) warns.push(`showing v${f.version} (chip was v${p.ver})`);
   $('prev-warn').hidden = !warns.length;
-  $('prev-warn').textContent = warns.join(' · ');
+  $('prev-warn-t').textContent = warns.join(' · ');
 }
 
 // syncPreview follows the run's newest render step. Called from paint on
@@ -554,9 +566,10 @@ function renderAttach() {
   const host = $('attach');
   const attachments = app.attach.items;
   host.hidden = attachments.length === 0;
+  // a failed upload leads with the error glyph, an uploaded one ends with a check (D184)
   host.innerHTML = attachments.map((a) => `<span class="chip ${a.state || ''}" title="${esc(a.err || a.type || '')}">
-    <span class="nm">${esc(a.name)}</span><span class="sz">${a.state === 'up' ? 'uploading…' : a.err ? esc(a.err) : fmtBytes(a.size)}</span>
-    <button data-rm="${a.key}" title="remove" ${app.sending ? 'disabled' : ''}>✕</button></span>`).join('');
+    ${a.state === 'bad' ? '<bx-icon name="error"></bx-icon>' : ''}<span class="nm">${esc(a.name)}</span><span class="sz">${a.state === 'up' ? 'uploading…' : a.err ? esc(a.err) : fmtBytes(a.size)}</span>${a.state === 'done' ? '<bx-icon name="check" label="uploaded"></bx-icon>' : ''}
+    <button data-rm="${a.key}" title="remove" aria-label="remove" ${app.sending ? 'disabled' : ''}><bx-icon name="xmark"></bx-icon></button></span>`).join('');
   host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => app.attach.remove(+b.dataset.rm));
 }
 
@@ -622,7 +635,8 @@ $('halt').onclick = async () => {
 // poll doesn't immediately reopen the same one.
 $('prev-close').onclick = () => { prevDismissed = prevSeen; closePreview(); };
 $('prev-max').onclick = () => {
-  $('main').classList.toggle('prev-max');
+  const max = $('main').classList.toggle('prev-max');
+  $('prev-max').querySelector('bx-icon')?.setAttribute('name', max ? 'restore' : 'maximize');
   if (win.atBottom) win.toBottom();
 };
 $('prev-reload').onclick = () => { if (preview?.kind === 'live') openLive(preview.det, preview.run); };
@@ -719,7 +733,8 @@ async function tabConfig(bd) {
   const opt = (v) => `<option value="">— the provider's default —</option>` +
     models.map((id) => `<option ${id === v ? 'selected' : ''}>${esc(id)}</option>`).join('');
   const provs = ((app.catalog && app.catalog.providers) || []).map((p) =>
-    `<span class="mono">${esc(p.path)}</span> ${p.ok ? '✓' : `✗ <span class="err">${esc(p.error || 'unreachable')}</span>`}${p.legacy ? ' (by name — bind the llm interface)' : ''}`).join(' · ');
+    `<span class="mono">${esc(p.path)}</span> ${p.ok ? '<span class="okmark"><bx-icon name="ok" label="reachable"></bx-icon></span>'
+      : `<span class="err"><bx-icon name="error"></bx-icon> ${esc(p.error || 'unreachable')}</span>`}${p.legacy ? ' (by name — bind the llm interface)' : ''}`).join(' · ');
   bd.innerHTML = `
     <div class="sec"><h4>Model tiers</h4>
       <div class="grid4">
@@ -752,7 +767,7 @@ async function tabConfig(bd) {
     };
     try {
       await actions.saveConfig(next); cfgCache = next;
-      $('cf-msg').textContent = 'saved ✓';
+      $('cf-msg').textContent = 'saved';
       setTimeout(() => { const e = $('cf-msg'); if (e) e.textContent = ''; }, 1500);
     } catch (e) { $('cf-msg').textContent = e.message; }
   };

@@ -1,7 +1,7 @@
 // classes.js — agent classes (D116) on the web: the composer's class picker
 // (icon + name; each class's description in its menu; only the classes you
 // may use — GET /classes; your last pick is your default), the options of the
-// "new chat with options" dialog, and the ⚙ Classes tab where the tile's
+// "new chat with options" dialog, and the Settings → Classes tab where the tile's
 // managers list, add, edit and delete classes (a built-in resets to its
 // default; saving one that can move internal data out is confirmed). What
 // they say and send is model/classes.js; the native view draws the same from
@@ -10,6 +10,18 @@ import { html, render, nothing } from '/vendor/lit-all.min.js';
 import * as C from './model/classes.js';
 import * as actions from './model/actions.js';
 import * as rules from './model/rules.js';
+
+// hasIcon: the glyphs /vendor/bx-icons.js draws (D184); an xbind from before
+// them serves none, and a class's emoji then shows as its admin typed it.
+let hasIcon = () => false;
+try { ({ hasIcon } = await import('/vendor/bx-icons.js')); } catch { /* an older xbind: emoji as typed */ }
+
+// clsIcon: a class's icon before its name — the glyph its emoji names
+// (model/classes.js glyph), else the emoji as its admin typed it; nothing
+// for a class with neither. r: a row, a picker, a badge ({glyph, icon}).
+export const clsIcon = (r) => (r && r.glyph && hasIcon(r.glyph) ? html`<bx-icon name=${r.glyph}></bx-icon>`
+  : r && r.icon ? html`<span class="emo">${r.icon}</span> ` : nothing);
+const warnIcon = html`<bx-icon name="warning"></bx-icon>`;
 
 // --- the composer's picker -------------------------------------------------------------
 
@@ -45,23 +57,23 @@ export function makeClassPicker(app, host) {
 function pickerTpl(p, open, act, place) {
   return html`<button class="btn ghost clsbtn ${p.mixed ? 'mixed' : ''}" id="tset" title=${p.title}
       aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'} @click=${act.toggle}>
-      <span class="ic">${p.icon || '◆'}</span><span class="nm">${p.name}</span><span class="car">▾</span></button>
+      <span class="ic">${clsIcon(p)}</span><span class="nm">${p.name}</span><span class="car"><bx-icon name="caret-down"></bx-icon></span></button>
     ${open ? html`<div class="mback" @click=${act.close}></div>
       <div class="clsmenu" role="menu" aria-label="Class for new chats" style=${place}>
         <div class="clshd">Class for new chats — fixed once a chat starts</div>
         ${p.rows.map((r) => html`<div class="mi ${r.on ? 'on' : ''}" role="menuitemradio" aria-checked=${r.on ? 'true' : 'false'}
             data-class=${r.value} @click=${() => act.pick(r.value)}>
-          <span class="ic">${r.icon || '◆'}</span>
+          <span class="ic">${clsIcon(r)}</span>
           <span class="tx"><b>${r.name}</b>${r.managers ? html` <span class="badge">managers</span>` : nothing}
             ${r.description ? html`<span class="ds">${r.description}</span>` : nothing}
-            ${r.mixed ? html`<span class="ds warn">⚠ ${C.MIXED}</span>` : nothing}</span>
-          <span class="ck">${r.on ? '✓' : ''}</span></div>`)}
+            ${r.mixed ? html`<span class="ds warn">${warnIcon}${C.MIXED}</span>` : nothing}</span>
+          <span class="ck">${r.on ? html`<bx-icon name="check"></bx-icon>` : nothing}</span></div>`)}
       </div>` : nothing}`;
 }
 
 // classOptionsTpl: the classes as <option>s (the new-chat dialog's select).
 export const classOptionsTpl = (app, value) => html`${C.pickerRows(app.classes, value).map((r) =>
-  html`<option value=${r.value} ?selected=${r.on} title=${r.description}>${r.label}${r.mixed ? ` — ⚠ ${C.MIXED}` : ''}</option>`)}`;
+  html`<option value=${r.value} ?selected=${r.on} title=${r.description}>${r.label}${r.mixed ? ` — ${C.MIXED}` : ''}</option>`)}`;
 
 // classFieldTpl: an automation form's class select (model/classes.js choices
 // rows; name tags it data-cls) with what the picked class is for under it.
@@ -71,14 +83,14 @@ export function classFieldTpl(label, rows, pick, { disabled = false, name = 'cla
     <select data-cls=${name} ?disabled=${disabled} title=${title} @change=${(e) => pick(e.target.value)}>
       ${rows.map((r) => html`<option value=${r.value} ?selected=${r.on} title=${r.description}>${r.label}</option>`)}</select>
     ${cur && (cur.description || cur.mixed) ? html`<div class="muted small">${cur.description}
-      ${cur.mixed ? html`<span class="badge clswarn" title=${C.MIXED_WHY}>⚠ ${C.MIXED}</span>` : nothing}</div>` : nothing}</div>`;
+      ${cur.mixed ? html`<span class="badge clswarn" title=${C.MIXED_WHY}>${warnIcon}${C.MIXED}</span>` : nothing}</div>` : nothing}</div>`;
 }
 
 // clsBadgeTpl: an automation's class on its card and detail (model/classes.js ofAutomation).
-export const clsBadgeTpl = (c) => html`<span class="badge" data-cls=${c.id} title=${c.known ? `runs in the ${c.name} class` : `runs in ${c.id} (${c.lane} lane)`}>${c.label}</span>${
-  c.mixed ? html` <span class="badge clswarn" title=${C.MIXED_WHY}>${c.warn}</span>` : nothing}`;
+export const clsBadgeTpl = (c) => html`<span class="badge" data-cls=${c.id} title=${c.known ? `runs in the ${c.name} class` : `runs in ${c.id} (${c.lane} lane)`}>${clsIcon(c)}${c.name}</span>${
+  c.mixed ? html` <span class="badge clswarn" title=${C.MIXED_WHY}>${warnIcon}${c.warn}</span>` : nothing}`;
 
-// --- ⚙ Classes (managers) --------------------------------------------------------------
+// --- Settings → Classes (managers) -----------------------------------------------------
 
 /**
  * tabClasses draws the Classes tab into the settings body. It reads GET
@@ -126,8 +138,8 @@ function tabTpl(st, app, draw) {
         ${s.classes.map((c) => html`<option value=${c.id} ?selected=${c.id === s.default}>${C.label(c)}</option>`)}</select>
       <div class="hint">…when the person has picked none (their pick in the composer is remembered).</div></div>
     <div class="clslist">${rows.map((r) => html`<div class="clsrow" data-cls=${r.id}>
-      <span class="lb">${r.label}</span>
-      ${r.tags.map((t) => html`<span class="badge ${t.startsWith('⚠') ? 'clswarn' : ''}">${t}</span>`)}
+      <span class="lb">${clsIcon(r)}${r.name}</span>
+      ${r.tags.map((t) => (t === C.MIXED ? html`<span class="badge clswarn">${warnIcon}${t}</span>` : html`<span class="badge">${t}</span>`))}
       <span style="flex:1"></span>
       <button class="btn ghost btnsm" data-edit=${r.id} @click=${() => edit(C.formOf(s.classes.find((c) => c.id === r.id)))}>Edit</button>
       ${r.del ? html`<button class="btn rm btnsm" data-del=${r.id}
@@ -156,7 +168,7 @@ function formTpl(st, app, draw) {
       if (!confirm(C.confirmWords(f))) return;
       plan.body.confirmMixed = true;
     }
-    try { await put(st, app, plan.body); st.form = null; st.msg = 'saved ✓'; } catch (e) { st.err = e.message; }
+    try { await put(st, app, plan.body); st.form = null; st.msg = 'saved'; } catch (e) { st.err = e.message; }
     draw();
   };
   const namesTpl = (key, modeKey, bound, what) => html`<div class="field"><label>${what}</label>
@@ -170,7 +182,7 @@ function formTpl(st, app, draw) {
     <div class="grid4">
       <div class="field"><label>Id</label><input id="clf-id" class="mono" .value=${f.id} ?disabled=${!!f.orig} @input=${set('id')} placeholder="research"></div>
       <div class="field"><label>Name</label><input id="clf-name" .value=${f.name} @input=${set('name')} placeholder="Research"></div>
-      <div class="field"><label>Icon</label><input id="clf-icon" .value=${f.icon} @input=${set('icon')} placeholder="🔬"></div>
+      <div class="field"><label>Icon</label><input id="clf-icon" .value=${f.icon} @input=${set('icon')} placeholder="one emoji or symbol"></div>
       <div class="field"><label>Who may use it</label><select id="clf-who" @change=${set('who')}>
         <option value="everyone" ?selected=${f.who !== 'managers'}>everyone</option>
         <option value="managers" ?selected=${f.who === 'managers'}>the agent's managers</option></select></div>
@@ -180,7 +192,7 @@ function formTpl(st, app, draw) {
       @change=${(e) => { f.toolsets = C.toggle(f.toolsets, t.id, e.target.checked); draw(); }}> <b>${t.label}</b>
       <span class="muted">${t.hint}</span></label>`)}
       <div class="hint">The core tools (memory, notes, finish, asking you) are in every class.</div></div>
-    ${mixed ? html`<div class="clsmixed">⚠ This class ${C.MIXED}. ${C.MIXED_WHY} Saving it asks you to confirm.</div>` : nothing}
+    ${mixed ? html`<div class="clsmixed">${warnIcon}<span>This class ${C.MIXED}. ${C.MIXED_WHY} Saving it asks you to confirm.</span></div>` : nothing}
     ${has('internal') ? namesTpl('mcp', 'mcpMode', C.ifaceNames(globalThis.xbin?.iface?.('mcp')), 'MCP servers') : nothing}
     ${has('sandbox') ? html`<div class="field"><label>A bound sandbox may reach</label>${C.EGRESS.map((e) => html`<label class="chk">
       <input type="checkbox" data-eg=${e.id} .checked=${f.egress.includes(e.id)}
@@ -192,7 +204,7 @@ function formTpl(st, app, draw) {
         <option value="only" ?selected=${f.harnessesMode === 'only'}>only these</option></select>
       ${f.harnessesMode === 'only' ? html`<div class="clsnames">${C.harnessNames(f.harnesses, app.harness.catalog).map((n) => html`<label class="chk">
         <input type="checkbox" data-harness=${n.id} .checked=${n.on} @change=${() => { f.harnesses = C.toggleName(f.harnesses, n.id); draw(); }}> ${n.name}</label>`)}</div>` : nothing}
-      ${C.harnessWhy(f) ? html`<div class="clsmixed" id="clf-harness-why">⚠ ${C.harnessWhy(f)}: untick Coding agents, or tick Coding sandbox and an egress other than none.</div>` : nothing}</div>` : nothing}
+      ${C.harnessWhy(f) ? html`<div class="clsmixed" id="clf-harness-why">${warnIcon}<span>${C.harnessWhy(f)}: untick Coding agents, or tick Coding sandbox and an egress other than none.</span></div>` : nothing}</div>` : nothing}
     <div class="field"><label>Model</label><select id="clf-model" @change=${set('model')}>
       ${models.map((o) => html`<option value=${o.value} ?selected=${o.value === f.model}>${o.value ? o.label : '— none: the person\'s pick or the agent\'s default —'}</option>`)}</select>
       <div class="hint">Used when the person picked no model for the conversation.</div></div>

@@ -315,7 +315,7 @@ async function adminPartitions(browser) {
     await A.page.route('**/api/xbin/backup', bkStub);
     await A.page.route('**/api/xbin/bindings', archStub);
     await gotoTab(A.page, 'backup', 'Default archiver');
-    await A.page.locator('tr').filter({ has: A.page.locator('td.mono', { hasText: new RegExp(`^${T}$`) }) }).locator('a.link', { hasText: 'back up' }).click();
+    await A.page.locator('tr').filter({ has: A.page.locator('td.mono', { hasText: new RegExp(`^${T}$`) }) }).locator('button', { hasText: 'back up' }).click();
     await until(async () => (await err.count()) && /wasn't archived/.test(await err.innerText()), "the back up's partition failure shows");
     check((await err.innerText()).includes(`${T}: a person's partition wasn't archived — user:sales1: the archiver refused the upload`),
       `the Backup tab: a person's partition that wasn't archived is said (${(await err.innerText()).slice(0, 160)})`);

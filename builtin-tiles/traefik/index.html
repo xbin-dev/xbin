@@ -1,36 +1,33 @@
 <!doctype html>
-<html>
+<html lang="en" data-bx-theme="auto">
 <head>
 <meta charset="utf-8">
 <title>Public HTTPS (Traefik)</title>
 <link rel="stylesheet" href="/vendor/theme.css">
 <style>
-  :root { color-scheme: light dark; }
-  body { font: var(--bx-font, 13px/1.5 system-ui, sans-serif);
-         color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e);
-         margin: 0; padding: 14px 16px; }
-  h1 { font-size: 14px; margin: 0 0 2px; }
-  h2 { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-       color: var(--bx-muted, #868f9a); margin: 16px 0 6px; }
-  .muted { color: var(--bx-muted, #868f9a); }
-  .err { color: var(--bx-red, #ef5350); }
-  .ok  { color: var(--bx-green, #4caf50); }
-  table { border-collapse: collapse; width: 100%; font-size: 12px; }
-  td, th { text-align: left; padding: 3px 10px 3px 0;
-           border-top: 1px solid var(--bx-border, #363c45); }
-  th { border-top: none; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-       color: var(--bx-muted, #868f9a); }
-  code, .mono { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 11.5px; }
-  input[type=email] { font: inherit; padding: 3px 7px; border: 1px solid var(--bx-border, #363c45);
-          border-radius: 5px; background: var(--bx-panel, #23272e); color: inherit; min-width: 210px; }
-  button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 5px; cursor: pointer;
-           border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038);
-           color: inherit; }
-  label { margin-right: 12px; }
-  form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  /* body.bx: theme.css's type, controls and focus ring; tokens only, so the
+     page is right in light and dark (D184) — theme.css sets color-scheme. */
+  html, body { margin: 0; }
+  body.bx { padding: var(--bx-pad); }
+  h1 { font: var(--bx-font-title); margin: 0 0 4px; }
+  h2 { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+       color: var(--bx-muted); margin: 16px 0 8px; }
+  .muted { color: var(--bx-muted); }
+  .err, .ok { display: inline-flex; align-items: center; gap: 4px; }
+  .err { color: var(--bx-danger); }
+  .ok  { color: var(--bx-ok); }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  td, th { text-align: left; padding: 2px 12px 2px 0; }
+  td { height: 32px; box-sizing: border-box; border-top: 1px solid var(--bx-border); }
+  th { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+       color: var(--bx-muted); padding-bottom: 4px; border-bottom: 2px solid var(--bx-text); }
+  code, .mono { font: var(--bx-font-code); }
+  body.bx input[type=email] { min-width: 210px; }
+  label { margin-right: 12px; display: inline-flex; gap: 6px; align-items: center; }
+  form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
 </style>
 </head>
-<body>
+<body class="bx">
   <h1>Public HTTPS — Traefik ingress terminator</h1>
   <div class="muted">Publish a tile: <code>bx expose apps/blog web=<span id="self"></span> --host blog.example.com</code>
     — more hostnames for the same tile: add <code>--add</code> (each gets its own certificate) —
@@ -51,6 +48,7 @@
   <table id="routes"><tr><th>public host</th><th>→ tile</th><th>zone</th></tr></table>
 
 <script type="module">
+  import '/vendor/bx-icons.js'; // <bx-icon name> (D184)
   const $ = (id) => document.getElementById(id);
   const self = xbin.self;
   $('self').textContent = self;
@@ -63,9 +61,9 @@
     try {
       const s = await api('/state');
       $('status').innerHTML =
-        `${s.running ? '<span class="ok">traefik running</span>' : '<span class="err">traefik not running</span>'}`
+        `${s.running ? '<span class="ok"><bx-icon name="ok"></bx-icon>traefik running</span>' : '<span class="err"><bx-icon name="error"></bx-icon>traefik not running</span>'}`
         + ` · ${s.routes?.length ?? 0} route(s) · ${s.settings?.noTls ? 'plain HTTP mode' : (s.acmeReady ? 'ACME TLS on' : 'TLS pending setup')}`
-        + (s.error ? ` · <span class="err">${s.error}</span>` : '');
+        + (s.error ? ` · <span class="err"><bx-icon name="error"></bx-icon>${s.error}</span>` : '');
       $('email').value = s.settings?.email ?? '';
       $('staging').checked = !!s.settings?.staging;
       $('notls').checked = !!s.settings?.noTls;
@@ -82,7 +80,7 @@
         tr.innerHTML = `<td class="muted" colspan="3">nothing published through this terminator yet</td>`;
         t.appendChild(tr);
       }
-    } catch (e) { $('status').innerHTML = `<span class="err">${e.message ?? e}</span>`; }
+    } catch (e) { $('status').innerHTML = `<span class="err"><bx-icon name="error"></bx-icon>${e.message ?? e}</span>`; }
   }
   $('settings').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -90,7 +88,7 @@
       await api('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: $('email').value.trim(), staging: $('staging').checked, noTls: $('notls').checked }) });
       setTimeout(refresh, 500);
-    } catch (e) { $('status').innerHTML = `<span class="err">${e.message ?? e}</span>`; }
+    } catch (e) { $('status').innerHTML = `<span class="err"><bx-icon name="error"></bx-icon>${e.message ?? e}</span>`; }
   });
   refresh();
   setInterval(refresh, 10_000);

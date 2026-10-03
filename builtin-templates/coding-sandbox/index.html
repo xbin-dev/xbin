@@ -7,75 +7,104 @@
      With read access: the sandboxes they may use, read-only. web.js draws it
      from model/ (the native view, native.js, draws the same model); API.md
      is the whole API. -->
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>coding sandboxes</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg, #1b1e24); }
-    header.top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--bx-border); position: sticky; top: 0; background: var(--bx-bg, #1b1e24); z-index: 2; }
-    header.top h3 { margin: 0; font-size: 15px; }
-    main { max-width: 1100px; margin: 0 auto; padding: 10px 16px 28px; }
-    .pad { padding: 14px 16px; }
-    h4 { margin: 18px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    /* body.bx: theme.css's type, controls and focus ring; this sheet uses its
+       tokens only, so the page is right in light and dark (D184): text tabs
+       under the accent, square badges with a status colour beside their word,
+       tables with 32px rows under a ruled header, .go the primary button,
+       .rm the danger outline, .ghost quiet. */
+    body.bx { background: var(--bx-bg); }
+    header.top { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 0 var(--bx-pad); min-height: var(--bx-topbar-h);
+      border-bottom: 1px solid var(--bx-border); position: sticky; top: 0; background: var(--bx-panel); z-index: 2; }
+    header.top h3 { margin: 0; font: var(--bx-font-title); }
+    main { max-width: 1100px; margin: 0 auto; padding: var(--bx-pad) var(--bx-pad) 28px; }
+    .pad { padding: var(--bx-pad); }
+    h4 { margin: 16px 0 8px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+      text-transform: uppercase; color: var(--bx-muted); }
     .grow { flex: 1; }
     .muted { color: var(--bx-muted); }
-    .small { font-size: 12px; }
-    .err { color: var(--bx-red); margin: 6px 0; white-space: pre-wrap; }
-    .note { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--bx-accent); background: var(--bx-panel-2); }
-    code, .mono, pre { font-family: var(--bx-mono, monospace); font-size: 12px; }
-    pre { margin: 6px 0; padding: 8px 10px; background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 5px; overflow: auto; max-height: 420px; white-space: pre-wrap; word-break: break-word; }
-    .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
-    .tab { border: 1px solid transparent; background: none; border-radius: 5px; padding: 4px 10px; }
-    .tab.on { border-color: var(--bx-border); background: var(--bx-panel); font-weight: 600; }
-    .pill { display: inline-block; font-size: 11px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--bx-border); white-space: nowrap; }
-    .pill.ok { color: var(--bx-green); border-color: var(--bx-green); }
-    .pill.warn { color: var(--bx-amber, #f2a71b); border-color: var(--bx-amber, #f2a71b); }
-    .pill.danger { color: var(--bx-red); border-color: var(--bx-red); }
+    .small { font: var(--bx-font-meta); }
+    .err { display: flex; gap: 6px; align-items: baseline; color: var(--bx-danger); margin: 8px 0; white-space: pre-wrap; }
+    .note { display: flex; gap: 6px; align-items: baseline; margin: 8px 0; padding: 8px 12px;
+      border: 1px solid var(--bx-border); border-left: 2px solid var(--bx-info); background: var(--bx-panel);
+      border-radius: var(--bx-radius); }
+    code, .mono { font: var(--bx-font-code); }
+    pre { margin: 8px 0; padding: 8px 12px; background: var(--bx-code-bg); border: 1px solid var(--bx-border);
+      border-radius: var(--bx-radius); overflow: auto; max-height: 420px; white-space: pre-wrap; word-break: break-word;
+      font: var(--bx-font-code); }
+    /* text tabs: the active one underlined in the accent */
+    .tabs { display: flex; gap: 4px; flex-wrap: wrap; align-self: stretch; }
+    .bx button.tab { min-height: var(--bx-topbar-h); border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+      background: none; padding: 4px 8px 2px; color: var(--bx-muted); font-weight: 400; }
+    .bx button.tab:hover { background: none; color: var(--bx-text); }
+    .bx button.tab.on { background: none; color: var(--bx-text); border-bottom-color: var(--bx-accent); }
+    /* a badge: square, 20px, a 1px border; a status one in its colour */
+    .pill { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px;
+      font: var(--bx-font-meta); border-radius: var(--bx-radius); border: 1px solid var(--bx-border-strong); white-space: nowrap;
+      vertical-align: middle; }
+    .pill.ok { color: var(--bx-ok); border-color: var(--bx-ok); }
+    .pill.warn { color: var(--bx-warn); border-color: var(--bx-warn); }
+    .pill.danger { color: var(--bx-danger); border-color: var(--bx-danger); }
     .pill.muted { color: var(--bx-muted); }
-    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 8px 12px; background: var(--bx-panel); margin: 8px 0; }
-    .card.on { border-color: var(--bx-accent); }
+    .card { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px 12px; background: var(--bx-panel); margin: 8px 0; }
+    .card.on { border-color: var(--bx-accent); box-shadow: inset 2px 0 0 var(--bx-accent); }
     .card .hd, .detail-pane .hd, .viewer .hd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .detail-pane { border: 1px solid var(--bx-accent); border-radius: 7px; padding: 8px 12px; margin: 12px 0; background: var(--bx-panel); }
-    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+    .detail-pane { border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); padding: 8px 12px; margin: 12px 0; background: var(--bx-panel); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
     label { display: inline-flex; gap: 6px; align-items: center; }
-    label.block { display: block; margin: 6px 0; }
+    label.block { display: block; margin: 8px 0; }
     label.block textarea { display: block; margin-top: 4px; }
-    input, select, textarea { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); }
     input.wide { min-width: 260px; flex: 1; }
     input.n { width: 76px; }
     input.n2 { width: 90px; }
-    textarea { width: 100%; box-sizing: border-box; }
-    button, label.button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 5px; border: 1px solid var(--bx-border); background: var(--bx-panel); color: var(--bx-text); cursor: pointer; }
-    button.small, label.button.small { padding: 2px 8px; }
-    button.go { background: var(--bx-accent); border-color: transparent; color: #fff; }
-    button.rm { color: var(--bx-red); }
-    button.ghost { background: none; border-color: transparent; }
-    button.on { border-color: var(--bx-accent); }
-    button:disabled { opacity: .5; cursor: default; }
-    .link { cursor: pointer; }
+    body.bx textarea { width: 100%; }
+    /* a file input dressed as a (secondary) button */
+    label.button { box-sizing: border-box; min-height: var(--bx-control-h); padding: 4px 11px; border-radius: var(--bx-radius);
+      border: 1px solid var(--bx-border-strong); background: var(--bx-panel); color: var(--bx-text); font-weight: 600; cursor: pointer; }
+    label.button:hover { background: var(--bx-hover); }
+    .bx button.small, label.button.small { min-height: 24px; padding: 2px 8px; }
+    .bx button.go { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+    .bx button.go:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
+    .bx button.rm { color: var(--bx-danger); border-color: var(--bx-danger); }
+    .bx button.ghost { background: none; border-color: transparent; }
+    .bx button.ghost:hover { background: none; color: var(--bx-accent); }
+    .bx button.icon { display: inline-flex; align-items: center; justify-content: center; min-width: var(--bx-control-h); padding: 0; }
+    /* a drawn glyph before a button's words: the plus of New sandbox (D184) */
+    .bx button:has(> bx-icon):not(.icon) { display: inline-flex; align-items: center; gap: 4px; }
+    .bx button.on { background: var(--bx-selection); border-color: var(--bx-accent); color: var(--bx-selection-text); }
+    .link { cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
     .link:hover { text-decoration: underline; }
-    table.grid { border-collapse: collapse; width: 100%; font-size: 12px; }
-    table.grid th { text-align: left; font-weight: 600; color: var(--bx-muted); padding: 3px 8px 3px 0; }
-    table.grid td { padding: 4px 8px 4px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+    table.grid { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+    table.grid th { text-align: left; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+      color: var(--bx-muted); padding: 4px 8px 4px 0; border-bottom: 2px solid var(--bx-text); }
+    table.grid td { box-sizing: border-box; height: 32px; padding: 4px 8px 4px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
     td.num, th.num, table.grid th.num { text-align: right; white-space: nowrap; }
     td.acts { white-space: nowrap; text-align: right; }
     td.acts button { margin-left: 4px; }
-    tr.panel td { background: var(--bx-panel-2); padding: 8px 10px; }
+    /* a table's row actions are quiet (product-ui 9): words, the destructive one in its colour */
+    .bx td.acts button { background: none; border-color: transparent; font-weight: 400; }
+    .bx td.acts button:hover { background: none; color: var(--bx-accent); }
+    .bx td.acts button.rm, .bx td.acts button.rm:hover { color: var(--bx-danger); }
+    .bx td.acts button.on { background: var(--bx-selection); color: var(--bx-selection-text); }
+    tr.panel td { background: var(--bx-panel-2); padding: 8px 12px; }
     .ports .probe { margin-top: 4px; overflow-wrap: anywhere; }
-    .ports .probe.ok { color: var(--bx-green); }
-    .ports .probe.bad { color: var(--bx-red); }
-    td.over { color: var(--bx-red); font-weight: 600; }
-    td.fullc { color: var(--bx-amber, #f2a71b); }
+    .ports .probe.ok { color: var(--bx-ok); }
+    .ports .probe.bad { color: var(--bx-danger); }
+    td.over { color: var(--bx-danger); font-weight: 600; }
+    td.fullc { color: var(--bx-warn); }
     .detail, .who { max-width: 360px; }
     .substrate { margin: 4px 0 2px; }
     ul.plain { list-style: none; padding: 0; margin: 4px 0; }
-    ul.plain li { margin: 3px 0; }
-    .crumbs .link { color: var(--bx-accent); }
-    .viewer { margin-top: 10px; border-top: 1px solid var(--bx-border); padding-top: 6px; }
-    .term bx-terminal { display: block; border: 1px solid var(--bx-border); border-radius: 5px; overflow: hidden; }
+    ul.plain li { margin: 4px 0; }
+    .crumbs .link { color: var(--bx-link); }
+    .viewer { margin-top: 12px; border-top: 1px solid var(--bx-border); padding-top: 8px; }
+    .term bx-terminal { display: block; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); overflow: hidden; }
     details summary { cursor: pointer; }
     @media (max-width: 700px) { #ops-table th:nth-child(n+6), #ops-table td:nth-child(n+6):not(.acts) { display: none; } }
   </style>

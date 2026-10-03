@@ -143,14 +143,15 @@ ok('the composer is enabled on home', !(await page.$eval('#msg', (e) => e.disabl
 // The class picker (D116): no class picked yet, so the lane picked before
 // classes names it; a pick persists through prefs, and a reload picks it up.
 await page.waitForFunction(() => document.getElementById('tset')?.textContent.includes('Web'), { timeout: 3000 }).catch(() => {});
-ok('no pick yet: the old lane\'s class', (await page.textContent('#tset')).replace(/\s+/g, '') === '🌐Web▾', await page.textContent('#tset'));
+ok('no pick yet: the old lane\'s class — its glyph, its name, a caret (D184)', (await page.textContent('#tset')).replace(/\s+/g, '') === 'Web'
+  && !!(await page.$('#tset bx-icon[name="globe"]')) && !!(await page.$('#tset bx-icon[name="caret-down"]')), await page.textContent('#tset'));
 await page.click('#tset');
 await page.waitForSelector('.clsmenu');
 const menu = await page.$$eval('.clsmenu .mi', (els) => els.map((e) => ({ id: e.dataset.class, text: e.textContent.replace(/\s+/g, ' ').trim(), on: e.getAttribute('aria-checked') })));
 ok('the menu: every class you may use, icon, name and what it is for', menu.map((m) => m.id).join() === 'internal,web,coding,bridge' &&
   menu[2].text.includes('Coding') && menu[2].text.includes('Works in a coding sandbox.'), JSON.stringify(menu));
 ok('…the one picked is checked', menu.filter((m) => m.on === 'true').map((m) => m.id).join() === 'web', JSON.stringify(menu));
-ok('…a mixed class warns, a managers\' one says so', menu[3].text.includes('⚠ can move internal data out') && menu[3].text.includes('managers'), menu[3].text);
+ok('…a mixed class warns, a managers\' one says so', menu[3].text.includes('can move internal data out') && menu[3].text.includes('managers'), menu[3].text);
 await page.keyboard.press('Escape');
 ok('Escape closes the menu', await page.waitForFunction(() => !document.querySelector('.clsmenu'), null, { timeout: 2000 }).then(() => true, () => false));
 await page.click('#tset');
@@ -160,7 +161,7 @@ ok('picking saves the class as a pref', prefs.class === 'coding', JSON.stringify
 ok('…and closes the menu', !(await page.$('.clsmenu')));
 await page.reload();
 await page.waitForFunction(() => document.getElementById('tset')?.textContent.includes('Coding'), { timeout: 3000 }).catch(() => {});
-ok('the class survives a reload', (await page.textContent('#tset')).includes('▣'));
+ok('the class survives a reload', (await page.textContent('#tset')).includes('Coding') && !!(await page.$('#tset bx-icon[name="terminal"]')));
 
 // Asking from home starts a quick ask in the chosen class and opens it.
 await page.fill('#msg', 'is the build green?');
@@ -170,7 +171,7 @@ const ask = await page.evaluate(() => window.__calls.find((c) => c.url.endsWith(
 ok('home sends POST /ask with the class (and its lane)', ask && JSON.parse(ask.body).class === 'coding' && JSON.parse(ask.body).toolset === 'web' &&
   JSON.parse(ask.body).text === 'is the build green?', JSON.stringify(ask));
 ok('…and opens the new run', (await page.textContent('#top .title')) === 'is the build green?');
-ok('its top bar says its class', (await page.textContent('#top .clsbadge')) === '▣ Coding', await page.textContent('#top .clsbadge'));
+ok('its top bar says its class', (await page.textContent('#top .clsbadge')) === 'Coding' && !!(await page.$('#top .clsbadge bx-icon[name="terminal"]')), await page.textContent('#top .clsbadge'));
 ok('…and a conversation has no class picker (its class is fixed)', await page.$eval('#cpick', (e) => e.hidden));
 ok('no warning for a class that does not mix', !(await page.$('#top .clswarn')));
 
@@ -181,7 +182,7 @@ await page.click('#runs .run:has-text("plan the offsite")');
 await page.waitForTimeout(1200);
 ok('a stale response does not repaint the run you moved to', (await page.textContent('#top .title')) === 'plan the offsite',
   await page.textContent('#top .title'));
-ok('a mixed class warns in the top bar', (await page.textContent('#top .clswarn')) === '⚠ can move internal data out',
+ok('a mixed class warns in the top bar', (await page.textContent('#top .clswarn')) === 'can move internal data out' && !!(await page.$('#top .clswarn bx-icon[name="warning"]')),
   await page.$eval('#top', (e) => e.textContent));
 
 await browser.close();

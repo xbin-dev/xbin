@@ -246,9 +246,9 @@ function treeTpl(s) {
   const walk = (list) => { for (const n of (list || []).sort((a, b) => a.created - b.created)) { rows.push(n); walk(byParent.get(n.id)); } };
   walk(byParent.get(-1));
   const sub = (n) => {
-    if (n.blockReason === 'dep' && (n.blockedOn || []).length) return `⛔ waiting on ${n.blockedOn.map((i) => '#' + i).join(', ')}`;
-    if (n.blockReason) return '⏳ ' + (WF_WORDS[n.blockReason] || n.blockReason);
-    if (n.status === 'error') return '⚠ ' + (n.result || 'failed');
+    if (n.blockReason === 'dep' && (n.blockedOn || []).length) return `waiting on ${n.blockedOn.map((i) => '#' + i).join(', ')}`;
+    if (n.blockReason) return WF_WORDS[n.blockReason] || n.blockReason;
+    if (n.status === 'error') return n.result || 'failed';
     return n.lastStep || '';
   };
   const app = ctx.app;

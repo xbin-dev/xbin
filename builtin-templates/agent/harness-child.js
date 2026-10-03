@@ -34,7 +34,7 @@ import { signInTpl } from './signin.js';
 import { isHarnessChild, childRun, childCard, tailOf, loadTail, tailError, stopWords, cancelWords, messageWords } from './model/harness-child.js';
 import { permission, question, ownerOf } from './model/harness-ask.js';
 import { signIn } from './model/terminals.js';
-import { findHarness, PLAN_MARK } from './model/harness.js';
+import { findHarness } from './model/harness.js';
 import { access } from './model/rules.js';
 
 ext.register({
@@ -98,7 +98,7 @@ function parkTpl(app, b, run, c, who) {
     if (si) { app.sbx.ensure(si.sandbox.ref); return signInTpl(app, si); }
   }
   // a park the summary has only in brief: its own chat answers it
-  return c.park ? html`<div class="hint hkopen">${c.status} — <button class="lnk" @click=${() => app.select(c.id)}>open it ↗</button> to answer</div>` : nothing;
+  return c.park ? html`<div class="hint hkopen">${c.status} — <button class="lnk" @click=${() => app.select(c.id)}>open it<bx-icon name="popout"></bx-icon></button> to answer</div>` : nothing;
 }
 
 async function act(c, what, fn) {
@@ -151,8 +151,8 @@ function bodyTpl(b, ui, depth, c) {
   return html`<div class="acb hkbody" ${onScreen(tail ? 0 : c.id)}>
     ${c.task ? html`<div class="task ${ui.isOpen(b.id + ':task', false) ? 'on' : ''}" @click=${() => ui.toggle(b.id + ':task', false)}>
       <span class="k">task</span> ${c.task}</div>` : nothing}
-    ${c.plan ? html`<div class="hkplan">${c.plan.entries.map((e) => html`<div class="pe ${e.status || 'pending'}"><span class="pm">${PLAN_MARK[e.status] || PLAN_MARK.pending}</span> ${e.content}</div>`)}</div>` : nothing}
-    ${tail ? html`<div class="hktail">${more ? html`<div class="muted small hkmore">… <button class="lnk" @click=${() => ui.act.select(c.id)}>all of it in its chat ↗</button></div>` : nothing}
+    ${c.plan ? html`<div class="hkplan">${c.plan.entries.map((e) => html`<div class="pe ${e.status || 'pending'}"><span class="pm"></span>${e.content}</div>`)}</div>` : nothing}
+    ${tail ? html`<div class="hktail">${more ? html`<div class="muted small hkmore">… <button class="lnk" @click=${() => ui.act.select(c.id)}>all of it in its chat<bx-icon name="popout"></bx-icon></button></div>` : nothing}
         ${blocksTpl(tail, ui, depth + 1)}</div>`
       : failed ? html`<div class="small readfail" role="status"><span class="err">${failed}</span>
           <button class="lnk" data-act="retry" title="read it again" @click=${() => ui.act.retryRead(c.id)}>Retry</button></div>`
@@ -183,15 +183,15 @@ function cardTpl(b, ui, depth, opts = {}) {
       ${c.id ? html`<span class="rid">#${c.id}</span>` : nothing}
       ${c.state.tone === 'run' ? html`<span class="spin"></span>` : nothing}
       <span class="st hkst" data-tone=${c.state.tone}>${c.state.word}</span>
-      <span class="tw">${open ? '▾' : '▸'}</span>
+      <span class="tw"><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span>
     </div>
     <div class="hkline"><span class="hks" data-tone=${c.state.tone}>${c.status}</span></div>
     ${c.where || c.meta ? html`<div class="hkmeta">${c.where ? html`<span class="mono">${c.where}</span>` : nothing}${c.where && c.meta ? ' · ' : ''}${c.meta}</div>` : nothing}
     ${c.park ? html`<div class="hkpark">${parkTpl(app, b, run, c, who)}</div>` : nothing}
-    ${note ? html`<div class="anote muted small" role="status">⚠ ${note}</div>` : nothing}
+    ${note ? html`<div class="anote muted small" role="status"><bx-icon name="warning"></bx-icon><span>${note}</span></div>` : nothing}
     ${open ? bodyTpl(b, ui, depth, c) : nothing}
     ${c.id ? html`<div class="hkact">
-      <button class="lnk" data-act="open" title="its own chat" @click=${() => ui.act.select(c.id)}>Open ↗</button>
+      <button class="lnk" data-act="open" title="its own chat" @click=${() => ui.act.select(c.id)}>Open<bx-icon name="popout"></bx-icon></button>
       ${talk && c.can.stop ? html`<button class="lnk" data-act="stop" title=${stopWords(c)} ?disabled=${!!x.busy} @click=${() => stop(c)}>Stop</button>` : nothing}
       ${talk && c.can.cancel ? html`<button class="lnk" data-act="cancel" ?disabled=${!!x.busy} @click=${() => cancel(c)}>Cancel</button>` : nothing}
       ${talk && c.can.message ? html`<button class="lnk" data-act="message" @click=${() => { x.msg = !x.msg; x.note = ''; x.err = ''; repaint(); }}>Message</button>` : nothing}
@@ -202,34 +202,38 @@ function cardTpl(b, ui, depth, opts = {}) {
   </div>`;
 }
 
-// the card's look (the tile's own sheet stays as it is)
+// the card's look (the tile's own sheet stays as it is): theme.css's tokens (D184)
 const style = document.createElement('style');
 style.textContent = `
   .hkid .ach .ic { width: auto; }
-  .hkid .hkn { font-weight: 600; margin-right: 3px; }
-  .hkid [data-tone="run"] { color: var(--bx-accent); } .hkid [data-tone="warn"] { color: var(--bx-yellow, #d9a441); }
-  .hkid [data-tone="bad"] { color: var(--bx-red); } .hkid .hkst[data-tone="ok"] { color: var(--bx-green); }
+  .hkid .hkn { font-weight: 600; margin-right: 4px; }
+  .hkid [data-tone="run"] { color: var(--bx-text); } .hkid [data-tone="warn"] { color: var(--bx-warn); }
+  .hkid [data-tone="bad"] { color: var(--bx-danger); } .hkid .hkst[data-tone="ok"] { color: var(--bx-ok); }
   .hkid .hks[data-tone="run"], .hkid .hks[data-tone="ok"] { color: inherit; }
-  .hkid.hk-approval, .hkid.hk-question, .hkid.hk-login { border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 55%, var(--bx-border)); }
-  .hkid.hk-done { border-left-color: var(--bx-green); } .hkid.hk-failed, .hkid.hk-lost { border-left-color: var(--bx-red); }
+  .hkid.hk-approval, .hkid.hk-question, .hkid.hk-login { border-color: var(--bx-warn); }
+  .hkid.hk-done { border-left-color: var(--bx-ok); } .hkid.hk-failed, .hkid.hk-lost { border-left-color: var(--bx-danger); }
   .hkid.hk-canceled { border-left-color: var(--bx-border); } .hkid.hk-canceled .ach .hl { color: var(--bx-muted); }
-  .hkid .hkline { padding: 0 10px 0 34px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hkid .hkmeta { padding: 1px 10px 0 34px; font-size: 11px; color: var(--bx-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hkid .hkpark { padding: 2px 10px 0 34px; }
+  .hkid .hkline { padding: 0 12px 0 34px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hkid .hkmeta { padding: 1px 12px 0 34px; font: var(--bx-font-meta); color: var(--bx-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hkid .hkmeta .mono { font: var(--bx-font-code); }
+  .hkid .hkpark { padding: 2px 12px 0 34px; }
   .hkid .hkpark .ask { margin: 4px 0; }
-  .hkid .hkact { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 3px 10px 6px 32px; }
-  .hkid .hkact .lnk { font-size: 11.5px; }
+  .hkid .hkact { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 4px 12px 8px 32px; }
   .hkid .hkact .lnk:disabled { color: var(--bx-muted); cursor: default; }
-  .hkid .hkmsg { display: flex; gap: 6px; padding: 0 10px 8px 34px; }
-  .hkid .hkmsg .hkin { flex: 1; min-width: 6em; font: inherit; font-size: 12.5px; }
+  .hkid .hkmsg { display: flex; gap: 8px; padding: 0 12px 8px 34px; }
+  .hkid .hkmsg .hkin { flex: 1; min-width: 6em; }
   .hkid .hkmsg .btn { margin: 0; flex: none; }
-  .hkid .hkplan { font-size: 11.5px; margin: 6px 0; }
+  .hkid .hkplan { margin: 8px 0; }
+  .hkid .hkplan .pe { display: flex; gap: 8px; align-items: baseline; }
+  /* a plan entry's square: hollow to do, the accent in progress, filled done */
+  .hkid .hkplan .pm { flex: none; align-self: center; box-sizing: border-box; width: 8px; height: 8px; border: 1px solid var(--bx-muted); }
+  .hkid .hkplan .pe.in_progress .pm { border-color: var(--bx-accent); background: var(--bx-accent); }
+  .hkid .hkplan .pe.completed .pm { border-color: var(--bx-ok); background: var(--bx-ok); }
   .hkid .hkplan .pe.completed { color: var(--bx-muted); text-decoration: line-through; }
   .hkid .hkplan .pe.in_progress { font-weight: 600; }
-  .hkid .hktail { font-size: 12px; }
   .hkid .hktail .msg.assistant .md { max-height: 8.5em; overflow: hidden; }
   .hkid .hkmore { margin-top: 4px; }
-  .run .kids { flex: none; font: 10.5px var(--bx-mono, monospace); color: var(--bx-accent); }
+  .run .kids { flex: none; display: inline-flex; align-items: center; gap: 2px; font: var(--bx-font-code); color: var(--bx-muted); }
 `;
 document.head.append(style);
 

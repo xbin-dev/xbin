@@ -47,7 +47,7 @@ export function callersView(s, limit, onLimit) {
   };
   return html`
     <h4>usage by partition</h4>
-    <div class="muted" style="font-size:11px; margin-bottom:5px">
+    <div class="hint" style="margin-bottom:8px">
       Calls from partitioned tiles: requests and tokens only, never what was
       said. Each person sees their own partitions; a manager of this tile
       each tile's people together and its global instance.
@@ -67,13 +67,13 @@ export function callersView(s, limit, onLimit) {
         <td class="mono muted" style="text-align:right">${cost(r.cost)}</td>
         <td class="mono" style="text-align:right">${r.active ? html`<span class="ok">${r.active}</span>` : '0'}${r.waiting
           ? html` <span class="warn" title="waiting under the fairness limit">+${r.waiting}</span>` : nothing}</td>
-        <td class="muted" style="text-align:right; white-space:nowrap">${ago(r.last)}</td>
+        <td class="mono muted" style="text-align:right; white-space:nowrap">${ago(r.last)}</td>
       </tr>`)}
     </table>` : nothing}
     ${manage ? html`<form class="row" style="margin-top:6px" @submit=${save}>
-      <span class="muted" style="font-size:11px">Fairness limit: at most</span>
+      <span class="muted">Fairness limit: at most</span>
       <input name="limit" type="number" min="0" max="64" size="3" style="width:4em" .value=${String(limit || 0)}>
-      <span class="muted" style="font-size:11px">calls at once from one person's partition (0 = off; more wait up to 20 s, then are told to retry)</span>
+      <span class="muted">calls at once from one person's partition (0 = off; more wait up to 20 s, then are told to retry)</span>
       <button class="act">save</button>
     </form>` : nothing}`;
 }

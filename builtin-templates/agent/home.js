@@ -13,11 +13,11 @@ import { needWords } from './model/home.js';
 export function homeTpl(HOME, needs, ui) {
   return html`<div class="home">
     <div class="hi">${HOME.hi}</div>
-    <div class="sub">${HOME.sub}${ui.mcpBound ? '' : ' No MCP servers are bound yet — see ⚙ → MCP.'}</div>
+    <div class="sub">${HOME.sub}${ui.mcpBound ? '' : ' No MCP servers are bound yet — see Settings → MCP.'}</div>
     <div class="exs">${HOME.examples.map((e) => html`<span class="ex" @click=${() => ui.pick(e)}>${e}</span>`)}</div>
     ${needs && needs.length ? html`<h5>Needs you</h5>${needs.map((n) => html`
       <div class="qa need" data-r=${n.run.id} @click=${() => ui.select(n.subRun || n.run.id)}>
-        <div class="q">${n.reason === 'failed' ? '⚠' : n.reason === 'login' ? '🔑' : '❓'} ${n.run.title || 'run ' + n.run.id}
+        <div class="q"><bx-icon name=${n.reason === 'failed' ? 'warning' : n.reason === 'login' ? 'key' : 'question'}></bx-icon>${n.run.title || 'run ' + n.run.id}
           <span class="when">${needWords(n)}</span></div>
       </div>`)}` : nothing}
   </div>`;

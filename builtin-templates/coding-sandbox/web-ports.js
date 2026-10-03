@@ -39,8 +39,8 @@ export function portsTpl(app, ui, r) {
     <b>Ports of ${r.name}</b>
     ${p.err ? html`<div class="err">${p.err}</div>` : !info ? html`<div class="muted">reading…</div>`
       : html`<div class="small" id="ports-offered">${info.offered && !info.restartNeeded
-        ? html`<span class="pill ok">offered</span> <span class="muted">live previews reach a server on the sandbox's loopback</span>`
-        : html`<span class="pill ${info.offered ? 'warn' : 'muted'}">${info.offered ? 'restart needed' : 'not offered'}</span> <span>${info.why}</span>`}</div>`}
+        ? html`<span class="pill ok"><bx-icon name="ok"></bx-icon>offered</span> <span class="muted">live previews reach a server on the sandbox's loopback</span>`
+        : html`<span class="pill ${info.offered ? 'warn' : 'muted'}">${info.offered ? html`<bx-icon name="warning"></bx-icon>restart needed` : 'not offered'}</span> <span>${info.why}</span>`}</div>`}
     <div class="row"><label>port <input id="ports-port" class="mono" inputmode="numeric" size="6" .value=${f.port} @input=${set('port')}
         @keydown=${(e) => { if (e.key === 'Enter') go(); }}></label>
       <label>path <input id="ports-path" class="mono" .value=${f.path} @input=${set('path')} @keydown=${(e) => { if (e.key === 'Enter') go(); }}></label>

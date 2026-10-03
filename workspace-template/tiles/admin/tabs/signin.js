@@ -43,7 +43,7 @@ export class BxAdminSignin extends WithRouter(LitElement) {
     const canPwOff = !!s.canDisablePassword;
     return html`
       <h4>sign-in security</h4>
-      <label style="display:flex; gap:8px; align-items:flex-start; font-size:12px; max-width:52ch">
+      <label style="display:flex; gap:8px; align-items:flex-start; max-width:52ch">
         <input type="checkbox" .checked=${off} ?disabled=${!off && !canDisable}
           @change=${(e) => this._setTokenLogin(e.target.checked)}>
         <span>
@@ -57,7 +57,7 @@ export class BxAdminSignin extends WithRouter(LitElement) {
             : nothing}
         </span>
       </label>
-      <div style="margin-top:10px; font-size:12px; max-width:52ch">
+      <div style="margin-top:12px; max-width:52ch">
         <button class="act" @click=${() => this._rotateToken()}>rotate owner token</button>
         <span class="muted"> Replaces <span class="mono">.xbin/token</span> — the old
         token (and any leaked copy, e.g. in pre-2026-07-09 agent transcripts)
@@ -67,7 +67,7 @@ export class BxAdminSignin extends WithRouter(LitElement) {
       ${this._tokenBox()}
       ${this._ssoView(s.sso)}
       <h4 style="margin-top:16px">sign-in policy</h4>
-      <label style="display:flex; gap:8px; align-items:flex-start; font-size:12px; max-width:52ch">
+      <label style="display:flex; gap:8px; align-items:flex-start; max-width:52ch">
         <input type="checkbox" .checked=${pwOff} ?disabled=${!pwOff && !canPwOff}
           @change=${(e) => this._setPasswordLogin(e.target.checked)}>
         <span>
@@ -106,9 +106,9 @@ export class BxAdminSignin extends WithRouter(LitElement) {
     const needsIssuer = preset && preset !== 'google' && preset !== 'github';
     return html`
       <h4 style="margin-top:16px">single sign-on</h4>
-      <div style="font-size:12px; max-width:56ch">
+      <div style="max-width:56ch">
         ${c.enabled ? html`<div style="margin-bottom:6px">
-            <span class="dot" style="background:${c.ready ? 'var(--bx-green, #4caf50)' : 'var(--bx-amber,#f2a71b)'}"></span>
+            <bx-icon class=${c.ready ? 'st-healthy' : 'warn-ic'} name=${c.ready ? 'ok' : 'warning'}></bx-icon>
             ${c.ready ? 'active' : 'configured but NOT active — the daemon needs --external-url (XBIN_EXTERNAL_URL) for the redirect URI'}
             ${c.externalUrl ? html` · callback <span class="mono">${c.externalUrl}/login/sso/callback</span>` : nothing}
           </div>`
@@ -136,8 +136,8 @@ export class BxAdminSignin extends WithRouter(LitElement) {
             ${c.enabled ? html`<button class="act rm" @click=${() => this._clearSSO()}>disable SSO</button>` : nothing}
           </div>
           ${this._ssoTestResult()}
-          ${c.groupSync?.lastError ? html`<div class="err" style="margin-top:6px">⚠ group sync failed for
-            <span class="mono">${c.groupSync.lastError.user}</span> ${agoCoarse(c.groupSync.lastError.at)}: ${c.groupSync.lastError.error}</div>` : nothing}
+          ${c.groupSync?.lastError ? html`<div class="err" style="margin-top:6px"><bx-icon name="error"></bx-icon><span>group sync failed for
+            <span class="mono">${c.groupSync.lastError.user}</span> ${agoCoarse(c.groupSync.lastError.at)}: ${c.groupSync.lastError.error}</span></div>` : nothing}
           ${this._groupsSeenView(c)}
           <div class="muted" style="margin-top:6px">Users match by the <b>email</b> on their account
             (the users table row menu's <b>set email</b>, the add-user form's <b>sign-in: SSO</b> mode for
@@ -157,7 +157,7 @@ export class BxAdminSignin extends WithRouter(LitElement) {
     const admins = (c.adminGroups || []).join(', ');
     return html`
       <div style="margin-top:10px">
-        <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">group sync</span>
+        <span class="lbl">group sync</span>
         ${preset !== 'github' && preset !== 'google' ? html`
           <div style="display:flex; gap:6px; margin-top:4px">
             <input id="sso-gclaim" placeholder="groups claim (default: groups)" value=${c.groupsClaim || ''} style="flex:1">
@@ -167,9 +167,9 @@ export class BxAdminSignin extends WithRouter(LitElement) {
         <input id="sso-admins" list="idp-groups-seen" value=${admins} style="margin-top:6px; width:100%"
           placeholder="workspace-admin groups, comma-separated (empty = admins are promoted by hand)"
           @input=${(e) => { this._ssoAdminsDirty = !!e.target.value.trim(); this.requestUpdate(); }}>
-        ${admins || this._ssoAdminsDirty ? html`<div class="warn-line">⚠ Members of these groups become workspace admins
+        ${admins || this._ssoAdminsDirty ? html`<div class="warn-line"><bx-icon name="warning"></bx-icon><span>Members of these groups become workspace admins
           at sign-in and are demoted when they leave (never the last admin, never a hand-promoted one). Use a
-          group only IdP admins can edit — never one people can join themselves.</div>` : nothing}
+          group only IdP admins can edit — never one people can join themselves.</span></div>` : nothing}
         ${this._groupsDatalist()}
       </div>`;
   }
@@ -190,7 +190,7 @@ export class BxAdminSignin extends WithRouter(LitElement) {
     const adminGroups = (c.adminGroups || []).map((g) => g.toLowerCase());
     const users = this.users ?? [];
     return html`<div style="margin-top:8px">
-      <span class="muted" style="font-size:10.5px; letter-spacing:.05em; text-transform:uppercase">groups seen</span>
+      <span class="lbl">groups seen</span>
       <span class="muted"> — what the IdP actually sent, over everyone’s last sign-in</span>
       <div style="margin-top:3px">
         ${known.length ? known.map((g) => {
@@ -207,9 +207,9 @@ export class BxAdminSignin extends WithRouter(LitElement) {
     if (!t) return nothing;
     if (t.busy) return html`<div class="muted" style="margin-top:6px">testing…</div>`;
     return html`<div style="margin-top:6px">
-      ${t.ok ? html`<span class="st-healthy">✓ reachable</span> — ${t.kind === 'github' ? 'GitHub API answers' : html`issuer <span class="mono">${t.issuer}</span> · ${t.jwksKeys} signing key${t.jwksKeys === 1 ? '' : 's'}`}${t.ready ? '' : ' · not active yet (see above)'}`
-        : html`<span class="st-failed">✗ ${t.error}</span>`}
-      ${(t.warnings ?? []).map((w) => html`<div class="warn-line">⚠ ${w}</div>`)}
+      ${t.ok ? html`<span class="st-healthy"><bx-icon name="ok"></bx-icon> reachable</span> — ${t.kind === 'github' ? 'GitHub API answers' : html`issuer <span class="mono">${t.issuer}</span> · ${t.jwksKeys} signing key${t.jwksKeys === 1 ? '' : 's'}`}${t.ready ? '' : ' · not active yet (see above)'}`
+        : html`<span class="err-pill"><bx-icon name="error"></bx-icon>${t.error}</span>`}
+      ${(t.warnings ?? []).map((w) => html`<div class="warn-line"><bx-icon name="warning"></bx-icon><span>${w}</span></div>`)}
     </div>`;
   }
   _ssoPayload(preset) {
@@ -271,14 +271,14 @@ export class BxAdminSignin extends WithRouter(LitElement) {
   // prompt() you can accidentally dismiss is no place for a credential.
   _tokenBox() {
     if (!this._token) return nothing;
-    return html`<div style="margin:8px 0; padding:8px 10px; border:1px solid var(--bx-green, #4caf50);
-        border-radius:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-      <b style="font-size:12px">new owner token</b>
+    return html`<div style="margin:8px 0; padding:8px 12px; border:1px solid var(--bx-ok); background:var(--bx-ok-bg);
+        border-radius:var(--bx-radius); display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <b>new owner token</b>
       <input class="mono" size="40" readonly .value=${this._token} @focus=${(e) => e.target.select()}>
       <button class="act" @click=${() => navigator.clipboard?.writeText(this._token)}>copy</button>
-      <span class="muted" style="font-size:10.5px">also written to &lt;workspace&gt;/.xbin/token —
+      <span class="muted hint">also written to &lt;workspace&gt;/.xbin/token —
         update host-side XBIN_TOKEN</span>
-      <button class="act" @click=${() => { this._token = null; }}>✕</button>
+      <button class="act quiet icon" aria-label="dismiss" title="dismiss" @click=${() => { this._token = null; }}><bx-icon name="xmark"></bx-icon></button>
     </div>`;
   }
 }

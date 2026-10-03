@@ -121,7 +121,7 @@ test('a conversation: the transcript from the model\'s blocks, a subagent inside
   const t = r.snapshots.open;
   const scr = topScreen(t);
   assert.equal(scr.p.title, 'plan the quarter');
-  assert.match(scr.p.subtitle, /running · 🔒 internal/);
+  assert.match(scr.p.subtitle, /running · internal/);
   const tr = find(scr, { t: 'transcript', p: { follow: true } });
   assert.ok(tr, 'the transcript follows its end');
   const kinds = tr.c.map((c) => c.t + (c.t === 'message' ? ':' + c.p.role : ''));
@@ -306,7 +306,7 @@ test('a grant: the owner allows it once or for an hour, others may deny; it show
     { tap: { t: 'button', has: 'Revoke: reads your threads', in: { t: 'menu' } } },
   ], { state: { hash: 'c=9' } });
   const screen = find(g.snapshots.granted, { t: 'screen', p: { title: 'catch me up' } });
-  assert.equal((screen.p.subtitle.match(/🔓 reads your threads · until \d\d:\d\d/g) || []).length, 1, 'the live one, not the expired one');
+  assert.equal((screen.p.subtitle.match(/reads your threads · until \d\d:\d\d/g) || []).length, 1, 'the live one, not the expired one');
   assert.equal(called(g, 'DELETE', /\/runs\/9\/grants\/threads$/).length, 1);
 });
 
@@ -319,7 +319,7 @@ test('a failed run offers Retry, inline and in the menu', async () => {
   const t = r.snapshots.failed;
   assert.ok(find(t, { t: 'button', p: { label: 'Retry' }, in: { t: 'composer' } }), 'Retry beside the composer');
   assert.ok(find(t, { t: 'button', p: { label: 'Retry' }, in: { t: 'menu' } }), '…and in the menu');
-  assert.deepEqual(find(t, { t: 'step' }).p, { glyph: '⚠', tone: 'danger', text: 'model unreachable' });
+  assert.deepEqual(find(t, { t: 'step' }).p, { glyph: '!', tone: 'danger', text: 'model unreachable' });
   assert.equal(called(r, 'POST', /\/runs\/9\/resume$/).length, 1);
   const menu = all(t.root, { t: 'button', in: { t: 'menu', p: { icon: 'ellipsis' } } }).map((b) => b.p.label);
   assert.deepEqual(menu, ['Retry', 'Rename…', 'Compact', 'Learn skill', 'Memory (0)', 'Files (0)', 'Share', 'Delete']);
@@ -398,7 +398,7 @@ test('the drawer: groups, row actions, search with snippets, scope, a pasted inv
   assert.equal(row('old one').p.badge, 'failed');
   assert.equal(row('old one').p.tone, 'danger');
   assert.equal(row('their one').p.badge, 'waiting for you');
-  assert.equal(row('their one').p.subtitle, '👥 from bob · team · can read', 'a shared row says how, and whose');
+  assert.equal(row('their one').p.subtitle, 'from bob · team · can read', 'a shared row says how, and whose');
   assert.deepEqual(all(row('today one'), { t: 'button' }).map((b) => b.p.label), ['Rename', 'Pin', 'Share…', 'Archive', 'Delete']);
   assert.deepEqual(all(row('their one'), { t: 'button' }).map((b) => b.p.label), ['Pin', 'Archive', 'Leave']);
   assert.equal(find(row('their one'), { t: 'button', p: { label: 'Leave' } }).p.confirm.title, 'Leave "their one"?');
@@ -592,7 +592,7 @@ test('run tools: memory, files and the editor, skills, the workflow tree, settin
   assert.equal(tree.p.title, 'plan the quarter');
   assert.equal(tree.p.subtitle, '2 nodes · 1 running · 1 blocked');
   assert.deepEqual(all(tree, { t: 'row' }).map((x) => x.p.title), ['Σ 1 200↑ 500↓', 'plan the quarter', '· research']);
-  assert.equal(find(tree, { t: 'row', p: { title: '· research' } }).p.subtitle, '⛔ waiting on #3');
+  assert.equal(find(tree, { t: 'row', p: { title: '· research' } }).p.subtitle, 'waiting on #3');
   assert.equal(find(tree, { t: 'button', p: { label: 'Stop' } }).p.confirm.title, 'Cancel this workflow and every run below it?');
   const set = topScreen(r.snapshots.settings);
   assert.deepEqual(all(set, { t: 'row' }).map((x) => x.p.title), ['Config', 'Features', 'Classes', 'Coding agents', 'Skills', 'MCP servers']);
@@ -695,7 +695,7 @@ test('classes (D116): the picker remembers your pick, the badge warns, managers 
     { snapshot: 'deleted' },
   ], { state: { hash: 'c=9' } });
   // the badge: the conversation's class, and the warning of a mixed one
-  assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · 🌉 Bridge · ⚠ can move internal data out/);
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · 🌉 Bridge · can move internal data out/);
   assert.equal(find(r.snapshots.chat, { t: 'picker', p: { label: 'Class' } }), null, 'an open conversation\'s class is fixed: no picker');
   // the picker: the tile's default first (a manager may use a managers' class), a pick is remembered
   assert.equal(find(r.snapshots.home, { t: 'picker', p: { label: 'Class' } }).p.value, 'ops');
@@ -769,7 +769,7 @@ test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the too
   assert.equal(p.p.value, `${MGR}|api`);
   assert.deepEqual(p.p.options.map((o) => [o.label, o.icon]), [
     ['No sandbox', 'minus'], ['api', 'box'], ['web (stopped)', 'box'], ['wide — unavailable', 'lock'],
-    ['team-box · team', 'box'], ['＋ New sandbox…', 'plus'], ['Manage sandboxes…', 'list']], 'short: the bar shows the current one beside the model');
+    ['team-box · team', 'box'], ['New sandbox…', 'plus'], ['Manage sandboxes…', 'list']], 'short: the bar shows the current one beside the model');
   assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · ▣ Coding · ▣ api · \/work/, 'the ▣ badge in the header');
   assert.equal(called(r, 'GET', /\/sandboxes$/).length, 1, 'the list is read once');
   const note = texts(r.snapshots.refused, 'notice', 'text').find((t) => /wide/.test(t || ''));
@@ -856,7 +856,7 @@ test('coding sandboxes (D115): no picker without the toolset; the Sandboxes scre
   const made = bodies(r, 'POST', /\/sandboxes$/);
   assert.deepEqual({ ...made[0], clientId: 'x' }, { name: 'scratch', provider: MGR, egress: 'internet', visibility: 'private', image: 'base', size: 'small', clientId: 'x' });
   assert.equal(topScreen(r.snapshots.created).p.title, 'Sandboxes');
-  assert.ok(texts(r.snapshots.created, 'notice', 'text').includes('created scratch — your next new chat starts in it ✓'));
+  assert.ok(texts(r.snapshots.created, 'notice', 'text').includes('created scratch — your next new chat starts in it'));
   assert.equal(find(r.snapshots.created, { t: 'picker', p: { label: 'Sandbox' } }).p.value, `${MGR}|sb-scratch`, 'the picker has it');
   // the new chat starts in it
   const ask = bodies(r, 'POST', /\/ask$/)[0];
@@ -869,10 +869,10 @@ test('coding sandboxes (D115): a binding that no longer resolves is marked; a vi
   const r = await run(oneSeed(view, { sandboxes: boxes() }), [
     { wait: 50 },
     { snapshot: 'chat' },
-    { tap: { t: 'button', p: { label: 'Sandbox: vanished ⚠' } } },
+    { tap: { t: 'button', p: { label: 'Sandbox: vanished (broken)' } } },
     { snapshot: 'box' },
   ], { state: { hash: 'c=9' } });
-  assert.match(topScreen(r.snapshots.chat).p.subtitle, /▣ vanished · \/srv ⚠/);
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /▣ vanished · \/srv · broken/);
   const warn = find(r.snapshots.chat, { t: 'notice', p: { tone: 'warn', title: '▣ vanished' } });
   assert.match(warn.p.text, /^gone — its manager no longer has it — pick another sandbox, or detach it/);
   assert.equal(find(r.snapshots.chat, { t: 'picker', p: { label: 'Sandbox' } }), null, 'a viewer gets no picker');

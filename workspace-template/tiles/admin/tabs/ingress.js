@@ -87,11 +87,11 @@ export class BxAdminIngress extends WithRouter(WithFilter(LitElement)) {
       ...this._ingRoutes(e).flatMap((r) => [r.source, r.host, r.zone, r.listen])));
     const routeText = (e, r) => e.kind === 'http' ? (r.zone ? `${r.zone} (zone)` : r.host) : `host ${r.listen || ':' + e.port} → :${e.port}`;
     const routeState = (e, r) => {
-      if (e.kind === 'http') return html`<span class="st-healthy">public: ${r.zone || r.host}</span>`;
+      if (e.kind === 'http') return html`<span class="st-healthy"><bx-icon name="ok"></bx-icon> public: ${r.zone || r.host}</span>`;
       const listen = r.listen || ':' + e.port;
       const st = streams.find((s) => s.component === e.component && s.slot === e.slot && s.listen === listen);
-      return st?.error ? html`<span class="st-failed">⚠ ${st.error}</span>`
-        : html`<span class="st-healthy">listening${st ? ` (${st.active} active)` : ''}</span>`;
+      return st?.error ? html`<span class="err-pill"><bx-icon name="error"></bx-icon>${st.error}</span>`
+        : html`<span class="st-healthy"><bx-icon name="ok"></bx-icon> listening${st ? ` (${st.active} active)` : ''}</span>`;
     };
     return html`
       <p class="muted">Tiles declare <code>exposes</code> in their manifest; <b>binding a slot to an
@@ -123,7 +123,7 @@ export class BxAdminIngress extends WithRouter(WithFilter(LitElement)) {
             : html`<input class="mono ing-listen" style="width:8em" placeholder=":${e.port} (host port)"
                      .value=${ed.listen}
                      @input=${(ev) => this._ingSetEdit(e, { listen: ev.target.value.trim() })}>`;
-          const addState = e.blocked ? html`<span class="st-failed">⛔ ${e.blocked}</span>`
+          const addState = e.blocked ? html`<span class="err-pill"><bx-icon name="error"></bx-icon>${e.blocked}</span>`
             : routes.length ? html`<span class="muted">add another ${e.kind === 'http' ? 'hostname' : 'host port'}</span>`
               : html`<span class="muted">unbound — not reachable</span>`;
           return html`
@@ -131,8 +131,8 @@ export class BxAdminIngress extends WithRouter(WithFilter(LitElement)) {
               ${head(i)}
               <td class="mono">${r.source}</td>
               <td class="mono">${routeText(e, r)}</td>
-              <td><button class="act rm" title="remove this route" @click=${() => this._ingRemove(e, r)}>remove</button></td>
-              <td>${e.blocked ? html`<span class="st-failed">⛔ ${e.blocked}</span>` : routeState(e, r)}</td></tr>`)}
+              <td><button class="act quiet rm" title="remove this route" @click=${() => this._ingRemove(e, r)}>remove</button></td>
+              <td>${e.blocked ? html`<span class="err-pill"><bx-icon name="error"></bx-icon>${e.blocked}</span>` : routeState(e, r)}</td></tr>`)}
             <tr class="ing-add" data-ep=${e.component + '.' + e.slot}>
               ${head(routes.length)}
               <td><select ?disabled=${!!e.blocked} @change=${(ev) => this._ingSetEdit(e, { source: ev.target.value })}>
@@ -178,14 +178,14 @@ export class BxAdminIngress extends WithRouter(WithFilter(LitElement)) {
             <td class="mono">${s.listen}</td>
             <td class="mono">${s.component}.${s.slot} → :${s.port}</td>
             <td>${s.proto}</td>
-            <td>${s.error ? html`<span class="st-failed">⚠ ${s.error}</span>` : html`<span class="st-healthy">${s.active} active</span>`}</td></tr>`)}
+            <td>${s.error ? html`<span class="err-pill"><bx-icon name="error"></bx-icon>${s.error}</span>` : html`<span class="st-healthy"><bx-icon name="ok"></bx-icon> ${s.active} active</span>`}</td></tr>`)}
         </table>` : nothing}
       ${forwards.length ? html`<h4>terminator forward doors</h4>
         <table class="tbl">
           <tr><th>terminator tile</th><th>state</th></tr>
           ${forwards.map((f) => html`<tr>
             <td class="mono">${f.source}</td>
-            <td>${f.error ? html`<span class="st-failed">⚠ ${f.error}</span>` : html`<span class="st-healthy">up</span>`}</td></tr>`)}
+            <td>${f.error ? html`<span class="err-pill"><bx-icon name="error"></bx-icon>${f.error}</span>` : html`<span class="st-healthy"><bx-icon name="ok"></bx-icon> up</span>`}</td></tr>`)}
         </table>` : nothing}`;
   }
 }

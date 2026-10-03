@@ -70,7 +70,8 @@ await page.waitForSelector('#hchip');
 const ask = (await calls('POST', /\/ask$/)).pop().body;
 ok('the ask: the harness, its class, its sandbox — no mode, no model', ask.harness && ask.harness.provider === 'claude' && !('mode' in ask.harness)
   && ask.class === 'coding' && ask.sandbox && ask.sandbox.ref === API_DEV && !('model' in ask) && ask.text === 'fix the flaky test', JSON.stringify(ask));
-ok('the top bar: which agent, its state, its shared sandbox', /CC\s*Claude Code · starting 👥/.test(await text('#hchip')), await text('#hchip'));
+ok('the top bar: which agent, its state, its shared sandbox (the people glyph, D184)', /CC\s*Claude Code · starting$/.test(await text('#hchip'))
+  && !!(await page.$('#hchip bx-icon[name="people"]')), await text('#hchip'));
 ok('…whose title says who can read it', (await page.getAttribute('#hchip', 'title')).includes('api-dev is shared — the people who may use it can read what Claude Code does here'));
 ok('no "Who answers" in a conversation', !(await shown('#apick')));
 

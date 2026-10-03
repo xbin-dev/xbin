@@ -8,65 +8,79 @@ import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
 import { marked } from '/vendor/marked.esm.js';
+import '/vendor/bx-icons.js'; // <bx-icon name>: drawn glyphs (D184)
 
 const md = (s) => unsafeHTML(marked.parse(s || '', { async: false }));
 
-// Capability → colour hint.
-const CAP_COLOR = (c) => {
-  if (!c) return 'var(--bx-muted)';
-  if (c.includes('admin') || c === 'owner') return 'var(--bx-red, #ef5350)';
-  if (c.includes('writer') || c.includes('users')) return 'var(--bx-amber, #f2a71b)';
-  if (c.includes('reader')) return 'var(--bx-green, #4caf50)';
-  return 'var(--bx-muted, #868f9a)';
-};
-const METHOD_COLOR = {
-  get: 'var(--bx-green, #4caf50)', post: 'var(--bx-amber, #f2a71b)',
-  put: 'var(--bx-accent, #f5a623)', patch: '#8957e5', delete: 'var(--bx-red, #ef5350)',
+// Capability → its weight, as a badge class (a status colour beside the
+// capability's own words; D184: colour is never the only cue).
+const CAP_CLASS = (c) => {
+  if (!c) return '';
+  if (c.includes('admin') || c === 'owner') return 'danger';
+  if (c.includes('writer') || c.includes('users')) return 'warn';
+  if (c.includes('reader')) return 'ok';
+  return '';
 };
 
 export class BxApiDocs extends LitElement {
   static properties = { _spec: { state: true }, _q: { state: true }, _open: { state: true }, _err: { state: true } };
 
+  // Base Two (D184): theme.css's tokens only (the page links it and opts in),
+  // so the tile is right in light and dark; methods and capabilities are
+  // square badges in words (a capability's weight in a status colour), paths
+  // in ink and the code font, links in prose in the link colour.
   static styles = [scrollCss, css`
-    :host { display: block; font: var(--bx-font, 13px/1.5 system-ui, sans-serif); color: var(--bx-text, #d4d9e0);
-            background: var(--bx-panel, #23272e); }
-    .top { position: sticky; top: 0; z-index: 1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-           padding: 10px 14px; border-bottom: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038); }
-    .top h2 { margin: 0; font-size: 15px; }
+    :host { display: block; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
+    input { font: inherit; }
+    ::placeholder { color: var(--bx-subtle); opacity: 1; }
+    :focus-visible { outline: var(--bx-focus-outline); outline-offset: var(--bx-focus-offset); box-shadow: var(--bx-focus-halo); }
+    .top { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+           padding: 8px var(--bx-pad); border-bottom: 1px solid var(--bx-border); background: var(--bx-panel); }
+    .top h2 { margin: 0; font: var(--bx-font-title); }
     .top .spacer { flex: 1; }
-    .top input { flex: 0 1 240px; background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
-      border-radius: 6px; padding: 4px 9px; font: inherit; font-size: 12px; color: var(--bx-text); }
-    .top a { font-size: 12px; color: var(--bx-accent, #f5a623); text-decoration: none; }
-    .top a:hover { text-decoration: underline; }
-    .body { padding: 8px 14px 24px; }
-    .intro { font-size: 13px; color: var(--bx-text); border: 1px solid var(--bx-border, #363c45);
-      border-radius: 8px; padding: 4px 14px; margin: 10px 0 14px; background: var(--bx-panel-2, #2b3038); }
-    .intro h2 { font-size: 13px; margin: 12px 0 4px; }
-    .intro code { font: 11.5px var(--bx-mono, monospace); background: var(--bx-panel, #23272e);
-      border: 1px solid var(--bx-border); border-radius: 4px; padding: 0 4px; }
+    .top input { flex: 0 1 240px; box-sizing: border-box; min-height: var(--bx-control-h); background: var(--bx-panel);
+      border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); padding: 4px 8px; color: var(--bx-text); }
+    a { color: var(--bx-link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .body { padding: 8px var(--bx-pad) 24px; }
+    .intro { font: var(--bx-font-body); color: var(--bx-text); border: 1px solid var(--bx-border);
+      border-radius: var(--bx-radius); padding: 4px var(--bx-pad); margin: 12px 0 16px; background: var(--bx-panel-2); }
+    .intro h2 { font: var(--bx-font-title); margin: 12px 0 4px; }
+    .intro code { font: var(--bx-font-code); background: var(--bx-code-bg);
+      border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 0 4px; }
     .intro ul { margin: 4px 0; padding-left: 18px; }
-    h3.tag { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--bx-muted, #868f9a);
-      margin: 18px 0 6px; border-bottom: 1px solid var(--bx-border, #363c45); padding-bottom: 3px; }
-    .op { border: 1px solid var(--bx-border, #363c45); border-radius: 7px; margin-bottom: 6px; overflow: hidden; }
-    .op .row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; cursor: pointer; }
-    .op .row:hover { background: var(--bx-panel-2, #2b3038); }
-    .m { font: 700 10.5px var(--bx-mono, monospace); text-transform: uppercase; color: #fff; padding: 1px 7px;
-      border-radius: 4px; min-width: 46px; text-align: center; }
-    .path { font: 12.5px var(--bx-mono, monospace); }
-    .op .sum { color: var(--bx-muted, #868f9a); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    h3.tag { font: var(--bx-font-micro); text-transform: uppercase; letter-spacing: var(--bx-tracking-micro); color: var(--bx-muted);
+      margin: 16px 0 8px; border-bottom: 2px solid var(--bx-text); padding-bottom: 4px; }
+    .op { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); margin-bottom: 4px; overflow: hidden; }
+    .op .row { display: flex; align-items: center; gap: 12px; min-height: 32px; box-sizing: border-box; padding: 4px 12px; cursor: pointer; }
+    .op .row:hover { background: var(--bx-hover); }
+    /* the method: a square badge, mono, in ink (DELETE in the danger colour) */
+    .m { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 56px;
+      padding: 0 6px; font: var(--bx-font-code); font-weight: 700; text-transform: uppercase;
+      border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); color: var(--bx-text); }
+    .m.delete { color: var(--bx-danger); border-color: var(--bx-danger); }
+    .path { font: var(--bx-font-code); }
+    .op .sum { color: var(--bx-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .op .spacer { flex: 1; }
-    .cap { font-size: 10px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
-    .detail { border-top: 1px solid var(--bx-border, #363c45); padding: 8px 12px; background: var(--bx-panel-2, #2b3038); }
+    .cap { box-sizing: border-box; display: inline-flex; align-items: center; height: 20px; padding: 0 6px;
+      font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; white-space: nowrap;
+      border-radius: var(--bx-radius); border: 1px solid var(--bx-border-strong); color: var(--bx-muted); }
+    .cap.ok { color: var(--bx-ok); border-color: var(--bx-ok); }
+    .cap.warn { color: var(--bx-warn); border-color: var(--bx-warn); }
+    .cap.danger { color: var(--bx-danger); border-color: var(--bx-danger); }
+    .detail { border-top: 1px solid var(--bx-border); padding: 8px 12px; background: var(--bx-panel-2); }
     .detail .desc :first-child { margin-top: 0; }
-    .detail code { font: 11.5px var(--bx-mono, monospace); }
-    .detail h5 { margin: 12px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); }
-    table { border-collapse: collapse; width: 100%; font-size: 12px; }
-    th { text-align: left; font-size: 10px; text-transform: uppercase; color: var(--bx-muted); padding: 2px 8px 2px 0; }
-    td { padding: 2px 8px 2px 0; border-top: 1px solid var(--bx-border, #363c45); vertical-align: top; }
-    .mono { font-family: var(--bx-mono, monospace); }
-    .muted { color: var(--bx-muted, #868f9a); }
-    .req { color: var(--bx-red, #ef5350); font-size: 10px; }
-    .err { color: var(--bx-red, #ef5350); padding: 20px 14px; }
+    .detail code { font: var(--bx-font-code); }
+    .detail h5 { margin: 12px 0 4px; font: var(--bx-font-micro); text-transform: uppercase; letter-spacing: var(--bx-tracking-micro); color: var(--bx-muted); }
+    table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+    th { text-align: left; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+      color: var(--bx-muted); padding: 4px 8px 4px 0; border-bottom: 2px solid var(--bx-text); }
+    td { padding: 4px 8px 4px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+    .mono { font: var(--bx-font-code); }
+    .muted { color: var(--bx-muted); }
+    .hint { font: var(--bx-font-meta); }
+    .req { color: var(--bx-text); font-weight: 600; } /* required is a fact, not a danger */
+    .err { display: flex; gap: 6px; align-items: baseline; color: var(--bx-danger); padding: 20px var(--bx-pad); }
   `];
 
   constructor() { super(); this._q = ''; this._open = new Set(); }
@@ -105,17 +119,17 @@ export class BxApiDocs extends LitElement {
   }
 
   render() {
-    if (this._err) return html`<div class="err"><b>Couldn't load the API spec.</b> ${this._err}</div>`;
+    if (this._err) return html`<div class="err"><bx-icon name="error"></bx-icon><span><b>Couldn't load the API spec.</b> ${this._err}</span></div>`;
     const spec = this._spec;
     if (!spec) return html`<div class="body muted">loading…</div>`;
     const base = (spec.servers && spec.servers[0] && spec.servers[0].url) || '';
     return html`
       <div class="top">
         <h2>${spec.info?.title || 'API'}</h2>
-        <span class="muted" style="font-size:11px">v${spec.info?.version} · base <span class="mono">${base}</span></span>
+        <span class="muted hint">v${spec.info?.version} · base <span class="mono">${base}</span></span>
         <span class="spacer"></span>
         <input placeholder="filter…" .value=${this._q} @input=${(e) => { this._q = e.target.value; }}>
-        <a href="/api/xbin/openapi.json" target="_blank" title="raw OpenAPI 3.1 spec — import into Swagger UI / Postman">spec ↗</a>
+        <a href="/api/xbin/openapi.json" target="_blank" title="raw OpenAPI 3.1 spec — import into Swagger UI / Postman">spec <bx-icon name="popout"></bx-icon></a>
       </div>
       <div class="body">
         <div class="intro desc">${md(spec.info?.description)}</div>
@@ -133,11 +147,11 @@ export class BxApiDocs extends LitElement {
     return html`
       <div class="op">
         <div class="row" @click=${() => this._toggle(id)}>
-          <span class="m" style="background:${METHOD_COLOR[method] || 'var(--bx-muted)'}">${method}</span>
+          <span class="m ${method}">${method}</span>
           <span class="path">${base}${path}</span>
           <span class="spacer"></span>
           <span class="sum">${op.summary || ''}</span>
-          ${cap ? html`<span class="cap" style="color:${CAP_COLOR(cap)}">${cap}</span>` : nothing}
+          ${cap ? html`<span class="cap ${CAP_CLASS(cap)}">${cap}</span>` : nothing}
         </div>
         ${open ? this._detail(op) : nothing}
       </div>`;

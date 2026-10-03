@@ -68,7 +68,7 @@ function rowTpl(app, ui, r) {
         <div class="muted small who" title="who may use it — only its home consumer, or its owner there, changes this">${r.who}</div></td>
       <td class="mono small">${r.consumer}</td>
       <td>${r.owner}</td>
-      <td><span class="pill ${r.tone}" title=${r.stateDetail}>${r.stateLabel}</span>
+      <td><span class="pill ${r.tone}" title=${r.stateDetail}>${r.icon ? html`<bx-icon name=${r.icon}></bx-icon>` : nothing}${r.stateLabel}</span>
         ${r.stateDetail ? html`<div class="muted small detail">${r.stateDetail}</div>` : nothing}
         ${r.outdated ? html`<div class="muted small" title="the substrate's base image moved on">base outdated</div>` : nothing}</td>
       <td title=${r.image}>${r.imageId}</td>
@@ -179,8 +179,8 @@ export function imagesTab(app, ui) {
     <div id="images">${rows.map((im) => html`<div class="card image" data-image=${im.id}>
       <div class="hd"><b>${im.title}</b> <span class="mono muted">${im.id}</span>
         ${im.default ? html`<span class="pill">default</span>` : nothing}
-        <span class="pill ${im.tone}" title=${im.kept}>${im.buildText}</span>
-        ${!im.offered ? html`<span class="pill warn" title="hello leaves it out (Sandboxes shows why)">not offered</span>` : nothing}
+        <span class="pill ${im.tone}" title=${im.kept}>${F.toneIcon(im.tone) ? html`<bx-icon name=${F.toneIcon(im.tone)}></bx-icon>` : nothing}${im.buildText}</span>
+        ${!im.offered ? html`<span class="pill warn" title="hello leaves it out (Sandboxes shows why)"><bx-icon name="warning"></bx-icon>not offered</span>` : nothing}
         <span class="grow"></span>
         ${im.setup ? html`<button class="small" data-act="build" ?disabled=${!im.canBuild || !!ui.busy}
           @click=${() => ui.run('build', () => app.build(im.id), `building ${im.id}…`)}>${im.built ? 'Rebuild' : 'Build now'}</button>` : nothing}
@@ -193,7 +193,7 @@ export function imagesTab(app, ui) {
       ${im.setup ? html`<details><summary class="small">setup script${im.buildEgress ? ` (network while it builds: ${im.buildEgress})` : ''}</summary><pre>${im.setup}</pre></details>` : nothing}
       ${im.built && im.built.log ? html`<details class="log"><summary class="small">the last build's output</summary><pre>${im.built.log}</pre></details>` : nothing}
     </div>`)}</div>
-    ${form ? imageFormTpl(ui, form, save) : html`<button class="go" id="image-new" @click=${() => { ui.forms.image = O.imageForm(); ui.paint(); }}>＋ New image</button>`}`;
+    ${form ? imageFormTpl(ui, form, save) : html`<button class="go" id="image-new" @click=${() => { ui.forms.image = O.imageForm(); ui.paint(); }}><bx-icon name="plus"></bx-icon>New image</button>`}`;
 }
 
 function imageFormTpl(ui, form, save) {

@@ -55,7 +55,7 @@ function sizesTpl(app, ui) {
       <td>${num(i, 'memMiB')}</td><td>${num(i, 'vcpus')}</td><td>${num(i, 'diskGiB')}</td>
       <td><input type="radio" name="size-default" .checked=${!!f.default} @change=${() => set(i, 'default', true)}></td>
       <td><button class="small rm" @click=${() => { ui.forms.sizes = forms.filter((_, j) => j !== i); ui.paint(); }}>Remove</button></td></tr>`)}</tbody></table>
-    <div class="row"><button id="size-add" @click=${() => { ui.forms.sizes = [...forms, { id: '', title: '', memMiB: 2048, vcpus: 2, diskGiB: 20 }]; ui.paint(); }}>＋ Size</button>
+    <div class="row"><button id="size-add" @click=${() => { ui.forms.sizes = [...forms, { id: '', title: '', memMiB: 2048, vcpus: 2, diskGiB: 20 }]; ui.paint(); }}><bx-icon name="plus"></bx-icon>Size</button>
       <button class="go" id="sizes-save" ?disabled=${!ui.forms.sizes || !!ui.busy} @click=${save}>Save sizes</button>
       ${ui.forms.sizes ? html`<button @click=${() => { ui.forms.sizes = null; ui.paint(); }}>Discard</button>` : nothing}
       <span class="muted small">A size over the substrate's per-sandbox caps isn't offered.</span></div>`;
@@ -86,7 +86,7 @@ function quotasTpl(app, ui) {
         ui.forms.quotas = O.setQuota(quotas, n.kind, key, { sandboxes: 1, ...(base || {}) });
         ui.forms.quotaNew = null;
         ui.paint();
-      }}>＋ Its own quota</button>
+      }}><bx-icon name="plus"></bx-icon>Its own quota</button>
       <button class="go" id="quotas-save" ?disabled=${!ui.forms.quotas || !!ui.busy}
         @click=${() => ui.run('quotas', () => app.saveConfig({ quotas }).then(() => { ui.forms.quotas = null; }), 'the quotas are saved')}>Save quotas</button>
       ${ui.forms.quotas ? html`<button @click=${() => { ui.forms.quotas = null; ui.paint(); }}>Discard</button>` : nothing}
@@ -116,7 +116,7 @@ function advancedTpl(app, ui) {
         <button class="small rm" @click=${() => set({ mounts: f.mounts.filter((_, j) => j !== i) })}>Remove</button></li>`)}</ul>` : html` none`}</div>
     <div class="row"><input id="mount-new" class="mono wide" placeholder="res:${app.self}/cache:go /cache ro" .value=${f.mount}
         @input=${(e) => { ui.forms.adv = { ...fresh(), mount: e.target.value }; }}>
-      <button id="mount-add" @click=${addMount}>＋ Mount</button></div>
+      <button id="mount-add" @click=${addMount}><bx-icon name="plus"></bx-icon>Mount</button></div>
     <div class="row"><button class="go" id="adv-save" ?disabled=${!ui.forms.adv || !!ui.busy}
         @click=${() => { const g = fresh(); ui.run('adv', () => app.saveConfig({ layout: g.layout, autoStopMin: g.autoStopMin, mounts: g.mounts }).then(() => { ui.forms.adv = null; }),
           'saved: new sandboxes get it'); }}>Save</button>

@@ -130,7 +130,7 @@ await page.setViewportSize({ width: 1280, height: 900 });
 await page.click('#home');
 await page.waitForSelector('.home .need');
 const login = await page.textContent('.home .need[data-r="24"]');
-ok('Needs you: the sign-in, naming the coding agent', login.includes('needs you to sign in to Codex') && login.includes('🔑'), login);
+ok('Needs you: the sign-in, naming the coding agent', login.includes('needs you to sign in to Codex') && !!(await page.$('.home .need[data-r="24"] bx-icon[name="key"]')), login);
 ok('home\'s chip: every one of yours at work', await chipIs('⌨ 7 coding agents · 5 need you'), await text('#hbchip'));
 ok('the board follows home', (await text('#hboard .hbscope')).startsWith('yours'));
 ok('…coding-agent conversations, then the ones below yours, in the order they started', await waitOrder([22, 23, 24, 26, 27, 28, 29]), JSON.stringify(await order()));

@@ -158,7 +158,8 @@ test('controls: the modes (bypass marked, the owner\'s only), the options, the l
   const viewer = A.controls(h, entry, { owner: false, talk: false });
   assert.ok(viewer.modes.every((m) => !m.allowed));
   const bypass = A.controls({ ...h, mode: { ...h.mode, current: 'bypassPermissions' } }, entry, {});
-  assert.match(bypass.label, /^⚠ Bypass permissions/);
+  assert.match(bypass.label, /^Bypass permissions/);
+  assert.equal(bypass.mode.explicit, true, 'the views mark it with the warning glyph (D184)');
   const noMode = A.controls({ ...h, options: [...h.options, { id: 'mode', category: 'mode', options: [] }] }, entry, {});
   assert.equal(noMode.options.length, 2, 'a category-mode option is the mode picker\'s');
   assert.match(A.modeConfirm('Claude Code', { name: 'Bypass permissions' }), /stops asking/);
@@ -315,7 +316,7 @@ test('native: a plan approval — the plan, ⚠ bypass confirmed by a second car
   const t = r.snapshots.p.root;
   assert.ok(all(t, { t: 'markdown', has: 'Backfill in batches' }).length, 'the plan');
   const [card] = all(t, { t: 'approval' });
-  assert.equal(card.p.options.find((o) => o.id === 'bypassPermissions').label, '⚠ Yes, and bypass permissions');
+  assert.equal(card.p.options.find((o) => o.id === 'bypassPermissions').label, 'Yes, and bypass permissions');
   assert.equal(card.p.feedback, true);
   const [conf] = all(r.snapshots.confirm.root, { t: 'approval' });
   assert.match(conf.p.title, /Allow “Yes, and bypass permissions”\?/);
@@ -354,7 +355,7 @@ test('native: the toolbar — Mode (bypass confirmed, the other options, your se
   const [menu] = all(t, { t: 'menu', has: 'Mode: Accept edits' });
   assert.ok(menu, 'the Mode menu');
   const bypass = all(menu, { t: 'button', has: 'Bypass permissions' })[0];
-  assert.ok(JSON.stringify(bypass).includes('⚠') && bypass.p.confirm && bypass.p.confirm.destructive, 'marked and confirmed');
+  assert.ok(bypass.p.confirm && bypass.p.confirm.destructive, 'marked and confirmed');
   assert.ok(all(menu, { t: 'button', has: 'check' }).length >= 2, 'the current mode and setting are checked');
   assert.deepEqual(all(t, { t: 'picker' }).filter((p) => ['Model', 'Reasoning effort'].includes(p.p.label)).map((p) => p.p.value), ['default'],
     'the model a picker in the bar; the other options in the menu — a phone\'s bar holds only so much');

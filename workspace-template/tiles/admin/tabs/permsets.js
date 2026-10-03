@@ -45,27 +45,27 @@ export class BxAdminPermsets extends WithRouter(WithDrafts(LitElement)) {
         approve on their own tiles</b> without asking a workspace admin — "their tiles may use the LLM gateway
         as writer", "may bind a feed interface to our provider". Attach one set to many orgs; edit it once and
         every attached org follows. A set grants nothing by itself: a tile still <i>requests</i>, an org admin
-        <i>approves</i> (organisations tile → ⚑). Attached to a <b>user</b> (users tab → personal…) or to the
+        <i>approves</i> (the organisations panel). Attached to a <b>user</b> (users tab → personal…) or to the
         workspace <b>personal defaults</b>, a set says what that user may approve on the tiles they <b>own</b>, and its
         ceiling rows cap those tiles (D88). What an org's tiles may <i>reach</i> on the network is the
         <a class="link" @click=${() => this._emit('bx-admin-tab', 'netsets')}>network sets</a> tab.</p>
       ${creating ? this._setEditor('permset:new', creating, null) : html`
-        <button class="act go" data-new-set @click=${() => this._setDraft('permset:new', this._newSetDraft())}>＋ new permission set</button>`}
+        <button class="act go" data-new-set @click=${() => this._setDraft('permset:new', this._newSetDraft())}>+ new permission set</button>`}
       ${Object.entries(sets).sort(([a], [b]) => a.localeCompare(b)).map(([name, ps]) => {
         const key = editKey(name);
         const d = this._draft(key);
         const orgs = attached[name] ?? [];
         const holders = heldBy[name] ?? [];
         return html`
-        <div class="setcard" data-set=${name} style="border:1px solid var(--bx-border, #363c45); border-radius:6px; padding:8px 10px; margin:8px 0">
+        <div class="setcard" data-set=${name} style="border:1px solid var(--bx-border); border-radius:var(--bx-radius); padding:8px 12px; margin:8px 0">
           <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap">
-            <b class="mono">⛭ ${name}</b>
+            <b class="mono"><bx-icon name="key"></bx-icon> ${name}</b>
             ${orgs.map((o) => html`<span class="pill">org ${o}</span>`)}
             ${holders.map((h) => html`<span class="pill" title="a personal plane holds it (D88)">${h === 'personal-defaults' ? 'personal defaults' : h === 'new-accounts' ? 'new accounts' : h.replace(/^user:/, 'user ')}</span>`)}
-            ${!orgs.length && !holders.length ? html`<span class="muted" style="font-size:11px">not attached to any org yet</span>` : nothing}
+            ${!orgs.length && !holders.length ? html`<span class="muted hint">not attached to any org yet</span>` : nothing}
             ${ps.termApi ? html`<span class="pill" title="members get a tile-scoped API token in their terminals">term-api</span>` : nothing}
             ${ps.termNet ? html`<span class="pill" title="members get internet in terminals on personal/workspace tiles">term-net</span>` : nothing}
-            ${(ps.policy ?? []).length ? html`<span class="pill pol" title="ceiling rows (restrictive; edited via the API/bx for now)">⛔ ${ps.policy.length} ceiling row(s)</span>` : nothing}
+            ${(ps.policy ?? []).length ? html`<span class="pill pol" title="ceiling rows (restrictive; edited via the API/bx for now)"><bx-icon name="error"></bx-icon>${ps.policy.length} ceiling row(s)</span>` : nothing}
             <span style="flex:1"></span>
             <button class="act" ?disabled=${!!d} @click=${() => this._setDraft(key, this._setDraftFrom(name, ps, orgs))}>edit</button>
             <button class="act rm" ?disabled=${orgs.length + holders.length > 0} title=${orgs.length + holders.length ? `detach from ${[...orgs, ...holders].join(', ')} first` : 'delete this set'}
@@ -73,7 +73,7 @@ export class BxAdminPermsets extends WithRouter(WithDrafts(LitElement)) {
           </div>
           ${(ps.allow ?? []).length ? html`<ul class="allowlist">
             ${ps.allow.map((a) => html`<li><span class="pill mono" title=${a}>${a}</span> <span class="muted">${describeAllow(a)}</span></li>`)}
-          </ul>` : html`<div class="muted" style="font-size:11px; margin-top:3px">no entries — attached orgs' admins approve nothing beyond intra-org wiring</div>`}
+          </ul>` : html`<div class="muted hint" style="margin-top:4px">no entries — attached orgs' admins approve nothing beyond intra-org wiring</div>`}
           ${d ? this._setEditor(key, d, name) : nothing}
         </div>`;
       })}
@@ -120,10 +120,10 @@ export class BxAdminPermsets extends WithRouter(WithDrafts(LitElement)) {
       <div class="orow">
         <bx-multiselect style="min-width:180px" .options=${orgIds.map((o) => ({ value: o, label: o }))}
           .selected=${d.orgs} placeholder="— no organisations yet —" @change=${(e) => set({ orgs: e.detail.selected })}></bx-multiselect>
-        <span class="muted" style="font-size:10.5px">a set can be attached later from an org's card too</span>
+        <span class="muted hint">a set can be attached later from an org's card too</span>
       </div>
       ${d.err ? html`<div class="err" role="alert">${d.err}</div>` : nothing}
-      <div class="orow" style="margin-top:6px">
+      <div class="orow" style="margin-top:8px">
         <button class="act go" data-save-set ?disabled=${!ok}
           title=${ok ? (isNew ? 'create the set and attach it' : 'save — every attached org follows at once') : 'fix the highlighted fields first'}
           @click=${() => this._saveSet(key, d, isNew ? d.name : name)}>${isNew ? 'create set' : 'save'}</button>

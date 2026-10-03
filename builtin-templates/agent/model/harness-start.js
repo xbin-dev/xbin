@@ -83,7 +83,7 @@ export function agentPicker(cat, pick, o = {}) {
     section: 'Coding agents — run in a coding sandbox',
     rows,
     empty: any ? '' : o.manager
-      ? 'Bind a sandbox manager whose image has Claude Code, Codex, Gemini CLI or opencode, and allow it in ⚙ Classes.'
+      ? 'Bind a sandbox manager whose image has Claude Code, Codex, Gemini CLI or opencode, and allow it in Settings → Classes.'
       : 'Ask a manager of this agent to bind a sandbox manager with coding agents and allow them in a class.',
   };
 }

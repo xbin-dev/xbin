@@ -24,11 +24,17 @@ import {
   isAcp, acpKind, acpChip, commandOf, outputTail, diffFiles, patchLines, placesOf,
   isSubagentCall, stepsWords, taskOf, resultText,
 } from './model/harness-heads.js';
-import { harnessOf, planOf, usageBadge, countsWords, PLAN_MARK } from './model/harness.js';
+import { harnessOf, planOf, usageBadge, countsWords } from './model/harness.js';
 
 const CLIP = 1200;   // a result's characters shown before "show all"
 const TAIL = 20000;  // an output's last characters shown before "show all"
 const fmtN = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+// the glyphs (D184): a family's, a chip's tone, a fold's caret
+const icon = (name) => (name ? html`<bx-icon name=${name}></bx-icon>` : nothing);
+const TONE_ICON = { ok: 'ok', bad: 'error', warn: 'warning' };
+const caret = (open) => html`<span class="tw"><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span>`;
+// a plan entry's state, said by its square's title (the square's fill is the colour)
+const PLAN_WORD = { pending: 'to do', in_progress: 'in progress', completed: 'done' };
 
 ext.register({
   block: (b, ui, depth) => (b.k === 'tool' && (b.acp || isAcp(b.name)) ? cardTpl(b, ui, depth) : null),
@@ -56,13 +62,13 @@ function cardTpl(b, ui, depth) {
   return html`<div class=${classMap({ tcard: true, hcard: true, on: open, [b.state]: true })} data-fam=${b.fam} data-tool=${b.name}
       data-kind=${kind} data-status=${acp.status || ''} data-k=${b.id}>
     <div class="tch" @click=${() => ui.toggle(b.id, failed)} title=${acp.title || b.name}>
-      <span class="ic">${ICON[b.fam] || '•'}</span>
+      <span class="ic">${icon(ICON[b.fam])}</span>
       <span class="hl">${orphan ? html`<span class="hin" title="under a subagent's call further up">↳ </span>` : nothing}${b.headline}${b.sub ? html`<span class="sub">${b.sub}</span>` : nothing}</span>
       ${steps ? html`<span class="oc steps">${steps}</span>` : nothing}
-      ${b.outcome ? html`<span class="oc ${b.outcome.tone}">${b.outcome.text}</span>` : nothing}
+      ${b.outcome ? html`<span class="oc ${b.outcome.tone}">${icon(TONE_ICON[b.outcome.tone])}${b.outcome.text}</span>` : nothing}
       ${busy ? html`<span class="spin"></span>` : nothing}
-      ${chip ? html`<span class="st ${chip.tone}">${chip.text}</span>` : nothing}
-      <span class="tw">${open ? '▾' : '▸'}</span>
+      ${chip ? html`<span class="st ${chip.tone}">${icon(TONE_ICON[chip.tone])}${chip.text}</span>` : nothing}
+      ${caret(open)}
     </div>
     ${open ? html`<div class="tcb hcb">${metaTpl(b, acp)}${bodyTpl(b, acp, kind, ui, depth)}</div>` : nothing}
   </div>`;
@@ -121,7 +127,7 @@ function rawTpl(b, ui) {
   const keys = Object.keys(a);
   if (!keys.length) return nothing;
   const on = ui.isOpen(b.id + ':raw', false);
-  return html`<button class="lnk" @click=${() => ui.toggle(b.id + ':raw', false)}>${on ? '▾' : '▸'} raw input</button>
+  return html`<button class="lnk" @click=${() => ui.toggle(b.id + ':raw', false)}>${icon(on ? 'caret-down' : 'caret-right')}raw input</button>
     ${on ? html`<pre class="hpre">${JSON.stringify(a, null, 2)}</pre>` : nothing}`;
 }
 
@@ -169,7 +175,7 @@ function editTpl(b, acp, ui) {
     const on = ui.isOpen(key, false);
     return html`<div class="hfile ${on ? 'on' : ''}" data-path=${d.path}>
       <div class="hfh" @click=${() => ui.toggle(key, false)} title=${on ? 'fold the patch' : 'show the patch'}>
-        <span class="tw">${on ? '▾' : '▸'}</span><span class="mono hpath">${d.path}</span>
+        ${caret(on)}<span class="mono hpath">${d.path}</span>
         ${d.status !== 'modified' ? html`<span class="hst ${d.status}">${d.status}</span>` : nothing}
         <span class="hadd">+${d.add}</span><span class="hdel">−${d.del}</span>
       </div>
@@ -243,9 +249,9 @@ function planTpl(id, p) {
   const next = p.entries.find((e) => e.status !== 'completed');
   const line = p.now ? `now: ${p.now}` : next ? `next: ${next.content}` : 'all done';
   return html`<div class="taskpin planpin ${open ? 'open' : ''}">
-    <button class="tasktoggle" @click=${toggle} title=${open ? 'fold the plan' : 'the coding agent\'s plan, as it keeps it'}>📋 Plan · ${p.done}/${p.total} ${open ? '▾' : '▸'}</button>
+    <button class="tasktoggle" @click=${toggle} title=${open ? 'fold the plan' : 'the coding agent\'s plan, as it keeps it'}>${icon('clipboard')}Plan · ${p.done}/${p.total}${icon(open ? 'caret-down' : 'caret-right')}</button>
     ${open ? html`<ol class="planlist">${p.entries.map((e) => html`<li class="pe ${e.status || 'pending'}">
-        <span class="pg">${PLAN_MARK[e.status] || PLAN_MARK.pending}</span><span class="pt">${e.content}</span>${e.priority === 'high' ? html`<span class="pp">high</span>` : nothing}</li>`)}</ol>`
+        <span class="pg" title=${PLAN_WORD[e.status] || PLAN_WORD.pending}></span><span class="pt">${e.content}</span>${e.priority === 'high' ? html`<span class="pp">high</span>` : nothing}</li>`)}</ol>`
       : html`<span class="taskline" title=${line}>${line}</span>`}
   </div>`;
 }
@@ -253,53 +259,60 @@ function planTpl(id, p) {
 // --- styles -----------------------------------------------------------------------------------
 
 const CSS = `
-.tch .st.warn { color: var(--bx-yellow, #d9a441); }
-.tch .st.bad { color: var(--bx-red); }
-.tch .st.run { color: var(--bx-accent); }
+.tch .st.warn { color: var(--bx-warn); }
+.tch .st.bad { color: var(--bx-danger); }
+.tch .st.run { color: var(--bx-text); }
 .tch .hin { color: var(--bx-muted); }
-.hcb .htitle { font-family: var(--bx-mono); }
 .hcb .hnote { white-space: pre-wrap; color: var(--bx-muted); margin: 2px 0 4px; }
-.hcb .hpre, .hcmd pre { margin: 0; font-family: var(--bx-mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
-  background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px; padding: 5px 7px; max-height: 320px; overflow: auto; }
-.hcmd { display: flex; align-items: flex-start; gap: 6px; }
+.hcb .hpre, .hcmd pre { margin: 0; font: var(--bx-font-code); white-space: pre-wrap; word-break: break-word;
+  background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 4px 8px; max-height: 320px; overflow: auto; }
+.hcmd { display: flex; align-items: flex-start; gap: 8px; }
 .hcmd pre { flex: 1; min-width: 0; }
 .hout pre { max-height: 28em; }
-.hexit { font-family: var(--bx-mono); font-size: 11px; margin-top: 4px; }
-.hexit.ok { color: var(--bx-green); }
-.hexit.bad { color: var(--bx-red); }
-.hplaces { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--bx-muted); margin: 2px 0 4px; }
-.hplaces a { color: var(--bx-accent); overflow-wrap: anywhere; }
+.hexit { font: var(--bx-font-code); margin-top: 4px; }
+.hexit.ok { color: var(--bx-ok); }
+.hexit.bad { color: var(--bx-danger); }
+.hplaces { display: flex; flex-wrap: wrap; gap: 4px 12px; font: var(--bx-font-meta); color: var(--bx-muted); margin: 2px 0 4px; }
+.hplaces .mono, .hplaces a { font: var(--bx-font-code); }
+.hplaces a { color: var(--bx-link); overflow-wrap: anywhere; }
 .hfiles { display: grid; gap: 4px; margin-top: 4px; }
-.hfile { border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel); min-width: 0; }
-.hfh { display: flex; align-items: center; gap: 8px; padding: 3px 7px; cursor: pointer; font-size: 11.5px; min-width: 0; }
+.hfile { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-panel); min-width: 0; }
+.hfh { display: flex; align-items: center; gap: 8px; padding: 2px 8px; cursor: pointer; min-width: 0; }
 .hfh .hpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hfh .hst { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--bx-muted); }
-.hfh .hadd { color: var(--bx-green); font-family: var(--bx-mono); }
-.hfh .hdel { color: var(--bx-red); font-family: var(--bx-mono); }
-.hdiff { margin: 0; padding: 4px 0; border-top: 1px solid var(--bx-border); font-family: var(--bx-mono); font-size: 11px; line-height: 1.45;
-  max-height: 480px; overflow: auto; white-space: pre; }
+.hfh .hst { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); }
+.hfh .hadd { color: var(--bx-diff-add); font: var(--bx-font-code); }
+.hfh .hdel { color: var(--bx-diff-del); font: var(--bx-font-code); }
+.hdiff { margin: 0; padding: 4px 0; border-top: 1px solid var(--bx-border); font: var(--bx-font-code);
+  max-height: 480px; overflow: auto; white-space: pre; background: var(--bx-code-bg); }
 .hdiff > span { display: block; padding: 0 8px; min-width: max-content; }
-.hdiff .fh { color: var(--bx-muted); }
-.hdiff .h { color: var(--bx-accent); }
-.hdiff .d { background: color-mix(in srgb, var(--bx-green) 14%, transparent); }
-.hdiff .a { background: color-mix(in srgb, var(--bx-red) 14%, transparent); }
-.hdiff .hljs-comment, .hdiff .hljs-quote { color: var(--bx-muted); font-style: italic; }
-.hdiff .hljs-keyword, .hdiff .hljs-built_in, .hdiff .hljs-type { color: color-mix(in srgb, var(--bx-accent) 70%, var(--bx-text)); }
-.hdiff .hljs-string, .hdiff .hljs-number, .hdiff .hljs-literal { color: color-mix(in srgb, var(--bx-green) 70%, var(--bx-text)); }
-.hnopatch { padding: 3px 8px; border-top: 1px solid var(--bx-border); }
+.hdiff .fh { color: var(--bx-muted); font-weight: 600; }
+.hdiff .h { color: var(--bx-diff-hunk); background: var(--bx-diff-hunk-bg); }
+.hdiff .d { background: var(--bx-diff-add-bg); }
+.hdiff .a { background: var(--bx-diff-del-bg); }
+.hdiff .hljs-comment, .hdiff .hljs-quote { color: var(--bx-syn-comment); font-style: italic; }
+.hdiff .hljs-keyword, .hdiff .hljs-selector-tag { color: var(--bx-syn-keyword); }
+.hdiff .hljs-built_in { color: var(--bx-syn-builtin); }
+.hdiff .hljs-type, .hdiff .hljs-title.class_ { color: var(--bx-syn-type); }
+.hdiff .hljs-string, .hdiff .hljs-regexp { color: var(--bx-syn-string); }
+.hdiff .hljs-number, .hdiff .hljs-literal { color: var(--bx-syn-number); }
+.hdiff .hljs-title, .hdiff .hljs-title.function_ { color: var(--bx-syn-function); }
+.hdiff .hljs-attr, .hdiff .hljs-attribute, .hdiff .hljs-property { color: var(--bx-syn-attr); }
+.hnopatch { padding: 2px 8px; border-top: 1px solid var(--bx-border); }
 .hkids { margin-top: 4px; }
-.hcb .answer .res { margin-top: 3px; }
+.hcb .answer .res { margin-top: 4px; }
 .top .planpin { order: 1; }
 .top .planpin .planlist { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; max-height: 40vh; overflow: auto; }
-.top .planpin .pe { display: flex; gap: 6px; align-items: baseline; }
-.top .planpin .pg { flex: none; width: 1em; color: var(--bx-muted); }
-.top .planpin .pe.in_progress .pg { color: var(--bx-accent); }
-.top .planpin .pe.completed .pg { color: var(--bx-green); }
+.top .planpin .pe { display: flex; gap: 8px; align-items: baseline; }
+/* a plan entry's square: hollow to do, the accent in progress, filled done */
+.top .planpin .pg { flex: none; align-self: center; box-sizing: border-box; width: 8px; height: 8px; border: 1px solid var(--bx-muted); }
+.top .planpin .pe.in_progress .pg { border-color: var(--bx-accent); background: var(--bx-accent); }
+.top .planpin .pe.completed .pg { border-color: var(--bx-ok); background: var(--bx-ok); }
 .top .planpin .pe.completed .pt { color: var(--bx-muted); }
-.top .planpin .pp { font-size: 10px; color: var(--bx-muted); border: 1px solid var(--bx-border); border-radius: 999px; padding: 0 5px; }
-.badge.husage, .badge.hcounts { text-transform: none; letter-spacing: 0; font-family: var(--bx-mono); }
-.badge.husage.warn { color: var(--bx-yellow, #d9a441); }
-.badge.husage.bad { color: var(--bx-red); }
+.top .planpin .pp { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted);
+  border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); padding: 0 4px; }
+.badge.husage, .badge.hcounts { text-transform: none; letter-spacing: 0; font: var(--bx-font-code); }
+.badge.husage.warn { color: var(--bx-warn); border-color: var(--bx-warn); }
+.badge.husage.bad { color: var(--bx-danger); border-color: var(--bx-danger); }
 `;
 const style = document.createElement('style');
 style.dataset.of = 'harness-cards';

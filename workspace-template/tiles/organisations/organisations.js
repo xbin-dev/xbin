@@ -20,6 +20,11 @@ import { scrollCss } from '/vendor/scroll-css.js';
 import { ruleLabel, orgNetLabel, SCOPE_ICON, scopeIcon, scopeLabel } from '/vendor/bx-netrules.js';
 import { capInfo } from '/vendor/bx-allow.js';
 import { grantArrow } from '/vendor/bx-grant-row.js';
+import { hasIcon } from '/vendor/bx-icons.js'; // <bx-icon name>: drawn glyphs (D184)
+
+// glyph(name): a view model's icon (bx-netrules' scope icons are glyph
+// names, D184) drawn before its words; nothing for an older module's emoji.
+const glyph = (name) => (name && hasIcon(name) ? html`<bx-icon name=${name}></bx-icon>` : nothing);
 
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 
@@ -44,34 +49,57 @@ export class BxOrganisations extends LitElement {
     _note: { state: true },
   };
 
+  // Base Two (D184): theme.css's tokens only (the page links it and opts in),
+  // so the tile is right in light and dark: 2px corners, controls as the
+  // product's (28px; .go the primary, .rm the danger outline; a table row's
+  // other actions quiet), status as an icon, a word and its colour.
   static styles = [scrollCss, css`
-    :host { display: block; font: var(--bx-font, 13px/1.5 system-ui, sans-serif);
-      color: var(--bx-text, #d4d9e0); padding: 12px 16px 24px; }
-    h3 { font-size: 14px; margin: 14px 0 6px; }
+    :host { display: block; font: var(--bx-font); color: var(--bx-text); padding: var(--bx-pad) var(--bx-pad) 24px; }
+    button, input, select, textarea { font: inherit; }
+    ::placeholder { color: var(--bx-subtle); opacity: 1; }
+    :focus-visible { outline: var(--bx-focus-outline); outline-offset: var(--bx-focus-offset); box-shadow: var(--bx-focus-halo); }
+    h3 { font: var(--bx-font-title); margin: 16px 0 8px; }
     h3:first-of-type { margin-top: 2px; }
-    .muted { color: var(--bx-muted, #868f9a); }
-    .mono { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 12px; }
-    .pill { display: inline-block; border: 1px solid var(--bx-border, #363c45);
-      border-radius: 999px; padding: 0 8px; font-size: 11px; margin: 1px 2px; }
-    .pill.on { border-color: var(--bx-accent, #f5a623);
-      background: color-mix(in srgb, var(--bx-accent, #f5a623) 12%, transparent); }
-    .card { border: 1px solid var(--bx-border, #363c45); border-radius: 6px;
-      padding: 8px 10px; margin: 6px 0; background: var(--bx-panel, #23272e); }
-    table { border-collapse: collapse; width: 100%; }
-    th { text-align: left; font-size: 10.5px; text-transform: uppercase;
-      letter-spacing: .05em; color: var(--bx-muted, #868f9a); padding: 2px 6px; }
-    td { padding: 3px 6px; border-top: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 55%, transparent); }
-    button { font: inherit; font-size: 12px; border: 1px solid var(--bx-border, #363c45);
-      background: var(--bx-panel, #23272e); border-radius: 5px; padding: 2px 9px; cursor: pointer; }
-    button:hover { border-color: var(--bx-muted, #868f9a); }
-    button.go { background: var(--bx-green, #4caf50); border-color: var(--bx-green, #4caf50); color: #fff; }
-    button.rm { color: var(--bx-red, #ef5350); }
-    select, input { font: inherit; font-size: 12px; padding: 2px 6px;
-      border: 1px solid var(--bx-border, #363c45); border-radius: 5px;
-      background: var(--bx-panel, #23272e); color: inherit; }
-    .err { color: var(--bx-red, #ef5350); font-size: 12px; margin: 6px 0; }
-    .note { color: var(--bx-green, #4caf50); font-size: 12px; margin: 6px 0; }
-    .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .muted { color: var(--bx-muted); }
+    .hint { font: var(--bx-font-meta); }
+    .mono { font-family: var(--bx-mono); font-size: var(--bx-term-size); }
+    code { font: var(--bx-font-code); }
+    /* a tag: square, 20px, a 1px border */
+    .pill { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px;
+      vertical-align: middle; border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius);
+      font: var(--bx-font-meta); margin: 1px 2px; white-space: nowrap; }
+    .pill.on { border-color: var(--bx-text); font-weight: 600; }   /* an org you administer: the key says so */
+    .pill.bad { color: var(--bx-danger); border-color: var(--bx-danger); }
+    .pill.warn { color: var(--bx-warn); border-color: var(--bx-warn); }
+    .card { border: 1px solid var(--bx-border); border-radius: var(--bx-radius);
+      padding: 8px 12px; margin: 8px 0; background: var(--bx-panel); }
+    .card.ok { border-color: var(--bx-ok); background: var(--bx-ok-bg); }
+    .card.sel { border-color: var(--bx-border-strong); }
+    table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+    th { text-align: left; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+      color: var(--bx-muted); padding: 4px 8px; border-bottom: 2px solid var(--bx-text); }
+    td { box-sizing: border-box; height: 32px; padding: 4px 8px; border-top: 1px solid var(--bx-border); }
+    button { box-sizing: border-box; min-height: var(--bx-control-h); display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid var(--bx-border-strong); background: var(--bx-panel); color: var(--bx-text);
+      border-radius: var(--bx-radius); padding: 4px 11px; font-weight: 600; cursor: pointer; vertical-align: middle; }
+    button:hover { background: var(--bx-hover); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.go { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+    button.go:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
+    button.rm { color: var(--bx-danger); border-color: var(--bx-danger); }
+    /* a table row's actions (but its primary) are quiet: text only, the accent on hover */
+    td button:not(.go) { min-height: 20px; padding: 0 4px; background: transparent; border-color: transparent; }
+    td button:not(.go):hover { background: transparent; color: var(--bx-accent); }
+    button.icon { padding: 0; min-width: var(--bx-control-h); justify-content: center; }
+    select, input { box-sizing: border-box; min-height: var(--bx-control-h); padding: 4px 8px;
+      border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius);
+      background: var(--bx-panel); color: var(--bx-text); }
+    input[type=checkbox], input[type=radio] { min-height: 0; padding: 0; }
+    .err, .note { display: flex; gap: 6px; align-items: baseline; margin: 8px 0; }
+    .err { color: var(--bx-danger); }
+    .note { color: var(--bx-ok); }
+    .warn-line { color: var(--bx-warn); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   `];
 
   connectedCallback() {
@@ -188,7 +216,7 @@ export class BxOrganisations extends LitElement {
             </select>` : e.level}</td>
           <td class="muted">${e.source}</td>
           <td>${e.source === 'exact' ? html`<button class="rm" @click=${() =>
-              this._do(() => api('/access', jbody({ tile: a.tile, kind: e.kind, id: e.id, level: '' }, 'PUT')), 'removed')}>✕</button>` : nothing}</td>
+              this._do(() => api('/access', jbody({ tile: a.tile, kind: e.kind, id: e.id, level: '' }, 'PUT')), 'removed')} aria-label="remove" title="remove"><bx-icon name="xmark"></bx-icon></button>` : nothing}</td>
         </tr>`)}
       </table>
       <div class="row" style="margin-top:6px">
@@ -208,7 +236,7 @@ export class BxOrganisations extends LitElement {
           this._do(() => api('/access', jbody({
             tile: a.tile, kind: g('acl-kind'), id: g('acl-id'), level: g('acl-level') }, 'PUT')), 'shared');
         }}>share</button>
-        <span class="muted" style="font-size:11px">read = see it · write = use/edit · terminal = shell on it ·
+        <span class="muted hint">read = see it · write = use/edit · terminal = shell on it ·
           an exact user entry is authoritative (none = exclude, D31)</span>
       </div>
     </div>`;
@@ -223,11 +251,11 @@ export class BxOrganisations extends LitElement {
   _xferReport(rep) {
     if (!rep) return nothing;
     const lv = rep.callerLevel;
-    return html`<div style="margin-top:5px; font-size:11.5px">
+    return html`<div class="hint" style="margin-top:5px">
       ${lv && lv.before !== lv.after ? html`<div>your access will drop: <b>${lv.before || 'none'}</b> → <b>${lv.after || 'none'}</b></div>` : nothing}
-      ${(rep.deadBindings ?? []).map((b) => html`<div style="color:var(--bx-red, #ef5350)">
+      ${(rep.deadBindings ?? []).map((b) => html`<div class="err" style="margin:2px 0"><bx-icon name="error"></bx-icon>
         binding <span class="mono">${b.slot}</span> will be <b>UNBOUND</b>: ${b.reason}</div>`)}
-      ${(rep.deadGrants ?? []).map((g) => html`<div style="color:var(--bx-red, #ef5350)">
+      ${(rep.deadGrants ?? []).map((g) => html`<div class="err" style="margin:2px 0"><bx-icon name="error"></bx-icon>
         grant <span class="mono">${g.target}:${g.role}</span> becomes inert: ${g.reason}</div>`)}
       ${(rep.planeChanges ?? []).map((s) => html`<div class="muted">${s}</div>`)}
     </div>`;
@@ -239,7 +267,7 @@ export class BxOrganisations extends LitElement {
     // Suggest only orgs the D39 receive rule accepts: Create or admin.
     const myOrgs = (this._who?.orgs ?? []).filter((o) => o.create || o.admin).map((o) => o.id);
     const to = x.to.trim() === 'workspace' ? '' : x.to.trim();
-    return html`<div class="card" style="border-color: var(--bx-accent, #f5a623)">
+    return html`<div class="card sel">
       <div class="row"><b>transfer</b> <span class="mono">${x.tile}</span></div>
       <div class="row" style="margin:6px 0">
         <input size="18" placeholder="user:&lt;id&gt;, org:&lt;id&gt;, workspace" .value=${x.to}
@@ -260,9 +288,9 @@ export class BxOrganisations extends LitElement {
         }}>confirm transfer</button>`}
         <button @click=${() => { this._xfer = null; }}>cancel</button>
       </div>
-      ${x.perr ? html`<div class="err">${x.perr}</div>` : nothing}
+      ${x.perr ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${x.perr}</span></div>` : nothing}
       ${this._xferReport(x.rep)}
-      <p class="muted" style="font-size:11px; margin:2px 0 0">
+      <p class="muted hint" style="margin:2px 0 0">
         Transferring to an org gives <b>every admin of that org</b> full control
         of the tile — terminal, lifecycle, sharing. Secrets stay backend-only:
         vault values are never readable from terminals (D30).
@@ -319,7 +347,7 @@ export class BxOrganisations extends LitElement {
           if (!sel.value) return;
           save([...(o.members ?? []), { id: sel.value, level: 'terminal', create: true }], 'added');
         }}>add as developer</button>
-        <span class="muted" style="font-size:11px">New people are invited by a workspace admin.</span>
+        <span class="muted hint">New people are invited by a workspace admin.</span>
       </div>`;
   }
 
@@ -334,13 +362,13 @@ export class BxOrganisations extends LitElement {
   _inviteBox() {
     const inv = this._invite;
     if (!inv) return nothing;
-    return html`<div class="card" style="border-color: var(--bx-green, #4caf50)">
-      <div class="row"><b style="font-size:12px">reset link for ${inv.id}</b>
+    return html`<div class="card ok">
+      <div class="row"><b>reset link for ${inv.id}</b>
         <input class="mono" size="42" readonly .value=${inv.link} @focus=${(e) => e.target.select()}>
         <button @click=${() => navigator.clipboard?.writeText(inv.link)}>copy</button>
-        <span class="muted" style="font-size:10.5px">single-use · 72h · their current password
+        <span class="muted hint">single-use · 72h · their current password
           works until they redeem it</span>
-        <button @click=${() => { this._invite = null; }}>✕</button></div>
+        <button class="icon" aria-label="dismiss" title="dismiss" @click=${() => { this._invite = null; }}><bx-icon name="xmark"></bx-icon></button></div>
     </div>`;
   }
 
@@ -350,12 +378,12 @@ export class BxOrganisations extends LitElement {
     const rows = this._policies?.[o.id] ?? [];
     if (!rows.length) return nothing;
     return html`<div class="card">
-      <b style="font-size:12px">ceilings</b>
-      <span class="muted" style="font-size:11px">(set by a workspace admin — approvals can't cross these)</span>
+      <b>ceilings</b>
+      <span class="muted hint">(set by a workspace admin — approvals can't cross these)</span>
       ${rows.map((r) => html`<div class="row" style="margin:2px 0">
         <span class="pill mono">${r.tiles}</span>
-        ${(r.deny ?? []).map((d) => html`<span class="pill" style="color:var(--bx-red, #ef5350)">deny ${d}</span>`)}
-        ${(r.mayCall ?? []).length ? html`<span class="muted" style="font-size:11px">may call only:
+        ${(r.deny ?? []).map((d) => html`<span class="pill bad"><bx-icon name="error"></bx-icon>deny ${d}</span>`)}
+        ${(r.mayCall ?? []).length ? html`<span class="muted hint">may call only:
           ${r.mayCall.map((m) => html`<span class="pill mono">${m}</span>`)}</span>` : nothing}
       </div>`)}
     </div>`;
@@ -367,12 +395,12 @@ export class BxOrganisations extends LitElement {
     const rows = (this._overrides ?? []).filter((x) => x.org === o.id);
     if (!rows.length) return nothing;
     return html`<div class="card">
-      <b style="font-size:12px">per-user overrides on org tiles</b>
+      <b>per-user overrides on org tiles</b>
       ${rows.map((x) => html`<div class="row" style="margin:2px 0">
         <span class="mono">${x.user}</span> · <span class="mono">${x.tile}</span>
         <span class="pill">${x.level}</span>
-        ${x.excluded ? html`<span class="pill" style="color:var(--bx-red, #ef5350)" title="an exact none entry — deliberate exclusion (D31)">excluded</span>` : nothing}
-        ${x.clamps ? html`<span class="pill" style="color:var(--bx-amber,#f2a71b)"
+        ${x.excluded ? html`<span class="pill bad" title="an exact none entry — deliberate exclusion (D31)"><bx-icon name="error"></bx-icon>excluded</span>` : nothing}
+        ${x.clamps ? html`<span class="pill warn"
           title="this exact entry is BELOW the member's org level and overrides it (D31) — remove it in the tile's sharing editor to follow the org">clamps org level</span>` : nothing}
       </div>`)}
     </div>`;
@@ -398,24 +426,24 @@ export class BxOrganisations extends LitElement {
       this._do(() => api('/screens/org', jbody({ id: x.id, org: x.org, name: name.trim() }, 'PUT')), 'renamed');
     };
     return html`<div class="card">
-      <b style="font-size:12px">org screens</b>
+      <b>org screens</b>
       ${rows.map((x) => html`<div class="row" style="margin:2px 0; flex-wrap:wrap">
         <span class="mono">${x.name}</span>
-        <button title="rename (members see the new name at once)" @click=${() => rename(x)}>✎</button>
-        <span class="muted" style="font-size:11px">editable by</span>
+        <button class="icon" title="rename (members see the new name at once)" aria-label="rename" @click=${() => rename(x)}><bx-icon name="pencil"></bx-icon></button>
+        <span class="muted hint">editable by</span>
         <select @change=${(e) => this._do(() => api('/screens/org',
             jbody({ id: x.id, org: x.org, edit: e.target.value }, 'PUT')), 'updated')}>
           ${['admins', 'write', 'members'].map((v) => html`<option value=${v} ?selected=${x.edit === v}>${v === 'write' ? 'write-level members' : v === 'members' ? 'all members' : 'org admins'}</option>`)}
         </select>
-        <span class="muted" style="font-size:11px" title=${x.updatedAt ?? ''}>rev ${x.rev ?? 1}${x.updatedBy ? ` · saved by ${x.updatedBy} ${ago(x.updatedAt)}` : ''}</span>
+        <span class="muted hint" title=${x.updatedAt ?? ''}>rev ${x.rev ?? 1}${x.updatedBy ? ` · saved by ${x.updatedBy} ${ago(x.updatedAt)}` : ''}</span>
         <span style="flex:1"></span>
         <button class="rm" @click=${() => this._do(() =>
           api('/screens/org', jbody({ id: x.id, org: x.org }, 'DELETE')), 'deleted')}>delete</button>
       </div>`)}
-      ${!rows.length ? html`<p class="muted" style="font-size:11px; margin:2px 0">no org screens — share one from the shell's settings menu ("share screen to org")</p>` : nothing}
-      <p class="muted" style="font-size:11px; margin:6px 0 0">
+      ${!rows.length ? html`<p class="muted hint" style="margin:2px 0">no org screens — share one from the shell's settings menu ("share screen to org")</p>` : nothing}
+      <p class="muted hint" style="margin:6px 0 0">
         shared sidebar folders: ${(fs?.folders ?? []).length}${fs?.rev ? ` (rev ${fs.rev}, saved by ${fs.updatedBy} ${ago(fs.updatedAt)})` : ''}
-        — curated in the shell sidebar (✎ on the org's section); members see them read-only.</p>
+        — curated in the shell sidebar (the org section's edit control); members see them read-only.</p>
     </div>`;
   }
 
@@ -438,24 +466,24 @@ export class BxOrganisations extends LitElement {
       ${pending.length ? html`<div class="card">
         ${pending.map((p) => html`<div class="row" style="margin:3px 0">
           <span class="mono">${grantArrow(p)}</span>
-          ${capInfo(p.target) ? html`<span class="muted" style="font-size:11px">${capInfo(p.target).label}</span>` : nothing}
+          ${capInfo(p.target) ? html`<span class="muted hint">${capInfo(p.target).label}</span>` : nothing}
           <span class="pill">${p.role}</span> ${dir(p)}
           <span style="flex:1"></span>
           <button class="go" @click=${() => this._do(() =>
             api('/grants', jbody({ from: p.from, target: p.target, role: p.role }, 'POST')), 'approved')}>approve</button>
         </div>
-        ${p.warning ? html`<div class="muted" style="font-size:11px; margin:0 0 4px; color:var(--bx-amber,#f2a71b)"
-          data-grant-warning=${p.from + ' ' + p.target}>⚠ ${p.warning}</div>` : nothing}`)}
+        ${p.warning ? html`<div class="warn-line hint" style="margin:0 0 4px"
+          data-grant-warning=${p.from + ' ' + p.target}><bx-icon name="warning"></bx-icon> ${p.warning}</div>` : nothing}`)}
       </div>` : nothing}
       ${mine.length ? html`<div class="card">
         ${mine.map((p) => html`<div class="row" style="margin:3px 0">
           <span class="mono">${grantArrow(p)}</span>
           <span class="pill">${p.role}</span>
-          <span class="muted" style="font-size:11px">waiting for: ${this._askWho(p)}</span>
+          <span class="muted hint">waiting for: ${this._askWho(p)}</span>
         </div>`)}
-        <p class="muted" style="font-size:11px; margin:2px 0 0">Your tiles' requests — ask the named admins to approve.</p>
+        <p class="muted hint" style="margin:2px 0 0">Your tiles' requests — ask the named admins to approve.</p>
       </div>` : nothing}
-      ${held.length ? html`<p class="muted" style="font-size:11px">
+      ${held.length ? html`<p class="muted hint">
         ${held.length} more pending request(s) can't be approved here —
         ${[...new Set(held.map((p) => this._askWho(p)))].join('; ')}.</p>` : nothing}`;
   }
@@ -538,14 +566,14 @@ export class BxOrganisations extends LitElement {
         </div>`)}
       </div>` : nothing}
       ${bound.length ? html`<div class="card">
-        <b style="font-size:12px">active bindings on org tiles</b>
+        <b>active bindings on org tiles</b>
         ${bound.map((b) => html`<div class="row" style="margin:2px 0">
           <span class="mono">${b.comp}</span> · <span class="pill">${b.slot}</span>
           <span class="muted">→ ${b.ref === 'org'
-            ? html`<span title=${(orgOf(b.comp)?.resolvedNet ?? []).map(ruleLabel).join('\n')}>${SCOPE_ICON.org} ${orgNetLabel(orgOf(b.comp))}</span>`
-            : b.ref === 'none' ? `${SCOPE_ICON.none} none — explicitly offline`
-            : String(b.ref).startsWith('set:') ? `${scopeIcon(b.ref)} ${scopeLabel(b.ref)} (bound by a workspace admin)` : b.ref}${b.route ? ` (${b.route})` : ''}</span>
-          ${inertOf(b.comp, b.slot) ? html`<span class="pill" style="color:var(--bx-red, #ef5350)" title=${inertOf(b.comp, b.slot)}>inert — ${inertOf(b.comp, b.slot)}</span>` : nothing}
+            ? html`<span title=${(orgOf(b.comp)?.resolvedNet ?? []).map(ruleLabel).join('\n')}>${glyph(SCOPE_ICON.org)} ${orgNetLabel(orgOf(b.comp))}</span>`
+            : b.ref === 'none' ? html`${glyph(SCOPE_ICON.none)} none — explicitly offline`
+            : String(b.ref).startsWith('set:') ? html`${glyph(scopeIcon(b.ref))} ${scopeLabel(b.ref)} (bound by a workspace admin)` : b.ref}${b.route ? ` (${b.route})` : ''}</span>
+          ${inertOf(b.comp, b.slot) ? html`<span class="pill bad" title=${inertOf(b.comp, b.slot)}><bx-icon name="error"></bx-icon>inert — ${inertOf(b.comp, b.slot)}</span>` : nothing}
           <span style="flex:1"></span>
           <button class="rm" title=${b.route ? 'remove this route — the endpoint\'s others stay' : 'unbind'} @click=${() => this._do(() =>
             api('/bindings', jbody({ component: b.comp, slot: b.slot, provider: b.ref,
@@ -553,7 +581,7 @@ export class BxOrganisations extends LitElement {
             b.route ? 'route removed' : 'unbound')}>${b.route ? 'remove' : 'unbind'}</button>
         </div>`)}
       </div>` : nothing}
-      <p class="muted" style="font-size:11px; margin:2px 0 0">
+      <p class="muted hint" style="margin:2px 0 0">
         Publishing through your org's own terminator needs no allowance (D41);
         host ports and the builtin listener do. Net bindings inside your org's
         network sets need no allowance either; an uncovered ref is refused (or, if a
@@ -568,14 +596,14 @@ export class BxOrganisations extends LitElement {
     const sets = o.netSets ?? [];
     const rules = (o.resolvedNet ?? []).filter((r) => r !== 'host');
     if (!sets.length) {
-      return html`<p class="muted" style="font-size:11px">no network sets — this org's tiles get egress
+      return html`<p class="muted hint">no network sets — this org's tiles get egress
         only when a workspace admin binds their <span class="mono">net</span> slot; terminals on them
         follow term-net.</p>`;
     }
-    return html`<p class="muted" style="font-size:11px">
+    return html`<p class="muted hint">
       network: <b>${sets.join(' + ')}</b> <span class="muted">(set by a workspace admin)</span> —
       org tiles reach ${rules.map((r) => html`<span class="pill mono" title=${r}>${ruleLabel(r)}</span>`)}
-      ${o.netHost ? html`<span class="pill" style="color:var(--bx-red, #ef5350)" title="org-bound tiles and terminals share the host's network stack — no relay, no filtering, no metering">⚠ host networking</span>` : nothing}
+      ${o.netHost ? html`<span class="pill warn" title="org-bound tiles and terminals share the host's network stack — no relay, no filtering, no metering"><bx-icon name="warning"></bx-icon>host networking</span>` : nothing}
       ${!rules.length && !o.netHost ? html`<span>nothing (the sets carry no rules)</span>` : nothing}
       · org tiles bind <span class="mono">net=org</span> by default; terminals on them get this reach.</p>`;
   }
@@ -595,7 +623,7 @@ export class BxOrganisations extends LitElement {
             ${['read', 'write', 'terminal'].map((l) => html`<option value=${l} ?selected=${q.level === l}>${l}</option>`)}
           </select>
           on <span class="mono">${q.tile}</span>
-          ${q.note ? html`<span class="muted" style="font-size:11px">— ${q.note}</span>` : nothing}
+          ${q.note ? html`<span class="muted hint">— ${q.note}</span>` : nothing}
           <span style="flex:1"></span>
           <button class="go" @click=${() => {
             const sel = this.renderRoot.getElementById(`rq-${q.user}-${q.tile}`);
@@ -605,14 +633,14 @@ export class BxOrganisations extends LitElement {
           <button class="rm" @click=${() => this._do(() =>
             api('/access-requests', jbody({ user: q.user, tile: q.tile }, 'DELETE')), 'dismissed')}>dismiss</button>
         </div>`)}
-        <p class="muted" style="font-size:11px; margin:2px 0 0">
+        <p class="muted hint" style="margin:2px 0 0">
           Approving writes an exact entry at the chosen level (authoritative, D31).</p>
       </div>` : nothing}
       ${mine.length ? html`<div class="card">
         ${mine.map((q) => html`<div class="row" style="margin:3px 0">
-          <span class="muted" style="font-size:12px">your request:</span>
+          <span class="muted hint">your request:</span>
           <span class="pill">${q.level}</span> on <span class="mono">${q.tile}</span>
-          <span class="muted" style="font-size:11px">— pending with the tile's owner/org admins</span>
+          <span class="muted hint">— pending with the tile's owner/org admins</span>
           <span style="flex:1"></span>
           <button @click=${() => this._do(() =>
             api('/access-requests', jbody({ tile: q.tile }, 'DELETE')), 'withdrawn')}>withdraw</button>
@@ -645,14 +673,14 @@ export class BxOrganisations extends LitElement {
     if (!rows.length && !boundIn.length) return nothing;
     return html`
       <h3>consumers of your tiles</h3>
-      <p class="muted" style="font-size:11px">Other tiles granted access to your
+      <p class="muted hint">Other tiles granted access to your
         org's tiles — you can approve requests targeting your tiles and
         withdraw access (D33).</p>
       ${rows.length ? html`<div class="card">
         ${rows.map((g) => html`<div class="row" style="margin:3px 0">
           <span class="mono">${grantArrow(g)}</span>
           <span class="pill">${g.role}</span>
-          ${g.approvedBy ? html`<span class="muted" style="font-size:11px">approved by ${g.approvedBy}</span>` : nothing}
+          ${g.approvedBy ? html`<span class="muted hint">approved by ${g.approvedBy}</span>` : nothing}
           <span style="flex:1"></span>
           <button class="rm" @click=${() => this._do(() =>
             api('/grants', jbody({ from: g.from, target: g.target, role: g.role }, 'DELETE')), 'revoked')}>revoke</button>
@@ -661,14 +689,14 @@ export class BxOrganisations extends LitElement {
       ${boundIn.length ? html`<div class="card">
         ${boundIn.map((b) => html`<div class="row" style="margin:3px 0">
           <span class="mono">${b.comp}</span> · <span class="pill">${b.slot}</span>
-          <span class="muted" style="font-size:11px">bound to your <span class="mono">${b.prov}</span>${b.route ? html` for <span class="mono">${b.route}</span>` : nothing}</span>
+          <span class="muted hint">bound to your <span class="mono">${b.prov}</span>${b.route ? html` for <span class="mono">${b.route}</span>` : nothing}</span>
         </div>`)}
       </div>` : nothing}`;
   }
 
   render() {
     const who = this._who;
-    if (!who) return html`${this._err ? html`<div class="err">${this._err}</div>` : html`<p class="muted">loading…</p>`}`;
+    if (!who) return html`${this._err ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : html`<p class="muted">loading…</p>`}`;
     if (who.kind !== 'user' && !who.admin) {
       return html`<p class="muted">Sign in as a workspace user to see your organisations.</p>`;
     }
@@ -677,25 +705,25 @@ export class BxOrganisations extends LitElement {
     const adminOrgs = (this._orgs ?? []).filter((o) =>
       who.admin || myOrgs.some((m) => m.id === o.id && m.admin));
     return html`
-      ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
-      ${this._note ? html`<div class="note">${this._note}</div>` : nothing}
+      ${this._err ? html`<div class="err"><bx-icon name="error"></bx-icon><span>${this._err}</span></div>` : nothing}
+      ${this._note ? html`<div class="note"><bx-icon name="ok"></bx-icon><span>${this._note}</span></div>` : nothing}
 
       <h3>my organisations</h3>
       ${myOrgs.length ? myOrgs.map((o) => o.suspended
         ? html`<span class="pill" style="opacity:.6" title="this membership is paused — it confers nothing until an org admin reinstates it (D34)">
             ${o.id} · membership suspended</span>`
         : html`<span class="pill ${o.admin ? 'on' : ''}" title="level ${o.level}${o.create ? ' · may create org tiles' : ''}${o.admin ? ' · org admin' : ''}">
-          ${o.admin ? '★ ' : ''}${o.id} · ${o.level}${o.create ? ' +create' : ''}</span>`)
+          ${o.admin ? html`<bx-icon name="key" label="org admin"></bx-icon>` : ''}${o.id} · ${o.level}${o.create ? ' +create' : ''}</span>`)
         : who.admin
           ? html`<p class="muted">No organisations exist yet — create them in the
               admin console (user management → organisations).</p>`
           : html`<p class="muted">You're in no organisation yet — an org admin or workspace admin adds you.</p>`}
-      ${myOrgs.some((o) => o.create || o.admin) ? html`<p class="muted" style="font-size:11px">
+      ${myOrgs.some((o) => o.create || o.admin) ? html`<p class="muted hint">
         Create org-owned tiles from the <b>Tile Manager</b> — pick the org in its <i>Owner</i> field.</p>` : nothing}
 
       ${owned.length ? html`
         <h3>my tiles</h3>
-        <p class="muted" style="font-size:11px">Tiles you own (D24) — sharing them is your call.</p>
+        <p class="muted hint">Tiles you own (D24) — sharing them is your call.</p>
         ${owned.map((t) => html`<div class="row" style="margin:2px 0">
           <span class="mono">${t}</span>
           <button @click=${() => this._openAcl(t)}>sharing…</button>
@@ -711,10 +739,10 @@ export class BxOrganisations extends LitElement {
 
       ${adminOrgs.map((o) => html`
         <h3>org ${o.id} <span class="muted" style="font-weight:400">${o.name !== o.id ? o.name : ''}</span></h3>
-        ${(o.resolvedAllow ?? []).length ? html`<p class="muted" style="font-size:11px">
+        ${(o.resolvedAllow ?? []).length ? html`<p class="muted hint">
           may self-approve: ${o.resolvedAllow.map((a) => html`<span class="pill mono">${a}</span>`)}
           <span class="muted">(set by a workspace admin)</span></p>`
-          : html`<p class="muted" style="font-size:11px">no allowances — grants/bindings for this
+          : html`<p class="muted hint">no allowances — grants/bindings for this
             org's tiles go through a workspace admin.</p>`}
         ${this._orgNetLine(o)}
         <div class="card">${this._memberEditor(o)}</div>
@@ -722,13 +750,13 @@ export class BxOrganisations extends LitElement {
         ${this._overridesView(o)}
         ${this._screensView(o)}
         ${(o.ownedTiles ?? []).length ? html`<div class="card">
-          <b style="font-size:12px">org tiles</b>
+          <b>org tiles</b>
           ${(() => {
             const hid = (t) => this._compState?.[t] === 'hidden';
             const hiddenN = o.ownedTiles.filter(hid).length;
             const shown = o.ownedTiles.filter((t) => this._showHidden || !hid(t));
             return html`
-              ${hiddenN ? html`<label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center">
+              ${hiddenN ? html`<label class="muted hint" style="display:inline-flex;gap:5px;align-items:center">
                 <input type="checkbox" .checked=${!!this._showHidden}
                   @change=${(e) => { this._showHidden = e.target.checked; }}> show hidden (${hiddenN})</label>` : nothing}
               ${shown.map((t) => html`<div class="row" style="margin:2px 0${hid(t) ? ';opacity:.55' : ''}">

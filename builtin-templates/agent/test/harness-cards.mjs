@@ -146,7 +146,7 @@ ok('an orphan (its subagent\'s call paged out) is flat, marked ↳', (await text
 ok('usage: ctx and the cost', (await text('#top .husage')) === 'ctx 26% · $0.41'
   && (await page.getAttribute('#top .husage', 'title')).includes('52 000 of 200 000 tokens'));
 ok('what it changed', (await text('#top .hcounts')) === '13 tool calls · 4 files +5 −15');
-ok('the plan pin, folded: its progress and where it is', (await text('#top .planpin .tasktoggle')).startsWith('📋 Plan · 3/3')
+ok('the plan pin, folded: its progress and where it is', (await text('#top .planpin .tasktoggle')).startsWith('Plan · 3/3')
   && (await text('#top .planpin .taskline')) === 'all done');
 await flip('#top .planpin .tasktoggle', '#top .planpin.open');
 ok('…unfolded: its entries with their status', (await page.$$('#top .planpin .planlist li.completed')).length === 3);
@@ -156,7 +156,7 @@ await push({ type: 'harness', run: 21, root: 21, data: { ...h21, state: 'working
     { content: 'Run the tests 50 times', status: 'in_progress', priority: 'high' }, { content: 'Write it up', status: 'pending' }] } } });
 await page.waitForFunction(() => document.querySelector('#top .planpin .tasktoggle')?.textContent.includes('2/4'));
 ok('the harness event: the plan follows', (await page.$$('#top .planpin .planlist li')).length === 4
-  && (await text('#top .planpin li.in_progress .pt')) === 'Run the tests 50 times' && (await text('#top .planpin li.in_progress .pg')) === '◐'
+  && (await text('#top .planpin li.in_progress .pt')) === 'Run the tests 50 times' && (await page.getAttribute('#top .planpin li.in_progress .pg', 'title')) === 'in progress'
   && await has('#top .planpin li.in_progress .pp'));
 ok('…and the usage (a full context warns)', (await text('#top .husage')) === 'ctx 92%' && await has('#top .husage.bad'));
 await flip('#top .planpin .tasktoggle', '#top .planpin.open');

@@ -33,7 +33,7 @@ export function mineTab(app, ui) {
 function createTpl(app, ui) {
   if (!ui.forms.create) {
     const c = app.createForm({});
-    return html`<button class="go" id="new" ?disabled=${!!c.cant} title=${c.cant} @click=${() => { ui.forms.create = {}; ui.paint(); }}>＋ New sandbox</button>
+    return html`<button class="go" id="new" ?disabled=${!!c.cant} title=${c.cant} @click=${() => { ui.forms.create = {}; ui.paint(); }}><bx-icon name="plus"></bx-icon>New sandbox</button>
       ${c.cant ? html`<span class="muted small">${c.cant}</span>` : nothing}`;
   }
   const vm = app.createForm(ui.forms.create);
@@ -69,7 +69,7 @@ function rowTpl(app, ui, r) {
   const open = () => { if (ui.sel !== r.id) { endTerm(app, ui); ui.sel = r.id; ui.sub = 'files'; app.closeFiles(); } ui.paint(); };
   return html`<div class="card sbx ${ui.sel === r.id ? 'on' : ''}" data-id=${r.id}>
     <div class="hd"><b class="link" @click=${open}>${r.name}</b>
-      <span class="pill ${r.tone}" title=${r.stateDetail}>${r.stateLabel}</span>
+      <span class="pill ${r.tone}" title=${r.stateDetail}>${r.icon ? html`<bx-icon name=${r.icon}></bx-icon>` : nothing}${r.stateLabel}</span>
       <span class="pill">${r.visibility === 'team' ? 'team' : 'private'}</span>
       <span class="grow"></span>
       ${r.actions.map((a) => html`<button class="small ${a.danger ? 'rm' : ''}" data-act=${a.id} ?disabled=${!!ui.busy} @click=${() => act(a)}>${a.label}</button>`)}
@@ -86,7 +86,7 @@ function detailTpl(app, ui, r) {
   return html`<div class="detail-pane" id="detail">
     <div class="hd"><b>${r.name}</b> <span class="mono muted small">${r.id}</span> <span class="grow"></span>
       <nav class="tabs">${tab('files', 'Files', r.filesWhy)}${tab('term', 'Terminal', r.termWhy)}${tab('share', 'Sharing', r.shareWhy)}${tab('ports', 'Ports', app.readOnly ? 'probing a port takes write access to this page' : '')}</nav>
-      <button class="ghost" id="detail-close" title="Close" @click=${() => { endTerm(app, ui); ui.sel = ''; app.closeFiles(); ui.paint(); }}>✕</button></div>
+      <button class="ghost icon" id="detail-close" title="Close" aria-label="Close" @click=${() => { endTerm(app, ui); ui.sel = ''; app.closeFiles(); ui.paint(); }}><bx-icon name="xmark"></bx-icon></button></div>
     ${sub === 'files' ? filesTpl(app, ui, r) : sub === 'share' && r.canShare ? shareTpl(app, ui, r) : sub === 'ports' && !app.readOnly ? portsTpl(app, ui, r) : nothing}
     ${sub === 'term' || (ui.term && ui.term.id === r.id) ? html`<div ?hidden=${sub !== 'term'}>${termTpl(app, ui, r)}</div>` : nothing}
   </div>`;
@@ -125,7 +125,7 @@ function filesTpl(app, ui, r) {
     ${fs.busy && !fs.listing ? html`<div class="muted">reading…</div>` : nothing}
     ${fs.listing ? html`<table class="grid small" id="entries"><tbody>
       ${M.fileRows(fs.listing).map((e) => html`<tr data-name=${e.name}>
-        <td><span class="link ${e.dir ? 'dir' : ''}" @click=${() => (e.dir ? go(e.path) : app.readFile(r.id, e.path))}>${e.dir ? '📁' : e.type === 'symlink' ? '🔗' : '📄'} ${e.name}</span></td>
+        <td><span class="link ${e.dir ? 'dir' : ''}" @click=${() => (e.dir ? go(e.path) : app.readFile(r.id, e.path))}><bx-icon name=${e.dir ? 'folder' : e.type === 'symlink' ? 'link' : 'file'}></bx-icon> ${e.name}</span></td>
         <td class="num">${e.detail}</td><td class="muted">${e.when}</td>
         <td class="acts">${e.dir ? nothing : html`<button class="small" data-act="download" @click=${() => download(e.path)}>Download</button>`}
           ${r.canChange ? html`<button class="small rm" data-act="remove" @click=${() => ask(`Remove ${e.path}${e.dir ? ' and everything in it' : ''}?`) &&
@@ -140,7 +140,7 @@ function fileTpl(app, ui, r, f, download) {
   return html`<div class="viewer" id="viewer"><div class="hd"><b class="mono">${f.path}</b>
       ${f.size != null ? html`<span class="muted small">${F.bytes(f.size)}</span>` : nothing}<span class="grow"></span>
       <button class="small" @click=${() => download(f.path)}>Download</button>
-      <button class="ghost" id="viewer-close" @click=${() => app.closeFile()}>✕</button></div>
+      <button class="ghost icon" id="viewer-close" title="Close" aria-label="Close" @click=${() => app.closeFile()}><bx-icon name="xmark"></bx-icon></button></div>
     ${f.busy ? html`<div class="muted">reading…</div>` : f.err ? html`<div class="err">${f.err}</div>`
       : f.binary ? html`<div class="muted" id="binary">A binary file — download it.</div>`
       : html`<pre id="content">${f.text}</pre>${f.truncated ? html`<div class="muted small">(the first ${F.bytes(M.VIEW_MAX)}; download it for the rest)</div>` : nothing}`}

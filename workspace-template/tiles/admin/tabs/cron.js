@@ -35,7 +35,7 @@ export class BxAdminCron extends WithRouter(LitElement) {
             <td class="mono">${j.schedule}</td>
             <td class="mono">${j.path}</td>
             <td><span class="pill">${j.role}</span></td>
-            <td style="text-align:right"><button class="act rm" @click=${() => this._delCron(j)}>delete</button></td>
+            <td style="text-align:right"><button class="act quiet rm" @click=${() => this._delCron(j)}>delete</button></td>
           </tr>`)}
         </table>`}`;
   }

@@ -4,7 +4,7 @@
      providers (multi-input). If any "mcp" providers are bound, their tools are
      offered to the model and tool calls are executed against them in an agent
      loop; streaming via SSE. -->
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>Chat</title>
@@ -14,80 +14,73 @@
        measures documentElement, so html must wrap content, not fill the
        iframe (height:100% here collapses the tile). */
     html, body { margin: 0; }
-    body { padding: 10px 14px 12px; box-sizing: border-box; display: flex; flex-direction: column; height: 560px; }
+    [hidden] { display: none !important; }
+    /* Controls, the focus ring and the type come from theme.css (body.bx);
+       this sheet uses its tokens only, so the page is right in light and
+       dark (D184). */
+    body { padding: var(--bx-pad); box-sizing: border-box; display: flex; flex-direction: column; height: 560px; }
     /* a narrow tile (a phone): the row wraps rather than push New chat off the edge */
-    .top { display: flex; align-items: center; gap: 6px 8px; margin-bottom: 8px; flex-wrap: wrap; }
-    .top h3 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+    .top { display: flex; align-items: center; gap: 4px 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .top h3 { margin: 0; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
               text-transform: uppercase; color: var(--bx-muted); }
     .top .sp { flex: 1; }
-    .top #model { min-width: 0; flex: 0 1 auto; }
+    .top #model { min-width: 0; flex: 0 1 auto; max-width: 240px; font-family: var(--bx-mono); }
     .top #clear { flex: none; white-space: nowrap; }
-    .tools-chip { font-size: 10.5px; color: var(--bx-muted); font-family: var(--bx-mono);
-                  white-space: nowrap; cursor: default; }
-    .tools-chip.err { color: var(--bx-red); cursor: help; }
-    select {
-      background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
-      color: var(--bx-text); font: 11.5px var(--bx-mono); padding: 3px 6px; max-width: 240px;
-    }
-    button {
-      background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 5px;
-      color: var(--bx-text); font: inherit; font-size: 11.5px; padding: 3px 10px; cursor: pointer;
-    }
-    button:hover { background: var(--bx-panel-2); }
-    button:disabled { opacity: .5; cursor: default; }
-    button.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: #23272e; font-weight: 600; }
-    button.primary:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
+    .tools-chip { display: inline-flex; align-items: center; gap: 4px; font: var(--bx-font-meta);
+                  color: var(--bx-muted); white-space: nowrap; cursor: default; }
+    .tools-chip.err { color: var(--bx-danger); cursor: help; }
 
+    /* a person's turn on panel-2, the model's on the panel (product-ui 8) */
     .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 6px; }
-    .msg { max-width: 92%; border-radius: 8px; padding: 6px 10px; font-size: 12.5px; line-height: 1.45; }
-    .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--bx-accent) 12%, var(--bx-panel));
-                border: 1px solid color-mix(in srgb, var(--bx-accent) 30%, var(--bx-border));
+    .msg { max-width: 92%; box-sizing: border-box; border-radius: var(--bx-radius); padding: 8px 12px;
+           font: var(--bx-font-body); }
+    .msg.user { align-self: flex-end; background: var(--bx-panel-2); border: 1px solid var(--bx-border);
                 white-space: pre-wrap; }
     .msg.assistant { align-self: flex-start; background: var(--bx-panel); border: 1px solid var(--bx-border); }
     .msg.assistant .md > :first-child { margin-top: 0; }
     .msg.assistant .md > :last-child { margin-bottom: 0; }
-    .msg.assistant .md pre { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
-                             border-radius: 5px; padding: 6px 8px; overflow-x: auto; }
-    .msg.assistant .md code { font: 11.5px var(--bx-mono); }
-    .msg .err { color: var(--bx-red); font-size: 11.5px; white-space: pre-wrap; }
+    .msg.assistant .md a { color: var(--bx-link); }
+    .msg.assistant .md pre { background: var(--bx-code-bg); border: 1px solid var(--bx-border);
+                             border-radius: var(--bx-radius); padding: 8px; overflow-x: auto; }
+    .msg.assistant .md code { font: var(--bx-font-code); }
+    .msg .err { display: flex; gap: 6px; align-items: baseline; color: var(--bx-danger); white-space: pre-wrap; }
 
-    details.think { margin: 0 0 6px; border: 1px dashed var(--bx-border); border-radius: 6px;
+    details.think { margin: 0 0 8px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius);
                     background: var(--bx-panel-2); }
-    details.think summary { cursor: pointer; font-size: 10.5px; font-weight: 600; letter-spacing: .06em;
-                            text-transform: uppercase; color: var(--bx-muted); padding: 3px 8px;
+    details.think summary { cursor: pointer; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+                            text-transform: uppercase; color: var(--bx-muted); padding: 4px 8px;
                             user-select: none; list-style-position: inside; }
-    details.think pre { margin: 0; padding: 4px 10px 8px; font: 11px/1.5 var(--bx-mono);
+    details.think pre { margin: 0; padding: 4px 8px 8px; font: var(--bx-font-code);
                         color: var(--bx-muted); white-space: pre-wrap; word-break: break-word;
                         max-height: 160px; overflow-y: auto; }
-    summary .dots::after { content: '…'; animation: dots 1.2s steps(4) infinite; }
-    @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+    /* streaming: a static ellipsis, never an animation (product-ui 8) */
+    summary .dots::after { content: '…'; }
 
-    /* tool call — an agent-loop step routed to a bound MCP server */
+    /* tool call — an agent-loop step routed to a bound MCP server: a mono
+       block, its status an icon and a word */
     details.toolcall { align-self: flex-start; max-width: 92%; border: 1px solid var(--bx-border);
-                       border-left: 3px solid var(--bx-muted); border-radius: 6px; background: var(--bx-panel-2);
-                       font-size: 11.5px; }
-    details.toolcall.running { border-left-color: var(--bx-amber, #f2a71b); }
-    details.toolcall.ok { border-left-color: var(--bx-green, #4caf50); }
-    details.toolcall.error { border-left-color: var(--bx-red, #ef5350); }
-    details.toolcall summary { cursor: pointer; padding: 4px 9px; user-select: none;
+                       border-left: 2px solid var(--bx-border-strong); border-radius: var(--bx-radius);
+                       background: var(--bx-code-bg); font: var(--bx-font-code); }
+    details.toolcall.running { border-left-color: var(--bx-warn); }
+    details.toolcall.ok { border-left-color: var(--bx-ok); }
+    details.toolcall.error { border-left-color: var(--bx-danger); }
+    details.toolcall summary { cursor: pointer; padding: 4px 8px; user-select: none;
                                list-style-position: inside; }
-    details.toolcall summary .tn { font-family: var(--bx-mono); font-weight: 600; }
-    details.toolcall summary .ts { color: var(--bx-muted); font-size: 10.5px; margin-left: 6px; }
-    details.toolcall pre { margin: 0; padding: 4px 10px 8px; font: 11px/1.5 var(--bx-mono);
+    details.toolcall summary .tn { font-weight: 700; }
+    details.toolcall summary .ts { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px;
+                                   font: var(--bx-font-meta); color: var(--bx-muted); }
+    details.toolcall.ok summary .ts { color: var(--bx-ok); }
+    details.toolcall.error summary .ts { color: var(--bx-danger); }
+    details.toolcall pre { margin: 0; padding: 4px 8px 8px; font: var(--bx-font-code);
                            color: var(--bx-text); white-space: pre-wrap; word-break: break-word;
                            max-height: 200px; overflow-y: auto; }
-    details.toolcall .lbl { color: var(--bx-muted); font-size: 9.5px; text-transform: uppercase;
-                            letter-spacing: .06em; padding: 4px 10px 0; }
+    details.toolcall .lbl { color: var(--bx-muted); font: var(--bx-font-micro); text-transform: uppercase;
+                            letter-spacing: var(--bx-tracking-micro); padding: 4px 8px 0; }
 
-    .composer { display: flex; gap: 6px; margin-top: 8px; align-items: flex-end; }
-    textarea {
-      flex: 1; resize: none; background: var(--bx-panel); border: 1px solid var(--bx-border);
-      border-radius: 6px; color: var(--bx-text); font: 12.5px/1.4 var(--bx-font, inherit);
-      padding: 6px 9px; min-height: 34px; max-height: 120px; box-sizing: border-box;
-    }
-    textarea:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
-    .note { font-size: 11.5px; color: var(--bx-muted); padding: 4px 2px; }
-    .note.err { color: var(--bx-red); }
+    .composer { display: flex; gap: 8px; margin-top: 8px; align-items: flex-end; }
+    .composer textarea { flex: 1; resize: none; max-height: 120px; }
+    .note { display: flex; gap: 6px; align-items: baseline; color: var(--bx-muted); padding: 4px 2px; }
+    .note.err { color: var(--bx-danger); }
   </style>
 </head>
 <body class="bx">
@@ -107,6 +100,7 @@
 
   <script type="module">
     import { marked } from '/vendor/marked.esm.js';
+    import '/vendor/bx-icons.js';   // <bx-icon name>: the workspace's drawn glyphs (D184)
     // The engine — models, the MCP client and tool routing, SSE streaming, the
     // agent loop — is chat-core.js, shared with the native view (native.js).
     // This page draws its events.
@@ -120,7 +114,12 @@
 
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const render = (s) => marked.parse(esc(s));
-    const setNote = (t, isErr) => { note.hidden = !t; note.textContent = t || ''; note.classList.toggle('err', !!isErr); };
+    // icon(name): a drawn glyph (/vendor/bx-icons.js) to put before a word
+    const icon = (name) => { const i = document.createElement('bx-icon'); i.setAttribute('name', name); return i; };
+    const setNote = (t, isErr) => {
+      note.hidden = !t; note.classList.toggle('err', !!isErr);
+      note.replaceChildren(...(t && isErr ? [icon('error')] : []), document.createTextNode(t || ''));
+    };
 
     // ════════════════════════ chat UI bits ══════════════════════════════
     function assistantBubble() {
@@ -148,7 +147,9 @@
           }
         },
         fail(text) {
-          const p = document.createElement('div'); p.className = 'err'; p.textContent = text; el.append(p);
+          const p = document.createElement('div'); p.className = 'err';
+          const t = document.createElement('span'); t.textContent = text;
+          p.append(icon('error'), t); el.append(p);
           el.hidden = false;
         },
         done() { summary.textContent = 'Thinking'; },   // stop the animated dots
@@ -158,7 +159,7 @@
     function toolBubble(label, argsText) {
       const el = document.createElement('details');
       el.className = 'toolcall running';
-      el.innerHTML = `<summary>🔧 <span class="tn"></span><span class="ts">running…</span></summary>
+      el.innerHTML = `<summary><span class="tn"></span><span class="ts"><bx-icon name="wait"></bx-icon>running…</span></summary>
         <div class="lbl">arguments</div><pre class="args"></pre>
         <div class="lbl">result</div><pre class="res"></pre>`;
       el.querySelector('.tn').textContent = label;
@@ -167,7 +168,7 @@
       return (text, isError) => {
         el.classList.remove('running');
         el.classList.add(isError ? 'error' : 'ok');
-        el.querySelector('.ts').textContent = isError ? 'error' : 'done';
+        el.querySelector('.ts').replaceChildren(icon(isError ? 'error' : 'ok'), isError ? 'error' : 'done');
         el.querySelector('.res').textContent = text;
       };
     }
@@ -193,11 +194,11 @@
       toolsChip.hidden = false;
       if (errs.length) {
         toolsChip.className = 'tools-chip err';
-        toolsChip.textContent = `⚠ ${TOOLS.length} tool${TOOLS.length === 1 ? '' : 's'}`;
+        toolsChip.replaceChildren(icon('warning'), `${TOOLS.length} tool${TOOLS.length === 1 ? '' : 's'}`);
         toolsChip.title = 'MCP errors —\n' + errs.join('\n');
       } else {
         toolsChip.className = 'tools-chip';
-        toolsChip.textContent = `🔧 ${TOOLS.length} tool${TOOLS.length === 1 ? '' : 's'} · ${MCP.length} server${MCP.length === 1 ? '' : 's'}`;
+        toolsChip.replaceChildren(icon('wrench'), `${TOOLS.length} tool${TOOLS.length === 1 ? '' : 's'} · ${MCP.length} server${MCP.length === 1 ? '' : 's'}`);
         toolsChip.title = TOOLS.map((t) => t.function.name).join('\n');
       }
     });

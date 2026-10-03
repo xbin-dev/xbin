@@ -185,7 +185,7 @@ test('native: "Who answers" at the top of the home page; picking a coding agent 
   const [ask] = asks(r);
   assert.deepEqual([ask.harness, ask.class, ask.sandbox, 'model' in ask], [{ provider: 'claude' }, 'coding', { ref: API_DEV }, false], JSON.stringify(ask));
   assert.equal(find(r.snapshots.chat, { t: 'badge', in: { t: 'toolbar' } }), null, 'no toolbar badge, so More stays on the bar');
-  assert.match(find(r.snapshots.chat, { t: 'screen' }).p.subtitle, /^CC starting 👥 · /, 'what answers: first in the subtitle');
+  assert.match(find(r.snapshots.chat, { t: 'screen' }).p.subtitle, /^CC starting · shared · /, 'what answers: first in the subtitle');
   assert.ok(r.calls.some((c) => c.method === 'PUT' && /prefs\/agent$/.test(c.url) && c.body === '"claude"'), 'remembered (prefs/agent)');
   assert.ok(r.calls.some((c) => c.method === 'PUT' && /prefs\/harness-sandbox$/.test(c.url)), '…and its sandbox (prefs/harness-sandbox)');
 });
@@ -204,7 +204,7 @@ test('native: the new-chat sheet — who answers, a coding agent\'s sandbox, no 
     { tap: { t: 'button', p: { label: 'Start' }, in: sheet } }, { wait: 50 },
   ]);
   const rows = all(r.snapshots.drawer.root, { t: 'row', in: { t: 'sheet' } }).filter((x) => /Fix the flaky test|Port the CLI|Refactor the API/.test(x.p.title));
-  assert.deepEqual(rows.map((x) => [x.p.title, x.p.subtitle ?? '']).sort(), [['Fix the flaky test', 'Claude Code'], ['Port the CLI', 'Codex'], ['Refactor the API', '⧉ 2 coding agents']],
+  assert.deepEqual(rows.map((x) => [x.p.title, x.p.subtitle ?? '']).sort(), [['Fix the flaky test', 'Claude Code'], ['Port the CLI', 'Codex'], ['Refactor the API', '2 coding agents']],
     'the built-in agent\'s: no kind — its coding agents at work below it (U6)');
   const s0 = find(r.snapshots.sheet, sheet);
   assert.equal(find(s0, WHO).p.value, 'agent');
@@ -233,5 +233,5 @@ test('native: no sandbox fits — the setup notice, Create filled in; a harness 
   assert.match(form, /"value":"claude-dev"/, 'the create form, its name filled in');
   assert.match(form, /"value":"internet"/, '…internet');
   const c = await run([{ wait: 50 }, { snapshot: 'chat' }], { hash: 'c=24' });
-  assert.match(find(c.snapshots.chat, { t: 'screen' }).p.subtitle, /^CX sign-in 👥 · waiting_input · /);
+  assert.match(find(c.snapshots.chat, { t: 'screen' }).p.subtitle, /^CX sign-in · shared · waiting_input · /);
 });

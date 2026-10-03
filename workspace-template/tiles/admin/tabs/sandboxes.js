@@ -4,7 +4,7 @@
  * session, and the sandboxes a manager tile runs (D120), nested under its
  * backend — grouped by tile, and within a tile by deployment (main's rows
  * first, then each other deployment's under its name), with
- * how it is isolated (⧉ VM, 🔒 namespace sandbox, or none on a host without
+ * how it is isolated (a VM, the namespace sandbox, or none on a host without
  * isolation), the host's health (isolation tier, guards, whether VMs can
  * start and what is missing), the VM budget in use per tile (and the tile
  * sandboxes' sub-budget, D120) and the VM policy editor, the VM disks on the
@@ -22,7 +22,12 @@ import { base, runtimeCss, sandboxesCss } from '../admin-css.js';
 import { fmtBytes, fmtDur, WithFilter, WithRouter } from '../shared.js';
 import './tilesbx.js';
 
-const MODE = { vm: '⧉ VM', namespace: '🔒 ns', host: 'host' };
+// a mode in words with its glyph (D184): a VM, the namespace sandbox, the host
+const MODE_ICON = { vm: 'vm', namespace: 'lock', host: 'warning' };
+const MODE_WORD = { vm: 'VM', namespace: 'ns', host: 'host' };
+const modeLabel = (m) => (MODE_WORD[m] ? html`<bx-icon name=${MODE_ICON[m]}></bx-icon>${MODE_WORD[m]}` : m);
+// a switch's state: its glyph and the word
+const onOff = (b) => (b ? html`<bx-icon name="check"></bx-icon> on` : html`<bx-icon name="xmark"></bx-icon> off`);
 const MODE_TITLE = {
   vm: 'a VM: its own kernel (D89)',
   namespace: 'the rootless namespace sandbox',
@@ -135,12 +140,12 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     return html`<div class="hostcard" data-sbx-health>
         ${kv('isolation', iso.tier === 3 ? 'on (tier 3)' : iso.tier === 2 ? 'uids (tier 2)' : 'off (tier 1)')}
         ${iso.isolate ? kv('rootfs', iso.rootfs) : nothing}
-        ${iso.isolate ? kv('terminal guard', html`<span title="seccomp mount guard · Landlock read guard">mount ${p.seccomp ? '✓' : '✗'} · read ${p.landlock ? `✓ (ABI ${p.landlockAbi})` : '✗'}</span>`) : nothing}
-        ${iso.isolate ? kv('uid range', iso.uidRange ? 'delegated' : html`<span title=${iso.uidRangeNote || ''}>single uid ⚠</span>`) : nothing}
+        ${iso.isolate ? kv('terminal guard', html`<span title="seccomp mount guard · Landlock read guard">mount ${onOff(p.seccomp)} · read ${onOff(p.landlock)}${p.landlock ? ` (ABI ${p.landlockAbi})` : ''}</span>`) : nothing}
+        ${iso.isolate ? kv('uid range', iso.uidRange ? 'delegated' : html`<span class="st-failed" title=${iso.uidRangeNote || ''}><bx-icon name="warning"></bx-icon> single uid</span>`) : nothing}
         ${kv('accounting', iso.cgroup ? 'cgroup v2' : '/proc sampling')}
         ${kv('VM sandboxes', html`<span data-vm-avail=${avail}>${v.available ? (v.emulated ? 'yes — emulated (no KVM)' : 'yes — KVM') : 'no'}${v.forced ? ` (XBIN_VM_ACCEL=${v.forced})` : ''}</span>`)}
       </div>
-      ${!v.available && v.reason ? html`<div class="warn-line" data-vm-reason>⚠ ${v.reason}</div>` : nothing}
+      ${!v.available && v.reason ? html`<div class="warn-line" data-vm-reason><bx-icon name="warning"></bx-icon><span>${v.reason}</span></div>` : nothing}
       ${v.available && v.emulated ? html`<div class="warn-line">${v.note}</div>` : nothing}
       ${this._assets(v)}`;
   }
@@ -150,7 +155,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     const have = v.assets || {};
     if (!Object.keys(have).length && !(v.missing || []).length) return nothing;
     const piece = ([k, label, who]) => html`<span class="sbx-piece ${have[k] ? 'ok' : 'no'}" data-piece=${k}
-      title=${have[k] || `missing (${who === 'both' ? 'every VM' : who === 'kvm' ? 'VMs on KVM' : 'emulated VMs'} need it)`}>${have[k] ? '✓' : '✗'} ${label}</span>`;
+      title=${have[k] || `missing (${who === 'both' ? 'every VM' : who === 'kvm' ? 'VMs on KVM' : 'emulated VMs'} need it)`}><bx-icon name=${have[k] ? 'check' : 'xmark'}></bx-icon>${label}</span>`;
     return html`<div class="sbx-assets">
       ${PIECES.map(piece)}
       ${v.kvm ? html`<div class="muted sbx-why">KVM: ${v.kvm}</div>` : nothing}
@@ -182,7 +187,6 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     const v = h.vm || {}, iso = h.isolation || {};
     if (!v.policy) return nothing;
     const p = v.policy;
-    const onOff = (b) => (b ? '✓' : '✗');
     if (!iso.isolate) {
       return html`<div class="sbx-policy muted" data-vm-policy="off">VM sandboxes need isolation (<span class="mono">xbind --isolate</span>),
         so the policy can't be set here.</div>`;
@@ -190,7 +194,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     if (!this._pol) {
       return html`<div class="sbx-policy" data-vm-policy="view">
         policy: terminals ${onOff(p.terminals)} · backends ${onOff(p.backends)} ·
-        tile sandboxes ${onOff(p.tiles)}${p.tiles && v.emulated ? ` (emulated ${onOff(p.tilesEmulated)})` : ''} · ${mib(p.memMiB)} · ${p.vcpus} vCPU per VM ·
+        tile sandboxes ${onOff(p.tiles)}${p.tiles && v.emulated ? html` (emulated ${onOff(p.tilesEmulated)})` : ''} · ${mib(p.memMiB)} · ${p.vcpus} vCPU per VM ·
         ${p.maxVMs} VMs · budget ${mib(p.budgetMiB)}${p.tiles ? ` (tiles ${mib(p.tilesBudgetMiB)})` : ''} · disk ${p.diskGiB} GiB
         <button class="act" data-edit-policy @click=${() => { this._pol = { ...(v.stored || {}) }; }}>edit</button>
       </div>`;
@@ -214,8 +218,8 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
       <label><input type="checkbox" name="tiles" .checked=${!!d.tiles} @change=${(e) => set({ tiles: e.target.checked })}> VM tile sandboxes (the sandboxes a manager tile with <span class="mono">cap:sandboxes</span> runs)</label>
       <label><input type="checkbox" name="tilesEmulated" .checked=${!!d.tilesEmulated} ?disabled=${!d.tiles} @change=${(e) => set({ tilesEmulated: e.target.checked })}> … also where VMs run emulated (no KVM)</label>
       <div class="sbx-fields">${POLICY_FIELDS.map(([k, label]) => html`<label>${label} ${num(k)}</label>`)}</div>
-      <div class="muted" style="font-size:10.5px">empty = the default (shown); the budget defaults to VMs × memory, the tile sandboxes' to half of it</div>
-      ${warn.map((w) => html`<div class="warn-line">⚠ ${w}</div>`)}
+      <div class="muted hint">empty = the default (shown); the budget defaults to VMs × memory, the tile sandboxes' to half of it</div>
+      ${warn.map((w) => html`<div class="warn-line"><bx-icon name="warning"></bx-icon><span>${w}</span></div>`)}
       <div>
         <button class="act go" type="submit" data-save-policy ?disabled=${this._busy}>save</button>
         <button class="act" type="button" @click=${() => { this._pol = null; }}>cancel</button>
@@ -250,7 +254,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     return html`<h4>sandboxes <span class="muted" style="font-weight:400">(${all.length})</span></h4>
       ${this._filterBar('filter by tile, user, name or id…', kinds, rows.length, all.length)}
       <div class="chips sbx-modes">${['', 'vm', 'namespace', 'host'].map((m) => html`<span class="chip ${this._mode === m ? 'on' : ''}"
-        data-mode-chip=${m || 'all'} @click=${() => { this._mode = m; }}>${m ? MODE[m] : 'all modes'}</span>`)}</div>
+        data-mode-chip=${m || 'all'} @click=${() => { this._mode = m; }}>${m ? modeLabel(m) : 'all modes'}</span>`)}</div>
       <table class="sbx">
         <tr><th>kind</th><th>mode</th><th>user</th><th>reserved</th><th>cpu</th><th>mem</th><th>pids</th><th>up</th><th>pid · leaf</th></tr>
         ${[...groups].map(([tile, es]) => this._group(tile, es))}
@@ -307,7 +311,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
   // a deployment beyond main: its name over its rows
   _depHead(tile, dep, top) {
     const gens = top.filter((e) => e.kind === 'backend').length;
-    return html`<tr class="sbx-dep" data-sbx-tile=${tile} data-sbx-deployment=${dep}><td colspan="9" style="padding-left:14px;font-size:11px">
+    return html`<tr class="sbx-dep" data-sbx-tile=${tile} data-sbx-deployment=${dep}><td colspan="9" class="hint" style="padding-left:14px">
         <span class="muted">deployment</span> <span class="pill mono">${dep}</span>
         <span class="muted"> · ${gens} generation${gens === 1 ? '' : 's'}${top.length > gens ? ` · ${top.length - gens} other` : ''}</span>
       </td></tr>`;
@@ -326,14 +330,14 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
     return html`<tr data-sbx-id=${e.id} data-sbx-kind=${e.kind} data-sbx-mode=${e.mode} data-depth=${depth}
       data-sbx-deployment=${dep || nothing}>
       <td style="padding-left:${depth * 18}px">${depth ? html`<span class="muted">↳ </span>` : nothing}${kind}</td>
-      <td><span class="sbx-mode ${e.mode}" title=${MODE_TITLE[e.mode] || ''}>${MODE[e.mode] || e.mode}</span>${e.accel === 'emulate' ? html` <span class="pill" title="QEMU's software emulation: no KVM here">emulated</span>` : nothing}${e.restricted ? html` <span class="pill" title="a restricted user's session: the D17d limits">limited</span>` : nothing}</td>
+      <td><span class="sbx-mode ${e.mode}" title=${MODE_TITLE[e.mode] || ''}>${modeLabel(e.mode)}</span>${e.accel === 'emulate' ? html` <span class="pill" title="QEMU's software emulation: no KVM here">emulated</span>` : nothing}${e.restricted ? html` <span class="pill" title="a restricted user's session: the D17d limits">limited</span>` : nothing}</td>
       <td class="mono">${e.user || '—'}</td>
       <td class="mono">${e.memMiB ? `${mib(e.memMiB)} · ${e.vcpus} vCPU` : '—'}</td>
       <td class="num">${showStats ? s.cpu.toFixed(1) + '%' : ''}</td>
       <td class="num" title=${showStats ? scopeTitle(s, at.split) : ''}>${showStats ? fmtBytes(s.mem) : ''}</td>
       <td class="num">${showStats ? s.pids : ''}</td>
       <td class="mono">${fmtDur(e.uptimeSec)}</td>
-      <td class="mono muted" title=${e.disk ? 'disk ' + e.disk : ''}>${e.pid || '—'}${e.leaf ? ' · ' + e.leaf : ''}${e.disk ? ' · 💾' : ''}</td>
+      <td class="mono muted" title=${e.disk ? 'disk ' + e.disk : ''}>${e.pid || '—'}${e.leaf ? ' · ' + e.leaf : ''}${e.disk ? html` · <bx-icon name="database" label="has a disk"></bx-icon>` : ''}</td>
     </tr>`;
   }
 
@@ -349,7 +353,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
             ? html` <span class="muted" title=${PERSON_DISK} data-sbx-disk-person>· a person's terminal layer</span>` : nothing}</td>
           <td class="num">${fmtBytes(d.apparentBytes)}</td>
           <td class="num" title="sparse: what it takes on the host">${fmtBytes(d.allocatedBytes)}</td>
-          <td>${d.inUse ? '✓' : html`<span class="muted">—</span>`}</td>
+          <td>${d.inUse ? html`<bx-icon name="check" label="in use"></bx-icon>` : html`<span class="muted">—</span>`}</td>
           <td class="mono muted">${d.path}</td>
         </tr>`)}
       </table>`;
@@ -369,7 +373,7 @@ export class BxAdminSandboxes extends WithRouter(WithFilter(LitElement)) {
           <td><span class="sbx-stage ${f.stage}" title=${STAGE_TITLE[f.stage] || ''}>${f.stage}</span></td>
           <td class="mono">${f.tile}${f.deployment ? html` <span class="pill" data-sbx-failure-deployment=${f.deployment}>${f.deployment}</span>` : nothing}${f.user ? html` <span class="muted">· ${f.user}</span>` : nothing}</td>
           <td>${f.kind}</td>
-          <td>${MODE[f.mode] || f.mode}</td>
+          <td>${modeLabel(f.mode)}</td>
           <td class="sbx-err">${this._openFail.has(i) || f.error.length <= 140 ? f.error : f.error.slice(0, 140) + '…'}</td>
         </tr>`)}
       </table>` : nothing}`;
