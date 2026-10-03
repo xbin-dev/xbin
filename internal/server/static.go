@@ -490,7 +490,8 @@ func (s *Server) documentHeaders(w http.ResponseWriter, r *http.Request, compPat
 // headInjection is the D4 <head> block of one of compPath's documents
 // (body: the document it goes into — a tile page, or nil for the generated
 // native runtime document): strict asset gating's head (assetHead), the
-// merged import map, the component and frame-token metas (a token only for
+// merged import map, the component meta, the person's appearance when they
+// chose one (appearance.go, D184), the frame-token meta (a token only for
 // a human or the tile itself that may read it — mayMintFrameToken — bound
 // to the login that opened it), bound interfaces, the sandbox token list,
 // the WebSocket origin for app WebViews (appWSOriginMeta), and the
@@ -530,10 +531,10 @@ func (s *Server) headInjection(r *http.Request, comp *registry.Component, compPa
 	return fmt.Sprintf(
 		"\n%s<script type=\"importmap\">%s</script>\n"+
 			"<meta name=\"xbin-component\" content=\"%s\">\n"+
-			"%s<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
+			"%s%s<meta name=\"xbin-frame-token\" content=\"%s\">\n"+
 			"%s%s%s%s"+
 			"<script type=\"module\" src=\"/vendor/xbin-client.js\"></script>\n",
-		assetHead, im, htmlEscape(compPath), depMeta, frameTok, partMeta, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
+		assetHead, im, htmlEscape(compPath), s.appearanceMetas(r), depMeta, frameTok, partMeta, ifaceMeta, sandboxMeta, appWSOriginMeta(r))
 }
 
 // mayMintFrameToken: the injection mints compPath's frame token only for a
@@ -704,24 +705,33 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
 		// The popup target of every shipped tile's links (ND11): its own
 		// browsing-context group, so a tile that opened it keeps no handle.
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
-		fmt.Fprintf(w, docViewerHTML, htmlEscape(rel))
+		fmt.Fprintf(w, docViewerHTML, htmlEscape(rel), s.appearanceMetas(r))
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write(b)
 }
 
-const docViewerHTML = `<!doctype html><html><head><meta charset="utf-8">
-<title>xbin docs — %[1]s</title>
+// docViewerHTML is the docs' reader (%[1]s the doc, %[2]s the person's
+// appearance metas, as the injection's): it follows the person (D184), on
+// theme.css's tokens only — body type 14/20, code on the code well, links in
+// the link colour.
+const docViewerHTML = `<!doctype html><html lang="en" data-bx-theme="auto"><head><meta charset="utf-8">
+%[2]s<title>xbin docs — %[1]s</title>
 <link rel="icon" type="image/svg+xml" href="/vendor/favicon.svg">
 <link rel="stylesheet" href="/vendor/theme.css">
-<style>body{max-width:52rem;margin:1.5rem auto;padding:0 1rem;font:14px/1.65 -apple-system,"Segoe UI",system-ui,sans-serif;color:var(--bx-text,#33414e);background:var(--bx-panel,#fff)}
-pre{background:var(--bx-panel-2,#f7f8fa);border:1px solid var(--bx-border,#e4e8ed);padding:.7rem .9rem;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.55}
-code{background:var(--bx-panel-2,#f7f8fa);border:1px solid var(--bx-border,#e4e8ed);padding:0 .3em;border-radius:3px;font-size:12px}
-pre code{padding:0;border:0;background:none}table{border-collapse:collapse;font-size:13px}td,th{border:1px solid var(--bx-border,#e4e8ed);padding:.25em .6em}
-th{background:var(--bx-panel-2,#f7f8fa);text-align:left}a{color:var(--bx-accent,#f5a623);text-decoration:none}a:hover{text-decoration:underline}
-h1,h2,h3{line-height:1.25}h1{font-size:1.5rem}h2{font-size:1.15rem;margin-top:2rem}h3{font-size:1rem}
-.crumb{font-size:12px;color:var(--bx-muted,#8794a1)}</style></head><body>
+<style>body{max-width:52rem;margin:24px auto;padding:0 16px;font:var(--bx-font-body);color:var(--bx-text);background:var(--bx-panel)}
+h1{font:var(--bx-font-heading);letter-spacing:var(--bx-tracking-heading);margin:24px 0 12px}h2{font:var(--bx-font-title);margin:32px 0 8px}
+h3{font:var(--bx-font-body);font-weight:600;margin:24px 0 8px}p,ul,ol{margin:0 0 12px}
+pre{background:var(--bx-code-bg);border:1px solid var(--bx-border);border-radius:var(--bx-radius);padding:12px 16px;overflow-x:auto;font:var(--bx-font-code)}
+code{font-family:var(--bx-mono);font-size:.93em;background:var(--bx-panel-2);border:1px solid var(--bx-border);border-radius:var(--bx-radius);padding:0 4px}
+pre code{font:inherit;padding:0;border:0;background:none}
+table{border-collapse:collapse;font:var(--bx-font-ui);font-variant-numeric:tabular-nums;margin:0 0 12px}
+td,th{border:1px solid var(--bx-border);padding:4px 8px;text-align:left;vertical-align:top}th{background:var(--bx-panel-2);font-weight:600}
+a{color:var(--bx-link);text-decoration:none}a:hover{text-decoration:underline}
+:focus-visible{outline:var(--bx-focus-outline);outline-offset:var(--bx-focus-offset);box-shadow:var(--bx-focus-halo)}
+blockquote{margin:0 0 12px;padding:0 12px;border-left:2px solid var(--bx-border-strong);color:var(--bx-muted)}hr{border:0;border-top:1px solid var(--bx-border)}
+.crumb{font:var(--bx-font-meta);color:var(--bx-muted)}</style></head><body>
 <p class="crumb"><a href="/docs/index.md">← docs index</a></p><div id="doc">loading…</div>
 <script type="module">
 import {marked} from '/vendor/marked.esm.js';

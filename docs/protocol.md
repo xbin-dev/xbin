@@ -61,6 +61,20 @@ the owner token and `--no-auth`, and in a non-primary deployment's document,
 `/c/<tile>+<name>/`, whose one instance every writer shares; none when the
 viewer reaches none), which the client exposes as `xbin.partition`; an
 admin viewing as someone gets the document without a frame token.
+The person's **appearance** (D184) rides the same block, only when they
+chose one: `<meta name="xbin-theme" content="light">` (or `dark`; absent:
+follow the system) and `<meta name="xbin-density" content="comfortable">`
+(absent: compact), from the `theme` and `density` keys of their shell
+bucket (§HTTP routes › `/prefs`). The person is the principal's: a
+session's or device's, the person behind a frame or terminal token, the
+viewed person while an admin views as someone, the owner's (`root`'s
+bucket) for the root token and `--no-auth`; a tile's backend gets neither.
+Every injected document carries them — tile pages, deployment URLs,
+partitioned tiles, chrome, the native runtime document — and so does the
+docs viewer (`/docs/…`); a person who never chose gets the injection as
+before, byte for byte. `/vendor/theme.css` reads them in documents that opt
+in with `<html data-bx-theme="auto">`; frames hear later changes as
+`xbin:appearance` (§Tile ↔ shell messaging).
 Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
 (or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
@@ -1710,7 +1724,16 @@ DELETE /prefs/<key>               remove it
                                    clients; an optional request header
                                    `X-Prefs-Writer: <id>` (≤64 chars) is
                                    echoed in it as data.writer, so a client
-                                   can skip its own writes)
+                                   can skip its own writes. Two keys of the
+                                   shell's own bucket are the person's
+                                   appearance (D184), which xbind reads into
+                                   every document it serves them:
+                                   `theme` "light" | "dark" (absent or
+                                   "system": follow the system) and
+                                   `density` "comfortable" (absent:
+                                   compact); any other value reads as the
+                                   default. Only chrome writes that bucket —
+                                   a tile's PUT lands in its own)
 GET    /users                     admin or xbin:users. [{id,name,role,
                                    tiles:{path:level}, termApi, termNet,
                                    canCreate (deprecated, ignored — D82),

@@ -271,6 +271,13 @@ into `<head>`:
 - `<meta name="xbin-component">` and a short-lived frame token (minted only
   when a human or the tile itself loads the document — another tile that
   fetches your page gets it with an empty token)
+- only when the person viewing chose an appearance in the shell's settings
+  (D184): `<meta name="xbin-theme" content="light|dark">` (absent: follow
+  the system) and `<meta name="xbin-density" content="comfortable">`
+  (absent: compact). `/vendor/theme.css` reads them at first paint in a
+  document that opts in with `<html data-bx-theme="auto">`
+  ([frontend-kit.md](/docs/frontend-kit.md) §Theme); a document that
+  doesn't is unaffected. A person who never chose gets none
 - `<script type="module" src="/vendor/xbin-client.js">` — the in-frame API
   (`xbin.self`, `xbin.fetch`, `xbin.bus`; see [sdk.md](/docs/sdk.md))
 - only at a tile deployment's URL (`/c/<tile>+<name>/`,
