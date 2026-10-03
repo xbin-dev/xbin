@@ -1,7 +1,11 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"mime"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -387,18 +391,85 @@ func TestVendorFonts(t *testing.T) {
 			t.Errorf("%s: the licence: %d", mode, rec.Code)
 		}
 	}
-	// theme.css names only files that exist.
+	// theme.css names only files that exist, each with its own version: the
+	// immutable answer below is reachable, and a font whose bytes change
+	// can't hide behind its old URL in a browser's cache.
 	css, err := os.ReadFile(filepath.Join("..", "..", "web", "theme.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	urls := regexp.MustCompile(`url\("(fonts/[^"]+)"\)`).FindAllStringSubmatch(string(css), -1)
-	if len(urls) < 13 {
-		t.Fatalf("theme.css names %d font files", len(urls))
+	urls := regexp.MustCompile(`url\("(fonts/[^"?]+)\?v=([0-9a-f]+)"\)`).FindAllStringSubmatch(string(css), -1)
+	if n := len(regexp.MustCompile(`url\("fonts/`).FindAllString(string(css), -1)); len(urls) < 13 || len(urls) != n {
+		t.Fatalf("theme.css names %d font files, %d of them with a ?v= version", n, len(urls))
 	}
 	for _, u := range urls {
-		if _, err := os.Stat(filepath.Join("..", "..", "web", "vendor", u[1])); err != nil {
+		b, err := os.ReadFile(filepath.Join("..", "..", "web", "vendor", u[1]))
+		if err != nil {
 			t.Errorf("theme.css names %s: %v", u[1], err)
+			continue
+		}
+		sum := sha256.Sum256(b)
+		if want := FontVersion(hex.EncodeToString(sum[:])); u[2] != want {
+			t.Errorf("theme.css names %s?v=%s, but its bytes are version %s — write that in its url()", u[1], u[2], want)
+		}
+	}
+}
+
+// covers D184 (the review's font flash) — /vendor/ answers carry a strong
+// ETag under no-cache, so a reload revalidates to a 304 without the bytes; a
+// font asked for with its version is immutable (no round trip at all), any
+// other version or none is not; HEAD and ranges still work; the fonts' type
+// doesn't depend on the host's MIME files.
+func TestVendorCaching(t *testing.T) {
+	w := newAssetWS(t, TileAssetsLegacy)
+	w.s.WebFS = os.DirFS(filepath.Join("..", "..", "web"))
+	if got := mime.TypeByExtension(".woff2"); got != "font/woff2" {
+		t.Fatalf(".woff2 is %q, want font/woff2 whatever the host's mime.types says", got)
+	}
+	css := w.do("/vendor/theme.css")
+	etag := css.Header().Get("ETag")
+	if css.Code != 200 || css.Header().Get("Cache-Control") != "no-cache" || !regexp.MustCompile(`^"[0-9a-f]{32}"$`).MatchString(etag) {
+		t.Fatalf("/vendor/theme.css: %d Cache-Control %q ETag %q", css.Code, css.Header().Get("Cache-Control"), etag)
+	}
+	if again := w.do("/vendor/theme.css", hdr("If-None-Match", etag)); again.Code != http.StatusNotModified || again.Body.Len() != 0 {
+		t.Errorf("a revalidation with the ETag: %d, %d bytes — want 304 and none", again.Code, again.Body.Len())
+	}
+	if other := w.do("/vendor/theme.css", hdr("If-None-Match", `"0000"`)); other.Code != 200 || other.Body.Len() == 0 {
+		t.Errorf("a stale ETag: %d, want the file", other.Code)
+	}
+	b, err := os.ReadFile(filepath.Join("..", "..", "web", "vendor", "fonts", "instrument-sans-400.woff2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(b)
+	v := FontVersion(hex.EncodeToString(sum[:]))
+	for _, c := range []struct{ q, want string }{
+		{"?v=" + v, fontImmutable},
+		{"?v=00000000", "no-cache"},
+		{"", "no-cache"},
+	} {
+		rec := w.do("/vendor/fonts/instrument-sans-400.woff2"+c.q, hdr("Origin", "null"))
+		if rec.Code != 200 || rec.Header().Get("Cache-Control") != c.want || rec.Header().Get("Content-Type") != "font/woff2" || rec.Header().Get("Access-Control-Allow-Origin") != "null" {
+			t.Errorf("font %q: %d Cache-Control %q type %q ACAO %q", c.q, rec.Code, rec.Header().Get("Cache-Control"), rec.Header().Get("Content-Type"), rec.Header().Get("Access-Control-Allow-Origin"))
+		}
+	}
+	if rec := w.do("/vendor/bx-theme.js?v=" + v); rec.Header().Get("Cache-Control") != "no-cache" {
+		t.Errorf("a ?v= outside fonts/ is not a version: %q", rec.Header().Get("Cache-Control"))
+	}
+	if rec := w.do("/vendor/fonts/instrument-sans-400.woff2", hdr("Range", "bytes=0-3")); rec.Code != http.StatusPartialContent || rec.Body.String() != "wOF2" {
+		t.Errorf("a range: %d %q", rec.Code, rec.Body.String())
+	}
+	// the page's own copy and a sandboxed frame's differ (CORS headers), so
+	// every answer varies by Origin: a cached immutable font of the page's
+	// is never handed to the frame
+	for _, o := range []string{"", "null"} {
+		var opts []reqOpt
+		if o != "" {
+			opts = append(opts, hdr("Origin", o))
+		}
+		rec := w.do("/vendor/fonts/instrument-sans-400.woff2?v="+v, opts...)
+		if vary := rec.Header().Values("Vary"); len(vary) != 1 || vary[0] != "Origin" {
+			t.Errorf("Origin %q: Vary %q, want exactly Origin", o, vary)
 		}
 	}
 }

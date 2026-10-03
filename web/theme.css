@@ -31,42 +31,44 @@
    latin-ext halves (a name like Łukasz loads the second only when it shows
    up); JetBrains Mono whole, with the box drawing, blocks and arrows
    terminals draw. A sandboxed frame fetches them cross-origin (Origin:
-   null), which xbind answers. ---- */
+   null), which xbind answers. Each URL carries its file's version (?v=, the
+   first 8 hex digits of its SHA-256): xbind serves a font asked for with
+   its own version as immutable, so a reload draws from the cache. ---- */
 @font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url("fonts/instrument-sans-400.woff2") format("woff2");
+  src: url("fonts/instrument-sans-400.woff2?v=9a91efaa") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url("fonts/instrument-sans-400-ext.woff2") format("woff2");
+  src: url("fonts/instrument-sans-400-ext.woff2?v=a7bedd76") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 @font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("fonts/instrument-sans-600.woff2") format("woff2");
+  src: url("fonts/instrument-sans-600.woff2?v=efb77091") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("fonts/instrument-sans-600-ext.woff2") format("woff2");
+  src: url("fonts/instrument-sans-600-ext.woff2?v=ed241245") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 @font-face { font-family: "Instrument Sans"; font-style: italic; font-weight: 400; font-display: swap;
-  src: url("fonts/instrument-sans-400-italic.woff2") format("woff2");
+  src: url("fonts/instrument-sans-400-italic.woff2?v=b089ac6f") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "Instrument Sans"; font-style: italic; font-weight: 400; font-display: swap;
-  src: url("fonts/instrument-sans-400-italic-ext.woff2") format("woff2");
+  src: url("fonts/instrument-sans-400-italic-ext.woff2?v=9b577c78") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url("fonts/jetbrains-mono-400.woff2") format("woff2"); }
+  src: url("fonts/jetbrains-mono-400.woff2?v=a9cb1cd8") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap;
-  src: url("fonts/jetbrains-mono-500.woff2") format("woff2"); }
+  src: url("fonts/jetbrains-mono-500.woff2?v=086c48df") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 700; font-display: swap;
-  src: url("fonts/jetbrains-mono-700.woff2") format("woff2"); }
+  src: url("fonts/jetbrains-mono-700.woff2?v=c503cc5e") format("woff2"); }
 @font-face { font-family: "Bricolage Grotesque"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("fonts/bricolage-grotesque-600.woff2") format("woff2");
+  src: url("fonts/bricolage-grotesque-600.woff2?v=b34fc8c1") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "Bricolage Grotesque"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("fonts/bricolage-grotesque-600-ext.woff2") format("woff2");
+  src: url("fonts/bricolage-grotesque-600-ext.woff2?v=9903537b") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 @font-face { font-family: "Bricolage Grotesque"; font-style: normal; font-weight: 800; font-display: swap;
-  src: url("fonts/bricolage-grotesque-800.woff2") format("woff2");
+  src: url("fonts/bricolage-grotesque-800.woff2?v=3e1b5f0a") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "Bricolage Grotesque"; font-style: normal; font-weight: 800; font-display: swap;
-  src: url("fonts/bricolage-grotesque-800-ext.woff2") format("woff2");
+  src: url("fonts/bricolage-grotesque-800-ext.woff2?v=e101adfe") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 
 /* ---- Concrete Night: every document's default (and an opted-in document

@@ -660,33 +660,6 @@ func htmlEscape(s string) string {
 	return r.Replace(s)
 }
 
-// handleVendor serves core elements (web/*) and vendored deps (web/vendor/*)
-// under one /vendor/ prefix, so import maps and element imports have a single
-// stable root.
-func (s *Server) handleVendor(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimPrefix(r.URL.Path, "/vendor/")
-	if name == "" || strings.Contains(name, "..") || topLevelPage(name) {
-		http.NotFound(w, r)
-		return
-	}
-	for _, p := range []string{name, "vendor/" + name} {
-		b, err := fs.ReadFile(s.WebFS, p)
-		if err != nil {
-			continue
-		}
-		ct := mime.TypeByExtension(filepath.Ext(p))
-		if ct == "" {
-			ct = "application/octet-stream"
-		}
-		w.Header().Set("Content-Type", ct)
-		w.Header().Set("Cache-Control", "no-cache") // revalidate; vendor changes on upgrade
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		_, _ = w.Write(b)
-		return
-	}
-	http.NotFound(w, r)
-}
-
 // handleDocs serves the embedded builder docs. Markdown files are wrapped in
 // a small client-side viewer; ?raw=1 (and non-browser Accept) returns bytes.
 func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {

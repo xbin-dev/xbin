@@ -35,9 +35,10 @@ type Server struct {
 	Hub  *events.Hub
 	Term *term.Manager
 
-	WebFS   fs.FS  // core elements + vendored deps, served at /vendor/
-	DocsFS  fs.FS  // builder docs, served at /docs/
-	Version string // the running xbind build id (commit/describe), for /status
+	WebFS      fs.FS    // core elements + vendored deps, served at /vendor/
+	vendorSums sync.Map // WebFS path → its content hash (vendor.go: the ETag, a font's version)
+	DocsFS     fs.FS    // builder docs, served at /docs/
+	Version    string   // the running xbind build id (commit/describe), for /status
 	// Brand is the workspace's title + icon (D76, branding.go): what an admin
 	// set from the admin tile, shown by the shell and the sign-in pages. nil
 	// (tests) = xbin's own.

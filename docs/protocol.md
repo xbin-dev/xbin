@@ -632,7 +632,17 @@ GET  /c/~<asset-token>/<component-path>/<file>
                                  not read).
 GET  /vendor/<file>              core elements + vendored libs (lit, xterm…);
                                  UNAUTHENTICATED — shipped xbind code, and
-                                 sandboxed tile frames load it credential-less
+                                 sandboxed tile frames load it credential-less.
+                                 Cache-Control: no-cache with a strong ETag
+                                 (its content's SHA-256): a revalidation of
+                                 an unchanged file is a 304; Vary: Origin
+                                 (a sandboxed frame's Origin: null gets its
+                                 CORS answer). A font asked for with its
+                                 version, /vendor/fonts/<f>?v=<the first 8
+                                 hex digits of its SHA-256> as theme.css
+                                 writes it, is public, max-age=31536000,
+                                 immutable; another ?v= is answered as
+                                 without one (D184)
 GET  /docs/<file>.md             these docs (HTML viewer for browsers; ?raw=1
                                  or non-HTML Accept for plain markdown)
 GET  /xbin/partitions            the partitions page (docs/partitions.md
@@ -2721,7 +2731,7 @@ GET    /code/prs                   ?target=<path>[&state=…] → {target, prs:[
                                    admins with neither param get everything.
 GET    /code/prs/summary           any authenticated → {counts: {path: n}} —
                                    open-PR counts, filtered to targets the
-                                   caller can read (the shell's ⇄ badges).
+                                   caller can read (the shell's proposal badges).
 GET    /code/pr                    read gate. ?target=<path>&n=<n> → full meta
                                    + events (the review thread).
 GET    /code/pr/series             read gate. ?target=<path>&n=<n> → the raw

@@ -62,6 +62,16 @@ curl -fsSL "$IS/LICENSE" -o "$F/OFL-instrument-sans.txt"
 curl -fsSL "$BG/LICENSE" -o "$F/OFL-bricolage-grotesque.txt"
 curl -fsSL "$JB/OFL.txt" -o "$F/OFL-jetbrains-mono.txt"
 
+# Each font's url() in web/theme.css carries its version (?v=, the first 8
+# hex digits of its SHA-256): xbind serves a font asked for with its own
+# version as immutable (internal/server/vendor.go), so the URL changes with
+# the bytes. internal/server TestVendorFonts checks they agree.
+for f in "$F"/*.woff2; do
+  n=$(basename "$f")
+  v=$(sha256sum "$f" | cut -c1-8)
+  sed -i -E 's|(url\("fonts/'"${n//./\\.}"')(\?v=[0-9a-f]*)?"\)|\1?v='"$v"'")|' web/theme.css
+done
+
 # Pin what was fetched: hack/check-pins.sh verifies the tree against this
 # list (a hand-edited vendored file, or a CDN serving different bytes for
 # the same version, fails the release preflight). Paths are relative to
