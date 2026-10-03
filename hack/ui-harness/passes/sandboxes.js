@@ -331,7 +331,13 @@ async function routedVMHost(browser, check) {
   await T.locator('[data-tsbx-policy="edit"] input[name="total.memMiB"]').fill('16384');
   await settle(q);
   check(/stops every running one now/.test(await T.locator('[data-tsbx-policy="edit"]').textContent()), 'the editor warns: off stops what runs');
+  // A full-page shot leaves Chromium at another scroll offset than its scroll
+  // anchoring remembers: the next layout (the click moving focus) snaps the
+  // page back, the save button jumps from under the pointer and the click
+  // lands on the form. Put the scroll back where it was before shooting.
+  const y0 = await q.evaluate(() => scrollY);
   await shot(q, 'admin-sandboxes-tile-policy');
+  await q.evaluate((y) => window.scrollTo(0, y), y0);
   await T.locator('[data-tsbx-save-policy]').click();
   for (let i = 0; i < 40 && !sbxPut; i++) await sleep(100);
   check(sbxPut && sbxPut.enabled === false && sbxPut.total?.memMiB === 16384 && sbxPut.total?.pids === 0 &&
