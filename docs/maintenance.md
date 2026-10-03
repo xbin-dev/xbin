@@ -832,6 +832,7 @@ hack/ui-harness/run.sh --shots windows    # one pass against the running instanc
 hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every pass
 HARNESS_ISOLATE=1 hack/ui-harness/run.sh --keep livereload   # xbind with --isolate on $XBIN_TEST_ROOTFS
 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold  # no --dev-overlay: the workspace's own scaffold (below)
+HARNESS_THEME=light hack/ui-harness/run.sh --shots appearance themeCanary  # a light system (default dark)
 hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)
 ```
@@ -866,6 +867,11 @@ Rules that keep it cheap to maintain:
   or the window restores over the tile in the next pass (a right-click
   on the canvas then lands on it) — and the `termvm:<tile>` VM choice if
   it set one, or the next pass's sessions start in a VM.
+- **The system theme is dark** in every context the harness makes (lib.js:
+  `login()`, and `themed()` on the shared browser), as Playwright's own
+  default would be light; `HARNESS_THEME=light` runs the same passes on a
+  light system. A pass that needs a scheme of its own passes `colorScheme`
+  (D184: documents that opt in follow it).
 - **Wait for a condition, never for time**: `waitFor(page, (t) => …)`
   polls the shell's test surface, `waitSel` a selector, `settle` two
   animation frames after a state change. A fixed `sleep` is only right
