@@ -24,7 +24,7 @@ export async function liveURL(runId, det) {
 }
 
 // liveLabel is the pane's header for a live step.
-export const liveLabel = (det) => `● live from the sandbox — ${det.name || det.sandbox}:${det.port}${det.path || '/'}`;
+export const liveLabel = (det) => `live from the sandbox — ${det.name || det.sandbox}:${det.port}${det.path || '/'}`;
 
 // probeWords says what a check of a live page found — the web pane's fetch
 // of its own URL (live-status.js) or the backend's probe (actions.ports,
@@ -53,8 +53,8 @@ function probeHint(p) {
     case 'not-allowed': return 'whoever bound the sandbox may no longer use it here';
     case 'invalid': return 'the page path isn\'t one this route takes';
   }
-  if (p.status === 401) return /expired|sign-in ended/.test(e) ? 'the link expired, or your sign-in did: ↻ Reload mints a new one'
-    : 'the link works only from an address that signed in within the hour: sign in again here, then ↻ Reload';
+  if (p.status === 401) return /expired|sign-in ended/.test(e) ? 'the link expired, or your sign-in did: Reload mints a new one'
+    : 'the link works only from an address that signed in within the hour: sign in again here, then Reload';
   if (p.status === 403) return /origin/.test(e) ? 'the tile-origin check refused it: the link is another tile\'s'
     : 'only the people taking part in this conversation may open its sandbox\'s pages';
   if (p.status === 502 || p.status === 503 || p.status === 504) return 'the sandbox manager didn\'t answer: it, or the sandbox, may be stopped';

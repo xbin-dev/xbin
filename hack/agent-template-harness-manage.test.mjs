@@ -146,6 +146,6 @@ test('native: Settings → Coding agents — each one, and checking a running sa
   assert.match(JSON.stringify(find(s, { t: 'section', p: { title: 'GM · Gemini CLI' } })), /needs internet access/);
   assert.ok(r.calls.some((c) => c.url.endsWith('/harnesses?probe=' + encodeURIComponent(`${SBX}|sb-9c1d`))), 'checked now');
   const after = topScreen(r.snapshots.checked);
-  assert.equal(find(after, { t: 'section', p: { title: 'Check a running sandbox now' } }).p.footer, 'checked scratch ✓');
+  assert.equal(find(after, { t: 'section', p: { title: 'Check a running sandbox now' } }).p.footer, 'checked scratch');
   assert.ok(find(after, { t: 'row', p: { title: 'scratch' }, in: { t: 'section', p: { title: 'CC · Claude Code' } } }), 'what it found is listed');
 });

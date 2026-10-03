@@ -566,8 +566,9 @@ function renderAttach() {
   const host = $('attach');
   const attachments = app.attach.items;
   host.hidden = attachments.length === 0;
+  // a failed upload leads with the error glyph, an uploaded one ends with a check (D184)
   host.innerHTML = attachments.map((a) => `<span class="chip ${a.state || ''}" title="${esc(a.err || a.type || '')}">
-    <span class="nm">${esc(a.name)}</span><span class="sz">${a.state === 'up' ? 'uploading…' : a.err ? esc(a.err) : fmtBytes(a.size)}</span>
+    ${a.state === 'bad' ? '<bx-icon name="error"></bx-icon>' : ''}<span class="nm">${esc(a.name)}</span><span class="sz">${a.state === 'up' ? 'uploading…' : a.err ? esc(a.err) : fmtBytes(a.size)}</span>${a.state === 'done' ? '<bx-icon name="check" label="uploaded"></bx-icon>' : ''}
     <button data-rm="${a.key}" title="remove" aria-label="remove" ${app.sending ? 'disabled' : ''}><bx-icon name="xmark"></bx-icon></button></span>`).join('');
   host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => app.attach.remove(+b.dataset.rm));
 }

@@ -26,7 +26,7 @@ function catalogScreen(s) {
   const targets = probeTargets(app.sbx.list);
   const check = (t) => guard(async () => {
     await app.harness.load(t.ref);
-    s.msg = app.harness.error || `checked ${t.name} ✓`;
+    s.msg = app.harness.error || `checked ${t.name}`;
   });
   return html`<screen title="Coding agents" style="list" refreshable @refresh=${guard(() => Promise.all([app.harness.load(), app.sbx.load(true)]))}>
     ${app.harness.error ? html`<section><notice tone="danger" text=${app.harness.error}/></section>` : nothing}

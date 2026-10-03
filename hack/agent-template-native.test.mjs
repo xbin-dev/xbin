@@ -769,7 +769,7 @@ test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the too
   assert.equal(p.p.value, `${MGR}|api`);
   assert.deepEqual(p.p.options.map((o) => [o.label, o.icon]), [
     ['No sandbox', 'minus'], ['api', 'box'], ['web (stopped)', 'box'], ['wide — unavailable', 'lock'],
-    ['team-box · team', 'box'], ['＋ New sandbox…', 'plus'], ['Manage sandboxes…', 'list']], 'short: the bar shows the current one beside the model');
+    ['team-box · team', 'box'], ['New sandbox…', 'plus'], ['Manage sandboxes…', 'list']], 'short: the bar shows the current one beside the model');
   assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · ▣ Coding · ▣ api · \/work/, 'the ▣ badge in the header');
   assert.equal(called(r, 'GET', /\/sandboxes$/).length, 1, 'the list is read once');
   const note = texts(r.snapshots.refused, 'notice', 'text').find((t) => /wide/.test(t || ''));
@@ -856,7 +856,7 @@ test('coding sandboxes (D115): no picker without the toolset; the Sandboxes scre
   const made = bodies(r, 'POST', /\/sandboxes$/);
   assert.deepEqual({ ...made[0], clientId: 'x' }, { name: 'scratch', provider: MGR, egress: 'internet', visibility: 'private', image: 'base', size: 'small', clientId: 'x' });
   assert.equal(topScreen(r.snapshots.created).p.title, 'Sandboxes');
-  assert.ok(texts(r.snapshots.created, 'notice', 'text').includes('created scratch — your next new chat starts in it ✓'));
+  assert.ok(texts(r.snapshots.created, 'notice', 'text').includes('created scratch — your next new chat starts in it'));
   assert.equal(find(r.snapshots.created, { t: 'picker', p: { label: 'Sandbox' } }).p.value, `${MGR}|sb-scratch`, 'the picker has it');
   // the new chat starts in it
   const ask = bodies(r, 'POST', /\/ask$/)[0];

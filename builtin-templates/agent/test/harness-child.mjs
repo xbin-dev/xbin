@@ -136,7 +136,8 @@ ok('canceled: its link settled, no Stop or Cancel left', !(await page.$(`${card(
 // --- the list row: ? and ⧉ N -----------------------------------------------------------------
 const row = '#runs .run[data-id="25"]';
 await page.waitForSelector(row);
-ok('the row: ? while a run below waits, ⧉ N coding agents at work', !!(await page.$(`${row} .gl.ask`)) && (await text(`${row} .kids`)) === '⧉ 3'
+ok('the row: ? while a run below waits, the agents glyph and N coding agents at work', !!(await page.$(`${row} .gl.ask`))
+  && (await text(`${row} .kids`)) === '3' && !!(await page.$(`${row} .kids bx-icon[name="agent"]`))
   && (await page.getAttribute(`${row} .kids`, 'title')).includes('3 coding agents at work in this conversation'));
 
 // --- Open ↗ ------------------------------------------------------------------------------------

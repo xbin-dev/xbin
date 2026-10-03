@@ -250,7 +250,7 @@ export function sandboxPicker(list, conv, me, opts = {}) {
     none: { value: '', label: 'No sandbox', on: !value },
     groups,
     actions: [
-      { id: 'new', label: '＋ New sandbox…', disabled: !talk || !managers.length, why: newWhy },
+      { id: 'new', label: 'New sandbox…', disabled: !talk || !managers.length, why: newWhy },
       { id: 'manage', label: 'Manage sandboxes…', disabled: false, why: '' },
     ],
     stale, // why the pick can't be used ('' = it can, or the list isn't read yet)

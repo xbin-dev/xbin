@@ -233,7 +233,7 @@ style.textContent = `
   .hkid .hkplan .pe.in_progress { font-weight: 600; }
   .hkid .hktail .msg.assistant .md { max-height: 8.5em; overflow: hidden; }
   .hkid .hkmore { margin-top: 4px; }
-  .run .kids { flex: none; font: var(--bx-font-code); color: var(--bx-muted); }
+  .run .kids { flex: none; display: inline-flex; align-items: center; gap: 2px; font: var(--bx-font-code); color: var(--bx-muted); }
 `;
 document.head.append(style);
 

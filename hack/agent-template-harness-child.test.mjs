@@ -226,13 +226,13 @@ test('Session: a subagent card\'s read (loadChild) that fails waits too; a strea
   }
 });
 
-test('a list row: ? for a run waiting below it; ⧉ N coding agents at work', () => {
+test('a list row: ? for a run waiting below it; the agents glyph and N coding agents at work', () => {
   assert.equal(rowGlyph({ status: 'awaiting', waiting: true }), 'ask');
   assert.equal(rowGlyph({ status: 'awaiting' }), 'spin');
   assert.equal(K.kidsWords({}), null);
   assert.equal(K.kidsWords({ kids: { harness: 0, waiting: 2 } }), null, 'only waiting: the ? says it');
   assert.deepEqual(K.kidsWords({ kids: { harness: 3, waiting: 2 } }),
-    { text: '⧉ 3', label: '3 coding agents', title: '3 coding agents at work in this conversation · 2 runs below wait for you' });
+    { text: '3', icon: 'agent', label: '3 coding agents', title: '3 coding agents at work in this conversation · 2 runs below wait for you' });
   assert.equal(K.kidsWords({ kids: { harness: 1, waiting: 1 } }).title, '1 coding agent at work in this conversation · one run below waits for you');
 });
 
@@ -353,7 +353,7 @@ test('native: a harness child\'s own chat offers Cancel task (confirmed); the dr
   assert.match(b.p.confirm.title, /^Cancel Claude Code's task \(#26\)\?/);
   assert.equal(r.calls.filter((c) => c.method === 'POST' && /\/runs\/26\/cancel$/.test(c.url)).length, 1);
   const row = find(r.snapshots.drawer.root, { t: 'row', p: { title: 'Refactor the API' } });
-  assert.equal(row.p.subtitle, '⧉ 3 coding agents');
+  assert.equal(row.p.subtitle, '3 coding agents');
   assert.equal(row.p.badge, 'waiting for you', 'a run below it waits: ?');
   const own = await runSeed([{ snapshot: 'chat' }], 'c=21', harnessSeed());
   assert.equal(find(own.snapshots.chat.root, { t: 'button', p: { label: 'Cancel task' } }), null, 'not a child: none');

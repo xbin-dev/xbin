@@ -202,14 +202,15 @@ export const messageWords = (c) => ({
 });
 
 // kidsWords: a conversation row's coding agents at work below it (§4.3.8
-// `kids`: {harness, waiting}) as a chip — {text: "⧉ 2", title} — or null.
+// `kids`: {harness, waiting}) as a chip — {text: "2", icon: "agent", label,
+// title}: the agents' glyph and the count (D184) — or null.
 // The row's `?` (rules.rowGlyph, row.waiting) says that something waits.
 export function kidsWords(r) {
   const k = r && r.kids;
   if (!k || !(k.harness > 0)) return null;
   const n = k.harness;
   const w = k.waiting > 0 ? ` · ${k.waiting === 1 ? 'one run' : k.waiting + ' runs'} below ${k.waiting === 1 ? 'waits' : 'wait'} for you` : '';
-  return { text: `⧉ ${n}`, label: `${n} coding agent${n === 1 ? '' : 's'}`, title: `${n} coding agent${n === 1 ? '' : 's'} at work in this conversation${w}` };
+  return { text: `${n}`, icon: 'agent', label: `${n} coding agent${n === 1 ? '' : 's'}`, title: `${n} coding agent${n === 1 ? '' : 's'} at work in this conversation${w}` };
 }
 
 // isChildRun: a run a harness drives that an agent started (the child's own chat).

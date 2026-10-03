@@ -60,7 +60,7 @@ function configTpl(s) {
     s.err = ''; s.msg = '';
     const next = { ...s.cfg, models: { ...f.models }, system: f.system, tokenBudget: Number(f.tokenBudget) || 0,
       maxIters: Number(f.maxIters) || 0, toolTimeout: Number(f.toolTimeout) || 0, subagents: f.subagents, approve: f.approve };
-    try { await actions.saveConfig(next); s.cfg = next; s.msg = 'saved ✓'; } catch (e) { s.err = e.message; }
+    try { await actions.saveConfig(next); s.cfg = next; s.msg = 'saved'; } catch (e) { s.err = e.message; }
     ctx.paint();
   };
   return html`<screen title="Config" subtitle=${s.msg || nothing} style="form">

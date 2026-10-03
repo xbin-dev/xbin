@@ -2032,8 +2032,8 @@ own refusals now carry `refusal` beside `error` too.
 
 **The pane.** A new `live` step opens the render pane (as a render does;
 one you closed stays closed; the chat's `showing …` line (the signal glyph) opens it again)
-on the page, labelled **● live from the
-sandbox — name:port/path**, with **↻ Reload**: an `<iframe
+on the page, labelled (the signal glyph) **live from the
+sandbox — name:port/path**, with **Reload**: an `<iframe
 sandbox="allow-scripts allow-forms" credentialless
 referrerpolicy="no-referrer">` — never `allow-same-origin` — whose URL is
 below an xbind **path ticket** (docs/auth.md §Path tickets) the pane mints
@@ -2048,7 +2048,7 @@ the ticket rides in it) as the frame loads, and again on **Check**: the HTTP
 status and type, or the refusal and what to do about it — nothing listening
 (start the server), the sandbox stopped, an agent from before ports
 (restart the sandbox), xbind's 401s (the link expired or the sign-in ended:
-↻ Reload; the link works only from where you signed in within the hour),
+Reload; the link works only from where you signed in within the hour),
 the tile-origin 403. A page that answers an error is said there, with the
 frame hidden, never shown blank. The ▣ popover's **Ports** section lists
 the previews with their probes and **Open**, and probes any port of the
@@ -2069,7 +2069,7 @@ the calls); the web draws it in `sandboxes.js`, the native view in
 - **The composer's picker** (`#ssel`, beside the model's) shows where the
   class — the open conversation's, or at home the next new chat's — has the
   `sandbox` toolset: no sandbox, then This conversation (what it has
-  attached or bound) · Yours · Shared · Team, then ＋ New sandbox… and
+  attached or bound) · Yours · Shared · Team, then New sandbox… and
   Manage sandboxes…. One you may not use, or that the class does not allow
   (its manager, its egress — the less restrictive of `egress` and
   `egressNext` — or, for a class that reaches outside, the internal data it
@@ -3074,7 +3074,8 @@ Stop, ⋯ → Cancel task). A person's message to a coding agent the agent
 started is told to that agent (`[direct message to #<child> (<name>) from
 <who>]`, D147 §4.3.13), which its chat shows as a folded notice once it
 is delivered. A conversation row says `?` while it or a run below it waits
-(`waiting`) and `⧉ N` for the coding agents at work below it (`kids.harness`).
+(`waiting`) and the agents glyph with N for the coding agents at work below it
+(`kids.harness`; the app's row says "N coding agents").
 
 **The Coding agents board (the UI).** Every coding agent in the open
 conversation's tree — at home, every one of yours that runs or needs you:

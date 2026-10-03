@@ -67,7 +67,7 @@ function rowTpl(r, ui, withMatch) {
     ${kind ? html`<span class="kind" data-kind=${kind.provider} title=${kind.title}>${kind.mono}</span>` : nothing}
     <div class="t">${r.title || 'run ' + r.id}</div>
     ${hostedRowChip(r)}
-    ${kids ? html`<span class="kids" title=${kids.title}>${kids.text}</span>` : nothing}
+    ${kids ? html`<span class="kids" title=${kids.title}><bx-icon name=${kids.icon}></bx-icon>${kids.text}</span>` : nothing}
     ${glyph}
     <button class="rmenu" title="more" aria-label="more" @click=${(e) => { e.stopPropagation(); ui.openMenu(r.id, e); }}><bx-icon name="ellipsis"></bx-icon></button>
     ${shared ? html`<div class="chips" title=${shared.title}>${shared.chips.map((c) => html`<span class="chip ${c.kind}">${c.label}</span>`)}</div>` : nothing}

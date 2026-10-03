@@ -254,7 +254,7 @@ export function createSandboxStore(app) {
       });
       emit();
       const s = find(ref);
-      return `${(s && s.name) || S.splitRef(ref).id} is shared with ${vm.tile} — ${vm.users === '*' ? 'everyone who may use it' : 'you'} can open terminals onto it there ✓`;
+      return `${(s && s.name) || S.splitRef(ref).id} is shared with ${vm.tile} — ${vm.users === '*' ? 'everyone who may use it' : 'you'} can open terminals onto it there`;
     },
     // unshare takes consumer's share of ref away.
     async unshare(ref, consumer) {
@@ -268,7 +268,7 @@ export function createSandboxStore(app) {
     async perform(ref, id, name = S.splitRef(ref).id) {
       if (id === 'use') {
         await sbx.choose(ref);
-        return conv() ? `${name} is this conversation's sandbox from its next turn ✓` : `${name} is your next new chat's sandbox ✓`;
+        return conv() ? `${name} is this conversation's sandbox from its next turn` : `${name} is your next new chat's sandbox`;
       }
       if (id === 'delete') { await sbx.remove(ref); return `deleted ${name}`; }
       if (id === 'team' || id === 'private') { await sbx.share(ref, id); return ''; }
@@ -277,7 +277,7 @@ export function createSandboxStore(app) {
     },
     // created: what to say once create() made s (bind: as it was asked).
     created(s, bind) {
-      return `created ${s.name}${bind ? (conv() ? ' — this conversation works in it from its next turn' : ' — your next new chat starts in it') : ''} ✓`;
+      return `created ${s.name}${bind ? (conv() ? ' — this conversation works in it from its next turn' : ' — your next new chat starts in it') : ''}`;
     },
     // remove deletes it; every conversation that had it loses it.
     async remove(ref) {

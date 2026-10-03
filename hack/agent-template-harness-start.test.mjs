@@ -204,7 +204,7 @@ test('native: the new-chat sheet — who answers, a coding agent\'s sandbox, no 
     { tap: { t: 'button', p: { label: 'Start' }, in: sheet } }, { wait: 50 },
   ]);
   const rows = all(r.snapshots.drawer.root, { t: 'row', in: { t: 'sheet' } }).filter((x) => /Fix the flaky test|Port the CLI|Refactor the API/.test(x.p.title));
-  assert.deepEqual(rows.map((x) => [x.p.title, x.p.subtitle ?? '']).sort(), [['Fix the flaky test', 'Claude Code'], ['Port the CLI', 'Codex'], ['Refactor the API', '⧉ 2 coding agents']],
+  assert.deepEqual(rows.map((x) => [x.p.title, x.p.subtitle ?? '']).sort(), [['Fix the flaky test', 'Claude Code'], ['Port the CLI', 'Codex'], ['Refactor the API', '2 coding agents']],
     'the built-in agent\'s: no kind — its coding agents at work below it (U6)');
   const s0 = find(r.snapshots.sheet, sheet);
   assert.equal(find(s0, WHO).p.value, 'agent');
