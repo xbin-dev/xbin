@@ -70,7 +70,7 @@ test('ops: rows, usage, the substrate, the mode, images', () => {
   assert.deepEqual(imgs.map((i) => i.agents.join()), ['Claude Code,Codex', '', ''], 'an image\'s coding agents (hello.images[].harnesses)');
   const rust = imgs.find((i) => i.id === 'rust');
   assert.equal(rust.buildText, 'the rebuild failed');
-  assert.equal(rust.kept, 'The previous build (3 d ago), of the script before, is kept until a build succeeds.');
+  assert.equal(rust.kept, 'The previous build (3 d ago), of the setup before, is kept until a build succeeds.');
   const same = O.imageRows({ ...SEED.ops, images: [{ ...SEED.ops.images[0], state: 'building', previous: { ...SEED.ops.images[0], built: NOW - 7200e3 } }] }, NOW)
     .find((i) => i.id === 'node');
   assert.deepEqual([same.buildText, same.tone, same.kept], ['rebuilding…', 'warn', 'The previous build (2 h ago) is kept: new sandboxes clone it until a build succeeds.']);
@@ -88,6 +88,18 @@ test('ops: the editors — images, sizes, quotas, shares, mounts', () => {
   assert.deepEqual([base.title, base.tools, base.harnesses.map((h) => h.id)], ['Base', ['git'], ['claude', 'codex']], 'an edit keeps what the form doesn\'t hold');
   const renamed = O.applyImage(images, { ...O.imageForm(images[1]), buildEgress: '' }).images[1];
   assert.ok(!('buildEgress' in renamed), 'a cleared build network is gone, not kept');
+  // an image's sudo (D182): set, kept by an edit that doesn't touch it, cleared
+  const sudo = O.applyImage(images, { ...O.imageForm(images[1]), sudo: true }).images[1];
+  assert.equal(sudo.sudo, true);
+  assert.equal(O.imageForm(sudo).sudo, true);
+  const kept = O.applyImage([images[0], sudo], { ...O.imageForm(sudo), title: 'Node again' }).images[1];
+  assert.equal(kept.sudo, true, 'an edit of another field keeps sudo');
+  assert.ok(!('sudo' in O.applyImage([images[0], sudo], { ...O.imageForm(sudo), sudo: false }).images[1]), 'a cleared sudo is gone');
+  const withSudo = { ...SEED.ops, config: { ...SEED.ops.config, images: [images[0], sudo] } };
+  assert.deepEqual(O.imageRows(withSudo, NOW).map((i) => [i.id, i.sudo, i.sudoWhy]), [['base', false, ''], ['node', true, '']]);
+  const nsOnly = { ...withSudo, config: { ...withSudo.config, mode: 'auto' }, runtime: { ...SEED.ops.runtime, modes: [{ mode: 'namespace' }] } };
+  assert.equal(O.imageRows(nsOnly, NOW)[1].sudoWhy, O.SUDO_WHY, 'namespace sandboxes now: the image says its sudo gives nothing');
+  assert.equal(O.sandboxRows({ ...SEED.ops, sandboxes: [{ ...SEED.ops.sandboxes[0], sudo: true }] }, NOW)[0].sudo, true);
   assert.ok(O.removeImage([images[0]], 'base').error);
   assert.match(O.applySizes([{ id: 'x', memMiB: 64, vcpus: 1, diskGiB: 1 }]).error, /128/);
   const q = O.setQuota(SEED.ops.config.quotas, 'person', 'alice', { running: '5', sandboxes: 0 });
@@ -272,6 +284,7 @@ test('native: Images and Settings — a rebuild, the mode, a person\'s quota', a
     { tap: { t: 'button', p: { label: 'Rebuild' } } },
     { tap: { t: 'button', p: { label: 'Edit' } } },
     { input: [{ t: 'field', p: { label: 'Title' } }, 'Rust nightly'] },
+    { event: [{ t: 'toggle', p: { label: 'Its user may sudo (VM sandboxes)' } }, 'change', { value: true }] },
     { tap: { t: 'button', p: { label: 'Save' } } },
     { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
     show('settings'),
@@ -302,6 +315,8 @@ test('native: Images and Settings — a rebuild, the mode, a person\'s quota', a
   assert.ok(find(st, { t: 'row', p: { title: 'open', detail: 'not offered' } }), 'an unbound class');
   const puts = called(r, 'PUT', /\/ops\/config$/).map((c) => JSON.parse(c.body));
   assert.equal(puts[0].images.find((i) => i.id === 'rust').title, 'Rust nightly');
+  assert.equal(puts[0].images.find((i) => i.id === 'rust').sudo, true, 'the editor\'s sudo');
+  assert.equal(find(rust, { t: 'row', p: { title: 'Its user may sudo' } }).p.detail, 'no');
   assert.deepEqual(puts[1], { mode: 'namespace' });
   assert.deepEqual(puts[2].quotas.people, { alice: { sandboxes: 4, running: 5 } });
 });

@@ -65,7 +65,7 @@ export function opScreen(s) {
       <row title="Image" detail=${r.image}/>
       <row title="Size" detail=${r.size} subtitle=${r.sizeText}/>
       <row title="Network" detail=${r.egressText}/>
-      <row title="Isolation" detail=${r.isolation}/>
+      <row title="Isolation" detail=${r.isolation} subtitle=${r.sudo ? 'its user may sudo (its image\'s)' : undefined}/>
       <row title="Disk" detail=${r.disk || '—'}/>
       <row title="Last active" detail=${r.lastText || '—'}/>
     </section>

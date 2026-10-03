@@ -345,7 +345,8 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
 - **Operators** (write access to the tile) get four tabs:
   - **Sandboxes** — every consumer's sandboxes, most recently active first:
     state (and why), consumer, owner (asserted ones say so), who may use it
-    (shown, never changed here), image, size, network, isolation, disk and
+    (shown, never changed here), image, size, network, isolation (and
+    whether its user may sudo), disk and
     last activity; start, stop, delete; snapshots (take, restore, delete);
     **Ports** (whether it serves ports and why not, and a probe of one).
     Usage by consumer and person against the
@@ -354,7 +355,9 @@ it (`hack/coding-sandbox-ui.test.mjs` holds them level, D96).
     orphans.
   - **Images** — each image's build (built, building, failed and why, and
     the previous good build a failed or running rebuild keeps), its script
-    and last output; build now; add, edit, remove.
+    and last output, whether its user may sudo (and why that gives nothing
+    while the manager makes namespace sandboxes); build now; add, edit,
+    remove.
   - **Settings** — the mode (and what new sandboxes get with it now, or why
     none can be made), the `sandbox-net` classes (bound to what, reaching
     what, offered or not, the `bx bind` to bind one), sizes, quotas (the

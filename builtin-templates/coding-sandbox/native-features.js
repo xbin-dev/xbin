@@ -19,6 +19,7 @@ export const IMPLEMENTS = {
   'images.log': 'native/images.js — imageScreen, the last build\'s output',
   'images.edit': 'native/images.js — imageFormScreen (model/ops.js imageForm, applyImage)',
   'images.remove': 'native/images.js — imageScreen Remove, confirmed',
+  'images.sudo': 'native/images.js — imageFormScreen\'s sudo toggle; imagesSections\' subtitle, imageScreen\'s row and its why (model/ops.js imageRows sudoWhy); native/ops.js — opScreen Isolation',
 
   'settings.mode': 'native/settings.js — settingsSections Isolation (model/ops.js modeInfo)',
   'settings.egress': 'native/settings.js — settingsSections Networks',

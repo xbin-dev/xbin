@@ -32,7 +32,7 @@ export function sandboxRows(st, now = Date.now()) {
       stateLabel: F.STATES[s.state] || s.state, tone: F.stateTone(s.state), stateDetail: s.stateDetail || '',
       image: (s.image && (s.image.title || s.image.id)) || '', imageId: (s.image && s.image.id) || '',
       size: (s.size && s.size.id) || '', sizeText: F.sizeText(s.size), egress: s.egress || 'none', egressText: F.egressText(s),
-      isolation: F.ISOLATION[s.isolation] || s.isolation || '', disk: s.diskBytes ? F.bytes(s.diskBytes) : '',
+      isolation: F.ISOLATION[s.isolation] || s.isolation || '', sudo: !!s.sudo, disk: s.diskBytes ? F.bytes(s.diskBytes) : '',
       lastActive: s.lastActive || 0, lastText: F.ago(s.lastActive, now), shares: s.shares || [], visibility: s.visibility,
       members: s.members || [], who: F.whoText(s), outdated: !!(s.base && s.base.outdated), runtime: s.runtime || '', actions,
     };
@@ -117,14 +117,19 @@ export function modeInfo(st) {
 
 // --- images -----------------------------------------------------------------------------
 
+// SUDO_WHY: what an image's sudo can't do in a namespace sandbox.
+export const SUDO_WHY = 'not in the namespace sandboxes this manager makes now: they run with no new privileges, where sudo can\'t work';
+
 // imageRows: the configured images, each with its build (a setup script's)
 // and whether consumers are offered it now. A build that isn't ready keeps
 // the previous good one (kept): new sandboxes clone that one while its
-// script is the current one, and it goes once a build succeeds.
+// setup (the script and the sudo) is the current one, and it goes once a
+// build succeeds. sudoWhy says why an image's sudo gives nothing now.
 export function imageRows(st, now = Date.now()) {
   if (!st || !st.config) return [];
   const built = new Map((st.images || []).map((b) => [b.id, b]));
   const offered = (st.offer && st.offer.images) || [];
+  const mode = modeInfo(st).now;
   return (st.config.images || []).map((im) => {
     const b = built.get(im.id) || null;
     const prev = (b && b.state !== 'ready' && b.previous) || null;
@@ -135,10 +140,11 @@ export function imageRows(st, now = Date.now()) {
       const when = F.ago(prev.built, now);
       kept = prev.setupHash === b.setupHash && prev.mode === b.mode
         ? `The previous build${when ? ` (${when})` : ''} is kept: new sandboxes clone it until a build succeeds.`
-        : `The previous build${when ? ` (${when})` : ''}, of the script before, is kept until a build succeeds.`;
+        : `The previous build${when ? ` (${when})` : ''}, of the setup before, is kept until a build succeeds.`;
     }
     return {
       id: im.id, title: im.title || im.id, tools: im.tools || [], setup: im.setup || '', default: !!im.default,
+      sudo: !!im.sudo, sudoWhy: im.sudo && mode === 'namespace' ? SUDO_WHY : '',
       agents: (im.harnesses || []).map((h) => h.title || h.id),
       buildEgress: im.buildEgress || '', offered: offered.includes(im.id), built: b, buildText: build, kept,
       tone: b ? (b.state === 'ready' ? 'ok' : b.state === 'building' || prev ? 'warn' : 'danger') : 'muted',
@@ -150,8 +156,12 @@ export function imageRows(st, now = Date.now()) {
 // imageForm: an image as the editor holds it (strings), from a config image.
 export const imageForm = (im = {}) => ({
   id: im.id || '', title: im.title || '', tools: (im.tools || []).join(', '), setup: im.setup || '',
-  buildEgress: im.buildEgress || '', default: !!im.default, was: im.id || '',
+  buildEgress: im.buildEgress || '', default: !!im.default, sudo: !!im.sudo, was: im.id || '',
 });
+
+// SUDO_HELP: the editor's words for an image's sudo (API.md §Images).
+export const SUDO_HELP = 'Its user may become root with sudo, no password, and use /dev/fuse and /dev/net/tun (rootless containers) — '
+  + 'in VM sandboxes only. A change rebuilds an image with a setup script; existing sandboxes keep what they have.';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 
@@ -169,6 +179,8 @@ export function applyImage(images, form) {
   };
   if (form.buildEgress) im.buildEgress = form.buildEgress;
   else delete im.buildEgress;
+  if (form.sudo) im.sudo = true;
+  else delete im.sudo;
   if (!im.setup) delete im.setup;
   let out = form.was ? images.map((x) => (x.id === form.was ? im : x)) : [...images, im];
   if (im.default) out = out.map((x) => (x.id === id ? x : { ...x, default: false }));

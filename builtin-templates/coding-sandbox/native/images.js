@@ -12,7 +12,7 @@ export function imagesSections() {
   if (!app.ops) return html`<section><progress label="loading…"/></section>`;
   const rows = app.images();
   return html`<section title="Images" footer="An image is the substrate's base plus an optional setup script, run once as root and snapshotted; every later sandbox of it is a clone.">
-      ${repeat(rows, (im) => im.id, (im) => html`<row title=${im.title} subtitle=${[im.id, im.tools.join(', ')].filter(Boolean).join(' · ')}
+      ${repeat(rows, (im) => im.id, (im) => html`<row title=${im.title} subtitle=${[im.id, im.sudo ? 'sudo' : '', im.tools.join(', ')].filter(Boolean).join(' · ')}
         detail=${im.buildText} tone=${im.tone === 'muted' ? undefined : im.tone} badge=${im.default ? 'default' : undefined} icon="box" nav
         @tap=${() => push({ kind: 'image', id: im.id })}/>`)}
     </section>
@@ -37,6 +37,8 @@ export function imageScreen(s) {
       <row title="Offered to consumers" detail=${im.offered ? 'yes' : 'no'}/>
       <row title="Tools" detail=${im.tools.join(', ') || '—'}/>
       ${im.agents.length ? html`<row title="Coding agents" detail=${im.agents.join(', ')}/>` : nothing}
+      <row title="Its user may sudo" detail=${im.sudo ? 'yes, in VM sandboxes' : 'no'} tone=${im.sudoWhy ? 'warn' : undefined}/>
+      ${im.sudoWhy ? html`<notice tone="warn" text=${`sudo: ${im.sudoWhy}`}/>` : nothing}
       ${im.default ? html`<row title="The default image"/>` : nothing}
       ${im.built && im.built.detail ? html`<notice tone="danger" text=${im.built.detail}/>` : nothing}
       ${im.kept ? html`<notice tone="info" text=${im.kept}/>` : nothing}
@@ -73,7 +75,10 @@ export function imageFormScreen() {
       <field label="Tools" placeholder="git, node, pnpm" value=${f.tools} @input=${set('image', 'tools')}/>
       <toggle label="The default" value=${f.default} @change=${(e) => { ui.forms.image = { ...f, default: e.value }; ctx.paint(); }}/>
     </section>
-    <section title="Setup script" footer="Run as root in the workdir, once; empty: the substrate's base. A changed script rebuilds the image at its next use.">
+    <section footer=${O.SUDO_HELP}>
+      <toggle label="Its user may sudo (VM sandboxes)" value=${f.sudo} @change=${(e) => { ui.forms.image = { ...f, sudo: e.value }; ctx.paint(); }}/>
+    </section>
+    <section title="Setup script" footer="Run as root in the workdir, once; empty: the substrate's base. A changed script, or sudo, rebuilds the image at its next use.">
       <field kind="multiline" label="Script" placeholder="apt-get update && apt-get install -y nodejs npm" value=${f.setup} @input=${set('image', 'setup')}/>
       <picker label="Network while it builds" value=${f.buildEgress} options=${EGRESS_OPTS} @change=${(e) => { ui.forms.image = { ...f, buildEgress: e.value }; ctx.paint(); }}/>
     </section>

@@ -53,7 +53,7 @@ export const OPS = {
   images: [
     { id: 'node', runtime: 'img-node-a1b2c3', snapshot: 's-1', setupHash: 'x', mode: 'vm', state: 'ready', log: 'added 1 package\nsetup done', built: NOW - 3600e3 },
     { id: 'rust', runtime: 'img-rust-d4e5f6', setupHash: 'y', mode: 'vm', state: 'error', detail: 'the setup script exited 6: curl: (6) Could not resolve host: sh.rustup.rs', log: 'curl: (6) Could not resolve host: sh.rustup.rs',
-      // the last good build, of the script before, kept until a build succeeds
+      // the last good build, of the setup before, kept until a build succeeds
       previous: { id: 'rust', runtime: 'img-rust-a0a0a0', snapshot: 's-3', setupHash: 'y0', mode: 'vm', state: 'ready', built: NOW - 3 * 86400e3 } },
   ],
   sandboxes: [
