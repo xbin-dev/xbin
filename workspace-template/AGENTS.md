@@ -9,7 +9,7 @@ by the daemon; fetch any of them with:
 
 ```sh
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/index.md?raw=1"
-# also: getting-started.md elements.md auth.md resources.md sdk.md native.md protocol.md bx.md tile-deployments.md changelog.md
+# also: getting-started.md elements.md auth.md resources.md sdk.md design.md frontend-kit.md native.md protocol.md bx.md tile-deployments.md changelog.md
 ```
 
 **After an xbind upgrade** (or when a previously-working API starts failing),
@@ -408,8 +408,8 @@ kit — docs/frontend-kit.md lists every module a tile may import, always by
 absolute URL, never a bare specifier.) Frames live-reload on save; backend
 build errors overlay the frame with compiler output until the next good save.
 
-**Theme & shell.** The workspace look is Base Two (D184): Concrete Night
-(dark) and Concrete Day (light), dense, square 2px corners, defined by CSS
+**Theme & shell.** The workspace look is Base Two (D183, D184): Concrete
+Night (dark) and Concrete Day (light), dense, square 2px corners, defined by CSS
 tokens in `/vendor/theme.css`. It follows the person's system light/dark
 setting unless they pick one in Settings → Theme (Density: Compact or
 Comfortable). A page follows the person only when it opts in —
@@ -418,10 +418,8 @@ the attribute it stays Night. Use the tokens and nothing else for colour,
 type and shape: `--bx-bg/-panel/-panel-2/-border/-border-strong/-text/
 -muted/-subtle/-accent/-accent-ink/-link/-ok/-warn/-danger/-info/-radius/
 -shadow-pop/-font/-mono/-sans` and the rest (docs/frontend-kit.md §Theme
-lists them, with the rules: the accent only for primary actions, selection
-and prose links; status as icon + word + colour; 13px or larger; corners
-`var(--bx-radius)` or 0; no emoji as icons — `<bx-icon name>` from
-`/vendor/bx-icons.js`). `body.bx` gives the base and `.bx` the controls
+lists them; the design guidelines below say how to use them). Glyphs come
+from `/vendor/bx-icons.js` (`<bx-icon name>`). `body.bx` gives the base and `.bx` the controls
 (buttons, fields, the focus ring; in an opted-in page also `button.primary`,
 `.quiet`, `.danger` and the 28px size); code that
 paints (a canvas, xterm) reads `token()` and repaints in `onAppearance()`
@@ -455,6 +453,49 @@ clipboard, since a sandboxed frame has none; selected text in the shell's
 own chrome keeps the native menu. On touch a live selection belongs to the
 platform's toolbar. On phones the menus are
 bottom sheets (⋯ or long-press) and the tile admin popover is a sheet.
+
+**Design guidelines.** What makes a tile look and read like part of this
+workspace (Base Two, D183). Apply these to every page you build or restyle:
+
+1. **Tokens only.** Every colour, font, corner and shadow is a
+   `var(--bx-…)`: no literal colour, font family or radius, nothing tuned
+   for one theme. Opt in, then look at the tile in Light and in Dark.
+2. **Calm surfaces, one accent.** Panels (`--bx-panel`, `--bx-panel-2`)
+   edged by 1px borders. The accent is for the one primary button in a
+   view, the selection, the active tab's underline and links in prose;
+   never for ids, paths, status or decoration. No brand colour blocks
+   (yellow, green, magenta, cobalt) in a tile: those are the workspace's
+   own chrome.
+3. **Status is a glyph, a word and a colour**: `<bx-icon name="ok">`
+   (`warning`, `error`, `info`), the word beside it, `--bx-ok` / `-warn` /
+   `-danger` / `-info`, and the `-bg` tint behind an alert. Never a
+   coloured dot alone. A lasting condition goes to `xbin.status`, an event
+   to `xbin.notify`: the shell draws them.
+4. **Square and flat.** `border-radius: var(--bx-radius)` (2px) or 0: no
+   pills, no circles. Borders separate; `--bx-shadow-pop` only for what
+   floats. No gradients, glows, blur, illustrations or photographs.
+5. **Dense, exact type.** `font: var(--bx-font)` (13/18); nothing smaller
+   except the `.bx-label` caps and 12px meta for timestamps; mono for
+   paths, commands, hostnames, ids and times; tabular figures in tables;
+   the display face only for headings and empty states. Rows
+   `var(--bx-row)`, controls `var(--bx-control-h)`, padding `var(--bx-pad)`,
+   gaps on the 4px grid.
+6. **Glyphs, not emoji:** `<bx-icon name>`; never sparkles, robots or
+   faces. A person's own emoji is their content: show it as written.
+7. **Show the plan, then ask.** Before anything consequential, an
+   `xbin.dialog` says what will change (files, grants, restarts) and its
+   button names the action ("Restore backup", not "OK").
+8. **Plain words.** Buttons are verbs, titles nouns. Errors say what
+   happened, what is still safe and what to do next. No exclamation marks
+   or hype. Agents are software ("The agent changed 2 files"), never
+   teammates. Numbers are measured, with units ("214 ms").
+9. **Motion only confirms a change** (`--bx-dur-*`, `--bx-ease-out`):
+   nothing loops, pulses or shimmers; show "working 0:42", not invented
+   progress.
+
+Read **/docs/design.md** (the guide, with components and do/don't examples)
+and **/docs/frontend-kit.md §Theme** (opting in, every token, the icons,
+`bx-theme.js`) before you build or restyle a tile's UI.
 
 **Tile sizing (design constraint).** The shell lays tiles on a **fixed
 snappable grid** (48px): a tile is a **fixed size** the user sets by dragging

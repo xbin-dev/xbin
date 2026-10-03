@@ -22,8 +22,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   they ask, plates, empty states), the workspace's voice, both themes and
   what not to do, with examples. [frontend-kit.md](/docs/frontend-kit.md)
   §Theme stays the mechanism and links it. The workspace `AGENTS.md` (new
-  workspaces) carries the rules that matter most under Theme & shell and
-  points there; any workspace's agents can read the page at `/docs/` or in
+  workspaces) carries the nine rules that matter most, as *Design
+  guidelines* under Theme & shell, and points there, as do the welcome
+  tile's "light & dark" note (`scaffold:apps/welcome`) and the page `bx new`
+  writes; any workspace's agents can read the page at `/docs/` or in
   `$XBIN_DOCS`.
 - **xbin's mark is the bˣ tile** (Base Two, D183): a white b with a yellow
   x raised as its exponent, on a square cobalt tile, beside the wordmark
