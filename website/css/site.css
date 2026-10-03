@@ -343,3 +343,51 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 @media (prefers-contrast:more){
   :root{--divider:var(--text);--grain:none}
 }
+
+/* ---------- product.html and install.html only: every rule is scoped by .page-product or .page-install ---------- */
+/* Inform hero: the plate beside the h1 (under the buttons on phones), jump links under it */
+.page-product .ihero-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-7) var(--gutter);align-items:start}
+:is(.page-product,.page-install) .ihero :is(.actions,.more){margin-top:var(--s-6)}
+.page-product .jump{display:flex;flex-wrap:wrap;margin-top:var(--s-4);font:600 14px/24px var(--f-text)}
+.page-product .jump li:not(:last-child)::after{content:"·";content:"·" / "";padding:0 9px;color:var(--muted)}
+.page-product .jump a{display:inline-flex;align-items:center;min-height:24px}
+/* a section's copy in one column; the visual opposite it, sides alternating (phones: after it) */
+:is(.page-product,.page-install) .flow>*+*{margin-top:var(--s-4)}
+:is(.page-product,.page-install) .flow>.h2+*{margin-top:var(--s-5)}
+.page-product .flow>h3{margin-top:var(--s-7)}
+.page-product .flow>h3+*{margin-top:var(--s-3)}
+.page-product .flow>.fig{margin-top:var(--s-6)}
+.page-product .figs+.caption{margin-top:var(--s-4)}
+.page-product .split.flip{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.page-product .flip>.flow{grid-column:2;grid-row:1}
+.page-product .flip>.flow+*{grid-column:1;grid-row:1}
+.page-product .proof{align-self:end}
+.page-product .figs{grid-template-columns:repeat(2,minmax(0,1fr))}
+/* a shot still to be captured: its mat and tab around a concrete frame at the shot's aspect */
+:is(.page-product,.page-install) .ph{display:grid;place-items:center;aspect-ratio:16 / 10;background:var(--surface-2)}
+.page-product .ph-phone{aspect-ratio:1179 / 2556}
+.page-product .phones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-4)}
+.page-product .it{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--gutter)}
+.page-product .it li{padding-block:var(--s-4);border-top:1px solid var(--divider);font-size:17px;line-height:1.55}
+.page-product .it+.more{margin-top:var(--s-5)}
+.page-product #measured{padding-top:0}
+.page-product #measured .plate{max-width:52rem}
+.page-product .band .btn{background:var(--band-action);color:var(--band-action-ink)}
+.page-product .band .btn:hover{background:var(--band-action-hover)}
+/* install: one command per band, the four steps */
+.page-install .cmd{max-width:760px}
+.page-install .cmd>p:first-child{grid-area:h;margin-bottom:var(--s-4);max-width:60ch;font-size:17px;line-height:1.5}
+.page-install .steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s-6) var(--gutter);margin-block:var(--s-7) var(--s-8)}
+.page-install .steps li{padding-top:var(--s-3);border-top:3px solid var(--text)}
+.page-install .steps h3{margin-bottom:var(--s-2)}
+:is(.page-product,.page-install) :is(.body,dd) code{font:500 .9em/1 var(--f-mono);font-variant-ligatures:none}
+@media (max-width:900px){
+  .page-product :is(.ihero-grid,.split.flip){grid-template-columns:minmax(0,1fr)}
+  .page-product .flip>.flow,.page-product .flip>.flow+*{grid-column:auto;grid-row:auto}
+  .page-product .phones{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;margin-inline:calc(var(--edge) * -1);padding:0 var(--edge) var(--s-2);scroll-padding-inline:var(--edge)}
+  .page-product .phones>*{flex:0 0 min(64vw,280px);scroll-snap-align:start}
+  .page-install .steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:600px){
+  .page-product :is(.figs,.it),.page-install .steps{grid-template-columns:minmax(0,1fr)}
+}

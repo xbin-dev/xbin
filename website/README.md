@@ -18,13 +18,15 @@ python3 -m http.server 9421 --bind 127.0.0.1 --directory website
 | Page | Volume | What it is |
 |---|---|---|
 | `index.html` | Announce, then Inform, then Work | The story: the hero (kicker, the stair, the lead, two buttons; the glass hall beside it, a strip of it on phones), `#curve` (software made per year, 1950s to today), `#breaks`, `#idea` (the page's one field band, cobalt), `#what`, `#measured`, `#install` (both commands, the trial first, `#try` on its block), `#start` (the closing call). `id="top"` is the hero. |
-| `product.html`, `security.html`, `install.html`, `ios.html` | Inform | Stubs: the deck's crumb, H1 and lead in the Inform hero, inside `<main data-todo="page">`. The page builders set the rest of each deck. `install.html` must carry `#trial`: every other page's "Try it free" links there. |
+| `product.html` | Inform | How xbin works: the hero with the "At a glance" plate beside the h1 and jump links under it, eight parts with the copy and its visual on alternating sides (`#underneath`, `#workspace`, `#apps`, `#agents`, `#per-person`, `#grants`, `#bx`, `#ios`), `#it`, the measurement plate `#measured`, and the band `#get` (buttons only, the trial first). |
+| `install.html` | Inform | The install guide: the hero, the install command on the band (`#command`), the installer's four steps and S-11 (`#first`), `#requirements` (a plate), the trial command on the band (`#trial`: every other page's "Try it free" links there), `#upgrade`. |
+| `security.html`, `ios.html` | Inform | Stubs: the deck's crumb, H1 and lead in the Inform hero, inside `<main data-todo="page">`. The page builders set the rest of each deck. |
 | `privacy.html` | Inform | The privacy policy, restyled; its title, description and words are unchanged and pinned (see Checks). |
 | `404.html` | Announce, small | The three-line stair and plain links; root-relative URLs so it works at any depth; `noindex`. |
 | `og.html` | — | Not a page: the share card's artwork, rendered to `og.png` (below). |
 
-Each page loads `css/tokens.css` and `css/site.css`; `index.html` also loads
-`js/copy.js`. The words come from the brand's copy decks, set verbatim; builders write
+Each page loads `css/tokens.css` and `css/site.css`; `index.html` and `install.html`
+also load `js/copy.js`. The words come from the brand's copy decks, set verbatim; builders write
 no copy of their own. A gap in a deck becomes an HTML comment `TODO-COPY: …`; a
 history figure the research pass has not supplied yet stays a visible
 `<mark data-todo="data">{{DATA: …}}</mark>`, and no chart is drawn without its
@@ -63,6 +65,11 @@ else holds a hex value. `css/site.css` is the components, by the brand's names:
   data-copy="…"`), or `.code` with a `pre` elsewhere;
 - Inform pages: `.ihero` (crumb, h1, lead); the privacy text: `.prose`; the 404:
   `.nf`, `.link-list`.
+
+A page's own rules sit at the end of `css/site.css`, each scoped by the page's body
+class (`.page-product`, `.page-install`: the hero grid, `.flow` copy columns, `.flip`
+for a visual on the left, `.ph` shot frames, `.phones`, `.it`, `.steps`). Every rule
+counts against every page's 60 KB, so keep them few.
 
 Corners are 2 px wherever one shows; focus is the cyan ring (3 px, 2 px gap) from
 `:focus-visible`; motion plays once and is off under `prefers-reduced-motion`.
@@ -116,6 +123,14 @@ open in the same tab and carry ↗.
   it, and the numbers in a "Show the numbers" table. Edit the data, never the block. A
   projection (the dashed "If the curve holds" line) is drawn only once the data file
   carries one.
+- **Product shots** wait for the product theme (D184). Each sits in `figure.shot` with
+  `data-shot`, which names the capture `site/visuals.md` asks for (`grep data-shot`
+  lists them all). Until it exists, the mat holds a concrete frame at the shot's
+  aspect (`.ph`, `.ph-phone` for the phone shots) with a visible
+  `<mark data-todo="shot">S-…</mark>` and the visual's alt as its `aria-label`, or an
+  interim still where the film set has one that matches: `img/shots/*-interim.webp`,
+  WebP from `.film-media/stills` (the current theme, one theme only), its alt marked
+  `TODO-COPY`. The film F-1 ships without a stand-in, as `site/visuals.md` says.
 - **Media over 1 MiB** (the 12 s film, later) stays out of git: it lives in
   `website/media/` (gitignored) and `media.lock` pins each file's sha256 and source.
 
