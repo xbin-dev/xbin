@@ -35,7 +35,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `xbin_theme` hint cookie the shell keeps (a UI hint, never a credential);
   their default mark is the wordmark "xbin". Corners are 2 px; the fonts are
   Instrument Sans, JetBrains Mono and Bricolage Grotesque, served from
-  `/vendor/fonts/`; code faces and terminals draw no ligatures. Status
+  `/vendor/fonts/`; code faces and terminals draw no ligatures, and a new
+  workspace's seeded zsh prompt draws its path in the terminal's bright
+  black (a fixed 256-colour grey before, which no theme follows). Status
   shows as a glyph of its own shape with its word (`ok`, `info`, `warning`,
   `error`), never a coloured or breathing dot alone; emoji used as icons
   became drawn glyphs, and view-model strings lost their emoji (a test that

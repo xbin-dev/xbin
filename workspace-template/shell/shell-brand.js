@@ -44,7 +44,7 @@ export function brandLogo(shell) {
     ? html`<img class="mark" src=${b.icon} alt="" width="20" height="20">`
     : html`<svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
         <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" style="fill: var(--bx-accent, #8C9BFF)"></path>
-        <path d="M21 21 43 43M43 21 21 43" style="stroke: var(--bx-accent-ink, #0B0C12)" stroke-width="9" stroke-linecap="butt"></path>
+        <path d="M21 21 43 43M43 21 21 43" fill="none" style="stroke: var(--bx-accent-ink, #0B0C12)" stroke-width="9" stroke-linecap="butt"></path>
         <circle cx="53" cy="11" r="2.6" style="fill: var(--bx-accent-ink, #0B0C12)" opacity=".4"></circle>
         <circle cx="11" cy="53" r="2.6" style="fill: var(--bx-accent-ink, #0B0C12)" opacity=".4"></circle>
       </svg>`;

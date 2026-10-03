@@ -13,8 +13,10 @@ HISTSIZE=50000
 SAVEHIST=50000
 setopt inc_append_history hist_ignore_dups share_history
 
-# Component-aware prompt: XBIN_COMPONENT is set per terminal session.
-PROMPT='%F{blue}${XBIN_COMPONENT:-workspace}%f %F{244}%2~%f %F{green}❯%f '
+# Component-aware prompt: XBIN_COMPONENT is set per terminal session. Its
+# colours are the terminal's 16, which follow the workspace's light or dark
+# theme (8 is bright black, as bashrc's 90m); a 256-colour grey wouldn't.
+PROMPT='%F{blue}${XBIN_COMPONENT:-workspace}%f %F{8}%2~%f %F{green}❯%f '
 
 alias ls='ls --color=auto'
 alias ll='ls -la'

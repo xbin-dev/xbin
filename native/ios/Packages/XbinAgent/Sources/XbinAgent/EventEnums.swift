@@ -82,8 +82,10 @@ public enum ToolKind: OpenEnum {
         }
     }
 
-    /// The web's card glyph for the kind (agent-cards.js KIND_ICON); an app
-    /// maps kinds to SF Symbols itself.
+    /// The kind's text glyph, as the web's cards drew it before D184 (its
+    /// agent-cards.js KIND_ICON now names a drawn /vendor/bx-icons.js glyph:
+    /// read → doc, edit → pencil, delete → trash, …); an app maps kinds to
+    /// SF Symbols itself.
     public var glyph: String {
         switch self {
         case .read: "📖"
