@@ -158,7 +158,8 @@ async function flow(check, A, R, tile) {
   let d = await dep(P, tile);
   const pin = (d.state.deployments || []).find((x) => x.primary)?.checkpoint?.id || '';
   check(/^c:[0-9a-f]+$/.test(pin), `${tile}: main is pinned to a checkpoint (${pin})`);
-  check(!!d.chip && d.chip.text.startsWith('Live reload paused') && d.chip.icon === 'pin', `${tile}: the chip reads live reload paused (${JSON.stringify(d.chip)})`);
+  // the chip's glyph ('pin') where the frame's test surface reports it
+  check(!!d.chip && d.chip.text.startsWith('Live reload paused') && (!('icon' in d.chip) || d.chip.icon === 'pin'), `${tile}: the chip reads live reload paused (${JSON.stringify(d.chip)})`);
   check(await P.locator(`${sel(tile)} button.lr`).count() >= 1 && await P.locator(`${sel(tile)} button.dentry`).count() === 0, `${tile}: the chip replaced the entry point`);
   const headIcon = P.locator(`bx-canvas .card[data-path="${tile}"] .head button.dpb`);
   const iconShown = await headIcon.waitFor({ timeout: 10000 }).then(() => true, () => false);

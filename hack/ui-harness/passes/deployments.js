@@ -137,10 +137,17 @@ const panes = (page) => page.locator(`${sel} .panels`).evaluate((el) => {
 const tagsOf = (page) => page.locator(`${sel} bx-deployments nav.side .row .t`).evaluateAll((ts) => ts.map((t) => ({
   name: t.querySelector('.nm')?.textContent.trim() || '',
   shown: t.getBoundingClientRect().width > 0,
+  // a tag's lines are its words' (a glyph beside them, centred on the
+  // tag, is not a line of text)
   pills: [...t.querySelectorAll('.pill')].map((p) => {
-    const r = document.createRange();
-    r.selectNodeContents(p);
-    return { text: p.textContent.trim(), title: p.title, lines: new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size };
+    const tops = new Set(), w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (!n.textContent.trim()) continue;
+      const r = document.createRange();
+      r.selectNodeContents(n);
+      for (const x of r.getClientRects()) tops.add(Math.round(x.top));
+    }
+    return { text: p.textContent.trim(), title: p.title, lines: tops.size };
   }),
 })));
 // the window pref as saved (term-sessions.js prefKey)
