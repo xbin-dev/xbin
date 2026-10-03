@@ -1003,18 +1003,30 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
 ### Footage (the promo video, the website)
 
 ```sh
-XBIN_MAC=dev@mini native/ios/scripts/footage.sh --out ~/buxon/.film-media/ios   # [--appearance dark] [--name N]
+PORT=9400 DEMO_DIR=/tmp/me/set hack/demo/up.sh --isolate     # the film set (Larkspan), sandboxed
+XBIN_MAC=dev@mini XBIN_E2E_SET=/tmp/me/set/ws FOOTAGE_AGENT=claude \
+  native/ios/scripts/footage.sh --out ~/buxon/.film-media/ios   # [--appearance dark] [--name N]
 XBIN_MAC=dev@mini native/ios/scripts/footage.sh clean   # its Mac tree (xbin-footage/) and simulator, gone
 ```
+
+Footage is of the demo film set (`hack/demo/README.md`): `XBIN_E2E_SET`
+names its workspace, and footage.sh signs in as the set's phone persona
+(Maya Okafor) with the set's random password — and refuses to tunnel a set
+that runs without `--isolate` (its terminals would be shells on this box).
+It refuses the walk's default agent, the scripted test one (`fake`), unless
+`FOOTAGE_ALLOW_FAKE=1` (a test take, never footage). The Mac's results land
+in `…/footage/raw/` (replaced by each run, never by a failed one) and the
+named take in `--out` (default `…/footage/takes/`).
 
 `simctl io <udid> recordVideo` records a simulator while a walk through the
 app runs with UIKit's animations on: Home → a screen → the native counter
 (+1 twice) → a terminal (`ls`) → an agent (a prompt and its answer), a beat
-on each. Like `e2e` it starts the xbind here (`e2e-xbind.sh`, port 9871,
-its own `XBIN_E2E_DIR`) and tunnels it; it dresses the workspace as a
-company's (branding, the person's name, the calendar example with a day of
-meetings, a prompt and terminal title that name the person and the tile, not
-this box; the UI tests' fixture tiles gone), builds in its own
+on each. Without a set it starts the xbind here like `e2e` (`e2e-xbind.sh`,
+port 9871, its own `XBIN_E2E_DIR`) and tunnels it, dressed as the film
+set's company (`hack/demo/company.json`: its branding and mark, the phone
+persona's name, the calendar example with a day of meetings, a prompt and
+terminal title that name the person and the tile, not this box; the UI
+tests' fixture tiles gone); it builds in its own
 `XBIN_MAC_DIR=xbin-footage`, and films the simulator `xbin-e2e-footage`
 (erased, US English, status bar at 9:41). Out come the clip, a 60 fps copy,
 a cue sheet (each step's second in the clip) and a full-size still at each
@@ -1060,11 +1072,17 @@ What the first takes taught (2026-10-02, Xcode 27.0, iOS 27.0):
 - **The Home Screen shows the test runner's icon** (`XbinUITests-Runner`),
   so the clip starts in the app, not on the springboard.
 
-What still reads as a test fixture (with the fake agent): the launcher's
-"Fake agent (tests)" box, the tab "fake: …", the author "fakeacp" and its
-scripted answer. A real provider fixes those (`FOOTAGE_AGENT=claude` once
-the xbind can run its ACP adapter and has its key; footage.sh's header).
-And the messages' times are the Mac's clock, not 9:41.
+What read as a test fixture in the first takes (2026-10-02: the e2e xbind,
+dressed as another company, and the fake agent): the launcher's "Fake agent
+(tests)" box, the tab "fake: …", the author "fakeacp" and its scripted
+answer, a counter at 26. Those takes are gone; footage.sh now films the
+film set and refuses the fake agent. A real provider is what an agent step
+needs (`FOOTAGE_AGENT=claude` once the xbind can run its ACP adapter and has
+its key; footage.sh's header). The walk (`XbinFootageTests.swift`) still
+taps a native counter's +1 — the set's tiles have none, so `FOOTAGE_TILE`
+names one of the set's (`apps/onboarding`, `apps/crm`) and the walk needs a
+step for it before the next take. And the messages' times are the Mac's
+clock, not 9:41.
 
 What the camera caught in the app: **a panel push blanks the panel it
 leaves at once** — three or so frames of plain background, then the new one

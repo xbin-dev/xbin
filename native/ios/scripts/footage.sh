@@ -11,12 +11,19 @@
 #                                          simulator, gone
 #
 # record (the default):
-#   1. the xbind the app shows: e2e-xbind.sh start on 127.0.0.1:P (9871) in
-#      XBIN_E2E_DIR (default ${TMPDIR:-/tmp}/xbin-footage), its terminals
-#      bash, dressed as a company's workspace (below; --no-dress leaves it as
-#      the UI tests have it) — or the xbind XBIN_E2E_URL, XBIN_E2E_USER and
-#      XBIN_E2E_PASSWORD name, an admin account on it, taken as it is (a
-#      loopback one through the tunnel, like mac-remote.sh e2e)
+#   1. the xbind the app shows: the demo film set (hack/demo, Larkspan) when
+#      XBIN_E2E_SET names its workspace directory — `hack/demo/up.sh
+#      --isolate` made it: its address (WS.snap.meta/listen), the phone
+#      persona of hack/demo/company.json (Maya Okafor, maya) and the set's
+#      random password (WS.password); it must run sandboxed (--isolate:
+#      its terminals are no shells on this box), or footage.sh refuses to
+#      tunnel it (FOOTAGE_ALLOW_UNSANDBOXED=1 overrides). Or the xbind
+#      XBIN_E2E_URL, XBIN_E2E_USER and XBIN_E2E_PASSWORD name, taken as it is
+#      (a loopback one through the tunnel, like mac-remote.sh e2e). Else
+#      e2e-xbind.sh start on 127.0.0.1:P (9871) in XBIN_E2E_DIR (default
+#      ${TMPDIR:-/tmp}/xbin-footage), its terminals bash, dressed as the
+#      film set's company (below; --no-dress leaves it as the UI tests have
+#      it)
 #   2. mac-remote.sh sync, into XBIN_MAC_DIR (default xbin-footage: a mirror,
 #      DerivedData and results of its own, apart from the dev loop's)
 #   3. on the Mac, through an ssh reverse tunnel (the account's name and
@@ -35,16 +42,20 @@
 #      agent, a beat on each; at footage-cut a SIGINT stops the recording
 #      and simctl finalizes the file. The app quits and the simulator shuts
 #      down after (FOOTAGE_KEEP_SIM=1: it stays up)
-#   4. pulls the results into XBIN_MAC_PULL/footage (default
-#      ${TMPDIR:-/tmp}/xbin-mac/footage) and puts in --out (default: there)
-#      <name>.mp4 (simctl's own: the display's pixels, a frame only when the
-#      screen changes), <name>-60fps.mp4 (an editing copy at a constant rate,
-#      FOOTAGE_CFR; with ffmpeg here), <name>.cues.tsv (each step's second in
-#      the clip) and <name>-stills/ (a full-resolution PNG at each beat)
+#   4. pulls the Mac's results into XBIN_MAC_PULL/footage/raw (default
+#      ${TMPDIR:-/tmp}/xbin-mac/footage/raw: each run replaces it) — never
+#      after a run that failed on the Mac — and puts the named take in --out
+#      (default XBIN_MAC_PULL/footage/takes, beside raw/, so a take outlives
+#      the next run): <name>.mp4 (simctl's own: the display's pixels, a
+#      frame only when the screen changes), <name>-60fps.mp4 (an editing
+#      copy at a constant rate, FOOTAGE_CFR; with ffmpeg here),
+#      <name>.cues.tsv (each step's second in the clip) and <name>-stills/
+#      (a full-resolution PNG at each beat)
 #
 # Dressing (the xbind footage.sh started, never one it was given): the
-# workspace's branding (FOOTAGE_TITLE, default "Finch Labs", and a plain
-# mark), the account's display name (FOOTAGE_USER_NAME, "Maya Brooks"), the
+# workspace's branding (FOOTAGE_TITLE, default the film set's company,
+# hack/demo/company.json, and a plain mark), the account's display name
+# (FOOTAGE_USER_NAME, default its phone persona's), the
 # UI tests' fixture tiles gone (apps/wide, apps/phone, apps/parted), the
 # calendar example as apps/calendar with a day of meetings (FOOTAGE_EVENTS,
 # "HH:MM|title" lines; FOOTAGE_CALENDAR=0: none), a bash prompt that names
@@ -65,13 +76,14 @@
 #                      rectangular framebuffer, for a device frame in the
 #                      edit), black
 #
-# The agent is the scripted fake (provider "fake", its launcher box titled
-# "Fake agent (tests)") until a real one can answer: FOOTAGE_AGENT=claude
-# (or codex…) once the xbind can run that provider's ACP adapter
-# (claude-agent-acp…: on its PATH, or in the rootfs under --isolate) and the
-# key reaches it — an unsandboxed xbind passes its environment on
-# (ANTHROPIC_API_KEY, OPENAI_API_KEY…, exported where footage.sh runs).
-# Nothing here stores a key.
+# The agent: FOOTAGE_AGENT names a real provider (claude, codex…) whose ACP
+# adapter the xbind can run (claude-agent-acp…: on its PATH, or in the
+# rootfs under --isolate) and whose key reaches it — an unsandboxed xbind
+# passes its environment on (ANTHROPIC_API_KEY, OPENAI_API_KEY…, exported
+# where footage.sh runs). Nothing here stores a key. The walk's default, the
+# scripted test agent ("fake": its launcher box reads "Fake agent (tests)",
+# its answers "fakeacp … todo done"), films as a test run: footage.sh
+# refuses it unless FOOTAGE_ALLOW_FAKE=1 (a test take, never footage).
 #
 # The same file runs on the Mac as `footage.sh --on-mac record --url U`.
 # Bash 3.2 there.
@@ -303,15 +315,20 @@ esac
 export XBIN_MAC_DIR=${XBIN_MAC_DIR:-xbin-footage}
 rbase=$XBIN_MAC_DIR
 rtree=$rbase/tree
+# A footage tree is one directory in the Mac user's home, named xbin-footage…
+# — never a path (xbin-footage/.. would make clean remove the home itself).
+if ! printf '%s' "$rbase" | grep -Eq '^xbin-footage[A-Za-z0-9._-]*$' || [[ "$rbase" == *..* ]]; then
+  say "XBIN_MAC_DIR=$rbase is not a footage tree (one directory: xbin-footage, letters, digits, . _ -; no ..)"
+  exit 2
+fi
 # shellcheck disable=SC2206 # options, split on purpose
 ssh_opts=(${XBIN_MAC_SSH_OPTS:-})
 rsync_path='PATH=/opt/homebrew/bin:/usr/local/bin:$PATH rsync'
+company=$repo/hack/demo/company.json
+# cfield EXPR: a value of the film set's company.json (a python expression on c)
+cfield() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$company" "$1"; }
 
 if [ "$cmd" = clean ]; then
-  case $rbase in
-  xbin-footage*) ;;
-  *) say "clean: XBIN_MAC_DIR=$rbase is not a footage tree (xbin-footage…) — left alone"; exit 2 ;;
-  esac
   # The simulator by its UDID (names needn't be unique), then the tree.
   ssh ${ssh_opts[@]+"${ssh_opts[@]}"} "$XBIN_MAC" /bin/bash -s -- "${XBIN_SIM_ENSURE:-xbin-e2e-footage}" "$rbase" <<'EOF'
 set -u
@@ -344,9 +361,21 @@ done
 case $appearance in "" | light | dark) ;; *) say "--appearance light or dark"; exit 2 ;; esac
 [ -f "$repo/native/ios/UITests/XbinFootageTests.swift" ] ||
   { say "native/ios/UITests/XbinFootageTests.swift is missing — the walk lives there (not in git); copy it in first"; exit 2; }
-pull_dir=${XBIN_MAC_PULL:-${TMPDIR:-/tmp}/xbin-mac}/footage
+# The walk's own default agent is the scripted test one: footage of it reads
+# as a test run ("Fake agent (tests)", "fakeacp … todo done")
+if [ "${FOOTAGE_AGENT:-fake}" = fake ] && [ "${FOOTAGE_ALLOW_FAKE:-0}" != 1 ]; then
+  say "FOOTAGE_AGENT is the scripted test agent (fake): name a real provider (FOOTAGE_AGENT=claude, its key in the xbind's reach), or FOOTAGE_ALLOW_FAKE=1 for a test take — never footage"
+  exit 2
+fi
+footage_dir=${XBIN_MAC_PULL:-${TMPDIR:-/tmp}/xbin-mac}/footage
+# raw/: the Mac's out/ as the last run left it (each pull replaces it);
+# the named takes go elsewhere (takes/, or --out), so one outlives the next
+pull_dir=$footage_dir/raw
 name=${name:-ios-walk${appearance:+-$appearance}}
-out=${out:-$pull_dir}
+out=${out:-$footage_dir/takes}
+case $(cd "$out" 2>/dev/null && pwd || echo "$out") in
+"$(cd "$pull_dir" 2>/dev/null && pwd || echo "$pull_dir")"*) say "--out $out is inside the pull directory $pull_dir, which each run replaces: pick another"; exit 2 ;;
+esac
 
 # dress <ws> <url> <user> — the workspace as a company's (see the header).
 dress() {
@@ -359,11 +388,14 @@ dress() {
       curl -fsS -o /dev/null -X "$1" -H "Authorization: Bearer $token" "$url$2"
     fi
   }
-  local title=${FOOTAGE_TITLE:-Finch Labs} person=${FOOTAGE_USER_NAME:-Maya Brooks}
-  # A plain mark: a rounded square, a finch-ish wing. As a PNG when this box
-  # can render one: the app draws an SVG through a web view, a moment late
-  # (the clip would open on the monogram it shows meanwhile).
-  local svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#1f6f5c"/><path d="M14 40c8-16 22-24 38-22-6 4-10 9-12 15 6-1 10 0 14 3-12 6-26 8-40 4z" fill="#f4efe3"/><circle cx="44" cy="25" r="2.6" fill="#1f6f5c"/></svg>'
+  # the film set's company and its phone persona (hack/demo/company.json)
+  local title=${FOOTAGE_TITLE:-$(cfield 'c["company"]["name"]')}
+  local person=${FOOTAGE_USER_NAME:-$(cfield 'next(p["name"] for p in c["people"] if p["id"] == c["personas"]["phone"])')}
+  # The company's mark (hack/demo/data/brand-icon.svg). As a PNG when this
+  # box can render one: the app draws an SVG through a web view, a moment
+  # late (the clip would open on the monogram it shows meanwhile).
+  local svg
+  svg=$(cat "$repo/hack/demo/$(cfield 'c["company"]["icon"]')")
   local icon png
   icon="data:image/svg+xml;base64,$(printf '%s' "$svg" | base64 -w0)"
   if command -v rsvg-convert >/dev/null 2>&1 && png=$(printf '%s' "$svg" | rsvg-convert -w 256 -h 256 -f png | base64 -w0) && [ -n "$png" ]; then
@@ -423,6 +455,22 @@ EOF
 }
 
 url=${XBIN_E2E_URL:-} user=${XBIN_E2E_USER:-} password=${XBIN_E2E_PASSWORD:-} started=0 seed=0
+# The film set (hack/demo/up.sh --isolate): its address, its phone persona,
+# its random password — and only if it runs sandboxed: a tunnel hands its
+# people's terminals to the Mac
+if [ -n "${XBIN_E2E_SET:-}" ]; then
+  set_ws=$(cd "$XBIN_E2E_SET" && pwd)
+  [ -n "$url" ] || url="http://$(cat "$set_ws.snap.meta/listen")"
+  [ -n "$user" ] || user=$(cfield 'c["personas"]["phone"]')
+  [ -n "$password" ] || password=$(head -1 "$set_ws.password")
+  isolated=$(curl -fsS -H "Authorization: Bearer $(tr -d '[:space:]' <"$set_ws/.xbin/token")" "$url/api/xbin/runtime" |
+    python3 -c 'import json,sys; print("yes" if json.load(sys.stdin).get("host", {}).get("isolate") else "no")' 2>/dev/null || echo unknown)
+  if [ "$isolated" != yes ] && [ "${FOOTAGE_ALLOW_UNSANDBOXED:-0}" != 1 ]; then
+    say "the film set at $url runs unsandboxed (isolate: $isolated): its terminals are shells on this box — footage.sh won't tunnel it (hack/demo/up.sh --isolate; FOOTAGE_ALLOW_UNSANDBOXED=1 overrides)"
+    exit 2
+  fi
+  say "the film set at $url, as $user"
+fi
 if [ -z "$url" ]; then
   e2e_dir=${XBIN_E2E_DIR:-${TMPDIR:-/tmp}/xbin-footage}
   say "the xbind runs unsandboxed: its terminals are shells as you on this box, open to whoever signs in as its account — only this run's ssh session gets the password"
@@ -458,16 +506,20 @@ printf '%s\n%s\n' "$user" "$password" |
     "cd $(printf '%q' "$rtree") && env${remote_env} /bin/bash native/ios/scripts/footage.sh --on-mac record --url $(printf '%q' "$url")" ||
   status=$?
 
+# A run that failed on the Mac (its out/ cleared, no clip) pulls nothing:
+# raw/ keeps the last good run's results
+if [ "$status" -ne 0 ]; then
+  say "the run on the Mac failed (exit $status): nothing pulled; $pull_dir is the last good run's"
+  exit "$status"
+fi
 mkdir -p "$pull_dir"
 rsync -a --delete -e "ssh ${XBIN_MAC_SSH_OPTS:-}" --rsync-path="$rsync_path" \
   "$XBIN_MAC:$rbase/out/footage/" "$pull_dir/" || say "nothing to pull"
 say "results: $pull_dir"
 if [ -f "$pull_dir/footage.mp4" ]; then
   mkdir -p "$out"
-  if [ "$out" != "$pull_dir" ] || [ "$name" != footage ]; then
-    cp "$pull_dir/footage.mp4" "$out/$name.mp4"
-    if [ -f "$pull_dir/footage.cues.tsv" ]; then cp "$pull_dir/footage.cues.tsv" "$out/$name.cues.tsv"; fi
-  fi
+  cp "$pull_dir/footage.mp4" "$out/$name.mp4"
+  if [ -f "$pull_dir/footage.cues.tsv" ]; then cp "$pull_dir/footage.cues.tsv" "$out/$name.cues.tsv"; fi
   if ls "$pull_dir"/e2e/still-*.png >/dev/null 2>&1; then
     rm -rf "${out:?}/$name-stills"
     mkdir -p "$out/$name-stills"
