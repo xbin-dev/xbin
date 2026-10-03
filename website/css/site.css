@@ -129,12 +129,17 @@ a:hover{text-decoration-thickness:2px}
 .chart-post{fill:var(--chart-post)}
 .chart-rule{stroke:var(--text);stroke-width:1}
 .chart-line{fill:none;stroke:var(--text);stroke-width:3;stroke-linejoin:miter;stroke-linecap:square}
+/* an annualised rate is dotted, unfilled, in a hollow square; a projection dashed cobalt */
+.chart-rate{fill:none;stroke:var(--text);stroke-width:3;stroke-dasharray:3 5}
+.chart-proj{fill:none;stroke:var(--cobalt);stroke-width:3;stroke-dasharray:8 6}
 .chart-labels{position:absolute;inset:0;font:var(--t-caption);color:var(--muted)}
 .chart-labels>*{position:absolute}
 .chart-ytick{right:calc(100% + 8px);top:var(--y);transform:translateY(-50%);font:500 12px/1 var(--f-mono);font-variant-numeric:tabular-nums}
 .chart-xtick{top:calc(100% + 8px);left:var(--x);transform:translateX(-50%);font-variant-numeric:tabular-nums}
 .chart-marker{left:var(--x);top:0;max-width:11em;padding:0 0 0 8px;color:var(--text);font:600 13px/1.25 var(--f-text)}
 .chart-dot{top:var(--y);left:var(--x);width:8px;height:8px;margin:-4px 0 0 -4px;background:var(--text)}
+.chart-dot-open{width:10px;height:10px;margin:-5px 0 0 -5px;border:2px solid var(--text);background:var(--bg)}
+.chart-proj-label{top:var(--y);left:var(--x);padding-left:8px;transform:translateY(-50%);font:400 12px/1.3 var(--f-text);white-space:nowrap}
 .chart-today{top:var(--y);left:var(--x);padding-right:14px;transform:translate(-100%,-50%);color:var(--text);font:600 13px/1.25 var(--f-text);text-align:right;white-space:nowrap}
 .chart-today small{display:block;color:var(--muted);font:400 12px/1.3 var(--f-text)}
 /* narrower plots: the latest point's label moves above the frame, clear of the marker's */
@@ -196,8 +201,9 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .mat-admin{--mat:var(--yellow);--mat-ink:var(--yellow-ink)}
 .shot{margin:0}
 .shot figcaption{margin-top:var(--s-3);font:var(--t-small);color:var(--muted)}
-/* a shot that waits for its capture (website/shots.todo.md): a concrete frame at the shot's
-   aspect inside its mat, the visual's ID marked; its alt text is the frame's aria-label */
+/* a shot that waits for its capture, while a page is built (website/shots.todo.md): a concrete
+   frame at the shot's aspect inside its mat, the visual's ID marked, hidden from assistive
+   technology (the alt text goes on the capture); make website refuses to deploy one */
 .ph{display:grid;place-items:center;aspect-ratio:16 / 10;background:var(--surface-2)}
 .ph-phone{aspect-ratio:1179 / 2556}
 
@@ -217,8 +223,10 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .code{display:flex;align-items:flex-start;gap:var(--s-3);padding:12px 12px 12px 18px;border:1px solid var(--divider);border-radius:var(--r);background:var(--surface)}
 .code pre{flex:1;min-width:0;margin:0;padding:6px 0;overflow-x:auto;font:500 14px/1.6 var(--f-mono);font-variant-ligatures:none}
 /* sized to its block so the command stays on one line: 0.6 em a character, plus half a pixel
-   each for platforms that round glyph advances to whole pixels; never under 12 px */
-.cmd-code{display:block;min-width:0;overflow-x:auto;white-space:nowrap;font:500 clamp(12px,calc((100cqw - var(--reserve) - var(--chars) * .5px) / (var(--chars) * .6 + .2)),20px)/1.35 var(--f-mono);font-variant-ligatures:none;user-select:all;-webkit-user-select:all;scrollbar-width:none;border-radius:var(--r)}
+   each for platforms that round glyph advances to whole pixels; never under 12 px, or 10 px
+   under 360 px, where the install command needs it to fit (320 px: 43 characters in 288 px,
+   10.25 px; at 11 px a rounded 7 px advance runs 13 px over) */
+.cmd-code{display:block;min-width:0;overflow-x:auto;white-space:nowrap;font:500 clamp(var(--cmd-min,12px),calc((100cqw - var(--reserve) - var(--chars) * .5px) / (var(--chars) * .6 + .2)),20px)/1.35 var(--f-mono);font-variant-ligatures:none;user-select:all;-webkit-user-select:all;scrollbar-width:none;border-radius:var(--r)}
 .cmd-code::-webkit-scrollbar{display:none}
 .cmd-code::before{content:"$ ";content:"$ " / "";color:var(--band-prompt);user-select:none;-webkit-user-select:none}
 
@@ -272,11 +280,12 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .link-list a:hover{text-decoration:underline;text-decoration-thickness:2px}
 
 /* ========== security.html and ios.html only (body.page-security, body.page-ios) ========== */
-/* heroes: copy beside the facts plate (7 + 5) or the phone screens (6 + 6); a tighter section step */
+/* heroes: copy beside the facts plate (7 + 5); on iOS the status plate under the lead, until
+   the phone screens (S-10) stand beside it; a tighter section step */
 :is(.page-security,.page-ios) .sec{padding-block:clamp(48px,6vw,96px)}
-:is(.page-security,.page-ios) .ih-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--s-7) var(--gutter);align-items:start}
-.page-ios .ih-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-:is(.page-security,.page-ios) .ihero .actions,.page-ios .ihero .plate{margin-top:var(--s-6)}
+.page-security .ih-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--s-7) var(--gutter);align-items:start}
+.page-security .ihero .actions,.page-ios .ihero .plate{margin-top:var(--s-6)}
+.page-ios .ihero .plate{max-width:38rem}
 .page-security :is(.ihero .caption,.evidence+.caption){margin-top:var(--s-4)}
 .page-security .split .h2+.body{margin-top:var(--s-5)}
 .page-security .col-body{padding-top:var(--s-6)}
@@ -292,10 +301,7 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .page-security .card{padding:var(--s-5) var(--s-5) var(--s-6);border-radius:var(--r);background:var(--surface)}
 :is(.page-security,.page-ios) .figs .h4{margin-bottom:var(--s-2)}
 .page-security .evidence li{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--s-1) var(--s-5)}
-/* iOS: phone screens staggered by 24 px steps, rising to the right; the parts' magenta rules (C-3) */
-.page-ios .phones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-4)}
-.page-ios .phones li:first-child{margin-top:48px}
-.page-ios .phones li:nth-child(2){margin-top:24px}
+/* iOS: the parts' magenta rules (C-3) */
 .page-ios .figs{row-gap:var(--s-7)}
 .page-ios .fig{border-top-color:var(--magenta)}
 @media (max-width:1100px){
@@ -304,9 +310,8 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
   .page-security .four li:nth-child(n+3){border-top:1px solid var(--divider)}
 }
 @media (max-width:900px){
-  :is(.page-security,.page-ios) .ih-grid{grid-template-columns:minmax(0,1fr)}
+  .page-security .ih-grid{grid-template-columns:minmax(0,1fr)}
   .page-security .col-body{padding-top:0}
-  .page-ios .phones{max-width:640px}
 }
 @media (max-width:600px){
   /* the hero's two large buttons share a row on a 390 px phone only in the web font, by
@@ -315,10 +320,6 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
   .page-security :is(.leadins,.four){grid-template-columns:minmax(0,1fr)}
   .page-security .four :is(li,li+li){padding-left:0;border-left:0}
   .page-security .four li+li{border-top:1px solid var(--divider)}
-  /* the phone screens: a row that scrolls sideways, edge to edge */
-  .page-ios .phones{display:flex;gap:var(--s-3);margin-inline:calc(var(--edge) * -1);padding:0 var(--edge) var(--s-2);overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:var(--edge)}
-  .page-ios .phones li:nth-child(n){flex:0 0 min(52%,240px);margin:0;scroll-snap-align:start}
-  .page-ios .phones:focus-visible{outline-offset:-3px}
 }
 /* ========== /security.html and ios.html ========== */
 
@@ -390,6 +391,9 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
   .cmd-trial{--chars:16}
   .cmd-code::before{content:none}
 }
+@media (max-width:359px){
+  .cmd{--cmd-min:10px}
+}
 
 /* ---------- preferences ---------- */
 @media (prefers-reduced-motion:reduce){
@@ -418,7 +422,6 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .page-product .flip>.flow+*{grid-column:1;grid-row:1}
 .page-product .proof{align-self:end}
 .page-product .figs{grid-template-columns:repeat(2,minmax(0,1fr))}
-.page-product .phones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-4)}
 .page-product .it{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--gutter)}
 .page-product .it li{padding-block:var(--s-4);border-top:1px solid var(--divider);font-size:17px;line-height:1.55}
 .page-product .it+.more{margin-top:var(--s-5)}
@@ -426,7 +429,9 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .page-product #measured .plate{max-width:52rem}
 .page-product .band .btn{background:var(--band-action);color:var(--band-action-ink)}
 .page-product .band .btn:hover{background:var(--band-action-hover)}
-/* install: one command per band, the four steps */
+/* install: one command per band, the four steps. Install is Inform, strictly (brand §12.2:
+   paper or ink, the era stripe the only colour), so in dark its bands are concrete, not cobalt */
+@media (prefers-color-scheme:dark){.page-install .band{--band:var(--c-900)}}
 .page-install .cmd{max-width:760px}
 .page-install .cmd>p:first-child{grid-area:h;margin-bottom:var(--s-4);max-width:60ch;font-size:17px;line-height:1.5}
 .page-install .steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s-6) var(--gutter);margin-block:var(--s-7) var(--s-8)}
@@ -436,9 +441,6 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 @media (max-width:900px){
   .page-product :is(.ihero-grid,.split.flip){grid-template-columns:minmax(0,1fr)}
   .page-product .flip>.flow,.page-product .flip>.flow+*{grid-column:auto;grid-row:auto}
-  .page-product .phones{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;margin-inline:calc(var(--edge) * -1);padding:0 var(--edge) var(--s-2);scroll-padding-inline:var(--edge)}
-  .page-product .phones>*{flex:0 0 min(64vw,280px);scroll-snap-align:start}
-  .page-product .phones:focus-visible{outline-offset:-3px}
   .page-install .steps{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width:600px){

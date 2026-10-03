@@ -17,21 +17,22 @@ python3 -m http.server 9421 --bind 127.0.0.1 --directory website
 
 | Page | Volume | What it is |
 |---|---|---|
-| `index.html` | Announce, then Inform, then Work | The story: the hero (kicker, the stair, the lead, two buttons; the glass hall beside it, a strip of it on phones), `#curve` (software made per year, 1950s to today), `#breaks`, `#idea` (the page's one field band, cobalt), `#what`, `#measured`, `#install` (both commands, the trial first, `#try` on its block), `#start` (the closing call). `id="top"` is the hero. |
-| `product.html` | Inform | How xbin works: the hero with the "At a glance" plate beside the h1 and jump links under it, eight parts with the copy and its visual on alternating sides (`#underneath`, `#workspace`, `#apps`, `#agents`, `#per-person`, `#grants`, `#bx`, `#ios`), `#it`, the measurement plate `#measured`, and the band `#get` (buttons only, the trial first). |
-| `install.html` | Inform | The install guide: the hero, the install command on the band (`#command`), the installer's four steps and S-11 (`#first`), `#requirements` (a plate), the trial command on the band (`#trial`: every other page's "Try it free" links there), `#upgrade`. |
-| `security.html` | Inform, strictly | For IT (`site/security.md`): the hero beside the facts plate (`#facts`), then `#default-deny`, `#sandboxes`, `#grants` (S-5, waiting for its capture), `#identity`, `#oversight` (S-9, an interim still), `#per-person`, `#vault`, `#evidence`, `#next`. No field, stair or photograph. |
-| `ios.html` | Inform | The iOS app in beta testing (`site/ios.md`): the hero with the status plate beside the three phone screens (S-10, waiting for the beta build's capture), `#features` under magenta part rules, `#next`. No store badge, link or date. |
+| `index.html` | Announce, then Inform, then Work | The story: the hero (kicker, the stair, the lead, two buttons; the glass hall beside it, a strip of it on phones), `#curve` (the measured series: new repositories created on GitHub per year, 2013 to 2025, and August 2026's annualised rate; its heading and lines were written for a seventy-year chart and wait for the owner's call, D183), `#breaks`, `#idea` (the page's one field band, cobalt), `#what`, `#measured`, `#install` (both commands, the trial first, `#try` on its block), `#start` (the closing call). `id="top"` is the hero. |
+| `product.html` | Inform | How xbin works: the hero with the "At a glance" plate beside the h1 and jump links under it, eight parts (`#underneath`, `#workspace`, `#apps`, `#agents`, `#per-person`, `#grants`, `#bx`, `#ios`): the copy and its visual on alternating sides where the visual exists (S-12, S-5, S-4, and the measured figures under `#underneath`), the heading beside the copy where it waits for the product theme (S-2, S-6, S-7, S-10), then `#it`, the measurement plate `#measured`, and the band `#get` (buttons only, the trial first). |
+| `install.html` | Inform | The install guide: the hero, the install command on the band (`#command`), the installer's four steps and S-11 (`#first`), `#requirements` (a plate), the trial command on the band (`#trial`: every other page's "Try it free" links there), `#upgrade`. Strictly paper or ink: in dark its two bands are concrete, not cobalt. |
+| `security.html` | Inform, strictly | For IT (`site/security.md`): the hero beside the facts plate (`#facts`), then `#default-deny`, `#sandboxes`, `#grants` (S-5), `#identity`, `#oversight` (S-9, an interim still), `#per-person`, `#vault`, `#evidence`, `#next`. No field, stair or photograph. |
+| `ios.html` | Inform | The iOS app in beta testing (`site/ios.md`): the hero (the copy and the status plate; the three phone screens, S-10, stand beside it once the beta build is captured), `#features` under magenta part rules, `#next`. No store badge, link or date. |
 | `privacy.html` | Inform | The privacy policy, restyled; its title, description and words are unchanged and pinned (see Checks). |
 | `404.html` | Announce, small | The three-line stair and plain links; root-relative URLs so it works at any depth; `noindex`. |
 | `og.html` | — | Not a page: the share card's artwork, rendered to `og.png` (below). |
 
 Each page loads `css/tokens.css` and `css/site.css`; `index.html` and `install.html`
 also load `js/copy.js`. The words come from the brand's copy decks, set verbatim; builders write
-no copy of their own. A gap in a deck becomes an HTML comment `TODO-COPY: …`; a
-history figure the research pass has not supplied yet stays a visible
+no copy of their own. A gap in a deck becomes an HTML comment `TODO-COPY: …`; while a
+page is built, a history figure the research pass has not supplied yet stays a visible
 `<mark data-todo="data">{{DATA: …}}</mark>`, and no chart is drawn without its
-numbers. The home page does not ship with a slot left in it.
+numbers. No page ships with a slot left in it: `make website` refuses one (the guard
+with `--dist`), so a figure the register does not give is taken out with its sentence.
 
 ### The shared header and footer
 
@@ -69,15 +70,17 @@ else holds a hex value. `css/site.css` is the components, by the brand's names:
 - Inform pages: `.ihero` (crumb, h1, lead); the privacy text: `.prose`; the 404:
   `.nf`, `.link-list`;
 - security and iOS (their own section, before the footer's, scoped to
-  `body.page-security` and `body.page-ios`): `.ih-grid` (the hero's copy beside the
-  facts plate or the phone screens), `.four`, `.leadins`, `.card`, `.evidence`,
-  `.phones`;
+  `body.page-security` and `body.page-ios`): `.ih-grid` (the security hero's copy
+  beside the facts plate), `.four`, `.leadins`, `.card`, `.evidence`;
 - product and install (their own section, at the end, scoped to `.page-product` and
   `.page-install`): the hero grid, `.flow` copy columns, `.flip` for a visual on the
-  left, `.phones`, `.it`, `.steps`.
+  left, `.it`, `.steps`.
 
-Every rule counts against every page's 60 KB, so keep a page's own rules few. A row
-that scrolls sideways edge to edge (`.phones` on phones) draws its focus ring inside
+Every rule counts against every page's 60 KB, so keep a page's own rules few. The
+phone screens' row (S-10 on the iOS hero and under the product page's `#ios`) left
+with its placeholders; when the captures land, bring its rules back from git history
+(`git show cd41d496:website/css/site.css`, `.phones`). A row that scrolls sideways
+edge to edge, as it does on phones, draws its focus ring inside
 (`outline-offset: -3px`), where the viewport cannot cut it off.
 
 Corners are 2 px wherever one shows; focus is the cyan ring (3 px, 2 px gap) from
@@ -115,9 +118,15 @@ open in the same tab and carry ↗.
   U+2190–2199, for ↗) and `bricolage-grotesque-800-sym.woff2` (→ ≤ ≥), instanced from
   the upstream variable fonts at the same coordinates with fontTools and loaded by
   `unicode-range`.
-- **Marks:** `img/mark.svg`, `img/wordmark.svg` (wordmark A; swapping in B is this one
-  file) and `favicon.svg` are copies of `plans/brand/marks/`; `apple-touch-icon.png` is
-  `icon-1024.svg` at 180 px (`rsvg-convert`, then `oxipng`).
+- **Marks:** `img/mark.svg`, `img/wordmark.svg` (wordmark A) and `favicon.svg` are
+  copies of `plans/brand/marks/`; `apple-touch-icon.png` is `icon-1024.svg` at 180 px
+  (`rsvg-convert`, then `oxipng`). Swapping in wordmark B is more than the file: B is
+  wider (852 × 244, 3.49:1, against A's 2.54:1), so its `<img>` sizes change with it, on
+  every page and in `og.html`. From `lockup-b.svg`'s unit (the word's ascender 1u under
+  the tile's top, 2u from it): the header's 73 × 21 with `.lockup img+img{margin-top}`
+  3.5 px (A: 51 × 20, 5 px), the footer's 105 × 30 with `.foot-lockup img+img` 5 px
+  (A: 61 × 24, 11 px), `og.html`'s 154 × 44, then `make website-og`. The guard fails on
+  a wordmark `<img>` whose sizes do not fit the file in use.
 - **The glass hall:** the generated masters, with their prompts and reports, are in
   `art/` (`hall-day.jpg` and `hall-night.jpg`, both 2736 × 1536, with the `.json` beside
   each). `art/` itself is not served. The files the hero loads are in `img/`, written
@@ -138,26 +147,42 @@ open in the same tab and carry ↗.
   shell background, there only for building the markup. They never ship: the sections
   ship without the film until it is shot, and `make website` leaves `img/film/` out of
   `dist/` until `media.lock` pins the film. Its MP4 and WebM go in `media/` (below).
-- **Product shots** are captured after the product's re-theme (D184). `shots.todo.md`
-  lists each one with its persona, screen, size, theme, mat and file names; their web
-  sizes go in `img/shots/`. Each sits in `figure.shot` with `data-shot`, which names
-  the capture `site/visuals.md` asks for (`grep data-shot` lists them all). Until it
-  exists, the mat holds a concrete frame at the shot's aspect (`.ph`, `.ph-phone` for a
-  phone screen) with a visible `<mark data-todo="shot">S-…</mark>` and the visual's alt
-  as its `aria-label`; the guard counts them. A still from the film set stands in only
-  where it shows what the spec asks for: today that is S-9 on the security page,
-  `img/shots/S-9-interim.webp` (`.film-media/stills/07-admin-desk-view-as.png`, the
-  current product theme, one theme only, 1600 × 1000), until the Concrete Day and Night
-  captures replace it in a `<picture>`.
+- **Product shots.** `shots.todo.md` lists each one with its persona, screen, size,
+  theme, mat and file names. Each sits in `figure.shot` with `data-shot` naming the
+  capture `site/visuals.md` asks for (`grep data-shot` lists them), as a `<picture>`
+  with the Concrete Day source for light and the Concrete Night one for dark, below the
+  first screen with `loading="lazy"`. The masters are in `art/shots/` (WebP, 3200 ×
+  2000); `make website-images` writes their web sizes to `img/shots/`
+  (`<ID>-<light|dark>-{800,1600}.{avif,webp}`).
+  - **The brand-terminal shots** (S-4 `bx --help`, S-5 the grants file's diff, S-11 the
+    installer on a fresh machine, S-12 the apps as folders) are captured: real sessions,
+    recorded byte for byte by `hack/website-terminal-record.py` (each `art/shots/<ID>.session`,
+    with the steps typed, the machine and the shell in its `.json`) and replayed into
+    the product's own terminal emulator, xterm.js, set up as the brand terminal by
+    `hack/website-terminal.mjs` (its header has the window size and why it is 800 × 500).
+  - **The product UI shots** (S-2, S-6, S-7, S-10) wait for the product's re-theme
+    (D184). Until one is captured, its section ships without it, as the film's do, and
+    a comment marks where it goes. A still from the film set stands in only where it
+    shows what the spec asks for: today that is S-9 on the security page,
+    `img/shots/S-9-interim.webp` (`.film-media/stills/07-admin-desk-view-as.png`, the
+    current product theme, one theme only, 1600 × 1000), until the Concrete Day and
+    Night captures replace it in a `<picture>`.
+  - While a page is built, a shot that waits may hold its place as a concrete frame at
+    its aspect in its mat (`.ph`, `.ph-phone` for a phone screen), `aria-hidden` with
+    a visible `<mark data-todo="shot">S-…</mark>` and no alt (the alt goes on the
+    capture). The guard counts them, and `make website` refuses to deploy one.
 - **The curve** (`#curve`, visual D-1) is drawn from `data/software-per-year.json`,
   the series the research pass's history register gives for it (new repositories
   created on GitHub per year, every point with its source; the 2026 point an
   annualised rate) and the dated inflection marker. `make website-chart`
-  (`hack/website-chart.mjs`) draws it into `index.html` between the
+  (`hack/website-chart.mjs`) draws the whole figure into `index.html` between the
   `<!-- chart D-1 … -->` markers: an SVG stretched to the frame with HTML labels over
-  it, and the numbers in a "Show the numbers" table. Edit the data, never the block. A
-  projection (the dashed "If the curve holds" line) is drawn only once the data file
-  carries one.
+  it, the numbers in a "Show the numbers" table, the figures under it and the caption,
+  so nothing about the chart is written by hand. Edit the data, never the block. The
+  annualised point is reached by a dotted segment with no fill and ends in a hollow
+  square, and the caption says why. A projection (the dashed cobalt "If the curve
+  holds" line, its sentence in the caption and its figure) is drawn only once the data
+  file carries one; until then none of the three exists.
 - **Media over 1 MiB** (the 12 s film, later) stays out of git: it lives in
   `website/media/` (gitignored) and `media.lock` pins each file's sha256 and source.
 
@@ -177,13 +202,24 @@ make website        # website/dist: every page, css/, fonts/, img/ (but img/film
                     # media.lock pins it, static/helpers/
 ```
 
-It runs the site's guard with `--dist` first. `dist/` is the deployable artifact (any
-static host, GitHub Pages, an object store). It refuses to build when
-`hack/helpers.sha256` lists prebuilt helpers but `website/static-helpers/` is missing:
-the site serves them at `https://xbin.dev/static/helpers/…` (`make helpers`;
-docs/maintenance.md → "Prebuilt helpers"; `hack/helpers-static.sh` stages them into the
-gitignored `website/static-helpers/`, binaries never tracked), and a deploy without
-them would send everyone's `make helpers` back to building from source.
+It runs the site's guard with `--dist` first, which refuses a site that is not ready to
+deploy (below, "Checks"). `dist/` is the deployable artifact (any static host, GitHub
+Pages, an object store). Among the refusals: every prebuilt helper set
+`hack/helpers.sha256` lists must be staged, each `<group>/<key>/<arch>.tar.zst` in
+`website/static-helpers/` with the sha256 the manifest pins. The site serves them at
+`https://xbin.dev/static/helpers/…` (`make helpers`; docs/maintenance.md → "Prebuilt
+helpers"; `hack/helpers-static.sh` stages them into the gitignored
+`website/static-helpers/`, binaries never tracked, or download the sets the live site
+serves and check their sums), and a deploy without one would send everyone's
+`make helpers` for that set back to building from source.
+
+Deploying is by hand: `make website`, then copy `website/dist/` to the host as it is
+(nothing to rewrite; serve `app/ios.json` as `application/json`). Then a smoke check
+against the live site: `/`, `/install.sh` (byte-identical, `sha256sum` against
+`INSTALL_SH_SHA256` in `hack/check-website.mjs`), `/app/ios.json`, `/privacy.html`,
+`/og.png` and one `/static/helpers/<group>/<key>/amd64.tar.zst` answer 200, and the
+browser pass run against `dist/` before the copy (`make website-check
+WEBSITE_CHECK_FLAGS=--dist`) found nothing.
 
 ## Checks
 
@@ -197,11 +233,14 @@ The guard, `make website-guard` (`hack/check-website.sh`, no browser; its tests,
   digest: a deliberate change updates `PRIVACY_TEXT_SHA256` in
   `hack/check-website.mjs`, `--privacy-digest` prints it); `app/ios.json` parses as the
   kill switch.
-- **No third-party loads:** no `src`, `srcset`, stylesheet, icon or preload link,
-  `url()`, `@import` or JS import points at another site; external links only to the
-  allowed URLs.
-- **Nothing stored:** no `document.cookie`, `localStorage`, `sessionStorage` or
-  `indexedDB` in any script.
+- **No third-party loads:** no `src`, `srcset`, stylesheet, icon, preload or prerender
+  link, `url()`, `@import` or JS import points at another site; no script names an
+  absolute or protocol-relative URL in a string (what `fetch`, `sendBeacon`, a
+  WebSocket or `new Image().src` would reach); no `ping` attribute; external links
+  only to the allowed URLs.
+- **Nothing stored:** no `document.cookie`, `cookieStore`, `localStorage`,
+  `sessionStorage`, `indexedDB`, `openDatabase`, `caches` or `serviceWorker` in any
+  script.
 - **Budgets, per page** (KB of 1,000 bytes, uncompressed): HTML and its CSS ≤ 60, JS ≤ 80,
   fonts ≤ 200 (every face the CSS declares), first-screen images ≤ 250 (every image
   without `loading="lazy"` counts; a `<picture>` by its largest candidate).
@@ -210,24 +249,32 @@ The guard, `make website-guard` (`hack/check-website.sh`, no browser; its tests,
 - **Images and colours:** every `<img>` has `alt`, `width` and `height`; no hex colour
   outside `tokens.css`, in a `style` attribute or an inline SVG `fill`.
 - **The mark:** `img/mark.svg` and `favicon.svg` are the masters in
-  `plans/brand/marks/`, byte for byte, and `img/wordmark.svg` is wordmark A or B.
-- **Media:** `media.lock` well formed; with `--dist`, every locked file present with
-  its sha256.
+  `plans/brand/marks/`, byte for byte; `img/wordmark.svg` is wordmark A or B, and every
+  `<img>` of it is sized to that file's proportions.
+- **Media:** `media.lock` well formed.
 
 It also counts what is still open: data slots, `TODO-COPY` gaps, shots waiting for
 their capture, stub pages.
 
+With `--dist` (what `make website` runs), the guard holds the site to what may be
+deployed, and fails on any of: a `{{DATA}}` slot, a shot waiting for its capture or a
+stub page on any page; a file `media.lock` pins missing from `website/media/` or not
+matching its sha256; a prebuilt helper set `hack/helpers.sha256` lists missing from
+`website/static-helpers/` or not matching its sha256.
+
 The browser pass, `hack/website-check.mjs` (Playwright from `PLAYWRIGHT_DIR`, as for
-`make website-og`): every page at 360, 390, 768, 1024, 1440 and 1920 px wide, in light,
-dark and reduced motion, served by `python3 -m http.server 9424 --bind 127.0.0.1`,
+`make website-og`): every page at 360, 390, 768, 1024, 1440 and 1920 px wide, in
+light, dark and reduced motion, and at 320 px (WCAG's reflow width, a desktop at
+400 %) for overflow only, served by `python3 -m http.server 9424 --bind 127.0.0.1`,
 which it starts and stops (it refuses a port someone else holds). About 30 s. A page
 fails on:
 
 - a console error or an uncaught exception;
 - a request that leaves `127.0.0.1:9424` (blocked, and named);
-- horizontal overflow: the page scrolls sideways, or a box runs past the viewport's
-  edge with nothing of the page's own to scroll or clip it (again with every
-  `<details>` open);
+- horizontal overflow: the page scrolls sideways, a box runs past the viewport's
+  edge with nothing of the page's own to scroll or clip it, or a command does not fit
+  its line (it scrolls with no scrollbar shown, so its end would be hidden); again
+  with every `<details>` open;
 - layout shift over 0.05 (the largest session window, as Chrome counts CLS) while
   the page loads and is scrolled to its end. The fonts are held until the first paint
   and then let in one at a time, as on a first visit, so a font swap that moves the

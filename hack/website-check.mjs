@@ -1,15 +1,16 @@
 // hack/website-check.mjs — the xbin.dev site in a real browser. `make website-check`
 // runs it after the site's guard (hack/check-website.sh, `make website-guard`). Every
 // page at 360, 390, 768, 1024, 1440 and 1920 px wide, in light, dark and reduced
-// motion, served the way the site is (root-relative URLs) by
+// motion, and at 320 px (WCAG's reflow width) for overflow, served the way the site is
+// (root-relative URLs) by
 // `python3 -m http.server 9424 --bind 127.0.0.1`, which this script starts and stops.
 // A page fails on:
 //
 //   - a console error or an uncaught exception;
 //   - a request that leaves 127.0.0.1:9424 (it is blocked, and named);
 //   - horizontal overflow: the page scrolls sideways, or something runs past the
-//     viewport's edge with nothing of the page's own to scroll or clip it (checked
-//     again with every <details> open);
+//     viewport's edge with nothing of the page's own to scroll or clip it, or a command
+//     does not fit its line (checked again with every <details> open);
 //   - layout shift over 0.05: the largest session window of layout-shift entries, as
 //     Chrome counts CLS, while the page loads and is scrolled to its end. The fonts are
 //     held until the first paint and then let in one at a time, as on a first visit
@@ -52,6 +53,10 @@ const ORIGIN = `http://${HOST}:${PORT}`;
 
 // [width, height, device pixel ratio]: two phones, a tablet either way up, a laptop, a desktop
 const SIZES = [[360, 740, 3], [390, 844, 3], [768, 1024, 2], [1024, 768, 2], [1440, 900, 2], [1920, 1080, 1]];
+// WCAG's reflow width (a 1280 px desktop at 400 %, the narrowest phones): every page is
+// checked there for overflow only. Layout shift there waits on fallback fonts sized to
+// the web fonts' metrics (Arial Black wraps a hero one line longer than Bricolage).
+const REFLOW = [320, 568, 2];
 const MODES = {
   light: { colorScheme: 'light', reducedMotion: 'no-preference' },
   dark: { colorScheme: 'dark', reducedMotion: 'no-preference' },
@@ -265,6 +270,11 @@ function pageKit() {
         const r = el.getBoundingClientRect();
         out.push(`${describe(el)} runs ${r.left < -1 ? `${Math.round(-r.left)} px past the left edge` : `${Math.round(r.right - vw)} px past the right edge`} of ${vw} px`);
       }
+      // a command is one line that scrolls inside its block with no scrollbar shown, so
+      // one that does not fit hides its end from anyone who reads or types it: it must fit
+      for (const c of document.querySelectorAll('.cmd-code')) {
+        if (c.getClientRects().length && c.scrollWidth > c.clientWidth + 1) out.push(`${describe(c)} does not fit its line: ${c.scrollWidth} px in ${c.clientWidth} px, its end hidden`);
+      }
       return out;
     },
     details(open) {
@@ -413,7 +423,7 @@ async function checkPage(browser, name, size, mode) {
 
     await page.evaluate(() => window.__wc.scrollThrough());
     const cls = await page.evaluate(() => window.__wc.cls());
-    if (cls.value > LIMITS.cls) add('layout shift', `layout shift ${cls.value.toFixed(3)}, over ${LIMITS.cls}: ${cls.moved.join(', ') || 'no source named'}`);
+    if (size !== REFLOW && cls.value > LIMITS.cls) add('layout shift', `layout shift ${cls.value.toFixed(3)}, over ${LIMITS.cls}: ${cls.moved.join(', ') || 'no source named'}`);
     for (const b of await page.evaluate(() => window.__wc.broken())) add('image', `${b} did not load`);
 
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -421,6 +431,7 @@ async function checkPage(browser, name, size, mode) {
     await page.evaluate(() => window.__wc.details(true));
     for (const o of await page.evaluate(() => window.__wc.overflow())) add('overflow', `with every <details> open: ${o}`);
     await page.evaluate(() => window.__wc.details(false));
+    if (size === REFLOW) return; // the reflow width: overflow only
 
     // the keyboard's way through the page, then through each <details>, opened alone
     let stops = 0;
@@ -483,10 +494,11 @@ let code = 0;
 try {
   const jobs = [];
   for (const name of pages) for (const size of SIZES) for (const mode of Object.keys(MODES)) jobs.push(() => checkPage(browser, name, size, mode));
+  for (const name of pages) jobs.push(() => checkPage(browser, name, REFLOW, 'light'));
   await pool(jobs, Math.max(2, Math.min(8, Math.floor(availableParallelism() / 2))));
 
   const secs = ((Date.now() - started) / 1000).toFixed(0);
-  console.log(`website-check: ${pages.length} page(s) × ${SIZES.length} widths × ${Object.keys(MODES).length} modes in Chromium ${browser.version()}, from ${relative(ROOT, SITE)}/ (${secs} s)`);
+  console.log(`website-check: ${pages.length} page(s) × ${SIZES.length} widths × ${Object.keys(MODES).length} modes, and at ${REFLOW[0]} px for overflow, in Chromium ${browser.version()}, from ${relative(ROOT, SITE)}/ (${secs} s)`);
   for (const name of pages) {
     const st = stats.get(name) || { cls: 0, stops: 0 };
     const n = [...problems.keys()].filter((k) => k.startsWith(`${name}\t`)).length;

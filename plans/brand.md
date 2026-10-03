@@ -512,8 +512,9 @@ The owner chose **M3, the bˣ tile**: a white b with a yellow x raised as its ex
 reversed out of cobalt. Master files, construction, sizes and rules:
 `plans/brand/marks/README.md`. Every surface uses the files and never redraws, recolours
 or re-letters them; the site loads `website/img/mark.svg` and `website/img/wordmark.svg`
-(wordmark A, exact Bricolage 800 outlines; the owner may still swap in B, one file), and
-`website/favicon.svg`.
+(wordmark A, exact Bricolage 800 outlines; the owner may still swap in B, which is wider,
+so the file and the wordmark's sizes on every page and in the share card change
+together: `website/README.md` → "Assets"), and `website/favicon.svg`.
 
 What the mark keeps: it reads as **growth outward** (doubling), never subdivision or
 decay; it does not resemble four-colour tile logos (no 2×2 or quartered squares); at

@@ -18,6 +18,11 @@
 #   placeholders until the film is shot (website/shots.todo.md): 1600 × 1000, flat, in
 #   the product theme's shell background (plans/brand.md §15). They never ship, because
 #   the film's sections ship without the film until it exists.
+# - shots/<ID>-<light|dark>-{800,1600}.{avif,webp}: every product shot whose master is in
+#   art/shots/ (<ID>-light.webp and <ID>-dark.webp, 3200 × 2000), at a half and a
+#   quarter of the capture, for a shot beside copy (about 740 px wide at most). AVIF
+#   keeps full colour resolution (4:4:4) so coloured terminal text stays sharp; WebP is
+#   the fallback.
 #
 # hack/check-website.mjs holds every page's first-screen images to 250 KB, counting a
 # <picture> by its largest candidate. This script refuses to write a hero file over
@@ -40,6 +45,9 @@ SQUARE = (880, 1536)          # the hero column: 1× and 2× (2× capped by the 
 STRIP = (900, 1800)           # the phone strip: 1× and 2×
 AVIF = dict(quality=62, speed=4, max_threads=1)
 JPEG = dict(quality=78, optimize=True, progressive=True)
+SHOT_WIDTHS = (800, 1600)      # a shot beside copy: 1× and 2× of about 740 px
+SHOT_AVIF = dict(quality=80, speed=4, max_threads=1, subsampling='4:4:4')
+SHOT_WEBP = dict(quality=90, method=6)
 
 # The film's poster placeholders: the product theme's shell background (plans/brand.md
 # §15, Concrete Day and Concrete Night).
@@ -89,6 +97,21 @@ def main():
         path = os.path.join(IMG, 'film', name)
         Image.new('RGB', FILM, rgb).save(path, 'WEBP', lossless=True)
         print(f'  img/film/{name}  {FILM[0]} × {FILM[1]}  placeholder, {os.path.getsize(path)} bytes')
+    shots = os.path.join(ART, 'shots')
+    os.makedirs(os.path.join(IMG, 'shots'), exist_ok=True)
+    for master in sorted(os.listdir(shots)) if os.path.isdir(shots) else []:
+        if not master.endswith('.webp'):
+            continue
+        im = Image.open(os.path.join(shots, master)).convert('RGB')
+        print(f'website/art/shots/{master} ({im.size[0]} × {im.size[1]})')
+        for width in SHOT_WIDTHS:
+            out = frame(im, width)
+            rows = []
+            for ext, fmt, opts in (('avif', 'AVIF', SHOT_AVIF), ('webp', 'WEBP', SHOT_WEBP)):
+                path = os.path.join(IMG, 'shots', f'{master[:-5]}-{width}.{ext}')
+                out.save(path, fmt, **opts)
+                rows.append(f'{ext} {os.path.getsize(path) / 1000:.1f} KB')
+            print(f'  img/shots/{master[:-5]}-{width}  {out.size[0]} × {out.size[1]}  ' + ', '.join(rows))
 
 
 if __name__ == '__main__':

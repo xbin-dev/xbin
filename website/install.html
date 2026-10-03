@@ -58,7 +58,8 @@
 <!-- /shared header -->
 
 <main id="content">
-  <!-- site/install.md, set verbatim. S-11 is provisional (figure[data-shot]) until it is captured. -->
+  <!-- site/install.md, set verbatim. S-11: the installer on a fresh Ubuntu 24.04 machine, captured
+       in the brand terminal (website/art/shots/S-11.session). -->
   <section class="ihero" id="top" aria-labelledby="top-h">
     <div class="wrap">
       <p class="crumb">Install</p>
@@ -94,8 +95,13 @@
           <p class="body">To read the script before you run it, open <code>deploy/install.sh</code> in <a href="https://github.com/xbin-dev/xbin">the source ↗</a>.</p>
           <p class="body">Pinning a version and installing system-wide are covered on the Operations page of <a href="https://github.com/xbin-dev/xbin/tree/master/docs">the docs ↗</a>.</p>
         </div>
-        <figure class="shot" data-shot="S-11 installer plan, green mat: a brand terminal on a fresh Linux machine, curl -fsSL https://xbin.dev/install.sh | sh at the prompt and the installer’s real output waiting for an answer (its end if taller than the frame); unedited, no hostname.">
-          <div class="mat mat-terminal"><span class="mat-tab">installer</span><div class="ph" role="img" aria-label="A terminal: the xbin installer has printed its plan and is asking before it changes anything."><mark data-todo="shot">S-11</mark></div></div>
+        <figure class="shot" data-shot="S-11 installer plan">
+          <div class="mat mat-terminal"><span class="mat-tab">installer</span><picture>
+            <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/shots/S-11-dark-800.avif 800w, /img/shots/S-11-dark-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+            <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="/img/shots/S-11-dark-800.webp 800w, /img/shots/S-11-dark-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+            <source type="image/avif" srcset="/img/shots/S-11-light-800.avif 800w, /img/shots/S-11-light-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+            <img src="/img/shots/S-11-light-800.webp" srcset="/img/shots/S-11-light-800.webp 800w, /img/shots/S-11-light-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px" width="800" height="500" loading="lazy" decoding="async" alt="A terminal: the xbin installer has printed its plan and is asking before it changes anything.">
+          </picture></div>
           <figcaption>The installer’s plan on a fresh machine, waiting for an answer.</figcaption>
         </figure>
       </div>
@@ -112,8 +118,8 @@
         <h3 class="plate-h">Requirements</h3>
         <dl>
           <div><dt>Operating system</dt><dd>Linux</dd></div>
-          <div><dt>Sandboxes</dt><dd>Linux namespaces by default. A microVM when an app needs root, such as Docker; microVMs need KVM (<code>/dev/kvm</code>).</dd></div>
-          <div><dt>Free disk</dt><dd>More than 10&nbsp;% free on the workspace’s disk. xbin starts no app sandbox while less than 10&nbsp;% is free.</dd></div>
+          <div><dt>Sandboxes</dt><dd>Linux namespaces by default. A microVM when an app needs root, such as Docker: with KVM (<code>/dev/kvm</code>), or emulated and much slower without it.</dd></div>
+          <div><dt>Free disk</dt><dd>More than 10&nbsp;% free on the workspace’s disk. Below that, xbin refuses new sandboxes that apps start and blocks writes by the largest apps.</dd></div>
         </dl>
       </div>
     </div>

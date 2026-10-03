@@ -6,9 +6,11 @@ The monogram also spells `bx`, the command-line tool. Corners are square everywh
 only iOS rounds anything, with its own mask. Brand rules: `plans/brand.md` §13.
 
 These are the master files. The site uses copies: `website/img/mark.svg` (= `mark.svg`),
-`website/img/wordmark.svg` (= `wordmark-a.svg`; swapping in B is that one file),
-`website/favicon.svg` (= `favicon.svg`) and `website/apple-touch-icon.png` (180 px,
-from `icon-1024.svg`).
+`website/img/wordmark.svg` (= `wordmark-a.svg`), `website/favicon.svg` (= `favicon.svg`)
+and `website/apple-touch-icon.png` (180 px, from `icon-1024.svg`). Swapping in B takes
+more than the file: B is 3.49:1 against A's 2.54:1, so the wordmark's sizes on every
+page and in the share card change with it (`website/README.md` → "Assets" has B's, from
+`lockup-b.svg`'s unit), and the site's guard fails until they do.
 
 ## Files
 

@@ -10573,9 +10573,10 @@ Deviations and refinements made while implementing; all deliberate:
     and no longer operate them. The definition, used verbatim: "xbin is a
     workspace where people and AI agents build the systems a company runs
     on, and where those systems run." The home page tells the story in a
-    few words (software made from the 1950s to today and the bend after the
-    first large language models, from sourced figures only; what breaks;
-    the idea; xbin working, measured) and keeps the product plug quiet.
+    few words (the curve of software made, from sourced figures only: the
+    measured series it can stand behind is new repositories on GitHub per
+    year, 2013 to 2025 and the August 2026 rate, below; what breaks; the
+    idea; xbin working, measured) and keeps the product plug quiet.
   - **What it replaces.** D67's frame, "an office for your agents", with
     its office metaphor and "IT holds the keys", is retired for the site
     (the repository README still carries it). Still in force from D67: no
@@ -10611,14 +10612,21 @@ Deviations and refinements made while implementing; all deliberate:
     HTML and CSS, one small ES module (the copy buttons; without it a
     command is plain text a click selects whole), self-hosted fonts, no
     cookies, storage, analytics or third-party loads, every page working
-    without JavaScript. `hack/check-website.sh` (`make website-check`, in
-    the guards) holds it there: `install.sh` byte-identical, the privacy
-    page's words, `app/ios.json`, no third-party loads or storage, per-page
+    without JavaScript. The site's guard, `hack/check-website.sh`
+    (`make website-guard`, in `make guards` and CI), holds it there:
+    `install.sh` byte-identical, the privacy page's words, `app/ios.json`,
+    no third-party loads or storage (no script names another host, no
+    cookies, web storage, IndexedDB, Cache API or service worker), per-page
     budgets (HTML and CSS 60 KB, JS 80 KB, fonts 200 KB, first-screen
-    images 250 KB), one header and footer, every image's alt and size;
-    `make website` refuses to build without the prebuilt helpers the site
-    serves. Wordmark A ships with the exact Bricolage Grotesque outlines in
-    place of the mark round's hand-drawn proxies.
+    images 250 KB), one header and footer, every image's alt and size.
+    `make website-check` is the separate browser pass (Playwright, not in
+    the guards: every page at six widths, 360 to 1920 px, in light, dark
+    and reduced motion, and at 320 px for overflow).
+    `make website` runs the guard with `--dist` and refuses a site not
+    ready to deploy: a `{{DATA}}` slot or a shot waiting for its capture
+    left on a page, or a prebuilt helper set the site serves missing or not
+    matching its sha256. Wordmark A ships with the exact Bricolage
+    Grotesque outlines in place of the mark round's hand-drawn proxies.
   - **Rejected** (in the judges' and cold readers' terms). The first rounds'
     five directions turned out to be one idea, warm paper, one vermilion
     accent and a square in the exponent: *Superscript* (A), an editorial
@@ -10661,12 +10669,29 @@ Deviations and refinements made while implementing; all deliberate:
     `make website-chart`); the marker sits at the first language model for
     code (June 2021). The register also warns that the bend came with
     coding agents in 2025 and 2026, not with the first language models.
-  - **Open.** The owner's sign-off on wordmark A or B (A ships; the swap
-    is one file, `website/img/wordmark.svg`); the product theme, Concrete
-    Day and Concrete Night (D184); the iOS app icon and the product's
-    other touchpoints (W8); the curve's projection and the two figures the
-    register does not give (the growth since 2021, the end of the decade
-    if the curve holds), and whether the section's copy, written for a
-    seventy-year chart, should change to fit the measured one; the
-    screenshots and film that wait for the product theme; the repository
-    README's pitch.
+    The August 2026 point is one month's count times twelve, so it is
+    drawn as what it is: a dotted segment with no fill to a hollow square,
+    and the caption says so. Every sentence about the chart (its caption,
+    the figures under it, a projection's line and words) is generated from
+    the data, so a projection the data does not carry cannot be described;
+    the two figures the register does not give (the growth since the
+    inflection, the end of the decade) left the page rather than ship as
+    slots.
+  - **The product shots.** The four brand-terminal shots (S-4 `bx --help`,
+    S-5 the grants file's diff, S-11 the installer on a fresh Ubuntu 24.04
+    VM, S-12 the apps as folders) are real sessions recorded byte for byte
+    and replayed into xterm.js set up as the brand terminal, kept with
+    their recordings in `website/art/shots/`. The product UI shots wait for
+    the product theme and their sections ship without them, as the film's
+    do; only S-9 has a matching interim still.
+  - **Open.** The owner's sign-off on wordmark A or B (A ships; B is wider,
+    so a swap changes the wordmark's sizes on every page and the share card
+    with the file, `website/README.md` → "Assets"); the product theme,
+    Concrete Day and Concrete Night (D184), and the product shots and film
+    that wait for it; the iOS app icon and the product's other touchpoints
+    (W8); the curve's projection and the two figures the register does not
+    give; whether the section's copy ("Seventy years of software. Then the
+    curve bent.", the marker "First large language models"), written for a
+    seventy-year chart, should change to fit the measured one; the brand
+    terminal's window (captured at 800 × 500 CSS px, not the spec's 1600 ×
+    1000, so its type reads on the page); the repository README's pitch.

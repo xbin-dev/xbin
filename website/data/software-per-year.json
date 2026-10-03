@@ -69,7 +69,8 @@
         "date": "2026-08-15",
         "value": 288000000,
         "source": "https://github.blog/news-insights/company-news/the-august-17-outage-and-the-work-ahead/",
-        "note": "annualised: \"new repositories per month rising to about 24M\" x 12 (GitHub, Aug 2026)"
+        "note": "annualised: \"new repositories per month rising to about 24M\" x 12 (GitHub, Aug 2026)",
+        "annualised": true
       }
     ]
   },
@@ -82,6 +83,15 @@
   },
   "latest_note": "annualised August rate",
   "latest_note_source": "register.md §7: \"Mark the 2026 point of github_new_repos_per_year as 'annualised August rate'.\"",
+  "caption": "Linear scale. Sources: GitHub, its Octoverse reports of 2018 to 2025 and its blog posts of December 2013 and August 2026, and for 2023 a summary of the Octoverse report (altusintel.com).",
+  "latest_caption": "The dotted end is a rate, not a year: about 24M new repositories in August 2026, times twelve.",
+  "figures": [
+    {
+      "num": "121M",
+      "claim": "new repositories on GitHub in Sep 2024–Aug 2025",
+      "source": "research register §1 #7 and §3.2: \"121M new repos\", Sep 2024–Aug 2025 (A); Octoverse 2025, https://github.blog/news-insights/octoverse/octoverse-a-new-developer-joins-github-every-second-as-ai-leads-typescript-to-1/"
+    }
+  ],
   "projection": null,
-  "projection_note": "The register gives no projection for this series; the dashed \"If the curve holds\" line waits for one."
+  "projection_note": "The register gives no projection for this series. When it does, set projection to {\"year\", \"value\", \"label\": \"If the curve holds\", \"caption\": the sentence the caption adds, \"figure\": {\"num\", \"claim\"}}: hack/website-chart.mjs then draws the dashed line and writes its sentence and figure. Until then neither exists, and neither do the growth-since-the-inflection figure or the end-of-decade figure the deck asks for."
 }

@@ -76,7 +76,7 @@
         <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/hall-night-880.avif 880w, /img/hall-night-1536.avif 1536w" sizes="880px">
         <source media="(prefers-color-scheme: dark)" srcset="/img/hall-night-880.jpg 880w, /img/hall-night-1536.jpg 1536w" sizes="880px">
         <source type="image/avif" srcset="/img/hall-day-880.avif 880w, /img/hall-day-1536.avif 1536w" sizes="880px">
-        <img src="/img/hall-day-880.jpg" srcset="/img/hall-day-880.jpg 880w, /img/hall-day-1536.jpg 1536w" sizes="880px" width="880" height="880" alt="Sheets of yellow, green, magenta and cobalt glass hanging in a sunlit gallery, laying stripes of coloured light across the concrete floor." fetchpriority="high">
+        <img src="/img/hall-day-880.jpg" srcset="/img/hall-day-880.jpg 880w, /img/hall-day-1536.jpg 1536w" sizes="880px" width="880" height="880" alt="Sheets of yellow, green, magenta and cobalt glass hanging in a concrete hall, laying coloured light across the floor." fetchpriority="high">
       </picture>
     </div>
   </section>
@@ -95,18 +95,19 @@
         <p class="chart-y">Software made per year: new repositories created on GitHub per year</p>
         <div class="chart-frame">
           <svg class="chart-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none" role="img" aria-labelledby="d1-name">
-            <title id="d1-name">New repositories created on GitHub per year, 2013 to 2026: from 5.5M in 2013 to 121M in the year to August 2025, then 288M in August 2026 (annualised August rate).</title>
+            <title id="d1-name">New repositories created on GitHub per year, 2013 to 2026: from 5.5M in 2013 to 121M in the year to August 2025, then 288M in August 2026 (annualised August rate); marked: First large language models, June 2021.</title>
             <line class="chart-grid" x1="0" x2="1000" y1="750" y2="750" vector-effect="non-scaling-stroke"/><line class="chart-grid" x1="0" x2="1000" y1="500" y2="500" vector-effect="non-scaling-stroke"/><line class="chart-grid" x1="0" x2="1000" y1="250" y2="250" vector-effect="non-scaling-stroke"/><line class="chart-grid" x1="0" x2="1000" y1="0" y2="0" vector-effect="non-scaling-stroke"/>
             <path class="chart-pre" d="M67.7 1000 L67.7 981.7 L399 893.3 L468.4 853.3 L537.9 800 L589.6 797.5 L589.6 1000 Z"/>
-            <path class="chart-post" d="M589.6 1000 L589.6 797.5 L607.3 796.7 L676.7 714.3 L746.2 673.3 L815.7 640 L879.4 596.7 L945.8 40 L945.8 1000 Z"/>
+            <path class="chart-post" d="M589.6 1000 L589.6 797.5 L607.3 796.7 L676.7 714.3 L746.2 673.3 L815.7 640 L879.4 596.7 L879.4 1000 Z"/>
             <line class="chart-rule" x1="589.6" x2="589.6" y1="0" y2="1000" vector-effect="non-scaling-stroke"/>
-            <path class="chart-line" d="M67.7 981.7 L399 893.3 L468.4 853.3 L537.9 800 L607.3 796.7 L676.7 714.3 L746.2 673.3 L815.7 640 L879.4 596.7 L945.8 40" vector-effect="non-scaling-stroke"/>
+            <path class="chart-line" d="M67.7 981.7 L399 893.3 L468.4 853.3 L537.9 800 L607.3 796.7 L676.7 714.3 L746.2 673.3 L815.7 640 L879.4 596.7" vector-effect="non-scaling-stroke"/>
+            <path class="chart-rate" d="M879.4 596.7 L945.8 40" vector-effect="non-scaling-stroke"/>
           </svg>
           <div class="chart-labels" aria-hidden="true">
             <span class="chart-ytick" style="--y:100.00%">0</span><span class="chart-ytick" style="--y:75.00%">75M</span><span class="chart-ytick" style="--y:50.00%">150M</span><span class="chart-ytick" style="--y:25.00%">225M</span><span class="chart-ytick" style="--y:0.00%">300M</span>
             <span class="chart-xtick" style="--x:6.94%">2014</span><span class="chart-xtick" style="--x:20.83%">2016</span><span class="chart-xtick" style="--x:34.72%">2018</span><span class="chart-xtick" style="--x:48.61%">2020</span><span class="chart-xtick" style="--x:62.50%">2022</span><span class="chart-xtick" style="--x:76.39%">2024</span><span class="chart-xtick" style="--x:90.28%">2026</span>
             <span class="chart-marker" style="--x:58.96%">First large language models</span>
-            <i class="chart-dot" style="--x:94.58%;--y:4.00%"></i>
+            <i class="chart-dot chart-dot-open" style="--x:94.58%;--y:4.00%"></i>
             <span class="chart-today" style="--x:94.58%;--y:4.00%">Today<small>annualised August rate</small></span>
           </div>
         </div>
@@ -129,13 +130,11 @@
             </tbody>
           </table>
         </details>
-        <!-- /chart D-1 -->
         <ul class="figs">
           <li class="fig"><!-- research register §1 #7 and §3.2: "121M new repos", Sep 2024–Aug 2025 (A); Octoverse 2025, https://github.blog/news-insights/octoverse/octoverse-a-new-developer-joins-github-every-second-as-ai-leads-typescript-to-1/ --><span class="fig-num">121M</span><p class="fig-claim">new repositories on GitHub in Sep 2024–Aug 2025</p></li>
-          <li class="fig"><span class="fig-num"><mark data-todo="data">{{DATA: growth multiple of that figure since the inflection year}}</mark></span><p class="fig-claim">since <!-- research register §2.1: the first AI pair programmer (a large language model for code) entered technical preview on 29 Jun 2021 (A), https://github.blog/news-insights/product-news/introducing-github-copilot-ai-pair-programmer/; the register states no growth multiple from 2021, so the figure above waits -->2021</p></li>
-          <li class="fig"><span class="fig-num"><mark data-todo="data">{{DATA: projected yearly figure at the end of the decade, continuing the growth rate since the inflection year}}</mark></span><p class="fig-claim">by the end of the decade, if the curve holds</p></li>
         </ul>
-        <figcaption class="caption" id="curve-cap">Linear scale. Sources: <!-- the series and its sources: website/data/software-per-year.json, from the research register §3.2 -->GitHub, its Octoverse reports of 2018 to 2025 and its blog posts of December 2013 and August 2026, and for 2023 a summary of the Octoverse report (altusintel.com). The dashed line continues the growth since <mark data-todo="data">{{DATA: inflection year}}</mark>. It is a projection.</figcaption>
+        <figcaption class="caption" id="curve-cap">Linear scale. Sources: GitHub, its Octoverse reports of 2018 to 2025 and its blog posts of December 2013 and August 2026, and for 2023 a summary of the Octoverse report (altusintel.com). The dotted end is a rate, not a year: about 24M new repositories in August 2026, times twelve.</figcaption>
+        <!-- /chart D-1 -->
       </figure>
     </div>
   </section>

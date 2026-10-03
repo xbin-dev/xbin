@@ -4,7 +4,10 @@
 // website/README.md → "Checks" lists the rules; each one is a function below.
 //
 //   node hack/check-website.mjs            the guard
-//   node hack/check-website.mjs --dist     also website/media/ against website/media.lock
+//   node hack/check-website.mjs --dist     what `make website` may deploy: also website/media/
+//                                          against website/media.lock, the prebuilt helpers
+//                                          against hack/helpers.sha256, and nothing left open
+//                                          (no {{DATA}} slot, no shot waiting, no stub page)
 //   node hack/check-website.mjs --privacy-digest FILE
 //                                          the digest the privacy check pins, for FILE
 //
@@ -16,8 +19,10 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-// WEBSITE_DIR points the check at another copy of the site (its tests do).
+// WEBSITE_DIR points the check at another copy of the site, and HELPERS_MANIFEST at
+// another helpers manifest (its tests do both).
 const SITE = resolve(process.env.WEBSITE_DIR || join(ROOT, 'website'));
+const HELPERS_MANIFEST = resolve(process.env.HELPERS_MANIFEST || join(ROOT, 'hack/helpers.sha256'));
 
 // The preserved files, as master had them when the site moved to Base Two (D183):
 // install.sh byte for byte (what `curl -fsSL https://xbin.dev/install.sh | sh` runs),
@@ -146,7 +151,12 @@ function preserved() {
 }
 
 // ---------------------------------------------------------------- 2. no third-party loads
-const RESOURCE_RELS = /\b(stylesheet|icon|apple-touch-icon|mask-icon|preload|modulepreload|prefetch|preconnect|dns-prefetch|manifest)\b/i;
+const RESOURCE_RELS = /\b(stylesheet|icon|apple-touch-icon|mask-icon|preload|modulepreload|prefetch|prerender|preconnect|dns-prefetch|manifest)\b/i;
+// A script reaches another host through a URL it names: fetch, sendBeacon, XMLHttpRequest,
+// WebSocket, EventSource, new Image().src, a dynamic import. The site's scripts name none,
+// so any absolute or protocol-relative URL in a string literal is a load from elsewhere.
+const JS_URL = /(["'`])((?:(?:https?|wss?):)?\/\/[^\s"'`]+)/gi;
+const jsURLs = (js) => [...js.matchAll(JS_URL)].map((m) => m[2]);
 
 function cssURLs(css) {
   const out = [];
@@ -177,6 +187,8 @@ function thirdParty() {
     }
     for (const { attrs } of tags(html, '[a-z][\\w-]*')) {
       if (attrs.style) for (const u of cssURLs(attrs.style)) if (isExternal(u)) fail(`${where}: a style attribute loads ${u}`);
+      // <a ping> and <area ping> send a request to each URL on every click
+      if ('ping' in attrs) fail(`${where}: a ping attribute (${attrs.ping || 'empty'}) reports clicks to a URL`);
     }
     for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
       for (const u of cssURLs(m[1])) if (isExternal(u)) fail(`${where}: an inline <style> loads ${u}`);
@@ -186,14 +198,24 @@ function thirdParty() {
         for (const u of m[2].match(/["'](?:https?:)?\/\/[^"']+["']/g) || []) fail(`${where}: the import map points at ${u}`);
       }
       for (const u of jsImports(m[2])) if (isExternal(u)) fail(`${where}: an inline script imports ${u}`);
+      if (!/type\s*=\s*["']?importmap/i.test(m[1])) {
+        for (const u of jsURLs(m[2])) fail(`${where}: an inline script names ${u} (the site's scripts reach no other host)`);
+      }
     }
   }
   for (const f of cssFiles) for (const u of cssURLs(read(f))) if (isExternal(u)) fail(`${rel(f)}: url()/@import loads ${u} from another site`);
-  for (const f of jsFiles) for (const u of jsImports(read(f))) if (isExternal(u)) fail(`${rel(f)}: imports ${u} from another site`);
+  for (const f of jsFiles) {
+    for (const u of jsImports(read(f))) if (isExternal(u)) fail(`${rel(f)}: imports ${u} from another site`);
+    read(f).split('\n').forEach((line, i) => {
+      for (const u of jsURLs(line)) fail(`${rel(f)}:${i + 1}: names ${u} (the site's scripts reach no other host)`);
+    });
+  }
 }
 
 // ---------------------------------------------------------------- 3. nothing stored
-const STORAGE = /\b(document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB)\b/;
+// Cookies (document.cookie, the Cookie Store API), web storage, IndexedDB, WebSQL, the
+// Cache API and service workers (which keep their own caches).
+const STORAGE = /\b(document\s*\.\s*cookie|cookieStore|localStorage|sessionStorage|indexedDB|openDatabase|caches|serviceWorker)\b/;
 function noStorage() {
   for (const f of jsFiles) {
     read(f).split('\n').forEach((line, i) => {
@@ -364,8 +386,24 @@ function marks() {
   for (const [site, master] of [['img/mark.svg', 'mark.svg'], ['favicon.svg', 'favicon.svg']]) {
     if (!same(join(SITE, site), join(masters, master))) fail(`website/${site} is not plans/brand/marks/${master} (copy the master; never redraw the mark)`);
   }
-  if (!['wordmark-a.svg', 'wordmark-b.svg'].some((m) => same(join(SITE, 'img/wordmark.svg'), join(masters, m)))) {
+  const wordmark = join(SITE, 'img/wordmark.svg');
+  if (!['wordmark-a.svg', 'wordmark-b.svg'].some((m) => same(wordmark, join(masters, m)))) {
     fail('website/img/wordmark.svg is neither plans/brand/marks/wordmark-a.svg nor wordmark-b.svg');
+  }
+  // A and B have different proportions (A 2.54:1, B 3.49:1), so every <img> of the
+  // wordmark is sized for the file in use: a swap that leaves the sizes behind squeezes
+  // the word (website/README.md → "Assets" has B's sizes).
+  const vb = existsSync(wordmark) && read(wordmark).match(/viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)\s*"/);
+  if (!vb) return;
+  const ratio = +vb[1] / +vb[2];
+  for (const f of htmlFiles) {
+    for (const { attrs } of tags(stripComments(read(f)), 'img')) {
+      if (!/(^|\/)img\/wordmark\.svg$/.test(attrs.src || '')) continue;
+      const r = +attrs.width / +attrs.height;
+      if (!(Math.abs(r / ratio - 1) <= 0.03)) {
+        fail(`${rel(f)}: the wordmark <img> is ${attrs.width} × ${attrs.height} (${r.toFixed(2)}:1), but img/wordmark.svg is ${ratio.toFixed(2)}:1 (size it for the wordmark in use: website/README.md → "Assets")`);
+      }
+    }
   }
 }
 
@@ -386,6 +424,53 @@ function media() {
   });
 }
 
+// ---------------------------------------------------------------- 9. the prebuilt helpers (--dist)
+// https://xbin.dev/static/helpers serves every set hack/helpers.sha256 lists, and
+// `make helpers` downloads them from there: a deploy without one sends every build of
+// that set back to compiling from source. Each <group>/<key>/<arch>.tar.zst the manifest
+// names must be staged in website/static-helpers/ (hack/helpers-static.sh) with the
+// sha256 the manifest pins.
+function helpers() {
+  if (!DIST || !existsSync(HELPERS_MANIFEST)) return;
+  read(HELPERS_MANIFEST).split('\n').forEach((line, i) => {
+    const f = line.trim().split(/\s+/);
+    if (!line.trim() || line.startsWith('#') || f.length !== 5) return;
+    const [group, key, arch, file, sum] = f;
+    if (file !== `${arch}.tar.zst`) return;
+    const where = `website/static-helpers/${group}/${key}/${file}`;
+    const p = join(SITE, 'static-helpers', group, key, file);
+    const at = `${relative(ROOT, HELPERS_MANIFEST)}:${i + 1}`;
+    if (!existsSync(p)) fail(`${where} is missing: ${at} lists it and the site serves it at /static/helpers/ (stage it with hack/helpers-static.sh; docs/maintenance.md → "Prebuilt helpers")`);
+    else if (sha256(readFileSync(p)) !== sum) fail(`${where}: its sha256 is not the one ${at} pins`);
+  });
+}
+
+// ---------------------------------------------------------------- 10. nothing left open
+// Slots are marks a visitor sees ({{DATA}} for a figure the research pass has not given,
+// a shot's ID for a capture that waits); a TODO-COPY gap is a comment by design; a stub
+// page is <main data-todo="page">. The guard counts them. What `make website` deploys
+// (--dist) carries none: the home page does not ship with a slot left in it, and a shot
+// that waits ships as its interim or not at all (website/README.md → "Assets").
+const todos = { data: 0, copy: 0, shot: 0, page: [] };
+function open() {
+  for (const f of htmlFiles) {
+    const html = read(f);
+    const shown = stripComments(html);
+    const name = relative(SITE, f);
+    const data = shown.match(/<mark data-todo="data">/g) || [];
+    const shots = [...shown.matchAll(/<mark data-todo="shot">([^<]*)<\/mark>/g)].map((m) => m[1]);
+    todos.data += data.length;
+    todos.copy += (html.match(/TODO-COPY/g) || []).length;
+    todos.shot += shots.length;
+    const stub = /<main\b[^>]*data-todo="page"/.test(html);
+    if (stub) todos.page.push(name);
+    if (!DIST) continue;
+    if (data.length) fail(`${name}: ${data.length} {{DATA}} slot(s) left; a deployed page shows none (fill them from the research register, or take the sentence or figure out)`);
+    if (shots.length) fail(`${name}: ${shots.length} shot(s) waiting for their capture (${shots.join(', ')}); a deployed page ships a capture, its interim, or no figure (website/shots.todo.md)`);
+    if (stub) fail(`${name}: still a stub page (<main data-todo="page">)`);
+  }
+}
+
 // ---------------------------------------------------------------- run
 preserved();
 thirdParty();
@@ -395,17 +480,8 @@ chrome();
 markup();
 marks();
 media();
-
-const todos = { data: 0, copy: 0, shot: 0, page: [] };
-for (const f of htmlFiles) {
-  const html = read(f);
-  // slots are marks on the page; a TODO-COPY gap is a comment by design
-  const shown = stripComments(html);
-  todos.data += (shown.match(/<mark data-todo="data">/g) || []).length;
-  todos.copy += (html.match(/TODO-COPY/g) || []).length;
-  todos.shot += (shown.match(/<mark data-todo="shot">/g) || []).length;
-  if (/<main\b[^>]*data-todo="page"/.test(html)) todos.page.push(relative(SITE, f));
-}
+helpers();
+open();
 const pad = (s, n) => String(s).padEnd(n);
 console.log(`website: ${pages.length} pages; budgets in KB (HTML+CSS ≤ ${BUDGET.htmlCss}, JS ≤ ${BUDGET.js}, fonts ≤ ${BUDGET.fonts}, first-screen images ≤ ${BUDGET.images})`);
 for (const r of budgetRows) console.log(`  ${pad(r.page, 15)} html+css ${pad(kb(r.htmlCss), 6)} js ${pad(kb(r.js), 6)} fonts ${pad(kb(r.fonts), 7)} images ${kb(r.images)}`);

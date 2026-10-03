@@ -75,8 +75,10 @@
   --s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-5:24px;--s-6:32px;--s-7:48px;--s-8:64px;--s-9:96px;--s-10:128px;
 
   /* grid: margins, gutters, content to 1440 px; --edge is the margin that keeps content
-     inside 1440 px on wide screens while fields and bands bleed full width */
-  --pad:clamp(16px,3.34vw,48px);
+     inside 1440 px on wide screens while fields and bands bleed full width. The pages ask
+     for the whole screen (viewport-fit=cover), so a phone held sideways puts its notch
+     inside the page: the margin is never narrower than the safe area on either side */
+  --pad:max(clamp(16px,3.34vw,48px),env(safe-area-inset-left,0px),env(safe-area-inset-right,0px));
   --gutter:clamp(16px,2.8vw,40px);
   --maxw:1440px;
   --edge:max(var(--pad),calc((100vw - var(--maxw)) / 2 + var(--pad)));

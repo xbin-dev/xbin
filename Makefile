@@ -249,7 +249,8 @@ website-guard:
 
 # The guard, then every page in Chromium (hack/website-check.mjs, Playwright from
 # PLAYWRIGHT_DIR; website/README.md → "Checks"): six widths in light, dark and
-# reduced motion, served by python3 -m http.server on 127.0.0.1:9424, failing on
+# reduced motion (and 320 px for overflow), served by python3 -m http.server on
+# 127.0.0.1:9424, failing on
 # console errors, requests that leave it, horizontal overflow, layout shift,
 # focus rings that do not show, missing images. Not in make guards (it needs a
 # browser). WEBSITE_CHECK_FLAGS passes --dist, --page NAME or --shots DIR.
@@ -343,14 +344,14 @@ vendor:
 # app/, install.sh, og.png and the icons, and website/media/ as
 # website/media.lock pins it. The photographs' masters in art/ stay out, and so
 # do the film's placeholder posters in img/film/ until the lock pins the film.
-# The site's guard runs first, with --dist. It refuses to build a site that
-# would stop serving the prebuilt helpers: when hack/helpers.sha256 lists
-# sets, the site serves them at /static/helpers, so website/static-helpers/
-# must be there (stage it with hack/helpers-static.sh; docs/maintenance.md →
-# "Prebuilt helpers").
+# The site's guard runs first, with --dist, and refuses a site that is not
+# ready to deploy: a {{DATA}} slot or a shot still waiting on a page, a media
+# file media.lock pins missing, or a prebuilt helper set missing. The site
+# serves every set hack/helpers.sha256 lists at /static/helpers, so each
+# <group>/<key>/<arch>.tar.zst must be in website/static-helpers/ with the
+# manifest's sha256 (stage it with hack/helpers-static.sh; docs/maintenance.md
+# → "Prebuilt helpers").
 website:
-	@if grep -q '^[^#[:space:]]' hack/helpers.sha256 && [ ! -d website/static-helpers ]; then \
-	  echo 'website: hack/helpers.sha256 lists prebuilt helpers, which https://xbin.dev/static/helpers serves, but website/static-helpers/ is missing: stage them first (hack/helpers-static.sh; docs/maintenance.md → "Prebuilt helpers")' >&2; exit 1; fi
 	@./hack/check-website.sh --dist
 	@rm -rf website/dist
 	@mkdir -p website/dist

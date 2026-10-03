@@ -1,0 +1,66 @@
+[?2004h$ clear
+[?2004l[H[2J[3J[?2004h$ curl -fsSL https://xbin.dev/install.sh | sh
+[?2004lxbin bootstrap
+  release:   v0.3.67
+  installer: https://raw.githubusercontent.com/xbin-dev/xbin/v0.3.67/deploy/install.sh
+[1mxbin installer[0m  →  run as mira (no mode chosen)
+  prebuilt bundle: v0.3.67 release (amd64) — auto-selected, no build on this host (--build-from-source to compile instead)
+
+[36m==>[0m [1mTwo ways to install[0m
+  [1msystem[0m (sudo)  A dedicated [1mxbin[0m system user owns the service and workspace
+                 under /opt/xbin — better separation from your account, and the
+                 usual choice for a shared or long-lived box. Needs root.
+  [1muser[0m   (no root, ever)  Everything lives under YOUR account in ~/.local and
+                 the service runs as you (systemd --user + lingering). Anything
+                 that would need root is printed as an exact command instead.
+[36m==>[0m Preflight checks (user mode)
+  [31m✗[0m AppArmor restricts unprivileged user namespaces (Ubuntu 23.10+) — a user install can't lift this
+  [33m![0m   fix (root): echo 'kernel.apparmor_restrict_unprivileged_userns=0' | sudo tee /etc/sysctl.d/99-xbin.conf && sudo sysctl --system
+  [32m✓[0m cgroup v2 present (per-component accounting)
+  [32m✓[0m /dev/fuse present (fuse-overlayfs; apt in terminals works)
+  [32m✓[0m /dev/net/tun present (egress relay / terminal internet scope)
+  [32m✓[0m /dev/kvm present (VM sandboxes on KVM, for terminals and backends)
+  [33m![0m /dev/kvm is not usable by mira — VM sandboxes would run emulated (slower); for KVM run once as root: sudo usermod -aG kvm mira, then log in again (or: sudo systemctl restart user@1000)
+  [32m✓[0m systemd user manager reachable (systemctl --user)
+  [31m✗[0m missing tools (a user install can't add packages): newuidmap newgidmap
+  [33m![0m   run once as root:  sudo apt-get install -y uidmap
+  [32m✓[0m subuid: range present for mira
+  [32m✓[0m subgid: range present for mira
+  [33m![0m fs.inotify.max_user_watches=30241 is low — recommended (root): echo 'fs.inotify.max_user_watches=524288' | sudo tee /etc/sysctl.d/99-xbin.conf && sudo sysctl --system
+  [33m![0m container tiles (cap:containers) will need user_allow_other in /etc/fuse.conf — run once as root: echo user_allow_other | sudo tee -a /etc/fuse.conf
+  [33m![0m user-mode preflight has blockers (✗ above) — fix them, or pick the system install (it can)
+
+[36m==>[0m [1mThis will (system mode):[0m
+   1. install packages via apt: uidmap fuse3 git ca-certificates curl tar (missing: newuidmap newgidmap)
+   2. download + verify the prebuilt bundle for amd64 (this release's manifest) — no podman/Go, no build
+   3. create system user xbin (home /opt/xbin)
+   4. delegate subuid/subgid 100000+65536 to xbin (/etc/subuid, /etc/subgid)
+   5. load + persist the KVM module and add xbin to the kvm group (VM sandboxes)
+   6. persist fuse+tun autoload + raise inotify watches + lift the AppArmor userns restriction (/etc/modules-load.d, /etc/sysctl.d)
+   7. verify a user namespace comes up for xbin
+   8. install binaries → /opt/xbin/bin, base rootfs → /opt/xbin/rootfs (copies a few GB), SDK → /opt/xbin/sdk; workspace dir /opt/xbin/workspace; link bx → /usr/local/bin/bx
+   9. turn VM sandboxes on in /opt/xbin/workspace/.xbin/vm/policy.json (never configured): terminals + backends + tile sandboxes with a usable KVM, terminals only where they'd run emulated; nothing without the VM pieces
+  10. choose vault unseal mode (auto → passphrase stored in /etc/xbin/xbin.env mode 600, or manual unseal each boot)
+  11. write systemd unit /etc/systemd/system/xbin.service + daemon-reload
+  12. exclude xbin.service from needrestart auto-restart (/etc/needrestart/conf.d/xbin.conf)
+  13. enable + start the unit, wait for /healthz on 127.0.0.1:8642
+  then: print the one-time login URL (journalctl -u xbin)
+      (probes ran read-only without root; after sudo, preflight and this plan are re-verified, re-printed, and confirmed before anything changes)
+
+[36m==>[0m [1mThis will (user mode):[0m
+   1. download + verify the prebuilt bundle for amd64 (this release's manifest) — no podman/Go, no build
+   2. verify a user namespace comes up for mira
+   3. install binaries → /home/mira/.local/opt/xbin/bin, base rootfs → /home/mira/.local/opt/xbin/rootfs (copies a few GB), SDK → /home/mira/.local/opt/xbin/sdk; workspace dir /home/mira/.local/opt/xbin/workspace; link bx → /home/mira/.local/bin/bx
+   4. turn VM sandboxes on in /home/mira/.local/opt/xbin/workspace/.xbin/vm/policy.json (never configured): terminals + backends + tile sandboxes with a usable KVM, terminals only where they'd run emulated; nothing without the VM pieces
+   5. choose vault unseal mode (auto → passphrase stored in /home/mira/.config/xbin/xbin.env mode 600, or manual unseal each boot)
+   6. write systemd unit /home/mira/.config/systemd/user/xbin.service + daemon-reload
+   7. enable lingering for mira (service survives logout; prints the sudo command if refused)
+   8. enable + start the unit, wait for /healthz on 127.0.0.1:8642
+  already in place (skipped this run):
+      · runs as mira — no system user, no /etc changes
+  then: print the one-time login URL (journalctl --user -u xbin)
+
+Install [s]ystem-wide via sudo, [u]ser-only, or [q]uit? q
+[36m==>[0m nothing installed. Re-run any time:  bash install.sh [--system|--user]
+[?2004h$ exit
+[?2004lexit

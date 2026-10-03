@@ -58,7 +58,8 @@
 
 <main id="content">
   <!-- site/security.md, set verbatim. Inform, strictly: the era stripe is the only colour field;
-       the two screenshot mats are the parts' colours (site/visuals.md S-5, S-9). -->
+       the two screenshot mats are the parts' colours (site/visuals.md S-5, S-9). S-9 is an interim
+       still in the current product theme until the Concrete Day and Night captures (D184). -->
   <section class="ihero" id="top" aria-labelledby="top-h">
     <div class="wrap ih-grid">
       <div>
@@ -127,10 +128,15 @@
         <p class="body">A grant is an approved permission for an app to reach something outside itself: a network destination, another app, a GPU or stored data.</p>
         <p class="body">Approved grants are kept in a plain, versioned file. You can read it, and you can diff two versions to see exactly what an approval changed.</p>
       </div>
-      <!-- S-5 waits for its capture (site/visuals.md S-5, a standalone brand terminal); no still of the
-           film set shows the grants file. Until then the mat holds a neutral frame at 16:10. -->
-      <figure class="shot" data-shot="S-5, the grants file diff, green mat: a standalone brand terminal with the diff of the workspace’s real grants file before and after approving one network destination, api.example.com:443, for the orders app. Use the file in its real format. If the file is under git, show git diff of it; if not, diff -u of the two versions. Added lines in the terminal’s green, removed lines (if any) in red, context in the default foreground. Nothing hand-edited, and no hostnames or paths that reveal where the workspace runs.">
-        <div class="mat mat-terminal"><span class="mat-tab">terminal</span><div class="ph" role="img" aria-label="A terminal showing a diff of the xbin grants file after one network destination, api.example.com on port 443, was approved for the orders app."><mark data-todo="shot">S-5</mark></div></div>
+      <!-- S-5 (site/visuals.md): the brand terminal, git diff of the workspace's xbin.json (where approved
+           grants and bindings live) after one destination was approved; website/art/shots/S-5.session. -->
+      <figure class="shot" data-shot="S-5 grants file diff">
+        <div class="mat mat-terminal"><span class="mat-tab">terminal</span><picture>
+          <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/shots/S-5-dark-800.avif 800w, /img/shots/S-5-dark-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="/img/shots/S-5-dark-800.webp 800w, /img/shots/S-5-dark-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source type="image/avif" srcset="/img/shots/S-5-light-800.avif 800w, /img/shots/S-5-light-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <img src="/img/shots/S-5-light-800.webp" srcset="/img/shots/S-5-light-800.webp 800w, /img/shots/S-5-light-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px" width="800" height="500" loading="lazy" decoding="async" alt="A terminal showing a diff of the xbin grants file after one network destination, api.example.com on port 443, was approved for the orders app.">
+        </picture></div>
         <figcaption>The grants file after one network destination was approved, shown as a diff.</figcaption>
       </figure>
     </div>

@@ -1,0 +1,55 @@
+{
+ "shot": "S-5, the grants file diff (site/visuals.md 7): approved grants and bindings live in the workspace's xbin.json, which is under git (D2), so the shot is git diff of it",
+ "machine": "the measured workstation, in harbor (see S-12) with xbind v0.3.67 serving it, no auth: orders declares the net interface in its manifest, an earlier approval (bx grant apps/orders cap:open-links:writer) puts xbin.json in xbind's own format, the owner commits the workspace, then approves one destination: bx bind apps/orders net=internet:api.example.com:443",
+ "shell": "bash --rcfile with PS1='$ ', the system bashrc's window-title hook unset; TERM=xterm-256color, LANG=C.UTF-8, GIT_PAGER=cat (the output is one screen, as less -FRX would show it), no personal git configuration",
+ "captured": "2026-10-03",
+ "view": "bottom",
+ "steps": [
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "send": "clear\r"
+  },
+  {
+   "wait": "\\x1b\\[(3|2)J.*\\$ $",
+   "timeout": 10
+  },
+  {
+   "mark": "cmd"
+  },
+  {
+   "type": "git diff xbin.json",
+   "delay": 0.05
+  },
+  {
+   "sleep": 0.3
+  },
+  {
+   "send": "\r"
+  },
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "sleep": 0.3
+  },
+  {
+   "mark": "end"
+  },
+  {
+   "send": "exit\r"
+  },
+  {
+   "sleep": 0.3
+  }
+ ],
+ "cols": 97,
+ "rows": 24,
+ "marks": {
+  "cmd": 22,
+  "end": 507
+ }
+}
