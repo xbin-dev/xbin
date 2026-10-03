@@ -36,7 +36,7 @@ final class XbinOnboardingTests: XCTestCase {
         }
         e.shot("onboarding-01-welcome")
         e.app.buttons["What is xbin?"].tap()
-        for (i, title) in ["An office for your agents", "Agents at work", "Yours, and private"].enumerated() {
+        for (i, title) in ["The systems a company runs on", "Agents build, people approve", "Yours, and private"].enumerated() {
             XCTAssertTrue(e.element(title).waitForExistence(timeout: 10), "What is xbin? page \(i + 1)")
             e.shot("onboarding-02-about-\(i + 1)")
             if i < 2 { e.app.buttons["Next"].tap() }

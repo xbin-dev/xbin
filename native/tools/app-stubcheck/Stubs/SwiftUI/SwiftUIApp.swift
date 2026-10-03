@@ -143,7 +143,19 @@ public struct Path: Shape {
     public mutating func addLine(to point: CGPoint) {}
     public mutating func addArc(center: CGPoint, radius: CGFloat, startAngle: Angle, endAngle: Angle, clockwise: Bool) {}
     public mutating func addEllipse(in rect: CGRect) {}
+    public mutating func addCurve(to end: CGPoint, control1: CGPoint, control2: CGPoint) {}
+    public mutating func addQuadCurve(to end: CGPoint, control: CGPoint) {}
     public mutating func closeSubpath() {}
+}
+// The brand mark (Shell/BrandMark.swift): an even-odd fill, a fixed aspect.
+extension Shape {
+    public func fill<S: ShapeStyle>(_ content: S, style: FillStyle) -> some View { _V(self) }
+}
+public enum ContentMode: Sendable { case fit, fill }
+extension View {
+    public func aspectRatio(_ aspectRatio: CGFloat? = nil, contentMode: ContentMode) -> some View { _V(self) }
+    // A window's appearance (Shell/RootView.swift, D185).
+    public func preferredColorScheme(_ colorScheme: ColorScheme?) -> some View { _V(self) }
 }
 
 // The panels, Home and the screens (Shell/PanelStack.swift, Shell/Screens).
