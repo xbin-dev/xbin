@@ -329,7 +329,7 @@ export class BxLlmGw extends LitElement {
             ${models.length ? models.map((m) => html`<tr>
               <td class="mono">${m.id}</td>
               <td class="muted">${m.owned_by ?? ''}</td>
-              <td style="text-align:right"><button class="act quiet" @click=${() => this._addAlias(m.id)}><bx-icon name="plus"></bx-icon>alias</button></td>
+              <td style="text-align:right"><button class="act quiet" @click=${() => this._addAlias(m.id)}>+ alias</button></td>
             </tr>`) : html`<tr><td class="muted" colspan="3">${this._modelsLoading ? 'loading…' : this._backends.some((b) => b.hasToken) ? 'no models found' : 'set an api token to list models'}</td></tr>`}
           </table>
         </div>
