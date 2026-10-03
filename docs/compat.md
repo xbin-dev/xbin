@@ -38,10 +38,16 @@ migrations is checked against it.
    adopted workspace. Entry files (`shell/bx-shell.js`,
    `tiles/admin/admin.js`, `index.html`) keep their names and import new
    siblings relatively; nothing shipped is renamed or removed.
-5. **Theme.** Third-party tile documents that never link `theme.css` are
-   styled only by the fallback values in `web/bx-*.js`. Fallbacks are not
-   removed; when the palette changes their values are regenerated from
-   `theme.css`.
+5. **Theme.** Concrete Night is every document's default (D184): a
+   document that links `/vendor/theme.css` gets it, as it got the dark
+   palette before, and turns light only when it opts in with
+   `<html data-bx-theme="auto">` — so a third-party tile that hard-codes
+   light text stays legible. `theme.css` is never injected. Old token names
+   keep working (`--bx-green`, `--bx-amber`, `--bx-red` alias ok, warn and
+   danger). Third-party documents that never link `theme.css` are styled
+   only by the fallback values in `web/bx-*.js`; fallbacks are not removed,
+   and they equal Night's values (`make theme-check` regenerates them from
+   `theme.css` when the palette changes).
 6. **CLI is a superset.** Every `bx` invocation accepted today stays
    accepted: interleaved positionals, repeated accumulating flags, `--flag
    value` and `--flag=value`, `--no-x` pairs. Where behaviour changes (an

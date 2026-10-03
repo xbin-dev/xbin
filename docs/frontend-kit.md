@@ -31,7 +31,10 @@ import '/vendor/bx-frame.js';
 | `/vendor/bx-grant-row.js` | `grantArrow(g)` — a grant or request's `from → target` with the policy-block / capability tooltip, as rendered by the shell, the admin console and the organisations tile |
 | `/vendor/bx-code.js` | `<bx-code>` (file tree + highlighted viewer + diffs); exports `diffHTML`, `diffStats`, `hl`, `langFor` |
 | `/vendor/events-socket.js` | `onEvent(cb)` — every `/ws/events` frame goes to `cb(e)` over the one shared socket; returns an unsubscribe. Filter on `e.type` yourself |
-| `/vendor/theme.css` | the design tokens (`--bx-bg`, `--bx-panel`, `--bx-text`, …) plus opt-in `.bx` control styles, and the workspace's thin scrollbars (D123): on a mouse/trackpad a 6px bar whose thumb is drawn 3px and fattens under the pointer, the scroller the next wheel or key would move tinted amber (`[data-bx-scroll]`); touch keeps its native bars. Link it to take the theme; it is **never injected** into your document. A document that links it also gets the focused-scroll tracker (below) from `xbin-client.js`; `<meta name="xbin-scroll-focus" content="off">` opts out |
+| `/vendor/theme.css` | the design tokens (§Theme below: Concrete Night and Concrete Day, D184), the self-hosted fonts, opt-in `.bx` base and control styles, and the workspace's thin scrollbars (D123): on a mouse/trackpad a 6px bar whose thumb is drawn 3px and fattens under the pointer, the scroller the next wheel or key would move tinted in the focus colour (`[data-bx-scroll]`); touch keeps its native bars. Link it to take the theme; it is **never injected** into your document, and your document turns light only when it opts in (`<html data-bx-theme="auto">`). A document that links it also gets the focused-scroll tracker (below) from `xbin-client.js`; `<meta name="xbin-scroll-focus" content="off">` opts out |
+| `/vendor/bx-theme.js` | a document's appearance, for code that paints or follows the person (§Theme): `appearance()`, `setAppearance()`, `follows()`, `scheme()`, `token(name, el)`, `onAppearance(cb)`. Dependency-free |
+| `/vendor/bx-icons.js` | `<bx-icon name="lock">` and `iconSvg(name, {size, label})`: the workspace's drawn glyphs, 16px in `currentColor` (§Theme › Icons). Dependency-free |
+| `/vendor/fonts/` | Instrument Sans, JetBrains Mono and Bricolage Grotesque (woff2, SIL OFL 1.1, the licences beside them); `theme.css` loads them — use the `--bx-sans`, `--bx-mono` and `--bx-display` tokens rather than naming them |
 | `/vendor/bx-scroll.js` | the scrollbar CSS for **shadow roots** (a document stylesheet does not reach them): `scrollCssText`, the same rules `theme.css` carries — a lit element puts `unsafeCSS(scrollCssText)` (or `/vendor/scroll-css.js`'s shared `scrollCss`) in its `static styles`. Importing it installs `installScrollFocus()` once per document: it keeps `data-bx-scroll` on the scroller the next scroll would move — the innermost scrollable under the mouse, the one a wheel actually latches onto (at its end, the next one out), or the focused element's on a scroll key — and hands off to/from framed documents (`xbin:scroll-focus`, [protocol.md](/docs/protocol.md)). Dependency-free |
 | `/vendor/scroll-window.js` | `ScrollWindow` — a long list that renders a window of its rows and never moves what the reader is looking at (D124, D130; the Agent tab's, framework-free): `attach(scroller)` (it sets `overflow-anchor: none`), then `before()` right before every render and `after()` right after it, in the same frame — the bottom stays pinned while the reader is there, else the first visible row keeps its place. Rows are the scroller's direct children with a key (`rows`: a selector, default `:scope > [data-k]`; `keyOf(el)`). `wantsAbove()` / `wantsBelow()` say when to render (or fetch) more rows, `trimAbove()` / `trimBelow()` the key of the last row to keep once more than 6 views of rows lie beyond the view (keep 2.5: never ping-pongs with the 1.5-view fill); `onScroll`, `onResize`, `atBottom`, `keepView`, `toBottom()`, `firstVisible()`, `rowsPerView()`. A touch scroll grows the window only once it settles. Dependency-free |
 | `/vendor/xb-native.js` | a tile's **native UI** for the xbin mobile app: `html`, `render`, `repeat`, `nothing` (lit-shaped), and `widget` (the tile's card on the app's screens) over the native vocabulary (`/vendor/xb/vocab.js`: `screen`, `section`, `row`, `field`, `button`, …). A tile's `native.js` imports it; the app runs that file in a hidden document with the tile's own identity and draws what it renders with platform UI, re-rendering by patches. Also exports `native` — in the app the same object as `xbin.native` (`caps`, `supports()`, `meta()`, `copy()`, `share()`, `open()`, `state`, `saveState()`, `widgetSize`, `on('widgetsize')`). Outside the app nothing loads `native.js`; browsers keep showing `index.html`. The reference — templates, every primitive, the rules — is [native.md](/docs/native.md). Worked examples: `examples/counter-go/native.js` (one round trip, and a widget) and `examples/calendar/native.js` (a list, a form, a bus refresh); the builtin chat, egress-approver, prometheus-viewer, s3-archiver and webhooks tiles ship one too — logic a page and its native view share lives in a plain module both import (chat's `chat-core.js`, the viewer's `prom.js`) |
@@ -93,17 +96,203 @@ native UI; `/vendor/xb/fixture.html?tree=<url>` draws one tree. They exist
 for previews and tests — a tile never imports them, and they follow the
 app's look rather than a frozen API.
 
+## Theme
+
+The workspace draws in two themes from the Base Two system (D184): **Concrete
+Night** (dark) and **Concrete Day** (light). Every colour, font, corner and
+shadow is a custom property in `/vendor/theme.css`; everything else uses
+`var(--bx-…)`. A person picks one in the shell's settings — *Theme*: System,
+Light or Dark, and *Density*: Compact or Comfortable — and System follows
+the device's light or dark setting.
+
+### Opting in
+
+```html
+<!doctype html>
+<html lang="en" data-bx-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="/vendor/theme.css">
+</head>
+<body class="bx">
+```
+
+- `data-bx-theme="auto"` makes the document **follow the person**: their
+  choice, or the system's when they chose System. It is right in the first
+  painted frame, with no script of yours: xbind's document injection adds
+  `<meta name="xbin-theme">` / `<meta name="xbin-density">` when the person
+  chose something ([protocol.md](/docs/protocol.md)), and the sheet reads
+  them and `prefers-color-scheme`. Later changes reach a framed document as
+  `xbin:appearance` from its embedder, which `xbin-client.js` applies; a
+  page open in a browser tab of its own picks a change of the setting up on
+  reload, and follows the system live. No other value of the attribute is
+  defined.
+- A document that links the sheet **without** the attribute gets Concrete
+  Night — new values under the same names — so a tile written for the old
+  dark palette, light text hard-coded, stays legible. It turns light only
+  when it opts in.
+- A document that doesn't link the sheet: the core elements in it render
+  from their fallbacks, which are Night.
+- `<body class="bx">` takes the base: the panel background, the text colour
+  and the UI type (13/18; 14/20 comfortable).
+
+Then look at your tile in both themes (the system setting, or the shell's
+settings) and keep every colour on a token.
+
+### Tokens
+
+The values are in `theme.css` itself (Night is its `:root`, Day the block an
+opted-in document gets); the names and what they are for:
+
+| Group | Tokens | For |
+|---|---|---|
+| Surfaces | `--bx-bg` (the canvas), `--bx-sidebar`, `--bx-panel` (windows, cards, bars, menus, `body.bx`), `--bx-panel-2` (inset panels, toolbars), `--bx-hover`, `--bx-selection` / `--bx-selection-text`, `--bx-border` (hairlines), `--bx-border-strong` (inputs, secondary buttons), `--bx-code-bg`, `--bx-canvas-dot` | backgrounds and edges |
+| Text | `--bx-text`, `--bx-muted` (secondary, icons at rest), `--bx-subtle` (placeholders, tertiary) | |
+| Accent | `--bx-accent`, `--bx-accent-hover`, `--bx-accent-ink` (text and icons on the accent), `--bx-link` | primary actions, selection, prose links: nothing else |
+| Focus | `--bx-focus`, `--bx-focus-gap`, `--bx-focus-width`, `--bx-focus-offset`, `--bx-focus-outline`, `--bx-focus-halo` | the focus ring |
+| Status | `--bx-ok`, `--bx-warn`, `--bx-danger`, `--bx-info`, each with a `-bg` tint | always with an icon and a word |
+| Old names | `--bx-green`, `--bx-amber`, `--bx-red` | aliases of ok, warn and danger: they keep working |
+| Partition marker | `--bx-part` | yours / shared / global ([partitions.md](/docs/partitions.md)) |
+| Window chrome | `--bx-titlebar`, `--bx-titlebar-active`, `--bx-title-text`, `--bx-title-text-inactive`, `--bx-window-border`, `--bx-window-border-active`, `--bx-control-hover`, `--bx-close-hover` / `-ink` | |
+| Parts and fields | `--bx-part-tab-shell` / `-terminal` / `-agent` / `-admin` (3px tabs, `--bx-part-tab-h`), `--bx-field-yellow` / `-green` / `-magenta` / `-cobalt` with `-ink`, `--bx-elevated-bg` / `-ink` | brand colour, sparingly (below) |
+| Elevation, shape | `--bx-shadow` (a card), `--bx-shadow-rest` / `-active` (windows), `--bx-shadow-pop` (menus, popovers, dialogs, toasts), `--bx-scrim`, `--bx-radius` (2px) | |
+| Code | `--bx-syn-keyword`, `-string`, `-number`, `-comment`, `-function`, `-type`, `-attr`, `-builtin`, `-deletion`, `-addition`; `--bx-diff-add`, `-del`, `-hunk`, `-context`, each with `-bg` | highlighted code and diffs |
+| Terminal | `--bx-term-bg`, `-fg`, `-cursor`, `-cursor-ink`, `-selection`, and the 16 ANSI colours `--bx-term-black` … `--bx-term-bright-white` | xterm's theme |
+| Type | `--bx-sans` (Instrument Sans), `--bx-mono` (JetBrains Mono), `--bx-display` (Bricolage Grotesque); `--bx-font` (the UI shorthand), `--bx-font-micro`, `-meta`, `-ui`, `-body`, `-title`, `-heading`, `-hero`, `-code`, `-number`; `--bx-tracking-micro` / `-heading` / `-hero` | `font: var(--bx-font-…)` |
+| Density | `--bx-row` (28px; 32px comfortable), `--bx-control-h`, `--bx-pad`, `--bx-grid` (4px), `--bx-text-size` / `-line`, `--bx-term-size` / `-line`, `--bx-density` | compact or comfortable |
+| Layout, motion | `--bx-titlebar-h`, `--bx-topbar-h`, `--bx-statusbar-h`, `--bx-sidebar-w`, `--bx-rail-w`, `--bx-dock-w`, `--bx-elevated-h`; `--bx-ease-out`, `--bx-ease-in-out`, `--bx-dur-instant` / `-ui` / `-panel` / `-window` (0 under reduced motion) | |
+| The theme in force | `--bx-scheme` (`dark` or `light`) | for code that paints |
+
+Rules of use:
+
+- **The accent** is for primary buttons, the selection (its background plus
+  a 2px accent rule), the active tab's underline and links in prose — never
+  for identifiers, paths, status, row actions or decoration.
+- **Status** is an icon, a word and its colour, never the colour alone; the
+  `-bg` tints are for alert and badge backgrounds. A brand field colour
+  never signals status: it appears only as a part tab, the elevated banner
+  or one block in a first-run or empty state.
+- **Corners** are `var(--bx-radius)` or 0: no pills, no circles (a status
+  dot is an 8px square, an avatar a square).
+- **Type** is 13px or larger (`var(--bx-font)`, `--bx-font-ui`, `-body`,
+  `-title`); 11px only for the micro caps of section labels
+  (`--bx-font-micro` with `--bx-tracking-micro`, uppercase), 12px only for
+  timestamps and meta (`--bx-font-meta`). Mono for paths, commands,
+  hostnames, ids and times; display type for headings and empty states;
+  tabular figures (`font-variant-numeric: tabular-nums`) in tables and
+  numbers.
+- **Elevation**: windows `--bx-shadow-rest` / `-active`, anything that pops
+  over `--bx-shadow-pop`, scrims `--bx-scrim`, cards a border.
+- **In a shadow root** the document's rules don't reach: give it
+  `button, input, select, textarea { font: inherit }`, the code font on
+  `pre, code`, `::placeholder { color: var(--bx-subtle); opacity: 1 }` and
+  `:focus-visible { outline: var(--bx-focus-outline); outline-offset:
+  var(--bx-focus-offset); box-shadow: var(--bx-focus-halo) }`.
+- **Fallbacks** are `var(--bx-x, <its Night value>)`, or none.
+- **Code that paints** (a canvas, SVG built in JS, xterm) reads tokens with
+  `token()` and paints again in `onAppearance()` (below).
+- Nothing tuned for one theme only. `make theme-check` keeps the
+  workspace's own code to these rules ([maintenance.md](/docs/maintenance.md));
+  your tiles are yours, and the rules are how they match.
+
+### Controls
+
+In a `.bx` document (or on a `.bx` element): `button` is a secondary button
+(the panel, a `--bx-border-strong` edge), `button.primary` the accent fill
+with the accent ink, `button.quiet` text only, `button.danger` the
+destructive outline (a danger fill only inside a confirmation); `input`,
+`select` and `textarea` are 28px (32px comfortable) fields with a strong
+edge; every interactive element gets the focus ring on `:focus-visible`;
+tables get tabular figures; `.bx-label` is the micro caps label. An
+opted-in document also gets `accent-color` for checkboxes, radios and
+ranges, and themed placeholders and text selection.
+
+### `/vendor/bx-theme.js`
+
+```js
+import { token, onAppearance } from '/vendor/bx-theme.js';
+
+const paint = () => {
+  ctx.fillStyle = token('--bx-panel', canvas);
+  ctx.strokeStyle = token('--bx-accent', canvas);
+  // …
+};
+paint();
+onAppearance(paint); // the person's change, the system's light/dark or contrast
+```
+
+| Export | What |
+|---|---|
+| `appearance(doc?)` | `{theme, density}`: `'system'`, `'light'` or `'dark'`, and `'compact'` or `'comfortable'`, as the document has them |
+| `follows(doc?)` | the document opted in (`data-bx-theme="auto"`) |
+| `scheme(el?)` | `'light'` or `'dark'`: what `el` renders in now |
+| `token(name, el?)` | a token's current value at `el` |
+| `onAppearance(cb, win?)` | `cb(appearance)` after a change of the person's choice, the system's scheme or its contrast setting; returns an unsubscribe |
+| `setAppearance({theme, density}, doc?)` | change the document's appearance (the shell's settings do; a tile has no reason to) |
+| `appearanceMessage()`, `applyAppearanceMessage(data)` | the `xbin:appearance` relay (`<bx-frame>` and `xbin-client.js` use them) |
+| `rememberTheme(theme)`, `THEMES`, `DENSITIES`, `MESSAGE`, `EVENT`, `COOKIE` | the hint cookie, and the names |
+
+### Icons
+
+`/vendor/bx-icons.js` draws the workspace's glyphs, in place of emoji and of
+symbols set in whatever font a button fell back to. An icon is 16px (or
+`size="20"`), takes `currentColor` and sits on the text's baseline:
+
+```js
+import '/vendor/bx-icons.js';
+html`<button title="Close" aria-label="Close"><bx-icon name="xmark"></bx-icon></button>`;
+html`<span class="st"><bx-icon name="warning"></bx-icon> 2 warnings</span>`;
+```
+
+`<bx-icon name="…">` is decorative (hidden from assistive technology);
+`label="…"` makes it an image with that name; an icon-only button needs its
+own `aria-label` or `title`. `iconSvg(name, {size, label})` returns the same
+SVG as a string, `hasIcon(name)` says whether a name exists, and `ICON_NAMES`
+lists them all. A name that doesn't exist draws nothing (and says so once in
+the console). `<option>` text can't hold an icon: there the word stands
+alone. The names follow the native vocabulary's where the meaning is the
+same:
+
+`agent` `archive` `arrow-left` `arrow-right` `bell` `bell-slash` `bolt`
+`box` `branch` `calendar` `caret-down` `caret-right` `chart` `chat` `check`
+`chevron-down` `chevron-left` `chevron-right` `chevron-up` `clipboard`
+`clock` `code` `compact` `copy` `cpu` `database` `deploy` `device` `diff`
+`doc` `download` `ellipsis` `error` `eye` `eye-slash` `file` `filter`
+`folder` `globe` `grip` `home` `host` `info` `key` `link` `list` `live`
+`lock` `mail` `maximize` `menu` `minimize` `minus` `network` `ok` `org`
+`paperclip` `pause` `pencil` `people` `person` `photo` `pin` `play` `plug`
+`plus` `popout` `question` `refresh` `restore` `save` `search` `send`
+`server` `settings` `shield` `signal` `split` `tag` `terminal` `thought`
+`trash` `unlock` `upload` `vm` `wait` `warning` `window` `xmark`, and the
+aliases `attach` `back` `building` `channel` `close` `collapse` `danger`
+`edit` `expand` `external` `forward` `gear` `gpu` `hourglass` `image`
+`laptop` `logs` `more` `package` `phone` `rack` `reload` `stop` `storage`
+`team` `user` `view-as` `warn` `wrench`.
+
+A person's own emoji (a folder's icon, an agent class's) is their content,
+and is shown as they wrote it.
+
+### `/vendor/theme-boot.js`
+
+For a page xbind serves with no document injection (its own partitions
+page): a classic script in `<head>`, before the `theme.css` link, that
+copies the `xbin_theme` hint cookie the shell keeps into
+`<meta name="xbin-theme">`, so the page opens in the person's theme. A tile
+never needs it: its documents get the injection.
+
 ## Rules
 
 - **URLs are frozen.** A module served today stays at its path; a helper
   that moves leaves a re-export behind (`clampBox` in `bx-frame.js`).
 - **One home per helper.** `make js-check` refuses a second definition of
-  a kit helper (`api`, `jbody`, `esc`, `deepActive`, `pathHas`, `clampBox`)
-  or of the code viewer's highlight helpers anywhere in the shipped trees.
+  a kit helper (`api`, `jbody`, `esc`, `deepActive`, `pathHas`, `clampBox`),
+  of the code viewer's highlight helpers, or of `bx-theme.js`'s and
+  `bx-icons.js`'s, anywhere in the shipped trees.
 - **Theme fallbacks stay.** Core elements carry `var(--bx-x, <literal>)`
   fallbacks so a document that never linked `theme.css` still renders;
-  `make theme-check` keeps every literal equal to `theme.css`. Your own
-  document decides its theme: link the sheet, or set the tokens yourself.
+  `make theme-check` keeps every literal equal to Concrete Night's value in
+  `theme.css`. Your own document decides its theme: link the sheet (and opt
+  in to follow the person), or set the tokens yourself.
 
 ## lit pitfalls met in this codebase
 
