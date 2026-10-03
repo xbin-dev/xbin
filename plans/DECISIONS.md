@@ -11042,6 +11042,12 @@ Deviations and refinements made while implementing; all deliberate:
     plate and buttons (`.buttonBorderShape(.roundedRectangle(radius: 2))`).
     Navigation and tab bars, sheets, lists' inset sections, switches,
     segmented controls and search fields stay iOS's.
+  - **Concrete under lists.** Every panel, the onboarding's pages and the
+    app's sheets put the canvas behind their lists and forms
+    (`concreteBackground()`: the list's own background hidden), so lists
+    sit on the same concrete as the screens' cards; rows stay on the panel
+    (iOS's own row colour, the panel's in light and a step from it in
+    dark). An agent's transcript sits on the panel (product-ui 8).
   - **Part tabs** are a 3 pt rule on a card's top edge: green for a
     terminal, magenta for an agent session (the sessions screen's tabs and
     the launcher's boxes), yellow on the admin console's card (as the web
@@ -11063,7 +11069,7 @@ Deviations and refinements made while implementing; all deliberate:
     the terminal's accent. The renderer's `terminal` primitive does the same.
   - **The mark and the icon.** XbinMark draws M3 from the masters' path
     data (plans/brand/marks), XbinLockup sets it with wordmark A in the text
-    colour. AppIcon.icon is the cobalt fill with the white b and the yellow
+    colour, on the Welcome and on Log in. AppIcon.icon is the cobalt fill with the white b and the yellow
     x as two flat layers (no specular, no translucency); the dark, clear and
     tinted looks stay the system's derivations (native/AGENTS.md), checked
     with ictool.
