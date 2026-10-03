@@ -258,6 +258,10 @@ builders re-check before editing):
 
 ### 2.2 Defaults the plan adopts — the owner may veto any at the freeze
 
+**Signed off at the freeze (2026-10-03): none of V1–V18 vetoed.** scm-github's
+`net` binding defaults to `internet` (§5.2's narrowed list documented as
+the alternative); the channel attach may slip (V10).
+
 | # | Default | Where it bites |
 |---|---|---|
 | V1 | A team task's run owner is its creator. | §12 |
