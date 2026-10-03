@@ -3,9 +3,12 @@ package main
 // The demo script (-script FILE): scripted answers for the demo film set
 // (hack/demo), so a workspace dressed as a real company can show its agent
 // and chat answering in full sentences without a real model — and without
-// the harness scripts' test phrasing. It is consulted before the built-in
-// keywords; what it doesn't match falls through to them, except the
-// catch-all "ok: <text>" answer, which becomes the script's fallback.
+// the harness scripts' test phrasing. With a script loaded it is the only
+// script: the built-in test keywords never answer ("hello", "quick", "steer"
+// typed on camera must not get "Hello from the fake model."). A turn it has
+// no reply for — a chat's, a subagent's — gets its fallback; the agent's
+// conversation titles are the reply's title or the first words; its
+// compaction gets a plain summary of the transcript (demoSummary).
 //
 //	{
 //	  "models": ["assistant"],                 // /v1/models lists these instead
@@ -112,23 +115,30 @@ func (d *demoScript) find(s string) *demoReply {
 	return nil
 }
 
-// pick answers one model request: the demo script when it matches, else the
-// built-in scripts (with the script's fallback for their catch-all).
+// pick answers one model request: from the demo script alone when one is
+// loaded (demoScript.answer), else from the built-in test scripts.
 func pick(conv []turn, system string, tools []string) plan {
 	if demo == nil || len(conv) == 0 {
 		return script(conv, system)
 	}
-	if p, ok := demo.answer(conv, system, tools); ok {
-		return p
-	}
-	p := script(conv, system)
-	if demo.Fallback != "" && strings.HasPrefix(p.Text, "ok: ") && len(p.Calls) == 0 {
-		p.Text = demo.Fallback
-	}
-	return p
+	return demo.answer(conv, system, tools)
 }
 
-func (d *demoScript) answer(conv []turn, system string, tools []string) (plan, bool) {
+// defaultFallback answers what a script without its own fallback doesn't
+// match.
+const defaultFallback = "I can't help with that from here."
+
+// fallback is the script's answer to a turn it has no reply for.
+func (d *demoScript) fallback() plan {
+	if d.Fallback != "" {
+		return plan{Text: d.Fallback}
+	}
+	return plan{Text: defaultFallback}
+}
+
+// answer is the script's answer to one request — always one: its reply for
+// the turn, a title, a summary, or its fallback.
+func (d *demoScript) answer(conv []turn, system string, tools []string) plan {
 	switch purposeOf(system) {
 	case "title":
 		first := conv[len(conv)-1].Text
@@ -136,14 +146,14 @@ func (d *demoScript) answer(conv []turn, system string, tools []string) (plan, b
 			first = strings.SplitN(rest, "\n", 2)[0]
 		}
 		if r := d.find(first); r != nil && r.Title != "" {
-			return plan{Text: r.Title}, true
+			return plan{Text: r.Title}
 		}
-		return plan{Text: plainTitle(first)}, true
+		return plan{Text: plainTitle(first)}
 	case "compact":
-		return plan{}, false
+		return plan{Text: demoSummary(conv[len(conv)-1].Text)}
 	}
 	if strings.Contains(system, "You are a subagent") {
-		return plan{}, false
+		return d.fallback()
 	}
 	// the last user message, and how many tool results this turn holds
 	lastUser, results := "", 0
@@ -158,7 +168,7 @@ func (d *demoScript) answer(conv []turn, system string, tools []string) (plan, b
 	}
 	r := d.find(lastUser)
 	if r == nil {
-		return plan{}, false
+		return d.fallback()
 	}
 	st := r.Steps[min(results, len(r.Steps)-1)]
 	data := turnJSON(conv)
@@ -176,7 +186,76 @@ func (d *demoScript) answer(conv []turn, system string, tools []string) (plan, b
 		in += len(t.Text)
 	}
 	p.Prompt, p.Output = in/4+200, (len(p.Text)+len(st.Thinking))/4+30*len(p.Calls)+8
-	return p, true
+	return p
+}
+
+// transcriptLine is one "#<seq> <role>[ <tool>]: <text>" line of the agent's
+// compaction transcript (the agent's compact.go writes them).
+var transcriptLine = regexp.MustCompile(`^#(\d+) (user|assistant|tool)(?: ([^ :]+))?(?: \([^)]*\))?: ?(.*)$`)
+
+// demoSummary is a compaction's summary of the transcript it was given,
+// in plain words: which messages it covers, the tools consulted, and where
+// the last answer left off — what a model's summary would say, briefly.
+func demoSummary(in string) string {
+	first, last, lastAnswer := 0, 0, ""
+	var tools []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(in, "\n") {
+		m := transcriptLine.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		n, _ := strconv.Atoi(m[1])
+		if first == 0 {
+			first = n
+		}
+		last = n
+		switch m[2] {
+		case "tool":
+			if t := readableTool(m[3]); t != "" && !seen[t] {
+				seen[t] = true
+				tools = append(tools, t)
+			}
+		case "assistant":
+			if s := strings.TrimSpace(m[4]); s != "" {
+				lastAnswer = s
+			}
+		}
+	}
+	if first == 0 {
+		return "Nothing to fold in yet; the conversation continues from the pinned task."
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Messages #%d–#%d", first, last)
+	if len(tools) > 0 {
+		fmt.Fprintf(&b, " looked things up with %s", strings.Join(tools, ", "))
+	}
+	b.WriteString(".")
+	if lastAnswer != "" {
+		s, _, _ := strings.Cut(lastAnswer, "\n")
+		if r := []rune(s); len(r) > 160 {
+			s = string(r[:160]) + "…"
+		}
+		fmt.Fprintf(&b, " The last answer (#%d) began: %s", last, s)
+	}
+	return b.String()
+}
+
+// readableTool is a tool's name as a person reads it: the agent's MCP names
+// ("mcp_<server>_<tool>_<hash>") lose their prefix and hash.
+func readableTool(name string) string {
+	if rest, ok := strings.CutPrefix(name, "mcp_"); ok {
+		parts := strings.Split(rest, "_")
+		if len(parts) >= 3 {
+			// mcp_apps_crm_get_account_9f8e7d6c: the server is "apps_crm", the
+			// tool what follows it, less the hash
+			tool := parts[2 : len(parts)-1]
+			if len(tool) > 0 {
+				return strings.Join(tool, "_")
+			}
+		}
+	}
+	return name
 }
 
 // toolName resolves "mcp:<tool>" against the request's offered tools: the
@@ -225,9 +304,8 @@ func turnJSON(conv []turn) []any {
 
 var placeholderRe = regexp.MustCompile(`\{\{\s*(#\d+\.)?([A-Za-z0-9_.\-]+)\s*(?:\|\s*([a-z]+)\s*)?\}\}`)
 
-// dayRe names a day relative to the demo's day — today on a weekday, else
-// the coming Monday (the week hack/demo's calendar opens on) — counted in
-// working days: {{weekday:+1}} "Monday", {{date:+4}} "Oct 9", {{longdate:+4}}
+// dayRe names a day relative to the demo's day (demoDay), counted in working
+// days: {{weekday:+1}} "Monday", {{date:+4}} "Oct 9", {{longdate:+4}}
 // "October 9", {{nth:+4}} "9th", {{iso:-2}} "2026-10-01". hack/demo/seed.sh
 // fills the same placeholders in the set's fixtures, so what the model says
 // agrees with the calendar and the CRM.
@@ -236,13 +314,33 @@ var dayRe = regexp.MustCompile(`\{\{\s*(weekday|date|longdate|nth|iso):([+-]?\d+
 // clock is the demo's now (a test sets it).
 var clock = time.Now
 
-// fillDays replaces the day placeholders (dayRe) in s.
-func fillDays(s string) string {
+// setDay is -day: the set's day (YYYY-MM-DD, hack/demo/clock.py's
+// DEMO_DAY), which the scripted answers name days from — pinned, so a set
+// filmed past midnight still agrees with its fixtures. Zero: demoDay's rule.
+var setDay time.Time
+
+// demoDay is the set's day: -day, else hack/demo/clock.py's rule on the
+// clock — today on a weekday from 08:00, else the last working day before
+// (a set seeded at night or on a weekend reads like that afternoon).
+func demoDay() time.Time {
+	if !setDay.IsZero() {
+		return setDay
+	}
 	now := clock()
 	day := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
-	for day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
-		day = day.AddDate(0, 0, 1)
+	weekend := func(d time.Time) bool { return d.Weekday() == time.Saturday || d.Weekday() == time.Sunday }
+	if weekend(day) || now.Hour() < 8 {
+		day = day.AddDate(0, 0, -1)
+		for weekend(day) {
+			day = day.AddDate(0, 0, -1)
+		}
 	}
+	return day
+}
+
+// fillDays replaces the day placeholders (dayRe) in s.
+func fillDays(s string) string {
+	day := demoDay()
 	return dayRe.ReplaceAllStringFunc(s, func(m string) string {
 		sm := dayRe.FindStringSubmatch(m)
 		n, _ := strconv.Atoi(sm[2])

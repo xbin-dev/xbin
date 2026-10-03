@@ -66,25 +66,77 @@ func TestDemoScript(t *testing.T) {
 	if p = pick([]turn{user("First message:\nwhat changed in the driver app this week?")}, "Name this conversation", nil); p.Text != "What changed in the driver app" {
 		t.Fatalf("plain title: %q", p.Text)
 	}
-	// unmatched: the fallback instead of "ok: …"; the built-in keywords still answer
-	if p = pick([]turn{user("tell me a joke")}, "", nil); p.Text != "Let me look into that." {
-		t.Fatalf("fallback: %q", p.Text)
-	}
-	if p = pick([]turn{user("hello there")}, "", nil); p.Text != "Hello from the fake model." {
-		t.Fatalf("a built-in keyword: %q", p.Text)
+	// unmatched: the fallback
+	if p = pick([]turn{user("tell me a joke")}, "", nil); p.Text != "Let me look into that." || len(p.Calls) != 0 {
+		t.Fatalf("fallback: %+v", p)
 	}
 }
 
-// Day placeholders count working days from the demo's day: today on a
-// weekday, the coming Monday on a weekend (hack/demo/seed.sh agrees).
+// With a demo script loaded, the harness's test keywords never answer: a live
+// take that types "hello", "quick", a steer, "delegate", "make a file", "use
+// a tool", "new sandbox" or "restart me" gets the script's fallback at once —
+// never "Hello from the fake model.", a test tool call or a 30 s hang — and
+// so does a subagent; a compaction gets a plain summary, not "SUMMARY: …".
+func TestDemoScriptOnly(t *testing.T) {
+	demo = &demoScript{Fallback: "Ask me about a customer.", Replies: []demoReply{{Match: []string{"pipeline"}, Steps: []demoStep{{Text: "Pipeline: fine."}}}}}
+	defer func() { demo = nil }()
+	user := func(s string) turn { return turn{Role: "user", Text: s} }
+	for _, s := range []string{"hello there", "a quick one", "steer: use tabs", "please delegate this", "make a file for me",
+		"use a tool", "start a new sandbox", "restart me", "huge context", "long 3", "paras 2", "harness spawn", "sandbox pwd"} {
+		start := time.Now()
+		p := pick([]turn{user(s)}, "You are Merrow.", []string{"note", "file_write", "subagent_spawn", "sandbox_create"})
+		if p.Text != "Ask me about a customer." || len(p.Calls) != 0 || p.Delay != 0 || p.Prompt > 1_000_000 {
+			t.Errorf("%q: %+v, want the fallback", s, p)
+		}
+		if time.Since(start) > time.Second {
+			t.Errorf("%q took %v", s, time.Since(start))
+		}
+	}
+	// a tool result the script didn't ask for: still the fallback, not "done with …"
+	if p := pick([]turn{user("hello"), {Role: "assistant"}, {Role: "tool", Tool: "note", Text: "ok"}}, "", nil); p.Text != "Ask me about a customer." {
+		t.Errorf("after a tool: %+v", p)
+	}
+	// a matched reply still answers
+	if p := pick([]turn{user("how is the pipeline?")}, "", nil); p.Text != "Pipeline: fine." {
+		t.Errorf("a reply: %+v", p)
+	}
+	// a subagent: the fallback, never "subagent: <task>" or "one, two, three"
+	if p := pick([]turn{user("count to three")}, "You are a subagent of an agent.", nil); p.Text != "Ask me about a customer." {
+		t.Errorf("subagent: %+v", p)
+	}
+	// a compaction: a summary of the transcript in words
+	tr := "Prior summary:\n(none)\n\nNew transcript to fold in:\n#3 user (priya): [a request — pinned verbatim in the task; do not restate it]\n" +
+		"#4 assistant: \n  → mcp_apps_crm_get_account_9f8e7d6c {}\n#5 tool mcp_apps_crm_get_account_9f8e7d6c: {\"account\":{}}\n" +
+		"#6 tool mcp_apps_ops-report_latest_report_0badf00d: {}\n#7 assistant: **Brightwell** renews on Nov 12.\nThen more."
+	p := pick([]turn{user(tr)}, "You compact an AI agent's working context.", nil)
+	if strings.Contains(p.Text, "SUMMARY") || !strings.Contains(p.Text, "#3–#7") || !strings.Contains(p.Text, "get_account, latest_report") ||
+		!strings.Contains(p.Text, "**Brightwell** renews on Nov 12.") || strings.Contains(p.Text, "Then more") {
+		t.Errorf("compaction: %q", p.Text)
+	}
+	if p := pick([]turn{user("nothing here")}, "You compact an AI agent's working context.", nil); p.Text == "" || strings.Contains(p.Text, "SUMMARY") {
+		t.Errorf("an empty compaction: %q", p.Text)
+	}
+	// without a fallback of its own: a plain one
+	demo.Fallback = ""
+	if p := pick([]turn{user("hello")}, "", nil); p.Text != defaultFallback {
+		t.Errorf("no fallback: %+v", p)
+	}
+}
+
+// Day placeholders count working days from the demo's day: -day when given,
+// else today on a weekday from 08:00, else the last working day before — a
+// set seeded on a weekend or at night is dated that afternoon
+// (hack/demo/clock.py agrees).
 func TestDemoDays(t *testing.T) {
-	defer func() { clock = time.Now }()
+	defer func() { clock, setDay = time.Now, time.Time{} }()
 	at := func(s string) func() time.Time {
 		return func() time.Time { d, _ := time.ParseInLocation("2006-01-02 15:04", s, time.Local); return d }
 	}
 	for _, c := range []struct{ now, in, want string }{
-		{"2026-10-03 00:40", "{{weekday:0}} {{date:0}}", "Monday Oct 5"},                     // a Saturday: the coming Monday
-		{"2026-10-03 00:40", "{{weekday:-1}}, {{longdate:+4}}", "Friday, October 9"},         // back over the weekend
+		{"2026-10-03 00:40", "{{weekday:0}} {{date:0}}", "Friday Oct 2"},                     // a Saturday: the Friday before
+		{"2026-10-04 15:00", "{{weekday:0}}, {{longdate:+4}}", "Friday, October 8"},          // a Sunday, and forward over the weekend
+		{"2026-10-05 07:30", "{{weekday:0}} {{date:0}}", "Friday Oct 2"},                     // a Monday before 08:00: Friday's afternoon
+		{"2026-10-05 21:00", "{{weekday:0}} {{date:0}}", "Monday Oct 5"},                     // a weekday's evening: that day
 		{"2026-10-07 09:00", "{{weekday:+2}}, then {{ weekday:+3 }}", "Friday, then Monday"}, // forward over it
 		{"2026-10-07 09:00", "the {{nth:-2}}, {{nth:+4}}, {{iso:+10}}", "the 5th, 13th, 2026-10-21"},
 		{"2026-10-19 09:00", "the {{nth:+2}}, {{nth:+3}}, {{nth:+4}}, {{nth:+8}}", "the 21st, 22nd, 23rd, 29th"},
@@ -94,5 +146,11 @@ func TestDemoDays(t *testing.T) {
 		if got := fill(c.in, nil); got != c.want {
 			t.Errorf("at %s: fill(%q) = %q, want %q", c.now, c.in, got, c.want)
 		}
+	}
+	// -day pins it, whatever the clock says
+	clock = at("2026-10-10 03:00")
+	setDay = time.Date(2026, 10, 2, 12, 0, 0, 0, time.Local)
+	if got := fill("{{weekday:0}} {{date:+1}}", nil); got != "Friday Oct 5" {
+		t.Errorf("-day: %q", got)
 	}
 }

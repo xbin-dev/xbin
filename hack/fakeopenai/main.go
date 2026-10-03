@@ -102,8 +102,10 @@
 // restarted backend took to re-issue its call, or check what a call after a
 // compaction carried.
 //
-// -script FILE answers from a demo script first (demo.go: the demo film
-// set's conversations, hack/demo), with its own model list.
+// -script FILE answers from a demo script instead (demo.go: the demo film
+// set's conversations, hack/demo), with its own model list — none of the
+// keywords above then answers; -day YYYY-MM-DD pins the day its answers
+// name days from.
 //
 //	go run ./hack/fakeopenai -addr 127.0.0.1:18977
 package main
@@ -851,8 +853,16 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18977", "listen address")
-	scriptFile := flag.String("script", "", "a demo script (JSON) answering before the built-in keywords (demo.go)")
+	scriptFile := flag.String("script", "", "a demo script (JSON): with one, the only script (demo.go)")
+	day := flag.String("day", "", "the demo's day, YYYY-MM-DD, its answers name days from (default: demo.go's demoDay rule)")
 	flag.Parse()
+	if *day != "" {
+		d, err := time.ParseInLocation("2006-01-02", *day, time.Local)
+		if err != nil {
+			log.Fatalf("-day %q: %v", *day, err)
+		}
+		setDay = d.Add(12 * time.Hour)
+	}
 	if *scriptFile != "" {
 		d, err := loadDemo(*scriptFile)
 		if err != nil {
