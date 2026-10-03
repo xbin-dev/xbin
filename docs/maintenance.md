@@ -506,24 +506,60 @@ stay byte for byte what it was.
   Response bodies go through `xbin.WriteJSON` / `xbin.WriteError` from the
   SDK — a backend defining its own `writeJSON` is a copy to delete.
 
-## Frontend kit and theme fallbacks
+## Frontend kit and the theme guard
 
 `web/bx-kit.js` is the one home of the helpers every frontend used to copy
 (`api`/`xbinApi`/`selfApi`, `jbody`, `esc`, `deepActive`, `pathHas`,
 `clampBox`); `web/bx-code.js` owns the highlight helpers (`hl`, `langFor`,
-`diffHTML`). `make js-check` refuses a second definition of any of them in
+`diffHTML`), `web/bx-theme.js` a document's appearance (`setAppearance`,
+`onAppearance`, `appearanceMessage`, `applyAppearanceMessage`,
+`rememberTheme`) and `web/bx-icons.js` the drawn glyphs (`iconSvg`,
+`hasIcon`). `make js-check` refuses a second definition of any of them in
 the shipped trees — import from `/vendor/…` by absolute URL instead
 ([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
 why bare specifiers are banned).
 
-`make theme-check` (`hack/theme-fallbacks.mjs`) fails when a
-`var(--bx-x, <literal>)` fallback in `web/`, `workspace-template/` or the
-builtin trees disagrees with `web/theme.css`; `--fix` rewrites them. The
-fallbacks are the theme for a document that never linked `theme.css` — the
-sheet is deliberately **not** injected into tile documents: it sets
-`color-scheme: dark` and would flip a third-party tile's default colours
-([compat.md](/docs/compat.md) rule 5). Font tokens are exempt (a fallback may
-abbreviate the stack).
+`make theme-check` is the theme guard (D184): the workspace has a light and
+a dark theme, and a colour written anywhere but `web/theme.css` is a colour
+one of them never sees. Two scripts, both run, both must pass:
+
+- **`hack/theme-fallbacks.mjs`** — every `var(--bx-x, <literal>)` fallback in
+  `web/`, `workspace-template/`, the builtin trees, `examples/` and
+  `hack/demo/tiles/` equals `theme.css`'s Concrete Night, and the Day block
+  `theme.css` carries twice (the person's light; the system's light) is the
+  same text in both places (between the `bx-day:start`/`end` markers). The
+  fallbacks are the theme for a document that never linked `theme.css` —
+  the sheet is deliberately **not** injected into tile documents, and a
+  document turns light only when it opts in ([compat.md](/docs/compat.md)
+  rule 5) — so they are Night's values. Old names and composites resolve to
+  literals (`var(--bx-red, #FF7A7A)`, never `var(--bx-red,
+  var(--bx-danger))`); font tokens are exempt (a fallback may abbreviate the
+  stack). `--fix [path…]` rewrites them; paths limit either mode.
+- **`hack/theme-lint.mjs`** — over the same trees plus the string literals
+  of `internal/server/*.go` (not `web/vendor/`, tests, `testdata/` or
+  `_backend/`), comments stripped first, it fails with `file:line: check:
+  literal` on: a **colour** literal on a line that styles (or a string that
+  is nothing but a colour) — the fallback of a token `theme.css` defines is
+  fine, of one it doesn't (`--bx-yellow`, your own `--my-x`) is not; a
+  **radius** other than `0` or `var(--bx-radius…)`; a **font** family
+  outside `var(--bx-…)`; **small** type, a literal size under 13px (11px
+  micro caps and 12px meta are `--bx-font-micro` / `--bx-font-meta`); an
+  **emoji** (draw `<bx-icon>` instead); and the **contrast** pairs of the
+  token table, recomputed from `theme.css` in both themes (4.5:1 text, 3:1
+  UI parts), so a token edit can't quietly drop one. `--checks a,b` runs
+  some; paths limit the scan.
+
+To satisfy it: use the tokens ([frontend-kit.md](/docs/frontend-kit.md)
+§Theme). Where a literal is right, say why, where it is: a `theme-ok:
+<reason>` comment on the line or the one before (a QR code that must stay
+dark on light for scanners, a data table mapping a person's emoji to glyph
+names, an avatar hue derived from an id), or — for a whole file —
+`hack/theme-allow.txt`, `<path-glob>  <checks>  <reason>`: the token file,
+the terminal's named palettes, the native renderer's iOS shapes. Both need
+a reason that holds; a bare `theme-ok:` excepts nothing. The tests are
+`hack/theme-fallbacks.test.mjs` and `hack/theme-lint.test.mjs` (`make
+js-test`); the harness's `themeCanary` pass is the runtime half (§UI
+harness).
 
 ## The native reference (`docs/native.md`)
 
@@ -877,7 +913,8 @@ you forgot.
 
 Offline (`make pins-offline`, part of `make check`):
 
-- `web/vendor/` matches `hack/vendor.sha256` and every file is listed.
+- `web/vendor/` matches `hack/vendor.sha256` and every file is listed,
+  `fonts/` included (the self-hosted fonts and their OFL texts, D184).
   `hack/vendor.sh` fetches the pinned builds and rewrites the list; to bump
   a dependency edit the version there, run it, commit both. Never edit a
   vendored file by hand — the checksum exists so a hand edit cannot reach a

@@ -241,9 +241,13 @@ swift-stubcheck:
 	  t=$${c%%:*}; a=; case $$c in *:*) a=$${c#*:};; esac; log="$${TMPDIR:-/tmp}/xbin-$$t$$a.log"; echo ">> $$t $$a"; \
 	  native/tools/$$t/run.sh $$a >"$$log" 2>&1 || { tail -40 "$$log"; echo "$$t $$a: FAILED (full log: $$log)"; rc=1; }; done; exit $$rc
 
-# Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
+# The theme guard (D184, docs/maintenance.md): every var(--bx-*, <literal>)
+# fallback in shipped frontends equals web/theme.css's Night and its two Day
+# blocks agree; no colour, radius, font stack, small type or emoji outside
+# the tokens (hack/theme-allow.txt and `theme-ok:` name the exceptions); the
+# tokens' contrast pairs hold. Both run, so one failure doesn't hide the other.
 theme-check:
-	@node hack/theme-fallbacks.mjs
+	@rc=0; node hack/theme-fallbacks.mjs || rc=1; node hack/theme-lint.mjs || rc=1; exit $$rc
 
 # Builtin tile backends + the agent template's, vetted and tested against
 # their own go.mod.tile with the sdk replaced by this checkout — what a

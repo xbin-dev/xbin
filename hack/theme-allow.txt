@@ -1,0 +1,15 @@
+# hack/theme-allow.txt — where hack/theme-lint.mjs lets a literal stand
+# (D184; docs/maintenance.md → "The theme guard"). One rule per line:
+#
+#   <path-glob>  <checks>  <reason>
+#
+# path-glob is repo-relative (* within a directory, ** across them); checks
+# is a comma list of colour, radius, font, small, emoji, contrast (or *);
+# the reason is required and must hold. A single line is better excepted in
+# place with a `theme-ok: <reason>` comment on it or on the line before.
+# Keep this list short: every entry is a file the light theme can't reach.
+
+web/theme.css  colour,font,radius  the token file: values are written here
+web/term-palettes.js  colour  the terminal settings menu's named palettes (data; programs choose ANSI colours)
+web/xb/render-theme.js  colour,font,radius  the native renderer's token table; it previews the app, whose shapes follow iOS
+web/xb/render-*.js  radius  the native renderer draws the app's shapes (frontend-kit: it follows the app's look)
