@@ -775,8 +775,9 @@ AppIcon` in project.yml), with the marketing icon App Store Connect wants.
 `hack/vendor.sh`), converted by `native/ios/scripts/app-fonts.sh`
 (woff2_decompress and fontTools; the same bytes every run): rerun it when
 vendor.sh moves a font. XbinRendererModel's `XbinFaces` names them; a face
-that isn't registered falls back to the system's (the package-mode snapshot
-tests draw with the system font).
+that isn't registered falls back to the system's. The snapshot tests (both
+runs) register them from the source tree beside the fixtures, so their PNGs
+show the app's type.
 
 **Privacy.** The app's code collects nothing for the developer. It talks to
 the workspaces its user adds, which are their servers, and fetches the kill
