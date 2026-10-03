@@ -16,7 +16,9 @@
 
 export const FRAME_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; " +
                          "font-src data:; form-action 'none'; base-uri 'none'";
+// theme-ok: the model's HTML assumes a white page with the browser's own type (D184)
 const FRAME_CSS = 'html{background:#fff;color:#111;color-scheme:light}' +
+                  // theme-ok: the model's HTML assumes a white page with the browser's own type
                   'body{margin:12px;font:14px/1.5 system-ui,-apple-system,sans-serif}' +
                   'img,svg,video,canvas,table,pre{max-width:100%}' +
                   'pre{overflow-x:auto}table{border-collapse:collapse}';

@@ -135,7 +135,7 @@ ok('a tab shows its own terminal and header', (await text('#sbxterm-pane .sbxthd
 // ▾ Hide: the shells keep running; the pill brings them back, in any conversation
 await page.click('#sbxterm-hide');
 await page.waitForSelector('#sbxterm-pill');
-ok('Hide: the dock goes, a pill says how many', await page.$eval('#sbxterm-pane', (p) => p.style.display === 'none') && (await text('#sbxterm-pill')) === '>_ 2 terminals');
+ok('Hide: the dock goes, a pill says how many', await page.$eval('#sbxterm-pane', (p) => p.style.display === 'none') && (await text('#sbxterm-pill')) === '2 terminals');
 ok('…their sockets stay open', await page.evaluate(() => window.__tty.sockets.filter((s) => s.readyState === 1).length === 2));
 const nDials = (await dials()).length;
 await go(21, '[data-k="ch1:toolu_10"]');
@@ -262,11 +262,11 @@ ok('a sandbox you may not use: whom to ask, no methods', (await text('#hl-ask'))
 await go(33, '#hlogin');
 await page.waitForSelector('#hl-gone');
 ok('a sandbox that is gone: what is wrong and what to do, Retry — no methods, no one to ask, no shared-home warning',
-  (await text('#hl-gone')) === '⚠ ▣ gone-box: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.'
+  (await text('#hl-gone')) === '▣ gone-box: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.'
   && !(await page.$('#hl-ask')) && !(await page.$('#hl-warn')) && !(await page.$('#hlogin [data-kind]')) && !!(await page.$('#hl-retry')), await text('#hlogin'));
 await page.click('#sbxbadge');
 await page.waitForSelector('#sbx-broken');
-ok('…its ▣ says the way out is a new chat', (await text('#sbx-broken')) === '⚠ gone — its manager no longer has it — start a new chat with Codex in another sandbox',
+ok('…its ▣ says the way out is a new chat', (await text('#sbx-broken')) === 'gone — its manager no longer has it — start a new chat with Codex in another sandbox',
   await text('#sbx-broken'));
 await page.click('.mback');
 

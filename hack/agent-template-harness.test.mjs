@@ -62,8 +62,8 @@ test('acp calls: families, icons, readings, sublines', () => {
   assert.equal(family('acp:fetch'), 'web');
   assert.equal(family('acp:edit'), 'edit');
   assert.equal(family('acp:bogus'), 'other', 'unknown kind → other');
-  assert.equal(ICON.edit, '✎');
-  assert.equal(ICON.think, '💭');
+  assert.equal(ICON.edit, 'pencil', 'the web\'s glyph names (D184)');
+  assert.equal(ICON.think, 'thought');
   assert.equal(headline('acp:execute', '{"command":"go test ./...","summary":"Run the tests"}'), 'Run the tests', 'the adapter\'s label');
   assert.equal(headline('acp:execute', '{"command":["go","vet"]}'), '$ go vet');
   assert.equal(headline('acp:read', '{"file_path":"a.go","offset":10,"limit":5}'), 'Read a.go:10–14');
@@ -521,7 +521,7 @@ test('native: a harness conversation — its cards, a seam\'s block, end, toolba
   assert.match(texts(t), /probe end: ready/);
   assert.ok(all(t, { t: 'button', has: 'probe toolbar' }).length, 'the toolbar hook');
   assert.ok(all(t, { t: 'button', has: 'probe menu #21' }).length, 'the menu hook');
-  assert.match(all(t, { t: 'screen' })[0].p.subtitle, /^probe subtitle · CC ready 👥 · 📋 3\/3 · ctx 26% · idle · /, 'the subtitle hooks (in the order they registered), after the chain, before the status');
+  assert.match(all(t, { t: 'screen' })[0].p.subtitle, /^probe subtitle · CC ready · shared · plan 3\/3 · ctx 26% · idle · /, 'the subtitle hooks (in the order they registered), after the chain, before the status');
   const composer = all(t, { t: 'composer' })[0];
   assert.equal(composer.p.placeholder, 'message Claude Code…', 'the last placeholder given (U4\'s, registered after the probe)');
   assert.deepEqual(composer.p.slash[0], { name: 'probe', description: 'a probe command' }, 'slash commands add up');

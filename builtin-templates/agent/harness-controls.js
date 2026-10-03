@@ -68,7 +68,8 @@ ext.register({
     hctl.hidden = !(h || home);
     if (!h && !home) st.open = false;
     const acct = h ? accountOf(h, app.harness.signins) : null;
-    render(h ? buttonTpl(controls(h, app.harness.find(h.provider), who(v)).label + (acct.shown && acct.label ? ` · ${acct.label}` : '')) : home ? buttonTpl(homeLabel(home)) : nothing, hctl);
+    const c = h ? controls(h, app.harness.find(h.provider), who(v)) : null;
+    render(c ? buttonTpl(c.label + (acct.shown && acct.label ? ` · ${acct.label}` : ''), c.mode.explicit) : home ? buttonTpl(homeLabel(home)) : nothing, hctl);
     drawPop(v, h, home);
     // the composer's words on a harness run (null: the built-in ones stand)
     const w = steerWords(v);
@@ -83,8 +84,8 @@ const who = (v) => ({ owner: ownerOf(v, ctx.app.me), talk: access(v).talk && !ba
 
 // --- #hctl ------------------------------------------------------------------------------
 
-const buttonTpl = (label) => html`<button class="btn ghost hctlb" type="button" title="the coding agent's mode, options and your setting"
-  @click=${(e) => { e.stopPropagation(); st.open = !st.open; st.err = ''; repaint(); }}>${label} ▾</button>`;
+const buttonTpl = (label, explicit = false) => html`<button class="btn ghost hctlb" type="button" title="the coding agent's mode, options and your setting"
+  @click=${(e) => { e.stopPropagation(); st.open = !st.open; st.err = ''; repaint(); }}>${explicit ? html`<bx-icon name="warning" label="a bypass mode"></bx-icon>` : nothing}<span class="hctlt">${label}</span><bx-icon name="caret-down"></bx-icon></button>`;
 
 function homeLabel(entry) {
   const s = settingOf(entry, ctx.app.harness.setting(entry.id));
@@ -106,7 +107,7 @@ function drawPop(v, h, home) {
     ${c.modes.length ? c.modes.map((m) => html`<label class="hmode ${m.explicit ? 'hwarn' : ''} ${m.allowed ? '' : 'off'}" data-mode=${m.id}
         title=${!m.allowed && m.explicit ? 'only the owner can switch to a bypass mode' : m.description || nothing}>
       <input type="radio" name="hctl-mode" .checked=${live(m.current)} ?disabled=${!m.allowed || st.busy} @change=${() => pickMode(runId, c, m)}>
-      <span><span class="hmn">${m.explicit ? '⚠ ' : ''}${m.name}</span>${m.description ? html`<span class="muted small"> — ${m.description}</span>` : nothing}</span></label>`)
+      <span><span class="hmn">${m.explicit ? html`<bx-icon name="warning"></bx-icon>` : nothing}${m.name}</span>${m.description ? html`<span class="muted small"> — ${m.description}</span>` : nothing}</span></label>`)
       : html`<div class="muted small">${c.name} advertises no modes</div>`}
     ${c.options.map((o) => html`<div class="hsec" title=${o.description || nothing}>${o.name}</div>
       <select class="hsel" data-opt=${o.id} ?disabled=${!c.talk || st.busy} .value=${live(String(o.value))}
@@ -165,7 +166,7 @@ function settingTpl(entry, inConv = false) {
   return html`<div class="hsec">Your setting for ${s.name}</div>
     <div class="hseg">${s.choices.map((c) => html`<button class="btn btnsm ${s.value === c.value ? 'on' : 'ghost'}" type="button" data-setting=${c.value}
       aria-pressed=${s.value === c.value ? 'true' : 'false'} title=${c.title} ?disabled=${c.disabled || st.busy}
-      @click=${() => setSetting(s, c.value)}>${s.value === c.value ? '✓ ' : ''}${c.label}</button>`)}</div>
+      @click=${() => setSetting(s, c.value)}>${s.value === c.value ? html`<bx-icon name="check"></bx-icon>` : nothing}${c.label}</button>`)}</div>
     <div class="muted small">${s.note}${inConv ? ' This conversation\'s own mode is switched above.' : ''}</div>`;
 }
 function setSetting(s, mode) {
@@ -252,26 +253,25 @@ function drawSteered(v, h) {
 const style = document.createElement('style');
 style.textContent = `
   .hctl { align-self: flex-end; flex: 1 1 0; min-width: 2em; max-width: max-content; display: flex; } /* the pickers' row: what's left of it */
-  .hctl[hidden] { display: none; }
-  .hctl .hctlb { min-width: 0; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hctl .hctlb { min-width: 0; max-width: 34ch; }
+  .hctl .hctlb .hctlt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hctlpop .hacct.off { opacity: .55; }
   .hctlpop, .hslash, .hsteer { position: fixed; z-index: 30; }
-  .hctlpop[hidden], .hslash[hidden], .hsteer[hidden] { display: none; }
-  .hctlpop { box-sizing: border-box; width: min(340px, calc(100vw - 16px)); max-height: 70vh; overflow: auto; background: var(--bx-panel); border: 1px solid var(--bx-border);
-    border-radius: 6px; padding: 8px 10px; box-shadow: 0 4px 18px rgba(0,0,0,.18); font-size: 12.5px; }
-  .hctlpop .hsec { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--bx-muted); margin: 8px 0 3px; }
+  .hctlpop { box-sizing: border-box; width: min(340px, calc(100vw - 16px)); max-height: 70vh; overflow: auto; background: var(--bx-panel);
+    border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); padding: 8px 12px; box-shadow: var(--bx-shadow-pop); }
+  .hctlpop .hsec { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); margin: 8px 0 4px; }
   .hctlpop .hsec:first-child { margin-top: 0; }
-  .hctlpop .hmode { display: flex; gap: 6px; align-items: flex-start; padding: 2px 0; cursor: pointer; }
+  .hctlpop .hmode { display: flex; gap: 8px; align-items: flex-start; padding: 2px 0; cursor: pointer; }
   .hctlpop .hmode.off { opacity: .55; cursor: default; }
-  .hctlpop .hmode.hwarn .hmn { color: var(--bx-red, #ef5350); }
+  .hctlpop .hmode .hmn { display: inline-flex; align-items: center; gap: 4px; }
+  .hctlpop .hmode.hwarn .hmn { color: var(--bx-danger); }
   .hctlpop .hsel { width: 100%; }
-  .hctlpop .hseg { display: flex; gap: 4px; margin-bottom: 3px; }
-  .hctlpop .hseg .btn.on { font-weight: 600; }
-  .hslash { background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: 6px; padding: 3px 0; box-shadow: 0 4px 18px rgba(0,0,0,.18);
-    max-height: 40vh; overflow: auto; font-size: 12.5px; }
-  .hslash .hsl { padding: 3px 10px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; white-space: nowrap; }
-  .hslash .hsl.on { background: var(--bx-panel-2); }
+  .hctlpop .hseg { display: flex; gap: 4px; margin-bottom: 4px; }
+  .hslash { background: var(--bx-panel); border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); padding: 4px 0; box-shadow: var(--bx-shadow-pop);
+    max-height: 40vh; overflow: auto; }
+  .hslash .hsl { padding: 4px 12px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
+  .hslash .hsl.on { background: var(--bx-selection); color: var(--bx-selection-text); }
   .hslash .hsd { overflow: hidden; text-overflow: ellipsis; }
-  .hsteer .hsn { font-size: 11.5px; padding: 2px 8px; border-radius: 10px; background: var(--bx-panel-2); border: 1px solid var(--bx-border); margin-top: 3px; }
+  .hsteer .hsn { font: var(--bx-font-meta); padding: 2px 8px; border-radius: var(--bx-radius); background: var(--bx-panel-2); border: 1px solid var(--bx-border); margin-top: 4px; }
 `;
 document.head.append(style);

@@ -78,7 +78,7 @@ function boardTpl(v) {
       <b>Coding agents</b><span class="muted hbscope" title=${scope}>${scope}</span>
       ${f ? html`<button class="badge hbfilter" data-on=${f.on ? '1' : ''} aria-pressed=${f.on ? 'true' : 'false'} title=${f.title}
         @click=${() => { st.needs = !st.needs; ctx.paint(); }}>${f.text}</button>` : nothing}
-      <button class="btn ghost btnsm" data-act="close" title="close the board" @click=${toggle}>✕</button>
+      <button class="btn ghost btnsm icon" data-act="close" title="close the board" aria-label="close the board" @click=${toggle}><bx-icon name="xmark"></bx-icon></button>
     </div>
     <div class="hbbody">
       ${rows.length ? repeat(rows, (r) => r.id, (r) => html`<div class="hbrow" data-row=${r.id} data-section=${r.section}>
@@ -109,41 +109,39 @@ function delegatedTpl(v) {
   </div>`;
 }
 
-// the chip's, the dock's and the Delegated section's look (the tile's own sheet stays as it is)
+// the chip's, the dock's and the Delegated section's look (the tile's own sheet stays as it is):
+// theme.css's tokens (D184); a chip that needs you says so in its colour and words, still
 const style = document.createElement('style');
 style.textContent = `
-  .badge.hbchip { cursor: pointer; text-transform: none; letter-spacing: 0; color: var(--bx-accent);
-    border-color: color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
-  .badge.hbchip[data-tone="warn"] { color: var(--bx-yellow, #d9a441); border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 55%, var(--bx-border));
-    animation: hbpulse 2.4s ease-in-out 3; }
-  .badge.hbchip[aria-pressed="true"] { background: var(--bx-panel-2); }
-  @keyframes hbpulse { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--bx-yellow, #d9a441) 30%, transparent); } }
+  .badge.hbchip { cursor: pointer; text-transform: none; letter-spacing: 0; color: var(--bx-text); border-color: var(--bx-border-strong); }
+  .badge.hbchip[data-tone="warn"] { color: var(--bx-warn); border-color: var(--bx-warn); }
+  .badge.hbchip[aria-pressed="true"] { background: var(--bx-selection); color: var(--bx-selection-text); }
   .wrap.dockon { grid-template-columns: 220px minmax(0, 1fr) 340px; }
   .hboard { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--bx-border); background: var(--bx-panel); }
-  .hboard[hidden] { display: none; }
   @media (max-width: 1099px) {
     .wrap.dockon { grid-template-columns: 220px minmax(0, 1fr); }
     .hboard { position: fixed; top: 0; right: 0; bottom: 0; z-index: 35; width: min(340px, 100vw); box-sizing: border-box;
-      box-shadow: -8px 0 28px rgba(0,0,0,.35); }
+      box-shadow: var(--bx-shadow-pop); }
   }
-  .hbhd { flex: none; display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--bx-border); min-width: 0; }
-  .hbhd .hbscope { flex: 1; min-width: 0; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .badge.hbfilter { cursor: pointer; text-transform: none; letter-spacing: 0; background: none; font: inherit; font-size: 11px;
-    color: var(--bx-yellow, #d9a441); border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 55%, var(--bx-border)); }
-  .badge.hbfilter[data-on="1"] { background: color-mix(in srgb, var(--bx-yellow, #d9a441) 18%, transparent); }
-  .hbbody { flex: 1; min-height: 0; overflow: auto; padding: 4px 8px 10px; }
+  .hbhd { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 12px; min-height: var(--bx-topbar-h); box-sizing: border-box;
+    border-bottom: 1px solid var(--bx-border); min-width: 0; }
+  .hbhd .hbscope { flex: 1; min-width: 0; font: var(--bx-font-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bx .badge.hbfilter { cursor: pointer; text-transform: none; letter-spacing: 0; background: none; min-height: 0;
+    color: var(--bx-warn); border-color: var(--bx-warn); }
+  .bx .badge.hbfilter[data-on="1"] { background: var(--bx-warn-bg); }
+  .hbbody { flex: 1; min-height: 0; overflow: auto; padding: 4px 8px 12px; }
   .hbbody .hbrow { min-width: 0; }
-  .hbbody .hbin { font-size: 11px; margin: 8px 2px -2px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbbody .hbin { font: var(--bx-font-meta); margin: 8px 2px -2px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hbbody .hkid .hkline, .hbbody .hkid .hkmeta, .hbbody .hkid .hkpark, .hbbody .hkid .hkmsg { padding-left: 12px; }
   .hbbody .hkid .hkact { padding-left: 10px; }
   .hbbody .hkid .hkn { display: none; } /* the monogram says who (its title the name): the title gets the room */
-  .hbempty { padding: 16px 6px; font-size: 12px; }
-  .top .taskpin .taskdel { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px dashed var(--bx-border); }
-  .taskdel .deleg { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; min-width: 0; }
+  .hbempty { padding: 16px 8px; color: var(--bx-muted); }
+  .top .taskpin .taskdel { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px dashed var(--bx-border); }
+  .taskdel .deleg { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
   .taskdel .deleg .lnk { cursor: pointer; overflow-wrap: anywhere; }
-  .taskdel .deleg .hkst { font-size: 11px; }
-  .taskdel .deleg .hkst[data-tone="run"] { color: var(--bx-accent); } .taskdel .deleg .hkst[data-tone="warn"] { color: var(--bx-yellow, #d9a441); }
-  .taskdel .deleg .hkst[data-tone="bad"] { color: var(--bx-red); } .taskdel .deleg .hkst[data-tone="ok"] { color: var(--bx-green); }
+  .taskdel .deleg .hkst { font: var(--bx-font-meta); }
+  .taskdel .deleg .hkst[data-tone="run"] { color: var(--bx-text); } .taskdel .deleg .hkst[data-tone="warn"] { color: var(--bx-warn); }
+  .taskdel .deleg .hkst[data-tone="bad"] { color: var(--bx-danger); } .taskdel .deleg .hkst[data-tone="ok"] { color: var(--bx-ok); }
   .taskdel .deltask { flex-basis: 100%; padding-left: 26px; color: var(--bx-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 `;
 document.head.append(style);

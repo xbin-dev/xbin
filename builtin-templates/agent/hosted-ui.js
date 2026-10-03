@@ -32,12 +32,12 @@ let st = null; // the dialog: {mode: 'start'|'host'|'copy', …}
 let locked = false;
 
 const CSS = `
-#hostbar { flex: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 12px; font-size: 12px;
-  border-top: 1px solid var(--bx-border); background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent); }
-#hostbar[hidden] { display: none; }
-.badge.notprivate, .chip.notprivate { color: var(--bx-yellow, #d9a441); border-color: color-mix(in srgb, var(--bx-yellow, #d9a441) 60%, var(--bx-border)); }
+#hostbar { flex: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 12px;
+  border-top: 1px solid var(--bx-border); background: var(--bx-warn-bg); }
+#hostbar > bx-icon { color: var(--bx-warn); }
+.badge.notprivate, .chip.notprivate { color: var(--bx-warn); border-color: var(--bx-warn); }
 .badge.notprivate { cursor: pointer; }
-#hostdlg .warnhd { color: var(--bx-yellow, #d9a441); }
+#hostdlg .warnhd { display: flex; gap: 8px; align-items: center; color: var(--bx-warn); }
 #hostdlg ul { margin: 4px 0 0 18px; padding: 0; }
 #hostdlg .files { max-height: 180px; overflow: auto; }`;
 
@@ -64,18 +64,18 @@ function dialog() {
 const me = () => (app && app.me && app.me.user) || '';
 const open = (id) => { location.hash = 'c=' + id; };
 
-/** hostedChipTpl: the ⚠ chip on an open hosted conversation's header (its warning, again, on a click). */
+/** hostedChipTpl: the warning chip on an open hosted conversation's header (its warning, again, on a click). */
 export function hostedChipTpl(v) {
   const h = hostingOf(v);
   if (!h) return nothing;
   return html`<span class="badge notprivate" id="hosted-chip" title=${`not private: it uses ${exposed(h)} — click for who can read it`}
-    @click=${() => openWarning('start', v)}>⚠ not private</span>`;
+    @click=${() => openWarning('start', v)}><bx-icon name="warning"></bx-icon>not private</span>`;
 }
 
-/** hostedRowChip: the ⚠ chip on a hosted conversation's row in a list. */
+/** hostedRowChip: the warning chip on a hosted conversation's row in a list. */
 export function hostedRowChip(r) {
   if (!r || !r.hosted) return nothing;
-  return html`<span class="chip notprivate" title=${`not private: it uses ${exposed(r.hosted)}`}>⚠ not private</span>`;
+  return html`<span class="chip notprivate" title=${`not private: it uses ${exposed(r.hosted)}`}><bx-icon name="warning"></bx-icon>not private</span>`;
 }
 
 /**
@@ -112,7 +112,7 @@ function barTpl(v, lk) {
   };
   switch (lk.kind) {
     case 'start':
-      return html`<span>⚠ ${lk.why}.</span>
+      return html`<bx-icon name="warning"></bx-icon><span>${lk.why}.</span>
         <button class="btn btnsm" id="host-start" @click=${() => openWarning('start', v)}>Read the warning and start…</button>`;
     case 'paused':
       if (lk.isHost) {
@@ -164,7 +164,7 @@ function warnTpl() {
   const close = () => dialog().close();
   const start = () => { started.add(v.run.rootId || v.run.id); close(); app?.session?.changed?.(); document.getElementById('msg')?.focus(); };
   return html`<form method="dialog" @submit=${(e) => e.preventDefault()}>
-    <div class="dlg-hd warnhd">⚠ “${title}” is not private</div>
+    <div class="dlg-hd warnhd"><bx-icon name="warning"></bx-icon>“${title}” is not private</div>
     <div class="dlg-bd">
       <div id="host-exposed">${st.mode === 'host'
         ? html`Letting the agent use <b>your</b> private sandboxes, your data in other tiles and your vault here makes this conversation

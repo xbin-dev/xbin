@@ -84,7 +84,7 @@ export function badgeWords(v) {
   const b = ctx.app.sbx.badge(v);
   if (!b) return '';
   ctx.app.sbx.ensure();
-  return b.label + (b.broken ? ' ⚠' : '');
+  return b.label + (b.broken ? ' · broken' : '');
 }
 
 // brokenTpl: why the binding no longer resolves, said in the transcript.
@@ -98,7 +98,7 @@ export function brokenTpl(v) {
 export function sandboxMenuTpl(v) {
   const b = ctx.app.sbx.badge(v);
   if (!b) return nothing;
-  return html`<button icon="box" @tap=${() => push({ kind: 'sandbox' })}>${`Sandbox: ${b.name}${b.broken ? ' ⚠' : ''}`}</button>`;
+  return html`<button icon="box" @tap=${() => push({ kind: 'sandbox' })}>${`Sandbox: ${b.name}${b.broken ? ' (broken)' : ''}`}</button>`;
 }
 
 // --- the screens ---------------------------------------------------------------------

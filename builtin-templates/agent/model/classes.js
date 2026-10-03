@@ -30,11 +30,12 @@ export const EGRESS = [
 export const MIXED = 'can move internal data out';
 export const MIXED_WHY = 'This class holds internal reach together with egress: content read in one of its conversations can steer the agent into sending internal data outside the workspace.';
 
-// A backend with no GET /classes: the two lanes it had, as classes.
+// A backend with no GET /classes: the two lanes it had, as classes — no
+// emoji of ours: the views draw their glyph (lock, globe) from their reach.
 const FALLBACK = [
-  { id: 'internal', name: 'Internal', icon: '🔒', description: 'Your workspace\'s systems and data — no web.',
+  { id: 'internal', name: 'Internal', icon: '', description: 'Your workspace\'s systems and data — no web.',
     toolsets: ['files', 'repl', 'internal', 'subagents', 'schedule', 'threads', 'skills'], lane: 'private', builtin: true },
-  { id: 'web', name: 'Web', icon: '🌐', description: 'Searches and reads the web — no internal systems.',
+  { id: 'web', name: 'Web', icon: '', description: 'Searches and reads the web — no internal systems.',
     toolsets: ['files', 'repl', 'web', 'subagents', 'schedule', 'threads', 'skills'], lane: 'web', egress: true, builtin: true },
 ];
 const BUILTIN = new Set(['internal', 'web', 'coding']);
@@ -75,22 +76,37 @@ export function resolvePick(state, pref, legacy) {
 
 export const label = (c) => [c.icon, c.name || c.id].filter(Boolean).join(' ');
 
-// A class's icon as the native view's curated names (docs/native.md Icons).
-const ICONS = { '🔒': 'lock', '🔐': 'lock', '🌐': 'globe', '▣': 'terminal', '💻': 'terminal', '🖥': 'terminal', '⌨': 'terminal',
+// A class's icon — the emoji its admin chose — as the curated glyph names
+// both views draw (docs/native.md Icons; the web's /vendor/bx-icons.js, D184).
+// The emoji are the people's, not ours: a table of what they may type.
+const ICONS = {
+  // theme-ok: a data table mapping a person's emoji to glyph names (D184)
+  '🔒': 'lock', '🔐': 'lock', '🌐': 'globe', '▣': 'terminal', '💻': 'terminal', '🖥': 'terminal', '⌨': 'terminal',
+  // theme-ok: a data table mapping a person's emoji to glyph names (D184)
   '🔓': 'unlock', '🛡': 'shield', '☁': 'cloud', '📁': 'folder', '🗄': 'database', '✉': 'mail', '📅': 'calendar', '⚙': 'gear',
+  // theme-ok: a data table mapping a person's emoji to glyph names (D184)
   '⚠': 'warning', '🔑': 'key', '⭐': 'star', '✨': 'sparkles', '📦': 'box', '🧑‍💻': 'code' };
+// iconName: the curated name of a class's emoji — '' for one the table lacks
+// (the web then shows the emoji as its admin typed it).
+export const iconName = (icon) => ICONS[String(icon || '').replace(/\uFE0F/g, '')] || '';
+// reachIcon: the glyph for what a class reaches, when its emoji says nothing.
+const reachIcon = (c) => {
+  const ts = (c && c.toolsets) || [];
+  return ts.includes('sandbox') ? 'terminal' : ts.includes('internal') ? 'lock' : ts.includes('web') ? 'globe' : 'tag';
+};
 export function nativeIcon(c) {
   if (!c) return 'tag';
-  const i = String(c.icon || '').replace(/\uFE0F/g, '');
-  if (ICONS[i]) return ICONS[i];
-  const ts = c.toolsets || [];
-  return ts.includes('sandbox') ? 'terminal' : ts.includes('internal') ? 'lock' : ts.includes('web') ? 'globe' : 'tag';
+  return iconName(c.icon) || reachIcon(c);
 }
+// glyph: the glyph the web draws before a class's name — its emoji's name;
+// with no emoji, a built-in's reach (the lanes had 🔒 and 🌐 before classes);
+// '' for an emoji the table lacks, which the web shows as typed.
+export const glyph = (c) => (!c ? '' : c.icon ? iconName(c.icon) : c.builtin ? reachIcon(c) : '');
 
 // pickerRows: the classes you may start a conversation in, as a menu.
 export function pickerRows(state, pick) {
   return ((state && state.classes) || []).map((c) => ({
-    value: c.id, icon: c.icon || '', name: c.name || c.id, label: label(c), description: c.description || '',
+    value: c.id, icon: c.icon || '', glyph: glyph(c), name: c.name || c.id, label: label(c), description: c.description || '',
     mixed: !!c.mixed, managers: c.who === 'managers', on: c.id === pick, nativeIcon: nativeIcon(c),
   }));
 }
@@ -104,10 +120,11 @@ export function classPicker(v, state, pick) {
     value: cur ? cur.id : '',
     label: cur ? label(cur) : '',
     icon: cur ? cur.icon || '' : '',
+    glyph: glyph(cur),
     name: cur ? cur.name || cur.id : '',
     mixed: !!(cur && cur.mixed),
     nativeIcon: nativeIcon(cur),
-    title: cur ? `Class for your next new chat: ${cur.name || cur.id}${cur.description ? ' — ' + cur.description : ''}${cur.mixed ? ` (⚠ ${MIXED})` : ''}` : '',
+    title: cur ? `Class for your next new chat: ${cur.name || cur.id}${cur.description ? ' — ' + cur.description : ''}${cur.mixed ? ` (${MIXED})` : ''}` : '',
     rows: pickerRows(state, cur && cur.id),
   };
 }
@@ -118,14 +135,14 @@ export function badge(v) {
   const c = v && v.class;
   if (c && c.id) {
     return {
-      id: c.id, label: label(c), mixed: !!c.mixed, nativeIcon: nativeIcon(c),
+      id: c.id, label: label(c), name: c.name || c.id, icon: c.icon || '', glyph: glyph(c), mixed: !!c.mixed, nativeIcon: nativeIcon(c),
       title: `${c.name || c.id}${c.description ? ': ' + c.description : ''} — fixed for this conversation`,
-      warn: c.mixed ? `⚠ ${MIXED}` : '', warnTitle: c.mixed ? MIXED_WHY : '',
+      warn: c.mixed ? MIXED : '', warnTitle: c.mixed ? MIXED_WHY : '',
     };
   }
   const web = (v && v.config && v.config.toolset) === 'web';
-  return { id: web ? 'web' : 'internal', label: web ? '🌐 web' : '🔒 internal', mixed: false, nativeIcon: web ? 'globe' : 'lock',
-    title: 'tool mode — fixed for this conversation', warn: '', warnTitle: '' };
+  return { id: web ? 'web' : 'internal', label: web ? 'web' : 'internal', name: web ? 'web' : 'internal', icon: '', glyph: web ? 'globe' : 'lock',
+    mixed: false, nativeIcon: web ? 'globe' : 'lock', title: 'tool mode — fixed for this conversation', warn: '', warnTitle: '' };
 }
 
 // --- the editor (managers) ---------------------------------------------------------
@@ -263,9 +280,9 @@ export function editorRows(state) {
   return ((state && state.classes) || []).map((c) => {
     const lane = laneOf(c) === 'web' ? 'Web' : 'Internal';
     return {
-      id: c.id, label: label(c), name: c.name || c.id, description: c.description || '', mixed: !!c.mixed, nativeIcon: nativeIcon(c),
-      toolsets: (c.toolsets || []).join(' · ') || 'the core tools only',
-      tags: [c.id === state.default && 'default', c.builtin && 'built-in', c.who === 'managers' && 'managers only', c.mixed && `⚠ ${MIXED}`].filter(Boolean),
+      id: c.id, label: label(c), name: c.name || c.id, icon: c.icon || '', glyph: glyph(c), description: c.description || '', mixed: !!c.mixed,
+      nativeIcon: nativeIcon(c), toolsets: (c.toolsets || []).join(' · ') || 'the core tools only',
+      tags: [c.id === state.default && 'default', c.builtin && 'built-in', c.who === 'managers' && 'managers only', c.mixed && MIXED].filter(Boolean),
       del: c.builtin
         ? (c.stored !== false ? { label: 'Reset to default', confirm: `Reset the ${c.name || c.id} class to its default?` } : null)
         : { label: 'Delete', confirm: `Delete the ${c.name || c.id} class? Its conversations go on as ${lane}.` },
@@ -298,8 +315,8 @@ export function ofAutomation(state, cfg) {
   const lane = c ? laneOf(c) : (cfg && cfg.toolset) === 'web' ? 'web' : 'private';
   return {
     id, known: !!c, lane, mixed: !!(c && c.mixed), label: c ? label(c) : id, name: c ? c.name || c.id : id,
-    nativeIcon: c ? nativeIcon(c) : lane === 'web' ? 'globe' : 'lock',
-    warn: c && c.mixed ? `⚠ ${MIXED}` : '',
+    icon: c ? c.icon || '' : '', glyph: c ? glyph(c) : '', nativeIcon: c ? nativeIcon(c) : lane === 'web' ? 'globe' : 'lock',
+    warn: c && c.mixed ? MIXED : '',
   };
 }
 
@@ -308,7 +325,7 @@ export function ofAutomation(state, cfg) {
 // stays listed (gone) even when you may not pick it now.
 export function choices(state, cur, lane = '') {
   const rows = ((state && state.classes) || []).filter((c) => !lane || laneOf(c) === lane).map((c) => ({
-    value: c.id, label: label(c) + (c.mixed ? ` — ⚠ ${MIXED}` : ''), name: c.name || c.id, description: c.description || '',
+    value: c.id, label: label(c) + (c.mixed ? ` — ${MIXED}` : ''), name: c.name || c.id, description: c.description || '',
     lane: laneOf(c), mixed: !!c.mixed, nativeIcon: nativeIcon(c), on: c.id === cur, gone: false,
   }));
   if (cur && !rows.some((r) => r.on)) {

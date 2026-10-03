@@ -42,6 +42,12 @@ const STATE_LABEL = {
   running: 'running', writing: 'writing', waiting: 'waiting', approval: 'needs approval',
   error: 'failed', stopped: 'stopped', done: '',
 };
+// the glyphs (D184): a state that needs a look says so with its glyph and
+// its word; an outcome's tone, likewise; a fold's caret
+const STATE_ICON = { approval: 'warning', error: 'error', stopped: 'stop' };
+const TONE_ICON = { ok: 'ok', bad: 'error' };
+const icon = (name) => (name ? html`<bx-icon name=${name}></bx-icon>` : nothing);
+const caret = (open) => html`<span class="tw"><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span>`;
 
 const secs = (ms) => {
   const s = Math.max(1, Math.round(ms / 1000));
@@ -78,10 +84,11 @@ function userTpl(b, ui) {
     ${b.text ? html`<div class="txt">${b.text}</div>` : nothing}
     ${b.files && b.files.length ? html`<div class="afiles">${b.files.map((f) => {
       const st = ui.file(b.msgId, f);
-      const icon = st.thumb ? html`<img src=${st.thumb} alt="">` : /^image\//.test(f.mime) ? '🖼' : /^text\/|^text$/.test(f.mime) ? '📄' : '📦';
+      const kind = st.thumb ? '' : /^image\//.test(f.mime) ? 'photo' : /^text\/|^text$/.test(f.mime) ? 'file' : 'box';
+      const pic = st.thumb ? html`<img src=${st.thumb} alt="">` : icon(kind);
       return html`<span class="afile ${st.linked ? '' : 'gone'}" data-afile=${st.linked ? f.path : nothing}
           title=${st.linked ? `${f.mime} — open in the Files tab` : 'deleted'} @click=${st.linked ? () => ui.act.openFile(f.path) : null}>
-        <span class="ic">${icon}</span><span class="mono">${f.path}</span><span class="sz">${f.size}</span></span>`;
+        <span class="ic">${pic}</span><span class="mono">${f.path}</span><span class="sz">${f.size}</span></span>`;
     })}</div>` : nothing}
   </div>`;
 }
@@ -90,7 +97,7 @@ function noticeTpl(b, ui) {
   const open = ui.isOpen(b.id, false);
   const head = b.text.split('\n')[0].replace(/^\[|\]$/g, '').replace(/ — .*$/, '');
   return html`<div class="notice ${open ? 'on' : ''}" data-k=${b.id}>
-    <div class="nh" @click=${() => ui.toggle(b.id, false)}>↵ ${head}</div>
+    <div class="nh" @click=${() => ui.toggle(b.id, false)}>${caret(open)}${head}</div>
     ${open ? html`<div class="nb">${b.text.split('\n').slice(1).join('\n')}</div>` : nothing}
   </div>`;
 }
@@ -99,7 +106,7 @@ function thinkTpl(b, ui) {
   const open = ui.isOpen(b.id, b.live);
   const label = b.live ? 'Thinking…' : b.ms ? `Thought for ${secs(b.ms)}` : 'Thought';
   return html`<div class="think ${b.live ? 'live' : ''} ${open ? 'on' : ''}" data-k=${b.id}>
-    <div class="th" @click=${() => ui.toggle(b.id, b.live)}><span class="tw">${open ? '▾' : '▸'}</span> ${label}</div>
+    <div class="th" @click=${() => ui.toggle(b.id, b.live)}>${caret(open)}${label}</div>
     ${open ? html`<div class="tb">${b.text}</div>` : nothing}
   </div>`;
 }
@@ -129,12 +136,12 @@ function toolTpl(b, ui, depth = 0) {
   const st = b.state;
   return html`<div class=${classMap({ tcard: true, on: open, [st]: true })} data-fam=${b.fam} data-tool=${b.name} data-k=${b.id}>
     <div class="tch" @click=${() => ui.toggle(b.id, false)} title=${b.name}>
-      <span class="ic">${ICON[b.fam] || '•'}</span>
+      <span class="ic">${icon(ICON[b.fam])}</span>
       <span class="hl">${b.headline}${b.sub ? html`<span class="sub">${b.sub}</span>` : nothing}</span>
-      ${b.outcome ? html`<span class="oc ${b.outcome.tone}">${b.outcome.text}</span>` : nothing}
+      ${b.outcome ? html`<span class="oc ${b.outcome.tone}">${icon(TONE_ICON[b.outcome.tone])}${b.outcome.text}</span>` : nothing}
       ${st === 'running' || st === 'writing' ? html`<span class="spin"></span>` : nothing}
-      ${STATE_LABEL[st] ? html`<span class="st">${STATE_LABEL[st]}</span>` : nothing}
-      <span class="tw">${open ? '▾' : '▸'}</span>
+      ${STATE_LABEL[st] ? html`<span class="st">${icon(STATE_ICON[st])}${STATE_LABEL[st]}</span>` : nothing}
+      ${caret(open)}
     </div>
     ${open ? html`<div class="tcb">
       <div class="tname mono">${b.name}</div>
@@ -166,13 +173,13 @@ function agentTpl(b, ui, depth) {
   const readErr = open && b.childId && !b.blocks && ui.readError ? ui.readError(b.childId) : '';
   return html`<div class=${classMap({ acard: true, on: open, [b.state]: true })} data-k=${b.id}>
     <div class="ach" @click=${() => ui.toggle(b.id, running)}>
-      <span class="ic">⑂</span>
+      <span class="ic">${icon('agent')}</span>
       <span class="hl">${title}</span>
       ${b.childId ? html`<span class="rid">#${b.childId}</span>` : nothing}
       ${running ? html`<span class="spin"></span>` : nothing}
       <span class="st">${b.state === 'done' ? (steps || 'done') : phase}</span>
-      ${b.childId ? html`<button class="lnk" title="open this subagent's full session" @click=${(e) => { e.stopPropagation(); ui.act.select(b.childId); }}>open ↗</button>` : nothing}
-      <span class="tw">${open ? '▾' : '▸'}</span>
+      ${b.childId ? html`<button class="lnk" title="open this subagent's full session" @click=${(e) => { e.stopPropagation(); ui.act.select(b.childId); }}>open${icon('popout')}</button>` : nothing}
+      ${caret(open)}
     </div>
     ${b.pendingApproval ? approvalTpl(b.pendingApproval, (yes) => ui.act.approve(b.childId, yes), 'The subagent wants to run') : nothing}
     ${approveNoteTpl(ui, b.childId)}
@@ -197,21 +204,22 @@ const stripHead = (s) => String(s || '').replace(/^--- #\d+ .*? ---\n/, '');
 function stepTpl(b, ui) {
   const d = b.detail || {};
   const act = (ui && ui.act) || {};
-  let g = '•', txt = '';
+  // g: the line's glyph (a bx-icons name, D184); '' keeps a plain bullet
+  let g = '', txt = '';
   switch (b.kind) {
-    case 'error': g = '⚠'; txt = d.error || d.text || ''; break;
-    case 'compaction': g = '🗜'; txt = compactionWords(d); break;
-    case 'yield': g = '⏸'; txt = `slept ${d.seconds ?? ''}s`; break;
-    case 'finish': if (!d.result) { g = '✓'; txt = 'finished'; break; }
-      return html`<div class="step finish md-step" data-k=${b.id}><span class="g">✓</span><div class="md">${unsafeHTML(mdOf(b, 'finish', d.result))}</div></div>`;
-    case 'state_changed': g = '✳'; txt = `state changed${d.summary ? ': ' + d.summary : ''}`; break;
-    case 'cancel': g = '⏹'; txt = `cancelled${d.reason ? ': ' + d.reason : ''}`; break;
-    case 'ask': g = '?'; txt = `asked: ${d.question || ''}`; break;
-    case 'render': g = '🖼'; txt = html`<button class="lnk steplnk" title="show it in the preview pane" @click=${() => act.openPreview?.(d.path, d.version, b.run)}>rendered ${d.path || ''} v${d.version || ''}</button>`; break;
-    case 'live': g = '📡'; txt = html`<button class="lnk steplnk" title="show it live in the preview pane" @click=${() => act.openLive?.(d, b.run)}>showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live</button>`; break;
+    case 'error': g = 'warning'; txt = d.error || d.text || ''; break;
+    case 'compaction': g = 'compact'; txt = compactionWords(d); break;
+    case 'yield': g = 'pause'; txt = `slept ${d.seconds ?? ''}s`; break;
+    case 'finish': if (!d.result) { g = 'check'; txt = 'finished'; break; }
+      return html`<div class="step finish md-step" data-k=${b.id}><span class="g">${icon('check')}</span><div class="md">${unsafeHTML(mdOf(b, 'finish', d.result))}</div></div>`;
+    case 'state_changed': g = 'info'; txt = `state changed${d.summary ? ': ' + d.summary : ''}`; break;
+    case 'cancel': g = 'stop'; txt = `cancelled${d.reason ? ': ' + d.reason : ''}`; break;
+    case 'ask': g = 'question'; txt = `asked: ${d.question || ''}`; break;
+    case 'render': g = 'photo'; txt = html`<button class="lnk steplnk" title="show it in the preview pane" @click=${() => act.openPreview?.(d.path, d.version, b.run)}>rendered ${d.path || ''} v${d.version || ''}</button>`; break;
+    case 'live': g = 'signal'; txt = html`<button class="lnk steplnk" title="show it live in the preview pane" @click=${() => act.openLive?.(d, b.run)}>showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live</button>`; break;
     default: txt = d.text || '';
   }
-  return html`<div class="step ${b.kind}" data-k=${b.id}><span class="g">${g}</span> ${txt}</div>`;
+  return html`<div class="step ${b.kind}" data-k=${b.id}><span class="g">${g ? icon(g) : '•'}</span> ${txt}</div>`;
 }
 
 // approvalTpl: the calls a run wants to run, approve or deny. grant (rules
@@ -233,7 +241,7 @@ export function approvalTpl(calls, decide, lead = 'The agent wants to run', gran
 // gone — Session.noteApprove), for a few seconds.
 function approveNoteTpl(ui, runId) {
   const note = runId != null && ui.approveNote ? ui.approveNote(runId) : '';
-  return note ? html`<div class="anote muted small" role="status">⚠ ${note}</div>` : nothing;
+  return note ? html`<div class="anote muted small" role="status">${icon('warning')}<span>${note}</span></div>` : nothing;
 }
 
 // sessionTpl is the chat of the selected run. win (chat-window.js) is the
@@ -268,7 +276,7 @@ export function sessionTpl(s, ui, win) {
           <div class="muted small">answer below to continue</div></div>` : nothing}
     ${atEnd && s.activity ? (activityStill(r) ? html`<div class="activity still">${s.activity}</div>`
       : html`<div class="activity"><span class="spin"></span> ${s.activity}</div>`) : nothing}
-    ${s.conn === 'reconnecting' ? html`<div class="activity warn">live updates lost — reconnecting…</div>` : nothing}
+    ${s.conn === 'reconnecting' ? html`<div class="activity warn">${icon('warning')}live updates lost — reconnecting…</div>` : nothing}
     ${win && win.pill ? html`<div class="jumpw"><button class="jump" @click=${() => win.latest()}>${win.pill}</button></div>` : nothing}
   `;
 }
@@ -280,5 +288,5 @@ export function queueTpl(queued, remove, words = null) {
   if (!queued || !queued.length) return nothing;
   return html`${queued.map((q) => html`<span class="qchip" title=${(words && words.title) || "queued — delivered at the agent's next step"}>
     <span class="ql">${(words && words.label) || 'queued'}</span><span class="qt">${q.text || '(files)'}</span>
-    <button title="take it back" @click=${() => remove(q.id)}>✕</button></span>`)}`;
+    <button title="take it back" aria-label="take it back" @click=${() => remove(q.id)}>${icon('xmark')}</button></span>`)}`;
 }

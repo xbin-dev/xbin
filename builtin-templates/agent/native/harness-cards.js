@@ -181,7 +181,7 @@ function progressScreen(s) {
   const p = planOf(h), u = usageBadge(h.usage), c = countsWords(h.counts);
   return html`<screen title="Progress" subtitle=${nameOf(h) + (p ? ` · ${p.text}` : '')} style="scroll">
     <transcript>
-      ${p ? html`<plan entries=${planEntries(p)}/>` : html`<step glyph="📋" tone="muted" text="no plan this session"/>`}
+      ${p ? html`<plan entries=${planEntries(p)}/>` : html`<step glyph="–" tone="muted" text="no plan this session"/>`}
       <step glyph="✎" tone="muted" text=${c || 'no tool calls yet'}/>
       ${u ? html`<step glyph="◔" tone=${u.tone === 'bad' ? 'danger' : u.tone === 'warn' ? 'warn' : 'muted'} text=${u.title || u.text}/>` : nothing}
     </transcript>

@@ -133,7 +133,7 @@ function approvalTpl(r, p, w) {
     ${(p.preview || []).map((d) => (d.text != null ? html`<text mono text=${d.text}/>`
       : html`<diff files=${[{ path: d.path, status: 'modified', add: d.add, del: d.del }]} patch=${patchOf(d)}/>`))}
     <approval title=${p.title ? `${p.lead}: ${p.title}` : p.lead} text=${text}
-      options=${w.talk ? p.options.map((o) => ({ id: o.id, label: (o.explicit ? '⚠ ' : '') + o.name, kind: o.kind })) : []}
+      options=${w.talk ? p.options.map((o) => ({ id: o.id, label: o.name, kind: o.kind })) : []}
       note=${p.rule || nothing} ?feedback=${w.talk && (p.plan || !!p.reject)} @choose=${choose}/>`;
 }
 
@@ -180,9 +180,9 @@ function controlsTpl(v, h) {
       <divider/><button icon="key" @tap=${openSignins}>Saved sign-ins…</button>
     </menu>` : nothing}
     <menu icon="gear" label=${'Mode: ' + (c.mode.name || '—')}>
-      ${c.modes.filter((m) => m.allowed || m.current).map((m) => html`<button icon=${m.current ? 'check' : nothing}
+      ${c.modes.filter((m) => m.allowed || m.current).map((m) => html`<button icon=${m.current ? 'check' : m.explicit ? 'warning' : nothing}
         confirm=${m.explicit && !m.current ? { title: modeConfirm(c.name, m), label: 'Switch', destructive: true } : nothing}
-        @tap=${guard(() => (m.current ? null : app.harness.setMode(id, m.id)))}>${(m.explicit ? '⚠ ' : '') + m.name}</button>`)}
+        @tap=${guard(() => (m.current ? null : app.harness.setMode(id, m.id)))}>${m.name}</button>`)}
       ${rest.map((o) => html`<divider/>${o.choices.map((ch) => html`<button icon=${ch.value === o.value ? 'check' : nothing}
         @tap=${guard(() => set(o, ch.value))}>${`${o.name}: ${ch.name}`}</button>`)}`)}
       ${s ? html`<divider/>${s.choices.filter((x) => !x.disabled).map((x) => html`<button icon=${s.value === x.value ? 'check' : nothing}

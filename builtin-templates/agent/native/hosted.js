@@ -26,7 +26,7 @@ export function hostedNoticeTpl(v) {
   if (!h) return nothing;
   const lk = lockOf(v, me(), started);
   const who = readers(v.acl).join('; ');
-  return html`<notice tone="warn" title="⚠ Not private" text=${`This conversation uses ${exposed(h)}. Who can read it: ${who}.${lk.locked ? ' ' + lk.why + '.' : ''}`}/>`;
+  return html`<notice tone="warn" title="Not private" text=${`This conversation uses ${exposed(h)}. Who can read it: ${who}.${lk.locked ? ' ' + lk.why + '.' : ''}`}/>`;
 }
 
 /** hostedComposer: the composer's state (model/rules.js composer) for a hosted conversation. */
@@ -79,9 +79,9 @@ export function hostedWarnSheet() {
   const start = () => { started.add(lk.root); sheetFor = 0; ctx.paint(); };
   const title = `“${(v.run && v.run.title) || 'conversation'}” is not private`;
   return html`<sheet open title=${title} @dismiss=${close}>
-    <screen title="⚠ Not private" subtitle=${(v.run && v.run.title) || nothing} style="form">
+    <screen title="Not private" subtitle=${(v.run && v.run.title) || nothing} style="form">
       <toolbar><button role="plain" @tap=${close}>Open without sending</button><button role="primary" @tap=${start}>Start anyway</button></toolbar>
-      <section><notice tone="warn" title="⚠ Not private" text=${`This conversation uses ${exposed(h)}: the agent acts with them here, and what it reads or writes with them goes into a transcript all of the people below can read.`}/></section>
+      <section><notice tone="warn" title="Not private" text=${`This conversation uses ${exposed(h)}: the agent acts with them here, and what it reads or writes with them goes into a transcript all of the people below can read.`}/></section>
       <section title="Who can read it">${readers(v.acl).map((r) => html`<row title=${r}/>`)}</section>
     </screen>
   </sheet>`;

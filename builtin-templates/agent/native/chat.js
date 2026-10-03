@@ -186,16 +186,17 @@ export function openChild(id) {
   ctx.app.select(id);
 }
 
+// a journal line's glyph is text (the step primitive draws a string): no emoji (D184)
 const STEP = {
-  error: ['⚠', 'danger', (d) => d.error || d.text || ''],
-  compaction: ['🗜', 'muted', (d) => ctx.app.rules.compactionWords(d)],
+  error: ['!', 'danger', (d) => d.error || d.text || ''],
+  compaction: ['≡', 'muted', (d) => ctx.app.rules.compactionWords(d)],
   yield: ['⏸', 'muted', (d) => `slept ${d.seconds ?? ''}s`],
   finish: ['✓', 'ok', (d) => (d.result ? `finished: ${d.result}` : 'finished')],
   state_changed: ['✳', 'accent', (d) => `state changed${d.summary ? ': ' + d.summary : ''}`],
   cancel: ['⏹', 'warn', (d) => `cancelled${d.reason ? ': ' + d.reason : ''}`],
   ask: ['?', 'accent', (d) => `asked: ${d.question || ''}`],
-  render: ['🖼', 'accent', (d) => `rendered ${d.path || ''} v${d.version || ''}`],
-  live: ['📡', 'accent', (d) => `showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live`],
+  render: ['▢', 'accent', (d) => `rendered ${d.path || ''} v${d.version || ''}`],
+  live: ['◎', 'accent', (d) => `showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live`],
 };
 // stepTpl: a journal line. A render or a live page is a card that opens it
 // again (a step has no tap); finish's result is markdown under its line.
@@ -348,7 +349,7 @@ export function chatScreen(v) {
   const chain = (v.chain || []).map((c) => c.title || '#' + c.id);
   // a shared conversation says so in its header, as the web's top bar does
   const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', ...(ctx.ext.subtitle(v) || []), r.status, t.cls.label, t.cls.warn, badgeWords(v), t.viewOnly ? 'view only' : '',
-    t.share.tone ? `${t.share.icon} ${t.share.label}` : '', t.model ? `✦ ${t.model}` : '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
+    t.share.tone ? t.share.label : '', t.model || '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
       <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
@@ -403,7 +404,7 @@ function runMenu(v, t) {
     ${sandboxMenuTpl(v)}
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}
     ${t.sharing ? html`<button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>` : nothing}
-    ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label.replace(/^🔓 /, '')}`}</button>`)}
+    ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label}`}</button>`)}
     ${t.crumb ? html`<button icon="clock" @tap=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
     ${ctx.ext.menu(v, t) || nothing}
     ${t.del ? html`<divider/><button icon="trash" role="destructive"

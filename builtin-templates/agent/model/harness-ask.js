@@ -248,7 +248,8 @@ export function controls(h, entry = null, { owner = false, talk = true } = {}) {
     const cur = choices.find((c) => c.value === o.currentValue);
     return { id: o.id, name: o.name || o.id, category: o.category || '', description: o.description || '', value: o.currentValue ?? '', valueName: cur ? cur.name : String(o.currentValue ?? ''), choices };
   });
-  const label = [m.name ? (m.explicit ? '⚠ ' : '') + m.name : '', ...options.map((o) => o.valueName)].filter(Boolean).join(' · ') || 'Mode';
+  // the words alone (D184): a view marks an explicit (bypass) mode with its warning glyph (mode.explicit)
+  const label = [m.name, ...options.map((o) => o.valueName)].filter(Boolean).join(' · ') || 'Mode';
   return { name: nameOf(h), mode: { current: m.current, name: m.name, explicit: m.explicit }, modes, options, label: clip(label, 48), talk, owner };
 }
 

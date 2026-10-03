@@ -354,7 +354,7 @@ What a partitioned instance does differently:
     `threads_list`, `thread_inspect`, `skills_*`): they would keep state
     outside the conversation — in its host's partition, or in `team` where
     every hosted conversation reads it. One called anyway is refused.
-  - The page shows a hosted conversation with a ⚠ **not private** chip (its
+  - The page shows a hosted conversation with a **not private** chip (the warning glyph) (its
     header and its row) and opens the warning — who can read it (its
     members, the agent's managers, workspace admins, anyone who can change
     the agent's code) and whose private resources it uses — every time it is
@@ -822,7 +822,7 @@ here (over 50 megapixels or ~100 MiB decoded) or a broken one. Access is
 
 ### Attachments
 
-The owner attaches files from the composer (📎, drop, or paste). They land in the
+The owner attaches files from the composer (the paperclip, drop, or paste). They land in the
 run's session files — the same store the model's `file_*` tools and the REPL
 use. **Text** (`text/*`, JSON, XML, CSV, SVG… that is valid UTF-8 and within 64
 KiB) is stored as an ordinary text file. **Everything else is binary**: its
@@ -907,9 +907,9 @@ none; `system` is added to the agent's prompt when the conversation has no
 system prompt of its own; `who` is `everyone` (default) or `managers` (only
 the tile's managers may start conversations or automations in it). Built in:
 
-- **`internal`** 🔒 — files, repl, internal (every MCP server), subagents,
+- **`internal`** (its icon 🔒, drawn as the lock glyph) — files, repl, internal (every MCP server), subagents,
   schedule, threads, skills. **No web.** The old private lane.
-- **`web`** 🌐 — files, repl, web, subagents, schedule, threads, skills.
+- **`web`** (its icon 🌐, the globe glyph) — files, repl, web, subagents, schedule, threads, skills.
   **No `xbin_call`, no MCP tools.** The old web lane.
 - **`coding`** ▣ — sandbox (any manager; egress `none` or `internet`), web,
   files, subagents, skills, harness (every coding agent). No internal
@@ -947,14 +947,14 @@ class is refused (400).
 
 **In the tile.** The composer's class picker (at home, where a new chat
 starts) shows the classes you may use — icon and name, each one's
-description in its menu, a ⚠ on one that can move internal data out; the
+description in its menu, a warning on one that can move internal data out; the
 open conversation's top bar shows its class, with the same warning (a
 conversation's class is fixed, so there is no picker there). Your last pick
 is your default for new chats, kept per person at `/api/xbin/prefs/class`;
 with no pick yet, the lane picked before classes (`/api/xbin/prefs/toolset`:
 `web` → `web`, else `internal`), then `GET /classes`' `default`. A new ask
 sends `class` and, beside it, its lane as `toolset`. Managers edit the
-classes under ⚙ → **Classes**: name, icon, description, toolsets, the MCP
+classes under Settings → **Classes**: name, icon, description, toolsets, the MCP
 servers and sandbox managers (all, or a list), a sandbox's egress, model,
 system addendum and who may use them, and the default for new chats. A save
 sends the saved classes back with the one edited (a built-in nobody edited
@@ -1583,7 +1583,7 @@ with `node test/frame-policy.mjs`. It shows HTML up to **2 MiB**: a file
 over the 64 KiB text cap (a report written in the sandbox, typically) is
 stored as a binary session file (`text/html`) and still renders — `GET
 /runs/{id}/file` answers its text, painted through the same policy. The
-chat's `🖼 rendered …` line is a button that shows the file again once the
+chat's `rendered …` line (the photo glyph) is a button that shows the file again once the
 pane is closed (a subagent's, from its own run's files).
 
 The tile's frontend is **one model, thin views** — see **The frontend** below.
@@ -2031,7 +2031,7 @@ sandbox started before its runtime served ports: restart it), the agent's
 own refusals now carry `refusal` beside `error` too.
 
 **The pane.** A new `live` step opens the render pane (as a render does;
-one you closed stays closed; the chat's `📡 showing …` line opens it again)
+one you closed stays closed; the chat's `showing …` line (the signal glyph) opens it again)
 on the page, labelled **● live from the
 sandbox — name:port/path**, with **↻ Reload**: an `<iframe
 sandbox="allow-scripts allow-forms" credentialless
@@ -2807,11 +2807,11 @@ narrow tile the composer puts its pickers (and `#hctl`) on a line above the
 message box, which keeps its width (`index.html` `.cpicks`, `.cinput`).
 
 **For managers (the UI)** (`harness-catalog.js`, `native/harness-catalog.js`;
-the words `model/harness-manage.js`). ⚙ Classes has the Coding agents toolset and,
+the words `model/harness-manage.js`). Settings → Classes has the Coding agents toolset and,
 with it, which coding agents the class allows (all of them, or a checklist
 of the catalog's — `harnesses`); the form warns while the toolset lacks a
 sandbox or an egress other than `none`, and a refused save says the
-backend's words. ⚙ Coding agents (the app: Settings → Coding agents) lists
+backend's words. Settings → Coding agents (the app too) lists
 the catalog — whether each can be started and why not, the managers and
 images that have it, the sandboxes it was found or signed in on, the classes
 that allow it, its modes and sign-in command — and checks a running sandbox
@@ -2828,7 +2828,7 @@ instead** opens the login terminal as below. In your own partition, in a
 sandbox of yours no one else uses, **Remember for my other sandboxes**
 (with a name) mints a saved sign-in instead (the card says the token stays
 yours, out of the sandbox's home); elsewhere the card says why it isn't
-offered. **Coding-agent sign-ins** — the ⚙ Coding agents tab (managers),
+offered. **Coding-agent sign-ins** — the Settings → Coding agents tab (managers),
 and for everyone the dialog behind **Saved sign-ins…** on the card and in
 the coding agent's ▾ menu (the app: Coding agent settings) — lists yours
 per coding agent: what each is (a subscription token, an API key), its
@@ -3096,7 +3096,7 @@ tile holds and the run, link and `harness` events. At home, whose stream
 follows the run list only, it reads the trees of the rows with `kids.harness`
 (the first 12) and again when their root's row changes. A parked row whose
 summary has only the compact `harness.pending` reads the child's newest page
-(`?limit=8`) once (a failed read waits, as the card's), so its park can be answered there. The unfolded 📌 Task
+(`?limit=8`) once (a failed read waits, as the card's), so its park can be answered there. The unfolded Task (the pin glyph)
 lists what it **Delegated** — each coding agent below the run, its state, its
 task (the spawn's) and a way to its chat (the app: a section of the Task
 screen). "Needs you" says `login` as "needs you to sign in to ‹name›" when
@@ -3246,7 +3246,7 @@ needs approval, failed or cancelled, and a failed one opens by itself. A
 Claude Task's steps and text sit inside its card (the fold's `kids`); one
 whose Task is paged out shows flat, marked ↳. The top bar (native: a
 subtitle, and ⋯ → Progress) carries the context in use and the cost,
-what the conversation changed (`counts`), and the 📋 plan, pinned under the
+what the conversation changed (`counts`), and the plan, pinned under the
 task (unfolding to its entries); all follow the `harness` stream event.
 
 **A coding agent asking and driven** (`harness-ask.js` and
@@ -3255,7 +3255,7 @@ task (unfolding to its entries); all follow the `harness` stream event.
 end of the chat — the `end` seam, only for a permission or a question: the
 harness's own options as buttons, reject first when it defaults to no; an
 option with `explicit` (it raises the session to a bypass mode) only for the
-conversation's owner, a person, marked ⚠ and confirmed; the call's title,
+conversation's owner, a person, marked with the warning glyph and confirmed; the call's title,
 command and a diff preview; what `allow_always` would remember; an optional
 word sent with a rejection (`POST /runs/{id}/approve {park, option,
 feedback?}`). A plan approval shows the plan and a "keep planning" box (the
@@ -3263,7 +3263,7 @@ feedback of its rejection). A question is a form from its schema (Submit:
 `POST /runs/{id}/harness/answer {park, action: "accept", content}`; Skip:
 `decline`); url mode shows the page, then Done. The web's `#hctl` (the last of
 the composer's pickers) switches the live mode and config options (`PATCH
-/runs/{id}/harness {mode}` / `{option: {id, value}}`; a bypass mode ⚠, the
+/runs/{id}/harness {mode}` / `{option: {id, value}}`; a bypass mode marked with the warning glyph, the
 owner's only, confirmed) and holds your Auto / Always approve for the
 harness (`PUT /prefs/harness-mode/{id}`) — at home, for the harness that
 answers new chats; the built-in model picker hides in a harness

@@ -474,7 +474,8 @@ test('rules: a grant asked for, and the grants in force', () => {
   const g = [{ cap: 'threads', grantedBy: 'alice', expiresMs: now + 60e3 }, { cap: 'threads', grantedBy: 'alice', expiresMs: now - 1 }];
   const chips = rules.grantChips(v('owner', g), alice, now);
   assert.equal(chips.length, 1, 'expired ones are gone');
-  assert.match(chips[0].label, /^🔓 reads your threads · until \d\d:\d\d$/);
+  assert.match(chips[0].label, /^reads your threads · until \d\d:\d\d$/);
+  assert.equal(chips[0].icon, 'unlock', 'the web draws the unlock glyph before it (D184)');
   assert.deepEqual([chips[0].revoke, chips[0].run, chips[0].cap], [true, 4, 'threads']);
   assert.equal(rules.grantChips(v('participant', g), alice, now)[0].revoke, false, 'only the owner revokes');
   assert.deepEqual(rules.grantChips(v('owner', undefined), alice, now), []);
@@ -483,7 +484,7 @@ test('rules: a grant asked for, and the grants in force', () => {
   const sent = rules.grantAsk(run({ pendingState: { kind: 'approval', grant: 'widgets', grantAsk: 'turn the widgets', toolCalls: [] } }), alice);
   assert.equal(sent.lead, 'The agent asks to turn the widgets');
   const sc = rules.grantChips(v('owner', [{ cap: 'widgets', ask: 'turn the widgets', chip: 'turns widgets', expiresMs: now + 60e3 }]), alice, now);
-  assert.match(sc[0].label, /^🔓 turns widgets · until/);
+  assert.match(sc[0].label, /^turns widgets · until/);
   assert.match(sc[0].title, /let the agent turn the widgets in this conversation/);
 });
 
@@ -524,7 +525,7 @@ test('rules: who may do what', () => {
   assert.equal(rules.halt({ manager: false }, true, []).shown, false);
   assert.equal(rules.halt({ manager: true }, false, [{ status: 'waiting_input' }]).shown, false, 'waiting for a person is not running');
   assert.equal(rules.halt({ manager: true }, false, [{ status: 'running' }]).shown, true);
-  assert.equal(rules.halt({ manager: true }, true, []).label, '⏻ HALTED');
+  assert.deepEqual([rules.halt({ manager: true }, true, []).label, rules.halt({ manager: true }, true, []).icon], ['HALTED', 'stop']);
 
   const d = { owner: 'bob', visibility: 'team', teamRole: 'viewer', members: [{ user: 'alice', role: 'viewer' }] };
   assert.deepEqual(rules.share(d, { user: 'alice' }), { own: false, vis: 'team-viewer', leave: true });

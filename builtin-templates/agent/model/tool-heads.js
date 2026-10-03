@@ -7,7 +7,7 @@
 // A coding harness's calls (`acp:<kind>`) are harness-heads.js's.
 import { isAcp, acpFamily, acpReading, acpSubline, acpOutcome, ACP_ICON } from './harness-heads.js';
 
-// The families a tool belongs to — the card's icon and colour.
+// The families a tool belongs to — the card's glyph.
 const FAMILY = {
   xbin_call: 'net', web_search: 'web', web_fetch: 'web',
   file_write: 'file', file_read: 'file', file_edit: 'file', file_list: 'file', file_view: 'file', render_html: 'file',
@@ -27,9 +27,11 @@ const FAMILY = {
   browser_check: 'box', // a page in a headless Chromium in the sandbox (D136)
 };
 
+// ICON: each family's glyph on the web — a /vendor/bx-icons.js name (D184;
+// the native view's are native/ui.js FAMILY_ICON). 'other' draws none.
 export const ICON = {
-  net: '⇄', web: '🌐', file: '📄', code: '{ }', mem: '🧠', note: '✎', skill: '✦', time: '⏱',
-  agent: '⑂', done: '✓', ask: '?', mcp: '⚙', thread: '☰', box: '▣', other: '•', ...ACP_ICON,
+  net: 'network', web: 'globe', file: 'file', code: 'code', mem: 'database', note: 'pencil', skill: 'bolt', time: 'clock',
+  agent: 'agent', done: 'check', ask: 'question', mcp: 'plug', thread: 'chat', box: 'box', other: '', ...ACP_ICON,
 };
 
 export function family(name) {

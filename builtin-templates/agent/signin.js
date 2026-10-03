@@ -107,7 +107,8 @@ function cardTpl(app, c, provider = '') {
   if (!c.talk) return html`<div class="ask hlogin" id="hlogin" data-run=${c.run}><b>${c.title}</b><div class="hint" id="hl-view">${c.view}</div></div>`;
   return html`<div class="ask hlogin" id="hlogin" data-run=${c.run}>
     <b>${c.title}</b>
-    ${c.gone ? html`<div id="hl-gone">⚠ ${c.goneText}</div>` : html`<div class="hint" id="hl-warn">⚠ ${x.g.remember ? rememberWarn(c) : c.warn}</div>`}
+    ${c.gone ? html`<div id="hl-gone"><bx-icon name="warning"></bx-icon><span>${c.goneText}</span></div>`
+      : html`<div class="hint" id="hl-warn"><bx-icon name="warning"></bx-icon><span>${x.g.remember ? rememberWarn(c) : c.warn}</span></div>`}
     ${c.gone ? nothing : c.ask ? html`<div id="hl-ask">${c.ask}</div>` : html`
       ${(c.shared || x.needConfirm) && !x.g.remember ? html`<label class="chk" id="hl-shared"><input type="checkbox" id="hl-confirm" .checked=${!!x.confirm}
         @change=${(e) => { x.confirm = e.target.checked; redraw(); }}> ${c.confirmLabel}</label>` : nothing}

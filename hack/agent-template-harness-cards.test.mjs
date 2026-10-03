@@ -146,7 +146,7 @@ test('native: the subtitle\'s plan and context, Progress (the plan) and the harn
   ], 'c=21');
   assert.equal(all(r.snapshots.chat.root, { t: 'toolbar' })[0].c.filter((c) => c.t === 'badge').length, 0, 'no toolbar badge: a phone\'s bar keeps its ⋯');
   const chat = all(r.snapshots.chat.root, { t: 'screen' })[0];
-  assert.match(chat.p.subtitle, /^CC ready 👥 · 📋 3\/3 · ctx 26% · /, 'first in the subtitle; the cost is on Progress');
+  assert.match(chat.p.subtitle, /^CC ready · shared · plan 3\/3 · ctx 26% · /, 'first in the subtitle; the cost is on Progress');
   const scr = all(r.snapshots.progress.root, { t: 'screen', has: 'Progress' }).pop();
   assert.equal(scr.p.subtitle, 'Claude Code · 3/3');
   assert.deepEqual(all(scr, { t: 'plan' })[0].p.entries.map((e) => e.status), ['completed', 'completed', 'completed']);

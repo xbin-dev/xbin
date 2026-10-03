@@ -85,7 +85,7 @@ await shot('config');
 await page.selectOption('#cf-code', 'm-small');
 await page.fill('#cf-system', 'be very brief');
 await page.click('#cf-save');
-await page.waitForFunction(() => document.getElementById('cf-msg')?.textContent === 'saved ✓');
+await page.waitForFunction(() => document.getElementById('cf-msg')?.textContent === 'saved');
 let s = await S();
 ok('config: Save sends the whole config, untouched parts included', s.config.models.code === 'm-small' && s.config.system === 'be very brief' &&
   s.config.features.recall === true && s.config.mcp.length === 1 && s.config.subagents === true, JSON.stringify(s.config));
@@ -153,7 +153,7 @@ ok('classes: its toolsets are checked', (await page.$$eval('[data-ts]', (els) =>
   'files,repl,web,subagents,schedule,threads,skills');
 await page.fill('#clf-desc', 'the open web');
 await page.click('#clf-save');
-await page.waitForFunction(() => document.getElementById('cl-msg')?.textContent === 'saved ✓');
+await page.waitForFunction(() => document.getElementById('cl-msg')?.textContent === 'saved');
 let p = (await puts()).pop();
 ok('classes: saving a built-in sends it alone', p.classes.length === 1 && p.classes[0].id === 'web' && p.classes[0].description === 'the open web' &&
   p.default === 'internal' && !p.confirmMixed && !('mcp' in p.classes[0]), JSON.stringify(p));
@@ -180,7 +180,8 @@ await page.waitForFunction(() => [...document.querySelectorAll('.clsrow')].some(
 p = (await puts()).pop();
 ok('classes: a confirmed mixed class is sent confirmed, after the stored ones', p.confirmMixed === true && p.classes.map((c) => c.id).join() === 'web,bridge' &&
   p.classes[1].mcp === 'all' && p.classes[1].icon === '🌉', JSON.stringify(p));
-ok('classes: the list says it can move internal data out', (await page.textContent('.clsrow[data-cls="bridge"]')).includes('⚠ can move internal data out'));
+ok('classes: the list says it can move internal data out', (await page.textContent('.clsrow[data-cls="bridge"]')).includes('can move internal data out')
+  && !!(await page.$('.clsrow[data-cls="bridge"] .clswarn bx-icon[name="warning"]')));
 await shot('classes-mixed');
 // the default, then deleting it
 await page.selectOption('#cl-default', 'bridge');

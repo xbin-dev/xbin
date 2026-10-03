@@ -24,19 +24,21 @@ const $ = (id) => document.getElementById(id);
 
 // What these draw looks like — beside the class picker's (.clspick, .clsmenu in index.html).
 const CSS = `
-  .kind { font: 600 9.5px/1.5 var(--bx-mono, monospace); padding: 0 4px; border-radius: 4px; flex: none; letter-spacing: .02em;
-          color: var(--bx-accent); border: 1px solid color-mix(in srgb, var(--bx-accent) 50%, var(--bx-border)); }
-  .apick .clsbtn .kind, .clsmenu .mi .kind { font-size: 10px; }
+  /* a coding agent's monogram (CC, CX…): a square tag in the text colour (D184: the accent is for actions) */
+  .kind { font: var(--bx-font-code); font-weight: 600; padding: 0 4px; border-radius: var(--bx-radius); flex: none;
+          color: var(--bx-text); border: 1px solid var(--bx-border-strong); }
   .clsmenu .mi.off { opacity: .55; cursor: default; }
   .clsmenu .mi.off:hover { background: none; }
-  .clsmenu .clssec { padding: 8px 12px 4px; color: var(--bx-muted); font-size: 11px; border-top: 1px solid var(--bx-border); margin-top: 4px; }
-  .clsmenu .clsempty { padding: 6px 12px 8px; color: var(--bx-muted); font-size: 11.5px; }
-  .top .hsetup { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; padding: 7px 10px; border-radius: 6px;
-                 background: color-mix(in srgb, var(--bx-accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--bx-accent) 40%, var(--bx-border)); }
+  .clsmenu .clssec { padding: 8px 12px 4px; color: var(--bx-muted); font: var(--bx-font-meta); border-top: 1px solid var(--bx-border); margin-top: 4px; }
+  .clsmenu .clsempty { padding: 4px 12px 8px; color: var(--bx-muted); font: var(--bx-font-meta); }
+  .top .hsetup { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 8px 12px; border-radius: var(--bx-radius);
+                 background: var(--bx-info-bg); border: 1px solid var(--bx-border); }
   .top .hsetup .tx { flex: 1; min-width: 200px; }
-  .top .hsetup .why { color: var(--bx-muted); font-size: 11.5px; }
-  .badge.hchip { display: inline-flex; gap: 4px; align-items: center; text-transform: none; letter-spacing: 0; }
-  .badge.hchip.warn { color: var(--bx-yellow, #d9a441); } .badge.hchip.bad { color: var(--bx-red); } .badge.hchip.run { color: var(--bx-accent); }
+  .top .hsetup .why { color: var(--bx-muted); font: var(--bx-font-meta); }
+  .badge.hchip { text-transform: none; letter-spacing: 0; }
+  .badge.hchip .kind { border: 0; padding: 0; }
+  .badge.hchip.warn { color: var(--bx-warn); border-color: var(--bx-warn); } .badge.hchip.bad { color: var(--bx-danger); border-color: var(--bx-danger); }
+  .badge.hchip.run { color: var(--bx-text); }
   /* a narrow composer (a 480px tile beside the list): the class picker keeps its icon (their row is index.html's
      .cpicks); the model picker keeps its words — squeezed to 50px it read "a…" — and the message row wraps instead */
   .composer { container-type: inline-size; }
@@ -57,12 +59,12 @@ function pickerTpl(app, p) {
   const pick = (r) => { if (r.disabled) return; open = false; HS.chooseAgent(app, r.value); ctx.paint(); };
   const row = (r) => html`<div class="mi ${r.on ? 'on' : ''} ${r.disabled ? 'off' : ''}" role="menuitemradio" aria-checked=${r.on ? 'true' : 'false'}
       aria-disabled=${r.disabled ? 'true' : 'false'} data-agent=${r.value} title=${r.disabled ? r.why : r.detail} @click=${() => pick(r)}>
-    <span class="ic">${r.value === AGENT ? r.mono : html`<span class="kind">${r.mono}</span>`}</span>
+    <span class="ic">${r.value === AGENT ? html`<bx-icon name="agent"></bx-icon>` : html`<span class="kind">${r.mono}</span>`}</span>
     <span class="tx"><b>${r.name}</b>${r.detail ? html`<span class="ds ${r.disabled ? 'warn' : ''}">${r.detail}</span>` : nothing}</span>
-    <span class="ck">${r.on ? '✓' : ''}</span></div>`;
+    <span class="ck">${r.on ? html`<bx-icon name="check"></bx-icon>` : nothing}</span></div>`;
   return html`<button class="btn ghost clsbtn" id="abtn" title=${p.title} aria-haspopup="menu" aria-expanded=${open ? 'true' : 'false'}
       @click=${() => { open = !open; if (open) { app.harness.load().catch(() => {}); app.sbx.ensure(); } ctx.paint(); }}>
-      <span class="ic">${p.harness ? html`<span class="kind">${p.mono}</span>` : p.mono}</span><span class="nm">${p.label}</span><span class="car">▾</span></button>
+      <span class="ic">${p.harness ? html`<span class="kind">${p.mono}</span>` : html`<bx-icon name="agent"></bx-icon>`}</span><span class="nm">${p.label}</span><span class="car"><bx-icon name="caret-down"></bx-icon></span></button>
     ${open ? html`<div class="mback" @click=${close}></div>
       <div class="clsmenu" role="menu" aria-label="Who answers new chats" style=${`width:${w}px;left:${left}px`}>
         <div class="clshd">${p.header}</div>
@@ -99,7 +101,7 @@ ext.register({
     if (!app) return null;
     if (!v) return app.page ? null : setupTpl(app, HS.startOf(app));
     const t = HS.topChip(v);
-    return t ? html`<span class="badge hchip ${t.tone}" id="hchip" title=${t.title}><span class="kind">${t.mono}</span>${t.label}${t.shared ? ' 👥' : ''}</span>` : null;
+    return t ? html`<span class="badge hchip ${t.tone}" id="hchip" title=${t.title}><span class="kind">${t.mono}</span>${t.label}${t.shared ? html`<bx-icon name="people" label="shared"></bx-icon>` : nothing}</span>` : null;
   },
   // paint: the composer at home — "Who answers", and what a coding agent hides
   paint: (v) => {

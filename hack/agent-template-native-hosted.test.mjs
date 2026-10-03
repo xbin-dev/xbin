@@ -45,7 +45,7 @@ test('a hosted conversation: the warning heads it, the composer is locked until 
     { snapshot: 'started' },
   ], { hash: 'c=' + H });
   const open = r.snapshots.open;
-  const notice = find(open, { t: 'notice', p: { title: '⚠ Not private' } });
+  const notice = find(open, { t: 'notice', p: { title: 'Not private' } });
   assert.ok(notice, 'the warning heads the transcript');
   assert.match(notice.p.text, /bob's private sandboxes, data in other tiles and vault/);
   assert.match(notice.p.text, /its members: bob, alice/);

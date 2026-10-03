@@ -16,7 +16,7 @@ export function classPickerTpl() {
   const p = C.classPicker(null, app.classes, app.classId);
   if (!p.shown || app.harness.picked()) return nothing; // a coding agent resolves its class (D147; model/app.js newClassId)
   return html`<picker label="Class" style="menu" value=${p.value}
-    options=${p.rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} ⚠` : r.name, icon: r.nativeIcon }))}
+    options=${p.rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} — ${C.MIXED}` : r.name, icon: r.nativeIcon }))}
     @change=${(e) => app.pickClass(e.value)}/>`;
 }
 
@@ -27,7 +27,7 @@ export function classSectionTpl(f) {
   if (f.agent && f.agent !== 'agent' && ctx.app.harness.find(f.agent)?.available) return nothing;
   const rows = C.pickerRows(ctx.app.classes, f.class);
   const cur = rows.find((r) => r.on);
-  const footer = [cur && cur.description, cur && cur.mixed ? `⚠ It ${C.MIXED}.` : '', 'Fixed for the conversation once it starts.'].filter(Boolean).join(' ');
+  const footer = [cur && cur.description, cur && cur.mixed ? `It ${C.MIXED}.` : '', 'Fixed for the conversation once it starts.'].filter(Boolean).join(' ');
   const short = rows.length <= 3 && rows.every((r) => r.name.length <= 10);
   return html`<section title="Class" footer=${footer}>
     <picker style=${short ? 'segmented' : 'menu'} label="Class" value=${f.class || ''}
@@ -42,7 +42,7 @@ export const classRow = (c) => html`<row title="Class" detail=${c.label} icon=${
 
 // classPicker: an automation form's class select (model/classes.js choices rows).
 export const classPicker = (label, rows, value, pick) => html`<picker label=${label} style="menu" value=${value}
-  options=${rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} ⚠` : r.name, icon: r.nativeIcon }))} @change=${(e) => pick(e.value)}/>`;
+  options=${rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} — ${C.MIXED}` : r.name, icon: r.nativeIcon }))} @change=${(e) => pick(e.value)}/>`;
 
 // --- the managers' screens -----------------------------------------------------------
 
@@ -138,7 +138,7 @@ function classFormTpl(s) {
           @change=${(ev) => { f.egress = C.toggle(f.egress, e.id, ev.value); ctx.paint(); }}/>`)}
       </section>
       ${namesTpl('managers', 'managersMode', C.ifaceNames(globalThis.xbin?.iface?.('sandboxes')), 'Sandbox managers')}` : nothing}
-    ${has('harness') ? html`<section title="Coding agents it may start or spawn" footer=${C.harnessWhy(f) ? `⚠ ${C.harnessWhy(f)}: untick Coding agents, or turn on Coding sandbox and an egress other than none.` : 'Which coding agents a conversation of this class may start, and its agent spawn.'}>
+    ${has('harness') ? html`<section title="Coding agents it may start or spawn" footer=${C.harnessWhy(f) ? `${C.harnessWhy(f)}: untick Coding agents, or turn on Coding sandbox and an egress other than none.` : 'Which coding agents a conversation of this class may start, and its agent spawn.'}>
       <picker label="Coding agents" style="segmented" value=${f.harnessesMode === 'only' ? 'only' : 'all'}
         options=${[{ value: 'all', label: 'all' }, { value: 'only', label: 'only these' }]} @change=${set('harnessesMode', true)}/>
       ${f.harnessesMode === 'only' ? repeat(C.harnessNames(f.harnesses, app.harness.catalog), (n) => n.id, (n) => html`<toggle label=${n.name} value=${n.on}

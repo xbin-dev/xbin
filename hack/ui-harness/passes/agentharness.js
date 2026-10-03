@@ -161,7 +161,7 @@ async function transcript(a, check, box) {
   await answered(a, 'todo done');
   await resting(a);
   await until(a, () => /3\/3/.test(document.querySelector('.planpin .tasktoggle')?.textContent || ''), null, 10000);
-  check(/📋 Plan · [0-3]\/3/.test(live), `"todo": the 📋 plan pin shows while the turn runs (${live.trim()})`);
+  check(/Plan · [0-3]\/3/.test(live), `"todo": the plan pin shows while the turn runs (${live.trim()})`);
   await a.click('.planpin .tasktoggle');
   const entries = await text(a, '.planpin .pe');
   check(entries.length === 3 && (await a.$$('.planpin .pe.completed')).length === 3, `…and unfolds to its 3 entries, all done (${entries.join(' | ')})`);
@@ -252,7 +252,7 @@ async function signIn(a, check, stamp) {
   await a.click('#home');
   await a.waitForSelector(`.need[data-r="${id}"]`, { timeout: 15000 });
   const need = (await a.textContent(`.need[data-r="${id}"]`)).replace(/\s+/g, ' ').trim();
-  check(/🔑 .*needs you to sign in to Fake agent \(tests\)/.test(need), `Needs you at home: its sign-in (${need})`);
+  check(/needs you to sign in to Fake agent \(tests\)/.test(need), `Needs you at home: its sign-in (${need})`);
   await a.click(`.need[data-r="${id}"]`);
   await a.waitForSelector('#hlogin', { timeout: 15000 });
   await a.click('#hlogin button[data-method="fake-login"]');

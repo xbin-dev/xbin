@@ -48,7 +48,7 @@ ok('only these: the catalog\'s coding agents', names === 'claude,codex,gemini,op
 await page.check('[data-harness="claude"]');
 await page.check('[data-harness="codex"]');
 await page.click('#clf-save');
-await page.waitForFunction(() => document.getElementById('cl-msg')?.textContent === 'saved ✓');
+await page.waitForFunction(() => document.getElementById('cl-msg')?.textContent === 'saved');
 let p = (await puts()).pop();
 const coding = (b) => b.classes.find((c) => c.id === 'coding');
 ok('…saved as a list', JSON.stringify(coding(p).harnesses) === '["claude","codex"]' && coding(p).toolsets.includes('harness'), JSON.stringify(coding(p)));
@@ -59,7 +59,7 @@ await page.waitForSelector('#clf-save');
 ok('…read back as a list', (await page.$eval('#clf-harnessesMode', (e) => e.value)) === 'only'
   && (await page.$$eval('[data-harness]', (els) => els.filter((e) => e.checked).map((e) => e.dataset.harness).join())) === 'claude,codex');
 await page.uncheck('[data-ts="sandbox"]');
-ok('no sandbox: the form says what the toolset needs', (await text('#clf-harness-why')).startsWith('⚠ the harness toolset needs sandbox and an egress other than none'));
+ok('no sandbox: the form says what the toolset needs', (await text('#clf-harness-why')).startsWith('the harness toolset needs sandbox and an egress other than none'));
 await page.click('#clf-save');
 await page.waitForSelector('.clsform .err');
 ok('…and the backend\'s refusal is said', (await text('.clsform .err')) === 'class coding: the harness toolset needs sandbox and an egress other than none — a coding agent must reach its provider',
@@ -67,14 +67,14 @@ ok('…and the backend\'s refusal is said', (await text('.clsform .err')) === 'c
 await page.uncheck('[data-ts="harness"]');
 ok('unticking Coding agents too: no warning', !(await page.$('#clf-harness-why')));
 await page.click('#clf-save');
-await page.waitForFunction(() => document.getElementById('cl-msg')?.textContent === 'saved ✓');
+await page.waitForFunction(() => document.getElementById('cl-msg')?.textContent === 'saved');
 p = (await puts()).pop();
 ok('…it saves: neither toolset, no harnesses', !coding(p).toolsets.includes('harness') && !coding(p).toolsets.includes('sandbox') && !('harnesses' in coding(p)), JSON.stringify(coding(p)));
 // egress none only: the same
 await page.click('[data-edit="coding"]');
 await page.check('[data-ts="sandbox"]');
 await page.check('[data-ts="harness"]');
-ok('a sandbox that reaches nothing: the same warning', (await text('#clf-harness-why')).startsWith('⚠ the harness toolset needs sandbox'));
+ok('a sandbox that reaches nothing: the same warning', (await text('#clf-harness-why')).startsWith('the harness toolset needs sandbox'));
 await page.check('[data-eg="internet"]');
 ok('…until it may reach the internet', !(await page.$('#clf-harness-why')));
 await page.click('#clf-cancel');
@@ -94,7 +94,7 @@ ok('…one that isn\'t available says why', row('gemini').includes('not availabl
 await page.selectOption('#hc-ref', 'apps/coding-sandbox|sb-9c1d');
 await page.click('#hc-check');
 await page.waitForFunction(() => document.getElementById('hc-msg')?.textContent.includes('checked'));
-ok('check a running sandbox now', (await text('#hc-msg')) === 'checked scratch ✓'
+ok('check a running sandbox now', (await text('#hc-msg')) === 'checked scratch'
   && (await page.evaluate(() => window.__calls.some((c) => c.url.endsWith('/harnesses?probe=' + encodeURIComponent('apps/coding-sandbox|sb-9c1d'))))));
 ok('…what it found is listed', (await text('.hrow[data-harness="claude"]')).includes('scratch: installed'), await text('.hrow[data-harness="claude"]'));
 

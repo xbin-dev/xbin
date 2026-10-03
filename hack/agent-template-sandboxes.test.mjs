@@ -295,7 +295,7 @@ test('the tool cards: the box family, its sublines and what a call came to', () 
   const a = (o) => JSON.stringify(o);
   assert.equal(T.family('bash'), 'box');
   assert.equal(T.family('sandbox_create'), 'box');
-  assert.equal(T.ICON.box, '▣');
+  assert.equal(T.ICON.box, 'box', 'a /vendor/bx-icons.js name (D184)');
   assert.equal(T.headline('bash', a({ command: 'go test ./...' })), '$ go test ./...');
   assert.equal(T.headline('bash', a({ command: 'make', background: true })), '$ make &');
   assert.equal(T.headline('bash', a({ command: 'go test ./...', summary: 'Run the tests' })), 'Run the tests');

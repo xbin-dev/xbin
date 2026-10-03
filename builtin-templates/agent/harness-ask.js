@@ -2,7 +2,7 @@
 // §4.2.9, §4.3.4): the card at the end of the chat for its permission
 // request (the harness's own options as buttons, reject first when it
 // defaults to no; an option that raises it to a bypass mode only for the
-// owner, marked ⚠ and confirmed; the call, its diff preview, what "always"
+// owner, marked with the warning glyph and confirmed; the call, its diff preview, what "always"
 // remembers; an optional word with a rejection), its plan approval (the plan,
 // its options, a "keep planning" box sent as feedback) and its question (a
 // form from the schema, Submit / Skip; url mode: the page, then Done).
@@ -91,7 +91,7 @@ function permissionTpl(r, p, who) {
     ${previewTpl(p)}
     ${p.description ? html`<div class="muted small">${p.description}</div>` : nothing}
     ${p.talk ? html`${fbTpl}<div class="hopts">${p.options.map((o) => html`<button class="btn btnsm ${o.reject ? 'ghost' : ''} ${o.explicit ? 'hwarn' : ''}"
-        data-opt=${o.id} data-kind=${o.kind} title=${o.title || nothing} ?disabled=${f.busy} @click=${() => choose(r, p, o, who)}>${o.explicit ? '⚠ ' : ''}${o.name}</button>`)}</div>
+        data-opt=${o.id} data-kind=${o.kind} title=${o.title || nothing} ?disabled=${f.busy} @click=${() => choose(r, p, o, who)}>${o.explicit ? html`<bx-icon name="warning"></bx-icon>` : nothing}${o.name}</button>`)}</div>
       ${p.rule ? html`<div class="muted small hrule">${p.rule}</div>` : nothing}
       ${p.hidden ? html`<div class="muted small">${p.hidden === 1 ? 'One option' : `${p.hidden} options`} that would stop ${who.name} asking — only the owner may pick them.</div>` : nothing}`
     : html`<div class="muted small">view only — someone who may write here answers it</div>`}
@@ -164,27 +164,30 @@ function questionTpl(r, q, who) {
   </div>`;
 }
 
-// the cards' look (the tile's own sheet stays as it is)
+// the cards' look (the tile's own sheet stays as it is): theme.css's tokens (D184)
 const style = document.createElement('style');
 style.textContent = `
   .hask .hlead { margin-bottom: 4px; }
-  .hask .htitle { font-family: var(--bx-mono); font-size: 12px; }
+  .hask .htitle { font: var(--bx-font-code); }
   .hask .hlabel { margin: 2px 0 4px; }
-  .hask pre.hcmd, .hask pre.hout { margin: 4px 0; padding: 4px 6px; background: var(--bx-panel-2); border-radius: 4px; white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 12em; overflow: auto; }
-  .hask .hdiff { margin: 4px 0; border: 1px solid var(--bx-border); border-radius: 4px; overflow: hidden; }
-  .hask .hdiff .hdh { font-size: 11.5px; padding: 2px 6px; background: var(--bx-panel-2); }
-  .hask .hdiff pre { margin: 0; padding: 4px 6px; font-size: 12px; max-height: 16em; overflow: auto; }
-  .hask .hadd { color: var(--bx-green, #4caf50); } .hask .hdel { color: var(--bx-red, #ef5350); } .hask .hhunk { color: var(--bx-muted); }
-  .hask .hopts { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+  .hask pre.hcmd, .hask pre.hout { margin: 4px 0; padding: 4px 8px; background: var(--bx-code-bg); border: 1px solid var(--bx-border);
+    border-radius: var(--bx-radius); white-space: pre-wrap; word-break: break-word; font: var(--bx-font-code); max-height: 12em; overflow: auto; }
+  .hask .hdiff { margin: 4px 0; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); overflow: hidden; }
+  .hask .hdiff .hdh { font: var(--bx-font-meta); padding: 2px 8px; background: var(--bx-panel-2); }
+  .hask .hdiff pre { margin: 0; padding: 4px 8px; font: var(--bx-font-code); max-height: 16em; overflow: auto; background: var(--bx-code-bg); }
+  .hask .hadd { color: var(--bx-diff-add); } .hask .hdel { color: var(--bx-diff-del); } .hask .hhunk { color: var(--bx-diff-hunk); }
+  .hask .hopts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
   .hask .hopts .btn { margin: 0; }
-  .hask .hwarn { border-color: var(--bx-red, #ef5350); color: var(--bx-red, #ef5350); background: none; }
-  .hask .hfb { width: 100%; box-sizing: border-box; margin: 4px 0 0; font: inherit; font-size: 12.5px; }
+  /* an option that raises what the coding agent may do: the destructive outline */
+  .bx .hask .btn.hwarn { background: var(--bx-panel); border-color: var(--bx-danger); color: var(--bx-danger); }
+  .bx .hask .btn.hwarn:hover { background: var(--bx-danger-bg); }
+  .hask .hfb { width: 100%; box-sizing: border-box; margin: 4px 0 0; }
   .hask .hrule { margin-top: 2px; }
   .hask .hplanmd { max-height: 24em; overflow: auto; margin: 4px 0; }
-  .hask .hmsg { margin: 2px 0 6px; white-space: pre-wrap; }
-  .hask .hfield { margin: 6px 0; }
-  .hask .hfl { font-weight: 600; font-size: 12.5px; }
-  .hask .hreq { color: var(--bx-red, #ef5350); margin-left: 2px; }
+  .hask .hmsg { margin: 2px 0 8px; white-space: pre-wrap; }
+  .hask .hfield { margin: 8px 0; }
+  .hask .hfl { font-weight: 600; }
+  .hask .hreq { font-weight: 600; margin-left: 2px; } /* required: a fact, not a danger */
   .hask .hopt { display: block; margin: 2px 0; cursor: pointer; }
   .hask .hfield > input:not([type]), .hask .hfield > input[type=number], .hask .hother { width: 100%; box-sizing: border-box; margin-top: 2px; }
   .hask .hurl { word-break: break-all; }

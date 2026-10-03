@@ -31,7 +31,7 @@ export async function tabHarnesses(bd, app) {
     await app.harness.load(st.ref);
     const name = probeTargets(app.sbx.list).find((t) => t.ref === st.ref)?.name || st.ref;
     st.busy = false;
-    st.msg = app.harness.error || `checked ${name} ✓`;
+    st.msg = app.harness.error || `checked ${name}`;
     draw();
   };
   st.check = check;
@@ -45,7 +45,7 @@ function tabTpl(st, app, draw) {
   const facts = (label, v) => (v ? html`<div class="hfact"><span class="muted">${label}</span> ${v}</div>` : nothing);
   return html`${signinsTpl(st, app, draw)}<div class="sec hcat"><h4>Coding agents</h4>
     <div class="hint">Claude Code, Codex, Gemini CLI and opencode run in a coding sandbox and answer a conversation instead of this agent's own loop.
-      One can be started when a bound sandbox manager's image has it, a class people may use allows it (⚙ Classes: the Coding agents toolset),
+      One can be started when a bound sandbox manager's image has it, a class people may use allows it (Settings → Classes: the Coding agents toolset),
       and that class allows a sandbox with an egress other than none — it must reach its provider.</div>
     ${app.harness.error ? html`<div class="err">${app.harness.error}</div>` : nothing}
     ${targets.length ? html`<div class="hcheck"><label class="muted" for="hc-ref">Check a running sandbox now</label>
@@ -127,7 +127,7 @@ function signinsTpl(st, app, draw) {
   });
   return html`<div class="sec hsignins" id="hsignins">${head}
     <div class="hint">Sign-ins of your own, kept in your vault and handed to a coding agent only in your own conversations, in a sandbox of yours no one else uses —
-      where they win over the sandbox's own sign-in. Never copied into a sandbox. A conversation can pick one (its ▾ menu); new ones use the default.
+      where they win over the sandbox's own sign-in. Never copied into a sandbox. A conversation can pick one (its account menu); new ones use the default.
       "Remember for my other sandboxes" on a sign-in card saves one too.</div>
     ${st.serr ? html`<div class="err" id="hs-err">${st.serr}</div>` : nothing}
     ${st.smsg ? html`<div class="muted" id="hs-msg">${st.smsg}</div>` : nothing}
@@ -154,22 +154,22 @@ function signinsTpl(st, app, draw) {
 }
 
 const CSS = `
-  .hcat .hrow { padding: 8px 0; border-top: 1px solid var(--bx-border); font-size: 12px; }
-  .hcat .hhd { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 3px; }
-  .hcat .hhd .badge.ok { color: var(--bx-green); } .hcat .hhd .badge.warn { color: var(--bx-yellow, #d9a441); }
-  .hcat .hwhy { font-size: 11.5px; }
+  .hcat .hrow { padding: 8px 0; border-top: 1px solid var(--bx-border); }
+  .hcat .hhd { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .hcat .hhd .badge.ok { color: var(--bx-ok); border-color: var(--bx-ok); } .hcat .hhd .badge.warn { color: var(--bx-warn); border-color: var(--bx-warn); }
+  .hcat .hwhy { font: var(--bx-font-meta); }
   .hcat .hfact { margin: 2px 0 0 4px; overflow-wrap: anywhere; }
   .hcat .hfact > .muted { display: inline-block; min-width: 84px; }
-  .hcat .hsb.ok { color: var(--bx-green); } .hcat .hsb.warn { color: var(--bx-yellow, #d9a441); } .hcat .hsb.bad { color: var(--bx-red); }
-  .hcat .hcheck { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0; }
+  .hcat .hsb.ok { color: var(--bx-ok); } .hcat .hsb.warn { color: var(--bx-warn); } .hcat .hsb.bad { color: var(--bx-danger); }
+  .hcat .hcheck { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
   .hsdlg .dlg-bd { min-width: min(560px, 88vw); }
-  .hsignins h5 { margin: 10px 0 2px; font-size: 12.5px; }
-  .hsignins .hsrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 5px 0; border-top: 1px solid var(--bx-border); font-size: 12px; }
+  .hsignins h5 { margin: 12px 0 2px; font: var(--bx-font-ui); font-weight: 600; }
+  .hsignins .hsrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0; border-top: 1px solid var(--bx-border); }
   .hsignins .hsrow .nm { font-weight: 600; }
   .hsignins .hsrow .sp { flex: 1 1 auto; }
-  .hsignins .hsrow .badge.ok { color: var(--bx-green); }
-  .hsignins .hsrow .st.warn { color: var(--bx-yellow, #d9a441); } .hsignins .hsrow .st.bad { color: var(--bx-red); }
-  .hsignins .hsadd { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 4px; }
+  .hsignins .hsrow .badge.ok { color: var(--bx-ok); border-color: var(--bx-ok); }
+  .hsignins .hsrow .st.warn { color: var(--bx-warn); } .hsignins .hsrow .st.bad { color: var(--bx-danger); }
+  .hsignins .hsadd { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 4px; }
   .hsignins .hsadd input[name=name] { width: 10em; }
   .hsignins .hsadd input[type=password] { flex: 1 1 14em; min-width: 0; max-width: 340px; }
 `;

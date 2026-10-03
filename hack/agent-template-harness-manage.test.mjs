@@ -123,7 +123,7 @@ test('native: a class\'s Coding agents — the toggle, the checklist, what it ne
   const only = topScreen(r.snapshots.only);
   assert.deepEqual(all(only, { t: 'toggle', in: { t: 'section', p: { title: 'Coding agents it may start or spawn' } } }).map((t) => [t.p.label, t.p.value]),
     [['Claude Code', true], ['Codex', false], ['Gemini CLI', false], ['opencode', false]]);
-  assert.match(find(topScreen(r.snapshots.lame), { t: 'section', p: { title: 'Coding agents it may start or spawn' } }).p.footer, /^⚠ the harness toolset needs sandbox/);
+  assert.match(find(topScreen(r.snapshots.lame), { t: 'section', p: { title: 'Coding agents it may start or spawn' } }).p.footer, /^the harness toolset needs sandbox/);
   assert.match(JSON.stringify(topScreen(r.snapshots.refused)), /class coding: the harness toolset needs sandbox and an egress other than none/, 'the backend\'s refusal, said');
 });
 

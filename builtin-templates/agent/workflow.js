@@ -27,15 +27,16 @@ function nodeRow(n, maxCost, wfSel) {
   const cost = wfCostOf(n);
   const pct = maxCost > 0 ? Math.round(100 * cost / maxCost) : 0;
   const blocked = n.blockReason === 'dep' && (n.blockedOn || []).length;
-  let sub = '', cls = '';
-  if (blocked) { sub = `⛔ waiting on ${n.blockedOn.map((i) => '#' + i).join(', ')}`; cls = 'blk'; }
-  else if (n.blockReason) { sub = '⏳ ' + (WF_WORDS[n.blockReason] || n.blockReason); cls = 'blk'; }
-  else if (n.status === 'error') { sub = '⚠ ' + (n.result || 'failed'); cls = 'bad'; }
+  // the second line: what holds it, or what it last did — with its glyph (D184)
+  let sub = '', cls = '', ic = '';
+  if (blocked) { sub = `waiting on ${n.blockedOn.map((i) => '#' + i).join(', ')}`; cls = 'blk'; ic = 'error'; }
+  else if (n.blockReason) { sub = WF_WORDS[n.blockReason] || n.blockReason; cls = 'blk'; ic = 'wait'; }
+  else if (n.status === 'error') { sub = n.result || 'failed'; cls = 'bad'; ic = 'warning'; }
   else if (n.lastStep) { sub = n.lastStep; }
   return `<div class="wfn${wfSel === n.id ? ' on' : ''}" data-n="${num(n.id)}" style="--d:${Math.min(num(n.depth), 4)}">
     <span class="nm"><span class="dot ${esc(n.status)}"></span><span class="tt">${esc(n.title || 'run ' + n.id)}</span></span>
     <span class="cost">${cost ? fmtN(cost) : ''}${cost ? `<i class="share"><i style="width:${pct}%"></i></i>` : ''}</span>
-    <span class="sub ${cls}">${esc(clip(sub, 160))}</span>
+    <span class="sub ${cls}">${ic ? `<bx-icon name="${ic}"></bx-icon>` : ''}${esc(clip(sub, 160))}</span>
   </div>`;
 }
 
