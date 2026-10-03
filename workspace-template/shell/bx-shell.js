@@ -1849,7 +1849,7 @@ export class BxShell extends LitElement {
           <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs}
             .canMutate=${this._canMutate} .personal=${!this._activeOrgScreen} .mobile=${this._mobile} .menuOpen=${!!this._menu} .scale=${this._gridScale}
             .canAdminTile=${(p) => this._canAdminTile(p)} .who=${this._who} .alerts=${this._alerts} .reload=${() => { this._load(); this._loadAlerts(); }}
-            .emptyText=${this._activeOrgScreen && !this._canMutate ? 'empty shared screen' : 'empty screen — open a tile from the sidebar'}
+            .emptyText=${this._activeOrgScreen && !this._canMutate ? 'This shared screen is empty.' : 'This screen is empty. Open a tile from the sidebar.'}
             @bx-tiles=${(e) => this._mutateTiles(() => e.detail)}
             @bx-toggle-tile=${(e) => this._toggle(e.detail)}
             @bx-tile-menu=${(e) => this._openTileMenu(e.detail.at, e.detail.path, e.detail.anchor, { selection: e.detail.selection })}
