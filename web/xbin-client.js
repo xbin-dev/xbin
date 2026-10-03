@@ -60,7 +60,6 @@
  * own origin (strict tile asset gating's origins mode) the server names the
  * workspace origin: messages go to it only, and replies must come from it.
  */
-import { MESSAGE as APPEARANCE, appearance, applyAppearanceMessage, rememberTheme } from '/vendor/bx-theme.js';
 
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content ?? '';
 
@@ -311,21 +310,26 @@ if (framed) {
 // The embedder posts xbin:appearance {theme, density} on every load of this
 // frame and on every change of the person's choice. Applied from our parent
 // window only (and, on a tile's own origin, only from the workspace), with
-// the values bx-theme.js accepts: it rewrites this document's metas, so a
-// document that opted in restyles at once and its own <bx-frame>s pass the
-// change on; one that didn't opt in only hears it (onAppearance).
+// the values /vendor/bx-theme.js accepts: it rewrites this document's metas,
+// so a document that opted in restyles at once and its own <bx-frame>s pass
+// the change on; one that didn't opt in only hears it (onAppearance). The
+// module loads beside this one: the listener is here from the start, so a
+// message that arrives first is applied, in order, once it has — and a page
+// that couldn't load it keeps everything else.
+const theme = import('/vendor/bx-theme.js').catch(() => null);
 if (framed) {
   addEventListener('message', (e) => {
-    if (e.source !== window.parent || e.data?.type !== APPEARANCE) return;
+    if (e.source !== window.parent || e.data?.type !== 'xbin:appearance') return;
     if (WORKSPACE && e.origin !== WORKSPACE) return;
-    applyAppearanceMessage(e.data);
+    const data = e.data;
+    theme.then((t) => t?.applyAppearanceMessage(data));
   });
 }
 // The shell — a top-level, unsandboxed document — keeps the xbin_theme hint
 // cookie equal to the choice xbind injected, whatever the shell's age:
 // xbind's sign-in pages and the partitions page read it. (A sandboxed
 // document has no cookies.)
-if (!framed && !sandboxTokens) rememberTheme(appearance().theme);
+if (!framed && !sandboxTokens) theme.then((t) => t?.rememberTheme(t.appearance().theme));
 
 // --- dialogs & pop-out windows (docs/elements.md §Dialogs & windows) ---
 // A tile is an iframe, so anything that must float over the workspace is
