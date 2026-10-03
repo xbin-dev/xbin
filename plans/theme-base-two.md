@@ -15,7 +15,10 @@ its §5 "Product UI theme preview" and Q1–Q13), and the light-theme audit
 (`/home/magik6k/buxon/.film-media/theme-preview/`: `_tools/audit-summary.txt`,
 `_tools/audit/*.json`, `_tools/static.json`, and the `current`, `v2-light`,
 `v2-dark` and `canary` screenshots). File and line references to the audit
-are against `promo/film-set`, which is where this branch starts.
+are against `promo/film-set`, which is where this branch starts. The brand
+system is in the repo now, merged with the site: `plans/brand.md` (D183),
+whose §15 is `tokens.json`'s product blocks as a table (§1.3 says where the
+theme differs), and the mark's masters in `plans/brand/marks/`.
 
 What is already on the branch (the contract commit):
 
@@ -698,7 +701,7 @@ person picks Dark in the shell's settings
   person's prefs, like the injection.
 - Pre-sign-in pages are Work volume (Q11): the workspace's branding (D76)
   or the one-colour wordmark "xbin" in Bricolage Grotesque 800; no fields;
-  the mark itself lands when Q1's mark is drawn (§6).
+  the mark itself (M3, D183) lands with the product's other marks (§6).
 
 ### 2.8 Fonts
 
@@ -1168,8 +1171,8 @@ setting with it open; the code-diff screen in both themes against
    word (the `error`/`warning` path strings from `bx-icons.js` inline as
    `currentColor` SVG).
 3. **The default mark** (`branding.go` `defaultMarkSVG`, amber `#f5a623` and
-   `#23272e`): replaced by the wordmark until the chosen mark is drawn
-   (Q1, §6). The favicon data URI stays until then.
+   `#23272e`): replaced by the wordmark until the chosen mark, M3 (D183),
+   lands in the product (§6). The favicon data URI stays until then.
 4. **CSP**: pages that now link `/vendor/theme.css` allow `style-src 'self'`
    (plus `'unsafe-inline'` where it was) and `font-src 'self'`
    (`webConfirmCSP`, the two `default-src 'none'` navigation pages); script
@@ -1424,9 +1427,12 @@ static scan. Line references are `promo/film-set`'s.
 
 ## 6. Open items (not in W9)
 
-- **The mark** (Q1: M4 by default) and the wordmark asset: favicons,
-  `logo.*`, `apple-touch-icon.png`, the sign-in mark and the shell's default
-  mark change when it is drawn. Until then the wordmark is text.
+- **The mark** is drawn: the owner picked M3, the bˣ tile, over Q1's M4
+  default (D183; the masters and their rules are `plans/brand/marks/`,
+  wordmark A until the owner signs off A or B). The product still carries
+  the old X/BIN mark, so the favicons, `logo.*`, `apple-touch-icon.png`, the
+  sign-in mark and the shell's default mark change to it next. Until then
+  the wordmark is text.
 - **The iOS app**: its colours and type (`XbinPalette` in Tokens.swift:
   amber) stay as they are, and so does the native reference renderer
   (`web/xb/render-theme.js`), which previews the app and moves with it

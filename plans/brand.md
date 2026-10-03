@@ -2,9 +2,10 @@
 
 > Status: **live**: the brand's source of truth (D183, 3 October 2026). The site's
 > tokens are `website/css/tokens.css`; the mark's master files and their rules are in
-> `plans/brand/marks/`. The product's theme, Concrete Day and Concrete Night (§14,
-> values in §15), lands separately as **D184**. Measured figures come only from the
-> claims register, `hack/demo/measurements.md`.
+> `plans/brand/marks/`. The product's theme, Concrete Day and Concrete Night (§14), is
+> **D184**: `web/theme.css` holds its values, which amend §15's where the owner's gate
+> did (§15 says where). Measured figures come only from the claims register,
+> `hack/demo/measurements.md`.
 
 ---
 
@@ -585,6 +586,14 @@ thing: paths, commands, measured times, grants as text).
 
 ## 15. Product tokens (Concrete Day, Concrete Night)
 
+The values the product theme started from (`tokens.json`'s product blocks). What ships
+is `web/theme.css` (D184; `plans/theme-base-two.md` §1.1 lists every token, §1.3 says
+why one differs): Day is this table, and Night differs where the owner's gate lifted it
+(Q4). Panel `#1F2028` and panel 2 `#262730`, with what sat a step above them following:
+hover `#2A2B34`, border `#33353F`, title bars `#1F2028` / `#262730`, control hover
+`#33353F`. Windows are edged in border strong, `#666A7E`, active `#9396A4`. Subtle and
+the inactive title text are `#8E91A2`, which holds 4.5:1 on the lifted hover.
+
 | Token | Concrete Day | Concrete Night |
 |---|---|---|
 | shell background / canvas dot | `#E8E9EE` / `#CDD0D8` | `#0B0C12` / `#1F2028` |
@@ -635,7 +644,7 @@ everywhere a corner shows. Motion: ease out `cubic-bezier(.16,1,.3,1)`, in-out
 | The share card | `website/og.html` → `website/og.png` |
 | The site's structure, copy rules, build and checks | `website/README.md` |
 | Measured figures | `hack/demo/measurements.md` |
-| The product theme | D184 (`plans/DECISIONS.md`) |
+| The product theme | `web/theme.css` and its plan, `plans/theme-base-two.md` (D184 in `plans/DECISIONS.md`) |
 
 ---
 
