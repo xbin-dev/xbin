@@ -31,9 +31,11 @@
  * scopes, label, gpu, api}) when it creates the
  * session, so the frame records the id; 'bx-exit' when the session ends.
  */
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, css, nothing, unsafeCSS } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { repeat, guard } from 'lit';
+import { mdCssText } from '/vendor/bx-md.js';
+import '/vendor/bx-icons.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { headline, missingRequired } from '/vendor/agent-tools.js';
 import { Transcript, PAGE_LIMIT } from '/vendor/agent-pages.js';
@@ -68,92 +70,113 @@ export class BxAgent extends LitElement {
     _slashOff: { state: true }, // Escape closed the menu (until the draft changes)
   };
 
+  // product-ui §8 (D184): the agent's output on the panel, a person's turns
+  // on panel-2 with their name; tool calls as code-face blocks with their
+  // exit status (agent-cards.js); no shimmer — a static "Working…" label;
+  // status as a square with its word; the composer's controls 28px with
+  // the focus ring; Send the primary action.
   static styles = [scrollCss, cardsCss, css`
-    /* the terminal pane's surface, not a tile's: a floating agent window
-       must stand apart from the tiles under it, as a shell's does */
     :host { display: flex; flex-direction: column; height: 100%; min-height: 0;
-      background: var(--bx-term-bg, #262c36); color: var(--bx-text, #d4d9e0);
-      font: 13px/1.5 var(--bx-sans, system-ui, sans-serif); }
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+      font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); }
+    button, select, textarea { font: inherit; }
+    :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px);
+      box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
     /* overflow-anchor: none — the element anchors itself, the same on every
        engine (Safari has no native scroll anchoring) */
-    .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; overflow-anchor: none; }
+    .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; overflow-anchor: none; }
     .earlier { display: flex; gap: 8px; justify-content: center; align-items: baseline; }
-    .earlier button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--bx-accent, #f5a623); font: inherit; }
-    .row { margin: 0 0 10px; }
-    .who { font: 10px var(--bx-mono, ui-monospace, monospace); text-transform: uppercase;
-      letter-spacing: .04em; color: var(--bx-muted, #868f9a); margin-bottom: 2px; }
-    .user .bubble { background: var(--bx-panel-2, #2b3038); border-radius: 8px; padding: 6px 10px; white-space: pre-wrap; }
+    .earlier button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--bx-link, #8C9BFF); }
+    .row { margin: 0 0 12px; }
+    .who { font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); text-transform: uppercase;
+      letter-spacing: var(--bx-tracking-micro, 0.06em); color: var(--bx-muted, #A3A6B6); margin-bottom: 4px; }
+    .bubble { font: var(--bx-font-body, 400 14px/20px "Instrument Sans", system-ui, sans-serif); }
+    .user .bubble { background: var(--bx-panel-2, #262730); border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px);
+      padding: 8px 12px; white-space: pre-wrap; }
     .user .files { display: flex; flex-wrap: wrap; gap: 4px; white-space: normal; }
     .user .files.below { margin-top: 4px; }
-    .user .file { border: 1px solid var(--bx-border, #363c45); border-radius: 4px; padding: 0 6px; font-size: 12px; opacity: .85; }
+    .user .file { border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); padding: 0 6px;
+      font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
     .md-b { display: contents; }
     .agent .bubble > :first-child, .agent .bubble > .md-b:first-child > :first-child { margin-top: 0; }
     .agent .bubble > :last-child, .agent .bubble > .md-b:last-child > :last-child { margin-bottom: 0; }
-    .bubble :is(pre, code) { font-family: var(--bx-mono, ui-monospace, monospace); }
-    .bubble pre { background: var(--bx-bg, #1b1e24); padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
-    .bubble :not(pre) > code { background: var(--bx-bg, #1b1e24); padding: .1em .3em; border-radius: 3px; }
-    .bubble a { color: var(--bx-accent, #f5a623); }
-    .md-img { color: var(--bx-muted, #868f9a); font-style: italic; }
-    .thought { color: var(--bx-muted, #868f9a); border-left: 2px solid var(--bx-border, #363c45); padding-left: 8px; }
-    .thought > summary { list-style: none; cursor: pointer; font: 11px var(--bx-mono, ui-monospace, monospace); }
+    ${unsafeCSS(mdCssText('.bubble'))}
+    .thought { color: var(--bx-muted, #A3A6B6); border-left: 2px solid var(--bx-border, #33353F); padding-left: 8px; }
+    .thought > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+      font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
     .thought > summary::-webkit-details-marker { display: none; }
-    .thought > summary::before { content: '▸ '; } .thought[open] > summary::before { content: '▾ '; }
-    .activity { font: 11px var(--bx-mono, ui-monospace, monospace); margin: 2px 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .shimmer { color: var(--bx-muted, #868f9a); background: linear-gradient(90deg, var(--bx-muted, #868f9a) 30%, var(--bx-text, #d4d9e0) 50%, var(--bx-muted, #868f9a) 70%);
-      background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 1.8s linear infinite; }
-    @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
-    @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; -webkit-text-fill-color: currentColor; background: none; } }
-    .thought .md { font-style: italic; font-size: 12px; }
+    .thought:not([open]) > summary .cd, .thought[open] > summary .cr { display: none; }
+    .activity { font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); margin: 2px 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* progress is a static label (product-ui §8: no shimmer; R14: nothing loops) */
+    .shimmer { color: var(--bx-muted, #A3A6B6); }
+    .thought .md { font-style: italic; }
     .thought .md > .md-b:first-child > :first-child { margin-top: 4px; } .thought .md > .md-b:last-child > :last-child { margin-bottom: 0; }
-    .plan { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 6px 10px; margin: 0 0 8px; }
-    .plan .h { font: 10px var(--bx-mono, ui-monospace, monospace); text-transform: uppercase; color: var(--bx-muted, #868f9a); margin-bottom: 4px; }
-    .plan li { list-style: none; margin: 1px 0; }
-    .plan .done { color: var(--bx-green, #4caf50); text-decoration: line-through; opacity: .7; }
-    .gap { color: var(--bx-muted, #868f9a); font: 11px var(--bx-mono, ui-monospace, monospace); text-align: center; margin: 4px 0; }
-    .notice { color: var(--bx-muted, #868f9a); font: 11px var(--bx-mono, ui-monospace, monospace); margin: 4px 0; white-space: pre-wrap; }
-    .turn { border-top: 1px dashed var(--bx-border, #363c45); margin: 10px 0; padding-top: 4px;
-      font: 10px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); text-align: center; }
-    .foot { flex: none; border-top: 1px solid var(--bx-border, #363c45); padding: 6px 8px; position: relative; }
+    .plan { border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); padding: 8px 12px; margin: 0 0 8px; }
+    .plan .h { font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em);
+      text-transform: uppercase; color: var(--bx-muted, #A3A6B6); margin-bottom: 4px; }
+    .plan ul { margin: 0; padding: 0; }
+    .plan li { list-style: none; margin: 2px 0; display: flex; gap: 6px; align-items: baseline; }
+    .plan li bx-icon, .plan li .todo { flex: none; align-self: center; }
+    .plan li .todo { width: 8px; height: 8px; margin: 0 4px; box-sizing: border-box; border: 1px solid var(--bx-border-strong, #666A7E); }
+    .plan .done { color: var(--bx-ok, #A3CF5E); text-decoration: line-through; }
+    .gap { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); text-align: center; margin: 4px 0; }
+    .notice { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); margin: 4px 0; white-space: pre-wrap; }
+    .turn { border-top: 1px solid var(--bx-border, #33353F); margin: 12px 0; padding-top: 4px; text-align: center;
+      font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); font-variant-numeric: tabular-nums; color: var(--bx-muted, #A3A6B6); }
+    .foot { flex: none; border-top: 1px solid var(--bx-border, #33353F); padding: 8px 12px; position: relative; }
     .pill { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 1; white-space: nowrap;
-      border: 1px solid var(--bx-accent, #f5a623); border-radius: 12px; padding: 3px 12px; cursor: pointer;
-      background: var(--bx-panel-2, #2b3038); color: var(--bx-accent, #f5a623); font: 11px var(--bx-mono, ui-monospace, monospace); }
-    .status { font: 10.5px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a);
-      display: flex; align-items: center; gap: 8px; margin-bottom: 5px; min-height: 14px; }
-    .status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bx-muted, #868f9a); flex: none; }
-    .status .dot.running, .status .dot.waiting_permission { background: var(--bx-amber, #f2a71b); }
-    .status .dot.idle { background: var(--bx-green, #4caf50); }
-    .status .dot.error, .status .dot.exited { background: var(--bx-red, #ef5350); }
-    .status .err { color: var(--bx-red, #ef5350); }
-    .compose { display: flex; gap: 6px; align-items: flex-end; }
-    .slash { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; background: var(--bx-panel-2, #2b3038);
-      margin-bottom: 5px; max-height: 220px; overflow-y: auto; font-size: 12px; }
-    .slash .sc { display: flex; gap: 8px; align-items: baseline; padding: 3px 8px; cursor: pointer; }
-    .slash .sc.on { background: color-mix(in srgb, var(--bx-accent, #f5a623) 18%, transparent); }
-    .slash .sc b { font: 600 12px var(--bx-mono, ui-monospace, monospace); color: var(--bx-text, #d4d9e0); white-space: nowrap; }
-    .slash .sc .d { color: var(--bx-muted, #868f9a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-    .slash .sc .h { color: var(--bx-muted, #868f9a); font: 10.5px var(--bx-mono, ui-monospace, monospace); white-space: nowrap; }
-    .slash-hint { font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); margin-bottom: 4px; }
-    .compose textarea { flex: 1; resize: none; background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0);
-      border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 6px 8px;
-      font: 13px var(--bx-sans, system-ui); max-height: 40vh; }
-    .compose button { border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel-2, #2b3038); color: var(--bx-text, #d4d9e0);
-      border-radius: 6px; padding: 6px 12px; cursor: pointer; font: 12px var(--bx-sans, system-ui); }
-    .compose button.cancel { border-color: var(--bx-red, #ef5350); }
-    .chooser { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
-    .chooser label { display: inline-flex; align-items: center; gap: 4px; font: 10.5px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); }
-    .chooser select { background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0);
-      border: 1px solid var(--bx-border, #363c45); border-radius: 5px; padding: 3px 6px; font: 12px var(--bx-mono, ui-monospace, monospace); }
-    .hint { color: var(--bx-muted, #868f9a); font-size: 12px; }
-    .signin { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 8px;
-      border: 1px solid var(--bx-amber, #f2a71b); border-radius: 5px; background: var(--bx-panel-2, #2b3038);
-      font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-text, #d4d9e0); }
+      display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px; cursor: pointer;
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); font-weight: 600; box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); }
+    .pill:hover { background: var(--bx-hover, #2A2B34); }
+    .status { font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); font-variant-numeric: tabular-nums; color: var(--bx-muted, #A3A6B6);
+      display: flex; align-items: center; gap: 8px; margin-bottom: 6px; min-height: 16px; }
+    /* the session's state: an 8px square beside its word (R2, R6) */
+    .status .dot { width: 8px; height: 8px; background: var(--bx-muted, #A3A6B6); flex: none; }
+    .status .dot.running, .status .dot.waiting_permission { background: var(--bx-warn, #F2994A); }
+    .status .dot.idle { background: var(--bx-ok, #A3CF5E); }
+    .status .dot.error, .status .dot.exited { background: var(--bx-danger, #FF7A7A); }
+    .status .err { color: var(--bx-danger, #FF7A7A); }
+    .compose { display: flex; gap: 8px; align-items: flex-end; }
+    .slash { border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); background: var(--bx-panel-2, #262730);
+      margin-bottom: 6px; max-height: 220px; overflow-y: auto; }
+    .slash .sc { display: flex; gap: 8px; align-items: center; min-height: var(--bx-row, 28px); padding: 0 8px; cursor: pointer; }
+    .slash .sc.on { background: var(--bx-selection, #262C5C); color: var(--bx-selection-text, #E9EAF0); box-shadow: inset 2px 0 0 var(--bx-accent, #8C9BFF); }
+    .slash .sc b { font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); font-weight: 600; white-space: nowrap; }
+    .slash .sc .d { color: var(--bx-muted, #A3A6B6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .slash .sc .h { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); white-space: nowrap; }
+    .slash-hint { font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); color: var(--bx-muted, #A3A6B6); margin-bottom: 4px; }
+    .compose textarea { flex: 1; resize: none; box-sizing: border-box; min-height: var(--bx-control-h, 28px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); padding: 4px 8px; max-height: 40vh; }
+    .compose textarea::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
+    /* Send (and Start) is the primary action; Stop the destructive outline */
+    .compose button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px; cursor: pointer; font-weight: 600;
+      border: 1px solid var(--bx-accent, #8C9BFF); background: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); border-radius: var(--bx-radius, 2px); }
+    .compose button:hover:not(:disabled) { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
+    .compose button:disabled { opacity: .5; cursor: default; }
+    .compose button.cancel { background: var(--bx-panel, #1F2028); color: var(--bx-danger, #FF7A7A); border-color: var(--bx-danger, #FF7A7A); }
+    .compose button.cancel:hover { background: var(--bx-hover, #2A2B34); border-color: var(--bx-danger, #FF7A7A); }
+    .chooser { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .chooser label { display: inline-flex; align-items: center; gap: 6px; color: var(--bx-muted, #A3A6B6);
+      font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase; }
+    .chooser select { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 6px;
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); letter-spacing: 0; text-transform: none; }
+    .hint { color: var(--bx-muted, #A3A6B6); }
+    /* signed out: a warning (its glyph, its words, its tint), Sign in the primary action */
+    .signin { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; padding: 8px 12px;
+      border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px); background: var(--bx-warn-bg, #382F2C); color: var(--bx-text, #E9EAF0); }
     .signin .msg { flex: 1; }
-    .signin button { border: 1px solid var(--bx-amber, #f2a71b); background: var(--bx-amber, #f2a71b); color: #1b1e24;
-      border-radius: 5px; padding: 3px 10px; font-weight: 700; cursor: pointer; font: inherit; white-space: nowrap; }
-    .status.signed { color: var(--bx-green, #4caf50); }
-    .status.ended button { margin-left: auto; border: 1px solid var(--bx-accent, #f5a623); background: transparent; color: var(--bx-accent, #f5a623);
-      border-radius: 5px; padding: 2px 8px; cursor: pointer; font: 11px var(--bx-mono, ui-monospace, monospace); font-weight: 600; white-space: nowrap; }
-    .status.ended button:hover { background: var(--bx-accent, #f5a623); color: #1b1e24; }
+    .signin .msg bx-icon { color: var(--bx-warn, #F2994A); margin-right: 6px; }
+    .signin button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+      border: 1px solid var(--bx-border-strong, #666A7E); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); border-radius: var(--bx-radius, 2px); }
+    .signin button.go { border-color: var(--bx-accent, #8C9BFF); background: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); }
+    .status.signed { color: var(--bx-ok, #A3CF5E); }
+    .status.ended button { margin-left: auto; box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px; cursor: pointer; font-weight: 600; white-space: nowrap;
+      border: 1px solid var(--bx-accent, #8C9BFF); background: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); border-radius: var(--bx-radius, 2px); }
+    .status.ended button:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
   `];
 
   constructor() {
@@ -656,8 +679,8 @@ export class BxAgent extends LitElement {
         @bx-signin-done=${() => this._signedIn(lg)} @bx-signin-terminal=${(ev) => this._signinTerminal(lg, ev)}></bx-agent-signin>`;
     }
     return html`<div class="signin">
-      <span class="msg">Not signed in to ${lg.provider}.</span>
-      <button @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
+      <span class="msg"><bx-icon name="warning"></bx-icon>Not signed in to ${lg.provider}.</span>
+      <button class="go" @click=${() => this._doSignIn(lg)} title="open a terminal that runs the sign-in command in this agent's home">Sign in to ${lg.provider}</button>
       ${spec ? html`<button @click=${() => { this._signinTerm = false; }} title="sign in here: a link to open and a code to paste">Guided sign-in</button>` : nothing}
     </div>`;
   }
@@ -718,7 +741,7 @@ export class BxAgent extends LitElement {
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
         </div>
-        ${lg ? this._signin(lg) : this._signedNote ? html`<div class="status signed">${this._signedNote}</div>` : nothing}
+        ${lg ? this._signin(lg) : this._signedNote ? html`<div class="status signed"><bx-icon name="ok"></bx-icon>${this._signedNote}</div>` : nothing}
         ${!this.session ? (this.provider || this.restarting ? nothing : this._chooser()) : this._settings()}
         ${this._slashMenu()}
         <div class="compose">
@@ -737,7 +760,7 @@ export class BxAgent extends LitElement {
   _pill(blocks) {
     const tx = this._tx;
     if (this._sw.atBottom || this._all || !(tx.fresh || tx.hasNewer || this._end < blocks.length)) return nothing;
-    return html`<button class="pill" @click=${() => this._jumpLatest()}>↓ ${tx.fresh ? `${tx.fresh} new — ` : ''}jump to latest</button>`;
+    return html`<button class="pill" @click=${() => this._jumpLatest()}><bx-icon name="chevron-down"></bx-icon>${tx.fresh ? `${tx.fresh} new — ` : ''}jump to latest</button>`;
   }
 
   // what the running turn is doing right now, under the transcript: the
@@ -773,7 +796,7 @@ export class BxAgent extends LitElement {
           : html`<option>loading…</option>`}
       </select>
       ${prov?.modes?.length ? html`<select title="mode" @change=${(e) => { this._mode = e.target.value; }}>
-        ${prov.modes.map((m) => html`<option value=${m.id} ?selected=${m.id === this._curMode()}>${m.name}${m.explicit ? ' ⚠' : ''}</option>`)}
+        ${prov.modes.map((m) => html`<option value=${m.id} ?selected=${m.id === this._curMode()}>${m.name}${m.explicit ? ' (caution)' : ''}</option>`)}
       </select>` : nothing}
     </div>`;
   }
@@ -798,7 +821,7 @@ export class BxAgent extends LitElement {
     return html`<div class="chooser settings">
       ${modes.length ? html`<label title="permission mode"><span class="lbl">mode</span>
         <select @change=${(e) => this._setOption('mode', e.target.value)}>
-          ${modes.map((m) => html`<option value=${m.id} ?selected=${m.id === cur} title=${m.description || ''}>${m.name || m.id}${m.explicit ? ' ⚠' : ''}</option>`)}
+          ${modes.map((m) => html`<option value=${m.id} ?selected=${m.id === cur} title=${m.description || ''}>${m.name || m.id}${m.explicit ? ' (caution)' : ''}</option>`)}
         </select></label>` : nothing}
       ${opts.map((o) => html`<label title=${o.description || o.name}><span class="lbl">${o.name}</span>
         <select @change=${(e) => this._setOption(o.id, e.target.value)}>
@@ -845,14 +868,15 @@ export class BxAgent extends LitElement {
         const live = !b.done && !this.ended && this._status() === 'running';
         const secs = Math.max(1, Math.round(((b.t1 || 0) - (b.t0 || 0)) / 1000));
         return html`<div class="row"><details class="thought" ?open=${live} @toggle=${(e) => this._toggled(e, b, 'body', live)}>
-          <summary>${live ? html`<span class="shimmer">Thinking…</span>` : `Thought for ${secs}s`}</summary>
+          <summary><bx-icon class="cr" name="caret-right"></bx-icon><bx-icon class="cd" name="caret-down"></bx-icon>${live ? html`<span class="shimmer">Thinking…</span>` : `Thought for ${secs}s`}</summary>
           ${live || this._isOpen(b, 'body') ? html`<div class="md" ${mdLive(b.text, b)}></div>` : nothing}</details></div>`;
       }
       case 'tool':
         return toolCard(this, b);
       case 'plan':
         return html`<div class="plan"><div class="h">plan</div><ul>
-          ${(b.entries || []).map((en) => html`<li class="${en.status === 'completed' ? 'done' : ''}">${en.status === 'completed' ? '✓' : en.status === 'in_progress' ? '▸' : '○'} ${en.content}</li>`)}
+          ${(b.entries || []).map((en) => html`<li class="${en.status === 'completed' ? 'done' : ''}">${en.status === 'completed' ? html`<bx-icon name="check" label="done"></bx-icon>`
+            : en.status === 'in_progress' ? html`<bx-icon name="caret-right" label="in progress"></bx-icon>` : html`<span class="todo" role="img" aria-label="to do"></span>`}<span>${en.content}</span></li>`)}
         </ul></div>`;
       case 'perm':
         return permCard(this, b);
