@@ -1,0 +1,62 @@
+{
+ "shot": "S-11, the installer's plan (site/visuals.md 7)",
+ "machine": "a fresh Ubuntu 24.04.5 LTS cloud image (noble-server-cloudimg-amd64, 2026-09-26) booted under KVM, 4 vCPUs and 4 GiB, its one user mira (passwordless sudo, as on any cloud image); nothing installed before the capture",
+ "shell": "ssh -tt into it: env PS1='$ ' bash --norc --noprofile -i, TERM=xterm-256color",
+ "captured": "2026-10-03, xbin v0.3.67",
+ "view": "bottom",
+ "steps": [
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "send": "clear\r"
+  },
+  {
+   "wait": "\\x1b\\[(3|2)J.*\\$ $",
+   "timeout": 10
+  },
+  {
+   "mark": "cmd"
+  },
+  {
+   "type": "curl -fsSL https://xbin.dev/install.sh | sh",
+   "delay": 0.035
+  },
+  {
+   "sleep": 0.4
+  },
+  {
+   "send": "\r"
+  },
+  {
+   "wait": "\\[q\\]uit\\? $",
+   "timeout": 240
+  },
+  {
+   "sleep": 0.8
+  },
+  {
+   "mark": "end"
+  },
+  {
+   "send": "q\r"
+  },
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "send": "exit\r"
+  },
+  {
+   "sleep": 0.5
+  }
+ ],
+ "cols": 97,
+ "rows": 24,
+ "marks": {
+  "cmd": 47,
+  "end": 5452
+ }
+}

@@ -1,0 +1,89 @@
+{
+ "shot": "S-12, apps as folders (site/visuals.md 7). The spec's one tree -L 2 -I .git assumed the apps, the shell, the admin console and the app manager share a folder; in a workspace they are apps/, shell/ and tiles/admin and tiles/manager, and tree -L 2 at the root lists the shell's 18 files, so the shot is ls, ls apps tiles and tree apps/orders",
+ "machine": "the measured workstation, in harbor: xbind init harbor, then bx new apps/handbook, bx new apps/orders --runtime go and bx new apps/notes, with xbind v0.3.67 (this tree) serving it",
+ "shell": "bash --rcfile with PS1='$ ', the system bashrc's window-title hook unset, an Ubuntu shell's ls and tree colours (dircolors -b); TERM=xterm-256color, LANG=C.UTF-8",
+ "captured": "2026-10-03",
+ "view": "bottom",
+ "steps": [
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "send": "clear\r"
+  },
+  {
+   "wait": "\\x1b\\[(3|2)J.*\\$ $",
+   "timeout": 10
+  },
+  {
+   "mark": "cmd"
+  },
+  {
+   "type": "ls",
+   "delay": 0.05
+  },
+  {
+   "sleep": 0.3
+  },
+  {
+   "send": "\r"
+  },
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "sleep": 0.5
+  },
+  {
+   "type": "ls apps tiles",
+   "delay": 0.05
+  },
+  {
+   "sleep": 0.3
+  },
+  {
+   "send": "\r"
+  },
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "sleep": 0.5
+  },
+  {
+   "type": "tree apps/orders",
+   "delay": 0.05
+  },
+  {
+   "sleep": 0.3
+  },
+  {
+   "send": "\r"
+  },
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "sleep": 0.3
+  },
+  {
+   "mark": "end"
+  },
+  {
+   "send": "exit\r"
+  },
+  {
+   "sleep": 0.3
+  }
+ ],
+ "cols": 97,
+ "rows": 24,
+ "marks": {
+  "cmd": 22,
+  "end": 612
+ }
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
+  <title>xbin</title>
+  <!-- Favicon. Both hinted drawings in one file, on a 32-unit grid:
+       .l is the 32 px drawing; .s is the 16 px drawing at 2x.
+       At 20 px and below the 16 px drawing shows. Where size media queries are ignored,
+       the 32 px drawing shows at every size. -->
+  <style>.s{display:none}@media (max-width:20px){.l{display:none}.s{display:inline}}</style>
+  <rect width="32" height="32" fill="#1F3DFF"/>
+  <g class="l">
+    <path fill="#FFFFFF" fill-rule="evenodd" d="M4 4H9V12H17V13H18V14H19V15H20V17H21V23H20V25H19V26H18V27H17V28H4ZM10 16H15V17H16V18H17V22H16V23H15V24H10V23H9V17H10Z"/>
+    <path fill="#FFD000" d="M20 4H22V5H23V6H25V5H26V4H28V5H27V6H26V7H25V9H26V10H27V11H28V12H26V11H25V10H23V11H22V12H20V11H21V10H22V9H23V7H22V6H21V5H20Z"/>
+  </g>
+  <g class="s">
+    <path fill="#FFFFFF" fill-rule="evenodd" d="M4 4H10V12H18V14H20V16H22V24H20V26H18V28H4ZM10 16H18V24H10Z"/>
+    <path fill="#FFD000" d="M20 2H22V4H20ZM28 2H30V4H28ZM22 4H24V6H22ZM26 4H28V6H26ZM24 6H26V8H24ZM22 8H24V10H22ZM26 8H28V10H26ZM20 10H22V12H20ZM28 10H30V12H28Z"/>
+  </g>
+</svg>

@@ -1,0 +1,124 @@
+$ clear
+[H[2J[3J$ bx --help
+bx — xbin workspace CLI (docs: /docs/bx.md)
+
+  bx ls                                 list components
+  bx status [<component>] [--all]        one tile's runtime metrics (defaults
+                                        to this terminal's tile); --all = global
+  bx new <path> [--runtime go|node|python] [--expose]
+                                        scaffold a component
+  bx tile ls | import <name> [as <path>]
+                                        list/install builtin tiles
+  bx template ls | new <source> [as <path>] [--no-partition]
+                                        list/instantiate template components
+  bx builtin updates | update <id> [--replace|--merge]
+                                        update copied builtins (scaffold, tiles)
+  bx logs [-f] <component>              show backend logs
+  bx code prs [<component>|--from] [--all|--state=S]
+                                        change proposals: a tile's inbox
+                                        (default: this terminal's), or yours
+  bx code pr <target> --title <t> [-m <msg>] <patch.mbox>…
+                                        propose changes to a tile you can read
+  bx code pr show|fetch|comment|close <n> [<component>] [flags]
+                                        review · apply (fetch | git am) · decide
+  bx api <component>                    roles + API.md of a component
+  bx grants                             grant table + pending requests
+  bx grant <caller> <target>:<role>     approve/add a grant
+  bx grant --revoke <caller> <target>:<role>
+  bx org ls|add|set|rm <id> [flags]     organizations (docs/auth.md, D24-D28)
+  bx org member <org> [<user> --level L [--create] [--admin] [--detach] | rm <user>]
+  bx org sso-groups <org> [--add g[:level[:create]] | --rm g]   IdP-group rules (D53)
+  bx user signout <id> [--devices]      end every session + token (--devices: app devices too)
+  bx org set <id> [--sets +s|-s] [--net +n|-n] [--allow +t|-t]   delegation + network (ws-admin)
+  bx netset ls|set <name> [--rules a,b|--add r|--rm r]|rm <name>   org network sets (D54)
+  bx org policy [<org>] [--set '<json>'] policy-ceiling rows (workspace/org)
+  bx owner <tile> [--transfer user:U|org:O|workspace]  tile ownership
+  bx permset ls|set|rm <name> [--allow a,b] [--term-net]  permission sets
+  bx defaults [set --tile-creation any|org-only --org o[:level[:create]] …]
+                                        new-account defaults + creation policy
+  bx access <tile> [set|rm user:…|org:…] per-tile access entries (owner/admin)
+  bx iface                              interface requests, providers, bindings
+  bx bind <component> <slot>=<provider> wire an interface to a provider (net:
+                                        internet|host|org|none|lan:<cidr>|
+                                        internet:<spec>|<provider tile>)
+  bx bind <component> <slot>+=<p[#i]> | <slot>-=<p[#i]>
+                                        add/remove on a multi slot (# = instance)
+  bx bind --unset <component> <slot>   (--personal [--unset] <tile> <slot>=<your tile>: your partition only)
+  bx expose <tile> <slot>=<source> [--host H|--zone '*.Z'|--listen :P] [--add]
+                                        publish an exposed endpoint (--add: one more route)
+  bx unexpose <tile> <slot> [--host H|--zone '*.Z'|--listen :P]  a route, or all
+  bx ingress [routes]                   published endpoints + live routing
+  bx enable|disable <component>         component lifecycle (plans/lifecycle.md)
+  bx hide|unhide <component>            hidden = disabled + out of sidebars (D42)
+  bx offload <component> [--full]       archive + free local bytes
+  bx backup <component>                 back up now to the bound archiver
+  bx backup keys status|export|import <file>
+                                        sealed backups' keys: export for disaster recovery
+  bx backup erase <tile> --data|--all   crypto-erase a tile's backups (every archive)
+  bx backups <component>                list archived versions
+  bx restore <component> [--version v] [--file path] [--confirm <date>]
+                                        restore a version, or one file to stdout
+  bx backups|restore <tile> --partition [--user <id>] …
+                                        a person's partition's backups (docs/partitions.md)
+  bx backup-schedule [<component> --every 24h|--cron "expr" [--keep N] | --rm]   scheduled backups
+  bx vault status|unseal|seal|rekey     encryption-at-rest barrier
+  bx vault ls|get|set|rm <component> [key] [value]
+  bx agent run|send|permit|attach|ls|stop
+                                        drive a coding agent in a tile's sandbox
+  bx cron ls                            scheduled jobs
+  bx doctor | bx fix assets <tile> [--write]   workspace problems | absolute /c/ URLs → relative
+  bx native tree <tile> [--data d.json] the tile's rendered native tree (JSON)
+             [--widget [--size small|wide]]
+                                        --widget: its widget's tree instead
+  bx lint --native [tile…] [--static] [--json]
+                                        check native UIs (screen and widget, at
+                                        both sizes); no tile = the whole
+                                        workspace, with its native coverage
+  bx preview --native <tile> [--dark] [--size 390x844] [--large-text]
+             [--data d.json] [--full] [--out shot.png]
+             [--widget [--size small|wide]]
+                                        screenshot a native UI (reference renderer);
+                                        --widget: its widget's card
+  bx chrome [ls] | approve <tile> | revoke <tile>
+                                        trusted chrome: requests + admin approvals
+  bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
+                                        alias of bx settings (the partitioned tiles' switches)
+  bx partition switch <tile> [--dry-run] [--confirm <tile>] [--yes] [--json]
+                                        delete all the tile's data and take the
+                                        partition mode its code asks for
+  bx partition keep <tile> [--json]     keep the current partition mode (deletes nothing)
+  bx settings [ls] [--json] | set <name> on|off… | set --<name>[=true|false]…
+                                        workspace settings (set: admin): base-auto-update,
+                                        partition-consent, credential-reset-confirm
+  bx live-reload [<tile>] [--json]      where saves go: live reload's target or paused,
+                                        what each deployment runs
+  bx live-reload pause|now|resume [<tile>] [--to <name>]
+                                        keep the tile on the code it runs while you edit ·
+                                        ship the work tree once · follow every save again
+  bx live-reload attach [<tile>] --to <name>
+                                        resume, attach and now take --other-branch: feed a
+                                        deployment assigned a branch from another one this time
+  bx deploy [<tile>] --to <name> [--checkpoint c:<id>] [--other-branch]
+                                        put a fresh checkpoint of the work tree (or c:<id>) on it
+  bx rollback [<tile>] --to <name> [--checkpoint c:<id>]
+                                        back to the previous checkpoint in its deploy log
+  bx promote [<tile>] <from> <to>       give <to> exactly <from>'s code; its data stays
+  bx deployment ls [<tile>]             a tile's deployments: code, status, data, this terminal's
+  bx deployment add|rm [<tile>] <name>  add: [--from work-tree|primary|c:<id>] [--seed] [--attach]
+                                             [--branch <b>|--new-branch <b>] [--other-branch]
+  bx deployment branch [<tile>] <name> <branch>|--clear
+                                        the work tree's branch <name> requires (or none)
+  bx deployment primary [<tile>] --to <name> | protect [<tile>] on|off
+  bx deployment seed|reset [<tile>] <name> [--stop|--vault]
+  bx deployment vault-copy [<tile>] <name> --keys k1,k2|--all
+  bx deployment set [<tile>] <name> [--deliveries on|off] [--always-on on|off]
+                    [--mem <MiB>|default] [--pids <n>|default] [--disk <GiB>|default]
+  bx deployment edge [<tile>] [<edge> read|block|inherit|default]
+  bx deployment run-now [<tile>] <name> <job>
+  bx deployment log [<tile>] [<name>] [--limit <n>]
+  bx deployment diff [<tile>] [<from> [<to>]] [--stat] [--path <file>]
+                                        changing commands take --dry-run, --yes, --json, --no-wait
+  bx status|logs … --deployment <name>  a deployment's status or log ($XBIN_DEPLOYMENT by default)
+  bx agent run --deployment <name> …    an agent session whose calls reach that deployment
+$ exit
+exit

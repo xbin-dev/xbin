@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
+.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -199,7 +199,7 @@ fmt:
 # tests. CI runs the same split over parallel jobs (`make guards`, `make test
 # SHARD=i/N`), and `make integration`'s shards. Each guard is its own target
 # so a failure names itself.
-GUARDS := fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files
+GUARDS := fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files website-guard
 guards: $(GUARDS)
 check: $(GUARDS) test
 	@echo ">> make check: green"
@@ -240,6 +240,39 @@ swift-stubcheck:
 	rc=0; for c in swiftui-stubcheck term-stubcheck term-stubcheck:--sdk-27-1 app-stubcheck widget-stubcheck; do \
 	  t=$${c%%:*}; a=; case $$c in *:*) a=$${c#*:};; esac; log="$${TMPDIR:-/tmp}/xbin-$$t$$a.log"; echo ">> $$t $$a"; \
 	  native/tools/$$t/run.sh $$a >"$$log" 2>&1 || { tail -40 "$$log"; echo "$$t $$a: FAILED (full log: $$log)"; rc=1; }; done; exit $$rc
+
+# The xbin.dev site's guard (website/README.md → "Checks"), in make guards: the
+# preserved files, no third-party loads, nothing stored, the per-page budgets,
+# one header and footer, every image's alt and size, the media lock.
+website-guard:
+	@./hack/check-website.sh
+
+# The guard, then every page in Chromium (hack/website-check.mjs, Playwright from
+# PLAYWRIGHT_DIR; website/README.md → "Checks"): six widths in light, dark and
+# reduced motion (and 320 px for overflow), served by python3 -m http.server on
+# 127.0.0.1:9424, failing on
+# console errors, requests that leave it, horizontal overflow, layout shift,
+# focus rings that do not show, missing images. Not in make guards (it needs a
+# browser). WEBSITE_CHECK_FLAGS passes --dist, --page NAME or --shots DIR.
+website-check: website-guard
+	@PLAYWRIGHT_DIR="$(PLAYWRIGHT_DIR)" node hack/website-check.mjs $(WEBSITE_CHECK_FLAGS)
+
+# Re-render the share card, website/og.png, from website/og.html (Playwright from
+# PLAYWRIGHT_DIR, over file://; website/README.md → "og.png").
+website-og:
+	@PLAYWRIGHT_DIR="$(PLAYWRIGHT_DIR)" node hack/website-og.mjs
+
+# Re-draw the home page's curve (visual D-1) into website/index.html from
+# website/data/software-per-year.json (hack/website-chart.mjs): edit the data,
+# never the drawn block.
+website-chart:
+	@node hack/website-chart.mjs
+
+# Re-export the site's photographs at web sizes (website/img/: AVIF and JPEG, 1×
+# and 2×) and the film's poster placeholders from the masters in website/art/
+# (hack/website-images.py, Pillow with AVIF; website/README.md → "Assets").
+website-images:
+	@python3 hack/website-images.py
 
 # The theme guard (D184, docs/maintenance.md): every var(--bx-*, <literal>)
 # fallback in shipped frontends equals web/theme.css's Night and its two Day
@@ -309,12 +342,29 @@ release:
 vendor:
 	./hack/vendor.sh
 
-# Assemble the static xbin.dev site into website/dist (no build step, matching
-# the workspace's buildless ethos: the page + the fonts/art it references).
+# Assemble the static xbin.dev site into website/dist (no build step: the
+# files as they are, website/README.md): every page, css/, fonts/, img/ (the
+# marks, the photographs at web sizes and the product shots), js/, data/,
+# app/, install.sh, og.png and the icons, and website/media/ as
+# website/media.lock pins it. The photographs' masters in art/ stay out, and so
+# do the film's placeholder posters in img/film/ until the lock pins the film.
+# The site's guard runs first, with --dist, and refuses a site that is not
+# ready to deploy: a {{DATA}} slot or a shot still waiting on a page, a media
+# file media.lock pins missing, or a prebuilt helper set missing. The site
+# serves every set hack/helpers.sha256 lists at /static/helpers, so each
+# <group>/<key>/<arch>.tar.zst must be in website/static-helpers/ with the
+# manifest's sha256 (stage it with hack/helpers-static.sh; docs/maintenance.md
+# → "Prebuilt helpers").
 website:
+	@./hack/check-website.sh --dist
 	@rm -rf website/dist
 	@mkdir -p website/dist
-	@cp website/index.html website/privacy.html website/install.sh website/og.png website/dist/
-	@cp -r website/fonts website/shots website/js website/vendor website/app website/dist/
+	@cp website/*.html website/install.sh website/og.png website/favicon.svg website/apple-touch-icon.png website/dist/
+	@rm website/dist/og.html
+	@cp -r website/css website/fonts website/img website/data website/app website/dist/
+	@grep -q '^[0-9a-f]\{64\}[[:space:]][[:space:]]*film/' website/media.lock || rm -rf website/dist/img/film
+	@if [ -d website/js ]; then cp -r website/js website/dist/; fi
+	@grep '^[^#[:space:]]' website/media.lock | awk '{print $$2}' | while read -r f; do \
+	  mkdir -p "website/dist/media/$$(dirname "$$f")" && cp "website/media/$$f" "website/dist/media/$$f"; done
 	@if [ -d website/static-helpers ]; then mkdir -p website/dist/static/helpers && cp -r website/static-helpers/. website/dist/static/helpers/ && echo ">> website/dist/static/helpers: the prebuilt helpers (hack/helpers-static.sh)"; fi
 	@echo ">> website/dist ready: $$(ls website/dist | tr '\n' ' ')"

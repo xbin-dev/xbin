@@ -1,0 +1,20 @@
+$ clear
+[H[2J[3J$ git diff xbin.json
+[1mdiff --git a/xbin.json b/xbin.json[m
+[1mindex 5f7ef6e..375530f 100644[m
+[1m--- a/xbin.json[m
+[1m+++ b/xbin.json[m
+[36m@@ -36,5 +36,10 @@[m
+       "approvedBy": "owner",[m
+       "approvedAt": 1791041708[m
+     }[m
+[31m-  ][m
+[32m+[m[32m  ],[m
+[32m+[m[32m  "bindings": {[m
+[32m+[m[32m    "apps/orders": {[m
+[32m+[m[32m      "net": "internet:api.example.com:443"[m
+[32m+[m[32m    }[m
+[32m+[m[32m  }[m
+ }[m
+$ exit
+exit

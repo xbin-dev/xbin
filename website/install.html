@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Install · xbin</title>
+<meta name="description" content="Install xbin with one command. The installer prints its plan and asks before it changes anything. Or try it free for an hour with one ssh command.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0C12" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://xbin.dev/install.html">
+<meta property="og:site_name" content="xbin">
+<meta property="og:title" content="Install xbin: one command, and it asks first">
+<meta property="og:description" content="Install xbin with one command. The installer prints its plan and asks before it changes anything. Or try it free for an hour with one ssh command.">
+<meta property="og:image" content="https://xbin.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The headline “Software has entered its exponential era.” set on yellow, green, magenta and cobalt bands beside a gallery of coloured glass, with the command to try xbin.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/bricolage-grotesque-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/instrument-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/site.css">
+<noscript><style>.copy{display:none}</style></noscript>
+</head>
+<body class="page-install">
+<!-- shared header: the same on every page but for aria-current and the Try link's target (hack/check-website.sh) -->
+<a class="skip" href="#content">Skip to content</a>
+<div class="era" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<header class="site-head">
+  <div class="wrap head-row">
+    <a class="lockup" href="/" aria-label="xbin home"><img src="/img/mark.svg" alt="" width="28" height="28"><img src="/img/wordmark.svg" alt="xbin" width="51" height="20"></a>
+    <nav class="nav" aria-label="Primary">
+      <ul class="nav-links">
+        <li><a href="/product.html">Product</a></li>
+        <li><a href="/security.html">Security</a></li>
+        <li><a href="/install.html" aria-current="page">Install</a></li>
+        <li><a href="/ios.html">iOS</a></li>
+        <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+      </ul>
+      <details class="menu">
+        <summary>Menu</summary>
+        <ul>
+          <li><a href="/product.html">Product</a></li>
+          <li><a href="/security.html">Security</a></li>
+          <li><a href="/install.html" aria-current="page">Install</a></li>
+          <li><a href="/ios.html">iOS</a></li>
+          <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+        </ul>
+      </details>
+    </nav>
+    <a class="btn btn-primary" data-try href="/install.html#trial">Try it free</a>
+  </div>
+</header>
+<!-- /shared header -->
+
+<main id="content">
+  <!-- site/install.md, set verbatim. S-11: the installer on a fresh Ubuntu 24.04 machine, captured
+       in the brand terminal (website/art/shots/S-11.session). -->
+  <section class="ihero" id="top" aria-labelledby="top-h">
+    <div class="wrap">
+      <p class="crumb">Install</p>
+      <h1 class="h1" id="top-h">Install xbin.</h1>
+      <p class="lead">One command. The installer prints its plan and asks before it changes anything.</p>
+      <a class="more" href="#trial">Or try it free for an hour</a>
+    </div>
+  </section>
+
+  <section class="band" id="command" aria-labelledby="command-h">
+    <div class="wrap">
+      <h2 class="band-h" id="command-h">Upgrade to exponential era software</h2>
+      <div class="cmd">
+        <p>On a Linux machine, run:</p>
+        <code class="cmd-code" id="cmd-install" tabindex="0">curl -fsSL https://xbin.dev/install.sh | sh</code>
+        <button class="copy" type="button" data-copy="curl -fsSL https://xbin.dev/install.sh | sh" aria-describedby="cmd-install">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="first" aria-labelledby="first-h">
+    <div class="wrap">
+      <p class="label-mono">01 · First run</p>
+      <h2 class="h2" id="first-h">It shows you the plan, then it asks.</h2>
+      <ol class="steps">
+        <li><h3 class="h4">1 · It prints its plan.</h3><p class="body">Before it touches anything, the installer lists what it will do on this machine.</p></li>
+        <li><h3 class="h4">2 · It asks.</h3><p class="body">Nothing changes until you answer.</p></li>
+        <li><h3 class="h4">3 · It installs.</h3><p class="body">With your yes, it installs xbin.</p></li>
+        <li><h3 class="h4">4 · You sign in.</h3><p class="body">Then you sign in to your new workspace from a browser.</p></li>
+      </ol>
+      <div class="split">
+        <div class="flow">
+          <p class="body">To read the script before you run it, open <code>deploy/install.sh</code> in <a href="https://github.com/xbin-dev/xbin">the source ↗</a>.</p>
+          <p class="body">Pinning a version and installing system-wide are covered on the Operations page of <a href="https://github.com/xbin-dev/xbin/tree/master/docs">the docs ↗</a>.</p>
+        </div>
+        <figure class="shot" data-shot="S-11 installer plan">
+          <div class="mat mat-terminal"><span class="mat-tab">installer</span><picture>
+            <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/shots/S-11-dark-800.avif 800w, /img/shots/S-11-dark-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+            <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="/img/shots/S-11-dark-800.webp 800w, /img/shots/S-11-dark-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+            <source type="image/avif" srcset="/img/shots/S-11-light-800.avif 800w, /img/shots/S-11-light-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+            <img src="/img/shots/S-11-light-800.webp" srcset="/img/shots/S-11-light-800.webp 800w, /img/shots/S-11-light-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px" width="800" height="500" loading="lazy" decoding="async" alt="A terminal: the xbin installer has printed its plan and is asking before it changes anything.">
+          </picture></div>
+          <figcaption>The installer’s plan on a fresh machine, waiting for an answer.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="requirements" aria-labelledby="requirements-h">
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">02 · Requirements</p>
+        <h2 class="h2" id="requirements-h">What the machine needs.</h2>
+      </div>
+      <div class="plate">
+        <h3 class="plate-h">Requirements</h3>
+        <dl>
+          <div><dt>Operating system</dt><dd>Linux</dd></div>
+          <div><dt>Sandboxes</dt><dd>Linux namespaces by default. A microVM when an app needs root, such as Docker: with KVM (<code>/dev/kvm</code>), or emulated and much slower without it.</dd></div>
+          <div><dt>Free disk</dt><dd>More than 10&nbsp;% free on the workspace’s disk. Below that, xbin refuses new sandboxes that apps start and blocks writes by the largest apps.</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="trial" aria-labelledby="trial-h">
+    <div class="wrap">
+      <h2 class="band-h" id="trial-h">Or try it free for an hour.</h2>
+      <div class="cmd cmd-trial">
+        <p>A hosted xbin workspace, free for an hour, started with one ssh command. All you need is an ssh client.</p>
+        <code class="cmd-code" id="cmd-try" tabindex="0">ssh xbin@vcpu.sh</code>
+        <button class="copy" type="button" data-copy="ssh xbin@vcpu.sh" aria-describedby="cmd-try">Copy</button>
+        <p class="cmd-link"><a href="https://vcpu.sh/xbin">Trial details ↗</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="upgrade" aria-labelledby="upgrade-h">
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">03 · Later</p>
+        <h2 class="h2" id="upgrade-h">Upgrading and uninstalling.</h2>
+      </div>
+      <div class="flow">
+        <p class="body">Both are covered in the docs. Every xbin workspace also serves its own documentation.</p>
+        <p class="actions"><a class="btn btn-secondary btn-lg" href="https://github.com/xbin-dev/xbin/tree/master/docs">Read the docs ↗</a></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- shared footer: the same on every page (hack/check-website.sh) -->
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <div class="foot-lockup"><img src="/img/mark.svg" alt="" width="40" height="40"><img src="/img/wordmark.svg" alt="xbin" width="61" height="24"></div>
+        <p class="foot-def">A workspace where people and AI agents build the systems a company runs on.</p>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Product</h2>
+        <ul>
+          <li><a href="/product.html">Product</a></li>
+          <li><a href="/security.html">Security</a></li>
+          <li><a href="/install.html">Install</a></li>
+          <li><a href="/ios.html">iOS app</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Source and docs</h2>
+        <ul>
+          <li><a href="https://github.com/xbin-dev/xbin">Source on GitHub ↗</a></li>
+          <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Try</h2>
+        <ul>
+          <li><a href="https://vcpu.sh/xbin">Hosted trial ↗</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Site</h2>
+        <ul>
+          <li><a href="/privacy.html">Privacy</a></li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot-note">This site sets no cookies and stores nothing. Light or dark follows your system setting.</p>
+  </div>
+</footer>
+<!-- /shared footer -->
+<p class="sr" id="copied" aria-live="polite"></p>
+<script type="module" src="/js/copy.js"></script>
+</body>
+</html>

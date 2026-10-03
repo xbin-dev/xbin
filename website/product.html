@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Product · xbin</title>
+<meta name="description" content="How xbin works: people and AI agents build the systems a company runs on. Save a change and it is live; every app and agent works in its own sandbox.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0C12" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://xbin.dev/product.html">
+<meta property="og:site_name" content="xbin">
+<meta property="og:title" content="How xbin works">
+<meta property="og:description" content="How xbin works: people and AI agents build the systems a company runs on. Save a change and it is live; every app and agent works in its own sandbox.">
+<meta property="og:image" content="https://xbin.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The headline “Software has entered its exponential era.” set on yellow, green, magenta and cobalt bands beside a gallery of coloured glass, with the command to try xbin.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/bricolage-grotesque-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/instrument-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/site.css">
+</head>
+<body class="page-product">
+<!-- shared header: the same on every page but for aria-current and the Try link's target (hack/check-website.sh) -->
+<a class="skip" href="#content">Skip to content</a>
+<div class="era" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<header class="site-head">
+  <div class="wrap head-row">
+    <a class="lockup" href="/" aria-label="xbin home"><img src="/img/mark.svg" alt="" width="28" height="28"><img src="/img/wordmark.svg" alt="xbin" width="51" height="20"></a>
+    <nav class="nav" aria-label="Primary">
+      <ul class="nav-links">
+        <li><a href="/product.html" aria-current="page">Product</a></li>
+        <li><a href="/security.html">Security</a></li>
+        <li><a href="/install.html">Install</a></li>
+        <li><a href="/ios.html">iOS</a></li>
+        <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+      </ul>
+      <details class="menu">
+        <summary>Menu</summary>
+        <ul>
+          <li><a href="/product.html" aria-current="page">Product</a></li>
+          <li><a href="/security.html">Security</a></li>
+          <li><a href="/install.html">Install</a></li>
+          <li><a href="/ios.html">iOS</a></li>
+          <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+        </ul>
+      </details>
+    </nav>
+    <a class="btn btn-primary" data-try href="/install.html#trial">Try it free</a>
+  </div>
+</header>
+<!-- /shared header -->
+
+<main id="content">
+  <!-- site/product.md, verbatim. figure[data-shot] names the capture site/visuals.md asks for. The
+       brand-terminal shots (S-12, S-5, S-4) are captured; the product UI shots (S-2, S-6, S-7, S-10)
+       wait for the product theme (D184, website/shots.todo.md) and, like the film, are left out of
+       their sections until they exist: those sections set the copy beside its heading. -->
+  <section class="ihero" id="top" aria-labelledby="top-h">
+    <div class="wrap ihero-grid">
+      <div>
+        <p class="crumb">Product</p>
+        <h1 class="h1" id="top-h">How xbin works.</h1>
+        <p class="lead">xbin is a workspace where people and AI agents build the systems a company runs on, and where those systems run. You work in it from the browser, from a terminal with bx, or from your iPhone.</p>
+        <p class="actions"><a class="btn btn-primary btn-lg" href="/install.html#trial">Try it free for an hour</a> <a class="btn btn-secondary btn-lg" href="/install.html">Install</a></p>
+      </div>
+      <div>
+        <aside class="plate" aria-labelledby="glance-h">
+          <h2 class="plate-h" id="glance-h">At a glance</h2>
+          <dl>
+            <div><dt>Underneath</dt><dd>xbin rebuilds what changes and checks every call</dd></div>
+            <div><dt>Workspace</dt><dd>In the browser</dd></div>
+            <div><dt>Command line</dt><dd>bx</dd></div>
+            <div><dt>Phone</dt><dd>The iOS app, in beta testing</dd></div>
+            <div><dt>A system</dt><dd>A folder: a page, an optional backend, its own history</dd></div>
+            <div><dt>Going live</dt><dd>Save a change</dd></div>
+            <div><dt>Agents</dt><dd>A built-in agent, plus Claude Code, Codex, Gemini CLI and opencode</dd></div>
+            <div><dt>Isolation</dt><dd>Every app and every agent in its own sandbox</dd></div>
+            <div><dt>Per app</dt><dd>Its own identity, grants, encrypted vault and storage</dd></div>
+            <div><dt>Per person</dt><dd>A person’s own copy of an app, for apps that ask for it</dd></div>
+          </dl>
+        </aside>
+        <ul class="jump">
+          <li><a href="#underneath">Underneath</a></li><li><a href="#workspace">Workspace</a></li><li><a href="#apps">Apps</a></li><li><a href="#agents">Agents</a></li><li><a href="#per-person">Per person</a></li><li><a href="#grants">Grants</a></li><li><a href="#bx">bx</a></li><li><a href="#ios">iOS app</a></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="underneath" aria-labelledby="underneath-h">
+    <div class="wrap split">
+      <div class="flow">
+        <p class="label-mono">01 · Underneath</p>
+        <h2 class="h2" id="underneath-h">xbin runs what you build.</h2>
+        <p class="body">Underneath the workspace, xbin watches every app’s folder. When a file changes, it rebuilds what changed and swaps the new version in.</p>
+        <p class="body">Every call between apps, people, agents and the outside world passes through xbin. It checks who is calling and what they have been granted, so an app never has to check its callers itself.</p>
+        <h3 class="h4">Save, and it is live.</h3>
+        <p class="body">Saving a change puts it live. The page reloads in every open window. A backend rebuilds, and the new version starts before the old one stops.</p>
+      </div>
+      <!-- F-1 (cobalt mat; tab, Pause / Play, caption: site/product.md §1) ships with the product theme -->
+      <div class="proof">
+        <ul class="figs">
+          <li class="fig"><span class="fig-label">page saved to page on screen</span><span class="fig-num"><span class="fig-q">under</span>0.35&nbsp;s</span><p class="fig-claim">On a 96-core workstation, a saved page is on screen in under 0.35&nbsp;s, including a deliberate 0.3&nbsp;s settle.</p></li>
+          <li class="fig"><span class="fig-label">reads failed in 60 live updates</span><span class="fig-num"><span class="fig-q" aria-hidden="true">&nbsp;</span>0</span><p class="fig-claim">On a 96-core workstation, 0 of 5.39 million reads failed across 60 live updates under load, at about 30,000 requests a second.</p></li>
+        </ul>
+        <p class="caption">The settle lets a save of several files land as one change. Writes that land at the exact moment of an update can fail: 15 of 2.34 million did. A client that retries a failed write it can safely repeat covers them.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="workspace" aria-labelledby="workspace-h">
+    <!-- S-2 (workspace canvas, cobalt mat) waits for the product theme -->
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">02 · The workspace</p>
+        <h2 class="h2" id="workspace-h">Your systems, side by side.</h2>
+      </div>
+      <div class="flow">
+        <p class="body">The workspace opens in the browser. People open, arrange and use their apps there, and each app has its own terminal.</p>
+        <p class="body">The workspace is built the same way as everything in it: the shell, the admin console and the app manager are apps, and you change them like any other.</p>
+        <h3 class="h4">Typing feels local, even far away.</h3>
+        <div class="fig"><span class="fig-label">typing over a 300 ms round trip</span><span class="fig-num"><span class="fig-q">within one frame</span>≤&nbsp;17&nbsp;ms</span><p class="fig-claim">With a 300&nbsp;ms round trip, what you type appears within one frame (≤&nbsp;17&nbsp;ms). Measured on a 96-core workstation; the prediction runs in the browser.</p></div>
+        <p class="caption">With prediction off, the same characters appear after 0.3&nbsp;s. Prediction turns on by itself once the link is slower than 100&nbsp;ms. Timed for characters typed one at a time at a prompt.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="apps" aria-labelledby="apps-h">
+    <div class="wrap split">
+      <div class="flow">
+        <p class="label-mono">03 · Apps</p>
+        <h2 class="h2" id="apps-h">A system is a folder.</h2>
+        <p class="body">Each app is a folder: a page, an optional backend, and its own history of changes. Move the folder and the app is renamed. Copy it and you have a fork.</p>
+        <p class="body">Each app has its own identity, its own grants, an encrypted vault for its secrets, and its own storage: a database, key-value storage, file storage, a message bus and scheduled jobs.</p>
+      </div>
+      <figure class="shot" data-shot="S-12 apps as folders">
+        <div class="mat mat-terminal"><span class="mat-tab">terminal</span><picture>
+          <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/shots/S-12-dark-800.avif 800w, /img/shots/S-12-dark-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="/img/shots/S-12-dark-800.webp 800w, /img/shots/S-12-dark-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source type="image/avif" srcset="/img/shots/S-12-light-800.avif 800w, /img/shots/S-12-light-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <img src="/img/shots/S-12-light-800.webp" srcset="/img/shots/S-12-light-800.webp 800w, /img/shots/S-12-light-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px" width="800" height="500" loading="lazy" decoding="async" alt="A terminal listing the workspace’s apps as folders, including the shell, the admin console and the app manager.">
+        </picture></div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="agents" aria-labelledby="agents-h">
+    <!-- S-6 (agent session, magenta mat) waits for the product theme -->
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">04 · Agents</p>
+        <h2 class="h2" id="agents-h">Agents build the systems.</h2>
+      </div>
+      <div class="flow">
+        <p class="body">Describe what you need, and an agent builds the app or changes it.</p>
+        <h3 class="h4">The built-in agent</h3>
+        <p class="body">It can run long tasks, use tools and subagents, run on schedules and triggers, and talk through chat channels.</p>
+        <h3 class="h4">Coding agents</h3>
+        <p class="body">Claude Code, Codex, Gemini CLI and opencode work in the workspace, each in its own sandbox. A person signs each one in once, and the sign-in is reused.</p>
+        <h3 class="h4">Sandboxes</h3>
+        <p class="body">Every app and every agent works in its own sandbox. Nothing inside reaches the network, another app, a GPU or stored data until someone grants it.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="per-person" aria-labelledby="per-person-h">
+    <!-- S-7 (one small app, two people, cobalt mat) waits for the product theme -->
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">05 · Per person</p>
+        <h2 class="h2" id="per-person-h">A copy of the app for each person.</h2>
+      </div>
+      <div class="flow">
+        <p class="body">An app can run one copy for each person. Other people cannot read it, and admins do not open it.</p>
+        <div class="fig"><span class="fig-label">a person’s own copy, first request</span><span class="fig-num"><span class="fig-q">under</span>0.3&nbsp;s</span><p class="fig-claim">On a 96-core workstation, a person’s own copy of a small app starts on their first request in under 0.3&nbsp;s, then answers in about a millisecond.</p></div>
+        <p class="caption">Measured on a small notes app.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="grants" aria-labelledby="grants-h">
+    <div class="wrap split flip">
+      <div class="flow">
+        <p class="label-mono">06 · Grants</p>
+        <h2 class="h2" id="grants-h">Nothing gets out until it is granted.</h2>
+        <p class="body">A grant is an approved permission for an app to reach something outside itself. Outbound network is closed by default and approved one destination at a time.</p>
+        <p class="body">Every approved grant is a line in a plain, versioned file that you can read and compare between versions.</p>
+        <a class="more" href="/security.html">The full picture for IT</a>
+      </div>
+      <figure class="shot" data-shot="S-5 grants file diff">
+        <div class="mat mat-terminal"><span class="mat-tab">terminal</span><picture>
+          <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/shots/S-5-dark-800.avif 800w, /img/shots/S-5-dark-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="/img/shots/S-5-dark-800.webp 800w, /img/shots/S-5-dark-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source type="image/avif" srcset="/img/shots/S-5-light-800.avif 800w, /img/shots/S-5-light-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <img src="/img/shots/S-5-light-800.webp" srcset="/img/shots/S-5-light-800.webp 800w, /img/shots/S-5-light-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px" width="800" height="500" loading="lazy" decoding="async" alt="A terminal showing a diff of the xbin grants file after one network destination, api.example.com on port 443, was approved for the orders app.">
+        </picture></div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="bx" aria-labelledby="bx-h">
+    <div class="wrap split">
+      <div class="flow">
+        <p class="label-mono">07 · The command line</p>
+        <h2 class="h2" id="bx-h">bx, in your terminal.</h2>
+        <p class="body">bx is xbin’s command-line tool. Its commands are in the docs, and every workspace also serves its own documentation.</p>
+        <a class="more" href="https://github.com/xbin-dev/xbin/tree/master/docs">Read the docs ↗</a>
+      </div>
+      <figure class="shot" data-shot="S-4 bx help">
+        <div class="mat mat-terminal"><span class="mat-tab">bx</span><picture>
+          <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/shots/S-4-dark-800.avif 800w, /img/shots/S-4-dark-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="/img/shots/S-4-dark-800.webp 800w, /img/shots/S-4-dark-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source type="image/avif" srcset="/img/shots/S-4-light-800.avif 800w, /img/shots/S-4-light-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <img src="/img/shots/S-4-light-800.webp" srcset="/img/shots/S-4-light-800.webp 800w, /img/shots/S-4-light-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px" width="800" height="500" loading="lazy" decoding="async" alt="The bx command-line tool’s help output in a terminal.">
+        </picture></div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="ios" aria-labelledby="ios-h">
+    <!-- S-10a, S-10b, S-10c (the iOS app, three magenta mats) wait for the beta build's capture -->
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">08 · The iOS app</p>
+        <h2 class="h2" id="ios-h">The workspace on your iPhone.</h2>
+      </div>
+      <div class="flow">
+        <p class="body">The iOS app opens your apps in native views, runs terminals, follows agent sessions and brings your notifications. It signs in with the phone’s secure hardware.</p>
+        <p class="body">It is in beta testing and not on the App Store yet.</p>
+        <a class="more" href="/ios.html">About the iOS app</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="it" aria-labelledby="it-h">
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">09 · For IT</p>
+        <h2 class="h2" id="it-h">What IT checks.</h2>
+      </div>
+      <div>
+        <ul class="it">
+          <li>Single sign-on with OIDC or GitHub</li>
+          <li>Organisations and roles</li>
+          <li>An audit log</li>
+          <li>View-as-user: an admin sees exactly what one person sees, read-only</li>
+          <li>Sealed, encrypted backups</li>
+          <li>Outbound network closed by default, approved per destination</li>
+          <li>Resource limits for each app</li>
+        </ul>
+        <a class="more" href="/security.html">Read the security page</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="measured" aria-labelledby="measured-h">
+    <div class="wrap">
+      <div class="plate">
+        <h2 class="plate-h" id="measured-h">How these figures were measured</h2>
+        <p>On a big workstation: an AMD Ryzen Threadripper PRO 7995WX with 96 cores and 755 GiB of RAM, running xbin v0.3.67 on 3&nbsp;October 2026 alongside other work. Each figure is the slowest sample or the 90th percentile, rounded up. A smaller machine was not measured.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="get" aria-labelledby="get-h">
+    <div class="wrap">
+      <h2 class="band-h" id="get-h">Upgrade to exponential era software</h2>
+      <p class="actions"><a class="btn btn-lg" href="/install.html#trial">Try it free for an hour</a> <a class="btn btn-lg" href="/install.html">Install</a></p>
+    </div>
+  </section>
+</main>
+
+<!-- shared footer: the same on every page (hack/check-website.sh) -->
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <div class="foot-lockup"><img src="/img/mark.svg" alt="" width="40" height="40"><img src="/img/wordmark.svg" alt="xbin" width="61" height="24"></div>
+        <p class="foot-def">A workspace where people and AI agents build the systems a company runs on.</p>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Product</h2>
+        <ul>
+          <li><a href="/product.html">Product</a></li>
+          <li><a href="/security.html">Security</a></li>
+          <li><a href="/install.html">Install</a></li>
+          <li><a href="/ios.html">iOS app</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Source and docs</h2>
+        <ul>
+          <li><a href="https://github.com/xbin-dev/xbin">Source on GitHub ↗</a></li>
+          <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Try</h2>
+        <ul>
+          <li><a href="https://vcpu.sh/xbin">Hosted trial ↗</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Site</h2>
+        <ul>
+          <li><a href="/privacy.html">Privacy</a></li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot-note">This site sets no cookies and stores nothing. Light or dark follows your system setting.</p>
+  </div>
+</footer>
+<!-- /shared footer -->
+</body>
+</html>

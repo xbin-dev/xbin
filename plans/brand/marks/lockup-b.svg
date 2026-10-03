@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1412 480" role="img" aria-labelledby="title">
+  <title id="title">xbin</title>
+  <!-- Lockup B: mark + wordmark B on one unit, u = 40.
+       Tile 8u = 320. The mark's b and the word share baseline (7u), x-height line (3u) and
+       ascender line (1u from the tile top); the tile runs 1u past both.
+       Gap 2u = 80; clear space 2u = 80 on every side, built into the viewBox. -->
+  <style>.w{fill:#0B0C12}@media (prefers-color-scheme:dark){.w{fill:#F5F6FA}}</style>
+  <g transform="translate(80 80) scale(0.3125)">
+    <rect width="1024" height="1024" fill="#1F3DFF"/>
+    <path fill="#FFFFFF" fill-rule="evenodd" d="M128 128H288V448C304 404 356 376 440 376C572 376 672 482 672 640C672 798 572 904 440 904C356 904 308 884 288 856V896H128ZM288 576C288 536 336 512 416 512C500 512 544 556 544 640C544 724 500 768 416 768C336 768 288 744 288 704Z"/>
+    <path fill="#FFD000" d="M640 128H728L768 189L808 128H896L812 256L896 384H808L768 323L728 384H640L724 256Z"/>
+  </g>
+  <g class="w" fill="#0B0C12" transform="translate(480 120)">
+    <path d="M0 80H68L120 128.4L172 80H240L154 160L240 240H172L120 191.6L68 240H0L86 160Z"/>
+    <path fill-rule="evenodd" d="M248 0H296V104C304 86 328 76 384 76C456 76 504 110 504 160C504 210 456 244 384 244C336 244 308 236 296 220V240H248ZM296 136C296 122 320 116 378 116C428 116 460 134 460 160C460 186 428 204 378 204C320 204 296 198 296 184Z"/>
+    <path d="M528 80H576V240H528ZM528 0H576V48H528Z"/>
+    <path d="M612 80H660V104C668 86 696 76 752 76C812 76 852 106 852 152V240H804V160C804 134 783 116 752 116C712 116 676 124 660 144V240H612Z"/>
+  </g>
+</svg>

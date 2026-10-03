@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" shape-rendering="crispEdges">
+  <title>xbin</title>
+  <!-- 16 px, drawn pixel by pixel (u = 2 px). b: stem 3, bars 2, wall 2, an open 4 x 4 counter,
+       stepped round corners, ascender 12 over an 8 px bowl. The exponent x is drawn up to 5 x 5
+       with 1 px diagonals so all four notches are equal and it reads as a letter, raised 1 px
+       above the b and 1 px in from the edge. -->
+  <rect width="16" height="16" fill="#1F3DFF"/>
+  <path fill="#FFFFFF" fill-rule="evenodd" d="M2 2H5V6H9V7H10V8H11V12H10V13H9V14H2ZM5 8H9V12H5Z"/>
+  <path fill="#FFD000" d="M10 1H11V2H10ZM14 1H15V2H14ZM11 2H12V3H11ZM13 2H14V3H13ZM12 3H13V4H12ZM11 4H12V5H11ZM13 4H14V5H13ZM10 5H11V6H10ZM14 5H15V6H14Z"/>
+</svg>

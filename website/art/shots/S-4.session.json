@@ -1,0 +1,55 @@
+{
+ "shot": "S-4, bx help (site/visuals.md 7): its first screenful, scrolled back to the command",
+ "machine": "the measured workstation; bx built from this tree (go build ./cmd/bx), v0.3.67",
+ "shell": "bash --rcfile with PS1='$ ', the system bashrc's window-title hook unset, an Ubuntu shell's ls and tree colours (dircolors -b); TERM=xterm-256color, LANG=C.UTF-8",
+ "captured": "2026-10-03",
+ "view": "top",
+ "steps": [
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "send": "clear\r"
+  },
+  {
+   "wait": "\\x1b\\[(3|2)J.*\\$ $",
+   "timeout": 10
+  },
+  {
+   "mark": "cmd"
+  },
+  {
+   "type": "bx --help",
+   "delay": 0.04
+  },
+  {
+   "sleep": 0.3
+  },
+  {
+   "send": "\r"
+  },
+  {
+   "wait": "\\$ $",
+   "timeout": 30
+  },
+  {
+   "sleep": 0.3
+  },
+  {
+   "mark": "end"
+  },
+  {
+   "send": "exit\r"
+  },
+  {
+   "sleep": 0.3
+  }
+ ],
+ "cols": 97,
+ "rows": 24,
+ "marks": {
+  "cmd": 22,
+  "end": 9007
+ }
+}

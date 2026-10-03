@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">xbin</title>
+  <!-- One colour. The tile is solid; the b and the x are cut out of it; the b's counter stays solid
+       (even-odd: tile, b, counter, x). currentColor resolves when the SVG is inline;
+       loaded as an image it draws black. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M0 0H1024V1024H0ZM128 128H288V448C304 404 356 376 440 376C572 376 672 482 672 640C672 798 572 904 440 904C356 904 308 884 288 856V896H128ZM288 576C288 536 336 512 416 512C500 512 544 556 544 640C544 724 500 768 416 768C336 768 288 744 288 704ZM640 128H728L768 189L808 128H896L812 256L896 384H808L768 323L728 384H640L724 256Z"/>
+</svg>

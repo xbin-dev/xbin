@@ -2,469 +2,288 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%20role%3D%22img%22%20aria-label%3D%22X/BIN%22%3E%20%20%20%3Cpath%20d%3D%22M18%204H56a4%204%200%200%201%204%204v38L46%2060H8a4%204%200%201-4-4V18z%22%20fill%3D%22%23f5a623%22/%3E%20%20%20%3Cpath%20d%3D%22M21%2021%2043%2043M43%2021%2021%2043%22%20stroke%3D%22%2323272e%22%20stroke-width%3D%229%22%20stroke-linecap%3D%22butt%22/%3E%20%20%20%3Ccircle%20cx%3D%2253%22%20cy%3D%2211%22%20r%3D%222.6%22%20fill%3D%22%2323272e%22%20opacity%3D%22.4%22/%3E%20%20%20%3Ccircle%20cx%3D%2211%22%20cy%3D%2253%22%20r%3D%222.6%22%20fill%3D%22%2323272e%22%20opacity%3D%22.4%22/%3E%20%3C/svg%3E">
-<link rel="icon" type="image/png" sizes="32x32" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABmJLR0QA/wD/AP+gvaeTAAACK0lEQVRYheWWP2sUQRiHn5m95ALXHEGFg2ghopjDT2ChheEKG00ajZ1FIJ2NqLHwAgrRyi7YpLPTaKMSziIWfoJwBxGTKhpEiwgKyf2ZsYh7m72d3Z095yz0rfZuhnkeZub9MfC/l0ib8PPpiSpC33PI3EIyU7iy8QZA/mU4wBiKJ/6PWAGX8O3vktUPHts7XdxR/yM3aDjA+hfBtx8CIQSlogqNRQQGse2njmgATh5WkbGQwIDOnFJRUSqax7qHYgtXur+xuAouoQV88d0QN5+N0I7uJB0lmHuR5/Hb4UwCxksYB19c9Rcf4eHULjkZwO++HOb1WrDcjQtNdwJhONQaXldCEIUvvR+ylkgVUBo2v0bjotbwkCIPwEo9usynHYHSIFOyNlVACliYbJKT8GotPN0EBpgY77AwuZcKh5Qo9suTmvuXmlw8006dOzHe4dHULp7VypYCgcQelXK8RKXczgTPJLBfInFxpQVZo8BawNRqvVVreNx6bs6JPxKwgfcrkSqgNNxeNsMr5bbxTtQaHneW81bRbNWGp0uKlXr4f7/VQBhb9PghbdWGVkl4/WwLoJvz4Vbbb1EIJGbPtZg97zCKD0rUP3uRVvNzAuDYqLaGZxLwJZRuGbfWk5oHl+3SD6Gr/mfGHEjOdlt44ermfKyA4QHprnrgYDiCpAeka7hRIOkB6RreK7AFjCU9IPsqLeYL0xtGOBy8A5KZ3xJu4dc+Vp2u+c/VL9XA5XnO+ifbAAAAAElFTkSuQmCC">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>xbin: an office for your agents</title>
-<meta name="description" content="A self-hosted workspace where AI agents and people work in sandboxed apps, each with its own identity, grants and network policy. One binary. IT holds the keys. MIT / Apache-2.0.">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#11131a">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>xbin: Software has entered its exponential era</title>
+<meta name="description" content="xbin is a workspace where people and AI agents build the systems a company runs on, and where those systems run. Try it free for an hour.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0C12" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://xbin.dev/">
 <meta property="og:site_name" content="xbin">
-<meta property="og:title" content="xbin: an office for your agents">
-<meta property="og:description" content="Self-hosted. Each app runs in its own sandbox with its own identity, grants and network policy. IT holds the keys.">
+<meta property="og:title" content="xbin: Software has entered its exponential era">
+<meta property="og:description" content="xbin is a workspace where people and AI agents build the systems a company runs on, and where those systems run. Try it free for an hour.">
 <meta property="og:image" content="https://xbin.dev/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The headline “Software has entered its exponential era.” set on yellow, green, magenta and cobalt bands beside a gallery of coloured glass, with the command to try xbin.">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preload" href="fonts/IBMPlexSans-Bold.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
-<script>document.documentElement.className += ' js'</script>
-<script type="importmap">{"imports":{"lit":"./vendor/lit-all.min.js"}}</script>
-<style>
-  /* ===== xbin.dev: built in the product's own palette (theme.css),
-           cut with the chamfered language of the shell itself ===== */
-  @font-face{font-family:"IBM Plex Sans";src:url("fonts/IBMPlexSans-Bold.woff2") format("woff2");
-    font-weight:700;font-style:normal;font-display:swap}
-  @font-face{font-family:"IBM Plex Sans";src:url("fonts/IBMPlexSans-SemiBold.woff2") format("woff2");
-    font-weight:600;font-style:normal;font-display:swap}
-  :root{
-    --bg:#16181d; --frame:#1d2027; --panel-bg:#11131a;
-    --steel:#1b1e24; --panel:#23272e; --panel2:#2b3038;
-    --border:#363c45; --border2:#454d59;
-    --text:#d4d9e0; --muted:#868f9a; --dim:#5c6672;
-    --accent:#f5a623; --accent-ink:#231a06;
-    --green:#4caf50; --amber:#f2a71b; --red:#ef5350; --blue:#61afef;
-    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-    --sans:-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
-    --display:"IBM Plex Sans",-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
-    --maxw:1120px;
-    --cut:14px;
-    --pchamfer:polygon(0 0,calc(100% - var(--cut)) 0,100% var(--cut),100% 100%,var(--cut) 100%,0 calc(100% - var(--cut)));
-  }
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
-  body{margin:0;background:var(--frame);color:var(--text);font:16px/1.6 var(--sans);
-    -webkit-font-smoothing:antialiased;overflow-x:hidden}
-  a{color:inherit;text-decoration:none}
-  ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
-  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
-  .mono{font-family:var(--mono)}
-  h1,h2,h3,h4,.brand{font-family:var(--display)}
-  h2{font:700 clamp(26px,4vw,38px)/1.1 var(--display);letter-spacing:-.02em;text-wrap:balance;margin:0}
-  .lede{color:var(--muted);font-size:clamp(15px,2vw,18px);max-width:60ch;text-wrap:pretty}
-  section{scroll-margin-top:16px}
-  /* status dots (one class per palette color, no inline styles) */
-  .dt{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
-  .dt.sm{width:7px;height:7px}
-  .dg{background:var(--green)} .da{background:var(--accent)} .dam{background:var(--amber)} .db{background:var(--blue)}
-  /* the icon language: 16px stroke icons, currentColor */
-  .icn{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
-
-  /* on-scroll reveals (main.js adds .in; gated on .js so the page is whole
-     with scripting off; static under reduced motion) */
-  .js .reveal{opacity:0;translate:0 16px;transition:opacity .6s ease,translate .6s ease}
-  .js .reveal.in{opacity:1;translate:none}
-  .aud .card:nth-child(2){transition-delay:.06s}
-  .aud .card:nth-child(3){transition-delay:.12s}
-  .aud .card:nth-child(4){transition-delay:.18s}
-  .flow .shot:nth-child(2){transition-delay:.05s}
-  .flow .shot:nth-child(3){transition-delay:.1s}
-  .flow .shot:nth-child(4){transition-delay:.15s}
-  .flow .shot:nth-child(5){transition-delay:.2s}
-  .flow .shot:nth-child(6){transition-delay:.25s}
-  @media (prefers-reduced-motion:reduce){.js .reveal{opacity:1;translate:none;transition:none}}
-
-  /* ---------- chamfered buttons ---------- */
-  .btn{display:inline-flex;align-items:center;gap:8px;font:600 14px var(--sans);
-    padding:10px 16px;cursor:pointer;border:none;background:var(--panel);color:var(--text);white-space:nowrap;
-    clip-path:var(--pchamfer);transition:background .15s,filter .15s}
-  .btn:hover{background:var(--panel2)}
-  .btn.amber{background:var(--accent);color:var(--accent-ink)}
-  .btn.amber:hover{filter:brightness(1.07);background:var(--accent)}
-  .btn.sm{padding:8px 13px;font-size:13px}
-  /* a visible 1px edge around a chamfered button: clip-path eats borders,
-     so the edge is a 1px wrapper wearing the same cut */
-  .oline{display:inline-block;padding:1px;background:var(--border2);clip-path:var(--pchamfer);transition:background .15s}
-  .oline:hover{background:var(--muted)}
-
-  /* ---------- the hero panel (nav lives inside it, like the shell) ---------- */
-  .hero{position:relative;margin:18px;background:var(--panel-bg);overflow:hidden;
-    clip-path:polygon(0 0,100% 0,100% calc(100% - 26px),calc(100% - 26px) 100%,26px 100%,0 calc(100% - 26px))}
-  .hero::before{content:"";position:absolute;inset:0;z-index:0;   /* the no-WebGL fallback */
-    background:
-      radial-gradient(1100px 520px at 76% -6%,color-mix(in srgb,var(--accent) 11%,transparent),transparent 60%),
-      radial-gradient(var(--border) 1px,transparent 1.5px);
-    background-size:auto,26px 26px;opacity:.9}
-  xb-gl{position:absolute;inset:0;z-index:0}
-  nav{position:relative;z-index:2;border-bottom:1px solid var(--border);
-    background:color-mix(in srgb,var(--panel-bg) 84%,transparent);backdrop-filter:blur(7px)}
-  .navin{display:flex;align-items:center;gap:14px;height:58px;max-width:1240px;margin:0 auto;padding:0 24px}
-  .brand{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:.05em;font-size:15px}
-  .brand svg{flex:none}
-  .nav-sp{flex:1}
-  .nav-links{display:flex;align-items:center;gap:4px}
-  nav .lnk{color:var(--muted);font-size:13.5px;padding:6px 10px;transition:color .15s}
-  nav .lnk:hover{color:var(--text)}
-  nav .lnk.on{color:var(--accent-ink);background:var(--accent);font-weight:600;
-    clip-path:polygon(0 0,100% 0,calc(100% - 7px) 100%,7px 100%)}
-
-  .hero-in{position:relative;z-index:1;display:grid;grid-template-columns:1.02fr 1.18fr;gap:44px;
-    align-items:center;max-width:1240px;margin:0 auto;padding:clamp(36px,5.5vw,72px) 24px 76px}
-  .hero-in>*{min-width:0}
-  .eyebrow{display:flex;align-items:center;gap:10px;margin:0;
-    font:600 11px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
-  .eyebrow::before{content:"";width:9px;height:9px;background:var(--accent);flex:none;
-    clip-path:polygon(0 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%)}
-  .hero h1{font:700 clamp(36px,5.2vw,62px)/1.02 var(--display);letter-spacing:-.03em;margin:18px 0 0;text-wrap:balance}
-  .hero h1 .amber{color:var(--accent)}
-  .hero p.sub{color:var(--muted);font-size:clamp(16px,2vw,19px);margin:20px 0 0;max-width:52ch;text-wrap:pretty}
-  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px;align-items:center}
-  .install{display:flex;margin-top:22px;max-width:540px;padding:1px;background:var(--border);clip-path:var(--pchamfer)}
-  .install-in{flex:1;min-width:0;display:flex;align-items:center;gap:10px;background:#0c0e12;
-    clip-path:var(--pchamfer);padding:12px 13px;font:13px/1 var(--mono);color:var(--text)}
-  .install-in .cmd{overflow-x:auto;white-space:nowrap;scrollbar-width:none}
-  .install-in .pmt{color:var(--accent)}
-  .install-in xb-copy{margin-left:auto;flex:none}
-  .modehint{margin:14px 0 0;color:var(--muted);font-size:12.5px;max-width:70ch}
-  .modehint b{color:var(--text);font-weight:600}
-  .modehint code{font:12px var(--mono);color:var(--text);background:#0d0f13;border:1px solid var(--border);padding:2px 7px}
-  xb-shell-scene{transition:transform .18s ease-out;will-change:transform}
-
-  /* ---------- generic section ---------- */
-  section{padding:clamp(56px,8vw,96px) 0;border-bottom:1px solid var(--border)}
-  .sec-head{max-width:60ch}
-  .sec-head .lede{margin-top:14px}
-
-  /* how it works */
-  .how{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start;margin-top:36px}
-  .steps{display:flex;flex-direction:column;gap:2px}
-  .step{display:flex;gap:14px;padding:16px 0;border-top:1px solid var(--border)}
-  .step:first-child{border-top:none}
-  .step .n{font:700 13px var(--mono);color:var(--accent);flex:none;width:26px;height:26px;
-    display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 12%,transparent);
-    clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,0 100%)}
-  .step h3{margin:2px 0 4px;font-size:15px}
-  .step p{margin:0;color:var(--muted);font-size:14px}
-  .step code{font-family:var(--mono);font-size:12.5px;color:var(--text);background:#0e1014;border:1px solid var(--border);padding:1px 6px}
-  .codeblock{background:#0d0f13;border:1px solid var(--border);overflow-x:auto}
-  .codeblock .cbh{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--panel2)}
-  .codeblock .cbn{font:11px var(--mono);color:var(--muted)}
-  .codeblock pre{margin:0;padding:14px 16px;font:12.5px/1.7 var(--mono);color:#c8d0da}
-  .codeblock .g{color:var(--green)} .codeblock .a{color:var(--accent)} .codeblock .m{color:var(--dim)} .codeblock .k{color:var(--blue)}
-
-  /* audience */
-  .aud{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:40px}
-  .aud .card{border:1px solid var(--border);padding:22px;background:var(--panel);
-    clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,0 100%)}
-  .aud .tag{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
-  .aud h3{font-size:17px;margin:10px 0 8px}
-  .aud p{color:var(--muted);font-size:14px;margin:0}
-
-  /* in the box: a compact list, not another card grid */
-  .boxlist{display:grid;grid-template-columns:1fr 1fr;gap:6px 36px;margin-top:36px}
-  .bl{display:flex;gap:12px;align-items:flex-start;padding:13px 0;border-top:1px solid var(--border)}
-  .bl .icn{color:var(--accent);margin-top:3px}
-  .bl b{display:block;font-size:14px;margin-bottom:2px}
-  .bl span{color:var(--muted);font-size:13px;line-height:1.5}
-
-  /* ---------- real screenshots (workspace band + workflows) ---------- */
-  .shotband{padding:clamp(44px,6vw,76px) 0;border-bottom:1px solid var(--border)}
-  .shot{margin:0;cursor:zoom-in}
-  .shot img{display:block;width:100%;border:1px solid var(--border);background:var(--steel);transition:border-color .15s}
-  .shot:hover img{border-color:var(--muted)}
-  .shot figcaption{display:flex;gap:8px;margin-top:8px;font-size:12px;color:var(--muted);line-height:1.45}
-  .shot figcaption .sn{font:700 11px/1.6 var(--mono);color:var(--accent);flex:none}
-  /* the lead shot gets the full chamfered frame */
-  .frame{display:block;padding:1px;background:var(--border2);
-    clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,20px 100%,0 calc(100% - 20px));
-    box-shadow:0 18px 50px rgba(0,0,0,.45)}
-  .frame img{display:block;width:100%;background:var(--steel);
-    clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,20px 100%,0 calc(100% - 20px))}
-  .shot.lead:hover .frame{background:var(--muted)}
-  .shot.lead .frame{transition:background .15s}
-  .shot.lead figcaption{font-size:12.5px;margin-top:10px}
-  .flow-h{display:flex;align-items:baseline;gap:12px;margin:46px 0 0;flex-wrap:wrap}
-  .flow-h h3{font-size:18px;margin:0}
-  .flow-h span{color:var(--muted);font-size:13.5px}
-  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
-  .flow.f6{grid-template-columns:repeat(3,1fr)}
-
-  /* the access band and the closing call */
-  .sec-band{background:linear-gradient(180deg,var(--steel),var(--frame))}
-  .ctaband{text-align:center}
-  .ctaband .cta{justify-content:center;margin-top:24px}
-  .boxlist.roles{margin-top:30px}
-  .boxlist.roles b{color:var(--accent)}
-  .boxlist.roles span{color:var(--text);font-size:14px}
-
-  /* install band */
-  .installband{text-align:center;background:
-    radial-gradient(700px 300px at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%)}
-  .installband .lede{margin:14px auto 0;text-align:center}
-  .installband .modehint{margin-left:auto;margin-right:auto;text-align:center}
-  .installband .kicker{justify-content:center}
-  .bigcmd{display:inline-flex;max-width:100%;margin:28px auto 0;padding:1px;background:var(--border2);clip-path:var(--pchamfer)}
-  .bigcmd-in{display:flex;align-items:center;gap:12px;background:#0c0e12;clip-path:var(--pchamfer);
-    padding:15px 18px;font:15px/1 var(--mono);min-width:0}
-  .bigcmd-in .cmd{overflow-x:auto;white-space:nowrap;scrollbar-width:none}
-  .bigcmd .pmt{color:var(--accent)}
-  .reach{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px;color:var(--muted);font:13px var(--mono)}
-  .reach span{border:1px solid var(--border);padding:5px 12px;background:var(--panel);
-    clip-path:polygon(7px 0,100% 0,calc(100% - 7px) 100%,0 100%)}
-
-  footer{padding:44px 0;color:var(--muted)}
-  .footin{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
-  footer .brand{font-size:14px}
-  footer .lnk{color:var(--muted);font-size:14px}
-  footer .lnk:hover{color:var(--text)}
-  .lic{margin-left:auto;font:12px var(--mono);color:var(--dim)}
-
-  /* ---------- responsive (dogfood the mobile posture) ---------- */
-  @media (max-width:900px){
-    .hero{margin:10px}
-    .hero-in{grid-template-columns:1fr;gap:30px;padding-bottom:56px}
-    .how{grid-template-columns:1fr;gap:26px}
-    .aud{grid-template-columns:1fr}
-    .boxlist{grid-template-columns:1fr}
-    .flow,.flow.f6{grid-template-columns:repeat(2,1fr)}
-    .nav-links .lnk{display:none}
-  }
-  @media (max-width:560px){
-    .navin{gap:8px}
-  }
-</style>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/bricolage-grotesque-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/instrument-sans-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/site.css">
+<noscript><style>.copy{display:none}</style></noscript>
 </head>
-<body>
-
-<!-- the icon language: one stroke set, referenced everywhere via <use> -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="6" rx="1.2"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></symbol>
-    <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.8 13 3.7v3.9c0 3.2-2.1 5.3-5 6.6-2.9-1.3-5-3.4-5-6.6V3.7z"/><path d="M5.7 7.9l1.6 1.6 3.1-3.3"/></symbol>
-    <symbol id="i-pencil" viewBox="0 0 16 16"><path d="M9.9 3.1 12.9 6.1 6 13H3v-3z"/><path d="M8.7 4.3l3 3"/></symbol>
-    <symbol id="i-swap" viewBox="0 0 16 16"><path d="M2.5 5.5h9M9.5 3.5l2 2-2 2"/><path d="M13.5 10.5h-9M6.5 8.5l-2 2 2 2"/></symbol>
-    <symbol id="i-diamond" viewBox="0 0 16 16"><path d="M8 2.5 13.5 8 8 13.5 2.5 8z"/></symbol>
-    <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 13V3"/><path d="M4.5 6.5 8 3l3.5 3.5"/></symbol>
-    <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M2.5 8h10"/><path d="M9 4.5 12.5 8 9 11.5"/></symbol>
-    <symbol id="i-grid" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></symbol>
-    <symbol id="i-term" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M4.8 6.3 6.8 8l-2 1.7M8.5 10h2.8"/></symbol>
-    <symbol id="i-branch" viewBox="0 0 16 16"><circle cx="5" cy="4" r="1.7"/><circle cx="5" cy="12" r="1.7"/><circle cx="11" cy="6.5" r="1.7"/><path d="M5 5.7v4.6M11 8.2c0 2.1-2.6 2.4-4.3 2.6"/></symbol>
-    <symbol id="i-globe" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11"/><path d="M8 2.5c-3 3.5-3 7.5 0 11 3-3.5 3-7.5 0-11z"/></symbol>
-    <symbol id="i-box" viewBox="0 0 16 16"><path d="M8 2l5.5 3v6L8 14l-5.5-3V5z"/><path d="M2.5 5 8 8l5.5-3M8 8v6"/></symbol>
-    <symbol id="i-disk" viewBox="0 0 16 16"><ellipse cx="8" cy="4.5" rx="5" ry="2"/><path d="M3 4.5v7c0 1.1 2.2 2 5 2s5-.9 5-2v-7"/><path d="M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/></symbol>
-    <symbol id="i-wrench" viewBox="0 0 16 16"><path d="M10.3 2.4a3.3 3.3 0 0 0-4.1 4.4L2.6 11.4l2 2 4.6-3.6a3.3 3.3 0 0 0 4.4-4.1l-2.4 2.4-2-.5-.5-2z"/></symbol>
-    <symbol id="i-agent" viewBox="0 0 16 16"><rect x="3" y="5.5" width="10" height="7" rx="1.6"/><path d="M8 5.5V3.2"/><circle cx="8" cy="2.4" r=".9"/><path d="M5.8 8.6v1.2M10.2 8.6v1.2"/></symbol>
-  </defs>
-</svg>
-
-<header class="hero" id="top">
-  <nav>
-    <div class="navin">
-      <a class="brand" href="#top">
-        <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
-          <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--accent)"></path>
-          <path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"></path>
-        </svg>X/BIN
-      </a>
-      <div class="nav-sp"></div>
-      <div class="nav-links">
-        <a class="lnk" href="#floor">Floor plan</a>
-        <a class="lnk" href="#who">Who works here</a>
-        <a class="lnk" href="#access">Access</a>
-        <a class="lnk" href="#install">Install</a>
-      </div>
-      <span class="oline"><a class="btn sm" href="https://github.com/xbin-dev/xbin" target="_blank" rel="noopener">GitHub ↗</a></span>
-    </div>
-  </nav>
-
-  <xb-gl></xb-gl>
-
-  <div class="hero-in">
-    <div>
-      <p class="eyebrow">self-hosted · one binary</p>
-      <h1>An office for <span class="amber">your agents</span>.</h1>
-      <p class="sub">Self-hosted. Each app runs in its own sandbox, with an identity, grants and
-        network policy. IT holds the keys.</p>
-      <div class="cta">
-        <a class="btn amber" href="https://vcpu.sh/xbin" target="_blank" rel="noopener">Try it live ↗</a>
-        <span class="oline"><a class="btn" href="#install">Self-host it</a></span>
-      </div>
-      <div class="install">
-        <div class="install-in">
-          <span class="cmd"><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
-          <xb-copy cmd="curl -fsSL https://xbin.dev/install.sh | sh"></xb-copy>
-        </div>
-      </div>
-      <p class="modehint">Linux, or macOS in a Lima VM · <b>MIT / Apache-2.0</b> · try it free for an hour: <code>ssh xbin@vcpu.sh</code></p>
-    </div>
-
-    <!-- the hero IS the product: a faithful mini-shell that boots itself -->
-    <xb-shell-scene></xb-shell-scene>
+<body class="page-home">
+<!-- shared header: the same on every page but for aria-current and the Try link's target (hack/check-website.sh) -->
+<a class="skip" href="#content">Skip to content</a>
+<div class="era" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<header class="site-head">
+  <div class="wrap head-row">
+    <a class="lockup" href="/" aria-label="xbin home"><img src="/img/mark.svg" alt="" width="28" height="28"><img src="/img/wordmark.svg" alt="xbin" width="51" height="20"></a>
+    <nav class="nav" aria-label="Primary">
+      <ul class="nav-links">
+        <li><a href="/product.html">Product</a></li>
+        <li><a href="/security.html">Security</a></li>
+        <li><a href="/install.html">Install</a></li>
+        <li><a href="/ios.html">iOS</a></li>
+        <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+      </ul>
+      <details class="menu">
+        <summary>Menu</summary>
+        <ul>
+          <li><a href="/product.html">Product</a></li>
+          <li><a href="/security.html">Security</a></li>
+          <li><a href="/install.html">Install</a></li>
+          <li><a href="/ios.html">iOS</a></li>
+          <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+        </ul>
+      </details>
+    </nav>
+    <a class="btn btn-primary" data-try href="#try">Try it free</a>
   </div>
 </header>
+<!-- /shared header -->
 
-<section class="shotband" aria-label="a live xbin workspace">
-  <div class="wrap">
-    <figure class="shot lead reveal">
-      <span class="frame"><img src="shots/overview-shell.png" loading="lazy"
-        alt="the xbin shell: a canvas of apps (a paste bin, the public HTTPS door, the manager's updates pane, the welcome notes) beside a sidebar of orgs and apps"></span>
-    </figure>
-  </div>
-</section>
-
-<section id="floor">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <h2>One app, one room.</h2>
-    </div>
-    <div class="how">
-      <div class="steps">
-        <div class="step reveal"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-grid"/></svg></span><div><h3>A room is a directory</h3>
-          <p>A backend, a git history, a sandbox. <code>mv</code> renames it, <code>cp -r</code> forks it.</p></div></div>
-        <div class="step reveal"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-term"/></svg></span><div><h3>Work happens inside</h3>
-          <p>Open its terminal in the browser. Edit it live, or hand it to an agent.</p></div></div>
-        <div class="step reveal"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-lock"/></svg></span><div><h3>Doors are grants</h3>
-          <p>Another app, the network, a GPU: reached only after the owner approves.</p></div></div>
-        <div class="step reveal"><span class="n"><svg class="icn" width="13" height="13"><use href="#i-shield"/></svg></span><div><h3>State stays behind the desk</h3>
-          <p>Code and live state run in separate sandboxes; state answers only to the app's API.</p></div></div>
-      </div>
-      <div class="codeblock reveal">
-        <div class="cbh"><span class="dt sm da"></span><span class="cbn">apps/dashboard · terminal</span></div>
-<pre>$ <span class="a">bx</span> new apps/dashboard --runtime go
-$ <span class="a">bx</span> term apps/dashboard
-  <span class="k">~/apps/dashboard</span> $ claude "add a p95 latency card"
-$ <span class="a">bx</span> grant apps/dashboard <span class="k">res:apps/db</span> reader
-<span class="g">✓ live</span> · sandboxed · versioned · backed up</pre>
+<main id="content">
+  <section class="hero" id="top" aria-labelledby="top-h">
+    <div class="hero-copy">
+      <p class="kicker"><span class="mini" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>The first exponential era workspace</p>
+      <h1 class="stair" id="top-h"><span class="st1">Software has</span> <span class="st2">entered its</span> <span class="st3">exponential</span> <span class="st4">era.</span></h1>
+      <div class="hero-def">
+        <p class="lead">Agents now make software faster than companies can run it.</p>
+        <p class="actions"><a class="btn btn-primary btn-lg" href="#try">Try it free for an hour</a> <a class="btn btn-secondary btn-lg" href="#install">Install</a></p>
       </div>
     </div>
-  </div>
-</section>
+    <div class="hero-photo">
+      <picture>
+        <source media="(max-width: 900px) and (prefers-color-scheme: dark)" type="image/avif" srcset="/img/hall-night-strip-900.avif 900w, /img/hall-night-strip-1800.avif 1800w" sizes="100vw">
+        <source media="(max-width: 900px) and (prefers-color-scheme: dark)" srcset="/img/hall-night-strip-900.jpg 900w, /img/hall-night-strip-1800.jpg 1800w" sizes="100vw">
+        <source media="(max-width: 900px)" type="image/avif" srcset="/img/hall-day-strip-900.avif 900w, /img/hall-day-strip-1800.avif 1800w" sizes="100vw">
+        <source media="(max-width: 900px)" srcset="/img/hall-day-strip-900.jpg 900w, /img/hall-day-strip-1800.jpg 1800w" sizes="100vw">
+        <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/hall-night-880.avif 880w, /img/hall-night-1536.avif 1536w" sizes="880px">
+        <source media="(prefers-color-scheme: dark)" srcset="/img/hall-night-880.jpg 880w, /img/hall-night-1536.jpg 1536w" sizes="880px">
+        <source type="image/avif" srcset="/img/hall-day-880.avif 880w, /img/hall-day-1536.avif 1536w" sizes="880px">
+        <img src="/img/hall-day-880.jpg" srcset="/img/hall-day-880.jpg 880w, /img/hall-day-1536.jpg 1536w" sizes="880px" width="880" height="880" alt="Sheets of yellow, green, magenta and cobalt glass hanging in a concrete hall, laying coloured light across the floor." fetchpriority="high">
+      </picture>
+    </div>
+  </section>
 
-<section id="who">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <h2>Who works here.</h2>
+  <section class="sec sec-rule" id="curve" aria-labelledby="curve-h">
+    <div class="wrap">
+      <div class="curve-head">
+        <div>
+          <p class="label">Seventy years</p>
+          <h2 class="h2" id="curve-h">Seventy years of software. Then the curve bent.</h2>
+        </div>
+        <p class="body">For seven decades, software grew as fast as people could write it. Then the first large language models learned to write code too.</p>
+      </div>
+      <figure class="chart" aria-labelledby="curve-cap">
+        <!-- chart D-1: drawn by hack/website-chart.mjs from data/software-per-year.json; edit the data, then run make website-chart -->
+        <p class="chart-y">Software made per year: new repositories created on GitHub per year</p>
+        <div class="chart-frame">
+          <svg class="chart-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none" role="img" aria-labelledby="d1-name">
+            <title id="d1-name">New repositories created on GitHub per year, 2013 to 2026: from 5.5M in 2013 to 121M in the year to August 2025, then 288M in August 2026 (annualised August rate); marked: First large language models, June 2021.</title>
+            <line class="chart-grid" x1="0" x2="1000" y1="750" y2="750" vector-effect="non-scaling-stroke"/><line class="chart-grid" x1="0" x2="1000" y1="500" y2="500" vector-effect="non-scaling-stroke"/><line class="chart-grid" x1="0" x2="1000" y1="250" y2="250" vector-effect="non-scaling-stroke"/><line class="chart-grid" x1="0" x2="1000" y1="0" y2="0" vector-effect="non-scaling-stroke"/>
+            <path class="chart-pre" d="M67.7 1000 L67.7 981.7 L399 893.3 L468.4 853.3 L537.9 800 L589.6 797.5 L589.6 1000 Z"/>
+            <path class="chart-post" d="M589.6 1000 L589.6 797.5 L607.3 796.7 L676.7 714.3 L746.2 673.3 L815.7 640 L879.4 596.7 L879.4 1000 Z"/>
+            <line class="chart-rule" x1="589.6" x2="589.6" y1="0" y2="1000" vector-effect="non-scaling-stroke"/>
+            <path class="chart-line" d="M67.7 981.7 L399 893.3 L468.4 853.3 L537.9 800 L607.3 796.7 L676.7 714.3 L746.2 673.3 L815.7 640 L879.4 596.7" vector-effect="non-scaling-stroke"/>
+            <path class="chart-rate" d="M879.4 596.7 L945.8 40" vector-effect="non-scaling-stroke"/>
+          </svg>
+          <div class="chart-labels" aria-hidden="true">
+            <span class="chart-ytick" style="--y:100.00%">0</span><span class="chart-ytick" style="--y:75.00%">75M</span><span class="chart-ytick" style="--y:50.00%">150M</span><span class="chart-ytick" style="--y:25.00%">225M</span><span class="chart-ytick" style="--y:0.00%">300M</span>
+            <span class="chart-xtick" style="--x:6.94%">2014</span><span class="chart-xtick" style="--x:20.83%">2016</span><span class="chart-xtick" style="--x:34.72%">2018</span><span class="chart-xtick" style="--x:48.61%">2020</span><span class="chart-xtick" style="--x:62.50%">2022</span><span class="chart-xtick" style="--x:76.39%">2024</span><span class="chart-xtick" style="--x:90.28%">2026</span>
+            <span class="chart-marker" style="--x:58.96%">First large language models</span>
+            <i class="chart-dot chart-dot-open" style="--x:94.58%;--y:4.00%"></i>
+            <span class="chart-today" style="--x:94.58%;--y:4.00%">Today<small>annualised August rate</small></span>
+          </div>
+        </div>
+        <details class="numbers">
+          <summary>Show the numbers</summary>
+          <table>
+            <caption class="sr">New repositories created on GitHub per year (repositories/year). Repositories created in the Octoverse year (12 months ending ~Sep 30; Aug 31 for 2025). 2018 is derived (≈1/3 of 96M). 2026 is an annualised monthly rate, not a full-year total.</caption>
+            <thead><tr><th scope="col">Date</th><th scope="col">New repositories created on GitHub per year</th><th scope="col">Source</th></tr></thead>
+            <tbody>
+            <tr><td class="num">2013-12-23</td><td class="num">5,500,000</td><td>github.blog · &quot;over 5.5M repositories ... created this year alone&quot;</td></tr>
+            <tr><td class="num">2018-09-30</td><td class="num">32,000,000</td><td>github.blog · derived: &quot;one third of all repositories were created in the last 12 months&quot; x 96M</td></tr>
+            <tr><td class="num">2019-09-30</td><td class="num">44,000,000</td><td>github.blog</td></tr>
+            <tr><td class="num">2020-09-30</td><td class="num">60,000,000</td><td>octoverse.github.com</td></tr>
+            <tr><td class="num">2021-09-30</td><td class="num">61,000,000</td><td>octoverse.github.com</td></tr>
+            <tr><td class="num">2022-09-30</td><td class="num">85,700,000</td><td>octoverse.github.com</td></tr>
+            <tr><td class="num">2023-09-30</td><td class="num">98,000,000</td><td>altusintel.com</td></tr>
+            <tr><td class="num">2024-09-30</td><td class="num">108,000,000</td><td>github.blog</td></tr>
+            <tr><td class="num">2025-08-31</td><td class="num">121,000,000</td><td>github.blog</td></tr>
+            <tr><td class="num">2026-08-15</td><td class="num">288,000,000</td><td>github.blog · annualised: &quot;new repositories per month rising to about 24M&quot; x 12 (GitHub, Aug 2026)</td></tr>
+            </tbody>
+          </table>
+        </details>
+        <ul class="figs">
+          <li class="fig"><!-- research register §1 #7 and §3.2: "121M new repos", Sep 2024–Aug 2025 (A); Octoverse 2025, https://github.blog/news-insights/octoverse/octoverse-a-new-developer-joins-github-every-second-as-ai-leads-typescript-to-1/ --><span class="fig-num">121M</span><p class="fig-claim">new repositories on GitHub in Sep 2024–Aug 2025</p></li>
+        </ul>
+        <figcaption class="caption" id="curve-cap">Linear scale. Sources: GitHub, its Octoverse reports of 2018 to 2025 and its blog posts of December 2013 and August 2026, and for 2023 a summary of the Octoverse report (altusintel.com). The dotted end is a rate, not a year: about 24M new repositories in August 2026, times twelve.</figcaption>
+        <!-- /chart D-1 -->
+      </figure>
     </div>
-    <div class="boxlist roles">
-      <div class="bl reveal"><svg class="icn"><use href="#i-wrench"/></svg><div><b>Ops can</b><span>run the nightly report on a schedule.</span></div></div>
-      <div class="bl reveal"><svg class="icn"><use href="#i-swap"/></svg><div><b>Sales can</b><span>keep a CRM that reads the team mailbox.</span></div></div>
-      <div class="bl reveal"><svg class="icn"><use href="#i-globe"/></svg><div><b>Finance can</b><span>publish a dashboard behind SSO and TLS.</span></div></div>
-      <div class="bl reveal"><svg class="icn"><use href="#i-box"/></svg><div><b>Engineering can</b><span>give an agent a sandbox with a GPU.</span></div></div>
-      <div class="bl reveal"><svg class="icn"><use href="#i-shield"/></svg><div><b>IT can</b><span>see the workspace exactly as any user sees it.</span></div></div>
-      <div class="bl reveal"><svg class="icn"><use href="#i-agent"/></svg><div><b>An agent can</b><span>rebuild an app from a prompt, inside its own room.</span></div></div>
-    </div>
+  </section>
 
-    <div class="flow-h reveal"><h3>See it happen</h3><span>a paste bin gains uploads</span></div>
-    <div class="flow f6">
-      <figure class="shot reveal">
-        <img src="shots/change-prompt.png" loading="lazy"
-          alt="a browser terminal opened on apps/mempaste, running an agent; the prompt asks for file uploads up to 100MB">
-        <figcaption><span class="sn">1</span>Ask for file uploads.</figcaption>
-      </figure>
-      <figure class="shot reveal">
-        <img src="shots/change-agent-done.png" loading="lazy"
-          alt="the agent's diff and summary: backend and frontend updated, verified end-to-end, committed">
-        <figcaption><span class="sn">2</span>The agent edits, tests, commits.</figcaption>
-      </figure>
-      <figure class="shot reveal">
-        <img src="shots/change-tile-after.png" loading="lazy"
-          alt="the mempaste app after the change: an Upload file button next to Add paste">
-        <figcaption><span class="sn">3</span>Live, no deploy step.</figcaption>
-      </figure>
-    </div>
-
-    <div class="flow-h reveal"><h3>From an empty room</h3><span>a calendar, one prompt</span></div>
-    <div class="flow f6">
-      <figure class="shot reveal">
-        <img src="shots/create-prompt.png" loading="lazy"
-          alt="the new empty home-calendar app with a terminal below it; the prompt describes the calendar to build">
-        <figcaption><span class="sn">1</span>Point an agent at an empty room.</figcaption>
-      </figure>
-      <figure class="shot reveal">
-        <img src="shots/create-agent-done.png" loading="lazy"
-          alt="the agent reports the app built, tested end-to-end, and committed">
-        <figcaption><span class="sn">2</span>Built, tested, committed.</figcaption>
-      </figure>
-      <figure class="shot reveal">
-        <img src="shots/create-task-added.png" loading="lazy"
-          alt="the home-calendar app in use: a Buy Groceries task on the calendar and in the task list">
-        <figcaption><span class="sn">3</span>A working app, minutes later.</figcaption>
-      </figure>
-    </div>
-  </div>
-</section>
-
-<section id="access" class="sec-band">
-  <div class="wrap">
-    <div class="sec-head reveal">
-      <h2>IT holds the keys.</h2>
-    </div>
-    <div class="aud">
-      <div class="card reveal">
-        <h3>Identity and roles</h3>
-        <p>Users and orgs. Invite-only accounts. SSO: Google, Okta, Entra, Keycloak, authentik, GitHub.
-          Viewer, developer, admin.</p></div>
-      <div class="card reveal">
-        <h3>Grants and network policy</h3>
-        <p>Default-deny between apps. Network sets per org. Publishing is an explicit bind, behind your TLS.</p></div>
-      <div class="card reveal">
-        <h3>Sandboxed by the kernel</h3>
-        <p>Rootless namespaces, seccomp, landlock, a read-only base image, resource limits per app.</p></div>
-      <div class="card reveal">
-        <h3>Secrets, backups, audit</h3>
-        <p>An encrypted vault per app. Scheduled backups to any S3. Every approval in the audit log.</p></div>
-    </div>
-  </div>
-</section>
-
-<section id="install" class="installband">
-  <div class="wrap">
-    <h2 class="reveal">Run it yourself.</h2>
-    <p class="lede reveal">One binary on any Linux box. The installer prints its plan and asks first.
-      On macOS it sets up a Lima VM.</p>
-    <div class="bigcmd reveal">
-      <div class="bigcmd-in">
-        <span class="cmd"><span class="pmt">$</span> curl -fsSL https://xbin.dev/install.sh | sh</span>
-        <xb-copy cmd="curl -fsSL https://xbin.dev/install.sh | sh"></xb-copy>
+  <section class="sec sec-rule breaks" id="breaks" aria-labelledby="breaks-h">
+    <div class="wrap split">
+      <div>
+        <p class="label">Today</p>
+        <h2 class="h2" id="breaks-h">The old way breaks.</h2>
+      </div>
+      <div>
+        <ul class="ruled">
+          <li>Every new tool needs a team to run it.</li>
+          <li>Every change waits in a queue.</li>
+          <li>Every agent doing a person’s job is one more thing to watch.</li>
+        </ul>
+        <p class="body">Agents make software faster than any of that can keep up. Companies need a new way to build what they run on.</p>
       </div>
     </div>
-    <div class="reach reveal">
-      <span>tailscale serve 127.0.0.1:8642</span>
-    </div>
-  </div>
-</section>
+  </section>
 
-<section class="ctaband">
+  <section class="field field-cobalt" id="idea" aria-labelledby="idea-h">
+    <div class="wrap">
+      <p class="label">The idea</p>
+      <h2 class="statement" id="idea-h">A company is a set of systems that get things made.</h2>
+      <div class="idea-lines">
+        <p>Agents should build those systems.</p>
+        <p>People and agents build them, and no longer operate them.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec what" id="what" aria-labelledby="what-h">
+    <div class="wrap split">
+      <div>
+        <p class="label">What xbin is</p>
+        <h2 class="h3" id="what-h">xbin is a workspace where people and AI agents build the systems a company runs on, and where those systems run.</h2>
+      </div>
+      <div>
+        <!-- F-1, the 12 s film in a cobalt mat (site/visuals.md), waits for the product theme (D184):
+             until then the section ships without the film, its tab and its caption. -->
+        <ul class="lines">
+          <li>Describe a change to an agent, or make it yourself. Save, and it is live.</li>
+          <li>Every app and every agent works in its own sandbox and reaches only what someone has granted.</li>
+          <li>A person can have their own copy of an app. Other people cannot read it, and admins do not open it.</li>
+        </ul>
+        <a class="more" href="/product.html">See how it works</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="measured" aria-labelledby="measured-h">
+    <div class="wrap">
+      <p class="label">Measured</p>
+      <h2 class="h2" id="measured-h">It works today.</h2>
+      <ul class="figs">
+        <li class="fig">
+          <span class="fig-label">page saved to page on screen</span>
+          <span class="fig-num"><span class="fig-q">under</span>0.35&nbsp;s</span>
+          <p class="fig-claim">On a 96-core workstation, a saved page is on screen in under 0.35&nbsp;s, including a deliberate 0.3&nbsp;s settle.</p>
+        </li>
+        <li class="fig">
+          <span class="fig-label">reads failed in 60 live updates</span>
+          <span class="fig-num"><span class="fig-q" aria-hidden="true">&nbsp;</span>0</span>
+          <p class="fig-claim">On a 96-core workstation, 0 of 5.39 million reads failed across 60 live updates under load, at about 30,000 requests a second.</p>
+        </li>
+        <li class="fig">
+          <span class="fig-label">a person’s own copy, first request</span>
+          <span class="fig-num"><span class="fig-q">under</span>0.3&nbsp;s</span>
+          <p class="fig-claim">On a 96-core workstation, a person’s own copy of a small app starts on their first request in under 0.3&nbsp;s.</p>
+        </li>
+      </ul>
+      <p class="caption measure-note">Measured on a big workstation: an AMD Ryzen Threadripper PRO 7995WX with 96 cores and 755 GiB of RAM, running xbin v0.3.67 on 3 October 2026 alongside other work. Each figure is the slowest sample or the 90th percentile, rounded up. A smaller machine was not measured. Writes that land at the exact moment of an update can fail: 15 of 2.34 million did.</p>
+    </div>
+  </section>
+
+  <section class="band" id="install" aria-labelledby="install-h">
+    <div class="wrap">
+      <h2 class="band-h" id="install-h">Upgrade to exponential era software</h2>
+      <div class="cmds">
+        <div class="cmd cmd-trial" id="try">
+          <h3>Try it free for an hour</h3>
+          <code class="cmd-code" id="cmd-try" tabindex="0">ssh xbin@vcpu.sh</code>
+          <button class="copy" type="button" data-copy="ssh xbin@vcpu.sh" aria-describedby="cmd-try">Copy</button>
+          <p class="cmd-note">All you need is an ssh client.</p>
+          <p class="cmd-link"><a href="https://vcpu.sh/xbin">About the trial ↗</a></p>
+        </div>
+        <div class="cmd">
+          <h3>Install</h3>
+          <code class="cmd-code" id="cmd-install" tabindex="0">curl -fsSL https://xbin.dev/install.sh | sh</code>
+          <button class="copy" type="button" data-copy="curl -fsSL https://xbin.dev/install.sh | sh" aria-describedby="cmd-install">Copy</button>
+          <p class="cmd-note">The installer prints its plan and asks before it changes anything.</p>
+          <p class="cmd-link"><a href="/install.html">Install guide</a></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule closing" id="start" aria-labelledby="start-h">
+    <div class="wrap">
+      <h2 class="h2" id="start-h">Build the systems your company runs on.</h2>
+      <p class="body">People and agents build them in xbin. The systems do the work.</p>
+      <p class="actions"><a class="btn btn-primary btn-lg" href="#try">Try it free for an hour</a> <a class="btn btn-secondary btn-lg" href="https://github.com/xbin-dev/xbin/tree/master/docs">Read the docs ↗</a> <a class="btn btn-secondary btn-lg" href="https://github.com/xbin-dev/xbin">Source on GitHub ↗</a></p>
+    </div>
+  </section>
+</main>
+
+<!-- shared footer: the same on every page (hack/check-website.sh) -->
+<footer class="site-foot">
   <div class="wrap">
-    <h2 class="reveal">Start with one box.</h2>
-    <div class="cta reveal">
-      <a class="btn amber" href="https://vcpu.sh/xbin" target="_blank" rel="noopener">Try it live ↗</a>
-      <span class="oline"><a class="btn" href="#install">Self-host it</a></span>
-      <span class="oline"><a class="btn" href="https://github.com/xbin-dev/xbin/tree/master/docs" target="_blank" rel="noopener">Read the docs</a></span>
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <div class="foot-lockup"><img src="/img/mark.svg" alt="" width="40" height="40"><img src="/img/wordmark.svg" alt="xbin" width="61" height="24"></div>
+        <p class="foot-def">A workspace where people and AI agents build the systems a company runs on.</p>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Product</h2>
+        <ul>
+          <li><a href="/product.html">Product</a></li>
+          <li><a href="/security.html">Security</a></li>
+          <li><a href="/install.html">Install</a></li>
+          <li><a href="/ios.html">iOS app</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Source and docs</h2>
+        <ul>
+          <li><a href="https://github.com/xbin-dev/xbin">Source on GitHub ↗</a></li>
+          <li><a href="https://github.com/xbin-dev/xbin/tree/master/docs">Docs ↗</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Try</h2>
+        <ul>
+          <li><a href="https://vcpu.sh/xbin">Hosted trial ↗</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h2 class="foot-h">Site</h2>
+        <ul>
+          <li><a href="/privacy.html">Privacy</a></li>
+        </ul>
+      </div>
     </div>
-  </div>
-</section>
-
-<footer>
-  <div class="wrap footin">
-    <a class="brand" href="#top">
-      <svg viewBox="0 0 64 64" width="18" height="18"><path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="var(--accent)"></path><path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"></path></svg>X/BIN
-    </a>
-    <a class="lnk" href="https://github.com/xbin-dev/xbin" target="_blank" rel="noopener">GitHub</a>
-    <a class="lnk" href="https://github.com/xbin-dev/xbin/tree/master/docs" target="_blank" rel="noopener">Docs</a>
-    <a class="lnk" href="#install">Install</a>
-    <a class="lnk" href="privacy.html">Privacy</a>
-    <span class="lic">MIT / Apache-2.0 · your box, your rules</span>
+    <p class="foot-note">This site sets no cookies and stores nothing. Light or dark follows your system setting.</p>
   </div>
 </footer>
-
-<xb-lightbox></xb-lightbox>
-
-<script type="module" src="./js/main.js"></script>
-
+<!-- /shared footer -->
+<p class="sr" id="copied" aria-live="polite"></p>
+<script type="module" src="/js/copy.js"></script>
 </body>
 </html>

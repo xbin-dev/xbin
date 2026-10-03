@@ -1,0 +1,20 @@
+$ clear
+[H[2J[3J$ ls
+AGENTS.md  [0m[01;36mCLAUDE.md[0m  [01;34mapps[0m  [01;34mdata[0m  go.work  [01;34mhomes[0m  [01;34mlib[0m  [01;34mroot[0m  [01;34mshell[0m  [01;34mtiles[0m  xbin.json
+$ ls apps tiles
+apps:
+[0m[01;34mhandbook[0m  [01;34mnotes[0m  [01;34morders[0m  [01;34mwelcome[0m
+
+tiles:
+[01;34madmin[0m  [01;34mapidocs[0m  [01;34mmanager[0m  [01;34morganisations[0m
+$ tree apps/orders
+[01;34mapps/orders[0m
+├── [01;34mbackend[0m
+│   └── main.go
+├── go.mod
+├── index.html
+└── xbin.json
+
+2 directories, 4 files
+$ exit
+exit

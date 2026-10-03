@@ -1,0 +1,448 @@
+/* xbin.dev in Base Two (plans/brand.md): layout, the type scale, the stair, fields,
+   screenshot mats, plates, buttons, commands with copy buttons, header, footer and focus.
+   Colours come only from tokens.css. Corners are 2 px wherever one shows. */
+
+/* ---------- base ---------- */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-block:16px}
+body{display:flex;flex-direction:column;min-height:100vh;min-height:100svh;margin:0;background:var(--bg);color:var(--text);font:var(--t-body);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:clip}
+main{flex:1 0 auto}
+img,svg,video{display:block;max-width:100%;height:auto}
+h1,h2,h3,h4,p,ul,ol,dl,dd,figure,blockquote{margin:0}
+ul[class],ol[class]{list-style:none;padding:0}
+a{color:var(--link);text-decoration-thickness:1px;text-underline-offset:.2em}
+a:hover{text-decoration-thickness:2px}
+::selection{background:var(--accent);color:var(--accent-ink)}
+.num{font-variant-numeric:tabular-nums}
+.nowrap{white-space:nowrap}
+
+/* focus: a 3 px cyan ring outside a 2 px gap in the page colour, so it shows on any field;
+   bands and fields reset --focus and --focus-gap for their own ground */
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap)}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.skip{position:absolute;left:var(--edge);top:-200px;z-index:30;padding:12px 16px;border-radius:var(--r);background:var(--accent);color:var(--accent-ink);font:600 15px/1 var(--f-text);text-decoration:none}
+.skip:focus{top:16px}
+
+/* ---------- layout: 12 columns, margins that hold content to 1440 px, bands that bleed ---------- */
+.wrap{padding-inline:var(--edge)}
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:var(--gutter)}
+.sec{padding-block:clamp(64px,8.4vw,128px)}
+.sec-rule{border-top:3px solid var(--text)}
+
+/* ---------- type ---------- */
+.label{display:block;margin-bottom:var(--s-4);font:var(--t-micro);letter-spacing:var(--ls-micro);text-transform:uppercase;color:var(--muted)}
+.label-mono{display:block;margin-bottom:var(--s-4);font:500 13px/16px var(--f-mono);color:var(--muted)}
+.h1{font:var(--t-h1);letter-spacing:var(--ls-h1);text-wrap:balance}
+.h2{font:var(--t-h2);letter-spacing:var(--ls-h2);text-wrap:balance}
+.h3{font:var(--t-h3);letter-spacing:var(--ls-h3);text-wrap:balance}
+.h4{font:var(--t-h4);letter-spacing:var(--ls-h4)}
+.lead{font:var(--t-lead)}
+.body{max-width:68ch;font-size:17px;line-height:1.6;text-wrap:pretty}
+.body + .body{margin-top:var(--s-4)}
+.small{font:var(--t-small)}
+.muted{color:var(--muted)}
+.caption{font:var(--t-small);color:var(--muted)}
+.sec-head .h2{margin-bottom:var(--s-5)}
+.ext::after{content:" ↗";content:" ↗" / ""}
+.more{display:inline-flex;align-items:center;min-height:24px;font:600 16px/1.3 var(--f-text)}
+
+/* ---------- the era stripe: open 1, yellow 1, green 2, magenta 4, cobalt 8 (sixteenths) ---------- */
+.era,.mini{display:flex}
+.era{height:6px}
+.era i,.mini i{display:block;flex:1;height:100%}
+.era i:nth-child(1),.mini i:nth-child(1){box-shadow:inset 0 0 0 1px var(--text)}
+.era i:nth-child(2),.mini i:nth-child(2){background:var(--yellow)}
+.era i:nth-child(3),.mini i:nth-child(3){flex:2;background:var(--green)}
+.era i:nth-child(4),.mini i:nth-child(4){flex:4;background:var(--magenta)}
+.era i:nth-child(5),.mini i:nth-child(5){flex:8;background:var(--cobalt)}
+.page-home .era{height:8px}
+.mini{width:48px;height:8px;flex:none}
+
+/* ---------- header ---------- */
+.site-head{position:relative;z-index:10;border-bottom:1px solid var(--divider)}
+.page-home .site-head{border-bottom:0}
+.head-row{display:flex;align-items:center;gap:var(--s-6);height:64px}
+.lockup{display:flex;align-items:flex-start;gap:7px;flex:none;padding:4px 0;border-radius:var(--r)}
+.lockup img+img{margin-top:5px}
+.nav{display:flex;align-items:center;margin-left:auto}
+.nav-links{display:flex;gap:28px;font:600 15px/1 var(--f-text)}
+.nav-links a{display:block;padding:12px 0;color:var(--text);text-decoration:none;border-radius:var(--r)}
+.nav-links a:hover,.nav-links a[aria-current="page"]{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:9px}
+.menu{display:none}
+.menu summary{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid var(--border);border-radius:var(--r);font:600 14px/1 var(--f-text);cursor:pointer;list-style:none;user-select:none}
+.menu summary::-webkit-details-marker{display:none}
+.menu summary::before{content:"";width:14px;height:10px;border-block:2px solid currentColor;background:linear-gradient(currentColor,currentColor) center/100% 2px no-repeat}
+.menu[open] summary{background:var(--text);border-color:var(--text);color:var(--bg)}
+.menu ul{list-style:none;margin:0;position:absolute;top:100%;left:0;right:0;padding:0 var(--edge);background:var(--bg);border-top:1px solid var(--divider);border-bottom:3px solid var(--text)}
+.menu li + li{border-top:1px solid var(--divider)}
+.menu a{display:flex;align-items:center;min-height:48px;color:var(--text);font:600 16px/1.2 var(--f-text);text-decoration:none}
+.menu a[aria-current="page"]{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:6px}
+
+/* ---------- buttons: cobalt acts; yellow, green and magenta never do ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border:1px solid transparent;border-radius:var(--r);font:600 15px/1.2 var(--f-text);text-decoration:none;white-space:nowrap;cursor:pointer;transition:background-color var(--d-instant) linear}
+.btn:hover{text-decoration:none}
+.btn-primary{background:var(--accent);color:var(--accent-ink)}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-secondary{border-color:var(--border);background:var(--bg);color:var(--text)}
+.btn-secondary:hover{background:var(--surface)}
+.btn-lg{min-height:48px;padding:0 20px;font-size:16px}
+.actions{display:flex;flex-wrap:wrap;gap:var(--s-3)}
+
+/* ---------- the stair: each line twice the size of the last, on fields in doubling order ---------- */
+.stair{--s:clamp(20px,min(2.2vw,2.92vh),44px);margin:0;font-family:var(--f-display);font-weight:800}
+.stair>span{display:block;width:max-content;padding:var(--pt) .3em var(--pb) var(--edge);font-size:calc(var(--s) * var(--m));line-height:var(--lh);letter-spacing:var(--ls);white-space:nowrap;background-color:var(--fld);background-image:var(--grain);color:var(--fld-ink)}
+.st1{--m:1;--lh:1.16;--pt:.08em;--pb:.06em;--ls:-.01em;--fld:var(--yellow);--fld-ink:var(--yellow-ink)}
+.st2{--m:2;--lh:1.06;--pt:.06em;--pb:.04em;--ls:-.02em;--fld:var(--green);--fld-ink:var(--green-ink)}
+.st3{--m:4;--lh:1.04;--pt:.04em;--pb:.05em;--ls:-.035em;--fld:var(--magenta);--fld-ink:var(--magenta-ink)}
+.st4{--m:8;--lh:.8;--pt:.05em;--pb:.1em;--ls:-.045em;--fld:var(--cobalt);--fld-ink:var(--cobalt-ink)}
+@supports (text-box:trim-both cap alphabetic){
+  .stair>span{text-box:trim-both cap alphabetic;line-height:1}
+  .st1{--pt:.34em;--pb:.3em}
+  .st2{--pt:.22em;--pb:.2em}
+  .st3{--pt:.16em;--pb:.27em}
+  .st4{text-box:trim-both ex alphabetic;--pt:.13em;--pb:.13em}
+}
+
+/* ---------- home: the first screen is a diptych, type on paper and the glass hall ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) clamp(400px,44vw,720px);column-gap:var(--gutter);min-height:clamp(600px,calc(100svh - 72px),880px)}
+/* the stair never runs past its column: all four lines shrink together, never grow
+   ("exponential", the widest line, is 5.48 em in Bricolage 800 plus its 0.3 em of field,
+   at x4 on desktop and x2.25 on phones) */
+.hero-copy{container-type:inline-size;display:flex;flex-direction:column;min-width:0;padding-block:clamp(24px,4.4vh,48px) clamp(32px,6vh,64px)}
+.hero .stair{--s:min(clamp(20px,min(2.2vw,2.92vh),44px),calc((100cqw - var(--edge) - 8px) / 23.3))}
+.kicker{display:flex;align-items:center;gap:var(--s-3);margin:0 0 var(--s-5);padding-left:var(--edge);font:600 15px/1.25 var(--f-display);letter-spacing:.005em}
+.hero-def{margin-top:auto;padding:var(--s-7) var(--s-4) 0 var(--edge)}
+.hero-def .lead{max-width:24em;margin-bottom:var(--s-5);font:600 clamp(18px,.7vw + 11px,22px)/1.3 var(--f-text);letter-spacing:-.005em;text-wrap:balance}
+.hero-photo{position:relative;min-height:420px;background:var(--photo-fallback);overflow:hidden}
+.hero-photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:70% 62%}
+
+/* ---------- 02 the curve: the data chart ---------- */
+.curve-head{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--s-5) var(--gutter);align-items:end;margin-bottom:clamp(32px,4vw,56px)}
+.curve-head .body{color:var(--muted)}
+.chart{margin:0}
+/* D-1, drawn by hack/website-chart.mjs: the plot stretches to the frame, its labels stay their size */
+.chart-y{margin-bottom:var(--s-5);font:600 14px/20px var(--f-text)}
+.chart-frame{position:relative;aspect-ratio:21 / 9;margin-left:44px;border-bottom:1px solid var(--text)}
+.chart-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.chart-grid{stroke:var(--divider);stroke-width:1}
+.chart-pre{fill:var(--chart-pre)}
+.chart-post{fill:var(--chart-post)}
+.chart-rule{stroke:var(--text);stroke-width:1}
+.chart-line{fill:none;stroke:var(--text);stroke-width:3;stroke-linejoin:miter;stroke-linecap:square}
+/* an annualised rate is dotted, unfilled, in a hollow square; a projection dashed cobalt */
+.chart-rate{fill:none;stroke:var(--text);stroke-width:3;stroke-dasharray:3 5}
+.chart-proj{fill:none;stroke:var(--cobalt);stroke-width:3;stroke-dasharray:8 6}
+.chart-labels{position:absolute;inset:0;font:var(--t-caption);color:var(--muted)}
+.chart-labels>*{position:absolute}
+.chart-ytick{right:calc(100% + 8px);top:var(--y);transform:translateY(-50%);font:500 12px/1 var(--f-mono);font-variant-numeric:tabular-nums}
+.chart-xtick{top:calc(100% + 8px);left:var(--x);transform:translateX(-50%);font-variant-numeric:tabular-nums}
+.chart-marker{left:var(--x);top:0;max-width:11em;padding:0 0 0 8px;color:var(--text);font:600 13px/1.25 var(--f-text)}
+.chart-dot{top:var(--y);left:var(--x);width:8px;height:8px;margin:-4px 0 0 -4px;background:var(--text)}
+.chart-dot-open{width:10px;height:10px;margin:-5px 0 0 -5px;border:2px solid var(--text);background:var(--bg)}
+.chart-proj-label{top:var(--y);left:var(--x);padding-left:8px;transform:translateY(-50%);font:400 12px/1.3 var(--f-text);white-space:nowrap}
+.chart-today{top:var(--y);left:var(--x);padding-right:14px;transform:translate(-100%,-50%);color:var(--text);font:600 13px/1.25 var(--f-text);text-align:right;white-space:nowrap}
+.chart-today small{display:block;color:var(--muted);font:400 12px/1.3 var(--f-text)}
+/* narrower plots: the latest point's label moves above the frame, clear of the marker's */
+@media (max-width:1100px){
+  .chart-y{margin-bottom:56px}
+  .chart-today{top:auto;bottom:calc(100% + 8px);left:auto;right:calc(100% - var(--x) - 4px);padding:0;transform:none}
+  .chart-marker{padding:0 8px 0 0;transform:translateX(-100%);text-align:right}
+}
+.chart .numbers{margin-top:var(--s-8)}
+.chart .numbers summary{display:inline-flex;align-items:center;gap:10px;min-height:32px;font:600 15px/1.2 var(--f-text);cursor:pointer;border-radius:var(--r);list-style:none}
+.chart .numbers summary::-webkit-details-marker{display:none}
+.chart .numbers summary::before{content:"";border-left:7px solid currentColor;border-block:5px solid transparent;transition:transform var(--d-ui) var(--ease-out)}
+.chart .numbers[open] summary::before{transform:rotate(90deg)}
+.chart table{margin-top:var(--s-4);border-collapse:collapse;font:var(--t-small);font-variant-numeric:tabular-nums}
+.chart th,.chart td{padding:6px 16px 6px 0;border-bottom:1px solid var(--divider);text-align:left;vertical-align:top}
+.chart th{font-weight:600}
+.chart figcaption{margin-top:var(--s-5);max-width:72ch}
+.figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-6) var(--gutter)}
+.chart .figs{margin-top:var(--s-8)}
+.h2 + .figs{margin-top:var(--s-7)}
+.fig{padding-top:var(--s-3);border-top:3px solid var(--text)}
+.fig-label{display:block;font:var(--t-micro);letter-spacing:var(--ls-micro);text-transform:uppercase}
+.fig-num{display:block;margin-top:var(--s-4);font:800 clamp(40px,2.6vw + 14px,56px)/1 var(--f-display);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.fig-q{display:block;margin-bottom:var(--s-1);font:600 15px/1.2 var(--f-text);letter-spacing:0}
+.fig-claim{margin-top:var(--s-3);max-width:34em;font:var(--t-small)}
+.measure-note{margin-top:var(--s-7);max-width:80ch}
+
+/* the slot a research figure fills: visible on purpose until it is filled */
+mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg);color:var(--warn);outline:1px dashed var(--warn);font:500 13px/1.6 var(--f-mono);letter-spacing:0;text-transform:none;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+
+/* ---------- 03 what breaks ---------- */
+.split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:var(--s-6) var(--gutter);align-items:start}
+.ruled{display:grid;gap:var(--s-6)}
+.ruled li{padding-top:var(--s-4);border-top:3px solid var(--text);font:var(--t-h3);letter-spacing:var(--ls-h3);text-wrap:balance}
+.breaks .body{margin-top:var(--s-7)}
+
+/* ---------- 04 the idea: the page's one field band ---------- */
+.field{background-color:var(--fld);background-image:var(--grain);color:var(--fld-ink);--focus:var(--fld-ink);--focus-gap:var(--fld);--link:var(--fld-ink)}
+.field-cobalt{--fld:var(--cobalt);--fld-ink:var(--cobalt-ink)}
+.field .wrap{padding-block:var(--s-10)}
+.field .label{color:inherit}
+.statement{max-width:15em;font:var(--t-display);letter-spacing:var(--ls-display);text-wrap:balance}
+.idea-lines{display:grid;gap:var(--s-3);margin-top:var(--s-7);max-width:60rem}
+.idea-lines p{font:var(--t-h3);letter-spacing:var(--ls-h3);text-wrap:balance}
+
+/* ---------- 05 what xbin is ---------- */
+.what .h3{max-width:40ch;margin-bottom:var(--s-5)}
+.lines li{padding-block:var(--s-4);border-top:1px solid var(--divider);font-size:17px;line-height:1.55}
+.lines li:last-child{border-bottom:1px solid var(--divider)}
+.lines + .more{margin-top:var(--s-5)}
+
+/* ---------- screenshot mats: a solid mat in the part's colour, a tab that names the part ---------- */
+.mat{position:relative;margin:30px 0 0;padding:10px;border-radius:var(--r);background-color:var(--mat);background-image:var(--grain)}
+.mat img,.mat video{width:100%;height:auto;background:var(--mat)}
+.mat-tab{position:absolute;left:0;bottom:100%;padding:8px 12px 5px;border-radius:var(--r) var(--r) 0 0;background-color:var(--mat);background-image:var(--grain);color:var(--mat-ink);font:600 13px/1 var(--f-text);letter-spacing:.01em}
+.mat-shell{--mat:var(--cobalt);--mat-ink:var(--cobalt-ink)}
+.mat-terminal{--mat:var(--green);--mat-ink:var(--green-ink)}
+.mat-agents{--mat:var(--magenta);--mat-ink:var(--magenta-ink)}
+.mat-admin{--mat:var(--yellow);--mat-ink:var(--yellow-ink)}
+.shot{margin:0}
+.shot figcaption{margin-top:var(--s-3);font:var(--t-small);color:var(--muted)}
+/* a shot that waits for its capture, while a page is built (website/shots.todo.md): a concrete
+   frame at the shot's aspect inside its mat, the visual's ID marked, hidden from assistive
+   technology (the alt text goes on the capture); make website refuses to deploy one */
+.ph{display:grid;place-items:center;aspect-ratio:16 / 10;background:var(--surface-2)}
+.ph-phone{aspect-ratio:1179 / 2556}
+
+/* ---------- plates: the 1970s sign plate, an ink bar over label and value rows ---------- */
+.plate{border:3px solid var(--text);border-radius:var(--r);background:var(--bg)}
+.plate-h{display:flex;justify-content:space-between;gap:var(--s-3);padding:12px 18px 11px;background:var(--text);color:var(--bg);font:800 13px/1.2 var(--f-display);letter-spacing:var(--ls-micro);text-transform:uppercase}
+.plate dl{margin:0}
+.plate dl>div{display:grid;grid-template-columns:132px minmax(0,1fr);gap:var(--s-4);padding:10px 18px;border-top:1px solid var(--divider)}
+.plate dl>div:first-child{border-top:0}
+.plate dt{font:800 11px/20px var(--f-display);letter-spacing:var(--ls-micro);text-transform:uppercase}
+.plate dd{margin:0;font-size:15px;line-height:20px}
+.plate>p{padding:14px 18px;font:var(--t-small)}
+
+/* ---------- commands: mono, one line, selectable in one click; Copy needs the js/ island ---------- */
+.copy{flex:none;min-height:32px;padding:0 14px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg);color:var(--text);font:600 14px/1 var(--f-text);cursor:pointer}
+.copy:hover{background:var(--surface)}
+.code{display:flex;align-items:flex-start;gap:var(--s-3);padding:12px 12px 12px 18px;border:1px solid var(--divider);border-radius:var(--r);background:var(--surface)}
+.code pre{flex:1;min-width:0;margin:0;padding:6px 0;overflow-x:auto;font:500 14px/1.6 var(--f-mono);font-variant-ligatures:none}
+/* sized to its block so the command stays on one line: 0.6 em a character, plus half a pixel
+   each for platforms that round glyph advances to whole pixels; never under 12 px, or 10 px
+   under 360 px, where the install command needs it to fit (320 px: 43 characters in 288 px,
+   10.25 px; at 11 px a rounded 7 px advance runs 13 px over) */
+.cmd-code{display:block;min-width:0;overflow-x:auto;white-space:nowrap;font:500 clamp(var(--cmd-min,12px),calc((100cqw - var(--reserve) - var(--chars) * .5px) / (var(--chars) * .6 + .2)),20px)/1.35 var(--f-mono);font-variant-ligatures:none;user-select:all;-webkit-user-select:all;scrollbar-width:none;border-radius:var(--r)}
+.cmd-code::-webkit-scrollbar{display:none}
+.cmd-code::before{content:"$ ";content:"$ " / "";color:var(--band-prompt);user-select:none;-webkit-user-select:none}
+
+/* ---------- 07 the command band: both calls to action, the trial first ---------- */
+.band{background-color:var(--band);background-image:var(--grain);color:var(--band-text);--focus:var(--band-focus);--focus-gap:var(--band);--link:var(--band-text);--text:var(--band-text);--border:var(--band-soft)}
+.band .wrap{padding-block:clamp(48px,6vw,88px)}
+.band-h{margin-bottom:clamp(28px,3.4vw,48px);font:var(--t-h2);letter-spacing:var(--ls-h2);text-wrap:balance}
+.cmds{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-7) var(--gutter)}
+.cmd{container-type:inline-size;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"h h" "code copy" "note note" "link link";align-items:center;column-gap:var(--s-3);padding-top:var(--s-4);border-top:3px solid var(--band-text);--reserve:96px;--chars:45}
+.cmd h3{grid-area:h;margin-bottom:var(--s-4);font:var(--t-h4);letter-spacing:var(--ls-h4)}
+.cmd .cmd-code{grid-area:code}
+.cmd .copy{grid-area:copy;border:0;background:var(--band-action);color:var(--band-action-ink)}
+.cmd .copy:hover{background:var(--band-action-hover)}
+.cmd-trial{--chars:18}
+.cmd-note{grid-area:note;margin-top:var(--s-3);font:var(--t-small);color:var(--band-soft)}
+.cmd-link{grid-area:link;margin-top:var(--s-3);font:600 15px/1.3 var(--f-text)}
+.cmd-link a{display:inline-flex;align-items:center;min-height:24px;border-radius:var(--r)}
+
+/* ---------- 08 the closing call ---------- */
+.closing .h2{max-width:20em}
+.closing .body{margin-top:var(--s-4)}
+.closing .actions{margin-top:var(--s-6)}
+
+/* ---------- Inform pages: crumb, h1 in ink, the lead; plates beside ---------- */
+.ihero{padding-block:clamp(40px,7vw,96px) clamp(48px,6vw,88px)}
+.crumb{margin-bottom:20px;font:var(--t-micro);letter-spacing:var(--ls-micro);text-transform:uppercase;color:var(--muted)}
+.crumb b{color:var(--text);font-weight:inherit}
+.ihero .h1{max-width:13em}
+.ihero .lead{max-width:38em;margin-top:var(--s-5);font:400 clamp(17px,.5vw + 12px,19px)/1.55 var(--f-text)}
+
+/* ---------- prose (the privacy page) ---------- */
+.prose{max-width:72ch;padding-block:clamp(40px,7vw,96px) clamp(64px,8vw,112px)}
+.prose .date{margin:var(--s-3) 0 var(--s-6);color:var(--muted)}
+.prose .lead{padding:var(--s-4) 20px;border-top:3px solid var(--text);border-radius:var(--r);background:var(--surface);font:500 18px/1.6 var(--f-text)}
+.prose h2{margin:56px 0 var(--s-4);padding-top:var(--s-4);border-top:3px solid var(--text);font:var(--t-h3);letter-spacing:var(--ls-h3)}
+.prose p,.prose li{font-size:17px;line-height:1.6}
+.prose ul{margin:var(--s-3) 0;padding-left:1.25em}
+.prose li{margin:var(--s-2) 0;padding-left:.2em}
+.prose li::marker{color:var(--muted)}
+.prose code{padding:1px 5px;border-radius:var(--r);background:var(--surface);font:500 .86em/1 var(--f-mono);word-break:break-all}
+
+/* ---------- 404 ---------- */
+.nf{padding-block:clamp(32px,6vw,80px) clamp(64px,8vw,112px)}
+.nf .stair{--s:clamp(24px,3vw,48px)}
+.nf .st3{--pb:.06em}
+@supports (text-box:trim-both cap alphabetic){.nf .st3{--pb:.18em}}
+.nf-body{max-width:36em;margin-top:clamp(32px,4vw,56px)}
+.nf-body .body{margin-bottom:var(--s-6)}
+.link-list{border-top:3px solid var(--text)}
+.link-list a{display:flex;align-items:center;min-height:48px;border-bottom:1px solid var(--divider);color:var(--text);font:600 17px/1.2 var(--f-text);text-decoration:none}
+.link-list a:hover{text-decoration:underline;text-decoration-thickness:2px}
+
+/* ========== security.html and ios.html only (body.page-security, body.page-ios) ========== */
+/* heroes: copy beside the facts plate (7 + 5); on iOS the status plate under the lead, until
+   the phone screens (S-10) stand beside it; a tighter section step */
+:is(.page-security,.page-ios) .sec{padding-block:clamp(48px,6vw,96px)}
+.page-security .ih-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--s-7) var(--gutter);align-items:start}
+.page-security .ihero .actions,.page-ios .ihero .plate{margin-top:var(--s-6)}
+.page-ios .ihero .plate{max-width:38rem}
+.page-security :is(.ihero .caption,.evidence+.caption){margin-top:var(--s-4)}
+.page-security .split .h2+.body{margin-top:var(--s-5)}
+.page-security .col-body{padding-top:var(--s-6)}
+/* 01: four numbered columns between hairlines */
+.page-security .four{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:3px solid var(--text)}
+.page-security .four li{padding:var(--s-5) var(--s-5) var(--s-5) 0}
+.page-security .four li+li{padding-left:var(--s-5);border-left:1px solid var(--divider)}
+.page-security .four-n{font:500 13px/16px var(--f-mono);color:var(--muted)}
+.page-security .four .h4{margin:var(--s-3) 0 var(--s-2)}
+/* 04 lead-ins in two columns; 07 cards in the .figs grid; 08 evidence rows */
+.page-security .leadins{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-5) var(--gutter)}
+.page-security .leadins .body{margin:0;padding-top:var(--s-3);border-top:1px solid var(--divider)}
+.page-security .card{padding:var(--s-5) var(--s-5) var(--s-6);border-radius:var(--r);background:var(--surface)}
+:is(.page-security,.page-ios) .figs .h4{margin-bottom:var(--s-2)}
+.page-security .evidence li{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--s-1) var(--s-5)}
+/* iOS: the parts' magenta rules (C-3) */
+.page-ios .figs{row-gap:var(--s-7)}
+.page-ios .fig{border-top-color:var(--magenta)}
+@media (max-width:1100px){
+  .page-security .four{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .page-security .four li:nth-child(odd){padding-left:0;border-left:0}
+  .page-security .four li:nth-child(n+3){border-top:1px solid var(--divider)}
+}
+@media (max-width:900px){
+  .page-security .ih-grid{grid-template-columns:minmax(0,1fr)}
+  .page-security .col-body{padding-top:0}
+}
+@media (max-width:600px){
+  /* the hero's two large buttons share a row on a 390 px phone only in the web font, by
+     a pixel, so the font's arrival moved the page: on phones they always stack */
+  .page-security .ihero .actions{flex-direction:column;align-items:flex-start}
+  .page-security :is(.leadins,.four){grid-template-columns:minmax(0,1fr)}
+  .page-security .four :is(li,li+li){padding-left:0;border-left:0}
+  .page-security .four li+li{border-top:1px solid var(--divider)}
+}
+/* ========== /security.html and ios.html ========== */
+
+/* ---------- footer ---------- */
+.site-foot{border-top:3px solid var(--text);background:var(--foot)}
+.site-foot .wrap{padding-block:var(--s-7) var(--s-6)}
+.foot-grid{display:grid;grid-template-columns:minmax(0,4fr) repeat(4,minmax(0,2fr));gap:var(--s-6) var(--gutter)}
+.foot-lockup{display:flex;align-items:flex-start;gap:10px}
+.foot-lockup img+img{margin-top:11px}
+.foot-def{max-width:26em;margin-top:var(--s-4);font:var(--t-small)}
+.foot-h{margin-bottom:var(--s-3);font:var(--t-micro);letter-spacing:var(--ls-micro);text-transform:uppercase;color:var(--muted)}
+.foot-col ul{list-style:none;padding:0}
+.foot-col a{display:inline-flex;align-items:center;min-height:28px;color:var(--text);font-size:15px;text-decoration:none;border-radius:var(--r)}
+.foot-col a:hover{text-decoration:underline}
+.foot-note{margin-top:var(--s-7);padding-top:var(--s-4);border-top:1px solid var(--divider);font:var(--t-small);color:var(--muted)}
+
+/* ---------- motion: grows once, then holds still ---------- */
+@keyframes grow{from{transform:scaleX(0)}}
+@keyframes wipe{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+.page-home .era i{transform-origin:left center;animation:grow .7s var(--ease-out) both}
+.page-home .era i:nth-child(3){animation-delay:80ms}
+.page-home .era i:nth-child(4){animation-delay:160ms}
+.page-home .era i:nth-child(5){animation-delay:320ms}
+.stair>span{animation:wipe var(--d-announce) var(--ease-out) backwards}
+.st1{animation-delay:100ms}
+.st2{animation-delay:180ms}
+.st3{animation-delay:340ms}
+.st4{animation-delay:660ms}
+
+/* ---------- tablets and phones ---------- */
+@media (max-width:900px){
+  .head-row{height:56px;gap:var(--s-3)}
+  .nav-links{display:none}
+  .menu{display:block}
+  .head-row>.btn{min-height:36px;padding:0 12px;font-size:14px}
+  .hero{display:flex;flex-direction:column;min-height:0}
+  /* phones keep the photograph in the first screen: a strip of floor light, the stair over its edge */
+  .hero-photo{order:-1;height:112px;min-height:0}
+  .hero-photo img{object-position:58% 92%}
+  .hero-copy{position:relative;z-index:1;margin-top:-40px;padding:0 0 var(--s-7)}
+  .hero .stair{order:1;--s:min(clamp(18px,6.6vw,30px),calc((100cqw - var(--edge) - 4px) / 13.1))}
+  .hero .st2{--m:1.5}
+  .hero .st3{--m:2.25}
+  .hero .st4{--m:4.5}
+  .kicker{order:2;margin:var(--s-5) 0 0}
+  .hero-def{order:3;margin-top:0;padding-top:var(--s-4)}
+  .curve-head,.split{grid-template-columns:minmax(0,1fr)}
+  .chart-frame{aspect-ratio:4 / 3}
+  .figs{grid-template-columns:minmax(0,1fr)}
+  .field .wrap{padding-block:var(--s-8)}
+  .mat{padding:8px}
+  .cmds{grid-template-columns:minmax(0,1fr)}
+  .cmd{grid-template-areas:"h h" "code code" "note copy" "link link";--reserve:0px}
+  .cmd .copy{margin-top:var(--s-3)}
+  .foot-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .foot-brand{grid-column:1 / -1}
+  .nf .stair{--s:clamp(22px,8vw,36px)}
+  .nf .st2{--m:1.5}
+  .nf .st3{--m:2.25}
+}
+@media (max-width:900px) and (prefers-color-scheme:dark){
+  .hero-photo img{object-position:52% 88%}
+}
+@media (max-width:600px){
+  .plate dl>div{grid-template-columns:minmax(0,1fr);gap:2px}
+}
+@media (max-width:480px){
+  .cmd{--chars:43}
+  .cmd-trial{--chars:16}
+  .cmd-code::before{content:none}
+}
+@media (max-width:359px){
+  .cmd{--cmd-min:10px}
+}
+
+/* ---------- preferences ---------- */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important;scroll-behavior:auto !important}
+}
+@media (prefers-contrast:more){
+  :root{--divider:var(--text);--grain:none}
+}
+
+/* ---------- product.html and install.html only: every rule is scoped by .page-product or .page-install ---------- */
+/* Inform hero: the plate beside the h1 (under the buttons on phones), jump links under it */
+.page-product .ihero-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-7) var(--gutter);align-items:start}
+:is(.page-product,.page-install) .ihero :is(.actions,.more){margin-top:var(--s-6)}
+.page-product .jump{display:flex;flex-wrap:wrap;margin-top:var(--s-4);font:600 14px/24px var(--f-text)}
+.page-product .jump li:not(:last-child)::after{content:"·";content:"·" / "";padding:0 9px;color:var(--muted)}
+.page-product .jump a{display:inline-flex;align-items:center;min-height:24px}
+/* a section's copy in one column; the visual opposite it, sides alternating (phones: after it) */
+:is(.page-product,.page-install) .flow>*+*{margin-top:var(--s-4)}
+:is(.page-product,.page-install) .flow>.h2+*{margin-top:var(--s-5)}
+.page-product .flow>h3{margin-top:var(--s-7)}
+.page-product .flow>h3+*{margin-top:var(--s-3)}
+.page-product .flow>.fig{margin-top:var(--s-6)}
+.page-product .figs+.caption{margin-top:var(--s-4)}
+.page-product .split.flip{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.page-product .flip>.flow{grid-column:2;grid-row:1}
+.page-product .flip>.flow+*{grid-column:1;grid-row:1}
+.page-product .proof{align-self:end}
+.page-product .figs{grid-template-columns:repeat(2,minmax(0,1fr))}
+.page-product .it{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--gutter)}
+.page-product .it li{padding-block:var(--s-4);border-top:1px solid var(--divider);font-size:17px;line-height:1.55}
+.page-product .it+.more{margin-top:var(--s-5)}
+.page-product #measured{padding-top:0}
+.page-product #measured .plate{max-width:52rem}
+.page-product .band .btn{background:var(--band-action);color:var(--band-action-ink)}
+.page-product .band .btn:hover{background:var(--band-action-hover)}
+/* install: one command per band, the four steps. Install is Inform, strictly (brand §12.2:
+   paper or ink, the era stripe the only colour), so in dark its bands are concrete, not cobalt */
+@media (prefers-color-scheme:dark){.page-install .band{--band:var(--c-900)}}
+.page-install .cmd{max-width:760px}
+.page-install .cmd>p:first-child{grid-area:h;margin-bottom:var(--s-4);max-width:60ch;font-size:17px;line-height:1.5}
+.page-install .steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--s-6) var(--gutter);margin-block:var(--s-7) var(--s-8)}
+.page-install .steps li{padding-top:var(--s-3);border-top:3px solid var(--text)}
+.page-install .steps h3{margin-bottom:var(--s-2)}
+:is(.page-product,.page-install) :is(.body,dd) code{font:500 .9em/1 var(--f-mono);font-variant-ligatures:none}
+@media (max-width:900px){
+  .page-product :is(.ihero-grid,.split.flip){grid-template-columns:minmax(0,1fr)}
+  .page-product .flip>.flow,.page-product .flip>.flow+*{grid-column:auto;grid-row:auto}
+  .page-install .steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:600px){
+  .page-product :is(.figs,.it),.page-install .steps{grid-template-columns:minmax(0,1fr)}
+}
