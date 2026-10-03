@@ -324,7 +324,8 @@ vendor:
 
 # Assemble the static xbin.dev site into website/dist (no build step: the
 # files as they are, website/README.md): every page, css/, fonts/, img/, the
-# photographs' crops in art/, js/, data/, app/, install.sh, og.png and the icons, and
+# photographs' crops in art/, the product shots in shots/ (*.webp; its PNGs are the
+# repository README's), js/, data/, app/, install.sh, og.png and the icons, and
 # website/media/ as website/media.lock pins it (the site's check runs first,
 # with --dist). It refuses to build a site that would stop serving the
 # prebuilt helpers: when hack/helpers.sha256 lists sets, the site serves them
@@ -340,6 +341,7 @@ website:
 	@rm website/dist/og.html
 	@cp -r website/css website/fonts website/img website/data website/app website/dist/
 	@cp website/art/*.webp website/dist/art/
+	@if ls website/shots/*.webp >/dev/null 2>&1; then mkdir -p website/dist/shots && cp website/shots/*.webp website/dist/shots/; fi
 	@if [ -d website/js ]; then cp -r website/js website/dist/; fi
 	@grep '^[^#[:space:]]' website/media.lock | awk '{print $$2}' | while read -r f; do \
 	  mkdir -p "website/dist/media/$$(dirname "$$f")" && cp "website/media/$$f" "website/dist/media/$$f"; done

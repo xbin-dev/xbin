@@ -20,7 +20,8 @@ python3 -m http.server 9421 --bind 127.0.0.1 --directory website
 | `index.html` | Announce, then Inform, then Work | The story: the hero (kicker, the stair, the lead, two buttons; the glass hall beside it, a strip of it on phones), `#curve` (software made per year, 1950s to today), `#breaks`, `#idea` (the page's one field band, cobalt), `#what`, `#measured`, `#install` (both commands, the trial first, `#try` on its block), `#start` (the closing call). `id="top"` is the hero. |
 | `product.html` | Inform | How xbin works: the hero with the "At a glance" plate beside the h1 and jump links under it, eight parts with the copy and its visual on alternating sides (`#underneath`, `#workspace`, `#apps`, `#agents`, `#per-person`, `#grants`, `#bx`, `#ios`), `#it`, the measurement plate `#measured`, and the band `#get` (buttons only, the trial first). |
 | `install.html` | Inform | The install guide: the hero, the install command on the band (`#command`), the installer's four steps and S-11 (`#first`), `#requirements` (a plate), the trial command on the band (`#trial`: every other page's "Try it free" links there), `#upgrade`. |
-| `security.html`, `ios.html` | Inform | Stubs: the deck's crumb, H1 and lead in the Inform hero, inside `<main data-todo="page">`. The page builders set the rest of each deck. |
+| `security.html` | Inform, strictly | For IT (`site/security.md`): the hero beside the facts plate (`#facts`), then `#default-deny`, `#sandboxes`, `#grants` (S-5, waiting for its capture), `#identity`, `#oversight` (S-9, an interim still), `#per-person`, `#vault`, `#evidence`, `#next`. No field, stair or photograph. |
+| `ios.html` | Inform | The iOS app in beta testing (`site/ios.md`): the hero with the status plate beside the three phone screens (S-10, waiting for the beta build's capture), `#features` under magenta part rules, `#next`. No store badge, link or date. |
 | `privacy.html` | Inform | The privacy policy, restyled; its title, description and words are unchanged and pinned (see Checks). |
 | `404.html` | Announce, small | The three-line stair and plain links; root-relative URLs so it works at any depth; `noindex`. |
 | `og.html` | — | Not a page: the share card's artwork, rendered to `og.png` (below). |
@@ -64,12 +65,19 @@ else holds a hex value. `css/site.css` is the components, by the brand's names:
   on one line, the `$ ` prompt drawn by CSS and never copied, `button.copy
   data-copy="…"`), or `.code` with a `pre` elsewhere;
 - Inform pages: `.ihero` (crumb, h1, lead); the privacy text: `.prose`; the 404:
-  `.nf`, `.link-list`.
+  `.nf`, `.link-list`;
+- security and iOS (their own section, scoped to `body.page-security` and
+  `body.page-ios`): `.ih-grid` (the hero's copy beside the facts plate or the phone
+  screens), `.four`, `.leadins`, `.card`, `.evidence`, `.phones`, and `.shot-todo`, a
+  shot that waits for its capture: `figure.shot` with the visual's description in
+  `data-shot`, its part's mat around a neutral frame at the shot's ratio with the alt
+  text as its `aria-label`, the visual's ID in the corner. Swap in the image when the
+  capture exists.
 
-A page's own rules sit at the end of `css/site.css`, each scoped by the page's body
-class (`.page-product`, `.page-install`: the hero grid, `.flow` copy columns, `.flip`
-for a visual on the left, `.ph` shot frames, `.phones`, `.it`, `.steps`). Every rule
-counts against every page's 60 KB, so keep them few.
+Product and install have their own section at the end of `css/site.css`, each rule
+scoped by the page's body class (`.page-product`, `.page-install`: the hero grid,
+`.flow` copy columns, `.flip` for a visual on the left, `.ph` shot frames, `.phones`,
+`.it`, `.steps`). Every rule counts against every page's 60 KB, so keep them few.
 
 Corners are 2 px wherever one shows; focus is the cyan ring (3 px, 2 px gap) from
 `:focus-visible`; motion plays once and is off under `prefers-reduced-motion`.
@@ -131,6 +139,11 @@ open in the same tab and carry ↗.
   interim still where the film set has one that matches: `img/shots/*-interim.webp`,
   WebP from `.film-media/stills` (the current theme, one theme only), its alt marked
   `TODO-COPY`. The film F-1 ships without a stand-in, as `site/visuals.md` says.
+- **Security's shots** (`shots/*.webp`, served at `/shots/`; the PNGs beside them are
+  the old site's, kept for the repository README and not served): `S-9-interim.webp` is
+  the film set's still of view-as-user (`.film-media/stills/07-admin-desk-view-as.png`,
+  the current product theme) at 1600 × 1000, until the Concrete Day and Night captures
+  replace it as `S-9-light.webp` and `S-9-dark.webp` in a `<picture>` (`site/visuals.md`).
 - **Media over 1 MiB** (the 12 s film, later) stays out of git: it lives in
   `website/media/` (gitignored) and `media.lock` pins each file's sha256 and source.
 
@@ -198,9 +211,9 @@ each rule on a copy of the site):
 
 New with Base Two: `/product.html`, `/security.html`, `/install.html`, `/ios.html`,
 `/404.html`, `/favicon.svg`, `/apple-touch-icon.png`, `/css/`, `/fonts/`, `/img/`,
-`/art/`, `/data/software-per-year.json`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
-`/shots/` and its IBM Plex fonts (`website/shots/` stays in git for the repository
-README's image).
+`/art/`, `/data/software-per-year.json`, `/js/copy.js`, `/shots/*.webp`. No longer served: the old site's `/js/` islands, `/vendor/`,
+its `/shots/*.png` and its IBM Plex fonts (those PNGs stay in `website/shots/` for the
+repository README's image).
 
 ### app/ios.json: the iOS app's kill switch
 

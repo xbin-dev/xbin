@@ -267,6 +267,58 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .link-list a{display:flex;align-items:center;min-height:48px;border-bottom:1px solid var(--divider);color:var(--text);font:600 17px/1.2 var(--f-text);text-decoration:none}
 .link-list a:hover{text-decoration:underline;text-decoration-thickness:2px}
 
+/* ========== security.html and ios.html only (body.page-security, body.page-ios) ========== */
+/* heroes: copy beside the facts plate (7 + 5) or the phone screens (6 + 6); a tighter section step */
+:is(.page-security,.page-ios) .sec{padding-block:clamp(48px,6vw,96px)}
+:is(.page-security,.page-ios) .ih-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--s-7) var(--gutter);align-items:start}
+.page-ios .ih-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+:is(.page-security,.page-ios) .ihero .actions,.page-ios .ihero .plate{margin-top:var(--s-6)}
+.page-security :is(.ihero .caption,.evidence+.caption){margin-top:var(--s-4)}
+.page-security .split .h2+.body{margin-top:var(--s-5)}
+.page-security .col-body{padding-top:var(--s-6)}
+/* 01: four numbered columns between hairlines */
+.page-security .four{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:3px solid var(--text)}
+.page-security .four li{padding:var(--s-5) var(--s-5) var(--s-5) 0}
+.page-security .four li+li{padding-left:var(--s-5);border-left:1px solid var(--divider)}
+.page-security .four-n{font:500 13px/16px var(--f-mono);color:var(--muted)}
+.page-security .four .h4{margin:var(--s-3) 0 var(--s-2)}
+/* 04 lead-ins in two columns; 07 cards in the .figs grid; 08 evidence rows */
+.page-security .leadins{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-5) var(--gutter)}
+.page-security .leadins .body{margin:0;padding-top:var(--s-3);border-top:1px solid var(--divider)}
+.page-security .card{padding:var(--s-5) var(--s-5) var(--s-6);border-radius:var(--r);background:var(--surface)}
+:is(.page-security,.page-ios) .figs .h4{margin-bottom:var(--s-2)}
+.page-security .evidence li{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--s-1) var(--s-5)}
+/* a shot that waits for its capture: a neutral frame at its ratio, its visual ID in the corner */
+:is(.page-security,.page-ios) .shot-todo{display:flex;align-items:flex-end;aspect-ratio:16/10;padding:var(--s-3);background:var(--surface-2);color:var(--muted);font:500 12px/1 var(--f-mono)}
+:is(.page-security,.page-ios) .shot-todo::after{content:attr(data-id)}
+/* iOS: phone screens staggered by 24 px steps, rising to the right; the parts' magenta rules (C-3) */
+.page-ios .shot-todo{aspect-ratio:1179/2556}
+.page-ios .phones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-4)}
+.page-ios .phones li:first-child{margin-top:48px}
+.page-ios .phones li:nth-child(2){margin-top:24px}
+.page-ios .figs{row-gap:var(--s-7)}
+.page-ios .fig{border-top-color:var(--magenta)}
+@media (max-width:1100px){
+  .page-security .four{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .page-security .four li:nth-child(odd){padding-left:0;border-left:0}
+  .page-security .four li:nth-child(n+3){border-top:1px solid var(--divider)}
+}
+@media (max-width:900px){
+  :is(.page-security,.page-ios) .ih-grid{grid-template-columns:minmax(0,1fr)}
+  .page-security .col-body{padding-top:0}
+  .page-ios .phones{max-width:640px}
+}
+@media (max-width:600px){
+  .page-security :is(.leadins,.four){grid-template-columns:minmax(0,1fr)}
+  .page-security .four :is(li,li+li){padding-left:0;border-left:0}
+  .page-security .four li+li{border-top:1px solid var(--divider)}
+  /* the phone screens: a row that scrolls sideways, edge to edge */
+  .page-ios .phones{display:flex;gap:var(--s-3);margin-inline:calc(var(--edge) * -1);padding:0 var(--edge) var(--s-2);overflow-x:auto;scroll-snap-type:x mandatory;scroll-padding-inline:var(--edge)}
+  .page-ios .phones li:nth-child(n){flex:0 0 min(52%,240px);margin:0;scroll-snap-align:start}
+  .page-ios .phones:focus-visible{outline-offset:-3px}
+}
+/* ========== /security.html and ios.html ========== */
+
 /* ---------- footer ---------- */
 .site-foot{border-top:3px solid var(--text);background:var(--foot)}
 .site-foot .wrap{padding-block:var(--s-7) var(--s-6)}
