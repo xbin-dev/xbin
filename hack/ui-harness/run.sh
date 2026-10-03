@@ -172,7 +172,12 @@ start() {
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
-build() { (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai); }
+build() {
+  (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai)
+  # VMs need the in-guest agent beside xbind (the demo set's coding
+  # sandboxes are VMs; without it they stay empty)
+  if [[ -n "$HARNESS_ISOLATE" ]]; then (cd "$REPO" && CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent); fi
+}
 # The seeded agent tiles keep their data in encrypted resources: without a
 # gocryptfs binary xbind HOLDS them (every call a 502). Look for one the way
 # xbind does (internal/resenc Resolve: $XBIN_GOCRYPTFS, next to bin/xbind,

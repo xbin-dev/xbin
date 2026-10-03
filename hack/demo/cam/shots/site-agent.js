@@ -75,7 +75,7 @@ module.exports.setup = async (cam) => {
   // the agent alone on her screen: the width a conversation reads at (a
   // phone: the whole screen, its first card)
   await cam.sh((t, a) => t.setGeom(() => [{ path: a.tile, x: 0, y: 0, w: a.w, h: a.h }]),
-    { tile: site.AGENT, w: 912, h: site.isPhone(cam) ? 690 : 528 });
+    { tile: site.AGENT, w: 864, h: site.isPhone(cam) ? 690 : 528 });
   await site.fitPhone(cam);
   const doc = await site.tile(cam, site.AGENT, A.composer);
   // an earlier take's conversation goes (only that one: by its title)
