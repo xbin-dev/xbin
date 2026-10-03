@@ -11,8 +11,9 @@ export const timelineCss = css`
   .tl h2 { margin: 0 0 6px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
   .tl .lane { position: relative; height: 104px; margin: 0 8px; }
   .tl .track { position: absolute; left: 0; right: 0; bottom: 18px; height: 4px; border-radius: 2px; background: var(--bx-border); }
-  .tl .mark { position: absolute; bottom: 14px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--bx-panel-2); }
-  .tl .mark.late { background: var(--bad); }
+  .tl .mark { position: absolute; bottom: 14px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--bx-panel-2); z-index: 1; }
+  /* a late go-live's mark is drawn over a neighbour's, never hidden under it */
+  .tl .mark.late { background: var(--bad); z-index: 2; }
   .tl .stem { position: absolute; bottom: 26px; width: 1px; background: var(--bx-border); }
   .tl .tag { position: absolute; font-size: 11.5px; white-space: nowrap; padding: 1px 0; }
   .tl .tag b { font-weight: 600; }

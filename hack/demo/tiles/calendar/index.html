@@ -18,8 +18,9 @@
     const pad = (n) => String(n).padStart(2, '0');
     const key = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     const monday = (d) => { const m = new Date(d); m.setHours(12, 0, 0, 0); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return m; };
-    // the work week to show: this one, or on a weekend the coming one
-    const workWeek = () => { const t = new Date(), m = monday(t); if (t.getDay() === 0 || t.getDay() === 6) m.setDate(m.getDate() + 7); return m; };
+    // the work week to show: this one — on a weekend, the one just ended,
+    // whose Friday a set seeded then is dated (hack/demo/clock.py)
+    const workWeek = () => monday(new Date());
     const fmt = (d, o) => d.toLocaleDateString('en-US', o);
     const nowHM = () => { const n = new Date(); return `${pad(n.getHours())}:${pad(n.getMinutes())}`; };
 
@@ -107,7 +108,9 @@
           <div class="t">${ev.time}</div><div class="x">${title}</div>${people ? html`<div class="p">${people}</div>` : nothing}</div>`;
       }
       _agenda(today, hm) {
-        const i = Math.max(0, this._days.findIndex((d) => key(d.date) >= today));
+        // from today on — on a weekend, the week's last day
+        let i = this._days.findIndex((d) => key(d.date) >= today);
+        if (i < 0) i = Math.max(0, this._days.length - 2);
         const days = this._days.slice(i, i + 2);
         return html`<div class="agenda">${days.map((d) => html`
           <h2>${key(d.date) === today ? html`<b>Today</b> · ` : ''}${fmt(d.date, { weekday: 'long', month: 'short', day: 'numeric' })}</h2>

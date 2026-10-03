@@ -1,7 +1,7 @@
 // apps/telematics — the feeds live dispatch will read (feeds.json): van
 // positions from the customers' telematics providers and the weather
-// alerts for the depots' counties. A new tile on the film set: its `net`
-// interface is left for an admin to bind (hack/demo/seed.sh), which is
+// alerts for the depots' counties. A new tile on the film set: its `egress`
+// interface (a net) is left for an admin to bind (hack/demo/seed.sh), which is
 // what the shell's "interfaces to bind" shows them. It makes no network
 // calls of its own — the feeds' API keys and the sync aren't part of the
 // set — and only serves the feed list to its page.

@@ -11,4 +11,4 @@ rollout — with progress toward go-live, the next step, and the checklist.
   (`GET /api/apps/crm/accounts/<id>`; this tile holds a reader grant).
 - **New onboarding:** copy a checklist from `templates.js` into a new key.
 
-Built by Lark from Priya's brief (BRIEF.md).
+Built by Merrow from Priya's brief (BRIEF.md).

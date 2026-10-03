@@ -1,4 +1,4 @@
-# Onboarding tracker — brief for Lark
+# Onboarding tracker — brief for Merrow
 
 We track customer onboarding in a spreadsheet that nobody opens. I'd like a
 small tile instead:

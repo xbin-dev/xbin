@@ -1,17 +1,22 @@
 {
-  "_comment": "The demo film set's fictional company (hack/demo/README.md). Every name, address and number here is invented; domains are under the reserved .example TLD (RFC 2606) and phone numbers in the fictional 555-01xx range. seed.sh reads this file: people become xbin users (password below), teams become orgs.",
+  "_comment": "The demo film set's fictional company (hack/demo/README.md). Every name, address and number here is invented; phone numbers are in the fictional 555-01xx range. Addresses and hostnames stay out of frame: people sign in by their id (no SSO email on their accounts), the set's tiles show names rather than addresses, and git identities use the private-use .internal domain (gitDomain); the fixtures' own addresses (reserved .example, RFC 2606) never reach a screen. seed.sh reads this file: people become xbin users, teams become orgs. Their password is random per set: hack/demo/up.sh and the UI harness make one, keep it mode 600 beside the workspace (<workspace>.password) and print it once.",
   "company": {
     "name": "Larkspan",
     "legalName": "Larkspan Inc.",
     "tagline": "Route planning and live dispatch for regional delivery fleets",
     "description": "Larkspan makes route-planning and live-dispatch software for regional delivery fleets — grocery co-ops, pharmacy distributors, building suppliers and couriers running 10 to 400 vans. Thirteen people, remote-first, with a small office and a training yard in Columbus, Ohio.",
     "domain": "larkspan.example",
+    "gitDomain": "larkspan.internal",
     "founded": 2021,
     "hq": "Columbus, Ohio",
+    "timeZone": "America/New_York",
     "currency": "USD",
     "icon": "data/brand-icon.svg"
   },
-  "password": "larkspan-demo",
+  "agent": {
+    "_comment": "The team's AI agent (the builtin agent template): its name in the system prompt, the captions and its git identity, and its tile. Renaming it is this block, the tile paths in data/layouts.json and the name in data/model-script.json's words.",
+    "name": "Merrow", "id": "merrow", "tile": "apps/merrow"
+  },
   "people": [
     { "id": "maya",   "name": "Maya Okafor",      "title": "CEO & co-founder",                "role": "user",  "orgs": { "leadership": "admin", "sales": "member" } },
     { "id": "tomas",  "name": "Tomás Reyes",      "title": "CTO & co-founder",                "role": "admin", "orgs": { "leadership": "member", "engineering": "admin" } },
@@ -34,9 +39,10 @@
     { "id": "operations",        "name": "Operations",      "description": "Dispatch support, finance and people" }
   ],
   "personas": {
-    "_comment": "Who the stills and footage sign in as.",
+    "_comment": "Who the stills and footage sign in as (phone: the iOS app's footage, native/ios/scripts/footage.sh).",
     "admin": "tomas",
     "person": "priya",
+    "phone": "maya",
     "expenses": ["daniel", "priya"]
   }
 }

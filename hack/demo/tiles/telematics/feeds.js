@@ -19,8 +19,7 @@ class TelematicsFeeds extends LitElement {
     .f:last-child { border-bottom: 0; }
     .n { font-weight: 600; font-size: 13px; }
     .w { color: var(--bx-muted); font-size: 12px; }
-    .h { font: 11.5px var(--bx-mono); color: var(--bx-muted); }
-    .st { grid-row: 1 / span 2; grid-column: 2; align-self: center; text-align: right; }
+    .st { grid-column: 2; align-self: center; text-align: right; }
     .t { font-size: 11px; color: var(--bx-muted); margin-top: 4px; }
     .chip { font-size: 11px; padding: 2px 9px; }
   `];
@@ -42,7 +41,6 @@ class TelematicsFeeds extends LitElement {
       <div class="list">${this._feeds.map((f) => html`<div class="f">
         <div><span class="n">${f.name}</span> <span class="w">· ${f.what}</span></div>
         <div class="st"><span class="chip warn"><span class="dot warn"></span>waiting for network</span><div class="t">${f.every}</div></div>
-        <div class="h">${f.host}</div>
       </div>`)}</div>
     </div>`;
   }

@@ -1,8 +1,8 @@
 {
-  "_comment": "The feeds apps/telematics (hack/demo/tiles/telematics) will keep live dispatch supplied with: the customers' telematics providers (fictional, like everything on the set, under .example) and the weather service. The tile is new on the set: seed.sh binds its net interface through the egress approver, and the website's network still unbinds it to film an admin deciding. It makes no network calls; this list is only what its page shows. seed.sh copies it into the tile as feeds.json.",
+  "_comment": "The feeds apps/telematics (hack/demo/tiles/telematics) will keep live dispatch supplied with: the customers' telematics providers and the weather alerts — all three fictional, like everything on the set, and shown by name only (no hostnames on camera). The tile is new on the set: seed.sh binds its egress interface through the egress approver, and the website's network still unbinds it to film an admin deciding. It makes no network calls; this list is only what its page shows. seed.sh copies it into the tile as feeds.json.",
   "feeds": [
-    { "id": "fleetgrid", "name": "Fleetgrid", "host": "api.fleetgrid.example", "what": "Van positions: Brightwell, Kettle Creek, Bluestem", "every": "every 30 s" },
-    { "id": "routewise", "name": "Routewise Telematics", "host": "gps.routewise.example", "what": "Van positions: Riverbend Dairy", "every": "every 30 s" },
-    { "id": "nws", "name": "National Weather Service", "host": "api.weather.gov", "what": "Weather alerts for the depots' counties", "every": "every 5 min" }
+    { "id": "fleetgrid", "name": "Fleetgrid", "what": "Van positions: Brightwell, Kettle Creek, Bluestem", "every": "every 30 s" },
+    { "id": "routewise", "name": "Routewise Telematics", "what": "Van positions: Riverbend Dairy", "every": "every 30 s" },
+    { "id": "galewatch", "name": "Galewatch", "what": "Severe-weather alerts for the depots' counties", "every": "every 5 min" }
   ]
 }

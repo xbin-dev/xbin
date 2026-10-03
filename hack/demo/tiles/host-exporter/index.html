@@ -30,7 +30,7 @@
           xbin.fetch(`/api/${xbin.self}/status`).then((r) => r.json())]);
         out.innerHTML = text.split('\n').map((l) => l.startsWith('#') ? esc(l)
           : esc(l).replace(/^([^\s{]+)(\{[^}]*\})?\s(.+)$/, (_, n, lb, v) => `<span class="n">${n}</span>${lb || ''} <span class="v">${v}</span>`)).join('\n');
-        st.textContent = `${s.host} · ${s.cpus} CPUs · ${s.scrapes} scrapes served`;
+        st.textContent = `${s.host} · ${s.scrapes} scrapes served`;
       } catch (e) { st.textContent = String(e.message || e); }
     }
     tick(); setInterval(tick, 3000);

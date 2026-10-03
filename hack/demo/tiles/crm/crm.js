@@ -11,7 +11,7 @@ const TYPE_ICON = { call: '☏', email: '✉', meeting: '◷', note: '✎', stag
 
 const av = (id, name, big) => html`<span class="av ${big ? 'lg' : ''}" style="--h:${hue(id)}" title=${name || id}>${initials(name || id)}</span>`;
 
-class LarkCrm extends LitElement {
+class LarkspanCrm extends LitElement {
   static properties = {
     _view: { state: true }, _sum: { state: true }, _deals: { state: true }, _accounts: { state: true },
     _activity: { state: true }, _open: { state: true }, _detail: { state: true }, _q: { state: true },
@@ -61,6 +61,14 @@ class LarkCrm extends LitElement {
     .card .when.soon { color: var(--bx-accent); }
     .closed { display: flex; gap: 8px; padding: 0 14px 14px; flex-wrap: wrap; }
     .closed .chip { font-size: 11px; padding: 3px 9px; }
+    /* (after the rules it narrows) a phone: the numbers two to a row, the stages one under another */
+    @container (max-width: 560px) {
+      .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; overflow: visible; }
+      .kpi { border-right: 0; margin-right: 0; padding-right: 0; }
+      .board { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+      .col { min-height: 0; }
+      .search { display: none; }
+    }
 
     /* accounts */
     table { width: 100%; border-collapse: collapse; font-size: 12.3px; }
@@ -271,7 +279,7 @@ class LarkCrm extends LitElement {
       <div class="line">
         <span class="chip">${a.status === 'customer' ? a.plan : a.status === 'lost' ? 'Lost' : 'Prospect'}</span>
         ${h ? html`<span class="chip ${h[0]}"><span class="dot ${h[0]}"></span>${h[1]}</span>` : nothing}
-        <span class="muted">${a.industry} · ${a.city} · <span class="mono">${a.domain}</span>${a.since ? ` · customer since ${new Date(a.since).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}</span>
+        <span class="muted">${a.industry} · ${a.city}${a.since ? ` · customer since ${new Date(a.since).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}</span>
       </div>
       <p class="about">${a.about}</p>
       <div class="facts">
@@ -290,10 +298,10 @@ class LarkCrm extends LitElement {
       ${d.contacts.length ? html`<section><span class="label">People</span>
         ${d.contacts.map((c) => html`<div class="contact">${av(c.email, c.name, true)}<div>
           <div class="nm">${c.name}${c.primary ? html` <span class="chip" style="margin-left:4px">primary</span>` : nothing}</div>
-          <div class="sub">${c.title} · <span class="mono">${c.email}</span> · ${c.phone}</div></div></div>`)}</section>` : nothing}
+          <div class="sub">${c.title} · ${c.phone}</div></div></div>`)}</section>` : nothing}
       ${d.activity.length ? html`<section><span class="label">Activity</span>${d.activity.map((x) => this._event(x, false))}</section>` : nothing}
     </aside>`;
   }
 }
 
-customElements.define('lark-crm', LarkCrm);
+customElements.define('larkspan-crm', LarkspanCrm);

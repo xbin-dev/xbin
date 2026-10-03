@@ -1,13 +1,16 @@
 // apps/host-exporter — the machine this workspace runs on, in Prometheus
 // text format at GET /metrics: load, memory, CPU time, network and disk,
 // read from /proc and statfs at every scrape (nothing cached, nothing
-// invented). Bound into the metrics dashboard's `sources` interface.
+// invented). Bound into the metrics dashboard's `sources` interface. The
+// host goes by the set's label for it (HOST_LABEL, routing-01), never by
+// the machine's own name: a film set's frames don't name the box it runs on.
 'use strict';
 const fs = require('fs');
 const os = require('os');
 const { json, serve } = require('./tile');
 
 const started = Date.now();
+const HOST = process.env.HOST_LABEL || 'routing-01';
 let scrapes = 0;
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
@@ -63,5 +66,5 @@ function metrics() {
 
 serve([
   ['GET', '/metrics', (req, res) => { res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' }); res.end(metrics()); }],
-  ['GET', '/status', (req, res) => json(res, { host: os.hostname(), cpus: os.cpus().length, scrapes, uptime: Math.round((Date.now() - started) / 1000) })],
+  ['GET', '/status', (req, res) => json(res, { host: HOST, scrapes, uptime: Math.round((Date.now() - started) / 1000) })],
 ]);

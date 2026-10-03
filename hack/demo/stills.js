@@ -10,7 +10,12 @@ const { login, closeCtx, sh, fr, waitFor, openShell, settle, sleep, log, fs, OUT
 const STILLS = process.env.DEMO_STILLS || path.join(OUT, 'stills');
 const VIEW = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 };
 const company = JSON.parse(fs.readFileSync(path.join(__dirname, 'company.json'), 'utf8'));
-const PASS = company.password;
+// the set's password: random per set (hack/demo/lib.sh demo_password; run.sh
+// exports it), else the file beside the harness's workspace
+const PASS = process.env.DEMO_PASSWORD || (() => {
+  try { return fs.readFileSync(`${process.env.WS}.password`, 'utf8').trim(); } catch { return ''; }
+})();
+const AGENT = company.agent.tile;
 
 async function still(page, name) {
   fs.mkdirSync(STILLS, { recursive: true });
@@ -36,15 +41,15 @@ async function screen(page, id) {
   await sleep(400);
 }
 const shown = (f, sel, timeout = 30000) => f.waitForSelector(sel, { timeout });
-// openConversation: Lark's conversation of that title, by its link (#c=<id>)
-async function openConversation(lark, title) {
-  await shown(lark, `text=${title}`);
-  const id = await lark.evaluate(async (title) => {
+// openConversation: Merrow's conversation of that title, by its link (#c=<id>)
+async function openConversation(agent, title) {
+  await shown(agent, `text=${title}`);
+  const id = await agent.evaluate(async (title) => {
     const d = await (await xbin.fetch(`/api/${xbin.self}/conversations`)).json();
     return [...(d.pinned || []), ...(d.items || [])].find((r) => r.title === title)?.id;
   }, title);
   if (!id) throw new Error(`no conversation "${title}"`);
-  await lark.evaluate((id) => { location.hash = `c=${id}`; }, id);
+  await agent.evaluate((id) => { location.hash = `c=${id}`; }, id);
 }
 
 async function person(browser, who) {
@@ -61,15 +66,15 @@ async function demoStills(browser) {
   // ---- a regular person: Priya, customer success ----
   {
     const { ctx, page } = await person(browser, P);
-    // Today: Lark with the renewal-call prep, and the day's calendar
+    // Today: Merrow with the renewal-call prep, and the day's calendar
     await screen(page, 's-today');
-    const lark = await tile(page, 'apps/lark');
-    await openConversation(lark, 'Brightwell renewal call prep');
-    await shown(lark, 'text=Worth raising');
+    const agent = await tile(page, AGENT);
+    await openConversation(agent, 'Brightwell renewal call prep');
+    await shown(agent, 'text=Worth raising');
     // from the top of the answer (the question is pinned above it): its
     // thinking, the CRM and ops-report calls it made, then what it found —
     // scrolling the chat only, never the shell around it
-    await lark.evaluate(() => {
+    await agent.evaluate(() => {
       const card = document.querySelector('#timeline .tcard');
       const top = card?.previousElementSibling?.classList.contains('think') ? card.previousElementSibling : card;
       let box = card?.parentElement;
@@ -78,7 +83,7 @@ async function demoStills(browser) {
     });
     await shown(await tile(page, 'apps/calendar'), '.ev');
     await sleep(800);
-    await still(page, '01-person-today-lark');
+    await still(page, '01-person-today-agent');
 
     // Customers: the pipeline board, then an account
     await screen(page, 's-customers');
@@ -91,7 +96,7 @@ async function demoStills(browser) {
     await sleep(500);
     await still(page, '03-person-crm-account');
 
-    // Onboarding: the tracker Lark built, one checklist open
+    // Onboarding: the tracker Merrow built, one checklist open
     await screen(page, 's-onboarding');
     const ob = await tile(page, 'apps/onboarding');
     await shown(ob, '.card');
@@ -125,7 +130,7 @@ async function demoStills(browser) {
     await sleep(Number(process.env.DEMO_METRICS_WAIT || 20000));
     await still(page, '07-admin-ops');
 
-    // Build: the tile Lark built, with its history (Lark's commits) open
+    // Build: the tile Merrow built, with its history (Merrow's commits) open
     await screen(page, 's-build');
     await shown(await tile(page, 'apps/onboarding'), '.card');
     await fr(page, 'apps/onboarding', (f) => f.open('code'));
@@ -145,14 +150,14 @@ async function demoStills(browser) {
     await still(page, '08-admin-agent-built-app');
     await fr(page, 'apps/onboarding', (f) => f.closeTerminal());
 
-    // Lark's automations: the schedules and the team chat channel
+    // Merrow's automations: the schedules and the team chat channel
     await screen(page, 's-today');
-    const lark = await tile(page, 'apps/lark');
-    await lark.evaluate(() => { location.hash = '#auto'; });
-    await shown(lark, '.autos-page');
+    const agent = await tile(page, AGENT);
+    await agent.evaluate(() => { location.hash = '#auto'; });
+    await shown(agent, '.autos-page');
     await sleep(800);
-    await still(page, '09-admin-lark-automations');
-    await lark.evaluate(() => { location.hash = ''; });
+    await still(page, '09-admin-agent-automations');
+    await agent.evaluate(() => { location.hash = ''; });
     await closeCtx(ctx, page);
   }
 

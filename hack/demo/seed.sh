@@ -13,18 +13,24 @@
 #                      sandboxes, people's partitions (apps/expenses, the
 #                      agent), the coding sandboxes on xbind's own runtime
 #      FAKEOPENAI_ADDR  the scripted model the seed's conversations are played
-#                      by (hack/fakeopenai -script hack/demo/data/lark-script.json)
+#                      by (hack/fakeopenai -script hack/demo/data/model-script.json)
 #      DEMO_LLM=real    after seeding, point the gateway at real providers: an
 #                      ANTHROPIC_API_KEY and/or OPENAI_API_KEY from the
 #                      environment (DEMO_MODEL_LARGE / DEMO_MODEL_SMALL pick
 #                      the models; README.md). Seeding itself never calls one.
 #      DEMO_KEEP_ADMIN=1  keep xbind --dev's own admin/admin account
-#      DEMO_TZ          the time zone the set's times of day are in (default:
-#                      this machine's — the one the browser filming it shows)
+#      DEMO_PASSWORD    the people's password (up.sh and the harness make a
+#                      random one per set; lib.sh demo_password)
+#      DEMO_TZ, NOW_MS, DEMO_DAY  the set's clock (clock.py; up.sh and the
+#                      harness compute it once and export TZ with it): the
+#                      time zone the set's times of day are in (default the
+#                      company's), its "now" and its day
 set -uo pipefail
 D="$(cd "$(dirname "$0")" && pwd)"
 REPO=${REPO:-$(cd "$D/../.." && pwd)}
+. "$D/lib.sh"
 : "${URL:?URL (the workspace) is required}" "${WS:?WS (the workspace directory) is required}" "${TOKEN:?TOKEN (the owner token) is required}"
+: "${DEMO_PASSWORD:?DEMO_PASSWORD (the password of the set: hack/demo/up.sh makes one) is required}"
 DATA="$D/data" TILES="$D/tiles" COMPANY="$D/company.json"
 DEMO_ISOLATE=${DEMO_ISOLATE:-${HARNESS_ISOLATE:-}}
 [[ "$DEMO_ISOLATE" == 0 ]] && DEMO_ISOLATE=""
@@ -37,40 +43,32 @@ started=$(date +%s)
 py() { python3 - "$@"; }
 # cfield EXPR: a value of company.json (a python expression on c)
 cfield() { python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$COMPANY" "$1"; }
-PASS=$(cfield 'c["password"]')
+PASS=$DEMO_PASSWORD
 DOMAIN=$(cfield 'c["company"]["domain"]')
+GIT_DOMAIN=$(cfield 'c["company"]["gitDomain"]')
 ADMIN=$(cfield 'c["personas"]["admin"]')
-# The demo's clock: relative times in the fixtures ("18 minutes ago") are
-# anchored to working hours — now on a weekday between 08:00 and 19:00,
-# else the last weekday's late afternoon — so a set seeded at night still
-# reads like a working day.
-NOW_MS=$(python3 -c 'import datetime as dt
-n = dt.datetime.now()
-if n.weekday() < 5 and 8 <= n.hour < 19: a = n
-else:
-    d = n if n.hour >= 19 else n - dt.timedelta(days=1)
-    while d.weekday() >= 5: d -= dt.timedelta(days=1)
-    a = d.replace(hour=16, minute=40, second=0, microsecond=0)
-print(int(a.timestamp() * 1000))')
-export NOW_MS
-# …and its wall clock: this machine's time zone, which the tiles' backends
-# read the fixtures' times of day in ("15:10", the 05:30 run) — a tile
-# sandbox under --isolate runs on UTC
-DEMO_TZ=${DEMO_TZ:-${TZ:-$(python3 -c 'import os; print(os.path.realpath("/etc/localtime").partition("zoneinfo/")[2] or "UTC")')}}
-export DEMO_TZ
-# The demo's day: today on a weekday, else the coming Monday — the week the
-# calendar opens on. Fixture text names days relative to it, counted in
-# working days: {{weekday:+1}} "Monday", {{date:+4}} "Oct 9", {{longdate:+4}}
+AGENT_TILE=$(cfield 'c["agent"]["tile"]') AGENT_NAME=$(cfield 'c["agent"]["name"]') AGENT_ID=$(cfield 'c["agent"]["id"]')
+# The demo's clock (clock.py): one time zone — the company's; the tiles'
+# backends read the fixtures' times of day in it ("15:10", the 05:30 run; a
+# tile sandbox under --isolate runs on UTC), git and this script too (TZ) —
+# one "now" that relative times in the fixtures ("18 minutes ago") hang
+# off, anchored to working hours (now on a weekday between 08:00 and 19:00,
+# else the last working day's late afternoon, so a set seeded at night
+# still reads like a working day, never one in the future), and one day:
+# NOW_MS's date.
+demo_clock || exit 1
+export NOW_MS DEMO_TZ DEMO_DAY
+# Fixture text names days relative to the demo's day, counted in working
+# days: {{weekday:+1}} "Monday", {{date:+4}} "Oct 9", {{longdate:+4}}
 # "October 9", {{nth:+4}} "9th", {{iso:-2}} "2026-10-01" (the calendar's
-# dates). hack/fakeopenai fills the same placeholders in the model's script,
-# so Lark's answers agree with the calendar and the CRM. The fixtures are
-# read from a filled copy.
+# dates). hack/fakeopenai fills the same placeholders in the model's script
+# (up.sh starts it with -day DEMO_DAY), so the agent's answers agree with
+# the calendar and the CRM. The fixtures are read from a filled copy.
 mkdir "$TMP/data"
 python3 - "$D/data" "$TMP/data" <<'PY'
 import datetime as dt, os, re, shutil, sys
 src, dst = sys.argv[1], sys.argv[2]
-day = dt.date.today()
-while day.weekday() >= 5: day += dt.timedelta(days=1)
+day = dt.date.fromisoformat(os.environ["DEMO_DAY"])
 def shift(n):
     d, step = day, (1 if n >= 0 else -1)
     for _ in range(abs(n)):
@@ -142,7 +140,8 @@ print("" if v is None else v)' "$1"; }
 login() {
   [[ -s "$TMP/jar.$1" ]] && return 0
   local code
-  code=$(curl -sS -o /dev/null -w '%{http_code}' -c "$TMP/jar.$1" --data-urlencode "username=$1" --data-urlencode "password=$PASS" "$URL/login")
+  # (the password on curl's stdin, never in its argv)
+  code=$(printf '%s' "$PASS" | curl -sS -o /dev/null -w '%{http_code}' -c "$TMP/jar.$1" --data-urlencode "username=$1" --data-urlencode "password@-" "$URL/login")
   if ! grep -q xbin "$TMP/jar.$1" 2>/dev/null; then echo "!! login $1 → $code"; fails=$((fails + 1)); rm -f "$TMP/jar.$1"; return 1; fi
 }
 # frame_token user tile: $FT, that person's frame token for the tile (once).
@@ -200,17 +199,26 @@ print((m.get("uses") or [{}])[0].get("target", ""))' "$src/xbin.json")"
 }
 
 # commit_as PATH "Name <email>" WHEN MESSAGE — the tile's own repo records
-# its current content as that person's work, at WHEN (a date(1) string).
+# its current content as that person's work, at WHEN: "<±N> days HH:MM",
+# N days from the set's day (one on a weekend: the Friday before) at that
+# time of day in the set's zone (TZ) — so git's dates agree with the
+# fixtures' and carry the company's UTC offset.
 commit_as() {
   local dir="$WS/$1" who=$2 when msg=$4
-  when=$(date -d "$3" '+%Y-%m-%dT%H:%M:%S')
+  when=$(python3 -c 'import datetime as dt, os, re, sys
+m = re.fullmatch(r"\s*([+-]?\d+)\s+days?\s+(\d{1,2}):(\d{2})\s*", sys.argv[1])
+if not m: sys.exit(f"commit_as: WHEN is \"<+-N> days HH:MM\", got {sys.argv[1]!r}")
+d = dt.date.fromisoformat(os.environ["DEMO_DAY"]) + dt.timedelta(days=int(m[1]))
+while d.weekday() >= 5: d -= dt.timedelta(days=1)
+print(f"{d.isoformat()}T{int(m[2]):02d}:{m[3]}:00")' "$3") || { echo "!! $1: $when"; fails=$((fails + 1)); return 1; }
   local name=${who% <*} email=${who#*<}
   email=${email%>}
   git -C "$dir" add -A >/dev/null 2>&1
   GIT_AUTHOR_NAME=$name GIT_AUTHOR_EMAIL=$email GIT_COMMITTER_NAME=$name GIT_COMMITTER_EMAIL=$email \
     GIT_AUTHOR_DATE=$when GIT_COMMITTER_DATE=$when git -C "$dir" commit -q --allow-empty -m "$msg" >/dev/null 2>&1 || true
 }
-person() { cfield "next(f'{p[\"name\"]} <{p[\"id\"]}@{c[\"company\"][\"domain\"]}>' for p in c['people'] if p['id']=='$1')"; }
+# person ID: their git identity, "Name <id@gitDomain>" (company.json)
+person() { cfield "next(f'{p[\"name\"]} <{p[\"id\"]}@{c[\"company\"][\"gitDomain\"]}>' for p in c['people'] if p['id']=='$1')"; }
 
 # =========================================================================
 say "people and teams ($(cfield 'c["company"]["name"]'))"
@@ -220,16 +228,21 @@ for o in json.load(open(sys.argv[1]))["orgs"]: print(json.dumps({"id": o["id"], 
 PY
 while read -r o; do api POST /orgs "$o"; done < "$TMP/orgs"
 # Every member works at terminal level on their org's tiles; each org's
-# admins manage it (Leadership reads the other teams' tiles: below).
-py "$COMPANY" "$PASS" "$DOMAIN" > "$TMP/users" <<'PY'
-import json, sys
-c = json.load(open(sys.argv[1])); pw, dom = sys.argv[2], sys.argv[3]
-for p in c["people"]:
+# admins manage it (Leadership reads the other teams' tiles: below). They
+# sign in with a password, so their accounts carry no email (an account's
+# email is its SSO binding, docs/auth.md): none shows in the admin console.
+# (The password never rides an argv: python reads it from its environment
+# and each account goes to curl as a file.)
+mkdir -m 700 "$TMP/users"
+py "$COMPANY" "$TMP/users" <<'PY'
+import json, os, sys
+c = json.load(open(sys.argv[1])); pw = os.environ["DEMO_PASSWORD"]
+for i, p in enumerate(c["people"]):
     orgs = [{"org": o, "level": "terminal", "create": True, "admin": lvl == "admin"} for o, lvl in p["orgs"].items()]
-    print(json.dumps({"id": p["id"], "name": p["name"], "role": p["role"], "email": f'{p["id"]}@{dom}',
-                      "password": pw, "termNet": True, "orgs": orgs}))
+    json.dump({"id": p["id"], "name": p["name"], "role": p["role"], "password": pw, "termNet": True, "orgs": orgs},
+              open(os.path.join(sys.argv[2], f"{i:02d}-{p['id']}.json"), "w"))
 PY
-while read -r u; do api POST /users "$u"; done < "$TMP/users"
+for u in "$TMP"/users/*.json; do api POST /users "@$u"; done
 
 say "branding: the company's name and mark in place of xbin's"
 ICON=$(base64 -w0 < "$DATA/brand-icon.svg")
@@ -238,8 +251,11 @@ api PUT /branding "{\"title\":\"$(cfield 'c["company"]["name"]')\",\"icon\":\"da
 say "network sets, attached to the teams"
 api PUT /net-sets/internet     '{"rules":["internet"]}'
 api PUT /net-sets/office-lan   '{"rules":["lan:10.20.0.0/16"]}'
-api PUT /net-sets/routing-apis '{"rules":["internet:*.mapdata.example:443","internet:api.geocode.example:443"]}'
-api PUT /net-sets/depot-iot    '{"rules":["lan:10.20.64.0/20","internet:*.telematics.example:443"]}'
+# (no hostnames: the map and telematics vendors' would be real companies' —
+# the routing APIs are HTTPS anywhere, the depots' gateways are on the LAN
+# and their broker speaks MQTT over TLS)
+api PUT /net-sets/routing-apis '{"rules":["internet:443"]}'
+api PUT /net-sets/depot-iot    '{"rules":["lan:10.20.64.0/20","internet:8883"]}'
 # Operations' tiles may also go out through the egress approver (below),
 # where each new destination waits for a person
 api PUT /net-sets/approved-egress '{"rules":["provider:apps/egress-approver"]}'
@@ -292,10 +308,9 @@ TRIES=240 until_ok GET "/api/apps/calendar/events?day=$(date +%F)"
 # the one-offs on their (filled) dates, the weekly ones from last week's
 # Monday through the next two weeks, in time order within a day
 py "$DATA/calendar.json" > "$TMP/events" <<'PY'
-import json, sys, datetime as dt
+import json, os, sys, datetime as dt
 fx = json.load(open(sys.argv[1]))
-day = dt.date.today()
-while day.weekday() >= 5: day += dt.timedelta(days=1)
+day = dt.date.fromisoformat(os.environ["DEMO_DAY"])
 monday = day - dt.timedelta(days=day.weekday() + 7)
 evs = [{"day": e["date"], "time": e["time"], "title": e["title"]} for e in fx["events"]]
 for w in fx["weekly"]:
@@ -381,38 +396,42 @@ sbx() {
     "$(python3 -c 'import json,sys; print(json.dumps({"name": sys.argv[1], "size": sys.argv[2], "egress": "internet", "start": sys.argv[3] == "1"}))' "$2" "$3" "$4")"
 }
 if [[ -n "$sandboxes" ]] && TRIES=300 until_ok -u tomas -f apps/coding-sandbox GET /api/apps/coding-sandbox/sbx/hello; then
+  # the team's quotas, so the operators' page shows usage against them
+  call PUT /api/apps/coding-sandbox/ops/config '{"quotas":{"consumer":{"sandboxes":24,"running":10,"memMiB":65536,"vcpus":32,"diskGiB":600},"person":{"sandboxes":4,"running":2,"memMiB":16384,"vcpus":8,"diskGiB":120}}}'
   sbx lukas planner-oom-repro medium 1
   sbx tomas routing-engine small 1
   sbx hana driver-app-4-12 small 0
 fi
 
-say "Lark, the team's agent (builtin agent template)"
-if [[ -n "$DEMO_ISOLATE" ]]; then api POST /templates/new '{"source":"agent","path":"apps/lark"}'   # partitioned: each person's own
-else api POST /templates/new '{"source":"agent","path":"apps/lark","partition":false}'; fi
-api POST /grants '{"from":"apps/lark","target":"cap:open-links","role":"writer"}'
-api POST /bindings '{"component":"apps/lark","slot":"llm","providers":["apps/llm-gw"]}'
-api POST /bindings '{"component":"apps/lark","slot":"mcp","providers":["apps/crm","apps/ops-report"]}'
-api POST /bindings '{"component":"apps/lark","slot":"sandboxes","providers":["apps/coding-sandbox"]}'
-api POST /bindings '{"component":"apps/lark","slot":"net","provider":"none"}'
-TRIES=300 until_ok GET /api/apps/lark/config
-py "$COMPANY" > "$TMP/lark-config.json" 3<<<"$R" <<'PY'
+say "$AGENT_NAME, the team's agent (builtin agent template, $AGENT_TILE)"
+if [[ -n "$DEMO_ISOLATE" ]]; then api POST /templates/new "{\"source\":\"agent\",\"path\":\"$AGENT_TILE\"}"   # partitioned: each person's own
+else api POST /templates/new "{\"source\":\"agent\",\"path\":\"$AGENT_TILE\",\"partition\":false}"; fi
+api POST /grants "{\"from\":\"$AGENT_TILE\",\"target\":\"cap:open-links\",\"role\":\"writer\"}"
+api POST /bindings "{\"component\":\"$AGENT_TILE\",\"slot\":\"llm\",\"providers\":[\"apps/llm-gw\"]}"
+api POST /bindings "{\"component\":\"$AGENT_TILE\",\"slot\":\"mcp\",\"providers\":[\"apps/crm\",\"apps/ops-report\"]}"
+api POST /bindings "{\"component\":\"$AGENT_TILE\",\"slot\":\"sandboxes\",\"providers\":[\"apps/coding-sandbox\"]}"
+api POST /bindings "{\"component\":\"$AGENT_TILE\",\"slot\":\"net\",\"provider\":\"none\"}"
+TRIES=300 until_ok GET "/api/$AGENT_TILE/config"
+# its models under the gateway's aliases, which the composer's picker shows
+# by name: "assistant-large" reads as what it is, the team's assistant
+py "$COMPANY" > "$TMP/agent-config.json" 3<<<"$R" <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1]))
 cfg = json.load(open("/dev/fd/3"))
-co = c["company"]
+co, ag = c["company"], c["agent"]
 cfg["model"] = "assistant-large"
 cfg.setdefault("models", {}).update({"general": "assistant-large", "code": "assistant-large", "memory": "assistant-small", "vlm": "assistant-large"})
-cfg["system"] = (f"You are Lark, the assistant of {co['name']} ({co['tagline'].lower()}). {co['description']}\n\n"
+cfg["system"] = (f"You are {ag['name']}, the assistant of {co['name']} ({co['tagline'].lower()}). {co['description']}\n\n"
     "The team's CRM and the nightly ops report are bound to you as MCP tools: look things up there before answering "
     "questions about customers, deals, renewals or how the platform ran, and say where a number came from. "
     "Be brief and concrete; people read you between meetings.\n\n" + (cfg.get("system") or ""))
 print(json.dumps(cfg))
 PY
-call PUT /api/apps/lark/config "@$TMP/lark-config.json"
+call PUT "/api/$AGENT_TILE/config" "@$TMP/agent-config.json"
 
 say "the team chat (agent-messaging-bridge template; its console stands in for the chat platform)"
 api POST /templates/new '{"source":"agent-messaging-bridge","path":"apps/team-chat"}'
-api POST /bindings '{"component":"apps/team-chat","slot":"agent","provider":"apps/lark"}'
+api POST /bindings "{\"component\":\"apps/team-chat\",\"slot\":\"agent\",\"provider\":\"$AGENT_TILE\"}"
 
 # =========================================================================
 say "expenses (apps/expenses): one book per person$([[ -n "$DEMO_ISOLATE" ]] && echo ', partitioned' || echo ' (one instance without --isolate)')"
@@ -422,37 +441,37 @@ new_tile apps/expenses "" node "$TILES/expenses"
 [[ -z "$DEMO_ISOLATE" ]] && sed -i '/^  "partition": \["user"\],$/d' "$WS/apps/expenses/xbin.json"
 commit_as apps/expenses "$(person elena)" "-75 days 14:45" "Expenses: a book per person, submit for approval"
 
-say "the onboarding tracker (apps/onboarding), built by Lark from Priya's brief"
+say "the onboarding tracker (apps/onboarding), built by $AGENT_NAME from Priya's brief"
 api POST /create '{"path":"apps/onboarding","owner":"org:sales"}'
-# Its history, as it happened: Priya's brief, then Lark's commits building
+# Its history, as it happened: Priya's brief, then Merrow's commits building
 # the tile up file by file (and one of Priya's). Built beside the workspace
 # and swapped in, so the tile is never without its manifest.
-OB="$TMP/onboarding-repo" SRC="$TILES/onboarding" LARK="Lark <lark@$DOMAIN>"
+OB="$TMP/onboarding-repo" SRC="$TILES/onboarding" AGENT_GIT="$AGENT_NAME <$AGENT_ID@$GIT_DOMAIN>"
 mkdir -p "$OB" && git -C "$OB" init -q -b main
 step() { WS=$TMP commit_as onboarding-repo "$1" "$2" "$3"; }
 cp "$SRC/BRIEF.md" "$OB/"
-step "$(person priya)" "-9 days 15:48" "Brief for Lark: an onboarding tracker"
+step "$(person priya)" "-9 days 15:48" "Brief for $AGENT_NAME: an onboarding tracker"
 cp "$SRC/"{index.html,styles.js,scope.json} "$OB/"
 sed 's/go-live/launch/g' "$SRC/board.js" > "$OB/board.js"
 grep -v '"apps/crm"' "$SRC/xbin.json" | sed 's|"role": "writer" },|"role": "writer" }|' > "$OB/xbin.json"
-step "$LARK" "-9 days 16:05" "Scaffold the onboarding tracker: a card per customer, soonest launch first"
+step "$AGENT_GIT" "-9 days 16:05" "Scaffold the onboarding tracker: a card per customer, soonest launch first"
 cp "$SRC/store.js" "$OB/"
-step "$LARK" "-9 days 16:12" "Keep each customer's checklist in the tile's kv resource
+step "$AGENT_GIT" "-9 days 16:12" "Keep each customer's checklist in the tile's kv resource
 
 No backend: the page reads and writes customer/<id> keys in
 res:apps/onboarding/state directly."
 cp "$SRC/crm.js" "$SRC/xbin.json" "$OB/"
-step "$LARK" "-9 days 16:31" "Read plan, fleet size and health from the CRM
+step "$AGENT_GIT" "-9 days 16:31" "Read plan, fleet size and health from the CRM
 
 Adds a reader grant on apps/crm; Tomás approved it."
 cp "$SRC/checklist.js" "$OB/"
-step "$LARK" "-8 days 10:02" "Checklist per customer: late steps in red, finished ones folded"
+step "$AGENT_GIT" "-8 days 10:02" "Checklist per customer: late steps in red, finished ones folded"
 cp "$SRC/board.js" "$OB/"
 step "$(person priya)" "-7 days 09:41" "Say go-live, not launch"
 cp "$SRC/templates.js" "$OB/"
-step "$LARK" "-7 days 09:55" "Checklist templates for new customers, new depots and driver-app rollouts"
+step "$AGENT_GIT" "-7 days 09:55" "Checklist templates for new customers, new depots and driver-app rollouts"
 cp "$SRC/README.md" "$OB/"
-step "$LARK" "-2 days 14:30" "Document where the tracker keeps its data"
+step "$AGENT_GIT" "-2 days 14:30" "Document where the tracker keeps its data"
 cp "$OB/"* "$WS/apps/onboarding/"
 rm -rf "$WS/apps/onboarding/.git" && cp -r "$OB/.git" "$WS/apps/onboarding/.git"
 api POST /grants '{"from":"apps/onboarding","target":"apps/crm","role":"reader"}'
@@ -493,19 +512,21 @@ TRIES=60 until_ok GET /api/apps/traefik/state
 call -s POST /api/apps/traefik/settings "{\"email\":\"ops@$DOMAIN\",\"staging\":true}" || echo "  (traefik's settings: $C ${R:0:200})"
 
 say "telematics feeds (apps/telematics): Operations' newest tile, its network through the egress approver"
-# A new tile with a `net` interface: an admin decides where its egress goes
-# (the shell's "interfaces to bind" — the network still unbinds it again to
-# show that). Here: through the egress approver. It makes no network calls.
+# A new tile with a net interface (its `egress` slot): an admin decides
+# where its egress goes (the shell's "interfaces to bind" — the network still
+# unbinds it again to show that). Here: through the egress approver. It
+# makes no network calls. (Its providers are the set's own fiction: no real
+# vendor's name goes into a fixture or a commit — hack/demo-fiction.test.mjs.)
 new_tile apps/telematics org:operations node "$TILES/telematics"
 cp "$DATA/telematics.json" "$WS/apps/telematics/feeds.json"
-commit_as apps/telematics "$(person owen)" "-1 days 17:05" "Telematics feeds: Samsara and Geotab van positions, NWS weather alerts"
-# (xbind takes the net slot once it has read the manifest laid over the
+commit_as apps/telematics "$(person owen)" "-1 days 17:05" "Telematics feeds: Fleetgrid and Routewise van positions, Galewatch weather alerts"
+# (xbind takes the slot once it has read the manifest laid over the
 # scaffold's: until then the bind is refused)
-TRIES=60 until_ok POST /api/xbin/bindings '{"component":"apps/telematics","slot":"net","provider":"apps/egress-approver"}'
+TRIES=60 until_ok POST /api/xbin/bindings '{"component":"apps/telematics","slot":"egress","provider":"apps/egress-approver"}'
 
 # =========================================================================
 say "who sees what: the shared apps for everyone, the teams' own for their members"
-api PUT /defaults '{"defaultTiles":{"apps/calendar":"read","apps/email":"read","apps/chat":"read","apps/lark":"read","apps/expenses":"read"}}'
+api PUT /defaults "{\"defaultTiles\":{\"apps/calendar\":\"read\",\"apps/email\":\"read\",\"apps/chat\":\"read\",\"$AGENT_TILE\":\"read\",\"apps/expenses\":\"read\"}}"
 api POST /lifecycle '{"component":"apps/welcome","state":"hidden"}'
 for t in apps/crm apps/onboarding apps/ops-report apps/metrics; do
   for u in maya ingrid ruth; do api PUT /access "{\"tile\":\"$t\",\"kind\":\"user\",\"id\":\"$u\",\"level\":\"read\"}"; done
@@ -514,7 +535,7 @@ api PUT /access '{"tile":"apps/crm","kind":"user","id":"maya","level":"write"}'
 api PUT /access '{"tile":"apps/ops-report","kind":"user","id":"lukas","level":"read"}'
 api PUT /access '{"tile":"apps/team-chat","kind":"user","id":"ingrid","level":"read"}'
 if [[ -n "$DEMO_ISOLATE" ]]; then
-  # Lark keeps a partition per person, and the CRM, the ops report and the
+  # Merrow keeps a partition per person, and the CRM, the ops report and the
   # coding sandboxes it calls are code their teams can change: they run a
   # checkpoint rather than their live work trees, so no one's saves reach
   # everyone's calls unreviewed (else xbind warns on every screen:
@@ -535,42 +556,42 @@ PY
 done
 
 # =========================================================================
-say "a working week with Lark: conversations, automations, the team chat"
-# lark USER METHOD PATH [BODY]: the agent's API as that person, the way its
+say "a working week with $AGENT_NAME: conversations, automations, the team chat"
+# agent USER METHOD PATH [BODY]: the agent's API as that person, the way its
 # own page calls it (their frame token: their own partition, when partitioned)
-lark() { local u=$1; shift; call -u "$u" -f apps/lark "$1" "/api/apps/lark$2" "${3:-}"; }
+agent() { local u=$1; shift; call -u "$u" -f "$AGENT_TILE" "$1" "/api/$AGENT_TILE$2" "${3:-}"; }
 jtext() { python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1], "class": "internal"}))' "$1"; }
-# lark_wait USER RUN: until the run is idle again (its turn answered)
-lark_wait() {
+# agent_wait USER RUN: until the run is idle again (its turn answered)
+agent_wait() {
   local u=$1 id=$2 st=""
   for _ in $(seq 1 120); do
-    call -s -u "$u" -f apps/lark GET "/api/apps/lark/runs/$id" >/dev/null
+    call -s -u "$u" -f "$AGENT_TILE" GET "/api/$AGENT_TILE/runs/$id" >/dev/null
     st=$(jget 'd["run"]["status"]')
     case "$st" in idle|done) echo "  run $id ($u): $st"; return 0 ;; error|canceled) break ;; esac
     sleep 1
   done
   echo "!! run $id ($u) ended '$st': ${R:0:300}"; fails=$((fails + 1)); return 1
 }
-lark_ask() {
+agent_ask() {
   local u=$1 id
-  lark "$u" POST /ask "$(jtext "$2")" || return 1
+  agent "$u" POST /ask "$(jtext "$2")" || return 1
   id=$(jget 'd["id"]')
-  lark_wait "$u" "$id" && lark "$u" POST "/runs/$id/read"
+  agent_wait "$u" "$id" && agent "$u" POST "/runs/$id/read"
 }
-TRIES=240 until_ok -u "$ADMIN" -f apps/lark GET /api/apps/lark/me
-lark_ask tomas "Anything in last night's ops report I should look at before the 9:30 standup?"
-lark_ask priya "Which renewals are coming up in the next 90 days, and are any at risk?"
-lark_ask priya "Prep me for the Brightwell renewal call at 10:00. Where do things stand, and what should I raise?"
-lark_ask daniel "Draft a follow-up to Dana at Brightwell after today's call: we agreed on a three-year term covering all 202 vans and a two-week driver-app pilot in Dayton in December."
-lark_ask maya "How is our pipeline looking this quarter?"
+TRIES=240 until_ok -u "$ADMIN" -f "$AGENT_TILE" GET "/api/$AGENT_TILE/me"
+agent_ask tomas "Anything in last night's ops report I should look at before the 9:30 standup?"
+agent_ask priya "Which renewals are coming up in the next 90 days, and are any at risk?"
+agent_ask priya "Prep me for the Brightwell renewal call at 10:00. Where do things stand, and what should I raise?"
+agent_ask daniel "Draft a follow-up to Dana at Brightwell after today's call: we agreed on a three-year term covering all 202 vans and a two-week driver-app pilot in Dayton before the rollout."
+agent_ask maya "How is our pipeline looking this quarter?"
 
 vis=team; [[ -n "$DEMO_ISOLATE" ]] && vis=private   # a person's partition keeps its automations its own
 schedule() { # user name cron goal
   local body
   body=$(python3 -c 'import json,sys; print(json.dumps({"name": sys.argv[1], "cron": sys.argv[2], "goal": sys.argv[3], "class": "internal", "visibility": sys.argv[4]}))' "$2" "$3" "$4" "$vis")
-  lark "$1" POST /schedules "$body" || return 1
+  agent "$1" POST /schedules "$body" || return 1
   local id; id=$(jget 'd["id"]')
-  lark "$1" POST "/schedules/$id/trigger"
+  agent "$1" POST "/schedules/$id/trigger"
 }
 schedule ruth "Morning ops brief" "30 7 * * 1-5" \
   "Morning ops brief: read last night's ops report and write five lines for the ops team: volumes, on-time rate, platform health, and anything that needs a person today."
@@ -581,20 +602,20 @@ schedule ingrid "Friday pipeline digest" "0 16 * * 5" \
 # #ops are trusted groups (their conversations may read the CRM and the ops
 # report), DMs pair first
 for _ in $(seq 1 120); do
-  call -s -u "$ADMIN" -f apps/lark GET /api/apps/lark/automations >/dev/null
+  call -s -u "$ADMIN" -f "$AGENT_TILE" GET "/api/$AGENT_TILE/automations" >/dev/null
   CHAN=$(jget 'next((i["id"] for i in d["items"] if i["kind"] == "channel"), "")')
   [[ -n "$CHAN" ]] && break
   sleep 1
 done
 if [[ -z "$CHAN" ]]; then echo "!! the team chat never announced its channel"; fails=$((fails + 1))
 else
-  lark "$ADMIN" POST "/channels/$CHAN/claim" '{"name":"Team chat","visibility":"team","policy":{"dm":{"policy":"pairing"},"groups":{"policy":"allowlist","allow":["C-sales","C-ops"]},"privateLane":true,"trustedGroups":["C-sales","C-ops"]}}'
+  agent "$ADMIN" POST "/channels/$CHAN/claim" '{"name":"Team chat","visibility":"team","policy":{"dm":{"policy":"pairing"},"groups":{"policy":"allowlist","allow":["C-sales","C-ops"]},"privateLane":true,"trustedGroups":["C-sales","C-ops"]}}'
   for _ in $(seq 1 30); do
     call -s GET /api/apps/team-chat/status >/dev/null
     [[ "$(jget 'd["state"]["accounts"][0]["claimed"]')" == active ]] && break
     sleep 1
   done
-  call POST /api/apps/team-chat/console/send '{"as":{"id":"U-ingrid","name":"Ingrid Halvorsen"},"conversation":{"id":"C-sales","type":"channel","name":"sales"},"mentioned":true,"text":"@Lark when is the Northgate security questionnaire due, and what is still open?"}'
+  call POST /api/apps/team-chat/console/send "{\"as\":{\"id\":\"U-ingrid\",\"name\":\"Ingrid Halvorsen\"},\"conversation\":{\"id\":\"C-sales\",\"type\":\"channel\",\"name\":\"sales\"},\"mentioned\":true,\"text\":\"@$AGENT_NAME when is the Northgate security questionnaire due, and what is still open?\"}"
   for _ in $(seq 1 60); do
     call -s GET /api/apps/team-chat/console/transcript >/dev/null
     [[ "$(jget 'sum(1 for l in d["lines"] if l["dir"] == "out")')" -ge 1 ]] && { echo "  the team chat got its answer"; break; }
@@ -603,9 +624,9 @@ else
   # its conversation, named like the others (a partitioned agent keeps it at
   # its global instance, where a channel's conversations live)
   at=""; [[ -n "$DEMO_ISOLATE" ]] && at="xbin-partition=global"
-  call -s -u "$ADMIN" -f apps/lark GET "/api/apps/lark/runs?roots=1${at:+&$at}" >/dev/null
+  call -s -u "$ADMIN" -f "$AGENT_TILE" GET "/api/$AGENT_TILE/runs?roots=1${at:+&$at}" >/dev/null
   run=$(jget 'next((r["id"] for r in (d if isinstance(d, list) else d.get("runs", [])) if r.get("origin") == "channel"), "")')
-  if [[ -n "$run" ]]; then lark "$ADMIN" PATCH "/runs/$run${at:+?$at}" '{"title":"#sales: Northgate security questionnaire"}'
+  if [[ -n "$run" ]]; then agent "$ADMIN" PATCH "/runs/$run${at:+?$at}" '{"title":"#sales: Northgate security questionnaire"}'
   else echo "!! the team chat's conversation isn't listed"; fails=$((fails + 1)); fi
 fi
 

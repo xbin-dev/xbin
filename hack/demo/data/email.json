@@ -5,7 +5,7 @@
     { "id": "brightwell-order-form", "subject": "Re: Order form for the Dayton DC expansion", "labels": ["Customers"], "unread": true, "starred": true,
       "messages": [
         { "from": { "name": "Daniel Mensah", "email": "daniel@larkspan.example" }, "to": "dana.whitfield@brightwell.example", "at": 330,
-          "body": "Hi Dana,\n\nAttached is the revised order form: 60 additional vans for the Dayton DC from January 6, on a three-year term, with the $70 per van rate held from your current agreement.\n\nEllen's redlines on the MSA are all accepted except the liability cap in 9.2; I've suggested a middle ground in the comments.\n\nBest,\nDaniel" },
+          "body": "Hi Dana,\n\nAttached is the revised order form: 60 additional vans for the Dayton DC from {{longdate:+66}}, on a three-year term, with the $70 per van rate held from your current agreement.\n\nEllen's redlines on the MSA are all accepted except the liability cap in 9.2; I've suggested a middle ground in the comments.\n\nBest,\nDaniel" },
         { "from": { "name": "Dana Whitfield", "email": "dana.whitfield@brightwell.example" }, "to": "daniel@larkspan.example", "at": 46,
           "body": "Thanks Daniel — this looks right. Ellen is fine with your wording on 9.2.\n\nOne ask before we sign: can Marcus's team pilot the driver app in Dayton for two weeks in December, before the full rollout in January? He wants his drivers comfortable before the holiday volume is behind us.\n\nIf that works, I'll have the signed form back to you by {{weekday:+2}}.\n\nDana" }
       ] },
@@ -17,7 +17,7 @@
     { "id": "riverbend-eau-claire", "subject": "Eau Claire shadow night: one route looked off", "labels": ["Customers"], "unread": true,
       "messages": [
         { "from": { "name": "Henrik Olsen", "email": "henrik.olsen@riverbend-dairy.example" }, "to": "priya@larkspan.example", "at": 205,
-          "body": "Morning Priya,\n\nThe shadow plan for Eau Claire looked good overall, but route 14 sent a truck back to Madison for the school orders instead of handing them to Eau Claire at the cross-dock. Amy thinks it's the hand-off cut-off time.\n\nCould someone look before tonight's run?\n\nThanks,\nHenrik" }
+          "body": "Hi Priya,\n\nThe shadow plan for Eau Claire looked good overall, but route 14 sent a truck back to Madison for the school orders instead of handing them to Eau Claire at the cross-dock. Amy thinks it's the hand-off cut-off time.\n\nCould someone look before tonight's run?\n\nThanks,\nHenrik" }
       ] },
     { "id": "northgate-sso", "subject": "Security questionnaire: two follow-ups on SSO", "labels": ["Customers"], "unread": false,
       "messages": [

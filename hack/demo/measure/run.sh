@@ -28,11 +28,11 @@
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$repo"
-if [ -f .dev.mk ]; then
-  set -a
-  eval "$(sed -n 's/^export \([A-Z_]*\) := \(.*\)$/\1=\2/p' .dev.mk | grep -v '^PATH')"
-  set +a
-fi
+# the machine's settings (.dev.mk) read as data — a NAME := value line at a
+# time, never evaluated (hack/demo/lib.sh load_devmk)
+# shellcheck source=hack/demo/lib.sh
+. "$repo/hack/demo/lib.sh"
+load_devmk
 export MEASURE_OUT=${MEASURE_OUT:-$repo/.film-media/measure}
 export MEASURE_PORT=${MEASURE_PORT:-9341}
 mkdir -p "$MEASURE_OUT"

@@ -64,6 +64,45 @@ wait_up() {
   return 1
 }
 
+# demo_clock: the set's time zone, now and day (clock.py) into the
+# environment, and TZ with them — so the seed, git, xbind, the tiles' clocks
+# and the scripted model all read one zone and one day. Kept when already
+# set (a caller computed them once).
+demo_clock() {
+  local line
+  while IFS= read -r line; do
+    [[ "$line" =~ ^(DEMO_TZ|NOW_MS|DEMO_DAY)=([A-Za-z0-9_/+:.-]+)$ ]] || continue
+    export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+  done < <(python3 "$DEMO_LIB/clock.py")
+  [[ -n "${DEMO_TZ:-}" && -n "${NOW_MS:-}" && -n "${DEMO_DAY:-}" ]] || { echo "hack/demo/clock.py failed" >&2; return 1; }
+  export TZ="$DEMO_TZ"
+}
+
+# demo_password WS [new]: the set's people's password into DEMO_PASSWORD —
+# random per set, kept mode 600 beside the workspace (WS.password, outside
+# it: snapshots and resets keep the accounts and leave the file alone).
+# "new" makes a fresh one (a fresh set); else the file's (or
+# $DEMO_PASSWORD as given).
+demo_password() {
+  local f="$1.password"
+  if [[ "${2:-}" == new ]]; then
+    if [[ -z "${DEMO_PASSWORD:-}" ]]; then
+      DEMO_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(12))')
+    fi
+    (umask 077 && printf '%s\n' "$DEMO_PASSWORD" > "$f")
+  elif [[ -z "${DEMO_PASSWORD:-}" ]]; then
+    [[ -r "$f" ]] || { echo "no password for the set at $1 ($f): make the set with hack/demo/up.sh" >&2; return 1; }
+    DEMO_PASSWORD=$(head -1 "$f")
+  fi
+  export DEMO_PASSWORD
+}
+
+# The marker up.sh leaves in a set's directory: only a directory holding it
+# is a film set up.sh may stop, wipe and remake (DEMO_DIR can point at any
+# disk, and "ws" is everyone's workspace name).
+DEMO_MARKER=.larkspan-set
+is_demo_dir() { [[ -f "$1/$DEMO_MARKER" ]]; }
+
 # load_devmk: the machine's test environment that hack/dev-setup.sh wrote
 # (.dev.mk: the rootfs, gocryptfs, fuse-overlayfs, the VM assets), from this
 # checkout or, in a git worktree, from the main checkout. PATH stays ours.

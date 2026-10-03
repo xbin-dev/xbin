@@ -34,7 +34,17 @@ SNAP="$WS.snap" META="$WS.snap.meta"
 t0=$(date +%s.%N)
 elapsed() { python3 -c "import sys,time; print(f'{time.time() - float(sys.argv[1]):.1f}')" "$t0"; }
 is_subvol() { [[ "$(stat -f -c %T "$1")" == btrfs && "$(stat -c %i "$1")" == 256 ]]; }
-remove() { btrfs subvolume delete "$1" >/dev/null 2>&1 || rm -rf "$1"; }
+remove() { btrfs subvolume delete "$1" >/dev/null 2>&1 || rm -rf --one-file-system -- "$1"; }
+
+# keep_env: of xbind's environment, only what it and the tools it runs read
+# (the machine's settings, Go's, the locale and the set's TZ) — never
+# anything secret-shaped, nor a URL carrying credentials: secrets live in
+# the workspace's vault, never in a file here
+keep_env() {
+  grep -E '^(PATH|HOME|USER|LOGNAME|SHELL|LANG|LANGUAGE|LC_[A-Z]+|TZ|TERM|TMPDIR|XDG_RUNTIME_DIR|RUNTIME_DIRECTORY|DEMO_IN_USERNS|GO[A-Z0-9_]*|CGO_[A-Z0-9_]+|XBIN_[A-Z0-9_]+)=' |
+    grep -Eiv '^[a-z0-9_]*(key|token|secret|pass|credential|auth|pat|cookie|session)[a-z0-9_]*=' |
+    grep -Ev '=.*://[^/@]*@' || true
+}
 
 # record: how the running xbind (and the scripted model) were started
 record() {
@@ -43,9 +53,7 @@ record() {
   cat "/proc/$pid/cmdline" > "$META/xbind.argv"
   readlink "/proc/$pid/cwd" > "$META/xbind.cwd"
   { readlink "/proc/$pid/fd/1" 2>/dev/null || echo /dev/null; } > "$META/xbind.log"
-  # the environment, less anything secret-shaped: secrets live in the
-  # workspace's vault, never in a file here
-  tr '\0' '\n' < "/proc/$pid/environ" | grep -Ev '^[A-Za-z0-9_]*(KEY|TOKEN|SECRET|PASS|CREDENTIAL)[A-Za-z0-9_]*=' | tr '\n' '\0' > "$META/xbind.env"
+  tr '\0' '\n' < "/proc/$pid/environ" | keep_env | tr '\n' '\0' > "$META/xbind.env"
   listen=$(tr '\0' '\n' < "$META/xbind.argv" | grep -A1 -x -- --listen | tail -1)
   printf '%s' "$listen" > "$META/listen"
   # the scripted model sits at the xbind port + 10280 (up.sh, the harness)
@@ -54,7 +62,10 @@ record() {
     cat "/proc/$fpid/cmdline" > "$META/fake.argv"
     readlink "/proc/$fpid/cwd" > "$META/fake.cwd"
   fi
-  date +%F > "$META/taken"
+  # the day, in the set's own zone (the TZ xbind runs in)
+  local tz
+  tz=$(tr '\0' '\n' < "$META/xbind.env" | sed -n 's/^TZ=//p' | head -1)
+  if [[ -n "$tz" ]]; then TZ=$tz date +%F; else date +%F; fi > "$META/taken"
 }
 
 # start_recorded: xbind as it ran — in a user namespace of its own where
@@ -99,21 +110,25 @@ old="$WS.old.$$"
 [[ -e "$WS" ]] && mv "$WS" "$old"
 if is_subvol "$SNAP" && btrfs subvolume snapshot "$SNAP" "$WS" >/dev/null 2>&1; then how="btrfs snapshot"
 elif cp -a --reflink=always "$SNAP" "$WS" 2>/dev/null; then how="reflink copy"
-else rm -rf "$WS"; cp -a "$SNAP" "$WS"; how="copy"; fi
+else rm -rf --one-file-system -- "$WS"; cp -a "$SNAP" "$WS"; how="copy"; fi
 start_recorded
 up=$(elapsed)
 # the apps the stills and the footage open first answer (their backends
 # start on first use)
 TOKEN=$(cat "$WS/.xbin/token")
-for p in apps/crm/summary apps/ops-report/reports apps/lark/me apps/llm-gw/config "apps/calendar/events?day=$(date +%F)"; do
+agent=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["agent"]["tile"])' "$DEMO_LIB/company.json")
+for p in apps/crm/summary apps/ops-report/reports "$agent/me" apps/llm-gw/config "apps/calendar/events?day=$(date +%F)"; do
   for _ in $(seq 1 120); do
     curl -sf -o /dev/null -H "Authorization: Bearer $TOKEN" "http://$(cat "$META/listen")/api/$p" && break
     sleep 0.25
   done
 done
 echo "restored $WS from its snapshot ($how): xbind up in $up s, the apps answering in $(elapsed) s"
-if [[ "$(cat "$META/taken")" != "$(date +%F)" ]]; then
+# (the day in the set's own zone: the TZ xbind runs in)
+set_tz=$(tr '\0' '\n' < "$META/xbind.env" | sed -n 's/^TZ=//p' | head -1)
+if [[ -n "$set_tz" ]]; then today=$(TZ=$set_tz date +%F); else today=$(date +%F); fi
+if [[ "$(cat "$META/taken")" != "$today" ]]; then
   echo "note: the snapshot is from $(cat "$META/taken"); the set's relative times (today's meetings, '18 min ago') belong to that day — run up.sh again on the shooting day" >&2
 fi
-[[ -e "$old" ]] && (nohup bash -c "btrfs subvolume delete '$old' >/dev/null 2>&1 || rm -rf '$old'" > /dev/null 2>&1 < /dev/null &)
+[[ -e "$old" ]] && (nohup bash -c 'btrfs subvolume delete "$1" >/dev/null 2>&1 || rm -rf --one-file-system -- "$1"' _ "$old" > /dev/null 2>&1 < /dev/null &)
 exit 0

@@ -1,5 +1,5 @@
 {
-  "_comment": "The team calendar (apps/calendar, examples/calendar's backend), posted by hack/demo/seed.sh through the example's own POST /events. weekly: on those weekdays (0 is Monday) of the last, this and the next two weeks. events: one-offs on a date named relative to the demo's day ({{iso:0}}: today on a weekday, else the coming Monday; counted in working days; seed.sh). The day's star is the Brightwell renewal call Lark preps Priya for; the CRM's next steps and the inbox name the same days.",
+  "_comment": "The team calendar (apps/calendar, examples/calendar's backend), posted by hack/demo/seed.sh through the example's own POST /events. weekly: on those weekdays (0 is Monday) of the last, this and the next two weeks. events: one-offs on a date named relative to the demo's day ({{iso:0}}: today on a weekday, else the coming Monday; counted in working days; seed.sh). The day's star is the Brightwell renewal call Merrow preps Priya for; the CRM's next steps and the inbox name the same days.",
   "weekly": [
     { "weekdays": [0, 1, 2, 3, 4], "time": "09:30", "title": "Engineering standup" },
     { "weekdays": [0], "time": "11:00", "title": "Pipeline review · Ingrid, Daniel, Jonas, Maya" },

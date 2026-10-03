@@ -137,7 +137,7 @@
         const unread = (f) => this._threads.filter((x) => x.unread && (f === 'Inbox' || x.labels?.includes(f))).length;
         return html`
           <nav>
-            <div class="box">hello@larkspan.example</div>
+            <div class="box">Team inbox</div>
             ${folders.map((f) => html`<div class="f ${this._folder === f ? 'on' : ''}" @click=${() => { this._folder = f; }}><span>${f}</span>${unread(f) ? html`<b>${unread(f)}</b>` : nothing}</div>`)}
             <div class="today"><h4>${this._dayName || 'Today'}</h4>
               ${this._today == null ? html`<div class="muted">—</div>` : this._today.length ? this._today.map((e) => html`<div><b>${e.time}</b>${e.title.split(' · ')[0]}</div>`) : html`<div>No meetings</div>`}
@@ -154,7 +154,7 @@
             <div class="labels">${(t.labels || []).map((l) => html`<span class="chip">${l}</span>`)}${t.starred ? html`<span class="chip" style="color:var(--bx-accent)">★ starred</span>` : nothing}</div>
             ${t.messages.map((m) => html`<div class="msg">
               <div class="mh"><span class="av" style="--h:${hue(m.from.email)}">${initials(m.from.name)}</span>
-                <div><div class="n">${m.from.name}</div><div class="e">${m.from.email} → ${m.to}</div></div>
+                <div><div class="n">${m.from.name}</div><div class="e">to ${toName(m.to)}</div></div>
                 <span class="t">${new Date(m.at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</span></div>
               <div class="body">${m.body}</div></div>`)}
             ${this._replying ? html`<textarea placeholder="Write a reply…"></textarea>
@@ -162,6 +162,14 @@
               : html`<div class="reply"><button @click=${() => { this._replying = true; }}>Reply</button></div>`}` : html`<div class="empty">Nothing selected</div>`}
           </div>`;
       }
+    }
+    // toName: a recipient as the page names them — a person's first name
+    // (or full name), a team list as what it is; never the address itself
+    function toName(addr) {
+      const local = String(addr || '').split('@')[0];
+      const lists = { team: 'everyone', hello: 'the team inbox', support: 'support', engineering: 'engineering' };
+      if (lists[local]) return lists[local];
+      return local.split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ') || 'the team';
     }
     customElements.define('team-inbox', TeamInbox);
   </script>

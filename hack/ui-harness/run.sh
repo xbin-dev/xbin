@@ -96,8 +96,30 @@ passes=("$@")   # --shots [pass…]
 # script, and its passes unless some are named
 export HARNESS_SEED=${HARNESS_SEED:-}
 seed_sh="$H/seed.sh" fake_args=()
+# the test seed's fakes: the scripted ACP agent registered as the "fake"
+# provider (D74), fakesbx's scripted coding agent (D147 §7.3), and fakebin's
+# scripted `claude` leading xbind's PATH (D178) — never on the demo set,
+# where a terminal's "+" launcher or a pick of Claude Code is filmed
+fake_env=(PATH="$H/fakebin:$PATH" XBIN_AGENT_FAKE="$REPO/bin/fakeacp"
+  FSB_HARNESS_FAKE="$REPO/bin/fakeacp --steer --auto-mode --require-login --persist")
 if [[ "$HARNESS_SEED" == demo ]]; then
-  seed_sh="$REPO/hack/demo/seed.sh" fake_args=(-script "$REPO/hack/demo/data/lark-script.json")
+  seed_sh="$REPO/hack/demo/seed.sh" fake_env=()
+  # the set's clock (hack/demo/clock.py: one zone, one now, one day, TZ for
+  # xbind, the model and the seed) — kept with the set, so a --restart or a
+  # --shots run later reads the day it was seeded on
+  . "$REPO/hack/demo/lib.sh"
+  if [[ -z "$mode" || "$mode" == --keep ]] || [[ ! -f "$HARNESS_DIR/demo-clock" ]]; then
+    unset NOW_MS DEMO_DAY
+    demo_clock
+    mkdir -p "$HARNESS_DIR"
+    printf 'DEMO_TZ=%s\nNOW_MS=%s\nDEMO_DAY=%s\n' "$DEMO_TZ" "$NOW_MS" "$DEMO_DAY" > "$HARNESS_DIR/demo-clock"
+  else
+    while IFS= read -r line; do
+      [[ "$line" =~ ^(DEMO_TZ|NOW_MS|DEMO_DAY)=([A-Za-z0-9_/+:.-]+)$ ]] && export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+    done < "$HARNESS_DIR/demo-clock"
+    export TZ="$DEMO_TZ"
+  fi
+  fake_args=(-script "$REPO/hack/demo/data/model-script.json" -day "$DEMO_DAY")
   [[ ${#passes[@]} -eq 0 ]] && passes=(demoStills)
 elif [[ -n "$HARNESS_SEED" ]]; then
   echo "HARNESS_SEED=$HARNESS_SEED: unknown (demo, or unset for the test seed)" >&2; exit 1
@@ -141,10 +163,10 @@ start() {
   # reaches its backend. Under HARNESS_ISOLATE neither holds (the agent
   # passes don't run there). fakebin/ leads xbind's PATH, which the
   # (host) shells inherit: its scripted `claude` is what the Agent tab's
-  # guided sign-in runs (D178; the agentTab pass).
+  # guided sign-in runs (D178; the agentTab pass). The demo set gets none
+  # of the three (fake_env, above).
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" "${fake_args[@]}" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
-  (cd "$REPO" && PATH="$H/fakebin:$PATH" XBIN_AGENT_FAKE="$REPO/bin/fakeacp" XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
-      FSB_HARNESS_FAKE="$REPO/bin/fakeacp --steer --auto-mode --require-login --persist" \
+  (cd "$REPO" && env ${fake_env[@]+"${fake_env[@]}"} XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
       nohup bin/xbind --dev "${overlay_flags[@]}" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${iso_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
@@ -167,11 +189,14 @@ fi
 
 case "$mode" in
   --stop) stop; exit 0 ;;
-  --shots) ;;
-  --restart) stop; build; start ;;
+  --shots) if [[ "$HARNESS_SEED" == demo ]]; then demo_password "$WS"; fi ;;
+  --restart) stop; build; start; if [[ "$HARNESS_SEED" == demo ]]; then demo_password "$WS"; fi ;;
   *)
     stop; build
     rm -rf "$WS"; "$REPO/bin/xbind" init "$WS" >/dev/null
+    # the demo set's people's password: random, mode 600 at $WS.password
+    # (hack/demo/lib.sh); the passes read it from DEMO_PASSWORD
+    if [[ "$HARNESS_SEED" == demo ]]; then unset DEMO_PASSWORD; demo_password "$WS" new; fi
     # auth ON (no --no-auth): --dev seeds admin/admin, so other users can log in.
     start
     export TOKEN; TOKEN=$(cat "$WS/.xbin/token")

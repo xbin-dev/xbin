@@ -1,7 +1,7 @@
 {
-  "_comment": "The onboarding tracker's customers (apps/onboarding, the tile Lark built — its git history is replayed by hack/demo/seed.sh from the 'history' list below). Each becomes the kv key customer/<id>. Dates are days from the seed (negative: past; one on a weekend moves to a weekday) or a date: an ISO day, or one named relative to the demo's day ({{iso:7}}, hack/demo/seed.sh) where the calendar or the CRM names the same day.",
+  "_comment": "The onboarding tracker's customers (apps/onboarding, the tile Merrow built — its git history is replayed by hack/demo/seed.sh from the 'history' list below). Each becomes the kv key customer/<id>. Dates are days from the seed (negative: past; one on a weekend moves to a weekday) or a date: an ISO day, or one named relative to the demo's day ({{iso:7}}, hack/demo/seed.sh) where the calendar or the CRM names the same day.",
   "customers": [
-    { "id": "pinewood", "name": "Pinewood Building Supply", "title": "Pilot to annual: Grand Rapids yard", "kind": "new-customer", "csm": "priya", "kickoff": -19, "goLive": 20,
+    { "id": "pinewood", "name": "Pinewood Building Supply", "title": "Pilot to annual: Grand Rapids yard", "kind": "new-customer", "csm": "jonas", "kickoff": -19, "goLive": 20,
       "steps": [
         { "title": "Kickoff call", "due": -19, "done": -19 },
         { "title": "Depot and job-site data import", "due": -16, "done": -15 },
@@ -30,13 +30,13 @@
         { "title": "Full rollout", "due": 10 },
         { "title": "Feedback survey", "due": 14 }
       ] },
-    { "id": "brightwell", "name": "Brightwell Grocers Co-op", "title": "Dayton DC: 60 more vans", "kind": "new-depot", "csm": "priya", "kickoff": -4, "goLive": "2027-01-06",
+    { "id": "brightwell", "name": "Brightwell Grocers Co-op", "title": "Dayton DC: 60 more vans", "kind": "new-depot", "csm": "daniel", "kickoff": -4, "goLive": "{{iso:+66}}",
       "steps": [
         { "title": "Data request sent to Marcus", "due": -4, "done": -4 },
         { "title": "Depot hand-off rules", "due": -2, "done": -1 },
         { "title": "Driver app pilot plan", "due": "{{iso:2}}" },
         { "title": "Dispatcher training (Dayton)", "due": "2026-12-16" },
-        { "title": "Go-live (Dayton DC)", "due": "2027-01-06" }
+        { "title": "Go-live (Dayton DC)", "due": "{{iso:+66}}" }
       ] }
   ]
 }
