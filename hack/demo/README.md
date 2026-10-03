@@ -137,7 +137,10 @@ before 08:00 like the last working day's. Its day is that now's date —
 steps, the inbox and Merrow's answers name the days around it ("Demo with
 Rita on Tuesday"). Seed on the shooting day, while it is still that day in
 the company's zone; `reset.sh` warns when its snapshot is older. A European
-evening is a working afternoon in Columbus.
+evening is a working afternoon in Columbus. What xbind itself dates — a
+partition's "last started", the admin console's sign-ins and sessions —
+reads the real clock, not the set's: shoot while it is working hours there
+(08:00–19:00), or those frames show a time after the set's "now".
 
 ## What's in it
 
@@ -148,7 +151,7 @@ evening is a working afternoon in Columbus.
 | `apps/metrics` | builtin prometheus-viewer on two real sources: the LLM gateway's counters and `apps/host-exporter` (this machine's load, memory, CPU, network, disk from /proc — under the host label `routing-01`, never the machine's own name) | builtin, `tiles/host-exporter` |
 | `apps/calendar`, `apps/email` | `examples/calendar` and `examples/email` (their backends as they are) with a week-view page and a kv-backed team inbox | `tiles/calendar`, `tiles/email`, `data/calendar.json`, `data/email.json` |
 | `apps/chat` | builtin chat on the gateway, with the CRM's and the ops report's MCP tools | builtin |
-| `apps/merrow` | the agent (builtin template): Larkspan's system prompt, the CRM and ops report bound as MCP servers, five conversations (Maya's pipeline question among them), two schedules (a morning ops brief, a Friday pipeline digest), the team-chat channel claimed with `#sales`/`#ops` trusted. Under `--isolate` partitioned: each person's conversations and schedules are their own, the channel's at its global instance | builtin template, `data/model-script.json` |
+| `apps/merrow` | the agent (builtin template): Larkspan's system prompt, the CRM and ops report bound as MCP servers, five conversations (Maya's pipeline question among them), three schedules (Ruth's morning ops brief and Ingrid's Friday pipeline digest, each run once; Tomás's Monday platform review, not yet run), the team-chat channel claimed with `#sales`/`#ops` trusted. Under `--isolate` partitioned: each person's conversations and schedules are their own, the channel's at its global instance | builtin template, `data/model-script.json` |
 | `apps/llm-gw` | the gateway: one backend `inference` (the scripted model) or the real providers; preferred models per use | builtin |
 | `apps/team-chat` | agent-messaging-bridge; its console stands in for a chat platform; its egress goes through the egress approver | builtin template |
 | `apps/coding-sandbox` | sandbox manager bound to Merrow: xbind's runtime under `--isolate` (VM tile sandboxes switched on where xbind runs VMs), else the template's own test backend (host directories), named `local`; three engineers' sandboxes, two running; the team's quotas | builtin template |

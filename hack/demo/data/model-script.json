@@ -61,6 +61,13 @@
       ]
     },
     {
+      "match": ["monday platform review"],
+      "steps": [
+        { "calls": [{ "name": "mcp:latest_report", "args": { "summary": "Read last night's ops report" } }] },
+        { "text": "**Platform review, {{#1.date|date}}**\n\n- **Routing API:** p95 {{#1.platform.apiP95ms}} ms, uptime {{#1.platform.uptimePct}}%.\n- **Planner:** plan time p95 {{#1.platform.planSecondsP95}} s for {{#1.totals.routes|int}} routes; {{#1.totals.onTime}}% of stops on time.\n- **Support:** {{#1.support.opened}} new tickets, {{#1.support.closed}} closed, first reply in {{#1.support.firstResponseMin}} min.\n- **For engineering this week:** {{#1.notes.0}}" }
+      ]
+    },
+    {
       "match": ["northgate", "questionnaire"],
       "title": "Northgate security questionnaire",
       "steps": [

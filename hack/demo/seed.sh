@@ -586,17 +586,24 @@ agent_ask daniel "Draft a follow-up to Dana at Brightwell after today's call: we
 agent_ask maya "How is our pipeline looking this quarter?"
 
 vis=team; [[ -n "$DEMO_ISOLATE" ]] && vis=private   # a person's partition keeps its automations its own
-schedule() { # user name cron goal
+schedule() { # user name cron goal [run]: "run" runs it once now, its first brief
   local body
   body=$(python3 -c 'import json,sys; print(json.dumps({"name": sys.argv[1], "cron": sys.argv[2], "goal": sys.argv[3], "class": "internal", "visibility": sys.argv[4]}))' "$2" "$3" "$4" "$vis")
   agent "$1" POST /schedules "$body" || return 1
+  [[ "${5:-}" == run ]] || return 0
   local id; id=$(jget 'd["id"]')
   agent "$1" POST "/schedules/$id/trigger"
 }
 schedule ruth "Morning ops brief" "30 7 * * 1-5" \
-  "Morning ops brief: read last night's ops report and write five lines for the ops team: volumes, on-time rate, platform health, and anything that needs a person today."
+  "Morning ops brief: read last night's ops report and write five lines for the ops team: volumes, on-time rate, platform health, and anything that needs a person today." run
 schedule ingrid "Friday pipeline digest" "0 16 * * 5" \
-  "Friday pipeline digest: open pipeline and forecast, the deals in negotiation with their next steps, what moved this week, and renewals at risk."
+  "Friday pipeline digest: open pipeline and forecast, the deals in negotiation with their next steps, what moved this week, and renewals at risk." run
+# Tomás's own (the stills film his automations, and under --isolate his
+# partition holds only his): set up this week, first run on Monday. A
+# cadence the page puts in words ("every Monday at 9:00") and a goal its
+# card shows whole (the card cuts at 140 characters).
+schedule tomas "Monday platform review" "0 9 * * 1" \
+  "Monday platform review: API p95, uptime and plan time from last night's ops report, the support queue, and what engineering should pick up."
 
 # the team chat: the bridge says hello, Tomás claims the channel; #sales and
 # #ops are trusted groups (their conversations may read the CRM and the ops
