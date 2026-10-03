@@ -3133,6 +3133,101 @@ takes about a minute more. To try an adapter of your own, advertise it on a
 coding-sandbox image (`harnesses: [{id, title, argv, login}]`, §Coding
 agents "The catalog").
 
+## Projects
+
+A **project** groups work around one coding sandbox: its git repos, a
+policy, task conversations and a coordinator. Each **task** is its own
+conversation with a git worktree per repo, a branch, a range of ports and
+the repos' setup run for it; it pushes and opens pull requests with a
+short-lived credential an **scm provider** hands out — a tile that offers
+the `scm` service (the scm contract, docs/scm.md), such as the builtin
+`scm-github` template — and the provider's CI and review events wake it.
+A **coordinator** creates and steers tasks for a person; **team projects**
+share a definition and a task board while each member's tasks run in
+their own space. A conversation's **CI** — for a task, or for the branches
+any coding session pushed — shows in the conversation beside its coding
+agents, down to job steps and logs.
+
+The parts below land in stages: each says what it covers, and is filled
+in, with its routes and shapes, by the change that implements it. Until
+then the routes it names answer 404.
+
+### Projects and tasks
+
+The project and task model: a project's kinds (personal, team, a team
+member's own half), homes and ids, owner, members and what team
+visibility grants, the policy and its keys with their defaults, task
+sizes, workspace states, phases and the board's columns; the routes under
+`/projects` and `/runs/{id}/task`; the `project` stream event; why a
+task's sharing is its project's and why it stays in its project's space.
+(Implemented by its work package.)
+
+### The workspace
+
+Where a project's repos and tasks live in its sandbox (base repos, one
+worktree per task and repo), the jobs that prepare them (sandbox, repo,
+fetch, prepare, setup, bind, cleanup), the workspace gate a task's turn
+waits at, the limit of tasks at work at once and its queue, the ports and
+environment a task gets, and when cleanup refuses. (Implemented by its
+work package.)
+
+### scm providers and credentials
+
+The `scm` slot (bind any tile that provides service `scm`), signing in to a
+provider, which identity a project uses (a person's own sign-in, or the
+provider's bot), when a credential may be written into a sandbox, where it
+goes (files outside every repo, a git credential helper, `GH_CONFIG_DIR`),
+how it is refreshed, when it is scrubbed, and how tokens are kept out of
+every transcript, log and event. (Implemented by its work package.)
+
+### Big tasks, upgrades and pull requests
+
+A big task's own sandbox, forked from a snapshot of the project's taken
+while it is quiet (or made fresh); "Make this a project…" turning a
+conversation with a sandbox and its git repos into a project, the
+conversation its first task; opening a pull request, by hand or when a
+task comes to rest. (Implemented by its work package.)
+
+### The coordinator
+
+A person's coordinator for a project: its class, its tools (`task_create`,
+`task_list`, `task_status`, `task_message`, `task_result`, `task_cancel`,
+`scm_pr`, `scm_issues`), what it may and may not do (never answering a
+question meant for a person; no merge, approve or push), the project
+updates it receives, its limits, the pushes it causes, and attaching a
+chat to it. (Implemented by its work package.)
+
+### scm events and polling
+
+How a provider's events reach the agent (`POST /adapter/scm/event`, the
+partition hand-off), how they are routed to tasks — CI failures, green
+checks, reviews and comments, merges, pushes — what each does, and the
+polling that stands in when events don't arrive. (Implemented by its work
+package.)
+
+### Team projects
+
+A team project's definition and board in the shared space, each member's
+own half in their own space with their own sandbox, tasks and
+coordinator, the optional seed sandbox, how the board stays current, and
+what happens when a member leaves. (Implemented by its work package.)
+
+### CI in the conversation
+
+What CI is watched (a task's branch and pull request, the branches a
+coding session pushed, a branch or pull request a person names), the
+routes under `/runs/{id}/ci`, the `ci` stream event, job logs and
+annotations (untrusted text, redacted), re-running failed jobs, and how
+the conversation shows it: the CI chip beside the coding agents chip, the
+CI section of their dock, outcome cards and the board's chips.
+(Implemented by its work package.)
+
+### Projects in the UI
+
+The Projects page and a project's board, new projects and tasks, the
+settings, a task conversation's chips and cards, links, and the same in
+the native view. (Implemented by its work package.)
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no

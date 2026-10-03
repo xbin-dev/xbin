@@ -138,6 +138,12 @@ type Config struct {
 	HarnessIdleMin *int `json:"harnessIdleMin,omitempty"`
 	MaxHarness     int  `json:"maxHarness,omitempty"`
 
+	// Project: the run is a project's task or its coordinator (API.md
+	// §Projects; projects_types.go) — set when the run is made, never
+	// changed, inherited by its subagents. A run of a project has origin
+	// "project"; the global defaults never hold one (PUT /config).
+	Project *ProjectRef `json:"project,omitempty"`
+
 	// noHarness: no coding agent may start in this turn's run — the global
 	// instance's, a hosted conversation's (harness_partition.go):
 	// subagent_spawn offers none. Set per turn (runToolSpecs), never stored.
