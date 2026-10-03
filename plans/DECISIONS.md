@@ -10732,10 +10732,110 @@ Deviations and refinements made while implementing; all deliberate:
     in the allowlisted files and `theme-ok` lines, emoji only in the class
     icon table, every corner on the token, 0 or the native renderer's, black
     shadows only as Night fallbacks.
-  - **Open:** the iOS app's deployments words (DeployView.swift) keep the
-    emoji the web's view models dropped (the app is an open item of
-    plans/theme-base-two.md §6);
+  - **The review round (2026-10-03, before T1)** fixed what a review of the
+    integrated branch found, with these decisions:
+    - *A palette of a tile's own carries.* Rethemes through the old names
+      are a documented path, and the `.bx` rules and core elements had
+      moved roles onto new tokens with fixed Night values (a hover at
+      1.13:1 under a light retheme's text, dark patches in a light
+      dialog). Night now writes every role that sits on the old names
+      from them — the hover (the panel 8.3% toward muted), the code well
+      (the canvas 5% toward the text), the accent's hover (25% toward
+      white) and ink (the page colour), links (the accent), the four status
+      tints (12% over the panel), window chrome (the panel steps, the
+      text, the border, the danger colour) — each chosen to compute to
+      Base Two's Night value exactly (`theme-fallbacks.mjs` resolves
+      `color-mix()` and checks; the fallbacks didn't change). Tokens with no
+      exact derivation keep literals and are listed for rethemes to set
+      (selection, focus, subtle, border-strong, syntax, diff, terminal);
+      deriving one half of a pair (the selection without its text, focus
+      without its gap) would only have made the pair illegible. Day keeps
+      its literals, except what derives identically there (links, the
+      title text, the close control, the old names).
+    - *Old status names keep their old values where a document didn't opt
+      in.* White text on `var(--bx-green)` was the old examples' own
+      pattern; Base Two's brighter status colours took it from 2.78:1 to
+      1.80:1. So a `:root:where(:not([data-bx-theme="auto"]))` block
+      (`bx-compat`, checked to set nothing else) gives such a document
+      `#4CAF50`/`#F2A71B`/`#EF5350` and makes ok/warn/danger follow them
+      (info follows muted): a retheme of `--bx-red` reaches the core
+      elements' errors as before. In an opted-in document the old names
+      stay aliases of the status colours. Rejected: old literals in every
+      Night with the status colours derived from them (Base Two's Night
+      danger would have become `#EF5350`, 4.06:1 on its tint); status
+      colours not following the old names (a light retheme's dialog error
+      at 2.3:1). The compat pairs are linted to the floor they always had
+      (4.5 on the panel; 3 on panel-2 and tints, where the old red was
+      3.80 and 3.77 before Base Two).
+    - *The `.bx` variants and sizes wait for the opt-in.* `button.primary`,
+      `.quiet`, `.danger`, `:disabled` and the 28 px minimum applied to
+      every `.bx` document and beat a tile's own classes (0,2,1 over
+      0,1,1). They now apply only under `[data-bx-theme="auto"]`, at the
+      base rule's specificity (`:where()`/`:is()`), so a later rule of the
+      document's own wins. The rest of the `.bx` restyle (weight 600, the
+      strong edge, the new face, 2 px, the focus ring) stays for every
+      `.bx` document — it is the theme's look, legible and layout-neutral
+      — and the changelog and `docs/changes/2026-10-03-base-two.md` say
+      what such a document sees and how to keep its own.
+    - *The shell never opts its host page in.* With the new shell on a
+      root page from before D184 (only `scaffold:shell` updated, or a root
+      of the workspace's own), the Theme and Density rows are disabled,
+      showing the choice and saying `bx builtin update scaffold:root`; a
+      pick can't happen. Rejected: setting `data-bx-theme` on the host at
+      boot — a customized root's own token overrides would mix with
+      Concrete Day. The changelog names the scaffold units (there is no
+      update-all).
+    - *Fonts are cached.* `/vendor/` answered `no-cache` without a
+      validator, so every load refetched ~420 KB of fonts and painted the
+      fallback face first. Every answer now carries a strong ETag (its
+      SHA-256, cached per path by size and modification time) and `Vary:
+      Origin` (a sandboxed frame's CORS answer differs from the page's —
+      without it a cached immutable font of the page's was handed to the
+      frame, which the harness caught); a font asked for with its version
+      (`?v=` = the first 8 hex digits of its SHA-256, which `theme.css`
+      writes and `hack/vendor.sh` rewrites) is immutable for a year. `.woff2`
+      and `.txt` are registered MIME types, so the fonts' type no longer
+      depends on the host's mime.types.
+    - *The native reference renderer previews the app.* The iOS app still
+      draws amber (`XbinPalette`, Tokens.swift), so `render-theme.js` went
+      back to the app's palette and faces (the roles it gained for what
+      other modules hard-coded stay, with the app's values); it moves with
+      the app.
+    - *The agent template's ▣* (sandbox badge, picker, terminal tabs, a
+      coding agent's card, titles) left its strings; the web draws the
+      `box` glyph beside them, the app's strings say "sandbox"/"in"; the
+      export stays for an instance's own code.
+    - *The lint* caught too little: it now flags the CSS named colours where
+      a colour stands, `filter: drop-shadow()`, `-webkit-text-fill-color`,
+      colours in SVG `data:` URIs (`%23` hex), any colour on a line that
+      merely mentions a mask only outside the mask's own value, SVG
+      `rx`/`ry`, relative and keyword sizes and a small size hidden in an
+      undefined token's fallback, and the text glyphs §1.6 replaces; a
+      `theme-ok` on the line before excepts the next line only when it
+      stands alone. What it found was fixed (the welcome notes' unused
+      `color` data, a docs glyph) or marked with its reason (the native
+      step primitive's text glyphs, the feature catalogue).
+    - **Verified (review round):** `make test`, `make fmt-check vet`,
+      `make js-check`, `make js-test`, `make theme-check`; every harness
+      pass on a fresh test seed, once on a dark and once on a light system
+      (74 each, all green; agentSandbox now checks the drawn glyph), among
+      them themeCompat (new: an own-palette tile's hover, dialog and code
+      well, a third-party tile's own buttons and old-name fills, an
+      opted-in tile's variants — light and dark systems), appearance,
+      themeCanary, termTheme, tileAssets, scrollbars and windows; the
+      passes needing `--isolate` (agentHomes, agentMoves, agentHosted,
+      channelsPartitioned, livereload's node steps) skip there, and
+      oldScaffold ran on its own without the overlay (now also this shell
+      on the old root page); the T1 screenshots reshot on the film set
+      (only the third-party tile's changed).
+  - **Open:** the iOS app's colours and type (Tokens.swift `XbinPalette`,
+    the reference renderer with it) and its deployments words
+    (DeployView.swift) keep the pre-Base-Two look and emoji (the app is an
+    open item of plans/theme-base-two.md §6);
     the film's camera overlay draws the old amber ripple
     (`hack/demo/cam/overlay.js`, the film's call); on a phone the alert bar
     (z 3500) covers the pop-up sheet, and at a font size other than 13
-    anchored menus open offset (both P2's findings, older than D184).
+    anchored menus open offset (both P2's findings, older than D184); the
+    agent template's browser tests `terminal.mjs`, `harness-term.mjs` and
+    `native.mjs` time out waiting for a terminal on this machine, at the
+    integrated commit as well (not looked into).

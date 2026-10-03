@@ -2,8 +2,11 @@
 
 > Status: **live** — the contract W9's six packages built against, all six
 > merged and integrated on `theme/base-two` (from `promo/film-set`,
-> 2026-10-03); it still steers what is open (§6). The decision record is
-> D184 in `plans/DECISIONS.md`, with what shipped and how it was verified.
+> 2026-10-03), then a review round (old-name rethemes, the compat block,
+> opt-in-only control variants, cached fonts, the native renderer back on
+> the app's look); it still steers what is open (§6). The decision record
+> is D184 in `plans/DECISIONS.md`, with what shipped and how it was
+> verified.
 
 Inputs: the brand system (`/tmp/claude-1000/xbin-brand/w3/system/`: `brand.md`
 §4, §5.3, §9, §11; `product-ui.md`; `tokens.json`, the `light.product` and
@@ -150,13 +153,32 @@ goes inside, `outline-offset: calc(-1 * var(--bx-focus-width))`, no halo.
 | `--bx-danger` / `--bx-danger-bg` | `#FF7A7A` / `#3A2B32` | `#C81E1E` / `#FBE7E7` | `error` (octagon) |
 | `--bx-info` / `--bx-info-bg` | `#A9B4C6` / `#30323B` | `#3D4A5C` / `#ECEEF2` | `info` (i in a square) |
 
-**Old names** (aliases; `var()` references, so they follow the theme)
+**Old names** (text colours; review round, D184)
 
-| Token | Value | Note |
+| Token | An opted-in document | A document that didn't opt in |
 |---|---|---|
-| `--bx-green` | `var(--bx-ok)` | was `#4caf50` |
-| `--bx-amber` | `var(--bx-warn)` | was `#f2a71b` |
-| `--bx-red` | `var(--bx-danger)` | was `#ef5350` |
+| `--bx-green` | `var(--bx-ok)` | `#4CAF50` (its old value), and `--bx-ok: var(--bx-green)` |
+| `--bx-amber` | `var(--bx-warn)` | `#F2A71B`, and `--bx-warn: var(--bx-amber)` |
+| `--bx-red` | `var(--bx-danger)` | `#EF5350`, and `--bx-danger: var(--bx-red)` (`--bx-info: var(--bx-muted)`) |
+
+The second column is `theme.css`'s `bx-compat` block
+(`:root:where(:not([data-bx-theme="auto"]))`): white text on a fill of an
+old name — the old examples' pattern — keeps its old contrast, and a
+document that sets the old names for a palette of its own carries them into
+the core elements' errors and badges.
+
+**Roles written from the old names** (review round). In Night's `:root`
+these are computed from the tokens a retheme sets, each to its Night value
+exactly (the fallbacks equal it): `--bx-hover` =
+`color-mix(in srgb, var(--bx-muted) 8.3%, var(--bx-panel))`, `--bx-code-bg`
+= `color-mix(in srgb, var(--bx-text) 5%, var(--bx-bg))`,
+`--bx-accent-hover` = the accent 75% with white, `--bx-accent-ink` =
+`var(--bx-bg)`, `--bx-link` = `var(--bx-accent)`, `--bx-*-bg` = 12% of the
+status colour over the panel, `--bx-titlebar` / `-active` = panel /
+panel-2, `--bx-title-text` / `-inactive` = text / subtle,
+`--bx-window-border` = border-strong, `--bx-control-hover` = border,
+`--bx-close-hover` / `-ink` = danger / bg. Day sets its own values except
+where the same derivation holds (links, title text, the close control).
 
 `--bx-bg`, `--bx-panel`, `--bx-panel-2`, `--bx-border`, `--bx-text`,
 `--bx-muted`, `--bx-accent`, `--bx-radius`, `--bx-shadow`, `--bx-font`,
@@ -493,8 +515,11 @@ tabs). Each side codes to it independently.
 
 - A document that links `theme.css` **without** the attribute gets Concrete
   Night, exactly as it got the dark-steel palette: new values under the same
-  names, old names aliased. That is every third-party tile today, so a tile
-  that hard-codes light text stays legible.
+  names, the old status names at their old values (§1.1). That is every
+  third-party tile today, so a tile that hard-codes light text stays
+  legible. The `.bx` variants (`button.primary`, `.quiet`, `.danger`,
+  `:disabled`) and the 28 px control size apply only to opted-in
+  documents, at the base rule's specificity (review round).
 - `data-bx-theme="auto"` says: this document follows the person (their
   override, else the system). No other value is defined; others are
   reserved. A Day-only document is not a thing: either it follows or it is
@@ -704,7 +729,8 @@ person picks Dark in the shell's settings
 |---|---|
 | Third-party tile linking `theme.css`, not opted in | Concrete Night; old names work; fonts are Instrument Sans/JetBrains Mono through `--bx-font`/`--bx-mono` |
 | Bare document, no `theme.css` | core elements render from fallbacks = Night |
-| New xbind, **old shell** (scaffold not updated) | the shell is Night; new opted-in tiles follow the person (on a light system with no override: Day tiles in a Night shell) until `bx builtin update` brings the new root and shell. The changelog says so |
+| New xbind, **old shell** (scaffold not updated) | the shell is Night; new opted-in tiles follow the person (on a light system with no override: Day tiles in a Night shell) until `bx builtin update scaffold:root` and `scaffold:shell` bring the new root and shell. The changelog says so |
+| **New shell, old root page** (only `scaffold:shell` updated, or a customized root) | the page stays Night; Theme and Density show the choice disabled and name `bx builtin update scaffold:root` (the shell never opts its host page in: the root's own token overrides would mix with Day) |
 | New shell on an **older xbind** | not a combination xbind ships (the scaffold comes with the binary); after a downgrade the newer shell's `/vendor/` imports are missing, as for any shell newer than its xbind (the shell already imports `scroll-css.js`, D123) |
 | Admin viewing as someone | that person's theme |
 | The xbin app's web views | the injected meta like a browser; the native chrome follows the phone (open item, §6) |
@@ -1401,8 +1427,12 @@ static scan. Line references are `promo/film-set`'s.
 - **The mark** (Q1: M4 by default) and the wordmark asset: favicons,
   `logo.*`, `apple-touch-icon.png`, the sign-in mark and the shell's default
   mark change when it is drawn. Until then the wordmark is text.
-- **The iOS app**: its web views get the person's override through the
-  injected meta while its native chrome follows the phone. The app can
+- **The iOS app**: its colours and type (`XbinPalette` in Tokens.swift:
+  amber) stay as they are, and so does the native reference renderer
+  (`web/xb/render-theme.js`), which previews the app and moves with it
+  (review round: it had moved to Base Two alone). Its web views get the
+  person's override through the injected meta while its native chrome
+  follows the phone. The app can
   relay `xbin:appearance` itself (its document-start script already relays
   messages), if the owner wants app pages to follow the phone instead.
   The native renderer keeps the app's shapes (iOS idioms, product-ui §10)
