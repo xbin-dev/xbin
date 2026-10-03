@@ -92,19 +92,23 @@ func (s *Server) brandPage(page, suffix string) string {
 }
 
 // brandLogo is what a page's logo block holds: the workspace's icon (when
-// withIcon) and title, or xbin's one-colour wordmark "xbin" (D184: the
-// wordmark stands until the chosen mark is drawn). A page whose CSP loads
-// no images, or that shouldn't carry the icon's bytes (up to 256 KiB),
-// passes withIcon false and shows the title alone.
+// withIcon) and title; its icon and xbin's wordmark when it set no title;
+// xbin's mark and wordmark (D183, brandmark.go) when it set neither. A page
+// whose CSP loads no images, or that shouldn't carry the icon's bytes (up
+// to 256 KiB), passes withIcon false and shows the title, or the wordmark,
+// alone.
 func brandLogo(b branding.Brand, withIcon bool) string {
 	mark := ""
 	if withIcon && b.Icon != "" {
 		mark = `<img class="mark" src="` + b.Icon + `" alt="">`
 	}
-	if b.Title != "" {
+	switch {
+	case b.Title != "":
 		return mark + `<span class="name">` + html.EscapeString(b.Title) + `</span>`
+	case b.Icon != "":
+		return mark + brandWordmark
 	}
-	return mark + `<span class="name">xbin</span>`
+	return brandLockup
 }
 
 // pageTitle is a page's <title> word: the workspace's title, or "xbin".
@@ -114,7 +118,3 @@ func pageTitle(b branding.Brand) string {
 	}
 	return "xbin"
 }
-
-// defaultIconURI is xbin's favicon as a data URI, as the sign-in pages
-// always carried it (it changes when the chosen mark is drawn).
-const defaultIconURI = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJYL0JJTiI+CiAgPHBhdGggZD0iTTE4IDRINTZhNCA0IDAgMCAxIDQgNHYzOEw0NiA2MEg4YTQgNCAwIDAgMS00LTRWMTh6IiBmaWxsPSIjZjVhNjIzIi8+CiAgPHBhdGggZD0iTTIxIDIxIDQzIDQzTTQzIDIxIDIxIDQzIiBzdHJva2U9IiMyMzI3MmUiIHN0cm9rZS13aWR0aD0iOSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiLz4KICA8Y2lyY2xlIGN4PSI1MyIgY3k9IjExIiByPSIyLjYiIGZpbGw9IiMyMzI3MmUiIG9wYWNpdHk9Ii40Ii8+CiAgPGNpcmNsZSBjeD0iMTEiIGN5PSI1MyIgcj0iMi42IiBmaWxsPSIjMjMyNzJlIiBvcGFjaXR5PSIuNCIvPgo8L3N2Zz4K"

@@ -205,10 +205,10 @@ var (
 // to the theme (<html data-bx-theme="auto">), links /vendor/theme.css,
 // carries the theme the hint cookie names (light, dark; none for no cookie
 // or another value) before the sheet, inside <head>; keeps its CSP's script
-// and frame rules, styles and fonts from 'self'; shows xbin's wordmark or
-// the workspace's brand (D76), never X/BIN; draws its status as bx-icons'
-// glyphs; and styles with tokens alone — no colour, font stack or radius
-// literal.
+// and frame rules, styles and fonts from 'self'; shows xbin's mark and
+// wordmark (D183) or the workspace's brand (D76), never X/BIN; draws its
+// status as bx-icons' glyphs; and styles with tokens alone — no colour,
+// font stack or radius literal but the mark's own.
 func TestServerPagesTheme(t *testing.T) {
 	for _, pc := range serverPages() {
 		t.Run(pc.name, func(t *testing.T) {
@@ -246,19 +246,25 @@ func TestServerPagesTheme(t *testing.T) {
 				}
 			}
 
-			// xbin's own: the wordmark, the default favicon on the pages that
-			// carry one; branded: the title (escaped) and, where images load,
-			// the icon
+			// xbin's own: the mark and wordmark (D183), the default favicon on
+			// the pages that carry one; the mark's colours are the only ones
+			// the page paints outside the tokens. Branded: the title
+			// (escaped) and, where images load, the icon
 			body := pc.render(t, "", false).Body.String()
-			if !strings.Contains(body, `<div class="logo"><span class="name">xbin</span></div>`) || strings.Contains(body, "X/BIN") || strings.Contains(body, "f5a623") {
-				t.Errorf("unbranded: want the wordmark alone in the logo:\n%s", body)
+			if !strings.Contains(body, `<div class="logo">`+brandLockup+`</div>`) || strings.Contains(body, "X/BIN") || strings.Contains(body, "f5a623") {
+				t.Errorf("unbranded: want xbin's lockup alone in the logo:\n%s", body)
+			}
+			for _, m := range regexp.MustCompile(`\s(?:fill|stroke|color|stop-color)="([^"]*)"`).FindAllStringSubmatch(strings.ReplaceAll(body, markTile, ""), -1) {
+				if m[1] != "none" && m[1] != "currentColor" {
+					t.Errorf("unbranded: a colour other than the mark's or a token's: %s", m[0])
+				}
 			}
 			body = pc.render(t, "", true).Body.String()
 			name := `<span class="name">Acme &lt;Ops&gt;</span>`
 			if pc.icon {
 				name = `<img class="mark" src="` + testPNG + `" alt="">` + name
 			}
-			if !strings.Contains(body, `<div class="logo">`+name+`</div>`) || strings.Contains(body, `<span class="name">xbin</span>`) ||
+			if !strings.Contains(body, `<div class="logo">`+name+`</div>`) || strings.Contains(body, `class="lockup"`) || strings.Contains(body, markTile) ||
 				pc.icon != strings.Contains(body, "data:image/png") {
 				t.Errorf("branded: want %s in the logo:\n%s", name, body)
 			}

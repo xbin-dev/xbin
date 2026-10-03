@@ -22,7 +22,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   before) and `logo.png` 1200 × 501, so a page that showed it at a fixed
   width and height should size one side only. The tile keeps its colours in
   both themes; `logo.svg`'s word is ink on a light system and near-white on
-  a dark one.
+  a dark one. xbind's own pages (sign-in, invite, "Continue as", request
+  access, the partition switch page, the tile navigation hop and the
+  tile-origin refusal) show the mark and the wordmark, drawn inline with
+  the word in the page's text colour, and carry the mark as their favicon
+  — unless the workspace set its own branding (D76): its title (after its
+  icon) as before, and a workspace icon set without a title now stands
+  beside the wordmark, never beside xbin's tile.
 - **The workspace follows your system's light or dark setting** (Base Two:
   Concrete Day and Concrete Night, D184). Settings → Theme overrides it per
   person (System, Light, Dark), and Density offers Comfortable; terminals
@@ -44,11 +50,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   invite, "Continue as", request access, the partition switch page, the
   tile navigation hop and the tile-origin refusal — through the
   `xbin_theme` hint cookie the shell keeps (a UI hint, never a credential);
-  their default mark is the wordmark "xbin". Corners are 2 px; the fonts are
-  Instrument Sans, JetBrains Mono and Bricolage Grotesque, served from
-  `/vendor/fonts/`; code faces and terminals draw no ligatures, and a new
-  workspace's seeded zsh prompt draws its path in the terminal's bright
-  black (a fixed 256-colour grey before, which no theme follows). Status
+  their default logo is xbin's mark and wordmark (above). Corners are 2 px;
+  the fonts are Instrument Sans, JetBrains Mono and Bricolage Grotesque,
+  served from `/vendor/fonts/`; code faces and terminals draw no
+  ligatures, and a new workspace's seeded zsh prompt draws its path in the
+  terminal's bright black (a fixed 256-colour grey before, which no theme
+  follows). Status
   shows as a glyph of its own shape with its word (`ok`, `info`, `warning`,
   `error`), never a coloured or breathing dot alone; emoji used as icons
   became drawn glyphs, and view-model strings lost their emoji (a test that

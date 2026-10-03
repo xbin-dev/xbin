@@ -18,8 +18,9 @@ package server
 //     there at first paint (its :has() rules read the meta).
 //
 // They look like the product's Work volume (brand §12): concrete and ink, a
-// plate (pageCSS), the workspace's branding (D76) or the one-colour
-// wordmark "xbin", no fields, tokens only. Controls come from theme.css's
+// plate (pageCSS), the workspace's branding (D76) or xbin's mark and
+// wordmark (D183, brandmark.go), no fields, tokens only — the mark's own
+// colours aside, which no theme changes. Controls come from theme.css's
 // .bx rules (product-ui §6: 28 px, border-strong, the focus ring; a primary
 // button in the accent with its ink). Status is an icon, words and colour
 // (R2): the glyphs are /vendor/bx-icons.js's, inline, since these pages run
@@ -78,8 +79,10 @@ const pageOpen = `<!doctype html>
 `
 
 // pageCSS is the pages' shared layout, on tokens only: the concrete page,
-// the plate (an ink rule on top, a hairline under the logo), the logo, the
-// body type, status alerts and icons. Controls are theme.css's .bx rules.
+// the plate (an ink rule on top, a hairline under the logo), the logo (the
+// lockup's tile as tall as a workspace's icon, 32 px; 24 px on a notice),
+// the body type, status alerts and icons. Controls are theme.css's .bx
+// rules.
 const pageCSS = `
 body.bx{box-sizing:border-box;min-height:100vh;margin:0;padding:16px;display:flex;align-items:center;justify-content:center;
   background:var(--bx-bg);color:var(--bx-text);font:var(--bx-font)}
@@ -89,7 +92,11 @@ body.bx{box-sizing:border-box;min-height:100vh;margin:0;padding:16px;display:fle
 .logo{display:flex;align-items:center;gap:12px;margin:0;padding:14px 20px;border-bottom:1px solid var(--bx-border);
   color:var(--bx-text);font:var(--bx-font-hero);letter-spacing:var(--bx-tracking-hero);overflow-wrap:anywhere}
 .logo img.mark{flex:none;width:32px;height:32px;object-fit:contain;border-radius:var(--bx-radius)}
+.logo svg.lockup{display:block;flex:none;width:auto;height:32px}
+.logo svg.wordmark{display:block;flex:none;width:auto;height:24px}
 .notice .logo{padding:12px 20px;font:var(--bx-font-heading);font-weight:800}
+.notice .logo svg.lockup{height:24px}
+.notice .logo svg.wordmark{height:18px}
 .main{padding:16px 20px 20px}
 .main>:first-child{margin-top:0}
 .main>:last-child{margin-bottom:0}
