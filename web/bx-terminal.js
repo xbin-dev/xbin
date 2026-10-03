@@ -181,8 +181,9 @@ export class BxTerminal extends HTMLElement {
              a document has no theme.css */
           .host{height:100%; background:var(--bx-term-bg, #0B0C12);
             font-family:var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); font-size:var(--bx-term-size, 12px)}
-          /* product-ui §7: 8px 12px around the screen (fit measures inside it) */
-          .host .xterm{padding:8px 12px}
+          /* product-ui §7: 8px 12px around the screen (fit measures inside
+             it); ligatures off: a program's -> and != are drawn as typed */
+          .host .xterm{padding:8px 12px; font-variant-ligatures:none; font-feature-settings:"liga" 0, "calt" 0}
           button, select{font:inherit}
           :focus-visible{outline:var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset:var(--bx-focus-offset, 2px);
             box-shadow:var(--bx-focus-halo, 0 0 0 2px #0B0C12)}

@@ -23,8 +23,10 @@ import '/vendor/bx-icons.js';
 // changed line keeps its syntax colours on its tint, its +/- marker in the
 // diff colour; file headers in the text colour, 600; unchanged lines in the
 // context colour. Shared by every element that shows code or a diff
-// (bx-prs, bx-deploy, the Agent tab's cards), so they read the same.
+// (bx-prs, bx-deploy, the Agent tab's cards), so they read the same. Code is
+// shown as typed: the code face's ligatures are off (=> stays two characters).
 export const codeCss = css`
+  pre, code, .hljs, .diff, .mono { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
   .hljs-comment, .hljs-quote { color: var(--bx-syn-comment, #9598A9); font-style: italic; }
   .hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-name, .hljs-doctag, .hljs-variable.language_ { color: var(--bx-syn-keyword, #FF8CC8); }
   .hljs-string, .hljs-regexp, .hljs-char.escape_, .hljs-meta .hljs-string { color: var(--bx-syn-string, #7BE0B0); }

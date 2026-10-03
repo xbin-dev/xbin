@@ -115,8 +115,9 @@ export class BxLogs extends HTMLElement {
              document has no theme.css */
           .host{height:100%; background:var(--bx-term-bg, #0B0C12);
             font-family:var(--bx-mono, "JetBrains Mono", ui-monospace, monospace)}
-          /* as the terminal: 8px 12px around the screen (fit measures inside it) */
-          .host .xterm{padding:8px 12px}
+          /* as the terminal: 8px 12px around the screen (fit measures inside
+             it), ligatures off */
+          .host .xterm{padding:8px 12px; font-variant-ligatures:none; font-feature-settings:"liga" 0, "calt" 0}
           .badge{position:absolute; top:6px; right:12px; z-index:6; box-sizing:border-box; height:20px; padding:0 6px;
             display:inline-flex; align-items:center; white-space:nowrap; pointer-events:none;
             font:var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing:var(--bx-tracking-micro, 0.06em);

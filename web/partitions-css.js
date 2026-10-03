@@ -26,7 +26,8 @@ export const pageCss = css`
   p { margin: 8px 0; }
   a { color: var(--bx-link, #8C9BFF); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  code, .mono { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 0.92em; overflow-wrap: anywhere; }
+  code, .mono { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 0.92em; overflow-wrap: anywhere;
+    font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
   .muted { color: var(--pt-muted); }
   .small, .who, .empty, .toc, summary { font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
   .who { color: var(--pt-muted); }

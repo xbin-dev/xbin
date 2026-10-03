@@ -44,6 +44,7 @@ export function mdCssText(scope) {
   ${s(':not(pre) > code')} { padding: 0 4px; background: var(--bx-code-bg, #16171D); border: 1px solid var(--bx-border, #33353F);
     border-radius: var(--bx-radius, 2px); font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 0.92em; }
   ${s('pre code')} { padding: 0; background: none; border: 0; font: inherit; }
+  ${s('pre, code')} { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
   ${s('table')} { border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
   ${s('th, td')} { padding: 4px 10px; border: 1px solid var(--bx-border, #33353F); text-align: left; vertical-align: top; }
   ${s('th')} { font-weight: 600; background: var(--bx-panel-2, #262730); }
