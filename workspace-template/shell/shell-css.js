@@ -283,6 +283,23 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
       border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
     }
     .wsmenu .step:hover { background: var(--bx-hover, #2A2B34); }
+    /* Theme and Density: square segmented controls, the pressed one the
+       selection (product-ui 6) */
+    .wsmenu .seg { display: inline-flex; }
+    .wsmenu .seg button {
+      position: relative; box-sizing: border-box; height: var(--bx-control-h, 28px); padding: 0 10px; margin-left: -1px; cursor: pointer;
+      color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028);
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: 0;
+    }
+    .wsmenu .seg button:first-child { margin-left: 0; border-radius: var(--bx-radius, 2px) 0 0 var(--bx-radius, 2px); }
+    .wsmenu .seg button:last-child { border-radius: 0 var(--bx-radius, 2px) var(--bx-radius, 2px) 0; }
+    .wsmenu .seg button:hover { background: var(--bx-hover, #2A2B34); }
+    .wsmenu .seg button[aria-pressed="true"] {
+      z-index: 1; font-weight: 600; color: var(--bx-selection-text, #E9EAF0);
+      background: var(--bx-selection, #262C5C); border-color: var(--bx-accent, #8C9BFF);
+    }
+    .wsmenu .seg button:focus-visible { z-index: 2; }
+    .wsmenu .seg button:disabled { cursor: default; opacity: 0.5; }
     .wsmenu input:not([type=checkbox]):not([type=range]), .wsmenu select {
       box-sizing: border-box; height: var(--bx-control-h, 28px); padding: 0 8px;
       color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028);

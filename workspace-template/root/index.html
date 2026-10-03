@@ -3,7 +3,8 @@
   The workspace root — a thin page composing the shell. The layout itself is
   the `shell/` component in this workspace (open a terminal there to restyle
   everything live); theme tokens live in /vendor/theme.css and can be
-  overridden in the <style> below.
+  overridden in the <style> below. data-bx-theme="auto" makes the page
+  follow the person's theme and density (the shell's settings; D184).
 
   The <bx-frame> children below SEED the first screen the very first time a
   user opens the workspace:
@@ -14,7 +15,7 @@
   what they don't want. Editing this seed list only affects users who haven't
   opened the workspace yet.
 -->
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
