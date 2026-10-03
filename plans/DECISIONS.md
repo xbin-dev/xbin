@@ -10623,8 +10623,9 @@ Deviations and refinements made while implementing; all deliberate:
     the start).
   - **Plan**: six packages with disjoint files (P1 core, P2 shell, P3 core
     elements, P4 xbind's pages, P5 shipped tiles and templates, P6 the film
-    set); merged P1, P3, P2, P4, P5, P6, then one integration step that
-    regenerates the stale fallbacks and takes the lint to zero.
+    set); merged P1, P2, P3, P4, P5, P6 (the plan's P1, P3, P2 order
+    wasn't needed: no file is two packages', and no merge conflicted),
+    then one integration step.
   - **Shipped with P1 (core):** the fonts, vendored and pinned like the
     rest of `web/vendor/` (`hack/vendor.sh` fetches Instrument Sans 400,
     600 and 400 italic and Bricolage Grotesque 600, 800 from @fontsource
@@ -10674,10 +10675,67 @@ Deviations and refinements made while implementing; all deliberate:
     the injected light; nothing breaks), `appHelp`, `adminTabs`. The shell's
     own change reaching frames, a second tab following through the prefs
     event and terminals following SKIP until P2 and P3 land.
-  - **Left for the integration step:** merge P2–P6; `node
-    hack/theme-fallbacks.mjs --fix` (1149 stale fallbacks at P1) and the
-    lint to zero (2135 findings at P1: colour 581, radius 396, font 27,
-    small 875, emoji 256, contrast 0); `make check`, `make tile-check`,
-    `make integration`; every harness pass, and appearance, themeCanary,
-    scrollbars, windows, oldScaffold and tileAssets with HARNESS_THEME=light
-    too; the audit's numbers again; this entry and the plan's status final.
+  - **Integrated (2026-10-03):** the fallbacks and the lint were already
+    at zero once the six had merged (each package had rewritten its own
+    files; `--fix` found nothing). The step drew the glyphs the hand-offs
+    asked for — `grid` (a screen), `power` (the agent template's brake, as
+    its native view), `call` (the film set's call activities) — and added
+    one token, `--bx-mono-size` (mono beside UI text: 12px, 13px
+    comfortable); `.bx` code draws no ligatures. It split the five files the
+    packages had grown past their size budget (`internal/sizebudget`) into
+    siblings — `web/agent-css.js`, `web/frame-css.js`, `web/term-chrome.js`
+    (also xterm's one loader, which `bx-logs` now shares),
+    `workspace-template/shell/shell-appearance.js`, the admin console's
+    `navCss` — and made the cross-package fixes the hand-offs named: the
+    termTheme pass registered, personalBinds' drawn remove control, `shot()`
+    putting the scroll back, the harness seed editing the coding sandbox's
+    JSONC manifest without `json.load`, the deploy chip's icon on the test
+    surface, two native fixtures, the docs (glyph names for ⇈ 📌 ⇡ and the
+    rest, `bx-window-front`/`bx-build`, the pages that read the hint cookie,
+    status as a glyph and word). The harness on the merged branch found the
+    rest: the grant requests are taller plates now, so `menus`, `menuOpen`,
+    `gridScale` and `partitionConsent` scroll what they click into view;
+    `sandboxTerminal`'s ssh runs with `-F /dev/null`; the canary found the
+    shell mark's X computing to fill black and the seeded zsh prompt's
+    256-colour grey (now `%F{8}`, which follows the theme); the real-theme
+    audit found the settings slider's UA field colour. Also fixed: the Agent
+    tab's 404 handler called `this._end()`, shadowed by the window's `_end`
+    index (now `_gone()`), and the app's help screenshots were reshot.
+  - **Verified at integration:** `make check` (fmt-check with CI's gofmt
+    1.26.3, vet, js-check, js-test 724 pass, native-check, theme-check,
+    shellcheck 0.10.0 over 63 scripts, pins-offline, large-files, `go test
+    ./...`), `make tile-check` (9 backends). `make integration` can't be
+    judged in the session it ran in: 889 tests passed, among them the
+    examples' end to end (TestGrantFlowAndResources, TestComponentsAPI),
+    and the 100 that failed all need what that session lacks — a user
+    namespace with sub-uids (`newuidmap: write to uid_map failed`, "parent
+    did not complete uid mapping") or FUSE outside a namespace of its own
+    (encrypted resources held) — none touches D184's files; it wants a
+    `hack/dev-setup.sh` machine. The UI harness on
+    fresh test seeds, in a user and mount namespace for gocryptfs: every
+    pass in dark (73 of 74, then `menuOpen` fixed and green in both
+    themes); appearance (61 checks, no SKIP now that P2 and P3 are in),
+    themeCanary (14 of 14 screens), scrollbars, windows, tileAssets with
+    `HARNESS_THEME=light`; oldScaffold without the overlay in both themes;
+    appearance and tileAssets under `tokens` and `origins` gating; under
+    `HARNESS_ISOLATE` (and `HARNESS_AGENT_PARTITION`) livereload (no SKIP),
+    deployments, deployBranches, sandboxes, agentHomes 20, agentHosted 24,
+    agentMoves 17, channelsPartitioned 15. The film set: seeded with no
+    failure, demoStills' 20 stills in both themes, and the T1 screenshots
+    (`.film-media/theme-t1/{light,dark}`) with a real-theme audit of every
+    screen (preview.js's walk, compared with each document's own computed
+    tokens; no injection): no unexplained colour, font, corner or emoji —
+    xterm's invisible input proxy and the CRM's columns (a mix of two
+    tokens) are the allowlist. A third-party-style tile that links the
+    sheet without opting in, light text hard-coded, stays Night in a light
+    workspace. The audit's scanners: colour literals and font stacks only
+    in the allowlisted files and `theme-ok` lines, emoji only in the class
+    icon table, every corner on the token, 0 or the native renderer's, black
+    shadows only as Night fallbacks.
+  - **Open:** the iOS app's deployments words (DeployView.swift) keep the
+    emoji the web's view models dropped (the app is an open item of
+    plans/theme-base-two.md §6);
+    the film's camera overlay draws the old amber ripple
+    (`hack/demo/cam/overlay.js`, the film's call); on a phone the alert bar
+    (z 3500) covers the pop-up sheet, and at a font size other than 13
+    anchored menus open offset (both P2's findings, older than D184).
