@@ -177,7 +177,7 @@ make website        # website/dist: every page, css/, fonts/, img/ (but img/film
                     # media.lock pins it, static/helpers/
 ```
 
-It runs the site's check with `--dist` first. `dist/` is the deployable artifact (any
+It runs the site's guard with `--dist` first. `dist/` is the deployable artifact (any
 static host, GitHub Pages, an object store). It refuses to build when
 `hack/helpers.sha256` lists prebuilt helpers but `website/static-helpers/` is missing:
 the site serves them at `https://xbin.dev/static/helpers/…` (`make helpers`;
@@ -187,8 +187,10 @@ them would send everyone's `make helpers` back to building from source.
 
 ## Checks
 
-`make website-check` (`hack/check-website.sh`, part of `make guards`; its tests break
-each rule on a copy of the site):
+Two layers. `make website-check` runs both; `make guards` (and CI) runs the first.
+
+The guard, `make website-guard` (`hack/check-website.sh`, no browser; its tests,
+`hack/check-website.test.mjs`, break each rule on a copy of the site):
 
 - **Preserved files:** `install.sh` byte-identical to the bootstrap master had; the
   privacy page's title, description and words unchanged (normalized text, pinned by
@@ -214,6 +216,34 @@ each rule on a copy of the site):
 
 It also counts what is still open: data slots, `TODO-COPY` gaps, shots waiting for
 their capture, stub pages.
+
+The browser pass, `hack/website-check.mjs` (Playwright from `PLAYWRIGHT_DIR`, as for
+`make website-og`): every page at 360, 390, 768, 1024, 1440 and 1920 px wide, in light,
+dark and reduced motion, served by `python3 -m http.server 9424 --bind 127.0.0.1`,
+which it starts and stops (it refuses a port someone else holds). About 30 s. A page
+fails on:
+
+- a console error or an uncaught exception;
+- a request that leaves `127.0.0.1:9424` (blocked, and named);
+- horizontal overflow: the page scrolls sideways, or a box runs past the viewport's
+  edge with nothing of the page's own to scroll or clip it (again with every
+  `<details>` open);
+- layout shift over 0.05 (the largest session window, as Chrome counts CLS) while
+  the page loads and is scrolled to its end. The fonts are held until the first paint
+  and then let in one at a time, as on a first visit, so a font swap that moves the
+  page counts on every run;
+- a focusable element without a visible focus ring: every element Tab reaches (and
+  what each `<details>` reveals) must match `:focus-visible`, be shown and not covered,
+  and draw its ring at 3:1 or more against the ground around it with at least 60 % of
+  the ring inside the viewport and the boxes that clip it;
+- a missing image: an `<img>` that did not load, a request that failed or answered
+  4xx/5xx, or a `src`/`srcset` candidate the server does not have (the 2× files and the
+  dark sources included);
+- an animation that runs under `prefers-reduced-motion`.
+
+`WEBSITE_CHECK_FLAGS` passes its flags: `--dist` checks `website/dist` as
+`make website` left it, `--page NAME` one page, `--shots DIR` also writes full-page
+screenshots of every page at 1440 × 900 and 390 × 844 (DPR 2), light and dark.
 
 ## Preserved URLs
 

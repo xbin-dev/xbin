@@ -42,7 +42,7 @@ function breaks(t, mutate, want, ...args) {
 test('the site as it is passes', (t) => {
   const r = check(site(t));
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /website-check: ok/);
+  assert.match(r.out, /website-guard: ok/);
 });
 
 test('install.sh must stay byte-identical', (t) => {

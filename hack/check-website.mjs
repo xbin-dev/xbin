@@ -1,5 +1,6 @@
 // hack/check-website.mjs — the xbin.dev site's guard, run by hack/check-website.sh
-// (`make website-check`, part of `make guards`; `make website` runs it with --dist).
+// (`make website-guard`, part of `make guards`, and first in `make website-check`;
+// `make website` runs it with --dist).
 // website/README.md → "Checks" lists the rules; each one is a function below.
 //
 //   node hack/check-website.mjs            the guard
@@ -413,8 +414,8 @@ if (todos.data || todos.copy || todos.shot || todos.page.length) {
 }
 for (const n of notes) console.log(`  ${n}`);
 if (failures.length) {
-  console.error(`website-check: ${failures.length} problem(s)`);
+  console.error(`website-guard: ${failures.length} problem(s)`);
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
 }
-console.log('website-check: ok');
+console.log('website-guard: ok');

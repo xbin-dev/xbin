@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
+.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -199,7 +199,7 @@ fmt:
 # tests. CI runs the same split over parallel jobs (`make guards`, `make test
 # SHARD=i/N`), and `make integration`'s shards. Each guard is its own target
 # so a failure names itself.
-GUARDS := fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files website-check
+GUARDS := fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files website-guard
 guards: $(GUARDS)
 check: $(GUARDS) test
 	@echo ">> make check: green"
@@ -241,11 +241,20 @@ swift-stubcheck:
 	  t=$${c%%:*}; a=; case $$c in *:*) a=$${c#*:};; esac; log="$${TMPDIR:-/tmp}/xbin-$$t$$a.log"; echo ">> $$t $$a"; \
 	  native/tools/$$t/run.sh $$a >"$$log" 2>&1 || { tail -40 "$$log"; echo "$$t $$a: FAILED (full log: $$log)"; rc=1; }; done; exit $$rc
 
-# The xbin.dev site (website/README.md → "Checks"): the preserved files, no
-# third-party loads, nothing stored, the per-page budgets, one header and
-# footer, every image's alt and size, the media lock.
-website-check:
+# The xbin.dev site's guard (website/README.md → "Checks"), in make guards: the
+# preserved files, no third-party loads, nothing stored, the per-page budgets,
+# one header and footer, every image's alt and size, the media lock.
+website-guard:
 	@./hack/check-website.sh
+
+# The guard, then every page in Chromium (hack/website-check.mjs, Playwright from
+# PLAYWRIGHT_DIR; website/README.md → "Checks"): six widths in light, dark and
+# reduced motion, served by python3 -m http.server on 127.0.0.1:9424, failing on
+# console errors, requests that leave it, horizontal overflow, layout shift,
+# focus rings that do not show, missing images. Not in make guards (it needs a
+# browser). WEBSITE_CHECK_FLAGS passes --dist, --page NAME or --shots DIR.
+website-check: website-guard
+	@PLAYWRIGHT_DIR="$(PLAYWRIGHT_DIR)" node hack/website-check.mjs $(WEBSITE_CHECK_FLAGS)
 
 # Re-render the share card, website/og.png, from website/og.html (Playwright from
 # PLAYWRIGHT_DIR, over file://; website/README.md → "og.png").

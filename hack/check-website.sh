@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# hack/check-website.sh — the xbin.dev site's guard: `make website-check`, part of
-# `make guards`; `make website` runs it with --dist before it assembles dist/.
+# hack/check-website.sh — the xbin.dev site's guard: `make website-guard`, part of
+# `make guards` and the first half of `make website-check` (the second is the site in
+# a browser, hack/website-check.mjs); `make website` runs it with --dist before it
+# assembles dist/.
 #
 # It holds website/ to the rules in website/README.md → "Checks":
 #   - the preserved files: install.sh byte-identical, app/ios.json parses as the
