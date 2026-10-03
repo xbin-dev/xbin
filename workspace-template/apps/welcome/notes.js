@@ -1,5 +1,5 @@
 /**
- * <welcome-notes> — a clickable sticky-note board of builder docs.
+ * <welcome-notes> — a clickable board of builder notes.
  *
  * Three levels: the board (all notes) → a topic (intro + child notes) →
  * a detail page (prose + code). Content is data-driven in NOTES below;
@@ -9,21 +9,10 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 
-// tinted dark-steel paper per topic: [background, edge]. Muted hues that
-// carry topic identity while light-gray note text stays readable on top.
-const PAPER = {
-  blue:   ['#1f2a39', '#35506e'],
-  purple: ['#292340', '#493d68'],
-  green:  ['#1d2f26', '#356149'],
-  pink:   ['#342330', '#5e3b4d'],
-  yellow: ['#312c1b', '#5f5531'],
-  orange: ['#322719', '#60482d'],
-  cyan:   ['#182e31', '#2d5960'],
-  teal:   ['#182e2a', '#2c5b50'],
-  slate:  ['#252a33', '#414b5a'],
-  rose:   ['#33222a', '#5e3a47'],
-  sky:    ['#1e2c40', '#3a5a86'], // the featured "start here" note
-};
+// Notes are plates (Base Two, D184): the panel, a 1px edge, 2px corners, in
+// light and dark alike. A topic's `color` names it in the data only; the
+// one coloured block is the featured "start here" note — the first-run
+// screen's single field (cobalt), as the brand allows.
 
 const NOTES = [
   {
@@ -66,7 +55,7 @@ const NOTES = [
           <p>The terminal's title bar also holds its knobs: a <strong>network
           scope</strong> picker (internet by default, so <code>git clone</code> /
           <code>go get</code> just work), a <strong>no-API</strong> toggle
-          (read/edit code with every API call unauthorized), and <code>⟲</code>
+          (read/edit code with every API call unauthorized), and the reset button
           to reset the sandbox. The <strong>isolation</strong> note has the full
           story.</p>`,
       },
@@ -188,6 +177,32 @@ bx ls                   # what exists in this workspace</pre>
     ],
   },
   {
+    id: 'theme', title: 'light & dark', color: 'slate',
+    teaser: 'your page follows the person’s theme once it opts in — style with the tokens',
+    intro: html`
+      <p>The workspace follows each person's light or dark setting (their
+      override in the shell's settings, else the system's). A tile's page
+      follows too once it <strong>opts in</strong>:</p>
+      <pre>&lt;html lang="en" data-bx-theme="auto"&gt;
+&lt;link rel="stylesheet" href="/vendor/theme.css"&gt;</pre>
+      <p><code>bx new</code> writes both. Style with the theme's
+      <strong>tokens</strong> — <code>var(--bx-text)</code>,
+      <code>--bx-panel</code>, <code>--bx-border</code>, <code>--bx-accent</code>,
+      <code>--bx-radius</code>, <code>--bx-font</code>, <code>--bx-mono</code>… —
+      never a colour, font or corner of your own, and the page is right in
+      both themes; <code>&lt;body class="bx"&gt;</code> styles your buttons and
+      inputs as well (<code>class="primary"</code> for the one action that
+      matters). The accent is for actions, selection and links; a status is
+      an icon, a word and its colour.</p>
+      <p>Icons: <code>&lt;bx-icon name="warning"&gt;</code> from
+      <code>/vendor/bx-icons.js</code> — drawn glyphs, not emoji. Code that
+      paints (a canvas, a chart) reads a token with <code>token()</code> from
+      <code>/vendor/bx-theme.js</code> and repaints in
+      <code>onAppearance()</code>. A page that doesn't opt in stays dark,
+      whatever the person picked.</p>`,
+    docs: 'frontend-kit.md',
+  },
+  {
     id: 'auth', title: 'auth & identity', color: 'purple',
     teaser: 'your path is your identity; xbind vouches for every call',
     intro: html`
@@ -296,7 +311,7 @@ mux.Handle("POST /items", xbin.RoleFunc("writer", add))  // writer and up</pre>
           sits <em>pending</em> until a human approves it — a workspace admin,
           or an org admin when the tile is org-owned and the target is within
           the org's allowance. You can watch your own tile's pendings (and who
-          can approve them) in the <strong>⚑ organisations</strong> panel.
+          can approve them) in the <strong>organisations</strong> panel.
           Approving from a shell (role after the last colon):</p>
           <pre>bx grant apps/email apps/calendar:reader
 bx grant --revoke apps/email apps/calendar:reader
@@ -572,7 +587,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           tweaked <code>/etc</code>, a toolchain) land in a <strong>persistent
           per-component layer</strong>
           (<code>.xbin/term/&lt;component&gt;/</code>) that survives across
-          sessions and restarts — a real dev box per component. The ⟲ button
+          sessions and restarts — a real dev box per component. The reset button
           resets it to clean. When xbin ships a newer base image, the next
           session moves to it and starts clean (the workspace's base
           auto-update, on by default; a grey first line says so).</p>
@@ -741,10 +756,10 @@ bx expose apps/mc   game=runtime --listen :25565</pre>
       approvals belong to the owner (org admins for org tiles). The create
       dialog's <em>Owner</em> picker sets it; transfers preview their impact
       before you confirm.</p>
-      <p>Day to day: share a tile from its <strong>⚙ access</strong> panel;
+      <p>Day to day: share a tile from its <strong>access</strong> panel;
       hit a tile you can't read and the page itself offers
       <strong>request access</strong> — the owner sees it in the
-      <strong>⚑ organisations</strong> panel and approves in a click. New
+      <strong>organisations</strong> panel and approves in a click. New
       people join by <strong>admin-minted invite links</strong> (single-use;
       there is no self-signup), and orgs can pin shared <strong>org
       screens</strong> every member gets — read-only until you
@@ -823,128 +838,99 @@ class WelcomeNotes extends LitElement {
     this._path = child ? [top.id, child.id] : top ? [top.id] : [];
   }
 
+  // Base Two (D184): theme.css's tokens only (the page links it and opts
+  // in), so the board is right in light and dark — plates on the panel, the
+  // in-app docs' body type, code on the code well; no rotation, tape,
+  // shadows or animation.
   static styles = [scrollCss, css`
     :host { display: block; }
-    p { margin: 6px 0 0; font-size: 12.5px; color: var(--bx-text, #d4d9e0); }
-    ul { margin: 6px 0 0; padding-left: 18px; }
-    li { font-size: 12.5px; margin-top: 4px; }
+    p { margin: 8px 0 0; font: var(--bx-font-body); color: var(--bx-text); }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { font: var(--bx-font-body); margin-top: 4px; }
     code {
-      background: rgba(0, 0, 0, 0.24);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 4px; padding: 0 4px;
-      font: 11.5px var(--bx-mono, ui-monospace, monospace);
+      background: var(--bx-code-bg);
+      border: 1px solid var(--bx-border);
+      border-radius: var(--bx-radius); padding: 0 4px;
+      font: var(--bx-font-code);
     }
     pre {
-      background: rgba(0, 0, 0, 0.28);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 4px; padding: 7px 9px; margin: 8px 0 0;
-      font: 11.5px/1.5 var(--bx-mono, ui-monospace, monospace);
+      background: var(--bx-code-bg);
+      border: 1px solid var(--bx-border);
+      border-radius: var(--bx-radius); padding: 8px 12px; margin: 8px 0 0;
+      font: var(--bx-font-code);
       overflow-x: auto; white-space: pre;
     }
-    a { color: var(--bx-accent, #f5a623); text-decoration: none; }
+    pre code { border: 0; padding: 0; background: none; }
+    a { color: var(--bx-link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    :focus-visible { outline: var(--bx-focus-outline); outline-offset: var(--bx-focus-offset); box-shadow: var(--bx-focus-halo); }
 
     /* ---- breadcrumbs ---- */
     .crumbs {
       display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-      margin: 2px 0 10px;
-      font-size: 11px; color: var(--bx-muted, #868f9a);
+      margin: 2px 0 12px; color: var(--bx-muted);
     }
     .crumbs button {
       background: none; border: none; padding: 0; cursor: pointer;
-      font: inherit; color: var(--bx-accent, #f5a623);
+      font: inherit; color: var(--bx-link);
     }
     .crumbs button:hover { text-decoration: underline; }
-    .crumbs .here { color: var(--bx-text, #d4d9e0); font-weight: 600; }
+    .crumbs .here { color: var(--bx-text); font-weight: 600; }
 
-    /* ---- sticky notes ---- */
+    /* ---- the notes: plates ---- */
     .board {
-      display: grid; gap: 14px;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      padding: 4px 2px 8px;
+      display: grid; gap: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+      padding: 4px 0 8px;
     }
     .note {
       position: relative;
-      background: var(--paper);
-      border: 1px solid var(--edge);
-      border-radius: 2px;
-      padding: 22px 12px 12px;
-      min-height: 74px;
-      box-shadow: 1px 2px 6px rgba(0, 0, 0, 0.38);
+      background: var(--bx-panel);
+      border: 1px solid var(--bx-border);
+      border-radius: var(--bx-radius);
+      padding: 12px;
+      min-height: 72px;
       cursor: pointer;
-      transform: rotate(-1deg);
-      transition: transform 0.12s ease, box-shadow 0.12s ease;
-      text-align: left; font: inherit; color: var(--bx-text, #d4d9e0);
+      text-align: left; font: inherit; color: var(--bx-text);
     }
-    .board .note:nth-child(even) { transform: rotate(1.1deg); }
-    .board .note:nth-child(3n)   { transform: rotate(-0.4deg); }
-    .note:hover {
-      transform: rotate(0deg) translateY(-2px);
-      box-shadow: 2px 5px 14px rgba(0, 0, 0, 0.5);
-    }
-    .note::before {              /* tape */
-      content: ""; position: absolute; top: -7px; left: 50%;
-      width: 42px; height: 14px; transform: translateX(-50%) rotate(-2deg);
-      background: rgba(255, 255, 255, 0.12);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
-    }
-    .note h3 {
-      margin: 0; font-size: 12.5px; font-weight: 700;
-      color: var(--bx-text, #d4d9e0);
-    }
-    .note .teaser {
-      margin: 4px 0 0; font-size: 11.5px; font-style: italic;
-      color: color-mix(in srgb, var(--bx-text, #d4d9e0) 72%, transparent);
-    }
-    .board.sub { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .note:hover { background: var(--bx-hover); border-color: var(--bx-border-strong); }
+    .note h3 { margin: 0; font: inherit; font-weight: 600; color: var(--bx-text); }
+    .note .teaser { margin: 4px 0 0; font: var(--bx-font-ui); color: var(--bx-muted); }
+    .board.sub { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 
-    /* ---- the featured "start here" note: a full-width pinned banner ---- */
+    /* ---- the featured "start here" note: the first-run screen's one field block ---- */
     .note.featured {
       grid-column: 1 / -1;
-      transform: none;
-      padding: 24px 18px 15px;
+      padding: 16px;
       min-height: 0;
-      border-width: 2px;
-      box-shadow: 2px 4px 14px rgba(16, 24, 40, 0.2);
+      background: var(--bx-field-cobalt);
+      border-color: var(--bx-field-cobalt);
+      color: var(--bx-field-cobalt-ink);
     }
-    .note.featured::before { display: none; }        /* badge instead of tape */
-    .note.featured:hover { transform: translateY(-2px); }
-    .note.featured h3 { font-size: 15px; }
-    .note.featured .teaser {
-      font-size: 12.5px; margin-top: 5px; font-style: normal;
-      color: color-mix(in srgb, var(--bx-text, #d4d9e0) 80%, transparent);
-    }
+    .note.featured:hover { background: var(--bx-field-cobalt); border-color: var(--bx-field-cobalt-ink); }
+    .note.featured h3 { font: var(--bx-font-heading); letter-spacing: var(--bx-tracking-heading); color: inherit; }
+    .note.featured .teaser { font: var(--bx-font-body); margin-top: 4px; color: inherit; }
     .note .badge {
-      position: absolute; top: -9px; right: 14px;
-      background: var(--bx-accent, #f5a623); color: #23272e;
-      font-size: 9px; font-weight: 700; letter-spacing: 0.07em;
-      text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
-      box-shadow: 0 1px 3px rgba(16, 24, 40, 0.28);
+      display: inline-flex; align-items: center; height: 20px; box-sizing: border-box; padding: 0 6px; margin-bottom: 8px;
+      border: 1px solid currentColor; border-radius: var(--bx-radius);
+      font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
     }
 
-    /* ---- opened topic / detail: one big sheet of the same paper ---- */
+    /* ---- opened topic / detail: one plate ---- */
     .sheet {
       position: relative;
-      background: var(--paper);
-      border: 1px solid var(--edge);
-      border-radius: 2px;
-      padding: 24px 16px 16px;
-      box-shadow: 1px 3px 8px rgba(16, 24, 40, 0.14);
+      background: var(--bx-panel);
+      border: 1px solid var(--bx-border);
+      border-radius: var(--bx-radius);
+      padding: 16px;
     }
-    .sheet::before {
-      content: ""; position: absolute; top: -8px; left: 26px;
-      width: 52px; height: 16px; transform: rotate(-3deg);
-      background: rgba(255, 255, 255, 0.12);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    .sheet h3 { margin: 0; font-size: 13px; font-weight: 700; }
+    .sheet h3 { margin: 0; font: var(--bx-font-title); }
     .sheet .kids-label {
-      display: block; margin: 16px 0 2px;
-      font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: color-mix(in srgb, var(--bx-text, #d4d9e0) 55%, transparent);
+      display: block; margin: 16px 0 4px;
+      font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+      text-transform: uppercase; color: var(--bx-muted);
     }
-    .sheet .docs-link { margin-top: 12px; font-size: 11px; }
+    .sheet .docs-link { margin-top: 12px; font: var(--bx-font-meta); color: var(--bx-muted); }
   `];
 
   _go(path) {
@@ -953,11 +939,6 @@ class WelcomeNotes extends LitElement {
                                                : location.pathname);
     this.updateComplete.then(() =>
       this.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
-  }
-
-  _paperVars(color) {
-    const [paper, edge] = PAPER[color] ?? PAPER.yellow;
-    return `--paper:${paper};--edge:${edge}`;
   }
 
   _crumbs(top, child) {
@@ -976,7 +957,6 @@ class WelcomeNotes extends LitElement {
   _sticky(note, path) {
     return html`
       <button class="note ${note.featured ? 'featured' : ''}"
-              style=${this._paperVars(note.color)}
               @click=${() => this._go(path)}>
         ${note.featured
           ? html`<span class="badge">${note.badge ?? 'start here'}</span>`
@@ -994,7 +974,7 @@ class WelcomeNotes extends LitElement {
 
   _topic(top) {
     return html`
-      <article class="sheet" style=${this._paperVars(top.color)}>
+      <article class="sheet">
         <h3>${top.title}</h3>
         ${top.intro}
         ${top.children?.length
@@ -1012,7 +992,7 @@ class WelcomeNotes extends LitElement {
 
   _detail(top, child) {
     return html`
-      <article class="sheet" style=${this._paperVars(child.color)}>
+      <article class="sheet">
         <h3>${top.title} › ${child.title}</h3>
         ${child.body}
         ${top.docs
