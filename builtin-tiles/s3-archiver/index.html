@@ -3,34 +3,33 @@
      /config; the access key + secret save straight into its vault (self is admin
      of itself, docs/auth.md). xbind streams component backups to the /archive
      endpoints; this page is only the configuration surface. -->
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>S3 Archiver</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
+    /* body.bx: theme.css's type, controls (Save is the primary button) and
+       focus ring; tokens only, so the page is right in light and dark (D184). */
     html, body { margin: 0; }
-    body { padding: 12px 16px 16px; box-sizing: border-box; font: 13px/1.5 system-ui, sans-serif; color: var(--bx-text); }
-    h3 { margin: 0 0 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
-    p.hint { margin: 0 0 12px; color: var(--bx-muted); font-size: 12px; }
-    label { display: block; margin: 8px 0 2px; font-size: 11px; color: var(--bx-muted); }
-    input { width: 100%; box-sizing: border-box; font: 12px var(--bx-mono, ui-monospace, monospace);
-            padding: 5px 8px; border: 1px solid var(--bx-border); border-radius: 5px;
-            background: var(--bx-panel); color: var(--bx-text); }
-    .row { display: flex; gap: 10px; }
+    body.bx { padding: var(--bx-pad); box-sizing: border-box; }
+    h3 { margin: 0 0 4px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+         text-transform: uppercase; color: var(--bx-muted); }
+    p.hint { margin: 0 0 12px; color: var(--bx-muted); }
+    p.hint code { font: var(--bx-font-code); color: var(--bx-text); }
+    label { display: block; margin: 8px 0 4px; color: var(--bx-muted); }
+    body.bx input { width: 100%; font-family: var(--bx-mono); }
+    .row { display: flex; gap: 12px; }
     .row > div { flex: 1; }
-    button { margin-top: 14px; background: var(--bx-accent, #f5a623); color: #fff; border: 0;
-             border-radius: 5px; padding: 6px 16px; cursor: pointer; font: inherit; font-weight: 600; }
-    button.ghost { background: var(--bx-panel); color: var(--bx-text); border: 1px solid var(--bx-border);
-                   font-weight: 500; margin-left: 8px; }
-    button:disabled { opacity: .5; cursor: default; }
-    .msg { margin-top: 10px; font-size: 12px; min-height: 1.2em; }
-    .msg.ok { color: var(--bx-green, #4caf50); }
-    .msg.err { color: var(--bx-red, #ef5350); }
-    .creds { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--bx-border); }
+    button { margin-top: 16px; }
+    button.ghost { margin-left: 8px; }
+    .msg { margin-top: 12px; min-height: var(--bx-text-line); display: flex; gap: 6px; align-items: baseline; }
+    .msg.ok { color: var(--bx-ok); }
+    .msg.err { color: var(--bx-danger); }
+    .creds { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--bx-border); }
   </style>
 </head>
-<body>
+<body class="bx">
   <h3>S3 Archiver</h3>
   <p class="hint">Where component backups are stored. Any S3-compatible endpoint (AWS, MinIO, R2, B2).
     Needs egress: bind its <b>net</b> interface (admin → Interfaces / bind-on-install prompt) —
@@ -52,14 +51,22 @@
     <input id="secretKey" type="password" autocomplete="off" placeholder="•••••• (leave blank to keep)">
   </div>
 
-  <button id="save">Save &amp; test</button>
+  <button id="save" class="primary">Save &amp; test</button>
   <button id="test" class="ghost">Test connection</button>
   <div class="msg" id="msg"></div>
 
   <script type="module">
+    import '/vendor/bx-icons.js'; // <bx-icon name> (D184)
     const self = xbin.self;
     const api = (p, o) => xbin.fetch(`/api/${self}${p}`, o);
     const $ = (id) => document.getElementById(id);
+    // say(kind, text): the status line — ok and err carry their icon and colour.
+    const say = (kind, text) => {
+      const msg = $('msg'); msg.className = kind ? `msg ${kind}` : 'msg';
+      const icon = kind && document.createElement('bx-icon');
+      if (icon) icon.setAttribute('name', kind === 'ok' ? 'ok' : 'error');
+      msg.replaceChildren(...(icon ? [icon] : []), text);
+    };
     // Vault writes take {"value": …} JSON (docs/auth.md) — a raw body 400s.
     const setSecret = (key, value) => xbin.fetch(`/api/xbin/vault/${self}/${encodeURIComponent(key)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
@@ -77,7 +84,7 @@
     }
 
     async function save() {
-      const msg = $('msg'); msg.className = 'msg'; msg.textContent = 'Saving…';
+      say('', 'Saving…');
       $('save').disabled = true;
       try {
         const cfgRes = await api('/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -96,19 +103,19 @@
         await load();
         await check(); // saving verifies it actually reaches the bucket
       } catch (e) {
-        msg.className = 'msg err'; msg.textContent = String(e.message ?? e);
+        say('err', String(e.message ?? e));
       } finally { $('save').disabled = false; }
     }
 
     // Ask the backend to hit the bucket with the stored config + creds.
     async function check() {
-      const msg = $('msg'); msg.className = 'msg'; msg.textContent = 'Checking connection…';
+      say('', 'Checking connection…');
       try {
         const r = await api('/check', { method: 'POST' });
         const d = await r.json().catch(() => ({}));
-        if (r.ok) { msg.className = 'msg ok'; msg.textContent = `Connected — bucket “${d.bucket}” is reachable.`; }
-        else { msg.className = 'msg err'; msg.textContent = d.error || `Connection failed (${r.status}).`; }
-      } catch (e) { msg.className = 'msg err'; msg.textContent = 'Connection check failed: ' + (e.message ?? e); }
+        if (r.ok) say('ok', `Connected — bucket “${d.bucket}” is reachable.`);
+        else say('err', d.error || `Connection failed (${r.status}).`);
+      } catch (e) { say('err', 'Connection check failed: ' + (e.message ?? e)); }
     }
 
     $('save').addEventListener('click', save);

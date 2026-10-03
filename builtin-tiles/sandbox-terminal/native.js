@@ -134,7 +134,7 @@ const main = () => {
 };
 
 const detail = (r) => html`
-  <screen title=${r.name} subtitle=${`${T.ICON} ${r.stateLabel}`} style="form">
+  <screen title=${r.name} subtitle=${r.stateLabel} style="form">
     ${err ? html`<section><notice tone="danger" text=${err}/></section>` : nothing}
     ${note ? html`<section><notice tone="ok" text=${note}/></section>` : nothing}
     <section>

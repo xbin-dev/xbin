@@ -1,7 +1,7 @@
 {
   "name": "webhooks",
-  "version": 3,
-  "changelog": "v3: API.md explains a partitioned agent — deliveries reach its global instance, which hands a private trigger's events to that person's partition; 202 means taken, not run; a private push trigger needs a match no other person's overlaps\nv2: a native view for the xbin app (native.js): hooks as a list with a detail screen per hook, the reveal-once secret as a sheet\nv1: public webhook URLs (a token or GitHub-style HMAC) that run the triggers of the agents this tile is bound to",
+  "version": 4,
+  "changelog": "v4: the page follows the person's light or dark theme (D184, <html data-bx-theme=\"auto\">), drawn from the workspace's tokens, fonts and 2px corners; Create is the primary button and Remove the danger outline, a new secret is shown as a warning, a delivery's status carries its icon\nv3: API.md explains a partitioned agent — deliveries reach its global instance, which hands a private trigger's events to that person's partition; 202 means taken, not run; a private push trigger needs a match no other person's overlaps\nv2: a native view for the xbin app (native.js): hooks as a list with a detail screen per hook, the reveal-once secret as a sheet\nv1: public webhook URLs (a token or GitHub-style HMAC) that run the triggers of the agents this tile is bound to",
   "title": "Webhooks",
   "description": "Public webhook URLs for your agents: GitHub, a CI, a monitor or anything that can POST reaches /hook/<id> (checked by a token or an HMAC signature), and each delivery runs the matching triggers on the agents this tile is bound to — as outside data, so only triggers allowed to take it run.",
   "defaultPath": "apps/webhooks",
