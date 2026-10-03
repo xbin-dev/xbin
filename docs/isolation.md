@@ -599,6 +599,22 @@ own disk (anything outside the tile dir and `$HOME`: `/root`, `/tmp`,
 another terminal) show up at once, but a file watcher *inside* the guest
 doesn't hear about them; use polling there.
 
+**The base image's special modes** (D182). The rootfs reaches a host as a
+directory an unprivileged unpack made, without the image's setuid, setgid
+and sticky bits — on purpose: no setuid-root program sits in xbind's
+install directory, and a namespace sandbox runs with no new privileges
+(`NO_NEW_PRIVS`), where those bits mean nothing. A VM guest is a machine of
+its own, so it gets them back at every boot: the image lists them in
+`/etc/xbin-rootfs-modes` (`<mode> <uid> <gid> <f|d> <path>` a line, the
+Dockerfile's last step), and the guest stacks a small in-memory layer with
+those files, moded and owned as listed, over the image, and gives the
+listed directories their modes while they still have the unpacked ones. So
+`sudo`, `su`, `passwd` and `mount` are setuid and `/var/tmp` is sticky, as
+the image built them. The VM disk isn't written for the files: one the
+sandbox replaced itself (`apt`) stays its own, and a rebase finds the newer
+base's. An image without the list boots as before. An image of your own
+`FROM` the base that adds setuid programs runs the same step again, last.
+
 **Host requirements:** KVM (`/dev/kvm` usable by the xbind user — the
 installer adds it to the `kvm` group; a cloud VM needs nested
 virtualization) and the release bundle's `firecracker`, `vmlinux`,

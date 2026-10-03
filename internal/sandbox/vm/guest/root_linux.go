@@ -74,8 +74,9 @@ func (a *agent) configure(c proto.Config) error {
 const newRoot = "/newroot"
 
 // assembleRoot builds the workload's root at /newroot: an overlay whose lower
-// is the read-only rootfs image and whose upper is the persistent VM disk or
-// a tmpfs, plus fresh kernel filesystems inside it.
+// is the read-only rootfs image (under the layer with the image's special
+// modes, modes_linux.go) and whose upper is the persistent VM disk or a
+// tmpfs, plus fresh kernel filesystems inside it.
 func (a *agent) assembleRoot(r proto.Root) error {
 	typ := r.ImageType
 	if typ == "" {
@@ -84,6 +85,7 @@ func (a *agent) assembleRoot(r proto.Root) error {
 	if err := mountAt(r.Image, "/lower", typ, unix.MS_RDONLY, ""); err != nil {
 		return fmt.Errorf("rootfs image: %w", err)
 	}
+	lowerdir, dirs := imageModes("/lower", fixupDir)
 	if r.Upper != "" {
 		if err := a.mountDisk(r.Upper); err != nil { // disk_linux.go
 			return err
@@ -96,10 +98,12 @@ func (a *agent) assembleRoot(r proto.Root) error {
 			return err
 		}
 	}
-	opt := "lowerdir=/lower,upperdir=/upperfs/upper,workdir=/upperfs/work,redirect_dir=on,metacopy=off"
-	if err := mountAt("overlay", newRoot, "overlay", 0, opt); err != nil {
-		// older overlay builds without redirect_dir
-		if err := mountAt("overlay", newRoot, "overlay", 0, "lowerdir=/lower,upperdir=/upperfs/upper,workdir=/upperfs/work"); err != nil {
+	if err := mountRoot(newRoot, lowerdir, "/upperfs"); err != nil {
+		if lowerdir == "/lower" {
+			return fmt.Errorf("root overlay: %w", err)
+		}
+		logf("rootfs modes: the root overlay over their layer: %v — booting without it", err)
+		if err := mountRoot(newRoot, "/lower", "/upperfs"); err != nil {
 			return fmt.Errorf("root overlay: %w", err)
 		}
 	}
@@ -124,6 +128,22 @@ func (a *agent) assembleRoot(r proto.Root) error {
 	ptmx := filepath.Join(newRoot, "dev", "ptmx")
 	_ = os.Remove(ptmx)
 	_ = os.Symlink("pts/ptmx", ptmx)
+	if len(dirs) > 0 { // after the kernel filesystems: their mount points are theirs
+		if fixed, skipped := fixDirs(newRoot, dirs); fixed > 0 || skipped > 0 {
+			logf("rootfs modes: %d directories set, %d left as they are", fixed, skipped)
+		}
+	}
+	return nil
+}
+
+// mountRoot mounts the root overlay at dst: lowerdir under the upper and
+// work directories in upperfs.
+func mountRoot(dst, lowerdir, upperfs string) error {
+	opt := "lowerdir=" + lowerdir + ",upperdir=" + upperfs + "/upper,workdir=" + upperfs + "/work"
+	if err := mountAt("overlay", dst, "overlay", 0, opt+",redirect_dir=on,metacopy=off"); err != nil {
+		// older overlay builds without redirect_dir
+		return mountAt("overlay", dst, "overlay", 0, opt)
+	}
 	return nil
 }
 

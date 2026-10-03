@@ -10,6 +10,22 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-03
+
+- **VM sandboxes: the base image's setuid, setgid and sticky bits are back
+  in the guest** ([isolation.md](isolation.md) §VM sandboxes). In a VM,
+  `sudo`, `su`, `passwd` and `mount` were plain 0755 and `/var/tmp`
+  wasn't sticky: the unprivileged unpack of the rootfs drops those bits on
+  the host, on purpose (no setuid-root program in xbind's install
+  directory; namespace sandboxes run with no new privileges anyway). The
+  base image now lists them in `/etc/xbin-rootfs-modes`, and the VM guest
+  puts them back at every boot in an in-memory layer over the image — the
+  VM disk isn't written, and the host tree and namespace sandboxes stay as
+  they were. It takes a base built with the list (the next base update);
+  an older one boots as before. An image of your own `FROM` the base that
+  adds setuid programs runs the Dockerfile's last step again. Nothing to
+  change.
+
 ## 2026-10-01
 
 - **Fix: an unmounted encrypted volume's gocryptfs now ends, and a volume

@@ -189,3 +189,18 @@ RUN set -- node bun go claude codex opencode claude-agent-acp codex-acp gemini p
       fi; \
     done; \
     [ $ok = 1 ] && echo ">> rootfs tool inventory complete: $*" || echo ">> rootfs built WITH MISSING TOOLS (see above)"
+
+# The special modes this image sets (setuid, setgid, sticky) for VM sandboxes
+# (D182). An unprivileged unpack of the image (hack/build-rootfs.sh,
+# deploy/install.sh) drops them on the host, on purpose: no setuid-root
+# program sits in xbind's install directory, and a namespace sandbox runs
+# with no new privileges anyway. A VM guest is a machine of its own, so its
+# agent puts them back at each boot from this list, one "<mode> <uid> <gid>
+# <f|d> <path>" a line (internal/sandbox/vm/guest: modes_linux.go; its
+# TestRecordModes runs this step). LAST, after every install; a name with a
+# newline would split its line, so it is left out. An image FROM-ing this
+# one that adds setuid programs runs the same step again as its last.
+RUN nl="$(printf '\n.')" && nl="${nl%.}" \
+    && find / -xdev -name "*${nl}*" -prune -o \( -type f -o -type d \) -perm /7000 \
+         -printf '%m %U %G %y %p\n' > /etc/xbin-rootfs-modes \
+    && echo ">> special modes recorded for VM sandboxes: $(wc -l < /etc/xbin-rootfs-modes) paths"
